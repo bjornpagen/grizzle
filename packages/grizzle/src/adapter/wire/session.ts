@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer"
 import { isIP } from "node:net"
 import { type ConnectionOptions, checkServerIdentity, connect as tlsConnect } from "node:tls"
 import * as Arr from "effect/Array"
@@ -50,7 +51,8 @@ import type {
 	PgPool,
 	PgPoolClient,
 	PgQueryConfig,
-	PgSocket
+	PgSocket,
+	PgWireMode
 } from "#adapter/types/driver.ts"
 import type { ConnectionPool, PoolBounds } from "#adapter/types/layer.ts"
 import type {
@@ -66,7 +68,8 @@ import type { ServedSession } from "#compiler/plan/serve.ts"
 
 /**
  * Sessions: clients of the caller's node-postgres (DbConnection.driver, types/driver.ts PgDriver) in pipeline mode,
- * pooled by its own Pool. grizzle imports nothing of pg itself.
+ * pooled by its own Pool, but the live leader's replication connection, which pg's pipeline mode cannot stream
+ * (wireModeOf). grizzle imports nothing of pg itself.
  *
  * This module is grizzle's only contact with pg, whose types expose `any` (rows, values, pool callbacks): every value
  * pg hands back is narrowed here, by its class (the driver's DatabaseError), by a type argument that pins rows to
@@ -161,6 +164,15 @@ type Startup =
 	| { readonly kind: "owner" }
 	| { readonly kind: "login"; readonly options: string }
 	| { readonly kind: "replication" }
+
+/**
+ * The wire mode of a session of `startup` (types/driver.ts PgWireMode): a login's and an owner's pipelined; a
+ * replication connection's a walsender of its database, never pipelined, since pg 8.23 refuses its stream, a
+ * Submittable (replicationOf), on a pipelined client before a byte of START_REPLICATION is sent: a pipelined leader
+ * makes the slot and never streams it.
+ */
+const wireModeOf = (startup: Startup): PgWireMode =>
+	startup.kind === "replication" ? { pipeline: false, replication: "database" } : { pipeline: true }
 
 /**
  * Where one session connects and as whom: the parsed connection (connection/config.ts ParsedConnection), its driver,
@@ -441,8 +453,7 @@ const clientConfig = (
 	client_encoding: "utf8",
 	sslnegotiation: "postgres",
 	...(spec.startup.kind === "login" ? { options: spec.startup.options } : {}),
-	...(spec.startup.kind === "replication" ? { replication: "database" } : {}),
-	pipeline: true,
+	...wireModeOf(spec.startup),
 	types: rawText,
 	connectionTimeoutMillis: spec.connectTimeoutMs,
 	ssl: verifyFull(spec.transport),
@@ -1041,7 +1052,9 @@ const completed = (
 
 /**
  * The writer of one CopyData message on a client's connection, pg 8.23's `sendCopyFromChunk` (lib/connection.js), which
- * its types leave out: read once, checked, and bound to the connection; none where pg has no such member.
+ * its types leave out: read once, checked, and bound to the connection; none where pg has no such member. pg-protocol's
+ * writer copies the chunk by Buffer's own `copy` (buffer-writer.js Writer.add), which a plain Uint8Array lacks, so each
+ * chunk is handed over as a Buffer viewing its bytes, never a copy of them.
  */
 const copyWriterOf = (client: PgClient): ((chunk: Uint8Array) => void) | undefined => {
 	const connection: unknown = client.connection
@@ -1051,7 +1064,9 @@ const copyWriterOf = (client: PgClient): ((chunk: Uint8Array) => void) | undefin
 	const write: unknown = connection.sendCopyFromChunk
 	return Predicate.isFunction(write)
 		? (chunk) => {
-				Reflect.apply(write, connection, [chunk])
+				Reflect.apply(write, connection, [
+					Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)
+				])
 			}
 		: undefined
 }

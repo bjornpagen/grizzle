@@ -4,8 +4,8 @@
  *
  * PostgreSQL's roles are the cluster's and an installation is one database's, so an installation is its database and
  * its role prefix (DbConnection.rolePrefix). A case draws the second installation's role space, another prefix or
- * none, beside the first's prefix, and whether a role of the first holds a privilege in another database when it is
- * uninstalled. It generates the shop (test/pg/cli/fixture.ts shopV1: the login `server`, its roles `reader` and
+ * none, beside the first's prefix, and whether a role of the first holds a privilege on an object of another database
+ * when it is uninstalled. It generates the shop (test/pg/cli/fixture.ts shopV1: the login `server`, its roles `reader` and
  * `writer`) once, then migrates the one output into two fresh databases (test/support/pg.ts freshDatabase), each
  * configuration's connection naming its database and its prefix. Every prefix is an allocated name
  * (test/support/substrate/names.ts uniqueSchemaName), so a role a dead run leaves is the sweep's.
@@ -18,8 +18,10 @@
  * - Its own database only: each installation's writer inserts a customer through its layer, over its database under
  *   its prefix, and its reader reads it back; the other installation reads no such customer; a layer of one
  *   installation's login over the other's database is refused.
- * - Uninstall: while a role of the first holds CONNECT on another database, `grizzle uninstall` is refused at stage
- *   uninstall with PostgreSQL's 2BP01 and drops nothing (its roles listed as before, `grizzle drift` still passing).
+ * - Uninstall: while a role of the first holds USAGE on a schema of another database, which uninstall's DROP OWNED, run
+ *   in its own database, cannot revoke (it revokes a privilege on a shared object, CONNECT on any database among them,
+ *   so that one would not hold the role), `grizzle uninstall` is refused at stage uninstall with PostgreSQL's 2BP01 and
+ *   drops nothing (its roles listed as before, `grizzle drift` still passing).
  *   Then it drops exactly the installation: its schema and its roles' schemas, and its roles, `grizzle roles` printing
  *   none; the second installation's roles are all there and its reader still reads; and a bystander role under the
  *   first's prefix over another schema, outside its namespace, stays.
@@ -72,11 +74,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool, freshDatabase } from "#test/support/pg.ts"
 import { uniqueSchemaName } from "#test/support/substrate/names.ts"
-import {
-	dropRole,
-	Substrate,
-	underDatabasePrivilegeLock
-} from "#test/support/substrate/substrate.ts"
+import { dropRole, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify } from "#test/support/worlds.ts"
 
@@ -259,12 +257,8 @@ const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 			yield* Effect.addFinalizer(() => Effect.orDie(dropRole(substrate.admin, bystander)))
 			const readerRole = roleNameOf(shop.reader, named(first))
 			if (s.heldElsewhere) {
-				yield* substrate.admin.query(
-					underDatabasePrivilegeLock(
-						`GRANT CONNECT ON DATABASE "${substrate.database}" TO "${readerRole}"`
-					),
-					[]
-				)
+				const held = yield* substrate.schema({ create: true, label: "held" })
+				yield* substrate.admin.query(`GRANT USAGE ON SCHEMA "${held}" TO "${readerRole}"`, [])
 				const refused = yield* run(first, "uninstall")
 				const report = refused.report
 				assert.ok(
@@ -273,18 +267,13 @@ const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 						report.refusal.error.reason._tag === "UninstallRefused" &&
 						report.refusal.error.server.by === "server" &&
 						report.refusal.error.server.error.sqlstate === "2BP01",
-					`grizzle uninstall is refused with 2BP01 while ${readerRole} holds CONNECT elsewhere: ${refused.stderr}`
+					`grizzle uninstall is refused with 2BP01 while ${readerRole} holds USAGE on ${held} elsewhere: ${refused.stderr}`
 				)
 				const kept = yield* run(first, "roles")
 				assert.deepEqual(lines(kept), expected(first), "nothing was dropped")
 				const drift = yield* run(first, "drift")
 				assert.equal(drift.code, 0, `the installation stands whole: ${drift.stderr}`)
-				yield* substrate.admin.query(
-					underDatabasePrivilegeLock(
-						`REVOKE CONNECT ON DATABASE "${substrate.database}" FROM "${readerRole}"`
-					),
-					[]
-				)
+				yield* substrate.admin.query(`REVOKE USAGE ON SCHEMA "${held}" FROM "${readerRole}"`, [])
 			}
 			const uninstalled = yield* run(first, "uninstall")
 			assert.equal(uninstalled.code, 0, `grizzle uninstall: ${uninstalled.stderr}`)

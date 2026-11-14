@@ -15,6 +15,10 @@
  *   sees, its next value is them folded to their next `ready`.
  * - A write, a put of drawn items: its once is accepted exactly when some item it puts is not stored as it states it,
  *   and the same put again in-process is unchanged.
+ * - Before a read's first call, its in-process watch is called until it settles at its ready, each refusal before that
+ *   `unavailable` and safe to call again (standing): a fresh installation's first live registration meets no
+ *   replication slot until the live leader it starts makes one, and its caller calls again, as the contract says. Over
+ *   HTTP a read's once is its watch's first value, so it registers live too. A refusal of any other kind fails the case.
  *
  * Plants (~/.cache/grizzle-release/LIVE-CLIENT/plants): client-int8-decoded-as-number (live/wire.ts carrierWire.int8
  * decoding an int8 as a number), client-watch-every-event (watch's value taken at every event, before `ready`).
@@ -115,6 +119,7 @@ type Feature =
 	| "a write accepted"
 	| "a write unchanged"
 	| "a live change reaching the client"
+	| "a watch called again once the slot stood"
 
 const ids = Object.freeze(Arr.range(1, 10))
 
@@ -216,6 +221,35 @@ const memberNamed = (members: ReadonlyArray<LoadedMember>, name: string): Loaded
 	defined(Option.getOrUndefined(Arr.findFirst(members, (m) => m.name === name)), `member ${name}`)
 
 /** The in-process events of a read up to and including their next `ready`, taken from `events`. */
+/**
+ * The installation's live source standing for `watch`: its events run to the first that settles them, a `ready` or the
+ * `error` that ended them, and the watch called again each time that error is `unavailable`, whose retry is safe, as the call's
+ * contract asks of its caller: a fresh installation's first watches meet no replication slot until its live leader,
+ * which the first of them starts, makes one (adapter/errors/failures.ts SlotAbsent). The refusal itself paces it, never
+ * a timer; `refused` counts the calls refused before the source stood. Any other error, or none, fails the case.
+ */
+const standing = (
+	watch: () => Stream.Stream<SetEvent<object> | ListEvent<object>>,
+	refused: number
+): Effect.Effect<number> =>
+	Effect.flatMap(
+		Stream.runHead(Stream.filter(watch(), (e) => e.kind === "ready" || e.kind === "error")),
+		(settled) => {
+			if (Option.isNone(settled)) {
+				return Effect.die("a watch settles at its ready or its error")
+			}
+			const event = settled.value
+			if (event.kind === "ready") {
+				return Effect.succeed(refused)
+			}
+			return event.error.kind === "unavailable"
+				? standing(watch, refused + 1)
+				: Effect.die(
+						`a watch settles at its ready, or is refused unavailable and safe to call again: ${Formatter.format(event)}`
+					)
+		}
+	)
+
 const untilReady = <E extends { readonly kind: string }>(
 	events: Queue.Queue<E>
 ): Effect.Effect<ReadonlyArray<E>> =>
@@ -355,6 +389,9 @@ layer(Substrate.layer, { excludeTestServices: true })("the client over HTTP", (i
 												call.member === "atLeast"
 													? { params: { floor: call.floor }, facts: {} }
 													: { params: { id: call.id }, facts: {} }
+											if ((yield* standing(() => here.watch(input), 0)) > 0) {
+												notes.note("a watch called again once the slot stood")
+											}
 											const remoteOnce =
 												call.member === "atLeast"
 													? yield* overHttp(
@@ -410,6 +447,9 @@ layer(Substrate.layer, { excludeTestServices: true })("the client over HTTP", (i
 												params: {},
 												facts: {},
 												window: { anchor: { kind: call.from }, size: call.size }
+											}
+											if ((yield* standing(() => here.watch(input), 0)) > 0) {
+												notes.note("a watch called again once the slot stood")
 											}
 											const remoteOnce = yield* overHttp(client.app.ranked.once(input))
 											const localOnce = yield* here.once(input)

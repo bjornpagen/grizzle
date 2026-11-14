@@ -82,12 +82,23 @@ export interface PgSocket extends TlsUpgradable {
 }
 
 /**
+ * How a session's client meets the wire: in pipeline mode, every session but one, its flights each written at once; or
+ * as a replication connection, the live leader's (wire/session.ts connectReplication), a walsender of its database,
+ * which reads one simple Query at a time and whose stream is a Submittable of grizzle's own, which pg 8.23 refuses on a
+ * pipelined client ("Custom query classes such as pg-cursor and pg-query-stream are not supported in pipeline mode",
+ * lib/client.js), so it is never pipelined.
+ */
+export type PgWireMode =
+	| { readonly pipeline: true }
+	| { readonly pipeline: false; readonly replication: "database" }
+
+/**
  * The configuration of every session's client, each setting stated, so pg reads none of them from the environment
  * (connection/environment.ts): the destination and login, the password as a function pg calls when the server asks for
- * one, verify-full TLS negotiated by SSLRequest over the transport's socket, the connect timeout, pipeline mode, text
+ * one, verify-full TLS negotiated by SSLRequest over the transport's socket, the connect timeout, its wire mode, text
  * results, and a login's pinned startup options, which an owner's session leaves out.
  */
-export interface PgClientConfig {
+export type PgClientConfig = PgWireMode & {
 	readonly host: string
 	readonly port: number
 	readonly database: string
@@ -96,9 +107,6 @@ export interface PgClientConfig {
 	readonly client_encoding: string
 	readonly sslnegotiation: "postgres"
 	readonly options?: string
-	/** A replication connection's mode, the live leader's (wire/session.ts connectReplication): a walsender of its database. */
-	readonly replication?: "database"
-	readonly pipeline: true
 	readonly types: { readonly getTypeParser: () => (text: string) => string }
 	readonly connectionTimeoutMillis: number
 	readonly ssl: ConnectionOptions
