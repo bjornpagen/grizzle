@@ -2235,12 +2235,12 @@ const writeCatalogStatement = (out: Lines, statement: CatalogStatement): void =>
 			return out.line(`DROP SCHEMA ${printIdentList(statement.schemas)} CASCADE`)
 		case "adoptRoles":
 			return out.line(
-				`GRANT ${statement.roles.map(printRole).join(", ")} TO CURRENT_ROLE WITH INHERIT TRUE, SET FALSE`
+				`GRANT ${statement.roles.map(quoteIdent).join(", ")} TO CURRENT_ROLE WITH INHERIT TRUE, SET FALSE`
 			)
 		case "dropOwned":
-			return out.line(`DROP OWNED BY ${statement.roles.map(printRole).join(", ")}`)
+			return out.line(`DROP OWNED BY ${statement.roles.map(quoteIdent).join(", ")}`)
 		case "dropRoles":
-			return out.line(`DROP ROLE ${statement.roles.map(printRole).join(", ")}`)
+			return out.line(`DROP ROLE ${statement.roles.map(quoteIdent).join(", ")}`)
 		case "listen":
 			return out.line(`LISTEN ${quoteIdent(statement.channel)}`)
 	}

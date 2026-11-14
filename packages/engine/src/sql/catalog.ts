@@ -85,6 +85,7 @@ export const catalogFunctions = [
 	"pg_create_logical_replication_slot",
 	"pg_current_snapshot",
 	"pg_current_wal_lsn",
+	"pg_drop_replication_slot",
 	"pg_encoding_to_char",
 	"pg_get_constraintdef",
 	"pg_get_expr",
@@ -318,7 +319,9 @@ export interface DoBlock {
  * WITH INHERIT TRUE, SET FALSE, so the migration identity, which holds ADMIN on each role it created, holds their
  * privileges, as DROP OWNED asks; DROP OWNED BY them, which revokes what they hold in the database and on its shared
  * objects (the database's own TEMPORARY among them) and drops what they own; DROP ROLE of them, which PostgreSQL refuses
- * (2BP01) while anything of another database depends on one. Each role is its variable (sql/print.ts printRole).
+ * (2BP01) while anything of another database depends on one. Each role is the cluster's role by the name pg_roles
+ * reads (adapter/migrate/uninstall.ts), quoted, never a name the naming door derives now: the role dropped is the role
+ * the cluster holds, whatever name the migration that made it gave it.
  */
 export type UninstallStatement =
 	| { readonly kind: "dropSchemas"; readonly schemas: NonEmptyReadonlyArray<string> }

@@ -26,7 +26,13 @@
  *   none; the second installation's roles are all there and its reader still reads; and a bystander role under the
  *   first's prefix over another schema, outside its namespace, stays.
  *
- * Features: the second installation under another prefix, and under none; an uninstall refused, then done.
+ * - Whatever derived its names: where the first installation's decoder login, its publication and its slot carry the
+ *   names an earlier derivation gave them (e1c1fc23 renamed `__live_<segments>_<digest>` to `__live_<digest>`), as an
+ *   installation an earlier grizzle migrated holds them, uninstall drops them all as the cluster names them, and no
+ *   role is left under the first's prefix but the bystander, no slot in its database and no publication.
+ *
+ * Features: the second installation under another prefix, and under none; an uninstall refused, then done; a decoder
+ * named by an earlier derivation.
  *
  * Plants (~/.cache/grizzle-release/ROLESPACE/plants): runtime-ignores-prefix.patch (a layer logs in as the stem),
  * prefix-applied-twice.patch (migrate fills a role variable with the prefix twice), uninstall-outside-namespace.patch
@@ -74,6 +80,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool, freshDatabase } from "#test/support/pg.ts"
 import { uniqueSchemaName } from "#test/support/substrate/names.ts"
+import { connect, ownerCredentials } from "#test/support/substrate/session.ts"
 import { dropRole, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify } from "#test/support/worlds.ts"
@@ -81,24 +88,35 @@ import { testVerify } from "#test/support/worlds.ts"
 /** The second installation's role space: a prefix of its own, or none. */
 type Second = "prefixed" | "stems"
 
+/**
+ * How the first installation's decoder login, its publication and its slot are named when it is uninstalled: as the
+ * naming door names them now, or as an earlier derivation did, `__live_<segments>_<digest>`, which a migration of an
+ * earlier grizzle made and today's door names otherwise.
+ */
+type Derivation = "now" | "earlier"
+
 interface Spaces {
 	readonly second: Second
 	readonly heldElsewhere: boolean
+	readonly derivation: Derivation
 }
 
 type SpaceFeature =
 	| "the second under another prefix"
 	| "the second under no prefix"
 	| "an uninstall refused, then done"
+	| "a decoder named by an earlier derivation"
 
 const spacesGen: Gen<Spaces> = (source) => ({
 	second: source.draw(element<Second>(["prefixed", "stems"])),
-	heldElsewhere: source.draw(boolean)
+	heldElsewhere: source.draw(boolean),
+	derivation: source.draw(element<Derivation>(["now", "earlier"]))
 })
 
 const notesOf = (s: Spaces): ReadonlyArray<SpaceFeature> => [
 	s.second === "prefixed" ? "the second under another prefix" : "the second under no prefix",
-	...(s.heldElsewhere ? (["an uninstall refused, then done"] as const) : [])
+	...(s.heldElsewhere ? (["an uninstall refused, then done"] as const) : []),
+	...(s.derivation === "earlier" ? (["a decoder named by an earlier derivation"] as const) : [])
 ]
 
 const at = DateTime.makeUnsafe({
@@ -277,6 +295,29 @@ const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 				assert.equal(drift.code, 0, `the installation stands whole: ${drift.stderr}`)
 				yield* substrate.admin.query(`REVOKE USAGE ON SCHEMA "${held}" FROM "${readerRole}"`, [])
 			}
+			const decoderNow = roleNameOf(served.decoder, named(first))
+			const earlierStem = `__live_rs_${Str.slice(-10)(served.decoder.stem)}`
+			const decoderAt = s.derivation === "earlier" ? `${firstPrefix}__${earlierStem}` : decoderNow
+			if (s.derivation === "earlier") {
+				const owner = yield* connect(substrate.cluster, {
+					database: first.database,
+					credentials: ownerCredentials(substrate.cluster),
+					label: "earlier derivation"
+				})
+				yield* owner.query(`ALTER ROLE "${decoderNow}" RENAME TO "${decoderAt}"`, [])
+				yield* owner.query(
+					`ALTER PUBLICATION "${served.decoder.stem}" RENAME TO "${earlierStem}"`,
+					[]
+				)
+				yield* owner.query(
+					"SELECT pg_catalog.pg_create_logical_replication_slot($1::name, 'pgoutput')",
+					[decoderAt]
+				)
+			}
+			const installedFirst = Arr.sort(
+				Arr.map(expected(first), (role) => (role === decoderNow ? decoderAt : role)),
+				Order.String
+			)
 			const uninstalled = yield* run(first, "uninstall")
 			assert.equal(uninstalled.code, 0, `grizzle uninstall: ${uninstalled.stderr}`)
 			assert.deepEqual(
@@ -287,11 +328,38 @@ const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 							[schema, `${schema}__reader`, `${schema}__writer`],
 							(n) => `dropped schema ${n}`
 						),
-						...Arr.map(expected(first), (r) => `dropped role ${r}`)
+						...Arr.map(installedFirst, (r) => `dropped role ${r}`)
 					],
 					Order.String
 				),
-				"uninstall drops exactly the installation's schemas and roles"
+				"uninstall drops exactly the installation's schemas and roles, its decoder login as the cluster names it"
+			)
+			const leftUnder = yield* substrate.admin.queryValues(
+				"SELECT rolname::text FROM pg_catalog.pg_roles WHERE starts_with(rolname::text, $1::text) ORDER BY 1",
+				[`${firstPrefix}__`]
+			)
+			assert.deepEqual(
+				Arr.map(leftUnder, ([role]) => String(role)),
+				[bystander],
+				"no role of the installation is left under its prefix, whatever derivation named it"
+			)
+			const ownerAfter = yield* connect(substrate.cluster, {
+				database: first.database,
+				credentials: ownerCredentials(substrate.cluster),
+				label: "after uninstall"
+			})
+			const slotsLeft = yield* ownerAfter.queryValues(
+				"SELECT slot_name::text FROM pg_catalog.pg_replication_slots WHERE database = current_database()",
+				[]
+			)
+			const publicationsLeft = yield* ownerAfter.queryValues(
+				"SELECT pubname::text FROM pg_catalog.pg_publication",
+				[]
+			)
+			assert.deepEqual(
+				[slotsLeft, publicationsLeft],
+				[[], []],
+				"no slot or publication of the installation is left in its database"
 			)
 			const left = yield* run(first, "roles")
 			const secondLeft = yield* run(second, "roles")
@@ -327,7 +395,8 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 								[
 									"the second under another prefix",
 									"the second under no prefix",
-									"an uninstall refused, then done"
+									"an uninstall refused, then done",
+									"a decoder named by an earlier derivation"
 								],
 								{ cases: 8, sense: notesOnly }
 							),

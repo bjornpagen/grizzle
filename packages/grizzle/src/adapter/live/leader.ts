@@ -186,11 +186,11 @@ export const alone = (
 	})
 
 /** The first cell of the first row of an answer: a statement of one value's. */
-export const onlyCell = (rows: ReadonlyArray<ReadonlyArray<string>>): string | undefined =>
+const onlyCell = (rows: ReadonlyArray<ReadonlyArray<string>>): string | undefined =>
 	rows[0]?.[0]
 
 /** PostgreSQL's output text of true, the one the statements answering a boolean answer with. */
-export const trueText = "t"
+const trueText = "t"
 
 /** The secret table's cell, read as the installation's secret. */
 export const secretOf = (
