@@ -107,6 +107,8 @@ import {
 	faulted,
 	matchesObject,
 	nonEmpty,
+	placeOf,
+	refusalLoc,
 	succeeded,
 	throwsRefused
 } from "#test/support/assert.ts"
@@ -1923,32 +1925,45 @@ describe("alternatives", () => {
 describe("schema and schema.extend", () => {
 	const Account = relation("Account", { id: uuid, name: regex("^[a-z]{1,40}$", "u") }, ["id"], [])
 	const AutomaticTask = relation("AutomaticTask", { task: uuid, budget: Cents }, ["task"], [])
-	const TaskRebuilt = relation(
-		"Task",
-		{ id: uuid, account: uuid, kind: rawClosedId(Kind) },
-		["id"],
-		[]
-	)
-	type Entry = "Kind" | "Task" | "Account" | "Task rebuilt"
-	const entryValue = (e: Entry): AnyRelation | AnyClosed =>
-		e === "Kind" ? Kind : e === "Task" ? Task : e === "Account" ? Account : TaskRebuilt
-	const entryName = (e: Entry): string => (e === "Task rebuilt" ? "Task" : e)
-	const statementValues: Arr.NonEmptyReadonlyArray<Statement> = [
-		mutableBuilder(Task),
-		keyBuilder(onBuilder(Account, ["name"])),
-		alternativesBuilder(Task, "kind", Kind, { Automatic: AutomaticTask }),
-		mirrorsBuilder(onBuilder(AutomaticTask, ["task"]), onBuilder(Task, ["id"]))
+	type Entry = "Kind" | "Task" | "Account" | "AutomaticTask"
+	const entryNames: Arr.NonEmptyReadonlyArray<Entry> = ["Kind", "Task", "Account", "AutomaticTask"]
+	/** Each entry's relation, which carries its own name: a list holds no name apart from the relation it names. */
+	const entryValues: { readonly [E in Entry]: AnyRelation | AnyClosed } = {
+		Kind,
+		Task,
+		Account,
+		AutomaticTask
+	}
+	/**
+	 * Each statement with the relations it was built over, which every list it is drawn with declares: a statement over
+	 * a relation no level declares is refused, and that refusal, with every clash of one name's two meanings, is
+	 * unit/schema/compose's to hold.
+	 */
+	const statementValues: Arr.NonEmptyReadonlyArray<{
+		readonly statement: Statement
+		readonly over: ReadonlyArray<Entry>
+	}> = [
+		{ statement: mutableBuilder(Task), over: ["Task"] },
+		{ statement: keyBuilder(onBuilder(Account, ["name"])), over: ["Account"] },
+		{
+			statement: alternativesBuilder(Task, "kind", Kind, { Automatic: AutomaticTask }),
+			over: ["Task", "Kind", "AutomaticTask"]
+		},
+		{
+			statement: mirrorsBuilder(onBuilder(AutomaticTask, ["task"]), onBuilder(Task, ["id"])),
+			over: ["AutomaticTask", "Task"]
+		}
 	]
 	type SchemaDefect =
 		| "none"
-		| "a relation under another name"
+		| "relations that are no list"
 		| "a list as a statement"
 		| "a statement no builder made"
 		| "a derived relation"
 		| "statements that are no list"
 	const schemaDefects: Arr.NonEmptyReadonlyArray<SchemaDefect> = [
 		"none",
-		"a relation under another name",
+		"relations that are no list",
 		"a list as a statement",
 		"a statement no builder made",
 		"a derived relation",
@@ -1956,7 +1971,7 @@ describe("schema and schema.extend", () => {
 	]
 
 	it.effect(
-		"records each relation under its own name and statements in order, expanding mirrors in place, and refuses a relation under another name or a malformed declaration",
+		"records each relation of its list under the name it carries, first declared first, and statements in order, expanding mirrors in place, and refuses a malformed declaration where it stands",
 		(ctx) =>
 			Effect.gen(function* () {
 				const D = materializedDerived(
@@ -1970,18 +1985,33 @@ describe("schema and schema.extend", () => {
 						{
 							oracle: {
 								kind: "specification",
-								name: "each relation under its own name, statements in order, mirrors expanded in place"
+								name: "each relation under the name it carries, first declared first, statements in order, mirrors expanded in place"
 							},
 							suite: "unit/schema/schema-constructor",
-							draw: drawn((source) => ({
-								entries: source.draw(
-									nonEmptyGen(element<Entry>(["Kind", "Task", "Account", "Task rebuilt"]), 4)
-								),
-								statements: source.draw(
-									shuffled([0, 1, 2, 3], { min: 0, max: [0, 1, 2, 3].length })
-								),
-								defect: source.draw(element(Arr.append(schemaDefects, "none" as const)))
-							})),
+							/**
+							 * The statements first, then a list declaring every relation they were built over and up to three
+							 * relations more, in a drawn order, so a relation listed twice is frequent and a statement's relation
+							 * is declared by construction.
+							 */
+							draw: drawn((source) => {
+								const statements = source.draw(
+									shuffled([0, 1, 2, 3], { min: 0, max: statementValues.length })
+								)
+								const listed = [
+									...Arr.flatMap(
+										statements,
+										(i) => defined(statementValues[i], "a statement").over
+									),
+									...source.draw(nonEmptyGen(element(entryNames), 2))
+								]
+								return {
+									entries: source.draw(
+										shuffled(listed, { min: listed.length, max: listed.length })
+									),
+									statements,
+									defect: source.draw(element(Arr.append(schemaDefects, "none" as const)))
+								}
+							}),
 							literal: Formatter.format,
 							coverage: required<SchemaDefect | "mirrors expanded">(
 								[...schemaDefects, "mirrors expanded"],
@@ -1997,53 +2027,57 @@ describe("schema and schema.extend", () => {
 						(s, c) =>
 							Effect.sync(() => {
 								c.note(s.defect)
-								/** The record is the schema index by name: each entry under its own name, a later entry of a name in place of an earlier one. */
-								const relations: Record<string, AnyRelation | AnyClosed> = Rec.fromEntries(
-									Arr.map(s.entries, (e) => [entryName(e), entryValue(e)])
+								const relations = Arr.map(s.entries, (e) => entryValues[e])
+								const statements = Arr.map(
+									s.statements,
+									(i) => defined(statementValues[i], "a statement").statement
 								)
-								const statements = Arr.map(s.statements, (i) => defined(statementValues[i]))
+								const names = distinct(s.entries)
+								/** The schema's relations by the names they carry, as S.relations holds them. */
+								const byName = Rec.fromEntries(Arr.map(names, (n) => [n, entryValues[n]] as const))
 								/**
-								 * The relations a JavaScript caller hands in, where a defect plants one no schema(...) declares; a defect
-								 * is refused by schema(...)'s admission core.
+								 * A planted defect is refused by schema(...)'s admission core as MalformedDescription at the place it
+								 * stands: the call's own label, or the relation or statement at its position in its list.
 								 */
-								const given: Record<string, unknown> = { ...relations }
+								const refusedAt = (label: string, thunk: () => unknown): void =>
+									assert.deepEqual(
+										placeOf(refusalLoc(throwsRefused(thunk, "MalformedDescription"))),
+										{ label, path: [] }
+									)
 								switch (s.defect) {
-									case "a relation under another name":
-										given["task"] = Task
-										return void throwsRefused(
-											() => admitSchema("Work", given, statements, []),
-											"Refused"
+									case "relations that are no list":
+										return refusedAt("schema Work", () =>
+											admitSchema("Work", byName, statements, [])
 										)
 									case "a list as a statement":
-										return void throwsRefused(
-											() => admitSchema("Work", given, [...statements, [statementValues[2]]], []),
-											"MalformedDescription"
+										return refusedAt(`schema Work statement ${statements.length}`, () =>
+											admitSchema(
+												"Work",
+												relations,
+												[...statements, [defined(statementValues[2], "a statement").statement]],
+												[]
+											)
 										)
 									case "a statement no builder made":
-										return void throwsRefused(
-											() => admitSchema("Work", given, [...statements, { kind: "key" }], []),
-											"MalformedDescription"
+										return refusedAt(`schema Work statement ${statements.length}`, () =>
+											admitSchema("Work", relations, [...statements, { kind: "key" }], [])
 										)
 									case "a derived relation":
-										given["derived"] = D
-										return void throwsRefused(
-											() => admitSchema("Work", given, statements, []),
-											"MalformedDescription"
+										return refusedAt(`schema Work relation ${relations.length}`, () =>
+											admitSchema("Work", [...relations, D], statements, [])
 										)
 									case "statements that are no list":
-										return void throwsRefused(
-											() => admitSchema("Work", given, "statements", []),
-											"MalformedDescription"
+										return refusedAt("schema Work", () =>
+											admitSchema("Work", relations, "statements", [])
 										)
 									case "none":
 										break
 								}
-								const names = Arr.map(s.entries, entryName)
-								const W = schema("Work", Rec.values(relations), statements, [])
+								const W = schema("Work", relations, statements, [])
 								const desc = defined(schemaDescOf(W))
 								assert.deepEqual(
 									Arr.map(desc.relations, (r) => r.name),
-									distinct(names)
+									names
 								)
 								const expanded = Arr.flatMap(statements, (st): ReadonlyArray<StatementDesc> => {
 									const expansion = expansionDescOf(st)
@@ -2055,7 +2089,7 @@ describe("schema and schema.extend", () => {
 									c.note("mirrors expanded")
 								}
 								assert.deepEqual(desc.statements, expanded)
-								matchesObject(W, { name: "Work", relations, statements })
+								matchesObject(W, { name: "Work", relations: byName, statements })
 								assert.equal("extends" in W ? W.extends : "no base member", undefined)
 							})
 					)
