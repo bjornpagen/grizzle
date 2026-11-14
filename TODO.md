@@ -26,12 +26,6 @@ post-beta swarm's fixes for the next release.
   claim keeps two (Work mutable) or three (Work immutable). Removing them is "One statement per write stratum" below.
 - **startSitting's insert into Served replans under COMMIT (CARRIER, 2026-11-10):** the cause is not found. Finding it
   needs runs of ~/.cache/grizzle-release/CARRIER/m/replay.mjs.
-- **Qti content is not provably sealed per import:** pantry mints node ids on the host (pantry/src/import/write.ts
-  crypto.randomUUID), so the certifier cannot see that one importWrite call writes a test's content whole. edullm's
-  learner writes read no Qti (the rotation is the app's computation, checked by native FKs), so the goal does not need
-  it. A law enforcing the rotation inside a write would need database-drawn content ids or counted families under the
-  document (a qti-pie change). The importer itself cannot be proved non-pivot either (the entry below), so learners
-  reach content only through a publication layer.
 - **strict(R), parked (REACH's design, cancelled 2026-11-10):** a declaration that every insertion into R creates its
   row, so an insertion at an arbiter key a stored row holds is that key's refusal, never absorbed as an exact repeat.
   The relation carries `RelationInfo.inserts: "repeatable" | "strict"`, with no DDL and nothing to migrate. The arbiter
@@ -42,7 +36,7 @@ post-beta swarm's fixes for the next release.
   siblings rather than its own key (NEGATION). The unfinished work is
   ~/.cache/grizzle-release/REACH/strict-cancelled.patch.
 - **The QTI importer cannot be proved non-pivot:** pantry's overlays are flat rows, and 30 of its 31 rules read a row's
-  siblings through shared node and package ids, which no seal the certifier holds covers, so pantry's importWrite
+  siblings through shared node and package ids, which no seal the certifier holds covers, so pantry's replaceWrite
   stays a possible pivot of a dangerous structure (NEGATION, 2026-11-10). The only routes to a proof are nested overlays
   with a sibling seal (a qti-pie change) or closed groups. Until one lands, learners reach content only through a
   publication layer, never the importer's live rows.
@@ -190,11 +184,11 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   segments, unordered pairs). It must be total under a matches guard, IMMUTABLE, and carry the byte bound. Repro:
   ~/.cache/gr8des/lane-k/gap-split/repro.ts.
 - **Q8.** Patterns as data: REGEX2's served matchers (LOADER, its (a)).
-- **Q9.** regexMaxRepeat exported (LOADER).
 - **Q10.** An installation map, and a ChangeSet host preview (FORMAT).
 - **Q11.** Folds stepped by a closed relation (ONERTT-WRITE2).
 - **Q12.** An opt-in role namespace, grizzle#10 (GENERATE).
-- **Q13.** A generated term over a drawn field (SHA256).
+- **Q13.** A generated term over a drawn field (SHA256), and over a copied (accumulated) field too: pantry's node.ts
+  `ancestry` and attributes.ts `slot` read one.
 - **Q14.** Type checking of a rule's nested sources (NEGATION). A derived relation a rule's side reads whose definition
   matches or negates a query or derived relation that aggregates, orders and takes, attaches, approximates or recurses,
   or negates one that negates in turn, type-checks and is refused only at runtime, UnsupportedLawFamily from
@@ -212,8 +206,41 @@ Q1 to Q6 first. A new feature still needs its correctness need named in its comm
   name rows (D27/D29) out of the database (CHUNK).
 - **Q19.** collapse of an unbounded text inside a query, refused today without a length bound; it also blocks D27/D29
   (PORT-Q1).
-- **Q20.** A family that groups by a generated field: a family's group key is caller fields today, which keeps 3 of
-  pantry's 13 copies host-written (CHUNK).
+- **Q20.** A family that groups by a generated field: a family's group key is caller fields today, which keeps five
+  pantry fields host-written and checked: CatalogRef.token, LomLanguage.tag, SsmlAttribute.value, PlacedId.copy, and
+  DocumentId.id, the one without a GRIZZLE-PENDING marker (CHUNK).
+
+### qti-pie's feature asks, by the pantry code each deletes (edullm-side survey, 2026-11-14)
+Logged only: each waits for the owner's go, and for its correctness need named in its commit. Ranked as the survey of
+pantry's grammar/ and qti/ ranks them (~/.cache/gr8des/qti-sweep/pantry-grammar-qti.md, "What grizzle should fix",
+read against main 5b049abf); a Q label points at its entry above.
+1. **Q7, a text split or substring:** a total Compute split or substring under a matches guard, IMMUTABLE and byte
+   bounded. Deletes the host splits and their concat-fold proofs in about 8 relations (Idref, TextIdref, VariableRef,
+   ReferenceSegment, Reading, Tolerance, the Reference pieces, Node's first and last).
+2. **Q16, a family over a selection:** a family whose member side is a selection, and a relation that owns and is a
+   member of one counted family. Deletes about 10 stored copies (GapInteraction, AriaValue, BindingName, PciModuleForm,
+   the LeastCount/MostCount split, BodyXmlLang, PlacedBodyXmlLang, Operand).
+3. **Q8, patterns as data:** a pattern held as a row's value rather than one domain per pattern. Deletes
+   grammar/domains.ts's regex product, about 690 lines, and about 1.2 MB of install SQL.
+4. **Q18, a counted family over a derived relation:** a family whose member is a derived relation. Deletes 5 stored
+   relations, which become queries (TestReference, PlacedReference, PlacedVariableRef, ReferenceDocument,
+   PlacedDocument).
+5. **A typed delete of every row by one field:** one delete of each relation's rows chosen by a field (a package),
+   or a replace by key prefix, with a relation's caller fields as a value. Deletes qti/logins.ts:284-2255, 175
+   copy-pasted delete blocks of about 1,950 lines, with their 176-name destructure, the deletingEvery guard and 55 omit
+   lists.
+6. **A name on every law, plus Q3:** `key`, `contained` and `mirrors` take a name as `check` does, and law ids are
+   exported. Deletes 26 hand-kept law-name tables (the `*LawsByName` records) and test/law-namer.ts.
+7. **A boolean term as a condition:** a boolean term usable where a predicate is. Deletes 15+ `eq(term, true)` sites.
+8. **Q13 over copied fields:** a generated term may read an accumulated field. Makes node.ts `ancestry` and
+   Attribute.slot generated and deletes TableScope, MathAlignScope and SsmlScope.
+9. **Q20:** a family grouped by a generated field. Generates the five host-written fields its entry names.
+10. **Q19, collapse inside a query:** collapse of an unbounded text in a derived relation. ManifestId, ResourceId and
+    Dependency become queries over Attribute, and about 12 copy containments go.
+11. **A fold's text kept out of index keys:** a digest in the axis UNIQUE, the text proved by the fold's CHECK. Deletes
+    node.ts's bounded string-value fold and its hand lists of folded kinds.
+12. **Rules over recursive queries:** a rule side may read a recursive derived relation. Deletes mathml-share.ts's
+    host-computed dominance ranks (MathRank, PlacedMathRank) and closes its foreign-element hole.
 
 ### Next
 - **A family member's put that moves a key is witnessed by PostgreSQL alone (WITNESS, 2026-11-11):** every insert now
