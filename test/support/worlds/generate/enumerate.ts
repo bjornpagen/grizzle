@@ -5,6 +5,7 @@ import { TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"
 import { type Atom, type ValueIdentity } from "#test/support/kernel/identity.ts"
 import {
 	projection,
+	sameValues,
 	sortedRowsOrder,
 	sortedStateRows,
 	type StateRows,
@@ -1252,7 +1253,11 @@ export const enumerateDirectReads = (
 	)
 }
 
-/** The statements of a direct writer's open transaction in the box, each write over a base relation. */
+/**
+ * The statements of a direct writer's open transaction in the box, each write over a base relation: among them, at each
+ * stored fact's key, an INSERT ... ON CONFLICT DO SELECT and DO UPDATE raising on its first key field of each fact the
+ * key holds in the box, the stored fact and each payload the box's values draw, each fact once.
+ */
 const directStatements = (
 	state: ModelState,
 	session: number,
@@ -1311,16 +1316,19 @@ const directStatements = (
 				return value === undefined
 					? []
 					: Arr.flatMap(
-							[
-								stored,
-								...Arr.map(
-									eachChoice(
-										Arr.filter(r.fields, (f) => !r.key.includes(f.name)),
-										(f) => valuesFor(state, f.domain, scope)
-									),
-									(payload): HostFact => ({ ...payload, ...atKey })
-								)
-							],
+							Arr.dedupeWith(
+								[
+									stored,
+									...Arr.map(
+										eachChoice(
+											Arr.filter(r.fields, (f) => !r.key.includes(f.name)),
+											(f) => valuesFor(state, f.domain, scope)
+										),
+										(payload): HostFact => ({ ...payload, ...atKey })
+									)
+								],
+								sameValues
+							),
 							(fact) =>
 								Arr.map(["select", "update"] as const, (kind): DirectStatement => ({
 									kind: "insert-on-conflict",
