@@ -286,9 +286,10 @@ type ShapeAim =
 
 /**
  * What a witness aims a case at: its shape, or a delete of a row unlike the widest row at its key, one of whose texts is
- * at the item limit, once the widest row alone is inserted: the unlike row alone, or (`beside`) beside the widest row.
+ * at the item limit, once the widest row alone is inserted: the unlike row alone, or (`beside`) beside the widest row;
+ * and (`held`) with a Child naming the widest row inserted beside it.
  */
-type Aim = ShapeAim | { readonly kind: "delete"; readonly beside: boolean }
+type Aim = ShapeAim | { readonly kind: "delete"; readonly beside: boolean; readonly held: boolean }
 
 /** Every permutation of `xs`, drawn. */
 const all = <A>(xs: ReadonlyArray<A>): Gen<ReadonlyArray<A>> =>
@@ -406,14 +407,14 @@ const childGen =
 
 /**
  * A case: its shape, its salt, and up to four ChangeSets, the first inserting the widest row beside drawn ones; or,
- * aimed at a delete, inserting the widest row alone, then the aimed delete of a row unlike it in `payload` alone, then
- * the drawn ones.
+ * aimed at a delete, inserting the widest row alone (and a Child naming it, where `held`), then the aimed delete of a
+ * row unlike it in `payload` alone, then the drawn ones.
  */
 const caseWith =
 	(aim: Option.Option<Aim>): Gen<KeyCase> =>
 	(source) => {
 		const deleting = Option.flatMap(aim, (a) =>
-			a.kind === "delete" ? Option.some(a.beside) : Option.none()
+			a.kind === "delete" ? Option.some(a) : Option.none()
 		)
 		const shape = source.draw(
 			shapeWith(
@@ -433,10 +434,11 @@ const caseWith =
 					children: source.draw(array(childGen(pool, 1), { min: 0, max: 1 }))
 				}
 			],
-			onSome: (beside): Array<Write> => {
+			onSome: ({ beside, held }): Array<Write> => {
 				const unlike: ParentRow = { ...wide, payload: source.draw(int(1, 2)) }
+				const child: ChildRow = { id: 1, t0: wide.t0, t1: wide.t1, t2: wide.t2, n: wide.n }
 				return [
-					{ op: "insert", parents: [wide], children: [] },
+					{ op: "insert", parents: [wide], children: held ? [child] : [] },
 					{ op: "delete", parents: beside ? [unlike, wide] : [unlike] }
 				]
 			}
@@ -487,9 +489,13 @@ const aims: ReadonlyArray<readonly [Situation, Aim]> = [
 	["a key at the item limit accepted", { kind: "edge", edge: "at the limit" }],
 	[
 		"a delete of a row unlike the stored one at its key, which keeps it",
-		{ kind: "delete", beside: false }
+		{ kind: "delete", beside: false, held: false }
 	],
-	["a delete of two rows at one key, which is no refusal", { kind: "delete", beside: true }]
+	[
+		"a delete of two rows at one key, which is no refusal",
+		{ kind: "delete", beside: true, held: false }
+	],
+	["a delete refused on the containment", { kind: "delete", beside: true, held: true }]
 ]
 
 /** The case a witness runs: its drawn one, or, while an aimed situation is pending, a case aimed at one of them. */
