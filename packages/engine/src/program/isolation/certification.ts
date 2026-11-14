@@ -59,11 +59,14 @@ interface SentStatement {
  * reads (write/program/staged.ts), so its inline form stands for it. A hold (write/hold/statement.ts) states no fact: it reads only its unit's header, whose key no
  * call changes, and its lock keeps every group the call states unretired until the call ends, so each body's rows are,
  * for the call, an insert-only relation's, which is how the certifier reads them (analysis/isolation/certify.ts, a
- * retirement no change); a read fact of it would cut the clean prefix the reads after it are sealed by.
+ * retirement no change); a read fact of it would cut the clean prefix the reads after it are sealed by. The admission
+ * (write/admission/statement.ts) reads only the call's parameters, no relation, and writes nothing.
  */
 const flightStatements = (compiled: CompiledWrite): ReadonlyArray<SentStatement> => [
 	...compiled.artifact.statements
-		.filter((s) => s.step.kind !== "readBack" && s.step.kind !== "hold")
+		.filter(
+			(s) => s.step.kind !== "readBack" && s.step.kind !== "hold" && s.step.kind !== "admission"
+		)
 		.flatMap(sentForms),
 	...compiled.artifact.readBacks.flatMap((r) =>
 		r.carried.kind === "sent" ? sentForms(r.carried.statement) : []

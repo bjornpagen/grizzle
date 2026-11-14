@@ -150,6 +150,12 @@ export interface HoldResult {
 	readonly header: StoredRelationName
 }
 
+/** The admission of a write's caller parameters (write/admission/statement.ts), first in its flight; its row carries
+ * nothing to decode. */
+export interface AdmissionResult {
+	readonly kind: "admission"
+}
+
 /** A carrier's creation or fill; no rows. */
 export interface CarrierResult {
 	readonly kind: "carrier"
@@ -176,6 +182,7 @@ export type WriteResult =
 	| SpanClassifyResult
 	| SequenceAdvanceResult
 	| HoldResult
+	| AdmissionResult
 	| CarrierResult
 	| AnalyzeResult
 	| EntryCheckResult

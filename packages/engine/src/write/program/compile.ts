@@ -90,6 +90,7 @@ import { sentLayout } from "#compiler/runtime/write/nesting.ts"
 import type { FamilyStep, FamilyWriteStep } from "#compiler/runtime/write/steps.ts"
 import type { UniqueAbort, WriteStep } from "#compiler/runtime/write/steps.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
+import { buildAdmission } from "#compiler/write/admission/statement.ts"
 import { type AddedRows, unitSql } from "#compiler/write/delete/unit.ts"
 import {
 	type AppendedMember,
@@ -138,6 +139,7 @@ import { buildHold } from "#compiler/write/hold/statement.ts"
 import { distinctByEvidence, type WriteInput } from "#compiler/write/insert/input.ts"
 import { buildInsert, buildSpanClassify } from "#compiler/write/insert/protocol.ts"
 import {
+	type AdmissionResult,
 	type DeleteResult,
 	type InsertResult,
 	type ModifyingStatement,
@@ -235,6 +237,11 @@ export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
 	readonly artifact: WriteArtifact
 	/** Where each family statement is placed in its stratum's schedule, which every realization places it by. */
 	readonly placements: ReadonlyArray<FamilyPlacement>
+	/**
+	 * The admission of its caller parameters (write/admission/statement.ts), which every realization places first, before
+	 * every stratum; none where no caller parameter has a check.
+	 */
+	readonly admission: WriteStatement<AdmissionResult> | undefined
 	/**
 	 * The parameters the members and read-backs declare that a call supplies, every one but those its member binds to the
 	 * database's clock, and the enumerated member slots binding fills.
@@ -918,6 +925,7 @@ const placeSpec = (
 				| "family"
 				| "familyWrite"
 				| "hold"
+				| "admission"
 		}
 	>,
 	spec: StatementSpec<WriteParamSlot>,
@@ -1000,6 +1008,24 @@ export const placeReadBack = (
 	})
 }
 
+/** The admission `admission` placed first in `b`, before every stratum, after no statement: none where there is none. */
+export const placeAdmission = (
+	b: ArtifactBuilder,
+	admission: WriteStatement<AdmissionResult> | undefined
+): void => {
+	if (admission !== undefined) {
+		placeSpec(
+			b,
+			{ kind: "admission" },
+			writeStatementSpec(admission, []),
+			admission.ast,
+			admission.sql.nameMap,
+			oneForm,
+			[]
+		)
+	}
+}
+
 /** The artifact, its carriers analyzed before the statements that join them against stored relations. */
 export const finish = (b: ArtifactBuilder, carriers: ReadonlyArray<WriteCarrier>): WriteArtifact =>
 	withCarrierAnalysis(b.statements, Object.freeze([...carriers]))
@@ -1021,8 +1047,10 @@ const optimizedArtifact = (
 	frontend: WriteFrontend,
 	plan: WritePlan,
 	lowering: Lowering,
+	admission: WriteStatement<AdmissionResult> | undefined,
 	options: CompileWriteOptions
-): WriteArtifact => finish(optimizedPlacement(frontend, plan, lowering, options), plan.carriers)
+): WriteArtifact =>
+	finish(optimizedPlacement(frontend, plan, lowering, admission, options), plan.carriers)
 
 /** The optimized artifact's statements, each with its forms.
  *
@@ -1035,10 +1063,12 @@ const optimizedPlacement = (
 	frontend: WriteFrontend,
 	plan: WritePlan,
 	lowering: Lowering,
+	admission: WriteStatement<AdmissionResult> | undefined,
 	options: CompileWriteOptions
 ): ArtifactBuilder => {
 	const { w, sharing, state } = lowering
 	const b = newBuilder(w.cx.names.codes)
+	placeAdmission(b, admission)
 	/**
 	 * A statement in its forms: built by `build` in the small per-execution mode, and, when that build made choices,
 	 * built again in the large mode, whose sent form (`sent`) is its large form. Each build begins its statement
@@ -1836,7 +1866,8 @@ const compile = (
 		},
 		heldUnits(frontend)
 	)
-	const optimized = optimizedArtifact(restated, plan, lowering, options)
+	const admission = buildAdmission(lowering.w, callerParams(frontend.params))
+	const optimized = optimizedArtifact(restated, plan, lowering, admission, options)
 	unwrap(insertOnly(schema, optimized.statements, options.names, options.laws))
 	const family = familyProgram(restated, lowering.w)
 	const program: CompiledWrite = {
@@ -1853,6 +1884,7 @@ const compile = (
 		plan,
 		artifact: optimized,
 		placements: family.placements,
+		admission,
 		params: callerParams(frontend.params),
 		clocked: clockedParams(frontend.params),
 		slots: frontend.slots,

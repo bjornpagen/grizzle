@@ -200,6 +200,7 @@ export const claimLabel = (f: AttemptFailure): string => {
 		case "readBack":
 		case "check":
 		case "hold":
+		case "admission":
 		case "single":
 		case "family":
 			return `at ${labelText(label)} ${f.sqlstate}`

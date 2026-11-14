@@ -806,10 +806,10 @@ export class LowerContext {
 		if (p === undefined || p.kind === "relation") {
 			return refuse("MalformedDescription", at, `a declared scalar parameter ${param}`)
 		}
-		const cast = this.paramTypeRef(p.type, { kind: "scalar", param })
+		const checked = this.paramTypeRef(p.type, { kind: "scalar", param })
 		return p.kind === "clock"
-			? { kind: "clock", param: p.name, unit: p.unit, type: cast }
-			: this.params.scalar(param, type, cast)
+			? { kind: "clock", param: p.name, unit: p.unit, type: checked }
+			: this.params.scalar(param, type, checked)
 	}
 
 	/**
@@ -833,8 +833,11 @@ export class LowerContext {
 
 	/**
 	 * The type of a take or page bound parameter: its declaration's, which the checker states for every bound parameter
-	 * (integer, or the wider type another use of the parameter fixes). An undeclared one is a malformed description, and
-	 * so is one its member binds to the database's clock: a bound is a count of rows the call states, never an instant.
+	 * (integer, or the wider type another use of the parameter fixes). It is the type its values are checked against as
+	 * they are bound (paramTypeRef): a bound is never refined, since the checker refuses a contract's or a pattern's use
+	 * of a parameter beside its integer use as a bound (check/params.ts ParamCell.use). An undeclared one is a malformed
+	 * description, and so is one its member binds to the database's clock: a bound is a count of rows the call states,
+	 * never an instant.
 	 */
 	boundParam(bound: TakeBound & { readonly kind: "param" }): Expr {
 		const p = this.options.params.find((d) => d.id === bound.param)

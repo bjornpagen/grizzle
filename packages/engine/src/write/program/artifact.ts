@@ -65,7 +65,7 @@ const changeTags = (
 export const castsNothing: CarrierCasts = Object.freeze({ kind: "none" })
 
 /** The write steps of a statement: a write step itself, a single statement's parts' steps, a family step; no other step
- * writes facts, a hold's none. */
+ * writes facts, a hold's and the admission's none. */
 const writesOf = (step: WriteStep): ReadonlyArray<RowsStep> => {
 	switch (step.kind) {
 		case "write":
@@ -81,6 +81,7 @@ const writesOf = (step: WriteStep): ReadonlyArray<RowsStep> => {
 		case "readBack":
 		case "check":
 		case "hold":
+		case "admission":
 			return []
 	}
 }
@@ -384,6 +385,7 @@ export const resultHeading = (result: (WriteStatement | PutStatement)["result"])
 		case "spanClassify":
 		case "sequenceAdvance":
 		case "hold":
+		case "admission":
 		case "carrier":
 		case "analyze":
 		case "entryCheck":

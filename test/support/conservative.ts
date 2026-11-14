@@ -36,6 +36,7 @@ import {
 	finish,
 	insertAborts,
 	newBuilder,
+	placeAdmission,
 	place,
 	placeFamily,
 	placeReadBack,
@@ -181,16 +182,18 @@ export const conservativePage = (
 	})
 
 /**
- * The conservative artifact of a write: its conservative realization's steps (oracle/write/realize.ts), every
- * statement after the one before it, each family statement where its stratum's schedule runs it, as the program placed
+ * The conservative artifact of a write: its admission first (write/program/compile.ts placeAdmission), then its
+ * conservative realization's steps (oracle/write/realize.ts), every statement after the one before it, each family statement where its stratum's schedule runs it, as the program placed
  * it (write/program/compile.ts CompiledWrite.placements).
  */
 const conservativeArtifact = (
 	write: ConservativeWrite,
 	codes: Codebook,
-	placements: ReadonlyArray<FamilyPlacement>
+	placements: ReadonlyArray<FamilyPlacement>,
+	admission: CompiledWrite["admission"]
 ): WriteArtifact => {
 	const b = newBuilder(codes)
+	placeAdmission(b, admission)
 	const after = (): ReadonlyArray<number> =>
 		b.statements.length === 0 ? [] : [b.statements.length - 1]
 	for (const step of write.steps) {
@@ -288,7 +291,12 @@ export const conservativeWrite = (
 		}),
 		(write) =>
 			catchRefusal((): CompiledWrite => {
-				const artifact = conservativeArtifact(write, options.names.codes, program.placements)
+				const artifact = conservativeArtifact(
+					write,
+					options.names.codes,
+					program.placements,
+					program.admission
+				)
 				return {
 					...program,
 					optimized: artifact.specs,

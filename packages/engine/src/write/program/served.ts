@@ -131,6 +131,7 @@ const servedStep = (step: OwnStep, isolation: Isolation): OwnStep => {
 		case "family":
 		case "familyWrite":
 		case "hold":
+		case "admission":
 			return step
 	}
 }

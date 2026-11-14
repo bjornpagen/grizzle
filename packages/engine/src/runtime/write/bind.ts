@@ -829,6 +829,7 @@ const partOf = (step: OwnStep): ExecutionPart => {
 		case "family":
 		case "familyWrite":
 		case "hold":
+		case "admission":
 			return "statement"
 	}
 }

@@ -88,6 +88,7 @@ export type WriteStep =
 	  }
 	| { readonly kind: "readBack"; readonly name: string }
 	| HoldStep
+	| AdmissionStep
 	| {
 			readonly kind: "check"
 			readonly stratum: StratumAt
@@ -105,6 +106,15 @@ export type WriteStep =
 	| FamilyWriteStep
 
 /**
+/**
+ * The admission of a write's caller parameters (write/admission/statement.ts): the first statement of its flight, before
+ * every stratum, so PostgreSQL refuses a parameter outside its type as it binds it, before any statement of the write
+ * runs. It belongs to no stratum, and its one row carries nothing to decode.
+ */
+export interface AdmissionStep {
+	readonly kind: "admission"
+}
+
 /**
  * A retirable unit's hold of the groups a write states (write/hold/statement.ts), by its header: before the first
  * statement of the write that touches the unit, wherever that stands among the strata and the read-backs after them,
@@ -202,6 +212,7 @@ export const writeRows = (
 		case "readBack":
 		case "check":
 		case "hold":
+		case "admission":
 			return []
 	}
 }
@@ -209,11 +220,13 @@ export const writeRows = (
 /** The step of a statement of the write program's own: every step but a read-back's. */
 export type OwnStep = Exclude<WriteStep, { readonly kind: "readBack" }>
 
-/** The stratum a step belongs to, none for a carrier around the strata, a read-back's statement and a hold. */
+/** The stratum a step belongs to, none for a carrier around the strata, a read-back's statement, a hold and the
+ * admission. */
 export const stratumOf = (step: WriteStep): StratumAt | undefined => {
 	switch (step.kind) {
 		case "readBack":
 		case "hold":
+		case "admission":
 			return undefined
 		case "carrier":
 		case "analyze":
