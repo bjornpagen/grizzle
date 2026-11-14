@@ -6,7 +6,7 @@ import type * as Result from "#compiler/core/result.ts"
 import type { IndexRequest } from "#compiler/ir/products.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import type { TextColumnUse } from "#compiler/physical/ddl/domains.ts"
+import type { ParamContract, TextColumnUse } from "#compiler/physical/ddl/domains.ts"
 import type { StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
 
@@ -46,6 +46,15 @@ export interface InstallExtension {
 		checked: CheckedSchema
 	) => Result.Result<ReadonlyArray<TextColumnUse>, CompileError>
 	/**
+	 * The contracts the parameters of the programs it serves are typed by (physical/ddl/domains.ts ParamContract), which
+	 * the installation reads before any name is chosen, as it reads `textDomainUses`, and gives a domain beside the
+	 * base's and the context fields' (physical/install/plan.ts planInstallation), since every placeholder of such a
+	 * parameter is cast to its contract's domain: the workload's (physical/access/extension.ts workloadExtension), from
+	 * its programs' declared parameters (program/workload/compile.ts compileWorkload); every other extension's, none
+	 * (`noParamContracts`).
+	 */
+	readonly paramContracts: ReadonlyArray<ParamContract>
+	/**
 	 * The certificates of the roles it certifies (analysis/isolation/certify.ts), which the installation reads before
 	 * it builds anything, since each table's guard follows the levels of the roles that write it: the served
 	 * workload's, one for every role of its logins (physical/access/extension.ts servedWorkloadExtension); every other
@@ -80,6 +89,13 @@ export interface InstallExtension {
 	 */
 	readonly fences: ReadonlyArray<LoginFence>
 }
+
+/** What the plan of an installation reads of an extension, before any name is chosen (physical/install/plan.ts
+ * planInstallation): its text domain uses and its parameters' contracts. */
+export type PlanExtension = Pick<InstallExtension, "textDomainUses" | "paramContracts">
+
+/** No parameter's contract: what an extension that serves no program states. */
+export const noParamContracts: ReadonlyArray<ParamContract> = []
 
 /** The relations a login fences, by their declared names, in code-unit order. */
 export interface LoginFence {

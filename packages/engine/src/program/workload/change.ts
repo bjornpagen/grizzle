@@ -151,8 +151,9 @@ const changeVariants = (
 /**
  * A login as its change members compile: its roles' values by their names in the login, in its order, its workloads,
  * the login owned over its base's Owned with every role named under the installation (physical/ddl/names.ts
- * namedLogin), and the artifacts its served file compiles over, its base's over every relation. Every role was named
- * before the login compiles, so no change compile meets a role name the installation cannot create.
+ * namedLogin), and the artifacts its served file compiles over, its base's over every relation with its programs'
+ * parameters' contracts (program/schema.ts baseArtifacts). Every role was named before the login compiles, so no change
+ * compile meets a role name the installation cannot create.
  */
 export interface ChangeLogin {
 	readonly roles: ReadonlyArray<{ readonly name: string; readonly value: unknown }>

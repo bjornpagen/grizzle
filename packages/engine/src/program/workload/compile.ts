@@ -36,7 +36,12 @@ import { allenNormalDag } from "#compiler/lower/optimize/simplify/allen.ts"
 import { type WorkloadPhysical, workloadRequests } from "#compiler/physical/access/extension.ts"
 import { extractAccess } from "#compiler/physical/access/extract.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
-import { type ParamDomainUse, paramDomainUses } from "#compiler/physical/ddl/domains.ts"
+import {
+	type ParamContract,
+	paramContracts,
+	type ParamDomainUse,
+	paramDomainUses
+} from "#compiler/physical/ddl/domains.ts"
 import { namedRole, type WorldNames, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { RoleHold, RoleOfLogin } from "#compiler/physical/install/extension.ts"
 import {
@@ -90,6 +95,12 @@ export interface WorkloadPlan extends WorkloadPhysical {
 	readonly requests: ReadonlyArray<AccessIndexRequest>
 	/** Each login's query programs' footprints, by login, then program (WorkloadFootprints). */
 	readonly footprints: WorkloadFootprints
+	/**
+	 * The contracts each login's programs' parameters are typed by (WorkloadPhysical.paramContracts), by login: what the
+	 * artifacts its programs are compiled over give a domain beside the base's (program/schema.ts baseArtifacts), so
+	 * every placeholder of such a parameter is cast to a domain its installation installs.
+	 */
+	readonly loginContracts: ReadonlyMap<string, ReadonlyArray<ParamContract>>
 	/** The live plan of every footprint (livePlanOf), which snapshot.json records as `live`. */
 	readonly live: LivePlan
 }
@@ -539,6 +550,7 @@ export const compileWorkload = (
 	const access: Record<string, Readonly<Record<string, ProgramAccess>>> = {}
 	const footprints = new Map<string, ReadonlyMap<string, Footprint>>()
 	const paramDomains: Array<ParamDomainUse> = []
+	const loginContracts = new Map<string, ReadonlyArray<ParamContract>>()
 	for (const login of [...logins].toSorted((a, b) => compareText(a.login, b.login))) {
 		const programs = loginPlans(login.workloads, schema, artifacts)
 		if (!programs.ok) {
@@ -550,6 +562,10 @@ export const compileWorkload = (
 		for (const [, planned] of programs.value) {
 			appendAll(paramDomains, paramDomainUses(planned.params))
 		}
+		loginContracts.set(
+			login.login,
+			programs.value.flatMap(([name, planned]) => paramContracts(name, planned.params))
+		)
 		footprints.set(
 			login.login,
 			new Map(
@@ -584,7 +600,8 @@ export const compileWorkload = (
 		schema: artifacts.fingerprint,
 		paths,
 		statistics,
-		paramDomains
+		paramDomains,
+		paramContracts: [...loginContracts.values()].flat()
 	}
 	return Result.ok({
 		...physical,
@@ -592,6 +609,7 @@ export const compileWorkload = (
 		access,
 		requests: workloadRequests(physical, artifacts.names.vectorSchema),
 		footprints,
+		loginContracts,
 		live: livePlanOf(footprints)
 	})
 }
@@ -668,28 +686,22 @@ export const servedHolds = (
 		)
 	)
 
-/** The plan of the logins refused: a program of a workload the checker refuses, or a login's change compile. */
+/** The plan of the logins refused: the certification of their roles, or a login's change compile. */
 export type ServedWorkloadRefused =
 	| { readonly kind: "workload"; readonly error: CompileError }
 	| { readonly kind: "login"; readonly login: string; readonly refused: ChangeRefused }
 
 /**
- * The plan of `logins` over `schema` under the options' artifacts as generate compiles it (ServedWorkloadPlan): their
- * workloads' plan, then each login's change members, in the logins' order, then every role's certificate over them.
+ * The plan of `logins` as generate compiles it (ServedWorkloadPlan): `planned`, their workloads' plan under the options'
+ * artifacts (compileWorkload), then each login's change members, in the logins' order, each over the artifacts the
+ * login's served file compiles over, which give its programs' parameters' contracts a domain
+ * (WorkloadPlan.loginContracts), then every role's certificate over them under the options' artifacts.
  */
 export const servedWorkload = (
+	planned: WorkloadPlan,
 	logins: ReadonlyArray<ServedLogin>,
-	schema: SchemaInput,
 	options: WorkloadOptions
 ): Result.Result<ServedWorkloadPlan, ServedWorkloadRefused> => {
-	const planned = compileWorkload(
-		logins.map((l) => ({ login: l.name, workloads: l.workload })),
-		schema,
-		options
-	)
-	if (!planned.ok) {
-		return Result.err({ kind: "workload", error: planned.error })
-	}
 	const changes = new Map<string, ReadonlyMap<string, RoleChanges<"readCommitted">>>()
 	for (const login of logins) {
 		const roles = loginChanges(login, "readCommitted")
@@ -704,7 +716,7 @@ export const servedWorkload = (
 			error
 		})),
 		(certified): ServedWorkloadPlan => ({
-			...planned.value,
+			...planned,
 			changes: certified.served,
 			certification: certified.certificates,
 			carriers: servedCarriers(certified.served),

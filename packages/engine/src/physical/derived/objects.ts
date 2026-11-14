@@ -39,7 +39,8 @@ import {
 	noHolds,
 	noCertificates,
 	noContribution,
-	noFences
+	noFences,
+	noParamContracts
 } from "#compiler/physical/install/extension.ts"
 
 import { noLive } from "#compiler/live/notify.ts"
@@ -280,6 +281,7 @@ const derivedRelationExtension = (): InstallExtension => {
 	return {
 		contribute: extension,
 		textDomainUses: (checked: CheckedSchema) => Result.ok(textColumnUses(derivedAnalysis(checked))),
+		paramContracts: noParamContracts,
 		certifies: noCertificates,
 		carriers: noCarriers,
 		holds: noHolds,

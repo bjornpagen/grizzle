@@ -26,7 +26,7 @@ import { descText, type FieldDesc } from "#compiler/ir/desc.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
 import type { DomainCheck, DomainCheckTerm, LawField, TableRelation } from "#compiler/ir/law.ts"
 import { domainBase, missing, type PhysicalNames } from "#compiler/ir/physical.ts"
-import type { ParamDecl, PhysicalReason } from "#compiler/ir/products.ts"
+import { type ParamDecl, type PhysicalReason, paramColumns } from "#compiler/ir/products.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	type ContractInfo,
@@ -40,7 +40,7 @@ import {
 import { domainCheck, type LawModel } from "#compiler/laws/model/model.ts"
 import { domainKey, type InstallBuilder, isVectorRef } from "#compiler/physical/ddl/context.ts"
 import { lowerPersistent, noPersistentClosed } from "#compiler/physical/ddl/expr.ts"
-import type { ContractSource } from "#compiler/physical/ddl/names.ts"
+import type { ContractSource, InstallNames } from "#compiler/physical/ddl/names.ts"
 import { enforcement, lawReasons, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { Owned, OwnedRelation } from "#compiler/schema/own.ts"
 import type { CreateDomain, Expr, ObjectName } from "#compiler/sql/ast.ts"
@@ -279,6 +279,39 @@ export const paramDomainUses = (params: ReadonlyArray<ParamDecl>): ReadonlyArray
 			? p.heading.flatMap((c) => placeUses({ kind: "field", param: p.id, field: c.name }, c.type))
 			: placeUses({ kind: "scalar", param: p.id }, p.type)
 	)
+
+/**
+ * A contract a served workload's declared parameter is typed by, a field's of a relation parameter's facts among them,
+ * with where the parameter is declared: every placeholder of the parameter is cast to the contract's domain
+ * (lower/conservative/context.ts paramTypeRef), so the installation gives the contract a domain as it gives a stored
+ * field's (physical/install/plan.ts planInstallation).
+ */
+export interface ParamContract {
+	readonly contract: ContractInfo
+	readonly loc: SourceLoc
+}
+
+/** The contracts a value of `t` is checked under, innermost first: each contract its base chain names, then its own. */
+const innerFirstContracts = (t: ScalarType): ReadonlyArray<ContractInfo> => {
+	const contract = contractOf(t)
+	return contract === undefined ? [] : [...innerFirstContracts(contract.base), contract]
+}
+
+/**
+ * The contracts the declared parameters `params` of the program `program` are typed by (ParamContract): each column a
+ * parameter binds (ir/products.ts paramColumns), a scalar's, a clock reading's and each field of a relation's facts,
+ * down its type's base chain, innermost first, so a contract follows the contracts its base names.
+ */
+export const paramContracts = (
+	program: string,
+	params: ReadonlyArray<ParamDecl>
+): ReadonlyArray<ParamContract> =>
+	params.flatMap((p) => {
+		const loc = SourceLoc(`parameter ${p.name} of program ${program}`, [])
+		return paramColumns(p).flatMap((c) =>
+			innerFirstContracts(c.type).map((contract): ParamContract => ({ contract, loc }))
+		)
+	})
 
 /** A parameter's pattern domain as a refusal by it names the parameter: its place's text and its patterns. */
 export interface ParamDomain {
@@ -613,13 +646,20 @@ export const addContractDomains = (b: InstallBuilder): ReadonlyArray<ObjectName>
 	return domains.map(add)
 }
 
-/** A contract a context field's type names that the base does not declare: its declared name (which names its law,
- * analysis/theory/theory.ts contractLawIdentity), its type, and its CHECK. Its domain is named by its definition, as a
- * base contract's is (InstallNames.contractNamed). */
-export interface ContextContract {
+/** A contract the base does not declare that the installation gives a domain, a context field's or a served
+ * parameter's: its declared name (which names its law, analysis/theory/theory.ts contractLawIdentity), its type, and its
+ * CHECK. Its domain is named by its definition, as a base contract's is (InstallNames.contractNamed). */
+export interface OutsideContract {
 	readonly name: DeclaredName
 	readonly contract: ContractInfo
 	readonly check: DomainCheck
+}
+
+/** The contracts outside the base an installation gives a domain (outsideContracts): its context fields', then its
+ * served parameters' that no context field declares. */
+export interface OutsideContracts {
+	readonly context: ReadonlyArray<OutsideContract>
+	readonly params: ReadonlyArray<OutsideContract>
 }
 
 /** The digest of a contract's domain's definition over `names`: what InstallNames names the domain by. */
@@ -638,15 +678,20 @@ export const contractDigest = (
 
 type ContractFieldDesc = Extract<FieldDesc, { readonly kind: "contract" }>
 
-/** The contracts the context fields of `contexts` name, down each contract's base chain, that the base does not declare,
- * each once with its domain and its CHECK's name, in base-first order (a contract after the contracts its
- * base chain names). A context field's contract the base declares is the base's: its definition must be the base's, or
- * the context is refused, as two context fields' contracts of one name must be one definition: one contract name has
- * one domain. Each gets its domain whether a column carries it or not, since Db.open's admission validates each claim
- * against it, named by the contract's name as a base contract's is: a declared name of the schema's one namespace of
- * relations, rosters and contracts, so one the declared-name rule refuses, or one converting as a base relation's,
- * roster's or contract's does, is refused (core/identity.ts DeclaredNamespace). */
-export const contextContracts = (
+/** The contracts outside the base an installation gives a domain (OutsideContracts), each once with its CHECK, in
+ * base-first order (a contract after the contracts its base chain names): every contract the context fields of
+ * `fields` name, down each contract's base chain, then every contract a served parameter of `params` is typed by
+ * (ParamContract), that the base does not declare. Each gets its domain whether a column carries it or not: Db.open's
+ * admission validates each claim against a context contract's, and every placeholder of a parameter is cast to its
+ * contract's. Each is named by the contract's name as a base contract's is: a declared name of the schema's one
+ * namespace of relations, rosters and contracts, so one the declared-name rule refuses, or one converting as a base
+ * relation's, roster's or contract's does, is refused (core/identity.ts DeclaredNamespace).
+ *
+ * One contract name has one definition, so one domain. A context field's contract the base declares is the base's:
+ * its definition must be the base's, or the context is refused, as two context fields' contracts of one name must be
+ * one definition. A parameter's contract the base or a context field declares, or another parameter before it, is
+ * theirs, its definition held to theirs once the installation's names are read (paramContractsDefined). */
+export const outsideContracts = (
 	owned: Owned,
 	fields: ReadonlyArray<{
 		readonly context: string
@@ -654,10 +699,11 @@ export const contextContracts = (
 		readonly desc: FieldDesc
 		readonly type: ScalarType
 		readonly loc: SourceLoc
-	}>
-): Result.Result<ReadonlyArray<ContextContract>, CompileError> =>
+	}>,
+	params: ReadonlyArray<ParamContract>
+): Result.Result<OutsideContracts, CompileError> =>
 	catchRefusal(() => {
-		const out: Array<ContextContract> = []
+		const context: Array<OutsideContract> = []
 		const planned = new Map<string, string>()
 		const types = new DeclaredNamespace("relation, roster and contract")
 		for (const r of Object.values(owned.relations)) {
@@ -692,7 +738,7 @@ export const contextContracts = (
 				return
 			}
 			planned.set(info.name, text)
-			out.push({
+			context.push({
 				name: unwrap(types.declare(info.name, "contract", loc)),
 				contract: info,
 				check: domainCheck(info)
@@ -704,16 +750,74 @@ export const contextContracts = (
 				plan(f.desc, info, f.loc, `context field ${f.context}.${f.field}`)
 			}
 		}
-		return out
+		const served: Array<OutsideContract> = []
+		const named = new Set<string>([...Object.keys(owned.contracts), ...planned.keys()])
+		for (const { contract, loc } of params) {
+			if (named.has(contract.name)) {
+				continue
+			}
+			named.add(contract.name)
+			served.push({
+				name: unwrap(types.declare(contract.name, "contract", loc)),
+				contract,
+				check: domainCheck(contract)
+			})
+		}
+		return { context, params: served }
 	})
 
-/** The context contracts' domains as objects in Setup, base first, each after the domain of a contract its base is. */
-export const addContextContractDomains = (
+/**
+ * `params` (ParamContract) under the installation's names `names`, refused at the first whose contract's definition is
+ * not the one its name's domain is named by (InstallNames.contractNamed): one contract name is one definition, the
+ * base's, a context field's (`context`) or the first parameter's that names it (outsideContracts).
+ */
+export const paramContractsDefined = (
+	names: InstallNames,
+	owned: Owned,
+	context: ReadonlyArray<OutsideContract>,
+	params: ReadonlyArray<ParamContract>
+): Result.Result<ReadonlyArray<ParamContract>, CompileError> => {
+	const held = new Set<ContractInfo>()
+	for (const { contract, loc } of params) {
+		if (held.has(contract)) {
+			continue
+		}
+		held.add(contract)
+		const own = identity.contractDomain(
+			contractDigest(names, contract.name, { base: contract.base, check: domainCheck(contract) })
+		)
+		if (own.canonical !== names.contractNamed(contract.name).canonical) {
+			const by =
+				owned.contracts[contract.name] !== undefined
+					? "by the base"
+					: context.some((c) => c.name === contract.name)
+						? "by a context field"
+						: "by another parameter"
+			return Result.err(
+				malformedDescription(
+					loc,
+					`one definition per contract name; contract ${contract.name} is defined otherwise ${by}`
+				)
+			)
+		}
+	}
+	return Result.ok(params)
+}
+
+/** The domains of the contracts outside the base (OutsideContracts) as objects in Setup, base first, each after the
+ * domain of a contract its base is: the context fields', then the served parameters'. */
+export const addOutsideContractDomains = (
 	b: InstallBuilder,
-	contracts: ReadonlyArray<ContextContract>
-): ReadonlyArray<ObjectName> =>
-	contracts.map((c) =>
+	contracts: OutsideContracts
+): ReadonlyArray<ObjectName> => [
+	...contracts.context.map((c) =>
 		addContractDomain(b, { name: c.name, base: c.contract.base, check: c.check }, [
 			enforcement(`contract ${c.name} of a context field`)
 		])
+	),
+	...contracts.params.map((c) =>
+		addContractDomain(b, { name: c.name, base: c.contract.base, check: c.check }, [
+			enforcement(`contract ${c.name} of a served parameter`)
+		])
 	)
+]

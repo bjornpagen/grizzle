@@ -11,7 +11,13 @@ import type { RoleContext } from "#adapter/served/role.ts"
 import type { ApplyOutcome } from "#adapter/types/db.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { Engine, levelChain, ownBuilt, type RowDecoder } from "#compiler/plan/common.ts"
+import {
+	Engine,
+	levelChain,
+	noParamContracts,
+	ownBuilt,
+	type RowDecoder
+} from "#compiler/plan/common.ts"
 import { everySlice, planBasis, servedSnapshot } from "#compiler/plan/serve.ts"
 import type { AnyLoginRole } from "#compiler/types/schema/world.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
@@ -64,7 +70,7 @@ export const servedRoleContext = (
 						references: snapshot.derived.references
 					}
 				),
-				artifactsOver
+				(basis) => artifactsOver(basis, noParamContracts)
 			)
 		)
 		const roles = yield* Effect.mapError(

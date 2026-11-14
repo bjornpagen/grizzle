@@ -50,7 +50,8 @@ import {
 	noCarriers,
 	noCertificates,
 	noFences,
-	noHolds
+	noHolds,
+	noParamContracts
 } from "#compiler/physical/install/extension.ts"
 import {
 	type StatisticsRequest,
@@ -999,9 +1000,11 @@ export const extensionsOf = (v: Version): ReadonlyArray<InstallExtension> => {
 							schema: b.owned.fingerprint,
 							paths: [],
 							statistics,
-							paramDomains: []
+							paramDomains: [],
+							paramContracts: noParamContracts
 						}).contribute(b),
 					textDomainUses: noTextDomainUses,
+					paramContracts: noParamContracts,
 					certifies: noCertificates,
 					carriers: noCarriers,
 					holds: noHolds,

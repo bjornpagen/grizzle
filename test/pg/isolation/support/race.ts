@@ -37,6 +37,7 @@ import {
 	noCarriers,
 	noContribution,
 	noFences,
+	noParamContracts,
 	type RoleHold
 } from "#compiler/physical/install/extension.ts"
 import { changesAt } from "#compiler/program/workload/change.ts"
@@ -202,6 +203,7 @@ const certifying = (
 ): InstallExtension => ({
 	contribute: () => Result.ok(noContribution),
 	textDomainUses: noTextDomainUses,
+	paramContracts: noParamContracts,
 	certifies: roles,
 	carriers: noCarriers,
 	fences: noFences,

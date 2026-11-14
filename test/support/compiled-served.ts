@@ -17,8 +17,9 @@ import { servedWorkloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { namedLogin } from "#compiler/physical/ddl/names.ts"
 import { installationOver } from "#compiler/physical/install/compile.ts"
+import { noParamContracts } from "#compiler/physical/install/extension.ts"
 import { installBasis } from "#compiler/physical/install/plan.ts"
-import { servedWorkload } from "#compiler/program/workload/compile.ts"
+import { compileWorkload, servedWorkload } from "#compiler/program/workload/compile.ts"
 import { installationsOf, type Owned, ownBuilt, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
@@ -28,7 +29,8 @@ import { defined, succeeded } from "#test/support/assert.ts"
  * The JSON value of the snapshot.json `grizzle generate` writes for an installation of `owned`, `login`'s base, serving
  * `login`, under the codes `codes`, as an import of the file yields it, compiled with no database as generate drafts it
  * (cli/generate.ts draftInput, plannedLogins): one basis (physical/install/plan.ts installBasis), the login's workloads
- * planned over its artifacts (program/workload/compile.ts servedWorkload), the installation compiled over that basis
+ * planned over its artifacts (program/workload/compile.ts compileWorkload), its ChangeSets compiled over the artifacts
+ * serving its programs' parameters' contracts (servedWorkload), the installation compiled over that basis
  * with the plan's extension (physical/access/extension.ts servedWorkloadExtension), and the snapshot written with the
  * plan's access, access paths and live plan. So a file compiled over it is the one generate writes, its live source
  * included, and a workload generate refuses is its ServedRefusal, a ChangeSet's at its role: one whose access paths
@@ -42,8 +44,31 @@ export const compiledSnapshot = (
 ): Effect.Effect<unknown, ServedRefusal> =>
 	Effect.gen(function* () {
 		const basis = succeeded(installBasis(owned, codes, everySlice(owned)), "the base's basis")
-		const artifacts = succeeded(artifactsOver(basis), "the base's artifacts")
+		const checking = succeeded(artifactsOver(basis, noParamContracts), "the base's artifacts")
 		const ownedLogin = succeeded(ownLoginOver(login, owned), "the login over its base")
+		const options = { artifacts: checking, roles: ownedLogin.roles }
+		const workload = yield* Effect.mapError(
+			fromEngine(
+				compileWorkload(
+					[{ login: ownedLogin.name, workloads: login.workload }],
+					login.base,
+					options
+				)
+			),
+			atLogin
+		)
+		const artifacts = yield* Effect.mapError(
+			fromEngine(
+				artifactsOver(
+					basis,
+					defined(
+						workload.loginContracts.get(ownedLogin.name),
+						"the parameters' contracts of the login"
+					)
+				)
+			),
+			atLogin
+		)
 		const named = yield* Effect.mapError(
 			fromEngine(namedLogin(ownedLogin, artifacts.names.levels)),
 			atLogin
@@ -51,6 +76,7 @@ export const compiledSnapshot = (
 		const plan = yield* Effect.mapError(
 			fromEngine(
 				servedWorkload(
+					workload,
 					[
 						{
 							name: ownedLogin.name,
@@ -60,8 +86,7 @@ export const compiledSnapshot = (
 							artifacts
 						}
 					],
-					login.base,
-					{ artifacts, roles: ownedLogin.roles }
+					options
 				)
 			),
 			(refused) => (refused.kind === "workload" ? atLogin(refused.error) : atRole(refused.refused))

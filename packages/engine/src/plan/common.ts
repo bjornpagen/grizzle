@@ -142,12 +142,14 @@ export {
 	type ScalarType
 } from "#compiler/ir/scalar.ts"
 export type { DomainUse } from "#compiler/laws/model/model.ts"
+export type { ParamContract } from "#compiler/physical/ddl/domains.ts"
 export {
 	type NamedLogin,
 	type NamedRole,
 	namedLogin,
 	namedRole
 } from "#compiler/physical/ddl/names.ts"
+export { noParamContracts } from "#compiler/physical/install/extension.ts"
 export { readGaps, servedLiveOf } from "#compiler/program/live.ts"
 export { servedSession } from "#compiler/program/served.ts"
 export { loginStem } from "#compiler/schema/stem.ts"

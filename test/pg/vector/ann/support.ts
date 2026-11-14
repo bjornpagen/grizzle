@@ -21,7 +21,8 @@ import {
 	noHolds,
 	noCertificates,
 	noContribution,
-	noFences
+	noFences,
+	noParamContracts
 } from "#compiler/physical/install/extension.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -384,6 +385,7 @@ const workloadRequests = (programs: Readonly<Record<string, unknown>>): InstallE
 			})
 		),
 	textDomainUses: noTextDomainUses,
+	paramContracts: noParamContracts,
 	certifies: noCertificates,
 	carriers: noCarriers,
 	holds: noHolds,

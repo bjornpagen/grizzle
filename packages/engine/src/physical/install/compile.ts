@@ -21,8 +21,8 @@ import { addAdvanceFunctions } from "#compiler/physical/ddl/advance.ts"
 import { addClosedRelations, addRosters } from "#compiler/physical/ddl/constants.ts"
 import { InstallBuilder, type InstallSettings } from "#compiler/physical/ddl/context.ts"
 import {
-	addContextContractDomains,
 	addContractDomains,
+	addOutsideContractDomains,
 	addTextDomains,
 	type TextDomain
 } from "#compiler/physical/ddl/domains.ts"
@@ -402,7 +402,7 @@ export const installationOver = (
 					),
 					...addTextDomains(b, plan.textPlans),
 					...addContractDomains(b),
-					...addContextContractDomains(b, plan.contextContracts)
+					...addOutsideContractDomains(b, plan.outsideContracts)
 				]
 				const { keyIndexes, tables, sequences } = addTables(b)
 				const advance = addAdvanceFunctions(b)

@@ -48,6 +48,7 @@ import {
 	defect,
 	draftCodebook,
 	namedLogin,
+	noParamContracts,
 	rostersOf,
 	sameLevel,
 	type SchemaArtifacts,
@@ -55,6 +56,7 @@ import {
 } from "#compiler/plan/common.ts"
 import {
 	type AbandonedSchema,
+	compileWorkload,
 	completeInstallOptions,
 	customMigration,
 	type Declarations,
@@ -292,11 +294,12 @@ export type ServedBasis =
 
 /**
  * The logins' workloads and their roles' write filters, planned under the configured schema's artifacts and the names
- * the installation drafted gives it, so the index requests name its vector schema, and each login's ChangeSets
- * compiled once over the artifacts its served file compiles over (program/workload/compile.ts servedWorkload): the
- * configured schema's for a login over its level, and for a login over a level below, that level's, compiled from the
- * basis's derived facts as a snapshot records them (deploy/snapshot/build.ts derivedFacts, adapter/served/login.ts
- * artifactsUnder), under the draft's codes `codes`. The plan, with what each login's served file compiles over
+ * the installation drafted gives it, so the index requests name its vector schema (program/workload/compile.ts
+ * compileWorkload), then each login's ChangeSets compiled once over the artifacts its served file compiles over
+ * (servedWorkload): the configured schema's for a login over its level, and for a login over a level below, that
+ * level's, compiled from the basis's derived facts as a snapshot records them (deploy/snapshot/build.ts derivedFacts,
+ * adapter/served/login.ts artifactsUnder), under the draft's codes `codes`, each serving the contracts its programs'
+ * parameters are typed by (WorkloadPlan.loginContracts). The plan, with what each login's served file compiles over
  * (ServedBasis). Every login's roles are named under its artifacts' installation before any login compiles
  * (physical/ddl/names.ts namedLogin), so a role whose PostgreSQL role does not fit is DraftRefused with
  * RoleNameTooLong; a program the checker refuses is DraftRefused, and a login's ChangeSet that does not compile
@@ -310,16 +313,36 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 	const { configured, logins } = schema
 	const refusedAt = (step: DraftRefused["step"]) => draftRefused(configured.declared, step)
 	const configuredArtifacts = yield* Effect.mapError(
-		fromEngine(artifactsOver(basis)),
+		fromEngine(artifactsOver(basis, noParamContracts)),
+		refusedAt("workload")
+	)
+	const options = {
+		artifacts: configuredArtifacts,
+		roles: Arr.flatMap(logins, (l) => l.owned.roles)
+	}
+	const workload = yield* Effect.mapError(
+		fromEngine(
+			compileWorkload(
+				Arr.map(logins, (l) => ({ login: l.owned.name, workloads: l.login.workload })),
+				configured.built,
+				options
+			)
+		),
 		refusedAt("workload")
 	)
 	const derived = derivedFacts(basis.owned, basis.closed, basis.model)
-	const served = yield* Effect.forEach(logins, (l) =>
-		Effect.flatMap(
+	const served = yield* Effect.forEach(logins, (l) => {
+		const params = workload.loginContracts.get(l.owned.name)
+		if (params === undefined) {
+			throw defect(`the parameters' contracts of login ${l.owned.name}, a login of the plan`)
+		}
+		return Effect.flatMap(
 			sameLevel(l.login.base.content, configured.built.content)
-				? Effect.succeed(configuredArtifacts)
+				? Effect.mapError(fromEngine(artifactsOver(basis, params)), refusedAt("workload"))
 				: Effect.mapBoth(
-						fromEngine(artifactsUnder(l.owned.base, codes, derived, everySlice(l.owned.base))),
+						fromEngine(
+							artifactsUnder(l.owned.base, codes, derived, everySlice(l.owned.base), params)
+						),
 						{ onFailure: refusedAt("workload"), onSuccess: (layer) => layer.artifacts }
 					),
 			(artifacts) =>
@@ -328,10 +351,11 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 					onSuccess: (named) => ({ login: l, named, artifacts })
 				})
 		)
-	)
+	})
 	const plan = yield* Effect.mapError(
 		fromEngine(
 			servedWorkload(
+				workload,
 				Arr.map(served, ({ login: l, named, artifacts }) => ({
 					name: l.owned.name,
 					roles: l.login.roles,
@@ -339,8 +363,7 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 					named,
 					artifacts
 				})),
-				configured.built,
-				{ artifacts: configuredArtifacts, roles: Arr.flatMap(logins, (l) => l.owned.roles) }
+				options
 			)
 		),
 		(refused) =>

@@ -10,6 +10,7 @@ import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import {
 	addParamDomains,
 	noTextDomainUses,
+	type ParamContract,
 	type ParamDomainUse
 } from "#compiler/physical/ddl/domains.ts"
 import type { InstallOptions } from "#compiler/physical/install/compile.ts"
@@ -40,6 +41,12 @@ export interface WorkloadPhysical {
 	 * workload installs the domains its statements name.
 	 */
 	readonly paramDomains: ReadonlyArray<ParamDomainUse>
+	/**
+	 * Every contract its programs' declared parameters are typed by (physical/ddl/domains.ts paramContracts), which
+	 * every placeholder of such a parameter is cast to the domain of, so installing the workload installs the domains its
+	 * statements name.
+	 */
+	readonly paramContracts: ReadonlyArray<ParamContract>
 }
 
 const kindOf = (b: InstallBuilder, relation: string): string | undefined =>
@@ -53,8 +60,10 @@ export const workloadRequests = (
 	workload.paths.map((path) => pathRequest(path, vectorSchema))
 
 /** The workload in the installation: access-path index requests and statistics through the installer's extensions,
- * and the pattern domain of every pattern its programs' parameters name (physical/ddl/domains.ts addParamDomains), so
- * no installation of a workload lacks a domain its statements cast a parameter to.
+ * the pattern domain of every pattern its programs' parameters name (physical/ddl/domains.ts addParamDomains), and the
+ * contracts its programs' parameters are typed by, which the installation's plan gives a domain each
+ * (InstallExtension.paramContracts), so no installation of a workload lacks a domain its statements cast a parameter
+ * to.
  * The workload compiler extracts each program's access paths and statistics and merges them across programs. This
  * extension hands the paths to the one index engine as IndexRequests with role `access`, beside the law-maintenance
  * requests, so a request lands on a key, enforcement or law index that serves it, adding the access reason to that
@@ -94,6 +103,7 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 		return Result.ok(contribution)
 	},
 	textDomainUses: noTextDomainUses,
+	paramContracts: workload.paramContracts,
 	certifies: noCertificates,
 	carriers: noCarriers,
 	holds: noHolds,

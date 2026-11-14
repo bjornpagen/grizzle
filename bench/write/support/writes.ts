@@ -45,7 +45,13 @@ import { isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
-import { Engine, levelChain, ownBuilt, type RowDecoder } from "#compiler/plan/common.ts"
+import {
+	Engine,
+	levelChain,
+	noParamContracts,
+	ownBuilt,
+	type RowDecoder
+} from "#compiler/plan/common.ts"
 import { everySlice, planBasis, servedSnapshot } from "#compiler/plan/serve.ts"
 import type { WriteStepResult } from "#compiler/runtime/write/steps.ts"
 import type { Insert, SqlStatement, With } from "#compiler/sql/ast.ts"
@@ -191,7 +197,7 @@ const servedRoleOf = (
 						references: snapshot.derived.references
 					}
 				),
-				artifactsOver
+				(basis) => artifactsOver(basis, noParamContracts)
 			)
 		)
 		const roles = yield* Effect.mapError(

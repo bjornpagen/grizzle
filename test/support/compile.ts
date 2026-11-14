@@ -41,7 +41,8 @@ import {
 	noCarriers,
 	noHolds,
 	noCertificates,
-	noFences
+	noFences,
+	noParamContracts
 } from "#compiler/physical/install/extension.ts"
 import { installBasis } from "#compiler/physical/install/plan.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
@@ -194,7 +195,9 @@ const allocatedArtifacts = (
 	codes: Codebook
 ): Result.Result<SchemaArtifacts, CompileError> => {
 	const over = (owned: Owned) =>
-		Result.flatMap(installBasis(owned, codes, everySlice(owned)), baseArtifacts)
+		Result.flatMap(installBasis(owned, codes, everySlice(owned)), (basis) =>
+			baseArtifacts(basis, noParamContracts)
+		)
 	return input.kind === "role"
 		? Result.flatMap(
 				ownRole({ ...input.desc, base: allocatedDesc(input.desc.base, allocated) }),
@@ -409,6 +412,7 @@ const workloadExtensionOver = (
 			)
 		),
 	textDomainUses: noTextDomainUses,
+	paramContracts: noParamContracts,
 	certifies: noCertificates,
 	carriers: noCarriers,
 	holds: noHolds,

@@ -90,6 +90,7 @@ import type { ProgramArtifacts } from "#compiler/ir/products.ts"
 import { contractOf, type ScalarType, textOf } from "#compiler/ir/scalar.ts"
 import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
 import { namedRole, selectionKeysOf } from "#compiler/physical/ddl/names.ts"
+import { noParamContracts } from "#compiler/physical/install/extension.ts"
 import { installBasis, planBasis } from "#compiler/physical/install/plan.ts"
 import { compileQuery, type QueryTemplate, querySchema } from "#compiler/program/compile.ts"
 import {
@@ -1195,7 +1196,7 @@ describe("a compile's law model", () => {
 							"the installation's basis"
 						)
 						const wholeArtifacts = succeeded(
-							baseArtifacts(installed),
+							baseArtifacts(installed, noParamContracts),
 							"the installation's artifacts"
 						)
 						const whole = wholeArtifacts.laws
@@ -1206,7 +1207,7 @@ describe("a compile's law model", () => {
 									cycles: whole.fkCycles,
 									references: whole.references
 								}),
-								baseArtifacts
+								(basis) => baseArtifacts(basis, noParamContracts)
 							),
 							"the slice's artifacts, as a Db plans them from its snapshot"
 						)

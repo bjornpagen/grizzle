@@ -43,6 +43,7 @@ import {
 	type Owned,
 	ownedEntry,
 	type OwnedLogin,
+	type ParamContract,
 	parseBuiltSchema,
 	type ProgramDesc,
 	roleArtifacts,
@@ -140,9 +141,16 @@ export interface LayerArtifacts {
 	readonly over: (slice: Slice) => Engine.Result<SchemaArtifacts, CompileError>
 }
 
-/** The artifacts of a base over its plan's basis (physical/install/plan.ts PlanBasis), under its own installation. */
-export const artifactsOver = (basis: PlanBasis): Engine.Result<SchemaArtifacts, CompileError> =>
-	baseArtifacts(basis)
+/**
+ * The artifacts of a base over its plan's basis (physical/install/plan.ts PlanBasis), under its own installation,
+ * serving programs whose parameters are typed by the contracts `params` (program/schema.ts baseArtifacts): a login's
+ * programs' (program/workload/compile.ts WorkloadPlan.loginContracts) where they compile, none where they are only
+ * checked.
+ */
+export const artifactsOver = (
+	basis: PlanBasis,
+	params: ReadonlyArray<ParamContract>
+): Engine.Result<SchemaArtifacts, CompileError> => baseArtifacts(basis, params)
 
 /** The login's artifacts over `slice`, compiled by `over`, which compiles them over any other slice alike. */
 export const layerOver = (
@@ -155,13 +163,14 @@ export const layerOver = (
  * The artifacts of a login's base over `slice`, its law model compiled under the installation's codes `codes` and the
  * facts `derived` its snapshot records (physical/install/plan.ts planBasis): the closed relations' constant names, so
  * no closed relation's cells are packed, and the foreign key graph's cycles, so the law model plans only the laws the
- * slice names.
+ * slice names; serving programs whose parameters are typed by the contracts `params` (artifactsOver).
  */
 export const artifactsUnder = (
 	base: Owned,
 	codes: Codebook,
 	derived: CompileFacts,
-	slice: Slice
+	slice: Slice,
+	params: ReadonlyArray<ParamContract>
 ): Engine.Result<LayerArtifacts, CompileError> =>
 	layerOver(slice, (sliced) =>
 		Engine.flatMap(
@@ -170,7 +179,7 @@ export const artifactsUnder = (
 				cycles: derived.fkCycles,
 				references: derived.references
 			}),
-			artifactsOver
+			(basis) => artifactsOver(basis, params)
 		)
 	)
 

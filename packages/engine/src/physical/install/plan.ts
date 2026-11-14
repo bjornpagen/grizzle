@@ -37,11 +37,14 @@ import {
 } from "#compiler/physical/ddl/constants.ts"
 import type { InstallSettings } from "#compiler/physical/ddl/context.ts"
 import {
-	type ContextContract,
-	contextContracts,
 	contractDigest,
 	type FieldPatternLaw,
 	fieldPatternLaws,
+	type OutsideContract,
+	type OutsideContracts,
+	outsideContracts,
+	type ParamContract,
+	paramContractsDefined,
 	patternLawId,
 	planTextDomains,
 	storedTextDomains,
@@ -65,7 +68,7 @@ import {
 	contextFieldsOf,
 	worldTextDomainUses
 } from "#compiler/physical/ddl/roles.ts"
-import type { InstallExtension } from "#compiler/physical/install/extension.ts"
+import type { PlanExtension } from "#compiler/physical/install/extension.ts"
 import {
 	type SpanColumn,
 	spanColumns,
@@ -210,9 +213,10 @@ export interface InstallPlan {
 	readonly closed: ClosedNames
 	/** Each structural text domain, planned (planTextDomains). */
 	readonly textPlans: ReadonlyArray<TextDomainPlan>
-	/** The contracts the context fields of the installed roles name that the base does not declare: each gets its
-	 * domain, which admission validates a claim against. */
-	readonly contextContracts: ReadonlyArray<ContextContract>
+	/** The contracts the base does not declare that the context fields of the installed roles name, or the served
+	 * workload's parameters are typed by (physical/ddl/domains.ts outsideContracts): each gets its domain, which
+	 * admission validates a claim against and every placeholder of such a parameter is cast to. */
+	readonly outsideContracts: OutsideContracts
 	/** Each login's roles read against the installed schema, once: the worlds install them, and the text domains read
 	 * their query entries' view columns, which type their own patterns as a derived relation's do. */
 	readonly logins: ReadonlyArray<CheckedLogin>
@@ -362,11 +366,11 @@ const contractConstraintLaws = (
 
 /**
  * Every contract the installation gives a domain, by declared name, with what its domain is defined from: each base
- * contract's law-model native, then each context contract a role's context field names.
+ * contract's law-model native, then each contract outside the base, a role's context field's or a served parameter's.
  */
 const contractSources = (
 	model: LawModel,
-	context: ReadonlyArray<ContextContract>
+	outside: OutsideContracts
 ): ReadonlyMap<DeclaredName, ContractSource> =>
 	new Map([
 		...model.natives.flatMap((n) =>
@@ -374,30 +378,36 @@ const contractSources = (
 				? [[n.object.name, { base: n.object.base, check: n.object.check }] as const]
 				: []
 		),
-		...context.map((c) => [c.name, { base: c.contract.base, check: c.check }] as const)
+		...[...outside.context, ...outside.params].map(
+			(c: OutsideContract) => [c.name, { base: c.contract.base, check: c.check }] as const
+		)
 	])
 
 /**
  * The plan of the installation over a basis (installBasis, planBasis) under `settings`, which its caller admitted
- * (physical/install/compile.ts installationOver) or made fresh (freshPlanSettings), with the text domain uses of
- * `extensions`, each once.
+ * (physical/install/compile.ts installationOver) or made fresh (freshPlanSettings), with what `extensions` state before
+ * any name is chosen (PlanExtension), each once: their text domain uses, and the contracts their served parameters are
+ * typed by, which the installation gives a domain beside the base's and the context fields' (outsideContracts), each
+ * parameter held to its contract name's one definition once the names are read (paramContractsDefined).
  */
 export const planInstallation = (
 	basis: PlanBasis,
 	settings: PlanSettings,
-	extensions: ReadonlyArray<InstallExtension>
+	extensions: ReadonlyArray<PlanExtension>
 ): Result.Result<InstallPlan, CompileError> =>
 	catchRefusal((): InstallPlan => {
 		const { owned, model, codes, closed } = basis
 		const roles = settings.logins.flatMap((l) => l.roles)
 		const checked = model.checked
 		const extraUses: Array<TextColumnUse> = []
+		const params: Array<ParamContract> = []
 		for (const extension of new Set(extensions)) {
 			const uses = extension.textDomainUses(checked)
 			if (!uses.ok) {
 				throw new Refusal(uses.error)
 			}
 			appendAll(extraUses, uses.value)
+			appendAll(params, extension.paramContracts)
 		}
 		const fields = contextFieldsOf(checked, roles)
 		if (!fields.ok) {
@@ -423,11 +433,11 @@ export const planInstallation = (
 			)
 		)
 		const textPlans = planTextDomains(owned, model.theory, extraUses)
-		const claimContracts = contextContracts(owned, fields.value)
-		if (!claimContracts.ok) {
-			throw new Refusal(claimContracts.error)
+		const outside = outsideContracts(owned, fields.value, params)
+		if (!outside.ok) {
+			throw new Refusal(outside.error)
 		}
-		const contracts = contractSources(model, claimContracts.value)
+		const contracts = contractSources(model, outside.value)
 		const names = installNames({
 			owned,
 			levels: settings.levels,
@@ -440,6 +450,10 @@ export const planInstallation = (
 			closed: qualifiedClosed(identifierOf(headNonEmpty(settings.levels)), closed),
 			selectionKeys: selectionKeysOf(model.natives)
 		})
+		const defined = paramContractsDefined(names, owned, outside.value.context, params)
+		if (!defined.ok) {
+			throw new Refusal(defined.error)
+		}
 		const stored = [...model.relations.values()].map((r) => r.relation)
 		const spans = spanColumns(model)
 		const constraintLaws: ReadonlyArray<ConstraintLaw> = [
@@ -458,7 +472,7 @@ export const planInstallation = (
 			names,
 			closed,
 			textPlans,
-			contextContracts: claimContracts.value,
+			outsideContracts: outside.value,
 			logins,
 			spans,
 			constraintLaws,
