@@ -10,6 +10,7 @@
 		"declarationMap": true,
 		"rootDir": "src",
 		"outDir": "types",
+		"tsBuildInfoFile": "types/tsconfig.tsbuildinfo",
 		"plugins": [
 			{
 				"name": "@effect/language-service",

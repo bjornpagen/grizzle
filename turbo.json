@@ -17,7 +17,7 @@
 			"dependsOn": ["^source"]
 		},
 		"typecheck": {
-			"description": "tsrs -b builds the package's project and the projects it references, so it runs after theirs, and its declarations are its outputs; the shared tsconfig base is an input too.",
+			"description": "tsrs -b builds the package's project and the projects it references, so it runs after theirs. Its outputs are types/: the declarations and the build info they were built from (tsconfig tsBuildInfoFile), so a cache hit restores both together and the next build compares the sources against the declarations on disk. The shared tsconfig base is an input too.",
 			"dependsOn": ["^typecheck"],
 			"inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/packages/devtools/tsconfig.base.json"],
 			"outputs": ["types/**"]
