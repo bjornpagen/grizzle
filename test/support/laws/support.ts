@@ -70,7 +70,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /**
  * What a family case notes: each step's op kinds and its outcome, what a refusal notes (refusalFeatures), the schema it
  * ran on and each of its traits (boxes.ts), and a member that states one fact twice or two facts at one key, which the
- * add-wins model takes as one fact and as the key's refusal (model.ts relationAfter).
+ * add-wins model takes as one fact, and, in an insert or a put, as the key's refusal; in a delete, two facts at one key
+ * are no refusal, since a deletion names its fact exactly (model.ts relationAfter and expect).
  */
 export type FamilyFeature =
 	| "accepted"

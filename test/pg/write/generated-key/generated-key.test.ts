@@ -39,9 +39,10 @@ import {
  *
  * The oracle is the law model (test/support/laws/model.ts): the add-wins transition of the stratum over the stored
  * state, its facts' generated values computed from their texts apart from grizzle, and every law's violation over the
- * result, a key's naming its violators by the key's own fields; a deletion's same-key check, restated, compares only at
- * a key of written fields, and a key both it and the result break is one violation, named by either's facts (model.ts
- * refusedBy). A refused write names a violated law, every immediate one before a deferred one, with a witness naming
+ * result, a key's naming its violators by the key's own fields; two facts a stratum deletes at one key are no refusal,
+ * since a deletion names its fact exactly (README "A relation's rows are a set"), so at most one of them is stored and
+ * the other changes nothing (model.ts expect). A refused write names a violated law, every immediate one before a
+ * deferred one, with a witness naming
  * one of its violators, or `unreported` for a containment and for the nested entries' key, and changes nothing; any
  * other write stores exactly the model's state, accepted where it changed a row and unchanged otherwise.
  *
@@ -457,48 +458,24 @@ const opsOf = (writes: ReadonlyArray<Write>): ReadonlyArray<HostOp> =>
 		}
 	})
 
-/**
- * Two facts one stratum deletes at one value of a key whose every field a deletion states, a primary key here: a key
- * names one fact, so such a deletion is refused before any SQL. A key over a generated field compares no deletion.
- */
-const deletedAtOneKey = (host: HostSchema, ops: ReadonlyArray<HostOp>): ReadonlyArray<Violation> =>
-	Arr.flatMap(host.relations, (r): ReadonlyArray<Violation> => {
-		const law = Arr.findFirst(
-			host.laws,
-			(l) =>
-				l.kind === "key" &&
-				l.relation === r.name &&
-				l.fields.length === r.key.length &&
-				Arr.every(l.fields, (f, i) => r.key[i] === f)
-		)
-		if (Option.isNone(law)) {
-			return []
+/** Whether one delete of the stratum `ops` states two distinct facts at its relation's primary key. */
+const deletedTwice = (host: HostSchema, ops: ReadonlyArray<HostOp>): boolean =>
+	Arr.some(ops, (o) => {
+		if (o.kind !== "delete") {
+			return false
 		}
-		const deleted = Arr.dedupeWith(
-			Arr.flatMap(ops, (o) =>
-				o.relation === r.name && o.kind === "delete" ? o.facts : Arr.empty<HostFact>()
-			),
-			(a: HostFact, b: HostFact) => sameFact(r.fields, a, b)
+		const r = defined(
+			Option.getOrUndefined(Arr.findFirst(host.relations, (x) => x.name === o.relation)),
+			`the relation ${o.relation} a delete names`
 		)
-		const bad = Arr.filter(deleted, (f, i) =>
+		const facts = Arr.dedupeWith(o.facts, (a: HostFact, b: HostFact) => sameFact(r.fields, a, b))
+		return Arr.some(facts, (f, i) =>
 			Arr.some(
-				deleted,
+				facts,
 				(g, j) =>
 					i !== j && Arr.every(r.key, (k) => valueText(f[k] ?? "") === valueText(g[k] ?? ""))
 			)
 		)
-		return Arr.isReadonlyArrayNonEmpty(bad)
-			? [
-					{
-						law: law.value.law,
-						immediate: true,
-						violators: Arr.map(bad, (f) => ({
-							relation: r.name,
-							values: Rec.fromEntries(Arr.map(r.key, (k) => [k, f[k] ?? ""] as const))
-						}))
-					}
-				]
-			: []
 	})
 
 /** Whether two facts hold one value at every field. */
@@ -515,7 +492,7 @@ type Expected =
 
 const expectedOf = (host: HostSchema, before: HostState, ops: ReadonlyArray<HostOp>): Expected => {
 	const after = transition(host, before, ops)
-	const refused = refusedBy(deletedAtOneKey(host, ops), violations(host, after))
+	const refused = refusedBy(violations(host, after))
 	return Arr.isReadonlyArrayNonEmpty(refused)
 		? { kind: "refused", violations: refused }
 		: { kind: "applied", state: after, changed: !sameState(host, before, after) }
@@ -714,19 +691,10 @@ const retakenGen: Gen<Case> = (source) => {
 	}
 }
 
-/** A text whose value is not positive, so no tag of it is held by Tag's positive key. */
-const nonPositiveGen: Gen<KeyTextValue> = (source) => {
-	const pad = source.draw(element(["", "0"] as const))
-	const digit = source.draw(element(["0", "1", "2"] as const))
-	return `-${pad}${digit}`
-}
-
-/** A case storing one tag, deleting it beside another tag at its id, and inserting two tags at one id, of values Tag's
- * positive key holds none of: Tag's primary key broken by its deletions and by its additions alike. */
-const brokenTwiceGen: Gen<Case> = (source) => {
+/** A case storing one tag and deleting it beside another tag at its id, in one member: no refusal, the stored tag
+ * deleted. */
+const deletedTwiceGen: Gen<Case> = (source) => {
 	const stored = source.draw(tagGen)
-	const id = source.draw(int(1, 3))
-	const text = source.draw(nonPositiveGen)
 	return {
 		stored: { mapKeys: [], uses: [], tags: [stored], mappings: [] },
 		writes: [
@@ -735,15 +703,6 @@ const brokenTwiceGen: Gen<Case> = (source) => {
 				edit: "delete",
 				source: "array",
 				rows: [stored, { ...stored, text: otherSpelling(stored.text) }]
-			},
-			{
-				relation: "Tag",
-				edit: "insert",
-				source: "array",
-				rows: [
-					{ id, text },
-					{ id, text: otherSpelling(text) }
-				]
 			}
 		]
 	}
@@ -759,7 +718,7 @@ type Feature =
 	| "a reference refused"
 	| "two signs of zero held apart"
 	| "a typed key freed and taken again"
-	| "a key broken by deletions and additions alike"
+	| "two deletions at one key"
 	| "accepted"
 	| "unchanged"
 
@@ -769,7 +728,7 @@ const aims: ReadonlyArray<readonly [Feature, Gen<Case>]> = [
 	["typed key refused for a query's row", twiceSpelledGen(["query"], ["insert", "put"])],
 	["typed key refused for a put", respelledPutGen],
 	["a typed key freed and taken again", retakenGen],
-	["a key broken by deletions and additions alike", brokenTwiceGen]
+	["two deletions at one key", deletedTwiceGen]
 ]
 
 /**
@@ -782,27 +741,14 @@ const aimedCase = (drawnCase: Case, c: ExploreCase<Feature>): Case => {
 	return Option.isNone(aim) ? drawnCase : c.draw(aim.value[1])
 }
 
-/** Whether two facts a case deletes at one key and two its result holds break one law. */
-const brokenTwice = (host: HostSchema, before: HostState, c: Case, law: LawId): boolean => {
-	const ops = opsOf(c.writes)
-	return (
-		Arr.some(deletedAtOneKey(host, ops), (d) => d.law === law) &&
-		Arr.some(violations(host, transition(host, before, ops)), (a) => a.law === law)
-	)
-}
-
 /** The notes a refused case's violations reach. */
 const refusalNotes = (
 	c: Case,
 	laws: KeysLaws,
-	host: HostSchema,
 	before: HostState,
 	refused: ReadonlyArray<Violation>
 ): ReadonlyArray<Feature> =>
 	Arr.flatMap(refused, (v): ReadonlyArray<Feature> => {
-		if (brokenTwice(host, before, c, v.law)) {
-			return ["a key broken by deletions and additions alike"]
-		}
 		if (v.law === laws.typedKey) {
 			const stored = Arr.some(v.violators, (x) =>
 				Arr.some(before.get("MapKey") ?? [], (f) =>
@@ -1213,7 +1159,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 											reaches: ["typed key refused against a stored row"]
 										},
 										{
-											note: "two deletions at one tag's id and two additions at another's break Tag's primary key alike, and the refusal may name either pair",
+											note: "two deletions at one tag's id beside two additions at another's: the deletions are no refusal, and the refusal by Tag's primary key names the additions' pair, the one pair that breaks it",
 											sketch: {
 												stored: {
 													mapKeys: [],
@@ -1246,7 +1192,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 												]
 											},
 											draws: "",
-											reaches: ["a key broken by deletions and additions alike"]
+											reaches: ["two deletions at one key"]
 										}
 									],
 									runs: 80,
@@ -1264,7 +1210,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 											"a reference refused",
 											"two signs of zero held apart",
 											"a typed key freed and taken again",
-											"a key broken by deletions and additions alike",
+											"two deletions at one key",
 											"accepted",
 											"unchanged"
 										],
@@ -1327,7 +1273,11 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 										}
 										const outcome = applied.success
 										const afterRows = yield* readState
-										const expected = expectedOf(host, before, opsOf(k.writes))
+										const ops = opsOf(k.writes)
+										const expected = expectedOf(host, before, ops)
+										if (deletedTwice(host, ops)) {
+											c.note("two deletions at one key")
+										}
 										if (expected.kind === "refused") {
 											if (outcome.kind !== "refused") {
 												return assert.fail(
@@ -1366,7 +1316,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 													`the witness ${Formatter.format(witness)} names a fact breaking ${met.value.law} by its key, one of ${Formatter.format(met.value.violators)}`
 												)
 											}
-											for (const note of refusalNotes(k, laws, host, before, [met.value])) {
+											for (const note of refusalNotes(k, laws, before, [met.value])) {
 												c.note(note)
 											}
 											return

@@ -320,33 +320,13 @@ const applyStratum = (state: State, members: ReadonlyArray<Member>, pins: Pins):
 
 /**
  * A grizzle write at a state: applied, with whether it changed the state, or refused by these laws. Keys are checked at
- * each stratum's end, the deferred containment at the end of the last.
+ * each stratum's end, the deferred containment at the end of the last. A deletion names its fact exactly, so two facts
+ * one stratum deletes at one key are no refusal: at most one of them is stored, and deleting the other changes nothing
+ * (README "A relation's rows are a set").
  */
 type GrizzleMeaning =
 	| { readonly kind: "applied"; readonly changed: boolean; readonly state: State }
 	| { readonly kind: "refused"; readonly laws: ReadonlyArray<LawId> }
-
-/**
- * The primary key laws a ChangeSet's deletions break before it runs: a delete naming two facts at one key is refused,
- * where any stratum's deletions of one relation hold two facts that differ at a primary key, by that key's law
- * (runtime/write/normalize.ts, the same-key checks, which run before any statement is sent).
- */
-const deletionConflicts = (laws: ReadonlyArray<LawSpec>, op: GrizzleOp): ReadonlyArray<LawId> =>
-	Arr.flatMap(op.strata, (stratum) =>
-		Arr.flatMap(relationNames, (relation) => {
-			const deleted = Arr.flatMap(stratum, (m) =>
-				m.kind === "enumerated" && m.op === "delete" && m.relation === relation ? m.facts : []
-			)
-			const byKey = new Map<string, string>()
-			const conflict = Arr.some(deleted, (f) => {
-				const key = project(f, primaryKeyOf[relation])
-				const prior = byKey.get(key)
-				byKey.set(key, identity(f))
-				return prior !== undefined && prior !== identity(f)
-			})
-			return conflict ? Arr.flatMap(laws, (l) => (primaryKeyLaw(l, relation) ? [l.law] : [])) : []
-		})
-	)
 
 const grizzleMeaning = (
 	laws: ReadonlyArray<LawSpec>,
@@ -354,10 +334,6 @@ const grizzleMeaning = (
 	op: GrizzleOp,
 	pins: Pins
 ): GrizzleMeaning => {
-	const conflicts = deletionConflicts(laws, op)
-	if (conflicts.length > 0) {
-		return { kind: "refused", laws: conflicts }
-	}
 	let next = state
 	for (const stratum of op.strata) {
 		next = applyStratum(next, stratum, pins)

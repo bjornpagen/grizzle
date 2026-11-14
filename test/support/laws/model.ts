@@ -501,39 +501,6 @@ const relationAfter = (
 	return [...out.values()]
 }
 
-/**
- * The violations of the primary and candidate keys, span keys among them, by two distinct facts one stratum's `ops`
- * delete that agree on every field of the key, a span compared as a value: host normalization refuses such a deletion
- * before any SQL, its witness naming the facts by the key's fields. A projected key reads only the facts its selection
- * holds of and judges no deletion.
- */
-const deletedAtOneKey = (
-	schema: HostSchema,
-	ops: ReadonlyArray<HostOp>
-): ReadonlyArray<Violation> =>
-	Arr.flatMap(schema.laws, (law): ReadonlyArray<Violation> => {
-		if ((law.kind !== "key" && law.kind !== "spanKey") || law.selection.kind !== "every") {
-			return []
-		}
-		const relation = relationOf(schema, law.relation)
-		const fields = law.kind === "key" ? law.fields : [...law.scalars, law.span]
-		const deleted = [
-			...new Map(
-				Arr.flatMap(ops, (o) =>
-					o.relation === law.relation && o.kind === "delete"
-						? Arr.map(o.facts, (f) => [identity(relation, f), f] as const)
-						: []
-				)
-			).values()
-		]
-		const bad = Arr.filter(deleted, (f, i) =>
-			Arr.some(deleted, (g, j) => i !== j && projection(f, fields) === projection(g, fields))
-		)
-		return Arr.isReadonlyArrayNonEmpty(bad)
-			? [{ law: law.law, immediate: true, violators: violatorsOf(law, bad, schema) }]
-			: []
-	})
-
 /** The add-wins transition of one stratum of enumerated members. */
 export const transition = (
 	schema: HostSchema,
@@ -953,25 +920,10 @@ const cyclic = (order: ReadonlyArray<Precedes>): boolean => {
 }
 
 /**
- * The laws a stratum is refused by, each with the facts its witness may name; none when it commits. `deleted` are the
- * keys two facts the stratum deletes at one value break, a refusal before any SQL, whatever S' holds: a key names one
- * fact. The refusal may name any key the stratum's additions break too, since the host judges a stratum's relations in
- * an order the model leaves open; a key both break is one violation (byLaw), so its witness may name a deleted fact or
- * an added one. Without such a deletion, a stratum is refused by the immediate laws its final state breaks, raised at
- * their statements before any deferred law, and otherwise by every law it breaks.
+ * The laws a stratum is refused by, each with the facts its witness may name; none when it commits: the immediate laws
+ * its final state breaks, raised at their statements before any deferred law, and otherwise every law it breaks.
  */
-export const refusedBy = (
-	deleted: ReadonlyArray<Violation>,
-	all: ReadonlyArray<Violation>
-): ReadonlyArray<Violation> => {
-	if (Arr.isReadonlyArrayNonEmpty(deleted)) {
-		return byLaw(
-			Arr.appendAll(
-				deleted,
-				Arr.filter(all, (v) => v.immediate && Arr.isReadonlyArrayNonEmpty(v.violators))
-			)
-		)
-	}
+export const refusedBy = (all: ReadonlyArray<Violation>): ReadonlyArray<Violation> => {
 	const immediate = Arr.filter(all, (v) => v.immediate)
 	return Arr.isReadonlyArrayNonEmpty(immediate) ? immediate : all
 }
@@ -980,8 +932,9 @@ export const refusedBy = (
  * What a ChangeSet of `ops` must do from the lawful `state`. A stratum whose writes' order (stratumOrder) runs in a
  * cycle is refused when it compiles, before any SQL or host normalization. Every relation's primary key is one of the
  * schema's laws (keyedSchema), so a state holding one fact twice is always that key's violation, never an outcome the
- * laws pass. Two facts a stratum deletes at one value of a primary or candidate key (a span key's span compared as a
- * value) are that key's violation (deletedAtOneKey), refused by `refusedBy`.
+ * laws pass. Two facts a stratum deletes at one key are no refusal: a deletion names its fact exactly, so at most one
+ * of them is stored and deleting the other changes nothing (README "A relation's rows are a set"), as the transition
+ * removes facts by identity.
  */
 export const expect = (
 	schema: HostSchema,
@@ -993,7 +946,7 @@ export const expect = (
 		return { kind: "unorderable", order }
 	}
 	const next = transition(keyedSchema(schema), state, ops)
-	const refused = refusedBy(deletedAtOneKey(schema, ops), violations(schema, next))
+	const refused = refusedBy(violations(schema, next))
 	return Arr.isReadonlyArrayNonEmpty(refused)
 		? { kind: "invariant-rejected", violations: refused }
 		: { kind: sameState(schema, state, next) ? "no-change" : "accepted", state: next }
