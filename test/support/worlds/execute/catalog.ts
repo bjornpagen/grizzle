@@ -10,7 +10,6 @@ import { nextTimestamp, parseTimestamp } from "#cli/clock.ts"
 import { identifierOf, identity, roleIdentity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
-import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { emptySnapshot, noWorkload, rosterFates } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { draftCodebook, noRenames, reorderRefusal } from "#compiler/ir/codes.ts"
@@ -458,17 +457,15 @@ const roleSettingStatements = (
 
 /**
  * The installation's own database default, as migrate sends it into the catalog's database, which restores the
- * database's isolation once the realization ends: its text split as migrate splits a file (render/markers.ts
- * splitStatements), since it prints after the database lock (sql/print.ts databaseWide), a statement of its own, and a
- * prepared statement holds one command alone (42601).
+ * database's isolation once the realization ends: its commands (compile.ts filledStatements, sql/print.ts
+ * printCommands), the database lock's and its own, each sent as one message.
  */
 const databaseDefault = (catalog: Catalog): Effect.Effect<ReadonlyArray<string>> =>
 	Option.match(
 		Arr.findFirst(catalog.installation.statements, (s) => s.kind === "alterDatabaseDefault"),
 		{
 			onNone: () => Effect.die(new Error("the installation stores no database default")),
-			onSome: (s) =>
-				Effect.succeed(Arr.flatMap(filledStatements([s], catalog.database), splitStatements))
+			onSome: (s) => Effect.succeed(filledStatements([s], catalog.database))
 		}
 	)
 
