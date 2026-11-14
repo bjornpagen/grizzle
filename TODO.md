@@ -282,6 +282,12 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   ask: resolve the interrupt only once the backend can no longer commit, or give the caller a settled outcome.
 
 ### Next
+- **fallow past 3.38.1 (check-pipeline fan-out, 2026-11-15):** fallow 3.39.0 reports nine wrapper modules as duplicate
+  exports (engine schema/api.ts beside relation.ts, world.ts and schema.ts; public/changeset.ts; sql/build.ts;
+  public/schema.ts; core/trusted.ts beside test/support/worlds/invalid/json.ts; program/workload/login.ts;
+  adapter/public/layer.ts beside served/served.ts), and 3.40.0 reports the tsconfig plugin @effect/language-service as
+  an unlisted dependency. Main's ruling: each export gets one home (no fallow-ignore, no ignoreExports), the plugin is
+  listed as the devDependency it is, then fallow moves to current. After the QTI rebuild tags are out.
 - **One netting rule, not two (READBACK, 2026-11-14):** runtime/write/net.ts stratumChange (~l.83) cancels a fact its own
   stratum both removes and adds, and netStrata (net.ts:137-157) applies each stratum's removals before its additions,
   which cancels the identical pair anyway: a plant dropping stratumChange's cancellation stayed green on write/oracle-0..3.
