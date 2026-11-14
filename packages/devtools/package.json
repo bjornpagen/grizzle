@@ -17,9 +17,6 @@
 	"bin": {
 		"superlint": "./src/lint.ts"
 	},
-	"engines": {
-		"node": ">=26"
-	},
 	"scripts": {
 		"typecheck": "effect-tsgo tsrs --noEmit -p tsconfig.json",
 		"superlint": "node src/lint.ts",
