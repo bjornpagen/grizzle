@@ -201,7 +201,9 @@ export interface SubstrateShape {
 	) => Effect.Effect<PsqlWriter, PsqlProcessError, Scope.Scope>
 	/**
 	 * The lock-wait barrier, polled from a dedicated observer connection: waits until backend `pid` waits on a lock
-	 * (held by `blockedBy`, when it names a backend).
+	 * (held by `blockedBy`, when it names a backend). The observer reads only the server's lock and activity state,
+	 * which no snapshot governs, so its statements run READ COMMITTED: a SERIALIZABLE poll, the test database's
+	 * default, would be a serializable transaction of its own, each one through SSI's shared lists at its commit.
 	 */
 	readonly awaitLockWait: (
 		pid: number,
@@ -391,6 +393,7 @@ const build = Effect.fnUntraced(function* (
 	const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
 	const owner = ownerCredentials(cluster)
 	const observer = yield* connect(cluster, { database, credentials: owner, label: "observer" })
+	yield* observer.query("SET default_transaction_isolation TO 'read committed'", [])
 	const allocations = yield* Ref.make(0)
 	const nextAllocation = Ref.getAndUpdate(allocations, (n) => n + 1)
 

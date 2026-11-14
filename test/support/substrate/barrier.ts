@@ -1,4 +1,6 @@
 import { Array as Arr, Effect, Option, String as Str } from "effect"
+import { trusted } from "#compiler/core/trusted.ts"
+import { defined } from "#test/support/assert.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 
 /**
@@ -22,46 +24,67 @@ export interface LockWait {
 }
 
 /**
- * A backend's wait on a heavyweight lock, read of pg_locks and pg_blocking_pids alone, which every role sees, so the
- * barrier reads the wait of a backend of any login, an owner login's (substrate.ts ownerLogin) included, whose
- * pg_stat_activity wait columns no viewer without its privileges sees and the owner never has; or its wait for a safe
- * snapshot, read of pg_safe_snapshot_blocking_pids alone, which every role sees too.
+ * The backends backend $1 waits on: pg_blocking_pids, those holding or queued ahead for the heavyweight lock it waits
+ * for, and pg_safe_snapshot_blocking_pids, the SERIALIZABLE read-write transactions its safe snapshot waits for; each
+ * empty when it waits for none. Every role sees both, so the barrier reads the wait of a backend of any login, an owner
+ * login's (substrate.ts ownerLogin) included, whose pg_stat_activity wait columns no viewer without its privileges sees
+ * and the owner never has. Neither reads the predicate-lock table: a poll of pg_locks, back to back from every file at
+ * once, holds every predicate-lock partition through each scan (PostgreSQL's GetPredicateLockStatusData), and starves
+ * each SERIALIZABLE transaction's release of its locks behind it.
  */
-const lockWaitQuery = `SELECT l.locktype::text, l.mode::text, array_to_string(pg_catalog.pg_blocking_pids(l.pid), ',')
-FROM pg_catalog.pg_locks AS l
-WHERE l.pid = $1::int4 AND NOT l.granted
-UNION ALL
-SELECT 'safe snapshot'::text, 'deferrable'::text, array_to_string(b.pids, ',')
-FROM (SELECT pg_catalog.pg_safe_snapshot_blocking_pids($1::int4) AS pids) AS b
-WHERE pg_catalog.cardinality(b.pids) > 0`
-
-const parseWait = (pid: number, row: ReadonlyArray<unknown>): LockWait => {
-	const [locktype, mode, blockers] = Arr.map(row, String)
-	return {
-		pid,
-		locktype: locktype ?? "",
-		mode: mode ?? "",
-		blockedBy: (blockers ?? "").length === 0 ? [] : Arr.map(Str.split(blockers ?? "", ","), Number)
-	}
-}
+const blockersQuery = `SELECT array_to_string(pg_catalog.pg_blocking_pids($1::int4), ','),
+	array_to_string(pg_catalog.pg_safe_snapshot_blocking_pids($1::int4), ',')`
 
 /**
- * The lock wait of backend `pid`, read once on `observer`, or undefined when it waits on no heavyweight lock and for no
- * safe snapshot.
+ * The lock type and requested mode of backend $1's ungranted heavyweight lock, which only pg_locks names: read once a
+ * poll has found the backend blocked, never to find whether it is.
+ */
+const waitedLockQuery = `SELECT l.locktype::text, l.mode::text FROM pg_catalog.pg_locks AS l
+WHERE l.pid = $1::int4 AND NOT l.granted`
+
+/** A row of blockersQuery: the two lists of pids, comma-separated, each empty when the backend waits on none. */
+type BlockersRow = readonly [onLock: string, onSnapshot: string]
+
+/** A row of waitedLockQuery. */
+type WaitedLockRow = readonly [locktype: string, mode: string]
+
+/** The pids a comma-separated list names. */
+const pidsOf = (list: string): ReadonlyArray<number> =>
+	list.length === 0 ? [] : Arr.map(Str.split(list, ","), Number)
+
+/**
+ * The lock wait of backend `pid`, read on `observer`, or undefined when it waits on no heavyweight lock and for no
+ * safe snapshot, or its lock wait ended between the two reads.
  */
 export const lockWaitOf = (
 	observer: PgConnection,
 	pid: number
 ): Effect.Effect<LockWait | undefined, SqlError> =>
-	Effect.map(observer.queryValues(lockWaitQuery, [pid]), ([first]) =>
-		first === undefined ? undefined : parseWait(pid, first)
-	)
+	Effect.gen(function* () {
+		const [row] = yield* observer.queryValues(blockersQuery, [pid])
+		const [lockBlockers, snapshotBlockers] = trusted<BlockersRow>(
+			defined(row, "the blockers query's one row")
+		)
+		const onLock = pidsOf(lockBlockers)
+		if (onLock.length > 0) {
+			const [waited] = yield* observer.queryValues(waitedLockQuery, [pid])
+			if (waited === undefined) {
+				return undefined
+			}
+			const [locktype, mode] = trusted<WaitedLockRow>(waited)
+			return { pid, locktype, mode, blockedBy: onLock }
+		}
+		const onSnapshot = pidsOf(snapshotBlockers)
+		return onSnapshot.length > 0
+			? { pid, locktype: "safe snapshot", mode: "deferrable", blockedBy: onSnapshot }
+			: undefined
+	})
 
 /**
  * The lock-wait barrier: waits until a backend is observed blocked on a heavyweight lock.
  *
- * Tests never sleep to let a concurrent statement "probably" reach its lock; they poll pg_locks until the backend is
- * waiting. Each poll is one round trip on the observer session, issued back to back; nothing waits
+ * Tests never sleep to let a concurrent statement "probably" reach its lock; they poll the backend's blockers until it
+ * is waiting (lockWaitOf). Each poll is one round trip on the observer session, issued back to back; nothing waits
  * on a timer and nothing is judged by time. A wait that is never observed holds the test until Vitest's test timeout, the
  * runner's hang guard, reports it hung.
  *
