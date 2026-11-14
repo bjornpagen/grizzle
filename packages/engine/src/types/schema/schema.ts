@@ -371,7 +371,27 @@ type DeclaredIn<R> = true extends (
 	R extends unknown ? (IsOneLiteral<NameOf<R>> extends true ? false : true) : never
 )
 	? { readonly [name: string]: R }
-	: { readonly [X in R as NameOf<X>]: X }
+	: DeclaredByName<Extract<R, SelfNamed>>
+
+/** What a level's record holds under a name: a value carrying its own name. */
+type SelfNamed = { readonly name: string }
+
+/**
+ * The relations of R under their names, keyed by R's names read once, so keyof the record is its key set and a lookup
+ * by name is one property read. A record whose keys an `as` clause names is read again whole at every lookup and every
+ * keyof: the checker instantiates the clause over every relation of R to ask whether the record is generic, which made
+ * each statement's, role's and ChangeSet's lookup of a relation cost the level's every relation. Each name's relations
+ * are bound at R, so every reader of the record reads R's relations, generic ones included.
+ */
+type DeclaredByName<R extends SelfNamed> = {
+	readonly [N in R["name"]]: NamedIn<R>[N] extends infer X extends R ? X : never
+}
+
+/**
+ * Each relation of R under its name, the relations of one name in one union: read once per name, as DeclaredByName
+ * resolves its properties, its clause an indexed access, one instantiation over all of R.
+ */
+type NamedIn<R extends SelfNamed> = { readonly [X in R as X["name"]]: X }
 
 /**
  * Each element of a list, boxed: a tuple's elements one by one, each as its call wrote it (a relation chosen at run
