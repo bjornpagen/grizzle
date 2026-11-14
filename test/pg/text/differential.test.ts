@@ -38,7 +38,7 @@ import {
 import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Effect, Exit, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Exit, Formatter, Option, Pool, String as Str } from "effect"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
 import { domainDigest } from "#compiler/core/fingerprint.ts"
@@ -56,7 +56,7 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import { analyzeText, type TextRefinement, textDomainDdl } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { accepts, analyzeLanguage } from "#test/support/fixtures/ir/scalar.ts"
-import { caseHang } from "#test/support/limits.ts"
+import { caseHang, windowCasesAtOnce } from "#test/support/limits.ts"
 import { pickGen } from "#test/support/pick.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
@@ -461,14 +461,25 @@ const agreeOn = (
 		}).pipe(Effect.ensuring(Effect.ignore(db.rollback)))
 	})
 
+/**
+ * The differential searches' steering window: a constant of each search, so the same seed draws the same cases. Each of
+ * its cases holds a session of its own (windowCasesAtOnce), with a schema of its own where it installs domains.
+ */
+const differentialSteerEvery = 16
+
 layer(Substrate.layer)(
 	"regex membership: ECMAScript, host NFA, PostgreSQL ARE and installed domain",
 	(it) => {
 		it.effect("agree on batches of randomized strings per family", (ctx) =>
 			Effect.gen(function* () {
 				const s = yield* Substrate
-				const schema = yield* s.schema(freshSchema)
-				const db = yield* s.session(ownerSession())
+				const slots = yield* Pool.make({
+					acquire: Effect.all({
+						schema: s.schema(freshSchema),
+						db: s.session(ownerSession())
+					}),
+					size: windowCasesAtOnce(1, differentialSteerEvery)
+				})
 				for (const [fi, family] of families.entries()) {
 					/**
 					 * The family's own patterns, refined and compiled once: a handwritten pattern past the limits fails the
@@ -542,11 +553,14 @@ layer(Substrate.layer)(
 								kept: [],
 								runs: 10,
 								shrink: completeShrink,
-								concurrency: 1,
-								steerEvery: 16,
+								concurrency: windowCasesAtOnce(1, differentialSteerEvery),
+								steerEvery: differentialSteerEvery,
 								caseHang
 							},
-							(c, k) => agreeOn(db, schema, fi, family, c.patterns, c.strings, (f) => k.note(f))
+							(c, k) =>
+								Effect.flatMap(Pool.get(slots), (slot) =>
+									agreeOn(slot.db, slot.schema, fi, family, c.patterns, c.strings, (f) => k.note(f))
+								)
 						)
 					)
 				}
@@ -562,6 +576,9 @@ layer(Substrate.layer)(
 		const compileWithin = (db: RawSession, are: string) =>
 			db.query("SELECT 'x' COLLATE pg_catalog.pg_c_utf8 ~ $1::text", [are])
 
+		/** The at-limit search's steering window: a constant of the search, so the same seed draws the same cases. */
+		const atLimitSteerEvery = 4
+
 		it.effect(
 			"compiles the largest pattern the limits admit along a drawn shape, at each limit's edge",
 			(ctx) =>
@@ -569,7 +586,10 @@ layer(Substrate.layer)(
 					ctx,
 					Effect.gen(function* () {
 						const s = yield* Substrate
-						const db = yield* s.session(ownerSession())
+						const sessions = yield* Pool.make({
+							acquire: s.session(ownerSession()),
+							size: windowCasesAtOnce(1, atLimitSteerEvery)
+						})
 						return yield* explore(
 							{
 								suite: "text/differential/at-limit",
@@ -583,12 +603,13 @@ layer(Substrate.layer)(
 								kept: [],
 								runs: 16,
 								shrink: completeShrink,
-								concurrency: 1,
-								steerEvery: 4,
+								concurrency: windowCasesAtOnce(1, atLimitSteerEvery),
+								steerEvery: atLimitSteerEvery,
 								caseHang
 							},
 							(drawnGrowth, k) =>
 								Effect.gen(function* () {
+									const db = yield* Pool.get(sessions)
 									const growth = Option.getOrElse(
 										Option.flatMap(k.steering, (pending) =>
 											Option.map(
@@ -623,7 +644,10 @@ layer(Substrate.layer)(
 				ctx,
 				Effect.gen(function* () {
 					const s = yield* Substrate
-					const db = yield* s.session(ownerSession())
+					const sessions = yield* Pool.make({
+						acquire: s.session(ownerSession()),
+						size: windowCasesAtOnce(1, differentialSteerEvery)
+					})
 					return yield* explore(
 						{
 							oracle: {
@@ -640,8 +664,8 @@ layer(Substrate.layer)(
 							kept: [],
 							runs: 4800,
 							shrink: completeShrink,
-							concurrency: 1,
-							steerEvery: 16,
+							concurrency: windowCasesAtOnce(1, differentialSteerEvery),
+							steerEvery: differentialSteerEvery,
 							caseHang
 						},
 						(source, k) =>
@@ -651,6 +675,7 @@ layer(Substrate.layer)(
 									return
 								}
 								k.note("a large pattern")
+								const db = yield* Pool.get(sessions)
 								const exit = yield* Effect.exit(compileWithin(db, r.members[0].are))
 								assert.equal(
 									Exit.isSuccess(exit),

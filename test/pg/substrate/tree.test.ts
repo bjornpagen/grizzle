@@ -43,7 +43,7 @@ import { type Case, exhaust, type Oracle } from "@grizzle/testing/explore"
 import { requiredInSpace } from "@grizzle/testing/features"
 import { element } from "@grizzle/testing/gen"
 import { searched } from "@grizzle/testing/vitest"
-import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option, Pool } from "effect"
 import {
 	type TreeBreach,
 	breachOf,
@@ -79,7 +79,7 @@ import {
 } from "#test/pg/substrate/tree.ts"
 import { deepEquals, nonEmpty } from "#test/support/assert.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
-import { caseHang } from "#test/support/limits.ts"
+import { caseHang, casesAtOnce } from "#test/support/limits.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {
 	type Attempted,
@@ -158,6 +158,15 @@ const seatsOf = <L extends string>(lowerings: ReadonlyArray<readonly [L, Lowerin
 			})
 		)
 	})
+
+/**
+ * A pool of seat sets for `lowerings`, as many as their sessions fit in a test's pool (casesAtOnce), each installing
+ * every lowering in fresh schemas with sessions of its own (seatsOf): a case holds one set for its run, so the cases an
+ * exhaustion runs at once never share a table or a session, and each finds its set's tables empty, a committed case
+ * clearing its rows.
+ */
+const seatPoolOf = <L extends string>(lowerings: ReadonlyArray<readonly [L, Lowering]>) =>
+	Pool.make({ acquire: seatsOf(lowerings), size: casesAtOnce(lowerings.length) })
 
 const predictedText = (model: Predicted): string =>
 	model.kind === "committed"
@@ -401,7 +410,8 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const seats = yield* seatsOf(loweringsOf(["tree", ...MUTANTS, ...CONTROLS]))
+					const lowerings = loweringsOf(["tree", ...MUTANTS, ...CONTROLS])
+					const seats = yield* seatPoolOf(lowerings)
 					const shapes = nonEmpty(shapesBetween(1, 2, upToTwoRoots, 2), "a box holds a shape")
 					return yield* exhaust(
 						{
@@ -436,9 +446,10 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 								"targets every row commits a non-tree"
 							]),
 							caseHang,
-							concurrency: 1
+							concurrency: casesAtOnce(lowerings.length)
 						},
-						(rows, c) => Effect.asVoid(judgeCase(seats, [rows], c))
+						(rows, c) =>
+							Effect.flatMap(Pool.get(seats), (set) => Effect.asVoid(judgeCase(set, [rows], c)))
 					)
 				})
 			)
@@ -450,7 +461,8 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const seats = yield* seatsOf(loweringsOf(["tree", ...MUTANTS]))
+					const lowerings = loweringsOf(["tree", ...MUTANTS])
+					const seats = yield* seatPoolOf(lowerings)
 					const shapes = nonEmpty(shapesBetween(1, 3, upToTwoRoots, 2), "a box holds a shape")
 					return yield* exhaust(
 						{
@@ -480,9 +492,10 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 								"without T6 killed"
 							]),
 							caseHang,
-							concurrency: 1
+							concurrency: casesAtOnce(lowerings.length)
 						},
-						(rows, c) => Effect.asVoid(judgeCase(seats, [rows], c))
+						(rows, c) =>
+							Effect.flatMap(Pool.get(seats), (set) => Effect.asVoid(judgeCase(set, [rows], c)))
 					)
 				})
 			)
@@ -494,7 +507,8 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const seats = yield* seatsOf(loweringsOf(["tree", ...MUTANTS]))
+					const lowerings = loweringsOf(["tree", ...MUTANTS])
+					const seats = yield* seatPoolOf(lowerings)
 					const placements = nonEmpty(
 						Arr.flatMap(
 							[
@@ -529,9 +543,10 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 								"T5 without end killed"
 							]),
 							caseHang,
-							concurrency: 1
+							concurrency: casesAtOnce(lowerings.length)
 						},
-						(rows, c) => Effect.asVoid(judgeCase(seats, [rows], c))
+						(rows, c) =>
+							Effect.flatMap(Pool.get(seats), (set) => Effect.asVoid(judgeCase(set, [rows], c)))
 					)
 				})
 			)
@@ -543,7 +558,8 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const seats = yield* seatsOf(loweringsOf(["tree", ...MUTANTS]))
+					const lowerings = loweringsOf(["tree", ...MUTANTS])
+					const seats = yield* seatPoolOf(lowerings)
 					const cases = nonEmpty(
 						Arr.flatMap(forestsOf(forestBox.rows), mutationsOf),
 						"a forest has a mutation"
@@ -569,11 +585,12 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 								"without T6 killed"
 							]),
 							caseHang,
-							concurrency: 1
+							concurrency: casesAtOnce(lowerings.length)
 						},
 						(mutation, c) =>
 							Effect.gen(function* () {
-								const outcomes = yield* judgeCase(seats, [mutation.rows], c)
+								const set = yield* Pool.get(seats)
+								const outcomes = yield* judgeCase(set, [mutation.rows], c)
 								for (const outcome of outcomes) {
 									const label: Label = outcome.label
 									switch (label) {
@@ -602,7 +619,8 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const seats = yield* seatsOf(loweringsOf(["tree", ...CONTROLS]))
+					const lowerings = loweringsOf(["tree", ...CONTROLS])
+					const seats = yield* seatPoolOf(lowerings)
 					const forests = forestsOf(forestBox.rows)
 					return yield* exhaust(
 						{
@@ -623,12 +641,13 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 								"targets every row refuses a tree"
 							]),
 							caseHang,
-							concurrency: 1
+							concurrency: casesAtOnce(lowerings.length)
 						},
 						(write, c) =>
 							Effect.gen(function* () {
 								const statements = statementsOf(write)
-								const outcomes = yield* judgeCase(seats, statements, c)
+								const set = yield* Pool.get(seats)
+								const outcomes = yield* judgeCase(set, statements, c)
 								const committed = Arr.some(outcomes, (o) => o.label === "tree" && o.committed)
 								const refusedWrite = (why: string) =>
 									new Disagreed({ message: `${why}: ${Formatter.format(statements)}` })

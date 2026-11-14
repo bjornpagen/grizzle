@@ -132,6 +132,21 @@ export const testExitWait: Limit = derived({
  */
 export const testPoolMax: number = availableParallelism()
 
+/**
+ * How many cases of a search run at once, each on state of its own that holds `sessions` sessions of the test's pool:
+ * as many as fit in the pool (testPoolMax, one session per core), and one at least, the one a search of a single set
+ * of sessions runs.
+ */
+export const casesAtOnce = (sessions: number): number =>
+	Math.max(1, Math.floor(testPoolMax / sessions))
+
+/**
+ * How many cases of an exploration run at once, each on state of its own that holds `sessions` sessions: casesAtOnce,
+ * and no more than its window of `steerEvery` cases, the most an exploration runs at once (explore.ts windowOf).
+ */
+export const windowCasesAtOnce = (sessions: number, steerEvery: number): number =>
+	Math.min(steerEvery, casesAtOnce(sessions))
+
 /** The source and the quote that state a Node timer's delay range. */
 const nodeTimers = {
 	source: "https://nodejs.org/api/timers.html#settimeoutcallback-delay-args",
