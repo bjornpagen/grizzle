@@ -277,18 +277,68 @@ export const unreachedOf = <F extends string>(
 	)
 
 /**
+ * The pending places in turn order of the case `offset` turns after the one that follows `after`, of the required
+ * situations pending when its window began (their places ascending, as pendingOf gives them): its aim is the
+ * `offset`-th pending place after `after`, wrapping, and the rest follow it, ascending and wrapping. A pure function of
+ * its arguments, so a stream that runs cases at once gives each its turn before any runs.
+ */
+export const turnOf = (
+	pending: ReadonlyArray<number>,
+	after: number,
+	offset: number
+): ReadonlyArray<number> => {
+	const first = Option.getOrElse(
+		Arr.findFirstIndex(pending, (place) => place > after),
+		() => 0
+	)
+	return Arr.map(pending, (_, i) => Arr.getUnsafe(pending, (first + offset + i) % pending.length))
+}
+
+/**
+ * Whose turn each case of a stream's steering windows is (turnOf): the window's i-th case aims at the i-th pending place
+ * after the one the stream last aimed at, wrapping, so a window's cases aim at distinct pending requirements while it
+ * holds no more cases than there are, and a requirement still pending gets a turn within ⌈pending / window⌉ windows of
+ * its stream, whatever the window's size. A stream's turns begin before its first requirement, so its first window's
+ * i-th case aims at the i-th pending one.
+ */
+export type Turns = Readonly<{
+	window: (
+		pending: ReadonlyArray<number>,
+		cases: number
+	) => (offset: number) => ReadonlyArray<number>
+}>
+
+/** The turns of one stream, none taken yet. */
+export const turnsOf = (): Turns => {
+	let last = -1
+	return {
+		window: (pending, cases) => {
+			const after = last
+			if (cases > 0) {
+				last = Option.getOrElse(Arr.head(turnOf(pending, after, cases - 1)), () => after)
+			}
+			return (offset) => turnOf(pending, after, offset)
+		}
+	}
+}
+
+/**
  * What a steered case may read of its run, of the required situations no case of the steering tallies had reached when
- * its window began: whether a situation is among them, and whether a feature is named by one of them, alone or in a
- * pair. Both take a situation and answer, so a case of a suite's features is a case of any narrower feature set, as
- * `note` and `pair` already make it. A situation the suite does not require is never pending. A replay token records
- * exactly this, by the places of the pending requirements, so a replayed case steers as its case did.
+ * its window began: whether a situation is among them; whether a feature is named by one of them, alone or in a pair;
+ * and whether a situation is the one this case's turn aims at (Turns), true of exactly one pending situation while any
+ * is pending. A suite that aims a case at what is pending aims it at its turn's situation (`aimed`), so the cases of
+ * one window aim at distinct requirements and none waits behind another the suite cannot reach. Each takes a situation
+ * and answers, so a case of a suite's features is a case of any narrower feature set, as `note` and `pair` already make
+ * it. A situation the suite does not require is never pending. A replay token records exactly this, by the places of
+ * the pending requirements in turn order, so a replayed case steers as its case did.
  */
 export type Pending<F extends string> = Readonly<{
 	has: (situation: Reached<F>) => boolean
 	names: (feature: F) => boolean
+	aimed: (situation: Reached<F>) => boolean
 }>
 
-/** The pending requirements at these places among a search's required situations. */
+/** The pending requirements at these places among a search's required situations, in turn order, the first aimed. */
 export const pendingAt = <F extends string>(
 	situations: ReadonlyArray<Reached<F>>,
 	places: ReadonlyArray<number>
@@ -300,9 +350,11 @@ export const pendingAt = <F extends string>(
 			typeof situation === "string" ? [situation] : situation
 		)
 	)
+	const aim = Option.map(Arr.head(pending), keyOf)
 	return {
 		has: (situation) => keys.has(keyOf(situation)),
-		names: (feature) => named.has(feature)
+		names: (feature) => named.has(feature),
+		aimed: (situation) => Option.contains(aim, keyOf(situation))
 	}
 }
 

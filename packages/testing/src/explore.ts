@@ -40,7 +40,10 @@ import {
 	situationsOf,
 	type Tally,
 	type TallyBuilder,
+	type Turns,
 	tallyOf,
+	turnOf,
+	turnsOf,
 	unreachedOf
 } from "#features.ts"
 import type { Corpus, Fuzz, FuzzBudget } from "#fuzz.ts"
@@ -588,11 +591,19 @@ const underOf = <F extends string>(situations: ReadonlyArray<Reached<F>>, how: D
 	}
 }
 
-/** Cases drawn under the requirements no case of these steering tallies reached. */
+/**
+ * What each case of a window of `cases` cases is drawn under, by its offset in the window: the requirements no case of
+ * these steering tallies reached, the case aimed at its turn among them in its stream's `turns`.
+ */
 const steeredBy = <F extends string>(
 	situations: ReadonlyArray<Reached<F>>,
-	steering: ReadonlyArray<Tally<SteeringPhase>>
-): Under<F> => underOf(situations, { kind: "steered", pending: pendingOf(situations, steering) })
+	steering: ReadonlyArray<Tally<SteeringPhase>>,
+	turns: Turns,
+	cases: number
+): ((offset: number) => Under<F>) => {
+	const turnAt = turns.window(pendingOf(situations, steering), cases)
+	return (offset) => underOf(situations, { kind: "steered", pending: turnAt(offset) })
+}
 
 /** How a case's property ended, before its recording is read. */
 type Settled =
@@ -629,14 +640,16 @@ const keepTape = (recorded: Recording): Tape => recorded.tape()
  */
 const windowOf = <B, R>(
 	indices: ReadonlyArray<number>,
-	runOne: (index: number) => Effect.Effect<B, never, R>,
+	runOne: (index: number, offset: number) => Effect.Effect<B, never, R>,
 	concurrency: number
 ): Effect.Effect<Array<B>, never, R> =>
 	concurrency === 1
 		? Effect.forEach(indices, runOne)
-		: Effect.forEach(indices, (index) => Effect.andThen(Effect.yieldNow, runOne(index)), {
-				concurrency
-			})
+		: Effect.forEach(
+				indices,
+				(index, offset) => Effect.andThen(Effect.yieldNow, runOne(index, offset)),
+				{ concurrency }
+			)
 
 /** How a case's fiber ended, as its run settles it: its own settlement, or a failure of the fiber itself. */
 const settledOf = (exit: Exit.Exit<Settled>): Settled =>
@@ -1178,8 +1191,13 @@ const replayCorpus = <X, R>(
  * witness phase is never drawn from the run's seed.
  */
 type Mutated =
-	| Readonly<{ phase: "steered"; stream: LabelStream; tally: TallyBuilder<"steered"> }>
-	| Readonly<{ phase: "fuzzed"; stream: RunStream; tally: TallyBuilder<"fuzzed"> }>
+	| Readonly<{
+			phase: "steered"
+			stream: LabelStream
+			tally: TallyBuilder<"steered">
+			turns: Turns
+	  }>
+	| Readonly<{ phase: "fuzzed"; stream: RunStream; tally: TallyBuilder<"fuzzed">; turns: Turns }>
 
 /** Where a mutated case came from, as a failure report names it. */
 const mutatedLabel = (mutated: Mutated): string => {
@@ -1486,11 +1504,11 @@ export const explore = <S, T, F extends string, E, R>(
 			) =>
 				Effect.gen(function* () {
 					const steering = [floorTally.tally(), mutated.tally.tally()]
-					const under = steeredBy(situations, steering)
+					const underAt = steeredBy(situations, steering, mutated.turns, indices.length)
 					const pick = seeds.picker(steering)
 					const window = yield* windowOf(
 						indices,
-						(index) => {
+						(index, offset) => {
 							const words = wordsOf(caseSeed(mutated.stream, index))
 							const chooser = Option.match(
 								between(words, 0, FRESH_EVERY - 1) === 0 ? Option.none() : pick(words),
@@ -1502,13 +1520,13 @@ export const explore = <S, T, F extends string, E, R>(
 									}
 								}
 							)
-							return seedOf(chooser, under, sense)
+							return seedOf(chooser, underAt(offset), sense)
 						},
 						sense.concurrent ? spec.concurrency : 1
 					)
 					for (const [offset, caseRun] of settlingOrder(window)) {
 						const where = `${mutatedLabel(mutated)} (seed ${hex(mutated.stream)}), case ${Arr.getUnsafe(indices, offset)}`
-						yield* settle(caseRun, where, under, mutated.tally)
+						yield* settle(caseRun, where, underAt(offset), mutated.tally)
 						if (keepIfNew(caseRun)) {
 							yield* found(caseRun)
 						}
@@ -1527,20 +1545,22 @@ export const explore = <S, T, F extends string, E, R>(
 				passed: (caseRun: CaseRun<S, K>) => void
 			) =>
 				Effect.gen(function* () {
+					const floorTurns = turnsOf()
 					for (let windowStart = 0; windowStart < floorCases; windowStart += spec.steerEvery) {
-						const under = steeredBy(situations, [floorTally.tally()])
 						const indices = Array.from(
 							{ length: Math.min(windowStart + spec.steerEvery, floorCases) - windowStart },
 							(_, i) => windowStart + i
 						)
+						const underAt = steeredBy(situations, [floorTally.tally()], floorTurns, indices.length)
 						const window = yield* windowOf(
 							indices,
-							(index) => runOne(randomChooser(wordsOf(caseSeed(floor, index))), under),
+							(index, offset) =>
+								runOne(randomChooser(wordsOf(caseSeed(floor, index))), underAt(offset)),
 							spec.concurrency
 						)
 						for (const [offset, caseRun] of settlingOrder(window)) {
 							const where = `the floor stream (seed ${hex(floor)}), case ${windowStart + offset}`
-							yield* settle(caseRun, where, under, floorTally)
+							yield* settle(caseRun, where, underAt(offset), floorTally)
 							passed(caseRun)
 						}
 					}
@@ -1557,12 +1577,18 @@ export const explore = <S, T, F extends string, E, R>(
 				const fuzzed: Mutated = {
 					phase: "fuzzed",
 					stream: fuzzSeed(rotatingSeed(run.seed, floor)),
-					tally: fuzzedTally
+					tally: fuzzedTally,
+					turns: turnsOf()
 				}
 				const sense = fuzzSenseOf(spec.coverage)
 				const replayed = yield* replayCorpus(fuzz.corpus, (values, index) =>
 					Effect.gen(function* () {
-						const under = steeredBy(situations, [floorTally.tally(), fuzzedTally.tally()])
+						const under = steeredBy(
+							situations,
+							[floorTally.tally(), fuzzedTally.tally()],
+							fuzzed.turns,
+							1
+						)(0)
 						const caseRun = yield* seedOf(
 							prefixChooser(
 								values,
@@ -1631,7 +1657,8 @@ export const explore = <S, T, F extends string, E, R>(
 					const steering: Mutated = {
 						phase: "steered",
 						stream: steeredSeed(floor),
-						tally: steeredTally
+						tally: steeredTally,
+						turns: turnsOf()
 					}
 					const witnessed = () => [floorTally.tally(), steeredTally.tally()]
 					for (
@@ -1853,17 +1880,25 @@ export const exhaust = <A, F extends string, E, R>(
 					blockedUnder(under)
 				)
 
-			/** A sketch's cases from its start, through its first case that did not pass or its last. */
+			/**
+			 * A sketch's cases from its start, through its first case that did not pass or its last, each aimed at its turn
+			 * among what it leaves pending: the first pending requirement after `aimedBefore`, the one the sketch before it
+			 * aimed at.
+			 */
 			const sketchRun = (
 				sketch: Sketch,
-				before: Tally<"exhaustive">
+				before: Tally<"exhaustive">,
+				aimedBefore: number
 			): Effect.Effect<SketchRan<A, F>, never, Exclude<R, Scope.Scope>> =>
 				Effect.gen(function* () {
 					const own = tallyOf("exhaustive")
 					const passed: Array<ReadonlySet<string>> = []
 					let branch: Option.Option<Branch> = Option.some(sketch.start)
 					while (Option.isSome(branch)) {
-						const under = steeredBy(situations, [before, own.tally()])
+						const under = underOf(situations, {
+							kind: "steered",
+							pending: turnOf(pendingOf(situations, [before, own.tally()]), aimedBefore, 0)
+						})
 						const caseRun = yield* caseAt(branch.value, under)
 						if (judgedOf(caseRun).kind !== "passed") {
 							return { passed, stopped: Option.some({ caseRun, under }) }
@@ -1890,6 +1925,7 @@ export const exhaust = <A, F extends string, E, R>(
 			let next: Option.Option<Branch> = Option.some(firstBranch)
 			let rerun: ReadonlyArray<Sketch> = []
 			let cases = 0
+			let aimed = -1
 			while (Arr.isReadonlyArrayNonEmpty(rerun) || Option.isSome(next)) {
 				const window: Array<Sketch> = [...rerun]
 				rerun = []
@@ -1900,9 +1936,15 @@ export const exhaust = <A, F extends string, E, R>(
 				}
 				const before = exhaustive.tally()
 				const steeredBefore = unreachedBy(before).length
+				const pendingBefore = pendingOf(situations, [before])
+				const lastAim = aimed
+				const afterOf = (offset: number): number =>
+					offset === 0
+						? lastAim
+						: Option.getOrElse(Arr.head(turnOf(pendingBefore, lastAim, offset - 1)), () => lastAim)
 				const ran = yield* windowOf(
 					Arr.map(window, (_, index) => index),
-					(index) => sketchRun(Arr.getUnsafe(window, index), before),
+					(index) => sketchRun(Arr.getUnsafe(window, index), before, afterOf(index)),
 					spec.concurrency
 				)
 				const stops: Array<Readonly<{ caseRun: CaseRun<A, Tape>; under: Under<F> }>> = []
@@ -1911,6 +1953,7 @@ export const exhaust = <A, F extends string, E, R>(
 						rerun = window.slice(index)
 						break
 					}
+					aimed = afterOf(index + 1)
 					for (const notes of sketchRan.passed) {
 						cases += 1
 						exhaustive.add(notes)

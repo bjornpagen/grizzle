@@ -750,16 +750,16 @@ export const storedRowsOf = (
 export type Aim<A, F extends string> = readonly [situation: F, reaching: Gen<A>]
 
 /**
- * The case a search runs: its drawn one, or, while a situation an aim names is pending (Case.steering), the case the
- * first such aim's generator constructs, drawn from the case's own tape. Rotating and kept cases are never steered, so
- * they run as drawn.
+ * The case a search runs: its drawn one, or, when the situation its turn aims at is one an aim names (Case.steering),
+ * the case that aim's generator constructs, drawn from the case's own tape. The cases of one window aim at distinct
+ * pending situations, so no aim waits behind another. Rotating and kept cases are never steered, so they run as drawn.
  */
 export const aimedAt =
 	<A, F extends string>(aims: ReadonlyArray<Aim<A, F>>) =>
 	(drawnCase: A, c: Case<F>): A =>
 		Option.match(
 			Option.flatMap(c.steering, (pending) =>
-				Arr.findFirst(aims, ([situation]) => pending.has(situation))
+				Arr.findFirst(aims, ([situation]) => pending.aimed(situation))
 			),
 			{ onNone: () => drawnCase, onSome: ([, reaching]) => c.draw(reaching) }
 		)

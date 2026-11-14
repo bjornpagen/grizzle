@@ -4,8 +4,8 @@ import { tokenOf, valuesFromToken } from "#tape.ts"
 
 /**
  * What a case was drawn under: steered by the required situations still pending when its window began, named by
- * their places among the suite's declared requirements in ascending order, or unsteered, as a rotating
- * case and a kept case are. A property that steers decodes one tape into different programs under different steering,
+ * their places among the suite's declared requirements in turn order (Turns), the one the case aimed at first and the
+ * rest from it, ascending and wrapping; or unsteered, as a rotating case and a kept case are. A property that steers decodes one tape into different programs under different steering,
  * so a replay draws under exactly what its case was drawn under.
  */
 const Drawn = Schema.Union([
@@ -34,8 +34,8 @@ const NIBBLE = 4
 
 const UNSTEERED = "-"
 
-/** A steering field: `-`, or a hexadecimal mask. */
-const STEERING = regex("^(-|[0-9a-f]+)$")
+/** A steering field: `-`, or a hexadecimal mask, and after a dot the hexadecimal place of the aimed requirement. */
+const STEERING = regex("^(-|[0-9a-f]+([.][0-9a-f]+)?)$")
 
 /** A tape field: base-36 whole numbers joined by dots, or nothing for an empty tape. */
 const VALUES = regex("^(-?[0-9a-z]+([.]-?[0-9a-z]+)*)?$")
@@ -70,19 +70,46 @@ const steeringOf = (drawn: Drawn): string => {
 		case "unsteered":
 			return UNSTEERED
 		case "steered":
-			return maskOf(drawn.pending)
+			return Option.match(Arr.head(drawn.pending), {
+				onNone: () => maskOf(drawn.pending),
+				onSome: (aim) => `${maskOf(drawn.pending)}.${aim.toString(16)}`
+			})
 	}
 }
 
-const drawnOf = (steering: string): Drawn =>
-	steering === UNSTEERED
-		? { kind: "unsteered" }
-		: { kind: "steered", pending: pendingOfMask(steering) }
+/**
+ * What a steering field says a case was drawn under: none when it names an aim among nothing pending, no aim among
+ * something pending, or an aim that is not pending.
+ */
+const drawnOf = (steering: string): Option.Option<Drawn> => {
+	if (steering === UNSTEERED) {
+		return Option.some({ kind: "unsteered" })
+	}
+	const fields = Str.split(steering, ".")
+	const pending = pendingOfMask(Arr.headNonEmpty(fields))
+	return Option.match(Arr.get(fields, 1), {
+		onNone: () =>
+			Arr.isReadonlyArrayNonEmpty(pending)
+				? Option.none()
+				: Option.some({ kind: "steered", pending }),
+		onSome: (aimed) => {
+			const aim = Number.parseInt(aimed, 16)
+			return Option.map(
+				Arr.findFirstIndex(pending, (place) => place === aim),
+				(first) => ({
+					kind: "steered",
+					pending: Arr.map(pending, (_, i) => Arr.getUnsafe(pending, (first + i) % pending.length))
+				})
+			)
+		}
+	})
+}
 
 /**
  * A case's replay token, as `TEST_REPLAY` takes it: `<suite>:<steering>:<tape>`. The steering is `-` for an unsteered
  * case, and otherwise a hexadecimal mask whose bit `i` is set when the suite's requirement `i` was still pending ("0"
- * when none was); the tape is its values in base 36, joined by dots.
+ * when none was), followed, when one was, by a dot and the hexadecimal place of the requirement the case aimed at; the
+ * tape is its values in base 36, joined by dots.
  */
 export const replayTokenOf = (suite: string, replayed: ReplayCase): string =>
 	`${suite}:${steeringOf(replayed.drawn)}:${tokenOf(Float64Array.from(replayed.values), replayed.values.length)}`
@@ -101,15 +128,18 @@ export const replayOf = (token: string): Effect.Effect<Replay, ReplayTokenUnread
 			const suite = Str.slice(0, steeringStart)(token)
 			const steering = Str.slice(steeringStart + 1, tapeStart)(token)
 			const tape = Str.slice(tapeStart + 1)(token)
-			return Str.isNonEmpty(suite) && STEERING.test(steering) && VALUES.test(tape)
-				? Effect.succeed({
+			const drawn =
+				Str.isNonEmpty(suite) && STEERING.test(steering) && VALUES.test(tape)
+					? drawnOf(steering)
+					: Option.none()
+			return Option.match(drawn, {
+				onNone: () => Effect.fail(unreadable),
+				onSome: (under) =>
+					Effect.succeed({
 						suite,
-						replayed: {
-							drawn: drawnOf(steering),
-							values: Arr.fromIterable(valuesFromToken(tape))
-						}
+						replayed: { drawn: under, values: Arr.fromIterable(valuesFromToken(tape)) }
 					})
-				: Effect.fail(unreadable)
+			})
 		}
 	})
 }

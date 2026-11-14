@@ -80,16 +80,22 @@ const composite = (source: Parameters<Gen<unknown>>[0]) => {
 }
 
 /**
+ * Pending requirements in turn order: some of twenty, ascending from the drawn one aimed at and wrapping, or none.
+ */
+const turnOrders: Gen<ReadonlyArray<number>> = (source) => {
+	const pending = source.draw(oneOf([constant([]), subarray(Arr.range(0, 19))]))
+	const first = source.draw(int(0, Math.max(0, pending.length - 1)))
+	return Arr.map(pending, (_, i) => Arr.getUnsafe(pending, (first + i) % pending.length))
+}
+
+/**
  * A suite label, colons and all, and a case to replay in it: unsteered, or steered with nothing pending or with some
- * of twenty requirements pending, and values of either sign.
+ * of twenty requirements pending in turn order, and values of either sign.
  */
 const replayTokens: Gen<readonly [string, ReplayCase]> = (source) => {
 	const suite = source.draw(string(characterOf(["a", ":", " ", "/", "-", "."]), { min: 1, max: 6 }))
 	const drawnUnder: Drawn = source.draw(boolean)
-		? {
-				kind: "steered",
-				pending: source.draw(oneOf([constant([]), subarray(Arr.range(0, 19))]))
-			}
+		? { kind: "steered", pending: source.draw(turnOrders) }
 		: { kind: "unsteered" }
 	const values = source.draw(array(oneOf([int(-1000, -1), int(0, 2 ** 52)]), { min: 0, max: 6 }))
 	return [suite, { drawn: drawnUnder, values }]
@@ -233,6 +239,7 @@ describe("a tape", () => {
 							| "unsteered"
 							| "steered, nothing pending"
 							| "steered, past the first digit"
+							| "steered, aimed past its lowest pending"
 							| "a colon in the suite"
 							| "a negative value"
 							| "an empty tape"
@@ -241,6 +248,7 @@ describe("a tape", () => {
 								"unsteered",
 								"steered, nothing pending",
 								"steered, past the first digit",
+								"steered, aimed past its lowest pending",
 								"a colon in the suite",
 								"a negative value",
 								"an empty tape"
@@ -260,14 +268,23 @@ describe("a tape", () => {
 								case "unsteered":
 									c.note("unsteered")
 									break
-								case "steered":
+								case "steered": {
 									if (!Arr.isReadonlyArrayNonEmpty(replayed.drawn.pending)) {
 										c.note("steered, nothing pending")
 									}
 									if (Arr.some(replayed.drawn.pending, (place) => place >= 4)) {
 										c.note("steered, past the first digit")
 									}
+									const { pending } = replayed.drawn
+									if (
+										Option.exists(Arr.head(pending), (aim) =>
+											Arr.some(pending, (place) => place < aim)
+										)
+									) {
+										c.note("steered, aimed past its lowest pending")
+									}
 									break
+								}
 							}
 							if (Str.includes(":")(suite)) {
 								c.note("a colon in the suite")

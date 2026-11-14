@@ -413,7 +413,7 @@ layer(Layer.provideMerge(consumerLayer, NodeServices.layer))(
 							Effect.gen(function* () {
 								const run = Option.match(
 									Option.flatMap(c.steering, (pending) =>
-										Arr.findFirst(FEATURES, (feature) => pending.has(feature))
+										Arr.findFirst(FEATURES, (feature) => pending.aimed(feature))
 									),
 									{ onNone: () => sketch, onSome: (feature) => c.draw(aimedAt(feature)) }
 								)
