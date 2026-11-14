@@ -1,6 +1,6 @@
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { describeOp, type RangeOpCode, type ScalarExpr } from "#compiler/ir/expr.ts"
-import { baseOf, contractOf, type ScalarType, type SpanCarrier } from "#compiler/ir/scalar.ts"
+import { baseOf, type ScalarType, type SpanCarrier } from "#compiler/ir/scalar.ts"
 import { refuseAt } from "#compiler/lower/conservative/context.ts"
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import {
@@ -57,8 +57,12 @@ const endpointType: Readonly<Record<"int4" | "int8" | "date", TypeRef>> = {
 const carrierOf = (t: ScalarType): string => baseOf(t).carrier
 
 /**
- * The operator of an Allen atom or of pointIn between two lowered operands, checked against their carriers; a point's
- * cast is decided by the type PostgreSQL gives it (ScalarExpr.pgType).
+ * The operator of an Allen atom or of pointIn between two lowered operands, checked against their carriers. A point is
+ * the element argument of `anyrange @> anyelement`, which PostgreSQL resolves for a domain's base and never for the
+ * domain (it flattens a domain to its base for anyrange and anyarray alone), so a point always takes its endpoint's base
+ * type: a parameter's placeholder is cast to its declared type's domain as it is bound (LowerContext.scalarParam),
+ * whatever type the IR gives the use, and a value the IR types by a contract is that contract's domain. The domain's
+ * check runs at the parameter's own cast, so the base cast loses nothing.
  */
 const rangeOperator = (
 	expr: ScalarExpr & { readonly kind: "op" },
@@ -99,10 +103,7 @@ const rangeOperator = (
 			`a point of the span's endpoint type ${endpoint} in ${name}, not ${carrierOf(rightOperand.type)}`
 		)
 	}
-	/** A point PostgreSQL types by a contract is compared as its base: the cast is on the probe value. */
-	const point =
-		contractOf(rightOperand.pgType) === undefined ? right : cast(right, endpointType[endpoint])
-	return binary("@>", left, point)
+	return binary("@>", left, cast(right, endpointType[endpoint]))
 }
 
 /** Whether a registry overload's carriers are the node's: a span comparison, construct, lower or upper. */
