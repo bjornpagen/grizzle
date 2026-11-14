@@ -277,6 +277,17 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **Text keys past PostgreSQL's B-tree item size:** so pantry drops its "Key text bound" law.
 
 ### Next
+- **A queued file can hold a catalog snapshot's xmin for as long as it waits (LEASEBUDGET, 2026-11-14; main: log
+  only):** a lease's wait (test/support/substrate/shared.ts awaitLock) is a LOCK TABLE, which takes no snapshot, but
+  PostgreSQL resolves its table's name before it waits. When the backend's catalog caches were reset since its NOWAIT
+  try, by any commit anywhere on the cluster of more invalidations than the shared queue holds (sinval.c), a full
+  tier's DROP SCHEMA finalizers among them, the lookup reads the catalogs under a catalog snapshot. postgres.c releases
+  that snapshot only when the backend goes idle, so the waiter holds its xmin through the wait. Lease connections are
+  READ COMMITTED in grizzle_dev, so SSI is untouched, but the vacuum horizon is held back, the shared catalogs' among
+  it, for as long as the file queues. Reproduced on a private cluster with a loop of 200-table schema drops in another
+  database: a file waiting at the gate held xmin 1074 and no transaction id (3fa1c796, whose substrate/lease allows
+  exactly this snapshot and no other). PostgreSQL has no wait that takes neither a snapshot nor a name lookup, so a fix
+  is a wait outside its lock queue, a redesign of the lease. K clusters shrink the churn each member sees.
 - **The lease's gate is not in its formula's slack (LEASEBUDGET, 2026-11-14; main: log only):** leaseSlots
   (test/support/substrate/shared.ts) sets aside, beyond s slots of connectionsPerLease each, s − 1 race connections and
   unleasedConnections (5). A file waiting while every slot is held costs more than that. The gate's head races with its
