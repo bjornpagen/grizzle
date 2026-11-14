@@ -6,16 +6,21 @@
  *
  * Each case is a containment drawn as test/support/laws/reverse.ts draws them, compiled alone. The oracle is the rule
  * restated there: the schema compiles, its one reverse index is the B-tree over the longest leading bounded run that
- * fits, else the hash index on the first column, and every index the installation creates is a B-tree, a hash or a
- * GiST index. A selected source's reverse index holds law columns, each its field's where the selection holds, so its
+ * fits, else the hash index on the first column a hash index takes, and every index the installation creates is a
+ * B-tree, a hash or a GiST index. Where that run is every referencing column, the drafted DDL holds the structural
+ * property (test/support/laws/referencing.ts): an index led by exactly them, or a unique one within them, serves the
+ * foreign key, never the interleaved key a case declares, led by the first of them and holding the rest further in. A selected source's reverse index holds law columns, each its field's where the selection holds, so its
  * width is checked; a whole source's holds the fields themselves, so its columns are. PostgreSQL's plan of the probe is
  * test/pg/laws/reverse-probe.test.ts's.
  *
  * Plants (~/.cache/grizzle-release/BR03/plants): reverse-shortest-run (the B-tree over the shortest leading run that
- * fits, its first column alone).
+ * fits, its first column alone). ~/.cache/grizzle-release/AXISINDEX/plants: reverse-run-set-lower-bound (the run chosen
+ * by the law model's bound from below for a set), reverse-led-placement (a law's reverse request served by an index led
+ * by one of its columns holding the rest, the interleaved key).
  *
  * Features: free text first, between or last, or only free text; a run cut short by width; a B-tree; a hash index;
- * covered by a declared key; a selected source; into a superkey.
+ * covered by a declared key; a selected source; into a superkey; a set, and a run it cuts short; a key led by a prefix
+ * of the referencing columns.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -30,6 +35,7 @@ import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assertReferencesServed } from "#test/support/laws/referencing.ts"
 import {
 	columnNames,
 	expectedOf,
@@ -65,7 +71,8 @@ describe("a containment's reverse index", () => {
 									types: [{ kind: "uuid" }, { kind: "free" }],
 									covered: false,
 									selected: false,
-									superkey: true
+									superkey: true,
+									interleaved: false
 								},
 								draws: "",
 								reaches: ["free text last", "a B-tree", "into a superkey"]
@@ -118,6 +125,9 @@ describe("a containment's reverse index", () => {
 									expectedNames,
 									"the reverse index's columns"
 								)
+							}
+							if (expected.method === "btree" && expected.positions.length === c.types.length) {
+								assertReferencesServed(installation.statements)
 							}
 							k.noteAll(featuresOf(c))
 							for (const index of installation.indexes) {

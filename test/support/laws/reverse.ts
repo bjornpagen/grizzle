@@ -161,6 +161,12 @@ export interface ReverseCase {
 	readonly covered: boolean
 	readonly selected: boolean
 	readonly superkey: boolean
+	/**
+	 * Whether the source declares a key led by its first referencing column that holds every other one further in, past a
+	 * boolean `x` (`interleavedKey`): an index that leads with a prefix of the referencing columns alone, which the
+	 * reverse probe never reads (physical/indexes/engine.ts reversePlacements). Its columns are then fixed-width.
+	 */
+	readonly interleaved: boolean
 }
 
 /** A referencing column's type a hash index takes: any but a set. */
@@ -191,7 +197,7 @@ const columnTypeGen: Gen<ColumnType> = weighted<ColumnType>([
 ])
 
 /** A case's referencing columns: up to three of any type, and one a hash index takes at a drawn position among them. */
-export const reverseCaseGen: Gen<ReverseCase> = (source) => {
+const anyCaseGen: Gen<ReverseCase> = (source) => {
 	const rest = source.draw(array(columnTypeGen, { min: 0, max: 3 }))
 	const at = source.draw(int(0, rest.length))
 	const anchor = source.draw(hashableTypeGen)
@@ -199,9 +205,35 @@ export const reverseCaseGen: Gen<ReverseCase> = (source) => {
 		types: Arr.appendAll(Arr.append(Arr.take(rest, at), anchor), Arr.drop(rest, at)),
 		covered: source.draw(boolean),
 		selected: source.draw(boolean),
-		superkey: source.draw(boolean)
+		superkey: source.draw(boolean),
+		interleaved: false
 	}
 }
+
+/** A fixed-width type of many values, which can lead an index and bound a scan. */
+const manyTypeGen: Gen<ColumnType> = element<ColumnType>([
+	{ kind: "uuid" },
+	{ kind: "bigint" },
+	{ kind: "integer" },
+	{ kind: "smallint" }
+])
+
+/** A case whose source declares the interleaved key: two to four fixed-width referencing columns of many values. */
+const interleavedCaseGen: Gen<ReverseCase> = (source) => {
+	const [first, ...rest] = source.draw(array(manyTypeGen, { min: 2, max: 4 }))
+	return {
+		types: [defined(first, "a referencing column"), ...rest],
+		covered: false,
+		selected: source.draw(boolean),
+		superkey: source.draw(boolean),
+		interleaved: true
+	}
+}
+
+export const reverseCaseGen: Gen<ReverseCase> = weighted<ReverseCase>([
+	[3, anyCaseGen],
+	[1, interleavedCaseGen]
+])
 
 /** A case's referencing columns' names, by position. */
 export const columnNames = (c: ReverseCase): Arr.NonEmptyReadonlyArray<string> =>
@@ -216,7 +248,7 @@ const boundedPositions = (c: ReverseCase): ReadonlyArray<number> =>
 	Arr.filter(indices(c.types.length), (i) => c.types[i]?.kind !== "free")
 
 /** The positions of a case's set columns. */
-export const setPositions = (c: ReverseCase): ReadonlyArray<number> =>
+const setPositions = (c: ReverseCase): ReadonlyArray<number> =>
 	Arr.filter(indices(c.types.length), (i) => c.types[i]?.kind === "set")
 
 /**
@@ -228,6 +260,7 @@ const declaresKey = (c: ReverseCase): boolean => {
 	const bounded = boundedPositions(c)
 	return (
 		c.covered &&
+		!c.interleaved &&
 		bounded.length > 0 &&
 		expected.method === "btree" &&
 		expected.positions.length === bounded.length
@@ -248,6 +281,7 @@ export type ReverseFeature =
 	| "into a superkey"
 	| "a set referencing column"
 	| "a run cut short by a set"
+	| "a key led by a prefix of the referencing columns"
 
 export const reverseFeatures: Arr.NonEmptyReadonlyArray<ReverseFeature> = [
 	"free text first",
@@ -261,7 +295,8 @@ export const reverseFeatures: Arr.NonEmptyReadonlyArray<ReverseFeature> = [
 	"a selected source",
 	"into a superkey",
 	"a set referencing column",
-	"a run cut short by a set"
+	"a run cut short by a set",
+	"a key led by a prefix of the referencing columns"
 ]
 
 /** Whether a case's target is keyed by fewer columns than the containment references. */
@@ -313,7 +348,18 @@ export const featuresOf = (c: ReverseCase): ReadonlyArray<ReverseFeature> => {
 			: cutBySet(c)
 				? ["a set referencing column", "a run cut short by a set"]
 				: ["a set referencing column"]
-	return [...freeFeature(c), ...methodFeature(c), ...covered, ...selected, ...superkey, ...set]
+	const interleaved: ReadonlyArray<ReverseFeature> = c.interleaved
+		? ["a key led by a prefix of the referencing columns"]
+		: []
+	return [
+		...freeFeature(c),
+		...methodFeature(c),
+		...covered,
+		...selected,
+		...superkey,
+		...set,
+		...interleaved
+	]
 }
 
 const short = regexField("^.{0,10}$", ["su"])
@@ -353,6 +399,13 @@ const descriptorOf = (t: ColumnType, side: "source" | "target"): FieldBase => {
 	}
 }
 
+/** The interleaved key over a case's referencing columns: its first, the boolean `x`, then every other. */
+const interleavedKey = (names: Arr.NonEmptyReadonlyArray<string>): ReadonlyArray<string> => [
+	Arr.headNonEmpty(names),
+	"x",
+	...Arr.tailNonEmpty(names)
+]
+
 /** The relation names of the case at a position: its source's and its target's. */
 export const relationsAt = (at: number): { readonly source: string; readonly target: string } => ({
 	source: `A${at}`,
@@ -362,12 +415,12 @@ export const relationsAt = (at: number): { readonly source: string; readonly tar
 /**
  * The relations and statements of the cases, each at its position, beside the two rosters a set column is over: a source
  * keyed by `id`, with a boolean `live` its
- * selection reads and its referencing columns; a target of the columns they meet, keyed by all of them but its sets or
+ * selection reads, a boolean `x` the interleaved key reads, and its referencing columns; a target of the columns they meet, keyed by all of them but its sets or
  * by the first of those, since a declared key counts a set at the most codes a roster numbers, past any entry;
- * the containment of the one, or of its live rows, in the other; and the declared key over the source's bounded
- * columns where the case declares one.
+ * the containment of the one, or of its live rows, in the other; the declared key over the source's bounded columns
+ * where the case declares one, and the interleaved key where it declares that.
  */
-export const reverseParts = (
+const reverseParts = (
 	cases: ReadonlyArray<ReverseCase>
 ): {
 	readonly relations: ReadonlyArray<readonly [string, AnyRelation | AnyClosed]>
@@ -382,6 +435,7 @@ export const reverseParts = (
 			{
 				id: uuid,
 				live: pgDescriptors.boolean,
+				x: pgDescriptors.boolean,
 				...Rec.fromEntries(Arr.map(names, (n, i) => [n, descriptorOf(typeAt(i), "source")]))
 			},
 			["id"],
@@ -405,7 +459,8 @@ export const reverseParts = (
 		const bounded = Arr.map(boundedPositions(c), (i) => defined(names[i], "a column name"))
 		const statements: ReadonlyArray<Statement> = [
 			containedBuilder(side, onBuilder(B, names)),
-			...(declaresKey(c) ? [keyBuilder(onBuilder(A, bounded))] : [])
+			...(declaresKey(c) ? [keyBuilder(onBuilder(A, bounded))] : []),
+			...(c.interleaved ? [keyBuilder(onBuilder(A, interleavedKey(names)))] : [])
 		]
 		const relations: ReadonlyArray<readonly [string, AnyRelation]> = [
 			[source, A],

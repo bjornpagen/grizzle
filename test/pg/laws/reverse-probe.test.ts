@@ -212,7 +212,7 @@ const probeBatch = (batch: ReadonlyArray<ReverseCase>, note: SearchCase<ProbeFea
 			const frees = freePositions(c)
 			if (c.selected && frees.length > 0) {
 				const wide = wideText(at + 1)
-				const fields = ["id", "live", ...columnNames(c)]
+				const fields = ["id", "live", "x", ...columnNames(c)]
 				yield* session.query(
 					`INSERT INTO ${table} (${Arr.join(
 						Arr.map(fields, (f) => quoteIdent(installed.names.column(source, f))),
@@ -223,6 +223,7 @@ const probeBatch = (batch: ReadonlyArray<ReverseCase>, note: SearchCase<ProbeFea
 					)})`,
 					[
 						`00000000-0000-4000-8000-${Str.padStart(12, "0")(String(at))}`,
+						"false",
 						"false",
 						...Arr.map(c.types, (t) => valueOf(t, wide))
 					]

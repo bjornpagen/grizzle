@@ -14,13 +14,14 @@
  * predecessor axis (g, ‹p›), which pairs with the family key (g, at), finds every row the shorter prefix selects, each
  * probe reading a whole family, so deleting a family of n members reads n² rows.
  *
- * The property holds where one B-tree entry holds the columns that pair with some key: a referencing column of a text
+ * A column generated as one constant is left out of a reference's columns: binding it narrows no probe. The property
+ * holds where one B-tree entry holds the columns that pair with some key: a referencing column of a text
  * of no bound is indexed by the longest leading run of the columns an entry holds (test/support/laws/reverse.ts
  * expectedOf), which test/unit/laws/model/reverse-index.test.ts states for a containment.
  */
 import { Array as Arr } from "effect"
 import type { IndexMethod } from "#compiler/core/identity.ts"
-import type { ObjectName, SqlStatement, TableConstraint } from "#compiler/sql/ast.ts"
+import type { ColumnDef, ObjectName, SqlStatement, TableConstraint } from "#compiler/sql/ast.ts"
 import { tableConstraints } from "#compiler/sql/ast.ts"
 import { assert } from "#test/support/assert.ts"
 
@@ -75,9 +76,16 @@ const drafted = (
 ): {
 	readonly indexes: ReadonlyMap<string, ReadonlyArray<DraftedIndex>>
 	readonly references: ReadonlyArray<DraftedReference>
+	readonly constants: ReadonlySet<string>
 } => {
 	const indexes = new Map<string, Array<DraftedIndex>>()
 	const references: Array<DraftedReference> = []
+	const constants = new Set<string>()
+	const column = (table: ObjectName, c: ColumnDef): void => {
+		if (constantColumn(c)) {
+			constants.add(columnKey(tableKey(table), c.name))
+		}
+	}
 	const add = (table: ObjectName, index: DraftedIndex): void => {
 		const key = tableKey(table)
 		indexes.set(key, [...(indexes.get(key) ?? []), index])
@@ -98,6 +106,9 @@ const drafted = (
 	}
 	for (const s of statements) {
 		if (s.kind === "createTable") {
+			for (const c of s.columns) {
+				column(s.table, c)
+			}
 			for (const c of tableConstraints(s)) {
 				constraint(s.table, c)
 			}
@@ -105,6 +116,8 @@ const drafted = (
 			for (const a of s.actions) {
 				if (a.kind === "addConstraint") {
 					constraint(s.table, a.constraint)
+				} else if (a.kind === "addColumn") {
+					column(s.table, a.column)
 				}
 			}
 		} else if (s.kind === "createIndex") {
@@ -115,7 +128,32 @@ const drafted = (
 			})
 		}
 	}
-	return { indexes, references }
+	return { indexes, references, constants }
+}
+
+/** A column of a table, as the constants are keyed. */
+const columnKey = (table: string, column: string): string => `${table}.${column}`
+
+/**
+ * Whether a column is generated as one constant, a law column holding a target's fixed value: binding it narrows no
+ * probe, so no index needs it (physical/indexes/engine.ts reverseRequests leaves it out).
+ */
+const constantColumn = (c: ColumnDef): boolean =>
+	c.generated?.kind === "stored" &&
+	(c.generated.expr.kind === "literal" ||
+		(c.generated.expr.kind === "cast" && c.generated.expr.expr.kind === "literal"))
+
+/** A reference without its constant columns, each with the column it references. */
+const variable = (r: DraftedReference, constants: ReadonlySet<string>): DraftedReference => {
+	const pairs = Arr.filter(
+		Arr.zip(r.columns, r.referenced),
+		([c]: readonly [string, string]) => !constants.has(columnKey(r.table, c))
+	)
+	return {
+		...r,
+		columns: Arr.map(pairs, ([c]) => c),
+		referenced: Arr.map(pairs, ([, t]) => t)
+	}
 }
 
 /** Whether every one of `xs` is among `ys`. */
@@ -164,8 +202,9 @@ const serves = (
  * <table> (<columns>)`: none where the property holds.
  */
 const unservedReferences = (statements: ReadonlyArray<SqlStatement>): ReadonlyArray<string> => {
-	const { indexes, references } = drafted(statements)
-	return Arr.flatMap(references, (r) => {
+	const { indexes, references, constants } = drafted(statements)
+	return Arr.flatMap(references, (stated) => {
+		const r = variable(stated, constants)
 		const runs = keyedRuns(r, indexes.get(r.target) ?? [])
 		return Arr.some(indexes.get(r.table) ?? [], (index) => serves(index, r, runs))
 			? []

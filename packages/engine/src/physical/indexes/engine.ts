@@ -251,6 +251,22 @@ const placedBy = (
 		? [{ kind: "placed", lead, bound }]
 		: []
 
+/**
+ * A law's reverse probe, an equality lookup on every column that PostgreSQL's RI trigger runs once per row its foreign
+ * key's target deletes or rekeys (ri_triggers.c, RI_FKey_noaction_del): a B-tree whose leading columns are exactly the
+ * requested set, a unique B-tree all of whose keys it binds, which finds at most one row, or a GiST index it places
+ * (`placedBy`). Never a B-tree led by one requested column that holds the others further in (`ledBy`), which a workload's
+ * lookup takes: each probe would read every row of that column's value, a whole document's rows for a key led by
+ * (package, path), so deleting a document of n rows would read n² entries.
+ */
+const reversePlacements = (keys: Keys, columns: Columns): Placements => ({
+	own: { kind: "blocks", method: "btree", blocks: [keys], directed: undefined },
+	others: [
+		{ kind: "keyed", method: "btree", within: keys },
+		...placedBy(placingOf(keys, columns), keys, columns)
+	]
+})
+
 /** An equality lookup on every column. */
 const equalityPlacements = (keys: Keys, columns: Columns): Placements => {
 	const lead = placingOf(keys, columns)
@@ -401,7 +417,7 @@ const placementsOf = (
 			return hashPlacements(keys)
 		case "btree":
 			return request.role === "lawMaintenance"
-				? equalityPlacements(keys, columns)
+				? reversePlacements(keys, columns)
 				: btreeAccessPlacements(request.use, keys, columns, label)
 	}
 }
@@ -766,10 +782,12 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * - only an index of the same relation can serve a request;
  * - an equality lookup on every requested column (a law's B-tree probe, or a workload key lookup, equality lookup, join
  *   key or B-tree write target) is served by a B-tree whose leading columns are exactly the requested set, in any order
- *   and direction (`(tenant, account, created)` serves an equality lookup on `(account, tenant)`), or by one led by a
- *   requested column of many values that holds every requested column, which bounds the scan to that column's rows and
- *   checks the rest within the index (`(account, created, tenant)` serves it too; a closed handle or a boolean holds few
- *   values, so leading with one bounds no scan); and by a GiST index whose first column of many values is a requested
+ *   and direction (`(tenant, account, created)` serves an equality lookup on `(account, tenant)`), or, for a workload's
+ *   lookup alone, by one led by a requested column of many values that holds every requested column, which bounds the
+ *   scan to that column's rows and checks the rest within the index (`(account, created, tenant)` serves it too; a
+ *   closed handle or a boolean holds few values, so leading with one bounds no scan): a law's probe runs once per row
+ *   its foreign key's target deletes, and reading a column's every row for each would make deleting them quadratic
+ *   (`reversePlacements`); and by a GiST index whose first column of many values is a requested
  *   one, every column before it a requested one too, and that holds every requested column, each a scalar under the
  *   default class, which btree_gist searches by its
  *   equality and comparison operators, a range below likewise. So a constraint-created index can satisfy a request when
@@ -815,8 +833,8 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * its own, which an index created for it takes, and the others an index may hold instead, each owned by the access
  * method of the indexes that hold it (methodOf). A placement is blocks of columns leading a B-tree, a hash or an HNSW
  * index, each block's columns in any order among themselves (an ordered request's keys each a block of its own, in its
- * directions or all opposite); or a B-tree led by one of some columns and holding others (an equality lookup's or a
- * range's led by a column of many values); or a GiST index whose first column of many values is one of some columns,
+ * directions or all opposite); or a B-tree led by one of some columns and holding others (a workload's equality lookup's
+ * or a range's led by a column of many values, never a law's probe's); or a GiST index whose first column of many values is one of some columns,
  * every column before it and every other held (a GiST request's own, and an equality lookup's or a range's whose prefix, or range column when it has
  * none, holds many values); or, for a unique index, every key among some of the columns the request fixes (a B-tree's for
  * an equality lookup or a range; a GiST request's: a GiST index's among all of them, a B-tree's among its scalars). No
