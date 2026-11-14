@@ -623,7 +623,10 @@ const ruleCallback =
 				for (const b of n.bindings) {
 					bindings[b.field.name] = term(b.var)
 				}
-				return r.not(built.relation(n.source), bindings)
+				return r.not(
+					n.source.kind === "stored" ? built.relation(n.source) : imported(n.source),
+					bindings
+				)
 			})
 		]
 		if (predicates.length > 0) {

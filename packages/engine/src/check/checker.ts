@@ -2570,7 +2570,7 @@ class RuleCheck {
 				this.scope,
 				this.rule.interiors,
 				loc,
-				(term, param, at) => this.#bindValue(term, param, at)
+				(term, param, at) => this.#bindValue(term, param, at, this.region)
 			)
 			const narrowed = this.#narrow(source, match.bindings, loc)
 			const heading = narrowed.heading
@@ -2729,14 +2729,16 @@ class RuleCheck {
 
 	/**
 	 * What an import's bind term binds a parameter to, read in this rule's scope: a scalar parameter is used at its
-	 * declared type there, and a relation parameter is resolved where the import reads it as a source.
+	 * declared type there, and a relation parameter is resolved where the import reads it as a source. An outer value is
+	 * read through a column of `node`, the node the import is read over: a match's import over the rule's region, and a
+	 * negation's over the node it negates, which delivers the region's columns unchanged (`#negation`).
 	 */
-	#bindValue(term: ResolvedBound, param: string, loc: SourceLoc): BindValue {
+	#bindValue(term: ResolvedBound, param: string, loc: SourceLoc, node: NodeId): BindValue {
 		if (term.kind === "relationParam") {
 			return this.cx.resolveParam(term.cell, this.scope, loc)
 		}
 		if (term.kind === "var") {
-			return this.#slotValue(this.#userSlot(term.var, loc))
+			return this.#slotValue(this.#userSlot(term.var, loc), node)
 		}
 		if (term.kind === "parent") {
 			const slot = this.parents.get(term.column)
@@ -2746,7 +2748,7 @@ class RuleCheck {
 						loc,
 						`a parent variable inside an attachment; ${term.column} is not one`
 					)
-				: this.#slotValue(slot)
+				: this.#slotValue(slot, node)
 		}
 		if (term.kind === "param") {
 			const resolved = this.cx.resolveParam(term.cell, this.scope, loc)
@@ -2754,7 +2756,7 @@ class RuleCheck {
 				resolved.cell.use(this.cx.paramType(term, loc), loc)
 			}
 			return resolved.kind === "column"
-				? this.#slotValue(this.#paramSlot(term.cell, loc))
+				? this.#slotValue(this.#paramSlot(term.cell, loc), node)
 				: resolved
 		}
 		if (term.kind === "literal") {
@@ -2775,9 +2777,9 @@ class RuleCheck {
 		)
 	}
 
-	/** A slot as a bind value: its column of the rule's region, at its type. */
-	#slotValue(slot: Slot): BindValue {
-		return { kind: "column", node: this.region, name: slot.name, type: this.slotType(slot) }
+	/** A slot as a bind value: its column of `node`, the rule's region or a node over it, at its type. */
+	#slotValue(slot: Slot, node: NodeId): BindValue {
+		return { kind: "column", node, name: slot.name, type: this.slotType(slot) }
 	}
 
 	/** The leaf columns of this rule's region. */
@@ -3154,7 +3156,7 @@ class RuleCheck {
 	): RelNode {
 		const source = this.#narrow(
 			this.cx.source(absent.source, this.scope, this.rule.interiors, loc, (term, param, at) =>
-				this.#bindValue(term, param, at)
+				this.#bindValue(term, param, at, left.id)
 			),
 			absent.bindings,
 			loc

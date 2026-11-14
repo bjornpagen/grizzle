@@ -5,11 +5,15 @@
  * order), and each heading group of a heterogeneous union's root likewise.
  *
  * Oracle: a second implementation, the program's meaning evaluated straight from the generated program against the
- * reference evaluator over the checked IR. Where the reference declines a value, its reason is rated, so a class of
- * cases it stops judging shows on the report.
+ * reference evaluator over the checked IR, which the strict DAG re-reader (test/support/oracle/dag-validate.ts) reads
+ * first, so a checked IR no lowering can read, a column read outside every scope that binds it among them, is a defect
+ * before any answer is compared. Where the reference declines a value, its reason is rated, so a class of cases it
+ * stops judging shows on the report.
  *
  * Plants (~/.cache/grizzle-release/BR04/plants): meaning-negation-first-key-dropped.patch (a negation's join drops its
- * first equated column).
+ * first equated column). (~/.cache/grizzle-release/PROBESPLIT/plants): negation-binds-region.patch (a negated import's
+ * bind values read the rule's region rather than the node the negation is over, which a filter stands between), which
+ * the floor stream fails at a negated import bound to an outer variable beside a filter.
  *
  * Features: the language's own terms the program reaches, each mixed form, and each node kind the checked IR holds.
  */
@@ -49,6 +53,7 @@ import { type ReferenceObserver, unobserved } from "#test/support/oracle/referen
 import { type DeclineReason, declineReasons } from "#test/support/oracle/reference/values.ts"
 
 import { caseHang } from "#test/support/limits.ts"
+import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import {
 	expectedFrom,
 	expectedMixed,
@@ -212,6 +217,7 @@ const judged = (
 		checkQuery(checking(built.schema), input.desc, checkOptions("query")),
 		`the checker refuses a program the language admits\n${printCase(c)}`
 	)
+	validateDag(checked.dag)
 	for (const node of topoOrder(checked.dag)) {
 		note(`checked ${node.kind satisfies RelKind}`)
 	}

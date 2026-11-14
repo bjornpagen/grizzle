@@ -773,8 +773,26 @@ class Translation {
 				negated.push(decl)
 				bound.set(b.field.name, decl)
 			}
+			/**
+			 * A negated import reads each variable its parameters are bound to as the column of the node it negates, which
+			 * the reference evaluates once per row of that node.
+			 */
+			const over = current.node
 			const right = this.region(
-				[{ source: n.source, node: this.stored(n.source), bound }],
+				[
+					{
+						source: n.source,
+						node:
+							n.source.kind === "stored"
+								? this.stored(n.source)
+								: this.source(n.source, (v) => ({
+										kind: "var",
+										node: over,
+										column: columnOf(nameOf(v), declOf(v.id).type)
+									})),
+						bound
+					}
+				],
 				negated,
 				[]
 			)

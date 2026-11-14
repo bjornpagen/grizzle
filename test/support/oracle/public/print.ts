@@ -187,7 +187,7 @@ const rule = (r: Rule<ParentColumn>): string => {
 		...Arr.map(
 			r.negations,
 			(n) =>
-				`r.not(${n.source.name}, { ${Arr.join(
+				`r.not(${n.source.kind === "stored" ? n.source.name : source(n.source)}, { ${Arr.join(
 					Arr.map(n.bindings, (b) => `${b.field.name}: ${variable(b.var)}`),
 					", "
 				)} })`

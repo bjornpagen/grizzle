@@ -218,6 +218,9 @@ export type SwarmFeature = (typeof swarmFeatures)[number]
  *
  * Query.bind of an imported parameter to a parameter of the read.
  *
+ * r.not of such a query, every parameter bound to an outer variable, in a rule that filters besides: the negation is
+ * then over the rule's filtered bindings, which its correlation reads.
+ *
  * A root rule matches an r.interior stage of its own.
  *
  * The root's query is Query.named after its bound.
@@ -250,6 +253,7 @@ export const programForms = [
 	"an import of an attached query",
 	"an import bound to an outer variable",
 	"an import bound to a parameter",
+	"a negated import bound to an outer variable beside a filter",
 	"an interior",
 	"a named stage",
 	"a computed head key",
@@ -419,6 +423,15 @@ const literalDistinct = <P>(arms: ReadonlyArray<Rule<P>>): boolean => {
 const headFeatures = <P>(rule: Rule<P>): ReadonlyArray<ProgramFeature> =>
 	Arr.flatMap(rule.head, (h) => headItemFeatures(h, isAggregate(rule)))
 
+/** Whether a rule filters by anything but a negation: a comparison, a range, a set, an Allen atom, a point or a connective. */
+const filters = <P>(rule: Rule<P>): boolean =>
+	rule.where.length > 0 ||
+	rule.between.length > 0 ||
+	rule.inSets.length > 0 ||
+	rule.allens.length > 0 ||
+	rule.pointIns.length > 0 ||
+	rule.connectives.length > 0
+
 const ruleFeatures = <P extends ParentColumn>(rule: Rule<P>): ReadonlyArray<ProgramFeature> => [
 	...(rule.matches.length > 1 ? ["join of matches" as const] : []),
 	...Arr.flatMap(rule.matches, (m) => [
@@ -441,6 +454,12 @@ const ruleFeatures = <P extends ParentColumn>(rule: Rule<P>): ReadonlyArray<Prog
 		c.args.length > 0 ? [] : [c.kind === "and" ? "an empty conjunction" : "an empty disjunction"]
 	),
 	...(rule.negations.length > 0 ? ["negation" as const] : []),
+	...Arr.flatMap(rule.negations, (n) =>
+		n.source.kind === "import" ? sourceFeatures(n.source) : []
+	),
+	...(Arr.some(rule.negations, (n) => n.source.kind === "import") && filters(rule)
+		? ["a negated import bound to an outer variable beside a filter" as const]
+		: []),
 	...headFeatures(rule),
 	...(rule.head.length === 0 ? ["zero-column head" as const] : [])
 ]
@@ -1590,8 +1609,8 @@ interface ImportOffer {
 
 /**
  * The import an earlier read offers, or undefined where its query cannot be imported as a set of its head variables:
- * its first arm is an aggregate or finds anything but variables, a rule matches a derived source, it reads a relation
- * parameter, or a parameter of it occurs anywhere but as a match binding.
+ * its first arm is an aggregate or finds anything but variables, a rule matches or negates a derived source, it reads a
+ * relation parameter, or a parameter of it occurs anywhere but as a match binding.
  */
 const importOffer = (read: ProgramRead, index: number): ImportOffer | undefined => {
 	if (read.kind !== "query" || read.relations.length > 0) {
@@ -1604,8 +1623,11 @@ const importOffer = (read: ProgramRead, index: number): ImportOffer | undefined 
 	if (head === undefined || heads.length !== first.head.length || isAggregate(first)) {
 		return undefined
 	}
-	const plain = Arr.every(root.arms, (rule) =>
-		Arr.every(rule.matches, (m) => m.source.kind === "stored" || m.source.kind === "roster")
+	const plain = Arr.every(
+		root.arms,
+		(rule) =>
+			Arr.every(rule.matches, (m) => m.source.kind === "stored" || m.source.kind === "roster") &&
+			Arr.every(rule.negations, (n) => n.source.kind === "stored")
 	)
 	const unfiltered = Arr.every(
 		root.arms,
@@ -1990,11 +2012,23 @@ const resolveConnective = <P>(
 	)
 })
 
-const resolveNegation = <P>(state: RuleState<P>, sketch: NegationSketch): Negation | undefined => {
-	const source = pickFrom(state.scope.schema.relations, sketch.source)
+/**
+ * A negation, its fields bound to the rule's variables of their types as the picks say: of `offer`, the import a root
+ * binds, where one is given and it negates as one (`negatedImport`), and of a stored relation otherwise. A root that
+ * binds an import is given it where the negation's source pick is in its upper half. It draws nothing beyond a stored
+ * negation's picks, so a case's tape is the same whichever it negates, and a kept case's draws stay its own.
+ */
+const resolveNegation = <P>(
+	state: RuleState<P>,
+	sketch: NegationSketch,
+	offer: ImportOffer | undefined
+): Negation | undefined => {
+	const source: Stored | Imported =
+		(offer === undefined ? undefined : negatedImport(state, offer, sketch)) ??
+		pickFrom(state.scope.schema.relations, sketch.source)
 	const bindings: Array<{ readonly field: ProgramField; readonly var: Var }> = []
 	for (const pick of sketch.picks) {
-		const pairs = Arr.flatMap(source.fields, (field) =>
+		const pairs = Arr.flatMap(sourceFields(source), (field) =>
 			Arr.some(bindings, (b) => b.field === field)
 				? []
 				: Arr.map(state.same(field.type), (v) => ({ field, var: v }))
@@ -2006,6 +2040,37 @@ const resolveNegation = <P>(state: RuleState<P>, sketch: NegationSketch): Negati
 	}
 	const [first, ...rest] = bindings
 	return first === undefined ? undefined : { source, bindings: [first, ...rest] }
+}
+
+/**
+ * An offered import a negation reads, its attachments dropped and every parameter bound to a variable the rule bound,
+ * of the parameter's type, as the picks say; none where it has no parameter or one fits no variable.
+ */
+const negatedImport = <P>(
+	state: RuleState<P>,
+	offer: ImportOffer,
+	sketch: NegationSketch
+): Imported | undefined => {
+	const binds: Array<ImportBind> = []
+	for (const [k, { param, field }] of offer.params.entries()) {
+		const bound = pickAmong(
+			fittingVars(state, field),
+			elementOf(sketch.picks, k % sketch.picks.length, "a negation pick")
+		)
+		if (bound === undefined) {
+			return undefined
+		}
+		binds.push({ param, to: { kind: "var", var: bound } })
+	}
+	return binds.length === 0
+		? undefined
+		: {
+				kind: "import",
+				read: offer.read,
+				query: { ...offer.query, attachments: [] },
+				fields: offer.fields,
+				binds
+			}
 }
 
 /** The kinds a Compute term takes as its variable: the numeric ones. */
@@ -2330,7 +2395,9 @@ const resolveInterior = (scope: ReadScope, sketch: InteriorSketch): Interior | u
 				Option.toArray(Option.fromUndefinedOr(resolveComparison(state, c)))
 			)
 		: []
-	const negation = scope.keep("negation") ? resolveNegation(state, sketch.negation) : undefined
+	const negation = scope.keep("negation")
+		? resolveNegation(state, sketch.negation, undefined)
+		: undefined
 	const chosen: Array<Var> = []
 	for (const pick of sketch.head.vars) {
 		const v = pickAmong(state.vars, pick)
@@ -2661,7 +2728,13 @@ const resolveDrawnRule = <P>(
 				(c) => !plainRoot || c.right.kind !== "param"
 			)
 		: []
-	const negation = scope.keep("negation") ? resolveNegation(state, sketch.negation) : undefined
+	const negation = scope.keep("negation")
+		? resolveNegation(
+				state,
+				sketch.negation,
+				bound !== undefined && upper(sketch.negation.source) ? bound : undefined
+			)
+		: undefined
 	const negations = negation === undefined ? [] : [negation]
 	if (form.kind === "keyed") {
 		return {

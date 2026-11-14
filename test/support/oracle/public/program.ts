@@ -280,9 +280,13 @@ export interface Comparison {
 	readonly right: Operand<never>
 }
 
-/** r.not(source, bindings): no fact of the source agrees with the variables. */
+/**
+ * r.not(source, bindings): no fact of the source agrees with the variables. The source is a stored relation, or an
+ * earlier read's query, its attachments dropped, every parameter of it bound to a variable an earlier match binds, so
+ * the negation is correlated with the rule's own bindings.
+ */
 export interface Negation {
-	readonly source: Stored
+	readonly source: Stored | Imported
 	readonly bindings: Arr.NonEmptyReadonlyArray<{ readonly field: ProgramField; readonly var: Var }>
 }
 
