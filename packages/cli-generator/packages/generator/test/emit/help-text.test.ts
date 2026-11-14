@@ -12,7 +12,14 @@
  * `sanitizeProse`, which every help field goes through, keeps exactly the safe code points of its input, in order, up
  * to its cap.
  *
- * Plants, each applied to src/emit/help.ts or src/model/brands.ts, seen to fail this suite and reverted: none yet.
+ * An operation's docs are drawn as normalization holds them, sanitized and so never past the cap: a description at the
+ * cap is one the cap cut.
+ *
+ * Plants, each applied to src/emit/help.ts or src/model/brands.ts, seen to fail this suite and reverted:
+ * - help's description cut one code point short of the cap (a description at the cap);
+ * - help's description taken from the summary before the description;
+ * - brands.ts's maxProseLength at 1999 (sanitizing prose, and no description reaches the cap);
+ * - a scheme's `deprecated` marker left out of AUTH.
  */
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
@@ -499,6 +506,13 @@ const METHODS: Arr.NonEmptyReadonlyArray<string> = ["GET", "POST", "PATCH", "DEL
 
 const PATHS: Arr.NonEmptyReadonlyArray<string> = ["/users/{id}", "/pets", "/a/{b}/c"]
 
+/** The code points prose keeps (src/model/brands.ts `maxProseLength`). */
+const MAX_PROSE = 2000
+
+/**
+ * An operation's docs as normalization holds them: sanitized, so a description longer than the cap was cut to it, and
+ * the model never holds one past it.
+ */
 const docsGen: Gen<Operation["docs"]> = (s) => {
 	const long = s.draw(
 		weighted([
@@ -507,7 +521,7 @@ const docsGen: Gen<Operation["docs"]> = (s) => {
 		])
 	)
 	const prose = long
-		? map(text, (start) => sanitizeProse(`${start}${Str.repeat(2100)("x")}`))
+		? map(text, (start) => sanitizeProse(`${start}${Str.repeat(MAX_PROSE + 100)("x")}`))
 		: safeText
 	return {
 		...Option.match(s.draw(option(prose)), {
@@ -977,7 +991,7 @@ type Feature =
 	| "a description"
 	| "a summary alone"
 	| "no prose"
-	| "a description past the cap"
+	| "a description at the cap"
 	| "a path argument"
 	| "a negatable flag"
 	| "a body field with choices"
@@ -1035,8 +1049,8 @@ const featuresOf = (input: HelpInput): ReadonlyArray<Feature> => {
 			"no prose"
 		),
 		...when(
-			Arr.fromIterable(operation.docs.description ?? "").length > 2000,
-			"a description past the cap"
+			Arr.fromIterable(operation.docs.description ?? "").length === MAX_PROSE,
+			"a description at the cap"
 		),
 		...when(Arr.some(input.flags, isArgument), "a path argument"),
 		...when(
@@ -1206,8 +1220,6 @@ const PROSE_CHARS: Arr.NonEmptyReadonlyArray<string> = [
 	"\ufeff"
 ]
 
-const MAX_PROSE = 2000
-
 /** The code points sanitizing keeps: every one outside controls, format characters, separators and lone surrogates,
  * LF and TAB kept. */
 const isKept = (char: string): boolean => char === "\n" || char === "\t" || !unsafe.test(char)
@@ -1228,7 +1240,7 @@ describe("emit: help", () => {
 								"a description",
 								"a summary alone",
 								"no prose",
-								"a description past the cap",
+								"a description at the cap",
 								"a path argument",
 								"a negatable flag",
 								"a body field with choices",
