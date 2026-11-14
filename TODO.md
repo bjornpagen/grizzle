@@ -340,12 +340,6 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   bound (workerDatabaseBytes, 38.9 MB) is below PostgreSQL's 128 MB default shared_buffers and below a pantry
   database, so a one-run cluster may want PostgreSQL's own defaults instead (a peer's hand-made 5442 had
   max_connections 100 and ran pantry's migrate in 1 min 35 s, against over 30 min on shared 5433).
-- **build.sh swaps the prefix under every running cluster (PRIVATECLUSTER, 2026-11-14):** it stops and restarts only
-  the cluster GRIZZLE_PG_CLUSTER selects around the exchange, so any other cluster running from
-  $GRIZZLE_PG_PREFIX has its binaries replaced under it. lane-rules forbids a rebuild while private clusters run (the
-  19 GA repin included). build.sh should refuse the exchange while a cluster other than the selected one runs from the
-  prefix: every cluster's state directory sits beside $GRIZZLE_PG_DEFAULT_STATE (test/support/env.ts selectCluster), so
-  pg_ctl status over each one's data, as the doctor runs it, lists them.
 - **`bench:full` on a quiet machine.**
 - **Test layout:** tests move into packages/*/test, with their mutate and fallow paths and the docs.
 - **The fill kernel's rows have one handle, their `id` (RESTATED, 2026-11-12):** test/support/families/fill.ts follows a

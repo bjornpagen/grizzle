@@ -17,9 +17,11 @@ unset cluster assignment
 
 pg_bin() { echo "$GRIZZLE_PG_PREFIX/bin/$1"; }
 
-# The stamp of the build at the prefix $1, which build.sh writes last. It holds the patch set the build was made with,
-# so a changed set rebuilds.
-core_stamp() { echo "$1/.grizzle-build-$PG_PIN_COMMIT"; }
+# The stamp of the build at the prefix $1, which build.sh writes last: the file named stamp_stem and the release's
+# commit, which holds the patch set the build was made with. build.sh reads the installation's through
+# scripts/pg/pin-verdict.ts, so a changed set rebuilds and an older one of the same release is refused.
+stamp_stem=.grizzle-build-
+core_stamp() { echo "$1/$stamp_stem$PG_PIN_COMMIT"; }
 
 require_build() {
 	if [[ ! -f "$(core_stamp "$GRIZZLE_PG_PREFIX")" ]]; then

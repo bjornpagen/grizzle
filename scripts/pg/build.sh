@@ -9,8 +9,14 @@
 # pin's, before the build is installed into a staging tree beside the prefix, on the same file system; pgvector is
 # checked out and built into that tree and the stamp is written last. Only then does one rename exchange the tree with
 # the prefix. A failure before the exchange leaves the prefix as it was, and the staging tree, which holds the previous
-# build after the exchange, is removed on every exit. The cluster runs from the prefix, so a cluster running at the
-# exchange is stopped just before it and started again just after it.
+# build after the exchange, is removed on every exit. The selected cluster runs from the prefix, so it is stopped just
+# before the exchange and started again just after it.
+#
+# Two refusals keep a build from damaging the prefix. A checkout older than the prefix's build, one whose pin is of the
+# same release and lacks a patch the build carries, is refused before anything changes, --force or not: building it
+# would drop that patch under every cluster. And unless --force is given, the exchange is refused while a postmaster
+# other than the selected cluster's runs from the prefix, since it would replace that postmaster's binaries under it:
+# before anything changes, and again just before the exchange, since a cluster may start while the build runs.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -18,8 +24,11 @@ here="$(cd "$(dirname "$0")" && pwd)"
 force=0
 [[ "${1:-}" == "--force" ]] && force=1
 
-if [[ $force -eq 0 && -f "$(core_stamp "$GRIZZLE_PG_PREFIX")" &&
-	"$(cat "$(core_stamp "$GRIZZLE_PG_PREFIX")")" == "$PG_PIN_PATCHES" ]]; then
+# The pin's verdict over the build the prefix holds (scripts/pg/installation.ts verdict), keyed on the release's commit
+# and never on how many patches either holds, since a repin drops the patches its release includes: build, built, or a
+# failing exit for a pin older than the prefix's build, which names the patches it lacks.
+verdict="$(repo_node scripts/pg/pin-verdict.ts "$GRIZZLE_PG_PREFIX" "$stamp_stem" "$PG_PIN_COMMIT" "$PG_PIN_PATCHES")"
+if [[ $force -eq 0 && "$verdict" == built ]]; then
 	echo "PostgreSQL $PG_PIN_VERSION and pgvector $PGVECTOR_PIN_VERSION already built at $GRIZZLE_PG_PREFIX"
 	exit 0
 fi
@@ -36,6 +45,26 @@ staged="$stage_root$GRIZZLE_PG_PREFIX"
 vector_src="$stage_root/pgvector-$PGVECTOR_PIN_VERSION"
 pgxs=(PG_CONFIG="$staged/bin/pg_config" COPT="-ffile-prefix-map=$staged=$GRIZZLE_PG_PREFIX"
 	rpathdir="$GRIZZLE_PG_PREFIX/lib")
+
+# Refuses, unless --force is given, while a postmaster other than the selected cluster's runs the prefix's build or the
+# staging tree's, the two trees the exchange swaps, and names each by its port and data directory: every postmaster the
+# kernel lists whose executable is or was one of theirs (scripts/pg/foreign-postmasters.ts), so a cluster grizzle did
+# not make is named too. With --force it names them as the clusters to restart after the exchange.
+refuse_foreign_postmasters() {
+	local foreign
+	foreign="$(repo_node scripts/pg/foreign-postmasters.ts "$GRIZZLE_PG_DATA" "$GRIZZLE_PG_PREFIX" "$staged")"
+	if [[ -z "$foreign" ]]; then
+		return 0
+	fi
+	if [[ $force -eq 0 ]]; then
+		printf '%s\n' "Postmasters other than the cluster on port $PG_PORT run from $GRIZZLE_PG_PREFIX, and the exchange would replace their binaries under them:" \
+			"$foreign" "Stop each and run this again, or pass --force to exchange the prefix under them. Nothing was installed." >&2
+		exit 1
+	fi
+	printf '%s\n' "--force: the exchange replaces the binaries of postmasters other than the cluster on port $PG_PORT; restart each after it:" \
+		"$foreign"
+}
+refuse_foreign_postmasters
 
 # Whether the cluster was stopped for the exchange. Every exit starts it again, from the new build after the exchange
 # and from the previous one before it, so no failure leaves it down.
@@ -87,6 +116,7 @@ make -C "$vector_src" "${pgxs[@]}" install
 printf '%s' "$PG_PIN_PATCHES" > "$(core_stamp "$staged")"
 echo "Built PostgreSQL $PG_PIN_VERSION and pgvector $PGVECTOR_PIN_VERSION in $staged"
 
+refuse_foreign_postmasters
 if pg_running; then
 	echo "The cluster runs from $GRIZZLE_PG_PREFIX; it is restarted around the exchange, which replaces its binaries"
 	stopped=1

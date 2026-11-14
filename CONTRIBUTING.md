@@ -61,7 +61,12 @@ commit gate. The typecheck and lint, `pnpm check`, run by hand before a release.
   directory `<version>.build/`, and a staging tree in which the build is installed and which one rename puts in the
   installation's place only once it is complete, so a failed build leaves the previous installation as it was. The
   cluster runs from the installation, so a cluster running at the rename is stopped just before it and started again
-  just after. An installation that already holds the pin is kept unless `--force` is given.
+  just after. An installation that already holds the pin is kept unless `--force` is given. A checkout older than the
+  installation is refused before anything changes, `--force` or not: one whose pin is of the installation's release
+  and lacks a patch the installation carries, a patch being its file and its SHA-256. A pin of another release is a
+  repin, and builds. While a postmaster other than the selected cluster's runs from the installation, found by its
+  executable wherever its data directory is, the rename is refused unless `--force` is given, since it would replace
+  that postmaster's binaries under it: before the build, and again just before the rename.
 - **`pnpm pg:source`** puts the pin's source in `~/Documents/postgres`, the one PostgreSQL source tree, and the build
   directory beside the installation, made anew and configured to install there. `pnpm pg:build` runs it first. The
   source is a git repository on the branch `grizzle`: the release, fetched alone from PostgreSQL's repository and
@@ -125,7 +130,10 @@ commit already holding the new patch and keeps it, and commit pin.env and the pa
 compiling and testing only: `meson install` from it would write into the running installation, which only
 `pnpm pg:build` replaces. To change the last patch, amend its commit and write it out again; to change an earlier one,
 commit a fixup (`git commit --fixup=<commit>`, then `GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash upstream`) and
-write out it and every patch after it again, each with `git format-patch ... -1 <commit>`, and update their SHA-256s. A
+write out it and every patch after it again, each with `git format-patch ... -1 <commit>`, and update their SHA-256s.
+The installation still carries the patches' previous content, which the rewritten pin lacks, so `pnpm pg:build`
+refuses it as older than the installation: remove the installation's stamp, `.grizzle-build-<commit>` in
+`~/.local/opt/postgresql/<version>/`, to build it, and every cluster script refuses to run until the build is in place. A
 repin moves the patches with it: `git fetch --depth 1 origin tag <new tag>` and `git rebase --onto <new tag> upstream`,
 where a patch the release already includes comes out empty and is dropped; then each patch is written out again under
 the new version's name, and pin.env takes the new tag, commit, version and patches.
