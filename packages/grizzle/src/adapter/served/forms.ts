@@ -16,6 +16,7 @@ import { paramCodecs } from "#adapter/reader/relations.ts"
 import { readProgram } from "#adapter/reader/run.ts"
 import type { RoleContext } from "#adapter/served/role.ts"
 import type { InstallationWitness } from "#adapter/witness/index.ts"
+import { paramDomainsOf } from "#compiler/plan/catalog.ts"
 import {
 	type ChangeEntry,
 	compileParsed,
@@ -283,7 +284,7 @@ export const runtimeEntry = (
 		compiled,
 		schema,
 		names,
-		witness: witness.declaring(compiled.params),
+		witness: witness.declaring(paramDomainsOf(compiled.params)),
 		readBacks: readBacks(servedReadBacks(compiled.artifact.readBacks), codes),
 		codecs: paramCodecs(compiled.params, codes),
 		bind,

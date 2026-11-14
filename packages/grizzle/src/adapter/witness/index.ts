@@ -6,14 +6,8 @@ import {
 	violationClassifier
 } from "#adapter/witness/classify.ts"
 import { type KeyLaws, keyLawsOf, type LawsAbove } from "#adapter/witness/keylaw.ts"
-import { paramDomainsOf } from "#compiler/plan/catalog.ts"
 import type { KeyHost, KeyWitness } from "#compiler/plan/change.ts"
-import type {
-	CallerParamDecl,
-	Codebook,
-	EntryName,
-	StoredRelationName
-} from "#compiler/plan/common.ts"
+import type { Codebook, EntryName, StoredRelationName } from "#compiler/plan/common.ts"
 import { keyWitness, witnessDecoder } from "#compiler/plan/runtime.ts"
 import type { ServedEntryKey, ServedParamDomain, ServedRefusals } from "#compiler/plan/serve.ts"
 
@@ -44,12 +38,12 @@ export interface InstallationWitness {
 	/** A read's refusal by a domain (classify.ts domainRefusal): a parameter's pattern's, or a contract's laws. */
 	readonly domain: (failure: ServerError) => DomainRefusal | undefined
 	/**
-	 * This witness, reading also a refusal by the pattern domain of each parameter in `params` (physical/ddl/domains.ts
-	 * paramDomainsOf) as that parameter's, as a served role's witness reads its members' (served/project.ts
-	 * refusalsOf): the witness of a program compiled through a role, whose parameters no served file lists
-	 * (served/forms.ts runtimeEntry).
+	 * This witness, reading also a refusal by each pattern domain of `domains` as its parameter's, as a served role's
+	 * witness reads its members' (served/project.ts refusalsOf): the witness of a program compiled through a role, whose
+	 * parameters no served file lists, their domains named where it compiles (served/forms.ts runtimeEntry,
+	 * physical/ddl/domains.ts paramDomainsOf), so the runtime reaches no install code for them.
 	 */
-	readonly declaring: (params: ReadonlyArray<CallerParamDecl>) => InstallationWitness
+	readonly declaring: (domains: ReadonlyMap<string, ServedParamDomain>) => InstallationWitness
 }
 
 /** A query entry's key, from the key values of its target `values`: each head field's, the target field's it writes. */
@@ -113,7 +107,7 @@ export const servedWitness = (
 		laws,
 		classify: violationClassifier(laws, decoder, { stored, entries, params }),
 		domain: domainRefusal(laws, params),
-		declaring: (declared) => reading(new Map([...params, ...paramDomainsOf(declared)]))
+		declaring: (domains) => reading(new Map([...params, ...domains]))
 	})
 	return reading(refusals.params)
 }
