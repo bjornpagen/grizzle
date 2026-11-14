@@ -21,6 +21,7 @@ import {
 	rowText,
 	SchemaFingerprint
 } from "#compiler/plan/common.ts"
+import type { Redraft } from "#compiler/plan/migration.ts"
 import { countParam, textParam } from "#compiler/plan/read.ts"
 import {
 	emptyFingerprint,
@@ -70,8 +71,8 @@ const ledgerExists: CatalogQuery<boolean> = {
  * ledger to record in (a custom migration applied before the schema exists) fails at its record with the ledger's
  * absence named, and its transaction rolls back.
  *
- * The statements are ledger/ledger.ts's, emitted like every other text: the rows, and the folder and file records,
- * each a parameterized INSERT whose parameters are text.
+ * The statements are ledger/ledger.ts's, emitted like every other text: the rows, the folder and file records, each a
+ * parameterized INSERT whose parameters are text, and a redraft's re-record, a parameterized UPDATE.
  *
  * The ledger is read by two statements apart, sent together with the rest of their step: whether the ledger table
  * exists, then its rows, which the server refuses when it does not (42P01, or 3F000 before the schema exists). The
@@ -157,6 +158,16 @@ export const folderParams = (folder: ParsedFolder): ReadonlyArray<ParamText> => 
 	textParam(folder.meta.target),
 	countParam(folder.files.length),
 	textParam(folder.metaDigest)
+]
+
+/**
+ * A folder's rows re-recorded under its redraft `record` (decide.ts Redraft): $1 folder, $2 the redraft's target, $3
+ * the digest of its meta.json.
+ */
+export const redraftParams = (folder: ParsedFolder, record: Redraft): ReadonlyArray<ParamText> => [
+	textParam(folder.name),
+	textParam(record.target),
+	textParam(record.meta)
 ]
 
 /** A file's row: $1 folder, $2 ordinal, $3 file, $4 source, $5 target, $6 files, $7 digest of the applied text. */

@@ -5,7 +5,6 @@
  * modules a runtime never loads.
  */
 export {
-	decideFolder,
 	type LedgerRow,
 	ledgerState,
 	type LedgerState,

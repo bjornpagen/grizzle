@@ -90,7 +90,7 @@ import { codebookOf, emptyFingerprint } from "#compiler/deploy/snapshot/build.ts
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
-import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
+import { folderOrdinal, ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { catalogExpr, quoteIdent } from "#compiler/sql/print.ts"
 import {
 	apply,
@@ -209,15 +209,18 @@ const ordinalColumn: LedgerColumn = "ordinal"
  * additions. */
 const ledgerRows = (state: LedgerState): ReadonlyArray<LedgerRow> =>
 	Arr.flatMap([...state.complete, ...(state.partial === undefined ? [] : [state.partial])], (f) =>
-		Arr.map(f.recorded, (x): LedgerRow => ({
-			folder: f.folder,
-			ordinal: x.ordinal,
-			file: x.file,
-			source: f.source,
-			target: f.target,
-			files: f.files,
-			digest: x.digest
-		}))
+		Arr.map(
+			[{ ordinal: folderOrdinal, file: metaFileName, digest: f.meta }, ...f.completed],
+			(x): LedgerRow => ({
+				folder: f.folder,
+				ordinal: x.ordinal,
+				file: x.file,
+				source: f.source,
+				target: f.target,
+				files: f.files,
+				digest: x.digest
+			})
+		)
 	)
 
 /** A ledger integer cell read strictly: PostgreSQL's output of an integer at least zero. */
