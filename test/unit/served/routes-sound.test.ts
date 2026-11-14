@@ -57,19 +57,15 @@ import {
 } from "#test/support/compile.ts"
 import { sameIdentity } from "#test/support/kernel/identity.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { compareParamType } from "#test/support/oracle/gen/domain.ts"
 import { type Answer, answerEquivalence, shapeOf } from "#test/support/oracle/public/answer.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import { expectedQuery, factsOf, referenceSchema } from "#test/support/oracle/public/meaning.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import {
-	type Binding,
-	type Column,
+	boundRead,
 	deliveredOrder,
-	type FieldKind,
-	type HeadItem,
-	type Param,
+	plainKinds,
 	type ProgramCase,
 	type ProgramField,
 	type ProgramRead,
@@ -212,15 +208,6 @@ const sound = (c: ProgramCase, note: (feature: Feature) => void): void => {
 /** The requirement a drawn case seldom meets, which a case whose turn aims at it is constructed to meet. */
 const routedChange: Feature = "a fact a routed read's answer changes by"
 
-/** The field kinds a constructed read binds a parameter at: each value of them one form, met by plain equality. */
-const plainKinds: ReadonlySet<FieldKind> = new Set<FieldKind>([
-	"int4",
-	"int8",
-	"bool",
-	"text",
-	"uuid"
-])
-
 /**
  * A relation of a case holding facts, and the fields of its primary key a constructed read binds a parameter at, each
  * with its place among the relation's fields.
@@ -232,12 +219,13 @@ interface Routable {
 }
 
 /**
- * The case's facts read by one read constructed to reach a fact a routed read's answer changes by: over a relation
- * holding facts, drawn, its facts whose primary key field, drawn among those of plainKinds, is a parameter bound to
- * that field of one of its facts, drawn, every other field in the head. No other fact the read matches answers that
- * fact's row, since the rest of its key is in the head, so its removal changes the answer; and the read's plan routes
- * the relation by the field under the parameter. None where no relation holding facts has such a key field. A drawn
- * read of the streams the suite's label fixes is routed in one case of them, and no removal changed its answer.
+ * The case's facts read by one read constructed to reach a fact a routed read's answer changes by (program.ts
+ * boundRead): over a relation holding facts, drawn, its facts whose primary key field, drawn among those of plainKinds,
+ * is a parameter bound to that field of one of its facts, drawn, every other field in the head. No other fact the read
+ * matches answers that fact's row, since the rest of its key is in the head, so its removal changes the answer; and
+ * the read's plan routes the relation by the field under the parameter. None where no relation holding facts has such
+ * a key field. A drawn read of the streams the suite's label fixes is routed in one case of them, and no removal
+ * changed its answer.
  */
 const routedCaseGen =
 	(c: ProgramCase): Gen<Option.Option<ProgramCase>> =>
@@ -260,49 +248,10 @@ const routedCaseGen =
 		const { stored, facts, keys } = source.draw(element([first, ...rest]))
 		const [at, field] = source.draw(element(keys))
 		const fact = source.draw(element(facts))
-		const param: Param = {
-			name: "p0_0",
-			type: compareParamType(field.type),
-			value: defined(fact[at], "the fact's value at the bound field").literal,
-			declaration: { kind: "base" }
-		}
-		const bindings = Arr.map(stored.fields, (f, id): Binding<never> =>
-			f.name === field.name
-				? { field: f, operand: { kind: "param", param } }
-				: { field: f, operand: { kind: "var", var: { id, field: f } } }
+		const read = boundRead(
+			stored,
+			new Map([[field.name, defined(fact[at], "the fact's value at the bound field").literal]])
 		)
-		const head = Arr.flatMap(stored.fields, (f, id): ReadonlyArray<HeadItem> =>
-			f.name === field.name ? [] : [{ kind: "var", name: f.name, var: { id, field: f } }]
-		)
-		const heading = Arr.flatMap(stored.fields, (f): ReadonlyArray<Column> =>
-			f.name === field.name ? [] : [{ name: f.name, type: f.type }]
-		)
-		const read: ProgramRead = {
-			kind: "query",
-			query: {
-				heading,
-				arms: [
-					{
-						matches: [{ source: stored, bindings }],
-						where: [],
-						between: [],
-						inSets: [],
-						allens: [],
-						pointIns: [],
-						connectives: [],
-						negations: [],
-						head
-					}
-				],
-				bound: { kind: "set" },
-				stage: { kind: "unnamed" },
-				attachments: [],
-				delivery: { kind: "set" }
-			},
-			params: [param],
-			relations: [],
-			probe: { kind: "none" }
-		}
 		return Option.some({ ...c, reads: [read] })
 	}
 

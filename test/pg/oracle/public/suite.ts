@@ -1,4 +1,5 @@
 import {
+	type Case,
 	drawn,
 	type Explored,
 	explore,
@@ -7,12 +8,15 @@ import {
 	type SearchFailure
 } from "@bjornpagen/testing/explore"
 import { rating, required } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
-import { Array as Arr, type Effect, Formatter } from "effect"
+import { Array as Arr, type Effect, Formatter, Option } from "effect"
 import { indices } from "#compiler/core/array.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { runCase } from "#test/pg/oracle/public/run.ts"
 import { declineFeatures } from "#test/pg/oracle/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { CompareOp } from "#test/support/oracle/gen/ops.ts"
 import { type PlannerSetting, unperturbed } from "#test/support/oracle/perturb.ts"
@@ -26,13 +30,18 @@ import {
 	programForms,
 	resolveCase
 } from "#test/support/oracle/public/generate.ts"
-import type {
-	AggregateFn,
-	FieldKind,
-	NameKind,
-	Operand,
-	ParentColumn,
-	StatedDelivery
+import {
+	type AggregateFn,
+	boundRead,
+	type FieldKind,
+	type NameKind,
+	type Operand,
+	type ParentColumn,
+	plainKinds,
+	type ProgramCase,
+	type StatedDelivery,
+	type Stored,
+	type StoredFact
 } from "#test/support/oracle/public/program.ts"
 import type { DeclineReason } from "#test/support/oracle/reference/values.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
@@ -201,6 +210,59 @@ const planted: ReadonlyArray<Kept<CaseSketch, PublicFeature>> = [
 	}
 ]
 
+/** A relation of a case holding facts, every field of its primary key of plainKinds. */
+interface Keyed {
+	readonly stored: Stored
+	readonly facts: Arr.NonEmptyReadonlyArray<StoredFact>
+}
+
+/**
+ * The case's schema and facts read by one read constructed to reach a get of no row (program.ts boundRead): over a
+ * relation holding facts, drawn, its facts at its whole primary key, every field of it of plainKinds, bound to the key
+ * of one of its facts, drawn, which the case then leaves out of its facts. No other fact holds that key, so the read,
+ * proved at most one row by its key, answers none. None where no relation holding facts has such a key. The streams
+ * the suite's label fixes held no drawn get that answered none.
+ */
+const missingKeyCaseGen =
+	(c: ProgramCase): Gen<Option.Option<ProgramCase>> =>
+	(source) => {
+		const [first, ...rest] = Arr.flatMap(c.schema.relations, (stored): ReadonlyArray<Keyed> => {
+			const [fact, ...facts] = c.facts.get(stored.name) ?? []
+			return fact !== undefined && Arr.every(stored.primaryKey, (f) => plainKinds.has(f.kind))
+				? [{ stored, facts: [fact, ...facts] }]
+				: []
+		})
+		if (first === undefined) {
+			return Option.none()
+		}
+		const { stored, facts } = source.draw(element([first, ...rest]))
+		const missing = source.draw(element(facts))
+		const keyed = new Set(Arr.map(stored.primaryKey, (f) => f.name))
+		const key = new Map(
+			Arr.flatMap(stored.fields, (field, at): ReadonlyArray<readonly [string, TypedLiteral]> =>
+				keyed.has(field.name)
+					? [[field.name, defined(missing[at], "the fact's value at a key field").literal]]
+					: []
+			)
+		)
+		return Option.some({
+			...c,
+			facts: new Map(
+				Arr.map([...c.facts], ([name, held]) => [
+					name,
+					name === stored.name ? Arr.filter(held, (f) => f !== missing) : held
+				])
+			),
+			reads: [boundRead(stored, key)]
+		})
+	}
+
+/** The case a case runs: its drawn one, or, where its turn aims at a get of no row, missingKeyCaseGen's. */
+const aimedCase = (c: ProgramCase, search: Case<PublicFeature>): ProgramCase =>
+	Option.exists(search.steering, (pending) => pending.aimed("get none"))
+		? Option.getOrElse(search.draw(missingKeyCaseGen(c)), () => c)
+		: c
+
 /**
  * The public-boundary differential as an exploration: generated programs through grizzle's public builders and
  * runtime, each read compared with the reference evaluator's per-parent delivery (run.ts).
@@ -267,5 +329,5 @@ export const explorePublic: Effect.Effect<Explored, SearchFailure, Substrate | R
 		steerEvery: 16,
 		caseHang
 	},
-	(sketch, c) => runCase(c.draw(resolveCase(sketch)), c.note)
+	(sketch, c) => runCase(aimedCase(c.draw(resolveCase(sketch)), c), c.note)
 )

@@ -63,18 +63,28 @@
  * engine takes any index of a request's relation to serve it) and serving-shared-duplicated (a request a created index
  * serves gets an index of its own).
  */
-import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int, shuffled, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Equal, Formatter, Order, Result, String as Str } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Equal,
+	Formatter,
+	Option,
+	Order,
+	Result,
+	String as Str
+} from "effect"
 import type { TestContext } from "vitest"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import { codeOf, emptyCodebook } from "#compiler/ir/codes.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AccessUse } from "#compiler/ir/products.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -108,6 +118,7 @@ import {
 } from "#test/support/fixtures/ir/desc.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { valueClasses } from "#test/support/oracle/gen/domain.ts"
 import {
 	installRealSchema,
 	planRealInstall,
@@ -121,7 +132,14 @@ import {
 	resolveCase
 } from "#test/support/oracle/public/generate.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
-import type { ProgramCase, FieldKind } from "#test/support/oracle/public/program.ts"
+import {
+	boundRead,
+	type FieldKind,
+	fieldKinds,
+	type ProgramCase,
+	type ProgramField,
+	type Stored
+} from "#test/support/oracle/public/program.ts"
 import { spread } from "#test/support/plans.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -3277,6 +3295,86 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 	}
 ]
 
+/** A field a constructed read binds a parameter at, and the values its type holds. */
+type Valued = readonly [ProgramField, Arr.NonEmptyReadonlyArray<TypedLiteral>]
+
+/**
+ * The field kinds a constructed selection binds a parameter at: every drawn kind but a span's, whose equality is a
+ * GiST predicate of its own, and a vector's, which no statistics object covers.
+ */
+const selectableKinds: ReadonlySet<FieldKind> = new Set(
+	Arr.filter(fieldKinds, (kind) => kind !== "vector" && kind !== "span4" && kind !== "span8")
+)
+
+/** A relation and two of its fields no key of it is within, each of selectableKinds. */
+interface Correlated {
+	readonly stored: Stored
+	readonly pair: readonly [Valued, Valued]
+}
+
+/**
+ * The case's schema read by one read constructed to reach a workload's statistics (program.ts boundRead): a relation's
+ * facts whose two fields, drawn among the pairs of selectableKinds no key of the relation is within, are each a
+ * parameter, every other field in the head. That is a correlated selection, over which the plan requests extended
+ * statistics (physical/access/extract.ts); each parameter's value is drawn among its type's value classes. None where
+ * no relation has such a pair. The streams the suite's label fixes held no drawn read the plan requested statistics
+ * for.
+ */
+const statisticsCaseGen =
+	(c: ProgramCase): Gen<Option.Option<ProgramCase>> =>
+	(source) => {
+		const [first, ...rest] = Arr.flatMap(
+			c.schema.relations,
+			(stored): ReadonlyArray<Correlated> => {
+				const keys = [stored.primaryKey, ...stored.candidates]
+				const valued = Arr.flatMap(stored.fields, (field): ReadonlyArray<Valued> => {
+					const [value, ...values] = valueClasses(field.type, false)
+					return selectableKinds.has(field.kind) && value !== undefined
+						? [[field, [value, ...values]]]
+						: []
+				})
+				return Arr.flatMap(valued, (a, at) =>
+					Arr.flatMap(Arr.drop(valued, at + 1), (b): ReadonlyArray<Correlated> =>
+						Arr.some(keys, (key) =>
+							Arr.every(key, (f) => f.name === a[0].name || f.name === b[0].name)
+						)
+							? []
+							: [{ stored, pair: [a, b] }]
+					)
+				)
+			}
+		)
+		if (first === undefined) {
+			return Option.none()
+		}
+		const { stored, pair } = source.draw(element([first, ...rest]))
+		return Option.some({
+			...c,
+			reads: [
+				boundRead(
+					stored,
+					new Map(
+						Arr.map(pair, ([field, values]) => [field.name, source.draw(element(values))] as const)
+					)
+				)
+			]
+		})
+	}
+
+/**
+ * The case a case installs: its drawn one, or, where its turn aims at a workload's statistics (Case.steering),
+ * statisticsCaseGen's.
+ */
+const aimedWorkload = (
+	c: ProgramCase,
+	search: Case<ServingFeature | WorkloadFeature>
+): ProgramCase =>
+	Option.exists(search.steering, (pending) =>
+		pending.aimed("a workload's statistics installed as requested")
+	)
+		? Option.getOrElse(search.draw(statisticsCaseGen(c)), () => c)
+		: c
+
 const workloadSuite = (runs: number) => (ctx: TestContext) =>
 	searched(
 		ctx,
@@ -3304,7 +3402,8 @@ const workloadSuite = (runs: number) => (ctx: TestContext) =>
 				steerEvery: 16,
 				caseHang
 			},
-			(sketch, cx) => Effect.scoped(workloadCase(cx.draw(resolveCase(sketch)), cx.note))
+			(sketch, cx) =>
+				Effect.scoped(workloadCase(aimedWorkload(cx.draw(resolveCase(sketch)), cx), cx.note))
 		)
 	)
 

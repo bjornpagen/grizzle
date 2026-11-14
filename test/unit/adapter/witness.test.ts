@@ -1,4 +1,4 @@
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -745,6 +745,38 @@ const usesLaws = (uses: ReadonlyArray<DomainUse>): ReadonlyArray<ConstraintLawOf
 		(a, b) => a.law === b.law
 	)
 
+/** Each defect a report on a roster domain's own CHECK is, by the domain's carrier. */
+const defectAims: ReadonlyArray<readonly [WitnessFeature, "code" | "bits"]> = [
+	["defect on a code domain", "code"],
+	["defect on a bits domain", "bits"]
+]
+
+/**
+ * The report a case classifies: its drawn one, or, where its turn aims at a defect on a roster's domain
+ * (Case.steering), a CHECK violation in the installation's schema whose constraint is that carrier's domain CHECK of a
+ * drawn roster and whose data type is the domain itself, which the rules call grizzle's defect; its column, DETAIL and
+ * origin as drawn.
+ * A drawn report is one only as a CHECK violation among fourteen SQLSTATEs, naming a roster domain's check among five
+ * constraint kinds, of that carrier, in the installation's schema, owned by the constraint's own domain, and the
+ * streams the suite's label fixes held none on the bits carrier.
+ */
+const aimedReport = (drawnReport: ReportSketch, k: Case<WitnessFeature>): ReportSketch =>
+	Option.match(
+		Option.flatMap(k.steering, (pending) =>
+			Arr.findFirst(defectAims, ([feature]) => pending.aimed(feature))
+		),
+		{
+			onNone: () => drawnReport,
+			onSome: ([, carrier]): ReportSketch => ({
+				...drawnReport,
+				sqlstate: sqlstates.checkViolation,
+				constraint: { kind: "a roster domain's check", pick: k.draw(pick), carrier },
+				schema: "the installation's",
+				owner: "the constraint's own"
+			})
+		}
+	)
+
 describe("a server error at a write", () => {
 	it.effect(
 		"means what the classification rules say of the fields grizzle controls, at every origin of a write's flights",
@@ -810,8 +842,9 @@ describe("a server error at a write", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					([caseSketch, level, sketch], k) =>
+					([caseSketch, level, drawnReport], k) =>
 						Effect.sync(() => {
+							const sketch = aimedReport(drawnReport, k)
 							const artifacts = artifactsOf(drawnSchema(k.draw(resolveCase(caseSketch)), level))
 							k.noteAll(lawFeatures(level))
 							/**

@@ -7,7 +7,11 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
 import type { IdentifierFeature } from "#test/support/kernel/dict.ts"
 import type { StorageCarrier } from "#test/support/oracle/gen/domain.ts"
-import { scalarOfSpec, type SpelledValue } from "#test/support/oracle/gen/domain.ts"
+import {
+	compareParamType,
+	scalarOfSpec,
+	type SpelledValue
+} from "#test/support/oracle/gen/domain.ts"
 import type { CompareOp } from "#test/support/oracle/gen/ops.ts"
 import type { Restorage } from "#test/support/oracle/gen/restorage.ts"
 import type { Perturbation } from "#test/support/oracle/perturb.ts"
@@ -642,4 +646,81 @@ export interface ProgramCase {
 	 */
 	readonly restorage: Restorage
 	readonly reads: Arr.NonEmptyReadonlyArray<ProgramRead>
+}
+
+/**
+ * The field kinds a constructed read binds a parameter at: each value of them one form, met by plain equality, and each
+ * one the reference compares (a handle's code values it does not).
+ */
+export const plainKinds: ReadonlySet<FieldKind> = new Set<FieldKind>([
+	"int4",
+	"int8",
+	"bool",
+	"text",
+	"uuid"
+])
+
+/**
+ * A read a suite constructs to reach a requirement its drawn cases seldom meet: `stored`'s facts whose `bound` fields
+ * are each a parameter bound to the value beside it, declared with the field's base as the generator declares a bound
+ * parameter (compareParamType), every other field in the head under its own name. A read binding a key whole delivers
+ * at most one row, and one binding fields no key is within selects by their correlation.
+ */
+export const boundRead = (
+	stored: Stored,
+	bound: ReadonlyMap<string, TypedLiteral>
+): Extract<ProgramRead, { readonly kind: "query" }> => {
+	const params = Arr.map(
+		Arr.flatMap(stored.fields, (field): ReadonlyArray<readonly [ProgramField, TypedLiteral]> =>
+			Option.match(Option.fromNullishOr(bound.get(field.name)), {
+				onNone: () => [],
+				onSome: (value): ReadonlyArray<readonly [ProgramField, TypedLiteral]> => [[field, value]]
+			})
+		),
+		([field, value], at): readonly [string, Param] => [
+			field.name,
+			{
+				name: `p0_${at}`,
+				type: compareParamType(field.type),
+				value,
+				declaration: { kind: "base" }
+			}
+		]
+	)
+	const byField = new Map(params)
+	const bindings = Arr.map(stored.fields, (field, id): Binding<never> => {
+		const param = byField.get(field.name)
+		return param === undefined
+			? { field, operand: { kind: "var", var: { id, field } } }
+			: { field, operand: { kind: "param", param } }
+	})
+	const free = Arr.flatMap(stored.fields, (field, id): ReadonlyArray<Var> =>
+		byField.has(field.name) ? [] : [{ id, field }]
+	)
+	return {
+		kind: "query",
+		query: {
+			heading: Arr.map(free, (v): Column => ({ name: v.field.name, type: v.field.type })),
+			arms: [
+				{
+					matches: [{ source: stored, bindings }],
+					where: [],
+					between: [],
+					inSets: [],
+					allens: [],
+					pointIns: [],
+					connectives: [],
+					negations: [],
+					head: Arr.map(free, (v): HeadItem => ({ kind: "var", name: v.field.name, var: v }))
+				}
+			],
+			bound: { kind: "set" },
+			stage: { kind: "unnamed" },
+			attachments: [],
+			delivery: { kind: "set" }
+		},
+		params: Arr.map(params, ([, param]) => param),
+		relations: [],
+		probe: { kind: "none" }
+	}
 }
