@@ -10,8 +10,13 @@ import { col, provedSelect, table, target, unitTargets } from "#compiler/sql/bui
 
 /**
  * Whether a Base reads its table as the keyed set it is: in a violation probe, a stored relation's table whose heading
- * holds its primary key. A stored relation's PRIMARY KEY is never deferrable (sql/print.ts printConstraint), so its
- * table holds no row twice at any statement, and a violation probe is a statement of its own over stored tables.
+ * holds its primary key, the target's. Wherever a migration runs a violation probe that reads a table, that key is a
+ * PRIMARY KEY of the table, which is never deferrable (sql/print.ts printConstraint), so the table holds no two rows
+ * equal on it: a rule's probe is a Validate step (deploy/diff/diff.ts ruleChecks), after validate.attach in the one
+ * Validate transaction (deploy/diff/plan.ts slots, slotFile), where a key over a table that may hold rows is attached
+ * to the unique index Indexes built, and before which every other key stands (diff.ts ownConstraint); a probe of a law
+ * over closed relations alone runs in Setup (diff.ts migrationChecks) and reads no table. test/unit/laws/violation-reads
+ * holds both.
  */
 const readsKeyedTable = (node: NodeOf<"Base">, cx: LowerContext): boolean =>
 	cx.options.subject.kind === "violationProbe" &&
