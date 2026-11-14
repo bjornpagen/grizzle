@@ -9,7 +9,8 @@
  *   the value; a span member is admitted exactly at its column's fixed width.
  * - Canonical encoding: one set in any order, repeated or spelled otherwise (an id's case, a numeric's display scale),
  *   gives byte-identical arrays, and the host's normalized facts write the raw input's arrays in any column order.
- *   Oracle: the encoding of the set as first given, a differential.
+ *   Oracle: the encoding of the set as first given, a differential. A valid fact's fields are values their types hold
+ *   as they are (a numeric(5,2) value is a count of hundredths), which the input boundary admits.
  * - Literals: each column's array literal reads back by array_in's rules as the column's texts, whatever they hold, the
  *   longest literal refused past the string bound and written within it, and every type's canonical text carried.
  *   Oracle: array_in's grammar restated (test/support/arrays.ts readArrayLiteral), a second implementation.
@@ -121,12 +122,18 @@ const anyDouble = weighted([
 	[1, element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])]
 ])
 
+/**
+ * A value of numeric(5,2), a reading's value: a count of hundredths, which the type holds as it is. A value PostgreSQL's
+ * coercion would round is no value of the type: the input boundary refuses it (numericScale).
+ */
+const hundredths: Gen<Decimal> = map(int(-99999, 99999), (n) => Decimal.of(`${n}e-2`))
+
 /** The reading of an id: its value and its raw double drawn. */
 const readingOf =
 	(id: string): Gen<Reading> =>
 	(source) => ({
 		id,
-		value: source.draw(map(int(-99999, 99999), (n) => Decimal.of(`${n}e-2`))),
+		value: source.draw(hundredths),
 		raw: source.draw(anyDouble)
 	})
 
@@ -422,7 +429,7 @@ describe("relation normalization", () => {
 					const id = source.draw(uuid(4))
 					return {
 						id: source.draw(element([id, Str.toUpperCase(id)])),
-						value: source.draw(map(int(-9999, 9999), (n) => Decimal.of(`${n}e-3`))),
+						value: source.draw(hundredths),
 						raw: source.draw(element([0, -0, 1.5, Number.NaN]))
 					}
 				}
@@ -750,7 +757,7 @@ const everyType: ReadonlyArray<{
 	{
 		name: "scaled",
 		type: types.numeric52,
-		value: map(int(-99999, 99999), (n) => Decimal.of(`${n}e-2`))
+		value: hundredths
 	},
 	{
 		name: "span4",

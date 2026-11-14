@@ -6,7 +6,9 @@
  * and Wild values (the testing library's lsw): proxies whose every trap throws, objects whose getter throws, bigint for
  * number and number for bigint, lone surrogates, NUL, -0, NaN, the infinities, symbols, functions and any JSON value.
  * The encoder answers each by refusing it with a word of the codec vocabulary, or by admitting it to a text that
- * converts back to a value that encodes to the same text; a Live value is always admitted. It never throws: a value
+ * converts back to a value that encodes to the same text; a Live value is always admitted. A Live value is one its
+ * descriptor holds as it is: a numeric under a typmod draws a count of the typmod's units (numericUnder), never a value
+ * PostgreSQL's coercion would round, which the boundary refuses. It never throws: a value
  * whose reading throws is refused as not of the carrier's host type. A template slot's refusal names the slot and the
  * word, and never the value.
  *
@@ -128,17 +130,20 @@ const caps = capabilitySet(["storage", "equality"])
 const int32 = int(int4Min.value, int4Max.value)
 const int64 = bigint(int8Min.value, int8Max.value)
 
-/** A decimal whose integer part has at most `digits` digits, with any fraction. */
-const decimals = (digits: number): Gen<unknown> =>
-	map(
-		(source) =>
-			[
-				source.draw(boolean),
-				source.draw(bigint(0n, 10n ** BigInt(digits) - 1n)),
-				source.draw(int(0, 999_999))
-			] as const,
-		([negative, whole, fraction]) => Decimal.of(`${negative ? "-" : ""}${whole}.${fraction}`)
-	)
+/**
+ * A numeric(precision, scale) descriptor and its Live values, both from the one typmod: a signed count of 10^-scale
+ * units below 10^precision in magnitude, which the typmod holds as it is, so the input boundary admits it exactly
+ * (scalar/values/decimal.ts parseNumeric). A value PostgreSQL's coercion would round is no Live value: the boundary
+ * refuses it (numericScale), and test/pg/values/numeric.test.ts holds that against PostgreSQL.
+ */
+const numericUnder = (precision: number, scale: number): Written => {
+	const units = 10n ** BigInt(precision)
+	return {
+		label: `numeric(${precision},${scale})`,
+		type: { carrier: "numeric", typmod: { precision, scale }, caps },
+		live: map(bigint(1n - units, units - 1n), (count) => Decimal.of(`${count}e${-scale}`))
+	}
+}
 
 /** A span over int4 endpoints, built ordered: a start below int4's greatest, then an end past it. */
 const spans4: Gen<unknown> = (source) => {
@@ -212,23 +217,7 @@ const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Written> } =
 			live: int64
 		}
 	],
-	numeric: [
-		{
-			label: "numeric(36,6)",
-			type: { carrier: "numeric", typmod: { precision: 36, scale: 6 }, caps },
-			live: decimals(30)
-		},
-		{
-			label: "numeric(7,2)",
-			type: { carrier: "numeric", typmod: { precision: 7, scale: 2 }, caps },
-			live: decimals(4)
-		},
-		{
-			label: "numeric(5,-2)",
-			type: { carrier: "numeric", typmod: { precision: 5, scale: -2 }, caps },
-			live: decimals(6)
-		}
-	],
+	numeric: [numericUnder(36, 6), numericUnder(7, 2), numericUnder(5, -2)],
 	float4: [
 		{
 			label: "float4",

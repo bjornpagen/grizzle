@@ -82,7 +82,9 @@ export type CarrierName = "numeric" | "numeric(5,2)" | "money" | "vector(3)"
 
 /**
  * A carrier whose host values are objects a caller can forge: its values, each PostgreSQL's text of it and how a host
- * value spells it, colliding under PostgreSQL's equality in several spellings, and the forgeries of its host type.
+ * value spells it, colliding under PostgreSQL's equality in several spellings, and the forgeries of its host type. Every
+ * spelling is the value its type holds as it is: a numeric(5,2) value respelled with trailing zeros or an exponent, never
+ * one of more fractional digits that PostgreSQL's coercion would round, which the input boundary refuses (numericScale).
  */
 type Carried = { readonly name: CarrierName; readonly type: ScalarType } & (
 	| {
@@ -126,8 +128,8 @@ export const carriers: Arr.NonEmptyReadonlyArray<Carried> = [
 		type: types.numeric52,
 		host: "numeric",
 		values: [
-			{ pg: "1.23", spellings: ["1.231", "1.23", "1.234"] },
-			{ pg: "1.24", spellings: ["1.235", "1.24"] },
+			{ pg: "1.23", spellings: ["1.23", "1.230", "123e-2"] },
+			{ pg: "1.24", spellings: ["1.240", "1.24", "12.4e-1"] },
 			{ pg: "NaN", spellings: ["NaN"] }
 		],
 		forgeries: decimalForgeries
