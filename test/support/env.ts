@@ -1,4 +1,4 @@
-import { pin } from "#pg/local-cluster.ts"
+import { pin } from "#pg/pin.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 
 /**

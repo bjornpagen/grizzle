@@ -16,12 +16,16 @@
  * submoduleConsumer), in every layout of that install: the consumer's link to grizzle-pg runs init and doctor on a
  * cluster of the case's own, on a free port, and its link to grizzle runs generate and migrate into that cluster; the
  * checkout never holds a node_modules of its own, and grizzle's source finds the project's effect, the one package
- * whose Redacted carries the configuration's password, so a second copy fails the migrate. Box: the layouts.
+ * whose Redacted carries the configuration's password, so a second copy fails the migrate. The project's import of
+ * `@bjornpagen/grizzle-pg/pin` resolves through its link and agrees with the shell: every assignment of pin.env as
+ * scripts/pg/lib.sh sources it in the checkout, and the installed build's stamp, the release's commit and its patches
+ * (packages/pg/src/installation.ts installedBuild). Box: the layouts.
  *
  * Plants (~/.cache/grizzle-release/SOURCEEXPORT/plants): pg-helper-needs-own-install (a helper importing test
  * support, which only the repository's own install resolves) turns it red at init; checkout-own-effect (a second
  * effect at the checkout's root, as an install inside the submodule leaves) red in the isolated layout, and
- * hoisted-checkout-own-effect red at the hoisted layout's migrate, with "Unable to get redacted value".
+ * hoisted-checkout-own-effect red at the hoisted layout's migrate, with "Unable to get redacted value";
+ * pin-keeps-quotes (the pin's parse keeping a value's double quotes) red at the pin's agreement with the shell.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
@@ -39,6 +43,8 @@ import {
 	Layer,
 	Option,
 	Path,
+	Predicate,
+	Record,
 	Redacted,
 	String as Str
 } from "effect"
@@ -48,7 +54,9 @@ import { pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
+import { installedBuild } from "#pg/installation.ts"
 import { clusterVariable, type LocalCluster, selectCluster } from "#pg/local-cluster.ts"
+import type { Pin } from "#pg/pin.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
@@ -273,6 +281,28 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 const grizzlePg = (consumer: SubmoduleConsumer): string =>
 	`${consumer.modules}/node_modules/@bjornpagen/grizzle-pg/bin/grizzle-pg.sh`
 
+/** A program the project runs: it imports the pin through its link to grizzle-pg and prints it as JSON. */
+const pinProgram = `import { pin } from "@bjornpagen/grizzle-pg/pin"
+process.stdout.write(JSON.stringify(pin))
+`
+
+/**
+ * A program bash runs with the checkout and pin.env's names as its arguments: it sources scripts/pg/lib.sh as every
+ * script does, and prints the stem of a build's stamp (stamp_stem), then each name's value as the shell holds it, one
+ * `<name>=<value>` line each.
+ */
+const shellPin = `source "$1/scripts/pg/lib.sh" || exit 1
+shift
+printf '%s\n' "$stamp_stem"
+for name in "$@"; do
+	printf '%s=%s\n' "$name" "\${!name}"
+done
+`
+
+/** A value of the pin as the shell spells it: text as it is, a port in decimal, the patches joined by spaces. */
+const shellSpelling = (value: string | number | ReadonlyArray<string>): string =>
+	Predicate.isString(value) ? value : Predicate.isNumber(value) ? `${value}` : Arr.join(value, " ")
+
 /** The grizzle command line's entry point, through the consumer's link to grizzle. */
 const grizzleCli = (consumer: SubmoduleConsumer): string =>
 	`${consumer.modules}/node_modules/@bjornpagen/grizzle/src/cli/main.ts`
@@ -360,6 +390,49 @@ layer(NodeServices.layer)(
 											`grizzle-pg ${step}: ${ran.stdout}${ran.stderr}`
 										)
 									}
+									const imported = yield* runChild(
+										process.execPath,
+										["--input-type=module", "-e", pinProgram],
+										consumer.project,
+										env
+									)
+									assert.equal(
+										imported.exitCode,
+										exitedCleanly,
+										`the project's import of the pin: ${imported.stderr}`
+									)
+									const pin = trustedJson<Pin>(imported.stdout)
+									const names = Record.keys(pin)
+									const sourced = yield* runChild(
+										"bash",
+										["-c", shellPin, "bash", consumer.checkout, ...names],
+										consumer.project,
+										env
+									)
+									assert.equal(
+										sourced.exitCode,
+										exitedCleanly,
+										`scripts/pg/lib.sh sourced: ${sourced.stderr}`
+									)
+									const [stemLine, ...assigned] = Str.split(Str.trimEnd(sourced.stdout), "\n")
+									const stem = defined(stemLine, "the shell printed no stamp stem")
+									const shellValues = Record.fromEntries(
+										Arr.map(assigned, (line): readonly [string, string] => {
+											const [name, ...value] = Str.split(line, "=")
+											return [defined(name, `a line of no name: ${line}`), Arr.join(value, "=")]
+										})
+									)
+									assert.deepEqual(
+										Record.map(pin, shellSpelling),
+										shellValues,
+										"the pin the project imports is pin.env as the shell sources it"
+									)
+									const installed = yield* Effect.orDie(installedBuild(pin.GRIZZLE_PG_PREFIX, stem))
+									assert.deepEqual(
+										installed,
+										Option.some({ commit: pin.PG_PIN_COMMIT, patches: pin.PG_PIN_PATCHES }),
+										"the pin the project imports is the build the installation's stamp records"
+									)
 									yield* fs.writeFileString(
 										path.join(consumer.project, "grizzle.config.ts"),
 										consumerConfig(cluster)

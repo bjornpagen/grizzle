@@ -12,6 +12,9 @@
 		"#pg/*": "./src/*",
 		"#compiler/*": "@bjornpagen/grizzle-engine/internal/*"
 	},
+	"exports": {
+		"./pin": "./src/pin.ts"
+	},
 	"bin": {
 		"grizzle-pg": "./bin/grizzle-pg.sh"
 	},

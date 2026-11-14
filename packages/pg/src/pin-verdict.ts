@@ -1,9 +1,7 @@
 import { NodeFileSystem, NodeRuntime } from "@effect/platform-node"
 import { Array as Arr, Console, Data, Effect, Runtime } from "effect"
 import { installedBuild, patchesOf, verdict } from "#pg/installation.ts"
-
-/** The pin.env this checkout's scripts read. */
-const pinFile = `${import.meta.dirname}/../../../scripts/pg/pin.env`
+import { pinFile } from "#pg/pin.ts"
 
 /**
  * The checkout's pin is older than the installation: the installation holds a build of the same release with patches
