@@ -3,11 +3,15 @@
  * violation restricted to the rows its write touched and those its chain reaches from them, so it judges exactly what
  * the rule's whole check judges, and reads only the rows of the touched row's key.
  *
- * The shapes are three schemas of link tables L1, L2 and L3, each row linked up to the one before it and L1's to its
+ * The shapes are four schemas of link tables L1, L2 and L3, each row linked up to the one before it and L1's to its
  * key, a mark M on a link and a block N of one, each a downstream shape in miniature:
  *
  * - **titles**, edullm's LomObjectTitle: the keys whose L2 a mark names, through an imported path L1 ⋈ L2, are
  *   contained in the keys of a path an L3 of value 1 extends or no N blocks, a target of two arms, one negated;
+ * - **viewed**: titles over a materialized derived relation Path = L1 ⋈ L2 at a level of its own, which both sides'
+ *   definitions read: the whole check reads each side as its definition, live, each definition a query of its own
+ *   (analysis/theory/query.ts violationQuery), and the triggers as its arms, every definition inlined, so the
+ *   equivalence holds the one against the other; and neither reads Path's view, which no write refreshes;
  * - **deep**: a source of two arms, a mark on L1 or on an L2 of value 1, contained in a target of three, the first
  *   declared from its deepest link up, the second an L1 of value 1 no N blocks, the third a chain of three whose L3 no N
  *   blocks;
@@ -35,6 +39,9 @@
  *   PostgreSQL plans once every table is large beside one key's rows: no sequential, bitmap or index-only scan, no hash
  *   or merge join, the plans a table of a few rows makes cheapest and an index-only scan's locks follow the visibility
  *   map; a probe that can read a key's rows by index then does, and one that cannot reads every row all the same.
+ *
+ * Planted, ~/.cache/grizzle-release/LAWQUERY/plants/violation-stale-view.patch, the whole check reading a materialized
+ * derived relation a definition reads through its view, fails the equivalence search on viewed.
  *
  * Planted in a scratch copy, each fails its search (patches under ~/.cache/grizzle-release/RULESEED/plants/):
  * rule-seed-only-outer, every probe meeting the side its facts meet whole, a union PostgreSQL builds before any term
@@ -132,6 +139,51 @@ const titles = (name: string) => {
 	)
 }
 
+/**
+ * viewed: titles over a materialized path, a derived relation its definitions read, which the rule's whole check reads
+ * on its definition, live, as its triggers do, never through its view, which no write refreshes.
+ */
+const viewed = (name: string) => {
+	const { Base } = base(name)
+	const Path = derived.materialized(
+		"Path",
+		query(Base).rule((r) => {
+			const { id: x1, up: k } = v(L1, "first")
+			const { id: x2 } = v(L2, "second")
+			return r.match(L1, { id: x1, up: k }).match(L2, { id: x2, up: x1 }).find({ k, x2 })
+		})
+	)
+	const Mid = schema.extend(Base, `${name}_1`, [Path], [])
+	const Listed = derived(
+		"Listed",
+		query(Mid).rule((r) => {
+			const { k, x2 } = v(Path, "path")
+			return r.match(M, { up: x2 }).match(Path, { k, x2 }).find({ k })
+		})
+	)
+	const Matched = derived(
+		"Matched",
+		query(Mid)
+			.rule((r) => {
+				const { k, x2 } = v(Path, "path")
+				return r.match(Path, { k, x2 }).match(L3, { up: x2, v: 1 }).find({ k })
+			})
+			.rule((r) => {
+				const { k, x2 } = v(Path, "path")
+				return r
+					.match(Path, { k, x2 })
+					.where(r.not(N, { id: x2 }))
+					.find({ k })
+			})
+	)
+	return schema.extend(
+		Mid,
+		`${name}_2`,
+		[Listed, Matched],
+		[contained(on(Listed, "k"), on(Matched, "k"))]
+	)
+}
+
 /** deep: a source of two arms in a target of three, the first declared from its deepest link up. */
 const deep = (name: string) => {
 	const { Base } = base(name)
@@ -219,13 +271,15 @@ const keyed = (name: string) => {
 	return schema.extend(Base, `${name}_1`, [Valued], [key(on(Valued, "k"))])
 }
 
-const shapes = ["titles", "deep", "key"] as const
+const shapes = ["titles", "viewed", "deep", "key"] as const
 type Shape = (typeof shapes)[number]
 
 const schemaOf = (shape: Shape, name: string) => {
 	switch (shape) {
 		case "titles":
 			return titles(name)
+		case "viewed":
+			return viewed(name)
 		case "deep":
 			return deep(name)
 		case "key":
@@ -405,6 +459,7 @@ const laterArmOnly = (seat: Seat, shape: Shape): string | undefined => {
 	const c = (r: Table, f: string) => seat.column(r, f)
 	switch (shape) {
 		case "titles":
+		case "viewed":
 			return `SELECT EXISTS (SELECT 1 FROM ${t("M")} m JOIN ${t("L2")} b ON b.${c("L2", "id")} = m.${c("M", "up")} JOIN ${t("L1")} a ON a.${c("L1", "id")} = b.${c("L2", "up")} WHERE NOT EXISTS (SELECT 1 FROM ${t("L1")} a2 JOIN ${t("L2")} b2 ON b2.${c("L2", "up")} = a2.${c("L1", "id")} JOIN ${t("L3")} z ON z.${c("L3", "up")} = b2.${c("L2", "id")} WHERE a2.${c("L1", "up")} = a.${c("L1", "up")} AND z.${c("L3", "v")} = 1))`
 		case "deep":
 			return `SELECT EXISTS (SELECT 1 FROM ${t("M")} m JOIN ${t("L1")} a ON a.${c("L1", "id")} = m.${c("M", "up")} WHERE NOT EXISTS (SELECT 1 FROM ${t("L1")} a2 JOIN ${t("L2")} b2 ON b2.${c("L2", "up")} = a2.${c("L1", "id")} JOIN ${t("L3")} z ON z.${c("L3", "up")} = b2.${c("L2", "id")} WHERE a2.${c("L1", "up")} = a.${c("L1", "up")} AND z.${c("L3", "v")} = 1))`
@@ -772,7 +827,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									name: "invariance: a probe of a key reads the same rows and its triggers take the same SIRead locks whatever other keys hold"
 								},
 								coverage: required<LocalityFeature>(
-									["titles measured", "deep measured", "key measured"],
+									["titles measured", "viewed measured", "deep measured", "key measured"],
 									{ cases: 12, sense: notesOnly }
 								),
 								kept: [],

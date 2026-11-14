@@ -1567,7 +1567,7 @@ export class Normalizer {
 				sources,
 				write: {
 					kind: "query",
-					violation: violationQuery(rule, loc),
+					violation: violationQuery(rule, this.env.definition, loc),
 					detail: { ...stated, lowering }
 				}
 			},

@@ -2,12 +2,7 @@ import { refuse, refuseNamed } from "#compiler/analysis/theory/build.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	flatMapNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import type {
 	FieldDesc,
@@ -39,12 +34,12 @@ import { guardedTerm } from "#compiler/scalar/natural.ts"
  * orders or takes, approximates, attaches or nests a stage, or negates a query that does or that negates in turn, is
  * refused (UnsupportedLawFamily), naming what it does.
  *
- * Every side of such a rule, a side over a stored relation among them, is read as arms (`SideArm`), so one
- * construction writes the rule's violation query (`violationQuery`), which the migration that adds the rule runs
- * over the rows it finds, the side its facts meet read whole, and its trigger probes (`newProbes`, `oldProbes`), which
- * the rule's deferred constraint triggers run at COMMIT for the rows a transaction touched, that side read by arm, so
- * each probe reads the rows of the keys its write reaches and never the whole side (`Reading`). Each is a query description the checker reads as any
- * query is, so grizzle's own query compiler types and lowers it. A relation a negated arm matches is read with the
+ * Every side of such a rule, a side over a stored relation among them, is read as arms (`SideArm`) by its trigger probes
+ * (`newProbes`, `oldProbes`), which the rule's deferred constraint triggers run at COMMIT for the rows a transaction
+ * touched, the side its facts meet read by arm, so each probe reads the rows of the keys its write reaches and never the
+ * whole side (`readAs`). The rule's violation query (`violationQuery`), which the migration that adds the rule runs
+ * over the rows it finds, reads each side whole, as its declared source, each definition a query of its own. Each is a
+ * query description the checker reads as any query is, so grizzle's own query compiler types and lowers it. A relation a negated arm matches is read with the
  * negation's polarity: a row it gains withdraws the facts of the side that negates it, and a row it loses brings them
  * back.
  */
@@ -921,48 +916,36 @@ const conditionsOf = (arm: LiveArm, loc: SourceLoc): ReadonlyArray<InferredExpr>
 ]
 
 /**
- * How a rule's query reads the side its breaking side's facts meet, a containment's target or a key's other fact: whole,
- * one imported query of every arm, as the migration's check over every row reads it; or by arm, an imported query of
- * each arm alone, as a trigger's probe reads it. A probe's facts are the rows its write touched and those its chain
- * reaches from them, and PostgreSQL reads a side at the terms such a fact meets it on only where the side is one
- * select-project-join it can join at those terms: a union, whose duplicates it removes first, it builds whole before
- * any term meets it, so a probe that met the whole side would read every fact of it at every call. Read by arm, a
- * negation of the side is one negation per arm, since no tuple of a union agrees with the terms exactly when no tuple
- * of any arm does, and a match of it is one rule per arm, since the facts that agree with some tuple of a union are
- * those that agree with some tuple of one of its arms: a probe read by arm judges exactly what the whole check does.
+ * The sources a trigger's probe reads the side its breaking side's facts meet as, a containment's target or a key's
+ * other fact: an imported query of each arm alone, each arm's rule delivering the row `head` gives it. A probe's facts
+ * are the rows its write touched and those its chain reaches from them, and PostgreSQL reads a side at the terms such a
+ * fact meets it on only where the side is one select-project-join it can join at those terms: a union, whose
+ * duplicates it removes first, it builds whole before any term meets it, so a probe that met the whole side would read
+ * every fact of it at every call. Read by arm, a negation of the side is one negation per arm, since no tuple of a
+ * union agrees with the terms exactly when no tuple of any arm does, and a match of it is one rule per arm, since the
+ * facts that agree with some tuple of a union are those that agree with some tuple of one of its arms: a probe read by
+ * arm judges exactly what the whole check (`violationQuery`) does.
  */
-type Reading = "whole" | "byArm"
-
-/** The sources a side is read as under `reading`, each arm's rule delivering the row `head` gives it. */
 const readAs = (
 	side: RuleSide,
-	reading: Reading,
 	head: (arm: SideArm) => Readonly<Record<string, InferredExpr>>,
 	loc: SourceLoc
-): NonEmptyReadonlyArray<InferredSource> => {
-	const rules = mapNonEmpty(side.arms, (a) =>
-		ruleDesc(a.vars, a.matches.map(matchDesc), conditionsOf(a, loc), head(a), loc)
+): NonEmptyReadonlyArray<InferredSource> =>
+	mapNonEmpty(side.arms, (a) =>
+		imported([ruleDesc(a.vars, a.matches.map(matchDesc), conditionsOf(a, loc), head(a), loc)], loc)
 	)
-	return reading === "whole"
-		? [imported(rules, loc)]
-		: mapNonEmpty(rules, (rule) => imported([rule], loc))
-}
 
 /** The tuples of a side's arms, each term under its pair's name: what a containment's other side meets. */
-const tuples = (
-	side: RuleSide,
-	reading: Reading,
-	loc: SourceLoc
-): NonEmptyReadonlyArray<InferredSource> => readAs(side, reading, (a) => termHead(a.terms), loc)
+const tuples = (side: RuleSide, loc: SourceLoc): NonEmptyReadonlyArray<InferredSource> =>
+	readAs(side, (a) => termHead(a.terms), loc)
 
-/** That no tuple of a side read as `reading` agrees with `terms`: one negation of each source it is read as. */
+/** That no tuple of a side read by arm agrees with `terms`: one negation of each arm's source. */
 const lacks = (
 	side: RuleSide,
 	terms: ReadonlyArray<InferredExpr>,
-	reading: Reading,
 	loc: SourceLoc
 ): NonEmptyReadonlyArray<InferredExpr> =>
-	mapNonEmpty(tuples(side, reading, loc), (source) => ({
+	mapNonEmpty(tuples(side, loc), (source) => ({
 		kind: "absent",
 		source,
 		bindings: termHead(terms)
@@ -972,12 +955,10 @@ const lacks = (
 const facts = (
 	side: RuleSide,
 	heading: ReadonlyArray<string>,
-	reading: Reading,
 	loc: SourceLoc
 ): NonEmptyReadonlyArray<InferredSource> =>
 	readAs(
 		side,
-		reading,
 		(a) => ({
 			...termHead(a.terms),
 			...Object.fromEntries(heading.map((f) => [headName(f), headOf(a, f, loc)] as const))
@@ -994,15 +975,14 @@ const headOf = (arm: ConjunctiveArm, field: string, loc: SourceLoc): InferredExp
 	)
 
 /**
- * The rules of a violation query an arm of the rule's breaking side states, the arm as a probe may restrict it, the
- * side it meets read as `reading`: for a containment, its tuples the target lacks; for a key, its facts another fact of
- * the side agrees with on the key and differs from elsewhere in the heading, a rule per source the side is read as;
- * for a check, its facts the condition refuses.
+ * The rules of a probe an arm of the rule's breaking side states, the arm as the probe restricts it, the side it meets
+ * read by arm (`readAs`): for a containment, its tuples the target lacks; for a key, its facts another fact of the side
+ * agrees with on the key and differs from elsewhere in the heading, a rule per arm of the side; for a check, its facts
+ * the condition refuses.
  */
 const violating = (
 	rule: QueryRule,
 	arm: SideArm,
-	reading: Reading,
 	loc: SourceLoc
 ): NonEmptyReadonlyArray<InferredRule> => {
 	switch (rule.kind) {
@@ -1011,7 +991,7 @@ const violating = (
 				ruleDesc(
 					arm.vars,
 					arm.matches.map(matchDesc),
-					[...conditionsOf(arm, loc), ...lacks(rule.to, arm.terms, reading, loc)],
+					[...conditionsOf(arm, loc), ...lacks(rule.to, arm.terms, loc)],
 					termHead(arm.terms),
 					loc
 				)
@@ -1022,7 +1002,7 @@ const violating = (
 			for (const f of heading) {
 				other[headName(f)] = varRef(otherId(f))
 			}
-			return mapNonEmpty(facts(rule.side, heading, reading, loc), (source) =>
+			return mapNonEmpty(facts(rule.side, heading, loc), (source) =>
 				ruleDesc(
 					[...arm.vars, ...heading.map((f) => ({ id: otherId(f), origin: undefined, loc }))],
 					[...arm.matches.map(matchDesc), { source, bindings: other, loc }],
@@ -1058,15 +1038,274 @@ const violating = (
 	}
 }
 
+/** `e` with the source of every negation in it read through `source`, at any depth. */
+const sourcesThrough = (
+	e: InferredExpr,
+	source: (s: InferredSource) => InferredSource
+): InferredExpr => {
+	const m = (x: InferredExpr): InferredExpr => sourcesThrough(x, source)
+	switch (e.kind) {
+		case "var":
+		case "field":
+		case "value":
+		case "parent":
+		case "param":
+		case "literal":
+			return e
+		case "compute":
+			return { ...e, args: e.args.map(m) }
+		case "cast":
+		case "base":
+		case "not":
+			return { ...e, arg: m(e.arg) }
+		case "cond":
+			return { ...e, pred: m(e.pred), onTrue: m(e.onTrue), onFalse: m(e.onFalse) }
+		case "when":
+			return { ...e, subject: m(e.subject), proved: m(e.proved), otherwise: m(e.otherwise) }
+		case "compare":
+		case "allen":
+			return { ...e, left: m(e.left), right: m(e.right) }
+		case "between":
+			return { ...e, arg: m(e.arg), low: m(e.low), high: m(e.high) }
+		case "in":
+			return { ...e, arg: m(e.arg) }
+		case "and":
+		case "or":
+			return { ...e, args: mapNonEmpty(e.args, m) }
+		case "pointIn":
+			return { ...e, point: m(e.point), span: m(e.span) }
+		case "absent":
+			return { ...e, source: source(e.source), bindings: bindingsThrough(e.bindings, m) }
+		case "closedAt":
+		case "closedHas":
+			return { ...e, args: mapNonEmpty(e.args, m) }
+		case "closedRow":
+			return { ...e, args: e.args.map(m) }
+	}
+}
+
+/** Bindings with each term mapped by `m`. */
+const bindingsThrough = (
+	b: InferredBindings,
+	m: (e: InferredExpr) => InferredExpr
+): InferredBindings => Object.fromEntries(Object.entries(b).map(([f, e]) => [f, m(e)] as const))
+
+/**
+ * The source a rule's full violation query reads the relation `relation` through: a stored or closed relation by its
+ * name; a derived relation, materialized or not, as its definition, read live and imported as a query of its own
+ * (`liveQuery`), never through its view, which the migration that checks the rule may not have filled.
+ */
+const liveSource = (relation: string, definition: LiveEnv["definition"]): InferredSource => {
+	const d = definition(relation)
+	return d === undefined
+		? { kind: "relation", name: relation }
+		: { kind: "query", query: liveQuery(d, definition), bind: {} }
+}
+
+/**
+ * A definition read live: every derived relation it matches or negates, at any depth, read as its own definition, live,
+ * imported (`liveSource`), and every query it imports read so in turn. Each stays a query of its own, so its rows are
+ * computed at a level of their own, joined to the level that reads them by the columns that level binds.
+ */
+const liveQuery = (query: InferredQuery, definition: LiveEnv["definition"]): InferredQuery => {
+	const source = (s: InferredSource): InferredSource => {
+		switch (s.kind) {
+			case "relation":
+				return liveSource(s.name, definition)
+			case "query":
+				return { ...s, query: liveQuery(s.query, definition) }
+			case "param":
+			case "paramOf":
+			case "interior":
+			case "self":
+			case "delta":
+			case "context":
+			case "row":
+				return s
+		}
+	}
+	const rule = (r: InferredRule): InferredRule => ({
+		...r,
+		matches: r.matches.map((m) => ({ ...m, source: source(m.source) })),
+		where: r.where.map((w) => sourcesThrough(w, source))
+	})
+	const stage = (st: InferredStage): InferredStage => {
+		switch (st.kind) {
+			case "rules":
+				return { ...st, arms: mapNonEmpty(st.arms, rule) }
+			case "union":
+				return { ...st, input: stage(st.input), arms: mapNonEmpty(st.arms, rule) }
+			case "named":
+				return { ...st, input: stage(st.input) }
+			case "recursive":
+			case "attach":
+			case "order":
+			case "take":
+			case "approx":
+				return st
+		}
+	}
+	return { ...query, stage: stage(query.stage) }
+}
+
+/**
+ * A side as a rule's full violation query reads it, whole: one match of the side's source (`liveSource`) binding each
+ * field the side reads, its terms', its selection's and `also`, to a variable of its own under `prefix`; its selection
+ * and its terms' guards over those variables; its terms; and each bound field's variable by the field's name.
+ */
+interface WholeSide {
+	readonly vars: ReadonlyArray<VarDesc>
+	readonly match: InferredMatch
+	readonly where: ReadonlyArray<InferredExpr>
+	readonly terms: NonEmptyReadonlyArray<InferredExpr>
+	readonly fields: Readonly<Record<string, InferredExpr>>
+}
+
+const wholeSide = (
+	side: RuleSide,
+	definition: LiveEnv["definition"],
+	also: ReadonlyArray<string>,
+	prefix: string,
+	loc: SourceLoc
+): WholeSide => {
+	const read = new Set<string>([...side.terms.map((t) => t.field), ...also])
+	for (const c of side.selection.conjuncts) {
+		fieldsOf(c, read)
+	}
+	const fields = [...read].toSorted(compareText)
+	const id = (f: string): string => `${prefix}${f}`
+	const leaves: Leaves = { var: () => undefined, field: (f) => varRef(id(f)) }
+	const bound = Object.fromEntries(fields.map((f) => [f, varRef(id(f))] as const))
+	const guarded = mapNonEmpty(side.terms, guardedTerm)
+	return {
+		vars: fields.map((f) => ({ id: id(f), origin: { relation: side.relation, field: f }, loc })),
+		match: { source: liveSource(side.relation, definition), bindings: bound, loc },
+		where: [
+			...side.selection.conjuncts.map((c) => mapLeaves(c, leaves)),
+			...guarded.flatMap((g) => g.guard.map((x) => mapLeaves(x, leaves)))
+		],
+		terms: mapNonEmpty(guarded, (g) => mapLeaves(g.term, leaves)),
+		fields: bound
+	}
+}
+
+/** The variable a whole side binds `field` to. */
+const wholeField = (side: WholeSide, field: string, loc: SourceLoc): InferredExpr =>
+	side.fields[field] ??
+	refuse("MalformedDescription", loc, `a side reading fields of its relation; ${field} is none`)
+
 /**
  * The violation query of a rule over a query, which must be empty: every fact of its breaking side that breaks it, the
- * side it meets read whole.
+ * side it meets read whole. Each side is read as its declared source (`wholeSide`), a derived relation as its
+ * definition, live, and every derived relation that definition reads as its own, each a query of its own, rather than
+ * as the side's arms (`SideArm`), which inline every definition into one join of every stored relation it reads. The
+ * two judge the same facts: a definition's arms are its rules with every definition they read inlined, a join
+ * distributed over the arms of a union it reads and a negation of a union read as one negation per arm, and every
+ * level both read is a set, so neither multiplicity nor the order of the joins is observable; an equality of a column
+ * a definition derives is the equality the inlined arm states over the term that derives it. Read whole, PostgreSQL
+ * plans each definition's own joins at a level of their own, a few relations each, where the inlined arms are one join
+ * of every relation the definitions read, whose join search grows with the subsets of those relations.
  */
-export const violationQuery = (rule: QueryRule, loc: SourceLoc): InferredQuery =>
-	queryOf(
-		flatMapNonEmpty(breakingArms(rule), (arm) => violating(rule, arm, "whole", loc)),
-		loc
-	)
+export const violationQuery = (
+	rule: QueryRule,
+	definition: LiveEnv["definition"],
+	loc: SourceLoc
+): InferredQuery => {
+	switch (rule.kind) {
+		case "contained": {
+			const from = wholeSide(rule.from, definition, [], "s0.", loc)
+			const to = wholeSide(rule.to, definition, [], "s1.", loc)
+			return queryOf(
+				[
+					ruleDesc(
+						from.vars,
+						[from.match],
+						[
+							...from.where,
+							{
+								kind: "absent",
+								source: imported(
+									[ruleDesc(to.vars, [to.match], to.where, termHead(to.terms), loc)],
+									loc
+								),
+								bindings: termHead(from.terms)
+							}
+						],
+						termHead(from.terms),
+						loc
+					)
+				],
+				loc
+			)
+		}
+		case "key": {
+			const heading = armHeading(rule.side.arms)
+			const one = wholeSide(rule.side, definition, heading, "s0.", loc)
+			const other = wholeSide(rule.side, definition, heading, "s1.", loc)
+			const otherFacts = imported(
+				[
+					ruleDesc(
+						other.vars,
+						[other.match],
+						other.where,
+						{
+							...termHead(other.terms),
+							...Object.fromEntries(
+								heading.map((f) => [headName(f), wholeField(other, f, loc)] as const)
+							)
+						},
+						loc
+					)
+				],
+				loc
+			)
+			const bindings: Record<string, InferredExpr> = { ...termHead(one.terms) }
+			for (const f of heading) {
+				bindings[headName(f)] = varRef(otherId(f))
+			}
+			return queryOf(
+				[
+					ruleDesc(
+						[...one.vars, ...heading.map((f) => ({ id: otherId(f), origin: undefined, loc }))],
+						[one.match, { source: otherFacts, bindings, loc }],
+						[
+							...one.where,
+							connectiveExpr(
+								"or",
+								heading.map((f): InferredExpr => ({
+									kind: "compare",
+									op: "ne",
+									left: wholeField(one, f, loc),
+									right: varRef(otherId(f))
+								}))
+							)
+						],
+						termHead(one.terms),
+						loc
+					)
+				],
+				loc
+			)
+		}
+		case "check": {
+			const heading = armHeading(rule.side.arms)
+			const one = wholeSide(rule.side, definition, heading, "s0.", loc)
+			const leaves: Leaves = { var: () => undefined, field: (f) => wholeField(one, f, loc) }
+			return queryOf(
+				[
+					ruleDesc(
+						one.vars,
+						[one.match],
+						[...one.where, { kind: "not", arg: mapLeaves(rule.predicate, leaves) }],
+						termHead(one.terms),
+						loc
+					)
+				],
+				loc
+			)
+		}
+	}
+}
 
 /** A parameter of a probe: the field of the touched row, NEW or OLD, it reads. */
 export interface ProbeParam {
@@ -1269,7 +1508,7 @@ const negatedProbes = <A extends LiveArm>(
  *   each through a negation of its own, is blocked by the other's too, and is a candidate all the same. The source
  *   tuples that need a candidate and that the target no longer holds are the violation.
  *
- * Every probe reads the side its facts meet by arm (`Reading`), each probe one rule of the violation: a probe per arm
+ * Every probe reads the side its facts meet by arm (`readAs`), each probe one rule of the violation: a probe per arm
  * of a key's side its fact meets, and per arm of a containment's source its candidate meets, each beside a negation
  * of every arm of the target.
  */
@@ -1303,7 +1542,7 @@ export const newProbes = (
 				matches: mapNonEmpty(arm.matches, (x, j) => (j === i ? { ...x, bindings } : x)),
 				where: [...arm.where, ...pinned]
 			}
-			return probesOf(violating(rule, restricted, "byArm", loc), keyed, loc)
+			return probesOf(violating(rule, restricted, loc), keyed, loc)
 		})
 	)
 	if (rule.kind !== "contained") {
@@ -1323,7 +1562,7 @@ export const newProbes = (
 			params
 		)
 		return probesOf(
-			mapNonEmpty(tuples(rule.from, "byArm", loc), (source) =>
+			mapNonEmpty(tuples(rule.from, loc), (source) =>
 				ruleDesc(
 					[...arm.vars, ...open.vars.filter((v) => !h.replaced.has(v.id))],
 					[
@@ -1331,7 +1570,7 @@ export const newProbes = (
 						...arm.matches.map(matchDesc),
 						...h.kept.map(matchDesc)
 					],
-					[...arm.where, ...h.where, ...lacks(rule.to, arm.terms, "byArm", loc)],
+					[...arm.where, ...h.where, ...lacks(rule.to, arm.terms, loc)],
 					termHead(arm.terms),
 					loc
 				)
@@ -1363,7 +1602,7 @@ export const newProbes = (
  *   that read OLD blocked are the candidates, however many of its rows the transaction removes; the rule's violation
  *   is read over them, the arm's negations as they stand at COMMIT.
  *
- * Every probe reads the side its candidates meet by arm (`Reading`), as newProbes' do.
+ * Every probe reads the side its candidates meet by arm (`readAs`), as newProbes' do.
  */
 export const oldProbes = (
 	rule: QueryRule,
@@ -1391,7 +1630,7 @@ export const oldProbes = (
 			matches: [...arm.matches, ...h.kept],
 			where: [...arm.where, ...h.where]
 		}
-		return probesOf(violating(rule, restricted, "byArm", loc), params, loc)
+		return probesOf(violating(rule, restricted, loc), params, loc)
 	})
 	return [...lost, ...unblocked]
 }
@@ -1418,11 +1657,11 @@ const lostProbes = (
 		h.unbound(t) ? [{ id: wildcardId(i), origin: undefined, loc }] : []
 	)
 	return probesOf(
-		mapNonEmpty(tuples(rule.from, "byArm", loc), (source) =>
+		mapNonEmpty(tuples(rule.from, loc), (source) =>
 			ruleDesc(
 				[...arm.vars.filter((v) => !h.replaced.has(v.id) && !h.free.has(v.id)), ...wilds],
 				[{ source, bindings: termHead(bound), loc }, ...h.kept.map(matchDesc)],
-				[...h.where, ...lacks(rule.to, bound, "byArm", loc)],
+				[...h.where, ...lacks(rule.to, bound, loc)],
 				termHead(bound),
 				loc
 			)

@@ -2,24 +2,27 @@
  * What a law's full violation query reads, as deploy/snapshot/violation.ts lawChecks lowers it: each stored relation's
  * table plainly, under its primary key's proof (lower/conservative/base/index.ts readsKeyedTable), never through
  * SELECT DISTINCT over it, so PostgreSQL flattens the table into the join that reads it and probes it by its indexes;
- * each materialized view under the DISTINCT that makes its rows a set; and a law over closed relations alone no table
- * at all, so the setup-phase checks of a migration (diff.ts migrationChecks), which only such laws hold, print the same
- * whatever a table read prints.
+ * each derived relation as its definition, live, a query of its own (analysis/theory/query.ts violationQuery), so each
+ * join PostgreSQL plans is one definition's own; and a law over closed relations alone no table at all, so the
+ * setup-phase checks of a migration (diff.ts migrationChecks), which only such laws hold, print the same whatever a
+ * table read prints.
  *
  * edullm's QTI identity migration drafted its check of LomObjectTitle with every stored relation read through SELECT
  * DISTINCT over every column: PostgreSQL planned one HashAggregate per table, no index, every multi-column join
  * estimated at one row, and the check ran past twelve minutes over tables of thousands of rows.
  *
  * The box, exhausted: stored relations A(id, k, a), B(id, k, b) and T(a, b); a rule over a query whose source is A's
- * facts of a nonzero a, the join J = A ⋈ B on k, or the facts of a materialized derived relation V = A ⋈ B, and whose
- * target is M, B's (k, b) whose b is a T row's a, with or without a second arm, B's (k, b) whose b is no T row's a, a
- * negation read by NOT EXISTS; beside closed relations TierRank and TierNext and a containment between them alone.
- * The oracle is the installation's own names: the table of each stored relation and the view of V, as PostgreSQL
- * names them (PhysicalNames.relation). Every table a violation query reads is one of them, each stored one read by a core with no
- * DISTINCT under the proof `keyed`, V's view, were one read, by a SELECT DISTINCT, and a migration check reads none.
- * A rule's violation reads V's facts through its definition, over A and B, so no case reads V's view.
+ * facts of a nonzero a, the join J = A ⋈ B on k, the facts of a materialized derived relation V = A ⋈ B, or JJ = J ⋈ T
+ * or VV = V ⋈ T, a definition reading a definition, and whose target is M, B's (k, b) whose b is a T row's a, with or
+ * without a second arm, B's (k, b) whose b is no T row's a, a negation read by NOT EXISTS; beside closed relations
+ * TierRank and TierNext and a containment between them alone. The oracle is the installation's own names of the stored
+ * tables (PhysicalNames.relation) and the box's own definitions: every table a violation query reads is a stored one,
+ * read by a core with no DISTINCT under the proof `keyed`, and never V's view, since a rule judges a derived relation
+ * on its definition, live, which the migration that checks it may not have filled; no core of it joins more sources
+ * than the widest rule of a definition it reads, each definition a query of its own, so PostgreSQL plans no join of
+ * every relation the definitions read together; and a migration check reads no table.
  *
- * Features: a stored table read plainly; a negated arm; a join; a migration check.
+ * Features: a stored table read plainly; a negated arm; a definition reading a definition; a join; a migration check.
  *
  * Where a migration runs a rule's check, every table it reads holds its target primary key, which is why reading it
  * plainly is exact: the check is a Validate step (deploy/diff/diff.ts ruleChecks), after validate.attach in the one
@@ -31,7 +34,10 @@
  *
  * Plants (~/.cache/grizzle-release/LAWQUERY/plants): violation-distinct-back.patch, the violation probe reading every
  * stored table through SELECT DISTINCT again, as edullm's migration was drafted, fails the first box;
- * violation-check-before-keys.patch, Validate's checks run before its keys are attached, fails the second.
+ * violation-check-before-keys.patch, Validate's checks run before its keys are attached, fails the second;
+ * violation-fused-definitions.patch, a side read as its arms, every definition inlined into one join, fails the first by
+ * its widest join; violation-stale-view.patch, a materialized derived relation read through its view, fails the first by
+ * the view it reads.
  */
 import { describe, it } from "@effect/vitest"
 import { exhaust } from "@grizzle/testing/explore"
@@ -85,7 +91,7 @@ const TierNext = closed.relation(
 	[{ tier: "low", next: "high" }]
 )
 
-const sources = ["selected", "joined", "view"] as const
+const sources = ["selected", "joined", "view", "nested", "nested view"] as const
 
 interface Case {
 	readonly source: (typeof sources)[number]
@@ -99,7 +105,7 @@ const caseGen: Gen<Case> = (s) => ({
 
 /**
  * The case's schema: A, B and T, and the closed relations TierRank and TierNext with a containment between them alone,
- * at the root, and its rule's relations and rule above.
+ * at the root; J and V over it at a middle level; and M, JJ and VV, which read J and V, with the case's rule above.
  */
 const schemaOf = (c: Case): AnySchema => {
 	const Base = schema(
@@ -114,6 +120,21 @@ const schemaOf = (c: Case): AnySchema => {
 	})
 	const J = derived("J", definition)
 	const V = derived.materialized("V", definition)
+	const Mid = schema.extend(Base, "Mid", [J, V], [])
+	const JJ = derived(
+		"JJ",
+		query(Mid).rule((r) => {
+			const { k, a, b } = v(J, "j")
+			return r.match(J, { k, a, b }).match(T, { a, b }).find({ k, a, b })
+		})
+	)
+	const VV = derived(
+		"VV",
+		query(Mid).rule((r) => {
+			const { k, a, b } = v(V, "v")
+			return r.match(V, { k, a, b }).match(T, { a, b }).find({ k, a, b })
+		})
+	)
 	const paired = query(Base).rule((r) => {
 		const { k, b } = v(B, "b")
 		return r.match(B, { k, b }).match(T, { a: b }).find({ k, b })
@@ -133,9 +154,9 @@ const schemaOf = (c: Case): AnySchema => {
 	switch (c.source) {
 		case "selected":
 			return schema.extend(
-				Base,
+				Mid,
 				"Upper",
-				[J, V, M],
+				[M],
 				[
 					contained(
 						on(
@@ -148,9 +169,13 @@ const schemaOf = (c: Case): AnySchema => {
 				]
 			)
 		case "joined":
-			return schema.extend(Base, "Upper", [J, V, M], [contained(on(J, "k", "b"), on(M, "k", "b"))])
+			return schema.extend(Mid, "Upper", [M], [contained(on(J, "k", "b"), on(M, "k", "b"))])
 		case "view":
-			return schema.extend(Base, "Upper", [J, V, M], [contained(on(V, "k", "b"), on(M, "k", "b"))])
+			return schema.extend(Mid, "Upper", [M], [contained(on(V, "k", "b"), on(M, "k", "b"))])
+		case "nested":
+			return schema.extend(Mid, "Upper", [JJ, M], [contained(on(JJ, "k", "b"), on(M, "k", "b"))])
+		case "nested view":
+			return schema.extend(Mid, "Upper", [VV, M], [contained(on(VV, "k", "b"), on(M, "k", "b"))])
 	}
 }
 
@@ -324,13 +349,52 @@ const keyedBy = (step: Step): ReadonlyArray<string> => {
 		: []
 }
 
+/** The most FROM items one core of a query joins, a join chain's each counted, wherever the core stands. */
+const widestJoin = (query: OperandSelect): number => {
+	const queries: Array<OperandSelect> = [query]
+	visitSelect(query, {
+		...inertVisitor,
+		fromItem: (item) => {
+			if (item.kind === "derived") {
+				queries.push(item.query)
+			}
+		},
+		expr: (e) => {
+			if (e.kind === "exists" || e.kind === "subquery") {
+				queries.push(e.query)
+			}
+		}
+	})
+	return Arr.reduce(
+		Arr.flatMap(queries, (q) =>
+			Arr.map(bodyCores(q.body), (core) =>
+				Arr.reduce(
+					core.from,
+					0,
+					(n, item) => n + (item.kind === "joins" ? 1 + item.steps.length : 1)
+				)
+			)
+		),
+		0,
+		(most, width) => (width > most ? width : most)
+	)
+}
+
+/** The most matches one rule of the box's definitions joins: J's and V's A ⋈ B, JJ's and VV's J ⋈ T, M's B ⋈ T. */
+const widestRule = 2
+
 type MigrationFeature = "a key kept" | "a key attached before the check" | "a negated arm"
 
-type Feature = "a stored table read plainly" | "a negated arm" | "a join" | "a migration check"
+type Feature =
+	| "a stored table read plainly"
+	| "a negated arm"
+	| "a definition reading a definition"
+	| "a join"
+	| "a migration check"
 
 describe("a law's full violation query", () => {
 	it.effect(
-		"reads each stored table plainly under its key, never through DISTINCT, each view through DISTINCT, and a law over closed relations no table",
+		"reads each stored table plainly under its key, never a view, each definition at a level of its own, and a law over closed relations no table",
 		(ctx) =>
 			searched(
 				ctx,
@@ -339,14 +403,15 @@ describe("a law's full violation query", () => {
 						suite: "unit/laws/violation-reads",
 						generator: caseGen,
 						literal: Formatter.format,
-						box: "a rule over a query from A's selected facts, J = A ⋈ B or the materialized V = A ⋈ B, into M of one arm or of two, one negated, beside a law over closed relations alone",
+						box: "a rule over a query from A's selected facts, J = A ⋈ B, the materialized V = A ⋈ B, JJ = J ⋈ T or VV = V ⋈ T, into M of one arm or of two, one negated, beside a law over closed relations alone",
 						oracle: {
 							kind: "second-implementation",
-							name: "the installation's own names of the stored tables and of V's view"
+							name: "the installation's own names of the stored tables, and the widest rule of the box's definitions"
 						},
 						coverage: requiredInSpace<Feature>([
 							"a stored table read plainly",
 							"a negated arm",
+							"a definition reading a definition",
 							"a join",
 							"a migration check"
 						]),
@@ -373,20 +438,14 @@ describe("a law's full violation query", () => {
 							const stored = new Set(
 								Arr.map(["A", "B", "T"], (name) => tableKey(installation.names.relation(name)))
 							)
-							const views = new Set([tableKey(installation.names.relation("V"))])
 							const checks = lawChecks(installation)
 							assert.equal(checks.rules.length, 1, "the case's one rule over a query")
 							for (const rule of checks.rules) {
 								const reads = tableReads(rule.query)
 								for (const r of reads) {
-									if (stored.has(r.table)) {
-										assert.equal(r.read, "keyed", `${r.table}, a stored table, read plainly`)
-										k.note("a stored table read plainly")
-									} else if (views.has(r.table)) {
-										assert.equal(r.read, "distinct", `${r.table}, a view, read under DISTINCT`)
-									} else {
-										assert.fail(`${r.table}, a table the installation names`)
-									}
+									assert.ok(stored.has(r.table), `${r.table}, a stored table, and no view`)
+									assert.equal(r.read, "keyed", `${r.table}, a stored table, read plainly`)
+									k.note("a stored table read plainly")
 								}
 								const names = new Set(Arr.map(reads, (r) => r.table))
 								if (
@@ -397,6 +456,14 @@ describe("a law's full violation query", () => {
 								}
 								if (negations(rule.query) > 1) {
 									k.note("a negated arm")
+								}
+								assert.equal(
+									widestJoin(rule.query),
+									widestRule,
+									"the widest join of the check, the widest rule of a definition it reads"
+								)
+								if (c.source === "nested" || c.source === "nested view") {
+									k.note("a definition reading a definition")
 								}
 							}
 							assert.equal(
