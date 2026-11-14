@@ -41,7 +41,6 @@ import {
 	allowCredentialsForBaseUrl,
 	attach,
 	attachPlaceholders,
-	cookiePairs,
 	credentialOrigins,
 	evaluate,
 	placeholder,
@@ -69,6 +68,7 @@ import {
 	querySeparator,
 	decideRetry,
 	redirectLoop,
+	requestHeaderValue,
 	RetryAfterCap,
 	retryBudget,
 	retryLabel,
@@ -2146,35 +2146,14 @@ const printDryRun = (
 		const written = new Set(placeholders.map(({ scheme }) => placeholder(scheme)))
 		const headerNames = [...(yield* Effect.service(Headers.CurrentRedactedNames)), ...sensitive]
 		const queryNames = yield* Effect.service(UrlParams.CurrentRedactedNames)
-		const exact = new Set([...written].flatMap((text) => [text, `Bearer ${text}`, `Basic ${text}`]))
-		// A redacted header keeps only an exact placeholder form; a `Cookie` keeps each pair whose
-		// value is exactly a placeholder and redacts the value of every other pair.
-		const shownValue = (name: string, value: string): string => {
-			if (!Headers.isRedactedName(name, headerNames)) {
-				return value
-			}
-
-			if (name.toLowerCase() !== "cookie") {
-				return exact.has(value) ? value : redactedPlaceholder()
-			}
-
-			return cookiePairs(value)
-				.map((pair) => {
-					const equals = pair.indexOf("=")
-					if (equals === -1) {
-						return redactedPlaceholder()
-					}
-
-					return written.has(pair.slice(equals + 1))
-						? pair
-						: `${pair.slice(0, equals)}=${redactedPlaceholder()}`
-				})
-				.join("; ")
-		}
+		const scrub = (text: string): string => scrubbedAndSanitized(text, recorded)
 		const lines = [
 			`${request.method} ${dryRunUrl(request, written, queryNames)} HTTP/1.1`,
-			...sendOrder(request.headers).map(([name, value]) => `${name}: ${shownValue(name, value)}`)
-		].map((text) => scrubbedAndSanitized(text, recorded))
+			...sendOrder(request.headers).map(
+				([name, value]) =>
+					`${name}: ${requestHeaderValue(name, scrub(value), headerNames, queryNames, written)}`
+			)
+		].map(scrub)
 
 		yield* toStdout(
 			Stream.concat(
@@ -2323,7 +2302,11 @@ export const send =
 				// Per hop, from the operation's bound origins: the flag never extends the certificate.
 				// An alternative without mutualTLS presents it on no hop.
 				(url) => certificateChosen && presentsCertificate(url, servers.boundOrigins),
-				verboseTransform(scrub, sensitive)
+				verboseTransform(
+					scrub,
+					sensitive,
+					new Set(headers.map(({ scheme }) => placeholder(scheme)))
+				)
 			).pipe(retryTransform(scrub, budget), withUserAgent(policy.binName, policy.version))
 			const cap = yield* Ref.make(Option.none<number>())
 			const table = {

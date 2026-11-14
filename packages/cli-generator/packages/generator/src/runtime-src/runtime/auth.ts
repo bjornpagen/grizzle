@@ -27,7 +27,7 @@ import {
 	stdinOrFile,
 	stripLineEnd
 } from "#runtime/input.ts"
-import { labelledPlaceholder, loneSurrogate } from "#runtime/redact.ts"
+import { labelledPlaceholder, loneSurrogate, redactedPlaceholder } from "#runtime/redact.ts"
 import { cookieOctets, headerValueBreaks } from "#runtime/serialize.ts"
 
 /**
@@ -1021,6 +1021,40 @@ const placeholderOne = (
 		value === undefined ? Effect.void : Effect.asVoid(attachOne(request, { ...entry, value }))
 
 	return Effect.andThen(checked, () => writePlaceholder(request, entry))
+}
+
+/**
+ * The value of a header whose name output redacts, as `--dry-run` and `--verbose` print it (design 4.6, 7.5): kept only
+ * when it is exactly a placeholder of `written` as `writePlaceholder` writes it in a header (bare, or after the
+ * `Bearer` or `Basic` prefix), else `<redacted>`; a `Cookie` keeps each pair whose value is exactly one of `written`
+ * and redacts the value of every other pair. `written` holds the placeholders of the run's own credentials, so no
+ * other value that looks like one is shown.
+ */
+export const shownRedactedValue = (
+	name: string,
+	value: string,
+	written: ReadonlySet<string>
+): string => {
+	if (Str.toLowerCase(name) !== "cookie") {
+		const forms = new Set(
+			Arr.flatMap(Arr.fromIterable(written), (text) => [text, `Bearer ${text}`, `Basic ${text}`])
+		)
+
+		return forms.has(value) ? value : redactedPlaceholder()
+	}
+
+	return Arr.join(
+		Arr.map(cookiePairs(value), (pair) =>
+			Option.match(Str.indexOf("=")(pair), {
+				onNone: () => redactedPlaceholder(),
+				onSome: (equals) =>
+					written.has(Str.slice(equals + 1)(pair))
+						? pair
+						: `${Str.slice(0, equals)(pair)}=${redactedPlaceholder()}`
+			})
+		),
+		"; "
+	)
 }
 
 /**

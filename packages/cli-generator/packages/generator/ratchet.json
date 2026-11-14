@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 3088,
+		"total": 3082,
 		"files": {
 			"packages/generator/src/emit/api.ts": 125,
 			"packages/generator/src/emit/cli.ts": 123,
@@ -12,7 +12,7 @@
 			"packages/generator/src/normalize/responses.ts": 19,
 			"packages/generator/src/runtime-src/domain/errors.ts": 22,
 			"packages/generator/src/runtime-src/runtime/client.ts": 32,
-			"packages/generator/src/runtime-src/runtime/output.ts": 114,
+			"packages/generator/src/runtime-src/runtime/output.ts": 108,
 			"packages/generator/src/runtime-src/runtime/sequential.ts": 26,
 			"packages/generator/test/check/document-set.test.ts": 3,
 			"packages/generator/test/check/grammar.test.ts": 32,
@@ -160,7 +160,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 1492,
+		"total": 1489,
 		"files": {
 			"packages/generator/src/emit/api.ts": 110,
 			"packages/generator/src/emit/cli.ts": 148,
@@ -171,7 +171,7 @@
 			"packages/generator/src/normalize/responses.ts": 19,
 			"packages/generator/src/runtime-src/domain/errors.ts": 3,
 			"packages/generator/src/runtime-src/runtime/client.ts": 13,
-			"packages/generator/src/runtime-src/runtime/output.ts": 57,
+			"packages/generator/src/runtime-src/runtime/output.ts": 54,
 			"packages/generator/src/runtime-src/runtime/sequential.ts": 3,
 			"packages/generator/test/check/grammar.test.ts": 14,
 			"packages/generator/test/corpus/walk.test.ts": 1,

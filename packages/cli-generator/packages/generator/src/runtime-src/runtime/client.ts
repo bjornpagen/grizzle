@@ -1,5 +1,6 @@
 import type { Stdio } from "effect"
 import {
+	Array as Arr,
 	Clock,
 	Config,
 	Context,
@@ -34,7 +35,12 @@ import {
 } from "effect/http"
 import { RedirectRefused, UsageError } from "#domain/errors.ts"
 import type { TransportError } from "#domain/errors.ts"
-import { credentialHeaders, credentialLikeResponseName, isLoopbackHost } from "#runtime/auth.ts"
+import {
+	credentialHeaders,
+	credentialLikeResponseName,
+	isLoopbackHost,
+	shownRedactedValue
+} from "#runtime/auth.ts"
 import { Servers } from "#runtime/base-url.ts"
 import { asCliError, printStderr } from "#runtime/input.ts"
 import { queryWireForm, redactedPlaceholder } from "#runtime/redact.ts"
@@ -931,31 +937,54 @@ const redactHeaderUrls = (
 }
 
 /**
- * A request's headers in send order (design 4.6): the iteration order of the WHATWG `Headers`
- * fetch builds from the record, sorted by name, not the order the builder set them. `--verbose`
- * and `--dry-run` both print this order. A record that `Headers` rejects (a value with a control
- * character) is never sent, so it keeps the record's order rather than failing the print.
+ * The framing headers undici writes from the body it sends, after every other header line.
  */
-export const sendOrder = (headers: Headers.Headers): readonly (readonly [string, string])[] =>
-	Result.getOrElse(
-		Result.try(() => [...new globalThis.Headers(headers)]),
-		() => Object.entries(headers)
-	)
+const framingHeaders: ReadonlySet<string> = new Set(["content-length", "transfer-encoding"])
 
 /**
- * One block's header lines, in the order `entries` lists them. A value whose name `names` lists is
- * `<redacted>`; a URL a header carries is redacted by `redactHeaderUrls` with `queryNames`; the
- * caller scrubs each whole line.
+ * A request's headers in send order (design 4.6): the order undici writes them in, which is its
+ * record's order (the attach step's credentials last), the framing headers after the rest.
+ * `--verbose` and `--dry-run` both print this order.
  */
-const headerLines = (
-	prefix: "<" | ">",
+export const sendOrder = (headers: Headers.Headers): readonly (readonly [string, string])[] => {
+	const entries = Object.entries(headers)
+
+	return [
+		...Arr.filter(entries, ([name]) => !framingHeaders.has(name)),
+		...Arr.filter(entries, ([name]) => framingHeaders.has(name))
+	]
+}
+
+/**
+ * A request header's value as `--dry-run` and `--verbose` both print it (design 4.6, 7.5), from
+ * the value with every credential the run holds already its placeholder: under a name `names`
+ * lists, `shownRedactedValue` against the placeholders the run writes (`written`); under any
+ * other, the value with each URL it carries redacted by `redactHeaderUrls` with `queryNames`.
+ */
+export const requestHeaderValue = (
+	name: string,
+	value: string,
+	names: readonly (string | RegExp)[],
+	queryNames: readonly (string | RegExp)[],
+	written: ReadonlySet<string>
+): string =>
+	Headers.isRedactedName(name, names)
+		? shownRedactedValue(name, value, written)
+		: redactHeaderUrls(name, value, queryNames)
+
+/**
+ * A response block's header lines, in the order `entries` lists them. A value whose name `names`
+ * lists is `<redacted>`; a URL a header carries is redacted by `redactHeaderUrls` with
+ * `queryNames`; the caller scrubs each whole line.
+ */
+const responseHeaderLines = (
 	entries: readonly (readonly [string, string])[],
 	names: readonly (string | RegExp)[],
 	queryNames: readonly (string | RegExp)[]
 ): readonly string[] =>
 	entries.map(
 		([name, value]) =>
-			`${prefix} ${name}: ${
+			`< ${name}: ${
 				Headers.isRedactedName(name, names)
 					? redactedValue
 					: redactHeaderUrls(name, value, queryNames)
@@ -970,19 +999,25 @@ const printBlock = (scrub: (text: string) => string, lines: readonly string[]) =
  * The `--verbose` transform (design 4.6, DM3-8; 7.5). With `verboseSetting` on, each request it
  * sends writes a `> ` block (`> METHOD <URL> HTTP/1.1`, then the headers in `sendOrder`) before
  * the send, and each response a `< ` block (`< <status>`, then the headers) when its headers
- * arrive; no bodies. A send that fails writes only its request block. Header and query values
- * pass through `Headers.CurrentRedactedNames` and `UrlParams.CurrentRedactedNames`, a request
- * header also through `sensitive` (`Auth.sensitiveHeaderNames`) and a response header through
- * `Auth.credentialLikeResponseName`, then the RT-6
- * value scrubber `send` passes as `scrub`, so a credential prints as `<redacted>` or
- * `<redacted:<scheme>>`. A URL a header carries (`Location`, `Content-Location`, `Link`,
- * `Refresh`) is redacted as the request URL is. The scrubber runs over each whole line.
+ * arrive; no bodies. A send that fails writes only its request block. A request header's value is
+ * first scrubbed by the RT-6 value scrubber `send` passes as `scrub`, which writes each credential
+ * as `<redacted:<scheme>>`, then printed as `requestHeaderValue` prints it with `written`, the
+ * placeholders of the run's credentials, so the block is the request lines `--dry-run` prints.
+ * Header and query values pass through `Headers.CurrentRedactedNames` and
+ * `UrlParams.CurrentRedactedNames`, a request header also through `sensitive`
+ * (`Auth.sensitiveHeaderNames`) and a response header through `Auth.credentialLikeResponseName`.
+ * A URL a header carries (`Location`, `Content-Location`, `Link`, `Refresh`) is redacted as the
+ * request URL is. The scrubber runs over each whole line.
  *
  * It wraps the inner client `redirectLoop` receives, inside the loop and inside `retryTransform`,
  * because only there does it see each hop as sent, after the attach step, of every attempt.
  */
 export const verboseTransform =
-	(scrub: (text: string) => string, sensitive: readonly (string | RegExp)[]) =>
+	(
+		scrub: (text: string) => string,
+		sensitive: readonly (string | RegExp)[],
+		written: ReadonlySet<string>
+	) =>
 	<E, R>(
 		client: HttpClient.HttpClient.With<E, R>
 	): HttpClient.HttpClient.With<E, R | Stdio.Stdio> =>
@@ -995,21 +1030,20 @@ export const verboseTransform =
 
 				const headerNames = yield* Effect.service(Headers.CurrentRedactedNames)
 				const queryNames = yield* Effect.service(UrlParams.CurrentRedactedNames)
+				const requestNames = [...headerNames, ...sensitive]
 				yield* printBlock(scrub, [
 					`> ${request.method} ${verboseUrl(request, queryNames)} HTTP/1.1`,
-					...headerLines(
-						">",
+					...Arr.map(
 						sendOrder(request.headers),
-						[...headerNames, ...sensitive],
-						queryNames
+						([name, value]) =>
+							`> ${name}: ${requestHeaderValue(name, scrub(value), requestNames, queryNames, written)}`
 					)
 				])
 
 				const response = yield* send
 				yield* printBlock(scrub, [
 					`< ${response.status}`,
-					...headerLines(
-						"<",
+					...responseHeaderLines(
 						Object.entries(response.headers),
 						[...headerNames, credentialLikeResponseName],
 						queryNames

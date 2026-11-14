@@ -2,14 +2,12 @@
  * A generated CLI shows the request it would send without sending it, shows what it sends and receives on stderr
  * without changing stdout, and renders a failed run as one JSON object:
  *
- * - `--dry-run` prints `METHOD <absolute URL> HTTP/1.1`, every header a real send carries but the two undici writes
- *   itself (`host` and `connection`), each with the value it sends, then a blank line and the body; it exits 0 and opens
- *   no connection. A credential prints as `<redacted:<scheme>>` whether or not one is configured, so the print never
- *   depends on it and never shows it. The print lists the headers by name and undici writes them in the request's own
- *   order, so the suite compares the names as sets.
- * - `--verbose` writes `> ` lines for the request, the lines `--dry-run` prints in the same order but the credential the
- *   send carried as `<redacted>`, and `< ` lines for the response to stderr and nothing else there, while stdout is the
- *   response body alone.
+ * - `--dry-run` prints `METHOD <absolute URL> HTTP/1.1`, then the headers a real send carries, in the order it sends
+ *   them, but the two undici writes itself (`host` and `connection`), each with the value it sends, then a blank line
+ *   and the body; it exits 0 and opens no connection. A credential prints as `<redacted:<scheme>>` whether or not one is
+ *   configured, so the print never depends on it and never shows it.
+ * - `--verbose` writes `> ` lines for the request, the lines `--dry-run` prints, and `< ` lines for the response to
+ *   stderr and nothing else there, while stdout is the response body alone.
  * - `--error-format json` writes exactly one line, a `{"error":{...}}` object, and nothing on stdout. Its keys follow
  *   the error: an API error carries `body`, `matched`, `operation` and `status`, its declared request id when the
  *   response sent one, and `retryAfter` when a `Retry-After` past the timeout stopped retrying; a missing credential
@@ -21,10 +19,16 @@
  * comparing the three with each other and with what reached the capture server; an exhaustion runs every JSON error.
  *
  * Plants, each applied to src/runtime-src/runtime and seen to fail this suite and reverted:
+ * - client.ts's sendOrder listing the headers sorted by name, as fetch's `Headers` iterates them, not as undici writes
+ *   them;
+ * - client.ts's sendOrder leaving `content-length` where the record holds it, not last, where undici writes it;
+ * - client.ts's `--verbose` request block redacting a header by its name before the run's scrubber writes the credential
+ *   as its placeholder, so it printed `<redacted>` where the dry run prints `Bearer <redacted:token>`;
+ * - auth.ts's shownRedactedValue without a placeholder's `Bearer` form;
+ * - redact.ts's placeholder written `<redacted-<scheme>>`;
+ * - output.ts's dry run without its `content-length` line;
+ * - output.ts's send ignoring `--dry-run`, so a dry run opened a connection;
  * - output.ts's JSON error without `requestId`, so a 404 carrying its declared request id rendered without it.
- * - client.ts's `--verbose` request block in the record's order rather than `sendOrder`, so it no longer listed the
- *   headers as the dry run does.
- * - output.ts's dry run without the `content-length` line, so it no longer showed every header the send carried.
  */
 import { createServer } from "node:net"
 import { type Case as SearchCase, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
@@ -71,7 +75,7 @@ import {
 	runBin
 } from "#test/support/cli-package.ts"
 import { listen } from "#test/support/connection.ts"
-import { valuesOf, type WireRequest } from "#test/support/http.ts"
+import type { WireRequest } from "#test/support/http.ts"
 import { latin1Bytes } from "#test/support/wire.ts"
 
 const OBJECT = { "application/json": { schema: { type: "object" } } } as const
@@ -142,9 +146,6 @@ const TOKEN = "zq-bearer-token"
 
 /** The placeholder a credential prints as in a dry run. */
 const PLACEHOLDER = "Bearer <redacted:token>"
-
-/** The credential line `--verbose` prints for a real send, which redacts every credential header by its name. */
-const SENT_CREDENTIAL = "authorization: <redacted>"
 
 /** A response body marker, which `--verbose` must never copy to stderr. */
 const MARKER = "zq-response"
@@ -237,15 +238,6 @@ const printedOf = (stdout: string): Printed => {
 	return { requestLine, headerLines, body: Str.trimEnd(body) }
 }
 
-/** A header line's name, lower case. */
-const nameOf = (line: string): string =>
-	Str.toLowerCase(
-		Option.match(Str.indexOf(":")(line), {
-			onNone: () => line,
-			onSome: (at) => Str.slice(0, at)(line)
-		})
-	)
-
 /** The `--verbose` request block: each `> ` line, its prefix removed, the request line first. */
 const verboseRequest = (stderr: string): ReadonlyArray<string> =>
 	Arr.flatMap(Str.split("\n")(stderr), (line) =>
@@ -265,9 +257,8 @@ type Shown = Readonly<{
 	verboseBody: Option.Option<Schema.Json>
 	responseOnStderr: boolean
 	tokenShown: boolean
-	printedNames: ReadonlyArray<string>
+	printedHeaders: ReadonlyArray<string>
 	sentNames: ReadonlyArray<string>
-	printedValues: ReadonlyArray<string>
 	printedBody: string
 }>
 
@@ -279,7 +270,6 @@ const expectedShown = (
 	base: string,
 	request: Request
 ): Shown => {
-	const printedNames = Arr.map(printed.headerLines, nameOf)
 	const requestLine = `${METHODS[request.kind]} ${base}${pathOf(request)} HTTP/1.1`
 	return {
 		dryRunRequestLine: requestLine,
@@ -289,22 +279,12 @@ const expectedShown = (
 		withoutCredential: dryRunStdout,
 		verboseExit: 0,
 		verboseLinesOnly: true,
-		verboseRequest: Arr.prepend(
-			Arr.map(printed.headerLines, (line) =>
-				nameOf(line) === "authorization" ? SENT_CREDENTIAL : line
-			),
-			requestLine
-		),
+		verboseRequest: Arr.prepend(printed.headerLines, requestLine),
 		verboseBody: Option.some({ marker: MARKER }),
 		responseOnStderr: false,
 		tokenShown: false,
-		printedNames: Arr.sort(expectedNames(request), Order.String),
+		printedHeaders: sentLinesOf(sent),
 		sentNames: Arr.sort(expectedNames(request), Order.String),
-		printedValues: Arr.map(printedNames, (name) =>
-			name === "authorization"
-				? PLACEHOLDER
-				: Option.getOrElse(Arr.head(valuesOf(sent.headers, name)), () => "")
-		),
 		printedBody: Buffer.from(sent.body).toString("utf8")
 	}
 }
@@ -325,6 +305,18 @@ const expectedNames = (request: Request): ReadonlyArray<string> =>
 
 /** The headers undici writes on every request itself, which neither print lists. */
 const TRANSPORT_HEADERS: ReadonlyArray<string> = ["connection", "host"]
+
+/**
+ * The header lines a send carried, in the order it carried them, but those undici writes itself, each with the value it
+ * carried and the credential as its placeholder.
+ */
+const sentLinesOf = (sent: WireRequest): ReadonlyArray<string> =>
+	Arr.flatMap(sent.headers, ([name, value]) => {
+		const lower = Str.toLowerCase(name)
+		return Arr.contains(TRANSPORT_HEADERS, lower)
+			? []
+			: [`${lower}: ${lower === "authorization" ? PLACEHOLDER : value}`]
+	})
 
 /** The names of the headers a send carried, but those undici writes itself, by name. */
 const sentNamesOf = (sent: WireRequest): ReadonlyArray<string> =>
@@ -735,14 +727,8 @@ layer(fixture, { excludeTestServices: true })(
 												],
 												Str.includes(TOKEN)
 											),
-											printedNames: Arr.sort(Arr.map(printed.headerLines, nameOf), Order.String),
+											printedHeaders: printed.headerLines,
 											sentNames: sentNamesOf(sent),
-											printedValues: Arr.map(printed.headerLines, (line) =>
-												Option.match(Str.indexOf(": ")(line), {
-													onNone: () => "",
-													onSome: (at) => Str.slice(at + 2)(line)
-												})
-											),
 											printedBody: printed.body
 										},
 										expectedShown(printed, dryRunStdout, sent, base, request),
