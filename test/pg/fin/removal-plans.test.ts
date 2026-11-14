@@ -19,7 +19,11 @@
  *   deletes and the moving puts;
  * - two owners of one member relation's two families put, each changing a column the members copy and a fold steps:
  *   the refill's keyset of its two ways;
- * - an owner put that way and a member put in place, in one stratum: the edited and refilled members' keyset;
+ * - an owner put that way and a member of the next owner deleted, in one stratum: the edited and refilled members'
+ *   keyset. A member put in place beside the owner's put is no shape here: the owner's put then reaches the put
+ *   member's copy of the owner, a reader no flight way draws (write/frontend/refill.ts flightWay takes a fold, a
+ *   predecessor or a last axis), so the family planner plans the stratum on the host, and a served file holds no host
+ *   fill: generate refuses it (served/unserved.ts UnservedMember, an `edit` and a `refill`);
  * - an ordered member deleted: the deletion's keyset of the removed member and the members it re-places;
  * - a member of each of an owner's two counted families deleted: the recount's keyset of its two families' groups.
  *
@@ -133,7 +137,7 @@ const programs = Object.freeze({
 	loadMembers: ChangeSet.empty(Removals).insert(Member, []).insert(Second, []),
 	removeAndMove: ChangeSet.empty(Removals).delete(Member, []).put(Member, []),
 	twoWays: ChangeSet.empty(Removals).put(Owner, []).put(Other, []),
-	editAndRefill: ChangeSet.empty(Removals).put(Owner, []).put(Member, []),
+	editAndRefill: ChangeSet.empty(Removals).put(Owner, []).delete(Member, []),
 	deleteLine: ChangeSet.empty(Removals).delete(Line, []),
 	twoFamilies: ChangeSet.empty(Removals).delete(Member, []).delete(Second, [])
 })
@@ -273,10 +277,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										return db.workload.editAndRefill.explain({
 											params: {},
 											facts: {
-												put: {
-													Owner: [{ id: s.at, v: 2 }],
-													Member: [{ ...memberOf(s, next, 0), x: 7 }]
-												}
+												put: { Owner: [{ id: s.at, v: 2 }] },
+												delete: { Member: [memberOf(s, next, 0)] }
 											}
 										})
 									case "re-placed":
