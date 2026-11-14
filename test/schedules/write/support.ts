@@ -85,10 +85,11 @@ export const Gate = relation("Gate", { id: pg.integer }, ["id"])
 export const Claim = relation("Claim", { id: pg.integer, holder: pg.integer }, ["id"])
 export const Seat = relation("Seat", { id: pg.integer, holder: pg.integer }, ["id"])
 
-/** Code's and Ticket's candidate keys, and Ref's foreign key into Item: the laws a race names by these declarations. */
+/** Code's and Ticket's candidate keys, and Ref's foreign key into Item, which the write model reads off the schema's own
+ * description (races.test.ts lawsOf). */
 export const codeKey = key(on(Code, "code"))
-export const ticketLabel = key(on(Ticket, "label"))
-export const refItem = contained(on(Ref, "item"), on(Item, "id"))
+const ticketLabel = key(on(Ticket, "label"))
+const refItem = contained(on(Ref, "item"), on(Item, "id"))
 /** Badge's candidate key: the unique object beside its arbiter that two certified READ COMMITTED inserts race at. */
 export const badgeCode = key(on(Badge, "code"))
 
@@ -162,6 +163,13 @@ const claimSeat = (claimer: Claimer) =>
 		ChangeSet.empty(claimer).insert(Gate, [])
 	)
 
+/**
+ * The name of the Note row list a scoped put passes: the served `notesScoped`'s and every race's scoped member's, one
+ * name, since an installation installs a list parameter's pattern domain at its place, the parameter's name and field
+ * (physical/install/plan.ts installedParamNamed).
+ */
+export const scopedItems = "items"
+
 /** The schedule schema under `name`, over the relations and laws above. */
 const schedSchema = (name: string) => schema(name, Rec.values(relations), statements)
 
@@ -202,6 +210,32 @@ const schedSchema = (name: string) => schema(name, Rec.values(relations), statem
 const renamedSched = (name: string) => {
 	const base = schedSchema(name)
 	const app = role(base, "app", shared, { write: written })
+	/**
+	 * The role `app`'s put of the Note rows its call passes as the list `items`, and its deletion of every other Note of
+	 * the label `scope`: the shape of a race's scoped member (races.test.ts), whose list is passed under the same name
+	 * (scopedItems). A served compile casts a parameter only to a domain its installation installs, and generate installs a
+	 * list parameter's text domains from the programs its served workload declares, so this member, served, makes the
+	 * installation hold the domain of a Note row's label as a parameter.
+	 */
+	const notesScoped = ChangeSet.empty(app)
+		.put(
+			Note,
+			query(app).rule((r) => {
+				const { id, label } = v(Note, "note")
+				return r.match(r.relation(scopedItems, Note), { id, label }).find({ id, label })
+			})
+		)
+		.delete(
+			Note,
+			query(app).rule((r) => {
+				const { id, label: noteLabel } = v(Note, "note")
+				return r
+					.match(Note, { id, label: noteLabel })
+					.where(r.eq(noteLabel, r.param("scope", label)))
+					.where(r.not(r.relation(scopedItems, Note), { id }))
+					.find({ id, label: noteLabel })
+			})
+		)
 	const direct = role(base, "direct", shared, { write: written })
 	const inserter = inserterOf(base)
 	const claimer = claimerOf(base)
@@ -213,7 +247,7 @@ const renamedSched = (name: string) => {
 		claimer,
 		server: login(base, "server", [app, inserter, claimer], {
 			workload: [
-				workload(app, { noop: ChangeSet.empty(app) }),
+				workload(app, { noop: ChangeSet.empty(app), notesScoped }),
 				workload(inserter, { addBadges: addBadges(inserter) }),
 				workload(claimer, { claimSeat: claimSeat(claimer) })
 			]

@@ -86,11 +86,13 @@ import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
+import { candidateKeyFields, type SideDesc } from "#compiler/ir/desc.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import type { Refused, Witness } from "#compiler/plan/change.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { schemaDescOf } from "#compiler/schema/schema.ts"
 import type { IdentifiedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
@@ -120,7 +122,6 @@ import {
 	badgeCode,
 	Claim,
 	Code,
-	codeKey,
 	committedChanges,
 	Gate,
 	Item,
@@ -132,12 +133,11 @@ import {
 	openInserter,
 	Ref,
 	Room,
-	refItem,
 	type RoleChange,
 	Seat,
+	scopedItems,
 	servedChanges,
 	Ticket,
-	ticketLabel,
 	Zed
 } from "#test/schedules/write/support.ts"
 import { deepEquals, defined } from "#test/support/assert.ts"
@@ -889,23 +889,99 @@ const statementRelation = (s: Statement): Rel => {
 	}
 }
 
-/** The laws of the schedule schema, by their declarations' meaning. */
-const lawsOf = (o: Opened): ReadonlyArray<LawSpec> => [
-	...Arr.map(
-		["Item", "Note", "Code", "Ticket", "Ref", "Zed", "Badge", "Gate"] as const,
-		(relation): LawSpec => ({
-			kind: "unique",
-			law: o.names.primaryKeyLaw(relationOf[relation]),
-			relation,
-			columns: [0]
-		})
-	),
-	{ kind: "unique", law: o.names.lawOf(codeKey), relation: "Code", columns: [1] },
-	{ kind: "unique", law: o.names.lawOf(badgeCode), relation: "Badge", columns: [1] },
-	{ kind: "unique", law: o.names.lawOf(ticketLabel), relation: "Ticket", columns: [1] },
-	{ kind: "spanKey", law: o.names.primaryKeyLaw(Room), relation: "Room" },
-	{ kind: "contained", law: o.names.lawOf(refItem), from: "Ref", column: 1, to: "Item", target: 0 }
-]
+/** The model's relation of the schedule schema's relation `name`: the model holds every one (model.ts relationNames). */
+const relNamed = (name: string): Rel =>
+	Option.getOrThrowWith(
+		Arr.findFirst(relationNames, (r) => r === name),
+		() =>
+			new Error(`the schedule model holds no relation ${name}, which the schedule schema declares`)
+	)
+
+/** The position of `relation`'s field `field` in its facts (model.ts columnsOf). */
+const columnOf = (relation: Rel, field: string): number => {
+	const at = columnsOf[relation].indexOf(field)
+	if (at < 0) {
+		throw new Error(`the schedule model holds no column ${field} of ${relation}`)
+	}
+	return at
+}
+
+/** The one field a side of a containment the model means reads: a whole side of one field. */
+const sideField = (side: SideDesc): string => {
+	const fields = defined(
+		candidateKeyFields(side),
+		`a containment side over ${side.relation} the model means`
+	)
+	const [field, ...rest] = fields
+	if (rest.length > 0) {
+		throw new Error(
+			`the schedule model means a containment of one field, and ${side.relation}'s side has ${fields.length}`
+		)
+	}
+	return field
+}
+
+/**
+ * The laws of the schedule schema, by their declarations' meaning, read off the schema's own description, so a
+ * declaration added or changed reaches the model: each relation's primary key, a span key where a key field is a span
+ * and a unique law over its fields' columns otherwise; each `key` statement the same over its side's fields; each
+ * `contained` statement over its sides' one field each. `mutable` and `race` change how a relation is written, never
+ * which facts it may hold. A statement of any other kind is one the model states no meaning for, and fails here.
+ */
+const lawsOf = (o: Opened): ReadonlyArray<LawSpec> => {
+	const desc = defined(schemaDescOf(o.rig.worlds.schema), "the schedule schema's description")
+	const relations = Arr.flatMap(desc.relations, (r) => (r.kind === "relation" ? [r] : []))
+	const fieldsOf = (relation: Rel) =>
+		defined(
+			Arr.findFirst(relations, (r) => r.name === relation).pipe(Option.getOrUndefined),
+			`the schedule schema's relation ${relation}`
+		).fields
+	const keyOver = (law: LawId, relation: Rel, fields: ReadonlyArray<string>): LawSpec =>
+		Arr.some(fields, (f) => fieldsOf(relation)[f]?.type.kind === "span")
+			? { kind: "spanKey", law, relation }
+			: { kind: "unique", law, relation, columns: Arr.map(fields, (f) => columnOf(relation, f)) }
+	const primaryKeys = Arr.map(relations, (r): LawSpec => {
+		const relation = relNamed(r.name)
+		return keyOver(o.names.primaryKeyLaw(relationOf[relation]), relation, r.primaryKey)
+	})
+	const declared = Arr.flatMap(desc.statements, (statement): ReadonlyArray<LawSpec> => {
+		switch (statement.kind) {
+			case "mutable":
+			case "race":
+				return []
+			case "key": {
+				const relation = relNamed(statement.side.relation)
+				const fields = defined(
+					candidateKeyFields(statement.side),
+					`a key of ${relation} over every fact, the one the model means`
+				)
+				return [keyOver(o.names.lawOfDesc(statement), relation, fields)]
+			}
+			case "contained": {
+				const from = relNamed(statement.left.relation)
+				const to = relNamed(statement.right.relation)
+				return [
+					{
+						kind: "contained",
+						law: o.names.lawOfDesc(statement),
+						from,
+						column: columnOf(from, sideField(statement.left)),
+						to,
+						target: columnOf(to, sideField(statement.right))
+					}
+				]
+			}
+			case "check":
+			case "family":
+			case "tree":
+			case "fold":
+			case "alternatives":
+			case "retirable":
+				throw new Error(`the schedule model states no meaning for a ${statement.kind} statement`)
+		}
+	})
+	return [...primaryKeys, ...declared]
+}
 
 /** A grizzle op as a ChangeSet value over the role app's view of the installed schema, with its parameters. */
 const changeSetOf = (
@@ -918,7 +994,7 @@ const changeSetOf = (
 		Arr.reduce(
 			members,
 			ChangeSet.empty(appRole),
-			(changes: ChangeSetValue, m, i): ChangeSetValue => {
+			(changes: ChangeSetValue, m): ChangeSetValue => {
 				switch (m.kind) {
 					case "enumerated": {
 						const facts = Arr.map(m.facts, (f) => recordOf(m.relation, f))
@@ -942,7 +1018,7 @@ const changeSetOf = (
 							)
 						)
 					case "scoped": {
-						const name = `items${Rec.keys(params).length}_${i}`
+						const name = scopedItems
 						params[name] = Arr.map(m.facts, (f) => recordOf("Note", f))
 						return changes
 							.put(
