@@ -49,7 +49,7 @@ export const operatorSchemaOf = (
 type ComparisonOperator = "=" | "<>" | "<" | "<=" | ">" | ">="
 
 /** `left op right` at the operators of the schema `operators`, or pg_catalog's spelled bare for none. */
-export const compareAt = (
+const compareAt = (
 	op: ComparisonOperator,
 	operators: TypeSchema | undefined,
 	left: Expr,
