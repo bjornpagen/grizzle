@@ -383,7 +383,7 @@ export const taggedRows = (
 	}
 	const ast: Select = {
 		...select(unionAll("disjoint", arms)),
-		with: { recursive: true, ctes: [firstCte, ...restCtes] }
+		with: { recursive: false, ctes: [firstCte, ...restCtes] }
 	}
 	return {
 		ast,

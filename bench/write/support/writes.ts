@@ -30,7 +30,13 @@ import {
 } from "#adapter/wire/session.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import { type Summary, summarize } from "#bench/cold/stats.ts"
-import { explain, type MalformedPlan } from "#bench/harness/explain.ts"
+import {
+	explain,
+	type Explained,
+	explainStatementWith,
+	type MalformedPlan,
+	parsePlan
+} from "#bench/harness/explain.ts"
 import type { Attempted } from "#bench/harness/load.ts"
 import {
 	causeOf,
@@ -42,7 +48,7 @@ import type { TransactionPlan, TransactionStatement } from "#bench/harness/trans
 import { type Fixture, GateSetupError, installFixture } from "#bench/query/support/kit.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
-import { trusted } from "#compiler/core/trusted.ts"
+import { trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { isolationGuardName } from "#compiler/physical/ddl/isolation.ts"
 import { snapshotGuardName } from "#compiler/physical/ddl/ledger.ts"
 import { Engine, levelChain, ownBuilt, type RowDecoder } from "#compiler/plan/common.ts"
@@ -1068,6 +1074,115 @@ const observedArtifact = (
 			return observedChange
 		})
 	)
+
+/**
+ * A session whose closing flight, the one that ends its transaction by COMMIT, sends each query whose text is one of
+ * `texts` under EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) with its own parameters, noting each plan
+ * into `plans`, and ends by ROLLBACK: the statements run where they would, over the state the attempt finds, and leave
+ * nothing. Every other flight is sent as it is.
+ */
+const explainingSession = (
+	session: Session,
+	texts: ReadonlySet<string>,
+	plans: Array<string>
+): Session => ({
+	...session,
+	send: (pipeline, onAnswer, onEnd, onCut) => {
+		const last = pipeline[pipeline.length - 1]
+		const closing =
+			last?._tag === "control" && last.control.kind === "end" && last.control.end === "COMMIT"
+		if (!closing) {
+			return session.send(pipeline, onAnswer, onEnd, onCut)
+		}
+		const explained = Arr.map(pipeline, (query): WireQuery => {
+			if (query._tag === "control") {
+				return query.control.kind === "end"
+					? { _tag: "control", control: { kind: "end", end: "ROLLBACK" } }
+					: query
+			}
+			const sql = query._tag === "prepared" ? query.text.sql : query.sql
+			return texts.has(sql)
+				? oneShotStatement(
+						testSql(explainStatementWith(sql, { serialize: { kind: "off" }, wal: false })),
+						query.params
+					)
+				: query
+		})
+		return session.send(
+			explained,
+			(index, answer) => {
+				const query = pipeline[index]
+				if (
+					answer._tag === "result" &&
+					query !== undefined &&
+					query._tag !== "control" &&
+					texts.has(query._tag === "prepared" ? query.text.sql : query.sql)
+				) {
+					for (const row of answer.outcome.rows) {
+						for (const cell of row) {
+							plans.push(cell)
+						}
+					}
+				}
+				onAnswer(index, answer)
+			},
+			onEnd,
+			onCut
+		)
+	}
+})
+
+/**
+ * The plans of one application of a ChangeSet value on the Db `opened`, as observedChange applies it, its program's
+ * statements each run under EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) in its place in the
+ * transaction that writes, which ends by ROLLBACK (explainingSession), with no parameters but the ChangeSet's own facts.
+ * The attempt's outcome is no ChangeSet's: its statements answered plans, which it cannot read, so it is not kept. A
+ * read flight before the writes runs as served, since the writes read its rows.
+ */
+export const explainedChange = (
+	opened: OpenedDb,
+	changes: unknown
+): Effect.Effect<ReadonlyArray<Explained>, MalformedPlan> =>
+	Effect.gen(function* () {
+		const observed = yield* observedChange(opened, changes, attemptLabel, { kind: "none" })
+		const texts = new Set(Arr.flatMap(observed.statements, (s) => s.texts))
+		const plans: Array<string> = []
+		const ctx: ServedDbContext = {
+			...opened.ctx,
+			pool: {
+				...opened.ctx.pool,
+				lease: Effect.map(opened.ctx.pool.lease, (session) =>
+					explainingSession(session, texts, plans)
+				)
+			}
+		}
+		const parsed = parseChangeSet(changes)
+		yield* Effect.exit(
+			Effect.orDie(
+				Effect.gen(function* () {
+					const compiled = yield* Effect.fromResult(
+						compiledWrite(opened.role, changes, opened.ctx.claims)
+					)
+					const members = yield* opened.load({ change: changes })
+					const loaded = member(members, "change")
+					if (loaded.kind !== "change" || parsed === undefined) {
+						return yield* new GateSetupError({
+							what: "explainedChange: a ChangeSet served as no change"
+						})
+					}
+					return yield* appliedChange(
+						ctx,
+						{ ...variantOf(opened.ctx, loaded.variants), entry: compiled },
+						callFactsOf(parsed),
+						{}
+					)
+				})
+			)
+		)
+		return yield* Effect.forEach(plans, (text) =>
+			Effect.fromResult(parsePlan(trustedJson<unknown>(text)))
+		)
+	})
 
 /**
  * The functions every installation has whatever it declares: the refusal function a write statement raises through
