@@ -277,6 +277,15 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **Text keys past PostgreSQL's B-tree item size:** so pantry drops its "Key text bound" law.
 
 ### Next
+- **`migrated` issues no decoder credential (WORLDSCOVER, 2026-11-14; main: log only):** since 1d895f02 an installation
+  test/support/installed.ts `migrated` installs holds the live source its logins' reads need, the plan's live plan
+  (test/support/compile.ts deployedWorkloadOver). But it builds its Installed with no served files (installedOf
+  `files: new Map()`, loginCredentials over none), so install-migrate.ts decoderRoles names no decoder login and
+  Installed.decoder is a defect of the test. A test that watches a read through withServedDb or openServedDb over it
+  is refused at its first watch, when test/support/live-layer.ts sourcedDbLayer first reads the decoder's credential.
+  No suite over `migrated` watches today: none of the 20 test files that call it calls `.watch(` or memberCalls.
+  The fix is for `migrated` to issue the decoder login its logins' served files name, as installGenerated does from
+  generate's files.
 - **A queued file can hold a catalog snapshot's xmin for as long as it waits (LEASEBUDGET, 2026-11-14; main: log
   only):** a lease's wait (test/support/substrate/shared.ts awaitLock) is a LOCK TABLE, which takes no snapshot, but
   PostgreSQL resolves its table's name before it waits. When the backend's catalog caches were reset since its NOWAIT
