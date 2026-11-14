@@ -1199,7 +1199,8 @@ interface EditedCopy {
 
 /**
  * Refuses every reference site on a cycle that returns to a schema without descending into the
- * instance (D-AD12 refused tier, DOC-23/alias-cycle): each such site becomes `{}` in the copy.
+ * instance (D-AD12 refused tier, DOC-23/alias-cycle): each such site becomes `{}`, the schema that
+ * admits any value, in the store and so in every copy of it.
  */
 const breakAliasCycles = (budget: Budget, initial: ReadonlyMap<string, Json>): EditedCopy => {
 	const edges = edgesOf(budget, initial)
@@ -1442,9 +1443,10 @@ const importCopy = Effect.fnUntraced(function* importCopy(
  * (int64 notice); `patternProperties` is removed with a notice, with an `additionalProperties`
  * beside it that rejects or types keys (SCH-15); a name in `required` whose property is read-only
  * is dropped (SCH-45: a notice in 3.1 and 3.2, none in 3.0); a 3.0 `default` outside the schema's
- * type is removed with a refusal (S30-27); a pure alias cycle is refused; then
- * Effect's importer runs, and each node it still rejects becomes `{}` under the code of its D-AD12
- * class. The copy is the stored document minus `edits` (X10); it is recomputed, never edited.
+ * type is removed with a refusal (S30-27); then Effect's importer runs, and each node it still
+ * rejects becomes `{}` under the code of its D-AD12 class. A pure alias cycle never reaches it: the
+ * store has refused it already (`normalizeSchemas`). The copy is the stored document minus `edits`
+ * (X10); it is recomputed, never edited.
  */
 const validationCopy = Effect.fnUntraced(function* validationCopy(
 	line: SpecLine,
@@ -1460,12 +1462,11 @@ const validationCopy = Effect.fnUntraced(function* validationCopy(
 			return [key, transformSchema(budget, definitions.get(key) ?? {}, [], copyPositions, visit)]
 		})
 	)
-	const acyclic = yield* within(budget, breakAliasCycles(budget, filtered))
-	const imported = yield* importCopy(budget, line, acyclic.definitions)
+	const imported = yield* importCopy(budget, line, filtered)
 
 	return {
 		definitions: imported.definitions,
-		edits: [...edits, ...acyclic.edits, ...imported.edits]
+		edits: [...edits, ...imported.edits]
 	}
 })
 
@@ -1740,7 +1741,9 @@ const diagnosticsOf = (
  * Normalizes the schemas of a resolved document set (design 3.5, unit NZ-4): the store, the facts,
  * the validation copy, one diagnostic per distinct edit at its source use site, and a refusal for
  * each refused keyword in a stored schema's source, nested `$defs` members included. A refusal the
- * resolver already reported is not repeated.
+ * resolver already reported is not repeated. A pure alias cycle is refused in the store itself, each
+ * of its reference sites `{}` (`breakAliasCycles`), so the store and the validation copy derived
+ * from it read the cycle one way, and no later stage meets a reference that never reaches a schema.
  */
 export const normalizeSchemas = Effect.fnUntraced(function* normalizeSchemas(
 	resolution: Resolution,
@@ -1748,12 +1751,27 @@ export const normalizeSchemas = Effect.fnUntraced(function* normalizeSchemas(
 ): Effect.fn.Return<SchemaNormalization, SchemaBudgetExceeded | SchemaImportDefect> {
 	const budget = budgetOf(limits)
 	const sites = yield* within(budget, sitesOf(budget, resolution))
-	const stored = yield* storeFrom(budget, resolution, sites)
+	const converted = yield* storeFrom(budget, resolution, sites)
+	const acyclic = yield* within(budget, breakAliasCycles(budget, converted.definitions))
+	const stored: StoredSchemas = {
+		definitions: acyclic.definitions,
+		facts: new Map(
+			Arr.map(sortedKeys(acyclic.definitions), (key): [string, SchemaFacts] => [
+				key,
+				factsOf(acyclic.definitions.get(key) ?? {})
+			])
+		)
+	}
 	const refused = yield* within(budget, refusedInSource(budget, resolution, sites))
 	const validation = yield* validationCopy(resolution.line, stored.definitions, {
 		maxNodes: budget.limit - budget.spent
 	})
-	const diagnostics = yield* diagnosticsOf(resolution, sites, validation.edits, refused)
+	const diagnostics = yield* diagnosticsOf(
+		resolution,
+		sites,
+		[...acyclic.edits, ...validation.edits],
+		refused
+	)
 
 	return { ...stored, diagnostics, line: resolution.line, validation }
 })
