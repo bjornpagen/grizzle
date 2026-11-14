@@ -1055,13 +1055,13 @@ const asyncC = `${postgresSource}/src/backend/commands/async.c`
  */
 const notifyPayloadMargin = published({
 	value: 128,
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope: "the part of one notification queue page no channel name and no payload may take",
 	constraint: "compile-time constant",
-	source: `${asyncC}#L193-L201`,
+	source: `${asyncC}#L194-L202`,
 	quote: "#define NOTIFY_PAYLOAD_MAX_LENGTH	(BLCKSZ - NAMEDATALEN - 128)",
-	verified: "2026-11-11"
+	verified: "2026-11-14"
 })
 
 /**
@@ -1069,12 +1069,12 @@ const notifyPayloadMargin = published({
  * this many bytes or more with 22023, which fails the statement that sent it, and with it the write.
  */
 export const notifyPayloadMaxBytes = derived({
-	owner: "PostgreSQL 19rc1",
+	owner: "PostgreSQL 19rc2",
 	unit: "bytes",
 	scope:
 		"one NOTIFY payload in the server encoding, its terminating zero excluded: sent only while shorter",
 	from: [blockSize, namedatalen, notifyPayloadMargin],
-	derivation: `async.c's "#define NOTIFY_PAYLOAD_MAX_LENGTH (BLCKSZ - NAMEDATALEN - 128)" (${asyncC}#L201) and Async_Notify's "if (payload_len >= NOTIFY_PAYLOAD_MAX_LENGTH) ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("payload string too long")))" (${asyncC}#L923-L926, verified 2026-11-11)`,
+	derivation: `async.c's "#define NOTIFY_PAYLOAD_MAX_LENGTH (BLCKSZ - NAMEDATALEN - 128)" (${asyncC}#L202) and Async_Notify's "if (payload_len >= NOTIFY_PAYLOAD_MAX_LENGTH) ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE), errmsg("payload string too long")))" (${asyncC}#L924-L927, verified 2026-11-14)`,
 	compute: ([block, name, margin]) => block.value - name.value - margin.value
 })
 

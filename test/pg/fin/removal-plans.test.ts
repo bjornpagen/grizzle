@@ -1,5 +1,5 @@
 /**
- * A family write's removals statement reads its stored tables by index, on PostgreSQL 19rc1 (write/family/removals.ts):
+ * A family write's removals statement reads its stored tables by index, on PostgreSQL 19rc2 (write/family/removals.ts):
  * every stored row it reads, of a member relation it edits or refills and of an owner it recounts, is found at its
  * primary key from a keyset whose every arm is driven from the call's rows, its facts and the CTEs over them, joined to
  * stored rows by key or group. A condition over every stored row, an OR of EXISTS over the call's rows, plans as no
@@ -195,7 +195,7 @@ const memberOf = (s: Sketch, owner: number, i: number) => ({
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
 layer(Substrate.layer, { excludeTestServices: true })(
-	"a family write's removals read their stored tables by index on PostgreSQL 19rc1",
+	"a family write's removals read their stored tables by index on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"plan every keyset arm, the keyset's join and the write with no sequential scan of a family table, at every drawn size",

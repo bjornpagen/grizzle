@@ -1,5 +1,5 @@
 /**
- * A retirable unit as `grizzle migrate` installs it on PostgreSQL 19rc1, written as a direct writer and its two
+ * A retirable unit as `grizzle migrate` installs it on PostgreSQL 19rc2, written as a direct writer and its two
  * functions (physical/ddl/retire.ts) would write it: Root, the header, with its retirement field; Step and Claim, its
  * bodies, grouped by root; and Claim's step contained in Step, carrying the group.
  *
@@ -209,7 +209,7 @@ const modelRows = (m: Model): ReadonlyArray<ReadonlyArray<string>> => [
 	Arr.sort([...m.claims], Str.Order)
 ]
 
-layer(Substrate.layer)("a retirable unit installed on PostgreSQL 19rc1", (it) => {
+layer(Substrate.layer)("a retirable unit installed on PostgreSQL 19rc2", (it) => {
 	it.effect(
 		"admits rows only into open groups, holds only open groups, and retires a group whole, keeping its header for good",
 		(ctx) =>
