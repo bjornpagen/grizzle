@@ -8,8 +8,9 @@
 		"tsconfig.json",
 		"oxlint.config.ts"
 	],
-	"globalEnv": ["NODE_OPTIONS", "NODE_ENV"],
+	"globalEnv": ["NODE_ENV"],
 	"globalPassThroughEnv": [
+		"NODE_OPTIONS",
 		"COREPACK_HOME",
 		"TMPDIR",
 		"HTTP_PROXY",
