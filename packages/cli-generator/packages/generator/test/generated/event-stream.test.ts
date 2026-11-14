@@ -12,14 +12,16 @@
  * after it and an `end`, comments between events, sent in one or several writes. Oracle: the events' own lines,
  * through the stop point the command's flags name. The failure and retry behaviour is exhausted over every pairing of
  * the error event's verdict, `--retries` and the read or the write; the oracle there is the contract's: the lines
- * printed, the exit code, the calls made and the header each carried.
+ * printed, the exit code, the calls made and the header each carried, and the `--error-format json` object of a call
+ * that ends at the error, whose `data` is the error event's JSON data as the JSON value it is.
  *
  * Features: a stop at ready, a stream followed to its end, an interrupted stream, data across lines, a comment, a write
  * that splits an event; each failure verdict with and without a budget, on the read and on the write.
  *
  * Plants (~/.cache/effect-openapi-cli-generator/plants): sse-stops-before-ready.patch (the stream stops one event before
  * its stop point), event-retry-without-budget.patch (a retry-safe error event retries with no `--retries`),
- * constant-not-sent.patch (a constant parameter is sent empty).
+ * constant-not-sent.patch (a constant parameter is sent empty), and output.ts renderErrorJson printing a failure event's
+ * data as the `body` string (local, reverted).
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
@@ -443,8 +445,15 @@ const firstItem = (command: FailureCase["command"]): readonly [string, string] =
 		: ["outcome", 'event: outcome\ndata: {"outcome":{"kind":"unchanged","reads":[]}}\n\n']
 
 const ErrorLine = Schema.fromJsonString(
-	Schema.Struct({ error: Schema.Struct({ kind: Schema.String }) })
+	Schema.Struct({
+		error: Schema.Struct({ kind: Schema.String, data: Schema.optionalKey(Schema.Json) })
+	})
 )
+
+/** The error event's data as a JSON value, which `--error-format json` prints as `data`. */
+const errorData = (verdict: string): Schema.Json => ({
+	error: { kind: "transient", retry: verdict, message: "try again" }
+})
 
 const environment = Layer.mergeAll(siteLayer, serverLayer).pipe(
 	Layer.provideMerge(
@@ -526,7 +535,7 @@ layer(environment, { timeout: Duration.minutes(5) })(
 							suite: "generated/event-stream-failure",
 							oracle: {
 								kind: "specification",
-								name: "the stream's contract: the lines printed, the exit code, the calls made and the header each carried"
+								name: "the stream's contract: the lines printed, the exit code, the calls made and the header each carried, and the error object's data"
 							},
 							box: "every pairing of the error event's verdict, a --retries budget or none, and the read or the write",
 							concurrency: 1,
@@ -622,9 +631,9 @@ layer(environment, { timeout: Duration.minutes(5) })(
 									Arr.last(Str.split("\n")(Str.trim(run.stderr))),
 									() => ""
 								)
-								const kind = Option.map(
+								const printedError = Option.map(
 									Schema.decodeOption(ErrorLine)(lastError),
-									(line) => line.error.kind
+									(line) => ({ kind: line.error.kind, data: line.error.data })
 								)
 								const site = yield* Site
 								const digest = Rec.get(
@@ -640,20 +649,23 @@ layer(environment, { timeout: Duration.minutes(5) })(
 										exitCode: run.exitCode,
 										requests,
 										stdout: run.stdout,
-										kind
+										printedError
 									},
 									retried
 										? {
 												exitCode: 0,
 												requests: 2,
 												stdout: `${item}${error}${item}${last}`,
-												kind: Option.none()
+												printedError: Option.none()
 											}
 										: {
 												exitCode: 1,
 												requests: 1,
 												stdout: `${item}${error}`,
-												kind: Option.some("StreamEventError")
+												printedError: Option.some({
+													kind: "StreamEventError",
+													data: errorData(failure.verdict)
+												})
 											}
 								)
 							})

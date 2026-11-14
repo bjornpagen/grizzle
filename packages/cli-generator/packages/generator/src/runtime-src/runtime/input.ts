@@ -13,6 +13,8 @@ import {
 	Redacted,
 	Ref,
 	Schema,
+	type SchemaAST,
+	SchemaIssue,
 	Stdio,
 	Stream,
 	String as Str
@@ -1069,6 +1071,91 @@ interface BodyOptions {
 	readonly schema: Schema.Top
 }
 
+/** What JSON a node of the schema expects where a value of another type stands, by the JSON Schema `type` it names. */
+const expectedType = (ast: SchemaAST.AST): string => {
+	switch (ast._tag) {
+		case "String":
+		case "TemplateLiteral":
+			return "a string"
+		case "Number":
+			return "a number"
+		case "Boolean":
+			return "a boolean"
+		case "Null":
+			return "null"
+		case "Arrays":
+			return "an array"
+		case "Objects":
+		case "ObjectKeyword":
+			return "an object"
+		case "Literal":
+			return `${Formatter.format(ast.literal)} (const)`
+		case "Union":
+		case "Enum":
+			return "one of its alternatives"
+		case "Declaration":
+		case "Undefined":
+		case "Void":
+		case "Never":
+		case "Unknown":
+		case "Any":
+		case "BigInt":
+		case "Symbol":
+		case "UniqueSymbol":
+		case "Suspend":
+			return "a value of another type"
+	}
+}
+
+/**
+ * A schema issue's first place and what fails there, as Standard Schema reads them, each leaf worded by the JSON Schema
+ * keyword it breaks: a value of another `type`, a `required` member missing, a member `additionalProperties` refuses,
+ * or `oneOf` alternatives matched more than once. A check's own words (`minimum`, `maxItems` and the like) stay
+ * Effect's. The body's own value is never in it.
+ */
+const firstIssue = SchemaIssue.makeFormatterStandardSchemaV1({
+	leafHook: (issue) => {
+		switch (issue._tag) {
+			case "InvalidType":
+				return `expected ${expectedType(issue.ast)}`
+			case "InvalidValue":
+				return "a value the schema does not admit"
+			case "MissingKey":
+				return "a required member is missing (required)"
+			case "UnexpectedKey":
+				return "a member the schema does not admit (additionalProperties)"
+			case "Forbidden":
+				return "a value the schema forbids"
+			case "OneOf":
+				return "more than one alternative matches (oneOf)"
+		}
+	}
+})
+
+/**
+ * Where a body the schema refuses fails first, and what the schema expects there: ` at <JSON pointer>: <expectation>`,
+ * the pointer RFC 6901's, or `: <expectation>` at the body's root. The value is not printed: the parse reports no input,
+ * so a secret in the body stays out of the message.
+ */
+const whereRefused = (issue: SchemaIssue.Issue): string =>
+	Option.match(Arr.head(firstIssue(issue).issues), {
+		onNone: () => "",
+		onSome: (first) => {
+			const path = Arr.map(first.path ?? [], (step) =>
+				JsonPointer.escapeToken(
+					typeof step === "object"
+						? String(step.key)
+						: typeof step === "symbol"
+							? (step.description ?? "")
+							: String(step)
+				)
+			)
+			return Arr.isReadonlyArrayEmpty(path)
+				? `: ${first.message}`
+				: ` at /${Arr.join(path, "/")}: ${first.message}`
+		}
+	})
+
 /**
  * What the merge of the body sources settled on: no body, the operator's bytes as given, or the
  * merged value with its text. Every variant that carries text was asserted against the schema.
@@ -1107,9 +1194,9 @@ const mergeSources = (
 		const parse = guarded(decodeRevived)
 		const settled = (merged: Merged) => ({ merged, parse })
 		const assert = (text: string) =>
-			guarded(decodePlain)(text).pipe(
-				Effect.filterOrFail(Schema.is(options.schema), () =>
-					usage(flag, "the request body does not match its schema")
+			Effect.flatMap(guarded(decodePlain)(text), (value) =>
+				Effect.mapError(Schema.decodeUnknownEffect(Schema.toType(options.schema))(value), (error) =>
+					usage(flag, `the request body does not match its schema${whereRefused(error.issue)}`)
 				)
 			)
 

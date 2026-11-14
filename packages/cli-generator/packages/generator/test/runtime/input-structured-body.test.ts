@@ -98,7 +98,9 @@ describe("Input.structuredBody", () => {
 		const refused = await structuredFailure({ required: true, schema: Person })
 
 		expect(refused).toEqual(await mergedFailure({ required: true, schema: Person }))
-		expect(refused.message).toBe("--body: the request body does not match its schema")
+		expect(refused.message).toBe(
+			"--body: the request body does not match its schema at /name: a required member is missing (required)"
+		)
 	})
 
 	test("--body is the parsed value; a number JSON.parse would change stays a JsonNumber", async () => {

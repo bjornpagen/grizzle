@@ -126,7 +126,7 @@ Label: decided.
 - Binary output never goes to a terminal unless the operator passes `--output -`. `--force` only lets `--output` replace an existing file.
 - Response precedence is an explicit status code, then a range, then `default`. Success is decided by the 2xx status class.
 - Errors are shared tagged classes in `domain/` that carry the matched response key. One class per operation and status exceeded the 4 GiB type-check memory ceiling on the Cloudflare specification (measured).
-- Errors render on stderr as text or JSON. Error-body excerpts default to 4 KiB, `--max-error-bytes 0` omits them, and excerpts are always sanitized. Retry hints appear only for methods the retry policy would retry.
+- Errors render on stderr as text or JSON. Error-body excerpts default to 4 KiB, `--max-error-bytes 0` omits them, and excerpts are always sanitized. Under `--error-format json`, a failure event whose contract says its data is JSON prints that data as `data`, the JSON value itself with its numbers and key order as sent, when it fits the bound whole; otherwise as the `body` excerpt. Retry hints appear only for methods the retry policy would retry.
 - Exit codes: 0 success, 1 API error, 2 usage, 3 authentication, 4 transport, 5 response or output handling, 70 internal, 130 interrupted.
 
 ## Retries and timeouts

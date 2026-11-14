@@ -20,7 +20,8 @@ import {
 	Schema,
 	Sink,
 	Stdio,
-	Stream
+	Stream,
+	String as Str
 } from "effect"
 import type { Command, HelpDoc } from "effect/cli"
 import { CliError, CliOutput, Flag, GlobalFlag } from "effect/cli"
@@ -103,7 +104,13 @@ import {
 	matchResponse,
 	toApiResponseError
 } from "#runtime/response.ts"
-import { jsonSeqRecords, ndjsonRecords, sequentialCodecOf, utf8Bytes } from "#runtime/sequential.ts"
+import {
+	compactJsonText,
+	jsonSeqRecords,
+	ndjsonRecords,
+	sequentialCodecOf,
+	utf8Bytes
+} from "#runtime/sequential.ts"
 import type { EventContract, EventFailed, EventTable, StopAt } from "#runtime/sse.ts"
 import { eventStream, hasLifecycle, openContract, StopPoint } from "#runtime/sse.ts"
 
@@ -560,6 +567,21 @@ export const boundedExcerpt = (
 	credentials: readonly ScrubEntry[]
 ): string => truncateUtf8(scrubbedAndSanitized(text, credentials), maxBytes)
 
+/**
+ * A failure event's JSON data as `--error-format json` prints it, a JSON value: the compact text scrubbed and sanitized
+ * as an excerpt is, when the result is still one JSON text and fits `maxBytes` whole; none otherwise, where only the
+ * excerpt is printed, since a JSON text cut short is no JSON value.
+ */
+const boundedJson = (
+	text: string,
+	maxBytes: number,
+	credentials: readonly ScrubEntry[]
+): Option.Option<string> => {
+	const scrubbed = scrubbedAndSanitized(text, credentials)
+
+	return truncateUtf8(scrubbed, maxBytes) === scrubbed ? compactJsonText(scrubbed) : Option.none()
+}
+
 // Stream.limitBytes drops the chunk that crosses the limit, which would lose a whole first chunk
 // larger than the limit, so each chunk is cut at the remaining budget instead.
 const takeBytes = <E, R>(
@@ -930,11 +952,15 @@ const recordedCredentials: Effect.Effect<readonly ScrubEntry[], never, RunCreden
 	Effect.flatMap(Effect.service(RunCredentials), Ref.get)
 
 /**
- * The fields of the `--error-format json` object (design 7.4). Declared in alphabetical order,
- * which `JSON.stringify` keeps; an `undefined` field is left out.
+ * The fields of the `--error-format json` object (design 7.4), in alphabetical order; an `undefined` field is left out.
+ * The excerpt is printed as `body`, a string, or, for a failure event whose contract says its data is JSON, as `data`,
+ * that JSON text printed as the value it is, never both.
  */
 interface ErrorFields {
-	readonly body?: string | undefined
+	readonly excerpt?:
+		| Readonly<{ key: "body"; text: string }>
+		| Readonly<{ key: "data"; json: string }>
+		| undefined
 	readonly kind: string
 	readonly matched?: string | undefined
 	readonly message: string
@@ -946,21 +972,26 @@ interface ErrorFields {
 
 /**
  * One line holding `{"error":{...}}`, keys alphabetical. Every string arrives scrubbed and
- * sanitized; the JSON escaping covers the characters sanitizing keeps (design 7.4, C5).
+ * sanitized; the JSON escaping covers the characters sanitizing keeps (design 7.4, C5). `data`, already one compact
+ * JSON text, is written as it is, first, so its numbers and key order stay as the server sent them.
  */
-const jsonLine = (fields: ErrorFields): string =>
-	JSON.stringify({
-		error: {
-			body: fields.body,
-			kind: fields.kind,
-			matched: fields.matched,
-			message: fields.message,
-			operation: fields.operation,
-			requestId: fields.requestId,
-			retryAfter: fields.retryAfter,
-			status: fields.status
-		}
+const jsonLine = (fields: ErrorFields): string => {
+	const excerpt = fields.excerpt
+	const text = JSON.stringify({
+		body: excerpt?.key === "body" ? excerpt.text : undefined,
+		kind: fields.kind,
+		matched: fields.matched,
+		message: fields.message,
+		operation: fields.operation,
+		requestId: fields.requestId,
+		retryAfter: fields.retryAfter,
+		status: fields.status
 	})
+
+	return excerpt?.key === "data"
+		? `{"error":{"data":${excerpt.json},${Str.slice(1)(text)}}`
+		: `{"error":${text}}`
+}
 
 /**
  * The JSON `message`, then the hint as a second sentence: a period unless the message already
@@ -975,8 +1006,8 @@ const withHint = (message: string, hint: Option.Option<string>): string =>
 
 /**
  * The JSON object for a known error: `operation` only for the classes that carry one, the excerpt
- * (`excerptOf`, when not empty), and for an `ApiResponseError` its status, matched key, request id
- * and capped `Retry-After` (design 7.4, m3 P14, P15).
+ * (`excerptOf`, when not empty) or, for a failure event whose data is JSON, that data as `data`, and for an
+ * `ApiResponseError` its status, matched key, request id and capped `Retry-After` (design 7.4, m3 P14, P15).
  */
 const renderErrorJson = (
 	error: KnownError,
@@ -992,8 +1023,13 @@ const renderErrorJson = (
 			? singleLine(error.operation, credentials)
 			: undefined
 
+	const data = error._tag === "StreamEventError" ? error.dataJson : Option.none()
+
 	return jsonLine({
-		body: excerpt === "" ? undefined : excerpt,
+		excerpt: Option.match(data, {
+			onNone: () => (excerpt === "" ? undefined : { key: "body", text: excerpt }),
+			onSome: (json) => ({ key: "data", json })
+		}),
 		kind: error._tag,
 		matched: api?.matched,
 		message: withHint(
@@ -1602,7 +1638,8 @@ const eventPlanOf = (
 
 /**
  * The `StreamEventError` of a stream that ended at a failure event: its data bounded by
- * `--max-error-bytes` and scrubbed of the run's recorded values, as an error body excerpt is.
+ * `--max-error-bytes` and scrubbed of the run's recorded values, as an error body excerpt is, and, where its contract
+ * says the data is JSON, that data as a JSON text (`boundedJson`).
  */
 const streamEventError = (
 	operation: string,
@@ -1612,6 +1649,7 @@ const streamEventError = (
 ): StreamEventError =>
 	StreamEventError.make({
 		dataExcerpt: boundedExcerpt(failed.data, maxBytes, scrubbed),
+		dataJson: Option.flatMap(failed.json, (text) => boundedJson(text, maxBytes, scrubbed)),
 		event: failed.event,
 		itemIndex: failed.itemIndex,
 		operation,

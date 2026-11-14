@@ -419,8 +419,9 @@ export interface EventReading {
 }
 
 /**
- * A stream that ended at an `error` event: its type, data and index, whether its data says retrying is safe, and the
- * reconnection time the stream last set, in milliseconds, as its digits.
+ * A stream that ended at an `error` event: its type, data and index; `json`, its data as one compact JSON text when its
+ * contract says the data is JSON (`compactJsonText`, which keeps its strings, numbers and key order as received);
+ * whether its data says retrying is safe; and the reconnection time the stream last set, in milliseconds, as its digits.
  */
 export class EventFailed extends Schema.TaggedError<
 	EventFailed,
@@ -429,6 +430,7 @@ export class EventFailed extends Schema.TaggedError<
 	data: Schema.String,
 	event: Schema.String,
 	itemIndex: Schema.Int,
+	json: Schema.Option(Schema.String),
 	reconnect: Schema.Option(Schema.String),
 	retrySafe: Schema.Boolean
 }) {}
@@ -608,6 +610,7 @@ const eventSteps = (
 						data: event.data,
 						event: event.type,
 						itemIndex,
+						json: row.data === "json" ? compactJsonText(event.data) : Option.none(),
 						reconnect: reading.reconnect,
 						retrySafe: retrySafe(event, row)
 					})

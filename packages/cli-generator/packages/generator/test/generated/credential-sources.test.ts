@@ -17,9 +17,10 @@
  *   header, the query parameter, the cookie) and no other credential; no scope name anywhere in it and no request to a
  *   flow's URL; exit 3 and no request without a credential, exit 2 and no request for a planted fault; and the
  *   credential's value nowhere in what the run prints.
+ * - Help: the root's help offers every scheme's `--<scheme>-file` flag with a description naming that scheme.
  *
  * Plants (local only, reverted): input.ts stripLineEnd keeping a credential file's line end; auth.ts appendCookie
- * joining the cookie's name and value with a colon.
+ * joining the cookie's name and value with a colon; auth.ts credentialFileSetting describing no flag.
  */
 import { type Case as SearchCase, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
@@ -618,6 +619,26 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's credentials", (
 			)
 		)
 	})
+
+	it.effect("are each offered by a file flag whose help names the scheme it reads", () =>
+		Effect.gen(function* () {
+			const { built } = yield* CredentialFixture
+			const help = yield* runBin(built, { args: ["--help"], env: {}, stdin: new Uint8Array(0) })
+			const lines = Arr.map(Str.split("\n")(new TextDecoder().decode(help.stdout)), Str.trim)
+			deepStrictEqual(
+				Arr.map(SCHEMES, (scheme) =>
+					Arr.some(
+						lines,
+						(line) =>
+							Str.startsWith(`${NAMES[scheme].flag} path|-`)(line) &&
+							Str.includes(`Read the ${scheme} credential from <path>`)(line)
+					)
+				),
+				Arr.map(SCHEMES, () => true),
+				"every scheme's --<scheme>-file flag is described by the scheme whose credential it reads"
+			)
+		})
+	)
 
 	it.effect("carry any value their scheme's carrier admits exactly as given", (ctx) =>
 		searched(

@@ -212,14 +212,20 @@ export const envName = (envPrefix: string, scheme: string, definition: SecurityS
 const fileFlagName = (scheme: string): string => `${schemeSlug(scheme)}-file`
 
 /**
- * A fresh root global setting `--<scheme>-file <path|->`. Each call mints its own service key, so
- * the root mints each scheme's setting once and hands that same setting to `layer`.
+ * A fresh root global setting `--<scheme>-file <path|->`, its help naming the scheme whose credential it reads. Each
+ * call mints its own service key, so the root mints each scheme's setting once and hands that same setting to `layer`.
  */
 export const credentialFileSetting = (scheme: string): FileSetting => {
 	const name = fileFlagName(scheme)
 
 	return GlobalFlag.Setting(name)({
-		flag: Flag.String(name).pipe(Flag.withMetavar("path|-"), Flag.optional)
+		flag: Flag.String(name).pipe(
+			Flag.withMetavar("path|-"),
+			Flag.withDescription(
+				`Read the ${scheme} credential from <path>, or from stdin when <path> is -`
+			),
+			Flag.optional
+		)
 	})
 }
 

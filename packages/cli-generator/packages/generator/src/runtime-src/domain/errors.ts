@@ -78,14 +78,17 @@ export class ApiResponseError extends Schema.TaggedError<ApiResponseError>()("Ap
 
 /**
  * A 2xx event stream ended at an event its contract names a failure, after printing it: exit 1, the API-error exit.
- * `dataExcerpt` is the event's data, bounded and scrubbed as an error body excerpt is; `retrySafe` is the event's own
- * word that the request took no effect, so running the command again is safe.
+ * `dataExcerpt` is the event's data, bounded and scrubbed as an error body excerpt is; `dataJson` is the same data as
+ * one compact JSON text, scrubbed, when the event's contract says its data is JSON and the text fits the bound whole,
+ * which `--error-format json` prints as a JSON value; `retrySafe` is the event's own word that the request took no
+ * effect, so running the command again is safe.
  */
 export class StreamEventError extends Schema.TaggedError<
 	StreamEventError,
 	{ readonly brand: unique symbol }
 >()("StreamEventError", {
 	dataExcerpt: BodyExcerpt,
+	dataJson: Schema.Option(Schema.String),
 	event: Schema.String,
 	itemIndex: Schema.Int,
 	operation: Schema.String,
