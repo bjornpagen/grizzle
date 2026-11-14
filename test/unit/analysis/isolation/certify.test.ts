@@ -59,7 +59,9 @@
  * migration holds or waits for it (55P03), then calls the snapshot guard with its served file's fingerprint, refused
  * where a folder is part-way (55Z02) or the latest complete target is another snapshot (55Z01), before its first
  * statement takes a snapshot (adapter/wire/batch.ts Prologue, physical/ddl/ledger.ts snapshotGuardDdl). So no call of
- * the unfenced writers runs once a call of the relaxed reader can. Every counterexample comes out SERIALIZABLE.
+ * the unfenced writers runs once a call of the relaxed reader can. A reader so relaxed is required, and a case of the
+ * newlyFenced shape (newlyFencedGen) is built where a case's turn aims at it, so every run exercises the exemption.
+ * Every counterexample comes out SERIALIZABLE.
  *
  * Planted in a scratch copy, each of these fails the search: condition 2's SERIALIZABLE readers left out; the fixpoint
  * run once; a pivot's write before a group read only later let through; a pivot's write after an outside read joined
@@ -340,6 +342,7 @@ type Shape =
 	| "monotonePresent"
 	| "monotoneRetired"
 	| "monotoneProbed"
+	| "newlyFenced"
 
 /** A drawn installation, which may be one of the counterexamples or a fixed shape, and an extension of it. */
 interface Case {
@@ -873,6 +876,79 @@ const triggeredGen: Gen<Case> = (s) => {
 		},
 		shape: "triggered",
 		extension: { kind: "dropFact", relation: x }
+	}
+}
+
+/**
+ * The exemption of the monotonicity property (newlyFenced; the module's header), built: L0's r0 inserts A beside
+ * reading D's absence and inserts D; L0's r1 inserts B, which references A; L1's r2 inserts C, which references B,
+ * joined with a read of B. Before the extension r1 runs SERIALIZABLE. The extension adds a role of L0 that deletes A,
+ * so L0 both deletes and inserts A and fences it, r1's check of A becomes a fenced check, and r1 certifies READ
+ * COMMITTED, the relaxation the exemption allows. The relations A to D are placed by a drawn permutation. It is
+ * TEST_SEED=3958976376's rotating case 421, shrunk (8acf7cdf), which the drawn stream reached about once in 30 seeds.
+ */
+const newlyFencedGen: Gen<Case> = (s) => {
+	const [a = 0, b = 1, c = 2, d = 3] = s.draw(shuffled([0, 1, 2, 3], { min: 4, max: 4 }))
+	const read = (relation: number, mode: ReadSketch["mode"]): ReadSketch => ({
+		relation,
+		mode,
+		own: false,
+		group: 0,
+		binding: 0,
+		split: false,
+		rows: "one",
+		probes: []
+	})
+	const statement = (
+		writes: ReadonlyArray<WriteSketch>,
+		reads: ReadonlyArray<ReadSketch>
+	): StatementSketch => ({ writes, reads, probes: [], cores: [] })
+	const references = (i: number): ReadonlyArray<ReferenceSketch> =>
+		i === b
+			? [{ relation: a, key: 0, onUpdate: "noAction" }]
+			: i === c
+				? [{ relation: b, key: 0, onUpdate: "noAction" }]
+				: []
+	return {
+		sketch: {
+			relations: Arr.makeBy(RELATIONS, (i) => ({ ...clean([0]), references: references(i) })),
+			roles: [
+				{
+					login: 0,
+					serializable: [],
+					privileges: [
+						{ relation: a, privilege: "INSERT" },
+						{ relation: d, privilege: "INSERT" }
+					],
+					members: [
+						[statement([insertOf(a, [])], [read(d, "negated")])],
+						[statement([insertOf(d, [])], [])]
+					]
+				},
+				{
+					login: 0,
+					serializable: [],
+					privileges: [{ relation: b, privilege: "INSERT" }],
+					members: [[statement([insertOf(b, [])], [])]]
+				},
+				{
+					login: 1,
+					serializable: [],
+					privileges: [{ relation: c, privilege: "INSERT" }],
+					members: [[statement([insertOf(c, [0])], [read(b, "positive")])]]
+				}
+			]
+		},
+		shape: "newlyFenced",
+		extension: {
+			kind: "role",
+			role: {
+				login: 0,
+				serializable: [],
+				privileges: [],
+				members: [[statement([{ relation: a, op: "delete", from: [] }], [])]]
+			}
+		}
 	}
 }
 
@@ -2011,7 +2087,7 @@ const droppedReference: Case = {
 
 const shapeSketch = (
 	s: Source,
-	shape: Exclude<Shape, "triggered" | "droppedReference">
+	shape: Exclude<Shape, "triggered" | "droppedReference" | "newlyFenced">
 ): Sketch => {
 	switch (shape) {
 		case "copiers":
@@ -2187,21 +2263,24 @@ const shapeCaseGen =
 		if (shape === "triggered") {
 			return s.draw(triggeredGen)
 		}
+		if (shape === "newlyFenced") {
+			return s.draw(newlyFencedGen)
+		}
 		const sketch = shapeSketch(s, shape)
 		return { sketch, shape, extension: s.draw(extensionGen(sketch)) }
 	}
 
 /**
- * The case a witness judges: its drawn one, or, where its turn aims at a fixed shape no witness reached yet
- * (Explored.steering), a case of that shape drawn from its own tape, so every shape is reached however many arms the
- * shapes' draw holds. A rotating or kept case runs as drawn.
+ * The case a witness judges: its drawn one, or, where its turn aims at a situation a fixed shape reaches
+ * (Explored.steering, shapeAims), a case of that shape drawn from its own tape, so every shape is reached however many
+ * arms the shapes' draw holds. A rotating or kept case runs as drawn.
  */
 const aimedCase = (drawnCase: Case, k: Explored<IsolationFeature>): Case =>
 	Option.match(
 		Option.flatMap(k.steering, (pending) =>
-			Arr.findFirst(shapes, (shape) => pending.aimed(`the ${shape}`))
+			Arr.findFirst(shapeAims, ([situation]) => pending.aimed(situation))
 		),
-		{ onNone: () => drawnCase, onSome: (shape) => k.draw(shapeCaseGen(shape)) }
+		{ onNone: () => drawnCase, onSome: ([, shape]) => k.draw(shapeCaseGen(shape)) }
 	)
 
 const relationName = (i: number): string => `R${i}`
@@ -3304,7 +3383,17 @@ const shapes: ReadonlyArray<Exclude<Shape, "drawn">> = [
 	"monotoneSelfJoin",
 	"monotonePresent",
 	"monotoneRetired",
-	"monotoneProbed"
+	"monotoneProbed",
+	"newlyFenced"
+]
+
+/**
+ * The fixed shape each required situation a shape reaches is aimed at: each shape's own, and the exemption of a reader
+ * its extension's new fence relaxes, newlyFenced's.
+ */
+const shapeAims: ReadonlyArray<readonly [IsolationFeature, Exclude<Shape, "drawn">]> = [
+	["a reader relaxed by a fence its extension makes", "newlyFenced"],
+	...Arr.map(shapes, (shape) => [`the ${shape}`, shape] as const)
 ]
 
 const levelsOf = (verdicts: ReadonlyArray<RoleIsolation>) =>
@@ -3398,6 +3487,7 @@ const counterexampleRoles = (shape: Shape): ReadonlyArray<number> => {
 		case "fencedDeleter":
 		case "monotoneWriter":
 		case "monotoneCure":
+		case "newlyFenced":
 			return []
 	}
 }
@@ -4056,6 +4146,7 @@ describe("the isolation certifier", () => {
 								"a held foreign key check beside a READ COMMITTED role",
 								"a check of a relation one login deletes and inserts",
 								"a fence a READ COMMITTED role relies on",
+								"a reader relaxed by a fence its extension makes",
 								"a check of the rows that reference a changed one",
 								"a retirement",
 								"an update carried by a cascading foreign key",
