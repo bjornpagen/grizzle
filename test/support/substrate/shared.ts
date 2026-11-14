@@ -122,11 +122,13 @@ export const undoInstallEffects = (admin: PgConnection): Effect.Effect<void> =>
 	}).pipe(Effect.ignore)
 
 /**
- * The sessions a substrate holds for its life: its lease's, which also holds its shared database's claim
- * (claimSharedDatabase), that database's owner, and the observer that reads other backends' lock waits (substrate.ts
- * build).
+ * The sessions a substrate holds for its life: its lease's, its shared database's claim's, that database's owner's, and
+ * the observer's that reads other backends' lock waits (substrate.ts build). The claim has a session of its own: the
+ * lease's runs only LOCK, inside the transaction that holds its slot, and a query there would keep its snapshot in the
+ * open portal (the extended protocol drops a transaction's unnamed portal only at its next Bind or the transaction's
+ * end), holding the backend's xmin for the file's life.
  */
-const substrateSessions = ["lease", "owner", "observer"] as const
+const substrateSessions = ["lease", "claim", "owner", "observer"] as const
 /** The connections one test file may hold at once, which one lease covers: a test's full pool (testPoolMax, one
  * session per core) and the sessions its substrate holds. */
 export const connectionsPerLease = testPoolMax + substrateSessions.length
@@ -178,9 +180,10 @@ const slotSettingsQuery = `SELECT pg_catalog.current_setting('max_connections'):
 	pg_catalog.current_setting('reserved_connections')::int4`
 
 /**
- * A lease's tables in the owner's own database, each created by the first process that locks it: one per slot, and the
- * gate a file queues at while every slot is held. The substrate's lease is substrateLease; a test of the lease names
- * tables of its own, so it never takes one of the cluster's slots.
+ * A lease's tables in the owner's own database, by their names: one per slot, and the gate a file queues at while every
+ * slot is held. The lease only locks them; whoever sets the lease up creates them first, so no lease creates a table
+ * while another does: scripts/pg/init.sh creates the substrate's (substrateLeaseNames), and a test of the lease creates
+ * its own, so it never takes one of the cluster's slots.
  */
 export interface LeaseTables {
 	readonly slot: (index: number) => string
@@ -189,38 +192,38 @@ export interface LeaseTables {
 
 /** The lease tables named after `stem`: `<stem>_<index>` for each slot, and `<stem>_gate`. */
 export const leaseTables = (stem: string): LeaseTables => ({
-	slot: (index) => `public.${quoteIdent(`${stem}_${index}`)}`,
-	gate: `public.${quoteIdent(`${stem}_gate`)}`
+	slot: (index) => `${stem}_${index}`,
+	gate: `${stem}_gate`
 })
 
 const substrateLease = leaseTables("substrate_lease")
 
 /**
- * Creates `table` unless it exists. Two processes creating it at once both find it there: the loser's 42P07
- * (duplicate_table), or its 23505 on pg_type's unique name, is raised only once the winner committed.
+ * The substrate lease's tables a cluster of `maxConnections` connections, `superuserReserved` and `reserved` of them
+ * reserved, needs: the gate and one for each of its slots (leaseSlots). scripts/pg/lease-tables.ts prints them, init.sh
+ * creates them and doctor.sh requires every one.
  */
-const ensureTable = (lock: PgConnection, table: string): Effect.Effect<void, SqlError> =>
-	Effect.asVoid(
-		lock.query(`CREATE TABLE IF NOT EXISTS ${table} ()`, []).pipe(
-			Effect.catchIf(
-				(error) => {
-					const code = pgErrorFields(error)?.code
-					return code === "42P07" || code === "23505"
-				},
-				() => Effect.void
-			)
-		)
-	)
+export const substrateLeaseNames = (
+	maxConnections: number,
+	superuserReserved: number,
+	reserved: number
+): ReadonlyArray<string> => [
+	substrateLease.gate,
+	...upTo(leaseSlots(maxConnections, superuserReserved, reserved), substrateLease.slot)
+]
+
+/** A lease table's name as a statement names it, in the owner's own database's public schema. */
+const leaseTable = (name: string): string => `public.${quoteIdent(name)}`
 
 /**
- * Locks `table` IN EXCLUSIVE MODE in a transaction left open on `lock`: true when it is taken, false when another
- * process holds it (55P03, lock_not_available), the transaction then rolled back.
+ * Locks the lease table `table` IN EXCLUSIVE MODE in a transaction left open on `lock`: true when it is taken, false
+ * when another process holds it (55P03, lock_not_available), the transaction then rolled back. A table that does not
+ * exist fails the lease (42P01): its cluster was set up without it.
  */
 const tryLock = (lock: PgConnection, table: string): Effect.Effect<boolean, SqlError> =>
 	Effect.gen(function* () {
-		yield* ensureTable(lock, table)
 		yield* lock.query("BEGIN", [])
-		return yield* lock.query(`LOCK TABLE ${table} IN EXCLUSIVE MODE NOWAIT`, []).pipe(
+		return yield* lock.query(`LOCK TABLE ${leaseTable(table)} IN EXCLUSIVE MODE NOWAIT`, []).pipe(
 			Effect.as(true),
 			Effect.catchIf(
 				(error) => pgErrorFields(error)?.code === "55P03",
@@ -240,7 +243,7 @@ const awaitLock = (lock: PgConnection, table: string): Effect.Effect<void, SqlEr
 			return
 		}
 		yield* lock.query("BEGIN", [])
-		yield* lock.query(`LOCK TABLE ${table} IN EXCLUSIVE MODE`, [])
+		yield* lock.query(`LOCK TABLE ${leaseTable(table)} IN EXCLUSIVE MODE`, [])
 	})
 
 /**
@@ -472,6 +475,8 @@ export interface SharedClaim {
 	readonly database: string
 	/** An owner connection to the database. */
 	readonly admin: PgConnection
+	/** The backend of the session that holds the claim, which runs every statement in a transaction of its own. */
+	readonly claimant: number
 }
 
 /**
@@ -545,8 +550,8 @@ export const ensureSharedDatabase = (
  * Vitest runs each file in a process of its own, at most W at once (vitest.network.config.ts maxWorkers, W the
  * machine's cores, networkWorkers, workers.ts), and numbers the workers running them 1 to W in VITEST_POOL_ID; the run's global setup
  * clones `gz_shared_1` to `gz_shared_W` once. So a file uses the database of its worker, `gz_shared_<VITEST_POOL_ID>`.
- * A claim still takes the session-level advisory lock (claimKey, n) on `lock`, the substrate's lease connection to the
- * owner's own database (leaseConnections), held for the file's life, as a safety net: when another claim holds the worker's database (a second substrate in the same
+ * A claim still takes the session-level advisory lock (claimKey, n) on a connection to the owner's own database, held
+ * for the file's life, as a safety net: when another claim holds the worker's database (a second substrate in the same
  * file, or another run on the cluster) it takes the smallest n above W no other claim holds, cloning the database when
  * it does not exist yet. Two runs on one cluster never share a database at once, and a process outside a Vitest worker
  * (a bench) has no worker and claims above W. The claimed database must be clean, as `leftovers` defines it: a dirty
@@ -559,47 +564,49 @@ export const ensureSharedDatabase = (
  * lets it go and tries the next index, and the sweep drops it once no file runs. A fresh clone that is not clean means
  * the template differs from what `leftovers` expects, a defect of this file, not of a test.
  */
-export const claimSharedDatabase = (
-	lock: PgConnection
-): Effect.Effect<SharedClaim, SqlError, Scope.Scope | InitializedCluster> =>
-	Effect.gen(function* () {
-		const scope = yield* Effect.scope
-		const cluster = yield* InitializedCluster
-		const worker = positiveEnv("VITEST_POOL_ID")
-		const above = networkWorkers + 1
-		/** The n-th index a claim tries: the worker's, then every index above W. */
-		const tried = (n: number): number =>
-			Option.match(worker, {
-				onNone: () => above + n,
-				onSome: (w) => (n === 0 ? w : above + n - 1)
-			})
-		for (let n = 0; ; n++) {
-			const index = tried(n)
-			if (n > 0 && Option.contains(worker, index)) {
-				continue
-			}
-			const [[claimed] = []] = yield* lock.queryValues(claimStatement, [claimKey, index])
-			if (claimed !== true) {
-				continue
-			}
-			const database = sharedDatabase(index)
-			const connection = yield* connectShared(cluster, scope, database)
-			const dirty = yield* leftovers(connection.admin)
-			if (dirty.length === 0) {
-				return { database, admin: connection.admin }
-			}
-			if (connection.origin === "cloned") {
-				return yield* Effect.die(
-					new Error(`a fresh clone of the template is not clean: ${Arr.join(dirty, "; ")}`)
-				)
-			}
-			yield* connection.disconnect
-			yield* lock.queryValues("SELECT pg_catalog.pg_advisory_unlock($1::int4, $2::int4)", [
-				claimKey,
-				index
-			])
+export const claimSharedDatabase: Effect.Effect<
+	SharedClaim,
+	SqlError,
+	Scope.Scope | InitializedCluster
+> = Effect.gen(function* () {
+	const scope = yield* Effect.scope
+	const cluster = yield* InitializedCluster
+	const lock = yield* devSession(cluster, Option.some("grizzle-substrate claim"))
+	const worker = positiveEnv("VITEST_POOL_ID")
+	const above = networkWorkers + 1
+	/** The n-th index a claim tries: the worker's, then every index above W. */
+	const tried = (n: number): number =>
+		Option.match(worker, {
+			onNone: () => above + n,
+			onSome: (w) => (n === 0 ? w : above + n - 1)
+		})
+	for (let n = 0; ; n++) {
+		const index = tried(n)
+		if (n > 0 && Option.contains(worker, index)) {
+			continue
 		}
-	})
+		const [[claimed] = []] = yield* lock.queryValues(claimStatement, [claimKey, index])
+		if (claimed !== true) {
+			continue
+		}
+		const database = sharedDatabase(index)
+		const connection = yield* connectShared(cluster, scope, database)
+		const dirty = yield* leftovers(connection.admin)
+		if (dirty.length === 0) {
+			return { database, admin: connection.admin, claimant: lock.processId }
+		}
+		if (connection.origin === "cloned") {
+			return yield* Effect.die(
+				new Error(`a fresh clone of the template is not clean: ${Arr.join(dirty, "; ")}`)
+			)
+		}
+		yield* connection.disconnect
+		yield* lock.queryValues("SELECT pg_catalog.pg_advisory_unlock($1::int4, $2::int4)", [
+			claimKey,
+			index
+		])
+	}
+})
 
 /** Whether process `pid` is running on this machine; a process of another user counts as running. */
 const running = (pid: number): boolean => {

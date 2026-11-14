@@ -59,6 +59,14 @@ require_port_free() {
 	fi
 }
 
+# The names of the substrate lease's tables, one per line: test/support/substrate/shared.ts substrateLeaseNames, the one
+# formula, over the running cluster's max_connections, superuser_reserved_connections and reserved_connections.
+lease_tables() {
+	local settings
+	settings="$(admin_psql -d postgres -At -F ' ' -c "SELECT current_setting('max_connections'), current_setting('superuser_reserved_connections'), current_setting('reserved_connections')")"
+	repo_node scripts/pg/lease-tables.ts $settings
+}
+
 # The most live sources the cluster serves at once, which max_replication_slots and max_wal_senders must each hold:
 # test/support/substrate/shared.ts liveSlotBound, the one formula, over the running cluster's max_connections,
 # superuser_reserved_connections and reserved_connections.

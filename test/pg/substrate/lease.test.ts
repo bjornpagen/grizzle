@@ -7,6 +7,7 @@ import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Exit, Fiber, Formatter, Option, Ref, Scope } from "effect"
 import { trusted } from "#compiler/core/trusted.ts"
+import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -21,19 +22,22 @@ import { upTo } from "#test/support/up-to.ts"
  * slot frees, files in the order they queued, and holds no transaction id while it leases or waits.
  *
  * A case draws a number of slots and of files that wait for one, and which holder gives its slot up at each step. It
- * leases tables of its own (leaseTables), never the cluster's slots. Holders take every slot; the files then queue one
+ * leases tables of its own (leaseTables), which it creates first as scripts/pg/init.sh creates the cluster's, never the
+ * cluster's slots. Holders take every slot; the files then queue one
  * after another, each left to settle (every backend it opened waits on a lock, but for the one that holds the gate).
  * At each step a holder ends its lease's transaction, and in that same release its slot must be granted to a backend
  * of the file that queued first. Nothing is judged by time: the slot's holder is read from pg_locks once the release
  * has returned. That file's lease then completes on that slot and it holds it, so a later step may free it again. At
- * every settled point no holder's or waiting file's backend holds a transaction id, and no holder's a snapshot.
+ * every settled point no holder's or waiting file's backend holds a transaction id or a snapshot, nor does the file's
+ * own substrate's lease or claim (Substrate's `held`).
  *
  * The oracle is the lease's specification: the first file still queued is admitted by each release, on the slot
  * released. A file that waited on one slot of its own would leave another freed slot free while it waits.
  *
  * Features: several slots, files queued behind the first, a released slot other than the first, and a slot released
- * by a file the lease admitted. Plant: ~/.cache/grizzle-release/CLUSTER/plants/lease-fixed-slot.patch (the waiting
- * file waits on the slot its process id names, as before 2026-11-14).
+ * by a file the lease admitted. Plants (~/.cache/grizzle-release/CLUSTER/plants): lease-fixed-slot.patch (the waiting
+ * file waits on the slot its process id names, as before 2026-11-14), claim-on-lease.patch (the shared database's claim
+ * taken on the lease's connection, inside the transaction that holds its slot, as 5ba895fe did).
  */
 interface LeaseCase {
 	readonly slots: number
@@ -104,23 +108,28 @@ const openFor = (cluster: InitializedClusterShape, file: File) =>
 /** Each backend's pid, whether it waits on a lock, and whether it holds the gate. */
 const statesQuery = `SELECT p.pid, pg_catalog.cardinality(pg_catalog.pg_blocking_pids(p.pid)) > 0,
 	EXISTS (SELECT FROM pg_catalog.pg_locks AS l
-		WHERE l.pid = p.pid AND l.granted AND l.relation = pg_catalog.to_regclass($2::text))
+		WHERE l.pid = p.pid AND l.granted AND l.relation = pg_catalog.to_regclass(pg_catalog.format('public.%I', $2::text)))
 FROM unnest($1::int4[]) AS p(pid)`
 
-/** Whether `file` has settled: it has a backend open, opens none, and each of its backends waits but the gate's. */
-const settled = (observer: PgConnection, tables: LeaseTables, file: File) =>
+/**
+ * Whether `file` has settled: it has a backend open and opens none, each of its backends waits on a lock but the one
+ * that holds the gate, and a file that holds the gate has a backend waiting on every slot, its race (takeLease).
+ */
+const settled = (observer: PgConnection, tables: LeaseTables, slots: number, file: File) =>
 	Effect.gen(function* () {
 		const pids = yield* Ref.get(file.pids)
 		if ((yield* Ref.get(file.opening)) > 0 || !Arr.isReadonlyArrayNonEmpty(pids)) {
 			return false
 		}
-		const rows = yield* observer.queryValues(statesQuery, [pids, tables.gate])
+		const states = yield* observer.queryValues(statesQuery, [pids, tables.gate])
+		const rows = Arr.map(states, (row) =>
+			trusted<readonly [pid: number, waits: boolean, gate: boolean]>(row)
+		)
+		const gated = Arr.some(rows, ([, , gate]) => gate)
 		return (
 			rows.length === pids.length &&
-			Arr.every(rows, (row) => {
-				const [, waits, gate] = trusted<readonly [pid: number, waits: boolean, gate: boolean]>(row)
-				return waits || gate
-			})
+			Arr.every(rows, ([, waits, gate]) => waits || gate) &&
+			(!gated || rows.length === slots + 1)
 		)
 	})
 
@@ -128,38 +137,42 @@ const settled = (observer: PgConnection, tables: LeaseTables, file: File) =>
 const awaitSettled = (
 	observer: PgConnection,
 	tables: LeaseTables,
+	slots: number,
 	waiting: ReadonlyArray<Waiting>
 ): Effect.Effect<void, SqlError> =>
 	Effect.gen(function* () {
 		for (const w of waiting) {
-			while (!(yield* settled(observer, tables, w.file))) {
+			while (!(yield* settled(observer, tables, slots, w.file))) {
 				yield* Effect.yieldNow
 			}
 		}
 	})
 
-/** The backends of `pids` that hold a transaction id, and of `snapshotFree` those that hold a snapshot. */
+/** The backends of `pids` that hold a transaction id or a snapshot. */
 const heldQuery = `SELECT a.pid FROM pg_catalog.pg_stat_activity AS a
-WHERE (a.pid = ANY ($1::int4[]) AND a.backend_xid IS NOT NULL)
-	OR (a.pid = ANY ($2::int4[]) AND a.backend_xmin IS NOT NULL)`
+WHERE a.pid = ANY ($1::int4[]) AND (a.backend_xid IS NOT NULL OR a.backend_xmin IS NOT NULL)`
 
 /** The backend holding `table`'s lock, if any. */
 const holderQuery = `SELECT l.pid FROM pg_catalog.pg_locks AS l
-WHERE l.relation = pg_catalog.to_regclass($1::text) AND l.granted`
+WHERE l.relation = pg_catalog.to_regclass(pg_catalog.format('public.%I', $1::text)) AND l.granted`
 
 const runCase = (cluster: InitializedClusterShape, x: LeaseCase, note: (f: LeaseFeature) => void) =>
 	Effect.gen(function* () {
 		const scope = yield* Effect.scope
 		const tables = leaseTables(`lease_probe_${process.pid}_${randomHex(4)}`)
 		const observer = yield* devSession(cluster, Option.some("grizzle-substrate lease observer"))
+		const named = Arr.map(
+			[tables.gate, ...upTo(x.slots, tables.slot)],
+			(name) => `public.${quoteIdent(name)}`
+		)
+		yield* Effect.forEach(named, (table) => observer.query(`CREATE TABLE ${table} ()`, []), {
+			discard: true
+		})
 		yield* Effect.addFinalizer(() =>
 			Effect.orDie(
 				Effect.scoped(
 					Effect.flatMap(devSession(cluster, Option.none()), (admin) =>
-						admin.query(
-							`DROP TABLE IF EXISTS ${Arr.join([...upTo(x.slots, tables.slot), tables.gate], ", ")}`,
-							[]
-						)
+						admin.query(`DROP TABLE ${Arr.join(named, ", ")}`, [])
 					)
 				)
 			)
@@ -189,20 +202,12 @@ const runCase = (cluster: InitializedClusterShape, x: LeaseCase, note: (f: Lease
 				Scope.provide(takeLease(openFor(cluster, file), tables, x.slots), file.scope)
 			)
 			waiting = Arr.append(waiting, { file, fiber })
-			yield* awaitSettled(observer, tables, waiting)
+			yield* awaitSettled(observer, tables, x.slots, waiting)
 		}
 		const checkHeld = Effect.gen(function* () {
-			const holding = yield* Effect.forEach(holders, (h) => Ref.get(h.file.pids))
-			const queued = yield* Effect.forEach(waiting, (w) => Ref.get(w.file.pids))
-			const held = yield* observer.queryValues(heldQuery, [
-				Arr.flatten([...holding, ...queued]),
-				Arr.flatten(holding)
-			])
-			assert.deepEqual(
-				held,
-				[],
-				"a lease or a wait for one holds a transaction id, or a lease a snapshot"
-			)
+			const files = yield* Effect.forEach([...holders, ...waiting], (f) => Ref.get(f.file.pids))
+			const held = yield* observer.queryValues(heldQuery, [Arr.flatten(files)])
+			assert.deepEqual(held, [], "a lease or a wait for one holds a transaction id or a snapshot")
 		})
 		yield* checkHeld
 		if (x.slots > 1) {
@@ -235,19 +240,25 @@ const runCase = (cluster: InitializedClusterShape, x: LeaseCase, note: (f: Lease
 				{ file: head.file, lease, slot: releasing.slot, admitted: true }
 			)
 			waiting = rest
-			yield* awaitSettled(observer, tables, waiting)
+			yield* awaitSettled(observer, tables, x.slots, waiting)
 			yield* checkHeld
 		}
 	})
 
 layer(Substrate.layer)("the substrate's connection lease", (it) => {
 	it.effect(
-		"admits the first file queued the moment any slot frees, and holds no transaction id while it leases or waits",
+		"admits the first file queued the moment any slot frees, and holds no transaction id or snapshot while it leases or waits",
 		(ctx) =>
 			searched(
 				ctx,
 				Effect.gen(function* () {
 					const substrate = yield* Substrate
+					const held = yield* substrate.admin.queryValues(heldQuery, [substrate.held])
+					assert.deepEqual(
+						held,
+						[],
+						"the file's own lease or claim holds a transaction id or a snapshot"
+					)
 					return yield* explore(
 						{
 							suite: "substrate/lease",

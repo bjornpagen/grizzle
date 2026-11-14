@@ -46,6 +46,14 @@ else
 	fail "the cluster's size for this machine" "scripts/pg/lib.sh cluster_size failed"
 fi
 
+# Every table the connection lease locks exists: the cluster creates them (init.sh), never a lease.
+if leased="$(lease_tables)"; then
+	check "the connection lease's $(wc -l <<<"$leased") tables exist" "" \
+		"$(dev "$PG_DEV_ROLE" -At -c "SELECT pg_catalog.string_agg(t, ' ') FROM pg_catalog.unnest(pg_catalog.string_to_array('${leased//$'\n'/ }', ' ')) AS t WHERE pg_catalog.to_regclass(pg_catalog.format('public.%I', t)) IS NULL")"
+else
+	fail "the connection lease's tables" "scripts/pg/lib.sh lease_tables failed"
+fi
+
 check "jit is off by default" "off" \
 	"$(dev "$PG_DEV_ROLE" -At -c "SHOW jit")"
 

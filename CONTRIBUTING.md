@@ -501,10 +501,12 @@ text match. A type batch's population judges its requirements on `floorPopulatio
   session of the login that has taken on its role (`worldSession`, `worldPsql`). A schedule's direct actors take on
   their role through a login of their own, so a grizzle writer's actor is the one backend of its login.
 - **The connection lease:** every process that opens test connections first takes one of the cluster's leases
-  (`test/support/substrate/shared.ts`), slots sized from `max_connections`, each a table locked by a transaction left
-  open, covering a test's pool, one connection per core, and the four sessions its substrate holds. Neither a lease
-  nor a wait for one holds a snapshot or a transaction id. Any number of runs, copies of the tree and
-  benches share one cluster; a process with no free slot waits in the server. That wait is queueing, not a hang: a
+  (`test/support/substrate/shared.ts`), slots sized from `max_connections`, each a table the cluster's init created,
+  locked by a transaction left open, covering a test's pool, one connection per core, and the four sessions its
+  substrate holds. A process with every slot held queues at the lease's gate, in the order processes asked, and the
+  gate's holder races every slot at once, so the first slot to free admits it. Neither a lease nor a wait for one holds
+  a snapshot or a transaction id. Any number of runs, copies of the tree and benches share one cluster; a process with
+  no free slot waits in the server. That wait is queueing, not a hang: a
   file the runner starts beyond the free slots waits its turn, its hook bounded only by the test timeout
   (`testTimeout`, `test/support/limits.ts`), and each case's own hang guard is what stops a case that hangs.
 

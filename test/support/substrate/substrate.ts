@@ -149,6 +149,11 @@ export interface SubstrateShape {
 	readonly cluster: InitializedClusterShape
 	/** The database this file runs in, cloned from grizzle_template: a shared database, or a fresh one. */
 	readonly database: string
+	/**
+	 * The backends that hold the substrate's place on the cluster for its life: its lease's (shared.ts leaseConnections)
+	 * and, in a shared database, its claim's (claimSharedDatabase). Neither holds a transaction id or a snapshot.
+	 */
+	readonly held: ReadonlyArray<number>
 	/** The migration identity and database owner, with the cluster's password for it. */
 	readonly owner: Credentials
 	/** An owner connection to the database for setup and inspection. Its statements are not counted. */
@@ -384,7 +389,8 @@ const asSuperuserRead = <A, E>(
 const build = Effect.fnUntraced(function* (
 	cluster: InitializedClusterShape,
 	database: string,
-	admin: PgConnection
+	admin: PgConnection,
+	held: ReadonlyArray<number>
 ): Effect.fn.Return<
 	SubstrateShape,
 	SqlError,
@@ -595,6 +601,7 @@ const build = Effect.fnUntraced(function* (
 	return {
 		cluster,
 		database,
+		held,
 		owner,
 		admin,
 		schema,
@@ -624,7 +631,7 @@ const makeSubstrate: Effect.Effect<
 > = Effect.gen(function* () {
 	const cluster = yield* InitializedCluster
 	const lease = yield* leaseConnections
-	const claim = yield* claimSharedDatabase(lease)
+	const claim = yield* claimSharedDatabase
 	yield* Effect.addFinalizer(() =>
 		Effect.orDie(
 			Effect.gen(function* () {
@@ -641,7 +648,7 @@ const makeSubstrate: Effect.Effect<
 			})
 		)
 	)
-	return yield* build(cluster, claim.database, claim.admin)
+	return yield* build(cluster, claim.database, claim.admin, [lease.processId, claim.claimant])
 })
 
 /**
@@ -654,14 +661,14 @@ const makeIsolatedSubstrate: Effect.Effect<
 	Scope.Scope | InitializedCluster | ChildProcessSpawner.ChildProcessSpawner
 > = Effect.gen(function* () {
 	const cluster = yield* InitializedCluster
-	yield* leaseConnections
+	const lease = yield* leaseConnections
 	const database = yield* freshDatabase(cluster)
 	const admin = yield* connect(cluster, {
 		database,
 		credentials: ownerCredentials(cluster),
 		label: "admin"
 	})
-	return yield* build(cluster, database, admin)
+	return yield* build(cluster, database, admin, [lease.processId])
 })
 
 /**
