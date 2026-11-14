@@ -168,7 +168,7 @@ export const fromSnapshot = (snapshot: DeploySnapshot): Previous => ({ kind: "sn
 /** The entries of a schema's migrations directory that are no migration folder: the snapshot's two files and the
  * directory of each kind of file generate writes per login (cli/files.ts loginFiles), by the names the CLI writes them
  * under. */
-const besideFolders: ReadonlySet<string> = new Set([
+export const besideFolders: ReadonlySet<string> = new Set([
 	snapshotFileName,
 	manifestFileName,
 	...Arr.map(loginFileKinds, (kind) => loginFiles[kind].directory)

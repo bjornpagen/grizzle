@@ -24,8 +24,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { metaFileName, writeMeta } from "#compiler/deploy/render/folder.ts"
 import { noTransactionMarker, placeholderMarker } from "#compiler/deploy/render/markers.ts"
-import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
-import { servedDirectory } from "#compiler/served/forms.ts"
+import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
 import {
@@ -38,6 +37,7 @@ import {
 import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { besideFolders } from "#test/support/migrate/kit.ts"
 
 /**
  * `grizzle check` reports every finding at once, one per entry, never stopping at the first, generated: a committed
@@ -298,13 +298,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("grizzle check", (it) =
 					)
 					assert.equal(custom.code, 0, custom.stderr)
 					const committed = yield* fs.readDirectory(`${base}/${schemaDir}`)
-					assert.deepEqual(Arr.sort(committed, Order.String), [
-						init,
-						seed,
-						manifestFileName,
-						servedDirectory,
-						snapshotFileName
-					])
+					assert.deepEqual(
+						Arr.sort(committed, Order.String),
+						Arr.sort([init, seed, ...besideFolders], Order.String)
+					)
 					const files = yield* fs.readDirectory(`${base}/${schemaDir}/${init}`)
 					const layout: Layout = {
 						setup: phaseFile(files, "setup"),
