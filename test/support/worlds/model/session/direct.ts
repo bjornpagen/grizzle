@@ -1194,7 +1194,20 @@ export const directBranches = (
 			 * drawn value where the fact leaves a serial key field to it.
 			 */
 			const sets = payload.length > 0 ? payload : key
-			if (statement.onConflict === "update" && namesSerial(statement.relation, sets)) {
+			const resolution = statement.onConflict
+			/** The writer's predicate over the stored row, which DO NOTHING states none of. */
+			const where: ViewFilter = resolution.kind === "nothing" ? { kind: "none" } : resolution.where
+			/** Whether the predicate names a field the relation lacks, which is refused as the statement is analyzed. */
+			const unknownField =
+				where.kind === "raise-on" &&
+				!Arr.some(
+					relationSpecOf(base, statement.relation)?.fields ?? [],
+					(f) => f.name === where.field
+				)
+			if (unknownField) {
+				return [refused("other")]
+			}
+			if (resolution.kind === "update" && namesSerial(statement.relation, sets)) {
 				return [refused("428C9")]
 			}
 			/**
@@ -1206,13 +1219,13 @@ export const directBranches = (
 				key,
 				(k) => fieldDomain(base, { kind: "ordinary", name: statement.relation }, k)?.kind === "span"
 			)
-			if (Arr.isReadonlyArrayNonEmpty(spans) && statement.onConflict !== "nothing") {
+			if (Arr.isReadonlyArrayNonEmpty(spans) && resolution.kind !== "nothing") {
 				return [refused("other")]
 			}
 			if (at === undefined) {
 				return [refused("42501")]
 			}
-			if (statement.onConflict === "update") {
+			if (resolution.kind === "update") {
 				const updatable = updatableFields(base, at.written)
 				if (sets.length === 0 || !Arr.every(sets, (f) => updatable.includes(f))) {
 					return [refused("42501")]
@@ -1257,7 +1270,7 @@ export const directBranches = (
 					return [
 						{
 							observation:
-								statement.onConflict === "select" ? { kind: "rows", rows: [fact] } : { kind: "ok" },
+								resolution.kind === "select" ? { kind: "rows", rows: [fact] } : { kind: "ok" },
 							next
 						}
 					]
@@ -1266,22 +1279,37 @@ export const directBranches = (
 					return inserted()
 				}
 				const seenConflict = member(at.policy, conflict)
-				/** How ON CONFLICT resolves a conflict with a stored fact, which row security shows the role or hides from it. */
+				/** Whether the writer's predicate raises on the stored row it meets. */
+				const raises = where.kind === "raise-on" && sameValue(conflict[where.field], where.value)
+				/**
+				 * How ON CONFLICT resolves a conflict with a stored fact, which row security shows the role or hides from it.
+				 * DO SELECT and DO UPDATE judge the stored row by the role's policy before the writer's predicate
+				 * (nodeModifyTable.c ExecOnConflictSelect and ExecOnConflictUpdate, PostgreSQL 19rc2), so a hidden row is
+				 * refused whatever the predicate says of it, and the predicate runs only on a row the role sees.
+				 */
 				const resolved = (): Arr.NonEmptyReadonlyArray<Branch> => {
-					switch (statement.onConflict) {
+					switch (resolution.kind) {
 						case "nothing":
 							return [{ observation: { kind: "ok" }, next: state }]
 						case "select":
-							return seenConflict
-								? [{ observation: { kind: "rows", rows: [conflict] }, next: state }]
-								: [refused("42501")]
+							return !seenConflict
+								? [refused("42501")]
+								: raises
+									? [refused("other")]
+									: [{ observation: { kind: "rows", rows: [conflict] }, next: state }]
 						case "update": {
+							if (!seenConflict) {
+								return [refused("42501")]
+							}
+							if (raises) {
+								return [refused("other")]
+							}
 							const excluded = Arr.flatMap(sets, (f) => {
 								const value = fact[f]
 								return value === undefined ? [] : [[f, value] as const]
 							})
 							const moved: HostFact = { ...conflict, ...Record.fromEntries(excluded) }
-							if (!seenConflict || !member(at.policy, moved)) {
+							if (!member(at.policy, moved)) {
 								return [refused("42501")]
 							}
 							const after = new Map(session.view)

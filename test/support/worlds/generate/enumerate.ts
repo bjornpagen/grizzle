@@ -1284,12 +1284,19 @@ const directStatements = (
 			const [fact] = eachChoice(r.fields, (f) => valuesFor(state, f.domain, scope))
 			return fact === undefined
 				? []
-				: Arr.map(["nothing", "select", "update"] as const, (onConflict): DirectStatement => ({
-						kind: "insert-on-conflict",
-						relation: r.name,
-						fact,
-						onConflict
-					}))
+				: Arr.map(
+						[
+							{ kind: "nothing" },
+							{ kind: "select", where: { kind: "none" } },
+							{ kind: "update", where: { kind: "none" } }
+						] as const,
+						(onConflict): DirectStatement => ({
+							kind: "insert-on-conflict",
+							relation: r.name,
+							fact,
+							onConflict
+						})
+					)
 		}),
 		...Arr.flatMap(relations, (r) =>
 			Arr.map(viewOf(r.name).slice(0, 1), (fact): DirectStatement => ({

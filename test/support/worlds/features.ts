@@ -752,7 +752,7 @@ const holdsFor = (state: ModelState, role: RoleSpec, statement: DirectStatement)
 		case "insert-on-conflict":
 			return (
 				Option.isSome(writeEntryOf(state, role, statement.relation)) &&
-				(statement.onConflict !== "update" ||
+				(statement.onConflict.kind !== "update" ||
 					Arr.some(
 						base.relations,
 						(r) => r.name === statement.relation && r.mutability === "mutable"
@@ -951,12 +951,27 @@ const statementObjects = (
 					}
 					switch (statement.kind) {
 						case "insert":
-						case "insert-on-conflict":
 							return observation.kind === "ok"
 								? policy(f, "accepted-inside")
 								: refusedPrivilege(observation)
 									? policy(f, "refused-outside")
 									: []
+						case "insert-on-conflict": {
+							const resolution = statement.onConflict
+							const suppressed =
+								resolution.kind !== "nothing" &&
+								resolution.where.kind === "raise-on" &&
+								refusedPrivilege(observation) &&
+								raiseOnTable(actor, touch, resolution.where.field, resolution.where.value)
+							return [
+								...(observation.kind === "ok"
+									? policy(f, "accepted-inside")
+									: refusedPrivilege(observation)
+										? policy(f, "refused-outside")
+										: []),
+								...(suppressed ? [objectFeature("policy", "conflict-raise-suppressed")] : [])
+							]
+						}
 						case "update":
 							return observation.kind === "ok"
 								? policy(f, outside ? "hidden-row-absent" : "accepted-inside")
@@ -2305,6 +2320,7 @@ const objectOutcomes: ReadonlyArray<WorldFeature> = [
 	objectFeature("policy", "refused-outside"),
 	objectFeature("policy", "hidden-row-absent"),
 	objectFeature("policy", "raise-suppressed"),
+	objectFeature("policy", "conflict-raise-suppressed"),
 	objectFeature("filter-function", "accepted-inside"),
 	objectFeature("filter-function", "refused-outside"),
 	objectFeature("filter-function", "hidden-row-absent"),

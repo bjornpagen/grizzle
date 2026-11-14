@@ -260,8 +260,12 @@ const statementTexts = (statement: DirectStatement): ReadonlyArray<string> => {
 		case "select-table":
 			return filterTexts(statement.filter)
 		case "insert":
-		case "insert-on-conflict":
 			return factTexts(statement.fact)
+		case "insert-on-conflict":
+			return [
+				...factTexts(statement.fact),
+				...(statement.onConflict.kind === "nothing" ? [] : filterTexts(statement.onConflict.where))
+			]
 		case "merge-delete":
 			return Arr.flatMap(statement.keys, factTexts)
 		case "delete":

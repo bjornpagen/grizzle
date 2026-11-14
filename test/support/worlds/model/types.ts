@@ -451,6 +451,16 @@ export type ViewFilter =
 	| { readonly kind: "none" }
 	| { readonly kind: "raise-on"; readonly field: string; readonly value: HostValue }
 
+/**
+ * How a direct writer's INSERT resolves a conflict at its primary key: do nothing, or return the stored row or update it
+ * where the writer's own predicate over the stored row holds, one that raises on one value of one field (ViewFilter), so
+ * the conflict shows whether row security judges the stored row before the writer's expression. DO NOTHING has no such
+ * predicate.
+ */
+export type ConflictResolution =
+	| { readonly kind: "nothing" }
+	| { readonly kind: "select" | "update"; readonly where: ViewFilter }
+
 /** What a direct writer's prepared statement reads. */
 export type PreparedRead =
 	| { readonly kind: "view"; readonly role: string; readonly relation: string }
@@ -489,7 +499,7 @@ export type DirectStatement =
 			readonly kind: "insert-on-conflict"
 			readonly relation: string
 			readonly fact: HostFact
-			readonly onConflict: "nothing" | "select" | "update"
+			readonly onConflict: ConflictResolution
 	  }
 	| {
 			readonly kind: "merge-delete"
@@ -1108,7 +1118,7 @@ export type WorldFeature =
 	| `name:${IdentifierFeature}`
 	| "catalog-type name"
 	| `op:${ActionKind}:${Membership}:${ClaimState}:${Writer}:${ActionOutcome["kind"]}`
-	| `object:${ObjectKind}:${"hidden-row-absent" | "raise-suppressed" | "accepted-inside" | "refused-outside" | "attempt-refused" | "witness-shown" | "witness-withheld"}`
+	| `object:${ObjectKind}:${"hidden-row-absent" | "raise-suppressed" | "conflict-raise-suppressed" | "accepted-inside" | "refused-outside" | "attempt-refused" | "witness-shown" | "witness-withheld"}`
 	| `invalid:${InvalidKind}`
 	| `invariant:${InvariantName}`
 	| `deletion:${"base-gone" | "world-gone" | "derived-kept" | "derived-refreshed"}`

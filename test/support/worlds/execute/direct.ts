@@ -39,6 +39,7 @@ import type {
 	FieldDomain,
 	HostFact,
 	Isolation,
+	ConflictResolution,
 	RoleRef,
 	HostValue,
 	ViewFilter,
@@ -261,13 +262,14 @@ const factTarget = (columns: ReadonlyArray<string>, values: ReadonlyArray<Expr>)
  * target is the key as PostgreSQL arbitrates it: a key of scalar fields by its columns; a span key, WITHOUT OVERLAPS,
  * only as its constraint and only to do nothing (ON CONSTRAINT, by overlap), since PostgreSQL infers no arbiter for it
  * from a column list (42P10). Its DO SELECT and DO UPDATE are spelled by the key's columns, as a writer would try them,
- * and PostgreSQL refuses them at planning (42P10; through the constraint, 42809), before any privilege is checked.
+ * and PostgreSQL refuses them at planning (42P10; through the constraint, 42809), before any privilege is checked. The
+ * target is aliased `r`, which the writer's predicate over the stored row names (`raising`).
  */
 const onConflictSql = (
 	names: DirectNames,
 	relation: string,
 	fact: HostFact,
-	resolution: "nothing" | "select" | "update"
+	resolution: ConflictResolution
 ): Effect.Effect<DirectSql> =>
 	Effect.gen(function* () {
 		const t = yield* names.table(relation)
@@ -296,30 +298,45 @@ const onConflictSql = (
 		 * primary key's columns to their own, the one update such a writer can state (an empty SET is no statement).
 		 */
 		const updated = Arr.isReadonlyArrayNonEmpty(payload) ? payload : key
+		const where = (filter: ViewFilter): Effect.Effect<Expr | undefined> =>
+			filter.kind === "none"
+				? Effect.undefined
+				: Option.match(
+						Arr.findFirst(read, (f) => f.field === filter.field),
+						{
+							onNone: () =>
+								Effect.die(new Error(`the table of ${relation} has no field ${filter.field}`)),
+							onSome: (f) =>
+								Effect.succeed(
+									raising(col("r", f.column), columnText(names.codes, f.domain, filter.value))
+								)
+						}
+					)
 		const action =
-			resolution === "nothing"
+			resolution.kind === "nothing"
 				? { kind: "doNothing" as const }
-				: resolution === "select"
-					? { kind: "doSelect" as const, where: undefined }
+				: resolution.kind === "select"
+					? { kind: "doSelect" as const, where: yield* where(resolution.where) }
 					: {
 							kind: "doUpdate" as const,
 							set: Arr.map(updated, (column) => ({ column, value: col("excluded", column) })),
-							where: undefined
+							where: yield* where(resolution.where)
 						}
 		const sql = yield* emitted({
 			kind: "insert",
 			with: undefined,
 			table: t.name,
-			alias: undefined,
+			alias: "r",
 			...factTarget(columns, values),
 			overriding: (yield* namesSerial(names, relation, fields)) ? "SYSTEM VALUE" : undefined,
 			onConflict:
 				t.primaryKey.span.kind === "span" && action.kind === "doNothing"
 					? { kind: "constraint", constraint: t.primaryKey.name, action }
 					: { kind: "columns", columns: key, action },
-			returning: resolution === "select" ? Arr.map(read, (f) => target(tableCol(f.column))) : []
+			returning:
+				resolution.kind === "select" ? Arr.map(read, (f) => target(tableCol(f.column))) : []
 		})
-		return { sql, reads: resolution === "select" ? { kind: "rows", fields: read } : none }
+		return { sql, reads: resolution.kind === "select" ? { kind: "rows", fields: read } : none }
 	})
 
 /** A MERGE deleting the facts at the given keys: under row security, exactly the ones the role sees. */

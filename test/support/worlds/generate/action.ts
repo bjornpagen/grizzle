@@ -112,6 +112,7 @@ import type {
 	InvalidKind,
 	Isolation,
 	ModelState,
+	ConflictResolution,
 	PreparedRead,
 	RoleRef,
 	RoleSpec,
@@ -387,6 +388,33 @@ const viewFilterGen = (heading: ReadonlyArray<FieldSpec>, view: HostState): Gen<
 			])
 }
 
+/**
+ * How a direct writer's INSERT resolves a conflict: do nothing, or return or update the stored row under the writer's
+ * predicate over it, drawn as a view filter is (`viewFilterGen`), or raising on the value the requested fact holds in
+ * one of its fields, which is the stored row's own where the request repeats a stored fact, so the predicate raises on
+ * exactly the row the conflict meets, whether row security shows it to the role or hides it.
+ */
+const onConflictGen = (
+	heading: ReadonlyArray<FieldSpec>,
+	view: HostState,
+	fact: HostFact
+): Gen<ConflictResolution> => {
+	const [held, ...more] = Arr.flatMap(heading, (f) => {
+		const value = fact[f.name]
+		return value === undefined ? [] : [{ field: f.name, value }]
+	})
+	const own: ReadonlyArray<Gen<ViewFilter>> =
+		held === undefined
+			? []
+			: [map(element([held, ...more]), (at): ViewFilter => ({ kind: "raise-on", ...at }))]
+	const where = oneOf([viewFilterGen(heading, view), ...own])
+	return oneOf<ConflictResolution>([
+		constant<ConflictResolution>({ kind: "nothing" }),
+		map(where, (w): ConflictResolution => ({ kind: "select", where: w })),
+		map(where, (w): ConflictResolution => ({ kind: "update", where: w }))
+	])
+}
+
 /** The values the facts of a view hold in a domain, each once. */
 const heldIn = (view: HostState, domain: FieldDomain): ReadonlyArray<HostValue> => [
 	...new Map(
@@ -490,12 +518,15 @@ const statementStrata = (state: ModelState, session: number): Strata<DirectState
 				fact
 			}))
 		),
-		withRelation((relation) => (source) => ({
-			kind: "insert-on-conflict",
-			relation,
-			fact: source.draw(insertedGen(state, relation)),
-			onConflict: source.draw(element(["nothing", "select", "update"] as const))
-		})),
+		withRelation((relation) => (source) => {
+			const fact = source.draw(insertedGen(state, relation))
+			return {
+				kind: "insert-on-conflict",
+				relation,
+				fact,
+				onConflict: source.draw(onConflictGen(fieldsOfSource(base, relation), view, fact))
+			}
+		}),
 		withRelation((relation) =>
 			map(array(baseFactGen(state, relation), { min: 1, max: 2 }), (facts): DirectStatement => ({
 				kind: "merge-delete",
@@ -729,12 +760,15 @@ const worldStatements = (
 						}))
 					]),
 			map(rekeyed, (fact): DirectStatement => ({ kind: "insert", relation, fact })),
-			(source: Source): DirectStatement => ({
-				kind: "insert-on-conflict",
-				relation,
-				fact: source.draw(stored),
-				onConflict: source.draw(element(["nothing", "select", "update"] as const))
-			}),
+			(source: Source): DirectStatement => {
+				const fact = source.draw(stored)
+				return {
+					kind: "insert-on-conflict",
+					relation,
+					fact,
+					onConflict: source.draw(onConflictGen(target.fields, view, fact))
+				}
+			},
 			...(firstFn === undefined
 				? []
 				: [

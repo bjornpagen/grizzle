@@ -97,7 +97,10 @@ const race = (c: Case): WorldRace => {
 									kind: "insert-on-conflict",
 									relation: "Doc",
 									fact: docOf(doc7, orgB, "u_dan", c.danWords),
-									onConflict: c.conflict
+									onConflict:
+										c.conflict === "nothing"
+											? { kind: "nothing" }
+											: { kind: "update", where: { kind: "none" } }
 								}
 					],
 					end: c.end
