@@ -424,7 +424,8 @@ type NoProofs = Proofs<never, false, never>
 /**
  * The evidence of a finished head H over a rule whose head fields have the origins O and the values V (HeadValues),
  * whose clauses prove Pr, and whose keys are Keys (HeadKeys: each a union of head field names, wrapped as
- * `readonly [Fields]`, the empty one when the head is pinned); a producer's head reads its rule's bindings R.
+ * `readonly [Fields]`, the empty one when the head is pinned); what its bindings prove of the head, B (RuleBindings),
+ * whether it is pinned and a producer's card.
  */
 export type EvidenceOf<
 	H,
@@ -432,14 +433,17 @@ export type EvidenceOf<
 	V,
 	O = unknown,
 	Pr extends Proofs<true, boolean, unknown> = NoProofs,
-	R = never
+	B extends RuleBindings<boolean, Card> = RuleBindings<
+		IsPinned<Keys> extends true ? true : never,
+		H[ProducerFields<H>] extends { readonly produces: "intersection" } ? never : "many"
+	>
 > = [ProducerFields<H>] extends [never]
 	? [AggregateFields<H>] extends [never]
 		? PlainEvidence<
 				[Keys] extends [never]
 					? readonly [KeyOver<keyof H & string>]
 					: readonly [KeyOver<keyof H & string>, ...ReadonlyArray<KeyOf<Keys>>],
-				PinnedOrSplit<Keys, H, R>,
+				B["pinned"],
 				O,
 				Pr
 			> &
@@ -447,28 +451,43 @@ export type EvidenceOf<
 		: GroupedEvidence<
 				Exclude<keyof H, AggregateFields<H> | ConstantFields<H>>,
 				Keys,
-				PinnedOrSplit<Keys, H, R>,
+				B["pinned"],
 				O,
 				Pr
 			> &
 				ValuesPart<V>
 	: {
 			readonly keys: readonly [KeyOver<keyof H & string>]
-			readonly card: ProducedCard<H, R>
+			readonly card: B["card"]
 			readonly origins: O
 		}
 
 /**
- * What a rule binds, as a producer's head and a flagged filter's readings read it: its schema S, its occurrences Os,
- * what its filters state St, and its filters that are each one of several predicates (Sp, each a Split). An interface,
- * so a head that produces nothing and a rule that splits nothing never read it.
+ * What a rule's bindings prove of its head: whether the head is pinned, by what the rule's filters state or by each
+ * reading of a flagged filter (PinnedOrSplit), and, for a producer's head, its card (ProducedCard). The rule reads both
+ * off its schema where it finds its head (types/query/rule.ts FinishedHead), so the evidence holds no schema: the checker
+ * walks a type whole each time it instantiates it, and a schema holds every relation and each relation's field record.
  */
-export interface RuleBindings<out S, out Os, out St, out Sp> {
-	readonly schema: S
-	readonly occurrences: Os
-	readonly stated: St
-	readonly splits: Sp
+export interface RuleBindings<out Pinned extends boolean, out Produced extends Card> {
+	readonly pinned: Pinned
+	readonly card: Produced
 }
+
+/**
+ * RuleBindings over what a rule's bindings prove alone. An alias over an interface is a reference the checker resolves
+ * later, holding the alias's arguments: this one holds the two proofs and never the schema they were read off.
+ */
+export type BindingsProved<Pinned extends boolean, Produced extends Card> = RuleBindings<
+	Pinned,
+	Produced
+>
+
+/** Proofs over what a rule's clauses prove alone, never the schema they were read off (BindingsProved). */
+export type ProofsOf<Contained extends true, Reflexive extends boolean, Arm> = Proofs<
+	Contained,
+	Reflexive,
+	Arm
+>
 
 /**
  * A filter that is one of several predicates, either of which may run, `flag ? r.eq(a, p) : r.eq(b, q)`: what each
@@ -482,18 +501,14 @@ export interface Reading<out Statements> {
 }
 
 /**
- * Whether the head is pinned, at most one row per binding: by what the rule's filters state, or, a proof by cases, by
- * each reading of some one flagged filter (Split), every other filter at what all its readings state. That is one key
- * derivation per reading of each flagged filter, linear in them; a proof over several flagged filters read at once
- * would multiply them, and is not made.
+ * Whether the head H, of keys Keys, is pinned, at most one row per binding, by the bindings of a rule over S: its
+ * occurrences Os, what its filters state St, and its filters that are each one of several predicates (Sp, each a
+ * Split). Pinned by what the rule's filters state, or, a proof by cases, by each reading of some one flagged filter,
+ * every other filter at what all its readings state. That is one key derivation per reading of each flagged filter,
+ * linear in them; a proof over several flagged filters read at once would multiply them, and is not made.
  */
-type PinnedOrSplit<Keys, H, R> = IsPinned<Keys> extends true ? true : SplitPinned<H, R>
-type SplitPinned<H, R> =
-	R extends RuleBindings<infer S, infer Os, infer St, infer Sp>
-		? true extends PinnedBySplit<S, Os, H, St, Sp>
-			? true
-			: false
-		: false
+export type PinnedOrSplit<S, Keys, H, Os, St, Sp> =
+	IsPinned<Keys> extends true ? true : true extends PinnedBySplit<S, Os, H, St, Sp> ? true : false
 type PinnedBySplit<S, Os, H, St, Sp> =
 	Sp extends Split<infer Rd> ? (false extends ReadingPins<S, Os, H, St, Rd> ? false : true) : never
 type ReadingPins<S, Os, H, St, Rd> =
@@ -502,15 +517,16 @@ type ReadingPins<S, Os, H, St, Rd> =
 /**
  * A producer yields its facts per binding of its rule, the rule's whole region, which no projection onto the head
  * narrows (check/checker.ts #produceNode): an intersection at most one per binding, so at most one where every variable
- * the rule binds is pinned (RegionHead); a difference up to two and a pack any number (logical/props.ts Produce).
+ * the rule binds is pinned (RegionHead); a difference up to two and a pack any number (logical/props.ts Produce). A
+ * head that produces nothing reads no card here (EvidenceOf).
  */
-type ProducedCard<H, R> = H[ProducerFields<H>] extends { readonly produces: "intersection" }
-	? R extends RuleBindings<infer S, infer Os, infer St, unknown>
+export type ProducedCard<S, H, Os, St> = [ProducerFields<H>] extends [never]
+	? "many"
+	: H[ProducerFields<H>] extends { readonly produces: "intersection" }
 		? IsPinned<HeadKeys<S, Os, RegionHead<Os>, St>> extends true
 			? "atMostOne"
 			: "many"
 		: "many"
-	: "many"
 
 /** A head of one field holding every term the rule's matches bind, pinned exactly where all of them are. */
 interface RegionHead<Os> {

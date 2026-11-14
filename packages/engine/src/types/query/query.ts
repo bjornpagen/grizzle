@@ -175,8 +175,56 @@ type ArmParams<F> = UnionToIntersection<
  */
 export type QueryAt<L> = L extends unknown ? QueryOver<L> : never
 export type OrderedAt<L> = L extends unknown ? OrderedOver<L> : never
-/** An attachment child: a query or ordered query over S or a level below it. */
-type Child<S> = QueryAt<LevelsOf<S>> | OrderedAt<LevelsOf<S>>
+/**
+ * An attachment child: a query or ordered query over S or a level below it, with the members of its phantom attach
+ * reads by key (ChildReads).
+ */
+type Child<S> = ChildAt<LevelsOf<S>>
+type ChildAt<L> = L extends unknown ? QueryChild<L> | OrderedChild<L> : never
+interface QueryChild<in out S> extends QueryBase, Phantom<ChildBundle<S>> {}
+interface OrderedChild<in out S> extends OrderedBase, Phantom<ChildBundle<S>> {}
+interface ChildBundle<S> extends ChildReads {
+	readonly schema: Invariant<S>
+}
+
+/**
+ * What attach reads of its child, its evidence, parameters and contexts, each a member of the child's phantom, which
+ * every query and ordered query carries. Each is read by key (ChildEvidence, ChildParams, ChildContexts), never by a
+ * test of the child: the child holds its schema, and a conditional the checker resolves instantiates its operands whole,
+ * every relation of the schema and each relation's field record with them.
+ */
+interface ChildReads {
+	readonly evidence: Evidence
+	readonly params: unknown
+	readonly readsContexts: (read: never) => void
+}
+type ChildPhantom<C extends Phantom<ChildReads>> = NonNullable<C[typeof phantom]>
+/**
+ * A child's evidence, each child of a union its own (EvidenceOfQuery): a child typed `any`, whose keys are every string,
+ * states none, Evidence.Unknown.
+ */
+type ChildEvidence<C extends Phantom<ChildReads>> = C extends unknown
+	? string extends keyof C
+		? Evidence.Unknown
+		: ChildPhantom<C>["evidence"]
+	: never
+/** The parameters a child needs, each child of a union its own (ParamsOf); a child typed `any` needs none. */
+type ChildParams<C extends Phantom<ChildReads>> = C extends unknown
+	? string extends keyof C
+		? unknown
+		: UnionToIntersection<ParamsContribution<ChildPhantom<C>["params"]>>
+	: never
+/** The contexts a child reads, each child of a union its own (ContextsOf); a child typed `any` reads none. */
+type ChildContexts<C extends Phantom<ChildReads>> = C extends unknown
+	? string extends keyof C
+		? never
+		: ContextsRead<ChildPhantom<C>["readsContexts"]>
+	: never
+/**
+ * The contexts a phantom's `readsContexts` member reads. An alias of its own: a type the checker resolves within a test
+ * of a child's keys would carry the child, and instantiate it whole.
+ */
+type ContextsRead<F> = F extends (read: infer X) => void ? X : never
 
 /**
  * What a query, ordered query or finished arm delivers: the records its rows decode to under the snapshot reading
@@ -354,7 +402,7 @@ interface OrderedOver<in out S> extends OrderedBase, Phantom<{ readonly schema: 
  * has. A recursive definition's arms are read through it, each head held to the row by ArmDelivers; attach is no member
  * of it, since its child reads the arm's own carriers.
  */
-export interface FinishedArm
+interface FinishedArm
 	extends Phantom<{ readonly evidence: Evidence; readonly params: unknown }>, Headed<Carriers> {
 	readonly rows: RowDecoder<unknown>
 }
@@ -462,30 +510,32 @@ export interface Query<
 	 * (DeliveredHeading), and keep the origins the parent's evidence records.
 	 */
 	attach<
+		Over,
 		const Name extends string,
-		C extends Child<S>,
+		C extends Child<Over>,
 		CH,
 		CI,
 		const K extends DeliveryKind,
 		const F extends keyof Head & string,
 		const Hd extends string
 	>(
+		this: QueryOver<Over>,
 		name: AttachmentName<Name, Head>,
 		child: (
 			parent: ParentVars<DeliveredHeading<Head, Hc>, Ev>
 		) => C &
 			Decoders<CH, CI> &
-			DeliveryClaim<K, F, Hd, EvidenceOfQuery<C>, Ev, Head> &
+			DeliveryClaim<K, F, Hd, ChildEvidence<C>, Ev, Head> &
 			OneHeading<CH>,
 		delivery: DeliveryArg<K, F, Hd>
 	): Query<
-		S,
+		Over,
 		AttachedHeads<Head, Name, CH, F, Hd>[K],
 		Ev,
-		Simplify<P & ParamsOf<C>>,
+		Simplify<P & ChildParams<C>>,
 		WithChild<IHead, Name, CI, ReadBack[K]>,
 		Hc,
-		Cx | ContextsOf<C>,
+		Cx | ChildContexts<C>,
 		readonly [
 			UnionArm<
 				AsOneArm<Arms, Head, Hc>["carriers"],
@@ -884,17 +934,17 @@ export interface Finished<
 			parent: ParentVars<Hc, Ev>
 		) => C &
 			Decoders<CH, CI> &
-			DeliveryClaim<K, F, Hd, EvidenceOfQuery<C>, Ev, Head> &
+			DeliveryClaim<K, F, Hd, ChildEvidence<C>, Ev, Head> &
 			OneHeading<CH>,
 		delivery: DeliveryArg<K, F, Hd>
 	): Finished<
 		AttachedHeads<Head, Name, CH, F, Hd>[K],
 		Ev,
-		Simplify<P & ParamsOf<C>>,
+		Simplify<P & ChildParams<C>>,
 		S,
 		WithChild<IHead, Name, CI, ReadBack[K]>,
 		Hc,
-		Cx | ContextsOf<C>
+		Cx | ChildContexts<C>
 	>
 }
 
@@ -972,6 +1022,23 @@ export type ContextsOf<Q> =
 			? C
 			: never
 		: never
+
+/**
+ * The contexts a program reads (ContextsOf), its member read alone, never its phantom whole (core/phantom.ts
+ * ParamsOfOne), as a reader of every program of a workload reads them: a value with no phantom, and one typed `any`,
+ * whose keys are every symbol, read none, and a phantom that is a union of shapes is read shape by shape.
+ */
+export type ContextsReadOf<Q> =
+	Q extends Phantom<{ readonly readsContexts: (read: infer C) => void }>
+		? typeof phantom extends keyof Q
+			? symbol extends keyof Q
+				? never
+				: C
+			: never
+		: Q extends Phantom<infer B>
+			? ContextsOfBundle<B>
+			: never
+type ContextsOfBundle<B> = B extends { readonly readsContexts: (read: infer C) => void } ? C : never
 /** The records a query delivers to a read inside a write transaction, a read-back: its immediate decoder's. */
 export type ImmediateHeadOf<Q> = Q extends { readonly immediate: RowDecoder<infer I> } ? I : never
 /** An array or Stream member contributes no named parameter; a query, ordered query or ChangeSet its own map. */

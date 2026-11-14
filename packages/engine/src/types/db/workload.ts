@@ -10,7 +10,7 @@ import type {
 import type { MembersTyped, Refusal } from "#compiler/types/core/phantom.ts"
 import type { AnyMaterialized } from "#compiler/types/derived/derived.ts"
 import type {
-	ContextsOf,
+	ContextsReadOf,
 	OrderedAt,
 	OrderedBase,
 	PageOf,
@@ -159,14 +159,14 @@ type ProgramContexts<X> =
 	X extends Deferrable<infer Y>
 		? ProgramContexts<Y>
 		: X extends Paged<infer O>
-			? ContextsOf<O>
+			? ContextsReadOf<O>
 			: X extends Clocked<infer P, unknown>
 				? ProgramContexts<P>
 				: X extends AnyChangeSet
 					? X extends Phantom<{ readonly contexts: infer Cx }>
 						? Cx
 						: never
-					: ContextsOf<X>
+					: ContextsReadOf<X>
 
 /**
  * A ChangeSet program's array members, which a served call's facts key by op and relation (FactsCheck): none two of one

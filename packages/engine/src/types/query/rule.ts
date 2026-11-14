@@ -55,10 +55,12 @@ import type {
 	HeadValues,
 	Negation,
 	Opaque,
-	Proofs,
+	PinnedOrSplit,
+	ProducedCard,
+	ProofsOf,
 	Reading,
 	ReflexiveProof,
-	RuleBindings,
+	BindingsProved,
 	Shaped,
 	SoleMatch,
 	Split
@@ -119,8 +121,22 @@ type FinishedHead<S, Params, Sole, Facts, Cx, H extends Carriers> = Finished<
 		HeadKeys<S, OccurrencesOf<Facts>, H, StatedAt<Facts>>,
 		HeadValues<H, StatedAt<Facts>>,
 		HeadOrigins<H, OccurrencesOf<Facts>>,
-		ProofsAt<S, Sole, Facts, H>,
-		RuleBindings<S, OccurrencesOf<Facts>, StatedAt<Facts>, SplitsAt<Facts>>
+		ProofsOf<
+			ContainmentProof<S, Sole, H>,
+			ReflexiveProof<OccurrencesOf<Facts>, FiltersAt<Facts>, H>,
+			ArmProofOf<S, Sole, H>
+		>,
+		BindingsProved<
+			PinnedOrSplit<
+				S,
+				HeadKeys<S, OccurrencesOf<Facts>, H, StatedAt<Facts>>,
+				H,
+				OccurrencesOf<Facts>,
+				StatedAt<Facts>,
+				SplitsAt<Facts>
+			>,
+			ProducedCard<S, H, OccurrencesOf<Facts>, StatedAt<Facts>>
+		>
 	>,
 	Simplify<Params & HeadParams<H>>,
 	S,
@@ -360,12 +376,6 @@ type OccurrencesOf<F> = F extends { readonly occurrences: infer O extends Readon
 	? O
 	: readonly []
 type FiltersAt<F> = F extends { readonly filters: infer Fl } ? Fl : UnknownFilters
-/** What the rule's clauses prove of a head H (../evidence/evidence.ts Proofs). */
-type ProofsAt<S, Sole, F, H> = Proofs<
-	ContainmentProof<S, Sole, H>,
-	ReflexiveProof<OccurrencesOf<F>, FiltersAt<F>, H>,
-	ArmProofOf<S, Sole, H>
->
 
 /** What may stand opposite a span term: a span term that meets its type, a span parameter among them. */
 type SpanOperand<Sp> = Meets<Sp, "range">
@@ -416,7 +426,7 @@ type ParamRelationAt<R, C> = [R] extends [never]
  * The refusal a relation parameter's heading carries: none for a heading of at least one field, as a relation has, and
  * no bytes field, which no parameter holds.
  */
-export type ParamFields<C> = [keyof C] extends [never]
+type ParamFields<C> = [keyof C] extends [never]
 	? Refusal<"a relation parameter has at least one field, as a relation does">
 	: [StoredOnlyFieldsIn<C>] extends [never]
 		? unknown

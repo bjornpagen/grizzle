@@ -755,12 +755,23 @@ export type ParamsOfTerm<X> = UnionToIntersection<
  * erases the parameter.
  */
 type ParamsOfOne<X> =
-	X extends Phantom<infer B>
-		? B extends { readonly needs: ParamNeeds<infer P> }
+	X extends Phantom<{ readonly needs: ParamNeeds<infer P> }>
+		? P
+		: X extends Phantom<{ readonly params: infer P }>
 			? P
-			: B extends { readonly params: infer P }
-				? P
+			: X extends Phantom<infer B>
+				? ParamsOfBundle<B>
 				: unknown
+
+/**
+ * The parameters a phantom bundle B states, each shape of a bundle that is a union of shapes its own: what ParamsOfOne
+ * reads where neither member is the whole bundle's. ParamsOfOne reads a member alone wherever it can: a conditional
+ * the checker resolves instantiates its operands whole, and a query's bundle holds its schema.
+ */
+type ParamsOfBundle<B> = B extends { readonly needs: ParamNeeds<infer P> }
+	? P
+	: B extends { readonly params: infer P }
+		? P
 		: unknown
 
 export type OriginOfTerm<X> =

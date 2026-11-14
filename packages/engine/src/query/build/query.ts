@@ -306,13 +306,13 @@ export const queryOf = <
 	const carriers = headingOf(state.carriers)
 	const decoders = decodersOf(records)
 	const stage = state.desc.stage
-	const next = <H2, E2 extends Evidence, P2, I2, C2 extends Carriers, X2, A2 extends UnionArms>(
+	const next = <S2, H2, E2 extends Evidence, P2, I2, C2 extends Carriers, X2, A2 extends UnionArms>(
 		s: QueryStageDesc,
 		p: ReadonlySet<BuilderScope>,
 		h: Heading,
 		c: QueryCarriers<C2>,
 		r: QueryRecords<H2, I2>
-	): Query<S, H2, E2, P2, I2, C2, X2, A2> => queryOf(makeState(schema, s, p, h, c), r)
+	): Query<S2, H2, E2, P2, I2, C2, X2, A2> => queryOf(makeState(schema, s, p, h, c), r)
 	const value: Query<S, Head, Ev, P, IHead, Hc, Cx, Arms> & SchemaMember = {
 		...builtMark,
 		schema: schema.over.value,
