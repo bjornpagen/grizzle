@@ -47,10 +47,11 @@
  * of single-row deletes alone refused, so only a delete's probe can have found the break, its touched row gone at
  * COMMIT and read as OLD's values in its place; and one that deletes a link and its children at once, so one tuple
  * loses rows from several matches and the relaxation order decides which probe withdraws it. A drawn history reaches
- * either rarely, so each has a case constructed to reach it, which a witness runs where its turn aims at the refusal
- * (aimedCase): a lawful build drawn on the case's tape, then the withdrawal, which leaves a source fact its every
- * target row withdrawn (withdrawalsOf). A key is refused by single-row deletes of a block alone, which adds the facts
- * it held out, and never by an unwind, so its search requires that refusal only.
+ * either rarely, as it does a refusal by an inserted block, so each has a case constructed to reach it, which a witness
+ * runs where its turn aims at the refusal (aimedCase): a lawful build drawn on the case's tape, then the withdrawal,
+ * which leaves a source fact its every target fact withdrawn (withdrawalsOf). A key is refused by single-row deletes
+ * of a block alone, which adds the facts it held out, and never by an unwind or an inserted block, so its search
+ * requires the first refusal only.
  *
  * Planted, ~/.cache/grizzle-release/LAWQUERY/plants/: violation-stale-view.patch, the whole check reading a
  * materialized derived relation a definition reads through its view, fails the equivalence search on viewed; and
@@ -365,13 +366,20 @@ const caseGen =
 		history: s.draw(array(array(opGen, { min: 1, max: 3 }), { min: 3, max: 10 }))
 	})
 
-/** How a constructed case's last transaction withdraws rows: single-row deletes alone, or one unwind alone. */
-type Withdrawal = "deletes" | "unwind"
+/** How a constructed case's last transaction removes rows: single-row deletes alone, or one unwind alone. */
+type Removal = "deletes" | "unwind"
+
+/**
+ * How a constructed case's last transaction withdraws facts: by removing rows, or by inserting blocks alone, which
+ * withdraw the facts a negation of N admitted.
+ */
+type Withdrawal = Removal | "block"
 
 /** The refusal a constructed case reaches by its withdrawal. */
 const refusedAfter = {
 	deletes: "refused once rows were deleted one at a time, and nothing else",
-	unwind: "refused once a link and its children were deleted at once, and nothing else"
+	unwind: "refused once a link and its children were deleted at once, and nothing else",
+	block: "refused once a block was inserted"
 } as const satisfies Record<Withdrawal, EquivalenceFeature>
 
 /** An id of 1 to 3 other than `id`: `id` moved on by one or two, wrapping. */
@@ -385,7 +393,7 @@ const otherThan = (id: number): Gen<number> => map(int(1, 2), (step) => ((id - 1
  * of k stays in the target, so the whole check finds the rule broken.
  */
 const pathsWithdrawn =
-	(shape: Shape, withdrawal: Withdrawal): Gen<Case> =>
+	(shape: Shape, withdrawal: Removal): Gen<Case> =>
 	(s) => {
 		const k = s.draw(int(1, 2))
 		const [a1, a2, a3] = [s.draw(idGen), s.draw(idGen), s.draw(idGen)]
@@ -425,7 +433,7 @@ const pathsWithdrawn =
  * L3 or both, deleted one at a time, or unwinds a2 with its L3: the mark's L1 stays and no arm of the target holds k.
  */
 const deepWithdrawn =
-	(withdrawal: Withdrawal): Gen<Case> =>
+	(withdrawal: Removal): Gen<Case> =>
 	(s) => {
 		const k = s.draw(int(1, 2))
 		const [a1, a2, a3] = [s.draw(idGen), s.draw(idGen), s.draw(idGen)]
@@ -450,6 +458,55 @@ const deepWithdrawn =
 	}
 
 /**
+ * titles' and viewed's case refused by a block, its values drawn: a mark on the L2 a2 of a path (k, a2), which only the
+ * absence of a block of a2 holds in the target, its L3 of value 0; then a block of a2 alone.
+ */
+const pathBlocked =
+	(shape: Shape): Gen<Case> =>
+	(s) => {
+		const k = s.draw(int(1, 2))
+		const [a1, a2, a3] = [s.draw(idGen), s.draw(idGen), s.draw(idGen)]
+		return {
+			shape,
+			history: [
+				[
+					{ kind: "chain", k, ids: [a1, a2, a3], values: [s.draw(valueGen), s.draw(valueGen), 0] },
+					{ kind: "mark", id: s.draw(int(1, 2)), up: a2 }
+				],
+				[{ kind: "block", id: a2 }]
+			]
+		}
+	}
+
+/**
+ * deep's case refused by blocks, its values drawn: a mark on the L1 a1 of a chain of key k whose L3 a3 is of value 0,
+ * which holds k in the target by the third arm while no block of a3 stands, and by the second while a1 is of value 1
+ * and no block of a1 stands; then blocks of a3 and, where a1 is of value 1, of a1 alone.
+ */
+const deepBlocked: Gen<Case> = (s) => {
+	const k = s.draw(int(1, 2))
+	const [a1, a2, a3] = [s.draw(idGen), s.draw(idGen), s.draw(idGen)]
+	const first = s.draw(valueGen)
+	const blocks: ReadonlyArray<Op> =
+		first === 1 && a1 !== a3
+			? [
+					{ kind: "block", id: a1 },
+					{ kind: "block", id: a3 }
+				]
+			: [{ kind: "block", id: a3 }]
+	return {
+		shape: "deep",
+		history: [
+			[
+				{ kind: "chain", k, ids: [a1, a2, a3], values: [first, s.draw(valueGen), 0] },
+				{ kind: "mark", id: s.draw(int(1, 2)), up: a1 }
+			],
+			blocks
+		]
+	}
+}
+
+/**
  * key's case refused by deleting a block, its values drawn. The build, one transaction: a chain of key k whose L1 and
  * L3 are of value w and whose L2 of 1 - w is under a block of its L1 a1, so k has the one value w. Deleting the block
  * gives k the value 1 - w through the side's second arm, and the key is broken.
@@ -472,9 +529,9 @@ const blockWithdrawn: Gen<Case> = (s) => {
 
 /**
  * The withdrawals that refuse a shape's rule, each with the case constructed to reach its refusal. A containment is
- * refused by either, every row its target holds a key by withdrawn while its source keeps the key. A key's rule is
+ * refused by each, every fact its target holds a key by withdrawn while its source keeps the key. A key's rule is
  * broken only by facts added: deleting a block adds the facts it held out, and an unwind, which deletes links alone,
- * only withdraws facts, so it never refuses a key.
+ * and an inserted block only withdraw facts, so they never refuse a key.
  */
 const withdrawalsOf = (shape: Shape): NonEmptyReadonlyArray<readonly [Withdrawal, Gen<Case>]> => {
 	switch (shape) {
@@ -482,12 +539,14 @@ const withdrawalsOf = (shape: Shape): NonEmptyReadonlyArray<readonly [Withdrawal
 		case "viewed":
 			return [
 				["deletes", pathsWithdrawn(shape, "deletes")],
-				["unwind", pathsWithdrawn(shape, "unwind")]
+				["unwind", pathsWithdrawn(shape, "unwind")],
+				["block", pathBlocked(shape)]
 			]
 		case "deep":
 			return [
 				["deletes", deepWithdrawn("deletes")],
-				["unwind", deepWithdrawn("unwind")]
+				["unwind", deepWithdrawn("unwind")],
+				["block", deepBlocked]
 			]
 		case "key":
 			return [["deletes", blockWithdrawn]]
@@ -933,14 +992,12 @@ const footprints = (seat: Seat, k: number, from: number, to: number) =>
 /**
  * The refusals and commits a shape's search must reach: every shape commits, is refused by its rule, and is refused by
  * each withdrawal that can refuse it (withdrawalsOf), a constructed case reaching each; the three shapes whose rule is
- * a containment are also refused once a block is inserted, and commit a key only a later arm of the target holds. An
- * inserted block only withdraws facts, so it never refuses a key, whose side is no target of arms.
+ * a containment also commit a key only a later arm of the target holds, which a key's side, no target of arms, never
+ * has.
  */
 const requiredOf = (shape: Shape): NonEmptyReadonlyArray<EquivalenceFeature> => {
 	const containment: ReadonlyArray<EquivalenceFeature> =
-		shape === "key"
-			? []
-			: ["refused once a block was inserted", "committed a needed key no first target arm holds"]
+		shape === "key" ? [] : ["committed a needed key no first target arm holds"]
 	return [
 		"committed",
 		`refused by ${shape}`,
