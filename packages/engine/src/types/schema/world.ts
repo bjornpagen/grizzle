@@ -8,8 +8,7 @@ import type {
 	Invariant,
 	Origin,
 	Refusal,
-	Repeats,
-	Simplify
+	Repeats
 } from "#compiler/types/core/phantom.ts"
 import type { AnyWorkload, Workload } from "#compiler/types/db/workload.ts"
 import type {
@@ -243,14 +242,21 @@ type UnheldRelation = AnyClosedRelation | AnyLive
 /**
  * A full role's entries over a schema's record of relations: each relation under its own key, whole, but the relations
  * no role holds (UnheldRelation). One key per relation, kept or dropped by its own type alone, so a record of n
- * relations costs n conditionals and an unheld relation can never stand among the entries. The record is read through
- * Simplify, which holds its keys once, as its constraint: the checker computes the keys of a mapped type that drops
- * keys (`as`) again at every `keyof` of it, one conditional per relation, and a role's write list, its refresh list and
- * every check of its entries read them.
+ * relations costs n conditionals and an unheld relation can never stand among the entries.
+ *
+ * The kept keys are computed once (HeldKeys) and the record is mapped over them, never filtered by an `as` clause: the
+ * checker re-instantiates a mapped type's `as` clause over its whole key set each time it reads one of its properties
+ * (tsgo isGenericMappedType), so a record of n relations read at each of its n keys would cost n² conditionals. The
+ * keys are the record's text keys alone: a record of unknown names, `{ readonly [name: string]: R }`, has `number` among
+ * its keys too, and mapped over them would hold a number index beside its text one.
  */
-export type WholeEntries<Rs> = Simplify<{
-	readonly [K in keyof Rs as Rs[K] extends UnheldRelation ? never : K]: Rs[K]
-}>
+export type WholeEntries<Rs> = HeldEntries<Rs, HeldKeys<Rs> & string>
+
+/** The keys of a record whose relation a role may hold whole: every key but those of the relations no role holds. */
+type HeldKeys<Rs> = { [K in keyof Rs]-?: Rs[K] extends UnheldRelation ? never : K }[keyof Rs]
+
+/** The record Rs at its keys K, each read-only, and optional where Rs states it optional (K is a key of Rs). */
+type HeldEntries<Rs, K extends keyof Rs> = { readonly [P in K]: Rs[P] }
 
 /**
  * The entries of a full role over Base (wholeEntriesOf): every relation of every level of the base, under its own name,
@@ -312,31 +318,27 @@ type UnheldOf<BaseRelations, Relations> = {
 }[keyof BaseRelations]
 
 /**
- * The relations among Named that are not the role's entry under their own names. A whole entry sits under its own name
- * (EntriesCheck), so "R is a whole entry" is "R is the entry under R's name", one lookup, never a pass over the entries.
+ * The statements of the list Sts whose every relation is among Held, each statement read on its own. The filter maps
+ * over the list, so the role's entries, Held, are read once: a conditional distributed over the list's statements, or
+ * a lookup by name per relation a statement names, reads them again for each statement.
  */
-type NotWhole<Relations, Named> = Named extends unknown
-	? UnderName<Relations, NameOf<Named>> extends infer Entry
-		? [Named] extends [Entry]
-			? never
-			: Named
-		: never
-	: never
-
-/**
- * The base's laws a role keeps: those whose every relation is the role's entry under that relation's name. Each test
- * binds its alias before the tuple that compares it (schema.ts StatementSpelled), so no tuple the checker defers walks
- * the role's relations once per law.
- */
-type KeptStatement<St, Relations> = St extends unknown
-	? NotWhole<Relations, NamedBy<St>> extends infer Outside
-		? [Outside] extends [never]
-			? St
+type KeptIn<Sts extends ReadonlyArray<Statement>, Held> = {
+	[I in keyof Sts]: Sts[I] extends infer St extends Statement
+		? St extends unknown
+			? [NamedBy<St>] extends [Held]
+				? St
+				: never
 			: never
 		: never
-	: never
+}[number]
 
-export type KeptStatements<Base, Relations> = KeptStatement<StatementsOf<Base>[number], Relations>
+/**
+ * The base's laws a role keeps: those whose every relation is one of the role's entries. A whole entry sits under its
+ * own name (EntriesCheck) and no two relations of one name differ (DeclaredOnce), so a relation is among the entries
+ * exactly when it is the entry under its name, the rule role(...) keeps a law by at run time (schema/world.ts: the
+ * law's relation names, namesOf, each among the whole entries' names, `whole`).
+ */
+export type KeptStatements<Base, Relations> = KeptIn<StatementsOf<Base>, Relations[keyof Relations]>
 
 /**
  * A login's or a role's stem, the PostgreSQL role its identity spells, which `grizzle generate` commits, computed once

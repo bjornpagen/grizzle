@@ -74,6 +74,10 @@ import { preludeAt, type PreludeAt, preludeFrom, preludeProgram } from "#test/su
  *   workload over a role, typechecks exactly when the engine compiles it for the role: a role holding every relation of
  *   the base whole but the closed one, whose rows every role reads, runs it, and a role holding one only through a query
  *   entry refuses it (OutsideRole);
+ * - each role's laws, its statements' type, are exactly the base's laws role(...) keeps for it, each one whose every
+ *   relation is a whole entry of the role under its own name (schema/world.ts namesOf against the admitted whole
+ *   names), and a full role's likewise: a law over Task is dropped by a role holding Task through a query entry, under
+ *   Task's own name;
  * - a full role over the level, its entries wholeEntriesOf(level) and its write list none, writableNamesOf(level),
  *   those and a name role refuses to write, or a drawn list that may name one twice, and a drawn refresh list,
  *   typechecks exactly when role(...) builds it, refused for naming one twice exactly when the engine admits each name
@@ -274,6 +278,7 @@ export type AccessNote =
 	| `full write ${FullWrite["kind"]}`
 	| "full write repeated"
 	| `${SchemaTaker} over a ${BaseKind} ${"admitted" | "refused"}`
+	| `law ${"kept" | "dropped"}`
 	| "two roles"
 	| "over an extension"
 
@@ -360,6 +365,21 @@ const roleEntries = (spec: AccessSpec, r: RoleSpec): ReadonlyArray<readonly [str
 	...(spec.level === "Reports" ? Arr.map(derivedNames, (d) => [d, d] as const) : [])
 ]
 
+/** The positions in a role's base's statements of the laws the role keeps, its statements, as role(...) built them. */
+const keptPositions = (r: AnyRole): ReadonlyArray<number> =>
+	Arr.filterMap(r.base.statements, (s, j) =>
+		Arr.contains(r.statements, s) ? EffectResult.succeed(j) : EffectResult.failVoid
+	)
+
+/** The base's laws at the positions kept, as the union type the program states, never for none. */
+const keptUnion = (level: AccessSpec["level"], kept: ReadonlyArray<number>): string =>
+	Arr.isReadonlyArrayNonEmpty(kept)
+		? Arr.join(
+				Arr.map(kept, (j) => `(typeof ${level})["statements"][${j}]`),
+				" | "
+			)
+		: "never"
+
 /** A role, built by the public role(...) as the program builds it. */
 const builtRole = (spec: AccessSpec, r: RoleSpec): AnyRole => {
 	const values: Readonly<Record<string, EntryValue>> = {
@@ -417,6 +437,8 @@ const builtProgram = (value: AnyRole, context: ContextName): QueryValue => {
 interface AccessVerdict {
 	/** Per role, whether its relations read a context. */
 	readonly reads: Arr.NonEmptyReadonlyArray<boolean>
+	/** Per role, the positions in its base's statements of the laws role(...) keeps for it (keptPositions). */
+	readonly kept: Arr.NonEmptyReadonlyArray<ReadonlyArray<number>>
 	readonly program: boolean
 	readonly refresh: boolean
 	/** Whether Db.open's first argument is a role reached through its login. */
@@ -441,6 +463,7 @@ type FullVerdict =
 			readonly kind: "admitted"
 			readonly entries: ReadonlyArray<string>
 			readonly write: ReadonlyArray<string>
+			readonly kept: ReadonlyArray<number>
 			readonly base: boolean
 			readonly level: boolean
 	  }
@@ -487,6 +510,7 @@ const fullVerdictOf = (spec: AccessSpec): FullVerdict => {
 		kind: "admitted",
 		entries: Arr.map(desc.relations, (entry) => entry.name),
 		write: writtenNames(desc),
+		kept: keptPositions(built.value),
 		base: compileTemplate(accountSeats, built.value, testCompile).ok,
 		level: compileTemplate(levelValues[spec.level], built.value, testCompile).ok
 	}
@@ -541,6 +565,7 @@ const overVerdictOf = (spec: AccessSpec, first: AnyRole, builder: SchemaTaker): 
 const verdictOf = (spec: AccessSpec): AccessVerdict => {
 	const values = Arr.map(spec.roles, (r) => builtRole(spec, r))
 	const reads = Arr.map(values, (v) => readsOf(v).size > 0)
+	const kept = Arr.map(values, keptPositions)
 	const programRole = defined(values[spec.program.role], "the program's role")
 	const program = Result.flatMap(
 		catchCompileError(() => builtProgram(programRole, spec.program.context)),
@@ -570,6 +595,7 @@ const verdictOf = (spec: AccessSpec): AccessVerdict => {
 					: level
 	return {
 		reads,
+		kept,
 		program: program.ok,
 		refresh: EffectResult.isSuccess(refresh),
 		opener: EffectResult.isSuccess(readServedRole(opened)),
@@ -604,6 +630,14 @@ const caseGen: Gen<AccessCase> = (source) => {
 	for (const [r, reads] of Arr.zip(spec.roles, verdict.reads)) {
 		notes.add(`a context read: ${r.place}`)
 		notes.add(`open ${reads ? "refused" : "admitted"}`)
+	}
+	for (const [r, kept] of Arr.zip(spec.roles, verdict.kept)) {
+		if (Arr.isReadonlyArrayNonEmpty(kept)) {
+			notes.add("law kept")
+		}
+		if (kept.length < builtRole(spec, r).base.statements.length) {
+			notes.add("law dropped")
+		}
 	}
 	notes.add(`verify ${Arr.some(verdict.reads, (x) => x) ? "required" : "optional"}`)
 	notes.add(`${spec.program.entry} ${verdict.program ? "admitted" : "refused"}`)
@@ -695,6 +729,7 @@ const fullBlock = (spec: AccessSpec, verdict: FullVerdict, i: number): ReadonlyA
 				declaration,
 				`export type fe${i} = Expect<Equals<keyof (typeof F${i})["relations"], ${unionOf(verdict.entries)}>>`,
 				`export type fw${i} = Expect<Equals<WriteListOf<typeof F${i}>, ${unionOf(verdict.write)}>>`,
+				`export type fk${i} = Expect<Equals<(typeof F${i})["statements"][number], ${keptUnion(spec.level, verdict.kept)}>>`,
 				...(verdict.base ? [] : [levelDirective]),
 				`export const fb${i} = workload(F${i}, { p: accountSeats })`,
 				...(verdict.level ? [] : [levelDirective]),
@@ -778,6 +813,11 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 	const refreshRole = defined(roleIds[spec.refresh.role], "the refresh's role")
 	return [
 		...Arr.map(spec.roles, (r) => roleSource(spec, r, i)),
+		...Arr.map(
+			Arr.zip(spec.roles, verdict.kept),
+			([r, kept]) =>
+				`export type k${i}_${r.name} = Expect<Equals<(typeof R${i}_${r.name})["statements"][number], ${keptUnion(spec.level, kept)}>>`
+		),
 		`export const L${i} = login(${spec.level}, "l${i}", [${Arr.join(roleIds, ", ")}])`,
 		`export const S${i} = served<typeof L${i}>(file, "l${i}")`,
 		...opens,
@@ -851,6 +891,8 @@ export const accessRequired: Situations<AccessNote> = [
 		`${builder} over a schema admitted`,
 		`${builder} over a role refused`
 	]),
+	"law kept",
+	"law dropped",
 	"two roles",
 	"over an extension"
 ]
