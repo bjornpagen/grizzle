@@ -38,11 +38,13 @@ const ContentMedia = Schema.Struct({ contentMediaType: Schema.optionalKey(Schema
 const Annotated = Schema.Struct({ "x-stream": Schema.optionalKey(Schema.Unknown) })
 
 /**
- * The forms of `x-stream`: a role, or a failure role with the pointer and value that say retrying is safe. Any other
- * member refuses the form.
+ * The forms of `x-stream`: a role, a failure role with the pointer and value that say retrying is safe, or a `ready`
+ * that names the `end` as the one event after it, as grizzle writes for a read at its call's instant alone, which no
+ * change reaches. Any other member refuses the form.
  */
 const StreamRole = Schema.Union([
 	Schema.Struct({ retryWhen: RetryWhen, role: Schema.Literal("error") }),
+	Schema.Struct({ next: Schema.Literal("end"), role: Schema.Literal("ready") }),
 	Schema.Struct({ role: Schema.Literals(["end", "error", "ready"]) })
 ])
 
@@ -230,6 +232,13 @@ const readBranch = (
 }
 
 /**
+ * The role a branch's `x-stream` gives its event in the contract: its own, but a `ready` whose next event is the `end`
+ * ends the stream, since nothing past it is left to follow.
+ */
+const roleOf = (role: typeof StreamRole.Type): "end" | "error" | "ready" =>
+	"next" in role ? role.next : role.role
+
+/**
  * The contract's row of a named branch.
  */
 const rowOf = (name: string, branch: BranchReading): typeof StreamEvent.Type =>
@@ -238,7 +247,7 @@ const rowOf = (name: string, branch: BranchReading): typeof StreamEvent.Type =>
 		onSome: (role) =>
 			"retryWhen" in role
 				? { data: "json", name, retryWhen: role.retryWhen, role: role.role }
-				: { data: branch.data, name, role: role.role }
+				: { data: branch.data, name, role: roleOf(role) }
 	})
 
 /**
