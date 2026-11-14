@@ -2210,12 +2210,13 @@ narrowed into its column's type unproved.
   fold end or tree interval ever describes a partial group, and an immutable owner's family goes with its owner. Its
   rows may come from a query, as `delete(Node, query(…).find({ package, path }))`. Its write list names every
   relation it removes rows of. A delete of a tree whose nodes are another family's members is a type error, and so is a
-  put or a delete of a family's member that owns a sequence. Refused when the ChangeSet compiles: a delete whose nested
-  rows include a member of a family whose owner it does not remove; one whose families nest its relations in a cycle;
-  one through a query entry; one in a stratum that also puts a relation nested under it, or puts the relation it
-  deletes. A delete of a family's member beside it in one stratum removes that member's named rows too, as an edit of
-  its family after the whole delete: a row inside the deleted groups is gone already, one outside them is removed as
-  any member's is. A delete of any other family's member is an edit of its family, as before.
+  put or a delete of a family's member that owns a sequence, and a put in its stratum of the relation it deletes or of
+  one nested under it, before or after the delete or through a union. Refused when the ChangeSet compiles: a delete
+  whose nested rows include a member of a family whose owner it does not remove; one whose families nest its relations
+  in a cycle; one through a query entry. A delete of a family's member beside it in one stratum removes that member's
+  named rows too, as an edit of its family after the whole delete: a row inside the deleted groups is gone already,
+  one outside them is removed as any member's is. A delete of any other family's member is an edit of its family, as
+  before.
 - **A replace is a delete and an insert in one stratum**: `ChangeSet.empty(S).delete(Node, roots).insertAll(rows)`.
   The delete runs first, as one statement, so the inserts meet no stored row at a key it removed, and the outcome is
   the difference of the two states: an identical replace answers `no-change`, and the counts are the rows each

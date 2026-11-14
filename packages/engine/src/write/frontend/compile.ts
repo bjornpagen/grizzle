@@ -1929,10 +1929,11 @@ const compile = (
 					below.some((b) => b.relation.name === m.target.relation.name))
 		)
 		if (edited !== undefined) {
-			refuse(
-				"UnsupportedOperation",
-				edited.loc,
-				`a put of ${edited.target.relation.name} beside a delete in one stratum that removes its rows with every row nested under the rows it names: put ${edited.target.relation.name} in another stratum (ChangeSet.sequence), or insert its rows again whole`
+			throw new Refusal(
+				ruleRefused(
+					edited.loc,
+					"a stratum puts no row its deletes remove whole: a delete of a tree or of a family's owner removes every row nested under it, so put in another stratum (ChangeSet.sequence), or insert the rows again whole"
+				)
 			)
 		}
 		return { stratum, drafts, outside, units, below }

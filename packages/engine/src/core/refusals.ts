@@ -74,6 +74,7 @@ export const refusals = [
 	"a side lists each term once",
 	"a span term is required",
 	"a statement names a relation no level of the schema declares",
+	"a stratum puts no row its deletes remove whole: a delete of a tree or of a family's owner removes every row nested under it, so put in another stratum (ChangeSet.sequence), or insert the rows again whole",
 	"a term first: a literal takes its place opposite a term, never first",
 	"a tree is a family of T over itself, on(T, parent, at), keyed by its root fields then start, with drawn parent, start and end",
 	"a tree is rewritten whole: insert its root with the whole tree nested",

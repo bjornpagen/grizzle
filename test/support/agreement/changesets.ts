@@ -339,6 +339,9 @@ const changeSetFaults = [
 	"an append to an owner its stratum does not insert",
 	"a family's members edited in two strata",
 	"a drawn count stated in a delete",
+	"a put after a whole delete",
+	"a whole delete after a put",
+	"a put beside a whole delete by union",
 	"a fold over a delta reading no key",
 	"ChangeSets over unrelated schemas",
 	"a role that does not write the relation",
@@ -422,6 +425,8 @@ const refusalNotes = {
 		"refused: an append to a stored owner",
 	"a ChangeSet writes a family's members in one stratum: each stratum's edits are planned from one read before the ChangeSet's writes":
 		"refused: edits in two strata",
+	"a stratum puts no row its deletes remove whole: a delete of a tree or of a family's owner removes every row nested under it, so put in another stratum (ChangeSet.sequence), or insert the rows again whole":
+		"refused: a put beside a whole delete",
 	"a served ChangeSet's facts name, under each op, only the relations of its array members of that op":
 		"refused: a served fact's relation",
 	"a served ChangeSet's facts name only the ops of its array members: insert, put and delete":
@@ -451,6 +456,7 @@ export const changeSetRefusals: Arr.NonEmptyReadonlyArray<RefusalNote> = [
 	"refused: a fixed family",
 	"refused: an append to a stored owner",
 	"refused: edits in two strata",
+	"refused: a put beside a whole delete",
 	"refused: a served fact's relation",
 	"refused: a served fact's op"
 ]
@@ -1602,6 +1608,13 @@ const changeOf = (d: Drawing, fault: ChangeSetFault | undefined): ChangeSpec => 
 					b: builtOf(d, "Work", undefined, undefined, clean)
 				}
 	}
+	if (
+		fault === "a put after a whole delete" ||
+		fault === "a whole delete after a put" ||
+		fault === "a put beside a whole delete by union"
+	) {
+		return putBesideWholeDelete(d, fault)
+	}
 	if (fault === "a family's members edited in two strata") {
 		return {
 			kind: "sequence",
@@ -1617,6 +1630,58 @@ const changeOf = (d: Drawing, fault: ChangeSetFault | undefined): ChangeSpec => 
 		kind: combined,
 		a: builtOf(d, level(), undefined, undefined, clean),
 		b: builtOf(d, level(), undefined, undefined, clean)
+	}
+}
+
+/**
+ * Each owner a whole delete removes, beside the relation a put of its stratum writes at the key the delete names: the
+ * owner itself where it is mutable, or a counted member below it.
+ */
+const wholeDeletePuts: Arr.NonEmptyReadonlyArray<
+	readonly [CountedOwner | OrderedOwner, FamilyRel]
+> = [
+	["Bin", "Bin"],
+	["Bin", "Chip"],
+	["Cart", "Cart"],
+	["Pool", "Item"]
+]
+
+/**
+ * A delete of a family's owner, which removes its rows whole with every row nested under them, beside a put in its
+ * stratum of the owner itself or of a counted member below it, at the key the delete names: after the delete in one
+ * ChangeSet, before it, or in another ChangeSet the union aligns with it.
+ */
+const putBesideWholeDelete = (
+	d: Drawing,
+	fault:
+		| "a put after a whole delete"
+		| "a whole delete after a put"
+		| "a put beside a whole delete by union"
+): ChangeSpec => {
+	d.note("family member")
+	const [owner, put] = d.from(wholeDeletePuts)
+	const key = d.from(uuids)
+	const deleted = familyOf(d, "delete", owner, [[["id", familyValue(key)]]])
+	const putMember = familyOf(d, "put", put, [
+		put === owner ? [["id", familyValue(key)]] : countedFact(key, 0)
+	])
+	const built = (members: ReadonlyArray<MemberSpec>): BuiltSpec => ({
+		kind: "built",
+		level: "Work",
+		members,
+		grouped: false,
+		reads: [],
+		bind: undefined
+	})
+	switch (fault) {
+		case "a put after a whole delete":
+			return built([deleted, putMember])
+		case "a whole delete after a put":
+			return built([putMember, deleted])
+		case "a put beside a whole delete by union":
+			return d.from([0, 1]) === 0
+				? { kind: "union", a: built([deleted]), b: built([putMember]) }
+				: { kind: "union", a: built([putMember]), b: built([deleted]) }
 	}
 }
 
@@ -2097,8 +2162,18 @@ const unplannedOf = (capability: string): ChangeSetRefusal | undefined =>
 								? "a ChangeSet writes a family's members in one stratum: each stratum's edits are planned from one read before the ChangeSet's writes"
 								: undefined
 
+/** The Refusals the ChangeSet facade, its compilation and its binding name (refusalNotes). */
+const changeSetRefusalMessages: ReadonlySet<string> = new Set(Rec.keys(refusalNotes))
+
+/** Whether a named refusal is one the ChangeSet facade, its compilation or its binding names. */
+const isChangeSetRefusal = (refusal: string): refusal is ChangeSetRefusal =>
+	changeSetRefusalMessages.has(refusal)
+
 /** The Refusal the types name for the engine's reason, the call a repeated read-back name meets telling which. */
 const claimOf = (reason: CompileReason, spec: CaseSpec): Claim => {
+	if (reason._tag === "Refused" && isChangeSetRefusal(reason.refusal)) {
+		return { kind: "refusal", refusal: reason.refusal }
+	}
 	if (reason._tag === "MalformedDescription") {
 		return Str.includes("distinct read-back names")(reason.what)
 			? {

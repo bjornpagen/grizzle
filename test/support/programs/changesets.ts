@@ -21,6 +21,7 @@ export type { Bits as BitsOf, Infer } from "#compiler/types/fields/field.ts"
 export type { RegexInfer } from "#compiler/types/fields/regex.ts"
 export {
 	Bin,
+	Book,
 	Budget,
 	Cart,
 	Cents,

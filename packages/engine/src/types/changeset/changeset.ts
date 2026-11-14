@@ -702,7 +702,9 @@ export interface ChangeSet<
 		Stratum<
 			Last["inserts"] | NameOf<R> | NestedWrites<S, R>,
 			Last["needs"] | FixedOwnerOf<S, R>,
-			EditsWith<Last, S, R>
+			EditsWith<Last, S, R>,
+			Last["puts"],
+			Last["doomed"]
 		>,
 		Arrays | ArrayAdded<"insert", R, M, S, Done>
 	>
@@ -723,7 +725,9 @@ export interface ChangeSet<
 		Stratum<
 			Last["inserts"] | InsertedWrites<S, Rows>,
 			Last["needs"] | InsertedNeeds<S, Rows>,
-			InsertedEdits<Last, S, Rows>
+			InsertedEdits<Last, S, Rows>,
+			Last["puts"],
+			Last["doomed"]
 		>,
 		Arrays | InsertedArrays<S, Rows, Done>
 	>
@@ -733,13 +737,15 @@ export interface ChangeSet<
 	 * states its root value, each one tree (DeletedRow). A tree, and an owner of a family that is no family's member,
 	 * go with every row nested under them, through every family (UnitWrites), so a group goes whole. A row whose primary
 	 * key holds a field grizzle writes, and a member of an immutable owner's family, are no delete's (EditCheck). Its
-	 * facts are judged at no key (DeletedCheck): two at one key name at most the one stored.
+	 * facts are judged at no key (DeletedCheck): two at one key name at most the one stored. Its stratum puts none of
+	 * the rows such a delete removes whole (PutBesideDoomed).
 	 */
 	delete<R extends AnyRelation | AnyWorld, const M extends Member<S, unknown>>(
 		relation: R &
 			WritableCheck<S, R> &
 			EditCheck<S, R, "delete"> &
-			EditsOnce<Done, EditsWith<Last, S, R>>,
+			EditsOnce<Done, EditsWith<Last, S, R>> &
+			PutBesideDoomed<Last["puts"], DoomedBy<S, R>>,
 		facts: M & DeletedCheck<M, DeletedRow<S, R>, R>
 	): ChangeSet<
 		S,
@@ -748,7 +754,13 @@ export interface ChangeSet<
 		Reads,
 		Cx | ContextsOf<M>,
 		Done,
-		Stratum<Last["inserts"], Last["needs"], EditsWith<Last, S, R>>,
+		Stratum<
+			Last["inserts"],
+			Last["needs"],
+			EditsWith<Last, S, R>,
+			Last["puts"],
+			Last["doomed"] | DoomedBy<S, R>
+		>,
 		Arrays | ArrayAdded<"delete", R, M, S, Done>
 	>
 	/**
@@ -756,13 +768,15 @@ export interface ChangeSet<
 	 * PostgreSQL and grizzle write them. For every relation it is the row its caller writes (Written<R>): an owner's put
 	 * leaves its families as they are, and a member's put is an edit of its family, in place, a refill from its slot or
 	 * a move between groups, which grizzle plans. A tree's row, a row a declared key of which holds a field grizzle
-	 * writes, and an immutable family owner are no put's (EditCheck).
+	 * writes, and an immutable family owner are no put's (EditCheck), nor a row its stratum deletes whole
+	 * (PutBesideDoomed).
 	 */
 	put<R extends AnyRelation | AnyWorld, const M extends Member<S, unknown>>(
 		relation: R &
 			WritableCheck<S, R> &
 			EditCheck<S, R, "put"> &
-			EditsOnce<Done, EditsWith<Last, S, R>>,
+			EditsOnce<Done, EditsWith<Last, S, R>> &
+			PutBesideDoomed<NameOf<R>, Last["doomed"]>,
 		facts: M & MemberCheck<M, Written<R>, R>
 	): ChangeSet<
 		S,
@@ -771,7 +785,13 @@ export interface ChangeSet<
 		Reads,
 		Cx | ContextsOf<M>,
 		Done,
-		Stratum<Last["inserts"], Last["needs"], EditsWith<Last, S, R>>,
+		Stratum<
+			Last["inserts"],
+			Last["needs"],
+			EditsWith<Last, S, R>,
+			Last["puts"] | NameOf<R>,
+			Last["doomed"]
+		>,
 		Arrays | ArrayAdded<"put", R, M, S, Done>
 	>
 	/**
@@ -1011,26 +1031,32 @@ export type FactsCheck<F, A> = {
 /**
  * What one stratum of a ChangeSet writes, as the engine's front end plans it (write/frontend/compile.ts): the relations
  * it inserts, each with every sequence member its nesting reaches (`inserts`); the immutable owners whose families its
- * inserts append to, which an owner's family takes only from an insert of the owner in the same stratum (`needs`); and
+ * inserts append to, which an owner's family takes only from an insert of the owner in the same stratum (`needs`);
  * whether it writes a member of an ordered or a counted family, an edit the engine plans from one read before the
- * ChangeSet's writes, so in one stratum alone (`edits`). Each is a type argument, so a builder's call states the
- * stratum it makes from the one before in constant depth, however long its chain.
+ * ChangeSet's writes, so in one stratum alone (`edits`); the relations it puts (`puts`); and the relations its deletes
+ * remove whole, each tree's or family owner's deleted with every relation nested under it (`doomed`, DoomedBy), none of
+ * which it puts. Each is a type argument, so a builder's call states the stratum it makes from the one before in
+ * constant depth, however long its chain.
  */
 export interface Stratum<
 	out Inserts extends string = string,
 	out Needs extends string = string,
-	out Edits extends boolean = boolean
+	out Edits extends boolean = boolean,
+	out Puts extends string = string,
+	out Doomed extends string = string
 > {
 	readonly inserts: Inserts
 	readonly needs: Needs
 	readonly edits: Edits
+	readonly puts: Puts
+	readonly doomed: Doomed
 }
 
 /** A ChangeSet's strata before its last in order: a tuple where they are known, which every builder keeps. */
 export type Strata = ReadonlyArray<Stratum>
 
 /** The stratum an empty ChangeSet holds, and a stratum no member has written. */
-export type Unwritten = Stratum<never, never, false>
+export type Unwritten = Stratum<never, never, false, never, never>
 
 /**
  * Whether a stratum edits a family's members once a write of R is added to it: a stratum not known to edit or not stays
@@ -1052,7 +1078,9 @@ type Aligned<A extends Strata, B extends Strata> = A extends readonly [
 				Stratum<
 					Ah["inserts"] | Bh["inserts"],
 					Ah["needs"] | Bh["needs"],
-					Ah["edits"] extends true ? true : Bh["edits"]
+					Ah["edits"] extends true ? true : Bh["edits"],
+					Ah["puts"] | Bh["puts"],
+					Ah["doomed"] | Bh["doomed"]
 				>,
 				...Aligned<At, Bt>
 			]
@@ -1107,6 +1135,54 @@ type UnionEdits<D1 extends Strata, L1 extends Stratum, D2 extends Strata, L2 ext
 ] extends [true, true]
 	? EditsInOneStratum<Aligned<readonly [...D1, L1], readonly [...D2, L2]>>
 	: unknown
+
+/**
+ * The relations a delete of R in S removes whole: R and every relation nested under its rows (UnitWrites), where R is a
+ * tree's relation or a family's owner and no other family's member; none for any other delete, which removes the rows
+ * it names alone.
+ */
+type DoomedBy<S, R> = [DeletedWrites<S, R>] extends [never]
+	? never
+	: NameOf<R> | DeletedWrites<S, R>
+
+/** Whether a stratum puts one of the relations it removes whole: neither side refuses where it is not known. */
+type PutMeetsDoomed<Put extends string, Doomed extends string> = string extends Put
+	? false
+	: string extends Doomed
+		? false
+		: [Extract<Put, Doomed>] extends [never]
+			? false
+			: true
+
+/** A stratum puts no row its deletes remove whole, as the engine plans a stratum's unit deletes before its puts. */
+type DoomedRefusal<Meets> = Meets extends true
+	? Refusal<"a stratum puts no row its deletes remove whole: a delete of a tree or of a family's owner removes every row nested under it, so put in another stratum (ChangeSet.sequence), or insert the rows again whole">
+	: unknown
+
+/**
+ * A put's or a delete's check of its stratum: `Put` the relations put, `Doomed` those removed whole, one of them the
+ * call's own and the other its stratum's so far.
+ */
+type PutBesideDoomed<Put extends string, Doomed extends string> = DoomedRefusal<
+	PutMeetsDoomed<Put, Doomed>
+>
+
+/** Whether one of the strata puts a relation it removes whole, one walk over them. */
+type PutsDoomed<St> = St extends readonly [infer H extends Stratum, ...infer T]
+	? PutMeetsDoomed<H["puts"], H["doomed"]> extends true
+		? true
+		: PutsDoomed<T>
+	: false
+
+/**
+ * union's refusal: a stratum of its aligned strata that puts a row another of its arguments removes whole there. The
+ * strata are walked only where a delete removes rows whole, so a union of ChangeSets of which none does costs no walk.
+ */
+type UnionDoomed<D1 extends Strata, L1 extends Stratum, D2 extends Strata, L2 extends Stratum> = [
+	(D1[number] | L1 | D2[number] | L2)["doomed"]
+] extends [never]
+	? unknown
+	: DoomedRefusal<PutsDoomed<Aligned<readonly [...D1, L1], readonly [...D2, L2]>>>
 
 /**
  * Whether each stratum inserts every immutable owner its appends need: an immutable owner's family takes an append only
@@ -1263,7 +1339,8 @@ export interface ChangeSetConstructor {
 		b: ChangeSet<SB, P2, W2, R2, C2, D2, L2, A2> &
 			LevelCheck<HigherLevel<SA, SB>> &
 			DisjointReads<R1, R2> &
-			UnionEdits<D1, L1, D2, L2>
+			UnionEdits<D1, L1, D2, L2> &
+			UnionDoomed<D1, L1, D2, L2>
 	): ChangeSet<
 		HigherLevel<SA, SB>,
 		JointParams<P1, P2>,
