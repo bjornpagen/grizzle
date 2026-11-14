@@ -58,6 +58,18 @@ export type WireField<L> =
 	  }
 	| { readonly kind: "some" | "none"; readonly child: WireRecord<L> }
 
+/** A field of one scalar column: its scalar, or head literals' column. */
+export type WireColumn<L> = Extract<WireField<L>, { readonly kind: "scalar" | "constant" }>
+
+/**
+ * A column of a read's key, in key order: its field where every heading of its record holds it; or, of a union whose
+ * heading groups do not all hold it, `lacked`, its field in the headings that do, a row of any other holding no value
+ * there, which the wire spells null.
+ */
+export type WireKeyColumn<L> =
+	| WireColumn<L>
+	| { readonly kind: "lacked"; readonly column: WireColumn<L> }
+
 /** A field under its name. */
 export type WireNamed<L> = {
 	readonly name: string
@@ -103,7 +115,8 @@ export type WireFacts<L> = {
 
 /**
  * A program's input: a call's parameters and facts, both always present, `{}` where none; or a paged program's
- * parameters and window, its anchor's key read by `key`, the program's key columns in key order.
+ * parameters and window, its anchor's key read by `key`, the program's key columns in key order, each held by every
+ * heading, as a page orders by fields its heading groups share.
  */
 export type WireInput<L> =
 	| {
@@ -114,7 +127,7 @@ export type WireInput<L> =
 	| {
 			readonly kind: "window"
 			readonly params: ReadonlyArray<WireParam<L>>
-			readonly key: ReadonlyArray<WireField<L>>
+			readonly key: ReadonlyArray<WireColumn<L>>
 	  }
 
 /**
@@ -148,7 +161,7 @@ export type MemberShape<L> =
 			readonly fields: KeyFields
 			readonly input: WireInput<L>
 			readonly record: WireRecord<L>
-			readonly key: ReadonlyArray<WireField<L>>
+			readonly key: ReadonlyArray<WireKeyColumn<L>>
 			readonly witness: ReadonlyArray<WireWitness<L>>
 	  }
 	| {
@@ -182,6 +195,18 @@ export const mapField = <L, M>(field: WireField<L>, f: (leaf: L) => M): WireFiel
 			return { kind: field.kind, child: mapRecord(field.child, f) }
 	}
 }
+
+/** A column's leaf mapped by `f`. */
+const mapColumn = <L, M>(column: WireColumn<L>, f: (leaf: L) => M): WireColumn<M> =>
+	column.kind === "scalar"
+		? { kind: "scalar", scalar: f(column.scalar) }
+		: { kind: "constant", scalar: f(column.scalar), values: column.values }
+
+/** A key column's leaf mapped by `f`. */
+const mapKeyColumn = <L, M>(column: WireKeyColumn<L>, f: (leaf: L) => M): WireKeyColumn<M> =>
+	column.kind === "lacked"
+		? { kind: "lacked", column: mapColumn(column.column, f) }
+		: mapColumn(column, f)
 
 const mapHeading = <L, M>(heading: WireHeading<L>, f: (leaf: L) => M): WireHeading<M> =>
 	heading.map((named) => ({ name: named.name, field: mapField(named.field, f) }))
@@ -220,7 +245,7 @@ const mapInput = <L, M>(input: WireInput<L>, f: (leaf: L) => M): WireInput<M> =>
 		: {
 				kind: "window",
 				params: mapParams(input.params, f),
-				key: input.key.map((field) => mapField(field, f))
+				key: input.key.map((column) => mapColumn(column, f))
 			}
 
 const mapWitness = <L, M>(
@@ -250,7 +275,7 @@ export const mapShape = <L, M>(member: MemberShape<L>, f: (leaf: L) => M): Membe
 				fields: member.fields,
 				input: mapInput(member.input, f),
 				record: mapRecord(member.record, f),
-				key: member.key.map((field) => mapField(field, f)),
+				key: member.key.map((column) => mapKeyColumn(column, f)),
 				witness: mapWitness(member.witness, f)
 			}
 
@@ -356,13 +381,22 @@ const recordSchema = <L>(record: WireRecord<L>, leaf: (l: L) => WireSchema): Wir
 	return oneOfSchemas([headingSchema(first, leaf), ...rest.map((h) => headingSchema(h, leaf))])
 }
 
+/** The JSON Schema of a key column's values: its field's, or null besides where some heading lacks it. */
+const keyColumnSchema = <L>(column: WireKeyColumn<L>, leaf: (l: L) => WireSchema): WireSchema =>
+	column.kind === "lacked"
+		? { anyOf: [fieldSchema(column.column, leaf), nullSchema] }
+		: fieldSchema(column, leaf)
+
 /** The JSON Schema of a key: its columns' values, in key order; the empty array, a read's of at most one row. */
-const keySchema = <L>(key: ReadonlyArray<WireField<L>>, leaf: (l: L) => WireSchema): WireSchema =>
+const keySchema = <L>(
+	key: ReadonlyArray<WireKeyColumn<L>>,
+	leaf: (l: L) => WireSchema
+): WireSchema =>
 	key.length === 0
 		? { type: "array", maxItems: 0 }
 		: {
 				type: "array",
-				prefixItems: key.map((field) => fieldSchema(field, leaf)),
+				prefixItems: key.map((column) => keyColumnSchema(column, leaf)),
 				minItems: key.length,
 				maxItems: key.length
 			}
@@ -464,7 +498,7 @@ const factsSchema = <L>(
 
 /** The JSON Schema of a page's window: its anchor, tagged by kind, and its size, a positive JSON integer. */
 const windowSchema = <L>(
-	key: ReadonlyArray<WireField<L>>,
+	key: ReadonlyArray<WireColumn<L>>,
 	leaf: (l: L) => WireSchema
 ): WireSchema => {
 	const tagged = (kind: Anchor["kind"]): WireSchema => closedObject([["kind", { const: kind }]])

@@ -33,11 +33,13 @@ import {
 	type MemberShape,
 	type MemberWire,
 	mapField,
+	type WireColumn,
 	mapShape,
 	type WireFacts,
 	type WireField,
 	type WireHeading,
 	type WireInput,
+	type WireKeyColumn,
 	type WireLevel,
 	type WireNamed,
 	type WireParam,
@@ -369,16 +371,14 @@ const joinedLeaf = (a: ServedLeaf, b: ServedLeaf): ServedLeaf => {
 }
 
 /**
- * Two fields of one name and one spelling joined (sameField): a column's leaves joined, so a column two heading groups
- * deliver as types of one carrier spells either's values, and head literals' values joined; any other field is one.
+ * Two columns of one name and one scalar spelling joined: their leaves joined, so a column two heading groups deliver
+ * as types of one carrier spells either's values; head literals' values joined where both are head literals', and a
+ * scalar where either is.
  */
-const joinedField = (a: WireField<ServedLeaf>, b: WireField<ServedLeaf>): WireField<ServedLeaf> => {
-	if (a.kind === "scalar" && (b.kind === "scalar" || b.kind === "constant")) {
-		return { kind: "scalar", scalar: joinedLeaf(a.scalar, b.scalar) }
-	}
-	if (a.kind === "constant" && b.kind === "scalar") {
-		return { kind: "scalar", scalar: joinedLeaf(a.scalar, b.scalar) }
-	}
+const joinedColumn = (
+	a: WireColumn<ServedLeaf>,
+	b: WireColumn<ServedLeaf>
+): WireColumn<ServedLeaf> => {
 	if (a.kind === "constant" && b.kind === "constant") {
 		const [first, ...rest] = a.values
 		const more = b.values.filter((v) => !a.values.some((u) => sameJson(u, v)))
@@ -388,8 +388,18 @@ const joinedField = (a: WireField<ServedLeaf>, b: WireField<ServedLeaf>): WireFi
 			values: [first, ...rest, ...more]
 		}
 	}
-	return a
+	return { kind: "scalar", scalar: joinedLeaf(a.scalar, b.scalar) }
 }
+
+/** Whether a field is a column: a scalar, or head literals'. */
+const isColumn = (field: WireField<ServedLeaf>): field is WireColumn<ServedLeaf> =>
+	field.kind === "scalar" || field.kind === "constant"
+
+/**
+ * Two fields of one name and one spelling joined (sameField): two columns' (joinedColumn); any other field is one.
+ */
+const joinedField = (a: WireField<ServedLeaf>, b: WireField<ServedLeaf>): WireField<ServedLeaf> =>
+	isColumn(a) && isColumn(b) ? joinedColumn(a, b) : a
 
 /**
  * The record a decoder form delivers over its layouts (core/decoder.ts DecoderForm): each layout's heading, those of one
@@ -461,29 +471,52 @@ const paramsOf = (params: ReadonlyArray<CallerParamDecl>): ReadonlyArray<WirePar
 				: { kind: "relation", heading: scalarHeading(p.heading) }
 	}))
 
-/** A read's key columns, its key fields' own, read off its record: each a scalar or head literals' field of every heading. */
+/**
+ * A read's key columns, its key fields' own, read off its record: each a column (a scalar or head literals') of one
+ * scalar spelling in every heading that holds it, joined over them (joinedColumn), and lacked where some heading does
+ * not hold it, as a union's heading groups each hold their own fields (live/key.ts keyOf reads none there).
+ */
 const keyOf = (
 	binding: Binding,
 	record: WireRecord<ServedLeaf>,
 	fields: ReadonlyArray<string>
-): Bound<ReadonlyArray<WireField<ServedLeaf>>> =>
-	each(fields, (name) => {
-		const refusal = Result.err(
-			refusedAt(binding.role, binding.member, `the key field ${name}, a scalar of every heading`)
+): Bound<ReadonlyArray<WireKeyColumn<ServedLeaf>>> =>
+	each(fields, (name): Bound<WireKeyColumn<ServedLeaf>> => {
+		const held = record.flatMap((heading) =>
+			heading.flatMap((named) => (named.name === name ? [named.field] : []))
 		)
-		let column: WireField<ServedLeaf> | undefined
-		for (const heading of record) {
-			const field = heading.find((named) => named.name === name)?.field
-			if (field === undefined || (field.kind !== "scalar" && field.kind !== "constant")) {
-				return refusal
-			}
-			if (column !== undefined && !sameField(column, field)) {
-				return refusal
-			}
-			column = column === undefined ? field : joinedField(column, field)
+		const columns = held.filter(isColumn)
+		const [first, ...rest] = columns
+		if (
+			first === undefined ||
+			columns.length < held.length ||
+			rest.some((column) => !sameJson(column.scalar.wire, first.scalar.wire))
+		) {
+			return Result.err(
+				refusedAt(
+					binding.role,
+					binding.member,
+					`the key field ${name}, a column of one scalar spelling in every heading that holds it`
+				)
+			)
 		}
-		return column === undefined ? refusal : Result.ok(column)
+		const column = rest.reduce(joinedColumn, first)
+		return Result.ok(held.length < record.length ? { kind: "lacked", column } : column)
 	})
+
+/**
+ * A page's anchor key columns: its read's key columns (keyOf), each one every heading holds, as a page orders by fields
+ * its heading groups share (lower/shapes/page/compile.ts unionPageOrder), so an anchor names a value of each.
+ */
+const windowKeyOf = (
+	binding: Binding,
+	key: ReadonlyArray<WireKeyColumn<ServedLeaf>>
+): Bound<ReadonlyArray<WireColumn<ServedLeaf>>> =>
+	each(key, (column) =>
+		column.kind === "lacked"
+			? Result.err(refusedAt(binding.role, binding.member, "a page key column every heading holds"))
+			: Result.ok(column)
+	)
 
 /** A read's record, over its program's typed layouts. */
 const readRecord = (binding: Binding, read: ServedInstantRead): Bound<WireRecord<ServedLeaf>> =>
@@ -620,7 +653,8 @@ const witnessOf = (role: WireRole): ReadonlyArray<WireWitness<ServedLeaf>> =>
 
 /**
  * The wire shape of a member of `role` (see the module's header): refused, a CompileError naming the member, where its
- * served form holds what no wire spells: a decoder no layout binds, or a key field no heading holds as a scalar.
+ * served form holds what no wire spells: a decoder no layout binds, a key field no heading holds as a column of one
+ * scalar spelling, or a page key column some heading lacks.
  */
 export const memberShape = (
 	member: ServedMemberForm,
@@ -630,21 +664,32 @@ export const memberShape = (
 	const witness = witnessOf(role)
 	switch (member.kind) {
 		case "read":
-		case "key":
-		case "paged": {
+		case "key": {
 			const read = member.read
 			return Result.flatMap(readRecord(binding, read), (record) =>
 				Result.map(keyOf(binding, record, read.key.fields), (key): MemberShape<ServedLeaf> => ({
 					shape: read.key.kind,
 					fields: read.key.fields,
-					input:
-						member.kind === "paged"
-							? { kind: "window", params: paramsOf(read.params), key }
-							: { kind: "call", params: paramsOf(read.params), facts: [] },
+					input: { kind: "call", params: paramsOf(read.params), facts: [] },
 					record,
 					key,
 					witness
 				}))
+			)
+		}
+		case "paged": {
+			const read = member.read
+			return Result.flatMap(readRecord(binding, read), (record) =>
+				Result.flatMap(keyOf(binding, record, read.key.fields), (key) =>
+					Result.map(windowKeyOf(binding, key), (anchor): MemberShape<ServedLeaf> => ({
+						shape: read.key.kind,
+						fields: read.key.fields,
+						input: { kind: "window", params: paramsOf(read.params), key: anchor },
+						record,
+						key,
+						witness
+					}))
+				)
 			)
 		}
 		case "instant": {

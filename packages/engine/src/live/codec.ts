@@ -27,11 +27,13 @@ import { type KeyFields, RowKey } from "#compiler/live/key.ts"
 import type { Anchor, Input, NoFacts, Window, WindowInput } from "#compiler/live/program.ts"
 import type {
 	MemberWire,
+	WireColumn,
 	WireFacts,
 	WireFault,
 	WireField,
 	WireHeading,
 	WireInput,
+	WireKeyColumn,
 	WireOptions,
 	WireParam,
 	WireRecord,
@@ -213,28 +215,45 @@ export const decodeRecord = (
 	)
 }
 
+/**
+ * The JSON of a key column's value the server holds: its scalar's; for a column some heading lacks, null where the
+ * row's heading lacks it, its decoded row holding no such field (live/key.ts keyOf).
+ */
+const encodeKeyColumn = (column: WireKeyColumn<WireScalar>, value: unknown): WireJson =>
+	column.kind === "lacked"
+		? value === undefined
+			? null
+			: encodeScalar(column.column.scalar, value)
+		: encodeScalar(column.scalar, value)
+
 /** The JSON of a key: its columns' values in key order. */
-export const encodeKey = (key: ReadonlyArray<WireField<WireScalar>>, value: RowKey): WireJson => {
+export const encodeKey = (
+	key: ReadonlyArray<WireKeyColumn<WireScalar>>,
+	value: RowKey
+): WireJson => {
 	if (value.length !== key.length) {
 		throw defect("a key of its stream's key columns")
 	}
-	return key.map((field, at) => {
-		if (field.kind !== "scalar" && field.kind !== "constant") {
-			throw defect("a key column of a scalar")
-		}
-		return encodeScalar(field.scalar, value[at])
-	})
+	return key.map((column, at) => encodeKeyColumn(column, value[at]))
 }
 
+/** A key column's value from the server's own JSON: no value for the null of a column some heading lacks. */
+const decodeKeyColumn = (column: WireKeyColumn<WireScalar>, json: WireJson): unknown =>
+	column.kind === "lacked"
+		? json === null
+			? undefined
+			: decodeScalar(column.column.scalar, json)
+		: decodeScalar(column.scalar, json)
+
 /** A key from the server's own JSON: its columns' values in key order. */
-export const decodeKey = (key: ReadonlyArray<WireField<WireScalar>>, json: WireJson): RowKey =>
+export const decodeKey = (key: ReadonlyArray<WireKeyColumn<WireScalar>>, json: WireJson): RowKey =>
 	RowKey(
 		trustedArray(json).map((item, at) => {
-			const field = key[at]
-			if (field === undefined || (field.kind !== "scalar" && field.kind !== "constant")) {
-				throw defect("a key column of a scalar")
+			const column = key[at]
+			if (column === undefined) {
+				throw defect("a key of its stream's key columns")
 			}
-			return decodeScalar(field.scalar, item)
+			return decodeKeyColumn(column, item)
 		})
 	)
 
@@ -473,7 +492,7 @@ const parseFacts = (
 
 /** A caller's key of a page's anchor: its columns' values in key order, each parsed. */
 const parseKey = (
-	key: ReadonlyArray<WireField<WireScalar>>,
+	key: ReadonlyArray<WireColumn<WireScalar>>,
 	json: unknown,
 	at: Path
 ): Parsed<RowKey> => {
@@ -484,14 +503,14 @@ const parseKey = (
 		return refused("members", at)
 	}
 	return Result.map(
-		parseEach(key, (field, index) => parseColumn(field, json[index], [...at, index])),
+		parseEach(key, (column, index) => parseColumn(column, json[index], [...at, index])),
 		RowKey
 	)
 }
 
 /** A caller's anchor: tagged by its kind, a keyed one's key parsed. */
 const parseAnchor = (
-	key: ReadonlyArray<WireField<WireScalar>>,
+	key: ReadonlyArray<WireColumn<WireScalar>>,
 	json: unknown,
 	at: Path
 ): Parsed<Anchor> => {
@@ -518,7 +537,7 @@ const parseAnchor = (
 
 /** A caller's window: its anchor and its size, a positive safe integer. */
 const parseWindow = (
-	key: ReadonlyArray<WireField<WireScalar>>,
+	key: ReadonlyArray<WireColumn<WireScalar>>,
 	json: unknown,
 	at: Path
 ): Parsed<Window> =>

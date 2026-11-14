@@ -82,11 +82,14 @@ const evaluatedOnce: OuterRefs = new Map()
 
 /**
  * The key a template's rows are delivered under (served/forms.ts ServedKey), read off the optimized program its
- * statement delivers: an ordered result's, the fields of its completed order; a set's, the KeySetProof of its root's
- * rows (lower/conservative/keys.ts keySetOf) over the physical analysis's canonical minimal key among its heading
- * (analysis/physical/props.ts keyedBy), its root evaluated once, or, where that proves none, every head field of every
- * part its rows are delivered by, a heading group's each, in group order, the private column of a relation of no column
- * none of them.
+ * statements deliver: an ordered result's, the fields of its completed order; a set's delivered by one statement, the
+ * KeySetProof of its root's rows (lower/conservative/keys.ts keySetOf) over the physical analysis's canonical minimal
+ * key among its heading (analysis/physical/props.ts keyedBy), its root evaluated once; and, where that proves none or
+ * the set is a union of several heading groups, every head field of every part its rows are delivered by, a heading
+ * group's each, in group order, the private column of a relation of no column none of them. A union of several heading
+ * groups delivers each group by a statement of its own, holding the group's fields (served/read.ts ServedRoots), while
+ * its root's heading is the fields its groups share, which its proof keys as a statement reading the union realizes it,
+ * one row per value of them: no key of the rows its groups deliver, two rows of one group agreeing there.
  */
 export const templateKey = (template: QueryTemplate): ServedKey => {
 	const { query, plan } = template.programs.optimized
@@ -94,22 +97,21 @@ export const templateKey = (template: QueryTemplate): ServedKey => {
 	if (root.kind === "OrderedResult") {
 		return { kind: "list", fields: root.order.keys.map((k) => k.column) }
 	}
+	const roots = template.run.roots
+	const headFields = [
+		...new Set(
+			roots.flatMap((tree) =>
+				tree.statement.heading.flatMap((c) => (c.name === unitColumn ? [] : [c.name]))
+			)
+		)
+	]
+	if (roots.length > 1) {
+		return { kind: "set", fields: headFields }
+	}
 	const heading = root.heading.map((c) => c.name)
 	const within = keyedBy(plan.analysis.of(root).props, heading)
 	const proof = keySetOf(within?.key ?? heading, within, evaluatedOnce, undefined)
-	return {
-		kind: "set",
-		fields:
-			proof.kind === "proved"
-				? proof.key.columns
-				: [
-						...new Set(
-							template.run.roots.flatMap((tree) =>
-								tree.statement.heading.flatMap((c) => (c.name === unitColumn ? [] : [c.name]))
-							)
-						)
-					]
-	}
+	return { kind: "set", fields: proof.kind === "proved" ? proof.key.columns : headFields }
 }
 
 /**

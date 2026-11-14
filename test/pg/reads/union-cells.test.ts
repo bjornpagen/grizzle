@@ -18,11 +18,15 @@ import { notesOnly } from "@grizzle/testing/sense"
 import { completeShrink } from "@grizzle/testing/shrink"
 import { searched } from "@grizzle/testing/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
-import type { OnceCalls } from "#adapter/db/handles.ts"
+import { type OnceCalls, onceCalls } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
+import { decodeKey, encodeKey } from "#compiler/live/codec.ts"
+import { formOf, keyOf } from "#compiler/live/key.ts"
+import { type MemberWire, slotSchemas } from "#compiler/live/shape.ts"
+import { scalarSchema } from "#compiler/live/wire.ts"
 import { closedId, pg } from "#compiler/public/fields.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -33,6 +37,7 @@ import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { readOnce } from "#test/support/calls.ts"
 import { namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { schemaAdmits } from "#test/support/openapi/validator.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -64,8 +69,19 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * any SQL: a numeric "1.00" never meets a literal's cell. Every union and arm is a member of the login's workload,
  * served for its case.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/union-cells-union-all.patch, every UNION sent as UNION ALL, delivers a
- * record twice and must turn the property red.
+ * Property: the union's records are keyed on its member's wire. Each record's key under its wire's key fields
+ * (live/key.ts keyOf, no value of a field its heading group lacks) encodes (live/codec.ts encodeKey) to JSON the wire's
+ * key schema admits (live/shape.ts slotSchemas over live/wire.ts scalarSchema), which decodes (decodeKey) back to that
+ * key, form for form (formOf). The oracle is the in-process key itself and the schema, judged by the validator the CLI
+ * generator pins (test/support/openapi/validator.ts). A union of two heading groups delivers each group by a statement
+ * of its own, so its key is every head field of every group (program/served.ts templateKey), a column one group lacks
+ * among them, spelled null on the wire for that group's rows.
+ *
+ * Plants: ~/.cache/grizzle-release/BR08/plants/union-cells-union-all.patch, every UNION sent as UNION ALL, delivers a
+ * record twice and must turn the property red; ~/.cache/grizzle-release/SERVEDSHAPE/plants/key-common-heading.patch
+ * (templateKey keys a union of two heading groups by the proof over its shared fields, so its once folds two records of
+ * one group into one), key-lacked-refused.patch (the wire refuses a key field some heading lacks, as it did) and
+ * key-lacked-decoded-null.patch (a lacked key column's null decoded as null, which no record's key holds).
  */
 const handles = ["A", "B", "C"] as const
 type Handle = (typeof handles)[number]
@@ -420,6 +436,7 @@ const printRecords = (records: ReadonlyArray<unknown>): string =>
 
 type Feature =
 	| "two heading groups"
+	| "a key column a heading group lacks"
 	| `${CellKind} literals alone`
 	| `${CellKind} field after two literals`
 	| `${CellKind} field before a literal`
@@ -433,6 +450,7 @@ type Feature =
 
 const allFeatures: Arr.NonEmptyReadonlyArray<Feature> = [
 	"two heading groups",
+	"a key column a heading group lacks",
 	...Arr.flatMap(kinds, (k): ReadonlyArray<Feature> => [
 		`${k} literals alone`,
 		`${k} field after two literals`,
@@ -515,6 +533,32 @@ const reached = (c: {
 /** The rows a served member delivers, run without parameters. */
 const records = (calls: OnceCalls) => readOnce(calls)({ params: {}, facts: {} })
 
+/**
+ * Each delivered record's key on the member's wire (see the header): its key under the wire's key fields encodes to
+ * JSON the wire's key schema admits and decodes back to that key, form for form. The suite's cases run one at a time and
+ * judge one key at a time, so every judgement's schema takes the one URI 0 (validator.ts schemaAdmits).
+ */
+const keyedOnTheWire = (wire: MemberWire, delivered: ReadonlyArray<unknown>) =>
+	Effect.gen(function* () {
+		assert.ok(wire.shape !== "write", "a read member's wire is a read's")
+		const schema = slotSchemas(wire, scalarSchema).key
+		for (const row of delivered) {
+			assert.ok(isRecord(row), "a delivered row is a record")
+			const key = keyOf(wire.fields, row)
+			const json = encodeKey(wire.key, key)
+			const admitted = yield* schemaAdmits(schema, json, 0)
+			assert.ok(
+				admitted,
+				`the key schema admits ${Formatter.format(json)}, the key of ${printRecords([row])}`
+			)
+			assert.deepEqual(
+				formOf(decodeKey(wire.key, json)),
+				formOf(key),
+				`${Formatter.format(json)} decodes to the key of ${printRecords([row])}`
+			)
+		}
+	})
+
 layer(Substrate.layer)("union cells", (it) => {
 	it.effect(
 		"decodes a union's rows to exactly the records its arms decode to, each read alone, and refuses a literal against a numeric field",
@@ -535,103 +579,113 @@ layer(Substrate.layer)("union cells", (it) => {
 						Arr.map(columns, (c) => names.column(Cell, c)),
 						", "
 					)}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
-					return yield* withServedDb(opened.installed, opened.server.roles.app, {}, ({ serve }) =>
-						explore(
-							{
-								oracle: {
-									kind: "second-implementation",
-									name: "each arm read alone as a query of its own, its records' set union"
+					return yield* withServedDb(
+						opened.installed,
+						opened.server.roles.app,
+						{},
+						({ ctx, load, serve }) =>
+							explore(
+								{
+									oracle: {
+										kind: "second-implementation",
+										name: "each arm read alone as a query of its own, its records' set union"
+									},
+									suite: "pg/reads/union-cells",
+									draw: drawn(caseGen),
+									literal: Formatter.format,
+									coverage: required<Feature>(allFeatures, { cases: 240, sense: notesOnly }),
+									kept: [],
+									runs: 60,
+									shrink: completeShrink,
+									concurrency: 1,
+									steerEvery: 16,
+									caseHang
 								},
-								suite: "pg/reads/union-cells",
-								draw: drawn(caseGen),
-								literal: Formatter.format,
-								coverage: required<Feature>(allFeatures, { cases: 240, sense: notesOnly }),
-								kept: [],
-								runs: 60,
-								shrink: completeShrink,
-								concurrency: 1,
-								steerEvery: 16,
-								caseHang
-							},
-							(c, notes) =>
-								Effect.gen(function* () {
-									yield* replaceRows(
-										s.admin,
-										installationGroup(names),
-										Arr.map(c.facts, (fact, id) => ({
-											sql: insert,
-											params: [
-												String(id),
-												String(fact.int4),
-												String(fact.int8),
-												String(fact.bool),
-												fact.text,
-												String(codeOf(kinds, fact.handle)),
-												fact.x,
-												Object.is(fact.f, -0) ? "-0" : String(fact.f)
-											]
-										}))
-									)
-									if (c.kind === "planted") {
-										notes.note(`planted literal against ${c.against}`)
-										const [a, b] = plantedArms(c.against, c.literalFirst)
-										const planted = queryOver(Cells).rule(a).rule(b)
-										if (c.against === "numeric") {
-											const refused = yield* Effect.result(serve({ planted }))
-											assert.ok(
-												Result.isFailure(refused),
-												"a literal against the numeric field is compiled"
-											)
-											assert.ok(
-												!(refused.failure instanceof OpenError),
-												Formatter.format(refused.failure)
-											)
-											const error = refused.failure.error
-											assert.ok(isCompileError(error), Formatter.format(error))
+								(c, notes) =>
+									Effect.gen(function* () {
+										yield* replaceRows(
+											s.admin,
+											installationGroup(names),
+											Arr.map(c.facts, (fact, id) => ({
+												sql: insert,
+												params: [
+													String(id),
+													String(fact.int4),
+													String(fact.int8),
+													String(fact.bool),
+													fact.text,
+													String(codeOf(kinds, fact.handle)),
+													fact.x,
+													Object.is(fact.f, -0) ? "-0" : String(fact.f)
+												]
+											}))
+										)
+										if (c.kind === "planted") {
+											notes.note(`planted literal against ${c.against}`)
+											const [a, b] = plantedArms(c.against, c.literalFirst)
+											const planted = queryOver(Cells).rule(a).rule(b)
+											if (c.against === "numeric") {
+												const refused = yield* Effect.result(serve({ planted }))
+												assert.ok(
+													Result.isFailure(refused),
+													"a literal against the numeric field is compiled"
+												)
+												assert.ok(
+													!(refused.failure instanceof OpenError),
+													Formatter.format(refused.failure)
+												)
+												const error = refused.failure.error
+												assert.ok(isCompileError(error), Formatter.format(error))
+												assert.deepEqual(
+													[refused.failure.place, error.reason._tag],
+													[
+														{ kind: "program", role: "app", program: "planted" },
+														"MalformedDescription"
+													],
+													"a literal against the numeric field is refused where the member is compiled"
+												)
+												return
+											}
+											const served = yield* serve({
+												planted,
+												first: queryOver(Cells).rule(a),
+												second: queryOver(Cells).rule(b)
+											})
+											const delivered = yield* records(member(served, "planted"))
+											const first = yield* records(member(served, "first"))
+											const second = yield* records(member(served, "second"))
+											const alone = armsAlone([first, second])
 											assert.deepEqual(
-												[refused.failure.place, error.reason._tag],
-												[
-													{ kind: "program", role: "app", program: "planted" },
-													"MalformedDescription"
-												],
-												"a literal against the numeric field is refused where the member is compiled"
+												set(structuralHash, sameRecord)(delivered, alone),
+												Option.none(),
+												`the union delivered ${printRecords(delivered)}; its arms alone ${printRecords(alone)}`
 											)
 											return
 										}
-										const served = yield* serve({
-											planted,
-											first: queryOver(Cells).rule(a),
-											second: queryOver(Cells).rule(b)
+										const arms = armsOf(c.groups)
+										const loaded = yield* load({
+											union: unionOf(arms),
+											...Rec.fromEntries(Arr.map(arms, (arm, j) => [`arm${j}`, unionOf([arm])]))
 										})
-										const delivered = yield* records(member(served, "planted"))
-										const first = yield* records(member(served, "first"))
-										const second = yield* records(member(served, "second"))
-										const alone = armsAlone([first, second])
-										assert.deepEqual(
-											set(structuralHash, sameRecord)(delivered, alone),
-											Option.none(),
-											`the union delivered ${printRecords(delivered)}; its arms alone ${printRecords(alone)}`
+										const unionMember = member(loaded, "union")
+										const union = yield* records(onceCalls(ctx, unionMember))
+										const armRecords = yield* Effect.forEach(arms, (_arm, j) =>
+											records(onceCalls(ctx, member(loaded, `arm${j}`)))
 										)
-										return
-									}
-									const arms = armsOf(c.groups)
-									const served = yield* serve({
-										union: unionOf(arms),
-										...Rec.fromEntries(Arr.map(arms, (arm, j) => [`arm${j}`, unionOf([arm])]))
+										const alone = armsAlone(armRecords)
+										assert.deepEqual(
+											set(structuralHash, sameRecord)(union, alone),
+											Option.none(),
+											`the union delivered ${printRecords(union)}; its arms alone ${printRecords(alone)}`
+										)
+										const wire = unionMember.wire.member
+										yield* keyedOnTheWire(wire, union)
+										if (wire.shape !== "write" && Arr.some(wire.key, (k) => k.kind === "lacked")) {
+											notes.note("a key column a heading group lacks")
+										}
+										notes.noteAll(reached(c))
 									})
-									const union = yield* records(member(served, "union"))
-									const armRecords = yield* Effect.forEach(arms, (_arm, j) =>
-										records(member(served, `arm${j}`))
-									)
-									const alone = armsAlone(armRecords)
-									assert.deepEqual(
-										set(structuralHash, sameRecord)(union, alone),
-										Option.none(),
-										`the union delivered ${printRecords(union)}; its arms alone ${printRecords(alone)}`
-									)
-									notes.noteAll(reached(c))
-								})
-						)
+							)
 					)
 				}).pipe(Effect.scoped)
 			)
