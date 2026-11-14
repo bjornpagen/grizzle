@@ -1738,7 +1738,8 @@ const history = (c: Cutover, note: (f: Feature) => void) =>
 				folders: [folder],
 				snapshot: first.snapshot,
 				ambientOwner: ambient,
-				credentials: yield* loginCredentials(plan, new Map())
+				files: new Map(),
+				credentials: yield* loginCredentials(plan, new Map(), new Map())
 			})
 			const h: History = {
 				declared,

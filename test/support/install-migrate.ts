@@ -15,11 +15,13 @@ import { applyOnSession, type SchemaApplyReport } from "#adapter/migrate/apply.t
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderSource } from "#adapter/migrate/input.ts"
 import { migrationSession } from "#adapter/migrate/session.ts"
+import { served as servedLogin } from "#adapter/public/layer.ts"
+import { roleNameOf } from "#adapter/served/served.ts"
 import { formatTimestamp } from "#cli/clock.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
+import { type Identity, identity } from "#compiler/core/identity.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
@@ -151,9 +153,9 @@ export interface Installed {
 	/** Login credentials of a login; a login the installation does not hold is a defect of the test. */
 	readonly as: (login: AnyLogin | LoginDesc) => Credentials
 	/**
-	 * The credentials of the installation's decoder login (physical/ddl/live.ts), its role the live source's stem,
-	 * issued through the substrate as each login's; an installation whose live plan reads no relation holds none, and
-	 * asking for it is a defect of the test.
+	 * The credentials of the installation's decoder login (physical/ddl/live.ts), the role its served logins name
+	 * (ServedLogin decoder, roleNameOf), issued through the substrate as each login's; an installation no served login
+	 * of which reads, or one installed unserved (installMigrated), holds none, and asking for it is a defect of the test.
 	 */
 	readonly decoder: () => Credentials
 	/** A role as a direct SQL writer takes it on: the credentials of the login that holds it, and its theory role. */
@@ -468,25 +470,37 @@ const applyFolders = (
 		)
 	}).pipe(Effect.scoped)
 
-/** The decoder login's role of `plan`'s installation, none where its live plan is none (no login serves a read). */
-const decoderRole = (plan: RealInstallPlan): ReadonlyArray<string> =>
-	plan.installation.live.kind === "none"
-		? []
-		: [identifierOf(identity.liveSource(plan.installation.names.schema))]
+/**
+ * The decoder login the served files `files` name, each login's by its declared name, as an operator names the role
+ * whose password LiveSource.layer takes: each served login's `decoder`, its PostgreSQL role under the installation's
+ * role space, the stems' (roleNameOf), once; none where no served login reads, or no file was served.
+ */
+const decoderRoles = (files: ReadonlyMap<string, unknown>): ReadonlyArray<string> => [
+	...new Set(
+		Arr.flatMap([...files], ([name, json]) => {
+			const { decoder } = servedLogin<AnyLogin>(json, name)
+			return decoder.kind === "none" ? [] : [roleNameOf(decoder, {})]
+		})
+	)
+]
 
 /**
- * The credentials of every login role of `plan` and of its decoder login (decoderRole), by PostgreSQL role: each one
- * `kept` holds kept, as a later version of a history keeps every login it continues, whose served layers log in with
- * that password, and each other given a password in the scope through the substrate.
+ * The credentials of every login role of `plan` and of the decoder login its served files `files` name (decoderRoles),
+ * by PostgreSQL role: each one `kept` holds kept, as a later version of a history keeps every login it continues, whose
+ * served layers log in with that password, and each other given a password in the scope through the substrate.
  */
 export const loginCredentials = (
 	plan: RealInstallPlan,
+	files: ReadonlyMap<string, unknown>,
 	kept: ReadonlyMap<string, Credentials>
 ): Effect.Effect<ReadonlyMap<string, Credentials>, SqlError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const credentials = new Map(kept)
-		for (const role of [...Arr.map(Rec.values(plan.logins), (l) => l.role), ...decoderRole(plan)]) {
+		for (const role of [
+			...Arr.map(Rec.values(plan.logins), (l) => l.role),
+			...decoderRoles(files)
+		]) {
 			credentials.set(role, credentials.get(role) ?? (yield* substrate.login(role)))
 		}
 		return credentials
@@ -494,9 +508,9 @@ export const loginCredentials = (
 
 /**
  * The installation of `plan` under the declared name `declared`, migrated by `folders` to `snapshot` in the
- * substrate's database as `ambientOwner`, each login and its decoder logging in with its `credentials`
- * (loginCredentials), so a test logs in as it over verify-full TLS, and the lookups of its roles and logins by their
- * values. The one representation of an installation a test migrated, whether by one first migration (installMigrated),
+ * substrate's database as `ambientOwner`, each login and the decoder its served files `files` name logging in with its
+ * `credentials` (loginCredentials), so a test logs in as it over verify-full TLS, and the lookups of its roles and
+ * logins by their values. The one representation of an installation a test migrated, whether by one first migration (installMigrated),
  * a history of versions (installMigratedThrough, test/support/installed.ts migrated) or generate's
  * (installGeneratedThrough).
  */
@@ -506,6 +520,7 @@ export const installedOf = (input: {
 	readonly folders: Arr.NonEmptyReadonlyArray<FolderSource>
 	readonly snapshot: DeploySnapshot
 	readonly ambientOwner: AmbientOwner
+	readonly files: ReadonlyMap<string, unknown>
 	readonly credentials: ReadonlyMap<string, Credentials>
 }): Effect.Effect<Installed, never, Substrate> =>
 	Effect.gen(function* () {
@@ -540,8 +555,8 @@ export const installedOf = (input: {
 			decoder: () =>
 				credentialsOf(
 					defined(
-						decoderRole(plan)[0],
-						`the decoder login of ${plan.declared}, whose live plan reads a relation`
+						decoderRoles(input.files)[0],
+						`the decoder login of ${plan.declared}, which a served login that reads names`
 					)
 				),
 			world
@@ -711,7 +726,8 @@ export const installMigratedThrough = (
 			folders,
 			snapshot: last.snapshot,
 			ambientOwner: owner,
-			credentials: yield* loginCredentials(last.plan, new Map())
+			files: new Map(),
+			credentials: yield* loginCredentials(last.plan, new Map(), new Map())
 		})
 		yield* checkInstallation(installed)
 		return installed
@@ -890,6 +906,7 @@ const generatedAt = (
 		const installed = yield* installedOf({
 			plan: drafted.plan,
 			snapshot: drafted.snapshot,
+			files: drafted.served,
 			...input
 		})
 		yield* checkInstallation(installed)
@@ -930,7 +947,7 @@ export const installGeneratedThrough = (
 		)
 		const owner = yield* ambientOwner(options.ambient, installedSchemas(last.plan.installation))
 		yield* applyFolders(owner, substrate.database, first.snapshot, [first.folder])
-		const credentials = yield* loginCredentials(first.plan, new Map())
+		const credentials = yield* loginCredentials(first.plan, first.served, new Map())
 		return {
 			first: yield* generatedAt(first, {
 				declared: name,
@@ -949,7 +966,7 @@ export const installGeneratedThrough = (
 					declared: name,
 					folders,
 					ambientOwner: owner,
-					credentials: yield* loginCredentials(last.plan, credentials)
+					credentials: yield* loginCredentials(last.plan, last.served, credentials)
 				})
 			})
 		}

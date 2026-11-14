@@ -7,7 +7,9 @@ import type { ReadShape, ShapeOf } from "#compiler/live/index.ts"
 import type {
 	AnyLogin,
 	AnyRole,
+	Built,
 	Invariant,
+	Isolation,
 	LoginReadsContext,
 	LoginRole,
 	Phantom,
@@ -144,7 +146,32 @@ export interface ServedRole<R, P> extends Phantom<{
 	readonly base: string
 	readonly login: string
 	readonly role: string
+	/**
+	 * The isolation level the role's writes begin at, as `grizzle generate` certified it and its login's served file
+	 * records it: `readCommitted` for a role generate proves needs no more, `serializable` for every other.
+	 */
+	readonly isolation: Isolation
 }
+
+/**
+ * The installation's decoder login as a served login's file names it: the one login `grizzle migrate` grants
+ * REPLICATION, which LiveSource.layer over that served login logs in as, its `password` that login's credential, and
+ * whose PostgreSQL role roleNameOf names under the installation's role prefix. `login` is the served login whose file
+ * names it, where a refusal of its role is reported; `stem` is the role `grizzle generate` committed, the live source's
+ * name, which roleNameOf alone reads. Only served(...) builds one: the brand no barrel exports keeps a decoder login
+ * spelled by hand from roleNameOf, so its name stays the compiler's.
+ */
+export interface DecoderLogin extends Built {
+	readonly kind: "decoderLogin"
+	readonly login: string
+	readonly stem: string
+}
+
+/**
+ * The decoder login a served login's file names (ServedLogin decoder): `none` for a login that serves no read, whose
+ * LiveSource.layer holds no source and reads no credential, or its installation's DecoderLogin.
+ */
+export type ServedDecoder = { readonly kind: "none" } | DecoderLogin
 
 /** The roles of a served login of L by name, each reached through it with the programs its Dbs run (LoginRole). */
 export type ServedRoles<L> = L extends { readonly roles: infer Rs }
@@ -157,9 +184,10 @@ export type ServedRoles<L> = L extends { readonly roles: infer Rs }
 
 /**
  * A login's served workload, the file `grizzle generate` committed as `migrations/<schema>/served/<login>.json`, read
- * once by served(file, name), under the login type L it serves: its name, L's, its base's, and its roles, the tokens
- * Db.open takes. Nothing of it is loaded until DbLayer.make builds the layer over it, and no schema module is
- * evaluated: L is a type alone. Only served(...) builds one.
+ * once by served(file, name), under the login type L it serves: its name, L's, its base's, its roles, the tokens
+ * Db.open takes, each with the isolation level generate certified it at, and the installation's decoder login its file
+ * names. Nothing of it is loaded until DbLayer.make builds the layer over it, and no schema module is evaluated: L is a
+ * type alone. Only served(...) builds one.
  */
 export interface ServedLogin<L> extends Phantom<{ readonly login: Invariant<L> }> {
 	readonly kind: "servedLogin"
@@ -167,6 +195,8 @@ export interface ServedLogin<L> extends Phantom<{ readonly login: Invariant<L> }
 	/** The declared name of the level the login is over, as its file names it: its layer's key, with the name. */
 	readonly base: string
 	readonly roles: ServedRoles<L>
+	/** The installation's decoder login as the file names it, none where the login serves no read (ServedDecoder). */
+	readonly decoder: ServedDecoder
 	/** The file, read once by served(...) (served/json.ts servedFile); DbLayer.make loads it. */
 	readonly file: ServedFile
 }
@@ -244,7 +274,8 @@ export type LiveOf<L> = [ServesRead<L>] extends [false] ? never : LiveSourceServ
 /**
  * LiveSource.layer's config: the connection of the installation's decoder login, whose `password` is that login's
  * credential, the one login that reads the installation's replication slot, and a served login of the installation,
- * whose file carries the installation's live source (texts, names and tables) where the login serves a read.
+ * whose file carries the installation's live source (texts, names and tables) where the login serves a read. The
+ * decoder login is the served login's `decoder`, its PostgreSQL role `roleNameOf(login.decoder, connection)`.
  */
 export type LiveSourceConfigShape<L> = DbConnection & { readonly login: ServedLogin<L> }
 

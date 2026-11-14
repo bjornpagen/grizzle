@@ -2,6 +2,7 @@ import { Effect, Layer, type Redacted, Ref, Scope } from "effect"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import { CredentialError } from "#adapter/errors/failures.ts"
 import { DbLayer, LiveSource } from "#adapter/public/layer.ts"
+import { roleNameOf } from "#adapter/served/served.ts"
 import type {
 	DbConfigShape,
 	DbConnection,
@@ -11,9 +12,7 @@ import type {
 	LoginBase,
 	ServedLogin
 } from "#adapter/types/layer.ts"
-import { roleInSpace, roleSpaceOf } from "#compiler/core/identity.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
-import { succeeded } from "#test/support/assert.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import type { SubstrateShape } from "#test/support/substrate/substrate.ts"
 
@@ -64,7 +63,8 @@ const sourced = <const L extends AnyLogin>(
 /**
  * The DbLayer of `config`'s login over `installed`, given its installation's live source, the decoder's credential read
  * off the installation (install-migrate.ts Installed decoder) only when the source first connects, so a login whose
- * installation holds no live source never asks for it: what a test serves a login of an installed schema with.
+ * served file names no decoder (ServedLogin decoder) never asks for it: what a test serves a login of an installed
+ * schema with.
  */
 export const sourcedDbLayer = <const L extends AnyLogin>(
 	installed: Installed,
@@ -72,7 +72,7 @@ export const sourcedDbLayer = <const L extends AnyLogin>(
 ): SourcedLayer<L> =>
 	sourced(
 		config,
-		config.login.file.live.kind === "none"
+		config.login.decoder.kind === "none"
 			? noDecoder(config.login.name)
 			: Effect.sync(() => installed.decoder().password)
 	)
@@ -105,25 +105,21 @@ export const decodersIn = (
 
 /**
  * The DbLayer of `config`'s login, given the live source of the installation its served file names: its decoder login,
- * the file's live source's stem in the role space of the config's role prefix, its credential `decoderOf`'s, asked for
- * only when the source first connects; a file that holds no live source names no decoder, and its source never asks.
+ * the served login's `decoder`, whose role roleNameOf names under the config's role prefix as an operator names it,
+ * its credential `decoderOf`'s, asked for only when the source first connects; a login that serves no read names no
+ * decoder, and its source never asks.
  */
 export const servedSourcedLayer = <const L extends AnyLogin>(
 	decoderOf: DecoderOf,
 	config: DbConfigShape<NoInfer<L>> & { readonly login: ServedLogin<L> }
 ): SourcedLayer<L> => {
-	const live = config.login.file.live
+	const decoder = config.login.decoder
 	return sourced(
 		config,
-		live.kind === "none"
+		decoder.kind === "none"
 			? noDecoder(config.login.name)
 			: Effect.flatMap(
-					Effect.sync(() =>
-						succeeded(
-							roleInSpace(succeeded(roleSpaceOf(config.rolePrefix), "the role prefix"), live.stem),
-							"the decoder's role"
-						)
-					),
+					Effect.sync(() => roleNameOf(decoder, config)),
 					decoderOf
 				)
 	)

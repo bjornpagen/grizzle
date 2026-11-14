@@ -362,7 +362,8 @@ export const migrated = (options: MigrateOptions) =>
 			folders: history,
 			snapshot,
 			ambientOwner: ownerLogin,
-			credentials: yield* loginCredentials(plan, new Map())
+			files: new Map(),
+			credentials: yield* loginCredentials(plan, new Map(), new Map())
 		})
 		const quoted = quoteIdent(installed.schema)
 		const result: Migrated = {

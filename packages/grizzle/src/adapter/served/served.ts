@@ -1,12 +1,14 @@
 import * as Arr from "effect/Array"
 import * as Formatter from "effect/Formatter"
 import type {
+	DecoderLogin,
 	ServedConstructor,
+	ServedDecoder,
 	ServedLogin,
 	ServedRole,
 	ServedRoles
 } from "#adapter/types/layer.ts"
-import type { AnyLogin, AnyRole } from "#compiler/plan/common.ts"
+import type { AnyLogin, AnyRole, Isolation } from "#compiler/plan/common.ts"
 import {
 	builtMark,
 	CompileError,
@@ -19,6 +21,7 @@ import {
 	SourceLoc,
 	servedFile
 } from "#compiler/plan/runtime.ts"
+import type { ServedLive } from "#compiler/plan/serve.ts"
 
 /**
  * served(file, name): a login's served workload, as an application holds it, and the tokens of its roles.
@@ -32,13 +35,32 @@ import {
  *
  * served reads the file once, through the one reader of a served file's JSON value (served/json.ts servedFile), which
  * rebuilds every value JSON cannot hold and takes every other member as it is: no code reads the file's JSON form but
- * that reader. The login holds the file read, whose roles' names are each a token Db.open takes and whose login's
- * PostgreSQL role names its credential (roleNameOf); DbLayer.make loads the rest from it, once, when the layer is built.
+ * that reader. The login holds the file read, whose roles' names are each a token Db.open takes, each with the level
+ * generate certified its writes at, whose login's PostgreSQL role names its credential (roleNameOf), and whose live
+ * source names the installation's decoder login; DbLayer.make loads the rest from it, once, when the layer is built.
  */
 
-/** The token of the role `role` of the served login `login` over the base `base`. */
-const servedRole = <R, P>(base: string, login: string, role: string): ServedRole<R, P> =>
-	Object.freeze({ ...builtMark, kind: "servedRole", base, login, role })
+/** The token of the role `role` of the served login `login` over the base `base`, its writes begun at `isolation`. */
+const servedRole = <R, P>(
+	base: string,
+	login: string,
+	role: string,
+	isolation: Isolation
+): ServedRole<R, P> =>
+	Object.freeze({ ...builtMark, kind: "servedRole", base, login, role, isolation })
+
+/** The decoder of a served login that serves no read. */
+const noDecoder: ServedDecoder = Object.freeze({ kind: "none" })
+
+/** The decoder login the file of the served login `login` names: its live source's stem, none where it holds none. */
+const decoderOf = (login: string, live: ServedLive): ServedDecoder => {
+	switch (live.kind) {
+		case "none":
+			return noDecoder
+		case "source":
+			return Object.freeze({ ...builtMark, kind: "decoderLogin", login, stem: live.stem })
+	}
+}
 
 /**
  * The one site of the fact that the record of tokens served builds, one under each of the file's role names, is
@@ -59,8 +81,8 @@ export const served: ServedConstructor = <L extends AnyLogin>(
 	const read = servedFile(file)
 	const roles: Record<string, ServedRole<unknown, unknown>> = {}
 	const names = Arr.map(read.roles, (role) => role.name)
-	for (const role of names) {
-		roles[role] = servedRole(read.base, name, role)
+	for (const role of read.roles) {
+		roles[role.name] = servedRole(read.base, name, role.name, role.isolation)
 	}
 	Object.freeze(roles)
 	if (!isServedRoles<L>(roles, names)) {
@@ -72,6 +94,7 @@ export const served: ServedConstructor = <L extends AnyLogin>(
 		name,
 		base: read.base,
 		roles,
+		decoder: decoderOf(name, read.live),
 		file: read
 	})
 }
@@ -83,11 +106,18 @@ interface Stemmed {
 	readonly of: "login" | "role"
 }
 
-/** The stem `named` carries: a served login's, its file's; a login's or a role's, as login(...) or role(...) computed it,
- * whose refusal it throws. */
-const stemmed = <L>(named: AnyLogin | AnyRole | ServedLogin<L>): Stemmed => {
+/** The stem `named` carries: a served login's, its file's; a decoder login's, the file's live source's; a login's or a
+ * role's, as login(...) or role(...) computed it, whose refusal it throws. */
+const stemmed = <L>(named: AnyLogin | AnyRole | ServedLogin<L> | DecoderLogin): Stemmed => {
 	if (named.kind === "servedLogin") {
 		return { stem: named.file.role, at: SourceLoc(`login ${named.name}`, []), of: "login" }
+	}
+	if (named.kind === "decoderLogin") {
+		return {
+			stem: named.stem,
+			at: SourceLoc(`the decoder login of login ${named.login}`, []),
+			of: "login"
+		}
 	}
 	if (!named.stem.ok) {
 		throw named.stem.error
@@ -100,18 +130,20 @@ const stemmed = <L>(named: AnyLogin | AnyRole | ServedLogin<L>): Stemmed => {
 }
 
 /**
- * roleNameOf(named, installation): the PostgreSQL role an installation installs for a login, a role or a served login,
- * the one function that names one: the stem the value carries (a login's or a role's, computed as login(...) or
- * role(...) built it; a served login's, its file's), under the installation's role prefix (core/identity.ts
- * roleInSpace), as migrate creates it and a layer's pool logs in. A login's is the one that logs in: the role a
- * password is set on, `rds_iam` is granted to and an IAM signer names. A role's is the one a direct SQL writer's
- * `SET ROLE` names. The installation is the connection, or any part of it (`{}` for one without a role prefix). It
- * reads the stem and evaluates no schema, so the runtime entry loads none of the compiler. It throws CompileError for a
- * login's or a role's name the naming door refused (MalformedDescription, RoleNameTooLong), for a role prefix it
- * refuses (MalformedDescription), and for a role the prefix takes past PostgreSQL's 63 bytes (RoleNameTooLong).
+ * roleNameOf(named, installation): the PostgreSQL role an installation installs for a login, a role, a served login or
+ * the decoder login a served login names, the one function that names one: the stem the value carries (a login's or a
+ * role's, computed as login(...) or role(...) built it; a served login's, its file's; a decoder login's, its file's live
+ * source's), under the installation's role prefix (core/identity.ts roleInSpace), as migrate creates it and a layer's
+ * pool logs in. A login's is the one that logs in: the role a password is set on, `rds_iam` is granted to and an IAM
+ * signer names. A decoder login's, `roleNameOf(WebServed.decoder, connection)` once its kind is `decoderLogin`, is the
+ * one LiveSource.layer logs in as, whose password is the layer's. A role's is the one a direct SQL writer's `SET ROLE`
+ * names. The installation is the connection, or any part of it (`{}` for one without a role prefix). It reads the stem
+ * and evaluates no schema, so the runtime entry loads none of the compiler. It throws CompileError for a login's or a
+ * role's name the naming door refused (MalformedDescription, RoleNameTooLong), for a role prefix it refuses
+ * (MalformedDescription), and for a role the prefix takes past PostgreSQL's 63 bytes (RoleNameTooLong).
  */
 export const roleNameOf = <L>(
-	named: AnyLogin | AnyRole | ServedLogin<L>,
+	named: AnyLogin | AnyRole | ServedLogin<L> | DecoderLogin,
 	installation: RoleInstallation
 ): string => {
 	const { stem, at, of } = stemmed(named)

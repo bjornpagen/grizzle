@@ -49,16 +49,19 @@ export type {
 	ConnectionPool,
 	DbConnection,
 	DbLayerOf,
+	DecoderLogin,
 	LiveOf,
 	LiveSourceConfigShape,
 	LiveSourceService,
 	PoolBounds,
+	ServedDecoder,
 	ServedLogin,
 	ServedRole,
 	ServedRoles,
 	Transport,
 	Verify
 } from "#adapter/types/layer.ts"
+export type { Isolation } from "#compiler/plan/common.ts"
 
 export const DbLayer: DbLayerConstructor = {
 	make: <const L extends AnyLogin>(
@@ -69,8 +72,9 @@ export const DbLayer: DbLayerConstructor = {
 /**
  * LiveSource.layer(config): an installation's live source for the process, built once per process per installation and
  * provided to every DbLayer of a login of it that serves a read, which requires it (LiveOf): the connection of the
- * installation's decoder login, whose `password` is its credential, and a served login of the installation that serves
- * a read. It connects nothing until a Db's first watch; from then on, for its scope, it holds one listening session of
+ * installation's decoder login, the served login's `decoder`, whose PostgreSQL role `roleNameOf(login.decoder,
+ * connection)` names and whose `password` is its credential, and a served login of the installation that serves a
+ * read. It connects nothing until a Db's first watch; from then on, for its scope, it holds one listening session of
  * the decoder login and the process's candidacy for the installation's live leader, which every layer it serves shares.
  */
 export const LiveSource: LiveSourceConstructor = {

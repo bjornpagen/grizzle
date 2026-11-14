@@ -528,7 +528,11 @@ The command line's own refusals, by stage:
   login than the name `served` was given. `grizzle check` refuses a served file that is not its login's compile under
   the committed snapshot: a program added, renamed, dropped or edited since the file was generated; run `grizzle
   generate`. `roleNameOf(WebServed, connection)` is the login's PostgreSQL role, the file's stem under the connection's
-  `rolePrefix`. `Db.open` contacts nothing and
+  `rolePrefix`. `WebServed.decoder` is the installation's decoder login the file names, `none` for a login that serves
+  no read; once its kind is `decoderLogin`, `roleNameOf(WebServed.decoder, connection)` is the role `LiveSource.layer`
+  logs in as, whose password is the layer's. `WebServed.roles.member.isolation` is the level generate certified the
+  role's writes at, `readCommitted` or `serializable`: read a login's certificate there, never from the file's JSON,
+  whose encoding is grizzle's own. `Db.open` contacts nothing and
   checks nothing of the database: grizzle assumes it is the one the snapshot was migrated to, and the request's first
   call is its first round trip. `token` is required exactly when the role's
   relations read a context; the layer's `verify` refuses one at the stage `token`, and a claim of a refined field is
@@ -676,7 +680,10 @@ The command line's own refusals, by stage:
   in its own database under its own prefix, from one committed output. Drafted SQL names each role as psql's variable
   `:"<stem>"` and the current database as `:"DBNAME"`, which `migrate` fills; write a role the same way in a data step. The migration that adds a login creates its role; the operator
   gives it a password, or, for an RDS IAM login, `GRANT rds_iam TO <role> WITH INHERIT TRUE, SET FALSE`, and the IAM
-  signer's user name is `roleNameOf(login, connection)`. grizzle never sets either. A login holds only USAGE on the
+  signer's user name is `roleNameOf(login, connection)`. grizzle never sets either. The migration that gives the
+  installation its live source, once a login serves a read, creates its decoder login, which a reading login's served
+  file names, `roleNameOf(served.decoder, connection)`; the operator gives it a password too, the one
+  `LiveSource.layer` takes. Never find it by scanning `pg_roles`. A login holds only USAGE on the
   schema, SELECT on the ledger and EXECUTE on the snapshot guard, the lock and the check every transaction takes;
   everything else it does as one of its roles, one per transaction. The drift check takes a membership beyond the
   login's roles as no drift only with SET FALSE and no ADMIN, and only while the login's effective privileges on the

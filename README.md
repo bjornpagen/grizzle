@@ -1297,7 +1297,7 @@ In full:
 - **Hardened Node.** grizzle runs under `--disable-proto=delete` and `--disable-sigusr1`: it never touches `Object.prototype.__proto__`, the `grizzle` command starts with both flags, and every test runs under both.
 - **The database.** UTF8 with the builtin `C.UTF-8` locale, on a server host that has the `C.UTF-8` operating-system locale. `btree_gist` must be available; a migration creates it when a no-overlap key or a coverage rule needs it. pgvector 0.8.7 is needed only for vector fields; it is not a trusted extension, so a superuser creates `vector` first where the migration role cannot.
 - **A migration role that owns the database.** It owns the schema and the database, and has CREATEROLE to create the PostgreSQL roles of your logins and roles. It needs no superuser. Any other role fails the first migration with 42501, because only the database's owner may set its default isolation level.
-- **A password for each login role**, which you set, or, for RDS IAM authentication, membership in `rds_iam`. Each connection authenticates with exactly the password its configuration names: node-postgres never reads `PGPASSWORD` or `~/.pgpass` for one.
+- **A password for each login role**, which you set, or, for RDS IAM authentication, membership in `rds_iam`, and one for the installation's decoder login where a login serves a read: the role a reading login's served file names, `roleNameOf(WebServed.decoder, connection)` ([Connecting](#connecting)). Each connection authenticates with exactly the password its configuration names: node-postgres never reads `PGPASSWORD` or `~/.pgpass` for one.
 - **TLS with verify-full**, the only mode. Plaintext is refused.
 - **A direct connection.** PgBouncer is not supported.
 - **`max_pred_locks_per_transaction = 2048`**, recommended: a server-start setting, about 115 MB of shared memory at 200 connections. SERIALIZABLE writes and plain reads take predicate locks; a deferrable read takes none.
@@ -1521,7 +1521,7 @@ export const WebLayer = DbLayer.make({
 
 A login whose roles read the token also needs `verify`, your function from a bearer token to its verified payload: here, Clerk's `verifyToken`. `attachPool` hands the pool to Vercel, so idle connections close before a function instance suspends.
 
-A login whose workloads serve a read requires its installation's live source, `LiveSource.layer`, which its type states: the `DbLayer` of `Web` is a layer that needs `BlogLive`, and the program does not compile until it is provided. Build it once per process for the installation and provide it to every such layer, so one process holds one of it however many logins it serves. It takes the connection of the installation's decoder login, the one login `grizzle migrate` grants REPLICATION, whose `password` is that login's credential, and any served login of the installation that reads. It connects nothing until a Db's first `watch`; from then on, for its scope, it holds one listening session of the decoder login and the process's candidacy for the installation's live leader, which streams the committed changes of the tables live reads read from the installation's replication slot and fans out which rows they touched, sealed under the installation's secret. `EtlJob` serves no read, so its layer needs no live source. A login whose type hides its workloads, `AnyLogin` among them, requires one too, since its type cannot prove it reads nothing; providing a source no layer uses is legal. Every watch ends with `stale` when the installation is migrated: the leader decodes the migration's ledger row and fans out a version notice, so a read of closed relations alone, whose rows only a migration changes, needs the live source too.
+A login whose workloads serve a read requires its installation's live source, `LiveSource.layer`, which its type states: the `DbLayer` of `Web` is a layer that needs `BlogLive`, and the program does not compile until it is provided. Build it once per process for the installation and provide it to every such layer, so one process holds one of it however many logins it serves. It takes the connection of the installation's decoder login, the one login `grizzle migrate` grants REPLICATION, whose `password` is that login's credential, and any served login of the installation that reads. The served login names that decoder login, `WebServed.decoder`: of kind `decoderLogin` for a login that serves a read, its PostgreSQL role `roleNameOf(WebServed.decoder, connection)`, which the layer logs in as, and of kind `none` for one that serves none, whose live source reads no credential. It connects nothing until a Db's first `watch`; from then on, for its scope, it holds one listening session of the decoder login and the process's candidacy for the installation's live leader, which streams the committed changes of the tables live reads read from the installation's replication slot and fans out which rows they touched, sealed under the installation's secret. `EtlJob` serves no read, so its layer needs no live source. A login whose type hides its workloads, `AnyLogin` among them, requires one too, since its type cannot prove it reads nothing; providing a source no layer uses is legal. Every watch ends with `stale` when the installation is migrated: the leader decodes the migration's ledger row and fans out a version notice, so a read of closed relations alone, whose rows only a migration changes, needs the live source too.
 
 grizzle sets no `max_slot_wal_keep_size`, since how much WAL the slot may hold while no leader runs is the operator's policy, and a slot the server invalidates fails closed: the next leader fans out `:invalidated`, which ends every live read of the installation.
 
@@ -1654,7 +1654,7 @@ pnpm exec grizzle check grizzle.config.ts      # offline: generated, resolved an
 pnpm exec grizzle migrate grizzle.config.ts    # apply what is pending, as the owner
 ```
 
-Read the SQL `generate` drafts, edit it if you need to, and commit it with the code: it is what `migrate` runs, and the database must end where the snapshot says. The first migration creates each login's PostgreSQL role, `roleNameOf(Web, connection)` and `roleNameOf(EtlJob, connection)`, without a password: as the owner, give each its password (psql's `\password` on the role `roleNameOf` names), and set it as `BLOG_WEB_PASSWORD` or `BLOG_ETL_PASSWORD` where the app or the job runs.
+Read the SQL `generate` drafts, edit it if you need to, and commit it with the code: it is what `migrate` runs, and the database must end where the snapshot says. The first migration creates each login's PostgreSQL role, `roleNameOf(Web, connection)` and `roleNameOf(EtlJob, connection)`, and, since `Web` serves a read, the installation's decoder login, `roleNameOf(WebServed.decoder, connection)` once `WebServed.decoder.kind` is `decoderLogin`, each without a password: as the owner, give each its password (psql's `\password` on the role `roleNameOf` names), and set it as `BLOG_WEB_PASSWORD`, `BLOG_ETL_PASSWORD` or `BLOG_DECODER_PASSWORD` where the app or the job runs.
 
 - **The code and the database move together.** `grizzle check` refuses a served file that is not its login's compile under the snapshot, so the app's programs are the schema's. Every `Db` transaction refuses a database whose latest migration did not reach the snapshot its served file was compiled under. `grizzle drift`, from CI or a schedule, and `grizzle migrate` after every apply compare the whole database with the snapshot: roles, settings, privileges, view definitions and policies included.
 - **Migrations are downtime.** While one runs, every `Db` call fails at once with a `stale` `CallError` (reason `Migrating`); once it completes, a `Db` of the old code fails with `stale` (reason `Migrated`). Deploy the code that carries the new served files.
@@ -2386,8 +2386,13 @@ name the installation refuses, as `grizzle generate` does.
 
 `served<typeof Web>(file, "web")` is a login's committed workload, `migrations/<root>/served/<login>.json`, served as
 the login's type; `roleNameOf(WebServed, connection)` is its PostgreSQL role, its file's stem under the connection's
-prefix. There is one `roleNameOf`, in `@bjornpagen/grizzle/runtime` and re-exported by `@bjornpagen/grizzle`: it reads
-the stem a login, a role or a served login carries and loads no schema module. `DbLayer.make({ login: WebServed, ... })` builds the login's pool and loads its workloads, compiling nothing, and
+prefix. `WebServed.decoder` is the installation's decoder login as the file names it, `none` for a login that serves no
+read, and `roleNameOf(WebServed.decoder, connection)`, once its kind is `decoderLogin`, the role `LiveSource.layer` logs
+in as. `WebServed.roles.member.isolation` is the level `grizzle generate` certified the role's writes at,
+`readCommitted` or `serializable` ([READ COMMITTED writes](#read-committed-writes)): read it there, never from the
+file's JSON, whose encoding is grizzle's own. There is one `roleNameOf`, in `@bjornpagen/grizzle/runtime` and
+re-exported by `@bjornpagen/grizzle`: it reads the stem a login, a role, a served login or a decoder login carries and
+loads no schema module. `DbLayer.make({ login: WebServed, ... })` builds the login's pool and loads its workloads, compiling nothing, and
 refuses a file of another login than the name it was served as, at stage `config`. It requires `verify`
 exactly when one of the login's roles reads a context. A layer with `verify` runs it on every token it is handed, for
 a role that reads no context too.
@@ -3569,7 +3574,8 @@ A SERIALIZABLE role lists each condition it failed, with how many places fail it
 | `writers`    | a SERIALIZABLE role writing what it writes, or writing what it reads while reading other calls' rows or making a check of a row that can change |
 
 A role's level is in its login's served file, so a change that moves it shows as a stale served file in `grizzle
-check`, like any change to the workload.
+check`, like any change to the workload. The served login reads it: `served<typeof Web>(webFile, "web").roles.member.isolation`
+is `readCommitted` or `serializable`, for every role of the login.
 
 **Reads stay SERIALIZABLE READ ONLY.** A query, a key and a window run SERIALIZABLE READ ONLY whatever the role's level,
 DEFERRABLE for a `deferrable(...)` member. A refresh is a write at SERIALIZABLE. A ChangeSet's read-backs run in its
