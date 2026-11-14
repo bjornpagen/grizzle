@@ -20,9 +20,15 @@
  * - A login compiles under the snapshot generated with its own workload as far as its parameter types go: no compile of
  *   it there is refused as UninstalledDomain.
  *
+ * - No two domains of the login's installation share a CHECK body: a parameter's pattern domain is a domain over its
+ *   pattern's structural text domain, with no CHECK of its own, where the installation holds one
+ *   (physical/ddl/domains.ts addParamDomains), and PostgreSQL still reports the parameter's own domain when it refuses.
+ *
  * Plants (~/.cache/grizzle-release/CONTRACTDOMAIN/plants): param-domain-total.patch names a parameter's pattern domain
  * under a recorded installation whatever it installs, so a missing pattern domain compiles; snapshot-params-dropped.patch
- * records no parameter type in snapshot.json, so a login does not compile under its own snapshot.
+ * records no parameter type in snapshot.json, so a login does not compile under its own snapshot;
+ * param-domain-own-check.patch gives every parameter's pattern domain its own CHECK, a second copy of its structural
+ * domain's.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -34,6 +40,7 @@ import { describe, it } from "@effect/vitest"
 import { Result as Answered, Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { type ServedRefusal, snapshotCompiled } from "#adapter/served/compile.ts"
 import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"
+import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
@@ -43,8 +50,9 @@ import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { paramDomainIdentity, paramDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { levelChain } from "#compiler/plan/common.ts"
 import { ownBuilt } from "#compiler/schema/own.ts"
+import type { CreateDomain } from "#compiler/sql/ast.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { compiledSnapshot } from "#test/support/compiled-served.ts"
+import { compiledInstallation, compiledSnapshot } from "#test/support/compiled-served.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import { type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"
@@ -66,6 +74,7 @@ type Feature =
 	| "a dropped program whose parameter types the installation installs, compiled"
 	| "a pattern parameter installed, compiled"
 	| "a contract parameter outside the base installed, compiled"
+	| "a parameter's pattern domain over a field's structural domain"
 
 /** Which of a role's programs the dropped installation keeps (see the header). */
 interface Kept {
@@ -143,6 +152,13 @@ const neededBy = (params: ReadonlyArray<ParamDecl>, declared: ReadonlySet<string
 	)
 })
 
+/** A domain's body: its base, its collation and its CHECKs' predicates, its names aside. */
+const bodyOf = (d: CreateDomain) => ({
+	base: d.base,
+	collation: d.collation,
+	checks: Arr.map(d.constraints, (c) => c.predicate)
+})
+
 /** Whether a compile's refusal is UninstalledDomain. */
 const uninstalled = (refusal: ServedRefusal): boolean =>
 	isCompileError(refusal.error) && refusal.error.reason._tag === "UninstalledDomain"
@@ -175,6 +191,31 @@ const property = (
 			Arr.flatMap(rolesOf(full.success), (r) => declaredBy(r.served, r.compiled)),
 			new Set(Rec.keys(base.contracts))
 		)
+		const { installation } = yield* compiledInstallation(built, base, schema.laws.codes(base))
+		const checked = Arr.filter(
+			Arr.flatMap(installation.statements, (st) => (st.kind === "createDomain" ? [st] : [])),
+			(d) => d.constraints.length > 0
+		)
+		for (const [i, d] of checked.entries()) {
+			const twin = Arr.findFirst(Arr.drop(checked, i + 1), (e) =>
+				canonicalEquals(bodyOf(d), bodyOf(e), everyProperty)
+			)
+			assert.ok(
+				Option.isNone(twin),
+				`no two installed domains share a CHECK body: ${d.name.name} and ${Option.match(twin, { onNone: () => "", onSome: (e) => e.name.name })}\n${printed()}`
+			)
+		}
+		if (
+			Arr.some(
+				installation.statements,
+				(st) =>
+					st.kind === "createDomain" &&
+					needed.domains.has(st.name.name) &&
+					st.constraints.length === 0
+			)
+		) {
+			note("a parameter's pattern domain over a field's structural domain")
+		}
 		const dropped = defined(
 			builtLogin(drawnLogin(schema, mapNonEmpty(roles, keptShape))),
 			"the dropped login"
@@ -244,7 +285,8 @@ describe("a served compile under a snapshot", () => {
 							"an uninstalled contract refused",
 							"a dropped program whose parameter types the installation installs, compiled",
 							"a pattern parameter installed, compiled",
-							"a contract parameter outside the base installed, compiled"
+							"a contract parameter outside the base installed, compiled",
+							"a parameter's pattern domain over a field's structural domain"
 						],
 						{ cases: 60, sense: notesOnly }
 					),

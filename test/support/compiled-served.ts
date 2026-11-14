@@ -16,32 +16,30 @@ import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { servedWorkloadExtension } from "#compiler/physical/access/extension.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { namedLogin } from "#compiler/physical/ddl/names.ts"
-import { installationOver } from "#compiler/physical/install/compile.ts"
+import { type Installation, installationOver } from "#compiler/physical/install/compile.ts"
 import { installBasis, unserved } from "#compiler/physical/install/plan.ts"
-import { compileWorkload, servedWorkload } from "#compiler/program/workload/compile.ts"
+import {
+	compileWorkload,
+	type ServedWorkloadPlan,
+	servedWorkload
+} from "#compiler/program/workload/compile.ts"
 import { installationsOf, type Owned, ownBuilt, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import type { AnyLogin } from "#compiler/types/schema/world.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 
 /**
- * The JSON value of the snapshot.json `grizzle generate` writes for an installation of `owned`, `login`'s base, serving
- * `login`, under the codes `codes`, as an import of the file yields it, compiled with no database as generate drafts it
- * (cli/generate.ts draftInput, plannedLogins): one basis (physical/install/plan.ts installBasis), the login's workloads
- * planned over its artifacts (program/workload/compile.ts compileWorkload), its ChangeSets compiled over the artifacts
- * that cast its programs' parameters to the types the plan declares (servedWorkload), the installation compiled over
- * that basis
- * with the plan's extension (physical/access/extension.ts servedWorkloadExtension), and the snapshot written with the
- * plan's access, access paths and live plan. So a file compiled over it is the one generate writes, its live source
- * included, and a workload generate refuses is its ServedRefusal, a ChangeSet's at its role: one whose access paths
- * the installation cannot index among them (an access index's UnrepresentableKey), as generate's draft refuses it. Codes are history: a fresh installation's are its rosters' first codes, and a roster that lost a handle
- * holds a hole there.
+ * The installation `grizzle generate` drafts for `owned`, `login`'s base, serving `login`, under the codes `codes`, with
+ * no database, beside the plan of the login's workload it serves (compiledSnapshot, which writes its snapshot.json).
  */
-export const compiledSnapshot = (
+export const compiledInstallation = (
 	login: BuiltLogin,
 	owned: Owned,
 	codes: Codebook
-): Effect.Effect<unknown, ServedRefusal> =>
+): Effect.Effect<
+	{ readonly installation: Installation; readonly plan: ServedWorkloadPlan },
+	ServedRefusal
+> =>
 	Effect.gen(function* () {
 		const basis = succeeded(installBasis(owned, codes, everySlice(owned)), "the base's basis")
 		const checking = succeeded(artifactsOver(basis, unserved), "the base's artifacts")
@@ -98,6 +96,29 @@ export const compiledSnapshot = (
 			),
 			atLogin
 		)
+		return { installation, plan }
+	})
+
+/**
+ * The JSON value of the snapshot.json `grizzle generate` writes for an installation of `owned`, `login`'s base, serving
+ * `login`, under the codes `codes`, as an import of the file yields it, compiled with no database as generate drafts it
+ * (cli/generate.ts draftInput, plannedLogins): one basis (physical/install/plan.ts installBasis), the login's workloads
+ * planned over its artifacts (program/workload/compile.ts compileWorkload), its ChangeSets compiled over the artifacts
+ * that cast its programs' parameters to the types the plan declares (servedWorkload), the installation compiled over
+ * that basis
+ * with the plan's extension (physical/access/extension.ts servedWorkloadExtension), and the snapshot written with the
+ * plan's access, access paths and live plan. So a file compiled over it is the one generate writes, its live source
+ * included, and a workload generate refuses is its ServedRefusal, a ChangeSet's at its role: one whose access paths
+ * the installation cannot index among them (an access index's UnrepresentableKey), as generate's draft refuses it. Codes are history: a fresh installation's are its rosters' first codes, and a roster that lost a handle
+ * holds a hole there.
+ */
+export const compiledSnapshot = (
+	login: BuiltLogin,
+	owned: Owned,
+	codes: Codebook
+): Effect.Effect<unknown, ServedRefusal> =>
+	Effect.gen(function* () {
+		const { installation, plan } = yield* compiledInstallation(login, owned, codes)
 		const snapshot = succeeded(
 			finishSnapshot(
 				succeeded(

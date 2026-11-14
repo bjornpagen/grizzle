@@ -25,7 +25,7 @@ import * as Result from "#compiler/core/result.ts"
 import { descText, type FieldDesc } from "#compiler/ir/desc.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
 import type { DomainCheck, DomainCheckTerm, LawField, TableRelation } from "#compiler/ir/law.ts"
-import { domainBase, missing, type PhysicalNames } from "#compiler/ir/physical.ts"
+import { domainBase, missing, type PhysicalNames, qualifiedType } from "#compiler/ir/physical.ts"
 import { type ParamDecl, type PhysicalReason, paramColumns } from "#compiler/ir/products.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import {
@@ -374,11 +374,15 @@ export const paramDomainsOf = (
 	)
 
 /**
- * The pattern domains of `uses` as objects in Setup, each after the schema, each identity once: `CREATE DOMAIN
- * <schema>.<domain> AS text COLLATE pg_catalog.pg_c_utf8 CONSTRAINT <check> CHECK (...)`, the CHECK the pattern's
- * structural text domain holds. Every placeholder of the parameter is cast to it (ir/physical.ts paramDomain), so
- * PostgreSQL checks the value as it binds it, and a refusal by it is the parameter's (adapter ParamRejected). Their
- * names, in order.
+ * The pattern domains of `uses` as objects in Setup, each identity once. Every placeholder of the parameter is cast to
+ * its own (ir/physical.ts paramDomain), so PostgreSQL checks the value as it binds it, and a refusal by it is the
+ * parameter's (adapter ParamRejected): PostgreSQL reports the domain the value is cast to, never an ancestor of it.
+ * Where the installation holds the pattern's structural text domain (InstallNames.textDomain), a parameter's domain is
+ * `CREATE DOMAIN <schema>.<domain> AS <schema>.<text domain>` with no CHECK of its own, after that domain: its check is
+ * the structural domain's, which PostgreSQL runs on a cast to every domain over it, so no two domains of the
+ * installation hold one CHECK body. Where it holds none, `CREATE DOMAIN <schema>.<domain> AS text COLLATE
+ * pg_catalog.pg_c_utf8 CONSTRAINT <check> CHECK (...)`, the CHECK such a structural domain would hold, after the schema.
+ * Their names, in order.
  */
 export const addParamDomains = (
 	b: InstallBuilder,
@@ -391,25 +395,34 @@ export const addParamDomains = (
 			return []
 		}
 		seen.add(named.canonical)
-		const ddl = textDomainDdl(regex.check, {
-			schema: b.schema,
-			name: b.name(named),
-			constraint: b.name(identity.domainCheck(named))
-		})
-		b.addType(
-			"domain",
-			b.names.installation,
-			named,
-			{
-				ddl: [ddl],
-				reasons: [
-					enforcement(
-						`pattern ${patternsText(regex.patterns)} of parameter ${paramPlaceText(place)}`
-					)
-				]
-			},
-			[b.schemaNode]
-		)
+		const structural = b.names.textDomain(regex)
+		const reasons = [
+			enforcement(`pattern ${patternsText(regex.patterns)} of parameter ${paramPlaceText(place)}`)
+		]
+		if (structural === undefined) {
+			const ddl = textDomainDdl(regex.check, {
+				schema: b.schema,
+				name: b.name(named),
+				constraint: b.name(identity.domainCheck(named))
+			})
+			b.addType("domain", b.names.installation, named, { ddl: [ddl], reasons }, [b.schemaNode])
+			return [ddl.name]
+		}
+		const base = qualifiedType(structural)
+		const ddl: CreateDomain = {
+			kind: "createDomain",
+			name: { schema: b.schema, name: b.name(named) },
+			base,
+			collation: undefined,
+			constraints: []
+		}
+		b.addType("domain", b.names.installation, named, { ddl: [ddl], reasons }, [
+			b.schemaNode,
+			defined(
+				b.typeNode(base),
+				`the structural text domain ${structural.name}, added before the parameters'`
+			)
+		])
 		return [ddl.name]
 	})
 }
