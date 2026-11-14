@@ -28,8 +28,17 @@ import { upTo } from "#test/support/up-to.ts"
  * At each step a holder ends its lease's transaction, and in that same release its slot must be granted to a backend
  * of the file that queued first. Nothing is judged by time: the slot's holder is read from pg_locks once the release
  * has returned. That file's lease then completes on that slot and it holds it, so a later step may free it again. At
- * every settled point no holder's or waiting file's backend holds a transaction id or a snapshot, nor does the file's
- * own substrate's lease or claim (Substrate's `held`).
+ * every settled point no holder's or waiting file's backend holds a transaction id, no idle one holds a snapshot, and
+ * neither does the file's own substrate's lease or claim (Substrate's `held`). A backend waiting in a lease's LOCK TABLE
+ * may hold one, and only that one, as takeLease states. LOCK takes no snapshot (REL_19_RC2 pquery.c
+ * PlannedStmtRequiresSnapshot), but its name lookup runs before its wait. When the backend's catalog caches were reset
+ * since its NOWAIT try, the lookup reads the catalogs under a catalog snapshot, and nothing releases that snapshot while
+ * the backend sleeps on the lock: postgres.c releases it only when the backend goes idle. A reset is any backend's commit
+ * of more invalidations than the shared queue holds (sinval.c), such as a DROP SCHEMA of a few hundred tables in any
+ * database of the cluster. Reproduced on a private cluster on 2026-11-14 under a loop of such drops: a file queued at
+ * the gate, waiting in LOCK TABLE, held xmin 1074 and no transaction id. PostgreSQL offers no wait that takes neither a
+ * snapshot nor a name lookup: a fast-path call pushes one (fastpath.c HandleFunctionRequest), and so does any SELECT
+ * of pg_advisory_lock.
  *
  * The oracle is the lease's specification: the first file still queued is admitted by each release, on the slot
  * released. A file that waited on one slot of its own would leave another freed slot free while it waits.
@@ -148,9 +157,15 @@ const awaitSettled = (
 		}
 	})
 
-/** The backends of `pids` that hold a transaction id or a snapshot. */
-const heldQuery = `SELECT a.pid FROM pg_catalog.pg_stat_activity AS a
-WHERE a.pid = ANY ($1::int4[]) AND (a.backend_xid IS NOT NULL OR a.backend_xmin IS NOT NULL)`
+/**
+ * The backends of `pids` that hold a transaction id, or a snapshot anywhere but in a wait on a lock in a LOCK TABLE
+ * (the name lookup's catalog snapshot, which a cache reset leaves held through the wait). Each row carries what a report
+ * needs to tell why: its pid, state, wait event, transaction id, xmin and statement.
+ */
+const heldQuery = `SELECT a.pid, a.state, a.wait_event_type, a.wait_event, a.backend_xid::text, a.backend_xmin::text, a.query
+FROM pg_catalog.pg_stat_activity AS a
+WHERE a.pid = ANY ($1::int4[]) AND (a.backend_xid IS NOT NULL OR (a.backend_xmin IS NOT NULL
+	AND NOT (a.state = 'active' AND a.wait_event_type = 'Lock' AND pg_catalog.starts_with(a.query, 'LOCK TABLE public.'))))`
 
 /** The backend holding `table`'s lock, if any. */
 const holderQuery = `SELECT l.pid FROM pg_catalog.pg_locks AS l
@@ -207,7 +222,11 @@ const runCase = (cluster: BudgetedCluster, x: LeaseCase, note: (f: LeaseFeature)
 		const checkHeld = Effect.gen(function* () {
 			const files = yield* Effect.forEach([...holders, ...waiting], (f) => Ref.get(f.file.pids))
 			const held = yield* observer.queryValues(heldQuery, [Arr.flatten(files)])
-			assert.deepEqual(held, [], "a lease or a wait for one holds a transaction id or a snapshot")
+			assert.deepEqual(
+				held,
+				[],
+				"a lease or a wait for one holds a transaction id, or a snapshot outside its wait in LOCK TABLE"
+			)
 		})
 		yield* checkHeld
 		if (x.slots > 1) {
@@ -247,7 +266,7 @@ const runCase = (cluster: BudgetedCluster, x: LeaseCase, note: (f: LeaseFeature)
 
 layer(Substrate.layer)("the substrate's connection lease", (it) => {
 	it.effect(
-		"admits the first file queued the moment any slot frees, and holds no transaction id or snapshot while it leases or waits",
+		"admits the first file queued the moment any slot frees, and holds no transaction id while it leases or waits, nor a snapshot but its wait's name lookup's",
 		(ctx) =>
 			searched(
 				ctx,
