@@ -65,9 +65,7 @@ import {
 	constraintText,
 	type End,
 	ended,
-	replaced,
 	type Seat,
-	type Start,
 	seatOf
 } from "#test/pg/fin/installed.ts"
 import { deepEquals } from "#test/support/assert.ts"
@@ -808,11 +806,11 @@ export interface FoldJudged {
 	readonly end: End
 }
 
-/** The relations of a fold seat, which a replacement truncates and an empty seat's real COMMIT clears. */
+/** The relations of a fold seat, which an empty seat's real COMMIT clears. */
 const FOLD_RELATIONS = ["Owner", "Member"] as const
 
 /** No owner and no row: the state of an empty seat. */
-const emptyFold: FoldStored = { owners: [], rows: [] }
+export const emptyFold: FoldStored = { owners: [], rows: [] }
 
 const predictedText = (model: FoldPredicted): string =>
 	model.kind === "committed"
@@ -893,16 +891,22 @@ export const byMember = (s: FoldStored): FoldStored => ({
 })
 
 /**
- * Sends `statements` as one transaction after `prefix` (statements the model does not see, such as a SET CONSTRAINTS)
- * from `start`, an empty seat or one whose rows are first replaced by the state before (installed.ts Start), ended as
- * `end`, the case's drawn end (installed.ts endGen), and judges PostgreSQL against the fold's model: the
- * same verdict and moment; a refusal by an installed constraint whose role the model allows there, with its SQLSTATE,
- * reporting a law of the family or the fold; where an owner's ends fail the twos fold's at most one of K, a refusal at
- * that owner's statement by that check with 23514; a commit that reads back exactly.
+ * Sends `statements` as one transaction from an empty seat, after the state `before`, written by the same transaction,
+ * and `prefix` (statements the model does not see, such as a SET CONSTRAINTS), ended as `end`, the case's drawn end
+ * (installed.ts endGen), and judges PostgreSQL against the fold's model: the same verdict and moment; a refusal by an
+ * installed constraint whose role the model allows there, with its SQLSTATE, reporting a law of the family or the
+ * fold; where an owner's ends fail the twos fold's at most one of K, a refusal at that owner's statement by that check
+ * with 23514; a commit that reads back exactly.
+ *
+ * The state before is written in the case's own transaction, so a case takes one transaction: a checked end rolls it
+ * back whole, and a real COMMIT's rows are cleared once read (installed.ts ended), so every case starts on an empty seat
+ * with no TRUNCATE of its own. Its writes are lawful, so every check they queue passes wherever it fires, and each
+ * check the model judges fires where it would over a stored state: an immediate one at its statement, a deferred one
+ * at the commit or a SET CONSTRAINTS that follows the state's writes.
  */
 export const judgedFold = (
 	j: Judging,
-	start: Start<FoldStored>,
+	before: FoldStored,
 	statements: ReadonlyArray<FoldStatement>,
 	prefix: ReadonlyArray<string>,
 	end: End
@@ -911,33 +915,31 @@ export const judgedFold = (
 		const { seat, spec } = j.fold
 		const sql = (s: ReadonlyArray<FoldStatement>) =>
 			Arr.map(s, (st) => foldStatementSql(j.fold, st))
-		const before = start.kind === "empty" ? emptyFold : start.before
 		const model = foldPredicted(spec.monoid, j.lowering, before, statements)
 		const disagree = (why: string, real: Attempted | Checked<unknown>) =>
 			new Disagreed({
 				message: `${j.label}, its ${end} end: ${why}; the model predicts ${predictedText(model)}, PostgreSQL gave ${attemptedText(real)}, over ${Formatter.format(before)}, for ${Formatter.format(statements)}`
 			})
-		if (start.kind === "replaced") {
-			const setup = yield* replaced(seat, FOLD_RELATIONS, sql(foldWriteOf(start.before)))
-			if (setup.kind !== "committed") {
-				return yield* disagree(
-					`writing the state before was refused: ${attemptedText(setup)}`,
-					setup
-				)
-			}
-		}
+		const unseen = [...sql(foldWriteOf(before)), ...prefix]
 		const sent = yield* ended(
 			seat,
 			FOLD_RELATIONS,
-			start.kind,
-			[...prefix, ...sql(statements)],
+			"empty",
+			[...unseen, ...sql(statements)],
 			end,
 			foldRead(j.fold)
 		)
-		/** The moment the model reads, the prefix's statements out. */
+		if (
+			sent.kind === "refused" &&
+			sent.moment.kind === "statement" &&
+			sent.moment.index < unseen.length
+		) {
+			return yield* disagree("writing the state before, or the prefix, was refused", sent)
+		}
+		/** The moment the model reads, the state's writes and the prefix out. */
 		const real: Checked<FoldStored> =
 			sent.kind === "refused" && sent.moment.kind === "statement"
-				? { ...sent, moment: { kind: "statement", index: sent.moment.index - prefix.length } }
+				? { ...sent, moment: { kind: "statement", index: sent.moment.index - unseen.length } }
 				: sent
 		const after = Arr.reduce(statements, before, foldApplied)
 		const checkAt = Arr.findFirstIndex(

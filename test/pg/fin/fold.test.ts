@@ -46,6 +46,7 @@ import {
 	attemptedText,
 	byMember,
 	Disagreed,
+	emptyFold,
 	FOLD_SPECS,
 	type FoldSpec,
 	type FoldVerdict,
@@ -425,7 +426,7 @@ layer(Substrate.layer)("folds through grizzle's lowering on PostgreSQL 19rc2", (
 									const end = c.draw(endGen)
 									const judgedOn = (judging: Judging) =>
 										Effect.uninterruptible(
-											judgedFold(judging, { kind: "empty" }, foldWriteOf(stored), [], end)
+											judgedFold(judging, emptyFold, foldWriteOf(stored), [], end)
 										)
 									const [j, killed] = yield* Effect.all(
 										[

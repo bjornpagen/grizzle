@@ -18,13 +18,15 @@
  * each counted fold seat (folds.ts), each member's removal, sent in the prescribed order, move first and count first,
  * and in the prescribed order with the predecessor axis immediate.
  *
- * Each case writes its family by one transaction that replaces the seat's rows, then sends its removal as one
- * transaction checked as its COMMIT would check it and rolled back, or ended by a real COMMIT, as the case draws its
- * end on its tape (installed.ts endGen): the box holds every case under both ends.
+ * Each case is one transaction from an empty seat: it writes its family, then sends its removal, checked as its COMMIT
+ * would check it and rolled back, or ended by a real COMMIT whose rows are then cleared, as the case draws its end on
+ * its tape (installed.ts endGen; folds.ts judgedFold): the box holds every case under both ends.
  *
  * Plant: ~/.cache/grizzle-release/BR08/plants/fin-predecessor-axis-deferral-swapped.patch, the counted predecessor axis
  * installed immediate and the ordered one deferred, refuses the prescribed swap-with-last at its delete and must turn
- * the property red.
+ * the property red. Plant: ~/.cache/grizzle-release/REDSWEEP/plants/counted-commit-rows-left.patch, a real COMMIT's
+ * rows left on the seat (installed.ts ended), turns it red at the next case, whose own write of the state before is
+ * refused 23505 on the owner's key.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
@@ -204,7 +206,7 @@ layer(Substrate.layer)(
 										const judging = sketch.sending === "closure immediate" ? immediate : grizzle
 										const j = yield* judgedFold(
 											judging,
-											{ kind: "replaced", before },
+											before,
 											sent(change.statements, sketch.sending),
 											sketch.sending === "closure immediate" ? setImmediate : [],
 											c.draw(endGen)
