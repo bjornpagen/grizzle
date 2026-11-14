@@ -28,8 +28,10 @@ import { workload } from "#compiler/public/workload.ts"
  * - `takeShape`: the claim takes the earliest due Step, a range read of Due a concurrent spawn extends; an `auditor`
  *   copies every Due and every Claim it sees. Forced READ COMMITTED, a take that misses an earlier Due the auditor saw
  *   is a run no serial order explains.
- * - `countShape`: the claim inserts only where no Claim is stored, a count of what it writes. Forced READ COMMITTED,
- *   two claims of two steps both commit.
+ * - `countShape`: the claim inserts only where no Claim is stored, a count of what it writes: the Claims counted, or 0
+ *   by a second rule where none is stored, since an aggregate groups by the other columns of its `find` and over no
+ *   matched fact makes no group (README "Queries", aggregate; lower/conservative/group/index.ts). Forced READ
+ *   COMMITTED, two claims of two steps both commit.
  * - `unmatchedShape`: the claim races Claim at (step, attempt) and then Logs the Claim at another step, `other`, a read
  *   of another call's row after its write; an `auditor` copies the Claims at both keys. Forced READ COMMITTED, the Log
  *   misses a Claim the auditor saw before the claim committed.
@@ -261,10 +263,12 @@ export const countShape = (name: string) => {
 	const spawner = spawnerOf(base)
 	const claimer = claimerOf(base)
 	const c = claimer.relations
-	const claims = query(claimer).rule((r) => {
-		const { step, attempt } = v(c.Claim, "claim")
-		return r.match(c.Claim, { step, attempt }).find({ n: r.count() })
-	})
+	const claims = query(claimer)
+		.rule((r) => {
+			const { step, attempt } = v(c.Claim, "claim")
+			return r.match(c.Claim, { step, attempt }).find({ n: r.count() })
+		})
+		.rule((r) => r.where(r.not(c.Claim, {})).find({ n: 0n }))
 	const claimAlone = ChangeSet.empty(claimer).insert(
 		c.Claim,
 		query(claimer).rule((r) => {
