@@ -12,11 +12,11 @@
  *   (core/fingerprint.ts schemaLevel), the snapshot's encoding of it; no level check or program they compile reads a
  *   description's text (descText). generate and check compile the installation's basis once (its law model and closed
  *   constants, physical/install/plan.ts installBasis), packing every closed relation's cells once
- *   (physical/ddl/constants.ts planClosed), plan the installation twice over it, for the artifacts the
- *   access paths are planned against and for the draft, and build the draft's DDL once; then they compile each login's
- *   programs once, into its served file (adapter/served/compile.ts compileServed), over the installation's artifacts
- *   they already built, with no law model, plan basis or plan of the login's own, and its roles' programs from the
- *   change compile the workload's plan holds (adapter/served/login.ts plannedLoginRoles), building no DDL.
+ *   (physical/ddl/constants.ts planClosed), plan the installation three times over it (commandPlans), and build the
+ *   draft's DDL once; then they compile each login's programs once, into its served file (adapter/served/compile.ts
+ *   compileServed), over the installation's artifacts they already built, with no law model, plan basis or plan of the
+ *   login's own, and its roles' programs from the change compile the workload's plan holds (adapter/served/login.ts
+ *   plannedLoginRoles), building no DDL.
  * - DbLayer.make over the login's served file, the one generate wrote, loads it and owns, hashes, compiles and plans
  *   nothing (adapter/pool/served.ts): every count of the layer is zero.
  * - `grizzle migrate` and `grizzle drift` compile nothing before they connect: they reach the connection
@@ -310,6 +310,21 @@ const stepsAt = (size: Size) =>
 		})
 	)
 
+/**
+ * The plans generate and check make over the installation's basis, each once (cli/generate.ts plannedLogins,
+ * draftInput), since each is planned from what the one before it compiled: the workload's check pass, which no
+ * installation stands behind (ParamSource unserved) because the workload's parameter types are its output; the
+ * artifacts every served file compiles over, planned from those types, which name the parameters' domains and join
+ * their contracts' laws (98340dcf), and which an executor's compile requires (an installation stands behind it); and
+ * the draft's installation, under its settings and extensions, among them the served workload compiled over the
+ * second.
+ */
+const commandPlans = [
+	"the workload's check pass",
+	"the served artifacts",
+	"the draft's installation"
+] as const
+
 /** The counts a step must make exactly, whatever the size: each site it names, at its count. */
 const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 	schema: { levelContent: 1, contentOfDesc: 0, own: 0 },
@@ -323,7 +338,7 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		installBasis: 1,
 		planBasis: 0,
 		planClosed: 1,
-		plan: 2,
+		plan: commandPlans.length,
 		installation: 1,
 		plannedLoginRoles: 1
 	},
@@ -336,7 +351,7 @@ const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
 		installBasis: 1,
 		planBasis: 0,
 		planClosed: 1,
-		plan: 2,
+		plan: commandPlans.length,
 		installation: 1,
 		plannedLoginRoles: 1
 	},
