@@ -558,10 +558,15 @@ export const loadAtVolume = (
 
 /**
  * Loads every relation in order over the series 0 to `rows` - 1, in one SERIALIZABLE transaction as the owner, each row
- * a key already holds skipped, then VACUUM ANALYZEs each table, so its statistics and visibility map are a settled
- * table's: every page all-visible, since the load's commit, like every commit in a test database, is flushed before it
- * returns (test/support/pg.ts testDatabaseSettings). A load of no field inserts rows of defaults only, a serial
- * numbering each.
+ * a key already holds skipped, then VACUUMs each table with FREEZE and ANALYZE, so its statistics and visibility map are
+ * a settled table's: every page all-visible. The load's commit, like every commit in a test database, is flushed before
+ * it returns (test/support/pg.ts testDatabaseSettings), so VACUUM can hint its rows. A freezing VACUUM is aggressive,
+ * and freezes every row, so it waits for each page's cleanup lock (vacuumlazy.c lazy_scan_noprune), where a plain one
+ * leaves a page another backend holds pinned at that moment unpruned and not all-visible: one such page of 89, held by a
+ * cursor, left relallvisible at 88. The planner charges a one-row index-only scan a heap page unless every page is
+ * all-visible (costsize.c cost_index, ceil of the pages times 1 - allvisfrac), and then an index that leaves the heap a
+ * column to filter costs what the request's own index-only scan does. A load of no field inserts rows of defaults only, a
+ * serial numbering each.
  */
 export const loadRows = (
 	installed: Judged,
@@ -602,7 +607,7 @@ export const loadRows = (
 			() => Effect.ignore(admin.query("ROLLBACK", []))
 		)
 		for (const l of loads) {
-			yield* admin.query(`VACUUM (ANALYZE) ${table(l.relation)}`, [])
+			yield* admin.query(`VACUUM (FREEZE, ANALYZE) ${table(l.relation)}`, [])
 		}
 	})
 
