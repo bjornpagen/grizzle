@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/ddl/rules.ts b/packages/engine/src/physical/ddl/rules.ts
+index 81facd14..2a37b6ef 100644
+--- a/packages/engine/src/physical/ddl/rules.ts
++++ b/packages/engine/src/physical/ddl/rules.ts
+@@ -143,7 +143,7 @@ const addRuleTable = (
+ 		skipped: "INSERT" | "DELETE",
+ 		probes: ReadonlyArray<Compiled>
+ 	): ReadonlyArray<PlStatement> => {
+-		const statements = probeStatements(probes)
++		const statements = probes.map((p) => p.statement)
+ 		return statements.length === 0
+ 			? []
+ 			: [

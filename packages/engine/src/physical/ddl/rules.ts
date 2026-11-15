@@ -7,7 +7,7 @@ import {
 	type TouchedField
 } from "#compiler/analysis/theory/query.ts"
 import { checkQuery } from "#compiler/check/index.ts"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { canonicalTextOf, Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import {
@@ -85,6 +85,18 @@ interface Compiled {
 
 const touched = (f: LawField): TouchedField => ({ name: f.name, desc: f.desc })
 
+/**
+ * The statements a guarded block of a rule's function runs, each once, in the order its first probe compiled: a set
+ * keyed by the statement's canonical text, so a probe that compiles to a statement the block holds adds nothing (the
+ * statements one key holds are one text, so whichever it keeps prints the same). Two
+ * occurrences of the touched relation that hold nothing of its row apart (two arms of a derived relation that read it
+ * alike) are two probes of one statement, which a COMMIT would otherwise run twice. Each probe's index requests stay
+ * the table's whatever its statement, since a probe's requests come from the probe as written (Probe `requested`).
+ */
+const probeStatements = (probes: ReadonlyArray<Compiled>): ReadonlyArray<OperandSelect> => [
+	...new Map(probes.map((p) => [canonicalTextOf(p.statement), p.statement] as const)).values()
+]
+
 /** The SQLSTATE condition a rule's kind raises under. */
 const conditionOf = (rule: RuleTrigger): string => {
 	switch (rule.rule.kind) {
@@ -130,8 +142,9 @@ const addRuleTable = (
 	const probing = (
 		skipped: "INSERT" | "DELETE",
 		probes: ReadonlyArray<Compiled>
-	): ReadonlyArray<PlStatement> =>
-		probes.length === 0
+	): ReadonlyArray<PlStatement> => {
+		const statements = probeStatements(probes)
+		return statements.length === 0
 			? []
 			: [
 					{
@@ -139,9 +152,9 @@ const addRuleTable = (
 						branches: [
 							{
 								condition: ne({ kind: "plSpecial", name: "TG_OP" }, lit.text(skipped, types.text)),
-								body: probes.map((p): PlStatement => ({
+								body: statements.map((statement): PlStatement => ({
 									kind: "if",
-									branches: [{ condition: exists(p.statement), body: [raise] }],
+									branches: [{ condition: exists(statement), body: [raise] }],
 									else: []
 								}))
 							}
@@ -149,6 +162,7 @@ const addRuleTable = (
 						else: []
 					}
 				]
+	}
 	const fn = objectName(b.schema, identifierOf(table.function))
 	const ddl: readonly [PlFunction, Revoke] = [
 		{
