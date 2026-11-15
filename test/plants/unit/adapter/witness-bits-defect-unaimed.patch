@@ -1,0 +1,12 @@
+diff --git a/test/unit/adapter/witness.test.ts b/test/unit/adapter/witness.test.ts
+--- a/test/unit/adapter/witness.test.ts
++++ b/test/unit/adapter/witness.test.ts
+@@ -771,7 +771,7 @@
+ 		),
+ 		{
+ 			onNone: () => drawnReport,
+-			onSome: ([, carrier]): ReportSketch => ({
++			onSome: ([, carrier]): ReportSketch => carrier === "bits" ? drawnReport : ({
+ 				...drawnReport,
+ 				sqlstate: sqlstates.checkViolation,
+ 				constraint: { kind: "a roster domain's check", pick: k.draw(pick), carrier },

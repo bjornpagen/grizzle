@@ -70,10 +70,10 @@ import { textOfParam } from "#test/support/wire.ts"
  * Oracles: the read boundary's contract, every declared parameter admitted whether or not a statement binds it; the
  * relation input's arrays restated from the caller's value; and each refusal's documented stage and slot.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): reader-scalar-refusal-dropped.patch (a scalar parameter its codec
- * refuses is left out rather than refused).
- *
  * Features: a parameter only an eliminated rule reads, one a statement binds; each relation input's shape and refusal.
+ *
+ * @plant test/plants/unit/adapter/reader-scalar-refusal-dropped.patch A scalar parameter its codec refuses is left out
+ * rather than refused.
  */
 type Refusal =
 	| { readonly kind: "codec"; readonly slot: string | undefined }

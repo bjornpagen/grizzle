@@ -1,0 +1,21 @@
+diff --git a/packages/grizzle/src/adapter/wire/batch.ts b/packages/grizzle/src/adapter/wire/batch.ts
+index 4a729f92..2289223c 100644
+--- a/packages/grizzle/src/adapter/wire/batch.ts
++++ b/packages/grizzle/src/adapter/wire/batch.ts
+@@ -1388,13 +1388,15 @@ const executionBytes = (statement: BatchStatement): number =>
+  * the flight's bytes on a new connection, the most it writes on any, since a connection that parsed the name already
+  * sends none, so whether a flight is refused never depends on the connection it was given.
+  */
++const everNamed = new Set<StatementName>()
++
+ const accountFlight = (
+ 	pipeline: ReadonlyArray<WireQuery>,
+ 	messageLimit: number,
+ 	controls: ControlTexts
+ ): Result.Result<number, InputTooLarge> => {
+ 	let bytes = 0
+-	const named = new Set<StatementName>()
++	const named = everNamed
+ 	for (const query of pipeline) {
+ 		if (query._tag === "control") {
+ 			bytes += textMessageBytes(controlText(controls, query.control))

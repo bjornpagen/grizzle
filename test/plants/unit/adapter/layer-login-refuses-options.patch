@@ -1,0 +1,12 @@
+diff --git a/packages/grizzle/src/adapter/connection/environment.ts b/packages/grizzle/src/adapter/connection/environment.ts
+--- a/packages/grizzle/src/adapter/connection/environment.ts
++++ b/packages/grizzle/src/adapter/connection/environment.ts
+@@ -26,7 +26,7 @@
+ const startupVariables: {
+ 	readonly [K in SessionKind]: Arr.NonEmptyReadonlyArray<StartupVariable>
+ } = {
+-	login: ["PGREPLICATION"],
++	login: ["PGOPTIONS", "PGREPLICATION"],
+ 	owner: ["PGOPTIONS", "PGREPLICATION"]
+ }
+ 

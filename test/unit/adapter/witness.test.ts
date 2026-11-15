@@ -96,6 +96,10 @@ import { nothingReported, type Reported, serverError } from "#test/support/serve
  * decided and several `some`, where the host decides none; and everything else is ExecutionFailure carrying the server's
  * report as given. Which constraint maps to
  * which law is the installation's (the law families and the write oracle hold it to PostgreSQL's refusals).
+ *
+ * @plant test/plants/unit/adapter/witness-bits-defect-unaimed.patch The steering leaves a report aimed at a bits
+ * domain's defect as drawn (aimedReport), so "defect on a bits domain" goes unreached and the search fails
+ * FeaturesUnreached.
  */
 
 /** The artifacts of a drawn installation: its schema extended by its law level, under the level's codes. */

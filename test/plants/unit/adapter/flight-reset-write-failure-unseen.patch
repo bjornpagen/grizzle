@@ -1,0 +1,17 @@
+diff --git a/packages/grizzle/src/adapter/wire/session.ts b/packages/grizzle/src/adapter/wire/session.ts
+index de553cab..ea1ee874 100644
+--- a/packages/grizzle/src/adapter/wire/session.ts
++++ b/packages/grizzle/src/adapter/wire/session.ts
+@@ -796,11 +796,7 @@ const makeSession = (
+ 					settle()
+ 				})
+ 			}
+-			connection.stream.write(flightEnd(), (error) => {
+-				if (Predicate.isError(error) && !connection.stream.destroyed) {
+-					onCut()
+-				}
+-			})
++			connection.stream.write(flightEnd())
+ 		})
+ 		connection.stream.uncork()
+ 		if (Result.isFailure(written)) {

@@ -15,10 +15,10 @@
  * The box, exhausted: one or two reads, zero to two writes, and every fault: none, each read refused, each write
  * refused, the writes' making failing, and COMMIT refused 40001.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): two-flights-write-index-unshifted.patch (a refused write is indexed
- * within its own flight, not past every read).
- *
  * Features: each fault of the box, with one or two reads and none to two writes.
+ *
+ * @plant test/plants/unit/adapter/two-flights-write-index-unshifted.patch A refused write is indexed within its own
+ * flight, not past every read.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

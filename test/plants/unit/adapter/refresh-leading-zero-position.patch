@@ -1,0 +1,12 @@
+diff --git a/packages/grizzle/src/adapter/refresh/detail.ts b/packages/grizzle/src/adapter/refresh/detail.ts
+--- a/packages/grizzle/src/adapter/refresh/detail.ts
++++ b/packages/grizzle/src/adapter/refresh/detail.ts
+@@ -14,7 +14,7 @@
+ 		return undefined
+ 	}
+ 	const digits = Str.slice(concurrentRefreshTag.length)(detail)
+-	return isDecimal(digits) ? Number(digits) : undefined
++	return /^[0-9]+$/.test(digits) ? Number(digits) : undefined
+ }
+ 
+ /**

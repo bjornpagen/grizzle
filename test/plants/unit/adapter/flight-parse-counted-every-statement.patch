@@ -1,0 +1,14 @@
+diff --git a/packages/grizzle/src/adapter/wire/batch.ts b/packages/grizzle/src/adapter/wire/batch.ts
+index 4a729f92..a2ea52c8 100644
+--- a/packages/grizzle/src/adapter/wire/batch.ts
++++ b/packages/grizzle/src/adapter/wire/batch.ts
+@@ -1402,9 +1402,6 @@ const accountFlight = (
+ 		}
+ 		bytes += executionBytes(query)
+ 		if (query._tag === "prepared") {
+-			if (named.has(query.text.name)) {
+-				continue
+-			}
+ 			named.add(query.text.name)
+ 		}
+ 		const parse = parseLength(query)
