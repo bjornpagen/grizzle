@@ -11,7 +11,8 @@
  *
  * Features: an alternation, and nested alternations.
  *
- * Plants: text-canonical-order-reversed (the arms compared in descending order).
+ * @plant test/plants/unit/text/text-canonical-order-reversed.patch The builder compares an alternation's arms in
+ * descending order; the order property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

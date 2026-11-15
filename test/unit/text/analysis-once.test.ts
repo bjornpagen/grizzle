@@ -15,7 +15,8 @@
  * Features: one pattern and several, a pattern several relations read, a containment, closed rows, an unbounded
  * pattern.
  *
- * Plants: text-analysis-twice (str.regex analyzes its pattern a second time).
+ * @plant test/plants/unit/text/text-analysis-twice.patch str.regex analyzes its pattern a second time; the count of
+ * analyses a distinct pattern fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

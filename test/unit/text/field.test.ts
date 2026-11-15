@@ -9,7 +9,8 @@
  *
  * Features: an admitted pattern and a refused one.
  *
- * Plants: text-field-flags-dropped (a descriptor's flags always "u").
+ * @plant test/plants/unit/text/text-field-flags-dropped.patch str.regex's descriptor always takes the flags "u",
+ * whatever its flags argument; the descriptor property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

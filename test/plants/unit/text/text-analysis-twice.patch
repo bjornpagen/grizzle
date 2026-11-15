@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/text/field.ts b/packages/engine/src/text/field.ts
+index fc780723..69f38ecc 100644
+--- a/packages/engine/src/text/field.ts
++++ b/packages/engine/src/text/field.ts
+@@ -117,6 +117,7 @@ export const regexField = <Host extends string>(
+ 	admitRegex(source, first)
+ 	const resolved: RegexFlags = flagsOf[`${first}` as const]
+ 	const patterns: Patterns = [Object.freeze({ source, flags: resolved })]
++	textLookup(patterns)
+ 	return textField<Host>(patterns, textLookup(patterns), undefined)
+ }
+ 

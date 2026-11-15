@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/regex/space.ts b/packages/engine/src/scalar/regex/space.ts
+index 534a7347..a26086ae 100644
+--- a/packages/engine/src/scalar/regex/space.ts
++++ b/packages/engine/src/scalar/regex/space.ts
+@@ -63,7 +63,7 @@ export const colorsOf = (ir: LiveNode): Colors => {
+ 		if (known === undefined) {
+ 			keys.set(bounds, printed.length)
+ 			positions.set(node, printed.length)
+-			printed.push(intervals)
++			printed.push(intervals.map(([lo, hi]): Interval => [lo, hi - 1]))
+ 		} else {
+ 			positions.set(node, known)
+ 		}

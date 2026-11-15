@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/regex/match.ts b/packages/engine/src/scalar/regex/match.ts
+index 06bd2c81..fa2e96e0 100644
+--- a/packages/engine/src/scalar/regex/match.ts
++++ b/packages/engine/src/scalar/regex/match.ts
+@@ -71,7 +71,7 @@ export const closure = (
+ /** The code points of an admitted text value, or undefined when it is not one (NUL or a lone surrogate). */
+ const admittedCodePoints = (value: string): ReadonlyArray<number> | undefined => {
+ 	const points = codePoints(value)
+-	return points.every((c) => isAdmittedCodePoint(c)) ? points : undefined
++	return points
+ }
+ 
+ /** Whether a match exists in the code point sequence. */

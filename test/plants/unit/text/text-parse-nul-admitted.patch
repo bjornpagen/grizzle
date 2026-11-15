@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/scalar/regex/parse.ts b/packages/engine/src/scalar/regex/parse.ts
+index b4e80e1e..139c0597 100644
+--- a/packages/engine/src/scalar/regex/parse.ts
++++ b/packages/engine/src/scalar/regex/parse.ts
+@@ -460,9 +460,7 @@ class Parser {
+ 
+ 	/** A literal code point: never NUL and never a lone surrogate, which is no Unicode scalar. */
+ 	#literal(c: number, at: number, construct: string): number {
+-		if (c === 0) {
+-			this.#unsupported(at, construct, "NUL is not admitted text, so a pattern may not spell it")
+-		} else if (isSurrogate(c)) {
++		if (isSurrogate(c)) {
+ 			this.#unsupported(
+ 				at,
+ 				construct.length === 1

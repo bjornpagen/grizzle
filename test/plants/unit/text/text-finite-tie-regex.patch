@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/text/refinement.ts b/packages/engine/src/text/refinement.ts
+index 027d7932..c669042d 100644
+--- a/packages/engine/src/text/refinement.ts
++++ b/packages/engine/src/text/refinement.ts
+@@ -123,7 +123,7 @@ const measured = (check: PatternCheck): Measured => ({ check, bytes: predicateBy
+  * Both recognize exactly the language, so their printed size is all that tells them apart.
+  */
+ const shorter = (inList: Measured, regex: Measured): Measured =>
+-	inList.bytes <= regex.bytes ? inList : regex
++	inList.bytes < regex.bytes ? inList : regex
+ 
+ /** The bounds a pattern proves of its own language: its automaton's longest member, or its IR's structure's. */
+ const ownBounds = (pattern: PatternAnalysis): TextBounds | undefined => {

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/compute/lower.ts b/packages/engine/src/scalar/compute/lower.ts
+index 524d6ffb..c5ae4f96 100644
+--- a/packages/engine/src/scalar/compute/lower.ts
++++ b/packages/engine/src/scalar/compute/lower.ts
+@@ -3275,7 +3275,7 @@ class Lowering<R extends Refs> {
+ 		}
+ 		const own = textOf(subject.nominal)
+ 		const type = this.textWithin(
+-			appendNonEmpty(own === undefined || own.regex === "wildcard" ? [] : own.regex.patterns, {
++			appendNonEmpty([], {
+ 				source: guard.pattern,
+ 				flags: matchFlags
+ 			}),

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/regex/matcher.ts b/packages/engine/src/scalar/regex/matcher.ts
+index b5a16b48..0014d95a 100644
+--- a/packages/engine/src/scalar/regex/matcher.ts
++++ b/packages/engine/src/scalar/regex/matcher.ts
+@@ -21,7 +21,7 @@ export const memberOf = (
+ 	const octets = octetsOf(regex.check)
+ 	return (
+ 		(octets === undefined || utf8Length(text) <= octets) &&
+-		regex.patterns.every((pattern) => matches(nfaOf(pattern), text))
++		regex.patterns.some((pattern) => matches(nfaOf(pattern), text))
+ 	)
+ }
+ 

@@ -1,0 +1,23 @@
+diff --git a/packages/engine/src/ir/scalar.ts b/packages/engine/src/ir/scalar.ts
+index d468c1fc..21e8e6bc 100644
+--- a/packages/engine/src/ir/scalar.ts
++++ b/packages/engine/src/ir/scalar.ts
+@@ -372,7 +372,7 @@ export const languageKey = (text: string): RegexKey =>
+ const boundsWithin = (bounds: TextBounds | undefined, octets: number): TextBounds =>
+ 	bounds === undefined
+ 		? textBounds(octets, octets)
+-		: textBounds(Math.min(bounds.length, octets), Math.min(bounds.bytes, octets))
++		: textBounds(Math.min(bounds.length, octets), octets)
+ 
+ /**
+  * `octet_length(VALUE) <= octets` beside a pattern's `check`, or alone where the pattern admits every value, with the
+@@ -398,9 +398,6 @@ export const languageWithin = (pattern: PatternLanguage, octets: number): TextLa
+ 		return Object.freeze(every)
+ 	}
+ 	const { check } = pattern
+-	if (check.bounds !== undefined && check.bounds.bytes <= octets) {
+-		return pattern
+-	}
+ 	const cut: TextLanguage = {
+ 		kind: "refined",
+ 		key: languageKey(`${pattern.key}&octets<=${octets}`),

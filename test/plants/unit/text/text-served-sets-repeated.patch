@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/scalar/regex/patterns.ts b/packages/engine/src/scalar/regex/patterns.ts
+index d9b6fb60..61584c54 100644
+--- a/packages/engine/src/scalar/regex/patterns.ts
++++ b/packages/engine/src/scalar/regex/patterns.ts
+@@ -191,7 +191,6 @@ class SetTable {
+ 		}
+ 		const at = this.sets.length
+ 		this.sets.push(set)
+-		candidates.push(at)
+ 		return at
+ 	}
+ }

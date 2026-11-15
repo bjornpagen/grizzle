@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/regex/ir.ts b/packages/engine/src/scalar/regex/ir.ts
+index c60f30d1..b192bbac 100644
+--- a/packages/engine/src/scalar/regex/ir.ts
++++ b/packages/engine/src/scalar/regex/ir.ts
+@@ -551,7 +551,7 @@ export class RegexBuilder {
+ 				case "alt":
+ 					return n.arms.some((arm) => of(arm))
+ 				case "repeat":
+-					return (n.max === "unbounded" && this.#zeroPathsOf(n.body).asserted) || of(n.body)
++					return of(n.body)
+ 				case "empty":
+ 				case "never":
+ 				case "set":

@@ -15,9 +15,15 @@
  * Features: a source that loops through an assertion; compared and read back to its own key; admitted, refused at a
  * budget, spelled otherwise than its ARE; the IN list chosen, the regex chosen, a tie.
  *
- * Plants: text-loop-unrefused (a loop through an assertion the rewrite leaves is not refused), text-are-quantifier-max
- * (a counted quantifier printed one short), text-are-as-written (a pattern's ARE its source as written),
- * text-finite-tie-regex (a tie enforced by the regex).
+ * @plant test/plants/unit/text/text-seq-assertion-unseen.patch A sequence's zero-width paths count as asserted only
+ * when every item asserts, so a body such as `(?:a|$|)b?` is neither rewritten nor refused as a loop; the constraint
+ * loops property fails.
+ * @plant test/plants/unit/text/text-are-quantifier-max.patch A counted quantifier's maximum printed one short in the
+ * ARE; the read back and budgets properties fail.
+ * @plant test/plants/unit/text/text-are-as-written.patch A pattern's ARE is its source as written, never the IR's
+ * print; the budgets property fails.
+ * @plant test/plants/unit/text/text-finite-tie-regex.patch A finite language whose two forms print in as many bytes is
+ * enforced by the regex, not the IN list; the finite form property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

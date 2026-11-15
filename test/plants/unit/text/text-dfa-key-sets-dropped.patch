@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/regex/dfa.ts b/packages/engine/src/scalar/regex/dfa.ts
+index 0f770369..2da3f1e3 100644
+--- a/packages/engine/src/scalar/regex/dfa.ts
++++ b/packages/engine/src/scalar/regex/dfa.ts
+@@ -685,7 +685,7 @@ export const intersectionDfa = (
+ 
+ /** The canonical text of a minimal DFA: equal texts, equal languages. */
+ export const dfaKey = (dfa: CanonicalDfa): string =>
+-	JSON.stringify(dfa.states.map((s) => [s.accept ? 1 : 0, s.edges.map((e) => [e.set, e.to])]))
++	JSON.stringify(dfa.states.map((s) => [s.accept ? 1 : 0, s.edges.map((e) => e.to)]))
+ 
+ /** Every admitted value is a member: one accepting state looping on the whole domain. */
+ export const isUniversal = (dfa: CanonicalDfa): boolean => {

@@ -18,9 +18,16 @@
  * Features: every planted construct; malformed, admitted and unsupported sources; a NUL and a lone surrogate; admitted
  * and other flags, a non-string source, no flags and every wild kind; each nesting.
  *
- * Plants: text-parse-lookahead-offset (a lookahead refused one code point late), text-parse-stray-paren (an
- * unmatched ')' passed over), text-parse-nul-admitted (a literal NUL admitted), text-flags-any-string (any flags
- * string admitted), text-expanded-size-empty-arm (an optional's empty arm counted as a written-out position).
+ * @plant test/plants/unit/text/text-parse-lookahead-offset.patch A lookahead is refused one code point past where it
+ * begins; the unsupported property fails.
+ * @plant test/plants/unit/text/text-parse-stray-paren.patch An unmatched ')' is passed over, not refused as
+ * malformed; the malformed property fails.
+ * @plant test/plants/unit/text/text-parse-nul-admitted.patch A literal NUL in a source is admitted; the text property
+ * fails.
+ * @plant test/plants/unit/text/text-flags-any-string.patch str.regex admits any flags string; the flags property
+ * fails.
+ * @plant test/plants/unit/text/text-expanded-size-empty-arm.patch An optional's empty arm counts as a written-out
+ * position; the nesting property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

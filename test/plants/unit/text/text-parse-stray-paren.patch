@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/scalar/regex/parse.ts b/packages/engine/src/scalar/regex/parse.ts
+index b4e80e1e..235d5a43 100644
+--- a/packages/engine/src/scalar/regex/parse.ts
++++ b/packages/engine/src/scalar/regex/parse.ts
+@@ -254,7 +254,8 @@ class Parser {
+ 			} else if (c === cp(")")) {
+ 				const group = open.of
+ 				if (group.kind === "pattern") {
+-					throw this.#malformed(this.#pos, ")", "unmatched ')'")
++					this.#pos += 1
++					continue
+ 				}
+ 				this.#pos += 1
+ 				const body = this.#closed(open)

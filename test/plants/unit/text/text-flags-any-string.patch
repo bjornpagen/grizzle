@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/text/field.ts b/packages/engine/src/text/field.ts
+index fc780723..129c0729 100644
+--- a/packages/engine/src/text/field.ts
++++ b/packages/engine/src/text/field.ts
+@@ -76,7 +76,7 @@ export const admitRegex = (source: unknown, flags: unknown): void => {
+ 	if (typeof source !== "string") {
+ 		refuse("a regex source string; a RegExp object or regex.as assertion is not accepted")
+ 	}
+-	if (flags !== undefined && !isRegexFlags(flags)) {
++	if (flags !== undefined && typeof flags !== "string") {
+ 		refuse('regex flags "u" or "su"')
+ 	}
+ }

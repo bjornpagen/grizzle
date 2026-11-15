@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/regex/ir.ts b/packages/engine/src/scalar/regex/ir.ts
+index c60f30d1..bf3595e9 100644
+--- a/packages/engine/src/scalar/regex/ir.ts
++++ b/packages/engine/src/scalar/regex/ir.ts
+@@ -156,7 +156,7 @@ export const seq = (items: ReadonlyArray<RegexNode>): RegexNode => {
+ 	}
+ 	for (const item of items) {
+ 		if (item.kind === "never") {
+-			return never
++			continue
+ 		}
+ 		profiles = followed(profiles, item.profiles)
+ 		if (item.kind === "empty") {

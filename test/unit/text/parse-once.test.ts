@@ -15,7 +15,8 @@
  * Features: one pattern and several, a relation of several texts, several closed rows, a dotall pattern, a match that
  * holds and one that fails.
  *
- * Plants: text-parse-per-row (a compiled table's match parses its pattern on every call).
+ * @plant test/plants/unit/text/text-parse-per-row.patch A compiled table's match parses its pattern on every call;
+ * the host's per-row reads parse, and the property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

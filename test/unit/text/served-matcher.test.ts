@@ -14,7 +14,8 @@
  *
  * Features: a pattern under u, one under su, a text matched, a text refused.
  *
- * Plants: text-served-sets-repeated (a set written once for each edge that steps on it).
+ * @plant test/plants/unit/text/text-served-sets-repeated.patch The served file's set table writes a set once for
+ * each edge that steps on it; the property that the file's sets are a set fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

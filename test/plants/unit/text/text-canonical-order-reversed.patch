@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/regex/ir.ts b/packages/engine/src/scalar/regex/ir.ts
+index c60f30d1..e5889e2f 100644
+--- a/packages/engine/src/scalar/regex/ir.ts
++++ b/packages/engine/src/scalar/regex/ir.ts
+@@ -446,7 +446,7 @@ export class RegexBuilder {
+ 		if (sets.length > 0) {
+ 			flat.push(liveSet(union(sets)))
+ 		}
+-		const compare = (a: LiveNode, b: LiveNode): number => compareCanonical(a, b, this.#pieces)
++		const compare = (a: LiveNode, b: LiveNode): number => compareCanonical(b, a, this.#pieces)
+ 		const sorted: Array<LiveNode> = []
+ 		for (const arm of flat.toSorted(compare)) {
+ 			const previous = sorted.at(-1)
