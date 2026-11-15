@@ -44,7 +44,7 @@ export type Finding =
 	| Readonly<{ kind: "sameName"; name: string; plants: Arr.NonEmptyReadonlyArray<string> }>
 
 /** A test file, by the suffix every test's name carries. */
-export const isTest = (path: string): boolean => Str.endsWith(".test.ts")(path)
+const isTest = (path: string): boolean => Str.endsWith(".test.ts")(path)
 
 /** A citation and the file that makes it. */
 interface Cited {
