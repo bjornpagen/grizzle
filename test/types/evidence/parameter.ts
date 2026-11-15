@@ -14,6 +14,11 @@ import { Array as Arr } from "effect"
  * Comment.node). A function generic over its parent's field, `<D extends Meets<Uuid, "uuid">>`, defers the equality's
  * evidence until the call and proves neither option nor one: a known limit of the types, which this program does not
  * state.
+ *
+ * Beside the box, for each schema, the comment as a child a function builds over the node's id, taken as an input term
+ * that an equality fixes the comment's key to (keyedBlock), attached as an option, against the same child inline over
+ * the node's own variable: the equality fixes the key in both, so both prove the option, and the two apps have one
+ * head. Only there does a delivery rest on the equality with the input term itself.
  */
 
 /** A schema of the box: how the comments relate to the nodes. */
@@ -94,6 +99,27 @@ const cellBlock = (box: Box, delivery: Delivery): string => {
 	)
 }
 
+/**
+ * The comment by an equality with the node's id, attached as an option: built by a function that takes the id as an
+ * input term, and inline over the node's own variable.
+ */
+const keyedBlock = (box: Box): string => {
+	const child = (node: string): string =>
+		`query(${box.name}).rule((r) => { const { node: n, value } = v(Comment, "comment"); return r.match(Comment, { node: n, value }).where(r.eq(n, ${node})).find({ value }) })`
+	const nodes = `query(${box.name}).rule((r) => { const { id, document: d } = v(Node, "node"); return r.match(Node, { id, document: d }).find({ id }) })`
+	return Arr.join(
+		[
+			`/** ${box.name}, the comment by an equality with the node's id, as an option: by a function, and inline. */`,
+			`export const comment_${box.name} = (node: Term<Uuid, unknown, InputOrigin, "uuid">) => ${child("node")}`,
+			`export const keyed_${box.name} = ${nodes}.attach("comment", (node) => comment_${box.name}(node.id), "option")`,
+			`export const keyedInline_${box.name} = ${nodes}.attach("comment", (node) => ${child("node.id")}, "option")`,
+			`export type SameKeyed_${box.name} = Expect<Equals<HeadOf<typeof keyed_${box.name}>, HeadOf<typeof keyedInline_${box.name}>>>`,
+			""
+		],
+		"\n"
+	)
+}
+
 /** The program over the box, every name read from the package's public entry. */
 export const parameterSource = (): string =>
 	Arr.join(
@@ -108,7 +134,8 @@ export const parameterSource = (): string =>
 			'export const Node = relation("Node", { id: uuid, document: uuid }, ["id"])',
 			'export const Comment = relation("Comment", { node: uuid, value: pg.bigint }, ["node"])',
 			...Arr.map(schemas, schemaBlock),
-			...Arr.flatMap(schemas, (box) => Arr.map(deliveries, (delivery) => cellBlock(box, delivery)))
+			...Arr.flatMap(schemas, (box) => Arr.map(deliveries, (delivery) => cellBlock(box, delivery))),
+			...Arr.map(schemas, keyedBlock)
 		],
 		"\n"
 	)

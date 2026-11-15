@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/types/evidence/evidence.ts b/packages/engine/src/types/evidence/evidence.ts
+index 5cf934b9..255ff76b 100644
+--- a/packages/engine/src/types/evidence/evidence.ts
++++ b/packages/engine/src/types/evidence/evidence.ts
+@@ -256,7 +256,7 @@ type Needs<X, FixedFields extends string> = X extends TermBase | Producer<unknow
+ 		? Lost
+ 		: never
+ 
+-type OriginNeeds<O, FixedFields extends string> = unknown extends O
++type OriginNeeds<O, FixedFields extends string> = [InputOrigin] extends [O]
+ 	? Lost
+ 	: O extends InputOrigin
+ 		? never

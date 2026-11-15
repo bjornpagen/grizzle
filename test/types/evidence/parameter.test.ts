@@ -6,15 +6,19 @@
  * - its child proves a delivery exactly where the same child written inline over the parent's own variable proves it,
  *   and raises the same refusal where it does not (a twin label for the two);
  * - an app's parent variable is taken by the function's parameter, and the app that attaches the function's query has
- *   the head of the app that writes it inline.
+ *   the head of the app that writes it inline;
+ * - a comment the function builds over the node's id, taken as an input term that an equality fixes the comment's key
+ *   to, proves the option, as the same comment inline over the node's own variable does, and the two apps have one
+ *   head: the one delivery that rests on the equality with the input term itself.
  *
  * Oracle: the inline child, whose verdicts are the evidence's (an array always, an option over the key the parent
  * fixes, the one child where the schema proves existence). Not stated: a function generic over the field,
  * `<D extends Meets<Uuid, "uuid">>`, defers the equality's evidence until the call and proves neither option nor one, a
  * known limit of the types, which no contract promises either way.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): parameter-input-lost.patch loses an equality's evidence over an input
- * term, so the function's option and one children are refused where the inline ones prove.
+ * @plant test/plants/types/evidence/parameter-input-lost.patch An equality with a bare input term (InputOrigin and no
+ * parent's origin) determines nothing (types/evidence/evidence.ts OriginNeeds reads it as lost), so the option of the
+ * comment the function builds over the node's id is refused where the inline one proves it; the program fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
