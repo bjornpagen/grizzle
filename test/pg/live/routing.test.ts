@@ -10,10 +10,15 @@
  * registration's turn: a clean subscription runs nothing, a marked one re-runs exactly once), so what a commit's
  * notifications did to each is its state, read without a race. A fence settles what came before the first commit: every
  * subscription a change before it marked is turned. After each commit of the history (a grizzle call or a direct
- * writer's SERIALIZABLE transaction), a fence commit inserts a Probe row that only the probe subscription reads, and the
- * probe is awaited until that row's change marks it and turned, its value then holding the row: notifications reach the
- * one listener in commit order and each is routed as it arrives, so by then every notification of the commit has been
- * routed.
+ * writer's SERIALIZABLE transaction), a fence commit inserts a Probe row that only the fence's own probe reads, a
+ * subscription of that row alone (world.ts probeAtMember) registered before the commit, and the probe is awaited until
+ * that row's change marks it and turned, its value then holding the row: notifications reach the one listener in commit
+ * order and each is routed as it arrives, so by then every notification of the commit has been routed. Only the fence's
+ * own commit marks its own probe; a probe of every row, marked as well by any copy of an earlier fence's notification,
+ * would let the fence pass before its commit was routed (the Misrouted reds of routing at 0b7b5f31 and 4c9ce8f7). That
+ * order is forced before every fence after the first: a copy of the last fence's notification, sealed under the secret
+ * as the leader seals it and sent on the channel as any session may send one (pg_notify is PUBLIC), is routed (the last
+ * fence's probe marked by it), and the fence's own probe must still be clean.
  *
  * Properties, after each commit:
  *
@@ -26,8 +31,9 @@
  *   once on the wire (test/support/wire-tap.ts), and is clean after it; an unmarked one is never turned and never
  *   executes again;
  * - notifications no holder of the live secret sealed, sent on the fan-out channel by the direct writer (a plaintext
- *   route key of a subscription's own group, and every sealed payload received so far with one character changed),
- *   mark no subscription: the listener drops what its seal does not open.
+ *   route key of a subscription's own group, and every payload the leader sealed so far with one character changed,
+ *   each once from its original, never a payload the case sent itself, and each checked to open under no secret), mark
+ *   no subscription: the listener drops what its seal does not open.
  *
  * The oracle is the routing a program's own parameters state (world.ts touches), restated over the drawn writes, never
  * the footprint the served file records; a re-run is counted as the wire shows it, the Binds of the subscription's
@@ -39,9 +45,13 @@
  * too narrow for its routing column, so a subscription its write touched, or the group an update moved a row out of,
  * stays clean); unauthenticated-fanout.patch
  * (the listener reads a payload its seal does not open as plaintext, so a forged route key marks its subscription).
+ * In ~/.cache/grizzle-release/DENAPI/plants: fence-on-every-row.patch (each fence's own probe reads every row of Probe,
+ * as the fence did before), under which the sealed copy of the last fence's notification marks it, every time; and
+ * forgeries-tamper-everything.patch (every payload received is tampered, the case's own earlier forgeries among them,
+ * as before), under which a forgery tampered twice comes back to the leader's payload and opens.
  *
  * Features: a touched and an untouched subscription of one relation, a commit touching several subscriptions, an
- * update moving a row between groups, each read shape, each writer.
+ * update moving a row between groups, each read shape, each writer, a sealed copy of the last fence's notification.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { awaitFact } from "@bjornpagen/testing/fact"
@@ -50,7 +60,16 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
-import { formOf, RowKey } from "#compiler/live/index.ts"
+import { SecureRandom } from "effect/crypto"
+import { sealNonceBytes } from "#compiler/core/seal.ts"
+import {
+	batchesOf,
+	openPayload,
+	parseLiveSecret,
+	parseNotification,
+	sealBatch,
+	sealNonce
+} from "#compiler/live/notify.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -58,13 +77,16 @@ import { commitLive, inputOf, worldRegistrations, worldSurfaces } from "#test/su
 import { commitDirectly, fenceStatement } from "#test/support/live/direct.ts"
 import { installLive, type LiveInstallation } from "#test/support/live/harness.ts"
 import { standingOn } from "#test/support/live/standing.ts"
+import type { Registration } from "#test/support/live/system.ts"
 import {
 	expectedRoutes,
 	groupOf,
 	type LiveBounds,
 	type LiveSubscription,
 	liveCaseGen,
+	probeAtMember,
 	probeMember,
+	probeRelation,
 	type ReadKind,
 	readMember,
 	relationName,
@@ -73,7 +95,7 @@ import {
 } from "#test/support/live/world.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import type { FrontendMessage, Notification, WireWindow } from "#test/support/wire-tap.ts"
+import type { FrontendMessage, WireWindow } from "#test/support/wire-tap.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 class Misrouted extends Data.TaggedError("Misrouted")<{ readonly report: string }> {}
@@ -87,6 +109,7 @@ type Feature =
 	| `a ${ReadKind} read`
 	| "a direct writer's commit"
 	| "a grizzle call's commit"
+	| "a sealed copy of the last fence's notification"
 
 const bounds: LiveBounds = {
 	groups: 3,
@@ -170,13 +193,17 @@ const footprintsHold = (live: LiveInstallation): void => {
 /**
  * Notifications no holder of the live secret sealed, sent on the fan-out channel as any session may send them: for each
  * subscription that binds a group, the plaintext route key of its group in a relation it reads, as an unsealed fan-out
- * would spell it (live/notify.ts), and every sealed payload the listener has received so far with one character of its
- * text changed, a tampering its seal must refuse.
+ * would spell it (live/notify.ts), and every payload the leader sealed so far, `genuine`, with one character of its text
+ * changed, a tampering its seal must refuse. Only the leader's own payloads are tampered, each once from its original:
+ * a payload the case sent itself, a forgery of an earlier step tampered again, can come back to the original, as `A`
+ * turned `B` and back, which is a copy of a sealed payload, no forgery, and which the listener rightly opens (the Misrouted
+ * reds of routing at 0b7b5f31 and 4c9ce8f7: such a copy of a commit's payload marked its subscriptions after the step,
+ * and one of a fence's let a later fence pass early).
  */
 const forgeries = (
 	live: LiveInstallation,
 	registered: ReadonlyArray<{ readonly s: LiveSubscription }>,
-	received: ReadonlyArray<Notification>
+	genuine: ReadonlyArray<string>
 ): { readonly payloads: ReadonlyArray<string>; readonly kinds: ReadonlyArray<Feature> } => {
 	const plain = Arr.flatMap(registered, ({ s }) => {
 		const group = groupOf(s)
@@ -191,8 +218,8 @@ const forgeries = (
 		)
 		return [`${table.name.name}:${column.column}=${group}`]
 	})
-	const tampered = Arr.map(received, (n) => {
-		const characters = Arr.fromIterable(n.payload)
+	const tampered = Arr.map(genuine, (payload) => {
+		const characters = Arr.fromIterable(payload)
 		const at = characters.length >> 1
 		return Arr.join(
 			Arr.map(characters, (character, i) => (i !== at ? character : character === "A" ? "B" : "A")),
@@ -231,7 +258,8 @@ layer(Substrate.layer)("a commit's notifications", (it) => {
 								"a commit touching several subscriptions",
 								"an update moving a row between groups",
 								"a direct writer's commit",
-								"a grizzle call's commit"
+								"a grizzle call's commit",
+								"a sealed copy of the last fence's notification"
 							],
 							{ cases: 40, sense: notesOnly }
 						),
@@ -250,7 +278,6 @@ layer(Substrate.layer)("a commit's notifications", (it) => {
 								const surfaces = yield* worldSurfaces(live)
 								const register = yield* worldRegistrations(live)
 								yield* standingOn(surfaces.inProcess, probeMember, { params: {}, facts: {} })
-								const probe = yield* register(probeMember, { params: {}, facts: {} })
 								/** Each subscription registered and read once, with the Binds its first read sent. */
 								const registered = yield* Effect.forEach(c.subscriptions, (s: LiveSubscription) =>
 									Effect.gen(function* () {
@@ -278,29 +305,86 @@ layer(Substrate.layer)("a commit's notifications", (it) => {
 										"a world whose reads read its relations installs a live source"
 									)
 								}
+								const substrate = yield* Substrate
+								const secretRows = yield* substrate.superuserRead((rows) => rows(source.secret.sql))
+								const secret = succeeded(
+									parseLiveSecret(String(defined(secretRows[0]?.[0], "the live secret's cell"))),
+									"the live secret"
+								)
+								const probeTable = defined(
+									live.installed.plan.tables[probeRelation],
+									"the Probe table"
+								)
+								const probeId = defined(
+									Option.getOrUndefined(
+										Arr.findFirst(probeTable.columns, (col) => col.field === "id")
+									),
+									"Probe.id"
+								)
+								/** The leader's notification of Probe's row `id`, sealed under the secret as the leader seals it. */
+								const sealedProbe = (id: number): string => {
+									const notification = succeeded(
+										parseNotification(`${probeTable.name.name}:${probeId.column}=${id}`),
+										"a Probe row's route key"
+									)
+									const [batch] = batchesOf([notification])
+									return sealBatch(
+										secret,
+										succeeded(sealNonce(SecureRandom.randomBytesUnsafe(sealNonceBytes)), "a nonce"),
+										defined(batch, "the batch of one key")
+									)
+								}
+								/** Every payload the case sent on the channel itself, which are not the leader's. */
+								const sent = new Set<string>()
 								let fence = 0
-								/**
-								 * A fence: a Probe row committed after everything before it, the probe awaited until the row's
-								 * change marks it, and turned once, its value then holding the row: notifications reach the one
-								 * listener in commit order and each is routed as it arrives, so by then every change committed
-								 * before the fence has been routed.
-								 */
-								const fenced = Effect.gen(function* () {
-									fence += 1
-									yield* commitDirectly(live.writer, [fenceStatement(live.installed.plan, fence)])
-									yield* awaitFact(
-										Effect.map(probe.state, (state) =>
+								/** The last fence's own probe, once a fence ran. */
+								const last: { probe: Option.Option<Registration> } = { probe: Option.none() }
+								const marked = (registration: Registration) =>
+									awaitFact(
+										Effect.map(registration.state, (state) =>
 											state === "marked" ? Option.some(undefined) : Option.none()
 										)
 									)
-									const turned = yield* probe.turn
+								/**
+								 * A fence: a Probe row committed after everything before it, its own probe (probeAtMember, the row
+								 * of its id, registered before the row is) awaited until the row's change marks it, and turned
+								 * once, its value then holding the row: notifications reach the one listener in commit order and
+								 * each is routed as it arrives, so by then every change committed before the fence has been
+								 * routed. Only the fence's own commit marks its own probe. A probe of every row would be marked
+								 * as well by a copy of an earlier fence's notification, sealed under the secret as the leader
+								 * seals it, which PostgreSQL lets any session send on the channel (pg_notify is PUBLIC), so the
+								 * fence would pass before its own commit was routed. So before each fence after the first, that
+								 * order is forced: a sealed copy of the last fence's notification is sent and routed (the last
+								 * fence's probe marked by it), and the fence's own probe must still be clean.
+								 */
+								const fenced = Effect.gen(function* () {
+									fence += 1
+									const own = yield* register(probeAtMember, { params: { id: fence }, facts: {} })
+									const previous = last.probe
+									if (Option.isSome(previous)) {
+										const copy = sealedProbe(fence - 1)
+										sent.add(copy)
+										yield* live.writer.query(source.fanout.sql, [[copy]])
+										yield* marked(previous.value)
+										const standing = yield* own.state
+										if (standing !== "clean") {
+											return yield* new Misrouted({
+												report: `fence ${fence}'s own probe is ${standing} after a sealed copy of fence ${fence - 1}'s notification`
+											})
+										}
+										yield* previous.value.turn
+										notes.note("a sealed copy of the last fence's notification")
+									}
+									yield* commitDirectly(live.writer, [fenceStatement(live.installed.plan, fence)])
+									yield* marked(own)
+									const turned = yield* own.turn
 									assert.ok(
-										Option.exists(
-											turned,
-											(value) => value.at(formOf(RowKey([fence]))) !== undefined
+										Option.exists(turned, (value) =>
+											Arr.some(Arr.fromIterable(value), (row) => "id" in row && row.id === fence)
 										),
-										`the probe's turn after fence ${fence} holds its row`
+										`fence ${fence}'s own probe holds its row once turned: ${Formatter.format(turned)}`
 									)
+									last.probe = Option.some(own)
 								})
 								/** One turn of a subscription: the Binds of its statement the turn sent. */
 								const rerun = (r: (typeof registered)[number]) =>
@@ -376,7 +460,20 @@ layer(Substrate.layer)("a commit's notifications", (it) => {
 											`subscription ${i} (${Formatter.format(r.s)}) re-ran exactly once for ${Formatter.format(commit)}`
 										)
 									}
-									const forged = forgeries(live, registered, live.tap.notifications())
+									const genuine = Arr.dedupe(
+										Arr.filter(
+											Arr.map(live.tap.notifications(), (n) => n.payload),
+											(payload) => !sent.has(payload)
+										)
+									)
+									const forged = forgeries(live, registered, genuine)
+									for (const payload of forged.payloads) {
+										assert.ok(
+											!openPayload(secret, payload).ok,
+											`a forged payload opens under no secret: ${payload} does`
+										)
+										sent.add(payload)
+									}
 									if (Arr.isReadonlyArrayNonEmpty(forged.payloads)) {
 										notes.noteAll(forged.kinds)
 										yield* live.writer.query(source.fanout.sql, [forged.payloads])

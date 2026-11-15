@@ -420,6 +420,12 @@ export const probeRelation = "Probe"
 export const probeMember = "probe"
 
 /**
+ * The fence's own probe: the row of Probe of the id its parameter names, a keyed read whose route is that row's id, so
+ * only a commit of that row marks it, never one of another fence's.
+ */
+export const probeAtMember = "probeAt"
+
+/**
  * The counted family every world holds and no read reads: a `Shelf(id)` owner whose drawn count `n` counts the
  * `Book(id, shelf)` members naming it, beside the items. A write of a book naming a stored shelf appends a member to a
  * stored owner, which its one flight writes by the family write's additions statement, and which only a mutable owner
@@ -517,6 +523,10 @@ export const liveWorld = (c: LiveCase, name: string) => {
 	const programs: Record<string, unknown> = {
 		[probeMember]: query(base).rule((r) => {
 			const { id } = v(Probe, "probe")
+			return r.match(Probe, { id }).find({ id })
+		}),
+		[probeAtMember]: query(base).rule((r) => {
+			const id = r.param("id", pg.integer)
 			return r.match(Probe, { id }).find({ id })
 		})
 	}

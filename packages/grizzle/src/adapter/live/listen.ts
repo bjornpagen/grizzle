@@ -42,6 +42,17 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
  * of the layer, a constant read's as a routed one's. The session's end loses it with ListenerLost. The source
  * moves only forward, from opening to listening to over, and its one loss is the first.
  *
+ * A seal proves who sealed a payload, never when: a copy of a payload the leader sealed opens again, sent by any session
+ * that may NOTIFY on the channel (pg_notify is PUBLIC, and LISTEN lets a session of the database read every payload), so
+ * a copy is routed as the original was. That is safe, since it only ever over-marks:
+ * - a key's copy marks only the subscriptions a past commit really touched, and a mark is only ever set by a key
+ *   (subscriptions.ts markSubscription) and cleared only by the subscription's own re-read, which begins after the
+ *   clear (rerun), so a copy costs an extra re-read that diffs empty, and never clears or skips a mark;
+ * - a copy of `invalidated` loses only a source standing at or before the position it names (heardInvalidation), a
+ *   source the original lost too, never one on a slot made since;
+ * - a copy of `migrated` ends every live read `stale` once more, which its client answers by reading again.
+ * No copy can make a read miss a change: each fails closed.
+ *
  * What the source runs with: the decoder login's connection and its sessions' texts, the installation's live source,
  * and the candidacy each process runs for its leader.
  */
