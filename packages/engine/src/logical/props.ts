@@ -215,6 +215,12 @@ export interface Props {
 	 * steps are stated in; none for a column only a computation fixes.
 	 */
 	readonly fixed: ReadonlyMap<string, ReadonlyArray<NamedValue>>
+	/**
+	 * What nothing determines at the node: the closure of the empty start, each column with the step that reached it and
+	 * the value it was named by (closureOf). `fixed` is read off it, and a parent that closes the node's determinants
+	 * reads the empty one's here rather than closing it again (reachedFrom).
+	 */
+	readonly nothing: Closure<Named>
 }
 
 /** A node as the logical analysis reads it: each input replaced by that input's properties. */
@@ -458,6 +464,13 @@ const coverOf = (props: Table, start: Iterable<string>): Closure<never> => {
 	)
 }
 
+/**
+ * What `start` determines at a node a parent reads: for the empty start, the closure of nothing the node carries
+ * (Props.nothing); for any other, its closure there (closureOf).
+ */
+const reachedFrom = (input: Props, start: ReadonlyArray<string>): Closure<Named> =>
+	start.length === 0 ? input.nothing : closureOf(input, start)
+
 /** The columns of a node fixed per evaluation: what nothing determines. */
 export const fixedColumns = (props: Props): ReadonlyArray<string> => [...props.fixed.keys()]
 
@@ -499,8 +512,10 @@ const namesAt = (
  * name the input fixes it to, by a step like it over the input's derivation of that name; an equality carries each name
  * of its other column. So the names are every value the node's steps fix the column to, in any order of its steps.
  */
-const fixedOver = (props: Table): ReadonlyMap<string, ReadonlyArray<NamedValue>> => {
-	const reached = closureOf(props, [])
+const fixedOver = (
+	props: Table,
+	reached: Closure<Named>
+): ReadonlyMap<string, ReadonlyArray<NamedValue>> => {
 	const names = new Map<string, Array<NamedValue>>()
 	for (const c of reached.columns.keys()) {
 		const first = reached.named.get(c)
@@ -1034,7 +1049,7 @@ const carried = (
 	rule: (from: KeySet, to: KeySet, input: Implication) => Dependency
 ): ReadonlyArray<Dependency> =>
 	determinantsOf(input).flatMap((d) => {
-		const reached = closureOf(input, d)
+		const reached = reachedFrom(input, d)
 		const to = [...reached.columns.keys()].filter((c) => !d.includes(c))
 		return to.length === 0 ? [] : [rule(d.map(nameOf), to.map(nameOf), derivation(reached, to))]
 	})
@@ -1334,6 +1349,7 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 	}
 	const keys = rest.discriminant.length === 0 ? [productKey()] : withinKeys()
 	const atMostOne = keys.some((k) => k.key.length === 0)
+	const nothing = closureOf(table, [])
 	return {
 		...table,
 		node,
@@ -1348,7 +1364,8 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 		provenance: provenanceOver(columns, rest.provenance),
 		context: rest.context,
 		discriminant: rest.discriminant,
-		fixed: fixedOver(table)
+		fixed: fixedOver(table, nothing),
+		nothing
 	}
 }
 
@@ -1618,7 +1635,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 				 * reads nothing of the left (ir/rel.ts SemiJoinRight, which only semiJoinRight mints, reading its subtree), so
 				 * it is one relation per evaluation of the semi-join.
 				 */
-				const rightFixed = closureOf(right, [])
+				const rightFixed = right.nothing
 				appendAll(
 					deps,
 					reading.on.flatMap((pair, index) =>
@@ -1919,7 +1936,7 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 			}
 			const given = givens.flatMap((g) => g.given)
 			const from = new Set<string>([...reads, ...givens.flatMap((g) => g.from)])
-			const reached = closureOf(src, given)
+			const reached = reachedFrom(src, given)
 			const targets = [...reached.columns.keys()]
 			const to = targets.flatMap((c) => varsAt.get(c) ?? [hide(c)]).filter((v) => !from.has(v))
 			if (to.length > 0) {
@@ -2065,7 +2082,7 @@ const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props =>
 			continue
 		}
 		seen.add(text)
-		const reached = closureOf(
+		const reached = reachedFrom(
 			input,
 			ordered.flatMap((o) => readsOf(o))
 		)
