@@ -1,0 +1,17 @@
+diff --git a/packages/engine/src/lower/optimize/graph/seed.ts b/packages/engine/src/lower/optimize/graph/seed.ts
+index da2556e6..472cd148 100644
+--- a/packages/engine/src/lower/optimize/graph/seed.ts
++++ b/packages/engine/src/lower/optimize/graph/seed.ts
+@@ -143,7 +143,11 @@ const restrictable = (
+ 		return undefined
+ 	}
+ 	const carried = carriedColumns(finished)
+-	return new Set(node.heading.filter((c) => carried.has(c.name)).map((c) => c.name))
++	return new Set(
++		node.heading
++			.filter((c) => carried.has(c.name) && baseOf(c.type).carrier !== "float8")
++			.map((c) => c.name)
++	)
+ }
+ 
+ /**

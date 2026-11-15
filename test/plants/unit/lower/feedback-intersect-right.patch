@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/recursive/index.ts b/packages/engine/src/lower/conservative/recursive/index.ts
+index 8da78228..c81b7126 100644
+--- a/packages/engine/src/lower/conservative/recursive/index.ts
++++ b/packages/engine/src/lower/conservative/recursive/index.ts
+@@ -45,7 +45,7 @@ const nonPositive = (node: RelNode): Blocking | undefined => {
+ 		case "Difference":
+ 			return { inputs: [node.right], what: "a negation of the feedback" }
+ 		case "Intersect":
+-			return { inputs: [node.left, node.right], what: "an intersection with the feedback" }
++			return { inputs: [node.left], what: "an intersection with the feedback" }
+ 		case "Produce":
+ 			return node.producer === "spanPack"
+ 				? { inputs: [node.input], what: "a span pack over the feedback" }

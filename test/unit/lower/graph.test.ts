@@ -23,10 +23,18 @@
  * Features: each recursion form, origin and linearity; each spelling moved or kept and each sharing kept; one conjunct
  * or two moved; an origin filter applied over any vertex type and over double precision; each other consumer.
  *
- * Plants, each failing its search: every state column carried (graph-carried-all); a recursion read by another node
- * restricted at its seed (graph-sole-reader); two literals alike to the seed whatever their values
- * (graph-alike-literal); a double precision origin never restrictable (graph-float8-origin); every state column of a
- * recursion restrictable, the advanced endpoint included (graph-restrict-endpoint).
+ * @plant test/plants/unit/lower/graph-carried-all.patch carriedColumns (carried.ts) takes every state column as
+ * carried; the carried-column search fails, and the Network pushdown and origin-filter searches with it.
+ * @plant test/plants/unit/lower/graph-sole-reader.patch seed.ts's readOnlyBy admits a recursion another node also
+ * reads, so it is restricted at its seed; the Network pushdown search fails.
+ * @plant test/plants/unit/lower/graph-alike-literal.patch seed.ts's sameAtSeed takes two literals for alike whatever
+ * their values, so the second conjunct is taken as already in the seed; the alike-conjuncts search fails.
+ * @plant test/plants/unit/lower/graph-float8-origin.patch seed.ts's restrictable leaves a double precision state
+ * column out of the restrictable set, so an origin filter over float8 vertices never moves; the origin-filter search
+ * fails.
+ * @plant test/plants/unit/lower/graph-restrict-endpoint.patch seed.ts's restrictable takes every state column of a
+ * recursion, the advanced endpoint included, while carriedColumns stays right; the Network pushdown and origin-filter
+ * searches fail.
  */
 import { drawn, exhaust, explore, type Kept, sketched } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

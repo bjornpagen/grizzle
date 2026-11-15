@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/optimize/graph/seed.ts b/packages/engine/src/lower/optimize/graph/seed.ts
+index da2556e6..42140593 100644
+--- a/packages/engine/src/lower/optimize/graph/seed.ts
++++ b/packages/engine/src/lower/optimize/graph/seed.ts
+@@ -92,7 +92,7 @@ const readOnlyBy = (cx: RewriteCx, cell: Cell, reader: Cell): boolean => {
+ 		return false
+ 	}
+ 	const readers = DagEditor.readers(cx.cells.order)(cell)
+-	return readers.length === 1 && readers[0] === reader
++	return readers.includes(reader)
+ }
+ 
+ /**

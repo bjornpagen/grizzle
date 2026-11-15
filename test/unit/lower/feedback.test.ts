@@ -22,7 +22,8 @@
  *
  * Features: each verdict: lowered, refused for a block, for an unhashable state, for a second scan.
  *
- * Plant, failing the search: an intersection that blocks only its left side's feedback (feedback-intersect-right).
+ * @plant test/plants/unit/lower/feedback-intersect-right.patch The feedback walk (conservative/recursive nonPositive)
+ * blocks only an intersection's left side, so feedback through its right side is admitted; the search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
