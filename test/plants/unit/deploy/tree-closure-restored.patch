@@ -1,0 +1,86 @@
+diff --git a/packages/engine/src/deploy/diff/backfill.ts b/packages/engine/src/deploy/diff/backfill.ts
+index 7b4d1de6..e8599dd1 100644
+--- a/packages/engine/src/deploy/diff/backfill.ts
++++ b/packages/engine/src/deploy/diff/backfill.ts
+@@ -877,8 +877,71 @@ const treeDerivation = (
+ 			[{ kind: "table", table, alias: "t" }],
+ 			where
+ 		)
++	const closure = cte(
++		"__closure",
++		[...owner.map((_, k) => `__a_${k}`), ...owner.map((_, k) => `__d_${k}`)],
++		select(
++			unionAll("disjoint", [
++				provedCore(
++					"keyed",
++					[
++						...owner.map((c, k) => targetAs(col("t", c), `__a_${k}`)),
++						...owner.map((c, k) => targetAs(col("t", c), `__d_${k}`))
++					],
++					[{ kind: "table", table, alias: "t" }],
++					undefined
++				),
++				provedCore(
++					"keyed",
++					[
++						...owner.map((_, k) => targetAs(col("c", `__a_${k}`), `__a_${k}`)),
++						...owner.map((c, k) => targetAs(col("t", c), `__d_${k}`))
++					],
++					[
++						{
++							kind: "joins",
++							first: cteRefAs("__closure", "c"),
++							steps: [
++								{
++									kind: "on",
++									source: { kind: "table", table, alias: "t" },
++									on: and([not(isRoot), ...parent.map((p, k) => eq(col("t", p), col("c", `__d_${k}`)))])
++								}
++							]
++						}
++					],
++					undefined
++				)
++			])
++		)
++	)
++	const children = provedCore(
++		"keyed",
++		[
++			...carried.map((c) => targetAs(col("t", c), c)),
++			targetAs(isRoot, "__root"),
++			...owner.map((_, k) => targetAs(col("c", `__a_${k}`), at(k))),
++			targetAs(int(1n), "__child"),
++			targetAs(lit.bool(false), "__self"),
++			...steps.map((c) => targetAs(c.expr, c.name))
++		],
++		[
++			{
++				kind: "joins",
++				first: cteRefAs("__closure", "c"),
++				steps: [
++					{
++						kind: "on",
++						source: { kind: "table", table, alias: "t" },
++						on: and([not(isRoot), ...owner.map((o, k) => eq(col("t", o), col("c", `__d_${k}`)))])
++					}
++				]
++			}
++		],
++		and([lit.bool(true), ...parent.map((p, k) => eq(col("t", p), col("c", `__a_${k}`)))])
++	)
+ 	const roles = derived(
+-		select(unionAll("disjoint", [arm(owner, 0n, undefined), arm(parent, 1n, not(isRoot))])),
++		select(unionAll("disjoint", [arm(owner, 0n, undefined), children])),
+ 		"e",
+ 		[],
+ 		false
+@@ -980,7 +1043,7 @@ const treeDerivation = (
+ 	]
+ 	return {
+ 		table,
+-		with: undefined,
++		with: { recursive: true, ctes: [closure] },
+ 		core: isNonEmpty(folds)
+ 			? layered(
+ 					derived(select(ranked), "r", [], false),

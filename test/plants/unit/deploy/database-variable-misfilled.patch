@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/render/variables.ts b/packages/engine/src/deploy/render/variables.ts
+index 119679fc..42691702 100644
+--- a/packages/engine/src/deploy/render/variables.ts
++++ b/packages/engine/src/deploy/render/variables.ts
+@@ -55,7 +55,7 @@ export type VariableFault =
+  */
+ export const variableOf = (name: string): Variable | undefined => {
+ 	if (name === databaseVariable) {
+-		return { kind: "database" }
++		return { kind: "role", name, form: "stem" }
+ 	}
+ 	const form = roleNameForm(name)
+ 	return form === undefined ? undefined : { kind: "role", name, form }
