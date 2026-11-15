@@ -1,0 +1,15 @@
+diff --git a/bench/harness/cli.ts b/bench/harness/cli.ts
+index 6924663f..0709108f 100644
+--- a/bench/harness/cli.ts
++++ b/bench/harness/cli.ts
+@@ -146,9 +146,7 @@ export const parseBenchArgs = Effect.fn("parseBenchArgs")(function* (
+ 	const command = named ? first : "gates"
+ 	const args = named ? rest : argv
+ 	if (command === "full") {
+-		return Arr.isReadonlyArrayNonEmpty(args)
+-			? yield* usage(`full: unknown argument ${args[0]}`)
+-			: ({ kind: "full" } satisfies BenchCommand)
++		return { kind: "full" } satisfies BenchCommand
+ 	}
+ 	const listed = listedOf(command)
+ 	if (Option.isNone(listed)) {

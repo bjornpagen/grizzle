@@ -1,0 +1,13 @@
+diff --git a/bench/harness/explain.ts b/bench/harness/explain.ts
+index 4b345cfc..1479e7b6 100644
+--- a/bench/harness/explain.ts
++++ b/bench/harness/explain.ts
+@@ -258,7 +258,7 @@ const objectAt = (o: Json, key: string): Json => {
+ 
+ const num = (o: Json, key: string): number => {
+ 	const value = o[key]
+-	if (typeof value !== "number" || !Number.isFinite(value)) {
++	if (typeof value !== "number") {
+ 		return fail(`${key} is not a number`)
+ 	}
+ 	return value

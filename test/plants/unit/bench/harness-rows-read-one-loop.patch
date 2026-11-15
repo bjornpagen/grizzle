@@ -1,0 +1,13 @@
+diff --git a/bench/harness/explain.ts b/bench/harness/explain.ts
+index 4b345cfc..dc0d2e64 100644
+--- a/bench/harness/explain.ts
++++ b/bench/harness/explain.ts
+@@ -696,7 +696,7 @@ const generatingScan = (n: PlanNode): boolean =>
+ const scanned = (nodes: Iterable<PlanNode>): number =>
+ 	Iterator.from(nodes).reduce(
+ 		(sum, n) =>
+-			sum + (n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck) * n.actualLoops,
++			sum + (n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck),
+ 		0
+ 	)
+ 

@@ -1,0 +1,13 @@
+diff --git a/bench/harness/runner.ts b/bench/harness/runner.ts
+index 1338739d..5d172e5d 100644
+--- a/bench/harness/runner.ts
++++ b/bench/harness/runner.ts
+@@ -268,7 +268,7 @@ export const recordOf = (
+ 				...named,
+ 				runPhases: base.runPhases,
+ 				release: { kind: "leaked", report: Cause.pretty(release.cause) },
+-				verdicts: errored(`the release leaked: ${firstLine(Cause.pretty(release.cause))}`),
++				verdicts: judged,
+ 				cases: result.cases,
+ 				problems: []
+ 			}

@@ -1,0 +1,13 @@
+diff --git a/bench/harness/explain.ts b/bench/harness/explain.ts
+index 4b345cfc..d9a4f575 100644
+--- a/bench/harness/explain.ts
++++ b/bench/harness/explain.ts
+@@ -539,7 +539,7 @@ export interface PlanLabel {
+ const labelOf = (node: PlanLabel): PlanLabel => ({
+ 	nodeType: node.nodeType,
+ 	joinType: node.joinType,
+-	strategy: node.strategy
++	strategy: Option.none()
+ })
+ 
+ /**

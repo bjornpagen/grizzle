@@ -1,0 +1,16 @@
+diff --git a/bench/query/support/kit.ts b/bench/query/support/kit.ts
+index 7803f28f..20e1dfd4 100644
+--- a/bench/query/support/kit.ts
++++ b/bench/query/support/kit.ts
+@@ -826,11 +826,6 @@ export const deliveredAgree =
+ 				Arr.map(rows, (r) => canonicalOf(r, nested, repeats)),
+ 				Order.String
+ 			)
+-			for (const [i, row] of texts.entries()) {
+-				if (i > 0 && texts[i - 1] === row) {
+-					repeats.push(row)
+-				}
+-			}
+ 			return { texts, repeats }
+ 		}
+ 		const l = canonical(left)

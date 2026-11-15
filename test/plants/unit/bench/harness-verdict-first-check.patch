@@ -1,0 +1,13 @@
+diff --git a/bench/harness/gate.ts b/bench/harness/gate.ts
+index ea1ee9a4..0a97dec1 100644
+--- a/bench/harness/gate.ts
++++ b/bench/harness/gate.ts
+@@ -101,7 +101,7 @@ export const gateOutcomes = [
+ /** A failing check fails the verdict; one whose every check holds passes. */
+ export const verdictOf = (gate: GateId, input: VerdictInput): VerdictRecord => {
+ 	const failing = Arr.map(
+-		Arr.filter(input.checks, (c) => !c.holds),
++		Arr.filter(Arr.drop(input.checks, 1), (c) => !c.holds),
+ 		(c) => c.name
+ 	)
+ 	if (Arr.isReadonlyArrayNonEmpty(failing)) {

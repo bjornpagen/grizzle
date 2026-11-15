@@ -13,8 +13,10 @@
  * every verdict is in reach; the delivered rows are distinct by construction, at least one, each with its own id.
  * Features: every way two keyed lists agree or not; every change to a delivery.
  *
- * Plants (~/.cache/grizzle-release/BR07/plants): kit-right-only-agrees.patch (a key on the right only agreeing) turns
- * the keyed property red; kit-repeats-ignored.patch (a repeated row agreeing) the delivered one.
+ * @plant test/plants/unit/bench/kit-right-only-agrees.patch `within` agrees though a key is on the right only; the
+ * keyed property fails.
+ * @plant test/plants/unit/bench/kit-repeats-ignored.patch `deliveredAgree` agrees though a delivery repeats a row; the
+ * delivered property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

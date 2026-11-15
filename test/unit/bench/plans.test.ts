@@ -12,8 +12,10 @@
  * Oracle: the specification, a round trip of the plan the generator states. Features: either cell form, a nested plan,
  * an index, a join type and a strategy; every way a cell breaks.
  *
- * Plants (~/.cache/grizzle-release/BR07/plants): plans-strategy-dropped.patch (an edge's label losing its strategy)
- * turns the read-back red; plans-two-plans-read.patch (a cell of two plans read as its first) the refusal.
+ * @plant test/plants/unit/bench/plans-strategy-dropped.patch An edge's label loses its node's strategy; the read-back
+ * property fails.
+ * @plant test/plants/unit/bench/plans-two-plans-read.patch A cell of two plans is read as its first; the refusal
+ * property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
