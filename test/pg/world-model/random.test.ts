@@ -38,10 +38,9 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
  * a database of its own.
  *
  * The suite is the unbiased explorer: it aims at nothing, so it requires only what its generator reaches by construction
- * (`required`), and the aimed suites of each area require that area's features of the worlds feature map.
+ * (`required`), and the aimed suites of each area require that area's features of the worlds feature map: a write
+ * that breaks a law is the laws suite's (laws.test.ts) and the exhaustive box's.
  *
- * @plant test/plants/pg/education/worlds-laws-foreign-keys-dropped.patch No native foreign key is installed, so a write
- * that breaks a containment is stored and the laws-hold invariant fails.
  * @plant test/plants/pg/world-model/worlds-pool-claims-outlive-transaction.patch A Db's claims set for the session, not
  * the transaction, so a pooled connection holds them between transactions; the driver's probe fails.
  */
