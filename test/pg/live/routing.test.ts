@@ -40,18 +40,21 @@
  * statement with the values its first read bound.
  *
  * Plants (~/.cache/grizzle-release/LIVE-TESTS/plants): routing-key-ignored.patch (the router hands a keyed change to
- * every subscription of its table, so a subscription of another group is marked); source-missing-publication.patch
- * and source-identity-too-narrow.patch (the publication leaves out a footprint table, or the replica identity of one is
- * too narrow for its routing column, so a subscription its write touched, or the group an update moved a row out of,
- * stays clean); unauthenticated-fanout.patch
- * (the listener reads a payload its seal does not open as plaintext, so a forged route key marks its subscription).
- * In ~/.cache/grizzle-release/DENAPI/plants: fence-on-every-row.patch (each fence's own probe reads every row of Probe,
- * as the fence did before), under which the sealed copy of the last fence's notification marks it, every time; and
- * forgeries-tamper-everything.patch (every payload received is tampered, the case's own earlier forgeries among them,
- * as before), under which a forgery tampered twice comes back to the leader's payload and opens.
+ * every subscription of its table, so a subscription of another group is marked).
  *
  * Features: a touched and an untouched subscription of one relation, a commit touching several subscriptions, an
  * update moving a row between groups, each read shape, each writer, a sealed copy of the last fence's notification.
+ *
+ * @plant test/plants/pg/live/source-missing-publication.patch The publication leaves out a footprint table, so a
+ * subscription its write touched stays clean; the marking property fails.
+ * @plant test/plants/pg/live/source-identity-too-narrow.patch The replica identity of a footprint table too narrow for
+ * its routing column, so the group an update moved a row out of stays clean; the marking property fails.
+ * @plant test/plants/pg/live/unauthenticated-fanout.patch The listener reads a payload its seal does not open as
+ * plaintext, so a forged route key marks its subscription; the forgeries property fails.
+ * @plant test/plants/pg/live/fence-on-every-row.patch Each fence's own probe reads every row of Probe, as the fence did
+ * before, so the sealed copy of the last fence's notification marks it, every time.
+ * @plant test/plants/pg/live/forgeries-tamper-everything.patch Every payload received is tampered, the case's own
+ * earlier forgeries among them, as before, so a forgery tampered twice comes back to the leader's payload and opens.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { awaitFact } from "@bjornpagen/testing/fact"

@@ -22,16 +22,18 @@
  * the table's key for a table the plan reads by no route; a table no live program reads is published by no publication,
  * and decodes to nothing.
  *
- * Plants (~/.cache/grizzle-release/LIVE-TRIGGERS/plants): identity-key.patch (physical/ddl/live.ts identityOf answers
- * the key's identity whatever the routes, so an update of a routed column outside the key decodes no old value of it);
- * publication-short.patch (publishedTables leaves its last footprint table out, whose writes then decode to nothing);
- * usage-dropped.patch (the decoder login's privileges leave out USAGE on the root's schema, so its secret's read is
- * refused and the source does not open); ledger-unpublished.patch (deploy/ledger/ledger.ts publishingLedger leaves the
- * migrations ledger out of the publication, which the installation's posture check refuses as ledgerUnpublished).
- *
  * Features: an insert, a delete, an update of a mutable relation, an update of an immutable one, a write of a routed
  * table, a write of a table read whole, a direct writer's commit, a grizzle call's commit, a rolled-back transaction
  * that wrote, the live source opens, a login's read of the secret refused.
+ *
+ * @plant test/plants/pg/live/source-identity-too-narrow.patch physical/ddl/live.ts identityOf answers the key's identity
+ * whatever the routes, so an update of a routed column outside the key decodes no old value of it.
+ * @plant test/plants/pg/live/source-missing-publication.patch publishedTables leaves a footprint table out, whose writes
+ * then decode to nothing.
+ * @plant test/plants/pg/live/usage-dropped.patch The decoder login's privileges leave out USAGE on the root's schema, so
+ * its secret's read is refused and the source does not open.
+ * @plant test/plants/pg/live/ledger-unpublished.patch deploy/ledger/ledger.ts publishingLedger leaves the migrations
+ * ledger out of the publication, which the installation's posture check refuses as ledgerUnpublished.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

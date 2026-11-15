@@ -1,0 +1,12 @@
+diff --git a/test/support/wire-tap.ts b/test/support/wire-tap.ts
+index f5975e9d..476f5f68 100644
+--- a/test/support/wire-tap.ts
++++ b/test/support/wire-tap.ts
+@@ -779,7 +779,6 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
+ 						flight !== undefined &&
+ 						sessionGate !== undefined &&
+ 						startup !== undefined &&
+-						startup.user === flight.role &&
+ 						!startup.replication &&
+ 						Arr.some(written, isFlightMessage)
+ 					) {

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/live/replication.ts b/packages/engine/src/live/replication.ts
+index 11192cd9..e45b5499 100644
+--- a/packages/engine/src/live/replication.ts
++++ b/packages/engine/src/live/replication.ts
+@@ -75,7 +75,7 @@ export const startTemplate = (publication: string): SlotText => ({
+ 
+ /** The served command `template` over the slot `slot` (served/forms.ts SlotCommand). */
+ export const slotCommand = (template: SlotText, slot: string): ReplicationCommand =>
+-	command(`${template.before}${quoted(slot)}${template.after}`)
++	command(`${template.before}${slot}${template.after}`)
+ 
+ /**
+  * A replication stream's deadline, its walsender's own wal_sender_timeout: half of it after the last message its

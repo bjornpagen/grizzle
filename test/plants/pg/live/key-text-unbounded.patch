@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/schema/representability.ts b/packages/engine/src/schema/representability.ts
+index d00ee51d..24e18871 100644
+--- a/packages/engine/src/schema/representability.ts
++++ b/packages/engine/src/schema/representability.ts
+@@ -557,7 +557,7 @@ export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
+ 			break
+ 	}
+ 	const bytes = textByteBound(desc)
+-	return Number.isFinite(bytes) ? fixed(varlenaHeaderBytes.value + bytes, 4, "text") : undefined
++	return Number.isFinite(bytes) && desc.kind !== "text" ? fixed(varlenaHeaderBytes.value + bytes, 4, "text") : undefined
+ }
+ 
+ /**

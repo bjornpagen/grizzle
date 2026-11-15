@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/live/fold.ts b/packages/engine/src/live/fold.ts
+index 2793fd54..93beeaba 100644
+--- a/packages/engine/src/live/fold.ts
++++ b/packages/engine/src/live/fold.ts
+@@ -159,7 +159,7 @@ const removals = <S extends ReadShape, Row extends object>(
+ ): Array<{ readonly kind: "remove"; readonly key: RowKey }> => {
+ 	const changes: Array<{ readonly kind: "remove"; readonly key: RowKey }> = []
+ 	for (const entry of previous.entries()) {
+-		if (next.at(entry.form) === undefined) {
++		if (next.at(entry.form) === null) {
+ 			changes.push({ kind: "remove", key: entry.key })
+ 		}
+ 	}

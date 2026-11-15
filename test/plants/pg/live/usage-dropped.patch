@@ -1,0 +1,17 @@
+diff --git a/packages/engine/src/physical/ddl/live.ts b/packages/engine/src/physical/ddl/live.ts
+index 9398b591..7e3e6e32 100644
+--- a/packages/engine/src/physical/ddl/live.ts
++++ b/packages/engine/src/physical/ddl/live.ts
+@@ -170,12 +170,6 @@ export const addLiveSource = (b: InstallBuilder, plan: LivePlan): void => {
+ 			kind: "privileges",
+ 			ident: { kind: "privileges", name: source },
+ 			ddl: [
+-				{
+-					kind: "grant",
+-					privileges: ["USAGE"],
+-					on: { kind: "SCHEMA", names: [b.schema] },
+-					to: [{ kind: "role", name }]
+-				},
+ 				{
+ 					kind: "grant",
+ 					privileges: ["SELECT"],

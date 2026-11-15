@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/ledger/ledger.ts b/packages/engine/src/deploy/ledger/ledger.ts
+index 8a9b8d78..04b73e58 100644
+--- a/packages/engine/src/deploy/ledger/ledger.ts
++++ b/packages/engine/src/deploy/ledger/ledger.ts
+@@ -225,7 +225,7 @@ export const publishingLedger = (schema: string, statement: SqlStatement): SqlSt
+ 	statement.kind === "createPublication"
+ 		? {
+ 				...statement,
+-				tables: [...statement.tables, { table: ledgerName(schema), columns: { kind: "whole" } }]
++				tables: [...statement.tables]
+ 			}
+ 		: statement
+ 

@@ -20,14 +20,17 @@
  * The oracle is grizzle itself: a fresh `once` of the subscription's program and input after each commit, run before
  * the next commit, so it reads exactly that prefix.
  *
- * Plants (~/.cache/grizzle-release/LIVE-TESTS/plants): dropped-remove.patch (a diff sends no remove, so a row its value
- * lost stays folded in); source-missing-publication.patch and source-identity-too-narrow.patch (a footprint table left
- * out of the publication, or its replica identity too narrow for its routing column: a subscription waits on that
- * table's writes forever, which the hang guard reports; the routing suite fails it at once).
- *
  * Features: each commit situation of world.ts (a write outside its routing values and inside them, a delete of a row it
  * holds, a row removed from its value, a move in an ordered read, a write in a window's neighbourhood, a commit of no
  * relation it reads), each read shape, each writer, each surface.
+ *
+ * @plant test/plants/pg/live/dropped-remove.patch A diff sends no remove, so a row its value lost stays folded in; the
+ * property fails.
+ * @plant test/plants/pg/live/source-missing-publication.patch A footprint table left out of the publication, so a
+ * subscription waits on that table's writes forever, which the hang guard reports.
+ * @plant test/plants/pg/live/source-identity-too-narrow.patch A footprint table's replica identity its key's where it
+ * routes by a column outside the key, so a subscription waits on that table's writes forever, which the hang guard
+ * reports.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

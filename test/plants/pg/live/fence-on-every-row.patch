@@ -1,0 +1,13 @@
+diff --git a/test/pg/live/routing.test.ts b/test/pg/live/routing.test.ts
+index 7372f373..f1c784b5 100644
+--- a/test/pg/live/routing.test.ts
++++ b/test/pg/live/routing.test.ts
+@@ -359,7 +359,7 @@ layer(Substrate.layer)("a commit's notifications", (it) => {
+ 								 */
+ 								const fenced = Effect.gen(function* () {
+ 									fence += 1
+-									const own = yield* register(probeAtMember, { params: { id: fence }, facts: {} })
++									const own = yield* register(probeMember, { params: {}, facts: {} })
+ 									const previous = last.probe
+ 									if (Option.isSome(previous)) {
+ 										const copy = sealedProbe(fence - 1)

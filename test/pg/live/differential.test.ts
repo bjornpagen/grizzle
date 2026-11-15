@@ -29,16 +29,19 @@
  * key one relation's. Any other refusal of a generated program is red, so the oracle holds over every program the
  * compile admits and holds the compile to admitting every other.
  *
- * Plants: none of its own for the surfaces; a codec that respells a value on the wire (LIVE-OPENAPI's) turns it red.
- * In ~/.cache/grizzle-release/DENAPI/plants: key-text-unbounded.patch (every text field proves no byte bound, bounded
- * text included), under which a read keyed by bounded text is refused, which the case does not expect.
- *
  * Features: a set read, an ordered read, an attachment, a relation parameter, a read of no row, a read of several rows,
  * a column the reference declines, a read refused for a key over prose, and, required and aimed, an admitted program
  * whose live answers match the reference over an index read: a read looked up by a scalar parameter, which the compile
  * serves by the index its lookup plans or a key, agreeing on both surfaces with the reference. A case whose turn aims
  * at it (Case.steering) is drawn from the sketches the compile admits by construction (oracle/public/generate.ts
  * admittedSketchGen), so a run that draws mostly refused programs still compares served ones.
+ *
+ * @plant test/plants/pg/client/client-int8-decoded-as-number.patch A wire codec that respells a value, an int8 decoded
+ * as a number; the HTTP value differs from the in-process one.
+ * @plant test/plants/pg/live/key-text-unbounded.patch Every text field proves no byte bound, bounded text included, so
+ * a read keyed by bounded text is refused, which the case does not expect.
+ * @plant test/plants/pg/live/differential-compares-nothing.patch A case returns once installed, comparing nothing; the
+ * required index-read feature goes unreached.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

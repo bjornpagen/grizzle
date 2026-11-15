@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/ddl/live.ts b/packages/engine/src/physical/ddl/live.ts
+index 9398b591..4cf71145 100644
+--- a/packages/engine/src/physical/ddl/live.ts
++++ b/packages/engine/src/physical/ddl/live.ts
+@@ -100,7 +100,7 @@ const publishedTables = (
+ 	b: InstallBuilder,
+ 	tables: ReadonlyArray<LiveTable>
+ ): ReadonlyArray<PublishedTable> =>
+-	tables.map((table) => ({
++	tables.slice(1).map((table) => ({
+ 		table: b.names.relation(table.relation),
+ 		columns:
+ 			identityOf(b, table) === "full"

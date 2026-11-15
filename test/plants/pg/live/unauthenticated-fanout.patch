@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/live/notify.ts b/packages/engine/src/live/notify.ts
+index ce3758de..925f0f3d 100644
+--- a/packages/engine/src/live/notify.ts
++++ b/packages/engine/src/live/notify.ts
+@@ -352,7 +352,7 @@ export const openPayload = (
+ 	const sealed = fromBase64(payload)
+ 	const opened = sealed === undefined ? undefined : open(secret, sealed)
+ 	if (opened === undefined) {
+-		return refused(payload, "a batch sealed under the installation's live secret, in base64")
++		return batchNotifications(payload)
+ 	}
+ 	return batchNotifications(decoder.decode(opened))
+ }

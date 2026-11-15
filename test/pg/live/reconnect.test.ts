@@ -30,14 +30,15 @@
  * The oracle is grizzle itself: a fresh `once` of the subscription's program and input after each commit.
  *
  * Plants: ready-before-commit.patch (a read's `ready` sent once its rows decode, before COMMIT's answer): a drop in the
- * first flight between its rows and COMMIT's answer finds the dropped call's `ready`. In
- * ~/.cache/grizzle-release/DENAPI/plants: flight-gate-any-role.patch (a flight's gate names the next session of any
- * role to write), under which a fresh installation's listener is gated in the call's place;
- * consume-ends-at-slot-absent.patch (a call refused for a slot not made yet ends its subscription), under which the
- * first call of a fresh installation ends where its caller calls again.
+ * first flight between its rows and COMMIT's answer finds the dropped call's `ready`.
  *
  * Features: each drop point, each surface, a drop before the first answer and one after COMMIT's, a drop with a re-run
  * in flight, a call refused before the slot stood.
+ *
+ * @plant test/plants/pg/live/flight-gate-any-role.patch A flight's gate names the next session of any role to write, so
+ * a fresh installation's listener is gated in the call's place.
+ * @plant test/plants/pg/live/consume-ends-at-slot-absent.patch A call refused for a slot not made yet ends its
+ * subscription, so the first call of a fresh installation ends where its caller calls again.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { awaitFact } from "@bjornpagen/testing/fact"

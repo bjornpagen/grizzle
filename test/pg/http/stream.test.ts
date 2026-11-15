@@ -23,8 +23,8 @@
  * server's framing. A case whose turn aims at a pending call feature runs one constructed to reach it (aimedCase), so the
  * label-fixed streams reach every kind of call.
  *
- * Plants (~/.cache/grizzle-release/LIVE-HTTP/plants): http-buffered.patch (the answer's events collected before the
- * body is written: a live read's first upsert never reaches its client, the case hangs and fails).
+ * @plant test/plants/pg/http/http-buffered.patch The answer's events collected before the body is written, so a live
+ * read's first upsert never reaches its client; the case hangs and fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
