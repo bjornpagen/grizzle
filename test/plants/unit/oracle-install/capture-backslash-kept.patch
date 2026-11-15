@@ -1,0 +1,13 @@
+diff --git a/test/support/oracle/install/capture.ts b/test/support/oracle/install/capture.ts
+index 5c941758..152c920a 100644
+--- a/test/support/oracle/install/capture.ts
++++ b/test/support/oracle/install/capture.ts
+@@ -100,7 +100,7 @@ export const unquoteLiteral = (quoted: string): string | undefined => {
+ 	let from = 0
+ 	for (let i = 0; i < body.length; i++) {
+ 		const ch = Option.getOrElse(Str.charAt(body, i), () => "")
+-		if (ch !== "'" && !(escaped && ch === "\\")) {
++		if (ch !== "'") {
+ 			continue
+ 		}
+ 		if (Option.getOrElse(Str.charAt(body, i + 1), () => "") !== ch) {

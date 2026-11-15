@@ -1,0 +1,13 @@
+diff --git a/test/support/oracle/install/capture.ts b/test/support/oracle/install/capture.ts
+index 5c941758..16aa6b03 100644
+--- a/test/support/oracle/install/capture.ts
++++ b/test/support/oracle/install/capture.ts
+@@ -104,7 +104,7 @@ export const unquoteLiteral = (quoted: string): string | undefined => {
+ 			continue
+ 		}
+ 		if (Option.getOrElse(Str.charAt(body, i + 1), () => "") !== ch) {
+-			return undefined
++			continue
+ 		}
+ 		runs.push(Str.slice(from, i + 1)(body))
+ 		i++

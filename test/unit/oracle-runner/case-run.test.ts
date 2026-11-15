@@ -12,8 +12,9 @@
  * releases, and the test's own timeout, the hang guard, names it: no clock decides the verdict. Features: the hanging
  * case first, after finished cases, and beside running ones.
  *
- * Plant: ~/.cache/grizzle-release/BR07/plants/case-interrupted-left-running.patch (a case the search's interruption
- * reaches left running rather than stopped) turns the property red.
+ * @plant test/plants/unit/oracle-runner/case-interrupted-left-running.patch The library's explore leaves a case the
+ * search's interruption reaches running rather than stopping it (vendor/toolchain/packages/testing/src/explore.ts), so
+ * the hanging case never releases what it holds; the property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

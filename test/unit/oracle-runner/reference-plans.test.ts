@@ -8,8 +8,9 @@
  * every decline the reference observes, and on every refusal. The hash identity they rely on, indexIdentity, agrees with
  * native comparison wherever it gives one.
  *
- * An enum handle outside its roster compares equal to every other such handle, and a value of another carrier is a
- * defect comparison reports: indexIdentity gives neither an identity, so comparison alone decides them.
+ * An enum handle outside its roster, like a value of another carrier, is no value of its type: comparison claims no
+ * order for it (compareValues) and reports it as a defect, ReferenceUnsupported. indexIdentity gives neither an
+ * identity, so no lookup keys them and comparison alone decides them.
  *
  * Oracles: a second implementation each, the reference's nested loops of its definition for the plans, and the
  * reference's comparison (equal) for indexIdentity over a box of every sampled type and every ordered pair of every
@@ -18,9 +19,10 @@
  * feature of its own is required. indexIdentity's features: one identity, two, none for another carrier, none outside
  * the roster.
  *
- * Plants (~/.cache/grizzle-release/BR07/plants): reference-plans-one-candidate.patch (an index lookup keeping one row of
- * its bucket) turns the plan properties red; index-identity-outside-roster.patch (a handle outside its roster given an
- * identity) the indexIdentity one.
+ * @plant test/plants/unit/oracle-runner/reference-plans-one-candidate.patch An index lookup keeps one row of its
+ * bucket; the plan properties fail.
+ * @plant test/plants/unit/oracle-runner/index-identity-outside-roster.patch A handle outside its roster is given an
+ * identity, so two keyed values meet a comparison that refuses them; the indexIdentity property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, requiredInSpace } from "@bjornpagen/testing/features"
@@ -282,7 +284,7 @@ describe("indexIdentity", () => {
 
 	/**
 	 * Every sampled value of every type, so each type meets every other carrier's values, and the handles type meets
-	 * strings outside its roster, which comparison finds equal to one another.
+	 * strings outside its roster, which comparison refuses.
 	 */
 	const everyValue = nonEmpty(
 		Arr.flatMap(samples, ([, values]) => values),

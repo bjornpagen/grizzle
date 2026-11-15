@@ -12,8 +12,10 @@
  * scalar value, so the characters quote_literal doubles are no rarity. Features: a text holding a quote, one holding a
  * backslash (an E literal), one holding both, the empty text, and every planted fault.
  *
- * Plants: ~/.cache/grizzle-release/BR07/plants/capture-lone-quote.patch (a lone quote read as itself) turns the refusal
- * red; capture-backslash-kept.patch (an E literal's backslashes left doubled) turns the round trip red.
+ * @plant test/plants/unit/oracle-install/capture-lone-quote.patch A lone quote is read as itself rather than refused;
+ * the refusal property fails.
+ * @plant test/plants/unit/oracle-install/capture-backslash-kept.patch An E literal's backslashes are left doubled; the
+ * round trip property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
