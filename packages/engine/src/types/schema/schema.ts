@@ -101,7 +101,7 @@ export interface AnyFragment extends Built {
  * the item: a derived relation holds its definition, a query over the level below, and a conditional the checker
  * resolves instantiates its operands whole, every relation of that level with them, once for each item it tests.
  */
-type Stated<X, K extends string> = K extends keyof X ? X[K] : never
+export type Stated<X, K extends string> = K extends keyof X ? X[K] : never
 
 /**
  * The kind X states, read by key: its `kind`, and `unknown`, which is no kind, where it states none, so a test of the
@@ -737,17 +737,30 @@ export type IsLevelOf<S, X> = 0 extends 1 & S
 		? true
 		: false
 
-type LevelMatch<L, X> = L extends unknown
-	? [Invariant<X>] extends [Invariant<L>]
-		? true
-		: false
-	: never
+/**
+ * Whether X is each level of L, each its own. The invariant phantoms are parameters of their own (InvariantlyAt): a
+ * tuple of Invariant here would be a reference the checker defers, holding X and the level in its mapper, and deciding
+ * it would instantiate both whole, every relation of each with them, for each level of each test.
+ */
+type LevelMatch<L, X> = L extends unknown ? InvariantlyAt<Invariant<X>, Invariant<L>> : never
+type InvariantlyAt<A, B> = [A] extends [B] ? true : false
 
 /**
- * Schema projections. Each is a property read or a single Extract over the statement tuple's
- * element union; none recurses over the schema graph.
+ * Schema projections. Each is a property read or a single Extract over the statement tuple's element union; none
+ * recurses over the schema graph. A projection tests that S has the member and reads it by key, never binding it with
+ * `infer`: a member bound by `infer` and read in the branch is instantiated again, whole, through the branch's mapper,
+ * the relations of the schema, their definitions and the levels below with it. A value typed `any`, the one value
+ * with the member to which unknown is assignable, is matched instead (RelationsBound, StatementsBound): a read by key
+ * would read `any`, and a match binds what the member's constraint admits, unknown relations and a list of statements.
  */
-export type RelationsOf<S> = S extends { readonly relations: infer Rs } ? Rs : never
+export type RelationsOf<S> = S extends { readonly relations: unknown }
+	? unknown extends S
+		? RelationsBound<S>
+		: S["relations"]
+	: never
+
+/** The relations a match of S binds, for S typed `any`: unknown. */
+type RelationsBound<S> = S extends { readonly relations: infer Rs } ? Rs : never
 export type RelationOf<S> = RelationsOf<S>[keyof RelationsOf<S>]
 
 /**
@@ -766,17 +779,28 @@ export type IsRelationOf<S, R> = 0 extends 1 & S ? true : [R] extends [RelationO
 
 /**
  * The statements of S: a level's own and its base's, then those of the fragments its levels list where it lists one,
- * so a level that lists none has exactly the tuple its calls wrote; a role's or a fragment's, its own.
+ * so a level that lists none has exactly the tuple its calls wrote; a role's or a fragment's, its own. Each list is
+ * read by key, as RelationsOf reads the relations.
  */
-export type StatementsOf<S> = S extends {
+export type StatementsOf<S> = S extends { readonly statements: ReadonlyArray<Statement> }
+	? unknown extends S
+		? StatementsBound<S>
+		: S extends { readonly listed: ReadonlyArray<Statement> }
+			? StatementsBeside<S["statements"], S["listed"][number]>
+			: S["statements"]
+	: never
+
+/** The statements a match of S binds, for S typed `any`: a list of statements. */
+type StatementsBound<S> = S extends {
 	readonly statements: infer St extends ReadonlyArray<Statement>
 }
-	? S extends { readonly listed: ReadonlyArray<infer L extends Statement> }
-		? [L] extends [never]
-			? St
-			: readonly [...St, ...ReadonlyArray<L>]
-		: St
+	? St
 	: never
+
+/** A level's statements St, then the listed statements L of its fragments where it lists any. */
+type StatementsBeside<St extends ReadonlyArray<Statement>, L> = [L] extends [never]
+	? St
+	: readonly [...St, ...ReadonlyArray<L>]
 type StatementOf<S> = StatementsOf<S>[number]
 
 /**

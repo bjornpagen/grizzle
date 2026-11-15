@@ -27,6 +27,7 @@ import type {
 	ParamArg,
 	ParamOrigin,
 	ParamsOfTerm,
+	PhantomOf,
 	Refusal,
 	Simplify,
 	SqlOfCarrier,
@@ -136,9 +137,6 @@ type MemberFit<M, F, R, Keyed extends boolean> = M extends unknown
 				: MemberShapeFit<M, F, R, Keyed>
 			: MemberShapeFit<M, F, R, Keyed>
 	: never
-
-/** A value's phantom, read by key: its bundle, without the `undefined` its optional member admits. */
-type PhantomOf<M> = NonNullable<M[typeof phantom & keyof M]>
 
 /** A query member's head H as arms of F, then its carriers each at its field's type (MistypedFields). */
 type HeadFit<H, M, F, R> =

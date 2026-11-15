@@ -171,13 +171,14 @@ type ProgramContexts<X> =
 /**
  * A ChangeSet program's array members, which a served call's facts key by op and relation (FactsCheck): none two of one
  * op and one relation in two strata (RepeatedArraysOf, read from the members' positions, never their rows), as generate
- * refuses them (UnservedMember `repeated`).
+ * refuses them (UnservedMember `repeated`). The repeated arrays are a parameter of their own (ArraysRepeated): a tuple
+ * of RepeatedArraysOf here would be a reference the checker defers, holding the ChangeSet in its mapper, and deciding it
+ * would instantiate the ChangeSet whole, its schema with it.
  */
-type ArraysOnce<X> = X extends AnyChangeSet
-	? [RepeatedArraysOf<X>] extends [never]
-		? unknown
-		: Refusal<"a served ChangeSet's facts hold one array for each op and relation: merge the strata's array members of this op and relation into one">
-	: unknown
+type ArraysOnce<X> = X extends AnyChangeSet ? ArraysRepeated<RepeatedArraysOf<X>> : unknown
+type ArraysRepeated<Repeated> = [Repeated] extends [never]
+	? unknown
+	: Refusal<"a served ChangeSet's facts hold one array for each op and relation: merge the strata's array members of this op and relation into one">
 
 /** The program a member serves: a clocked member's program, or the member itself. */
 type ClockedProgram<X> = X extends Clocked<infer P, unknown> ? P : X

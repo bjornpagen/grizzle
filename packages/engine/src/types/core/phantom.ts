@@ -898,6 +898,14 @@ export type Parameterless<X> = [keyof ParamsOfTerm<X>] extends [never]
 export type Invariant<A> = (value: A) => A
 
 /**
+ * A value's phantom, read by key: its bundle, without the `undefined` its optional member admits. A reader asks
+ * whether the key is among the value's keys first: a value without it is never indexed by it, since an indexable value
+ * indexed by never is its element. Reading the bundle by key never tests the value, which a match of
+ * `Phantom<infer B>` does, binding the bundle and instantiating it again, whole, in the branch that reads it.
+ */
+export type PhantomOf<M> = NonNullable<M[typeof phantom & keyof M]>
+
+/**
  * Readable type errors: an argument intersected with a Refusal names what is wrong instead of exposing a large
  * conditional reduction.
  */

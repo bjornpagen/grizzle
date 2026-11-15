@@ -1,12 +1,13 @@
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type { Built, Phantom } from "#compiler/core/phantom.ts"
+import type { Built, Phantom, phantom } from "#compiler/core/phantom.ts"
 import type { Result } from "#compiler/core/result.ts"
 import type {
 	Carriers,
 	Headed,
 	Invariant,
 	Origin,
+	PhantomOf,
 	Refusal,
 	Repeats
 } from "#compiler/types/core/phantom.ts"
@@ -42,6 +43,7 @@ import type {
 	IsRelationOf,
 	NamedBy,
 	RelationsOf,
+	Stated,
 	StatementsOf,
 	UnderName
 } from "#compiler/types/schema/schema.ts"
@@ -283,14 +285,33 @@ export type EntryContexts<Rs> = {
  * relation of the base's root whole. A relation no role holds (UnheldRelation) is no entry, so a role holds every
  * relation but those. A level's record holds each relation under its own name too (Declared), so
  * each is read against the role's entry of its key alone. The walk is as deep as the extension chain.
+ *
+ * The keys the role does not hold at a level are a parameter of their own (FullBaseAt): a tuple of UnheldOf in this
+ * body would be a reference the checker defers, holding the base and the role's record in its mapper, so deciding it
+ * would instantiate both whole, every derived relation and the base below it with them. The level below is read off
+ * the base's phantom by key (BelowOf), never bound by `infer` and read again, which instantiates it whole too.
  */
-type FullBaseOf<Base, Relations> = [UnheldOf<RelationsOf<Base>, Relations>] extends [never]
+type FullBaseOf<Base, Relations> = FullBaseAt<
+	Base,
+	UnheldOf<RelationsOf<Base>, Relations>,
+	Relations
+>
+
+/** Base, where the role holds every relation of it (Unheld, the keys it does not hold, is none); else a level below. */
+type FullBaseAt<Base, Unheld, Relations> = [Unheld] extends [never]
 	? Base
-	: Base extends Phantom<{ readonly extends: infer Below }>
-		? [Below] extends [never]
-			? never
-			: FullBaseOf<Below, Relations>
-		: never
+	: FullBaseBelow<BelowOf<Base>, Relations>
+
+/** FullBaseOf at the level below, none below a root schema, whose phantom states never: Below is distributed over. */
+type FullBaseBelow<Below, Relations> = Below extends unknown ? FullBaseOf<Below, Relations> : never
+
+/**
+ * The level a schema extends, read off its phantom by key: never below a root schema, and `unknown` for a value with no
+ * phantom (AnySchema), whose phantom a match of `Phantom<{ readonly extends: infer Below }>` reads as `unknown`.
+ */
+type BelowOf<Base> = typeof phantom extends keyof Base
+	? Stated<PhantomOf<Base>, "extends">
+	: unknown
 
 /**
  * The fragments a role over Base holds whole: each fragment a level of the base lists whose every relation the role
@@ -307,30 +328,53 @@ type HeldFragments<Base, Relations> =
 
 /**
  * The keys of a base's record whose relation the role does not hold whole under that key, the relations no role holds
- * (UnheldRelation) aside.
+ * (UnheldRelation) aside. Each relation is read against the role's entry of its key alone (UnheldAt).
  */
 type UnheldOf<BaseRelations, Relations> = {
-	[K in keyof BaseRelations]-?: [BaseRelations[K]] extends [
-		UnheldRelation | UnderName<Relations, K>
-	]
-		? never
-		: K
+	[K in keyof BaseRelations]-?: UnheldAt<BaseRelations[K], UnderName<Relations, K>, K>
 }[keyof BaseRelations]
 
 /**
- * The statements of the list Sts whose every relation is among Held, each statement read on its own. The filter maps
- * over the list, so the role's entries, Held, are read once: a conditional distributed over the list's statements, or
- * a lookup by name per relation a statement names, reads them again for each statement.
+ * K, where its relation R, each relation of R where its key holds several, is neither a relation no role holds nor
+ * the role's entry E under K; never otherwise. R is tested naked, against UnheldRelation and then against E, each a
+ * parameter: the checker walks a relation once for a naked test, keeps the walk on the relation and shares it with
+ * every naked test of it, where a tuple of it, or of a union holding the entry, is walked again for each key, a
+ * derived relation's definition and the base below it with it.
  */
-type KeptIn<Sts extends ReadonlyArray<Statement>, Held> = {
-	[I in keyof Sts]: Sts[I] extends infer St extends Statement
-		? St extends unknown
-			? [NamedBy<St>] extends [Held]
-				? St
-				: never
-			: never
-		: never
-}[number]
+type UnheldAt<R, E, K> = R extends UnheldRelation ? never : R extends E ? never : K
+
+/**
+ * The statements of the union St whose every relation is the role's entry under its name, each statement read on its
+ * own: the relations it names (NamedBy, read by key), each read against the entry its name keys in the role's record
+ * (HeldEach), one property read. A statement is never tested whole, nor as a tuple of the relations it names against
+ * the union of the role's entries: a tuple of NamedBy is a reference the checker defers, holding the statement in its
+ * mapper, and deciding it instantiates the statement whole, the derived relations it names and the base below them
+ * with it, for each statement of each role.
+ */
+type KeptIn<St, Relations> = St extends unknown
+	? KeptWhere<St, HeldEach<NamedBy<St>, Relations>>
+	: never
+
+/** St, where H, whether the role holds each relation it names, holds no false; a statement naming none is kept. */
+type KeptWhere<St, H> = false extends H ? never : St
+
+/**
+ * Whether the role holds each relation of R whole, each its own: true where the relation is the role's entry under its
+ * name, read by key and tested naked, as UnheldAt tests it, so the checker's walk of the relation is the one it keeps
+ * and shares; false otherwise, and for a relation whose name is no key of the record. A relation typed `any` or
+ * `unknown` (NamedBy's for a side typed `any`), to which unknown is assignable, names no entry: it is tested against
+ * the record's values, as every relation was before, `any` held wherever the record holds one and `unknown` nowhere.
+ */
+type HeldEach<R, Relations> = R extends unknown
+	? R extends UnderName<Relations, NameOf<R>>
+		? true
+		: unknown extends R
+			? AmongEntries<R, Relations[keyof Relations]>
+			: false
+	: never
+
+/** Whether R is among the entries E. */
+type AmongEntries<R, E> = [R] extends [E] ? true : false
 
 /**
  * The base's laws a role keeps: those whose every relation is one of the role's entries. A whole entry sits under its
@@ -338,7 +382,7 @@ type KeptIn<Sts extends ReadonlyArray<Statement>, Held> = {
  * exactly when it is the entry under its name, the rule role(...) keeps a law by at run time (schema/world.ts: the
  * law's relation names, namesOf, each among the whole entries' names, `whole`).
  */
-export type KeptStatements<Base, Relations> = KeptIn<StatementsOf<Base>, Relations[keyof Relations]>
+export type KeptStatements<Base, Relations> = KeptIn<StatementsOf<Base>[number], Relations>
 
 /**
  * A login's or a role's stem, the PostgreSQL role its identity spells, which `grizzle generate` commits, computed once
@@ -413,24 +457,46 @@ export type RoleOptionRecord<W, F> =
 
 /**
  * The contexts a role's relations read: never when none does, and unknown for a role whose type does not say (a role
- * widened to AnyRole), which may read any, so a token and a verify stay required for it.
+ * widened to AnyRole, or typed `any`, whose keys are every string), which may read any, so a token and a verify stay
+ * required for it. They are read off the role's phantom by key, each role of a union its own, never by a match of
+ * `Phantom<infer B>`, which binds the bundle, the role's base among its members, and instantiates it again, whole, in
+ * the branch that reads it.
  */
-export type ContextsReadBy<R> =
-	R extends Phantom<infer B> ? (B extends { readonly contexts: infer C } ? C : unknown) : unknown
-/** Whether a role's relations read a context, the condition under which Db.open requires a token. */
-export type ReadsContext<R> = [ContextsReadBy<R>] extends [never] ? false : true
+export type ContextsReadBy<R> = R extends unknown
+	? string extends keyof R
+		? unknown
+		: typeof phantom extends keyof R
+			? ContextsStated<PhantomOf<R>>
+			: unknown
+	: never
+
+/** The contexts a phantom bundle states, each bundle of a union its own: unknown for one that states none. */
+type ContextsStated<B> = B extends unknown
+	? "contexts" extends keyof B
+		? B["contexts" & keyof B]
+		: unknown
+	: never
+
+/**
+ * Whether a role's relations read a context, the condition under which Db.open requires a token. The contexts are a
+ * parameter of their own (ReadsSome): a tuple of ContextsReadBy here would be a reference the checker defers, holding
+ * the role in its mapper, and deciding it would instantiate the role whole, its base with it.
+ */
+export type ReadsContext<R> = ReadsSome<ContextsReadBy<R>>
+type ReadsSome<C> = [C] extends [never] ? false : true
 /**
  * A program run on a Db of R matches only the contexts R's relations read (Cx, the program's ContextsOf): the Db's
  * claims hold facts of those alone, and the checker refuses any other at run time too. A role whose type does not say
  * which contexts it reads, and a schema, admit any. A Cx that names no context (string, where the argument is no program
  * of the kind the reader takes, so nothing inferred its names) is judged by nothing here: the argument's own mismatch is
- * the error.
+ * the error. The role's contexts are a parameter of their own (ContextsWithin), as ReadsContext's are.
  */
 export type WithinRoleContexts<R, Cx> = string extends Cx
 	? unknown
-	: [Cx] extends [ContextsReadBy<R>]
-		? unknown
-		: Refusal<"a program on a Db of a role matches only the contexts the role's relations read, whose facts its claims hold">
+	: ContextsWithin<Cx, ContextsReadBy<R>>
+type ContextsWithin<Cx, Read> = [Cx] extends [Read]
+	? unknown
+	: Refusal<"a program on a Db of a role matches only the contexts the role's relations read, whose facts its claims hold">
 
 /** The names of the relations a role may write: its write list. */
 export type WriteListOf<R> = R extends { readonly write: ReadonlyArray<infer W extends string> }
