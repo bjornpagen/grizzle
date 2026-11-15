@@ -1,0 +1,10 @@
+--- a/test/support/pg.ts
++++ b/test/support/pg.ts
+@@ -741,5 +741,6 @@
+ export const testDatabaseSettings: ReadonlyArray<readonly [name: string, value: string]> = [
+ 	["deadlock_timeout", "10ms"],
+-	["default_transaction_isolation", "serializable"]
++	["default_transaction_isolation", "serializable"],
++	["synchronous_commit", "off"]
+ ]
+ 

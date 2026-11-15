@@ -1,0 +1,19 @@
+--- a/test/pg/physical/serving.ts
++++ b/test/pg/physical/serving.ts
+@@ -606,8 +606,15 @@
+ 			}),
+ 			() => Effect.ignore(admin.query("ROLLBACK", []))
+ 		)
++		const substrate = yield* Substrate
+ 		for (const l of loads) {
+-			yield* admin.query(`VACUUM (FREEZE, ANALYZE) ${table(l.relation)}`, [])
++			yield* substrate.superuserRead((rows) =>
++				Effect.gen(function* () {
++					yield* rows(`DECLARE pinned CURSOR FOR SELECT * FROM ${table(l.relation)}`)
++					yield* rows("FETCH 1 FROM pinned")
++					yield* admin.query(`VACUUM (ANALYZE) ${table(l.relation)}`, [])
++				})
++			)
+ 		}
+ 	})
+ 

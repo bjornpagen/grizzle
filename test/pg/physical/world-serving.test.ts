@@ -42,8 +42,8 @@
  *
  * Features: every situation the witnesses reach by construction (see above).
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): world-serving-access-dropped (the installation plans no index for its
- * workload's and its roles' write filters' access paths).
+ * @plant test/plants/pg/physical/world-serving-access-dropped.patch The installation plans no index for its
+ * workload's and its roles' write filters' access paths (physical/access/extension.ts).
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

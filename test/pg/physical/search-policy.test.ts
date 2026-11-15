@@ -23,9 +23,10 @@
  * derived relation alone, logins with and without the policy, a refresher and a reader of the derived relation, and
  * each reach change across a migration.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): search-policy-inverted (a login takes the policy exactly when none of
- * its roles reaches the vector type) and search-policy-never-reset (a migration never resets a setting a kept login no
- * longer sets).
+ * @plant test/plants/pg/physical/search-policy-inverted.patch A login takes the policy exactly when none of its roles
+ * reaches the vector type.
+ * @plant test/plants/pg/physical/search-policy-never-reset.patch A migration never resets a setting a kept login no
+ * longer sets (deploy/diff/diff.ts).
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

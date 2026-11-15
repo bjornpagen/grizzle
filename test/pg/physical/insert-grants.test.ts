@@ -18,8 +18,8 @@
  *
  * Features: each role's probes of each statement kind, admitted and refused.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): insert-grants-delete (a role that writes by its insert list holds
- * DELETE on what it writes).
+ * @plant test/plants/pg/physical/insert-grants-delete.patch A role that writes by its insert list holds DELETE on what
+ * it writes.
  */
 import { drawn as drawnCase, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

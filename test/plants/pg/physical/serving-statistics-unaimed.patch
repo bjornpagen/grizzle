@@ -1,0 +1,13 @@
+diff --git a/test/pg/physical/serving.test.ts b/test/pg/physical/serving.test.ts
+index f75f8b80..211b2178 100644
+--- a/test/pg/physical/serving.test.ts
++++ b/test/pg/physical/serving.test.ts
+@@ -3386,7 +3386,7 @@ const aimedWorkload = (
+ 	Option.exists(search.steering, (pending) =>
+ 		pending.aimed("a workload's statistics installed as requested")
+ 	)
+-		? Option.getOrElse(search.draw(statisticsCaseGen(c)), () => c)
++		? c
+ 		: c
+ 
+ const workloadSuite = (runs: number) => (ctx: TestContext) =>

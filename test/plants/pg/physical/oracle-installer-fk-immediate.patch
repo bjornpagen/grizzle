@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/ddl/tables.ts b/packages/engine/src/physical/ddl/tables.ts
+index de9ceb9f..e718b3c3 100644
+--- a/packages/engine/src/physical/ddl/tables.ts
++++ b/packages/engine/src/physical/ddl/tables.ts
+@@ -999,7 +999,7 @@ const addNatives = (
+ 						columns: nativeFkColumns(b, o.relation.name, o.columns),
+ 						references: b.names.relation(o.target.name),
+ 						referencedColumns: nativeFkColumns(b, o.target.name, o.targetColumns),
+-						deferrable: o.deferrable ? "INITIALLY DEFERRED" : undefined,
++						deferrable: undefined,
+ 						onUpdate: onUpdateOf[o.onUpdate]
+ 					},
+ 					o.lawIds,

@@ -43,8 +43,8 @@
  *
  * Features: the installer's situations, each a feature of the generated schema.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): oracle-installer-fk-immediate (a foreign key the law model defers is
- * installed immediate).
+ * @plant test/plants/pg/physical/oracle-installer-fk-immediate.patch A foreign key the law model defers is installed
+ * immediate (physical/ddl/tables.ts).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

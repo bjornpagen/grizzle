@@ -1,0 +1,20 @@
+diff --git a/packages/engine/src/deploy/diff/diff.ts b/packages/engine/src/deploy/diff/diff.ts
+index 7bc41bba..af9e0512 100644
+--- a/packages/engine/src/deploy/diff/diff.ts
++++ b/packages/engine/src/deploy/diff/diff.ts
+@@ -2785,15 +2785,6 @@ class Differ {
+ 			}
+ 			kept.set(s.name, set)
+ 		}
+-		for (const { statement: s, prelude } of roleSettings(previousDefaults)) {
+-			if (s.action.kind === "set" && kept.get(s.name)?.has(s.action.setting.parameter) === false) {
+-				run(prelude, {
+-					kind: "alterRole",
+-					name: s.name,
+-					action: { kind: "reset", parameter: s.action.setting.parameter }
+-				})
+-			}
+-		}
+ 		const was = new Set(previousDefaults.map(roleDefaultText))
+ 		for (const { statement: s, prelude } of roleSettings(targetDefaults)) {
+ 			if (!was.has(roleDefaultText(s))) {

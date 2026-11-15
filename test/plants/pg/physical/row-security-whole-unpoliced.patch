@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/ddl/roles.ts b/packages/engine/src/physical/ddl/roles.ts
+index be4ba0c4..5ad755de 100644
+--- a/packages/engine/src/physical/ddl/roles.ts
++++ b/packages/engine/src/physical/ddl/roles.ts
+@@ -1571,7 +1571,7 @@ const addRowSecurity = (b: InstallBuilder, writers: ReadonlyArray<Writer>): void
+ 		if (on.every((w) => w.membership.kind === "every")) {
+ 			continue
+ 		}
+-		const policies = on.map((w) => addPolicy(b, w))
++		const policies = on.filter((w) => w.membership.kind !== "every").map((w) => addPolicy(b, w))
+ 		b.add(
+ 			{
+ 				kind: "rowSecurity",

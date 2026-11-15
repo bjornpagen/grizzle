@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/physical/indexes/engine.ts b/packages/engine/src/physical/indexes/engine.ts
+index cbe39228..2544fd4b 100644
+--- a/packages/engine/src/physical/indexes/engine.ts
++++ b/packages/engine/src/physical/indexes/engine.ts
+@@ -496,10 +496,7 @@ const ownMethod = (planned: Planned): IndexMethod => methodOf(planned.placements
+ /** Whether an index's relation, access method and keys serve a planned request (see `planIndexes`): it holds one of the
+  * request's placements, as an index of that placement's method. */
+ const serves = (index: KeyedIndex, planned: Planned): boolean =>
+-	index.relation === planned.request.relation &&
+-	[planned.placements.own, ...planned.placements.others].some(
+-		(p) => methodOf(p) === index.method && placed(index, p, planned.columns)
+-	)
++	index.relation === planned.request.relation
+ 
+ /** An index under construction (see `planIndexes`): its access method, its own request's, blocks covering its columns,
+  * and the order whose directions it takes, when an ordered request fixed them. */

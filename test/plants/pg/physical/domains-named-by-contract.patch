@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/physical/ddl/names.ts b/packages/engine/src/physical/ddl/names.ts
+index 4c3f6506..97ed900e 100644
+--- a/packages/engine/src/physical/ddl/names.ts
++++ b/packages/engine/src/physical/ddl/names.ts
+@@ -420,9 +420,9 @@ export const installNames = (input: NamesInput): InstallNames => {
+ 		const source = input.contracts.get(contract)
+ 		const recorded = input.recordedContracts.get(contract)
+ 		const named = identity.contractDomain(
+-			source !== undefined
++			`${source !== undefined
+ 				? input.define(names, contract, source)
+-				: (recorded ?? uninstalled({ kind: "contract", contract }))
++				: (recorded ?? uninstalled({ kind: "contract", contract }))} ${contract}`
+ 		)
+ 		domains.set(contract, named)
+ 		return named

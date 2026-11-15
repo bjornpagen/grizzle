@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/physical/indexes/engine.ts b/packages/engine/src/physical/indexes/engine.ts
+index cbe39228..c4e71eec 100644
+--- a/packages/engine/src/physical/indexes/engine.ts
++++ b/packages/engine/src/physical/indexes/engine.ts
+@@ -1000,7 +1000,6 @@ export const planIndexes = (
+ 				const index = createIndex(b, entry, draftFor(entry, ahead(entry, relationPlan, own)))
+ 				const created = { index, requests: [entry.request] }
+ 				candidates.push(created)
+-				hold(created)
+ 			}
+ 		}
+ 		return candidates.map((c) => ({ ...c.index, requests: c.requests }))

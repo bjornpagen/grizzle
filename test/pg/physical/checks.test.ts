@@ -23,8 +23,9 @@
  *
  * Features: each predicate class judged both ways and each class's CHECK dropped.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): checks-span-upper-unchecked (a span's endpoint CHECK holds its
- * contract's predicate of the lower endpoint alone).
+ * @plant test/plants/pg/physical/checks-span-upper-unchecked.patch A span's endpoint CHECK holds its contract's
+ * predicate of the lower endpoint alone (physical/span/storage.ts), so a span whose upper endpoint fails the contract
+ * is stored.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

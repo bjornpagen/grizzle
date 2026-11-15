@@ -15,8 +15,8 @@
  * Features: a narrowed writer beside a whole one, a narrowed reader that writes nothing, row security added and dropped,
  * a narrowed writer's filter changed, and each hand change drifted or none.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): row-security-whole-unpoliced (a table under row security holds no
- * policy for a writer that writes it whole).
+ * @plant test/plants/pg/physical/row-security-whole-unpoliced.patch A table under row security holds no policy for a
+ * writer that writes it whole (physical/ddl/roles.ts addRowSecurity).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

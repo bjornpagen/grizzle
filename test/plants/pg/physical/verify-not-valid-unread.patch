@@ -1,0 +1,13 @@
+diff --git a/test/support/catalog/expected.ts b/test/support/catalog/expected.ts
+index 8c8e63b1..e0969fe9 100644
+--- a/test/support/catalog/expected.ts
++++ b/test/support/catalog/expected.ts
+@@ -247,7 +247,7 @@ export const projectCatalog = (catalog: Catalog): ProjectedCatalog => {
+ 						referencedColumns: k.referencedColumns,
+ 						deferrable: k.deferrable,
+ 						deferred: k.deferred,
+-						validated: k.validated
++						validated: true
+ 					}))
+ 				)
+ 			}))

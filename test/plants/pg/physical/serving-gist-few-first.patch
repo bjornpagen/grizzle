@@ -1,0 +1,17 @@
+diff --git a/packages/engine/src/physical/indexes/engine.ts b/packages/engine/src/physical/indexes/engine.ts
+index cbe39228..505440e1 100644
+--- a/packages/engine/src/physical/indexes/engine.ts
++++ b/packages/engine/src/physical/indexes/engine.ts
+@@ -673,11 +673,7 @@ const withinBlock: Readonly<
+ 	btree: (rank) => mapInput(compareNumbers, rank),
+ 	hash: (rank) => mapInput(compareNumbers, rank),
+ 	hnsw: (rank) => mapInput(compareNumbers, rank),
+-	gist: (rank, columns) =>
+-		combineAll([
+-			mapInput(compareBooleans, (k: IndexKey) => columns.holds(k.column) === "few"),
+-			mapInput(compareNumbers, rank)
+-		])
++	gist: (rank) => mapInput(compareNumbers, rank)
+ }
+ 
+ /** A draft's keys (see `planIndexes`): its blocks in order, each block's columns in its access method's order

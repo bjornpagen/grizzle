@@ -59,9 +59,23 @@
  *
  * At most two code points, as the generated text field admits: two CJK ideographs name a million keys.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): serving-any-index-serves and serving-requests-any-index (the index
- * engine takes any index of a request's relation to serve it) and serving-shared-duplicated (a request a created index
- * serves gets an index of its own).
+ * @plant test/plants/pg/physical/serving-any-index-serves.patch The index engine takes any index of a request's
+ * relation to serve it (physical/indexes/engine.ts serves).
+ * @plant test/plants/pg/physical/serving-shared-duplicated.patch A request a created index serves gets an index of its
+ * own: a created index is never a candidate for a later request (physical/indexes/engine.ts planIndexes).
+ * @plant test/plants/pg/physical/test-database-asynchronous-commit.patch Test databases commit asynchronously
+ * (synchronous_commit = off, test/support/pg.ts), which leaves VACUUM unable to set pages all-visible, so an index-only
+ * probe reads past its bound of buffers.
+ * @plant test/plants/pg/physical/serving-vacuum-pinned-page.patch The load's VACUUM runs plain while a cursor pins a
+ * page of each table (test/pg/physical/serving.ts), so a page stays short of all-visible and PostgreSQL sweeps a GiST
+ * index where its primary key's index-only scan serves the probe.
+ * @plant test/plants/pg/physical/serving-multibyte-residue-reach.patch The kept multibyte-text case's reach names the
+ * residue the patched btree_gist no longer leaves, so the kept case's reach is unreached.
+ * @plant test/plants/pg/physical/serving-statistics-unaimed.patch The workload search's steering never draws the case
+ * its aim at "a workload's statistics installed as requested" asks for, so that feature goes unreached.
+ * @plant test/plants/pg/physical/serving-gist-few-first.patch A GiST index's columns of few values are no longer placed
+ * first: its keys keep the request's order (physical/indexes/engine.ts withinBlock), so a span predicate's GiST scan
+ * reads past its bound of buffers.
  */
 import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
