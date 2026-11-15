@@ -39,7 +39,8 @@ import type { LoginSpec } from "#test/support/worlds/model/types.ts"
  * bytes, and the catalog: whether pg_roles holds the name so read, as the owner sees it.
  *
  * @plant test/plants/pg/direct-writers/missing-role-login-cannot-set-its-roles.patch A login granted its roles without
- * SET, so SET ROLE to one of its own roles is 42501; the property fails.
+ * SET, migrate's drift check holding it so too, so SET ROLE to one of its own roles would be 42501; the
+ * installed-catalog checker the installation runs refuses the membership's options first.
  */
 
 /** Whose installed name a drawn name starts from. */

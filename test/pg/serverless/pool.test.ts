@@ -25,13 +25,14 @@
  *   of the maximum at once succeeds, none of them a session a cut destroyed mid-statement, on a backend none of those
  *   ran on. The oracle is the pool's counts against that baseline.
  *
+ * That a retired or lost session's release closes it is test/pg/adapter/pool.test.ts's: a lease closes and replaces a
+ * pooled session that is not open (makePool's hygiene), so no case here can tell a retired session kept idle.
+ *
  * Features: each place a waiter waits by each ending; each place a lease is cut, a lease kept to its end, and more
  * leases than the pool holds.
  *
  * @plant test/plants/pg/serverless/pool-permit-lost.patch A closed session's permit never handed back; once every
  * lease has returned, the pool's free permits are short of its maximum.
- * @plant test/plants/pg/adapter/pool-retired-reused.patch A retired session released without an error, so pg's Pool
- * keeps it; a further lease takes a session a cut destroyed mid-statement.
  * @plant test/plants/pg/adapter/pool-release-awaits.patch A layer's release leaving its leased sessions' connections
  * up, retired, not ended; the waiter property finds a leased session not ended where the layer is released first.
  */
