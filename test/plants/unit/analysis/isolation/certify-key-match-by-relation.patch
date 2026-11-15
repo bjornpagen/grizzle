@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/analysis/isolation/certify.ts b/packages/engine/src/analysis/isolation/certify.ts
+index f5843d16..29bc68f7 100644
+--- a/packages/engine/src/analysis/isolation/certify.ts
++++ b/packages/engine/src/analysis/isolation/certify.ts
+@@ -1142,9 +1142,7 @@ const fixedFor = (
+ 		? undefined
+ 		: fixed.find(
+ 				(f) =>
+-					f.relation === read.relation &&
+-					f.statement < statement &&
+-					f.bound.every((b) => group.bound.some((r) => r.field === b.field && r.by === b.by))
++					f.relation === read.relation && f.statement < statement
+ 			)
+ }
+ 

@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/analysis/isolation/certify.ts b/packages/engine/src/analysis/isolation/certify.ts
+index f5843d16..dc3c1e19 100644
+--- a/packages/engine/src/analysis/isolation/certify.ts
++++ b/packages/engine/src/analysis/isolation/certify.ts
+@@ -1164,9 +1164,6 @@ const readsOf = (installation: Installation, member: MemberFacts): ReadonlyArray
+ 	const fixed: Array<Fixed> = []
+ 	for (const [statement, { reads }] of stated.entries()) {
+ 		const seals = reads.map(({ read }) => ({ read, seal: sealOf(installation, read) }))
+-		if (seals.some(({ seal }) => seal.kind !== "own" && seal.kind !== "arbiter")) {
+-			break
+-		}
+ 		for (const { read, seal } of seals) {
+ 			const group = read.group
+ 			if (

@@ -1,0 +1,11 @@
+--- a/packages/engine/src/analysis/isolation/certify.ts	2026-11-12 17:51:20.998070487 +0000
++++ b/packages/engine/src/analysis/isolation/certify.ts	2026-11-12 17:51:20.998137398 +0000
+@@ -1524,7 +1524,7 @@
+ 		const { login, role } = j.candidate.role
+ 		const checked = new Set(
+ 			j.candidate.role.members.flatMap((m) =>
+-				checksOf(at, m).flatMap((c) => (lockedSeal(c.seal) ? [c.relation] : []))
++				checksOf(at, m).flatMap((c) => (c.seal.kind === "held" ? [c.relation] : []))
+ 			)
+ 		)
+ 		for (const relation of checked) {

@@ -1,0 +1,13 @@
+--- a/packages/engine/src/analysis/isolation/certify.ts
++++ b/packages/engine/src/analysis/isolation/certify.ts
+@@ -1665,8 +1665,8 @@
+ const distinctReads = (placed: ReadonlyArray<PlacedRead>): ReadonlyArray<PlacedRead> => {
+ 	const seen = new TupleSet<readonly [number | undefined, number]>()
+ 	return placed.filter((p) => {
+-		const known = seen.has([p.query, p.at.read])
+-		seen.add([p.query, p.at.read])
++		const known = seen.has([p.at.cte, p.at.read])
++		seen.add([p.at.cte, p.at.read])
+ 		return !known
+ 	})
+ }

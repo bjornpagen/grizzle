@@ -87,18 +87,6 @@
  * whose login fences nothing (unfencedPivot); and 5c leaving out every sealed foreign key check, edullm's G3 (b), which
  * NEGATION's case 3 refutes (the refusedCopy and publication shapes).
  *
- * Plants (~/.cache/grizzle-release/BR03/plants), two of those as patches: certify-memberless-role-certified (a role
- * with no change member certified) and certify-fixpoint-once (the fixpoint over the roles a SERIALIZABLE role gives a
- * reason run once). Plants (~/.cache/grizzle-release/CERTIFY/plants): certify-own-lowering-self-included and
- * certify-lowering-cause-dropped, the last two. Plants (~/.cache/grizzle-release/CERTDEL/plants): the last five,
- * certify-held-ignores-updates, certify-fence-dropped, certify-fenced-site-unfenced, certify-5c-spares-unfenced and
- * certify-5c-skips-sealed-checks. Plants (~/.cache/grizzle-release/LEASE/plants), each failing the search:
- * certify-key-match-by-relation (a read of an arbitrated relation at any bindings arbitrated), certify-key-match-no-
- * clean-prefix (a key-matched read arbitrated after an outside read), certify-key-match-part-of-key (a read matching
- * the first field of an arbitrated key alone arbitrated), certify-race-other-key-fixed (a raced relation's arbitration
- * at another key fixing its row) and certify-key-match-exact-group (a key-matched read with a binding besides the key
- * left a point read, the old exact-group rule).
- *
  * A second search draws statements whose query CTEs are instances (analysis/isolation/facts.ts CteFacts), each read at
  * up to three uses, beneath a probe of its site or none, its probes in its own cores or in its site's (SiteCore `site`),
  * one instance reading another, swarmed per case between the broad vocabulary above and a dense one of two insert-only
@@ -108,14 +96,7 @@
  * reasons, each once, but a write's count of its other unjoined outside reads, and the same fences. That count is held
  * apart, with the case's SERIALIZABLE forms dropped so every round reads one installation, to its contract restated over
  * the expansion (unjoinedOracle): the other outside reads of the statement the write is joined with none of, each read
- * of the statement once, a query CTE's read once whatever sites and arrivals read it (CteFacts.query). Plants
- * (~/.cache/grizzle-release/CERTPERF/plants), each failing it: certify-reach-first-only (an instance reached from the
- * first reach of the body that uses it alone), certify-site-probe-first-use (a site probe judged in the core of its
- * body's first use), certify-below-ignores-use-probes (a row path through a use beneath other probes than its chain),
- * certify-reads-own-body-only (no instance's read placed), certify-unjoined-count-by-instance (a CTE's read counted once
- * per instance) and certify-unjoined-count-each-mode (a read counted once per mode it takes);
- * extract-instance-key-no-polarity, extract-instance-key-no-feeds, extract-query-per-instance and
- * extract-query-one-for-all fail the extractor's search (test/unit/program/isolation/extract.test.ts).
+ * of the statement once, a query CTE's read once whatever sites and arrivals read it (CteFacts.query).
  *
  * DENSEATS's repro and its five neighbours (monotoneOf): a role that inserts R and E under a rule whose witness reads
  * one row of R and E's absence runs READ COMMITTED (the monotone writer); a deleter of E, a self-join of R, E read
@@ -127,6 +108,59 @@
  * role relies on, a READ COMMITTED role whose write fires a monotone rule's probe, and one whose writes of a rule's
  * relations only withdraw its violations (the required situations of the search).
  *
+ * @plant test/plants/unit/analysis/isolation/certify-memberless-role-certified.patch A role with no change member
+ * certified (certify.ts memberReasons); the search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-fixpoint-once.patch The fixpoint over the roles a SERIALIZABLE
+ * role gives a reason run once (certify.ts round); the search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-own-lowering-self-included.patch A lowered role judged again over
+ * both its forms, its own lowering's absence named in place of the reasons that lowered it (the lowered absence); the
+ * search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-lowering-cause-dropped.patch A lowered role's certificate read
+ * from the last round, over its READ COMMITTED form alone, where another role's lowering gives it an absence of its own
+ * (the lowered cause); the search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-held-ignores-updates.patch A check of a relation a role updates
+ * sealed (the updatedCheck shape); the search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-fence-dropped.patch A fenced check relied on with no fence stated
+ * (the fencedCheck shape); the search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-fenced-site-unfenced.patch Every check of referencing rows a
+ * fenced site (updatedDeleter); the search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-5c-spares-unfenced.patch 5c sparing a writer whose login fences
+ * nothing (unfencedPivot); the search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-5c-skips-sealed-checks.patch 5c leaving out every sealed foreign
+ * key check, edullm's G3 (b), which NEGATION's case 3 refutes (the refusedCopy and publication shapes); the search
+ * fails.
+ * @plant test/plants/unit/analysis/isolation/certify-key-match-by-relation.patch A read of an arbitrated relation at
+ * any bindings arbitrated (certify.ts fixedFor); the search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-key-match-no-clean-prefix.patch A key-matched read arbitrated
+ * after an outside read (certify.ts readsOf); the search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-key-match-part-of-key.patch A read matching the first field of an
+ * arbitrated key alone arbitrated (certify.ts readsOf); the search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-race-other-key-fixed.patch A raced relation's arbitration at
+ * another key fixing its row (certify.ts fixesAt); the search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-key-match-exact-group.patch A key-matched read with a binding
+ * besides the key left a point read, the old exact-group rule (certify.ts fixedFor); the search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-reach-first-only.patch An instance reached from the first reach of
+ * the body that uses it alone; the second search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-site-probe-first-use.patch A site probe judged in the core of its
+ * body's first use; the second search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-below-ignores-use-probes.patch A row path through a use beneath
+ * other probes than its chain; the second search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-reads-own-body-only.patch No instance's read placed; the second
+ * search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-unjoined-count-by-instance.patch A CTE's read counted once per
+ * instance; the second search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-unjoined-count-each-mode.patch A read counted once per mode it
+ * takes; the second search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-absence-spared-by-own-fence.patch A negated or counted read of a
+ * relation its reader's own login fences is no absence site (certify.ts absenceSites); the search fails.
+ * @plant test/plants/unit/analysis/isolation/spec-5c-spares-any-read-of-a-fenced-relation.patch 5c spares any read of
+ * a relation the pivot's login fences, in certify.ts and in this file's oracle alike; the newlyFencedRead case keeps
+ * its plain reader SERIALIZABLE, so the search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-exemption-dropped.patch This file's monotonicity check loses its
+ * newlyFenced exemption, so a reader relying on a new fence is held SERIALIZABLE; the search fails at the newlyFenced
+ * case.
+ * @plant test/plants/unit/analysis/isolation/monotone-exemption-every-role.patch This file's newlyFenced exempts every
+ * role; the search fails.
  * @plant test/plants/unit/analysis/isolation/monotone-polarity-flipped.patch A write's presence and absence swapped
  * wherever a witness is read (breaksAt and settable); the monotone writer's search fails.
  * @plant test/plants/unit/analysis/isolation/monotone-occurrences-deduped.patch A witness's rows counted by relation,

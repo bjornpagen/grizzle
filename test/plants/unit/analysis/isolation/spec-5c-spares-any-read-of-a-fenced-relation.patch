@@ -1,0 +1,26 @@
+diff --git a/packages/engine/src/analysis/isolation/certify.ts b/packages/engine/src/analysis/isolation/certify.ts
+index f5843d16..cc08d1e6 100644
+--- a/packages/engine/src/analysis/isolation/certify.ts
++++ b/packages/engine/src/analysis/isolation/certify.ts
+@@ -1998,7 +1998,7 @@ const serializableReasons = (
+ 					...readers,
+ 					...cowriters,
+ 					...[...other.guarded].flatMap((relation) =>
+-						view.outside.has(relation) && !(view.locked.has(relation) && other.fences.has(relation))
++						view.outside.has(relation) && !other.fences.has(relation)
+ 							? [
+ 									reason(
+ 										"writers",
+diff --git a/test/unit/analysis/isolation/certify.test.ts b/test/unit/analysis/isolation/certify.test.ts
+index 64bc0434..8469d3fe 100644
+--- a/test/unit/analysis/isolation/certify.test.ts
++++ b/test/unit/analysis/isolation/certify.test.ts
+@@ -3244,7 +3244,7 @@ const oracleRound = (sketch: Sketch, lowered: ReadonlySet<number>) => {
+ 			}
+ 			const shared = Arr.some(
+ 				[...guardedSet(o)],
+-				(x) => reads.has(x) && !(lockedReads.has(x) && fences(login, x))
++				(x) => reads.has(x) && !fences(login, x) && lockedReads.size >= 0
+ 			)
+ 			const pivot =
+ 				Arr.some(formsOf(o), (statements) =>

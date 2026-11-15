@@ -1,0 +1,15 @@
+--- a/packages/engine/src/analysis/isolation/certify.ts	2026-11-12 17:51:20.996073490 +0000
++++ b/packages/engine/src/analysis/isolation/certify.ts	2026-11-12 17:51:20.996136686 +0000
+@@ -723,12 +723,6 @@
+ 	if (at.writers.insertOnly(relation)) {
+ 		return keyedSeal("point", facts, fields)
+ 	}
+-	if (at.writers.updated(relation)) {
+-		return {
+-			kind: "unsealed",
+-			detail: "a role updates the relation, which may move the key a check found"
+-		}
+-	}
+ 	return keyedSeal(at.writers.replaced(relation) ? "fenced" : "held", facts, fields)
+ }
+ 

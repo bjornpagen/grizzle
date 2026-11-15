@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/isolation/certify.ts b/packages/engine/src/analysis/isolation/certify.ts
+index f5843d16..1b469647 100644
+--- a/packages/engine/src/analysis/isolation/certify.ts
++++ b/packages/engine/src/analysis/isolation/certify.ts
+@@ -1127,7 +1127,7 @@ const fixesAt = (facts: RelationFacts | undefined, key: ReadonlyArray<string>):
+ 	if (facts === undefined) {
+ 		return false
+ 	}
+-	return facts.inserts.kind === "repeatable" || sameKey(facts.inserts.key, key)
++	return facts.inserts.kind === "repeatable" || facts.inserts.key.length > 0
+ }
+ 
+ /** The row of `fixed` a read reads: one fixed earlier in its member, of its relation, whose key fields it binds each to
