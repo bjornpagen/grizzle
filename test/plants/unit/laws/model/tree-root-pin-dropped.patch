@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/laws/model/plan.ts b/packages/engine/src/laws/model/plan.ts
+index cf626ae9..88db0e38 100644
+--- a/packages/engine/src/laws/model/plan.ts
++++ b/packages/engine/src/laws/model/plan.ts
+@@ -2817,7 +2817,6 @@ class FamilyPlanner {
+ 				and([cmp("ne", parent, start), cmp("gt", start, zero)])
+ 			])
+ 		)
+-		own.add(or([cmp("gt", start, zero), cmp("eq", at, zero)]))
+ 		own.add(or([cmp("eq", start, zero), cmp("gt", at, zero), cmp("eq", start, plus(parent))]))
+ 		own.add(
+ 			and([cmp("gt", end, start), or([cmp("gt", children, zero), cmp("eq", end, plus(start))])])

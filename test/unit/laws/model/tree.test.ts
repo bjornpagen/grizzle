@@ -34,11 +34,11 @@ import { searched } from "@bjornpagen/testing/vitest"
  * exempting start 0: the root at slot 0 with a before of 1 accepted), each a different set of natives or verdicts this
  * box refuses.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): tree-root-pin-dropped (the root pin, start > 0 or at = 0, left out of
- * the tree's CHECK).
- *
  * Features: an immutable tree, a mutable tree, a parent copy, an accumulated parent copy, two copies, a fold over the
  * tree.
+ *
+ * @plant test/plants/unit/laws/model/tree-root-pin-dropped.patch The root pin, start > 0 or at = 0, is left out of the
+ * tree's CHECK (laws/model/plan.ts treeConditions), so a root off slot 0 is accepted; the CHECK's verdicts fail.
  */ import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import type { LawModel } from "#compiler/laws/model/model.ts"
