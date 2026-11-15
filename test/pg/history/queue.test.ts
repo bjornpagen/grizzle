@@ -2,8 +2,8 @@
  * Generated histories over the work queue family: grizzle, SERIALIZABLE psql and planted below-SERIALIZABLE psql
  * writers at once, checked after the fact (test/support/history/suite.ts historySuite).
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/races-inserter-begins-swapped.patch, each level's BEGIN sent for the
- * other's, puts grizzle's writes at READ COMMITTED, where the guard refuses them, and must turn the histories red.
+ * @plant test/plants/pg/history/races-inserter-begins-swapped.patch Each isolation level's BEGIN is sent for the
+ * other's, which puts grizzle's writes at READ COMMITTED, where the guard refuses them; the histories fail.
  */
 
 import { queueHistory } from "#test/support/history/families.ts"
