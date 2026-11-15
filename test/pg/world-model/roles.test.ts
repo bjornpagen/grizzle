@@ -60,7 +60,9 @@ import {
  *
  * @plant test/plants/pg/world-model/worlds-roles-login-creates-in-schema.patch A login granted CREATE beside USAGE on
  * the base schema; the installed-catalog checker the installation runs refuses the privilege README "Security model"
- * does not derive.
+ * does not derive (loginHolds). It is red at install by construction, never at the property's own reading of the
+ * login's privileges: every installation a test makes runs that checker (test/support/install-migrate.ts, step 7), and
+ * it judges the same grant.
  */
 
 const integer = { kind: "integer", bits: 32 } as const

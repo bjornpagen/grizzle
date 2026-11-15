@@ -39,9 +39,10 @@ import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types
  * witness carries only what the writer submitted or holds whole (drive/acting.ts witnessesShowTheirOwn).
  *
  * @plant test/plants/pg/world-model/worlds-rules-span-key-overlaps.patch A span key installed without WITHOUT
- * OVERLAPS, so its spans may overlap: the README-shaped rooms worlds' PERIOD foreign key into it finds no key to
- * reference (42830) and the installation fails, and a generated installation with no such reference accepts a write
- * whose span overlaps a stored one at its key, which the model refuses.
+ * OVERLAPS, so its spans may overlap: the rooms base's coverage, a PERIOD foreign key into Opening's span key, finds no
+ * key to reference (42830) and the installation fails. It is red at install by construction, never at an overlapping
+ * write: every installation here, the generated ones too, is of the one rooms base (installGen varies its roles and
+ * logins alone), which holds that coverage. pg/write/span-key reaches the overlap past install and cites it there.
  * @plant test/plants/pg/world-model/worlds-generated-addition-unarbitered.patch The model's add-wins transition adds a
  * generated addition as a fact of its own whatever it meets at its arbiter: the kept case arbiteredRepeat's ticket,
  * equal at every field it states to stored ticket 2, is predicted refused by the code key, where PostgreSQL answers no
