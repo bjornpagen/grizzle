@@ -30,10 +30,12 @@
  *   writes each member's h by a fate the case's swarm weighs. Mapping each owner's members onto one owner, a
  *   permutation of the owners, keeps each new group's indices 0 … n − 1: the migration commits with every member's
  *   index as the second version left it. Moving the first member of an owner's family of several to another owner breaks
- *   them: PostgreSQL refuses the third folder, at whichever of the family's constraints it meets first (its key's
- *   index build, a duplicate; its bound's or a foreign key's VALIDATE, a gap), naming the family's law or its fold's. A
- *   history that declares the index dropped (`--drop Member.at`) leaves h as stored and gets each member's index anew,
- *   its place in its new group's member-key order.
+ *   them: PostgreSQL refuses the third folder at the first of the family's checks it meets, naming the family's law or
+ *   its fold's: the backfill's check of the family's key (h, at) before any derivation, which raises under the family's
+ *   law itself (deploy/diff/backfill.ts keyChecks), for a duplicate; its bound's or a foreign key's VALIDATE, through
+ *   the folder's laws, for a gap (support.ts refusedLaw reads either). A history that declares the index dropped
+ *   (`--drop Member.at`) leaves h as stored and gets each member's index anew, its place in its new group's member-key
+ *   order.
  * - Either way, migrate's drift check and the installed-catalog checker match the catalog against the snapshot after
  *   every step, and no constraint is left NOT VALID: every law holds.
  *
@@ -89,6 +91,8 @@ import {
 	checkedAdmission,
 	kept,
 	openMigrator,
+	refusedIn,
+	refusedLaw,
 	reviewedSource
 } from "#test/pg/migrate/support.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
@@ -1277,22 +1281,6 @@ const changeDeclarations = (c: ChangeCase): Declarations =>
 				drops: [{ kind: "field", relation: parsedName("Member"), field: parsedName("at") }]
 			}
 		: noDeclarations
-
-/** The law a migration's refusal names, by migrate's reading of the refused constraint through its folder's laws. */
-const refusedLaw = (failure: MigrateError): Option.Option<string> => {
-	const reason = failure.reason
-	return reason._tag === "StatementFailed" || reason._tag === "FileCommitRefused"
-		? Option.fromUndefinedOr(reason.law)
-		: Option.none()
-}
-
-/** The folder a migration's refusal names, none for any other failure. */
-const refusedIn = (failure: MigrateError): Option.Option<string> => {
-	const reason = failure.reason
-	return reason._tag === "StatementFailed" || reason._tag === "FileCommitRefused"
-		? Option.some(reason.folder)
-		: Option.none()
-}
 
 /** Each member's index in its group under h by member key, from 0: what a redrawn index holds. */
 const keyOrderIndices = (members: ReadonlyArray<Indexed>): ReadonlyArray<Indexed> =>

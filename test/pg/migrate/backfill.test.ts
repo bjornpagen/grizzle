@@ -82,7 +82,6 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
-import type { MigrateError } from "#adapter/migrate/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
@@ -116,7 +115,7 @@ import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { byMember, FOLD_SPECS, foldRead, foldSeatOf } from "#test/pg/fin/folds.ts"
 import { seatOfInstalled } from "#test/pg/fin/installed.ts"
-import { type Aim, aimedAt } from "#test/pg/migrate/support.ts"
+import { type Aim, aimedAt, refusedIn, refusedLaw } from "#test/pg/migrate/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"
 import {
@@ -1408,34 +1407,6 @@ const rekeyAims: ReadonlyArray<Aim<Rekey, RekeyFeature>> = [
 		})
 	]
 ]
-
-/**
- * The law a migration's refusal names: by migrate's reading of the refused constraint through its folder's laws, or by
- * a violation check, which raises SQLSTATE 23000 under the law's identity, as the backfill's check of a key its
- * derivations rely on does (backfill.ts keyChecks) before any of them runs.
- */
-const refusedLaw = (failure: MigrateError): Option.Option<string> => {
-	const reason = failure.reason
-	if (reason._tag === "FileCommitRefused") {
-		return Option.fromUndefinedOr(reason.law)
-	}
-	if (reason._tag !== "StatementFailed") {
-		return Option.none()
-	}
-	return reason.law !== undefined
-		? Option.some(reason.law)
-		: reason.failure._tag === "ServerError" && reason.failure.sqlstate === "23000"
-			? Option.fromUndefinedOr(reason.failure.constraint)
-			: Option.none()
-}
-
-/** The folder a migration's refusal names, none for any other failure. */
-const refusedIn = (failure: MigrateError): Option.Option<string> => {
-	const reason = failure.reason
-	return reason._tag === "StatementFailed" || reason._tag === "FileCommitRefused"
-		? Option.some(reason.folder)
-		: Option.none()
-}
 
 /**
  * A re-key migrated over its stored families: the reference fold of each family after the data step where every

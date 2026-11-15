@@ -33,6 +33,7 @@ import {
 import { oneShotStatement, sentAnswer } from "#adapter/wire/batch.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
+import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { MigrationFolder } from "#compiler/deploy/render/folder.ts"
@@ -253,6 +254,37 @@ export const refusal = <A>(effect: Effect.Effect<A, MigrateError>): Effect.Effec
 		}
 		return error.success
 	})
+
+/**
+ * The law a migration's refusal names: migrate's reading of the refused constraint through its folder's laws (a
+ * StatementFailed's or a FileCommitRefused's `law`, apply.ts brokenLaw), or, for a violation check, which raises
+ * integrity_constraint_violation under the law's identity itself and which brokenLaw leaves unnamed, that identity, as
+ * the backfill's check of a key its derivations rely on does (deploy/diff/backfill.ts keyChecks) before any of them
+ * runs; none for any other failure.
+ */
+export const refusedLaw = (failure: MigrateError): Option.Option<string> => {
+	const reason = failure.reason
+	if (reason._tag === "FileCommitRefused") {
+		return Option.fromUndefinedOr(reason.law)
+	}
+	if (reason._tag !== "StatementFailed") {
+		return Option.none()
+	}
+	return reason.law !== undefined
+		? Option.some(reason.law)
+		: reason.failure._tag === "ServerError" &&
+			  reason.failure.sqlstate === sqlstates.integrityConstraintViolation
+			? Option.fromUndefinedOr(reason.failure.constraint)
+			: Option.none()
+}
+
+/** The folder a migration's refusal names, none for any other failure. */
+export const refusedIn = (failure: MigrateError): Option.Option<string> => {
+	const reason = failure.reason
+	return reason._tag === "StatementFailed" || reason._tag === "FileCommitRefused"
+		? Option.some(reason.folder)
+		: Option.none()
+}
 
 export const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
