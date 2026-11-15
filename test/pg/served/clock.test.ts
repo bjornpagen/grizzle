@@ -38,9 +38,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * - A clocked parameter of a contract is judged by its contract: a reading the contract admits answers, and one it
  *   refuses is `refused`.
  *
- * Plants (~/.cache/grizzle-release/DBCLOCK/plants): clock-statement-timestamp.patch reads statement_timestamp(), caught
- * by Mark's stamps against Stamp's.
- *
+ * @plant test/plants/unit/cli/clock-statement-timestamp.patch The clock reads statement_timestamp(); caught by Mark's
+ * stamps against Stamp's.
  * @plant test/plants/pg/served/clock-round-not-floor.patch Milliseconds read rounded, not floored; caught by
  * ms = floor(us / 1000) wherever the reading's microseconds pass 500.
  * @plant test/plants/pg/served/clock-units-swapped.patch The clock's units swapped, microseconds counted as

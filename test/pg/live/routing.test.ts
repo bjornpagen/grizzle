@@ -39,12 +39,11 @@
  * the footprint the served file records; a re-run is counted as the wire shows it, the Binds of the subscription's
  * statement with the values its first read bound.
  *
- * Plants (~/.cache/grizzle-release/LIVE-TESTS/plants): routing-key-ignored.patch (the router hands a keyed change to
- * every subscription of its table, so a subscription of another group is marked).
- *
  * Features: a touched and an untouched subscription of one relation, a commit touching several subscriptions, an
  * update moving a row between groups, each read shape, each writer, a sealed copy of the last fence's notification.
  *
+ * @plant test/plants/unit/live/routing-key-ignored.patch The router hands a keyed change to every subscription of its
+ * table, so a subscription of another group is marked; the marking property fails.
  * @plant test/plants/pg/live/source-missing-publication.patch The publication leaves out a footprint table, so a
  * subscription its write touched stays clean; the marking property fails.
  * @plant test/plants/pg/live/source-identity-too-narrow.patch The replica identity of a footprint table too narrow for

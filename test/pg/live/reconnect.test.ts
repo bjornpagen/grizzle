@@ -29,12 +29,11 @@
  *
  * The oracle is grizzle itself: a fresh `once` of the subscription's program and input after each commit.
  *
- * Plants: ready-before-commit.patch (a read's `ready` sent once its rows decode, before COMMIT's answer): a drop in the
- * first flight between its rows and COMMIT's answer finds the dropped call's `ready`.
- *
  * Features: each drop point, each surface, a drop before the first answer and one after COMMIT's, a drop with a re-run
  * in flight, a call refused before the slot stood.
  *
+ * @plant test/plants/unit/live/ready-before-commit.patch A read's `ready` sent once its rows decode, before COMMIT's
+ * answer, so a drop in the first flight between its rows and COMMIT's answer finds the dropped call's `ready`.
  * @plant test/plants/pg/live/flight-gate-any-role.patch A flight's gate names the next session of any role to write, so
  * a fresh installation's listener is gated in the call's place.
  * @plant test/plants/pg/live/consume-ends-at-slot-absent.patch A call refused for a slot not made yet ends its

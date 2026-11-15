@@ -23,14 +23,13 @@
  * The oracle is the served file itself: every string its JSON value holds, by value, is what generate wrote, and its
  * live source's texts are what the leader may send.
  *
- * Plants (~/.cache/grizzle-release/LIVE-TESTS/plants): the routes suite's route-without-program.patch, which this
- * suite meets as a route whose request sends no served statement.
- *
  * Features: each read shape, a page, each write member, a request no route serves, a method no route serves, the
  * leader's replication session, a write naming a family member, a read of closed relations alone.
  *
  * @plant test/plants/pg/live/leader-text-at-runtime.patch The leader sends a slot command it builds at run time, its
  * slot unquoted, on its replication connection; the replication connection's property fails.
+ * @plant test/plants/unit/live/route-without-program.patch A route without a program, the routes suite's plant, which
+ * this suite meets as a route whose request sends no served statement.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
