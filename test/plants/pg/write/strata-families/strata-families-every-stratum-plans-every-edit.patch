@@ -1,0 +1,26 @@
+diff --git a/packages/engine/src/write/frontend/compile.ts b/packages/engine/src/write/frontend/compile.ts
+index 4009d67f..e3466e5e 100644
+--- a/packages/engine/src/write/frontend/compile.ts
++++ b/packages/engine/src/write/frontend/compile.ts
+@@ -2310,7 +2310,7 @@ const compile = (
+ 		edited: ReadonlyArray<StoredRelationName>,
+ 		refill: StratumRefill | undefined
+ 	): ReadonlyArray<FamilyNode> | undefined => {
+-		const own = edits.filter((e) => e.stratum === stratum)
++		const own = edits
+ 		/** The relations whose rows the stratum's nested writes fill, which its additions insert (write/family/nesting.ts
+ 		 * sentLayout). */
+ 		const nested = nestedWrites.flatMap((n) =>
+diff --git a/packages/engine/src/write/program/compile.ts b/packages/engine/src/write/program/compile.ts
+index 22e762bf..b9c2c99c 100644
+--- a/packages/engine/src/write/program/compile.ts
++++ b/packages/engine/src/write/program/compile.ts
+@@ -533,7 +533,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram
+ 				return Object.freeze({ kind: "write", stratum: s, node, step: Object.freeze(step), sql })
+ 			}
+ 			if (node.kind === "additions" || node.kind === "removals") {
+-				const stratumEdits = frontend.edits.filter((edit) => edit.stratum === s)
++				const stratumEdits = frontend.edits
+ 				/** The families a family write draws its rows of `relation` by: every one it is a member of but its own tree,
+ 				 * whose nodes the host's walk draws (write/family/nesting.ts). */
+ 				const familiesOf = (relation: RelationInfo) =>

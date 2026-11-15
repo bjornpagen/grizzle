@@ -44,9 +44,8 @@
  * staged statement judges, an owner of no member, a row past one fill alone, a flight past one write, a staged write
  * and a carrier of the program's own without TEMPORARY, and a carrier of the program's own.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/staged-no-staged-form.patch, a served program whose statements carry no
- * staged form, sends its rows inline past the planted bound, which the flight's builder refuses as InputTooLarge
- * (message) where the inline write commits, so the search fails on pantry's kept case.
+ * @plant test/plants/pg/write/staged/staged-no-staged-form.patch A served program's statements carry no staged form
+ * (write/program/served.ts), so its rows go inline past the planted bound; the search fails on pantry's kept case.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

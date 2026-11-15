@@ -1,8 +1,8 @@
 /**
  * A ChangeSet editing a counted family's members in one stratum and nesting an ordered family's members under new owners
- * in another, or in the same one, on PostgreSQL 19rc2: each stratum plans its own family edits only
- * (write/program/bind.ts planned), from the one read before the ChangeSet's writes, so every edit takes effect once, in
- * its stratum, whichever stratum comes first.
+ * in another, or in the same one, on PostgreSQL 19rc2: each stratum's family statements carry its own family edits only
+ * (write/frontend/compile.ts and write/program/compile.ts, the edits of their stratum), so every edit takes effect once,
+ * in its stratum, whichever stratum comes first.
  *
  * A case stores clubs 0 and 1 with counted members at drawn ids, each in a drawn club, written through a served member;
  * then applies one ChangeSet that deletes some stored members and inserts fresh ones, each in a drawn club, beside an
@@ -15,8 +15,9 @@
  *   slot of its place among its doc's nested lines, in order.
  * - Features: each placement; a stored member deleted, a member inserted, both in one edit; a club emptied; a doc of no
  *   line.
- * - Plant: ~/.cache/grizzle-release/BR08/plants/strata-families-every-stratum-plans-every-edit.patch, every stratum
- *   planning the edits of every stratum, must turn the property red.
+ *
+ * @plant test/plants/pg/write/strata-families/strata-families-every-stratum-plans-every-edit.patch Every stratum plans
+ * the member edits of every stratum (write/frontend/compile.ts, write/program/compile.ts); the property must fail.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -37,8 +37,11 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * owner's count its members'.
  *
  * Features: an owner with no members, members read back, members of two lengths, and the kept bodies past the longest
- * string. Plant: ~/.cache/grizzle-release/BR08/plants/nested-identity-joined-signature.patch, a nested fact's signature
- * joined into one text, must turn the property red on the kept case.
+ * string.
+ *
+ * @plant test/plants/pg/write/nested-identity/nested-identity-signature-one-text.patch A nested fact's signature is
+ * joined into one text of all its rows (runtime/write/nesting.ts nestedRows), so the kept bodies past the longest
+ * string die with RangeError before any SQL; the property fails on the kept case.
  */
 const Owner = relation("Owner", { id: uuid, members: drawnField(natural) }, ["id"])
 const Member = relation(
