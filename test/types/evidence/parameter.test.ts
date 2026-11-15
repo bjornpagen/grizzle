@@ -8,8 +8,10 @@
  * - an app's parent variable is taken by the function's parameter, and the app that attaches the function's query has
  *   the head of the app that writes it inline;
  * - a comment the function builds over the node's id, taken as an input term that an equality fixes the comment's key
- *   to, proves the option, as the same comment inline over the node's own variable does, and the two apps have one
- *   head: the one delivery that rests on the equality with the input term itself.
+ *   to, proves the option, as the same comment inline over an equality with the node's own variable does, and the two
+ *   apps have one head; neither proves the one child, refused by its Refusal in both schemas, which the comment
+ *   matched inline on the node's own variable proves where the schema proves existence (README, "grizzle knows each
+ *   result's keys"): the deliveries that rest on the equality itself.
  *
  * Oracle: the inline child, whose verdicts are the evidence's (an array always, an option over the key the parent
  * fixes, the one child where the schema proves existence). Not stated: a function generic over the field,

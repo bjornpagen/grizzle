@@ -16,9 +16,12 @@ import { Array as Arr } from "effect"
  * state.
  *
  * Beside the box, for each schema, the comment as a child a function builds over the node's id, taken as an input term
- * that an equality fixes the comment's key to (keyedBlock), attached as an option, against the same child inline over
- * the node's own variable: the equality fixes the key in both, so both prove the option, and the two apps have one
- * head. Only there does a delivery rest on the equality with the input term itself.
+ * that an equality fixes the comment's key to (keyedBlock), attached as an option and as the one child, against the
+ * same child inline over an equality with the node's own variable. The equality fixes the key in both, so both prove
+ * the option, and those two apps have one head; neither proves the one child, refused by its Refusal in both schemas,
+ * since existence is read only off the comment matched on the parent's own variable, as the box's comments are, which
+ * prove it where the schema does (README, "grizzle knows each result's keys"). Only there does a delivery rest on the
+ * equality with the input term itself.
  */
 
 /** A schema of the box: how the comments relate to the nodes. */
@@ -100,20 +103,27 @@ const cellBlock = (box: Box, delivery: Delivery): string => {
 }
 
 /**
- * The comment by an equality with the node's id, attached as an option: built by a function that takes the id as an
- * input term, and inline over the node's own variable.
+ * The comment by an equality with the node's id, attached as an option and as the one child: built by a function that
+ * takes the id as an input term, and inline over the node's own variable. The one child stands under its Refusal.
  */
+/** The Refusal of the one child where the evidence proves no comment exists for each node. */
+const oneRefused = "the one child needs a child the evidence proves exactly one per parent"
+
 const keyedBlock = (box: Box): string => {
 	const child = (node: string): string =>
 		`query(${box.name}).rule((r) => { const { node: n, value } = v(Comment, "comment"); return r.match(Comment, { node: n, value }).where(r.eq(n, ${node})).find({ value }) })`
 	const nodes = `query(${box.name}).rule((r) => { const { id, document: d } = v(Node, "node"); return r.match(Node, { id, document: d }).find({ id }) })`
 	return Arr.join(
 		[
-			`/** ${box.name}, the comment by an equality with the node's id, as an option: by a function, and inline. */`,
+			`/** ${box.name}, the comment by an equality with the node's id: by a function, and inline. */`,
 			`export const comment_${box.name} = (node: Term<Uuid, unknown, InputOrigin, "uuid">) => ${child("node")}`,
 			`export const keyed_${box.name} = ${nodes}.attach("comment", (node) => comment_${box.name}(node.id), "option")`,
 			`export const keyedInline_${box.name} = ${nodes}.attach("comment", (node) => ${child("node.id")}, "option")`,
 			`export type SameKeyed_${box.name} = Expect<Equals<HeadOf<typeof keyed_${box.name}>, HeadOf<typeof keyedInline_${box.name}>>>`,
+			`// @ts-expect-error -- refusal: ${oneRefused}`,
+			`export const keyedOne_${box.name} = ${nodes}.attach("comment", (node) => comment_${box.name}(node.id), "one")`,
+			`// @ts-expect-error -- refusal: ${oneRefused}`,
+			`export const keyedInlineOne_${box.name} = ${nodes}.attach("comment", (node) => ${child("node.id")}, "one")`,
 			""
 		],
 		"\n"
