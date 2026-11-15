@@ -1,0 +1,12 @@
+diff --git a/packages/grizzle/src/cli/check.ts b/packages/grizzle/src/cli/check.ts
+--- a/packages/grizzle/src/cli/check.ts
++++ b/packages/grizzle/src/cli/check.ts
+@@ -203,7 +203,7 @@
+ 				at("unreadableMeta", path(folder.name, "meta.json"), refusalText.unreadableMeta.problem)
+ 				break
+ 			case "unlinked":
+-				at("brokenChain", path(folder.name, "meta.json"), refusalText.brokenChain.problem)
++				at("unreadableMeta", path(folder.name, "meta.json"), refusalText.unreadableMeta.problem)
+ 				break
+ 			case "sound":
+ 				break

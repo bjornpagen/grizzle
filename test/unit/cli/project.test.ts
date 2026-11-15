@@ -135,10 +135,10 @@ import { upTo } from "#test/support/up-to.ts"
  * Oracle: a model of the documented loop, and the pure generator fed the committed snapshot read before each generate
  * (a second implementation of what generate writes).
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): cli-timestamp-repeats-newest.patch (a folder's timestamp repeats the
- * newest folder's), check-no-markers.patch (check reports no marker left in a file).
- *
  * Features: every command of the loop, each edit, each refusal, each finding, and a hidden entry ignored.
+ *
+ * @plant test/plants/unit/cli/cli-timestamp-repeats-newest.patch A folder's timestamp repeats the newest folder's.
+ * @plant test/plants/unit/cli/check-no-markers.patch check reports no marker left in a file.
  */
 type FieldKind = "int4" | "bool" | "uuid" | "code"
 

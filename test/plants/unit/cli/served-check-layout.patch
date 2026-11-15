@@ -1,0 +1,28 @@
+diff --git a/packages/grizzle/src/cli/check.ts b/packages/grizzle/src/cli/check.ts
+--- a/packages/grizzle/src/cli/check.ts
++++ b/packages/grizzle/src/cli/check.ts
+@@ -320,6 +320,15 @@
+ 	}
+ }
+ 
++/** Whether two texts read as one JSON value, whatever their layout. */
++const readsAlike = (a: string, b: string): boolean => {
++	try {
++		return JSON.stringify(JSON.parse(a)) === JSON.stringify(JSON.parse(b))
++	} catch {
++		return false
++	}
++}
++
+ /**
+  * The findings of a schema's committed login files of `kind`, `committed` by login, against the ones generate writes
+  * under the draft's snapshot, `served`, each where it lies relative to `cwd`: a login's file that is not its text, a
+@@ -349,7 +358,7 @@
+ 					)
+ 				]
+ 			}
+-			return text === expected
++			return text === expected || readsAlike(text, expected)
+ 				? []
+ 				: [
+ 						finding(

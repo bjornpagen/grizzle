@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/deploy/snapshot/build.ts b/packages/engine/src/deploy/snapshot/build.ts
+--- a/packages/engine/src/deploy/snapshot/build.ts
++++ b/packages/engine/src/deploy/snapshot/build.ts
+@@ -1385,7 +1385,7 @@
+  * `grizzle generate` writes snapshot.json again, with no migration, since no fact is part of the fingerprinted content.
+  */
+ export const derivedHolds = (recorded: unknown, computed: SnapshotDerived): boolean =>
+-	canonicalEquals(recorded, derivedForm(computed), everyProperty)
++	recorded === undefined || canonicalEquals(recorded, derivedForm(computed), everyProperty)
+ 
+ /** A snapshot's two files joined (joinedSnapshot): the JSON form of its whole content, which its fingerprint digests,
+  * and snapshot.json's derived runtime facts as recorded, kept out of the content, absent from a file that holds none. */

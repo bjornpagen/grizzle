@@ -61,8 +61,8 @@ import { upTo } from "#test/support/up-to.ts"
  * configured set's first draft, drafting no folder and leaving snapshot.json and manifest.json byte for byte, since a
  * refresh member plans no access; and check passes again.
  *
- * Plant (~/.cache/grizzle-release/OUTPUTSIZE/plants/check-documents-unread.patch): check holds the served files alone,
- * so a stale document goes unfound.
+ * @plant test/plants/unit/cli/check-documents-unread.patch check holds the served files alone, so a stale document
+ * goes unfound.
  */
 
 type Situation =

@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/served/served.ts b/packages/grizzle/src/adapter/served/served.ts
+index 7f5a876c..341e0fec 100644
+--- a/packages/grizzle/src/adapter/served/served.ts
++++ b/packages/grizzle/src/adapter/served/served.ts
+@@ -93,7 +93,7 @@ export const served: ServedConstructor = <L extends AnyLogin>(
+ 	const roles: Record<string, ServedRole<unknown, unknown>> = {}
+ 	const names = Arr.map(read.roles, (role) => role.name)
+ 	for (const role of read.roles) {
+-		roles[role.name] = servedRole(read.base, name, role.name, role.isolation)
++		roles[role.name] = servedRole(read.base, name, role.name, (read.roles[0] ?? role).isolation)
+ 	}
+ 	Object.freeze(roles)
+ 	if (!isServedRoles<L>(roles, names)) {

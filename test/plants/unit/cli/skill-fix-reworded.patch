@@ -1,0 +1,12 @@
+diff --git a/packages/grizzle/src/cli/refusals.ts b/packages/grizzle/src/cli/refusals.ts
+--- a/packages/grizzle/src/cli/refusals.ts
++++ b/packages/grizzle/src/cli/refusals.ts
+@@ -25,7 +25,7 @@
+ export const refusalText = {
+ 	ungenerated: {
+ 		problem: "the schemas or their logins differ from snapshot.json (an ungenerated change)",
+-		fix: "run grizzle generate"
++		fix: "rerun grizzle generate"
+ 	},
+ 	workloadAccess: {
+ 		problem: "a workload program's access differs from snapshot.json (an ungenerated change)",

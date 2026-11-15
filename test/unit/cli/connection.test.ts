@@ -72,10 +72,10 @@ import {
  * specification of each refusal, its stage, reason and named setting, over the role faults, the thrown values and the
  * environments drawn.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): connection-empty-role.patch (an empty role is admitted),
- * connection-owner-options.patch (an owner's environment is refused only for PGREPLICATION).
- *
  * Features: the connection's tricky shapes, each role fault, each thrown value, and each environment's verdict.
+ *
+ * @plant test/plants/unit/cli/connection-empty-role.patch An empty role is admitted.
+ * @plant test/plants/unit/cli/connection-owner-options.patch An owner's environment is refused only for PGREPLICATION.
  */
 const caText = "-----BEGIN CERTIFICATE-----\nMIIBconnection\n-----END CERTIFICATE-----\n"
 

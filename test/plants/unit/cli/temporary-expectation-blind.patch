@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/deploy/admission/roles.ts b/packages/engine/src/deploy/admission/roles.ts
+--- a/packages/engine/src/deploy/admission/roles.ts
++++ b/packages/engine/src/deploy/admission/roles.ts
+@@ -158,7 +158,7 @@
+ const objectsOf = (on: GrantObjects): ReadonlyArray<GrantedObject> => {
+ 	switch (on.kind) {
+ 		case "DATABASE":
+-			return [{ object: "", schema: "", name: "" }]
++			return []
+ 		case "SCHEMA":
+ 			return on.names.map((n) => ({ object: quoteIdent(n), schema: n, name: n }))
+ 		case "TABLE":

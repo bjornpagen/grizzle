@@ -1,0 +1,12 @@
+diff --git a/packages/grizzle/src/cli/renames.ts b/packages/grizzle/src/cli/renames.ts
+--- a/packages/grizzle/src/cli/renames.ts
++++ b/packages/grizzle/src/cli/renames.ts
+@@ -240,7 +240,7 @@
+ 				declaredAlike(a.field, b.field)
+ 			)
+ 		case "handle":
+-			return b.kind === "handle" && declaredAlike(a.roster, b.roster) && a.handle === b.handle
++			return b.kind === "handle" && a.roster === b.roster && a.handle === b.handle
+ 		case "login":
+ 			return b.kind === "login" && declaredAlike(a.login, b.login)
+ 	}

@@ -1,0 +1,11 @@
+diff --git a/packages/grizzle/src/cli/check.ts b/packages/grizzle/src/cli/check.ts
+--- a/packages/grizzle/src/cli/check.ts
++++ b/packages/grizzle/src/cli/check.ts
+@@ -258,7 +258,6 @@
+ 		chainWhole(chain) &&
+ 		chain.reached !== recorded.value.snapshot.fingerprint
+ 	) {
+-		at("chainEnd", path(snapshotFileName), refusalText.chainEnd.problem)
+ 	}
+ 	return {
+ 		findings,

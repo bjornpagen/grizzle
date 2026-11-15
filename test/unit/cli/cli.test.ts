@@ -96,11 +96,12 @@ import { upTo } from "#test/support/up-to.ts"
  * the proleptic Gregorian calendar (a second implementation); the configuration's documented settings resolved by hand;
  * and the exit statuses run.ts documents.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): cli-help-first-only.patch (--help counts only as the command),
- * cli-timestamp-repeats-newest.patch (a new folder's timestamp repeats the newest folder's when the clock reads it).
- *
  * Features: each line of the grammar and each fault, --help, -h and no argument, the timestamps' calendar edges, each
  * configuration fault, and each way the bin's loading ends.
+ *
+ * @plant test/plants/unit/cli/cli-help-first-only.patch --help counts only as the command.
+ * @plant test/plants/unit/cli/cli-timestamp-repeats-newest.patch A new folder's timestamp repeats the newest folder's
+ * when the clock reads it.
  */
 /** The commands that take no flag: every command of the command line but generate (cli/errors.ts CommandName). */
 type PlainCommand = Exclude<CommandName, "generate">

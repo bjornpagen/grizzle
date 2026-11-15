@@ -1,0 +1,11 @@
+diff --git a/test/support/migrate/interpret.ts b/test/support/migrate/interpret.ts
+--- a/test/support/migrate/interpret.ts
++++ b/test/support/migrate/interpret.ts
+@@ -3489,7 +3489,6 @@
+ 			case "SCHEMA":
+ 				return
+ 			case "DATABASE":
+-				this.#onDatabase(s)
+ 				return
+ 		}
+ 	}

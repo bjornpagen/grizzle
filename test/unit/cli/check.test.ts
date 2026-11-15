@@ -56,11 +56,12 @@ import { besideFolders } from "#test/support/migrate/kit.ts"
  * Oracle: the specification of each planted fault's finding at its own entry, as the documented chain walk reaches it
  * (findingsOf); the findings compared as a set of kinds at entries, each once.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): check-broken-chain-unread.patch (a folder off the chain is reported as
- * an unreadable meta.json), check-no-markers.patch (check reports no marker left in a file).
- *
  * Features: each finding's kind, a stray entry alone, four findings at once, and a later folder off the chain the walk
  * never reaches.
+ *
+ * @plant test/plants/unit/cli/check-broken-chain-unread.patch A folder off the chain is reported as an unreadable
+ * meta.json.
+ * @plant test/plants/unit/cli/check-no-markers.patch check reports no marker left in a file.
  */
 type MetaFault = "sound" | "unreadable" | "off the chain"
 
@@ -184,7 +185,7 @@ const stranger = SchemaFingerprint(Str.repeat(64)("0"))
 const appended = (text: string, line: string): string =>
 	`${Str.endsWith("\n")(text) ? text : `${text}\n`}${line}\n`
 
-/** Plants the faults into the committed directory of the workspace `ws`. */
+/** Writes the faults into the committed directory of the workspace `ws`. */
 const plant = (ws: string, p: Planted, layout: Layout) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem

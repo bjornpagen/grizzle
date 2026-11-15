@@ -7,10 +7,9 @@
  *
  * Oracle: the refusal table (cli/refusals.ts), whose every text the shipped skill must quote.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): skill-fix-reworded.patch (a refusal's fix reworded where the skill is
- * not).
- *
  * Features: none; the box is every text.
+ *
+ * @plant test/plants/unit/cli/skill-fix-reworded.patch A refusal's fix reworded where the skill is not.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { noCoverage } from "@bjornpagen/testing/features"

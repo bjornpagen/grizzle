@@ -50,11 +50,11 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  *
  * Oracle: the first draft itself, its snapshot.json and manifest.json, which generate must write back.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): derived-facts-absent-hold.patch (a snapshot.json that records no
- * derived member holds the compile's facts).
- *
  * Features: the derived member removed, a member left out, every member left out, a foreign fact, and a foreign fact
  * beside every member.
+ *
+ * @plant test/plants/unit/cli/derived-facts-absent-hold.patch A snapshot.json that records no derived member holds the
+ * compile's facts.
  */
 
 /**

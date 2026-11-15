@@ -65,9 +65,12 @@ import { draftActions } from "#test/support/migrate/review.ts"
  * a role with no change member; and the second migration granting TEMPORARY to a role that held none, revoking it from a
  * role that keeps standing, and dropping a role that held it.
  *
- * Plants (~/.cache/grizzle-release/GZTEMP/plants): temporary-every-role (every role granted TEMPORARY),
- * temporary-no-role (no role granted it), temporary-expectation-blind (the expectation leaves the database's grant out),
- * temporary-model-skips-database (the model leaves a GRANT or REVOKE on the database unread).
+ * @plant test/plants/unit/cli/temporary-every-role.patch Every role is granted TEMPORARY, its carriers or none.
+ * @plant test/plants/unit/cli/temporary-no-role.patch No role is granted TEMPORARY.
+ * @plant test/plants/unit/cli/temporary-expectation-blind.patch The drift check's expectation leaves the database's
+ * grant out.
+ * @plant test/plants/unit/cli/temporary-model-skips-database.patch The migration model leaves a GRANT or REVOKE on the
+ * database unread (test/support/migrate/interpret.ts).
  */
 
 /** A role's change member: none, an insert of R, or a put of R from a query over a relation parameter. */

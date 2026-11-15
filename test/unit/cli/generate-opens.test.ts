@@ -52,9 +52,9 @@ import { upTo } from "#test/support/up-to.ts"
  * Oracle: a differential between generate and the login's compilation over its workload's slice, which must admit and
  * refuse alike, with one CompileError; and the bound itself, which admits exactly the select lists within it.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): select-list-at-bound.patch (a select list at the bound is refused).
- *
  * Features: a head on the bound, and one past it.
+ *
+ * @plant test/plants/unit/cli/select-list-at-bound.patch A select list at the bound is refused.
  */
 
 /**

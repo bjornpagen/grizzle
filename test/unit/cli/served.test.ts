@@ -57,7 +57,7 @@ import { upTo } from "#test/support/up-to.ts"
  * list), each a finding of its own naming the login.
  *
  * A case takes the committed directory of one schema's first draft, whose login serves reads, a key and a ChangeSet over
- * its two roles (the CLI fixture's shop, test/pg/cli/fixture.ts), and plants one fault (Plant): the SQL of a nonempty
+ * its two roles (the CLI fixture's shop, test/pg/cli/fixture.ts), and plants one fault: the SQL of a nonempty
  * set of its programs that state SQL edited, each at a drawn place by a drawn character; its file deleted; a stray
  * file beside it, of a drawn login name the configuration does not list; or its text mutated (Mutation), a character
  * inserted, replaced or deleted at a drawn place, one member of its JSON value dropped and the rest written as
@@ -73,10 +73,10 @@ import { upTo } from "#test/support/up-to.ts"
  * create: check passing on it and the regenerate drafting no folder are generate's idempotence over a workload's
  * parameter domains, which a later generate must find recorded in the snapshot and never draft again.
  *
- * Plants: (~/.cache/grizzle-release/TSERVED/plants) served-check-layout.patch lets check pass a committed file that
- * reads as the compile's in another layout, so a file generate does not regenerate byte for byte passes;
- * (~/.cache/grizzle-release/LIVE-PARSE/plants) snapshot-omits-param-domains.patch records the snapshot without the
- * parameters' pattern domains its migration installs, so every generate drafts them again.
+ * @plant test/plants/unit/cli/served-check-layout.patch check passes a committed file that reads as the compile's in
+ * another layout, so a file generate does not regenerate byte for byte passes.
+ * @plant test/plants/unit/cli/snapshot-omits-param-domains.patch The snapshot is recorded without the parameters'
+ * pattern domains its migration installs, so every generate drafts them again.
  */
 
 /** A program of the served file, in the file's order: its role's and its own name, and its first SQL text's path. */

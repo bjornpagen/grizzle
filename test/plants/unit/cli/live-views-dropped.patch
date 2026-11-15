@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/program/workload/compile.ts b/packages/engine/src/program/workload/compile.ts
+--- a/packages/engine/src/program/workload/compile.ts
++++ b/packages/engine/src/program/workload/compile.ts
+@@ -532,7 +532,7 @@
+ 		tables: [...tables]
+ 			.toSorted(([a], [b]) => compareText(a, b))
+ 			.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareText) })),
+-		views: [...views].toSorted(compareText)
++		views: []
+ 	}
+ }
+ 

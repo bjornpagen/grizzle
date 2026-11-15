@@ -1,0 +1,12 @@
+diff --git a/packages/grizzle/src/adapter/connection/config.ts b/packages/grizzle/src/adapter/connection/config.ts
+--- a/packages/grizzle/src/adapter/connection/config.ts
++++ b/packages/grizzle/src/adapter/connection/config.ts
+@@ -55,7 +55,7 @@
+ 	settings: ["role"],
+ 	parse: (plain, where) => {
+ 		const { role } = plain
+-		return typeof role === "string" && role !== ""
++		return typeof role === "string"
+ 			? Result.succeed({ role })
+ 			: Result.fail(faultAt(where, "role", { kind: "nonemptyText" }))
+ 	}

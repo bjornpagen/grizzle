@@ -1,0 +1,11 @@
+--- a/packages/grizzle/src/cli/check.ts
++++ b/packages/grizzle/src/cli/check.ts
+@@ -454,7 +454,7 @@
+ 				)
+ 			} else {
+ 				const paths = yield* Path.Path
+-				for (const kind of loginFileKinds) {
++				for (const kind of ["served"] as const) {
+ 					const stale = loginFindings(
+ 						schema,
+ 						kind,

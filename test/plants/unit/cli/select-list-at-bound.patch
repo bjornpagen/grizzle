@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -716,7 +716,7 @@
+ 
+ /** A select list, a SELECT's or a RETURNING's: refused (ResourceBound, selectList) past PostgreSQL's selectMaxEntries. */
+ const printTargets = (targets: ReadonlyArray<Target>): string => {
+-	if (targets.length > selectMaxEntries.value) {
++	if (targets.length >= selectMaxEntries.value) {
+ 		throw new Refusal(
+ 			resourceBound(statementTextLoc, {
+ 				kind: "selectList",
