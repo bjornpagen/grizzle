@@ -35,6 +35,10 @@
  * @plant test/plants/unit/served/param-domain-own-check.patch Every parameter's pattern domain gets its own CHECK, a
  * second copy of its structural domain's; the property fails, no case reaching a parameter's pattern domain over a
  * field's structural domain with no CHECK of its own.
+ * @plant test/plants/unit/served/param-contracts-dropped.patch The contracts outside the base a served parameter is
+ * typed by are left out of the installation's outside contracts (physical/install/plan.ts planInstallation), so no
+ * domain of them is installed or recorded; the own-workload property fails, a login refused as UninstalledDomain under
+ * its own snapshot.
  */
 import { explore, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -3,10 +3,15 @@
  * pointIn, over every endpoint kind (integer, bigint, a contract, date), Left and Right each span-keyed or not, each
  * answer the reference's as a set of rows with no repeat.
  *
- * Features: each query kind over each endpoint kind.
+ * Features: each query kind over each endpoint kind, an Allen filter's window and pointIn's point each a parameter and a
+ * literal.
  *
  * @plant test/plants/pg/spans/allen/allen-before-literal-strict.patch The `<<` literal of a formula is lowered as
  * strictly before, without meets.
+ * @plant test/plants/pg/spans/allen/point-domain-uncast.patch pointIn's point is sent as lowered, not cast to its
+ * endpoint's base type (lower/conservative/span/index.ts rangeOperator), so a parameter point over a contract endpoint,
+ * cast to the contract's domain as it is bound, meets no `anyrange @> anyelement` (42883); the property fails at
+ * pointIn:contract:param.
  */
 import { drawn } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -22,6 +27,7 @@ import {
 	printSpanCase,
 	referenceRows,
 	type SpanEndpointKind,
+	type SpanQuery,
 	type SpanSchema,
 	spanCaseGen,
 	spanEndpointKinds,
@@ -37,9 +43,51 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 const cases = 300
 
-/** The query kinds this suite draws, and what a case reaches: its query kind over its endpoint kind. */
+/** The query kinds this suite draws. */
 const kinds = ["allenFilter", "allenJoin", "pointIn"] as const
-type AllenOracleFeature = `${(typeof kinds)[number]}:${SpanEndpointKind}`
+
+/** How a query writes the window or the point it compares stored spans with: a parameter or a literal. */
+const operandForms = ["param", "literal"] as const
+type OperandForm = (typeof operandForms)[number]
+
+/**
+ * What a case reaches: its query kind over its endpoint kind, with the form of its operand where the kind has one. A
+ * parameter is cast to its declared type as it is bound, a contract's domain for a contract endpoint, which a literal
+ * never is, so the two forms lower apart.
+ */
+type AllenOracleFeature =
+	| `allenFilter:${SpanEndpointKind}:${OperandForm}`
+	| `allenJoin:${SpanEndpointKind}`
+	| `pointIn:${SpanEndpointKind}:${OperandForm}`
+
+/** Every feature the suite must reach. */
+const allenOracleFeatures: Arr.NonEmptyReadonlyArray<AllenOracleFeature> = Arr.flatMap(
+	spanEndpointKinds,
+	(e): Arr.NonEmptyReadonlyArray<AllenOracleFeature> => [
+		`allenJoin:${e}`,
+		...Arr.map(operandForms, (f): AllenOracleFeature => `allenFilter:${e}:${f}`),
+		...Arr.map(operandForms, (f): AllenOracleFeature => `pointIn:${e}:${f}`)
+	]
+)
+
+/** The feature a case of `query` over `endpoint` reaches; none for a query kind outside the drawn ones. */
+const featureOf = (
+	query: SpanQuery,
+	endpoint: SpanEndpointKind
+): Option.Option<AllenOracleFeature> => {
+	switch (query.kind) {
+		case "allenFilter":
+			return Option.some<AllenOracleFeature>(`allenFilter:${endpoint}:${query.window.kind}`)
+		case "allenJoin":
+			return Option.some<AllenOracleFeature>(`allenJoin:${endpoint}`)
+		case "pointIn":
+			return Option.some<AllenOracleFeature>(`pointIn:${endpoint}:${query.point.kind}`)
+		case "intersection":
+		case "difference":
+		case "pack":
+			return Option.none()
+	}
+}
 
 /** One value for a relation that is span-keyed and one for a relation that is not. */
 interface ByKeying<A> {
@@ -94,12 +142,10 @@ layer(Substrate.layer)("generated span queries against the reference", (it) => {
 							name: "the span reference evaluator, in both artifacts"
 						},
 						literal: Formatter.format,
-						coverage: required<AllenOracleFeature>(
-							Arr.flatMap(kinds, (k) =>
-								Arr.map(spanEndpointKinds, (e): AllenOracleFeature => `${k}:${e}`)
-							),
-							{ cases: cases, sense: notesOnly }
-						),
+						coverage: required<AllenOracleFeature>(allenOracleFeatures, {
+							cases: cases,
+							sense: notesOnly
+						}),
 						kept: [],
 						runs: cases,
 						shrink: completeShrink,
@@ -107,13 +153,13 @@ layer(Substrate.layer)("generated span queries against the reference", (it) => {
 					},
 					(sc, c) =>
 						Effect.gen(function* () {
-							const kind = sc.query.kind
-							if (kind !== "allenFilter" && kind !== "allenJoin" && kind !== "pointIn") {
+							const feature = featureOf(sc.query, sc.schema.endpoint)
+							if (Option.isNone(feature)) {
 								return yield* new PropertyFailed({
-									report: `${printSpanCase(sc)}\na ${kind} case outside the drawn kinds`
+									report: `${printSpanCase(sc)}\na ${sc.query.kind} case outside the drawn kinds`
 								})
 							}
-							c.note(`${kind}:${sc.schema.endpoint}`)
+							c.note(feature.value)
 							const target = byKeying(
 								byKeying(installed[sc.schema.endpoint], sc.schema.relations.Left.spanKeyed),
 								sc.schema.relations.Right.spanKeyed

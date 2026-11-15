@@ -39,6 +39,9 @@
  * @plant test/plants/unit/world-model/gen-box-duplicate.patch The box holds a direct writer's statement twice; the small box property fails.
  * @plant test/plants/unit/world-model/worlds-box-values-of-another-state.patch The box reads every state's values once
  * for the whole process, so a state's box draws the values the first state it enumerated held; the sixth property fails.
+ * @plant test/plants/unit/world-model/box-fact-twice.patch A stored fact's insert ... ON CONFLICT statements are
+ * enumerated over the fact and each payload choice at its key without removing the choice equal to the fact
+ * (generate/enumerate.ts directStatements), so the box holds that statement twice; the small box property fails.
  */
 import { drawn, exhaust, explore, Run } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/span/index.ts b/packages/engine/src/lower/conservative/span/index.ts
+index cf9d081f..95573344 100644
+--- a/packages/engine/src/lower/conservative/span/index.ts
++++ b/packages/engine/src/lower/conservative/span/index.ts
+@@ -103,7 +103,7 @@ const rangeOperator = (
+ 			`a point of the span's endpoint type ${endpoint} in ${name}, not ${carrierOf(rightOperand.type)}`
+ 		)
+ 	}
+-	return binary("@>", left, cast(right, endpointType[endpoint]))
++	return binary("@>", left, right)
+ }
+ 
+ /** Whether a registry overload's carriers are the node's: a span comparison, construct, lower or upper. */
