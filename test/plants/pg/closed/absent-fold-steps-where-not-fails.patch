@@ -1,0 +1,20 @@
+diff --git a/packages/engine/src/laws/model/plan.ts b/packages/engine/src/laws/model/plan.ts
+index cf626ae9..44c0f67d 100644
+--- a/packages/engine/src/laws/model/plan.ts
++++ b/packages/engine/src/laws/model/plan.ts
+@@ -2890,11 +2890,11 @@ class FamilyPlanner {
+ 		}
+ 		conditions.add({
+ 			kind: "cond",
+-			pred: and(where),
+-			onTrue: stepped,
+-			onFalse: and(
++			pred: { kind: "not", arg: and(where) },
++			onTrue: and(
+ 				mapNonEmpty(afters, (a, p) => cmp("eq", a, befores[p] ?? missing("a before per plane")))
+-			)
++			),
++			onFalse: stepped
+ 		})
+ 	}
+ }

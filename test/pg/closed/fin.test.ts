@@ -34,9 +34,10 @@
  * to the 4 live owners, 243 installations.
  *
  * Features: an aliasing slot digit, an owner with no row, an empty relation, every live owner counting slots, each
- * shape, and R07's read, each required of the space. Plant: ~/.cache/grizzle-release/BR09/plants/
- * fin-no-range-check.patch, a dependent key read without its slot digits' range checks, reads an aliasing slot digit
- * as another key's cell.
+ * shape, and R07's read, each required of the space.
+ *
+ * @plant test/plants/pg/closed/fin-no-range-check.patch A dependent key read without its slot digits' range checks,
+ * which reads an aliasing slot digit as another key's cell.
  */
 import { type Case, exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

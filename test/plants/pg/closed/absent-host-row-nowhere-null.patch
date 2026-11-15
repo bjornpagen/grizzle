@@ -1,0 +1,17 @@
+diff --git a/packages/engine/src/runtime/write/fill.ts b/packages/engine/src/runtime/write/fill.ts
+index d0e70744..698c6fe4 100644
+--- a/packages/engine/src/runtime/write/fill.ts
++++ b/packages/engine/src/runtime/write/fill.ts
+@@ -659,8 +659,10 @@ export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves[
+ 			}
+ 			case "closedHas":
+ 				return keyed(read.relation, c).has(args)
+-			case "closedRow":
+-				return new Set(completed(read.relation, c).get(args) ?? [])
++			case "closedRow": {
++				const got = completed(read.relation, c).get(args)
++				return got === undefined ? sqlNull : new Set(got)
++			}
+ 		}
+ 	}
+ }

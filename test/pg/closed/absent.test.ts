@@ -41,7 +41,9 @@
  *   end, and a refill past the first owner's deleted first member; each owner's total must be the sum over the members the
  *   selection makes true. On the server, each stored member's after set to its other branch (its before where the
  *   selection is true, its stepped value where it is false or unknown) must be refused by the fold's CHECK, 23514,
- *   wherever its integer is not 0.
+ *   wherever its integer is not 0. Coverage requires a member stepped by a selection that is one set read, true at the
+ *   empty set of a flag completed nowhere, which the host's fill reads as the contract does; a steered case whose turn
+ *   aims at it constructs it (aimedCase).
  *
  * Each drawn row is written into each relation by grizzle's writer through the full world's served workload, one
  * insert per call: into a generated relation through the one insert of them all whose call holds the row in that
@@ -63,12 +65,6 @@
  * guard's row the contract holds and skips a fold's member its negation makes true; and a C.has of a NULL key value read
  * as false holds a negated presence the contract leaves unknown.
  *
- * Their patches under ~/.cache/grizzle-release/BR09/plants/, each a .patch: absent-domain-check-refuses-null (the
- * printer's domain CHECK without its VALUE IS NULL arm), absent-host-row-nowhere-null (the host's C.row of a prefix
- * completed nowhere read as NULL), absent-host-at-absent-key-unsupported, absent-fold-steps-where-not-fails,
- * absent-singleton-bit-plus-one, absent-null-singleton-empty (PostgreSQL's singleton of a NULL id the empty set),
- * absent-has-null-at-absent-key (PostgreSQL's C.has) and absent-has-of-null-key-false.
- *
  * A second search holds the downstream's guarded read alone: a row check `or(not(kind = K), ψ)` at a drawn handle K, ψ
  * the double lookup's set, FlagRel.row(Slot.at("slot", kind, flag)), within the row's flags or the flags within it.
  * Each case draws the lookups, K, ψ's direction and one to four rows, each written into Guarded by grizzle's writer and
@@ -76,16 +72,35 @@
  * refused naming Guarded's one law. Coverage requires the guard true and false, the inner key held and absent, and the
  * flags empty and not. So a row whose inner key is absent is refused by its check, never accepted, where the guard
  * fails, though its flags be empty: the documented contract reads NULL where a key value is NULL, and the subset of a
- * NULL is unknown. Its plants, under ~/.cache/grizzle-release/MOVED/plants/: absent-row-casts-null (a set's bits
- * domain CHECK without its VALUE IS NULL arm, so FlagRel.row at the NULL of an absent inner key is refused by its cast
- * before the guard holds) and absent-row-reads-empty-as-full (PostgreSQL's C.row read as every handle where its prefix
- * is NULL or completed nowhere, so a row whose flags that read leaves unknown or refuses is accepted).
+ * NULL is unknown: a set's domain CHECK that refuses NULL refuses FlagRel.row at the NULL of an absent inner key by its
+ * cast before the guard holds, and a C.row read as every handle where its prefix is NULL or completed nowhere accepts a
+ * row whose flags that read leaves unknown or refuses.
  *
  * The world's Flag has one to five handles, so a set over it is a whole number of hex digits (four flags) or padded,
  * and a singleton meets the first and the last code; the downstream shape a diagonal closed relation once spelled, a
  * row's own flag in FlagRel.row of the flag its kind picks, is a kept case, at a kind Pick holds and at one it lacks;
  * so is the downstream count bound, a payload compared only where `C.has` holds the key, and the conditional that reads
  * a payload where the key is held and a literal where it is not.
+ *
+ * @plant test/plants/pg/closed/absent-domain-check-refuses-null.patch The printer's domain CHECK without its VALUE IS
+ * NULL arm, so every domain refuses NULL: both searches fail, a set's bits domain refusing FlagRel.row at an absent
+ * inner key among them.
+ * @plant test/plants/pg/closed/absent-host-row-nowhere-null.patch The host's C.row of a prefix completed nowhere read
+ * as NULL, not the empty set; the first search fails.
+ * @plant test/plants/pg/closed/absent-host-at-absent-key-unsupported.patch The host evaluator reads a closed read at an
+ * absent key as unsupported, so a fold write whose selection it leaves unknown is refused; the first search fails.
+ * @plant test/plants/pg/closed/absent-fold-steps-where-not-fails.patch The fold's CHECK steps where `NOT φ` fails, not
+ * where φ holds, so it refuses the host's fill of a member whose selection is unknown; the first search fails.
+ * @plant test/plants/pg/closed/absent-singleton-bit-plus-one.patch PostgreSQL's singleton sets the bit at its code
+ * plus one, storing another set; the first search fails.
+ * @plant test/plants/pg/closed/absent-null-singleton-empty.patch PostgreSQL's singleton of a NULL id reads the empty
+ * set, deciding a membership the contract leaves unknown; the first search fails.
+ * @plant test/plants/pg/closed/absent-has-null-at-absent-key.patch PostgreSQL's C.has reads NULL at an absent key, so
+ * the guard's row the contract holds is refused; the first search fails.
+ * @plant test/plants/pg/closed/absent-has-of-null-key-false.patch PostgreSQL's C.has of a NULL key value reads false,
+ * holding a negated presence the contract leaves unknown; the first search fails.
+ * @plant test/plants/pg/closed/absent-row-reads-empty-as-full.patch PostgreSQL's C.row reads every handle where its
+ * prefix is NULL or completed nowhere, so the guarded search accepts a row whose flags that read leaves unknown.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -103,7 +118,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { boundedShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Order, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
@@ -680,6 +695,18 @@ const truth = (w: World, item: Item, p: Pred): Truth => {
 		case "not":
 			return not(truth(w, item, p.arg))
 	}
+}
+
+/**
+ * Whether a predicate is one set read, a subset or an admission of a FlagRel row, whose set at the row is the empty set
+ * of a flag completed nowhere: the documented read the host's fill of a fold must take as the empty set, never NULL.
+ */
+const oneEmptySetRead = (w: World, item: Item, p: Pred): boolean => {
+	if (p.kind !== "subset" && p.kind !== "admits") {
+		return false
+	}
+	const set = readOf(w, item, { kind: "row", of: p.of })
+	return typeof set === "object" && set.length === 0
 }
 
 /** Every membership a predicate states. */
@@ -1272,6 +1299,7 @@ type Feature =
 	| "a singleton stored over a roster of whole hex digits"
 	| "a singleton stored over a padded roster"
 	| "a fold steps a member its selection makes true"
+	| "a fold steps a member its selection, one set read, makes true at the empty set of a flag completed nowhere"
 	| "a fold skips a member its selection leaves unknown, filled with its owner"
 	| "a fold skips a member its selection leaves unknown, filled into a stored owner"
 	| "a fold refills past a deleted member, skipping one its selection leaves unknown"
@@ -1324,6 +1352,7 @@ const situations: NonEmptyReadonlyArray<Feature> = [
 	"a singleton stored over a roster of whole hex digits",
 	"a singleton stored over a padded roster",
 	"a fold steps a member its selection makes true",
+	"a fold steps a member its selection, one set read, makes true at the empty set of a flag completed nowhere",
 	"a fold skips a member its selection leaves unknown, filled with its owner",
 	"a fold skips a member its selection leaves unknown, filled into a stored owner",
 	"a fold refills past a deleted member, skipping one its selection leaves unknown",
@@ -1407,6 +1436,33 @@ const keyedRows = (c: AbsentCase): ReadonlyArray<Item> =>
 	Arr.flatMap(c.items, (item) => Arr.map(codesBelow(c.world.kinds), (kind) => ({ ...item, kind })))
 
 /** One case: its schema installed, every row written into every relation, and the generated values read back. */
+/**
+ * The case a search runs: the drawn one, or, where the case's turn aims at a fold stepping a member by the empty set of
+ * a flag completed nowhere, the drawn one with the fold's selection that set read alone, `subset` of the row's own flag,
+ * the first member's flag completed nowhere in FlagRel and its integer 1, so the fold steps it exactly where the
+ * empty set is read as the contract reads it.
+ */
+const aimedCase = (c: AbsentCase, notes: Case<Feature>): AbsentCase => {
+	const [first, ...rest] = c.items
+	return Option.exists(notes.steering, (pending) =>
+		pending.aimed(
+			"a fold steps a member its selection, one set read, makes true at the empty set of a flag completed nowhere"
+		)
+	)
+		? {
+				...c,
+				world: {
+					...c.world,
+					next: Arr.map(c.world.next, (completions, flag) =>
+						flag === first.flag ? [] : completions
+					)
+				},
+				folded: { kind: "subset", of: "own" },
+				items: [{ ...first, n: 1 }, ...rest]
+			}
+		: c
+}
+
 const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 	Effect.gen(function* () {
 		const built = schemaOf(c)
@@ -1684,6 +1740,15 @@ const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 			for (const item of c.items) {
 				if (item.n > 0 && truth(w, item, c.folded) === "true") {
 					notes.note("a fold steps a member its selection makes true")
+				}
+				if (
+					item.n > 0 &&
+					truth(w, item, c.folded) === "true" &&
+					oneEmptySetRead(w, item, c.folded)
+				) {
+					notes.note(
+						"a fold steps a member its selection, one set read, makes true at the empty set of a flag completed nowhere"
+					)
 				}
 				if (item.n > 0 && truth(w, item, c.folded) === "unknown") {
 					notes.note("a fold skips a member its selection leaves unknown, filled with its owner")
@@ -1993,7 +2058,8 @@ layer(Substrate.layer, { excludeTestServices: true })("a closed read at an absen
 					steerEvery: 8,
 					caseHang
 				},
-				absentCase
+				(drawnCase: AbsentCase, notes: Case<Feature>) =>
+					absentCase(aimedCase(drawnCase, notes), notes)
 			)
 		)
 	)

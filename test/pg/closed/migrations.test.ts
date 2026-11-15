@@ -39,9 +39,11 @@
  *
  * Features: a handle grown, removed and declared again, a reorder and an undeclared drop refused, VALIDATE refusing a
  * removed code a row holds and a removed bit a set holds, a data step drafted, a set column widened and a set stored,
- * nothing drafted, and closed rows changed and refused by their law. Plant:
- * ~/.cache/grizzle-release/BR09/plants/migrations-domain-never-validated.patch, a domain's new CHECK added NOT VALID and
- * never validated, applies a removal over rows that still hold the removed code.
+ * nothing drafted, and closed rows changed and refused by their law.
+ *
+ * @plant test/plants/pg/closed/migrations-domain-never-validated.patch A domain's new CHECK added NOT VALID and never
+ * validated, which would apply a removal over rows that still hold the removed code; migrate's drift check finds the
+ * CHECK not validated first.
  */
 import {
 	accepted,

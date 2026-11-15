@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/write/fill.ts b/packages/engine/src/runtime/write/fill.ts
+index d0e70744..926016fa 100644
+--- a/packages/engine/src/runtime/write/fill.ts
++++ b/packages/engine/src/runtime/write/fill.ts
+@@ -652,7 +652,7 @@ export const closedLeaf = (closed: ReadonlyMap<string, ClosedRows>): EvalLeaves[
+ 			case "closedAt": {
+ 				const row = keyed(read.relation, c).get(args)
+ 				if (row === undefined) {
+-					return sqlNull
++					return undefined
+ 				}
+ 				const cell = row[c.heading.findIndex((h) => h.name === read.field)]
+ 				return cell === undefined ? undefined : literalValue(cell)

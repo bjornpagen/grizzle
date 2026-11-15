@@ -26,9 +26,9 @@
  * and an unlawful one refused by its relation's law; a generated value is n exactly where φ is true; the query returns
  * exactly the rows φ is true of.
  *
- * The planted bug, the concatenation's equation as the conjunction of its three parts (~/.cache/grizzle-release/BR09/
- * plants/null-rewrites-concat-equation-conjunction.patch), accepts the downstream case's row in the containment's check
- * and refuses it in the row check's negation.
+ * @plant test/plants/pg/closed/null-rewrites-concat-equation-conjunction.patch The concatenation's equation as the
+ * conjunction of its three parts, which accepts the downstream case's row in the containment's check and refuses it in
+ * the row check's negation.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

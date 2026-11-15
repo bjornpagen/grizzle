@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/compute/lower.ts b/packages/engine/src/scalar/compute/lower.ts
+index 524d6ffb..1a466577 100644
+--- a/packages/engine/src/scalar/compute/lower.ts
++++ b/packages/engine/src/scalar/compute/lower.ts
+@@ -2380,7 +2380,7 @@ class Lowering<R extends Refs> {
+ 			? node
+ 			: this.restate(
+ 					node,
+-					this.textWithin([wildcardPattern], aBytes + bBytes, this.env.patternLanguage, at),
++					this.textWithin([wildcardPattern], aBytes + bBytes + 4, this.env.patternLanguage, at),
+ 					node.actual,
+ 					node.facts
+ 				)

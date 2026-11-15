@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/expr/ops.ts b/packages/engine/src/lower/conservative/expr/ops.ts
+index 80c4d172..b365fe50 100644
+--- a/packages/engine/src/lower/conservative/expr/ops.ts
++++ b/packages/engine/src/lower/conservative/expr/ops.ts
+@@ -151,7 +151,7 @@ const setConstruct = (name: SetConstruct, args: ReadonlyArray<Expr>): Expr | und
+ const adjoinSet = (args: ReadonlyArray<Expr>): Expr | undefined => {
+ 	const [a, c] = args
+ 	return args.length === 2 && a !== undefined && c !== undefined
+-		? call("set_bit", [a, cast(c, types.integer), lit.int(1n, types.integer)])
++		? call("set_bit", [a, binary("+", cast(c, types.integer), lit.int(1n, types.integer)), lit.int(1n, types.integer)])
+ 		: undefined
+ }
+ 

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/constants.ts b/packages/engine/src/sql/constants.ts
+index 07ad182c..e68822ad 100644
+--- a/packages/engine/src/sql/constants.ts
++++ b/packages/engine/src/sql/constants.ts
+@@ -284,7 +284,7 @@ export const closedRead = (
+ 	}
+ 	const index = cellOfKey(constant.key, args)
+ 	if (read.kind === "has") {
+-		return Result.ok(inSet(constant.keys, index))
++		return Result.ok({ kind: "coalesce", args: [inSet(constant.keys, index), lit.bool(false)] })
+ 	}
+ 	const position = constant.payload.findIndex((p) => p.field === read.field)
+ 	const payload = constant.payload[position]

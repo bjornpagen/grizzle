@@ -1,0 +1,18 @@
+diff --git a/packages/engine/src/deploy/diff/diff.ts b/packages/engine/src/deploy/diff/diff.ts
+index 7bc41bba..42aa23ed 100644
+--- a/packages/engine/src/deploy/diff/diff.ts
++++ b/packages/engine/src/deploy/diff/diff.ts
+@@ -1793,13 +1793,6 @@ class Differ {
+ 					action: { kind: "addConstraint", constraint: b, notValid: true }
+ 				}
+ 			])
+-			this.sql("validate", [
+-				{
+-					kind: "alterDomain",
+-					name: create.name,
+-					action: { kind: "validateConstraint", name: b.name }
+-				}
+-			])
+ 		}
+ 	}
+ 

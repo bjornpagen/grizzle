@@ -1,0 +1,21 @@
+diff --git a/packages/engine/src/sql/constants.ts b/packages/engine/src/sql/constants.ts
+index 07ad182c..37061766 100644
+--- a/packages/engine/src/sql/constants.ts
++++ b/packages/engine/src/sql/constants.ts
+@@ -275,8 +275,15 @@ export const closedRead = (
+ ): Result.Result<Expr, string> => {
+ 	const fields = closedKeyFields(constant.key)
+ 	if (read.kind === "row") {
++		const width = constant.key.kind === "product" ? (constant.key.coordinates.at(-1)?.radix ?? 0) : 0
++		const bits = (digit: string): Expr =>
++			call("substring", [lit.bits(digit.repeat(Math.ceil(width / 4)), types.varbit), int(1), int(width)])
++		const orFull = (done: Expr): Expr => ({
++			kind: "coalesce",
++			args: [{ kind: "nullif", expr: done, absent: bits("0") }, bits("F")]
++		})
+ 		return args.length === fields.length - 1
+-			? Result.ok(cast(completions(constant.keys, constant.key, args), type))
++			? Result.ok(cast(orFull(completions(constant.keys, constant.key, args)), type))
+ 			: Result.err(`${relation}.row over every key field of ${relation} but its last`)
+ 	}
+ 	if (!isNonEmpty(args) || args.length !== fields.length) {

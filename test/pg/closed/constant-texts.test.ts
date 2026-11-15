@@ -28,12 +28,13 @@
  * refused at compile, ContractLiteral; any other schema must install. Each row written by grizzle's writer is accepted where
  * lawful and refused by its relation's one law otherwise, and every stored generated value is the model's.
  *
- * The planted bug, the lowering's constant folding turned off (~/.cache/grizzle-release/BR09/plants/
- * constant-texts-folding-off.patch), fails the installation of the first case whose generation expression compares
- * constant texts, with 42P22. Two more (~/.cache/grizzle-release/TEXTBOUND/plants) fail the kept case:
- * concat-bound-one-code-point-wide.patch, a concatenation of literals bounded four bytes past its operands' (scalar/compute/
- * lower.ts concat), installs the schema the case expects refused, and generated-refusal-dies.patch, the install harness
- * turning generate's refusal into a defect (test/support/install-migrate.ts generatedDraft), dies on it.
+ * @plant test/plants/pg/closed/constant-texts-folding-off.patch The lowering's constant folding of a generation
+ * expression turned off, so the installation of the first case whose generation expression compares constant texts
+ * fails with 42P22.
+ * @plant test/plants/pg/closed/concat-bound-one-code-point-wide.patch A concatenation of literals bounded four bytes
+ * past its operands' (scalar/compute/lower.ts concat), so the kept case installs the schema it expects refused.
+ * @plant test/plants/pg/closed/generated-refusal-dies.patch The install harness turns generate's refusal into a defect
+ * (test/support/install-migrate.ts generatedDraft), so the kept case dies on it.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
