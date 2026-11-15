@@ -21,8 +21,8 @@
  * The oracle is a second implementation, the model's host decoder. Features: every placement, value kind and verdict
  * the draw's modes reach (see `situations`).
  *
- * Plant: ~/.cache/grizzle-release/BR07/plants/claims-inherited-read.patch (the decoder reading inherited members as the
- * payload's own) turns the property red.
+ * @plant test/plants/unit/security/claims-inherited-read.patch The decoder reads inherited enumerable members as the
+ * payload's own (adapter/db/claims.ts ownMembers walks for...in); the property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

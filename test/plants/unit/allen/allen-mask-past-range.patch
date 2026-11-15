@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/allen/mask.ts b/packages/engine/src/allen/mask.ts
+index a700d834..ac27b3cd 100644
+--- a/packages/engine/src/allen/mask.ts
++++ b/packages/engine/src/allen/mask.ts
+@@ -47,7 +47,7 @@ const maskOver = <Rs extends AllenRelation>(mask: AllenMask): AllenMask<Rs> =>
+ 
+ /** A thirteen-bit integer, -0 included: what a caller may write for a mask. */
+ const inMaskRange = (value: number): boolean =>
+-	Number.isInteger(value) && value >= 0 && value <= allenMaskMax
++	Number.isInteger(value) && value >= 0 && value <= allenMaskMax * 2 + 1
+ /**
+  * The one parse of a caller's value into a mask: a thirteen-bit integer, -0 read as the empty mask; undefined for
+  * every other value.

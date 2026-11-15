@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/scalar/values/span.ts b/packages/engine/src/scalar/values/span.ts
+index 1089751c..485730d8 100644
+--- a/packages/engine/src/scalar/values/span.ts
++++ b/packages/engine/src/scalar/values/span.ts
+@@ -101,7 +101,9 @@ export const admitSpan = <P extends SpanEndpointCarrier>(
+ 	if (width === undefined || !span.ok) {
+ 		return span
+ 	}
+-	return units(span.value.end) - units(span.value.start) === width ? span : Result.err("spanWidth")
++	return [width, width + 1n].includes(units(span.value.end) - units(span.value.start))
++		? span
++		: Result.err("spanWidth")
+ }
+ 
+ /** A span from its two endpoints. */

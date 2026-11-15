@@ -21,10 +21,20 @@
  * Every box is exhausted: every mask, every ordered pair, every spelling. Features, required in each space, name the
  * situations each check could silently stop reaching.
  *
- * Plants (~/.cache/grizzle-release/BR07/plants), one a property in this order: allen-generator-wrong-entry.patch,
- * allen-formula-extra-literal.patch (a redundant literal: not canonical, one atom more), the same for the exact cost,
- * allen-universe-lower-exclusive.patch (an exclusive lower bound moved two), allen-converse-starts.patch,
- * allen-atom-equals-holds.patch (= given @>'s relations), allen-formula-wrong-entry.patch (mask 3 read as mask 1).
+ * @plant test/plants/unit/allen/allen-generator-wrong-entry.patch The offline minimization searches its terms in
+ * reversed code order (scripts/gen/allen/generate.ts), so its entries differ from the committed table's; the committed
+ * property fails.
+ * @plant test/plants/unit/allen/allen-formula-extra-literal.patch Mask 1's formula carries a redundant literal after
+ * its others: not canonical, one atom more; the entries and the exact cost properties fail.
+ * @plant test/plants/unit/allen/allen-universe-lower-exclusive.patch An exclusive lower bound moved two by the
+ * canonicalization (test/support/oracle/allen.ts canonicalize), so a spelling of the universe stores no span; the
+ * universe's own construction refuses it as the file loads, the universe property's first claim.
+ * @plant test/plants/unit/allen/allen-converse-starts.patch starts' converse read as finishedBy (allen/mask.ts
+ * allenConverseRelation); the converse property fails.
+ * @plant test/plants/unit/allen/allen-atom-equals-holds.patch = given @>'s relations (allen/atoms.ts); the atom sets
+ * property fails.
+ * @plant test/plants/unit/allen/allen-formula-wrong-entry.patch Mask 3 read as mask 1 in the table; the formulas over
+ * the universe property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

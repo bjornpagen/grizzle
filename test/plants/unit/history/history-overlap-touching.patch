@@ -1,0 +1,13 @@
+diff --git a/test/support/history/check.ts b/test/support/history/check.ts
+index 48476880..8fddfd57 100644
+--- a/test/support/history/check.ts
++++ b/test/support/history/check.ts
+@@ -144,7 +144,7 @@ export const describeHistory = (h: History): string =>
+ 	)
+ 
+ const overlaps = (r: Recorded, q: Recorded): boolean =>
+-	q.id !== r.id && q.start < r.end && r.start < q.end
++	q.id !== r.id && q.start <= r.end && r.start <= q.end
+ 
+ /** Why an operation's aborts are not explained by the history (rule 2), or undefined when they are. */
+ const abortProblem = (h: History, r: Recorded): string | undefined => {

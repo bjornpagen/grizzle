@@ -1,0 +1,15 @@
+diff --git a/test/support/history/model.ts b/test/support/history/model.ts
+index 0522b562..d7846dd7 100644
+--- a/test/support/history/model.ts
++++ b/test/support/history/model.ts
+@@ -177,7 +177,9 @@ export const expectDirect = (
+ 		/** An upsert replaces the occupant at its arbiter key; an insertion meets every stored row. */
+ 		const others = Arr.filter(
+ 			current.get(op.relation) ?? [],
+-			(g) => op.kind === "insert" || projection(g, key) !== projection(fact, key)
++			(g) =>
++				(op.kind === "insert" && projection(g, Object.keys(g)) !== projection(fact, Object.keys(g))) ||
++				projection(g, key) !== projection(fact, key)
+ 		)
+ 		const broken = rowViolations(host, op.relation, others, fact)
+ 		if (broken.length > 0) {

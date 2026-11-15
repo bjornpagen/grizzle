@@ -13,8 +13,10 @@
  * Features, required in the space: each named mask held and failed; a mask, the empty and the full one, below and past
  * the thirteen bits, no integer, no number.
  *
- * Plants (~/.cache/grizzle-release/BR07/plants): allen-covers-without-equals.patch (covers missing equals) turns the
- * named masks red; allen-mask-past-range.patch (a fourteenth bit admitted) the entry points.
+ * @plant test/plants/unit/allen/allen-covers-without-equals.patch covers missing equals (allen/mask.ts); the named
+ * masks property fails.
+ * @plant test/plants/unit/allen/allen-mask-past-range.patch A fourteenth bit admitted as a mask (allen/mask.ts
+ * inMaskRange); the entry points property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

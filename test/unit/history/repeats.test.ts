@@ -18,11 +18,10 @@
  *
  * Features: each writer under each host, a repeat in one member and across two, a fact at a stored fact's key.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): repeats-direct-repeat-admitted, the direct writer's model letting an
- * exact repeat through.
- *
  * @plant test/plants/unit/history/laws-transition-skips-a-named-relation.patch laws/model.ts's transition leaves the
  * relation of a stratum's first member as it stood, so a grizzle write of one member changes nothing; the property fails.
+ * @plant test/plants/unit/history/repeats-direct-repeat-admitted.patch The direct writer's model lets an exact repeat
+ * of a stored fact through (test/support/history/model.ts expectDirect); the property fails.
  */
 
 import { exhaust } from "@bjornpagen/testing/explore"

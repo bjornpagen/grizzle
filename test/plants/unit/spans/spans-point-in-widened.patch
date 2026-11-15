@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/check/checker.ts b/packages/engine/src/check/checker.ts
+index 58881598..2a5afe0d 100644
+--- a/packages/engine/src/check/checker.ts
++++ b/packages/engine/src/check/checker.ts
+@@ -2111,7 +2111,7 @@ export class Checker {
+ 				const at = childLoc(loc, "pointIn", "span")
+ 				if (!isBareLiteral(desc.span)) {
+ 					const span = spanTerm(desc.span, at)
+-					const point = operand(desc.point, span.span.endpoint, childLoc(loc, "pointIn", "point"))
++					const point = unwrap(lower(desc.point)).expr
+ 					return lowered(
+ 						this.#opNode(
+ 							definedRangeOp("range_contains_elem", span.carrier),

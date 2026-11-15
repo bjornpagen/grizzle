@@ -7,13 +7,16 @@
  *   pointIn's point. Oracle: the specification, nominal compatibility.
  * - Fixed-width spans: a window or an equated value of Shift's slot, a span of integer fixed at width 15, is bound at
  *   its declared type, int4range, in every statement of both artifacts, and its encoder admits exactly the spans of
- *   width 15, written as [start, end), refusing every other width at bind (spanWidth). Oracle: the specification.
+ *   width 15, written as [start, end), refusing every other width at bind (spanWidth). The widths are drawn from the
+ *   column's, its neighbours one unit either side, where the encoder's comparison turns, and 1 to 60. Oracle: the
+ *   specification.
  *
- * Features: admitted and refused pairs; the column's width and another width.
+ * Features: admitted and refused pairs; the column's width, a width one unit off it, and another width.
  *
- * Plants (~/.cache/grizzle-release/BR07/plants): spans-point-in-widened.patch (the compile admitting a point of any
- * integer type) turns the pointIn property red; spans-width-off-by-one.patch (a fixed width admitting one more unit)
- * the binding one.
+ * @plant test/plants/unit/spans/spans-point-in-widened.patch The compile of pointIn over a span term admits a point
+ * of any type, its window's endpoint type unchecked (check/checker.ts); the pointIn property fails.
+ * @plant test/plants/unit/spans/spans-width-off-by-one.patch A fixed width admitting one more unit at bind
+ * (scalar/values/span.ts); the fixed-width binding property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
@@ -228,11 +231,11 @@ describe("span parameters and windows", () => {
 						suite: "unit/spans/fixed-width-binding",
 						draw: drawn((source) => ({
 							start: source.draw(int(-1000, 1000)),
-							width: source.draw(oneOf([constant(15), int(1, 60)]))
+							width: source.draw(oneOf([constant(15), int(14, 16), int(1, 60)]))
 						})),
 						literal: Formatter.format,
-						coverage: required<"the column's width" | "another width">(
-							["the column's width", "another width"],
+						coverage: required<"the column's width" | "a width one unit off it" | "another width">(
+							["the column's width", "a width one unit off it", "another width"],
 							{ cases: 100, sense: notesOnly }
 						),
 						kept: [],
@@ -244,7 +247,13 @@ describe("span parameters and windows", () => {
 					},
 					({ start, width }, c) =>
 						Effect.sync(() => {
-							c.note(width === 15 ? "the column's width" : "another width")
+							c.note(
+								width === 15
+									? "the column's width"
+									: Math.abs(width - 15) === 1
+										? "a width one unit off it"
+										: "another width"
+							)
 							/** Each statement's encoder of the parameter, of its declared type: the column's fixed-width span. */
 							const declared = [...encoders(window), ...encoders(equated)]
 							for (const encode of declared) {
