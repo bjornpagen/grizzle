@@ -16,10 +16,10 @@
  * The oracle is the definition equality stated over the case's choices, never read from the installation. The box: 3
  * bases × 2 predicates, squared, exhausted (36 cases).
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): domain-dedup-named-by-contract.patch (a contract's domain is named by
- * its contract as well as its definition).
- *
  * Features: a shared domain, two domains, a shared checked domain, and a base shared with predicates apart.
+ *
+ * @plant test/plants/unit/physical/domain-dedup-named-by-contract.patch A contract's domain is named by its contract as
+ * well as its definition, so two contracts of one definition never share one.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

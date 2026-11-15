@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/ddl/constants.ts b/packages/engine/src/physical/ddl/constants.ts
+index eb326728..7dce4246 100644
+--- a/packages/engine/src/physical/ddl/constants.ts
++++ b/packages/engine/src/physical/ddl/constants.ts
+@@ -239,7 +239,7 @@ const plannedCells = (
+  * (codes - 1), is past the greatest integer a cell is read as (core/limits.ts cellMaxCodes); none when it fits.
+  */
+ export const cellCodesBound = (codes: bigint, what: string): CompileError | undefined =>
+-	codes > BigInt(cellMaxCodes.value)
++	codes >= BigInt(cellMaxCodes.value)
+ 		? resourceBound(SourceLoc(what, []), {
+ 				kind: "cellCodes",
+ 				constant: what,

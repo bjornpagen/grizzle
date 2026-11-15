@@ -28,11 +28,11 @@
  *
  * Oracles: the rule restated over the case, the control installation and the control compilation.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): insert-grants-insert-list-deletes.patch (a role writing by its insert
- * list holds DELETE).
- *
  * Features: each declaration refused and admitted, each role's way of writing each relation, an owner mutable or not,
  * and each program the control admits or the insert role is refused, with the kept case's stratum.
+ *
+ * @plant test/plants/unit/physical/insert-grants-insert-list-deletes.patch A role writing by its insert list holds
+ * DELETE.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

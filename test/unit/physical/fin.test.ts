@@ -5,8 +5,10 @@
  * - **The planned string is the dependent sum:** over every count relation of four owners, each counting 0 to 2 slots
  *   or holding no row, and each of three slotted shapes (two slots, one slot, a closed id before a slot), the slotted
  *   relation's pack holds exactly Σ over owners of its block, each row at the position the dependent sum's enumeration
- *   gives its key, and its owner functions hold each owner's base and count. Oracle: that enumeration, written out from
- *   the count relation's rows and the installation's codes, sharing nothing with the planner's index.
+ *   gives its key, and its owner functions hold each owner's base and count. The rows held are a sparse half of the
+ *   points that no exchange of a block's coordinates maps to itself (heldPoints), so a block enumerated in another order
+ *   of its coordinates moves some row. Oracle: that enumeration, written out from the count relation's rows and the
+ *   installation's codes, sharing nothing with the planner's index.
  * - **A fault planted in a valid declaration is refused where it is planted:** a drawn declaration of the box above
  *   compiles, and the same declaration with one fault planted is refused as MalformedDescription at the relation and
  *   field the fault breaks, by the builder that takes it or by the compiler: a row whose slot is past its owner's
@@ -18,11 +20,11 @@
  *   integer a cell is read as (cellCodesBound), the refusal naming the constant, the bound and n; and a declared
  *   relation over three drawn payload rosters is planned exactly when the product of their sizes is within it.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): fin-block-digits-reversed.patch (a block's codes read least
- * significant first), fin-cell-bound-at-limit.patch (a payload space of exactly 2^31 - 1 codes is refused).
- *
  * Features: each count an owner holds and each slotted shape; each planted fault; a payload within the bound planned
  * and one past it refused.
+ *
+ * @plant test/plants/unit/physical/fin-block-digits-reversed.patch A block's codes are read least significant first.
+ * @plant test/plants/unit/physical/fin-cell-bound-at-limit.patch A payload space of exactly 2^31 - 1 codes is refused.
  */
 import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
@@ -131,9 +133,13 @@ const pointsOf = (d: Declaration): ReadonlyArray<ReadonlyArray<number>> =>
 		Arr.map(odometer(radicesOf(d.shape, countOf(held))), (local) => [owner, ...local])
 	)
 
-/** The rows the slotted relation holds: the points whose codes sum to an even number, a sparse half of the space. */
+/**
+ * The rows the slotted relation holds: the points whose codes, each weighted by its place from 1, sum to an even
+ * number, a sparse half of the space that no exchange of a block's coordinates maps to itself, so a block enumerated in
+ * another order of its coordinates places some row where none is held.
+ */
 const heldPoints = (d: Declaration): ReadonlyArray<ReadonlyArray<number>> =>
-	Arr.filter(pointsOf(d), (p) => Arr.reduce(p, 0, (a, b) => a + b) % 2 === 0)
+	Arr.filter(pointsOf(d), (p) => Arr.reduce(p, 0, (a, b, i) => a + (i + 1) * b) % 2 === 0)
 
 /** The count each owner's row holds, none where it holds no row. */
 const countsOf = (held: ReadonlyArray<Held>): ReadonlyArray<bigint | undefined> =>

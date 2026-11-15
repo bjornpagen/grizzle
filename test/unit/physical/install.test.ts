@@ -22,11 +22,13 @@
  * Oracles: the model of object kinds (kindModel); the declared order's installation, against the permuted one's; the
  * naming door's rule of a declared name and of an identifier, restated, each broken name built by the rule it breaks.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): install-indexes-before-structure.patch (the Indexes phase is ordered
- * before Structure, its tables'), install-64-byte-owner.patch (an owner of 64 bytes is admitted).
- *
  * Features: a foreign key, a constant, a domain, a law index and a type CHECK; relations and statements reordered; each
  * broken rule refused at each slot, an extension schema that is the schema, and each spelling installed.
+ *
+ * @plant test/plants/unit/physical/install-indexes-before-structure.patch The Indexes phase is ordered before
+ * Structure, its tables'.
+ * @plant test/plants/unit/physical/install-64-byte-owner.patch An identifier of 64 bytes is admitted for the owner, the
+ * vector schema and the extension schema.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -312,10 +314,13 @@ const brokenIdentifierGen: Gen<{ readonly rule: IdentifierFault; readonly name: 
 		(source) => [source.draw(matching(regex("^[a-z]{1,4}$"))), source.draw(outsideGen)] as const,
 		([stem, c]) => ({ rule: "outside character" as const, name: `${stem}${c}x` })
 	),
-	map(matching(regex("^[a-oq-z][a-z0-9_]{63,79}$")), (name) => ({
-		rule: "64 bytes" as const,
-		name
-	})),
+	map(
+		weighted([
+			[3, matching(regex("^[a-oq-z][a-z0-9_]{63}$"))],
+			[1, matching(regex("^[a-oq-z][a-z0-9_]{64,79}$"))]
+		]),
+		(name) => ({ rule: "64 bytes" as const, name })
+	),
 	constant({ rule: "empty" as const, name: "" })
 ])
 /** The names the installation takes besides its schema's, each an identifier it names and never creates. */

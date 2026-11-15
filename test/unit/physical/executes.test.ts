@@ -19,10 +19,10 @@
  * Oracle: a second implementation of the reach (test/support/executes.ts reachableConstants), restated over the
  * installation's statements, sharing no code with the installer's call tracking.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): executes-written-tables-unread.patch (a role's reach skips the tables
- * it writes, reading its views alone).
- *
  * Features: a constant only a written table's casts reach, a role that writes nothing, and two roles.
+ *
+ * @plant test/plants/unit/physical/executes-written-tables-unread.patch A role's reach skips the tables it writes,
+ * reading its views alone.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

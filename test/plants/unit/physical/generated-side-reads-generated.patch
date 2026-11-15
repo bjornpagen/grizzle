@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/ddl/tables.ts b/packages/engine/src/physical/ddl/tables.ts
+index de9ceb9f..b875940f 100644
+--- a/packages/engine/src/physical/ddl/tables.ts
++++ b/packages/engine/src/physical/ddl/tables.ts
+@@ -822,7 +822,7 @@ const lawColumnGeneration = (
+ 	value: Extract<NativeOf<"LawColumn">["value"], { readonly kind: "generated" }>,
+ 	label: string
+ ): ColumnGeneration => {
+-	const expr = lowerWrittenRow(b, o.relation, value.term, label)
++	const expr = lowerRow(b, o.relation, value.term, label)
+ 	const guard = value.guard.map((g) => lowerWrittenRow(b, o.relation, g, label))
+ 	return isNonEmpty(guard)
+ 		? { kind: "partial", when: guard.length === 1 ? guard[0] : and(guard), expr }

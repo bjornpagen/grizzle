@@ -27,11 +27,15 @@
  * Oracles: the test oracle's bit texts and hex (test/support/closed/bit-text.ts), sharing no code with the engine's
  * encoder; the odometer and the dependent sum's enumeration for a changed cell's key.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): literal-bits-least-first.patch (a hex digit's bits are written least
- * significant first), literal-pack-later-cell.patch (where two literals hold different cells first, the later is named).
- *
  * Features: each roster width, padded or whole; each closed relation's key and payload kind; each set expression; a
  * changed cell and a padding bit set; a lowercase digit, an edited row count and a literal out of its printed form.
+ *
+ * @plant test/plants/unit/physical/literal-bits-least-first.patch A hex digit's bits are written least significant
+ * first.
+ * @plant test/plants/unit/cli/literal-pack-later-cell.patch Where two literals hold different cells first, the later
+ * is named.
+ * @plant test/plants/unit/physical/ir-cells-absent-payload.patch literalOf (ir/cells.ts) writes a present cell as its
+ * payload code, not 1 + payload, so a payload of code 0 reads as absent.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

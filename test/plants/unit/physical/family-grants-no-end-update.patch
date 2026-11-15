@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/ddl/roles.ts b/packages/engine/src/physical/ddl/roles.ts
+index be4ba0c4..245fbb19 100644
+--- a/packages/engine/src/physical/ddl/roles.ts
++++ b/packages/engine/src/physical/ddl/roles.ts
+@@ -1026,7 +1026,7 @@ const ownerHolds = (
+ 		)
+ 		const updated = new Set(
+ 			owner.mutable && role.writing === "write"
+-				? families.flatMap((f) => [f.count.name, ...endColumns(f).map((c) => c.name)])
++				? families.flatMap((f) => [f.count.name])
+ 				: []
+ 		)
+ 		return {

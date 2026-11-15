@@ -27,11 +27,12 @@
  * CHECKs and an array-literal reader, sharing no code with the installer; the EXECUTE rule restated over the
  * statements, sharing no code with the installer's call tracking.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): constants-hole-admitted.patch (a roster's domain admits a hole's code),
- * constants-live-padding.patch (a roster's live constant sets its padding bits).
- *
  * Features: a roster with a hole, one a set is typed over, one with an awkward handle; a closed relation with an open
  * payload and one with a closed payload.
+ *
+ * @plant test/plants/unit/physical/constants-hole-admitted.patch A roster's domain reads each code's name one subscript
+ * early, so a hole's code after a live one is admitted.
+ * @plant test/plants/unit/physical/constants-live-padding.patch A roster's live constant sets its padding bits.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

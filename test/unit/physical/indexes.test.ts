@@ -1,9 +1,10 @@
 /**
- * The index request engine's own contract (physical/indexes/engine.ts), judged from its plan alone. Over drawn requests
- * on a schema with a plain table, a span key's GiST index and a reverse lookup, in a drawn order:
+ * The index request engine's own contract (physical/indexes/engine.ts), judged from its plan and the statements that
+ * create its indexes. Over drawn requests on a schema with a plain table, a span key's GiST index and a reverse lookup,
+ * in a drawn order:
  *
  * - every request lands on exactly one planned index, of its relation;
- * - a created index is never unique;
+ * - a created index is never unique, in the plan or in its CREATE INDEX;
  * - the plan is the same whatever order the requests arrive in;
  * - a request the engine cannot create, planted alone with drawn columns (an entry beyond its method's limit, more than
  *   INDEX_MAX_KEYS columns, an expression key), is refused as a key is;
@@ -15,12 +16,13 @@
  * Oracle: the engine's contract stated over the requests: one index each, the arrival order's metamorphic invariance,
  * and the refusal each planted request names.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): indexes-unique-created.patch (a created index is unique),
- * indexes-name-without-method.patch (an index is named as a B-tree whatever its method).
- *
  * Features: served by an installed or a created index, several requests on one created index, a GiST key serving a
  * B-tree probe, an ordered and a range request, each planted refusal, two methods on one column list, and two indexes on
  * one column list.
+ *
+ * @plant test/plants/unit/physical/indexes-unique-created.patch A created index is unique.
+ * @plant test/plants/unit/physical/indexes-name-without-method.patch An index is named as a B-tree whatever its
+ * method.
  */
 import { explore, type Kept, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -516,6 +518,13 @@ describe("the index request engine", () => {
 							}
 							for (const index of created) {
 								assert.equal(index.unique, false, `${index.index.name} is not unique`)
+								assert.ok(
+									Arr.every(
+										installation.statements,
+										(s) => s.kind !== "createIndex" || s.name !== index.index.name || !s.unique
+									),
+									`${index.index.name} is created by no CREATE UNIQUE INDEX`
+								)
 								if (index.requests.length > 1) {
 									c.note("a created index serving several requests")
 								}

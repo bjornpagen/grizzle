@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/ddl/constants.ts b/packages/engine/src/physical/ddl/constants.ts
+index eb326728..c921563a 100644
+--- a/packages/engine/src/physical/ddl/constants.ts
++++ b/packages/engine/src/physical/ddl/constants.ts
+@@ -1021,7 +1021,7 @@ export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
+ 							{
+ 								kind: "subscript",
+ 								array: constantValue(names),
+-								index: binary("+", { kind: "domainValue" }, int(1))
++								index: binary("+", { kind: "domainValue" }, int(0))
+ 							},
+ 							holeName
+ 						)

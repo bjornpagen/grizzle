@@ -31,13 +31,13 @@
  * audit (oracle/verify). Every drawn specification is one the fill reference admits, by construction
  * (test/support/families/fill.ts admittedFillSpecGen).
  *
- * Plants: ~/.cache/grizzle-release/BR04/plants/family-columns-no-cascade.patch (no foreign key cascades on update);
- * ~/.cache/grizzle-release/TREEORACLE/plants/family-columns-tree-entry-admitted.patch (a query entry whose key holds a
- * tree's drawn start admitted).
- *
  * Features: a drawn law column, alone and written by a query entry; a generated field, alone and written by a query
  * entry; a cascading and a deferred foreign key; a decoding view; a relation written whole; a tree's relation written
  * through a query entry refused when declared.
+ *
+ * @plant test/plants/unit/physical/family-columns-no-cascade.patch No foreign key cascades on update.
+ * @plant test/plants/unit/physical/family-columns-tree-entry-admitted.patch A query entry whose key holds a tree's
+ * drawn start is admitted.
  */
 import { type Case, explore, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

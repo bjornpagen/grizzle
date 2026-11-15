@@ -5,16 +5,19 @@
  *   by the identity each object's name was minted from, never by the name: of every order of the objects that keeps
  *   each edge, the least by (phase, kind rank, identity) position by position, whatever order the objects arrived in;
  *   the manifest holds the objects in that order and every edge once, by its two ends' identities; and two
- *   installations of one graph, whose hashed names differ by their digests, order it alike.
+ *   installations of one graph, whose hashed names differ by their digests, order it alike. Half the graphs name every
+ *   object by a word longer than a stem holds, so every stem ties and the names differ by their digests alone.
  * - **Reasons:** an object's reasons, its own then each it is given later, are kept each once, in the order first given.
  *
  * Oracles: a second implementation of the order, enumerating every order of at most six objects and taking the least;
  * the reasons given, deduplicated in order.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): graph-ties-by-digest.patch (hashed names tie by their digests'
- * text), graph-later-reasons-first.patch (reasons given later come before an object's own).
+ * Features: an order of several phases, a dependency against identity order, hashed names whose stems tie; a reason
+ * given twice, reasons added later.
  *
- * Features: an order of several phases, a dependency against identity order; a reason given twice, reasons added later.
+ * @plant test/plants/unit/physical/graph-ties-by-digest.patch Hashed names tie by their digests' text, not by the
+ * identity they were minted from.
+ * @plant test/plants/unit/physical/graph-later-reasons-first.patch Reasons given later come before an object's own.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -23,7 +26,15 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Number as Num, Option, Order } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Number as Num,
+	Option,
+	Order,
+	String as Str
+} from "effect"
 import { compareIdentities, type Identity, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import {
@@ -70,6 +81,9 @@ interface GraphSketch {
 	/** Planted in an unbroken graph: the second object of the first's phase and kind, and before it by an edge, so the
 	 * dependency runs against identity order. */
 	readonly tie: boolean
+	/** Every object's name a word longer than a hashed name's stem holds, then its index, so no stem holds a name and
+	 * every stem ties: the objects' hashed names differ by their digests alone. */
+	readonly longNames: boolean
 }
 
 const graphGen: Gen<GraphSketch> = (source) => ({
@@ -86,8 +100,12 @@ const graphGen: Gen<GraphSketch> = (source) => ({
 		array((source) => [source.draw(pickGen), source.draw(pickGen)] as const, { min: 0, max: 8 })
 	),
 	arrival: source.draw(array(int(0, 2 ** 31 - 1), { min: 6, max: 6 })),
-	tie: source.draw(boolean)
+	tie: source.draw(boolean),
+	longNames: source.draw(boolean)
 })
+
+/** A word no hashed name's stem holds whole: as long as an identifier. */
+const unstemmed = Str.repeat(63)("o")
 
 /** An object of a drawn graph before its installation: its declared name, kind and phase. */
 interface Shape {
@@ -211,7 +229,10 @@ const leastOrder = (
 	)
 }
 
-type OrderFeature = "an order of several phases" | "a dependency against identity order"
+type OrderFeature =
+	| "an order of several phases"
+	| "a dependency against identity order"
+	| "hashed names whose stems tie"
 
 /** A reason of the pool an addition draws from: two laws, the workload's access, an enforcement. */
 const lawA: LawId = wild.lawId("a")
@@ -254,7 +275,11 @@ describe("the obligation graph", () => {
 					draw: drawn(graphGen),
 					literal: Formatter.format,
 					coverage: required<OrderFeature>(
-						["an order of several phases", "a dependency against identity order"],
+						[
+							"an order of several phases",
+							"a dependency against identity order",
+							"hashed names whose stems tie"
+						],
 						{ cases: 300, sense: notesOnly }
 					),
 					kept: [],
@@ -267,7 +292,7 @@ describe("the obligation graph", () => {
 				(sketch, c) =>
 					Effect.sync(() => {
 						const planted = Arr.map(sketch.objects, (o, i): Shape => ({
-							name: `o${i}`,
+							name: sketch.longNames ? `${unstemmed}${i}` : `o${i}`,
 							kind: o.kind,
 							phase: o.phase
 						}))
@@ -396,6 +421,9 @@ describe("the obligation graph", () => {
 						const { specs, edges } = defined(graphs[0])
 						if (new Set(Arr.map(specs, (s) => s.phase)).size > 1) {
 							c.note("an order of several phases")
+						}
+						if (new Set(Arr.map(specs, (s) => s.named.stem)).size < specs.length) {
+							c.note("hashed names whose stems tie")
 						}
 						const bySpec = new Map(Arr.map(specs, (s) => [identText(s.ident), s]))
 						if (

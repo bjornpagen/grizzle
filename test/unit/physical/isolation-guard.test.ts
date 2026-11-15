@@ -9,11 +9,11 @@
  * Oracle: the rule restated over the case. An installation's guard objects follow this set over its own certification
  * (test/unit/physical/insert-grants.test.ts).
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): isolation-guard-update-relaxed.patch (a READ COMMITTED writer that may
- * update leaves its relation unguarded).
- *
  * Features: a relation no role holds, one a role only reads, one every writer of which inserts at READ COMMITTED, one
  * two such inserters write, one a SERIALIZABLE role writes, and one a READ COMMITTED role updates or deletes.
+ *
+ * @plant test/plants/unit/physical/isolation-guard-update-relaxed.patch A READ COMMITTED writer that may update
+ * leaves its relation unguarded.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

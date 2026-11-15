@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/ddl/isolation.ts b/packages/engine/src/physical/ddl/isolation.ts
+index a9088383..d25a9be3 100644
+--- a/packages/engine/src/physical/ddl/isolation.ts
++++ b/packages/engine/src/physical/ddl/isolation.ts
+@@ -194,7 +194,7 @@ export const readCommittedRelations = (
+ 	for (const role of roles) {
+ 		for (const [relation, held] of role.privileges) {
+ 			if (held.has("INSERT") || held.has("UPDATE") || held.has("DELETE")) {
+-				const inserts = role.level === "readCommitted" && !held.has("UPDATE") && !held.has("DELETE")
++				const inserts = role.level === "readCommitted" && !held.has("DELETE")
+ 				relaxed.set(relation, (relaxed.get(relation) ?? true) && inserts)
+ 			}
+ 		}

@@ -45,11 +45,11 @@ import { regex } from "#test/unit/schema/support.ts"
  * for generated columns, that a generation expression reads no generated column, over every column the installation
  * adds, which every case's installation compiles. test/pg/compute/translate.test.ts installs one and writes it.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): generated-side-reads-generated.patch (a law column's generation reads
- * a generated field's column where it should read that field's own generation).
- *
  * Features: a term and a selection over a generated field, alone and together, under a key or a containment over a
  * generated read, and a key over written fields.
+ *
+ * @plant test/plants/unit/physical/generated-side-reads-generated.patch A law column's generation term reads a
+ * generated field's column where it should read that field's own generation.
  */
 type FieldRef =
 	| { readonly kind: "written"; readonly at: number }

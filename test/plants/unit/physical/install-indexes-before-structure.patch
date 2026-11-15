@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/physical/obligations/graph.ts b/packages/engine/src/physical/obligations/graph.ts
+index c1de40fa..bfe646de 100644
+--- a/packages/engine/src/physical/obligations/graph.ts
++++ b/packages/engine/src/physical/obligations/graph.ts
+@@ -253,8 +253,8 @@ const compareKeys = (a: ObjectKey, b: ObjectKey): number => {
+ 
+ export const phaseOrder: ReadonlyArray<DeployPhase> = [
+ 	"setup",
+-	"structure",
+ 	"indexes",
++	"structure",
+ 	"validate",
+ 	"publish"
+ ]
