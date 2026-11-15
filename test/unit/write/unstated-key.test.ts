@@ -41,8 +41,8 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  *
  * Features: each primary key and declared key that holds the index, each write, a generated key that refuses nothing.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): unstated-key-primary-only, a put's same-key checks reading its primary
- * key alone.
+ * @plant test/plants/unit/write/unstated-key-primary-only.patch A put's same-key checks read its primary key alone
+ * (write/frontend/compile.ts refuseUnstatedKey), so a declared key holding the index refuses nothing.
  */
 const Owner = relation("Owner", { id: uuid, n: drawn(natural) }, ["id"])
 

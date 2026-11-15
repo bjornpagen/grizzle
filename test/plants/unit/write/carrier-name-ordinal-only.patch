@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/naming.ts b/packages/engine/src/sql/naming.ts
+index 513b84b4..7335d0cd 100644
+--- a/packages/engine/src/sql/naming.ts
++++ b/packages/engine/src/sql/naming.ts
+@@ -83,7 +83,7 @@ const CarrierName = nominal<string, CarrierName>()
+ 
+ /** The `ordinal`-th carrier of a program, from 1, of `declaration`. */
+ export const carrierName = (ordinal: number, declaration: CarrierDeclaration): CarrierName =>
+-	CarrierName(identifierOf(identity.carrier(ordinal, canonicalTextOf(declaration))))
++	CarrierName(identifierOf(identity.carrier(ordinal, "")))
+ 
+ /**
+  * The first relation and column numbers: 1 for a statement of its own; the write protocols number the input arrays

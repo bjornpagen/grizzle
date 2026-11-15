@@ -1,0 +1,10 @@
+--- a/packages/engine/src/write/schedule/plan.ts
++++ b/packages/engine/src/write/schedule/plan.ts
+@@ -805,6 +805,7 @@
+ 	side === "met" ||
+ 	maker.kind === "family" ||
+ 	other.kind === "family" ||
++	maker.stratum === other.stratum ||
+ 	maker.stratum !== other.stratum ||
+ 	drawsSerials(maker) ||
+ 	drawsSerials(other)

@@ -42,8 +42,10 @@ import { outputText } from "#test/support/wire.ts"
  *
  * Features: each spelling of a character, an escaped surrogate pair; each foreign tag, a concurrent change's DETAIL.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): refusal-detail-short-escape, a short escape read as its letter;
- * refusal-detail-any-k, a DETAIL read as a law's under a bare `k`.
+ * @plant test/plants/unit/write/refusal-detail-short-escape.patch A short escape read as its letter
+ * (core/json-strings.ts), so `\n` reads back as `n`; the round trip fails.
+ * @plant test/plants/unit/write/refusal-detail-any-k.patch A DETAIL read as a law's under a bare `k`, not `k[`
+ * (runtime/write/refusal.ts readLawDetail); the foreign tags' specification fails.
  */
 const reasons: Arr.NonEmptyReadonlyArray<ConcurrentChangeTag> = [
 	"PutTargetConflict",

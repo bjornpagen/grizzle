@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/frontend/schedule.ts b/packages/engine/src/write/frontend/schedule.ts
+index c05be3a8..505b4632 100644
+--- a/packages/engine/src/write/frontend/schedule.ts
++++ b/packages/engine/src/write/frontend/schedule.ts
+@@ -321,7 +321,7 @@ const isGenerated = (a: ActionCore): boolean => a.op === "insert" && a.serial.ki
+ 
+ /** The phase of an action on its own relation. */
+ const phaseOf = (a: ActionCore): 0 | 1 | 2 | 3 =>
+-	a.op === "delete" ? 0 : a.op === "put" ? 1 : isGenerated(a) ? 3 : 2
++	isGenerated(a) ? 0 : a.op === "delete" ? 1 : a.op === "put" ? 2 : 3
+ 
+ /**
+  * Whether an action removes facts: a deletion, or a put of a relation with a payload, which displaces the occupant of

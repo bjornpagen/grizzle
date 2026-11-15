@@ -1,0 +1,50 @@
+diff --git a/packages/engine/src/physical/ddl/retire.ts b/packages/engine/src/physical/ddl/retire.ts
+index 67d447c3..5ed4b3dd 100644
+--- a/packages/engine/src/physical/ddl/retire.ts
++++ b/packages/engine/src/physical/ddl/retire.ts
+@@ -102,23 +102,21 @@ const termNames = (terms: NonEmptyReadonlyArray<TermDesc>): NonEmptyReadonlyArra
+ 	})
+ 
+ /**
+- * The law of `body`'s fence: the containment of its group in the header's open groups, the one law from `body` into
+- * `header` a retirable statement states (analysis/theory/laws.ts), whichever reference the law model's foreign key for
+- * it takes (laws/model/plan.ts referenceChoice): the header's retirement field beside its key, or a column of the
+- * header's open keys.
++ * The law of `body`'s fence: the foreign key the law model installs for the containment of its group in the header's
++ * open groups, the one from `body` into `header` that references the retirement field.
+  */
+-const fenceLaw = (b: InstallBuilder, body: string, header: string): LawId => {
+-	const fence = b.model.theory.laws.find(
+-		(law) =>
+-			law.source.kind === "retirable" &&
+-			law.detail.kind === "containment" &&
+-			law.detail.from.relation === body &&
+-			law.detail.to.relation === header
+-	)
+-	if (fence === undefined) {
+-		throw defect(`the theory states the fence of ${body} into the open groups of ${header}`)
++const fenceLaw = (b: InstallBuilder, body: string, header: string, lifecycle: LawField): LawId => {
++	for (const { object } of b.natives) {
++		if (
++			object.kind === "ForeignKey" &&
++			object.relation.name === body &&
++			object.target.name === header &&
++			object.targetColumns.some((c) => c.kind === "field" && c.field.name === lifecycle.name)
++		) {
++			return object.lawIds[0]
++		}
+ 	}
+-	return fence.id
++	throw defect(`the law model installs the fence of ${body} into the open groups of ${header}`)
+ }
+ 
+ /** Every unit of the installation, by its retirable statement, in the order ownership lists them. */
+@@ -145,7 +143,7 @@ const unitPlans = (b: InstallBuilder): ReadonlyArray<UnitPlan> =>
+ 				key: fieldsNamed(header, termNames(s.header.terms)),
+ 				lifecycle,
+ 				bodies,
+-				fence: { law: fenceLaw(b, first.relation, s.header.relation), body: first }
++				fence: { law: fenceLaw(b, first.relation, s.header.relation, lifecycle), body: first }
+ 			}
+ 		]
+ 	})

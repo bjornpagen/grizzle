@@ -39,7 +39,8 @@ import { checking, owning } from "#test/support/policy.ts"
  * otherwise, the situation a name drawn from a carrier's place alone collides at. The feature reads the programs'
  * order, never a carrier name's spelling.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): carrier-name-ordinal-only, a carrier named by its ordinal alone.
+ * @plant test/plants/unit/write/carrier-name-ordinal-only.patch A carrier named by its ordinal alone, never its
+ * declaration's digest (sql/naming.ts carrierName).
  */
 const layouts = ["text", "bigint", "boolean", "uuid"] as const
 type Layout = (typeof layouts)[number]

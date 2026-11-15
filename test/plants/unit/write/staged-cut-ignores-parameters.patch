@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/runtime/write/staged.ts b/packages/engine/src/runtime/write/staged.ts
+index e1d42892..8aaa6863 100644
+--- a/packages/engine/src/runtime/write/staged.ts
++++ b/packages/engine/src/runtime/write/staged.ts
+@@ -354,7 +354,6 @@ export const executionsOf = (
+ 	let literalsFit = true
+ 	for (const [position, slot] of statement.nested.entries()) {
+ 		if (slot === undefined) {
+-			bind += frame.parameter + paramBytes(defined(values.get(position), "an encoded value"))
+ 			continue
+ 		}
+ 		const { measure } = columnAt(slot.source, slot.part)

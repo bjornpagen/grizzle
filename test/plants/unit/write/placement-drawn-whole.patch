@@ -1,0 +1,13 @@
+--- a/packages/engine/src/write/schedule/plan.ts
++++ b/packages/engine/src/write/schedule/plan.ts
+@@ -806,8 +806,8 @@
+ 	maker.kind === "family" ||
+ 	other.kind === "family" ||
+ 	maker.stratum !== other.stratum ||
+-	drawsSerials(maker) ||
+-	drawsSerials(other)
++	(drawsSerials(maker) && !drawsSerials(maker)) ||
++	(drawsSerials(other) && !drawsSerials(other))
+ 
+ /** Where a read-back's named side is made whole: the position of the one statement that makes it, or the crossing
+  * that leaves it made by no one statement. */

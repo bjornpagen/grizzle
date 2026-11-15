@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/schedule/plan.ts b/packages/engine/src/write/schedule/plan.ts
+index 1aae8ee6..d660b928 100644
+--- a/packages/engine/src/write/schedule/plan.ts
++++ b/packages/engine/src/write/schedule/plan.ts
+@@ -879,7 +879,7 @@ const placeReadBacks = (
+ 		const netting = makers(named.relation, nettedAgainst(named.side)).filter(
+ 			(other) => other.position !== maker.position && cancels(named.side, maker.write, other.write)
+ 		)
+-		return netting.length === 0 ? { kind: "at", position: maker.position } : twice
++		return { kind: "at", position: maker.position }
+ 	}
+ 	/** The statement `read` rides, or the crossing that leaves it no statement to ride; none where it reads no delta a
+ 	 * statement writes. */

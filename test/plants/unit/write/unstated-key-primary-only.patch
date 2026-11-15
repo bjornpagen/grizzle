@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/write/frontend/compile.ts b/packages/engine/src/write/frontend/compile.ts
+index 4009d67f..9230b515 100644
+--- a/packages/engine/src/write/frontend/compile.ts
++++ b/packages/engine/src/write/frontend/compile.ts
+@@ -543,8 +543,7 @@ const refuseUnstatedKey = (member: MemberDesc, relation: WrittenRelation): void
+ 	}
+ 	const [primary, ...declared] = relation.keyLaws
+ 	const read: ReadonlyArray<{ readonly kind: "primary" | "declared"; readonly law: KeyLaw }> = [
+-		{ kind: "primary", law: primary },
+-		...(op === "put" ? declared.map((law) => ({ kind: "declared" as const, law })) : [])
++		{ kind: "primary", law: primary }
+ 	]
+ 	for (const { kind, law } of read) {
+ 		const unstated = law.fields.filter((f) => !determined(f))

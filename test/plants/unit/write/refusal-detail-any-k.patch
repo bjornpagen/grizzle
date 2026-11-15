@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/write/refusal.ts b/packages/engine/src/runtime/write/refusal.ts
+index 93273c60..8bc436ab 100644
+--- a/packages/engine/src/runtime/write/refusal.ts
++++ b/packages/engine/src/runtime/write/refusal.ts
+@@ -66,7 +66,7 @@ const keyText = nominal<string, OutputText>()
+ /** The refusal a 23000 DETAIL text says, converted without a check (write/refusal.ts refusalGuard): a write statement's refusal of a
+  * law under its tag; any other text a DETAIL grizzle did not raise. */
+ export const readLawDetail = (text: string): LawDetail => {
+-	if (!text.startsWith(`${keyTag}[`)) {
++	if (!text.startsWith(keyTag)) {
+ 		return { kind: "foreign", detail: text }
+ 	}
+ 	const { relation, fields, texts } = detailStrings(text)

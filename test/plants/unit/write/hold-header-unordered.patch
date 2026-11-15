@@ -1,0 +1,11 @@
+--- a/packages/engine/src/write/frontend/schedule.ts
++++ b/packages/engine/src/write/frontend/schedule.ts
+@@ -653,7 +653,7 @@
+ 				continue
+ 			}
+ 			for (const touch of touching) {
+-				if (touch !== header && !follows(header, touch)) {
++				if (touch !== header && !follows(header, touch) && units.length < 0) {
+ 					touch.follows.add(header)
+ 				}
+ 			}

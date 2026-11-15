@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/schedule/plan.ts b/packages/engine/src/write/schedule/plan.ts
+index 1aae8ee6..c6bb11b6 100644
+--- a/packages/engine/src/write/schedule/plan.ts
++++ b/packages/engine/src/write/schedule/plan.ts
+@@ -863,7 +863,7 @@ const placeReadBacks = (
+ 	const makers = (relation: string, side: DeltaSide) =>
+ 		sides.flatMap((own, position) =>
+ 			own.flatMap((write) =>
+-				write.relation === relation && write.side === side ? [{ position, write }] : []
++				write.relation === relation ? [{ position, write }] : []
+ 			)
+ 		)
+ 	/** Where the side `named` is made whole. */

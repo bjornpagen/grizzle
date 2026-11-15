@@ -31,15 +31,21 @@
  * beside the opposite action of M refused; riding after W's state written beside M, by name before M and after it;
  * running after the writes; and each crossing refused.
  *
- * Plants (~/.cache/grizzle-release/CARRIER/plants): placement-relation-writers (a delta's writers counted by relation,
- * as before, so a put's sides never ride), placement-no-netting (a side's one maker taken whole whatever nets against
- * it), placement-no-order-key (the canonical order with no key for the delta relations), placement-own-writes-settled
- * (the statement a read-back rides left out of the writes after it), placement-strata-settled (the writes of later
- * strata left out), placement-sides-together (a read-back of two sides placed at the first's statement); and
- * ~/.cache/grizzle-release/READBACK/plants/placement-stratum-cancels.patch (an addition and a removal of one stratum
- * taken to cancel, so a read-back beside the opposite action of its relation is refused) and
- * ~/.cache/grizzle-release/READBACK/plants/placement-drawn-whole.patch (a generated addition taken never to cancel
- * with its stratum's removals, so its read-back beside a deletion rides).
+ * @plant test/plants/unit/write/placement-relation-writers.patch A delta's writers counted by relation, as before,
+ * so a put's sides never ride.
+ * @plant test/plants/unit/write/placement-no-netting.patch A side's one maker taken whole whatever nets against it.
+ * @plant test/plants/unit/write/placement-no-order-key.patch The canonical order with no key for the delta relations
+ * (write/frontend/schedule.ts scheduledOrder).
+ * @plant test/plants/unit/write/placement-own-writes-settled.patch The statement a read-back rides left out of the
+ * writes after it.
+ * @plant test/plants/unit/write/placement-strata-settled.patch The writes of later strata left out of the writes after
+ * the statement a read-back rides.
+ * @plant test/plants/unit/write/placement-sides-together.patch A read-back of two sides placed at the first's
+ * statement.
+ * @plant test/plants/unit/write/placement-stratum-cancels.patch An addition and a removal of one stratum taken to
+ * cancel, so a read-back beside the opposite action of its relation is refused.
+ * @plant test/plants/unit/write/placement-drawn-whole.patch A generated addition taken never to cancel with its
+ * stratum's removals, so its read-back beside a deletion rides.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
