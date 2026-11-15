@@ -27,8 +27,8 @@
  * (test/pg/write/swarm/families.test.ts, test/pg/write/fill-order, test/pg/write/family-cost) judge the rows the same
  * statements write.
  *
- * Plant (~/.cache/grizzle-release/FAMWRITE/plants): recount-per-column-subquery.patch, the recount read by an EXISTS
- * and a correlated scalar subquery per recounted column over its source, as before.
+ * @plant test/plants/pg/write/recount-per-column-subquery.patch The recount is read by an EXISTS and a correlated scalar
+ * subquery per recounted column over its source, as before c161d26e, so the source is reread once per owner row.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

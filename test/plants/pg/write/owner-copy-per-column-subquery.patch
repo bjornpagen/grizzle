@@ -1,0 +1,436 @@
+--- a/packages/engine/src/write/family/additions.ts
++++ b/packages/engine/src/write/family/additions.ts
+@@ -814,136 +814,15 @@
+ 	/** The member's group columns bound to `keys`, a group's values in order. */
+ 	const groupAt = (keys: ReadonlyArray<Expr>) =>
+ 		mapNonEmpty(family.group, (g, i) => bound(w, name, g.member, defined(keys[i], "a group key")))
+-	/** The owner columns the family's owner copies read, by the owner column's key: the owner's column, the member's copy
+-	 * and the copy's type. */
+-	const ownerReads = new Map(
+-		drawnColumns.flatMap((c) =>
+-			c.rule.kind === "ownerCopy"
+-				? [[columnKey(c.rule.to), { to: c.rule.to, from: c.column, type: c.type }] as const]
+-				: []
+-		)
+-	)
+-	/** The owner reads whose copies are `held` (schedule.ts CopySource), which the owner's rows the stratum inserts hold. */
+-	const heldReads = [...ownerReads].filter(
+-		([, read]) => copySource(columnKey(read.from)) === "held"
+-	)
+-	/**
+-	 * The owner's rows among those the stratum inserts, which the statement's parameters hold, one CTE per source
+-	 * (`ownerShapes`): each row at the owner's key, the family's group order, with every owner column a `held` copy reads,
+-	 * its column or a generated field's generation over the fields it reads (scan.ts scannedValue), every column at once,
+-	 * so the groups read their owners in one pass of each source however many columns they copy (`groups`); no source
+-	 * repeats a key (a slot's facts are host-normalized, insert/input.ts readInput, and a stratum's nested rows are one
+-	 * per key, program/bind.ts nestedPlans), so a group meets at most one row of each. None where no copy is held.
+-	 */
+-	const heldOwners = isNonEmpty(heldReads)
+-		? ownerShapes().map((owners): PerGroup => {
+-				const copies: PerGroup = {
+-					name: supply.relation(internal("held owner")),
+-					group: mapNonEmpty(family.group, () => supply.column(internal("held owner key"))),
+-					columns: new Map(
+-						heldReads.map(([k]) => [k, supply.column(internal("held owner column"))] as const)
+-					)
+-				}
+-				const n = supply.relation(internal("inserted owner"))
+-				const ownerKey = family.group.map((g) => col(n, columnAt(owners, fieldKey(g.owner.name))))
+-				ctes.push(
+-					cte(
+-						copies.name,
+-						[...copies.group, ...copies.columns.values()],
+-						select(
+-							provedCore(
+-								"keyed",
+-								[
+-									...mapNonEmpty(copies.group, (c, i) =>
+-										targetAs(defined(ownerKey[i], "an owner key"), c)
+-									),
+-									...heldReads.map(([k, read]) =>
+-										targetAs(
+-											cast(scannedValue(w, owner, n, owners, read.to), w.cx.baseTypeRef(read.type)),
+-											columnAt(copies, k)
+-										)
+-									)
+-								],
+-								[cteRefAs(owners.name, n)],
+-								undefined
+-							)
+-						)
+-					)
+-				)
+-				return copies
+-			})
+-		: []
+-	/**
+-	 * The groups the appends join, each with its kept count and its owner's columns. Its kept count: 0 at `base`; else its
+-	 * stored last member's slot plus one, read by the probe of its group's last member (probe.ts probeGroup `last`), 0
+-	 * where it holds none. Its owner's columns, each from where its copy reads it (schedule.ts CopySource): a `held`
+-	 * copy's the owner's row among those the stratum inserts (`heldOwners`), else the stored owner's (`ownerFallback`);
+-	 * a `stored` or `drawn` copy's the stored owner's alone.
+-	 */
++	/** The groups the appends join, each with its kept count: 0 at `base`; else its stored last member's slot plus one,
++	 * read by the probe of its group's last member (probe.ts probeGroup `last`), 0 where it holds none. */
+ 	const groups = {
+ 		name: supply.relation(internal("appended group")),
+ 		group: mapNonEmpty(family.group, () => supply.column(internal("appended group key"))),
+-		kept: supply.column(internal("kept count")),
+-		owner: new Map(
+-			[...ownerReads.keys()].map((k) => [k, supply.column(internal("group owner column"))] as const)
+-		)
++		kept: supply.column(internal("kept count"))
+ 	}
+ 	const g0 = supply.relation(internal("appended group row"))
+ 	const g0Keys = memberGroup(g0, appended)
+-	/** The base of an owner copy, an accumulated column's start or a fold's identity, as a literal of its type. */
+-	const baseOf = (read: { readonly from: NativeColumn; readonly type: LawField["type"] }): Expr =>
+-		lowerLiteral(
+-			w.names,
+-			defined(
+-				baseLiteral(family, read.from),
+-				`the base of ${name}'s owner copy ${columnKey(read.from)}, an accumulated column`
+-			),
+-			read.type
+-		)
+-	/**
+-	 * A group's copy of an owner column where no owner row the stratum inserts holds it: the stored owner's, read by the
+-	 * probe of the owner at the group's key where the group's state is stored, and at `base` where the copy is `drawn`
+-	 * (the owner's own earlier statement of this call wrote the column, which only its row holds); else, and where no
+-	 * owner is stored, the copy's base. At `base` a `held` copy reads the call's own rows, and a `stored` one none, its
+-	 * owner stored, so the family's owner axis refuses the append whatever the copy is, as it refuses any member naming no
+-	 * owner, whose rows take the base. Read as COALESCE, since an owner's column is never NULL (rule 0).
+-	 */
+-	const ownerFallback = (read: {
+-		readonly to: NativeColumn
+-		readonly from: NativeColumn
+-		readonly type: LawField["type"]
+-	}): Expr => {
+-		const stored = (): Expr => {
+-			const ownerRow = probeKey(
+-				w,
+-				supply,
+-				owner.name,
+-				{
+-					key: mapNonEmpty(family.group, (g, i) =>
+-						bound(w, owner.name, g.owner, defined(g0Keys[i], "a group key"))
+-					),
+-					filter: () => [],
+-					placed: mapNonEmpty(family.group, (g) => w.names.column(owner.name, g.owner.name))
+-				},
+-				[installed(w, owner.name, read.to)]
+-			)
+-			return {
+-				kind: "subquery",
+-				query: simpleSelect(
+-					[
+-						target(
+-							cast(ownerRow.at(installed(w, owner.name, read.to)), w.cx.baseTypeRef(read.type))
+-						)
+-					],
+-					[ownerRow.source],
+-					undefined
+-				)
+-			}
+-		}
+-		const reads =
+-			state === "stored" || copySource(columnKey(read.from)) === "drawn" ? [stored()] : []
+-		return firstNonNull(appendNonEmpty(reads, baseOf(read)))
+-	}
+ 	const storedKept = (): Expr => {
+ 		const last = probeGroup(w, supply, name, "last", groupAt(g0Keys), [index], {
+ 			read: [index],
+@@ -964,34 +843,17 @@
+ 			]
+ 		}
+ 	}
+-	/** Each appended group once, with its kept count and each owner column's fallback (`ownerFallback`): the groups
+-	 * themselves where no copy is held. */
+-	const fallen: PerGroup & { readonly kept: string } = isNonEmpty(heldOwners)
+-		? {
+-				name: supply.relation(internal("appended group fallback")),
+-				group: mapNonEmpty(family.group, () => supply.column(internal("fallback group key"))),
+-				kept: supply.column(internal("fallback kept count")),
+-				columns: new Map(
+-					[...ownerReads.keys()].map(
+-						(k) => [k, supply.column(internal("fallback owner column"))] as const
+-					)
+-				)
+-			}
+-		: { ...groups, columns: groups.owner }
+ 	ctes.push(
+ 		cte(
+-			fallen.name,
+-			[...fallen.group, fallen.kept, ...fallen.columns.values()],
++			groups.name,
++			[...groups.group, groups.kept],
+ 			select(
+ 				distinctCore(
+ 					[
+-						...mapNonEmpty(fallen.group, (c, i) => targetAs(defined(g0Keys[i], "a group key"), c)),
++						...mapNonEmpty(groups.group, (c, i) => targetAs(defined(g0Keys[i], "a group key"), c)),
+ 						targetAs(
+ 							state === "base" ? lit.int(0, bigint) : cast(storedKept(), bigint),
+-							fallen.kept
+-						),
+-						...[...ownerReads].map(([k, read]) =>
+-							targetAs(ownerFallback(read), columnAt(fallen, k))
++							groups.kept
+ 						)
+ 					],
+ 					[cteRefAs(appended.name, g0)],
+@@ -1000,146 +862,6 @@
+ 			)
+ 		)
+ 	)
+-	const [firstHeld, ...restHeld] = heldOwners
+-	if (firstHeld !== undefined) {
+-		/**
+-		 * Each group's owner columns, a held copy's the first held source's row at the group's key, in `ownerShapes`'s
+-		 * order, else its fallback: the held sources' rows and the groups, each tagged with its place, those after the
+-		 * sources, are one UNION ALL, and first_value over each key's partition in tag order is the first that holds the
+-		 * key. No join pairs a group with an owner row, and no NULL stands for an absent one: a group no source holds
+-		 * reads its own fallback. It is the COALESCE of the held rows' values and the fallback, since no held value is
+-		 * NULL: each is a column of an owner row the stratum's own earlier statement inserted, NOT NULL in the owner's
+-		 * table (rule 0), or a generated field's generation, which that insert stored NOT NULL too.
+-		 */
+-		const sources: NonEmptyReadonlyArray<PerGroup> = [firstHeld, ...restHeld]
+-		const sides = {
+-			name: supply.relation(internal("group owner sides")),
+-			group: mapNonEmpty(family.group, () => supply.column(internal("group owner side key"))),
+-			tag: supply.column(internal("group owner side tag")),
+-			kept: supply.column(internal("group owner side kept count")),
+-			columns: new Map(
+-				[...ownerReads.keys()].map(
+-					(k) => [k, supply.column(internal("group owner side column"))] as const
+-				)
+-			)
+-		}
+-		const sideTargets = (
+-			key: NonEmptyReadonlyArray<Expr>,
+-			tag: number,
+-			kept: Expr,
+-			value: (k: ColumnKey) => Expr
+-		) => [
+-			...mapNonEmpty(sides.group, (c, i) => targetAs(defined(key[i], "a side key"), c)),
+-			targetAs(lit.int(tag, types.integer), sides.tag),
+-			targetAs(kept, sides.kept),
+-			...[...sides.columns].map(([k, c]) => targetAs(value(k), c))
+-		]
+-		const fallenRow = supply.relation(internal("fallen group"))
+-		ctes.push(
+-			cte(
+-				sides.name,
+-				[...sides.group, sides.tag, sides.kept, ...sides.columns.values()],
+-				select(
+-					unionAll("disjoint", [
+-						...mapNonEmpty(sources, (copies, i) => {
+-							const h = supply.relation(internal("held owner row"))
+-							return provedCore(
+-								"keyed",
+-								sideTargets(
+-									mapNonEmpty(copies.group, (c) => col(h, c)),
+-									i,
+-									lit.int(0, bigint),
+-									(k) => {
+-										const column = copies.columns.get(k)
+-										return column === undefined
+-											? baseOf(defined(ownerReads.get(k), "an owner read"))
+-											: col(h, column)
+-									}
+-								),
+-								[cteRefAs(copies.name, h)],
+-								undefined
+-							)
+-						}),
+-						provedCore(
+-							"keyed",
+-							sideTargets(
+-								mapNonEmpty(fallen.group, (c) => col(fallenRow, c)),
+-								sources.length,
+-								col(fallenRow, fallen.kept),
+-								(k) => col(fallenRow, columnAt(fallen, k))
+-							),
+-							[cteRefAs(fallen.name, fallenRow)],
+-							undefined
+-						)
+-					])
+-				)
+-			)
+-		)
+-		const ranked = supply.relation(internal("group owners"))
+-		const rankedColumns = new Map(
+-			[...ownerReads.keys()].map((k) => [k, supply.column(internal("group owner value"))] as const)
+-		)
+-		const rankedGroup = mapNonEmpty(family.group, () => supply.column(internal("group owners key")))
+-		const rankedTag = supply.column(internal("group owners tag"))
+-		const rankedKept = supply.column(internal("group owners kept count"))
+-		const s = supply.relation(internal("group owner side"))
+-		const sideKey = sides.group.map((c) => col(s, c))
+-		ctes.push(
+-			cte(
+-				ranked,
+-				[...rankedGroup, rankedTag, rankedKept, ...rankedColumns.values()],
+-				select(
+-					provedCore(
+-						"keyed",
+-						[
+-							...mapNonEmpty(rankedGroup, (c, i) =>
+-								targetAs(col(s, defined(sides.group[i], "a side key")), c)
+-							),
+-							targetAs(col(s, sides.tag), rankedTag),
+-							targetAs(col(s, sides.kept), rankedKept),
+-							...[...rankedColumns].map(([k, c]) => {
+-								const side = col(s, defined(sides.columns.get(k), "a side column"))
+-								return targetAs(
+-									heldReads.some(([h]) => h === k)
+-										? {
+-												...call("first_value", [side]),
+-												over: windowOf(sideKey, [asc(col(s, sides.tag))])
+-											}
+-										: side,
+-									c
+-								)
+-							})
+-						],
+-						[cteRefAs(sides.name, s)],
+-						undefined
+-					)
+-				)
+-			)
+-		)
+-		const r = supply.relation(internal("group owners row"))
+-		ctes.push(
+-			cte(
+-				groups.name,
+-				[...groups.group, groups.kept, ...groups.owner.values()],
+-				select(
+-					provedCore(
+-						"keyed",
+-						[
+-							...mapNonEmpty(groups.group, (c, i) =>
+-								targetAs(col(r, defined(rankedGroup[i], "a ranked key")), c)
+-							),
+-							targetAs(col(r, rankedKept), groups.kept),
+-							...[...groups.owner].map(([k, c]) =>
+-								targetAs(col(r, defined(rankedColumns.get(k), "a ranked column")), c)
+-							)
+-						],
+-						[cteRefAs(ranked, r)],
+-						eq(col(r, rankedTag), lit.int(sources.length, types.integer))
+-					)
+-				)
+-			)
+-		)
+-	}
+ 	/** Each group's seed at `stored`: its stored member at the kept count less one, with every column a predecessor rule
+ 	 * reads, read by the probe of the member at that slot of its group. */
+ 	const seedReads = new Map<ColumnKey, NativeColumn>(
+@@ -1202,6 +924,13 @@
+ 	const group: GroupState =
+ 		state === "base" ? { kind: "base" } : { kind: "stored", seed: storedSeed() }
+ 	/** The appended rows at their slots, each with its group's first drawn slot, its new count and its owner's columns. */
++	const ownerReads = new Map(
++		drawnColumns.flatMap((c) =>
++			c.rule.kind === "ownerCopy"
++				? [[columnKey(c.rule.to), { to: c.rule.to, from: c.column, type: c.type }] as const]
++				: []
++		)
++	)
+ 	const rows: ScanRows = {
+ 		name: supply.relation(internal("appended rows")),
+ 		group: mapNonEmpty(family.group, () => supply.column(internal("row group key"))),
+@@ -1221,6 +950,82 @@
+ 	const aKey = member.relation.primaryFields.map((f) =>
+ 		col(a, columnAt(appended, fieldKey(f.name)))
+ 	)
++	/**
++	 * An appended row's copy of an owner column, from where the copy reads it (schedule.ts CopySource): a `held` copy the
++	 * owner's row among those the stratum inserts, which the statement's parameters hold, else the stored owner's; a
++	 * `stored` or `drawn` copy the stored owner's alone, a drawn one's owner written by an earlier statement. A group
++	 * that names no owner at all takes the copy's base, so its row is inserted and the family's owner axis refuses it at
++	 * the statement's end, as it refuses any member naming no owner. Read as COALESCE, since an owner's column is never
++	 * NULL (rule 0).
++	 */
++	const ownerValue = (read: {
++		readonly to: NativeColumn
++		readonly from: NativeColumn
++		readonly type: LawField["type"]
++	}): Expr => {
++		const base = defined(
++			baseLiteral(family, read.from),
++			`the base of ${name}'s owner copy ${columnKey(read.from)}, an accumulated column`
++		)
++		/** The stored owner's column, read by the probe of the owner at the row's group (`reads`). */
++		const stored = (): Expr => {
++			const ownerRow = probeKey(
++				w,
++				supply,
++				owner.name,
++				{
++					key: mapNonEmpty(family.group, (g, i) =>
++						bound(w, owner.name, g.owner, defined(aGroup[i], "a group key"))
++					),
++					filter: () => [],
++					placed: mapNonEmpty(family.group, (g) => w.names.column(owner.name, g.owner.name))
++				},
++				[installed(w, owner.name, read.to)]
++			)
++			return {
++				kind: "subquery",
++				query: simpleSelect(
++					[
++						target(
++							cast(ownerRow.at(installed(w, owner.name, read.to)), w.cx.baseTypeRef(read.type))
++						)
++					],
++					[ownerRow.source],
++					undefined
++				)
++			}
++		}
++		/** The owner among rows the stratum inserts, which the statement's parameters hold: its column, or a generated
++		 * field's generation over the fields it reads (scan.ts scannedValue). */
++		const inserted = (owners: Shaped): Expr => {
++			const n = supply.relation(internal("inserted owner"))
++			return {
++				kind: "subquery",
++				query: simpleSelect(
++					[target(cast(scannedValue(w, owner, n, owners, read.to), w.cx.baseTypeRef(read.type)))],
++					[cteRefAs(owners.name, n)],
++					and(
++						mapNonEmpty(family.group, (g, i) =>
++							typedEq(
++								g.owner.type,
++								col(n, columnAt(owners, fieldKey(g.owner.name))),
++								defined(aGroup[i], "a group key"),
++								w.names
++							)
++						)
++					)
++				)
++			}
++		}
++		const source = copySource(columnKey(read.from))
++		const held = source === "held" ? ownerShapes().map(inserted) : []
++		/** The stored owner is read where the group's state is stored, and at `base` where the copy is `drawn`: the
++		 * owner's own earlier statement of this call wrote the column, which only its row holds. At `base` a `held` copy
++		 * reads the call's own rows, and a `stored` one none, its owner stored, so the family's owner axis refuses the
++		 * append whatever the copy is. */
++		const reads = state === "stored" || source === "drawn" ? appendNonEmpty(held, stored()) : held
++		return firstNonNull(appendNonEmpty(reads, lowerLiteral(w.names, base, read.type)))
++	}
+ 	const kept = col(g2, groups.kept)
+ 	ctes.push(
+ 		cte(
+@@ -1248,8 +1053,8 @@
+ 						targetAs(kept, rows.first),
+ 						targetAs(cast(binary("+", kept, countOver(aGroup)), bigint), rows.count),
+ 						...[...appended.columns].map(([k, c]) => targetAs(col(a, c), columnAt(rows, k))),
+-						...[...rows.owner].map(([k, c]) =>
+-							targetAs(col(g2, defined(groups.owner.get(k), "a group owner column")), c)
++						...[...ownerReads].map(([k, read]) =>
++							targetAs(ownerValue(read), defined(rows.owner.get(k), "an owner column"))
+ 						)
+ 					],
+ 					[

@@ -28,8 +28,9 @@
  * explainedChange). The oracle is the law itself, the definition of linear growth; the family suites
  * (test/pg/write/swarm/families.test.ts, test/pg/write/fill-order) judge the rows the same statements write.
  *
- * Plant (~/.cache/grizzle-release/FAMWRITE/plants): owner-copy-per-column-subquery.patch, each owner copy read by its
- * own correlated scalar subquery over the owners' facts per member row, as before 37c55302.
+ * @plant test/plants/pg/write/owner-copy-per-column-subquery.patch Each owner copy is read by its own correlated scalar
+ * subquery over the owners' facts per member row, as before 37c55302, so the owners' facts are reread once per member and
+ * copied column.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
