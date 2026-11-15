@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/expr/ops.ts b/packages/engine/src/lower/conservative/expr/ops.ts
+index 80c4d172..3111f75e 100644
+--- a/packages/engine/src/lower/conservative/expr/ops.ts
++++ b/packages/engine/src/lower/conservative/expr/ops.ts
+@@ -138,7 +138,7 @@ const setConstruct = (name: SetConstruct, args: ReadonlyArray<Expr>): Expr | und
+ 		case "difference":
+ 			return without
+ 		case "subset":
+-			return binary("=", call("bit_count", [without]), lit.int(0n, types.bigint))
++			return binary("=", call("bit_count", [binary("&", b, { kind: "complement", expr: a })]), lit.int(0n, types.bigint))
+ 		case "disjoint":
+ 			return binary("=", call("bit_count", [binary("&", a, b)]), lit.int(0n, types.bigint))
+ 	}

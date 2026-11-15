@@ -13,10 +13,11 @@
  *
  * Each ChangeSet is a member of the full world's served workload, its call's facts keyed by op and relation.
  *
- * Plants: fields-bytes-digest-short (a bytes value's digest skips its last byte, so a value one byte off at its end, or
- * one byte longer, is netted as the value it differs from).
- *
  * Features: the vocabulary Feature below, each kind of put and delete the model counts.
+ *
+ * @plant test/plants/pg/fields/fields-bytes-digest-short.patch A bytes value's digest skips its last byte, on the host
+ * and in the digest a write returns alike, so a value one byte off at its end, or one byte longer, is netted as the
+ * value it differs from.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

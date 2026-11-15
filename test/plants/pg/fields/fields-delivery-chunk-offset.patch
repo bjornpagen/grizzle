@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/codec/delivery.ts b/packages/engine/src/codec/delivery.ts
+index f8af0250..bb489523 100644
+--- a/packages/engine/src/codec/delivery.ts
++++ b/packages/engine/src/codec/delivery.ts
+@@ -127,7 +127,7 @@ const assembleChunks = (
+ 		if (into === undefined) {
+ 			throw defect("a chunk of a delivered row whose chunk 0 the answer holds")
+ 		}
+-		const offset = Number(rowText(row, chunkAt)) * chunkLength
++		const offset = Number(rowText(row, chunkAt)) * (chunkLength - 1)
+ 		for (const at of bytes) {
+ 			bytesValueOf(rowCell(into.cells, at))
+ 				.subarray(offset)

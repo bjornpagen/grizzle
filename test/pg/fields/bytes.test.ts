@@ -12,10 +12,10 @@
  * check beside Effect's md5 of the drawn bytes, lowercase hex as md5(bytea) writes it. Every value read back is a fresh
  * Uint8Array over its own buffer.
  *
- * Plants: fields-delivery-chunk-offset (a delivered chunk is written at the wrong offset), fields-delivery-order-reversed
- * (the assembled rows come back in reverse order).
- *
  * Features: the vocabulary Feature below, each value's length class and each path it is written and read by.
+ *
+ * @plant test/plants/pg/fields/fields-delivery-chunk-offset.patch A delivered chunk is written at the wrong offset.
+ * @plant test/plants/pg/fields/fields-delivery-order-reversed.patch The assembled rows come back in reverse order.
  */
 import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -227,6 +227,21 @@ const programs = Object.freeze({
 const sameBytes = (x: Uint8Array, y: Uint8Array): boolean =>
 	x.length === y.length && x.every((byte, at) => byte === y[at])
 
+/**
+ * Where a value read back first departs from the value written: the first offset whose bytes differ, or the shorter
+ * length where one is the other's prefix; none where they hold the same bytes. A failure names that offset, never the
+ * bytes, which reach 268,435,444 in the kept case and which no assertion's diff can print.
+ */
+const firstDifference = (read: Uint8Array, written: Uint8Array): Option.Option<number> => {
+	const shorter = Math.min(read.length, written.length)
+	const at = read.subarray(0, shorter).findIndex((byte, i) => byte !== written[i])
+	return at >= 0
+		? Option.some(at)
+		: read.length === written.length
+			? Option.none()
+			: Option.some(shorter)
+}
+
 /** Whether every value of `values` is an array over a buffer of its own, no two sharing one. */
 const ownBuffers = (values: ReadonlyArray<Uint8Array>): boolean =>
 	Arr.every(values, (b) => b.byteOffset === 0 && b.byteLength === b.buffer.byteLength) &&
@@ -317,9 +332,23 @@ layer(Layer.merge(Substrate.layer, Digest.layerWebCrypto), { excludeTestServices
 										)
 										const read = Arr.sort(collected, byId)
 										assert.deepEqual(
-											Arr.map(read, (row) => ({ id: row.id, body: row.body })),
-											Arr.map(facts, (f) => ({ id: f.id, body: f.body })),
-											"every value reads back as the bytes written"
+											Arr.map(read, (row) => ({ id: row.id, length: row.body.length })),
+											Arr.map(facts, (f) => ({ id: f.id, length: f.body.length })),
+											"every value reads back at its id and the length written"
+										)
+										assert.deepEqual(
+											Arr.flatten(
+												Arr.zipWith(read, facts, (row, f) =>
+													Option.toArray(
+														Option.map(firstDifference(row.body, f.body), (at) => ({
+															id: f.id,
+															at
+														}))
+													)
+												)
+											),
+											[],
+											"every value reads back as the bytes written: no value departs at any offset"
 										)
 										assert.ok(
 											ownBuffers(Arr.map(read, (row) => row.body)),

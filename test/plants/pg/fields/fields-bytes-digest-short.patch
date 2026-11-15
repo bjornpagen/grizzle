@@ -1,0 +1,61 @@
+diff --git a/packages/engine/src/codec/bytea.ts b/packages/engine/src/codec/bytea.ts
+index 0819ca7c..30198dc4 100644
+--- a/packages/engine/src/codec/bytea.ts
++++ b/packages/engine/src/codec/bytea.ts
+@@ -154,7 +154,7 @@ export const byteaArray = (
+ 			return Result.err(encodeFailure("bytesChanged", slotPlace(input)))
+ 		}
+ 		out.set(value.bytes, at)
+-		if (sha256Hex(out.subarray(at, at + n)) !== value.digest) {
++		if (sha256Hex(out.subarray(at, Math.max(at, at + n - 1))) !== value.digest) {
+ 			return Result.err(encodeFailure("bytesChanged", slotPlace(input)))
+ 		}
+ 		return Result.ok(undefined)
+diff --git a/packages/engine/src/codec/read.ts b/packages/engine/src/codec/read.ts
+index 51a575fe..447f5b30 100644
+--- a/packages/engine/src/codec/read.ts
++++ b/packages/engine/src/codec/read.ts
+@@ -170,7 +170,7 @@ export const scalarReader = (type: ScalarType, codes: Codebook): ScalarReader =>
+ 				type,
+ 				spec,
+ 				convert: (cell: Cell) => new AdmittedBytes(bytesValueOf(cell)),
+-				cellText: (cell: Cell) => sha256Hex(bytesValueOf(cell))
++				cellText: (cell: Cell) => sha256Hex(bytesValueOf(cell).subarray(0, -1))
+ 			})
+ 		: textReaderOf(type, spec)
+ }
+diff --git a/packages/engine/src/scalar/values/bytes.ts b/packages/engine/src/scalar/values/bytes.ts
+index eef4e1cc..9fa6be01 100644
+--- a/packages/engine/src/scalar/values/bytes.ts
++++ b/packages/engine/src/scalar/values/bytes.ts
+@@ -34,7 +34,7 @@ export class BytesDigest {
+ export class AdmittedBytes extends BytesDigest {
+ 	readonly bytes: Uint8Array
+ 	constructor(bytes: Uint8Array) {
+-		super(sha256Hex(bytes))
++		super(sha256Hex(bytes.subarray(0, -1)))
+ 		this.bytes = bytes
+ 	}
+ }
+diff --git a/packages/engine/src/write/insert/statement.ts b/packages/engine/src/write/insert/statement.ts
+index bc75efb4..71b5f532 100644
+--- a/packages/engine/src/write/insert/statement.ts
++++ b/packages/engine/src/write/insert/statement.ts
+@@ -37,7 +37,7 @@ import type {
+ 	TypeRef,
+ 	With
+ } from "#compiler/sql/ast.ts"
+-import { call, cast, lit, provedCore, sameTypeRef, targetAs, types } from "#compiler/sql/build.ts"
++import { binary, call, cast, lit, provedCore, sameTypeRef, targetAs, types } from "#compiler/sql/build.ts"
+ import { emitText } from "#compiler/sql/emit.ts"
+ import { NameSupply, type NameSupplyStart } from "#compiler/sql/naming.ts"
+ import type { FieldColumns } from "#compiler/write/defined.ts"
+@@ -533,7 +533,7 @@ export interface ReturnedColumn {
+ export const returnedColumn = (expr: Expr, type: ScalarType, alias: string): ReturnedColumn =>
+ 	type.carrier === "bytes"
+ 		? {
+-				expr: call("encode", [call("sha256", [expr]), lit.text("hex", types.text)]),
++				expr: call("encode", [call("sha256", [call("substring", [expr, lit.int(1, types.integer), call("abs", [binary("-", call("octet_length", [expr]), lit.int(1, types.integer))])])]), lit.text("hex", types.text)]),
+ 				delivered: textItself,
+ 				alias
+ 			}

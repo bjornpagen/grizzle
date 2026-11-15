@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/write/witness.ts b/packages/engine/src/runtime/write/witness.ts
+index 9b059020..4a27d6eb 100644
+--- a/packages/engine/src/runtime/write/witness.ts
++++ b/packages/engine/src/runtime/write/witness.ts
+@@ -1054,7 +1054,7 @@ const brokenLaws = (
+ 		)
+ 	]
+ 	return mapNonEmpty(
+-		sortNonEmpty(once, (a, b) => order(a.law.law) - order(b.law.law)),
++		sortNonEmpty(once, (a, b) => order(b.law.law) - order(a.law.law)),
+ 		({ law, check }) => ({
+ 			law: law.described,
+ 			id: law.law,

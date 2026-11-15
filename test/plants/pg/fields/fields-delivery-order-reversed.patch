@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/codec/delivery.ts b/packages/engine/src/codec/delivery.ts
+index f8af0250..98aa16b0 100644
+--- a/packages/engine/src/codec/delivery.ts
++++ b/packages/engine/src/codec/delivery.ts
+@@ -135,7 +135,7 @@ const assembleChunks = (
+ 		}
+ 	}
+ 	return Array.from(byOrd.values())
+-		.toSorted((a, b) => a.ord - b.ord)
++		.toSorted((a, b) => b.ord - a.ord)
+ 		.map((row) => row.cells)
+ }
+ 

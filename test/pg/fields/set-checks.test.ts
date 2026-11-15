@@ -10,12 +10,13 @@
  * through the same algebra against set values, whether its flags miss b and their union with {c}, which the model
  * computes over plain Sets.
  *
- * Planted in a scratch copy, a refusal naming only the CHECK PostgreSQL reported, as one did before a refused CHECK
- * named every law its row breaks, and one naming the broken checks against the canonical order, each fail the box.
- *
- * Plants: fields-set-subset-reversed (subset lowers as b ⊆ a).
- *
  * Features: a row accepted, and a row breaking each check alone and with others.
+ *
+ * @plant test/plants/pg/fields/fields-set-subset-reversed.patch subset lowers as b ⊆ a.
+ * @plant test/plants/pg/fields/fields-set-checks-reported-only.patch A refusal names only the CHECK PostgreSQL reported,
+ * as one did before a refused CHECK named every law its row breaks (runtime/write/witness.ts brokenLaws).
+ * @plant test/plants/pg/fields/fields-set-checks-order-reversed.patch A refusal names the broken checks against the
+ * canonical order of the schema's laws (runtime/write/witness.ts brokenLaws).
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
