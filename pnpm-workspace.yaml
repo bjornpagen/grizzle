@@ -28,7 +28,7 @@ catalog:
   "@hyperjump/json-schema": 1.18.0
   "@types/node": 26.6.6
   "@types/pg": 8.23.1
-  "@vercel/functions": 3.10.6
+  "@vercel/functions": 3.11.3
   arkregex: 0.0.14
   effect: 4.1.2
   eslint-plugin-better-tailwindcss: 4.11.0

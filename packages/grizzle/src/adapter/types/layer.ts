@@ -2,7 +2,7 @@ import type { Effect, Layer, Redacted } from "effect"
 import type { Token } from "#adapter/db/token.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { CredentialError, TokenError } from "#adapter/errors/failures.ts"
-import type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
+import type { PgDriver, PgSocket, PoolListener } from "#adapter/types/driver.ts"
 import type { ReadShape, ShapeOf } from "#compiler/live/index.ts"
 import type {
 	AnyLogin,
@@ -41,12 +41,14 @@ export type DbLayerOf<L> =
 
 /**
  * A session pool DbLayer.make builds, as a platform that manages idle connections between invocations reads it: its idle
- * timeout, and its release event, emitted each time a session goes back to it. It is the Pool of the caller's driver
- * (PgDriver); on Vercel Fluid compute, `attachDatabasePool` from @vercel/functions/db-connections takes it as it is.
+ * timeout, and its release event, emitted each time a session goes back to it with pg's own arguments (PoolListener). It
+ * is the Pool of the caller's driver (PgDriver), whose `connect` a hook may wrap, since every checkout calls it through
+ * the pool; on Vercel Fluid compute, `attachDatabasePool` from @vercel/functions/db-connections takes it as it is, and
+ * ends each release's wait with the request that checked its client out.
  */
 export interface ConnectionPool {
 	readonly options: { readonly idleTimeoutMillis: number | null }
-	on(event: "release", listener: () => void): unknown
+	on(event: "release", listener: PoolListener): unknown
 }
 
 /**

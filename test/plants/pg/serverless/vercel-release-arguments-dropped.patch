@@ -1,0 +1,13 @@
+--- a/packages/grizzle/src/adapter/wire/releasing-pool.ts
++++ b/packages/grizzle/src/adapter/wire/releasing-pool.ts
+@@ -15,8 +15,8 @@
+ 			return super.on(
+ 				event,
+ 				event === "release"
+-					? (error: unknown, client: object | undefined) => {
+-							Result.try(() => listener(error, client))
++					? () => {
++							Result.try(() => listener(undefined, undefined))
+ 						}
+ 					: listener
+ 			)
