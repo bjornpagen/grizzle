@@ -1,0 +1,7 @@
+{
+	"name": "@bjornpagen/grizzle-experiment-edullm-repin",
+	"private": true,
+	"description": "Experiment: edullm's repin onto grizzle main, drafted, checked and proven on two production-shaped clusters; deleted once its verdict is in (README.md)",
+	"license": "0BSD",
+	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>"
+}
