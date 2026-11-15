@@ -409,6 +409,12 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `UnheldGroup`: the ChangeSet at `at` reads or writes `relation`, a body of the retirable unit headed by `header`, or
  *   reads that header's retirement field, at a group it does not state, as `why` says (UnheldWhy): a served call holds
  *   every group it touches before it touches it (write/hold/stated.ts), so no retirement of one commits while it runs.
+ * - `NoReadCommittedForm`: the write at `at` inserts into `relation`, whose primary key holds a span, and is compiled for
+ *   READ COMMITTED. An exclusion constraint arbitrates an INSERT by ON CONFLICT DO NOTHING alone, so no statement of the
+ *   insert tells a requested fact it met from one it made, and the insert has no READ COMMITTED form: it runs
+ *   SERIALIZABLE, where it arbitrates every object and classifies what it met (write/insert/protocol.ts Arbitration
+ *   `every`). Certification reads it as the condition `form` of the role it compiles (analysis/isolation/certify.ts),
+ *   which then runs SERIALIZABLE; only a compile for a level no certificate gives meets it as a refusal.
  * - `UninstalledDomain`: a statement at `at` casts a value to `domain` (UninstalledType), a domain the installation it is
  *   compiled for installs none of: a statement is served only over the domains its installation holds, so a value cast
  *   to another is refused where it is compiled, never by PostgreSQL where it runs.
@@ -609,6 +615,7 @@ export type CompileReason =
 			readonly header: string
 			readonly why: UnheldWhy
 	  }
+	| { readonly _tag: "NoReadCommittedForm"; readonly at: SourceLoc; readonly relation: string }
 	| { readonly _tag: "UninstalledDomain"; readonly at: SourceLoc; readonly domain: UninstalledType }
 export type CompileReasonTag = CompileReason["_tag"]
 
@@ -828,6 +835,10 @@ export const prose = (tag: ProseTag, at: SourceLoc, text: string): CompileReason
 		? { _tag: tag, at, what: text }
 		: { _tag: tag, at, capability: text }
 
+/** Why an insert into `relation`, whose primary key holds a span, has no READ COMMITTED form (NoReadCommittedForm). */
+const noReadCommittedFormText = (relation: string): string =>
+	`an insert into ${relation}, whose primary key holds a span, has no READ COMMITTED form: its exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so no statement tells a requested fact it met from one it made, and it runs SERIALIZABLE`
+
 /** The sentence a reason states after its tag and location. */
 export const compileReasonText = (reason: CompileReason): string => {
 	switch (reason._tag) {
@@ -898,6 +909,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return readBackCrossingText(reason.read, reason.crossing)
 		case "UnheldGroup":
 			return unheldGroupText(reason.relation, reason.header, reason.why)
+		case "NoReadCommittedForm":
+			return noReadCommittedFormText(reason.relation)
 		case "UninstalledDomain":
 			return uninstalledText(reason.domain)
 		case "UndeclaredDrop": {
@@ -1064,9 +1077,8 @@ export type CodecFault = ValueFault | "nullValue"
  * - `GeneratedSerialUnique`: a generated addition's own insert into `relation` raised a unique violation on
  *   `constraint`, a key holding the serial field it generates: a concurrent writer stored a value the sequence had not
  *   yet passed.
- * - `SpanKeyChange`: an insert into a span primary key of `relation` met an occupant at the key that a concurrent
- *   transaction changed: it has since gone, or on a put's insert it was committed after the put deleted the fact at
- *   the key.
+ * - `SpanKeyChange`: a put's insert into a span primary key of `relation` met an occupant at the key a concurrent
+ *   transaction committed after the put deleted the fact at the key.
  * - `UnseenOccupant`: an insert into `relation` raised a unique violation on `constraint`, a unique object besides its
  *   primary key, from an occupant this transaction's snapshot did not see: a concurrent transaction's, committed or in
  *   flight.

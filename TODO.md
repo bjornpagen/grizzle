@@ -285,20 +285,6 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   settled-or-unknown outcome the caller can read beside the interruption.
 
 ### Next
-- **A span key's classification reads the requested facts once per refused fact (FAMWRITE, main's ruling
-  2026-11-15: when a downstream writes a span key, not before):** write/insert/protocol.ts buildSpanClassify (~1356-1377)
-  marks each verdict row's same-key overlap by `EXISTS (SELECT 1 FROM <requested> AS other WHERE <equal scalars> AND
-  other.span && r1.span AND other <> r1)`, a scan of the requested facts' CTE for each verdict row, so it costs
-  refused × requested rows. The verdict rows are only the requested facts no equal stored fact accounts for
-  (`not(equalStored)`), so an exact-repeat re-publish runs the EXISTS on none of them, and a fresh insert's facts are
-  all stored by then. No QTI relation has a span key: no span field in pantry or qti-database at edullm staging
-  f412258e3 or origin/staging 380e4917, and no WITHOUT OVERLAPS in its migrations. So no QTI re-publish reaches this
-  path, and KEYEDWRITE's re-publish target never does. The fix is the window form the family writes use (additions.ts
-  appendScan, insert/protocol.ts classifyMet): order each scalar key's requested facts by the span's lower bound, and
-  find an overlap with an earlier fact by a running max of the upper bounds and with a later one by lead() of the lower
-  bound. That has to handle empty spans (they overlap nothing), unbounded ends, each bound's inclusivity, and a fact
-  requested twice (`other <> r1`). It needs a cost law at n, 2n and 4n refused facts on a never-analyzed installation,
-  as test/pg/write/met-rows-cost does, and a plant restoring the EXISTS. Not built.
 - **A flight stages every staged slot, empty ones included (BULKLOAD, 2026-11-15; main: not now):** since fdd184b2
   (write/program/slot-carriers.ts withStagedSlots) every member slot two statements read is staged into a carrier of
   its own, so pantry's publish creates and fills 241 carriers in every flight, 900 statements in place of 418, whether

@@ -3532,6 +3532,7 @@ creates one, and `grizzle drift` reports a grant revoked since.
 | `StaleDerivedRead`                              | a write (`op`) of `member` changing a stored row's column (`changed`: `relation`, `column`, and `by`: `put`, `owner` or `member`), which the cascade carries into `copies`, read by `reader` (`{ kind, family, relation, column }`: a fold, a predecessor, a last or a tree's copy), which grizzle cannot refill for `cause`: `{ kind: "query" }`, a put from a query; `{ kind: "cycle", refills }`, refills reaching a family they refill again; `{ kind: "immutable", relation }`, a refill of an immutable owner's family or an immutable relation's rows; `{ kind: "tree", tree }`, a refill of the values of the tree `tree` (`{ owner, count }`), which grizzle draws only when a node is written; `{ kind: "chained", refill }`, a refill of a value that reads what the refill of the family `refill` (`{ owner, count }`) itself changes; or `{ kind: "edit", family }`, a refill of a value of `family` (`{ owner, count }`) that a family member's own put, delete or append reaches beyond the two values such a write refills |
 | `UnfillableField`                               | the `relation`'s `field`, the `law` filling it, the `source` column it reads along `axis` of its `family`, and why that column is filled `later` |
 | `UnwritableRelation`                            | the `relation` no write fills, and its `cause`                                                           |
+| `NoReadCommittedForm`                           | the `relation`, whose primary key holds a span, that a ChangeSet compiled for READ COMMITTED inserts into: only a compile at a level no certificate gives meets it, since generate runs such a role SERIALIZABLE |
 | `ReadBackCrossesStatements`                     | the read-back `read`, and `crossing`: `sideWrittenTwice` (`relation`, `side`), a side more than one statement makes or nets; `sidesApart` (`first`, `second`), two sides two statements make; or `stateAfter` (`delta`, `state`), a table it reads written at or after the statement making `delta` |
 | `UnorderableStratum`                            | the `cycle` of a stratum's writes (`{ relation, op }`: an insert, put or delete, or a family's insert, update or delete of its members' rows or count of its owners), each of which immediate keys order before the next and the last before the first, so no order of the stratum's statements keeps them all |
 | `UnstatedKey`                                   | a put or delete (`op`) of a `relation` whose `key` (`{ kind, fields }`: its primary key, or a declared one a put compares) holds fields grizzle writes (`unstated`) |
@@ -3619,6 +3620,10 @@ grizzle's own key checks of what it inserts. A foreign key check counts as a rea
 statement's. The role is certified READ COMMITTED when all of these hold, and stays SERIALIZABLE otherwise:
 
 - **It has a ChangeSet.** A role that writes only by direct SQL has nothing to prove.
+- **Each of its ChangeSets has a READ COMMITTED form.** An insert into a relation whose primary key holds a span has
+  none: PostgreSQL arbitrates an exclusion constraint by `ON CONFLICT ON CONSTRAINT ... DO NOTHING` alone, so no
+  statement can tell a fact the insert met from one it made. A role with such an insert, or a put of such a relation,
+  runs SERIALIZABLE, where the insert arbitrates every key at once and classifies what it met.
 - **It only inserts.** It states `insert`, not `write`, so it holds INSERT and SELECT alone, and every relation it
   writes is one no role updates or deletes: by a grant, by a ChangeSet, or by an `ON UPDATE CASCADE` into it.
 - **Its relations' laws hold at READ COMMITTED.** Every law over a relation it writes is one PostgreSQL checks at every
@@ -3666,6 +3671,7 @@ A SERIALIZABLE role lists each condition it failed, with how many places fail it
 
 | Condition    | What fails it                                                                                                                            |
 | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `form`       | a ChangeSet with no READ COMMITTED form: it inserts into or puts a relation whose primary key holds a span                              |
 | `facts`      | a relation it touches that the installation states no fact of, or a table or function its statements name that no relation is         |
 | `members`    | no ChangeSet in its workload                                                                                                             |
 | `privileges` | it states `write`, or some role updates or deletes a relation it writes                                                                 |

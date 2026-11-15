@@ -371,7 +371,6 @@ const makerOf = (result: WriteStepResult): Maker | undefined => {
 		case "upsert":
 		case "update":
 		case "merge":
-		case "spanClassify":
 			return undefined
 	}
 }

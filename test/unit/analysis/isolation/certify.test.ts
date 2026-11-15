@@ -98,6 +98,15 @@
  * the expansion (unjoinedOracle): the other outside reads of the statement the write is joined with none of, each read
  * of the statement once, a query CTE's read once whatever sites and arrivals read it (CteFacts.query).
  *
+ * A third search, the form search, draws the main search's installations with some roles holding a change member that
+ * has no READ COMMITTED form (analysis/isolation/facts.ts Unformed), an insert into a span primary key, at one or two
+ * sites each; such a role holds no member at READ COMMITTED. Its oracle is the main search's rounds from those roles
+ * lowered already, by `form` alone: every role runs at the oracle's level, a role with no READ COMMITTED form names
+ * exactly its sites (each member and relation, condition `form`, no statement) and nothing else, and every other role
+ * that runs SERIALIZABLE names exactly the conditions of the round that lowered it, those roles' SERIALIZABLE forms
+ * among the facts it was judged by. Features: a role SERIALIZABLE by form, and beside one a role certified READ
+ * COMMITTED, a role SERIALIZABLE by reasons one gives, and a judged role SERIALIZABLE by its own conditions.
+ *
  * DENSEATS's repro and its five neighbours (monotoneOf): a role that inserts R and E under a rule whose witness reads
  * one row of R and E's absence runs READ COMMITTED (the monotone writer); a deleter of E, a self-join of R, E read
  * present, E a retirable unit's body, or a SERIALIZABLE inserter of E that may miss a write each leave it SERIALIZABLE.
@@ -169,6 +178,9 @@
  * alone, so a retirable unit's body read absent is taken for monotone; the search fails.
  * @plant test/plants/unit/analysis/isolation/monotone-probe-5c-dropped.patch The relations a role's probes read left
  * out of its outside reads, so 5c misses the monotone rule's probe; the search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-unformed-lowering-unserved.patch A role with no READ COMMITTED
+ * form lowered with no SERIALIZABLE facts (certify.ts standingOf), so a role its SERIALIZABLE form gives a reason is
+ * certified READ COMMITTED; the form search fails.
  * @plant test/plants/unit/analysis/isolation/certify-laws-reader-half.patch Condition `laws` without its second half,
  * a change member of a role that runs SERIALIZABLE reading a relation the role writes (serializableReasons); the
  * search fails.
@@ -207,7 +219,8 @@ import type {
 	RoleFacts,
 	RowSource,
 	SiteCore,
-	StatementFacts
+	StatementFacts,
+	Unformed
 } from "#compiler/analysis/isolation/facts.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -2499,6 +2512,7 @@ const certifiedOf = (sketch: Sketch, relations: IsolationInput["relations"]) =>
 	certify(
 		relations,
 		Arr.map(inputOf(sketch).roles, (role, i): Candidate<undefined, undefined, never> => ({
+			kind: "formed",
 			role,
 			readCommitted: undefined,
 			lower: () =>
@@ -3319,12 +3333,12 @@ const judgedRound = (
 }
 
 /**
- * The oracle: rounds from none lowered, each lowering the roles it judges SERIALIZABLE with that round's conditions,
- * until one lowers none; with the roles lowered, by the round that lowered them, a role's own form never among the
- * facts it was judged by.
+ * The oracle: rounds from the roles `start` lowers already, each with its verdict, each round lowering the roles it
+ * judges SERIALIZABLE with that round's conditions, until one lowers none; with the roles lowered, by the round that
+ * lowered them (none for a role `start` lowers), a role's own form never among the facts it was judged by.
  */
-const oracle = (sketch: Sketch) => {
-	const lowered = new Map<number, OracleVerdict>()
+const oracleFrom = (sketch: Sketch, start: ReadonlyMap<number, OracleVerdict>) => {
+	const lowered = new Map<number, OracleVerdict>(start)
 	const rounds = new Map<number, number>()
 	for (let at = 0; ; at += 1) {
 		const round = judgedRound(sketch, new Set(lowered.keys()))
@@ -3344,6 +3358,9 @@ const oracle = (sketch: Sketch) => {
 		}
 	}
 }
+
+/** The oracle from none lowered (oracleFrom). */
+const oracle = (sketch: Sketch) => oracleFrom(sketch, new Map())
 
 /**
  * Whether lowered role i's SERIALIZABLE form alone reads the absence or a count of a relation it writes, among the
@@ -3990,6 +4007,7 @@ const sharedCertified = (c: SharedCase, as: (st: StatementFacts) => StatementFac
 	certify(
 		relationsOf(c.relations),
 		Arr.map(sharedInput(c, as).roles, (role, i): Candidate<undefined, undefined, never> => ({
+			kind: "formed",
 			role,
 			readCommitted: undefined,
 			lower: () =>
@@ -4202,6 +4220,94 @@ const sharedFeatures = (st: StatementFacts): ReadonlyArray<SharedFeature> => {
 			: [])
 	]
 }
+
+/**
+ * A case of the form search: a drawn installation (caseGen's), and the roles with a change member that has no READ
+ * COMMITTED form (analysis/isolation/facts.ts Unformed), each with the sites it has none at, by member and relation. Such
+ * a role has no member at READ COMMITTED, so its sketch's READ COMMITTED members are none (`formOf`).
+ */
+interface FormCase {
+	readonly sketch: Sketch
+	readonly unformed: ReadonlyArray<{
+		readonly role: number
+		readonly sites: Arr.NonEmptyReadonlyArray<Unformed>
+	}>
+}
+
+const unformedSiteGen: Gen<Unformed> = (s) => ({
+	member: `m${s.draw(int(0, 2))}`,
+	relation: relationName(s.draw(relationGen))
+})
+
+const formCaseGen: Gen<FormCase> = (s) => {
+	const { sketch } = s.draw(caseGen)
+	return {
+		sketch,
+		unformed: Arr.flatMap(sketch.roles, (_, role) =>
+			s.draw(
+				weighted<boolean>([
+					[2, () => false],
+					[1, () => true]
+				])
+			)
+				? [
+						{
+							role,
+							sites: [
+								s.draw(unformedSiteGen),
+								...s.draw(array(unformedSiteGen, { min: 0, max: 1 }))
+							]
+						}
+					]
+				: []
+		)
+	}
+}
+
+/** The case's installation as certification reads it: each role with no READ COMMITTED form holding no member there. */
+const formOf = (c: FormCase): Sketch =>
+	Arr.reduce(c.unformed, c.sketch, (sketch, u) =>
+		withRole(sketch, u.role, (r) => ({ ...r, members: [] }))
+	)
+
+/** Each role of a form case as certification takes it: formed, or lowered already by its sites (Candidate). */
+const formCandidates = (c: FormCase): ReadonlyArray<Candidate<undefined, undefined, never>> =>
+	Arr.map(inputOf(formOf(c)).roles, (role, i): Candidate<undefined, undefined, never> => {
+		const facts = membersOf(Arr.getUnsafe(c.sketch.roles, i).serializable)
+		return Option.match(
+			Arr.findFirst(c.unformed, (u) => u.role === i),
+			{
+				onNone: () => ({
+					kind: "formed",
+					role,
+					readCommitted: undefined,
+					lower: () => Result.ok({ facts, form: undefined })
+				}),
+				onSome: (u) => ({
+					kind: "unformed",
+					role,
+					unformed: u.sites,
+					lowering: { facts, form: undefined }
+				})
+			}
+		)
+	})
+
+/** A reason as the form search compares it: where it applies and its condition, not its prose. */
+type ReasonSite = Pick<IsolationReason, "condition" | "member" | "statement" | "relation">
+
+const reasonSite = (r: IsolationReason): ReasonSite => ({
+	condition: r.condition,
+	member: r.member,
+	statement: r.statement,
+	relation: r.relation
+})
+
+type FormFeature =
+	| "a role SERIALIZABLE by form"
+	| "a role certified READ COMMITTED beside a role with no READ COMMITTED form"
+	| "a role SERIALIZABLE by reasons a role with no READ COMMITTED form gives"
+	| "a judged role SERIALIZABLE by its own conditions beside a role with no READ COMMITTED form"
 
 describe("the isolation certifier", () => {
 	it.effect(
@@ -4479,6 +4585,117 @@ describe("the isolation certifier", () => {
 									)
 								) {
 									k.note("a dropped fact a SERIALIZABLE role's level rests on alone")
+								}
+							}
+						})
+				)
+			)
+	)
+	it.effect(
+		"runs a role with a change member that has no READ COMMITTED form SERIALIZABLE from the first round, naming each such member, and judges the others by its SERIALIZABLE form alone",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "unit/analysis/isolation/form",
+						draw: drawn(formCaseGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "the rounds of the main search's oracle from the roles with no READ COMMITTED form lowered already, by `form` alone, their READ COMMITTED members none"
+						},
+						coverage: required<FormFeature>(
+							[
+								"a role SERIALIZABLE by form",
+								"a role certified READ COMMITTED beside a role with no READ COMMITTED form",
+								"a role SERIALIZABLE by reasons a role with no READ COMMITTED form gives",
+								"a judged role SERIALIZABLE by its own conditions beside a role with no READ COMMITTED form"
+							],
+							{ cases: 300, sense: notesOnly }
+						),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(c, k) =>
+						Effect.sync(() => {
+							const sketch = formOf(c)
+							const relations = relationsOf(sketch.relations)
+							const certified = certify(relations, formCandidates(c))
+							if (!certified.ok) {
+								return assert.fail("a lowering of no error fails")
+							}
+							const verdicts = Arr.map(certified.value.roles, isolationOf)
+							const unformed = new Set(Arr.map(c.unformed, (u) => u.role))
+							const expected = oracleFrom(
+								sketch,
+								new Map(
+									Arr.map(
+										c.unformed,
+										(u) =>
+											[
+												u.role,
+												{
+													readCommitted: false,
+													failed: new Set<IsolationCondition>(["form"]),
+													own: new Set<IsolationCondition>(["form"])
+												}
+											] as const
+									)
+								)
+							)
+							const settled = oracleRound(sketch, expected.lowered)
+							for (const [i, v] of verdicts.entries()) {
+								const o = Arr.getUnsafe(expected.verdicts, i)
+								assert.equal(
+									v.certificate.level,
+									o.readCommitted ? "readCommitted" : "serializable",
+									`${v.role}'s level`
+								)
+								const sites = Arr.findFirst(c.unformed, (u) => u.role === i)
+								if (Option.isSome(sites)) {
+									assert.deepEqual(
+										v.certificate.level === "serializable"
+											? Arr.map(v.certificate.reasons, reasonSite)
+											: [],
+										Arr.map(sites.value.sites, (u): ReasonSite => ({
+											condition: "form",
+											member: u.member,
+											statement: undefined,
+											relation: u.relation
+										})),
+										`${v.role} names each member with no READ COMMITTED form, and nothing else`
+									)
+									k.note("a role SERIALIZABLE by form")
+									continue
+								}
+								if (unformed.size === 0) {
+									continue
+								}
+								if (v.certificate.level === "readCommitted") {
+									k.note(
+										"a role certified READ COMMITTED beside a role with no READ COMMITTED form"
+									)
+									continue
+								}
+								const named = new Set(Arr.map(v.certificate.reasons, (r) => r.condition))
+								assert.deepEqual(
+									Arr.filter(everyCondition, (x) => named.has(x)),
+									Arr.filter(everyCondition, (x) => o.failed.has(x)),
+									`${v.role} names exactly the conditions of the round that lowered it`
+								)
+								if (o.own.size > 0) {
+									k.note(
+										"a judged role SERIALIZABLE by its own conditions beside a role with no READ COMMITTED form"
+									)
+								} else if (
+									Arr.some([...unformed], (j) => settled.given(new Set([j]), i).size > 0)
+								) {
+									k.note("a role SERIALIZABLE by reasons a role with no READ COMMITTED form gives")
 								}
 							}
 						})

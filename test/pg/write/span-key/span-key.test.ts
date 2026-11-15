@@ -34,10 +34,11 @@ import type { FullWorld } from "#test/support/worlds.ts"
 
 /** Inserts and puts into span primary keys through served ChangeSets, as a property against a host interval model.
  *
- * The insert names the span key as its DO NOTHING arbiter and a later statement classifies each requested fact it did
- * not insert: an equal stored fact is an exact repeat, a stored fact overlapping it at its scalar key the span key law
- * with the requested key as the witness, and another requested fact overlapping it the same law within the ChangeSet,
- * which takes precedence, whatever the member's form. Room is immutable, the pinned default, and
+ * The role writes SERIALIZABLE, where the insert arbitrates every object, the span key among them, and classifies each
+ * requested fact it met (write/insert/protocol.ts Arbitration `every`; at READ COMMITTED an insert into a span primary
+ * key has no form, NoReadCommittedForm): an equal stored fact is an exact repeat, a stored fact overlapping it at its
+ * scalar key the span key law with the requested key as the witness, and another requested fact overlapping it the same
+ * law within the ChangeSet, which takes precedence, whatever the member's form. Room is immutable, the pinned default, and
  * Hold its mutable twin, whose enumerated put is the DELETE-then-insert pair because no ON CONFLICT DO UPDATE accepts
  * an exclusion constraint. A put displaces only the facts at its own keys, so a stored fact overlapping it at another
  * key is the span key law at once, never a TransientFailure.
@@ -54,8 +55,6 @@ import type { FullWorld } from "#test/support/worlds.ts"
  *
  * The oracle is a second implementation, the host interval model above.
  *
- * @plant test/plants/pg/write/span-key/span-key-requested-overlap-unseen.patch The insert's verdicts are blind to
- * another requested fact's overlap (write/insert/protocol.ts buildSpanClassify); the property fails.
  * @plant test/plants/pg/write/span-key/pair-before-first-reaches-its-own-end.patch The first requested fact of a room in
  * start order reads its own end as the reach of the fact before it (write/insert/unique.ts pairedFacts, lag's default
  * upper(span)), so it is paired though no other fact overlaps it, and a described insert is refused by the span key.

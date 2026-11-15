@@ -243,6 +243,17 @@ export interface MemberFacts {
 }
 
 /**
+ * A change member of a role with no READ COMMITTED form: its name, and the relation a write of it has none for, an
+ * insert of complete facts into a span primary key, whose exclusion constraint arbitrates by ON CONFLICT DO NOTHING
+ * alone, so no statement of the insert tells a requested fact it met from one it made (core/errors.ts
+ * NoReadCommittedForm). Its role runs SERIALIZABLE from the first round, by the condition `form` (certify.ts).
+ */
+export interface Unformed {
+	readonly member: string
+	readonly relation: string
+}
+
+/**
  * One role of one login: the privileges its grant plan holds, by relation, and its change members in the form served at
  * READ COMMITTED (`members`), the one certification judges it by. Its SERIALIZABLE form is no fact of it: certification
  * takes it once the role runs SERIALIZABLE, as its lowering (certify.ts Candidate), and judges the others by it beside

@@ -526,7 +526,7 @@ const writeOf = (
 	stratum: firstStratum,
 	action: 0,
 	relation,
-	result: { kind: "spanClassify", relation },
+	result: { kind: "delete", relation, mode: "exact", columns: [], fields: [], key: [] },
 	skipWhenEmpty: undefined,
 	uniqueAborts: aborts
 })

@@ -901,8 +901,8 @@ export class GeneratedSerialUnique extends Data.TaggedError("GeneratedSerialUniq
 }
 
 /**
- * An insert into a span primary key of `relation` met an occupant at the key that a concurrent transaction changed: it
- * has since gone, or on a put's insert it was committed after the put deleted the fact at the key.
+ * A put's insert into a span primary key of `relation` met an occupant at the key a concurrent transaction committed
+ * after the put deleted the fact at the key.
  */
 export class SpanKeyChange extends Data.TaggedError("SpanKeyChange")<{
 	readonly relation: string

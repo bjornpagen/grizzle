@@ -129,13 +129,6 @@ export interface DeleteResult {
 	readonly key: KeySet
 }
 
-/** The statement that follows an insert into a span primary key and classifies each requested fact no equal stored
- * fact accounts for. Every such fact refuses the write, so the statement raises or returns no row. */
-export interface SpanClassifyResult {
-	readonly kind: "spanClassify"
-	readonly relation: StoredRelationName
-}
-
 /** The sequence advance after explicit serial values; its rows carry nothing to decode. */
 export interface SequenceAdvanceResult {
 	readonly kind: "sequenceAdvance"
@@ -179,7 +172,6 @@ export interface EntryCheckResult {
 export type WriteResult =
 	| InsertResult
 	| DeleteResult
-	| SpanClassifyResult
 	| SequenceAdvanceResult
 	| HoldResult
 	| AdmissionResult
@@ -344,7 +336,7 @@ const unshared = <V>(): Shared<V> => ({ made: undefined, next: new Map() })
 
 /** The statements one write compilation built, for its other lowerings to share: the optimized artifact, each of its
  * statements in its small and its large per-execution form, and the conservative realization each build the insert
- * protocol, the span classification, the deletions and the carriers' creation, most over the same inputs. A statement is shared under the
+ * protocol, the deletions and the carriers' creation, most over the same inputs. A statement is shared under the
  * request that determines it (Sharing): the installed names, where its generated names start, and its builder's spec.
  * An equal request is answered with the statement already built and emitted; the program charges each statement it
  * sends once (write/program/compile.ts). A share serves one compilation and holds what it built until that compilation
@@ -354,7 +346,6 @@ export class StatementShare {
 		unshared<
 			Made<Built<InsertResult> & { readonly ast: WithSelect; readonly returning: Returning }>
 		>()
-	readonly classifications = unshared<Made<Built<SpanClassifyResult>>>()
 	readonly deletions =
 		unshared<
 			Made<Built<DeleteResult> & { readonly ast: WithSelect; readonly returning: Returning }>

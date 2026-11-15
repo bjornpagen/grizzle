@@ -110,7 +110,7 @@ type ChangesConverter = (row: ReadonlyArray<OutputText>) => ReadonlyArray<RowCha
 /** The changes of one write statement's rows, converted as its StatementSpec converts them, by its result
  * (`changeTags`): an insert's rows are facts its action made present, a deletion's facts made absent; an upsert's rows
  * are a put's facts, an update's each a put's fact and the occupant it displaced, a MERGE's a put's fact or a fact its
- * absorbed deletion removed. A span classification raises or returns no row. */
+ * absorbed deletion removed. */
 const changesConverter = (result: WriteStepResult, codes: Codebook): ChangesConverter => {
 	switch (result.kind) {
 		case "insert": {
@@ -141,8 +141,6 @@ const changesConverter = (result: WriteStepResult, codes: Codebook): ChangesConv
 				}
 			}
 		}
-		case "spanClassify":
-			return () => []
 	}
 }
 
@@ -223,8 +221,7 @@ export const interpretRows = (
  *   put's insert half too; two requested facts overlapping at a span primary key, or a stored fact overlapping a
  *   requested one, the key law with the requested key;
  * - a concurrent change is SQLSTATE 40Z01: a DO SELECT conflict witness on a put's insert half is a concurrent commit
- *   at the key after the put's deletion, PutTargetConflict; an occupant the arbiter met at a span key that has since
- *   gone, or on a put's insert half one committed at the put's key after its deletion, SpanKeyChange.
+ *   at the key after the put's deletion, PutTargetConflict, and at a span key, SpanKeyChange.
  *
  * The runtime classifies the raised error as it does any statement's, its witness converted by this decoder: a
  * refusal's DETAIL carries the refused key's fields and texts, grizzle's own, so nothing is checked. Every other law is

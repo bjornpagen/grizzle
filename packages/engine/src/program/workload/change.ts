@@ -1,9 +1,11 @@
+import type { Unformed } from "#compiler/analysis/isolation/facts.ts"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ClockBinding } from "#compiler/ir/clock.ts"
 import type { NamedLogin, NamedRole } from "#compiler/physical/ddl/names.ts"
@@ -192,13 +194,27 @@ export interface ChangeRefused {
 	readonly error: CompileError
 }
 
-/** One role of `login`, its change members compiled at `level` (RoleChanges). */
-const roleChanges = <L extends Isolation, S extends ParamSource>(
+/**
+ * One role of `login` before its change members compile: its value parsed, its owned role as the installation named it,
+ * its artifacts over its login's, and each ChangeSet of the login's workloads that runs on it, compiled at a level by
+ * `compile`, its variants over its fill contexts.
+ */
+interface RoleBase<S extends ParamSource> {
+	readonly input: ParsedRole
+	readonly named: NamedRole
+	readonly artifacts: SchemaArtifacts<S>
+	readonly programs: ReadonlyArray<{
+		readonly name: string
+		readonly compile: (level: Isolation) => Result.Result<CompiledVariants<S>, CompileError>
+	}>
+}
+
+/** One role of `login` before its change members compile (RoleBase). */
+const roleBase = <S extends ParamSource>(
 	name: string,
 	value: unknown,
-	login: ChangeLogin<S>,
-	level: L
-): Result.Result<RoleChanges<L, S>, ChangeRefused> => {
+	login: ChangeLogin<S>
+): Result.Result<RoleBase<S>, ChangeRefused> => {
 	const refused = (error: CompileError): ChangeRefused => ({
 		role: name,
 		program: undefined,
@@ -221,34 +237,120 @@ const roleChanges = <L extends Isolation, S extends ParamSource>(
 	if (!running.ok) {
 		return Result.err(refused(running.error))
 	}
-	const members = new Map<string, CompiledVariants<S>>()
-	for (const program of running.value) {
-		if (program.kind !== "changeSet") {
-			continue
-		}
-		const fill = fillContexts(owned.writes, program.desc.changeSet)
-		const variants = changeVariants(
-			input,
-			artifacts.value,
-			program.value,
-			program.clock,
-			level,
-			fill,
-			[]
+	return Result.ok({
+		input,
+		named,
+		artifacts: artifacts.value,
+		programs: running.value.flatMap((program) =>
+			program.kind === "changeSet"
+				? [
+						{
+							name: program.name,
+							compile: (level: Isolation) =>
+								changeVariants(
+									input,
+									artifacts.value,
+									program.value,
+									program.clock,
+									level,
+									fillContexts(owned.writes, program.desc.changeSet),
+									[]
+								)
+						}
+					]
+				: []
 		)
+	})
+}
+
+/** `base`'s change members compiled at `level` (RoleChanges), or the first that refuses. */
+const membersAt = <L extends Isolation, S extends ParamSource>(
+	name: string,
+	base: RoleBase<S>,
+	level: L
+): Result.Result<RoleChanges<L, S>, ChangeRefused> => {
+	const members = new Map<string, CompiledVariants<S>>()
+	for (const program of base.programs) {
+		const variants = program.compile(level)
 		if (!variants.ok) {
 			return Result.err({ role: name, program: program.name, error: variants.error })
 		}
 		members.set(program.name, variants.value)
 	}
-	return Result.ok({ input, named, artifacts: artifacts.value, level, members })
+	return Result.ok({
+		input: base.input,
+		named: base.named,
+		artifacts: base.artifacts,
+		level,
+		members
+	})
 }
+
+/** One role of `login`, its change members compiled at `level` (RoleChanges). */
+const roleChanges = <L extends Isolation, S extends ParamSource>(
+	name: string,
+	value: unknown,
+	login: ChangeLogin<S>,
+	level: L
+): Result.Result<RoleChanges<L, S>, ChangeRefused> =>
+	Result.flatMap(roleBase(name, value, login), (base) => membersAt(name, base, level))
+
+/**
+ * One role of a login compiled for READ COMMITTED (`readCommittedChanges`): every change member formed, the role's
+ * changes at READ COMMITTED, which certification judges it by and serves where it certifies the role; or some member
+ * with no READ COMMITTED form (core/errors.ts NoReadCommittedForm), which no certificate can serve at that level, the
+ * role's changes at SERIALIZABLE, the form it is served, beside each such member with the relation it has none for.
+ */
+export type ReadCommittedRole<S extends ParamSource = ParamSource> =
+	| { readonly kind: "formed"; readonly changes: RoleChanges<"readCommitted", S> }
+	| {
+			readonly kind: "unformed"
+			readonly changes: RoleChanges<"serializable", S>
+			readonly unformed: NonEmptyReadonlyArray<Unformed>
+	  }
+
+/** One role of `login` compiled for READ COMMITTED (ReadCommittedRole). */
+const readCommittedRole = <S extends ParamSource>(
+	name: string,
+	value: unknown,
+	login: ChangeLogin<S>
+): Result.Result<ReadCommittedRole<S>, ChangeRefused> =>
+	Result.flatMap(roleBase(name, value, login), (base) => {
+		const members = new Map<string, CompiledVariants<S>>()
+		const unformed: Array<Unformed> = []
+		for (const program of base.programs) {
+			const variants = program.compile("readCommitted")
+			if (variants.ok) {
+				members.set(program.name, variants.value)
+			} else if (variants.error.reason._tag === "NoReadCommittedForm") {
+				unformed.push({ member: program.name, relation: variants.error.reason.relation })
+			} else {
+				return Result.err({ role: name, program: program.name, error: variants.error })
+			}
+		}
+		return isNonEmpty(unformed)
+			? Result.map(membersAt(name, base, "serializable"), (changes): ReadCommittedRole<S> => ({
+					kind: "unformed",
+					changes,
+					unformed
+				}))
+			: Result.ok({
+					kind: "formed",
+					changes: {
+						input: base.input,
+						named: base.named,
+						artifacts: base.artifacts,
+						level: "readCommitted",
+						members
+					}
+				})
+	})
 
 /**
  * Every role of a login, by its name in the login, in its order, each with the ChangeSets of the login's workloads that
- * run on it compiled once over its artifacts at `level` (RoleChanges): READ COMMITTED for what the installation's
- * certification reads first and serves a role it certifies READ COMMITTED; SERIALIZABLE for a compile no certificate
- * covers. A role or program that does not compile is ChangeRefused.
+ * run on it compiled once over its artifacts at `level` (RoleChanges): SERIALIZABLE for a compile no certificate covers;
+ * certification compiles for READ COMMITTED through readCommittedChanges, which tells a member with no READ COMMITTED
+ * form from a refusal. A role or program that does not compile is ChangeRefused.
  */
 export const loginChanges = <L extends Isolation, S extends ParamSource>(
 	login: ChangeLogin<S>,
@@ -257,6 +359,25 @@ export const loginChanges = <L extends Isolation, S extends ParamSource>(
 	const roles = new Map<string, RoleChanges<L, S>>()
 	for (const { name, value } of login.roles) {
 		const role = roleChanges(name, value, login, level)
+		if (!role.ok) {
+			return role
+		}
+		roles.set(name, role.value)
+	}
+	return Result.ok(roles)
+}
+
+/**
+ * Every role of a login, by its name in the login, in its order, compiled for READ COMMITTED (ReadCommittedRole): what
+ * the installation's certification reads first, and serves a role it certifies READ COMMITTED. A role or program that
+ * does not compile for another reason is ChangeRefused.
+ */
+export const readCommittedChanges = <S extends ParamSource>(
+	login: ChangeLogin<S>
+): Result.Result<ReadonlyMap<string, ReadCommittedRole<S>>, ChangeRefused> => {
+	const roles = new Map<string, ReadCommittedRole<S>>()
+	for (const { name, value } of login.roles) {
+		const role = readCommittedRole(name, value, login)
 		if (!role.ok) {
 			return role
 		}

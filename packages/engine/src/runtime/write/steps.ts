@@ -15,11 +15,7 @@ import type { RemovedTag } from "#compiler/runtime/write/net.ts"
 import type { FamilyStatement } from "#compiler/write/family/order.ts"
 import type { FamilySql } from "#compiler/write/family/statements.ts"
 import type { FamilyPart } from "#compiler/write/family/written.ts"
-import type {
-	DeleteResult,
-	InsertResult,
-	SpanClassifyResult
-} from "#compiler/write/insert/statement.ts"
+import type { DeleteResult, InsertResult } from "#compiler/write/insert/statement.ts"
 import type { PutResult } from "#compiler/write/put/statement.ts"
 
 /** A unique violation at a statement into `relation` that aborts the apply with a TransientFailure of `reason`: a
@@ -34,9 +30,8 @@ export interface UniqueAbort {
 	>
 }
 
-/** The result of a write statement: rows of facts it made present or absent, or a span classification's, which raises
- * or returns no row. */
-export type WriteStepResult = InsertResult | DeleteResult | PutResult | SpanClassifyResult
+/** The result of a write statement: rows of facts it made present or absent. */
+export type WriteStepResult = InsertResult | DeleteResult | PutResult
 
 /** The tag of each fact a deletion's rows make absent: a delete member's, or the occupants a put displaced. */
 export const removedTag = (result: DeleteResult): RemovedTag =>

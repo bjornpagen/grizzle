@@ -1122,7 +1122,6 @@ const putTargetsOf = (change: RoleChange): ReadonlyArray<RaceFeature> =>
 					case "delete":
 						return result.mode === "displacing" ? ["put target deleteThenInsert"] : []
 					case "insert":
-					case "spanClassify":
 						return []
 				}
 			})

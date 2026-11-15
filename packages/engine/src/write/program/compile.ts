@@ -137,7 +137,7 @@ import { type FamilyNode, sameNode } from "#compiler/write/frontend/schedule.ts"
 import { heldUnits } from "#compiler/write/hold/stated.ts"
 import { buildHold } from "#compiler/write/hold/statement.ts"
 import { distinctByEvidence, type WriteInput } from "#compiler/write/insert/input.ts"
-import { buildInsert, buildSpanClassify } from "#compiler/write/insert/protocol.ts"
+import { buildInsert } from "#compiler/write/insert/protocol.ts"
 import {
 	type AdmissionResult,
 	type DeleteResult,
@@ -1371,44 +1371,6 @@ const optimizedPlacement = (
 					)
 					record(step.action, position)
 				}
-				break
-			}
-			case "classify": {
-				/** The classification after an insert into a span primary key reads the relation the insert wrote and
-				 * the same input, so it follows the insert. */
-				const deps = tracker.addAfter(
-					[
-						...inputReads([step.input]),
-						...describedReads([step.input]),
-						`relation:${step.relation.name}`
-					],
-					[],
-					actionDeps(step.action)
-				)
-				const position = placed(
-					() =>
-						buildSpanClassify(
-							w,
-							{
-								relation: step.relation,
-								serial: step.serial,
-								input: step.input,
-								of: step.of
-							},
-							step.span
-						),
-					deps,
-					(statement) => ({
-						kind: "write",
-						stratum: step.action.stratum,
-						action: step.action.index,
-						relation: step.relation.name,
-						result: statement.result,
-						skipWhenEmpty: statement.skipWhenEmpty,
-						uniqueAborts: []
-					})
-				)
-				record(step.action, position)
 				break
 			}
 			case "check": {

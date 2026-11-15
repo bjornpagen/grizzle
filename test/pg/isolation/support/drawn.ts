@@ -303,6 +303,7 @@ export const factCertificates = (d: DrawnInstallation): ReadonlyArray<RoleIsolat
 	const certified = certify(
 		input.relations,
 		Arr.map(input.roles, (role): Candidate<undefined, undefined, never> => ({
+			kind: "formed",
 			role,
 			readCommitted: undefined,
 			lower: () => Result.ok({ facts: [], form: undefined })

@@ -7,7 +7,7 @@ import { defect } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { LawField, RelationInfo, SpanField } from "#compiler/ir/law.ts"
+import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import { type DeltaSide, inputsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import {
@@ -42,12 +42,7 @@ import {
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
 import { writesMet } from "#compiler/write/insert/protocol.ts"
-import {
-	compareHeading,
-	factHeading,
-	type InsertOf,
-	keyFirst
-} from "#compiler/write/insert/statement.ts"
+import { compareHeading, factHeading, keyFirst } from "#compiler/write/insert/statement.ts"
 
 import type {
 	ChosenAction,
@@ -127,8 +122,6 @@ export type PlannedWrite = {
  *   them read, a CTE of the statement, and each action's write, in action order, its member read inline or as a
  *   relation parameter, then the read-backs that ride it, a lone write with read-backs riding it among them;
  * - `advance`, a sequence advance after an addition whose facts carry explicit serial values;
- * - `classify`, the classification after an insert into a span primary key, of an insertion or of a put's insert half,
- *   `span` the key's span field;
  * - `readBack`, a read-back after the last stratum, one that reads no delta a statement writes;
  * - `check`, a query entry's check of an addition's facts, `input`;
  * - `family`, a family statement of the stratum (frontend/schedule.ts FamilyNode), where its schedule runs it among
@@ -172,15 +165,6 @@ export type PlanStep =
 			/** The explicit serial fields the addition carries, each advanced past (serial/advance.ts explicitSerials). */
 			readonly fields: NonEmptyReadonlyArray<LawField>
 	  }
-	| {
-			readonly kind: "classify"
-			readonly action: PlanAction
-			readonly relation: WrittenRelation
-			readonly serial: SerialClass
-			readonly input: WriteInput
-			readonly span: SpanField
-			readonly of: InsertOf
-	  }
 	| { readonly kind: "readBack"; readonly read: ReadBack }
 	| {
 			readonly kind: "check"
@@ -206,12 +190,6 @@ type DraftStep =
 	| { readonly op: "exactDelete" }
 	| { readonly op: "advance"; readonly fields: NonEmptyReadonlyArray<LawField> }
 	| {
-			readonly op: "classify"
-			readonly serial: SerialClass
-			readonly span: SpanField
-			readonly of: InsertOf
-	  }
-	| {
 			readonly op: "precheck"
 			readonly entry: CheckedEntry
 			readonly names: CheckNames
@@ -222,12 +200,12 @@ type DraftStep =
  * again after the statement that wrote it. */
 type StatementStep = Exclude<DraftStep, { readonly op: "advance" }>
 
-/** A statement that writes its relation: every one but a sequence advance, a span classification and a query entry's
- * precheck, which read it or its input. */
-type WriteStepDraft = Exclude<DraftStep, { readonly op: "advance" | "classify" | "precheck" }>
+/** A statement that writes its relation: every one but a sequence advance and a query entry's precheck, which read it or
+ * its input. */
+type WriteStepDraft = Exclude<DraftStep, { readonly op: "advance" | "precheck" }>
 
 const isWriteStep = (step: DraftStep): step is WriteStepDraft =>
-	step.op !== "advance" && step.op !== "classify" && step.op !== "precheck"
+	step.op !== "advance" && step.op !== "precheck"
 
 /** One action of a stratum before its input is placed: the action as its statements name it, its statements in order,
  * and, for an exact deletion, the positions of the additions to its relation it excepts, which read their inputs at the
@@ -325,16 +303,6 @@ const statementStep = (
 ): PlanStep => {
 	const relation = draft.action.info.relation
 	switch (step.op) {
-		case "classify":
-			return {
-				kind: "classify",
-				action: draft.at,
-				relation,
-				input,
-				serial: step.serial,
-				span: step.span,
-				of: step.of
-			}
 		case "precheck":
 			return {
 				kind: "check",
@@ -394,10 +362,10 @@ const opsOf = (action: ChosenAction, level: Isolation): ReadonlyArray<DraftStep>
 		case "delete":
 			return [{ op: "exactDelete" }]
 		case "insert":
+			formedAt(action.info.relation, action.serial, level)
 			return [
 				...precheckOf(action, action.serial),
 				{ op: "insert", serial: action.serial },
-				...classify(action.info.relation, action.serial, "insert", level),
 				...advanceOf(action.info.relation, action.serial)
 			]
 		case "put":
@@ -419,18 +387,27 @@ const advanceOf = (relation: RelationInfo, serial: SerialClass): ReadonlyArray<D
 	return first === undefined ? [] : [{ op: "advance", fields: [first, ...rest] }]
 }
 
-/** The classification after an insert of `of` into a span primary key (`buildSpanClassify`), at READ COMMITTED: at
- * SERIALIZABLE the insert classifies the requested facts it met itself (protocol.ts Arbitration `every`). */
-const classify = (
-	relation: RelationInfo,
-	serial: SerialClass,
-	of: InsertOf,
-	level: Isolation
-): ReadonlyArray<DraftStep> => {
-	const key = primaryKeyShape(relation)
-	return serial.kind === "complete" && key.kind === "span" && level === "readCommitted"
-		? [{ op: "classify", serial, span: key.span, of }]
-		: []
+/**
+ * Refuses an insert of `serial` facts into `relation` with no form at `level`: complete facts into a span primary key at
+ * READ COMMITTED (NoReadCommittedForm). An exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so no
+ * statement of the insert tells a requested fact it met from one it made; at SERIALIZABLE the insert arbitrates every
+ * object and classifies what it met itself (protocol.ts Arbitration `every`). Certification reads the refusal as the
+ * condition `form` of the role it compiles, which then runs SERIALIZABLE (program/workload/change.ts readCommittedChanges).
+ */
+const formedAt = (relation: RelationInfo, serial: SerialClass, level: Isolation): void => {
+	if (
+		level === "readCommitted" &&
+		serial.kind === "complete" &&
+		primaryKeyShape(relation).kind === "span"
+	) {
+		throw new Refusal(
+			CompileError.make({
+				_tag: "NoReadCommittedForm",
+				at: childLoc(SourceLoc("ChangeSet", []), "writes", relation.name),
+				relation: relation.name
+			})
+		)
+	}
 }
 
 /** The statements of a put's chosen target. */
@@ -442,14 +419,14 @@ const putOps = (
 	const relation = put.info.relation
 	switch (choice.target) {
 		case "deleteThenInsert": {
+			formedAt(relation, completeClass, level)
 			const payload = payloadOf(relation)
 			return [
 				...(payload.kind === "pureSet"
 					? []
 					: [{ op: "displace", payload: payload.fields } as const]),
 				...precheckOf(put, completeClass),
-				{ op: "putInsert" },
-				...classify(relation, completeClass, "put", level)
+				{ op: "putInsert" }
 			]
 		}
 		case "onConflictDoUpdate":
@@ -464,13 +441,13 @@ const putOps = (
 		case "updateFrom":
 			return [{ op: "updateFrom", inPlace: choice.inPlace }]
 		case "ownerPut":
+			formedAt(relation, completeClass, level)
 			return [
 				...precheckOf(put, completeClass),
 				...(choice.inPlace === undefined
 					? []
 					: [{ op: "updateFrom", inPlace: choice.inPlace } as const]),
-				{ op: "putInsert" },
-				...classify(relation, completeClass, "put", level)
+				{ op: "putInsert" }
 			]
 		case "merge":
 			return [
@@ -482,8 +459,8 @@ const putOps = (
 /** What the plan may rely on about a described member beyond the write DAG's own evidence: whether its rows, as the
  * artifact lowers them, are distinct (`distinctByEvidence`). */
 interface PlanEvidence {
-	/** The level the write runs at, which decides whether an insert into a span primary key classifies what it met
-	 * itself (`classify`). */
+	/** The level the write runs at, at which an insert into a span primary key has a form at SERIALIZABLE alone
+	 * (`formedAt`). */
 	readonly level: Isolation
 	readonly distinct: (node: RelNode, relation: RelationInfo) => boolean
 	/** The sub-queries several of a stratum's member statements read, each statement rooted at one member's node, to be
@@ -638,7 +615,7 @@ const sequentialSteps = (
 }
 
 /** The stored relations a step's statements change: a write's relation, a single statement's writes', a family
- * statement's; a carrier's, a check's, a sequence advance's, a classification's and a hold's change none. */
+ * statement's; a carrier's, a check's, a sequence advance's and a hold's change none. */
 const stepWrites = (step: PlanStep): ReadonlyArray<string> => {
 	switch (step.kind) {
 		case "write":
@@ -651,7 +628,6 @@ const stepWrites = (step: PlanStep): ReadonlyArray<string> => {
 		case "fillMember":
 		case "fillShare":
 		case "advance":
-		case "classify":
 		case "check":
 		case "readBack":
 		case "hold":
@@ -776,7 +752,6 @@ const stepSides = (step: PlanStep): ReadonlyArray<SideWrite> => {
 		case "fillMember":
 		case "fillShare":
 		case "advance":
-		case "classify":
 		case "check":
 		case "readBack":
 		case "hold":
@@ -990,8 +965,6 @@ const touchesUnit = (frontend: WriteFrontend, step: PlanStep, held: HeldUnit): b
 			return reads(step.node)
 		case "fillShare":
 			return reads(step.share.node)
-		case "classify":
-			return body(step.relation.name) || input(step.input)
 		case "check":
 			return input(step.input)
 		case "readBack":

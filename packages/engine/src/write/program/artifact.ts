@@ -56,8 +56,6 @@ const changeTags = (
 			return { added: "put", removed: "displaced" }
 		case "merge":
 			return { added: "put", removed: "delete" }
-		case "spanClassify":
-			return { added: undefined, removed: undefined }
 	}
 }
 
@@ -372,8 +370,7 @@ export const settledArtifact = (
 }
 
 /** The columns a write statement's rows hold: a write's returned facts, which the outcome converts by the statement's
- * result; none for a carrier's creation, fill or analysis, a span classification, a sequence advance, a hold or a
- * query entry's check. */
+ * result; none for a carrier's creation, fill or analysis, a sequence advance, a hold or a query entry's check. */
 export const resultHeading = (result: (WriteStatement | PutStatement)["result"]): Heading => {
 	switch (result.kind) {
 		case "insert":
@@ -382,7 +379,6 @@ export const resultHeading = (result: (WriteStatement | PutStatement)["result"])
 		case "update":
 		case "merge":
 			return result.columns
-		case "spanClassify":
 		case "sequenceAdvance":
 		case "hold":
 		case "admission":

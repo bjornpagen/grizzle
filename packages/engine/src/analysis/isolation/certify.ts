@@ -13,19 +13,21 @@ import {
 	type SiteCore,
 	type StatementFacts,
 	type TriggerLaw,
+	type Unformed,
 	type WriteFact
 } from "#compiler/analysis/isolation/facts.ts"
 import type { Witness } from "#compiler/analysis/theory/query.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
 import * as Result from "#compiler/core/result.ts"
 import { TupleSet } from "#compiler/core/tuple-map.ts"
 
 /**
- * The conditions a role's change members must all meet to run READ COMMITTED, after `facts`, that the installation
- * states a fact of every relation the role holds a privilege on, reads, checks or writes. An outside read is a read of
+ * The conditions a role's change members must all meet to run READ COMMITTED, after `form`, that every change member
+ * has a READ COMMITTED form (facts.ts Unformed), and `facts`, that the installation states a fact of every relation the
+ * role holds a privilege on, reads, checks or writes. An outside read is a read of
  * rows another call can write: of a relation some role writes, neither grizzle's own key arbitration nor of the call's
  * own rows. A foreign key check (Check) is a read too, which no statement shows, made by PostgreSQL at another snapshot
  * than its statement's.
@@ -115,6 +117,7 @@ import { TupleSet } from "#compiler/core/tuple-map.ts"
  *    can make true, so a write of it SSI never sees could only have made the probe pass.
  */
 export type IsolationCondition =
+	| "form"
 	| "facts"
 	| "members"
 	| "privileges"
@@ -2021,15 +2024,28 @@ export interface Lowering<S> {
 }
 
 /**
- * One role to certify: its facts (`role`), whose members are its change members compiled for READ COMMITTED; the form
- * it is served while it runs READ COMMITTED (`readCommitted`); and its lowering (`lower`), which certification takes
- * once, in the round that first leaves it SERIALIZABLE.
+ * One role to certify, by its facts (`role`), its privileges and its change members compiled for READ COMMITTED:
+ * `formed`, every member with a READ COMMITTED form, the form it is served while it runs READ COMMITTED
+ * (`readCommitted`), and its lowering (`lower`), which certification takes once, in the round that first leaves it
+ * SERIALIZABLE; or `unformed`, a member with none (facts.ts Unformed), so it has no member at READ COMMITTED and runs
+ * SERIALIZABLE from the first round, by the condition `form`, its lowering already taken (`lowering`).
  */
-export interface Candidate<R, S, E> {
-	readonly role: RoleFacts
-	readonly readCommitted: R
-	readonly lower: () => Result.Result<Lowering<S>, E>
-}
+export type Candidate<R, S, E> =
+	| {
+			readonly kind: "formed"
+			readonly role: RoleFacts
+			readonly readCommitted: R
+			readonly lower: () => Result.Result<Lowering<S>, E>
+	  }
+	| {
+			readonly kind: "unformed"
+			readonly role: RoleFacts
+			readonly unformed: NonEmptyReadonlyArray<Unformed>
+			readonly lowering: Lowering<S>
+	  }
+
+/** A role certification judges over its READ COMMITTED form. */
+type Formed<R, S, E> = Extract<Candidate<R, S, E>, { readonly kind: "formed" }>
 
 /**
  * One role certified, with the form it is served at its level: READ COMMITTED, every condition proved, served its own
@@ -2067,9 +2083,9 @@ interface Lowered<R, S, E> {
 	readonly reasons: NonEmptyReadonlyArray<IsolationReason>
 }
 
-/** A role a round reads: judged, over its READ COMMITTED form, or lowered by a round before it. */
+/** A role a round reads: judged, over its READ COMMITTED form, or lowered by a round before it or by its form. */
 type Standing<R, S, E> =
-	| { readonly kind: "judged"; readonly candidate: Candidate<R, S, E> }
+	| { readonly kind: "judged"; readonly candidate: Formed<R, S, E> }
 	| Lowered<R, S, E>
 
 /**
@@ -2077,10 +2093,10 @@ type Standing<R, S, E> =
  * lowered by a round before it.
  */
 type Judgement<R, S, E> =
-	| { readonly kind: "readCommitted"; readonly candidate: Candidate<R, S, E> }
+	| { readonly kind: "readCommitted"; readonly candidate: Formed<R, S, E> }
 	| {
 			readonly kind: "serializable"
-			readonly candidate: Candidate<R, S, E>
+			readonly candidate: Formed<R, S, E>
 			readonly reasons: NonEmptyReadonlyArray<IsolationReason>
 	  }
 	| Lowered<R, S, E>
@@ -2102,7 +2118,7 @@ const servedOf = <R, S, E>(standing: Standing<R, S, E>): Served => ({
 type Viewed<R, S, E> =
 	| {
 			readonly kind: "judged"
-			readonly candidate: Candidate<R, S, E>
+			readonly candidate: Formed<R, S, E>
 			readonly view: RoleView
 			readonly own: ReadonlyArray<IsolationReason>
 	  }
@@ -2244,20 +2260,44 @@ const fencesOf = <R, S, E>(
 		.toSorted((a, b) => compareText(a.login, b.login) || compareText(a.relation, b.relation))
 }
 
+/** The condition `form`: one reason per change member with no READ COMMITTED form, at the relation it has none for. */
+const formReasons = (
+	unformed: NonEmptyReadonlyArray<Unformed>
+): NonEmptyReadonlyArray<IsolationReason> =>
+	mapNonEmpty(unformed, (u) =>
+		reason(
+			"form",
+			{ member: u.member, relation: u.relation },
+			`it inserts into ${u.relation}, whose primary key holds a span: an exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so the insert has no READ COMMITTED form`
+		)
+	)
+
+/** A role as the first round reads it: judged over its READ COMMITTED form, or lowered already by its `form`. */
+const standingOf = <R, S, E>(candidate: Candidate<R, S, E>): Standing<R, S, E> =>
+	candidate.kind === "formed"
+		? { kind: "judged", candidate }
+		: {
+				kind: "lowered",
+				candidate,
+				lowering: candidate.lowering,
+				reasons: formReasons(candidate.unformed)
+			}
+
 /**
  * Every role's certificate, in rounds over the relations' facts `relations`, the roles `candidates` in their order. The
- * first round judges every role over its READ COMMITTED form; each round lowers the roles it judged SERIALIZABLE (their
- * `lower`), which keep that round's reasons as their certificate's, and the next judges the rest beside every lowering,
- * until a round lowers none. A lowered role is never judged again: it runs SERIALIZABLE from then on, since each round
- * reads every fact the one before it read (servedOf), and its certificate names the reasons that made it SERIALIZABLE,
- * never one its own lowering gave. Every round but the last lowers a role, so there are at most one more rounds than
- * roles. A lowering that fails fails certification. The fences are the last round's (fencesOf).
+ * first round judges every role over its READ COMMITTED form, a role with none lowered before it, by the condition
+ * `form` alone; each round lowers the roles it judged SERIALIZABLE (their `lower`), which keep that round's reasons as
+ * their certificate's, and the next judges the rest beside every lowering, until a round lowers none. A lowered role is
+ * never judged again: it runs SERIALIZABLE from then on, since each round reads every fact the one before it read
+ * (servedOf), and its certificate names the reasons that made it SERIALIZABLE, never one its own lowering gave. Every
+ * round but the last lowers a role, so there are at most one more rounds than roles. A lowering that fails fails
+ * certification. The fences are the last round's (fencesOf).
  */
 export const certify = <R, S, E>(
 	relations: ReadonlyMap<string, RelationFacts>,
 	candidates: ReadonlyArray<Candidate<R, S, E>>
 ): Result.Result<Certifications<R, S>, E> => {
-	let standings = candidates.map((candidate): Standing<R, S, E> => ({ kind: "judged", candidate }))
+	let standings = candidates.map(standingOf)
 	for (;;) {
 		const judged = round(relations, standings)
 		const settled = judged.flatMap((j) => (j.kind === "serializable" ? [] : [j]))

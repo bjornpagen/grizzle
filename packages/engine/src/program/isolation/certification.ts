@@ -25,6 +25,7 @@ import { isolationInput, type RoleSource } from "#compiler/program/isolation/inp
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import {
 	type CompiledVariants,
+	type ReadCommittedRole,
 	type RoleChanges,
 	serializableChanges
 } from "#compiler/program/workload/change.ts"
@@ -197,22 +198,26 @@ const arbiterOf = (
 /**
  * One role of a login as certification reads it (program/isolation/input.ts RoleSource): its login's and its own
  * declared name, its checked schema over the installation's, as the installation reads it to grant it
- * (physical/install/plan.ts planInstallation), the names its statements are read back by, and its change members.
+ * (physical/install/plan.ts planInstallation), the names its statements are read back by, and its change members at
+ * READ COMMITTED, none where one has no READ COMMITTED form (ReadCommittedRole `unformed`).
  */
 const roleSource = (
 	artifacts: SchemaArtifacts,
 	login: string,
-	role: RoleChanges
+	role: ReadCommittedRole
 ): Result.Result<
 	RoleSource<CheckedSchema<RoleWorld>, ExtractNames, CompiledVariants>,
 	CompileError
 > =>
-	Result.map(checkedRole(artifacts.derived.schema, role.named), (checked) => ({
+	Result.map(checkedRole(artifacts.derived.schema, role.changes.named), (checked) => ({
 		login,
-		role: role.named.owned.name,
+		role: role.changes.named.owned.name,
 		checked: checked.checked,
-		names: extractNames(role),
-		members: [...role.members].map(([name, compiled]) => ({ name, compiled }))
+		names: extractNames(role.changes),
+		members:
+			role.kind === "formed"
+				? [...role.changes.members].map(([name, compiled]) => ({ name, compiled }))
+				: []
 	}))
 
 /** The facts of one compiled write of change member `name` at `level` (extract.ts memberFacts), none where its flight
@@ -356,7 +361,7 @@ export interface Certification<S extends ParamSource = ParamSource> {
 /**
  * The certificate of every role of every login (analysis/isolation/certify.ts certify), from the installation's facts
  * over its artifacts `artifacts`, the configured schema's over every relation, and each login's roles with their change
- * members compiled for READ COMMITTED (program/workload/change.ts loginChanges), by the login's name: each relation's
+ * members compiled for READ COMMITTED (program/workload/change.ts readCommittedChanges), by the login's name: each relation's
  * facts from the law model, each role's privileges as its grants hold them (physical/ddl/roles.ts grantedPrivileges),
  * and each change member's facts read from every statement each of its variants' flights may send, at the level they
  * were compiled for (extract.ts memberFacts). A role certifies READ COMMITTED only when the certifier proves it from
@@ -364,14 +369,15 @@ export interface Certification<S extends ParamSource = ParamSource> {
  *
  * A role is served the form its level chooses, so the certificate is read from the statements served: the certifier
  * judges every role over its READ COMMITTED form, and lowers each role it leaves SERIALIZABLE to its SERIALIZABLE form
- * (serializableChanges), whose facts it judges the others by from then on.
+ * (serializableChanges), whose facts it judges the others by from then on. A role with a member that has no READ
+ * COMMITTED form is compiled for SERIALIZABLE alone, and runs SERIALIZABLE by the condition `form` from the first round.
  */
 export const certification = <S extends ParamSource>(
 	artifacts: SchemaArtifacts,
-	changes: ReadonlyMap<string, ReadonlyMap<string, RoleChanges<"readCommitted", S>>>
+	changes: ReadonlyMap<string, ReadonlyMap<string, ReadCommittedRole<S>>>
 ): Result.Result<Certification<S>, CompileError> => {
 	const sources: Array<{
-		readonly changes: RoleChanges<"readCommitted", S>
+		readonly role: ReadCommittedRole<S>
 		readonly source: RoleSource<CheckedSchema<RoleWorld>, ExtractNames, CompiledVariants>
 	}> = []
 	for (const [login, logged] of changes) {
@@ -380,7 +386,7 @@ export const certification = <S extends ParamSource>(
 			if (!source.ok) {
 				return source
 			}
-			sources.push({ changes: role, source: source.value })
+			sources.push({ role, source: source.value })
 		}
 	}
 	const input = isolationInput({
@@ -393,21 +399,31 @@ export const certification = <S extends ParamSource>(
 	const certified = certify(
 		input.relations,
 		zipped(sources, input.roles).map(
-			([r, role]): Candidate<
+			([{ role: compiled, source }, role]): Candidate<
 				RoleChanges<"readCommitted", S>,
 				RoleChanges<"serializable", S>,
 				CompileError
-			> => ({
-				role,
-				readCommitted: r.changes,
-				lower: () =>
-					Result.map(serializableChanges(r.changes), (lowered) => ({
-						facts: [...lowered.members].flatMap(([name, compiled]) =>
-							changeFacts("serializable")(name, compiled, r.source.names)
-						),
-						form: lowered
-					}))
-			})
+			> => {
+				const lowering = (lowered: RoleChanges<"serializable", S>) => ({
+					facts: [...lowered.members].flatMap(([name, variants]) =>
+						changeFacts("serializable")(name, variants, source.names)
+					),
+					form: lowered
+				})
+				return compiled.kind === "formed"
+					? {
+							kind: "formed",
+							role,
+							readCommitted: compiled.changes,
+							lower: () => Result.map(serializableChanges(compiled.changes), lowering)
+						}
+					: {
+							kind: "unformed",
+							role,
+							unformed: compiled.unformed,
+							lowering: lowering(compiled.changes)
+						}
+			}
 		)
 	)
 	if (!certified.ok) {

@@ -1,14 +1,9 @@
 import { appendAll } from "#compiler/core/array.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import {
-	appendNonEmpty,
-	isNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
-import { rowEq, rowNe, typedEq } from "#compiler/ir/compare.ts"
-import { fieldNames, type LawField, type RelationInfo, type SpanField } from "#compiler/ir/law.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { rowEq, typedEq } from "#compiler/ir/compare.ts"
+import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import type { SerialClass } from "#compiler/ir/write.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
@@ -27,15 +22,12 @@ import type { NameSupply } from "#compiler/sql/naming.ts"
 import {
 	and,
 	asc,
-	binary,
 	col,
 	conjunction,
 	continuedAll,
 	cte,
 	cteRef,
-	cteRefAs,
 	eq,
-	exists,
 	join,
 	lit,
 	ne,
@@ -43,7 +35,6 @@ import {
 	provedCore,
 	provedSelect,
 	select,
-	simpleSelect,
 	target,
 	targetAs,
 	types,
@@ -78,14 +69,11 @@ import {
 	type ModifyingStatement,
 	type ResultColumn,
 	type Returning,
-	resultText,
 	returnedColumn,
 	returnedRows,
 	rowType,
-	type SpanClassifyResult,
 	startOf,
-	type WriteContext,
-	type WriteStatement
+	type WriteContext
 } from "#compiler/write/insert/statement.ts"
 
 import {
@@ -102,8 +90,6 @@ import {
 } from "#compiler/write/insert/unique.ts"
 import {
 	atFields,
-	atRow,
-	atObject,
 	type MetAccess,
 	metAtObject,
 	type Equal,
@@ -111,7 +97,6 @@ import {
 	metNarrowed,
 	metRow,
 	metRowsOf,
-	narrowed,
 	probeKey,
 	storedAt
 } from "#compiler/write/probe.ts"
@@ -148,16 +133,12 @@ type ProbeRaise =
 	| { readonly kind: "gate"; readonly guarded: { readonly cte: Cte; readonly guard: Expr } }
 	| { readonly kind: "verdict"; readonly probe: ProbeSql; readonly marker: string }
 
-/** What the classification after an insert reads of the insert's spec. */
-type ClassifySpec = Pick<InsertSpec, "relation" | "serial" | "input" | "of">
-
 /** An insert's variant, by its serial class, the relation's shape and what its facts state, with what it reads of the
- * shape: a spanKey insert's span key field, which its classification compares by overlap, and a protocol insert's
- * payload, which its verdict rows compare. */
+ * shape: a protocol insert's payload, which its verdict rows compare. */
 type InsertShape =
 	| { readonly variant: "generated" }
 	| { readonly variant: "pureSet" }
-	| { readonly variant: "spanKey"; readonly span: SpanField }
+	| { readonly variant: "spanKey" }
 	| { readonly variant: "protocol"; readonly payload: NonEmptyReadonlyArray<LawField> }
 
 /** The shape of an insert of complete facts that state `stated` (input.ts inputStated): its payload is every field they
@@ -166,7 +147,7 @@ type InsertShape =
 const insertShape = (relation: RelationInfo, stated: Heading): InsertShape => {
 	const key = primaryKeyShape(relation)
 	if (key.kind === "span") {
-		return { variant: "spanKey", span: key.span }
+		return { variant: "spanKey" }
 	}
 	const payload = relation.heading.filter(
 		(f) => !relation.primaryFields.includes(f) && stated.some((c) => c.name === f.name)
@@ -318,14 +299,15 @@ const verdictClass = {
  *   classified by the stored rows its arbitration met (`met`) at the arbiter and then at each other object, read under
  *   the snapshot: a complete proposal reads no stored row for a fact it inserts; a placeholder's gate is a probe at its
  *   key;
- * - `constraint`: into a primary key holding a span, ON CONFLICT ON CONSTRAINT DO NOTHING, the one form an exclusion
- *   constraint arbitrates, followed by its classification (`buildSpanClassify`);
  * - `none`: a plain INSERT, a generated addition every declared key of which holds a field it draws.
+ *
+ * Complete facts into a primary key holding a span take `every` alone: an exclusion constraint arbitrates an INSERT by
+ * ON CONFLICT ON CONSTRAINT DO NOTHING only, so no form at a scalar key tells a requested fact it met from one it made.
+ * At READ COMMITTED such an insert has no form (write/schedule/plan.ts formedAt, NoReadCommittedForm).
  */
 type Arbitration =
 	| { readonly kind: "returned"; readonly payload: ReadonlyArray<LawField> }
 	| { readonly kind: "every"; readonly objects: Extract<EveryObject, { readonly kind: "named" }> }
-	| { readonly kind: "constraint" }
 	| { readonly kind: "none" }
 
 const arbitrationOf = (
@@ -345,7 +327,9 @@ const arbitrationOf = (
 		case "generated":
 			return { kind: "none" }
 		case "spanKey":
-			return { kind: "constraint" }
+			throw defect(
+				`an insert of complete facts into ${relation.name}, whose primary key holds a span, that arbitrates no object but every one: write/schedule/plan.ts formedAt refuses it at READ COMMITTED`
+			)
 		case "pureSet":
 			return { kind: "returned", payload: [] }
 		case "protocol":
@@ -464,37 +448,13 @@ const arbitrationOf = (
  * input's facts at that key, so no column is ever manufactured. A met row is the stored fact itself, as RETURNING or
  * the met read delivers it, never the request it repeats.
  *
- * A primary key containing a span field is an exclusion constraint,
- * which arbiter inference skips, so ON CONFLICT over its columns fails with 42P10, and PostgreSQL accepts it as an
- * arbiter only by name and only for DO NOTHING. Its insert, keyed relation or pure set alike, is
- *
- *   ... INSERT INTO "s"."booking" AS "r3" (...) SELECT ... FROM "r1" ORDER BY "r1"."c1", "r1"."c2"
- *       ON CONFLICT ON CONSTRAINT "booking__pk" DO NOTHING RETURNING ...
- *
- * whose rows are the facts it inserted, followed by a later statement, buildSpanClassify, that classifies each requested
- * fact it did not insert and raises the refusal it finds, so it returns no row. An occupant the arbiter waited on and
- * saw commit is not in the transaction's snapshot, so the insert meets it as 40001. The classification reads the input
- * again (the arrays, or the carrier the schedule then gives a described member, which has two consumers) and returns
- * the requested facts no stored fact equal at every field they state accounts for (input.ts inputStated), an inserted
- * fact and an exact repeat both being stored and equal there, as a family owner's exact repeat is at a scalar key:
- *
- *   WITH "r1"(...) AS (<the input>),
- *   "r5"(<key>, "c8", "c9") AS MATERIALIZED (
- *     SELECT <key>, EXISTS (<a stored fact overlapping it at its scalar key>) AS "c8",
- *            EXISTS (<another requested fact overlapping it at its scalar key>) AS "c9"
- *     FROM "r1" WHERE NOT EXISTS (<an equal stored fact>)
- *   ), "r6"(...) AS (<its refusals>)
- *   SELECT <key as text> FROM "r5" WHERE NOT EXISTS (SELECT 1 FROM "r6" WHERE "s"."__refuse"(...))
- *
- * c9 true is two requested facts the final state cannot both hold, the span key law on a put's insert half too, as the
- * protocol's same-key pair is; else c8 true is the span key law with the requested fact's key as the witness. On a
- * put's insert half c8 reads only a stored fact at another key, with a span unequal
- * to the requested one: the put displaces only the occupants at its own keys, so such a fact is the law there too, as
- * a visible occupant of another unique object is, while a stored fact at the requested key was committed
- * after the put's deletion. Neither marker is an occupant the arbiter met that has since gone or, on a put's insert
- * half, one committed at the put's key after its deletion: a concurrent change, which raises SpanKeyChange and fails
- * the apply with TransientFailure{SpanKeyChange}. A generated addition there stays a plain INSERT, probed at the span key
- * when it reads no field the addition draws.
+ * A primary key containing a span field is an exclusion constraint, which arbiter inference skips, so ON CONFLICT over
+ * its columns fails with 42P10, and PostgreSQL accepts it as an arbiter only by name and only for DO NOTHING. An insert
+ * of complete facts into it arbitrates every object at SERIALIZABLE (Arbitration `every`), the span key among them,
+ * probed for the requested pairs overlapping within the input, and its met rows are classified: one at the key's own
+ * span, an exact repeat or the key law, or on a put's insert half a concurrent change, SpanKeyChange; one at another
+ * overlapping span, the key law. At READ COMMITTED it has no form (write/schedule/plan.ts formedAt). A generated addition
+ * there stays a plain INSERT, probed at the span key when it reads no field the addition draws.
  *
  * Under a transaction snapshot every stored row an insert meets is read under that snapshot, so SSI sees an exact
  * repeat, which inserts nothing, as a read of the stored fact: `every`'s met rows by their met read, and `returned`'s by
@@ -747,12 +707,6 @@ export const buildInsert = (
 					return { kind: "every", action: { kind: "doNothing" } }
 				case "none":
 					return undefined
-				case "constraint":
-					return {
-						kind: "constraint",
-						constraint: w.names.primaryKey(relation.name),
-						action: { kind: "doNothing" }
-					}
 				case "returned":
 					return {
 						kind: "columns",
@@ -1121,7 +1075,6 @@ export const buildInsert = (
 						defined(metMark, "the met marker of an insert its arbiter returns")
 					)
 				case "none":
-				case "constraint":
 					return provedCore("keyed", [...factOf(r2, retCol), ...zero], [cteRef(r2)], undefined)
 			}
 		}
@@ -1294,163 +1247,6 @@ export const buildInsert = (
 			result,
 			skipWhenEmpty: skipWhenEmptyOf(input),
 			returning
-		}
-	})
-}
-
-/** The statement that follows a spanKey insert, an insert of every field into a primary key that holds a span, and
- * classifies each requested fact the insert did not insert (see `buildInsert`), `span` the key's span field
- * (InsertShape). A generated addition stays a plain INSERT, its probe its classification. It reads `spec`'s input as the insert does,
- * every field into the relation's column types, so it compares the facts as they were written. */
-export const buildSpanClassify = (
-	w: WriteContext,
-	spec: ClassifySpec,
-	span: SpanField
-): WriteStatement<SpanClassifyResult> => {
-	const { relation, input } = spec
-	const at = `classify ${relation.name}`
-	const pk = relation.primaryFields
-	/** The fields it compares the requested facts at, the ones its input's facts state (input.ts inputStated), its key
-	 * among them: never a count or end its slot carries beside them that its facts do not state, a counted family's or a
-	 * put's, which a stored owner holds as its members leave it and no put of the owner sets. */
-	const stated = inputStated(input)
-	const all = keyFirst(relation).filter((f) => stated.some((c) => c.name === f.name))
-	if (!isNonEmpty(all)) {
-		throw defect(`a classification of ${relation.name} whose input carries none of its key`)
-	}
-	const scalars = pk.filter((f) => f !== span)
-	const typeOf = rowType
-	const sharing = inputSharing(
-		w.share.classifications,
-		[input],
-		[relation, spec.serial, input, spec.of, span]
-	)
-	return buildStatement(w, sharing, (supply) => {
-		const scan = supply.relation(internal("input scan"))
-		const r1 = supply.relation(internal("input"))
-		const other = supply.relation(internal("overlapping requested fact"))
-		const inputs = fieldColumns(all, () => supply.column(internal("input column")))
-		const keys = fieldColumns(pk, () => supply.column(internal("requested key column")))
-		const c8 = supply.column(internal("overlap marker"))
-		const c9 = supply.column(internal("same-key marker"))
-		const read = readInput(
-			w,
-			input,
-			{
-				kind: "input",
-				fields: all,
-				alias: scan,
-				keys: inputs,
-				into: { as: "write" }
-			},
-			at
-		)
-		const inCol = (alias: string, f: LawField): Expr => col(alias, inputs.of(f))
-		const same = (f: LawField, a: Expr, b: Expr): Expr => typedEq(rowType(f), a, b, w.names)
-		/** A fact at `left` overlapping the requested fact at the same scalar key: equal scalars, overlapping spans. */
-		const overlapping = (left: (f: LawField) => Expr): Expr =>
-			and(
-				appendNonEmpty(
-					scalars.map((f) => same(f, left(f), inCol(r1, f))),
-					binary("&&", left(span), inCol(r1, span))
-				)
-			)
-		const one = [target(lit.int(1, types.integer))]
-		const ctes: [Cte, ...Array<Cte>] = [cte(r1, inputs.columns, read.select)]
-		const requested = (f: LawField): Expr => inCol(r1, f)
-		/** A stored fact equal to the requested one at every field it states, read by the probe at those fields. */
-		const equalRow = atRow(w, relation, all, requested)
-		const equalStored = storedAt(w, supply, relation.name, equalRow.access, equalRow.equal)
-		/** On a put's insert half, a stored fact at the requested key itself is no law: the put deleted the occupant at
-		 * that key, or an owner's put updated it to the requested fact, which the equal stored fact above accounts for, so
-		 * any other one there was committed after the put's own statement, a concurrent change that aborts the apply. */
-		const occupant = atObject(w, relation.name, relation.uniques.arbiter, requested)
-		const storedOverlap = storedAt(
-			w,
-			supply,
-			relation.name,
-			spec.of === "put"
-				? narrowed(occupant, (inner) => [
-						ne(col(inner, w.names.column(relation.name, span.name)), requested(span))
-					])
-				: occupant,
-			[]
-		)
-		const requestedOverlap = simpleSelect(
-			one,
-			[cteRefAs(r1, other)],
-			and([
-				overlapping((f) => inCol(other, f)),
-				rowNe(
-					{ fields: all, typeOf, left: (f) => inCol(other, f), right: (f) => inCol(r1, f) },
-					w.names
-				)
-			])
-		)
-		/** The verdict rows: every requested fact no equal stored fact accounts for, each a refusal (see `buildInsert`). */
-		const rv = supply.relation(internal("verdicts"))
-		ctes.push({
-			name: rv,
-			columns: [...keys.columns, c8, c9],
-			materialized: "MATERIALIZED",
-			query: simpleSelect(
-				[
-					...keys.pairs.map((p) => targetAs(inCol(r1, p.field), p.column)),
-					targetAs(storedOverlap, c8),
-					targetAs(exists(requestedOverlap), c9)
-				],
-				[cteRef(r1)],
-				not(equalStored)
-			)
-		})
-		const keyCol = (f: LawField): Expr => col(rv, keys.of(f))
-		const key: ReadonlyArray<RefusedValue> = pk.map((f) => ({
-			field: f.name,
-			expr: keyCol(f),
-			type: rowType(f)
-		}))
-		const keyLaw: ArmRefusal = {
-			kind: "law",
-			law: arbiterLaw(relation),
-			relation: relation.name,
-			key
-		}
-		const guarded = refusalGuard({
-			supply,
-			schema: w.names.schema,
-			verdicts: rv,
-			arms: [
-				{ rank: refusalRank.sameKey, when: col(rv, c9), refusal: keyLaw },
-				{ rank: refusalRank.conflict, when: and([col(rv, c8), not(col(rv, c9))]), refusal: keyLaw },
-				{
-					rank: refusalRank.change,
-					when: and([not(col(rv, c8)), not(col(rv, c9))]),
-					refusal: {
-						kind: "change",
-						reason: "SpanKeyChange",
-						relation: relation.name,
-						constraint: w.names.primaryKey(relation.name),
-						key
-					}
-				}
-			]
-		})
-		ctes.push(guarded.cte)
-		const result: SpanClassifyResult = { kind: "spanClassify", relation: relation.name }
-		return {
-			ast: {
-				...provedSelect(
-					"oneRow",
-					keys.pairs.map((p) => targetAs(resultText(keyCol(p.field), rowType(p.field)), p.column)),
-					[cteRef(rv)],
-					guarded.guard
-				),
-				limit: lit.int(1, types.integer),
-				with: { ctes, recursive: false }
-			},
-			role: "member",
-			result,
-			skipWhenEmpty: skipWhenEmptyOf(input)
 		}
 	})
 }

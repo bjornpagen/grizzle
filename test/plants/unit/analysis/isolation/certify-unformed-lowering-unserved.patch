@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/analysis/isolation/certify.ts b/packages/engine/src/analysis/isolation/certify.ts
+--- a/packages/engine/src/analysis/isolation/certify.ts
++++ b/packages/engine/src/analysis/isolation/certify.ts
+@@ -2279,7 +2279,7 @@ const standingOf = <R, S, E>(candidate: Candidate<R, S, E>): Standing<R, S, E> =
+ 		: {
+ 				kind: "lowered",
+ 				candidate,
+-				lowering: candidate.lowering,
++				lowering: { ...candidate.lowering, facts: [] },
+ 				reasons: formReasons(candidate.unformed)
+ 			}
+ 

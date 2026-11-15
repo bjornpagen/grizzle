@@ -33,14 +33,14 @@ import { buildDisplacingDelete, buildExactDelete } from "#compiler/write/delete/
 import { buildEntryCheck, type EntryCheck, outsideProbes } from "#compiler/write/entry/precheck.ts"
 import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
-import { payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
+import { payloadOf } from "#compiler/write/frontend/targets.ts"
 import {
 	outsideInput,
 	type RereadInput,
 	unproved,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
-import { buildInsert, buildSpanClassify } from "#compiler/write/insert/protocol.ts"
+import { buildInsert } from "#compiler/write/insert/protocol.ts"
 import {
 	type CarrierResult,
 	compareHeading,
@@ -51,7 +51,6 @@ import {
 	type InsertResult,
 	keyFirst,
 	type SequenceAdvanceResult,
-	type SpanClassifyResult,
 	type StatementShare,
 	type WriteContext,
 	type WriteNames,
@@ -68,8 +67,7 @@ import { buildSequenceAdvances, explicitSerials } from "#compiler/write/serial/a
  * - `carrier`, a carrier's creation or fill: a member's, at the start of its stratum, or, with no stratum, a snapshot
  *   or a delta around the strata;
  * - `action`, a statement of an action of a stratum, `action` its index there (ir.strata[stratum].actions): its insert
- *   or deletion, whose rows are its changes (`changeTags`), the classification after an insert into a span primary key,
- *   or a sequence advance after explicit serial values;
+ *   or deletion, whose rows are its changes (`changeTags`), or a sequence advance after explicit serial values;
  * - `readBack`, a read-back's conservative lowering;
  * - `check`, a query entry's check of an addition's facts;
  * - `family`, a family statement of a stratum, where its schedule runs it among the stratum's actions. */
@@ -84,7 +82,7 @@ type ConservativeStep =
 	| {
 			readonly kind: "action"
 			readonly statement:
-				| WriteStatement<InsertResult | DeleteResult | SpanClassifyResult | SequenceAdvanceResult>
+				| WriteStatement<InsertResult | DeleteResult | SequenceAdvanceResult>
 				| PutStatement
 			readonly relation: WrittenRelation
 			readonly stratum: StratumAt
@@ -235,9 +233,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 			familyBefore(i)
 			const relation = action.info.relation
 			const statement = (
-				built:
-					| WriteStatement<InsertResult | DeleteResult | SpanClassifyResult | SequenceAdvanceResult>
-					| PutStatement
+				built: WriteStatement<InsertResult | DeleteResult | SequenceAdvanceResult> | PutStatement
 			) =>
 				steps.push(
 					Object.freeze({ kind: "action", statement: built, relation, stratum: s, action: i })
@@ -258,16 +254,10 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 					})
 				}
 			}
-			/** The insert protocol for an insertion or a put's insert half, then, into a span primary key, the
-			 * classification of each requested fact it did not insert, and the sequence advance after explicit serial
+			/** The insert protocol for an insertion or a put's insert half, then the sequence advance after explicit serial
 			 * values. */
 			const insert = (serial: SerialClass, of: InsertOf) => {
-				const spec = { relation, serial, input, of } as const
-				statement(buildInsert(w, spec))
-				const key = primaryKeyShape(relation)
-				if (serial.kind === "complete" && key.kind === "span") {
-					statement(buildSpanClassify(w, spec, key.span))
-				}
+				statement(buildInsert(w, { relation, serial, input, of }))
 				for (const advance of buildSequenceAdvances(
 					w,
 					{ relation, input },

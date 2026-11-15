@@ -387,8 +387,6 @@ const writeText = (relation: string, result: WriteStepResult): string => {
 		case "update":
 		case "merge":
 			return `${result.kind} ${relation}`
-		case "spanClassify":
-			return `classify ${relation}`
 	}
 }
 

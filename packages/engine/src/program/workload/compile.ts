@@ -53,8 +53,9 @@ import {
 	type ChangeLogin,
 	type ChangeRefused,
 	type CompiledVariants,
-	loginChanges,
-	type RoleChanges
+	type ReadCommittedRole,
+	type RoleChanges,
+	readCommittedChanges
 } from "#compiler/program/workload/change.ts"
 import { workloadState } from "#compiler/program/workload/value.ts"
 import { inlineWorlds } from "#compiler/program/workload/world.ts"
@@ -635,7 +636,7 @@ export interface ServedLogin<S extends ParamSource = ParamSource> extends Change
 /**
  * The plan of an installation's logins as generate compiles them: their workloads' plan (compileWorkload), and every
  * role of every login with the ChangeSets of the login's workloads that run on it compiled over the artifacts its
- * login's served file compiles over (change.ts loginChanges), in the form its certificate's level serves, by the
+ * login's served file compiles over (change.ts readCommittedChanges), in the form its certificate's level serves, by the
  * login's name, then the role's name in it: what each login's served file projects; and the certificate of each of
  * those roles (program/isolation/certification.ts), the level its writes begin at, which the installation's guards
  * follow (physical/install/compile.ts installationOver); the roles whose served ChangeSets create a carrier; the roles
@@ -715,9 +716,9 @@ export const servedWorkload = <S extends ParamSource>(
 	logins: ReadonlyArray<ServedLogin<S>>,
 	options: WorkloadOptions
 ): Result.Result<ServedWorkloadPlan<S>, ServedWorkloadRefused> => {
-	const changes = new Map<string, ReadonlyMap<string, RoleChanges<"readCommitted", S>>>()
+	const changes = new Map<string, ReadonlyMap<string, ReadCommittedRole<S>>>()
 	for (const login of logins) {
-		const roles = loginChanges(login, "readCommitted")
+		const roles = readCommittedChanges(login)
 		if (!roles.ok) {
 			return Result.err({ kind: "login", login: login.name, refused: roles.error })
 		}
