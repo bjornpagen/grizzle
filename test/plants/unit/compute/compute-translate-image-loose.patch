@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/compute/lower.ts b/packages/engine/src/scalar/compute/lower.ts
+index 524d6ffb..07dd51eb 100644
+--- a/packages/engine/src/scalar/compute/lower.ts
++++ b/packages/engine/src/scalar/compute/lower.ts
+@@ -2673,7 +2673,7 @@ class Lowering<R extends Refs> {
+ 		return mapNonEmpty(textPatterns(regex), (pattern): PatternSource => {
+ 			const sources = imageOf(pattern, map, this.env.patterns)
+ 			const exact = { source: sources.exact, flags: imageFlags }
+-			return analyze([exact]).ok ? exact : { source: sources.within, flags: imageFlags }
++			return { source: sources.within, flags: imageFlags }
+ 		})
+ 	}
+ 

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/compute/evaluate.ts b/packages/engine/src/scalar/compute/evaluate.ts
+index ba541758..43f3b7b0 100644
+--- a/packages/engine/src/scalar/compute/evaluate.ts
++++ b/packages/engine/src/scalar/compute/evaluate.ts
+@@ -529,7 +529,7 @@ const apply = (
+ 		case "right":
+ 			return isString(a) && isBigint(b) ? Result.ok(rightOf(a, b)) : mismatch(op)
+ 		case "matches":
+-			return isString(a) && isString(b) ? Result.ok(patterns.matches(b, a)) : mismatch(op)
++			return isString(a) && isString(b) ? Result.ok(a.length > 0 && patterns.matches(b, a)) : mismatch(op)
+ 		case "collapse":
+ 			return isString(a) ? Result.ok(collapsed(a)) : mismatch(op)
+ 		case "sha256":

@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/scalar/values/identity.ts b/packages/engine/src/scalar/values/identity.ts
+index 55c09e65..cd9bf186 100644
+--- a/packages/engine/src/scalar/values/identity.ts
++++ b/packages/engine/src/scalar/values/identity.ts
+@@ -172,10 +172,6 @@ const admitHandles = (
+ 	if (!(value instanceof Set)) {
+ 		return Result.err("bitsType")
+ 	}
+-	const stated = statedRoster(value)
+-	if (stated !== undefined && stated !== roster.roster) {
+-		return Result.err("bitsMember")
+-	}
+ 	const handles = new Set<string>()
+ 	for (const member of value) {
+ 		if (typeof member !== "string") {

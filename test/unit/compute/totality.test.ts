@@ -16,8 +16,10 @@
  * Features: each operation over a literal, a parameter and a declaring parameter, admitted and refused; each guarded
  * form over columns and parameters, its guard holding and failing.
  *
- * Plants: compute-nonzero-includes-zero (an interval reaching zero taken as nonzero), compute-when-branches-swapped (a
- * guard's branch computed where the guard fails).
+ * @plant test/plants/unit/compute/compute-nonzero-includes-zero.patch A literal's facts take a zero value as nonzero,
+ * its point interval reaching zero, so a literal zero divisor is admitted; the literals' property fails.
+ * @plant test/plants/unit/compute/compute-when-branches-swapped.patch A Compute.when lowers its branches swapped, so
+ * the guard's branch is computed where the guard fails; the guarded forms' property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

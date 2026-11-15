@@ -1,0 +1,18 @@
+diff --git a/packages/engine/src/scalar/compute/lower.ts b/packages/engine/src/scalar/compute/lower.ts
+index 524d6ffb..dc1df44e 100644
+--- a/packages/engine/src/scalar/compute/lower.ts
++++ b/packages/engine/src/scalar/compute/lower.ts
+@@ -2697,12 +2697,7 @@ class Lowering<R extends Refs> {
+ 		const node = this.native(op, [x], wildcardText, undefined, at, "Compute.collapse")
+ 		return this.env.mode === "build" || text === undefined
+ 			? node
+-			: this.restate(
+-					node,
+-					this.collapseType(text, this.env.patternLanguage, at),
+-					node.actual,
+-					node.facts
+-				)
++			: { ...node, nominal: this.collapseType(text, this.env.patternLanguage, at) }
+ 	}
+ 
+ 	/**

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/text.ts b/packages/engine/src/core/text.ts
+index 2f51388b..2c44d27a 100644
+--- a/packages/engine/src/core/text.ts
++++ b/packages/engine/src/core/text.ts
+@@ -236,7 +236,7 @@ export const collapsed = (text: string): string => {
+ 	let spaced = false
+ 	for (const c of codePoints(text)) {
+ 		if (xmlWhitespace.has(c)) {
+-			spaced = out.length > 0
++			spaced = true
+ 			continue
+ 		}
+ 		if (spaced) {

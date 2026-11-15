@@ -30,11 +30,18 @@
  *
  * Features: as each search names them, every route of every property.
  *
- * Plants: compute-translate-units (a translation reads UTF-16 units), compute-translate-image-loose (a translation's
- * type the looser image even where the exact one is admitted), compute-translate-repeat-admitted (a repeated character
- * of from admitted), compute-inclusion-outer-accept-ignored (an image member at a state the target does not accept
- * taken as inside it), compute-collapse-leading-space (a collapse keeps a space for leading white space),
- * compute-collapse-image-wildcard (a collapse typed as any text).
+ * @plant test/plants/unit/compute/compute-translate-units.patch The host's translation reads UTF-16 units; the
+ * translation property fails.
+ * @plant test/plants/unit/compute/compute-translate-image-loose.patch A translation's type is the looser image even
+ * where the exact one is admitted; the image type property fails.
+ * @plant test/plants/unit/compute/compute-translate-repeat-admitted.patch A repeated character of from is admitted; the
+ * refusals' property fails.
+ * @plant test/plants/unit/compute/compute-inclusion-outer-accept-ignored.patch Inclusion takes an image member at a
+ * state the target does not accept as inside it; the casts by inclusion property fails.
+ * @plant test/plants/unit/compute/compute-collapse-leading-space.patch The host's collapse keeps a space for leading
+ * white space; the collapse property fails.
+ * @plant test/plants/unit/compute/compute-collapse-image-wildcard.patch A collapse is typed as any text; the collapse
+ * type property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

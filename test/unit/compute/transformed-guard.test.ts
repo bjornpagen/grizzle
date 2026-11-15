@@ -10,7 +10,13 @@
  *
  * Features: each route admitted and refused, for the guard and for the byte cast.
  *
- * Plants: compute-collapse-after-settle, compute-collapse-no-byte-bound, compute-cast-bound-not-longest.
+ * @plant test/plants/unit/compute/compute-collapse-after-settle.patch Collapse writes its language over the term after
+ * settle, `{ ...node, nominal: collapseType(...) }`, which drops the guard's narrowing; the guard property fails.
+ * @plant test/plants/unit/compute/compute-collapse-no-byte-bound.patch A collapse carries no byte bound, so a cast of it
+ * is refused where the bound fits; the byte cast property fails.
+ * @plant test/plants/unit/compute/compute-cast-bound-not-longest.patch A cast compares its operand's bound, not the
+ * longest text of its language within it, so it is refused where a collapse drops what the bound leaves room for; the
+ * byte cast property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -73,9 +79,8 @@ import { jsMatcher, patternOver } from "#test/unit/text/generators.ts"
  * nothing, which names them (ResourceBound), and a guard no value of the image matches types its branch by no value,
  * which the text analysis refuses (UnsupportedOperation).
  *
- * Plant compute-collapse-after-settle: collapse writes its language over the term after settle, `{ ...node, nominal:
- * collapseType(...) }`, which drops the guard's narrowing; a type error since Lowered's type is private to settle, and
- * run untyped, the search refutes it.
+ * A collapse that writes its language over the term after settle, `{ ...node, nominal: collapseType(...) }`, drops the
+ * guard's narrowing: a type error, since Lowered's type is private to settle, and run untyped, the search refutes it.
  */
 
 /** The characters the forms, the maps and the guards' patterns are drawn over: digits, a sign, a point, an exponent, white space and letters. */
@@ -455,9 +460,9 @@ const boundedTargets: Arr.NonEmptyReadonlyArray<{
  * - the installation: the chain stored uncast in T installs with a workload reading it, as generate drafts it
  *   (installsStored), whatever refinement its type states.
  *
- * Plant compute-collapse-no-byte-bound: a collapse that carries no byte bound, refused where the bound fits. Plant
- * compute-cast-bound-not-longest: a cast that compares its operand's bound, not the longest text of its language within
- * it, refused where a collapse drops what the bound leaves room for. Bugs the search refuted beside them: a translation that carries no byte bound, the type before this search; a translation that keeps its operand's bound under a map to wider characters,
+ * Bugs the search refutes: a collapse that carries no byte bound, refused where the bound fits; a cast that compares
+ * its operand's bound, not the longest text of its language within it, refused where a collapse drops what the bound
+ * leaves room for; a translation that carries no byte bound, the type before this search; a translation that keeps its operand's bound under a map to wider characters,
  * admitted where a value outgrows it; a translation's bound read without the operand's character bound, refused where
  * few characters fit; a generated field cast into its term's computed type, which names no domain, refused at its
  * installation.

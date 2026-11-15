@@ -11,8 +11,9 @@
  *
  * Features: an admitted power evaluated, and a power next to exp(6000) evaluated.
  *
- * Plants: compute-power-work-untruncated (mul_var sums every digit-pair product, its maxdigits truncation dropped, so
- * the costliest power's evaluation counts past the limit).
+ * @plant test/plants/unit/compute/compute-power-work-untruncated.patch The oracle's mul_var sums every digit-pair
+ * product, its maxdigits truncation dropped, so the costliest power's evaluation counts past the limit; the work
+ * property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

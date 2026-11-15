@@ -1,0 +1,12 @@
+diff --git a/test/support/oracle/evaluate/power.ts b/test/support/oracle/evaluate/power.ts
+index 71a3ca92..9d9a0415 100644
+--- a/test/support/oracle/evaluate/power.ts
++++ b/test/support/oracle/evaluate/power.ts
+@@ -581,7 +581,6 @@ const mulVar = (left: NumVar, right: NumVar, rscale: number, meter: Meter): NumV
+ 		(var2ndigits & 1)
+ 	const maxdigits = resWeight + 1 + cdiv(rscale + DEC_DIGITS - 1, DEC_DIGITS) + MUL_GUARD_DIGITS
+ 	const maxdigitpairs = cdiv(maxdigits, 2) + 1
+-	resNdigitpairs = Math.min(resNdigitpairs, maxdigitpairs)
+ 	if (resNdigitpairs <= pairOffset) {
+ 		return zero(rscale)
+ 	}

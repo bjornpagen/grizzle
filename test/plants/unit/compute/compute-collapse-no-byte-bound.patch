@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/compute/lower.ts b/packages/engine/src/scalar/compute/lower.ts
+index 524d6ffb..08981ac2 100644
+--- a/packages/engine/src/scalar/compute/lower.ts
++++ b/packages/engine/src/scalar/compute/lower.ts
+@@ -2721,7 +2721,7 @@ class Lowering<R extends Refs> {
+ 		})
+ 		return this.textWithin(
+ 			isNonEmpty(images) ? images : [wildcardPattern],
+-			text.byteBound,
++			undefined,
+ 			analyze,
+ 			at
+ 		)

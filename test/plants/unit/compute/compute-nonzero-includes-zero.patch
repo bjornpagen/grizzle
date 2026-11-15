@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/compute/lower.ts b/packages/engine/src/scalar/compute/lower.ts
+index 524d6ffb..dc0c04cc 100644
+--- a/packages/engine/src/scalar/compute/lower.ts
++++ b/packages/engine/src/scalar/compute/lower.ts
+@@ -715,7 +715,7 @@ const factsOfValue = (value: Exact | "nan" | "infinity" | "-infinity"): FactSet
+ 		case "-infinity":
+ 			return Object.freeze({ nonzero: literal })
+ 		default: {
+-			const sign = value.units < 0n ? -1 : value.units > 0n ? 1 : 0
++			const sign = value.units < 0n ? -1 : value.units >= 0n ? 1 : 0
+ 			return Object.freeze({
+ 				finite: literal,
+ 				...(sign !== 0 ? { nonzero: literal } : {}),
