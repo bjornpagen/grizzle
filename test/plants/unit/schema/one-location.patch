@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/schema/schema.ts b/packages/engine/src/schema/schema.ts
+index acfcb7a1..bbff4bd6 100644
+--- a/packages/engine/src/schema/schema.ts
++++ b/packages/engine/src/schema/schema.ts
+@@ -76,7 +76,7 @@ const declaredTwice = (later: Declaration, earlier: Declaration): CompileError =
+ 	CompileError.make({
+ 		_tag: "DuplicateIdentity",
+ 		at: later.meaning.loc,
+-		duplicate: { kind: "relation", name: later.meaning.name, earlier: earlier.meaning.loc }
++		duplicate: { kind: "relation", name: later.meaning.name, earlier: later.meaning.loc }
+ 	})
+ 
+ /**

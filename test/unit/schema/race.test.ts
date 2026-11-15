@@ -8,9 +8,10 @@
  * family holds it; an owned race makes the raced relation's insertions race and leaves every other relation's
  * repeatable.
  *
- * Plant (~/.cache/grizzle-release/LEASE/plants/race-span-key-admitted): the span key's refusal dropped.
- *
  * Features: each case of the space.
+ *
+ * @plant test/plants/unit/schema/race-span-key-admitted.patch The span key's refusal dropped (schema/own.ts
+ * checkRacedKey).
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

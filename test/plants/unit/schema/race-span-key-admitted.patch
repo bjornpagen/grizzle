@@ -1,0 +1,20 @@
+diff --git a/packages/engine/src/schema/own.ts b/packages/engine/src/schema/own.ts
+index 553b9350..048a7f49 100644
+--- a/packages/engine/src/schema/own.ts
++++ b/packages/engine/src/schema/own.ts
+@@ -2244,14 +2244,7 @@ class Owner {
+ 				`${statementLabel(s.desc)} over a relation with a field beside its primary key; ${r.name}'s key is its whole heading, so every row an insertion meets there is an exact repeat`
+ 			)
+ 		}
+-		const spans = key.filter((f) => spanned(r.fields[f]?.type))
+-		if (spans.length > 0) {
+-			fail(
+-				"MalformedDescription",
+-				s.desc.loc,
+-				`${statementLabel(s.desc)} over a primary key of no span; ${r.name}.${spans.join(", ")} is a span, whose exclusion constraint PostgreSQL arbitrates by DO NOTHING alone, which yields no row an insertion met`
+-			)
+-		}
++
+ 		const drawn = key.filter((f) => {
+ 			const writing = r.fields[f]?.writing.kind
+ 			return writing === "serial" || writing === "drawn"

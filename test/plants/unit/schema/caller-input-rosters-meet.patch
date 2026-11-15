@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/schema/record.ts b/packages/engine/src/schema/record.ts
+index 4b94cdc2..f949d9b2 100644
+--- a/packages/engine/src/schema/record.ts
++++ b/packages/engine/src/schema/record.ts
+@@ -229,7 +229,7 @@ const columnsMeet = (x: Column<unknown>, y: Column<unknown>): boolean => {
+ 		return true
+ 	}
+ 	if (x.kind === "code" || y.kind === "code") {
+-		return x.kind === "code" && y.kind === "code" && x.roster === y.roster
++		return x.kind === "code" && y.kind === "code"
+ 	}
+ 	return true
+ }

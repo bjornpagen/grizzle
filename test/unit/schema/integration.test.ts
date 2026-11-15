@@ -11,8 +11,9 @@
  *
  * Features: arithmetic, a cast, charLength and a handle; each refusal.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): contract-identity-nameless (two contracts of different names one
- * identity).
+ * @plant test/plants/unit/schema/contract-identity-nameless.patch A contract's identity without its name, so two
+ * contracts of different names over one base are one identity (scalar/compute/types.ts compatible, ir/scalar.ts
+ * sameContract); two contracts meeting are admitted.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

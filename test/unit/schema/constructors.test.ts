@@ -15,8 +15,12 @@
  * Features: as each search names them: every planted defect of each constructor, and the well-formed declarations
  * beside them.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): constructors-key-kept-by-reference (a relation keeping the caller's
- * primary key array) and descriptors-repeated-handle-admitted (a repeated name in a list admitted).
+ * @plant test/plants/unit/schema/constructors-key-kept-by-reference.patch A relation keeps the caller's primary key
+ * array (schema/relation.ts relation).
+ * @plant test/plants/unit/schema/descriptors-repeated-handle-admitted.patch A roster's repeated handle admitted, in a
+ * list of names (schema/protocol.ts requireNames) and in a closed id's roster (scalar/closed-id.ts).
+ * @plant test/plants/unit/schema/schema-record-relations-admitted.patch schema() reads a record's values as its list
+ * of relations (schema/schema.ts relationValues), a shim for the old form; relations that are no list are admitted.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

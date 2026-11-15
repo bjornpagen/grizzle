@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/schema/own.ts b/packages/engine/src/schema/own.ts
+index 553b9350..c8fce787 100644
+--- a/packages/engine/src/schema/own.ts
++++ b/packages/engine/src/schema/own.ts
+@@ -2505,7 +2505,6 @@ class Owner {
+ 			}
+ 			const statements = this.#statements
+ 				.filter((s) => s.level === level)
+-				.toSorted((a, b) => (a.text < b.text ? -1 : a.text > b.text ? 1 : 0))
+ 				.map((s) => s.desc)
+ 			return schemaLevelDesc({
+ 				name: schema.name,

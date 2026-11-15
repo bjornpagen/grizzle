@@ -13,7 +13,8 @@
  *
  * Features: each pair of carriers the rule tells apart, a meeting and a refusal.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): caller-input-rosters-meet (two closed ids of different rosters meeting).
+ * @plant test/plants/unit/schema/caller-input-rosters-meet.patch Two closed ids of different rosters meet
+ * (schema/record.ts columnsMeet).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

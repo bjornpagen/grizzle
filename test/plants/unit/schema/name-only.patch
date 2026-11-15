@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/schema/schema.ts b/packages/engine/src/schema/schema.ts
+index acfcb7a1..2d1434dd 100644
+--- a/packages/engine/src/schema/schema.ts
++++ b/packages/engine/src/schema/schema.ts
+@@ -92,7 +92,7 @@ const declaresFirst = (
+ 	d: Declaration
+ ): boolean => {
+ 	const prior = below.get(d.meaning.name) ?? declared.get(d.meaning.name)
+-	if (prior !== undefined && !sameContent(prior.meaning, d.meaning)) {
++	if (prior !== undefined) {
+ 		throw declaredTwice(d, prior)
+ 	}
+ 	if (declared.has(d.meaning.name)) {

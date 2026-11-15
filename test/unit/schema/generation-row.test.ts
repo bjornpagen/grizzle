@@ -12,8 +12,8 @@
  *
  * Oracle: the model above, a specification: the least read in code units among the fields grizzle writes.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): generation-row-last-read-named (the greatest such read named, not the
- * least).
+ * @plant test/plants/unit/schema/generation-row-last-read-named.patch The greatest read grizzle writes named, not the
+ * least (check/generated.ts generatedRule).
  */
 import { drawn as drawnCase, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

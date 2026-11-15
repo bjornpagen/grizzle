@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/check/generated.ts b/packages/engine/src/check/generated.ts
+index 4362187a..fcf1a7c9 100644
+--- a/packages/engine/src/check/generated.ts
++++ b/packages/engine/src/check/generated.ts
+@@ -150,7 +150,7 @@ export const generatedRule = (
+ 	if (read !== undefined) {
+ 		return { kind: "readsGenerated", read }
+ 	}
+-	for (const field of reads) {
++	for (const field of reads.toReversed()) {
+ 		const writing = unwritten(field)
+ 		if (writing !== undefined) {
+ 			return { kind: "readsUnwritten", read: field, writing }

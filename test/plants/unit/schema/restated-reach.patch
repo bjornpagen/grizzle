@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/schema/own.ts b/packages/engine/src/schema/own.ts
+index 553b9350..59a2dea1 100644
+--- a/packages/engine/src/schema/own.ts
++++ b/packages/engine/src/schema/own.ts
+@@ -1628,8 +1628,8 @@ class Owner {
+ 
+ 	/** Each statement a level writes, in its canonical form, kept once however many levels state it. */
+ 	#collectStatements(): void {
+-		const seen = new Set<string>()
+ 		for (const [level, statements] of this.#written.entries()) {
++			const seen = new Set<string>()
+ 			for (const { form, text } of statements) {
+ 				if (!seen.has(text)) {
+ 					seen.add(text)

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/schema/world.ts b/packages/engine/src/schema/world.ts
+index cdf400a0..5af15882 100644
+--- a/packages/engine/src/schema/world.ts
++++ b/packages/engine/src/schema/world.ts
+@@ -158,7 +158,7 @@ export const admitContext = (
+ 	const descs: Record<string, FieldDesc> = {}
+ 	for (const [field, descriptor] of Object.entries(fields)) {
+ 		const desc = describedField(descriptor, `${label} field ${field}`).desc
+-		if (!contextFieldAdmits(desc) || writingOf(descriptor).kind !== "caller") {
++		if (!contextFieldAdmits(desc)) {
+ 			throw CompileError.make({
+ 				_tag: "ContextRefused",
+ 				at: builderLoc(`${label} field ${field}`, []),

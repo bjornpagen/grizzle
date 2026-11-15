@@ -13,9 +13,9 @@
  * relation it reaches and both levels, exactly where the oracle refuses it; every other statement owns.
  * An admitted statement's levels each install in the PostgreSQL schema their own declared name converts to.
  *
- * Plants: ~/.cache/grizzle-release/BR06/plants/levels-single-reach-admitted (a statement reaching one lower relation
- * admitted); ~/.cache/grizzle-release/LEVELCHECK/plants/levelcheck-refused (a row check over a lower relation refused
- * as LevelRefused).
+ * @plant test/plants/unit/schema/levels-single-reach-admitted.patch A statement reaching one lower relation admitted
+ * (schema/own.ts checkLevels reads past its first relation).
+ * @plant test/plants/unit/schema/levelcheck-refused.patch A row check over a lower relation refused as LevelRefused.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

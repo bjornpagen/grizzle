@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/schema/own.ts b/packages/engine/src/schema/own.ts
+index 553b9350..d4f90709 100644
+--- a/packages/engine/src/schema/own.ts
++++ b/packages/engine/src/schema/own.ts
+@@ -1905,7 +1905,7 @@ class Owner {
+ 				below: this.#levelName(entry.level)
+ 			})
+ 		const reach = (relations: ReadonlyArray<string>): void => {
+-			for (const relation of relations) {
++			for (const relation of relations.slice(1)) {
+ 				const entry = lower(relation)
+ 				if (entry !== undefined) {
+ 					refuse(relation, entry)

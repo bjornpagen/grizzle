@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/schema/schema.ts b/packages/engine/src/schema/schema.ts
+index acfcb7a1..4ce865b2 100644
+--- a/packages/engine/src/schema/schema.ts
++++ b/packages/engine/src/schema/schema.ts
+@@ -91,7 +91,7 @@ const declaresFirst = (
+ 	below: ReadonlyMap<string, Declaration>,
+ 	d: Declaration
+ ): boolean => {
+-	const prior = below.get(d.meaning.name) ?? declared.get(d.meaning.name)
++	const prior = declared.get(d.meaning.name)
+ 	if (prior !== undefined && !sameContent(prior.meaning, d.meaning)) {
+ 		throw declaredTwice(d, prior)
+ 	}

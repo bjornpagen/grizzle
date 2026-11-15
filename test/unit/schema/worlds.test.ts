@@ -20,8 +20,8 @@
  *   sequence of logins over a pool of roles of drawn bases and names: each login is refused at its first role breaking
  *   a rule, in the order base, name, a login already holding it, and admitted otherwise, its description owned.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): worlds-context-serial-claim (a context field its sequence writes
- * admitted as a claim).
+ * @plant test/plants/unit/schema/worlds-context-serial-claim.patch A context field its sequence writes admitted as a
+ * claim (schema/world.ts admitContext).
  */
 import { drawn, explore, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
