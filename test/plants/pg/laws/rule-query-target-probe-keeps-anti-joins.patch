@@ -1,11 +1,11 @@
 diff --git a/packages/engine/src/analysis/theory/query.ts b/packages/engine/src/analysis/theory/query.ts
-index fef2b0e7..f8159083 100644
+index cccc07d6..6acb1921 100644
 --- a/packages/engine/src/analysis/theory/query.ts
 +++ b/packages/engine/src/analysis/theory/query.ts
-@@ -1646,7 +1646,11 @@ const lostProbes = (
+@@ -1699,7 +1699,11 @@ const lostProbes = (
  			ruleDesc(
  				[...arm.vars.filter((v) => !h.replaced.has(v.id) && !h.free.has(v.id)), ...wilds],
- 				[{ source, bindings: termHead(bound), loc }, ...h.kept.map(matchDesc)],
+ 				[{ ...met, loc }, ...h.kept.map(matchDesc)],
 -				[...h.where, ...lacks(rule.to, bound, loc)],
 +				[
 +					...h.where,

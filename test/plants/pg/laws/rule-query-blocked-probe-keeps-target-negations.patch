@@ -1,11 +1,11 @@
 diff --git a/packages/engine/src/analysis/theory/query.ts b/packages/engine/src/analysis/theory/query.ts
-index fef2b0e7..3e3a1f19 100644
+index cccc07d6..02f8274e 100644
 --- a/packages/engine/src/analysis/theory/query.ts
 +++ b/packages/engine/src/analysis/theory/query.ts
-@@ -1555,7 +1555,14 @@ export const newProbes = (
- 						...arm.matches.map(matchDesc),
- 						...h.kept.map(matchDesc)
- 					],
+@@ -1608,7 +1608,14 @@ export const newProbes = (
+ 				ruleDesc(
+ 					[...arm.vars, ...open.vars.filter((v) => !h.replaced.has(v.id))],
+ 					[{ ...met, loc }, ...arm.matches.map(matchDesc), ...h.kept.map(matchDesc)],
 -					[...arm.where, ...h.where, ...lacks(rule.to, arm.terms, loc)],
 +					[
 +						...arm.where,
