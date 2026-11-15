@@ -71,6 +71,7 @@ import {
 	weightsGen,
 	zeroWeights
 } from "#test/support/worlds/generate/weights.ts"
+import { invalidKinds } from "#test/support/worlds/invalid/kinds.ts"
 import {
 	docsBases,
 	docsEditorInstall,
@@ -1964,6 +1965,10 @@ export const startingWith =
 
 /** Every writer: grizzle's Db, a direct writer that took on a role, and one still the login. */
 export const everyWriter: ReadonlyArray<Writer> = ["db", "direct-role", "direct-login"]
+
+/** The invalid kinds of one family of the vocabulary (invalid/kinds.ts): each whose name starts with `prefix`. */
+export const invalidKindsWith = (prefix: string): ReadonlyArray<InvalidKind> =>
+	Arr.filter(invalidKinds, Str.startsWith(prefix))
 
 /** The feature of drawing each invalid kind, for a suite that requires every kind it draws. */
 export const invalidFeatures = (kinds: ReadonlyArray<InvalidKind>): ReadonlyArray<WorldFeature> =>

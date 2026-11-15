@@ -27,7 +27,7 @@ import type { ActionOutcome } from "#test/support/worlds/model/types.ts"
  * it. Half the realities hold a document at its bound of shares (drive/suite.ts docsAtBoundRealities), so a member's
  * own share of it breaks the one-share variant's key on a fact hidden from it, and the key's refusal must quote none of
  * that fact's values. A tamper changes database settings, so the file runs in a database of its own. A token that does not decode
- * through a role's contexts is the claims suite's (isolation.test.ts).
+ * through a role's contexts is the claims suite's (isolation-claims.test.ts).
  *
  * Plants (main's test phase): worlds-errors-integer-range-unchecked.patch, worlds-direct-guard-sqlstate.patch.
  */
