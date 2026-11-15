@@ -6,7 +6,7 @@ import {
 	varsOf
 } from "#compiler/analysis/theory/leaves.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { compareText } from "#compiler/core/canonical.ts"
+import { canonicalEquals, compareText, everyProperty } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	extendNonEmpty,
@@ -860,6 +860,31 @@ const conditionsOf = (arm: LiveArm, loc: SourceLoc): ReadonlyArray<InferredExpr>
 	...arm.negated.map((n) => absentOf(n, loc))
 ]
 
+/** A side's arm as a probe meets it (`readAs`): the arm's query, and the bindings that join it to the meeting terms. */
+interface Met {
+	readonly source: InferredSource
+	readonly bindings: Readonly<Record<string, InferredExpr>>
+}
+
+/**
+ * How a term of a probe meets the arm's own term of its pair, named `name` in the arm's query (`readAs`): it binds the
+ * arm's term, or, where both are literals and differ, the two are values whose equality is a condition of the arm's
+ * query. A literal bound to a column is a filter the checker reads as arm selection (check/checker.ts #selected): the
+ * arm delivers the value, or no fact of it meets the filter, which the checker refuses (DeadConstants). An arm's
+ * literal delivers itself alone, so the same literal binds it, and a different one is no value the arm delivers but
+ * one PostgreSQL compares with it, as an inlined definition's head literal met by a literal is compared (`joined`).
+ */
+type Meeting =
+	| { readonly kind: "bound"; readonly name: string; readonly term: InferredExpr }
+	| { readonly kind: "values"; readonly equality: InferredExpr }
+
+const meetingOf = (name: string, term: InferredExpr, own: InferredExpr | undefined): Meeting =>
+	own?.kind === "literal" &&
+	term.kind === "literal" &&
+	!canonicalEquals(own.value, term.value, everyProperty)
+		? { kind: "values", equality: equal(own, term) }
+		: { kind: "bound", name, term }
+
 /**
  * The sources a trigger's probe reads the side its breaking side's facts meet as, a containment's target or a key's
  * other fact: an imported query of each arm alone, each arm's rule delivering the row `head` gives it. A probe's facts
@@ -870,19 +895,48 @@ const conditionsOf = (arm: LiveArm, loc: SourceLoc): ReadonlyArray<InferredExpr>
  * union agrees with the terms exactly when no tuple of any arm does, and a match of it is one rule per arm, since the
  * facts that agree with some tuple of a union are those that agree with some tuple of one of its arms: a probe read by
  * arm judges exactly what the whole check (`violationQuery`) does.
+ *
+ * Each arm is met at `terms`, the terms of the fact or tuple that meets it (`Met`), each term meeting the arm's term of
+ * its pair (`Meeting`): bound to it, or, two different literals, compared with it in the arm's own query. A union's
+ * arm whose literal differs from the term's delivers none of the facts the term selects, so the arm read alone reads
+ * none where the two values differ, and the union read by arm still judges what the whole check does.
  */
 const readAs = (
 	side: RuleSide,
+	terms: ReadonlyArray<InferredExpr>,
 	head: (arm: SideArm) => Readonly<Record<string, InferredExpr>>,
 	loc: SourceLoc
-): NonEmptyReadonlyArray<InferredSource> =>
-	mapNonEmpty(side.arms, (a) =>
-		imported([ruleDesc(a.vars, a.matches.map(matchDesc), conditionsOf(a, loc), head(a), loc)], loc)
-	)
+): NonEmptyReadonlyArray<Met> =>
+	mapNonEmpty(side.arms, (a) => {
+		const meetings = terms.map((term, i) => meetingOf(termName(i), term, a.terms[i]))
+		return {
+			source: imported(
+				[
+					ruleDesc(
+						a.vars,
+						a.matches.map(matchDesc),
+						[
+							...conditionsOf(a, loc),
+							...meetings.flatMap((m) => (m.kind === "values" ? [m.equality] : []))
+						],
+						head(a),
+						loc
+					)
+				],
+				loc
+			),
+			bindings: Object.fromEntries(
+				meetings.flatMap((m) => (m.kind === "bound" ? [[m.name, m.term] as const] : []))
+			)
+		}
+	})
 
-/** The tuples of a side's arms, each term under its pair's name: what a containment's other side meets. */
-const tuples = (side: RuleSide, loc: SourceLoc): NonEmptyReadonlyArray<InferredSource> =>
-	readAs(side, (a) => termHead(a.terms), loc)
+/** The tuples of a side's arms met at `terms`, each term under its pair's name: what a containment's other side meets. */
+const tuples = (
+	side: RuleSide,
+	terms: ReadonlyArray<InferredExpr>,
+	loc: SourceLoc
+): NonEmptyReadonlyArray<Met> => readAs(side, terms, (a) => termHead(a.terms), loc)
 
 /** That no tuple of a side read by arm agrees with `terms`: one negation of each arm's source. */
 const lacks = (
@@ -890,20 +944,21 @@ const lacks = (
 	terms: ReadonlyArray<InferredExpr>,
 	loc: SourceLoc
 ): NonEmptyReadonlyArray<InferredExpr> =>
-	mapNonEmpty(tuples(side, loc), (source) => ({
-		kind: "absent",
-		source,
-		bindings: termHead(terms)
-	}))
+	mapNonEmpty(tuples(side, terms, loc), (met) => ({ kind: "absent", ...met }))
 
-/** The facts of a key's side: each its terms under their pair names and its heading fields under their head names. */
+/**
+ * The facts of a key's side met at `terms`: each its terms under their pair names and its heading fields under their
+ * head names.
+ */
 const facts = (
 	side: RuleSide,
+	terms: ReadonlyArray<InferredExpr>,
 	heading: ReadonlyArray<string>,
 	loc: SourceLoc
-): NonEmptyReadonlyArray<InferredSource> =>
+): NonEmptyReadonlyArray<Met> =>
 	readAs(
 		side,
+		terms,
 		(a) => ({
 			...termHead(a.terms),
 			...Object.fromEntries(heading.map((f) => [headName(f), headOf(a, f, loc)] as const))
@@ -943,14 +998,16 @@ const violating = (
 			]
 		case "key": {
 			const heading = armHeading(rule.side.arms)
-			const other: Record<string, InferredExpr> = { ...termHead(arm.terms) }
-			for (const f of heading) {
-				other[headName(f)] = varRef(otherId(f))
-			}
-			return mapNonEmpty(facts(rule.side, heading, loc), (source) =>
+			const other = Object.fromEntries(
+				heading.map((f) => [headName(f), varRef(otherId(f))] as const)
+			)
+			return mapNonEmpty(facts(rule.side, arm.terms, heading, loc), (met) =>
 				ruleDesc(
 					[...arm.vars, ...heading.map((f) => ({ id: otherId(f), origin: undefined, loc }))],
-					[...arm.matches.map(matchDesc), { source, bindings: other, loc }],
+					[
+						...arm.matches.map(matchDesc),
+						{ source: met.source, bindings: { ...met.bindings, ...other }, loc }
+					],
 					[
 						...conditionsOf(arm, loc),
 						connectiveExpr(
@@ -1547,14 +1604,10 @@ export const newProbes = (
 			params
 		)
 		return probesOf(
-			mapNonEmpty(tuples(rule.from, loc), (source) =>
+			mapNonEmpty(tuples(rule.from, arm.terms, loc), (met) =>
 				ruleDesc(
 					[...arm.vars, ...open.vars.filter((v) => !h.replaced.has(v.id))],
-					[
-						{ source, bindings: termHead(arm.terms), loc },
-						...arm.matches.map(matchDesc),
-						...h.kept.map(matchDesc)
-					],
+					[{ ...met, loc }, ...arm.matches.map(matchDesc), ...h.kept.map(matchDesc)],
 					[...arm.where, ...h.where, ...lacks(rule.to, arm.terms, loc)],
 					termHead(arm.terms),
 					loc
@@ -1642,10 +1695,10 @@ const lostProbes = (
 		h.unbound(t) ? [{ id: wildcardId(i), origin: undefined, loc }] : []
 	)
 	return probesOf(
-		mapNonEmpty(tuples(rule.from, loc), (source) =>
+		mapNonEmpty(tuples(rule.from, bound, loc), (met) =>
 			ruleDesc(
 				[...arm.vars.filter((v) => !h.replaced.has(v.id) && !h.free.has(v.id)), ...wilds],
-				[{ source, bindings: termHead(bound), loc }, ...h.kept.map(matchDesc)],
+				[{ ...met, loc }, ...h.kept.map(matchDesc)],
 				[...h.where, ...lacks(rule.to, bound, loc)],
 				termHead(bound),
 				loc

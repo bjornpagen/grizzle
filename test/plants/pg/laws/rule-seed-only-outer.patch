@@ -1,22 +1,45 @@
 diff --git a/packages/engine/src/analysis/theory/query.ts b/packages/engine/src/analysis/theory/query.ts
-index 4215e7a4..2498b2e5 100644
+index cccc07d6..3356e751 100644
 --- a/packages/engine/src/analysis/theory/query.ts
 +++ b/packages/engine/src/analysis/theory/query.ts
-@@ -931,9 +931,14 @@ const readAs = (
+@@ -906,30 +906,17 @@ const readAs = (
+ 	terms: ReadonlyArray<InferredExpr>,
  	head: (arm: SideArm) => Readonly<Record<string, InferredExpr>>,
  	loc: SourceLoc
- ): NonEmptyReadonlyArray<InferredSource> =>
--	mapNonEmpty(side.arms, (a) =>
--		imported([ruleDesc(a.vars, a.matches.map(matchDesc), conditionsOf(a, loc), head(a), loc)], loc)
--	)
-+	[
-+		imported(
+-): NonEmptyReadonlyArray<Met> =>
+-	mapNonEmpty(side.arms, (a) => {
+-		const meetings = terms.map((term, i) => meetingOf(termName(i), term, a.terms[i]))
+-		return {
+-			source: imported(
+-				[
+-					ruleDesc(
+-						a.vars,
+-						a.matches.map(matchDesc),
+-						[
+-							...conditionsOf(a, loc),
+-							...meetings.flatMap((m) => (m.kind === "values" ? [m.equality] : []))
+-						],
+-						head(a),
+-						loc
+-					)
+-				],
+-				loc
++): NonEmptyReadonlyArray<Met> => [
++	{
++		source: imported(
 +			mapNonEmpty(side.arms, (a) =>
 +				ruleDesc(a.vars, a.matches.map(matchDesc), conditionsOf(a, loc), head(a), loc)
-+			),
+ 			),
+-			bindings: Object.fromEntries(
+-				meetings.flatMap((m) => (m.kind === "bound" ? [[m.name, m.term] as const] : []))
+-			)
+-		}
+-	})
 +			loc
-+		)
-+	]
++		),
++		bindings: termHead(terms)
++	}
++]
  
- /** The tuples of a side's arms, each term under its pair's name: what a containment's other side meets. */
- const tuples = (side: RuleSide, loc: SourceLoc): NonEmptyReadonlyArray<InferredSource> =>
+ /** The tuples of a side's arms met at `terms`, each term under its pair's name: what a containment's other side meets. */
+ const tuples = (

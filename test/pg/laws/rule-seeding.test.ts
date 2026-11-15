@@ -3,7 +3,7 @@
  * violation restricted to the rows its write touched and those its chain reaches from them, so it judges exactly what
  * the rule's whole check judges, and reads only the rows of the touched row's key.
  *
- * The shapes are four schemas of link tables L1, L2 and L3, each row linked up to the one before it and L1's to its
+ * The shapes are five schemas of link tables L1, L2 and L3, each row linked up to the one before it and L1's to its
  * key, a mark M on a link and a block N of one, each a downstream shape in miniature:
  *
  * - **titles**, edullm's LomObjectTitle: the keys whose L2 a mark names, through an imported path L1 ⋈ L2, are
@@ -16,7 +16,11 @@
  *   declared from its deepest link up, the second an L1 of value 1 no N blocks, the third a chain of three whose L3 no N
  *   blocks;
  * - **key**: a key over a side of three arms, each a key's value read off an L1, an L2 under an unblocked L1, or an L3
- *   at the end of the path.
+ *   at the end of the path;
+ * - **tagged**: key's side, its arms tagging their facts by literals, the first two by 1 and the third by 2, a union a
+ *   literal tells apart, under a key over the key and its tag: a probe of the first arm meets the second's tag by the
+ *   same literal, bound, and the third's by a different one, compared in the third's own query
+ *   (analysis/theory/query.ts Meeting), so the third arm meets no fact of the first's.
  *
  * - **Equivalence:** one search per shape, each with the budget of its own, so a shape added takes none of another's;
  *   each case draws a history of direct SQL transactions at SERIALIZABLE over keys 1 and 2
@@ -50,8 +54,8 @@
  * either rarely, as it does a refusal by an inserted block, so each has a case constructed to reach it, which a witness
  * runs where its turn aims at the refusal (aimedCase): a lawful build drawn on the case's tape, then the withdrawal,
  * which leaves a source fact its every target fact withdrawn (withdrawalsOf). A key is refused by single-row deletes
- * of a block alone, which adds the facts it held out, and never by an unwind or an inserted block, so its search
- * requires the first refusal only.
+ * of a block alone, which adds the facts it held out, and never by an unwind or an inserted block, so key's and
+ * tagged's searches require the first refusal only.
  *
  * Each plant below is red in the floor stream of the searches its tag names, so on every seed.
  *
@@ -69,6 +73,12 @@
  * @plant test/plants/pg/laws/rule-seed-arm-split-drops-arm.patch lacks reading the target's first arm alone, so a
  * probe's negation of the target misses a key a later arm holds: titles', viewed's and deep's equivalence searches
  * fail by refusing a lawful state.
+ * @plant test/plants/pg/laws/rule-seed-literal-values-dropped.patch readAs dropping the equality of an arm's literal
+ * with a different literal of the probe (analysis/theory/query.ts Meeting `values`), so a probe of tagged's first arm
+ * meets the third's facts of its key whatever their tag: tagged's equivalence search fails by refusing a lawful state,
+ * its first chain, and its locality search by 23505 where a touched row of a lawful state runs its triggers.
+ * @plant test/plants/unit/analysis/theory/rule-probe-literal-bound.patch a probe's literal bound to an arm's literal
+ * that differs, a filter the checker refuses: tagged's install fails in both its searches.
  * @plant test/plants/pg/laws/navigate-literal-before-key.patch Navigation (analysis/theory/navigate.ts, which every
  * probe is read through) ranks a read a literal alone binds with one a key binds, so deep's probe of an L2 starts from
  * every key's L2 of value 1 and deep's locality search finds it reading more rows beside more keys.
@@ -308,8 +318,48 @@ const keyed = (name: string) => {
 	return schema.extend(Base, `${name}_1`, [Valued], [key(on(Valued, "k"))])
 }
 
-const shapes = ["titles", "viewed", "deep", "key"] as const
+/**
+ * tagged: key's side, each arm tagging its facts by a literal, the first two by 1 and the third by 2, under a key over
+ * the key and its tag, so a probe of one arm meets another's tag by the same literal or by a different one.
+ */
+const tagged = (name: string) => {
+	const { Base, path } = base(name)
+	const Tagged = derived(
+		"Tagged",
+		query(Base)
+			.rule((r) => {
+				const { up: k, v: w } = v(L1, "first")
+				return r.match(L1, { up: k, v: w }).find({ k, tag: 1, w })
+			})
+			.rule((r) => {
+				const { id: x1, up: k } = v(L1, "first")
+				const { v: w } = v(L2, "second")
+				return r
+					.match(L1, { id: x1, up: k })
+					.match(L2, { up: x1, v: w })
+					.where(r.not(N, { id: x1 }))
+					.find({ k, tag: 1, w })
+			})
+			.rule((r) => {
+				const { k, x2 } = v(path, "path")
+				const { v: w } = v(L3, "third")
+				return r.match(L3, { up: x2, v: w }).match(path, { k, x2 }).find({ k, tag: 2, w })
+			})
+	)
+	return schema.extend(Base, `${name}_1`, [Tagged], [key(on(Tagged, "k", "tag"))])
+}
+
+const shapes = ["titles", "viewed", "deep", "key", "tagged"] as const
 type Shape = (typeof shapes)[number]
+
+/** What a shape's rule is: a containment, or a key. */
+const ruleOf = {
+	titles: "contained",
+	viewed: "contained",
+	deep: "contained",
+	key: "key",
+	tagged: "key"
+} as const satisfies Record<Shape, "contained" | "key">
 
 const schemaOf = (shape: Shape, name: string) => {
 	switch (shape) {
@@ -321,11 +371,13 @@ const schemaOf = (shape: Shape, name: string) => {
 			return deep(name)
 		case "key":
 			return keyed(name)
+		case "tagged":
+			return tagged(name)
 	}
 }
 
 /** The SQLSTATE a shape's rule is refused under: a containment's, or a key's. */
-const codeOf = (shape: Shape): string => (shape === "key" ? "23505" : "23503")
+const codeOf = (shape: Shape): string => (ruleOf[shape] === "key" ? "23505" : "23503")
 
 /** One write of a transaction, as drawn. */
 type Op =
@@ -528,25 +580,28 @@ const deepBlocked: Gen<Case> = (s) => {
 }
 
 /**
- * key's case refused by deleting a block, its values drawn. The build, one transaction: a chain of key k whose L1 and
- * L3 are of value w and whose L2 of 1 - w is under a block of its L1 a1, so k has the one value w. Deleting the block
- * gives k the value 1 - w through the side's second arm, and the key is broken.
+ * key's and tagged's case refused by deleting a block, its values drawn. The build, one transaction: a chain of key k
+ * whose L1 and L3 are of value w and whose L2 of 1 - w is under a block of its L1 a1, so k has the one value w (under
+ * tagged, w under each tag). Deleting the block gives k the value 1 - w through the side's second arm, which tags it as
+ * the first does, and the key is broken.
  */
-const blockWithdrawn: Gen<Case> = (s) => {
-	const k = s.draw(int(1, 2))
-	const [a1, a2, a3] = [s.draw(idGen), s.draw(idGen), s.draw(idGen)]
-	const w = s.draw(valueGen)
-	return {
-		shape: "key",
-		history: [
-			[
-				{ kind: "chain", k, ids: [a1, a2, a3], values: [w, 1 - w, w] },
-				{ kind: "block", id: a1 }
-			],
-			[{ kind: "delete", table: "N", id: a1 }]
-		]
+const blockWithdrawn =
+	(shape: Extract<Shape, "key" | "tagged">): Gen<Case> =>
+	(s) => {
+		const k = s.draw(int(1, 2))
+		const [a1, a2, a3] = [s.draw(idGen), s.draw(idGen), s.draw(idGen)]
+		const w = s.draw(valueGen)
+		return {
+			shape,
+			history: [
+				[
+					{ kind: "chain", k, ids: [a1, a2, a3], values: [w, 1 - w, w] },
+					{ kind: "block", id: a1 }
+				],
+				[{ kind: "delete", table: "N", id: a1 }]
+			]
+		}
 	}
-}
 
 /**
  * The withdrawals that refuse a shape's rule, each with the case constructed to reach its refusal. A containment is
@@ -570,7 +625,8 @@ const withdrawalsOf = (shape: Shape): NonEmptyReadonlyArray<readonly [Withdrawal
 				["block", deepBlocked]
 			]
 		case "key":
-			return [["deletes", blockWithdrawn]]
+		case "tagged":
+			return [["deletes", blockWithdrawn(shape)]]
 	}
 }
 
@@ -705,6 +761,7 @@ const laterArmOnly = (seat: Seat, shape: Shape): string | undefined => {
 		case "deep":
 			return `SELECT EXISTS (SELECT 1 FROM ${t("M")} m JOIN ${t("L1")} a ON a.${c("L1", "id")} = m.${c("M", "up")} WHERE NOT EXISTS (SELECT 1 FROM ${t("L1")} a2 JOIN ${t("L2")} b2 ON b2.${c("L2", "up")} = a2.${c("L1", "id")} JOIN ${t("L3")} z ON z.${c("L3", "up")} = b2.${c("L2", "id")} WHERE a2.${c("L1", "up")} = a.${c("L1", "up")} AND z.${c("L3", "v")} = 1))`
 		case "key":
+		case "tagged":
 			return undefined
 	}
 }
@@ -1018,7 +1075,7 @@ const footprints = (seat: Seat, k: number, from: number, to: number) =>
  */
 const requiredOf = (shape: Shape): NonEmptyReadonlyArray<EquivalenceFeature> => {
 	const containment: ReadonlyArray<EquivalenceFeature> =
-		shape === "key" ? [] : ["committed a needed key no first target arm holds"]
+		ruleOf[shape] === "key" ? [] : ["committed a needed key no first target arm holds"]
 	return [
 		"committed",
 		`refused by ${shape}`,

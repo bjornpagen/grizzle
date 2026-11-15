@@ -26,7 +26,10 @@
  * precision or one fraction digit more than its greatest scale. A
  * bare head literal takes its column's type, a Decimal's the computed numeric of the bound its analysis proves, which
  * no numeric(p, s) states for any but the finite one, so it stands wherever a term of the column does; a variable only
- * a head literal defines is that literal.
+ * a head literal defines is that literal. A trigger probe reads the union by arm, so a fact of one arm meets each arm's
+ * literal: bound to it where the arm delivers the same literal, compared with it in the arm's own query where the arm
+ * delivers another (analysis/theory/query.ts Meeting), since a literal bound where the arm delivers another is a filter
+ * no fact of the arm meets, which the checker refuses.
  *
  * A fourth box negates: a derived relation of Item whose definition negates Mark, a join of Mark and Note (a query),
  * their union (a query of two rules), the join derived on a level below, a query that aggregates or one that negates in
@@ -55,6 +58,9 @@
  * second box fails.
  * @plant test/plants/unit/analysis/theory/rule-head-literal-untyped.patch A bare head literal left untyped where a
  * term of its column stands (analysis/theory/query.ts); the third box fails.
+ * @plant test/plants/unit/analysis/theory/rule-probe-literal-bound.patch A probe's literal bound to an arm's literal
+ * that differs, as every term was bound before (analysis/theory/query.ts meetingOf's test inverted), a filter no fact of
+ * the arm meets; the third box fails at a trigger probe of a key over a union of two literals.
  * @plant test/plants/unit/analysis/theory/rule-negation-conjunction-whole.patch A conjunction holding a negation read
  * whole, which refuses it as a negation below a condition (analysis/theory/query.ts filtersOf); the fourth box fails.
  * @plant test/plants/unit/analysis/theory/rule-negation-nested-admitted.patch A negated query that negates in turn

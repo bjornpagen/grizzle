@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/theory/query.ts b/packages/engine/src/analysis/theory/query.ts
+index cccc07d6..9c8e3511 100644
+--- a/packages/engine/src/analysis/theory/query.ts
++++ b/packages/engine/src/analysis/theory/query.ts
+@@ -881,7 +881,7 @@ type Meeting =
+ const meetingOf = (name: string, term: InferredExpr, own: InferredExpr | undefined): Meeting =>
+ 	own?.kind === "literal" &&
+ 	term.kind === "literal" &&
+-	!canonicalEquals(own.value, term.value, everyProperty)
++	canonicalEquals(own.value, term.value, everyProperty)
+ 		? { kind: "values", equality: equal(own, term) }
+ 		: { kind: "bound", name, term }
+ 
