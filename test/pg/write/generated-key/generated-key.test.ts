@@ -21,30 +21,38 @@ import {
  * the field, and the statement that writes a row compares it there, at its term over the row's written fields, against
  * every other row it writes and every stored row: a write that would store two rows of one value at the key is
  * `refused` on the key, its witness the key's values as PostgreSQL stores them; a deletion compares only at
- * keys whose fields it states; a family's member rows meet such a key at its index, refused on the key with an
- * `unreported` witness.
+ * keys whose fields it states; a new owner's nested members meet such a key at its index, refused on the key with an
+ * `unreported` witness, and a member a put appends to a stored owner meets it at its gate's probe of the stored members
+ * (write/family/statements.ts candidateGate), refused on the key, witnessed by the appended row's key (README "Errors
+ * and outcomes", Witness).
  *
  * Keys holds a typed map key, MapKey (mapping, text), primary key both, whose `value` and `negative` PostgreSQL
  * generates from its text, the integer it spells and whether it is spelled with a minus, keyed by (mapping, value,
  * negative): two spellings of one value in one mapping, "1" and "01", are one key, and "0" and "-0" are two. Use names
  * a typed key by a containment into it. Tag (id, text), mutable, keeps at most one tag of each positive value, a key
- * over a selected side whose term and selection read its generated `value`. Mapping owns an ordered family of Entry
- * rows, each a typed key of its own, keyed by (mapping, value, negative), written nested under a new mapping.
+ * over a selected side whose term and selection read its generated `value`. Mapping, mutable, owns an ordered family of
+ * Entry rows, primary key (mapping, text), each a typed key of its own, keyed by (mapping, value, negative), written
+ * nested under a new mapping or appended to a stored one by a put of Entry: a put at a key the mapping stores repeats
+ * its entry exactly, and any other takes the next slot, its gate (write/family/statements.ts candidateGate) probing
+ * the stored entries under the statement's snapshot at the appended row's generated fields.
  *
  * Each case stores a lawful state, then applies one stratum of up to three writes: inserts, puts and deletes of MapKey
- * and Tag from an array or a query over a relation parameter, inserts of Use, and inserts of new mappings with their
- * entries nested. The stratum is the one member of a served workload of its own, its array writes of one op and one
+ * and Tag from an array or a query over a relation parameter, inserts of Use, inserts of new mappings with their
+ * entries nested, and appends of entries to the stored mapping, near its entries: one of them, another spelling of one,
+ * or a fresh text. The stratum is the one member of a served workload of its own, its array writes of one op and one
  * relation one array member whose call's facts are their rows. Texts are drawn from three values, both signs and two
  * paddings, so writes meet stored rows and each other at every key.
  *
  * The oracle is the law model (test/support/laws/model.ts): the add-wins transition of the stratum over the stored
- * state, its facts' generated values computed from their texts apart from grizzle, and every law's violation over the
- * result, a key's naming its violators by the key's own fields; two facts a stratum deletes at one key are no refusal,
- * since a deletion names its fact exactly (README "A relation's rows are a set"), so at most one of them is stored and
- * the other changes nothing (model.ts expect). A refused write names a violated law, every immediate one before a
- * deferred one, with a witness naming
- * one of its violators, or `unreported` for a containment and for the nested entries' key, and changes nothing; any
- * other write stores exactly the model's state, accepted where it changed a row and unchanged otherwise.
+ * state, its facts' generated values computed from their texts apart from grizzle, an append's rows at keys its
+ * mapping does not store at its slots after the stored ones in key order, put with the mapping's new count (README
+ * "Writing a family": an append takes the slots after the last; write/family/additions.ts), and every law's violation
+ * over the result, a key's naming its violators by the key's own fields; two facts a stratum deletes at one key are no
+ * refusal, since a deletion names its fact exactly (README "A relation's rows are a set"), so at most one of them is
+ * stored and the other changes nothing (model.ts expect). A refused write names a violated law, every immediate one
+ * before a deferred one, with a witness naming one of its violators, or `unreported` for a containment and for the
+ * entry key where a new mapping's nested entries break it, and changes nothing; any other write stores exactly the
+ * model's state, accepted where it changed a row and unchanged otherwise.
  *
  * Through a role (README, "Writing through a role"): Label (id, text), its `value` generated from its text, at most one
  * label of each value, written through Low, the labels below id 5, by an insert or a put of one label beside stored
@@ -56,7 +64,8 @@ import {
  *
  * @plant test/plants/pg/write/generated-key/generated-key-probe-term-of-another-field.patch The probe computes a
  * requested fact's generated key field from another field's column (write/insert/unique.ts buildProbe); the first
- * property fails, at a stored clash it misses or a clash it invents.
+ * property fails where an appended entry meets a stored one: a clash with a stored entry spelled with a minus the gate's
+ * probe misses, refused at the index with no witness, or a clash it invents, refusing a lawful append.
  * @plant test/plants/pg/write/entry-owner/entry-owner-outside-never-refused.patch An entry's check never refuses a fact
  * outside it; the second property fails, a label outside Low stored.
  */
@@ -149,12 +158,12 @@ const positiveTag = key(
 	)
 )
 
-/** A mapping's entries, in order, each a typed key of its own. */
+/** A mapping's entries, in order, each named by its text, so a put appends one, and each a typed key of its own. */
 const Mapping = relation("Mapping", { id: pg.integer, n: drawnField(natural) }, ["id"])
 const Entry = relation.generated(
 	"Entry",
 	{ mapping: pg.integer, at: drawnField(natural), text: KeyText },
-	["mapping", "at"],
+	["mapping", "text"],
 	(r) => ({
 		value: generated(pg.integer, Compute.cast(r.text, pg.integer)),
 		negative: generated(pg.boolean, Compute.startsWith(r.text, "-"))
@@ -166,7 +175,7 @@ const entryKey = key(on(Entry, "mapping", "value", "negative"))
 const Keys = schema(
 	"Keys",
 	[MapKey, Use, Tag, Mapping, Entry],
-	[typedKey, useRef, positiveTag, entries, entryKey, mutable(Tag)]
+	[typedKey, useRef, positiveTag, entries, entryKey, mutable(Tag), mutable(Mapping)]
 )
 
 /**
@@ -242,12 +251,17 @@ interface MappingRow {
 	readonly id: number
 	readonly entries: Arr.NonEmptyReadonlyArray<KeyTextValue>
 }
+/** An entry appended to a stored mapping, as its put states it: its mapping and its text, its slot drawn by grizzle. */
+interface EntryRow {
+	readonly mapping: number
+	readonly text: KeyTextValue
+}
 
 type Edit = "insert" | "put" | "delete"
 type Source = "array" | "query"
 
-/** One write of a case's stratum: an edit of MapKey or Tag from an array or a query, or an insert of Use or of new
- * mappings with their entries nested. */
+/** One write of a case's stratum: an edit of MapKey or Tag from an array or a query, an insert of Use or of new
+ * mappings with their entries nested, or a put of entries appended to stored mappings. */
 type Write =
 	| {
 			readonly relation: "MapKey"
@@ -263,6 +277,7 @@ type Write =
 	  }
 	| { readonly relation: "Use"; readonly rows: Arr.NonEmptyReadonlyArray<UseRow> }
 	| { readonly relation: "Mapping"; readonly rows: Arr.NonEmptyReadonlyArray<MappingRow> }
+	| { readonly relation: "Entry"; readonly rows: Arr.NonEmptyReadonlyArray<EntryRow> }
 
 /** The rows stored before the write, lawful together. */
 interface Stored {
@@ -400,8 +415,8 @@ const hostOf = (laws: KeysLaws): HostSchema => ({
 		relationOf("MapKey", ["mapping", "text", "value", "negative"], ["mapping", "text"], false),
 		relationOf("Use", ["id", "mapping", "value", "negative"], ["id"], false),
 		relationOf("Tag", ["id", "text", "value"], ["id"], true),
-		relationOf("Mapping", ["id", "n"], ["id"], false),
-		relationOf("Entry", ["mapping", "at", "text", "value", "negative"], ["mapping", "at"], false)
+		relationOf("Mapping", ["id", "n"], ["id"], true),
+		relationOf("Entry", ["mapping", "at", "text", "value", "negative"], ["mapping", "text"], false)
 	],
 	laws: [
 		keyLaw(laws.mapKeyPrimary, "MapKey", ["mapping", "text"]),
@@ -434,7 +449,7 @@ const hostOf = (laws: KeysLaws): HostSchema => ({
 			}
 		},
 		keyLaw(laws.mappingPrimary, "Mapping", ["id"]),
-		keyLaw(laws.entryPrimary, "Entry", ["mapping", "at"]),
+		keyLaw(laws.entryPrimary, "Entry", ["mapping", "text"]),
 		keyLaw(laws.entryKey, "Entry", ["mapping", "value", "negative"])
 	]
 })
@@ -449,9 +464,57 @@ const storedState = (s: Stored): HostState =>
 		["Entry", Arr.flatMap(s.mappings, (m) => mappingFacts(m).entries)]
 	])
 
-/** A case's writes as the model's ops: a mapping's insert adds its entries too. */
-const opsOf = (writes: ReadonlyArray<Write>): ReadonlyArray<HostOp> =>
-	Arr.flatMap(writes, (w): ReadonlyArray<HostOp> => {
+/**
+ * A stratum's appends as the model's ops: its puts of Entry are one array member, a set of rows. A row at a key its
+ * mapping stores repeats that entry exactly, which changes nothing; each mapping takes its other rows at the slots after
+ * its stored entries in key order (write/family/additions.ts), and is put with its new count.
+ */
+const appendedOps = (stored: Stored, writes: ReadonlyArray<Write>): ReadonlyArray<HostOp> => {
+	const rows = Arr.flatMap(writes, (w) => (w.relation === "Entry" ? w.rows : []))
+	const groups = Arr.flatMap(Arr.dedupe(Arr.map(rows, (r) => r.mapping)), (id) => {
+		const held = defined(
+			Option.getOrUndefined(Arr.findFirst(stored.mappings, (m) => m.id === id)),
+			`the stored mapping ${String(id)} an append names`
+		).entries
+		const texts = Arr.sort(
+			Arr.dedupe(
+				Arr.map(
+					Arr.filter(rows, (r) => r.mapping === id && !held.includes(r.text)),
+					(r) => r.text
+				)
+			),
+			Order.String
+		)
+		return Arr.isReadonlyArrayNonEmpty(texts) ? [{ id, held: held.length, texts }] : []
+	})
+	return Arr.isReadonlyArrayNonEmpty(groups)
+		? [
+				{
+					relation: "Entry",
+					kind: "put",
+					facts: Arr.flatMap(groups, (g) =>
+						Arr.map(g.texts, (text, i) => ({
+							mapping: g.id,
+							at: g.held + i,
+							text,
+							value: valueOf(text),
+							negative: negativeOf(text)
+						}))
+					)
+				},
+				{
+					relation: "Mapping",
+					kind: "put",
+					facts: Arr.map(groups, (g) => ({ id: g.id, n: g.held + g.texts.length }))
+				}
+			]
+		: []
+}
+
+/** A case's writes as the model's ops: a mapping's insert adds its entries too, and the stratum's appends are joined
+ * (appendedOps). */
+const opsOf = (stored: Stored, writes: ReadonlyArray<Write>): ReadonlyArray<HostOp> => [
+	...Arr.flatMap(writes, (w): ReadonlyArray<HostOp> => {
 		switch (w.relation) {
 			case "MapKey":
 				return [{ relation: "MapKey", kind: w.edit, facts: Arr.map(w.rows, mapKeyFact) }]
@@ -472,8 +535,12 @@ const opsOf = (writes: ReadonlyArray<Write>): ReadonlyArray<HostOp> =>
 						facts: Arr.flatMap(w.rows, (m) => mappingFacts(m).entries)
 					}
 				]
+			case "Entry":
+				return []
 		}
-	})
+	}),
+	...appendedOps(stored, writes)
+]
 
 /** Whether one delete of the stratum `ops` states two distinct facts at its relation's primary key. */
 const deletedTwice = (host: HostSchema, ops: ReadonlyArray<HostOp>): boolean =>
@@ -639,13 +706,40 @@ const writeGen =
 		}
 	}
 
+/** Entries appended to the stored mappings, each near their entries: one of them, another spelling of its typed key,
+ * or a fresh text. */
+const appendGen =
+	(mappings: Arr.NonEmptyReadonlyArray<MappingRow>): Gen<Write> =>
+	(source) => {
+		const fresh: Gen<EntryRow> = (s) => ({
+			mapping: s.draw(element(mappings)).id,
+			text: s.draw(textGen)
+		})
+		const row = nearGen(
+			Arr.flatMap(mappings, (m) => Arr.map(m.entries, (text) => ({ mapping: m.id, text }))),
+			fresh,
+			(r, text) => ({ ...r, text })
+		)
+		const [first, ...rest] = source.draw(array(row, { min: 1, max: 3 }))
+		return { relation: "Entry", rows: [first ?? source.draw(fresh), ...rest] }
+	}
+
+/** A write of a case's stratum: one `writeGen` draws, or, where a mapping is stored, a draw in seven, an append to it. */
+const stratumWriteGen = (stored: Stored, fresh: number): Gen<Write> =>
+	Arr.isReadonlyArrayNonEmpty(stored.mappings)
+		? weighted([
+				[6, writeGen(stored, fresh)],
+				[1, appendGen(stored.mappings)]
+			])
+		: writeGen(stored, fresh)
+
 const caseGen =
 	(host: HostSchema): Gen<Case> =>
 	(source) => {
 		const stored = source.draw(storedGen(host))
 		const count = source.draw(int(1, 3))
 		const writes = nonEmpty(
-			upTo(count, (i) => source.draw(writeGen(stored, 11 + i))),
+			upTo(count, (i) => source.draw(stratumWriteGen(stored, 11 + i))),
 			"a case writes one to three times"
 		)
 		return { stored, writes }
@@ -708,6 +802,77 @@ const retakenGen: Gen<Case> = (source) => {
 	}
 }
 
+/** Each text's typed key of the other sign: its value and padding, the other sign, so "0" and "-0" too. */
+const negation: Readonly<Record<KeyTextValue, KeyTextValue>> = {
+	"0": "-0",
+	"-0": "0",
+	"00": "-00",
+	"-00": "00",
+	"1": "-1",
+	"-1": "1",
+	"01": "-01",
+	"-01": "01",
+	"2": "-2",
+	"-2": "2",
+	"02": "-02",
+	"-02": "02"
+}
+
+/** A case storing one mapping of the entry `stored` and appending the entry `appended` to it, by a put of Entry. */
+const appendCase = (stored: KeyTextValue, appended: KeyTextValue): Case => ({
+	stored: { mapKeys: [], uses: [], tags: [], mappings: [{ id: 1, entries: [stored] }] },
+	writes: [{ relation: "Entry", rows: [{ mapping: 1, text: appended }] }]
+})
+
+/** A case appending to a stored entry spelled with a minus its typed key in its other spelling: refused on the entry key
+ * against the stored entry. */
+const appendedTwiceGen: Gen<Case> = (source) => {
+	const text = source.draw(element(["-0", "-00", "-1", "-01", "-2", "-02"] as const))
+	return appendCase(text, otherSpelling(text))
+}
+
+/** A case appending to a stored entry the typed key of its other sign, which no entry holds: accepted. */
+const appendedGen: Gen<Case> = (source) => {
+	const text = source.draw(textGen)
+	return appendCase(text, negation[text])
+}
+
+/** A case storing one tag of a positive value and writing a tag of that value at another id: refused on the positive
+ * tag key. */
+const positiveTwiceGen: Gen<Case> = (source) => {
+	const text = source.draw(element(["1", "01", "2", "02"] as const))
+	return {
+		stored: { mapKeys: [], uses: [], tags: [{ id: 1, text }], mappings: [] },
+		writes: [
+			{
+				relation: "Tag",
+				edit: source.draw(element(["insert", "put"] as const)),
+				source: source.draw(element(["array", "query"] as const)),
+				rows: [{ id: 2, text: source.draw(element([text, otherSpelling(text)])) }]
+			}
+		]
+	}
+}
+
+/** A case storing a typed key of zero and writing zero of the other sign in its mapping: accepted, both stored. */
+const signedZerosGen: Gen<Case> = (source) => {
+	const row = {
+		mapping: source.draw(int(1, 2)),
+		text: source.draw(element(["0", "00", "-0", "-00"] as const))
+	}
+	return {
+		stored: { mapKeys: [row], uses: [], tags: [], mappings: [] },
+		writes: [
+			{
+				relation: "MapKey",
+				edit: source.draw(element(["insert", "put"] as const)),
+				source: source.draw(element(["array", "query"] as const)),
+				rows: [{ ...row, text: negation[row.text] }]
+			}
+		]
+	}
+}
+
 /** A case storing one tag and deleting it beside another tag at its id, in one member: no refusal, the stored tag
  * deleted. */
 const deletedTwiceGen: Gen<Case> = (source) => {
@@ -731,7 +896,9 @@ type Feature =
 	| "typed key refused for a query's row"
 	| "typed key refused for a put"
 	| "positive tag refused"
-	| "entry key refused"
+	| "entry key refused within the write"
+	| "entry key refused against a stored entry spelled with a minus"
+	| "an entry appended to a stored mapping"
 	| "a reference refused"
 	| "two signs of zero held apart"
 	| "a typed key freed and taken again"
@@ -745,7 +912,11 @@ const aims: ReadonlyArray<readonly [Feature, Gen<Case>]> = [
 	["typed key refused for a query's row", twiceSpelledGen(["query"], ["insert", "put"])],
 	["typed key refused for a put", respelledPutGen],
 	["a typed key freed and taken again", retakenGen],
-	["two deletions at one key", deletedTwiceGen]
+	["two deletions at one key", deletedTwiceGen],
+	["positive tag refused", positiveTwiceGen],
+	["two signs of zero held apart", signedZerosGen],
+	["entry key refused against a stored entry spelled with a minus", appendedTwiceGen],
+	["an entry appended to a stored mapping", appendedGen]
 ]
 
 /**
@@ -757,6 +928,15 @@ const aimedCase = (drawnCase: Case, c: ExploreCase<Feature>): Case => {
 	const aim = Arr.findFirst(aims, ([situation]) => pending?.aimed(situation) === true)
 	return Option.isNone(aim) ? drawnCase : c.draw(aim.value[1])
 }
+
+/** Whether a violation names an entry of a mapping the case does not store, nested under a new mapping, which meets the
+ * entry key at its index alone. */
+const nestedClash = (c: Case, v: Violation): boolean =>
+	Arr.some(
+		v.violators,
+		(x) =>
+			!Arr.some(c.stored.mappings, (m) => valueText(m.id) === valueText(x.values["mapping"] ?? ""))
+	)
 
 /** The notes a refused case's violations reach. */
 const refusalNotes = (
@@ -786,13 +966,26 @@ const refusalNotes = (
 					: [])
 			]
 		}
+		if (v.law === laws.entryKey) {
+			const met = Arr.filter(before.get("Entry") ?? [], (f) =>
+				Arr.some(v.violators, (x) =>
+					Arr.every(
+						["mapping", "value", "negative"],
+						(k) => valueText(f[k] ?? "") === valueText(x.values[k] ?? "")
+					)
+				)
+			)
+			return Arr.isReadonlyArrayNonEmpty(met)
+				? Arr.some(met, (f) => f["negative"] === true)
+					? ["entry key refused against a stored entry spelled with a minus"]
+					: []
+				: ["entry key refused within the write"]
+		}
 		return v.law === laws.positiveTag
 			? ["positive tag refused"]
-			: v.law === laws.entryKey
-				? ["entry key refused"]
-				: v.law === laws.useRef
-					? ["a reference refused"]
-					: []
+			: v.law === laws.useRef
+				? ["a reference refused"]
+				: []
 	})
 
 /** The notes an applied case's state reaches. */
@@ -824,7 +1017,10 @@ const appliedNotes = (c: Case, after: HostState, changed: boolean): ReadonlyArra
 	return [
 		changed ? "accepted" : "unchanged",
 		...(signs ? (["two signs of zero held apart"] as const) : []),
-		...(retaken ? (["a typed key freed and taken again"] as const) : [])
+		...(retaken ? (["a typed key freed and taken again"] as const) : []),
+		...(Arr.some(c.writes, (w) => w.relation === "Entry")
+			? (["an entry appended to a stored mapping"] as const)
+			: [])
 	]
 }
 
@@ -1088,6 +1284,14 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 												n: Arr.map(m.entries, (text) => ({ text }))
 											}))
 										}
+									case "Entry":
+										return {
+											kind: "array",
+											op: "put",
+											relation: w.relation,
+											changes: ChangeSet.empty(S).put(Entry, []),
+											rows: w.rows
+										}
 								}
 							}
 							/**
@@ -1223,7 +1427,9 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 											"typed key refused for a query's row",
 											"typed key refused for a put",
 											"positive tag refused",
-											"entry key refused",
+											"entry key refused within the write",
+											"entry key refused against a stored entry spelled with a minus",
+											"an entry appended to a stored mapping",
 											"a reference refused",
 											"two signs of zero held apart",
 											"a typed key freed and taken again",
@@ -1290,7 +1496,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 										}
 										const outcome = applied.success
 										const afterRows = yield* readState
-										const ops = opsOf(k.writes)
+										const ops = opsOf(k.stored, k.writes)
 										const expected = expectedOf(host, before, ops)
 										if (deletedTwice(host, ops)) {
 											c.note("two deletions at one key")
@@ -1319,7 +1525,8 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 											const witness = outcome.witness
 											if (witness.kind === "unreported") {
 												assert.ok(
-													met.value.violators.length === 0 || met.value.law === laws.entryKey,
+													met.value.violators.length === 0 ||
+														(met.value.law === laws.entryKey && nestedClash(k, met.value)),
 													`a refusal by ${met.value.law}, whose violators the write names, reports its key`
 												)
 											} else {
