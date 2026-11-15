@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/indexes/engine.ts b/packages/engine/src/physical/indexes/engine.ts
+index cbe39228..e969402f 100644
+--- a/packages/engine/src/physical/indexes/engine.ts
++++ b/packages/engine/src/physical/indexes/engine.ts
+@@ -915,7 +915,7 @@ export const planIndexes = (
+ 			},
+ 			requests: []
+ 		}))
+-		const plan = requests
++		const plan = requests.filter((r) => r.role !== "lawMaintenance")
+ 			.flatMap((r): ReadonlyArray<Planned> => {
+ 				const label = requestLabel(r)
+ 				const o = b.target(r.relation)

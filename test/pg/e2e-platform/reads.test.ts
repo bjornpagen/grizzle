@@ -24,8 +24,8 @@
  * grant expiring exactly at an event's start and at its end, a cap hit exactly, zero-token and cache-only events, a
  * tier boundary crossed within one event, an event split across grants.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): reads-page-skips.patch (a forward page's seek made inclusive, so its
- * anchor repeats).
+ * @plant test/plants/pg/e2e-platform/reads-page-skips.patch A forward page's seek made inclusive, so its anchor
+ * repeats; the paged reads differ from the model.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

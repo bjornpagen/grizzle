@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/write/net.ts b/packages/engine/src/runtime/write/net.ts
+index 58782645..2fde537d 100644
+--- a/packages/engine/src/runtime/write/net.ts
++++ b/packages/engine/src/runtime/write/net.ts
+@@ -97,7 +97,7 @@ const countOf = (
+ 	let deleted = 0n
+ 	for (const a of added.values()) {
+ 		if (a.tag === "put") {
+-			put += 1n
++			insert += 1n
+ 		} else {
+ 			insert += 1n
+ 		}

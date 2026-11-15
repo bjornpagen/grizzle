@@ -23,8 +23,11 @@
  *
  * Features: a read by a busy account and by another.
  *
- * Plants: ~/.cache/grizzle-release/PLANIDX/plants/plans-requests-unplanned.patch (the index engine planning no
- * requested index, access or law).
+ * @plant test/plants/pg/e2e-platform/plans-requests-unplanned.patch The index engine planning no requested index,
+ * access or law; the served reads fail.
+ * @plant test/plants/pg/e2e-work/deployed-workload-unsourced.patch The harness installs a version's served workloads
+ * with no live plan (test/support/compile.ts deployedWorkloadOver), so the installation serves no live source and the
+ * login's first read through its served file is refused UncoveredRead.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

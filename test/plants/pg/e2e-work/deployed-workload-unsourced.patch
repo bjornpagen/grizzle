@@ -1,0 +1,11 @@
+--- a/test/support/compile.ts
++++ b/test/support/compile.ts
+@@ -453,7 +453,7 @@
+ 	logins: ReadonlyArray<LoginWorkloads>,
+ 	live: LivePlan
+ ): InstallExtension =>
+-	workloadExtensionOver(logins, (installing) => Arr.flatMap(installing, (l) => l.roles), live)
++	workloadExtensionOver(logins, (installing) => Arr.flatMap(installing, (l) => l.roles), live.kind === "none" ? live : noLive)
+ 
+ /**
+  * A generated query, which no checker handed over, admitted as the optimized lowering takes it (check/index.ts

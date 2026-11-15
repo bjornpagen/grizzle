@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/shapes/page/seek.ts b/packages/engine/src/lower/shapes/page/seek.ts
+index f7a33f97..94888f13 100644
+--- a/packages/engine/src/lower/shapes/page/seek.ts
++++ b/packages/engine/src/lower/shapes/page/seek.ts
+@@ -251,7 +251,7 @@ const isRowSeek = (keys: ReadonlyArray<SeekKey>, names: OperatorNames): boolean
+ 
+ /** The operator by which a key strictly on `side` of its boundary value compares. */
+ const operator = (direction: Direction, seek: Seek): ">" | "<" =>
+-	(direction === "asc") === (seek.side === "follows") ? ">" : "<"
++	(direction === "asc") === (seek.side === "follows") ? ">=" : "<"
+ 
+ /**
+  * The seek predicate of `keys` against their boundary values: false over the empty comparison tuple, which no tuple

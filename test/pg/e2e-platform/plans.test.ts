@@ -33,9 +33,10 @@
  * Features: a read by the busiest entities and by another, a week's window and a whole month's, and a usage event with
  * its charges and debits written.
  *
- * Plants: ~/.cache/grizzle-release/PLANIDX/plants/plans-requests-unplanned.patch (the index engine planning no
- * requested index, access or law), ~/.cache/grizzle-release/BR13/plants/plans-probe-unindexed.patch (the index engine
- * planning no law probe index).
+ * @plant test/plants/pg/e2e-platform/plans-requests-unplanned.patch The index engine planning no requested index,
+ * access or law; the served reads fail.
+ * @plant test/plants/pg/e2e-platform/plans-probe-unindexed.patch The index engine planning no law probe index; law
+ * maintenance and the probes' EXPLAIN fail.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

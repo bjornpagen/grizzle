@@ -350,7 +350,7 @@ const firstSome = <A, B>(xs: ReadonlyArray<A>, f: (a: A) => Option.Option<B>): O
 	return Option.none()
 }
 
-/** Plants spendWithinCap: a month whose cap its workspace spent exactly, and a key of that workspace active in it. */
+/** The spendWithinCap fault: a month whose cap its workspace spent exactly, and a key of that workspace active in it. */
 const plantSpendWithinCap = (
 	p: Platform,
 	margin: bigint,
@@ -371,7 +371,7 @@ const plantSpendWithinCap = (
 			)
 	)
 
-/** Plants refundWithinInvoice: a refund of a paid invoice `margin` past what it has left. */
+/** The refundWithinInvoice fault: a refund of a paid invoice `margin` past what it has left. */
 const plantRefundWithinInvoice = (
 	p: Platform,
 	margin: bigint,
@@ -409,7 +409,7 @@ const recordWithinCap = (
 		(record) => slot.spent + record.total.amount <= slot.cap
 	)
 
-/** Plants chargeExact: a usage record whose first charge is `margin` more than its pieces. */
+/** The chargeExact fault: a usage record whose first charge is `margin` more than its pieces. */
 const plantChargeExact = (p: Platform, margin: bigint, next: () => Uuid): Option.Option<Planted> =>
 	firstSome(slotsOf(p), (slot) =>
 		Option.flatMap(
@@ -482,9 +482,9 @@ const debitOf = (
 }
 
 /**
- * Plants debitWhileValid or grantWithinAmount: a grant of the key's organization, expired before the request or valid
- * over it with something left, and a request whose charge covers the debit, credits paying exactly the debit, all on
- * the input kind.
+ * The debitWhileValid or grantWithinAmount fault: a grant of the key's organization, expired before the request or
+ * valid over it with something left, and a request whose charge covers the debit, credits paying exactly the debit, all
+ * on the input kind.
  */
 const plantDebit = (
 	fault: "debitWhileValid" | "grantWithinAmount",
@@ -502,9 +502,9 @@ const plantDebit = (
 }
 
 /**
- * Plants usageWhileActive: the event paid by no credit, so moving it moves nothing a grant's validity covers; the model
- * refuses usage after the revocation, and the application's record is the same event moved past it, priced at its new
- * start, in the same month, whose cap has room for it.
+ * The usageWhileActive fault: the event paid by no credit, so moving it moves nothing a grant's validity covers; the
+ * model refuses usage after the revocation, and the application's record is the same event moved past it, priced at its
+ * new start, in the same month, whose cap has room for it.
  */
 const plantUsageWhileActive = (
 	p: Platform,
@@ -548,7 +548,7 @@ const plantUsageWhileActive = (
 	)
 }
 
-/** Plants rateInForce: a card of the first card's model and kind overlapping it by `margin`. */
+/** The rateInForce fault: a card of the first card's model and kind overlapping it by `margin`. */
 const plantRateInForce = (p: Platform, margin: bigint, next: () => Uuid): Option.Option<Planted> =>
 	Option.map(Arr.head(p.facts.RateCard), (card) => {
 		const at = card.during.start
@@ -576,7 +576,7 @@ const plantRateInForce = (p: Platform, margin: bigint, next: () => Uuid): Option
 		}
 	})
 
-/** Plants refundOnlyPaid: a refund of an open invoice, and the same of a paid one. */
+/** The refundOnlyPaid fault: a refund of an open invoice, and the same of a paid one. */
 const plantRefundOnlyPaid = (
 	p: Platform,
 	margin: bigint,
@@ -600,7 +600,7 @@ const plantRefundOnlyPaid = (
 	)
 
 /**
- * Plants allocationCovered: a plan change that cuts the segment an allocation lies in `margin` seconds before the
+ * The allocationCovered fault: a plan change that cuts the segment an allocation lies in `margin` seconds before the
  * allocation ends, the segment's rest retired; without it, the same change splitting the segment there, its second part
  * priced alike. The fault is planted on the segments, never on the allocation: an allocation is a member of its plan
  * line's family, fixed when the line is inserted (InvoiceLine is immutable), since a month's close apportions each plan
@@ -646,7 +646,7 @@ const plantAllocationCovered = (p: Platform, margin: bigint): Option.Option<Plan
 		)
 	)
 
-/** Plants paidWithoutPayment: an open invoice put paid without its payment, and paid with it. */
+/** The paidWithoutPayment fault: an open invoice put paid without its payment, and paid with it. */
 const plantPaidWithoutPayment = (p: Platform, next: () => Uuid): Option.Option<Planted> =>
 	Option.map(
 		Arr.findFirst(p.facts.Invoice, (i) => i.state === "open"),
@@ -678,7 +678,7 @@ const plantPaidWithoutPayment = (p: Platform, next: () => Uuid): Option.Option<P
 		}
 	)
 
-/** Plants pricedOutsideCards: a usage record whose first charge is priced `margin` seconds before every card of its model and kind. */
+/** The pricedOutsideCards fault: a usage record whose first charge is priced `margin` seconds before every card of its model and kind. */
 const plantPricedOutsideCards = (
 	p: Platform,
 	margin: bigint,
@@ -714,8 +714,8 @@ const plantPricedOutsideCards = (
 	)
 
 /**
- * Plants cardRetiredUnderCharges: the card that priced a stored charge cut `margin` seconds before the charge's instant;
- * the sound change splits the card `margin` seconds after the instant instead.
+ * The cardRetiredUnderCharges fault: the card that priced a stored charge cut `margin` seconds before the charge's
+ * instant; the sound change splits the card `margin` seconds after the instant instead.
  */
 const plantCardRetiredUnderCharges = (
 	p: Platform,
@@ -765,7 +765,7 @@ const plantCardRetiredUnderCharges = (
 	)
 
 /**
- * Plants `fault` in `p`, `margin` past its boundary: the faulty write and the sound one, or none where the platform
+ * Puts `fault` in `p`, `margin` past its boundary: the faulty write and the sound one, or none where the platform
  * offers no place for it. spendWithinCap takes a month whose cap its workspace spent exactly and a key of that
  * workspace active in it; debitWhileValid and grantWithinAmount take a grant of the key's organization, expired before
  * the request or valid over it with something left, and a request whose charge covers the debit, credits paying
