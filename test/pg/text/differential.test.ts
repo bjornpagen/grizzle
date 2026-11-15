@@ -13,8 +13,10 @@
  *    tautology), asked through pg_input_is_valid, which evaluates the domain's CHECK constraints.
  *
  * The file also holds that every admitted pattern compiles inside the limits of PostgreSQL's regex compiler: the largest
- * pattern the limits admit along drawn shapes, and generated nested quantifiers. The refusal of unadmitted constructs
- * is test/unit/text/parse.test.ts's, and that the limits judge the printed ARE whatever its spelling is
+ * pattern the limits admit along drawn shapes, and generated nested quantifiers. A count whose IR no text matches hands
+ * PostgreSQL no ARE (scalar/regex/admit.ts), so a shape's edge stops below it; that the IR is never exactly when no
+ * text matches is test/unit/text/emptiness.test.ts's, against its own oracle. The refusal of unadmitted constructs is
+ * test/unit/text/parse.test.ts's, and that the limits judge the printed ARE whatever its spelling is
  * test/unit/text/lowering.test.ts's.
  *
  * @plant test/plants/pg/text/differential-dollar-anchor.patch The end anchor translated as matching before a final
@@ -48,7 +50,9 @@ import { regexMaxRepeat } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
+import { toAre } from "#compiler/scalar/regex/are.ts"
 import * as RegexIr from "#compiler/scalar/regex/ir.ts"
+import { matches, type Nfa } from "#compiler/scalar/regex/match.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
 import { emit } from "#compiler/sql/emit.ts"
@@ -77,12 +81,16 @@ import {
 	walkTape
 } from "#test/unit/text/generators.ts"
 
-/** What refuses a pattern past the limits: the limit of PostgreSQL's regex compiler it crosses, or another refusal. */
-type EdgeRefusal = RegexSpaceMeasure["kind"] | "another refusal"
+/**
+ * What refuses a count of a shape, so that PostgreSQL is handed no ARE of it: the limit of PostgreSQL's regex compiler
+ * it crosses; an IR no text matches, which every reader of an admitted pattern refuses in place of an ARE (admit.ts
+ * admitMatch, text/refinement.ts analyzeText); or another refusal.
+ */
+type EdgeRefusal = RegexSpaceMeasure["kind"] | "no text" | "another refusal"
 
 /**
  * What an edge search reached: the refusal past its largest admitted count, the shape's greatest count itself, or a
- * shape the limits refuse at its first count, which has no edge to compile.
+ * shape refused at its first count, which has no edge to compile.
  */
 type EdgeFeature = EdgeRefusal | "the shape's top" | "a shape refused at its first count"
 
@@ -95,43 +103,68 @@ interface Growth {
 	readonly top: number
 }
 
-const measureAt = (growth: Growth, n: number): "admitted" | EdgeRefusal => {
-	const r = admitPattern(growth.at(n), "u", SourceLoc("str.regex", []))
-	if (r.ok) {
-		return "admitted"
-	}
-	const reason = r.error.reason
-	return reason._tag === "ResourceBound" && reason.bound.kind === "regexCompileSpace"
-		? reason.bound.measure.kind
-		: "another refusal"
+/**
+ * A count's pattern as PostgreSQL is handed it: admitted (admit.ts admitPattern) with an IR some text matches, and the
+ * NFA its host membership reads.
+ */
+interface LivePattern {
+	readonly ir: RegexIr.LiveNode
+	readonly nfa: Nfa
 }
 
-/** The largest count the limits admit from an admitted 1, and what refuses the count past it. */
+/** A count's pattern, admitted with an IR some text matches, or what refuses it. */
+type Measured =
+	| { readonly kind: "admitted"; readonly pattern: LivePattern }
+	| { readonly kind: "refused"; readonly refusal: EdgeRefusal }
+
+const measureAt = (growth: Growth, n: number): Measured => {
+	const r = admitPattern(growth.at(n), "u", SourceLoc("str.regex", []))
+	if (!r.ok) {
+		const reason = r.error.reason
+		return {
+			kind: "refused",
+			refusal:
+				reason._tag === "ResourceBound" && reason.bound.kind === "regexCompileSpace"
+					? reason.bound.measure.kind
+					: "another refusal"
+		}
+	}
+	const { ir, nfa } = r.value
+	return ir.kind === "never"
+		? { kind: "refused", refusal: "no text" }
+		: { kind: "admitted", pattern: { ir, nfa } }
+}
+
+/** The largest count admitted from an admitted 1, its pattern, and what refuses the count past it. */
 interface Edge {
 	readonly greatest: number
+	readonly pattern: LivePattern
 	readonly past: EdgeFeature
 }
 
-/** The largest count the limits admit from an admitted 1, by bisection over 1 to the shape's top. */
-const edgeAt = (growth: Growth): Edge => {
+/** The edge from count 1's admitted pattern, by bisection over 1 to the shape's top. */
+const edgeAt = (growth: Growth, first: LivePattern): Edge => {
 	const top = measureAt(growth, growth.top)
-	if (top === "admitted") {
-		return { greatest: growth.top, past: "the shape's top" }
+	if (top.kind === "admitted") {
+		return { greatest: growth.top, pattern: top.pattern, past: "the shape's top" }
 	}
-	let low = 1
+	let low = { greatest: 1, pattern: first }
 	let high = growth.top
-	let past: EdgeRefusal = top
-	while (high - low > 1) {
-		const middle = Math.floor((low + high) / 2)
+	let past: EdgeRefusal = top.refusal
+	while (high - low.greatest > 1) {
+		const middle = Math.floor((low.greatest + high) / 2)
 		const measured = measureAt(growth, middle)
-		if (measured === "admitted") {
-			low = middle
-		} else {
-			high = middle
-			past = measured
+		switch (measured.kind) {
+			case "admitted":
+				low = { greatest: middle, pattern: measured.pattern }
+				break
+			case "refused":
+				high = middle
+				past = measured.refusal
+				break
 		}
 	}
-	return { greatest: low, past }
+	return { ...low, past }
 }
 
 /** A code point as its braced escape, which means itself inside a class and out. */
@@ -284,14 +317,6 @@ const refine = (
 		return "empty"
 	}
 	throw new Error(`/${source}/${flags}: ${result.error.message}`)
-}
-
-const admitted = (source: string, flags: Flags, at: SourceLoc): TextRefinement => {
-	const r = refine(source, flags, at)
-	if (r === "empty" || r === "bound") {
-		throw new Error(`/${source}/${flags} must be admitted, not ${r}`)
-	}
-	return r
 }
 
 const truth = (value: unknown): boolean => {
@@ -617,20 +642,24 @@ layer(Substrate.layer)(
 							(growth, k) =>
 								Effect.gen(function* () {
 									const db = yield* Pool.get(sessions)
-									if (measureAt(growth, 1) !== "admitted") {
+									const first = measureAt(growth, 1)
+									if (first.kind === "refused") {
 										k.note("a shape refused at its first count")
 										return
 									}
-									const { greatest, past } = edgeAt(growth)
+									const { greatest, pattern, past } = edgeAt(growth, first.pattern)
 									k.note(past)
-									const source = growth.at(greatest)
-									const r = admitted(source, "u", SourceLoc("str.regex", []))
-									yield* compileWithin(db, r.members[0].are)
+									const are = toAre(pattern.ir)
+									yield* compileWithin(db, are)
 									const rows = yield* db.values(
 										"SELECT ($1::text COLLATE pg_catalog.pg_c_utf8 ~ $2::text)::text",
-										["abcd", r.members[0].are]
+										["abcd", are]
 									)
-									assert.equal(truth(rows[0]?.[0]), accepts(r, "abcd"), Str.slice(0, 160)(source))
+									assert.equal(
+										truth(rows[0]?.[0]),
+										matches(pattern.nfa, "abcd"),
+										Str.slice(0, 160)(growth.at(greatest))
+									)
 								})
 						)
 					})
