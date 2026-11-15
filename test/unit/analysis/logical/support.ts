@@ -9,7 +9,7 @@ import {
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import * as Result from "#compiler/core/result.ts"
-import { topoOrder } from "#compiler/ir/dag.ts"
+import { nodeScopes, topoOrder } from "#compiler/ir/dag.ts"
 import { literalDescShape } from "#compiler/ir/desc.ts"
 import { classMembers, type KeyProof, keyWith } from "#compiler/ir/keys.ts"
 import { type TheoryViolations, theoryViolations } from "#compiler/laws/model/violations.ts"
@@ -17,7 +17,11 @@ import { type TheoryViolations, theoryViolations } from "#compiler/laws/model/vi
 import type { Case } from "@bjornpagen/testing/explore"
 import type { Heading, KeySet, NodeOf, RelDag, RelKind, RelNode } from "#compiler/ir/rel.ts"
 import * as S from "#compiler/ir/shape.ts"
-import { checkerEvidence, type LogicalEnv } from "#compiler/logical/annotate.ts"
+import {
+	checkerEvidence,
+	type LogicalAnalysis,
+	type LogicalEnv
+} from "#compiler/logical/annotate.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -200,6 +204,39 @@ export type Soundness =
 	| { readonly kind: "unsound"; readonly why: string }
 
 const unsound = (why: string): Soundness => ({ kind: "unsound", why })
+
+/**
+ * Every name the analysis gives a fixed column of a node of `dag`, the DAG it analyzed, names one of the node's values,
+ * one per evaluation of it: a literal, a parameter, a column of another node the node reads from outside it (ir/dag.ts
+ * nodeScopes, read apart from the analysis), or, for an attachment's child relative to its parent, a parent column the
+ * attachment pairs with one of the child's. A column the node binds, a region's occurrence source's, holds one value per
+ * row of the node, so it names none of the node's values; a parent region that binds the same source would read the
+ * name as its own variable's.
+ */
+export const fixedNamesUnscoped = (dag: RelDag, of: LogicalAnalysis["of"]): Soundness => {
+	const scopes = nodeScopes(dag)
+	for (const node of topoOrder(dag)) {
+		const props = of(node).props
+		const attach = props.attachment
+		for (const [column, names] of props.fixed) {
+			for (const { name } of names) {
+				if (
+					name.kind === "outer" &&
+					scopes.of(node).outer.get(name.node)?.has(name.column) !== true &&
+					!(
+						attach?.parent.id === name.node &&
+						Arr.some(attach.correlation, (pair) => pair.parent === name.column)
+					)
+				) {
+					return unsound(
+						`${node.id} (${node.kind}) fixes ${column} to ${name.node}.${name.column}, a column it binds`
+					)
+				}
+			}
+		}
+	}
+	return { kind: "sound" }
+}
 
 /**
  * The keys a proof states one step from its columns: its columns, each of its members put in place of the column it

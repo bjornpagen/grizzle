@@ -156,6 +156,11 @@ export interface Props {
 	 * columns per parent row. Undefined for a node's own properties.
 	 */
 	readonly attachment: NodeOf<"Attach"> | undefined
+	/**
+	 * The columns of other nodes the node reads from outside it (ir/dag.ts nodeScopes), each one value per evaluation of
+	 * the node: what a name an input gives one of its columns must name to name one of the node's values (nameAt).
+	 */
+	readonly outer: OuterRefs
 	readonly columns: ReadonlyArray<string>
 	/**
 	 * The attributes of its rows it does not deliver, its inputs' columns and hidden attributes it reads and does not
@@ -392,6 +397,7 @@ interface Table {
 	readonly node: { readonly id: NodeId }
 	readonly reading: PropsReading
 	readonly attachment: NodeOf<"Attach"> | undefined
+	readonly outer: OuterRefs
 	readonly columns: ReadonlyArray<string>
 	readonly hidden: ReadonlyArray<string>
 	readonly dependencies: ReadonlyArray<Dependency>
@@ -456,11 +462,32 @@ export const fixedNames = (props: Props, column: string): ReadonlyArray<NamedVal
 	props.fixed.get(column)
 
 /**
- * The value the closure of nothing names a fixed column by, the first of its names, which the derivations a parent
- * carries from that closure read; a computation where it has none.
+ * A name an input gives one of its columns, read at the node `props` are of: a literal and a parameter name one value
+ * wherever they are read, and an outer column names one per evaluation of the node only where the node reads it from
+ * outside (Props.outer). A column the node binds, a region's occurrence source's or a semi-join's left input's, holds
+ * one value per row of the node, so it names none of the node's values, as an expression reading it names none
+ * (fixedOf).
  */
-const firstName = (props: Props, column: string): Fixed =>
-	props.fixed.get(column)?.[0]?.name ?? { kind: "expr" }
+const nameAt = (props: Pick<Table, "outer">, name: Named): Named | undefined =>
+	name.kind !== "outer" || props.outer.get(name.node)?.has(name.column) === true ? name : undefined
+
+/**
+ * The value the closure of nothing of `input` names its fixed column by, the first of its names, which the derivations
+ * a parent carries from that closure read, read at the parent `props` are of (nameAt); a computation where it has none
+ * or where the parent binds what it names.
+ */
+const firstNameAt = (props: Pick<Table, "outer">, input: Props, column: string): Fixed => {
+	const first = input.fixed.get(column)?.[0]?.name
+	return (first === undefined ? undefined : nameAt(props, first)) ?? { kind: "expr" }
+}
+
+/** The names `input` fixes its column to that name values of the node `props` are of (nameAt), in the input's order. */
+const namesAt = (
+	props: Pick<Table, "outer">,
+	input: Props,
+	column: string
+): ReadonlyArray<NamedValue> =>
+	(fixedNames(input, column) ?? []).filter((v) => nameAt(props, v.name) !== undefined)
 
 /**
  * Each column the closure of nothing reaches, with every name a step fixes it to: first the one the closure reached it
@@ -690,7 +717,7 @@ const stepNames = (
 				)
 			)
 		case "input":
-			return (fixedNames(source.input, source.column) ?? []).flatMap((v) =>
+			return namesAt(props, source.input, source.column).flatMap((v) =>
 				named(v.name, determinants, () => source.over(v.derivation))
 			)
 		case "arms":
@@ -702,9 +729,9 @@ const stepNames = (
 
 /**
  * The value a step fixes `column` to at a node: a literal, a parameter, an outer column, or a computation. A rule that
- * carries the column from an input reads the name its input's closure of nothing gives it (firstName), as the
- * derivation the rule carries does; a union's agreement reads the first name its arms share, as its derivations do; an
- * equality reads the value its other column holds, `named`, where the closure named one.
+ * carries the column from an input reads the name its input's closure of nothing gives it, read at the node
+ * (firstNameAt), as the derivation the rule carries does; a union's agreement reads the first name its arms share, as
+ * its derivations do; an equality reads the value its other column holds, `named`, where the closure named one.
  */
 const stepValue = (
 	props: Table,
@@ -719,7 +746,7 @@ const stepValue = (
 		case "column":
 			return named(source.column) ?? { kind: "expr" }
 		case "input":
-			return firstName(source.input, source.column)
+			return firstNameAt(props, source.input, source.column)
 		case "arms":
 			return commonNames(source.arms, column)[0]?.name ?? { kind: "expr" }
 	}
@@ -1117,7 +1144,7 @@ type Reach =
 	| { readonly kind: "within"; readonly reached: Closure<never>; readonly inner: KeyProof }
 
 /** What a node's properties are of: the node, its reading, and the attachment they are relative to, if any. */
-type Subject = Pick<Props, "node" | "reading" | "attachment">
+type Subject = Pick<Props, "node" | "reading" | "attachment" | "outer">
 
 /**
  * The props of `node` stating `dependencies`, its keys derived from them.
@@ -1145,6 +1172,7 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 		node,
 		reading: subject.reading,
 		attachment: subject.attachment,
+		outer: subject.outer,
 		columns,
 		hidden: rest.hidden,
 		dependencies: dependencies.filter((d) => d.from.every((c) => attributes.has(c)))
@@ -1420,7 +1448,7 @@ const viewDependencies = (keys: ReadonlyArray<ViewKey>, all: KeySet): Stated => 
  * base relation's: no containment between stored facts speaks of them.
  */
 export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsEnv): Props => {
-	const subject: Subject = { node, reading, attachment: undefined }
+	const subject: Subject = { node, reading, attachment: undefined, outer: env.scope(node).outer }
 	const all = node.heading.map((c) => c.name)
 	/**
 	 * The rest of a node's props that delivers its rows as one group, with no discriminant and no inner group, and no
@@ -2318,7 +2346,7 @@ const unionProps = (subject: Subject, node: ReadingOf<"Union">): Props => {
  */
 export const relativeProps = (child: Props, attach: NodeOf<"Attach">): Props =>
 	finish(
-		{ node: child.node, reading: child.reading, attachment: attach },
+		{ node: child.node, reading: child.reading, attachment: attach, outer: child.outer },
 		[
 			...child.dependencies,
 			...attach.correlation.map((pair, index) =>
