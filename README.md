@@ -4150,7 +4150,7 @@ pnpm test                         # the unit and types tiers, which need no netw
 pnpm test:network                 # the pg and schedules tiers, against the local cluster
 pnpm test <file>                  # some files
 pnpm types                        # after every edit: the incremental typecheck, which the hooks run too
-pnpm check                        # before a release (turbo, cached): typecheck, superlint, oxlint, format, fallow, dedupe
+pnpm check                        # before a release (turbo, cached): typecheck, workspace gate, oxlint, format, fallow, dedupe
 ```
 
 Every script and test reaches one local cluster, which `GRIZZLE_PG_CLUSTER` names by its port: unset, it is the default cluster on 5433. Any other port names a cluster of its own, built from the same installed PostgreSQL, with its own state directory beside the default's (`pg19rc2-<port>`), TLS material, socket, roles and databases, sized to the machine as the default is. PostgreSQL's SERIALIZABLE bookkeeping is per cluster, so a heavy run in a cluster of its own neither waits on the shared cluster's nor makes it wait. `pnpm pg:init` refuses a port already taken on localhost, and `pnpm pg destroy` refuses the default:
@@ -4177,7 +4177,7 @@ Every generated suite draws from one seed, `TEST_SEED`, which a run prints first
 - `scripts/pg/`: the pinned PostgreSQL's source, build, cluster, doctor and patches, whose commands the `grizzle-pg` bin runs.
 - `packages/pg/`: `@bjornpagen/grizzle-pg`, the TypeScript those commands run and the formulas they and the tests share: the cluster a port names, its size and its connection lease.
 - `scripts/dev/`: the mutation tester and the profiler.
-- `vendor/toolchain/`: the [toolchain](https://github.com/bjornpagen/toolchain), a git submodule pinned by commit, whose packages join the workspace: `@bjornpagen/devtools`, the lint tooling (superlint, the oxlint preset and plugin), which `toolchain.config.ts` configures, and `@bjornpagen/testing`, the testing library every test runs on, with `pnpm fuzz`'s script.
+- `vendor/toolchain/`: the [toolchain](https://github.com/bjornpagen/toolchain), a git submodule pinned by commit, whose packages join the workspace: `@bjornpagen/devtools`, the lint tooling (the oxlint preset and plugin, the workspace gate, the hooks' gate), which `toolchain.config.ts` and `oxlint.config.ts` configure, and `@bjornpagen/testing`, the testing library every test runs on, with `pnpm fuzz`'s script.
 
 ## License
 

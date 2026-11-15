@@ -4,13 +4,14 @@ This is how grizzle records what `SKILL.md` requires. `SKILL.md`'s rules hold he
 
 grizzle chooses no number on its caller's behalf. A number that bounds something is the caller's input or the `.value`
 of a `Limit`: a frozen, branded value that carries its own evidence, minted only by `published`, `measured` or
-`derived` of `packages/engine/src/core/limits.ts` (imported as `#compiler/core/limits.ts`). superlint's
-`limit-evidence` gate refuses a bare number where it bounds something. The JSDoc `@limitKind` tags are retired, and no
-gate reads them.
+`derived` of `packages/engine/src/core/limits.ts` (imported as `#compiler/core/limits.ts`). No check refuses a bare
+number where it bounds something: the toolchain retired superlint, and its `limit-evidence` gate with it, as Bjorn
+decided (2026-11-14), so review refuses one, by the rules below. The JSDoc `@limitKind` tags are retired, and nothing
+reads them.
 
 ## Bound, choice or fact, in grizzle
 
-- **No bound**, as the gate counts it: 0 anywhere; 1 anywhere but a time a value sets, where one unit of time is a
+- **No bound**, as review counts it: 0 anywhere; 1 anywhere but a time a value sets, where one unit of time is a
   choice; -1 where a value is compared or counts from the end; 2 in `n < 2` and `n >= 2`; a data length the code reads
   (`xs.length`, a prefix's `.length`); index arithmetic against a data length (`i + 4 <= text.length`,
   `text.slice(i + 2, i + 6)`, a loop's start); a factor that scales, shifts, masks or reduces data (`ms * 1000`,
@@ -143,23 +144,21 @@ export const messageMaxBytes = derived({
 - Arithmetic on a `.value` anywhere else (`nestingLimit.value * 2`) derives a bound outside `derived`: mint the result.
 - When an input is re-verified or remeasured, read what derives from it.
 
-## The limit-evidence gate
+## Bare numbers
 
-`limit-evidence` (the toolchain's `vendor/toolchain/packages/devtools/src/lint/rules/limit-evidence.ts`) runs in `pnpm check`, and alone on paths with
-`pnpm superlint <files or dirs>`. Its names (the limits module and mints, the vocabularies, the scopes) are
-`limitEvidence` in the grizzle pack of `toolchain.config.ts`. A file is in the first scope that names it:
+No tool reads this section's rules: superlint's `limit-evidence`, which did, went with superlint, and no oxlint rule
+took its place (the check-pipeline plan, 2026-11-14). Review holds every file to them, by where it lies:
 
 | Files                                                                 | Checks                                                                                                                                                        |
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `packages/engine/src/`, `packages/grizzle/src/`, but `*.generated.ts` | every bound below, and every property named for a bound                                                                                                       |
 | `test/`                                                               | times, concurrencies and retry policies, by a library's properties only: a test's own records are data, and a `Gen` builder's arguments are the test's inputs |
-| `bench/`, `scripts/`                                                  | as `test/`, and a bench `Gate`'s arguments are its inputs too                                                                                                 |
+| `bench/`, `scripts/`, `packages/pg/`                                  | as `test/`, and a bench `Gate`'s arguments are its inputs too                                                                                                 |
 
-A package no scope names (the testing library, the dev tools) is not checked. An exception is a file listed for the
-rule in `superlint.exceptions`, today only the documentation mirrors whose numbers are the documented application's;
-there is no inline disable.
+The documentation mirrors (`test/types/examples/fixtures/readme.ts`, `skill.ts`) hold the documented application's
+numbers, which are its, not grizzle's.
 
-It refuses a **bare number** (a literal that is no identity, a number constant that is no Limit's value, or arithmetic
+Review refuses a **bare number** (a literal that is no identity, a number constant that is no Limit's value, or arithmetic
 of only those) where it bounds:
 
 - a comparison, in a loop's condition or not: `depth > 8`, `steps < 10_000`; a comparison with a value whose name says
@@ -182,7 +181,7 @@ such a function returns (`budget(elapsed)` returning `60_000 + 3 * spent`). A fu
 is the code under test or a dependency: its arguments are the caller's inputs, and only a library's parameters named
 above are bounds.
 
-It refuses a bare number as a term of a value that reads data, too: an offset (`max - 8`, `timeoutMs + 500`), a
+Review refuses a bare number as a term of a value that reads data, too: an offset (`max - 8`, `timeoutMs + 500`), a
 fallback (`max ?? 10`, either branch of `?:`), a default, a clamp, and any arithmetic with a Limit's `.value` but an
 identity or a radix raised to it.
 
@@ -196,28 +195,16 @@ It refuses two more things:
   is refused, a day being 86,400,000 ms. In the tiers, an unexported constant that only a generator's calls read
   passes.
 
-Its reports read:
+Review must also read what no syntax shows:
 
-```text
-8 bounds a comparison as a bare number: a bound is a Limit or a caller's input.
-10 is a fallback in a comparison, a bare number: a bound is a Limit or a caller's input.
-compute reads none of the limits it derives from: a derived limit's value is computed from them.
-pageMaxSize names a bound (max) and holds a bare number: a bound is a Limit's value or a caller's input.
-```
-
-Each report and admission has a line in the rule's fixtures, `vendor/toolchain/packages/devtools/src/lint/fixtures/limit-evidence/`
-(`violating.ts`, `clean.ts`, and `tests/` for the tiers). Read them when a report surprises you.
-
-The gate cannot see, so review must:
-
-- **Inside a mint.** The gate skips a mint's arguments, and the types check only their shape: every field present,
+- **Inside a mint.** The types check only a mint's shape: every field present,
   `source` an `https://` string, `verified` shaped as a date, `constraint` one of the five, `from` nonempty. That the
   quote stands at the anchor and states the value, that the record exists and supports the decision, and that the
   derivation bounds the resource, no tool checks. Open each.
 - A number inside emitted SQL text, or any string but a duration's.
 - A value returned through a generator, an async function or a wrapper, and a file no scope names.
 
-A clean gate proves that every bound reads a Limit, not that any Limit is true.
+A clean review proves that every bound reads a Limit, not that any Limit is true.
 
 ## Refusals and retries
 
@@ -227,7 +214,8 @@ a typed error that says the call may succeed when run again, and never of a COMM
 
 ## Hunt
 
-Run `pnpm superlint` on the files you touched, then list every mint and every retired tag:
+Hunt the files you touched for bare bounds, with the policy's search (`SKILL.md`, "Hunt and verification"), then list
+every mint and every retired tag:
 
 ```sh
 rg -n --glob '*.ts' --glob '!**/node_modules/**' --glob '!packages/*/types/**' \
@@ -237,4 +225,4 @@ rg -n --glob '*.ts' --glob '!**/node_modules/**' --glob '!packages/*/types/**' \
 - A `@limitKind` tag left anywhere is an unminted limit: mint it, or make it the caller's input.
 - For each mint: open its source at the anchor and match quote and value; resolve the measured record or the command
   that reproduces it, and check that `decision` follows from `result`; audit a derivation's inputs and factors.
-- In a file no scope names, hunt bare bounds by hand, as the gate would.
+- In every file, hunt bare bounds by hand, by the table above: no gate does.
