@@ -24,9 +24,10 @@
  * - every foreign key references the column set of exactly one unique index of its target;
  * - every unique index holds the column set of a key a key law states, or of a foreign key's referenced columns;
  * - the keys K implies cost nothing to leave unstated: the schema with K beside, for each fixed target, the key over its
- *   selection and terms that K implies (the restated keys a downstream schema states instead of K, under which every
- *   target takes its own columns) plans at least as many objects, indexes and law columns over every relation, constant
- *   columns among them;
+ *   selection and terms that K implies (the restated keys a downstream schema states instead of K, under which a
+ *   target's own columns are planned already, so it takes its superkey only where that costs no more, as where the
+ *   superkey's UNIQUE serves a reverse probe that would take a B-tree of its own) plans at least as many objects,
+ *   indexes and law columns over every relation, constant columns among them;
  * - every unique index of T reports a key that every pair of rows it refuses together breaks. Over every pair of a box
  *   of T's rows, id, a, b and c each 0 or 1 and kind 0, 1 or 2, where each column of the index, a field's value or a law
  *   column's generated value by the reference evaluator, is NULL on neither row and equal, the law its constraint
