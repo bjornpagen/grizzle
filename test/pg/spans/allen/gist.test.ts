@@ -39,7 +39,7 @@ import { compileTestWorkload, declaredOf, paramTexts, testCompile } from "#test/
 import { decodedQuery, type AuthoredExprDesc as ExprDesc } from "#test/support/fixtures/ir/desc.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { fill } from "#test/support/substrate/fill.ts"
+import { volumeFill } from "#test/support/substrate/fill.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
 const Booking = relation("Booking", { room: uuid, during: span(pg.bigint), guest: uuid }, [
@@ -235,7 +235,7 @@ layer(Substrate.layer)("GiST span indexes", (it) => {
 				extensions: [workloadExtension(plan)]
 			})
 			const schemaName = quoteIdent(installed.schema)
-			yield* fill(s.admin, [
+			yield* volumeFill(s.admin, [
 				{
 					tables: [
 						{

@@ -5,7 +5,7 @@ import type { PgConnection, SqlError } from "#test/support/pg.ts"
  * One table of a fill: its name, as printed, and each column's SQL over the row's index `g`, by printed column name. No
  * column fills rows of defaults only.
  */
-export interface FillTable {
+export interface VolumeTable {
 	readonly table: string
 	readonly columns: ReadonlyArray<readonly [column: string, sql: string]>
 }
@@ -15,8 +15,8 @@ export interface FillTable {
  * that inserts the same slice of the series into every table, in order, so rows of the tables that belong together by
  * their index commit together. A row whose key another already holds is refused, or skipped where `conflicts` says so.
  */
-export interface Fill {
-	readonly tables: Arr.NonEmptyReadonlyArray<FillTable>
+export interface VolumeFill {
+	readonly tables: Arr.NonEmptyReadonlyArray<VolumeTable>
 	readonly rows: number
 	readonly conflicts: "refused" | "skipped"
 }
@@ -28,7 +28,7 @@ export interface Fill {
  * meet. It names the table and the deferred object, by its constraint or its own name. Its rows are lawful only as a
  * whole, in one transaction.
  */
-export class FillRefused extends Data.TaggedError("FillRefused")<{
+export class VolumeFillRefused extends Data.TaggedError("VolumeFillRefused")<{
 	readonly table: string
 	readonly deferred: string
 }> {}
@@ -83,8 +83,8 @@ const flushedWal = (session: PgConnection): Effect.Effect<number, SqlError> =>
 
 /** One table's rows from index `from` to `to`, both included, as one INSERT. */
 const insertOf = (
-	table: FillTable,
-	conflicts: Fill["conflicts"],
+	table: VolumeTable,
+	conflicts: VolumeFill["conflicts"],
 	from: number,
 	to: number
 ): string => {
@@ -106,7 +106,7 @@ const insertOf = (
  * One chunk a fill committed: the fill's place among the fills, the indices of its first and last rows, and the WAL its
  * transaction wrote.
  */
-export interface Chunk {
+export interface VolumeChunk {
 	readonly fill: number
 	readonly from: number
 	readonly to: number
@@ -115,7 +115,7 @@ export interface Chunk {
 
 /** What the fills have committed so far: their chunks in order, and this backend's WAL count after the last. */
 interface Filled {
-	readonly chunks: ReadonlyArray<Chunk>
+	readonly chunks: ReadonlyArray<VolumeChunk>
 	readonly written: number
 }
 
@@ -125,7 +125,7 @@ interface Filled {
  */
 const chunk = (
 	session: PgConnection,
-	fill: Fill,
+	fill: VolumeFill,
 	from: number,
 	to: number
 ): Effect.Effect<void, SqlError> =>
@@ -162,7 +162,7 @@ const chunk = (
 const fillFrom = (
 	session: PgConnection,
 	segment: number,
-	fill: Fill,
+	fill: VolumeFill,
 	at: number,
 	from: number,
 	size: number,
@@ -195,14 +195,14 @@ const fillFrom = (
 			})
 
 /**
- * The first refusal the fills' tables meet, in order (FillRefused): a deferred trigger an INSERT fires that is no
+ * The first refusal the fills' tables meet, in order (VolumeFillRefused): a deferred trigger an INSERT fires that is no
  * foreign key's, or a deferred foreign key into a table a later fill fills. A deferred foreign key into a table already
  * complete, or into a table of its own fill, is admitted: each chunk's COMMIT judges it over rows that are all there.
  */
 const admission = (
 	session: PgConnection,
-	fills: Arr.NonEmptyReadonlyArray<Fill>
-): Effect.Effect<void, SqlError | FillRefused> =>
+	fills: Arr.NonEmptyReadonlyArray<VolumeFill>
+): Effect.Effect<void, SqlError | VolumeFillRefused> =>
 	Effect.gen(function* () {
 		const oids = yield* Effect.forEach(fills, (f) =>
 			Effect.forEach(f.tables, (t) => int8Cell(session, tableOid, [t.table]))
@@ -213,7 +213,7 @@ const admission = (
 				const deferred = yield* session.queryValues(deferredTriggers, [t.table])
 				for (const [name, referenced] of deferred) {
 					if (!Predicate.isBigInt(referenced) || Arr.contains(later, referenced)) {
-						return yield* new FillRefused({ table: t.table, deferred: String(name) })
+						return yield* new VolumeFillRefused({ table: t.table, deferred: String(name) })
 					}
 				}
 			}
@@ -226,10 +226,10 @@ const admission = (
  * written (admission). Then each fill's rows commit chunk by chunk (fillFrom) on one pinned session of `connection`, a
  * fill's rows after every row of the fills before it. It answers every chunk it committed, in order.
  */
-export const fill = (
+export const volumeFill = (
 	connection: PgConnection,
-	fills: Arr.NonEmptyReadonlyArray<Fill>
-): Effect.Effect<ReadonlyArray<Chunk>, SqlError | FillRefused> =>
+	fills: Arr.NonEmptyReadonlyArray<VolumeFill>
+): Effect.Effect<ReadonlyArray<VolumeChunk>, SqlError | VolumeFillRefused> =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const session = yield* connection.pin

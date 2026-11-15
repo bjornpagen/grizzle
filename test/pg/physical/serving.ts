@@ -29,7 +29,11 @@ import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts
 import { assert, defined } from "#test/support/assert.ts"
 import { parsedName, wild } from "#test/support/kernel/naming.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
-import { type Fill, type FillRefused, fill } from "#test/support/substrate/fill.ts"
+import {
+	type VolumeFill,
+	type VolumeFillRefused,
+	volumeFill
+} from "#test/support/substrate/fill.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -554,7 +558,8 @@ export interface VolumeLoad {
 export const loadAtVolume = (
 	installed: Judged,
 	loads: ReadonlyArray<VolumeLoad>
-): Effect.Effect<void, SqlError | FillRefused, Substrate> => loadRows(installed, loads, volumeRows)
+): Effect.Effect<void, SqlError | VolumeFillRefused, Substrate> =>
+	loadRows(installed, loads, volumeRows)
 
 /**
  * Loads every relation in order over the series 0 to `rows` - 1 as the owner, each a volume fill (substrate/fill.ts:
@@ -573,14 +578,14 @@ export const loadRows = (
 	installed: Judged,
 	loads: ReadonlyArray<VolumeLoad>,
 	rows: number
-): Effect.Effect<void, SqlError | FillRefused, Substrate> =>
+): Effect.Effect<void, SqlError | VolumeFillRefused, Substrate> =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const table = (relation: string): string => {
 			const q = installed.installation.names.relation(relation)
 			return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
 		}
-		const fills = Arr.map(loads, (l): Fill => ({
+		const fills = Arr.map(loads, (l): VolumeFill => ({
 			tables: [
 				{
 					table: table(l.relation),
@@ -595,7 +600,7 @@ export const loadRows = (
 			conflicts: "skipped"
 		}))
 		if (Arr.isReadonlyArrayNonEmpty(fills)) {
-			yield* fill(admin, fills)
+			yield* volumeFill(admin, fills)
 		}
 		for (const l of loads) {
 			yield* admin.query(`VACUUM (FREEZE, ANALYZE) ${table(l.relation)}`, [])

@@ -98,7 +98,7 @@ import { roleNamesOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { spread, unanalyzed } from "#test/support/plans.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import type { FillRefused } from "#test/support/substrate/fill.ts"
+import type { VolumeFillRefused } from "#test/support/substrate/fill.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { paramText } from "#test/support/wire.ts"
 import { type Built, type BuiltRole, buildInstall } from "#test/support/worlds/execute/build.ts"
@@ -1472,7 +1472,7 @@ export const judgeCase = (
 	note: (feature: WorldServingFeature) => void
 ): Effect.Effect<
 	ReadonlyArray<string>,
-	RealizeRefused | CompileError | SqlError | TransactionRolledBack | FillRefused,
+	RealizeRefused | CompileError | SqlError | TransactionRolledBack | VolumeFillRefused,
 	Substrate | Scope.Scope
 > =>
 	Effect.gen(function* () {

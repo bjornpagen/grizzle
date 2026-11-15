@@ -93,7 +93,7 @@ import { isList } from "#test/support/list.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 import { owning } from "#test/support/policy.ts"
-import { fill } from "#test/support/substrate/fill.ts"
+import { volumeFill } from "#test/support/substrate/fill.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The relations keyed by one id the plan fixture fills past a page: a take over their key reads it in key order. */
@@ -379,7 +379,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 		const names = installation.value.names
 		const table = (relation: string) => printObjectName(names.relation(relation))
 		yield* transaction(s.admin, installationSql(installation.value, s.database))
-		yield* fill(
+		yield* volumeFill(
 			s.admin,
 			factFills({
 				table,

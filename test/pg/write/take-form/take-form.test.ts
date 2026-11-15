@@ -27,7 +27,7 @@ import { installed } from "#test/pg/reads/support.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
-import { fill } from "#test/support/substrate/fill.ts"
+import { volumeFill } from "#test/support/substrate/fill.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -124,7 +124,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const names = o.installed.installation.names
 						const table = (r: string) => printObjectName(names.relation(r))
 						const column = (r: string, f: string) => quoteIdent(names.column(r, f))
-						yield* fill(s.admin, [
+						yield* volumeFill(s.admin, [
 							{
 								tables: [
 									{ table: table("Account"), columns: [[column("Account", "id"), uidSql("g")]] }

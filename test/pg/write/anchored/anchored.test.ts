@@ -33,7 +33,7 @@ import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { checking } from "#test/support/policy.ts"
-import { fill } from "#test/support/substrate/fill.ts"
+import { volumeFill } from "#test/support/substrate/fill.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A deletion whose member is its relation's own facts reads that relation once.
@@ -201,7 +201,7 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 					Arr.map(governed, (t) => `ALTER TABLE ${table(t)} DISABLE TRIGGER USER`)
 				)
 				const item = "(g + 1)"
-				yield* fill(s.admin, [
+				yield* volumeFill(s.admin, [
 					{
 						tables: [
 							{

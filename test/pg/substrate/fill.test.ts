@@ -47,7 +47,7 @@ import { Array as Arr, Effect, Formatter, Option, Predicate, Result } from "effe
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { type Fill, type FillTable, fill } from "#test/support/substrate/fill.ts"
+import { type VolumeFill, type VolumeTable, volumeFill } from "#test/support/substrate/fill.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -148,12 +148,12 @@ const indexSql = (shape: Shape): string => (shape === "defaults" ? "k - 1" : "at
 /** The fills of a case: the table's own and its parent's, in the order the law puts them, and the table's fill's place. */
 const fillsOf = (
 	c: FillCase,
-	child: FillTable,
-	parent: FillTable
-): { readonly fills: Arr.NonEmptyReadonlyArray<Fill>; readonly at: number } => {
+	child: VolumeTable,
+	parent: VolumeTable
+): { readonly fills: Arr.NonEmptyReadonlyArray<VolumeFill>; readonly at: number } => {
 	const conflicts = c.shape === "halved" ? "skipped" : "refused"
-	const alone: Fill = { tables: [child], rows: c.rows, conflicts }
-	const parents: Fill = { tables: [parent], rows: c.rows, conflicts: "refused" }
+	const alone: VolumeFill = { tables: [child], rows: c.rows, conflicts }
+	const parents: VolumeFill = { tables: [parent], rows: c.rows, conflicts: "refused" }
 	switch (c.deferred) {
 		case "a foreign key into an earlier fill":
 			return { fills: [parents, alone], at: 1 }
@@ -258,7 +258,7 @@ layer(Substrate.layer)("a volume fill", (it) => {
 										{ table, columns },
 										{ table: parent, columns: [["k", c.shape === "defaults" ? "g + 1" : "g"]] }
 									)
-									const filled = yield* Effect.result(fill(s.admin, fills))
+									const filled = yield* Effect.result(volumeFill(s.admin, fills))
 									const counted = yield* s.admin.queryValues(
 										`SELECT count(*)::int8 FROM ${table}`,
 										[]
@@ -267,7 +267,7 @@ layer(Substrate.layer)("a volume fill", (it) => {
 									if (Arr.contains(refused, c.deferred)) {
 										assert.ok(
 											Result.isFailure(filled) &&
-												filled.failure._tag === "FillRefused" &&
+												filled.failure._tag === "VolumeFillRefused" &&
 												filled.failure.deferred === "law",
 											`a fill a chunking could split ${c.deferred} of is refused naming it, not ${Formatter.format(filled)}`
 										)

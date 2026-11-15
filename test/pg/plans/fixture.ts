@@ -3,7 +3,7 @@ import { codeOf, type RosterCodec } from "#compiler/ir/codes.ts"
 import { closedId, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import type { Fill } from "#test/support/substrate/fill.ts"
+import type { VolumeFill } from "#test/support/substrate/fill.ts"
 
 const text = str.regex("^.*$", "su")
 
@@ -90,7 +90,7 @@ interface FixtureNames {
  * The facts, each relation a volume fill (substrate/fill.ts) over its index `g`, sized by `sizes`. Every Automatic task
  * and every open note is the only one of its account or ticket, as the keys over the selected sides require.
  */
-export const factFills = (n: FixtureNames): Arr.NonEmptyReadonlyArray<Fill> => [
+export const factFills = (n: FixtureNames): Arr.NonEmptyReadonlyArray<VolumeFill> => [
 	{
 		tables: [
 			{
