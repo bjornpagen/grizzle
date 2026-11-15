@@ -17,6 +17,12 @@
  * answer on every role it runs on is the reference's here; a role's own filters only narrow what it reads, and routes
  * over-approximating the full read over-approximate the narrowed one.
  *
+ * The population must reach a fact whose removal changes a read past a take: a read of an earlier read's rows that take
+ * the first k of their order, filtered by a parameter. A take's rows each depend on every row it ranks, so its routes
+ * read its input whole whatever its consumers bind. A case whose turn aims at it is constructed to reach it
+ * (takeCaseGen: the take leaves out one fact, of its field's least value, and the read past it binds that value, so
+ * removing a fact of a greater value lets the left-out fact in).
+ *
  * A read through a query entry is held to the same property, constructed in every case: a role whose query entry
  * `Seen` holds each fact of one of the case's relations that holds facts, and its read of `Seen`'s facts whose drawn
  * field is a parameter, bound to that field of one of the relation's facts, or of their count, a fold whose match binds
@@ -26,11 +32,16 @@
  * inlined IR (reference/evaluate.ts Reference, deliver.ts expectedStatements), the case's facts with and without each
  * fact: every fact whose removal changes the answer is one the routes reach.
  *
- * Plants (~/.cache/grizzle-release/LIVE-ROUTES/plants): route-narrowed.patch routes a table its program reads table-wide
- * by its first column under the program's first parameter; route-through-take.patch lets a take pass what its consumers
- * read to its input, so a filter above a take routes the rows it ranks. And
- * ~/.cache/grizzle-release/LOWERFIX/plants/inline-worlds-unbound.patch inlines a world match under its own bindings
- * alone, so the plan refuses the count through Seen that the role admits.
+ * @plant test/plants/unit/served/route-narrowed.patch logical/routes.ts footprintOf routes a table its program reads
+ * table-wide by its first column, under the program's first parameter; the property fails.
+ * @plant test/plants/unit/served/route-through-take.patch A take passes what its consumers read to its input, so a
+ * filter above a take routes the rows it ranks; the property fails at a case takeCaseGen constructs.
+ * @plant test/plants/unit/served/inline-worlds-unbound.patch A world match is inlined under its own bindings alone
+ * (program/workload/world.ts), so the plan refuses the count through Seen that the role admits; the query entry's
+ * property fails.
+ * @plant test/plants/unit/served/route-param-misnamed.patch A route names its parameter otherwise than the program
+ * declares it (a trailing underscore), so a fact whose removal changes the answer is routed under a parameter the read
+ * never binds; the property fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -65,6 +76,7 @@ import { printCase } from "#test/support/oracle/public/print.ts"
 import {
 	boundRead,
 	deliveredOrder,
+	type OrderKey,
 	plainKinds,
 	type ProgramCase,
 	type ProgramField,
@@ -74,12 +86,19 @@ import {
 } from "#test/support/oracle/public/program.ts"
 import { expectedStatements } from "#test/support/oracle/reference/deliver.ts"
 import { Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
-import { equal, literalOf, type Row, valueIdentity } from "#test/support/oracle/reference/values.ts"
+import {
+	compare,
+	equal,
+	literalOf,
+	type Row,
+	valueIdentity
+} from "#test/support/oracle/reference/values.ts"
 
 type Feature =
 	| "a fact a routed read's answer changes by"
 	| "a fact a table-wide read's answer changes by"
 	| "a fact of a routed table no answer changes by"
+	| "a fact a read past a take changes by"
 
 type WorldFeature =
 	| "a fact a read through a query entry changes by"
@@ -197,6 +216,9 @@ const sound = (c: ProgramCase, note: (feature: Feature) => void): void => {
 							? "a fact a routed read's answer changes by"
 							: "a fact a table-wide read's answer changes by"
 					)
+					if (pastTake(read)) {
+						note(takeChange)
+					}
 				} else if (routes !== undefined && routes.size > 0) {
 					note("a fact of a routed table no answer changes by")
 				}
@@ -255,11 +277,121 @@ const routedCaseGen =
 		return Option.some({ ...c, reads: [read] })
 	}
 
-/** The case a case checks: its drawn one, or, where its turn aims at a routed read's change, routedCaseGen's. */
+/** The requirement no drawn case is known to meet, which a case whose turn aims at it is constructed to meet. */
+const takeChange: Feature = "a fact a read past a take changes by"
+
+/** Whether a read matches an earlier read's query that takes the first k rows of its order. */
+const pastTake = (read: QueryRead): boolean =>
+	Arr.some(read.query.arms, (arm) =>
+		Arr.some(arm.matches, (m) => m.source.kind === "import" && m.source.query.bound.kind === "take")
+	)
+
+/** A relation holding facts, a field of plainKinds at its place, and the field's least value among the facts. */
+interface Ranked {
+	readonly stored: Stored
+	readonly at: number
+	readonly field: ProgramField
+	readonly least: TypedLiteral
+}
+
+/**
+ * The case's facts read past a take, constructed to reach a fact a read past a take changes by: over a relation whose
+ * facts hold two values or more at a field of plainKinds, drawn with the field, the first read takes every fact but
+ * one, ranked by that field descending and then every other field ascending, so the one it leaves out holds the
+ * field's least value; the second reads the first's rows whose field is a parameter bound to that least value (an
+ * import of the first, program.ts Imported). Removing a taken fact of a greater value lets the left-out fact in, which
+ * the second read answers, so its answer changes by a fact that holds no value its parameter binds: a route through
+ * the take must read the relation whole. None where no relation has such a field.
+ */
+const takeCaseGen =
+	(c: ProgramCase): Gen<Option.Option<ProgramCase>> =>
+	(source) => {
+		const [first, ...rest] = Arr.flatMap(c.schema.relations, (stored): ReadonlyArray<Ranked> => {
+			const facts = c.facts.get(stored.name) ?? []
+			return Arr.flatMap([...stored.fields.entries()], ([at, field]): ReadonlyArray<Ranked> => {
+				const values = Arr.flatMap(facts, (f) =>
+					Option.toArray(Option.fromNullishOr(f[at]?.literal))
+				)
+				const [head, ...tail] = values
+				if (!plainKinds.has(field.kind) || head === undefined) {
+					return []
+				}
+				const value = (l: TypedLiteral) => literalOf(l, field.type)
+				const least = Arr.reduce(tail, head, (low, l) =>
+					compare(value(l), value(low), field.type) < 0 ? l : low
+				)
+				return Arr.some(values, (l) => compare(value(l), value(least), field.type) > 0)
+					? [{ stored, at, field, least }]
+					: []
+			})
+		})
+		if (first === undefined) {
+			return Option.none()
+		}
+		const { stored, field, least } = source.draw(element([first, ...rest]))
+		const facts = c.facts.get(stored.name) ?? []
+		const whole = boundRead(stored, new Map())
+		const taken: QueryRead = {
+			...whole,
+			query: {
+				...whole.query,
+				bound: {
+					kind: "take",
+					order: [
+						{ column: { name: field.name, type: field.type }, dir: "desc" },
+						...Arr.flatMap(stored.fields, (f): ReadonlyArray<OrderKey> =>
+							f.name === field.name ? [] : [{ column: { name: f.name, type: f.type }, dir: "asc" }]
+						)
+					],
+					k: facts.length - 1
+				}
+			}
+		}
+		const read = boundRead(stored, new Map([[field.name, least]]))
+		const [arm, ...arms] = read.query.arms
+		const [match, ...matches] = arm.matches
+		const past: QueryRead = {
+			...read,
+			query: {
+				...read.query,
+				arms: [
+					{
+						...arm,
+						matches: [
+							{
+								...match,
+								source: {
+									kind: "import",
+									read: 0,
+									query: taken.query,
+									fields: stored.fields,
+									binds: []
+								}
+							},
+							...matches
+						]
+					},
+					...arms
+				]
+			}
+		}
+		return Option.some({ ...c, reads: [taken, past] })
+	}
+
+/**
+ * The case a case checks: its drawn one, or, where its turn aims at a routed read's change, routedCaseGen's, and at a
+ * change past a take, takeCaseGen's.
+ */
 const aimedCase = (c: ProgramCase, notes: Case<Feature>): ProgramCase =>
-	Option.exists(notes.steering, (pending) => pending.aimed(routedChange))
-		? Option.getOrElse(notes.draw(routedCaseGen(c)), () => c)
-		: c
+	Option.match(notes.steering, {
+		onNone: () => c,
+		onSome: (pending) =>
+			pending.aimed(routedChange)
+				? Option.getOrElse(notes.draw(routedCaseGen(c)), () => c)
+				: pending.aimed(takeChange)
+					? Option.getOrElse(notes.draw(takeCaseGen(c)), () => c)
+					: c
+	})
 
 /** The parameter a read through `Seen` binds its drawn field to. */
 const seenParam = "seen"
@@ -406,7 +538,8 @@ describe("a read's routes", () => {
 						[
 							"a fact a routed read's answer changes by",
 							"a fact a table-wide read's answer changes by",
-							"a fact of a routed table no answer changes by"
+							"a fact of a routed table no answer changes by",
+							"a fact a read past a take changes by"
 						],
 						{ cases: 60, sense: notesOnly }
 					),

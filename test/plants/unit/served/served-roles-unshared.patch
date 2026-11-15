@@ -1,0 +1,21 @@
+diff --git a/packages/engine/src/served/json.ts b/packages/engine/src/served/json.ts
+index 9eea66f4..f60ed82d 100644
+--- a/packages/engine/src/served/json.ts
++++ b/packages/engine/src/served/json.ts
+@@ -528,13 +528,15 @@ export const servedText = (file: ServedFile): Result.Result<string, CompileError
+ 	Result.flatMap(
+ 		catchRefusal(() => {
+ 			const { rosters, ...members } = file
+-			const written = shareRepeated([new ServedWriter().record(members)], servedSharing)
++			const unshared = new ServedWriter().record(members)
++			const written = shareRepeated([unshared], servedSharing)
+ 			const wire: RostersWire = Object.fromEntries(
+ 				Array.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])
+ 			)
+ 			const [root] = written.roots
+ 			return {
+ 				...membersRecord(defined(root, "a served file's members")),
++				roles: defined(unshared["roles"], "the roles as the writer wrote them"),
+ 				[rostersKey]: wire,
+ 				[sharedKey]: written.table.map((entry) => entry.node)
+ 			}

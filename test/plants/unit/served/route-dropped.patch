@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/logical/routes.ts b/packages/engine/src/logical/routes.ts
+index 6b26d346..affb5016 100644
+--- a/packages/engine/src/logical/routes.ts
++++ b/packages/engine/src/logical/routes.ts
+@@ -323,7 +323,7 @@ export const footprintOf = (
+ 				routes.push([column.name, param])
+ 			}
+ 		}
+-		tables.set(relation, new Map(routes.toSorted(([a], [b]) => compareText(a, b))))
++		tables.set(relation, new Map(routes.toSorted(([a], [b]) => compareText(a, b)).slice(0, -1)))
+ 	}
+ 	return { tables, views: new Set([...views].toSorted(compareText)) }
+ }

@@ -25,11 +25,13 @@
  *   parameters (physical/ddl/domains.ts addParamDomains), and PostgreSQL still reports the parameter's own domain when
  *   it refuses.
  *
- * Plants (~/.cache/grizzle-release/CONTRACTDOMAIN/plants): param-domain-total.patch names a parameter's pattern domain
- * under a recorded installation whatever it installs, so a missing pattern domain compiles; snapshot-params-dropped.patch
- * records no parameter type in snapshot.json, so a login does not compile under its own snapshot;
- * param-domain-own-check.patch gives every parameter's pattern domain its own CHECK, a second copy of its structural
- * domain's.
+ * @plant test/plants/unit/served/param-domain-total.patch A parameter's pattern domain is named under a recorded
+ * installation whatever it installs, so a missing pattern domain compiles; the oracle's property fails.
+ * @plant test/plants/unit/served/snapshot-params-dropped.patch snapshot.json records no parameter type, so a login does
+ * not compile under its own snapshot; the own-workload property fails.
+ * @plant test/plants/unit/served/param-domain-own-check.patch Every parameter's pattern domain gets its own CHECK, a
+ * second copy of its structural domain's; the property fails, no case reaching a parameter's pattern domain over a
+ * field's structural domain with no CHECK of its own.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/snapshot/build.ts b/packages/engine/src/deploy/snapshot/build.ts
+index 9fd4bc2f..6d15224f 100644
+--- a/packages/engine/src/deploy/snapshot/build.ts
++++ b/packages/engine/src/deploy/snapshot/build.ts
+@@ -819,7 +819,7 @@ export const derivedOf = (installation: Installation): SnapshotDerived => ({
+ 	...derivedFacts(installation.owned, installation.closed, installation.laws),
+ 	tables: snapshotTablesOf(installation),
+ 	live: liveSourceOf(installation),
+-	params: installation.installedParams
++	params: { domains: [], contracts: [] }
+ })
+ 
+ /**

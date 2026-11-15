@@ -1,0 +1,12 @@
+diff --git a/packages/grizzle/src/adapter/served/project.ts b/packages/grizzle/src/adapter/served/project.ts
+index 0540b1c1..4e5137bc 100644
+--- a/packages/grizzle/src/adapter/served/project.ts
++++ b/packages/grizzle/src/adapter/served/project.ts
+@@ -313,7 +313,6 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
+ 				Arr.flatMap(writes, (write) => Arr.map(write.frontend.written, (r) => r.name))
+ 			),
+ 			cast: [
+-				...(writes.length === 0 ? [] : claims),
+ 				...Arr.flatMap(params, (param) =>
+ 					param.kind === "scalar" ? [param.type] : Arr.map(param.heading, (c) => c.type)
+ 				),

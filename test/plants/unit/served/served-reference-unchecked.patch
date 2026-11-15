@@ -1,0 +1,17 @@
+diff --git a/packages/engine/src/served/json.ts b/packages/engine/src/served/json.ts
+index 9eea66f4..e88b3418 100644
+--- a/packages/engine/src/served/json.ts
++++ b/packages/engine/src/served/json.ts
+@@ -703,11 +703,7 @@ class ServedReader {
+ 				)
+ 			case tags.shared:
+ 				return (
+-					(String(Number(payload)) === payload ? this.#shared[Number(payload)] : undefined) ??
+-					unread(
+-						within,
+-						`a reference to an entry of the file's table read before it, one of ${this.#shared.length}, not ~${tag}:${payload}`
+-					)
++					this.#shared[Number(payload)]
+ 				)
+ 			case tags.roster:
+ 				return rosterOf(this.#handles, payload, within)

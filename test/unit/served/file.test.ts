@@ -98,7 +98,7 @@ import { testVerify } from "#test/support/worlds.ts"
  *   or not at all: the file without its table, as grizzle's earlier format is, is refused as a malformed served file
  *   at `shared` (MalformedArtifact), and with its table cut short of its last entry, which only its members reference,
  *   is refused so too, never read with a reference standing for nothing.
- * - Plant: one member of the file's JSON value, drawn among all of them, left out; the file read back differs from the
+ * - A member dropped: one member of the file's JSON value, drawn among all of them, left out; the file read back differs from the
  *   one written, or the reader refuses it: a member the encoder drops is never one the decoder makes up, and no form
  *   the reader cannot read throws.
  * - A host's read: the file's bytes, written to disk, read back and parsed, as an application reads its committed file;
@@ -114,10 +114,13 @@ import { testVerify } from "#test/support/worlds.ts"
  *
  * The oracle is the file the compile served, compared as the runtime reads it.
  *
- * Plants (~/.cache/grizzle-release/OUTPUTSIZE/plants): served-roles-unshared (the file's roles written as the writer
- * wrote them, outside the table), served-maps-unshared (no Map ever an entry of the table), served-table-unchecked
- * (the reader iterates `shared` without reading it as a list), served-reference-unchecked (a reference read as
- * whatever the table holds at its index, an entry not read yet included).
+ * @plant test/plants/unit/served/served-roles-unshared.patch The file's roles are written as the writer wrote them,
+ * outside the table; each shape once fails.
+ * @plant test/plants/unit/served/served-maps-unshared.patch No Map is ever an entry of the table; each shape once fails.
+ * @plant test/plants/unit/served/served-table-unchecked.patch The reader iterates `shared` without reading it as a
+ * list; the table's refusal fails.
+ * @plant test/plants/unit/served/served-reference-unchecked.patch A reference is read as whatever the table holds at
+ * its index, an entry not read yet included; the table cut short is read rather than refused.
  */
 
 type Feature =

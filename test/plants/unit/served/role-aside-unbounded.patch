@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/identity.ts b/packages/engine/src/core/identity.ts
+index 162d5bf6..4be7845e 100644
+--- a/packages/engine/src/core/identity.ts
++++ b/packages/engine/src/core/identity.ts
+@@ -1482,7 +1482,7 @@ export const identity = Object.freeze({
+ 	 * aside name (identity.aside) takes no prefix, so it keeps its readable stem.
+ 	 */
+ 	roleAside: (role: string): Identity<"roleAside"> =>
+-		mint("roleAside", [role], [asideSegment], `the role ${role} set aside`, hashed),
++		mint("roleAside", [role], [asideSegment, ...nameSegments(role)], `the role ${role} set aside`, hashed),
+ 	/** The name an index is built under before it is swapped in for `of`. */
+ 	swap: (of: string): Identity<"swap"> =>
+ 		mint("swap", [of], ["next", ...nameSegments(of)], `the next ${of}`, hashed),

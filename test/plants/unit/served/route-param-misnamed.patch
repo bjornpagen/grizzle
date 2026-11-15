@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/logical/routes.ts b/packages/engine/src/logical/routes.ts
+index 6b26d346..ee05e12d 100644
+--- a/packages/engine/src/logical/routes.ts
++++ b/packages/engine/src/logical/routes.ts
+@@ -316,7 +316,7 @@ export const footprintOf = (
+ 			const [param] = [...(fixed.get(column.name) ?? [])]
+ 				.flatMap((p) => {
+ 					const name = named.get(p)
+-					return name === undefined ? [] : [name]
++					return name === undefined ? [] : [`${name}_`]
+ 				})
+ 				.toSorted(compareText)
+ 			if (param !== undefined && routable[column.type.carrier]) {

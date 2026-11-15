@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/identity.ts b/packages/engine/src/core/identity.ts
+index 162d5bf6..65aa4477 100644
+--- a/packages/engine/src/core/identity.ts
++++ b/packages/engine/src/core/identity.ts
+@@ -1435,7 +1435,7 @@ export const identity = Object.freeze({
+ 	 * rolePrefixBytes leads it within maxIdentifierBytes.
+ 	 */
+ 	liveSource: (root: string): Identity<"liveSource"> =>
+-		mint("liveSource", [root], [liveSegment], `live source of ${root}`, hashed),
++		mint("liveSource", [root], [liveSegment, ...nameSegments(root)], `live source of ${root}`, hashed),
+ 	/** The table of a schema's live secret, which only the installation's decoder login reads. */
+ 	liveSecret: (): Identity<"liveSecret"> =>
+ 		mint("liveSecret", [], ["live", "secret"], "the live secret", readable("__live_secret")),

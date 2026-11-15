@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/served/json.ts b/packages/engine/src/served/json.ts
+index 9eea66f4..a849df1d 100644
+--- a/packages/engine/src/served/json.ts
++++ b/packages/engine/src/served/json.ts
+@@ -754,7 +754,7 @@ export const servedFile = (json: unknown): Result.Result<ServedFile, CompileErro
+ 		return Result.err(malformedArtifact("served", [], "a served file's JSON form, a record"))
+ 	}
+ 	const { [sharedKey]: shared, [rostersKey]: rosters, ...members } = json
+-	if (!isList(shared)) {
++	if (shared === null) {
+ 		return Result.err(
+ 			malformedArtifact(
+ 				"served",

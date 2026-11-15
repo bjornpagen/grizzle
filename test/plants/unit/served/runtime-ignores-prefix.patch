@@ -1,0 +1,26 @@
+diff --git a/packages/grizzle/src/adapter/connection/config.ts b/packages/grizzle/src/adapter/connection/config.ts
+index 75a5db64..0b7bb545 100644
+--- a/packages/grizzle/src/adapter/connection/config.ts
++++ b/packages/grizzle/src/adapter/connection/config.ts
+@@ -496,7 +496,7 @@ export const connectionRole = (
+ 	connection: ParsedConnection,
+ 	where: SettingPath,
+ 	stem: string
+-): Result.Result<string, SettingFault> => spaceRole(connection.roles, where, stem)
++): Result.Result<string, SettingFault> => spaceRole({ kind: "stems" }, where, stem)
+ 
+ /**
+  * A DbConfig's pool bounds, `setting` as its block's plain data holds them (parseConnection read it as data): parsed,
+diff --git a/packages/grizzle/src/adapter/served/served.ts b/packages/grizzle/src/adapter/served/served.ts
+index 7a5dd3e1..24ecfae6 100644
+--- a/packages/grizzle/src/adapter/served/served.ts
++++ b/packages/grizzle/src/adapter/served/served.ts
+@@ -174,7 +174,7 @@ export const roleNameOf = <L>(
+ 			`the role prefix ${Formatter.format(installation.rolePrefix)}, used verbatim, as ${rolePrefixFaultText(space.error)}`
+ 		)
+ 	}
+-	const role = roleInSpace(space.value, stem)
++	const role = roleInSpace({ kind: "stems" }, stem)
+ 	if (!role.ok) {
+ 		throw CompileError.make({ _tag: "RoleNameTooLong", at, of, ...role.error })
+ 	}

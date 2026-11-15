@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/logical/routes.ts b/packages/engine/src/logical/routes.ts
+index 6b26d346..4a008bf5 100644
+--- a/packages/engine/src/logical/routes.ts
++++ b/packages/engine/src/logical/routes.ts
+@@ -323,6 +323,11 @@ export const footprintOf = (
+ 				routes.push([column.name, param])
+ 			}
+ 		}
++		const [firstColumn] = (occurrences[0]?.heading ?? []).filter((c) => routable[c.type.carrier])
++		const [firstParam] = named.values()
++		if (routes.length === 0 && firstColumn !== undefined && firstParam !== undefined) {
++			routes.push([firstColumn.name, firstParam])
++		}
+ 		tables.set(relation, new Map(routes.toSorted(([a], [b]) => compareText(a, b))))
+ 	}
+ 	return { tables, views: new Set([...views].toSorted(compareText)) }

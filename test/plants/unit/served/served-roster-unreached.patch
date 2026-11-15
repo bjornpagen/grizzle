@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/served/project.ts b/packages/grizzle/src/adapter/served/project.ts
+index 0540b1c1..3c644f33 100644
+--- a/packages/grizzle/src/adapter/served/project.ts
++++ b/packages/grizzle/src/adapter/served/project.ts
+@@ -568,7 +568,7 @@ export const servedFileOf = (
+ 					: servedLiveOf(root, source),
+ 			rosters: new Map(
+ 				Arr.map(
+-					Arr.filter([...snapshot.codes.rosters], ([name]) => used.has(name)),
++					[...snapshot.codes.rosters],
+ 					([name, codec]) => [name, codec.codes] as const
+ 				)
+ 			),

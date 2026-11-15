@@ -19,10 +19,12 @@
  *   minimal key the analysis proves among it, or, where it proves none, every head field its decoder reads; an ordered
  *   read's is the fields of the completed order its root delivers in, and a paged read's the fields of its page's.
  *
- * Plants (~/.cache/grizzle-release/LIVE-ROUTES/plants): route-dropped.patch drops each table's last routed field
- * (footprint red); route-narrowed.patch routes a table its program reads table-wide by its first column, under the
- * program's first parameter (footprint red; the soundness suite, routes-sound.test.ts, red too); key-whole-row.patch
- * keys a set read by every head field where a narrower key is proved (key red).
+ * @plant test/plants/unit/served/route-dropped.patch footprintOf drops each table's last routed field; the footprint
+ * property fails.
+ * @plant test/plants/unit/served/route-narrowed.patch footprintOf routes a table its program reads table-wide by its
+ * first column, under the program's first parameter; the footprint property fails (and routes-sound.test.ts's).
+ * @plant test/plants/unit/served/key-whole-row.patch A set read is keyed by every head field where a narrower key is
+ * proved (program/served.ts templateKey); the key property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
