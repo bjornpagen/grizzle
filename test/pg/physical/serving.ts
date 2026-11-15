@@ -544,7 +544,7 @@ const Settled = Brand.nominal<Settled>()
  * all-visible, and what held back the horizon VACUUM freezes and marks pages by at that moment, every backend holding an
  * xmin or an xid, every replication slot holding an xmin and every prepared transaction.
  */
-export class HeapUnsettled extends Data.TaggedError("HeapUnsettled")<{
+class HeapUnsettled extends Data.TaggedError("HeapUnsettled")<{
 	readonly relations: ReadonlyArray<string>
 	readonly holders: ReadonlyArray<string>
 	readonly message: string
