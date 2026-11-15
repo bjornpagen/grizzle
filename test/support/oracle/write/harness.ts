@@ -707,20 +707,19 @@ const countProblems = (
 }
 
 /**
- * The problems of an outcome against a parameter PostgreSQL refuses as it binds it: ExecutionFailure with reason
- * ParamRejected at one of `params`, a scalar parameter or a field of a relation parameter's (`<param>.<field>`), or
- * invariant-rejected by one of the stratum's laws `refusals`, which a statement before the parameter's met first.
+ * The problems of an outcome against a parameter PostgreSQL refuses as the flight's admission binds it, before any
+ * statement that reaches state: ExecutionFailure with reason ParamRejected at one of `params`, a scalar parameter or a
+ * field of a relation parameter's (`<param>.<field>`), never a law's refusal.
  */
 const unboundProblems = (
-	group: WGroup,
 	expected: Extract<Expected, { readonly kind: "unbound" }>,
 	outcome: Result.Result<WriteOutcome, unknown>
 ): ReadonlyArray<string> => {
 	const params = [...expected.params]
 	if (Result.isSuccess(outcome)) {
-		return outcome.success.kind === "invariant-rejected" && expected.refusals.size > 0
-			? refusalProblems(group, expected.refusals, outcome.success)
-			: [`expected ParamRejected at one of ${Arr.join(params, ", ")}, got ${outcome.success.kind}`]
+		return [
+			`expected ParamRejected at one of ${Arr.join(params, ", ")}, got ${outcome.success.kind}`
+		]
 	}
 	const failure = outcome.failure
 	const param =
@@ -790,7 +789,7 @@ export const judgeWrite = (
 		return problems
 	}
 	if (expected.kind === "unbound") {
-		appendAll(problems, unboundProblems(group, expected, outcome))
+		appendAll(problems, unboundProblems(expected, outcome))
 		stateIs(expected.initial, "after a parameter's refusal the initial state stays:", noRenaming)
 		return problems
 	}
@@ -1222,7 +1221,7 @@ const printExpected = (expected: Expected): string => {
 		case "outsideDomain":
 			return `invariant-rejected by a domain's law or one of ${lawsOf(expected.refusals)}`
 		case "unbound":
-			return `ParamRejected at one of ${Arr.join([...expected.params], ", ")}, or invariant-rejected by one of ${lawsOf(expected.refusals)}`
+			return `ParamRejected at one of ${Arr.join([...expected.params], ", ")}`
 	}
 }
 

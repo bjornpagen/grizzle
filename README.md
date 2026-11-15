@@ -3288,7 +3288,9 @@ by its domain's CHECK as the statement casts it, before the row's constraints an
 value is cast as PostgreSQL binds it, to its contract's domain or to its own pattern domain, one per parameter and
 pattern, which `grizzle generate` installs for every contract and every pattern a served parameter names: a value
 outside them is refused
-there, before the statement reads a row. A contract's refusal of a parameter is `refused` on the contract's law, its
+there, before the statement reads a row. A write binds every such parameter in its first statement, so the refusal
+comes before any other statement of the write runs, whichever stratum reads the parameter, and no law a stratum
+breaks answers first. A contract's refusal of a parameter is `refused` on the contract's law, its
 witness `unreported`, a write's and a read's (`LawRejected`) alike; a pattern's refusal of a parameter is `input`
 (`ParamRejected`), its message naming the parameter, `<parameter>.<field>` for a field of a relation parameter's facts,
 and its pattern. The outcome names

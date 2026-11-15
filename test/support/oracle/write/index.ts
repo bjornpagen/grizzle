@@ -3,6 +3,7 @@ import {
 	drawn,
 	type Explored,
 	explore,
+	type Kept,
 	type Run,
 	type SearchFailure
 } from "@bjornpagen/testing/explore"
@@ -83,9 +84,11 @@ export const writeRunGen: Gen<WriteRun> = (source) => ({
 
 /**
  * A write run, the plan perturbation it runs under and how its second readings store their facts, drawn together so
- * they shrink together.
+ * they shrink together: the sketch of one case of a write suite, as a kept case states it.
  */
-const perturbedRunGen: Gen<readonly [WriteRun, Perturbation, Restorage]> = (source) =>
+export type WriteSketch = readonly [WriteRun, Perturbation, Restorage]
+
+const perturbedRunGen: Gen<WriteSketch> = (source) =>
 	[source.draw(writeRunGen), source.draw(perturbationGen), source.draw(restorageGen)] as const
 
 /**
@@ -355,6 +358,8 @@ export interface WriteSuite {
 	 * floor's finds toward what it missed.
 	 */
 	readonly coverage: Coverage<WriteOracleFeature>
+	/** The counterexamples the suite keeps by value, each replayed before any stream. */
+	readonly kept: ReadonlyArray<Kept<WriteSketch, WriteOracleFeature>>
 }
 
 /**
@@ -387,7 +392,7 @@ export const exploreWrite = (
 			draw: drawn(perturbedRunGen),
 			literal: Formatter.format,
 			coverage: s.coverage,
-			kept: [],
+			kept: s.kept,
 			runs: s.runs,
 			shrink: boundedShrink(shrinkCandidates),
 			concurrency: 1,

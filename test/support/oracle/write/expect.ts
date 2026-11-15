@@ -146,15 +146,15 @@ export type Expected =
 	  }
 	| {
 			/**
-			 * A stratum reading a parameter passed outside the field it is declared at (unboundParams): PostgreSQL refuses
-			 * the value as it binds the first statement reading it, ExecutionFailure with reason ParamRejected at one such
-			 * parameter, or a law of the stratum refuses a statement before it, so the initial state stays.
+			 * A parameter passed outside the field it is declared at, read by any stratum (unboundParams): the flight's
+			 * admission, its first statement and the one that reaches the call's parameters alone (runtime/write/steps.ts
+			 * StepReach), binds every parameter at once, so PostgreSQL refuses the value there, ExecutionFailure with
+			 * reason ParamRejected at one such parameter, before any statement that reaches state runs and so before any
+			 * law of any stratum; the initial state stays.
 			 */
 			readonly kind: "unbound"
 			/** The names of the parameters passed outside their fields, one of which the refusal names. */
 			readonly params: ReadonlySet<string>
-			/** The laws of the stratum a statement before the parameter's may be refused by instead. */
-			readonly refusals: AcceptableRefusals
 			readonly initial: OracleState
 			readonly collisions: ReadonlyMap<string, Collisions>
 	  }
@@ -207,8 +207,8 @@ const keyFields = (
 }
 
 /**
- * Same-key pairs among the enumerated additions of each stratum, which host normalization refuses before any SQL, once
- * every parameter the bind reads is inside its field (unboundParams), with the key's law and a violating key, a
+ * Same-key pairs among the enumerated additions of each stratum, which host normalization refuses before any SQL, so
+ * before the admission refuses a parameter outside its field (unboundParams), with the key's law and a violating key, a
  * generated addition on the keys holding no serial field. Deletions are judged at no key: of two deleted facts at one
  * key at most one is stored, and the other's deletion changes nothing. At a key holding no serial field, a generated addition and a complete one that agrees
  * with it at every field it states are one fact (README: a row that leaves its serial fields out is the fact its other
@@ -333,15 +333,16 @@ const sameKeyViolations = (
 }
 
 /**
- * The parameters a stratum's `members` pass outside the field each is declared at (domain.ts fitsField): a head
- * parameter at its target's column, a filter's at its source's column, a scope's at its relation's column, and a
- * relation parameter's facts at their relation's columns. Nothing on the host checks a parameter's pattern: PostgreSQL
- * checks it as it binds the first statement reading it, by the parameter's own pattern domain, whether or not its
- * source holds a row, after every host refusal (hostRefusals) and every statement before it.
+ * The parameters `members` pass outside the field each is declared at (domain.ts fitsField): a head parameter at its
+ * target's column, a filter's at its source's column, a scope's at its relation's column, and a relation parameter's
+ * facts at their relation's columns. Nothing on the host checks a parameter's pattern: PostgreSQL checks it by the
+ * parameter's own pattern domain as it binds the flight's admission (write/admission/statement.ts), which binds every
+ * parameter of every stratum at once, whether or not its source holds a row, after every host refusal (hostRefusals)
+ * and before any statement that reaches state.
  */
 const unboundParams = (
 	ctx: ExpectContext,
-	members: WChangeSet["strata"][number],
+	members: ReadonlyArray<WChangeSet["strata"][number][number]>,
 	params: ParamMap
 ): ReadonlySet<string> => {
 	const outsideAt = (relation: WRelation, column: string, param: string): ReadonlyArray<string> =>
@@ -603,9 +604,11 @@ export const unorderableStrata = (group: WGroup, c: WChangeSet): ReadonlyArray<C
  * every violation query evaluated by brute force is empty where it is judged.
  *
  * Before any of these, host normalization refuses a same-key pair among the enumerated additions of any stratum, with
- * that key's law and a violating key (hostRefusals), before any SQL. A stratum reading a parameter passed outside the
- * field it is declared at is refused by PostgreSQL as it binds it, ExecutionFailure with reason ParamRejected, or by a
- * law of the stratum a statement before it meets (unboundParams). A stratum that adds a fact holding a stored value its field's domain refuses, a described member
+ * that key's law and a violating key (hostRefusals), before any SQL. Then the flight's first statement, its admission,
+ * which reaches the call's parameters alone (runtime/write/steps.ts StepReach), refuses a parameter passed outside the
+ * field it is declared at, whichever stratum reads it, ExecutionFailure with reason ParamRejected, before any statement
+ * that reaches state (unboundParams), so no law of any stratum answers first (README, Contracts and patterns). A stratum that adds a fact holding a
+ * stored value its field's domain refuses, a described member
  * reading a wider text into a narrower field, is refused there by the domain, naming the laws of the columns it types
  * in the tables its statement writes (DomainRefusal), or meets a law of the stratum first. A refused change leaves the
  * initial state.
@@ -630,8 +633,10 @@ export const expectChangeSet = (
 /**
  * expectChangeSet with the generated additions taking their serial values as `draws` says (addwins.ts Draws).
  *
- * Each stratum's end, in order: the first one that adds outside a domain, or breaks a key or an immediate foreign
- * key, refuses the change.
+ * The host's normalization, before any SQL; then the flight's statements by what they reach (StepReach): its
+ * admission, which reaches the parameters alone, first (write/program/compile.ts placeAdmission); then each stratum's
+ * end, in order, the first one that adds outside a domain, or breaks a key or an immediate foreign key, refusing the
+ * change.
  */
 const expectUnder = (
 	ctx: ExpectContext,
@@ -646,6 +651,10 @@ const expectUnder = (
 	const host = hostRefusals(ctx, c)
 	if (host.size > 0) {
 		return { kind: "rejected", refusals: host, initial, collisions }
+	}
+	const unbound = unboundParams(ctx, Arr.flatten(c.strata), c.params)
+	if (unbound.size > 0) {
+		return { kind: "unbound", params: unbound, initial, collisions }
 	}
 	const immediate = Arr.filter(ctx.group.containments, (x) => isImmediate(ctx.group, x))
 	const rejected = (refusals: ReadonlyArray<readonly [LawId, AcceptableRefusal]>): Expected => ({
@@ -717,26 +726,6 @@ const expectUnder = (
 		}
 		const outcome = applyAddWins(schema, initial, oracleChangeSet(ctx.group, prefix), draws)
 		const outside = domainRefusal(ctx, members, c.params, state)
-		const unbound = unboundParams(ctx, members, c.params)
-		if (unbound.size > 0) {
-			return {
-				kind: "settled",
-				expected: {
-					kind: "unbound",
-					params: unbound,
-					refusals: new Map(
-						outcome.kind === "invariant-rejected"
-							? [
-									...lawRefusals(outcome),
-									...unreportedBy(brokenForeignKeys(ctx, immediate, outcome.state))
-								]
-							: unreportedBy(brokenForeignKeys(ctx, immediate, outcome.state))
-					),
-					initial,
-					collisions
-				}
-			}
-		}
 		if (outcome.kind === "invariant-rejected") {
 			const refusals = [
 				...lawRefusals(outcome),

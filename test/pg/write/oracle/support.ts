@@ -24,11 +24,12 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** The runs of each suite's rotating stream. */
 const runs = 40
 
-/** The suite `i`: its label, from which the library derives its floor stream. */
-export const writeOracleSuite = (i: number): WriteSuite => ({
+/** The suite `i`: its label, from which the library derives its floor stream, and the counterexamples it keeps. */
+export const writeOracleSuite = (i: number, kept: WriteSuite["kept"]): WriteSuite => ({
 	suite: `write/oracle-${i}`,
 	runs,
-	coverage: required(writeSituations, { cases: runs, sense: notesOnly })
+	coverage: required(writeSituations, { cases: runs, sense: notesOnly }),
+	kept
 })
 
 export const writeSuite = (s: WriteSuite, title: string): void =>
