@@ -15,10 +15,11 @@
  *   keyOfRelation), where `id` is one more field it states;
  * - a stated row at a key no stored row holds is added, a counted member under a stored owner joining its family;
  * - a stated row equal to the stored row at its key, at every field it states, is no change;
- * - a stated row that differs there, in its `v`, its id, a counted owner or its place, or as a sequence's owner whose members
- *   or any member's own fact below it differ from the stored ones, is invariant-rejected on its relation's primary key
- *   (`keyed`), and the write changes nothing; a stated row at a sequence's place (its group and index, a tree's root,
- *   parent and slot) that a stored row at another key holds breaks that family's key too (`placed`).
+ * - a stated row that differs there, in its `v`, its id, or its place in a family as written (its group, a counted
+ *   owner's or a sequence owner's key, a tree owner's start among them, and a sequence's index), or as a sequence's owner
+ *   whose members or any member's own fact below it differ from the stored ones, is invariant-rejected on its relation's
+ *   primary key (`keyed`), and the write changes nothing; a stated row at a sequence's place (its group and index, a
+ *   tree's root, parent and slot) that a stored row at another key holds breaks that family's key too (`placed`).
  *
  * The differences are drawn from the stored instance by construction, each leaving a valid instance: a row's payload
  * changed, a member added to a family under one of its owners, a row and everything nested under it or naming it as a
@@ -139,9 +140,12 @@ const opened = (
 	)
 })
 
-/** The rows of `rows` left once row `id` is gone, with every row nested under one gone or naming one as its owner. */
-const without = (rows: ReadonlyArray<InstanceRow>, id: number): ReadonlyArray<InstanceRow> => {
-	const gone = new Set([id])
+/** The rows `ids` and every row of `rows` nested under one of them or naming one as its owner, through every family. */
+const nestedUnder = (
+	rows: ReadonlyArray<InstanceRow>,
+	ids: Iterable<number>
+): ReadonlySet<number> => {
+	const gone = new Set(ids)
 	let grew = true
 	while (grew) {
 		grew = false
@@ -152,6 +156,12 @@ const without = (rows: ReadonlyArray<InstanceRow>, id: number): ReadonlyArray<In
 			}
 		}
 	}
+	return gone
+}
+
+/** The rows of `rows` left once row `id` is gone, with every row nested under one gone or naming one as its owner. */
+const without = (rows: ReadonlyArray<InstanceRow>, id: number): ReadonlyArray<InstanceRow> => {
+	const gone = nestedUnder(rows, [id])
 	return Arr.filter(rows, (r) => !gone.has(r.id))
 }
 
@@ -202,11 +212,45 @@ export const unitRowsOf = (
 	)
 }
 
-/** The rows of `rows` a delete of the units `ids` whole leaves: each unit and every row nested under it gone. */
-export const withoutUnits = (
+/** A delete of stored units whole: the units it removes, those named and every unit of their components, and the
+ * rows it leaves. */
+export interface UnitDelete {
+	readonly units: ReadonlyArray<number>
+	readonly left: ReadonlyArray<InstanceRow>
+}
+
+/**
+ * The delete of the units `ids` of `rows` whole, each with its component: every unit a row nested under it is nested
+ * under too, transitively. A row nested under two units, a member of one's counted family and of the other's ordered
+ * family, goes with either (README "Families": a unit "removes its rows and every row nested under them, through
+ * every family"), and the other's group would be left partial, which its family's own law refuses, as WHOLEDEL's suite
+ * (test/pg/write/whole) judges. So a unit names its component, the delete removes components whole, and the rows it
+ * leaves are a valid instance whose every group is as stored.
+ */
+export const unitDelete = (
+	spec: FillSpec,
 	rows: ReadonlyArray<InstanceRow>,
 	ids: ReadonlyArray<number>
-): ReadonlyArray<InstanceRow> => Arr.reduce(ids, rows, (left, id) => without(left, id))
+): UnitDelete => {
+	const nested = Arr.map(unitRowsOf(spec, rows), (u) => ({
+		id: u.id,
+		rows: nestedUnder(rows, [u.id])
+	}))
+	const units = new Set(ids)
+	let gone = nestedUnder(rows, units)
+	let grew = true
+	while (grew) {
+		grew = false
+		for (const u of nested) {
+			if (!units.has(u.id) && Arr.some([...u.rows], (id) => gone.has(id))) {
+				units.add(u.id)
+				grew = true
+			}
+		}
+		gone = nestedUnder(rows, units)
+	}
+	return { units: [...units], left: Arr.filter(rows, (r) => !gone.has(r.id)) }
+}
 
 /** The instance a difference makes of `rows`. */
 export const differed = (
@@ -258,17 +302,14 @@ export type AgainVerdict =
 			readonly placed: ReadonlyArray<{ readonly row: InstanceRow; readonly family: number }>
 	  }
 
-/** Whether two rows state one membership set: one owner per counted family, one owner and slot per sequence. */
-const sameMemberships = (spec: FillSpec, a: InstanceRow, b: InstanceRow): boolean =>
-	a.memberOf.length === b.memberOf.length &&
-	Arr.every(a.memberOf, (m) => {
-		const other = membershipIn(b, m.family)
-		return (
-			other !== undefined &&
-			other.owner === m.owner &&
-			(!isSequence(familyAt(spec, m.family)) || other.slot === m.slot)
-		)
-	})
+/**
+ * The fields of a member's place in family `f`, as its row is written: its group, its owner's key (a tree owner's root
+ * and start), and a sequence's index; a counted family's order is hidden.
+ */
+const placeFields = (spec: FillSpec, f: number): ReadonlyArray<string> => [
+	...groupFieldsOf(spec, f),
+	...(isSequence(familyAt(spec, f)) ? [indexName(f)] : [])
+]
 
 /**
  * The set rule's verdict on inserting `again` over the stored instance `stored` (see the module's header). Rows meet at
@@ -295,6 +336,16 @@ export const againVerdict = (
 		const b = valuesOf(storedRows, z, fields)
 		return Arr.every(a, (value, i) => value === b[i])
 	}
+	/**
+	 * Whether two rows hold one place in each family, as written: the same families, each at the same group and index, so
+	 * a counted member whose tree owner's start a move shifts is at another place, as its fact states its owner's key.
+	 */
+	const samePlaces = (x: InstanceRow, z: InstanceRow): boolean =>
+		x.memberOf.length === z.memberOf.length &&
+		Arr.every(
+			x.memberOf,
+			(m) => membershipIn(z, m.family) !== undefined && sameAt(x, z, placeFields(spec, m.family))
+		)
 	const storedAt = (x: InstanceRow): Option.Option<InstanceRow> =>
 		Arr.findFirst(
 			stored,
@@ -306,7 +357,7 @@ export const againVerdict = (
 			onSome: (z) =>
 				z.id !== x.id ||
 				z.v !== x.v ||
-				!sameMemberships(spec, x, z) ||
+				!samePlaces(x, z) ||
 				Arr.some(spec.families, (f, k) => {
 					if (!isSequence(f) || f.owner !== x.relation) {
 						return false

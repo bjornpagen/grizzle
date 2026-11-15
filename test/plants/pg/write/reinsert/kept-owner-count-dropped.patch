@@ -1,0 +1,47 @@
+diff --git a/packages/engine/src/write/delete/unit.ts b/packages/engine/src/write/delete/unit.ts
+index 242622cf..42a94f99 100644
+--- a/packages/engine/src/write/delete/unit.ts
++++ b/packages/engine/src/write/delete/unit.ts
+@@ -231,22 +231,32 @@ export const unitSql = (
+ 		if (known !== undefined) {
+ 			return known
+ 		}
++		const counts = new Set(
++			below
++				.flatMap((m) => m.families)
++				.filter((f) => f.owner.name === relation.name)
++				.map((f) => fieldKey(f.count.name))
++		)
+ 		const read = added(relation).flatMap((rows): ReadonlyArray<AddedRead> => {
+ 			if (rows.kind === "slot") {
+ 				const shape = slots(relation.name, rows.slot)
+-				const columns = rows.slot.heading.map((c) => ({
+-					key: fieldKey(c.name),
+-					column: w.names.column(relation.name, c.name),
+-					type: c.type
+-				}))
++				const columns = rows.slot.heading
++					.map((c) => ({
++						key: fieldKey(c.name),
++						column: w.names.column(relation.name, c.name),
++						type: c.type
++					}))
++					.filter((c) => !counts.has(c.key))
+ 				return isNonEmpty(columns) ? [{ shape, columns }] : []
+ 			}
+ 			const shape = nestedRowsCte(w, supply, ctes, relation, rows)
+-			const columns = [...rows.layout.key, ...rows.layout.columns].map((c) => ({
+-				key: c.key,
+-				column: installed(w, relation.name, c.column),
+-				type: c.type
+-			}))
++			const columns = [...rows.layout.key, ...rows.layout.columns]
++				.map((c) => ({
++					key: c.key,
++					column: installed(w, relation.name, c.column),
++					type: c.type
++				}))
++				.filter((c) => !counts.has(c.key))
+ 			return isNonEmpty(columns) ? [{ shape, columns }] : []
+ 		})
+ 		reads.set(relation.name, read)

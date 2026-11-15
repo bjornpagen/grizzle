@@ -27,9 +27,9 @@ import {
 	standingOf,
 	type Target,
 	targetsOf,
+	unitDelete,
 	unitRelations,
-	unitRowsOf,
-	withoutUnits
+	unitRowsOf
 } from "#test/support/families/again.ts"
 import {
 	admittedFillSpecGen,
@@ -80,7 +80,9 @@ import { fullWorld } from "#test/support/worlds.ts"
  * replace (README "Families": "A replace is a delete and an insert in one stratum"), the same stratum first deleting
  * some stored units whole: tree roots by their root fields, and top rows of a relation that owns a family and is no
  * family's member, by their facts. The generator draws only units the README admits, whose nested relations are
- * members only of families owned within the unit (again.ts unitRelations); WHOLEDEL's suite searches the refusals.
+ * members only of families owned within the unit (again.ts unitRelations), and a unit names its component, every unit
+ * a row nested under it is nested under too (again.ts unitDelete): a row nested under two units goes with either, so a
+ * delete of one alone leaves the other's group partial, a refusal WHOLEDEL's suite searches with the others.
  *
  * A replace is judged by the same rule from the stored instance less its deleted units: the state it leaves is
  * (S − units) ∪ the stated rows, it answers `no-change` where that is the stored state and `accepted` otherwise, and an
@@ -114,13 +116,19 @@ import { fullWorld } from "#test/support/worlds.ts"
  * sequences' counts and ends (write/insert/input.ts); the property fails.
  * @plant test/plants/pg/write/reinsert/counted-append-refused.patch A nested row is compared at its counted families'
  * counts and ends too (write/family/additions.ts); the property fails.
+ * @plant test/plants/pg/write/reinsert/kept-owner-count-dropped.patch A replace's kept rule compares a doomed owner
+ * without its families' counts (write/delete/unit.ts addedReads), so it keeps an owner its component's delete leaves
+ * with a stale count, R0 3 in the kept case once R1 4 goes with R0 1; the property fails.
  */
 
 /** A second insert of a case: its differences from the stored instance, in order, and whether it states every fact twice. */
 interface Again {
 	readonly differences: ReadonlyArray<Difference>
 	readonly twice: boolean
-	/** The stored units the same stratum deletes whole first, a replace where any (README "Families", replace). */
+	/**
+	 * The stored units the same stratum deletes whole first, each with its component (again.ts unitDelete), a replace
+	 * where any (README "Families", replace).
+	 */
 	readonly units: ReadonlyArray<number>
 }
 
@@ -481,7 +489,7 @@ const againsGen =
 					? source.draw(subset(unitIds, { min: 1, max: unitIds.length }))
 					: []
 			out.push({ differences, twice: source.draw(twiceGen), units })
-			stored = storedAfter(stored, againVerdict(spec, withoutUnits(stored, units), again))
+			stored = storedAfter(stored, againVerdict(spec, unitDelete(spec, stored, units).left, again))
 		}
 		return nonEmpty(out)
 	}
@@ -751,7 +759,107 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 						draw: drawn(caseGen),
 						literal: Formatter.format,
 						coverage: required<Situation>(situations, { cases: 72, sense: notesOnly }),
-						kept: [],
+						kept: [
+							{
+								note: "REINSERT: a replace deleting the unit R0 1 alone, where R1 4 is a member of R0 3's ordered family and of R0 1's counted one: the delete takes R1 4 and leaves R0 3's ordered group partial, so stating R0 3 again met its stale count at its key. A unit names its component (again.ts unitDelete): R0 1 and R0 3 go together, and the replace stating R0 3 alone is accepted",
+								sketch: {
+									spec: {
+										relations: [
+											{ generated: false, mutable: false },
+											{ generated: false, mutable: false }
+										],
+										families: [
+											{ kind: "ordered", owner: 0, member: 1, fold: "none" },
+											{ kind: "counted", owner: 0, member: 1, fold: "none" }
+										],
+										copies: [{ family: 0, axis: "owner", source: { kind: "caller" } }],
+										steps: []
+									},
+									rows: [
+										{ relation: 0, id: 1, v: 0n, memberOf: [] },
+										{
+											relation: 1,
+											id: 2,
+											v: 0n,
+											memberOf: [
+												{ family: 0, owner: 1, slot: 0 },
+												{ family: 1, owner: 1, slot: 0 }
+											]
+										},
+										{ relation: 0, id: 3, v: 0n, memberOf: [] },
+										{
+											relation: 1,
+											id: 4,
+											v: 0n,
+											memberOf: [
+												{ family: 0, owner: 3, slot: 0 },
+												{ family: 1, owner: 1, slot: 0 }
+											]
+										}
+									],
+									again: [
+										{
+											differences: [
+												{ kind: "renamed", id: 1, to: 5 },
+												{ kind: "removed", id: 5 }
+											],
+											twice: false,
+											units: [1]
+										}
+									]
+								},
+								draws: "",
+								reaches: ["a replace with a difference: accepted"]
+							},
+							{
+								note: "REINSERT: R0 2, a tree node owning the counted member R2 8, moved after its sibling R0 4, so its start moves from 1 to 4 and R2 8 is stated under its owner's new key; the writer refuses R2's key, witnessed by R2 8. Rows compare at their places as written (again.ts placeFields), not by their owners' ids, so R2 8 is among the keyed rows",
+								sketch: {
+									spec: {
+										relations: [
+											{ generated: false, mutable: true },
+											{ generated: false, mutable: true },
+											{ generated: false, mutable: true },
+											{ generated: false, mutable: true }
+										],
+										families: [
+											{ kind: "tree", owner: 3, member: 3, fold: "none" },
+											{ kind: "counted", owner: 0, member: 2, fold: "none" },
+											{ kind: "tree", owner: 0, member: 0, fold: "none" }
+										],
+										copies: [
+											{ family: 1, axis: "owner", source: { kind: "caller" } },
+											{ family: 1, axis: "owner", source: { kind: "count", family: 2 } },
+											{ family: 0, axis: "owner", source: { kind: "caller" } }
+										],
+										steps: []
+									},
+									rows: [
+										{ relation: 0, id: 1, v: 0n, memberOf: [] },
+										{ relation: 0, id: 2, v: 0n, memberOf: [{ family: 2, owner: 1, slot: 0 }] },
+										{ relation: 0, id: 3, v: 0n, memberOf: [{ family: 2, owner: 2, slot: 0 }] },
+										{ relation: 0, id: 4, v: 0n, memberOf: [{ family: 2, owner: 1, slot: 1 }] },
+										{ relation: 0, id: 5, v: 0n, memberOf: [{ family: 2, owner: 4, slot: 0 }] },
+										{ relation: 0, id: 6, v: 0n, memberOf: [{ family: 2, owner: 5, slot: 0 }] },
+										{ relation: 1, id: 7, v: 0n, memberOf: [] },
+										{ relation: 2, id: 8, v: 0n, memberOf: [{ family: 1, owner: 2, slot: 0 }] },
+										{ relation: 2, id: 9, v: 0n, memberOf: [{ family: 1, owner: 1, slot: 0 }] },
+										{ relation: 2, id: 10, v: 0n, memberOf: [{ family: 1, owner: 1, slot: 0 }] }
+									],
+									again: [
+										{
+											differences: [
+												{ kind: "moved", id: 9, to: { family: 1, owner: 2, slot: 0 } },
+												{ kind: "moved", id: 2, to: { family: 2, owner: 1, slot: 1 } }
+											],
+											twice: false,
+											units: []
+										}
+									]
+								},
+								draws: "",
+								reaches: ["two differences in one insert"]
+							}
+						],
 						runs: 16,
 						shrink: boundedShrink(40),
 						concurrency: 1,
@@ -864,8 +972,8 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 									const restated = Arr.reduce(step.differences, stored, (at, d) =>
 										differed(spec, at, d)
 									)
-									const left = withoutUnits(stored, step.units)
-									const verdict = againVerdict(spec, left, restated)
+									const deleted = unitDelete(spec, stored, step.units)
+									const verdict = againVerdict(spec, deleted.left, restated)
 									const identical =
 										Arr.isReadonlyArrayNonEmpty(step.units) &&
 										verdict.kind === "written" &&
@@ -876,7 +984,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 										Arr.isReadonlyArrayNonEmpty(step.units)
 											? replaced({
 													...factsOf(restated, step.twice),
-													delete: unitFacts(stored, step.units)
+													delete: unitFacts(stored, deleted.units)
 												})
 											: applied(factsOf(restated, step.twice))
 									)
@@ -896,7 +1004,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 										assert.equal(
 											outcome.kind,
 											changed ? "accepted" : "no-change",
-											`${label}: every stated row is stored as stated, adding ${Formatter.format(Arr.map(verdict.added, (x) => x.id))}${Arr.isReadonlyArrayNonEmpty(step.units) ? ` after deleting the units ${Formatter.format(step.units)} whole` : ""}, so it is not ${Formatter.format(outcome)}`
+											`${label}: every stated row is stored as stated, adding ${Formatter.format(Arr.map(verdict.added, (x) => x.id))}${Arr.isReadonlyArrayNonEmpty(step.units) ? ` after deleting the units ${Formatter.format(deleted.units)} whole` : ""}, so it is not ${Formatter.format(outcome)}`
 										)
 										if (identical) {
 											const physicalAfter = yield* physicalRows(done, spec)
@@ -934,7 +1042,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 										c.note(
 											only === undefined
 												? `a replace of the same units: ${v}`
-												: only.kind === "removed" && step.units.includes(only.id)
+												: only.kind === "removed" && deleted.units.includes(only.id)
 													? `a replace dropping a unit: ${v}`
 													: `a replace with a difference: ${v}`
 										)
