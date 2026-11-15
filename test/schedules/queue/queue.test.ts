@@ -24,11 +24,10 @@
  * Features: a write waited, a write refused.
  *
  * A worker whose snapshot missed a lease the other committed at the seat meets it as 40001, a SerializationFailure it
- * runs again, and never as a unique violation the write lists as an UnseenOccupant abort.
+ * runs again, and never as a unique violation the write lists as an UnseenOccupant abort: a lease is an insert of
+ * complete facts at SERIALIZABLE, which arbitrates every object (write/insert/protocol.ts arbitrationOf), so
+ * PostgreSQL meets the unseen lease in its ON CONFLICT pre-check (nodeModifyTable.c ExecCheckTIDVisible).
  *
- * @plant test/plants/schedules/queue/queue-unique-not-transient.patch A unique violation from an occupant the snapshot
- * did not see is classified as the key's law, not a TransientFailure (adapter/outcomes/index.ts transientFailureOf), so
- * a claimer that lost a seat would be refused rather than retried.
  * @plant test/plants/schedules/laws/payroll-race-span-abort-not-transient.patch SERIALIZABLE's 40001 is read as no
  * TransientFailure (adapter/errors/execution.ts serializableRefusal), so a claimer that lost a seat fails where its
  * serial reference answers; the property fails.

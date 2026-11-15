@@ -1,7 +1,7 @@
 /**
  * Races at a span candidate key: an apply of a Booking racing direct writers of Booking, at its span key, its other
- * candidate key and its primary key; and a generated addition of a Stay racing a direct writer of Stay at the span key
- * its arbiter does not meet.
+ * candidate key and its primary key; and a generated addition of a Stay racing a direct writer of Stay at each key its
+ * arbiter does not meet, the span key and a plain one.
  *
  * Booking(id, room, during, ref) is keyed by id, with the span candidate key (room, during), a UNIQUE ... WITHOUT
  * OVERLAPS that PostgreSQL enforces as an exclusion constraint, and the candidate key ref. The insert protocol probes
@@ -11,14 +11,16 @@
  * target: write/insert/protocol.ts arbitrationOf), so PostgreSQL 19rc2 refuses an occupant its snapshot cannot see with
  * 40001 (nodeModifyTable.c ExecCheckTIDVisible), a SerializationFailure, and never with a 23P01 or 23505.
  *
- * Stay(id, room, during, ref) draws `id` by its `uuidv7()` default, with the span candidate key (room, during) and the
- * candidate key ref. A generated addition of a Stay leaves the id out, so it arbitrates at ref, the first declared key
- * that holds no drawn field and no span (write/insert/unique.ts generatedArbiter), and the span key is an object beside
- * its arbiter, which PostgreSQL checks as it inserts: an overlapping stay its snapshot cannot see, committed while the
- * apply waits there, fails the statement with 23P01 (execIndexing.c check_exclusion_or_unique_constraint, which asks
- * SSI nothing first). The insert lists the span key as an UnseenOccupant abort (write/program/compile.ts
- * uniqueAbortsOf), so the attempt fails as a TransientFailure, and the retry's probe finds the occupant, the span key's
- * law, as the serial order with the direct writer first says.
+ * Stay(id, room, during, ref, ticket) draws `id` by its `uuidv7()` default, with the span candidate key (room, during)
+ * and the candidate keys ref and ticket. A generated addition of a Stay leaves the id out, so it arbitrates at ref, the
+ * first of its keys in law order (ref's law name sorts before ticket's) that holds no drawn field and no span
+ * (write/insert/unique.ts generatedArbiter), and the span key and ticket's are objects beside its arbiter, which
+ * PostgreSQL checks as it inserts. A stay its snapshot cannot see, committed while the apply waits at one of them, fails
+ * the statement there: overlapping the requested one, with 23P01 (execIndexing.c check_exclusion_or_unique_constraint,
+ * which asks SSI nothing first); at its ticket, with 23505 (nbtinsert.c _bt_check_unique, whose SSI check finds no read
+ * of the direct writer's, which reads nothing, to conflict with). The insert lists both as UnseenOccupant aborts
+ * (write/program/compile.ts uniqueAbortsOf), so the attempt fails as a TransientFailure, and the retry's probe finds
+ * the occupant, that key's law, as the serial order with the direct writer first says.
  *
  * An exclusion constraint inserts the row's entry before it checks, so a second writer of an overlapping fact waits on
  * the apply's entry while the apply waits on its own, a deadlock: the window one writer opens at a plain candidate key
@@ -34,20 +36,27 @@
  * leave its state. The races draw the requested fact, an insert or a put of it, an initial fact, the direct writer's
  * fact and the blocker's, each standing to the requested one as a dictionary of what the keys branch on says (the same
  * fact, overlapping it in its room, at its ref, at its id, or apart), and how the blocker ends. Every case then runs a
- * stay race on its installation: a requested Stay and the direct writer's Stay overlapping it in its room at another
- * ref, its state read without the ids the database drew.
+ * stay race at each key beside the arbiter on its installation: a requested Stay and the direct writer's Stay
+ * overlapping it in its room, or at its ticket in another room, at another ref either way, each race's state read
+ * without the ids the database drew.
  *
  * The kept races are the windows the races were first planted for: an identical insert, and an identical put,
  * committed by the direct writer while the apply waits at the span key, each a repeat, unchanged; and an overlapping
- * fact committed while the apply waits at the span key, the span key's law, beside an overlapping Stay committed while
- * the generated addition waits at the span key, the UnseenOccupant it is retried after.
+ * fact committed while the apply waits at the span key, the span key's law, beside an overlapping Stay, and a Stay at
+ * the requested ticket, each committed while the generated addition waits at that key, the UnseenOccupant it is retried
+ * after.
  *
- * Features: the apply waited, the apply refused, and the generated addition retried after an UnseenOccupant.
+ * Features: the apply waited, the apply refused, and the generated addition retried after an UnseenOccupant at the span
+ * key and at ticket.
  *
  * @plant test/plants/schedules/spans/candidate-key-exclusion-not-transient.patch A span key's exclusion violation from
  * an occupant the snapshot did not see is classified as the key's law, not a TransientFailure (adapter/outcomes/index.ts
  * transientFailureOf), so the generated addition is refused at once by the native violation, never retried into the
  * probe's refusal its serial order shows; the property fails.
+ * @plant test/plants/schedules/spans/candidate-key-unique-not-transient.patch A unique violation from an occupant the
+ * snapshot did not see is classified as the key's law, not a TransientFailure (adapter/outcomes/index.ts
+ * transientFailureOf), so the generated addition is refused at once by the native 23505 at ticket, never retried into
+ * the probe's refusal its serial order shows; the property fails.
  * @plant test/plants/schedules/laws/payroll-race-span-abort-not-transient.patch SERIALIZABLE's 40001 is read as no
  * TransientFailure (adapter/errors/execution.ts serializableRefusal), so an apply that met an unseen occupant fails
  * where its serial reference answers; the property fails.
@@ -97,13 +106,20 @@ const bookingRef = key(on(Booking, "ref"))
 /** A booking whose id the database draws: a generated addition of it arbitrates at ref (see the header). */
 const Stay = relation(
 	"Stay",
-	{ id: pg.uuidv7, room: pg.integer, during: span(pg.integer), ref: pg.integer },
+	{
+		id: pg.uuidv7,
+		room: pg.integer,
+		during: span(pg.integer),
+		ref: pg.integer,
+		ticket: pg.integer
+	},
 	["id"]
 )
 const staySpan = key(on(Stay, "room", "during"))
 const stayRef = key(on(Stay, "ref"))
+const stayTicket = key(on(Stay, "ticket"))
 const relations = Object.freeze({ Booking, Stay })
-const statements = Object.freeze([bookingSpan, bookingRef, staySpan, stayRef])
+const statements = Object.freeze([bookingSpan, bookingRef, staySpan, stayRef, stayTicket])
 
 /**
  * The schema under its installed name with its worlds: the full role `app` the grizzle writer opens, in the login
@@ -157,25 +173,31 @@ interface Stayed {
 	readonly room: number
 	readonly during: { readonly start: number; readonly end: number }
 	readonly ref: number
+	readonly ticket: number
 }
 
-/** A stay race: the requested stay the apply's generated addition writes, and the direct writer's stay, overlapping it
- * in its room at another ref, which the apply's arbiter never meets, from no stored stay. */
+/** The keys beside a generated addition's arbiter that a stay race's direct writer meets it at: the span key, an
+ * exclusion constraint PostgreSQL raises 23P01 at, and ticket's, a UNIQUE it raises 23505 at. */
+const besides = ["the span key", "ticket"] as const
+type Beside = (typeof besides)[number]
+
+/** A stay race: the requested stay the apply's generated addition writes, and the direct writer's stay, which meets it
+ * at one key beside its arbiter and at no other key, from no stored stay. */
 interface StayRace {
 	readonly requested: Stayed
 	readonly direct: Stayed
 }
 
-/** A case: a booking race and a stay race, run one after the other on one installation. */
+/** A case: a booking race and a stay race at each key beside the arbiter, run one after the other on one installation. */
 interface Races {
 	readonly booking: BookingRace
-	readonly stay: StayRace
+	readonly stays: { readonly [B in Beside]: StayRace }
 }
 
 /** What a race reached: the apply waited, met a refusal and each reason, its answer, how each direct writer ended, and
- * the stay race's UnseenOccupant. */
+ * each stay race's UnseenOccupant. */
 type BookingFeature =
-	| "the generated apply retried after an UnseenOccupant"
+	| `the generated apply retried after an UnseenOccupant at ${Beside}`
 	| "the apply waited"
 	| "the apply refused"
 	| `refused: ${TransientTag}`
@@ -266,19 +288,40 @@ const bookingRaceGen: Gen<BookingRace> = (source) => {
 	}
 }
 
-const stayRaceGen: Gen<StayRace> = (source) => {
-	const room = source.draw(int(1, 3))
-	const [ref, otherRef] = source.draw(twoKeys)
-	const requested: Stayed = { room, during: source.draw(spanGen), ref }
-	return {
-		requested,
-		direct: { room, during: source.draw(overlappingGen(requested.during)), ref: otherRef }
+/** A stay race whose direct writer's stay meets the requested one at `beside` alone: overlapping it in its room, or at
+ * its ticket in another room; at another ref either way, so the apply's arbiter never meets it. */
+const stayRaceGen =
+	(beside: Beside): Gen<StayRace> =>
+	(source) => {
+		const [room, otherRoom] = source.draw(twoKeys)
+		const [ref, otherRef] = source.draw(twoKeys)
+		const [ticket, otherTicket] = source.draw(twoKeys)
+		const requested: Stayed = { room, during: source.draw(spanGen), ref, ticket }
+		switch (beside) {
+			case "the span key":
+				return {
+					requested,
+					direct: {
+						room,
+						during: source.draw(overlappingGen(requested.during)),
+						ref: otherRef,
+						ticket: otherTicket
+					}
+				}
+			case "ticket":
+				return {
+					requested,
+					direct: { room: otherRoom, during: source.draw(spanGen), ref: otherRef, ticket }
+				}
+		}
 	}
-}
 
 const racesGen: Gen<Races> = (source) => ({
 	booking: source.draw(bookingRaceGen),
-	stay: source.draw(stayRaceGen)
+	stays: {
+		"the span key": source.draw(stayRaceGen("the span key")),
+		ticket: source.draw(stayRaceGen("ticket"))
+	}
 })
 
 const spanText = (b: { readonly during: Booked["during"] }) => `[${b.during.start},${b.during.end})`
@@ -309,20 +352,22 @@ const featuresOf = (
 	]
 }
 
-/** The features one explained run of a stay race reached: a run's, and the generated addition's retry after an
- * UnseenOccupant. */
-const stayFeaturesOf = (
-	e: Explained<WriteAnswer<WriteOutcome<unknown>>>
-): ReadonlyArray<BookingFeature> => [
-	...featuresOf(e),
-	...(Arr.some(
-		[...e.ends],
-		([session, end]) =>
-			session === "app" && end.kind === "answered" && end.retried.refused.includes("UnseenOccupant")
-	)
-		? ["the generated apply retried after an UnseenOccupant" as const]
-		: [])
-]
+/** The features one explained run of a stay race at `beside` reached: a run's, and the generated addition's retry after
+ * an UnseenOccupant, which its direct writer's stay, meeting the requested one at `beside` alone, raised there. */
+const stayFeaturesOf =
+	(beside: Beside) =>
+	(e: Explained<WriteAnswer<WriteOutcome<unknown>>>): ReadonlyArray<BookingFeature> => [
+		...featuresOf(e),
+		...(Arr.some(
+			[...e.ends],
+			([session, end]) =>
+				session === "app" &&
+				end.kind === "answered" &&
+				end.retried.refused.includes("UnseenOccupant")
+		)
+			? [`the generated apply retried after an UnseenOccupant at ${beside}` as const]
+			: [])
+	]
 
 /** A race as the serial race runs it: its name, its transactions, the statements that store its initial state, the
  * rows of its relation, every column the run and its reference both decide read as text, and what one explained run of
@@ -425,13 +470,15 @@ const runRaces = (
 				features: featuresOf
 			}
 		}
-		const stayStaged = (race: StayRace): Staged => {
+		const stayStaged = (beside: Beside, race: StayRace): Staged => {
 			const stays = names.table(Stay)
-			const listed = Arr.map(["room", "during", "ref"] as const, (f) => names.column(Stay, f))
+			const listed = Arr.map(["room", "during", "ref", "ticket"] as const, (f) =>
+				names.column(Stay, f)
+			)
 			const insert = (b: Stayed) =>
-				`INSERT INTO ${stays} (${Arr.join(listed, ", ")}) VALUES (${b.room}, '${spanText(b)}', ${b.ref})`
+				`INSERT INTO ${stays} (${Arr.join(listed, ", ")}) VALUES (${b.room}, '${spanText(b)}', ${b.ref}, ${b.ticket})`
 			return {
-				name: "a generated addition of a stay beside an overlapping one",
+				name: `a generated addition of a stay beside one at ${beside}`,
 				txns: [
 					{
 						kind: "grizzle",
@@ -450,10 +497,13 @@ const runRaces = (
 				initial: [],
 				table: stays,
 				columns: listed,
-				features: stayFeaturesOf
+				features: stayFeaturesOf(beside)
 			}
 		}
-		for (const staged of [bookingStaged(races.booking), stayStaged(races.stay)]) {
+		for (const staged of [
+			bookingStaged(races.booking),
+			...Arr.map(besides, (beside) => stayStaged(beside, races.stays[beside]))
+		]) {
 			yield* runSerialRace(
 				rig.env,
 				{ direct, grizzle: { app: app.actor } },
@@ -482,10 +532,18 @@ const runRaces = (
 const runs = 8
 
 const requested: Booked = { id: 1, room: 1, during: { start: 0, end: 10 }, ref: 1 }
-/** A stay race whose direct writer's stay overlaps the requested one at another ref. */
-const overlappedStay: StayRace = {
-	requested: { room: 1, during: { start: 0, end: 10 }, ref: 1 },
-	direct: { room: 1, during: { start: 5, end: 15 }, ref: 2 }
+const requestedStay: Stayed = { room: 1, during: { start: 0, end: 10 }, ref: 1, ticket: 1 }
+/** The stay races of every kept case: the direct writer's stay overlapping the requested one at another ref and
+ * ticket, and at its ticket in another room at another ref. */
+const keptStays: Races["stays"] = {
+	"the span key": {
+		requested: requestedStay,
+		direct: { room: 1, during: { start: 5, end: 15 }, ref: 2, ticket: 2 }
+	},
+	ticket: {
+		requested: requestedStay,
+		direct: { room: 2, during: { start: 0, end: 10 }, ref: 2, ticket: 1 }
+	}
 }
 
 layer(Substrate.layer, { excludeTestServices: true })(
@@ -509,7 +567,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								[
 									"the apply waited",
 									"the apply refused",
-									"the generated apply retried after an UnseenOccupant"
+									"the generated apply retried after an UnseenOccupant at the span key",
+									"the generated apply retried after an UnseenOccupant at ticket"
 								],
 								{ cases: runs, sense: notesOnly }
 							),
@@ -528,7 +587,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												end: "rollback"
 											}
 										},
-										stay: overlappedStay
+										stays: keptStays
 									},
 									draws: "",
 									reaches: ["the apply waited", "the apply refused", "the apply answered unchanged"]
@@ -547,13 +606,13 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												end: "rollback"
 											}
 										},
-										stay: overlappedStay
+										stays: keptStays
 									},
 									draws: "",
 									reaches: ["the apply waited", "the apply refused", "the apply answered unchanged"]
 								},
 								{
-									note: "an overlapping fact committed while the apply waits at the span key: the retry's probe finds it, the span key's law; and a stay overlapping the requested one at another ref, committed while the generated addition waits at the span key, which its arbiter ref never meets: 23P01 there, the UnseenOccupant it is retried after, then the span key's law",
+									note: "an overlapping fact committed while the apply waits at the span key: the retry's probe finds it, the span key's law; and a stay overlapping the requested one, and a stay at its ticket in another room, each at another ref and committed while the generated addition waits at that key, which its arbiter ref never meets: 23P01 at the span key or 23505 at ticket, the UnseenOccupant it is retried after, then that key's law",
 									sketch: {
 										booking: {
 											requested,
@@ -562,14 +621,15 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											direct: { id: 3, room: 1, during: { start: 5, end: 15 }, ref: 2 },
 											blocker: { kind: "none" }
 										},
-										stay: overlappedStay
+										stays: keptStays
 									},
 									draws: "",
 									reaches: [
 										"the apply waited",
 										"the apply refused",
 										"the apply answered refused",
-										"the generated apply retried after an UnseenOccupant"
+										"the generated apply retried after an UnseenOccupant at the span key",
+										"the generated apply retried after an UnseenOccupant at ticket"
 									]
 								}
 							],
