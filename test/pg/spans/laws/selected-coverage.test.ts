@@ -16,8 +16,8 @@
  * (test/support/laws/model.ts Span), which hold no int8 limit exactly and no date, so the limits can be stated only
  * here, as int8range and daterange literals.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): period-fk-not-enforced.patch (every PERIOD foreign key installed NOT
- * ENFORCED, so a visit outside its site's shifts is accepted).
+ * @plant test/plants/pg/spans/laws/period-fk-not-enforced.patch Every PERIOD foreign key is installed NOT ENFORCED, so a
+ * visit outside its site's shifts is accepted.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

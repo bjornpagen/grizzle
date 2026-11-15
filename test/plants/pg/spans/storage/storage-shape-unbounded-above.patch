@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/physical/span/storage.ts b/packages/engine/src/physical/span/storage.ts
+index 40ffd076..39dc6dca 100644
+--- a/packages/engine/src/physical/span/storage.ts
++++ b/packages/engine/src/physical/span/storage.ts
+@@ -80,7 +80,6 @@ const spanShapePredicate = (column: string, carrier: SpanCarrier): Expr => {
+ 	const shape = [
+ 		not(call("isempty", [c])),
+ 		not(call("lower_inf", [c])),
+-		not(call("upper_inf", [c])),
+ 		call("lower_inc", [c]),
+ 		not(call("upper_inc", [c]))
+ 	] as const
