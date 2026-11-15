@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/float.ts b/packages/engine/src/scalar/values/float.ts
+index c8a2e4e7..9a1dbfee 100644
+--- a/packages/engine/src/scalar/values/float.ts
++++ b/packages/engine/src/scalar/values/float.ts
+@@ -220,7 +220,7 @@ export const convertReal = (text: string): number => {
+ 		return Number.NaN
+ 	}
+ 	if (lead === 0x49) {
+-		return negative ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY
++		return Number.POSITIVE_INFINITY
+ 	}
+ 	return finiteBinary32(text, 0, text.length)
+ }

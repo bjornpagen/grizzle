@@ -16,9 +16,11 @@
  * random decimal; the grammar's admissions, refusals, specials and strtod spellings; a finite double, zero and a
  * special.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): float-ties-away (a midpoint rounded away from zero, not to even),
- * float-real-negative-infinity-lost (-Infinity read as Infinity) and float-text-sixteen-digits (a double written to
- * sixteen significant digits, not its shortest).
+ * @plant test/plants/unit/codec/float-ties-away.patch A decimal midpoint between two binary32 values is rounded away
+ * from zero, not to even.
+ * @plant test/plants/unit/codec/float-real-negative-infinity-lost.patch A real's text -Infinity is read as Infinity.
+ * @plant test/plants/unit/codec/float-text-sixteen-digits.patch A double is written to sixteen significant digits,
+ * not its shortest round-trip text.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

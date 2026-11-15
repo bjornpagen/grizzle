@@ -19,9 +19,10 @@
  * once and a fact spelled again; a column of no row, and a row of an empty cell; the bound far within, at, one past and
  * far past.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): recordset-order-kept (a set encoded in the order given, not its
- * canonical order) and recordset-array-quote-unescaped (a quote inside an array element written bare).
- *
+ * @plant test/plants/unit/codec/recordset-order-kept.patch A set is encoded in the order given, not its canonical
+ * order; the canonical encoding property fails.
+ * @plant test/plants/unit/codec/recordset-array-quote-unescaped.patch A quote inside an array element is written bare;
+ * the literals' array_in reading fails.
  * @plant test/plants/unit/codec/numeric-full-scale-refused.patch parseNumeric judges exactness at the scale less one,
  * so a numeric(5,2) value of exactly two fractional digits is refused as numericScale; the refusal, canonical
  * encoding and array properties fail on a valid fact.

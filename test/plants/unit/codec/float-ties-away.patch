@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/float.ts b/packages/engine/src/scalar/values/float.ts
+index c8a2e4e7..168f4406 100644
+--- a/packages/engine/src/scalar/values/float.ts
++++ b/packages/engine/src/scalar/values/float.ts
+@@ -153,7 +153,7 @@ export const decimalToBinary32 = (coefficient: bigint, exponent: number): number
+ 			continue
+ 		}
+ 		const r2 = (n - q * d) * 2n
+-		if (r2 > d || (r2 === d && (q & 1n) === 1n)) {
++		if (r2 >= d) {
+ 			q++
+ 		}
+ 		const value = Number(q) * 2 ** e

@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/codec/recordset.ts b/packages/engine/src/codec/recordset.ts
+index 2e6ba991..c4f47d30 100644
+--- a/packages/engine/src/codec/recordset.ts
++++ b/packages/engine/src/codec/recordset.ts
+@@ -284,7 +284,6 @@ export const normalFacts = (
+ 	const entries = Array.from(byIdentity, ([identity, { fact }]): IdentifiedFact =>
+ 		Object.freeze({ identity, fact })
+ 	)
+-	entries.sort((a, b) => compareFactIdentities(a.identity, b.identity))
+ 	return mintNormal(
+ 		Object.freeze({
+ 			facts: Object.freeze(entries.map((e) => e.fact)),

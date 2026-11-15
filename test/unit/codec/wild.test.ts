@@ -27,9 +27,6 @@
  * column and one with a column of text. A template slot's refusal and an unstable getter each reach one situation,
  * their generators' own, and require none.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): codec-span-empty-admitted (a span whose start is its end admitted) and
- * codec-int8-leading-zero (the strict reading admitting an integer's leading zero).
- *
  * One descriptor, hand-written as a JavaScript caller or a stored snapshot states one, beside the Live values of its
  * host type. The scalar type decoder is the boundary that admits it, so it stays
  * `unknown` until decoded.

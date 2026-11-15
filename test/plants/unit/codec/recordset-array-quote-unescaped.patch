@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/codec/recordset.ts b/packages/engine/src/codec/recordset.ts
+index 2e6ba991..49abb1c5 100644
+--- a/packages/engine/src/codec/recordset.ts
++++ b/packages/engine/src/codec/recordset.ts
+@@ -389,7 +389,7 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
+  * nothing to escape is read once.
+  */
+ const arrayElement = (text: string, overhead: number): string =>
+-	overhead === 2 ? `"${text}"` : `"${text.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`
++	overhead === 2 ? `"${text}"` : `"${text.replaceAll("\\", "\\\\")}"`
+ 
+ /**
+  * How many characters `arrayElement` adds to `text`: its two quotes, and a backslash before each backslash or quote;

@@ -9,8 +9,8 @@
  * layout), each element decoded by a strict UTF-8 decoder, which refuses a malformed byte, a 0x00 left where a
  * character was not written among them, as textrecv refuses one.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): text-array-encode-into (each element written by
- * TextEncoder.encodeInto into a destination of exactly its length, which Node underfills).
+ * @plant test/plants/unit/codec/text-array-encode-into.patch Each element is written by TextEncoder.encodeInto into a
+ * destination of exactly its length, which Node underfills.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

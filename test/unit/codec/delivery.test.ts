@@ -8,8 +8,8 @@
  * chunk length is drawn small, so a case meets every boundary of a value of a few chunks, and the one in force
  * (core/limits.ts bytesChunkLength) in some cases.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): delivery-ord-reversed (the delivered rows assembled in the reverse of
- * their numbers' order).
+ * @plant test/plants/unit/codec/delivery-ord-reversed.patch The delivered rows of a chunked answer are assembled in
+ * the reverse of their numbers' order.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

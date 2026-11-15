@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/span.ts b/packages/engine/src/scalar/values/span.ts
+index 1089751c..7dfda458 100644
+--- a/packages/engine/src/scalar/values/span.ts
++++ b/packages/engine/src/scalar/values/span.ts
+@@ -118,7 +118,7 @@ export const makeSpan = <P extends SpanEndpointCarrier>(
+ 	if (!e.ok) {
+ 		return Result.err(e.error)
+ 	}
+-	if (!(s.value < e.value)) {
++	if (!(s.value <= e.value)) {
+ 		return Result.err("spanOrder")
+ 	}
+ 	return Result.ok(Object.freeze({ start: s.value, end: e.value }))

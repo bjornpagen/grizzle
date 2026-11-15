@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/codec/bits.ts b/packages/engine/src/codec/bits.ts
+index 835d2dc5..ad5fca0b 100644
+--- a/packages/engine/src/codec/bits.ts
++++ b/packages/engine/src/codec/bits.ts
+@@ -234,6 +234,6 @@ export const cell = (bits: BitString, index: number, width: number): number => {
+ 	const shift = at - j * wordBits
+ 	const window =
+ 		(wordAt(bits.words, j) << shift) |
+-		((wordAt(bits.words, j + 1) >>> 1) >>> (wordBits - 1 - shift))
++		(wordAt(bits.words, j + 1) >>> (wordBits - shift))
+ 	return (window >>> (wordBits - width)) | 0
+ }

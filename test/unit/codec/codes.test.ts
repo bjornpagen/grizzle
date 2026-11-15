@@ -14,7 +14,8 @@
  * The box, exhausted: every hole pattern of a five-code roster that leaves a handle live, every subset of its live
  * handles, under every variant the pattern admits.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): codes-set-first-code-lost (a set's text read from its second code on).
+ * @plant test/plants/unit/codec/codes-set-first-code-lost.patch A set's text is read from its second code on, so code
+ * 0's handle is lost; convert after encode is no longer the identity.
  */
 import { type Case, exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
