@@ -1,14 +1,14 @@
 diff --git a/packages/grizzle/src/adapter/reader/stream.ts b/packages/grizzle/src/adapter/reader/stream.ts
-index 01c014d1..28548b98 100644
+index 8bcdae84..ea7f01c0 100644
 --- a/packages/grizzle/src/adapter/reader/stream.ts
 +++ b/packages/grizzle/src/adapter/reader/stream.ts
 @@ -173,7 +173,8 @@ const runRead = (
-  * ready that follows the read's answer, and never where the stream ends at an error before either (see the header).
+  * follows the read's answer, and never where the stream ends at an error before either (see the header).
   */
- const openingOf = <E, D>(queue: Queue.Queue<E, D>, reset: E): (() => void) => {
+ const openingOf = <E>(offer: (event: E) => void, reset: E): (() => void) => {
 -	const pending = [reset]
-+	Queue.offerUnsafe(queue, reset)
++	offer(reset)
 +	const pending: Array<E> = []
  	return () => {
  		for (const event of pending.splice(0)) {
- 			Queue.offerUnsafe(queue, event)
+ 			offer(event)
