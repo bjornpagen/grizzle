@@ -141,6 +141,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: laws", 
 		required,
 		realities: docsTenantRealities,
 		lead: leadsOf(directTransaction(required), breakingAtCommit(required), dbSession(required)),
-		check: besideTheModel
+		check: besideTheModel,
+		kept: []
 	})
 })

@@ -474,11 +474,62 @@ interface Identified {
 }
 
 /**
+ * The fields of a relation an addition states: every field it holds a value at but one holding a draw, which its
+ * identity draws for it. A complete fact states every field; a generated addition every field but the serial ones.
+ */
+const statedFields = (relation: HostRelation, fact: HostFact): ReadonlyArray<string> =>
+	Arr.flatMap(relation.fields, ({ name }) => {
+		const value = fact[name]
+		return value === undefined || isDrawn(value) ? [] : [name]
+	})
+
+/**
+ * The fact an addition to `relation` is among `present`, the facts its statement finds (README "Writes", Serial columns
+ * and Rows an insertion met): it meets them at its arbiter, a key of the relation over every fact that holds only fields
+ * it states (packages/engine/src/write/insert/unique.ts generatedArbiter), and a present fact it meets there that is
+ * equal to it at every field it states is the fact it is, which it draws nothing for; one that differs there is no
+ * such fact, and stays beside it for the key's law to refuse. A complete fact states every field, so the fact it is is
+ * itself; a generated addition into a relation every key of which holds a serial field or a span meets nothing, a
+ * fact of its own.
+ */
+export const addedAs = (
+	schema: HostSchema,
+	relation: string,
+	present: ReadonlyArray<HostFact>,
+	addition: HostFact
+): HostFact => {
+	const stated = statedFields(relationOf(schema, relation), addition)
+	const arbiters = Arr.flatMap(schema.laws, (law) =>
+		law.kind === "key" &&
+		law.relation === relation &&
+		law.selection.kind === "every" &&
+		Arr.every(law.fields, (f) => stated.includes(f))
+			? [law.fields]
+			: []
+	)
+	const at = projection(addition, stated)
+	return Option.getOrElse(
+		Arr.findFirst(
+			present,
+			(p) =>
+				Arr.some(arbiters, (key) => projection(p, key) === projection(addition, key)) &&
+				projection(p, stated) === at
+		),
+		() => addition
+	)
+}
+
+/**
  * One relation's facts after a stratum's members of it, `mine`, over its facts before, `current`, each fact identified
  * once: a ChangeSet's facts are a set by identity, so identical facts stated twice, in one member or across members, are
  * one fact, and two facts that share a key with different identities both stay, for the relation's key law to refuse.
+ * The additions join the state its removals leave in the order their statements run (write/frontend/schedule.ts
+ * phaseOf): the facts that state every field, then the generated additions, each the fact it is among the facts its
+ * statement finds (`addedAs`), so a generated addition equal at every field it states to a fact the stratum keeps or
+ * adds whole is that fact.
  */
 const relationAfter = (
+	schema: HostSchema,
 	relation: HostRelation,
 	current: ReadonlyArray<HostFact>,
 	mine: ReadonlyArray<HostOp>
@@ -488,7 +539,12 @@ const relationAfter = (
 	const writes = Arr.filter(mine, (o) => o.kind !== "delete")
 	const puts = Arr.filter(mine, (o) => o.kind === "put")
 	const deletes = Arr.filter(mine, (o) => o.kind === "delete")
-	const added = Arr.flatMap(writes, (o) => Arr.map(o.facts, identified))
+	const added = Arr.flatMap(writes, (o) => o.facts)
+	/** Whether an addition is a generated one: it states fewer fields than the heading holds. */
+	const drawing = (fact: HostFact): boolean =>
+		statedFields(relation, fact).length < relation.fields.length
+	const complete = Arr.filter(added, (fact) => !drawing(fact))
+	const generated = Arr.filter(added, drawing)
 	/** A put deletes the current occupants at its facts' keys. */
 	const putKeys = new Set(
 		Arr.flatMap(puts, (o) => Arr.map(o.facts, (f) => projection(f, relation.key)))
@@ -506,8 +562,12 @@ const relationAfter = (
 			(b) => [b.id, b.fact] as const
 		)
 	)
-	for (const a of added) {
-		out.set(a.id, a.fact)
+	for (const fact of complete) {
+		out.set(identity(relation, fact), fact)
+	}
+	for (const addition of generated) {
+		const fact = addedAs(schema, relation.name, [...out.values()], addition)
+		out.set(identity(relation, fact), fact)
 	}
 	return [...out.values()]
 }
@@ -527,6 +587,7 @@ export const transition = (
 			relation.name,
 			named.has(relation.name)
 				? relationAfter(
+						schema,
 						relation,
 						factsIn(state, relation.name),
 						Arr.filter(ops, (o) => o.relation === relation.name)

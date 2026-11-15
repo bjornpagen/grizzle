@@ -64,6 +64,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })("the worlds model:
 		required,
 		realities: docsAtBoundRealities,
 		lead: leadsOf(directTransaction(required), dbSession(required), breakingAtCommit(required)),
-		check: noCheck
+		check: noCheck,
+		kept: []
 	})
 })

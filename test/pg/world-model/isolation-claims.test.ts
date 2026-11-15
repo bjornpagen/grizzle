@@ -56,7 +56,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 			required: claimsRequired,
 			realities: docsTenantRealities,
 			lead: dbSession(claimsRequired),
-			check: noCheck
+			check: noCheck,
+			kept: []
 		})
 	}
 )

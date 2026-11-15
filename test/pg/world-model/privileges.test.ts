@@ -592,7 +592,8 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 			required: requiredWhere(catalogFeature),
 			realities: drawnRealities,
 			lead: noLead,
-			check: () => undefined
+			check: () => undefined,
+			kept: []
 		})
 
 		programTests(it, {
@@ -608,7 +609,8 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 				directTransaction(requiredWhere(directFeature)),
 				breakingAtCommit(requiredWhere(directFeature))
 			),
-			check: readmeSqlstate
+			check: readmeSqlstate,
+			kept: []
 		})
 	}
 )

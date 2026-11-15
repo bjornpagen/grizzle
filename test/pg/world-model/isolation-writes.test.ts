@@ -105,7 +105,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 			required: writesRequired,
 			realities: docsTenantRealities,
 			lead: leadsOf(directTransaction(writesRequired), dbSession(writesRequired)),
-			check: reachingPastRefused
+			check: reachingPastRefused,
+			kept: []
 		})
 	}
 )

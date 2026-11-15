@@ -60,7 +60,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 			required: handSetRequired,
 			realities: orgHeldRealities,
 			lead: handSetTransaction(handSetRequired),
-			check: noCheck
+			check: noCheck,
+			kept: []
 		})
 	}
 )

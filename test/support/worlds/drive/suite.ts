@@ -1,4 +1,4 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { type Reached, required, type Situations } from "@bjornpagen/testing/features"
 import { element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -1737,7 +1737,33 @@ export interface ProgramSuite {
 	readonly realities: Realities
 	/** What each program draws first (Lead): noLead, or moves the suite needs in every program. */
 	readonly lead: Lead
+	/** Its counterexamples kept by value, each replayed before any stream (KeptProgram). */
+	readonly kept: ReadonlyArray<KeptProgram>
 }
+
+/**
+ * A program case kept by value (explore's Kept): what its sketch drew of its own, every field of a ProgramCase but
+ * those the suite's draws give every case (programCaseGen), its swarm weights' action and validity weights among them;
+ * the tape token of what its program drew; and the features it must still reach. The suite's kinds, roles, aims and
+ * lead complete its sketch (keptCase), so a kept case is plain data a failure's report prints.
+ */
+export interface KeptProgram {
+	readonly note: string
+	readonly sketch: Omit<ProgramCase, "weights" | "lead"> & {
+		readonly weights: Pick<Weights, "actions" | "validity">
+	}
+	readonly draws: string
+	readonly reaches: Arr.NonEmptyReadonlyArray<WorldFeature>
+}
+
+/** A kept program's case, its sketch completed by the suite's draws as programCaseGen completes a drawn one. */
+const keptCase = (
+	{ lead, ...draws }: Draws,
+	kept: KeptProgram
+): Kept<ProgramCase, WorldFeature> => ({
+	...kept,
+	sketch: { ...kept.sketch, weights: { ...kept.sketch.weights, ...draws }, lead }
+})
 
 /**
  * A generated installation of a documents base (installGen): of the base itself, of the base with at most one share
@@ -1897,7 +1923,7 @@ export const programTests = (it: Vitest.MethodsNonLive<Substrate>, spec: Program
 							cases: programSteered * spec.cases,
 							sense: notesOnly
 						}),
-						kept: [],
+						kept: Arr.map(spec.kept, (kept) => keptCase(worldDraws(spec), kept)),
 						runs: spec.cases,
 						shrink: { kind: "bounded", candidates: programShrink },
 						concurrency: programSteerEvery,

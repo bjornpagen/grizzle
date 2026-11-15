@@ -1,0 +1,13 @@
+diff --git a/test/support/laws/model.ts b/test/support/laws/model.ts
+index 1b400e0..30cb77b 100644
+--- a/test/support/laws/model.ts
++++ b/test/support/laws/model.ts
+@@ -566,7 +566,7 @@ const relationAfter = (
+ 		out.set(identity(relation, fact), fact)
+ 	}
+ 	for (const addition of generated) {
+-		const fact = addedAs(schema, relation.name, [...out.values()], addition)
++		const fact = addition
+ 		out.set(identity(relation, fact), fact)
+ 	}
+ 	return [...out.values()]

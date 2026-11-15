@@ -2,17 +2,20 @@ import type { Situations } from "@bjornpagen/testing/features"
 import { constant, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { layer } from "@effect/vitest"
 import { Array as Arr } from "effect"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { witnessesShowTheirOwn } from "#test/support/worlds/drive/acting.ts"
 import {
 	dbSession,
 	drawnRealities,
 	type Focus,
+	type KeptProgram,
 	type Lead,
 	leadsOf,
 	programTests
 } from "#test/support/worlds/drive/suite.ts"
 import { installGen } from "#test/support/worlds/generate/install.ts"
+import { zeroWeights } from "#test/support/worlds/generate/weights.ts"
 import { roomsBase, roomsInstall } from "#test/support/worlds/model/bases/rooms.ts"
 import { ticketsInstall } from "#test/support/worlds/model/bases/tickets.ts"
 import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types.ts"
@@ -28,14 +31,19 @@ import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types
  * and a domain's at a stated fact the host judges, none of a containment's, a coverage's or an alternatives law's),
  * and the state every accepted write leaves, read back as the owner. A row check over the tickets base
  * (model/bases/tickets.ts) refuses a ticket added without the number the database draws for it, its witness the
- * ticket's code, the first key it states. Reads walk a world's span fields, and chain which rooms adjoin which by a
- * recursive query. Beside the model, a shown witness carries only what the writer submitted or holds whole
- * (drive/acting.ts witnessesShowTheirOwn).
+ * ticket's code, the first key it states, and a ticket added without its number that repeats a stored one at every
+ * field it states meets it at its arbiter, the code key, and is that ticket: no change (the kept case arbiteredRepeat).
+ * Reads walk a world's span fields, and chain which rooms adjoin which by a recursive query. Beside the model, a shown
+ * witness carries only what the writer submitted or holds whole (drive/acting.ts witnessesShowTheirOwn).
  *
  * @plant test/plants/pg/world-model/worlds-rules-span-key-overlaps.patch A span key installed without WITHOUT
  * OVERLAPS, so its spans may overlap: the README-shaped rooms worlds' PERIOD foreign key into it finds no key to
  * reference (42830) and the installation fails, and a generated installation with no such reference accepts a write
  * whose span overlaps a stored one at its key, which the model refuses.
+ * @plant test/plants/pg/world-model/worlds-generated-addition-unarbitered.patch The model's add-wins transition adds a
+ * generated addition as a fact of its own whatever it meets at its arbiter: the kept case arbiteredRepeat's ticket,
+ * equal at every field it states to stored ticket 2, is predicted refused by the code key, where PostgreSQL answers no
+ * change.
  */
 const focus: Focus = ["open-db", "apply", "read", "close", "direct-begin", "direct", "direct-end"]
 
@@ -94,6 +102,29 @@ const domainRefusing: Lead = (weights, install, at) =>
  */
 const drawnKeyRequired: Situations<WorldFeature> = ["law:check:declared-key"]
 
+/**
+ * A ticket added without its number that repeats a stored ticket at every field it states (TEST_SEED=2026111505,
+ * FULLSUITE at fde25114): over stored tickets 1 (t_h) and 2 (t_dnkq), both of no seats, the clerk deletes ticket 1, then
+ * adds { code: t_dnkq, seats: 0 }. It meets ticket 2 at its arbiter, the code key, the one declared key holding no
+ * field the database draws (README "Writes", Serial columns), and is that ticket: no change. The model that drew a new
+ * number for it predicted the code key's refusal.
+ */
+const arbiteredRepeat: KeptProgram = {
+	note: "a ticket added without its number, equal at every field it states to a stored one, is no change",
+	sketch: {
+		install: ticketsInstall,
+		ambient: ordinarySession,
+		weights: {
+			actions: { ...zeroWeights.actions, apply: 1, close: 1 },
+			validity: { live: 1, stale: 0, wild: 1 }
+		},
+		steps: 3,
+		led: false
+	},
+	draws: "2.0.0.0.1.1.0.0.0.0.0.0.1.1.1.0.0.0.0.0.0.0.0.1.1.0.0.0.1.1.0",
+	reaches: ["op:apply:inside:absent:db:applied", "connection:after-no-change"]
+}
+
 layer(Substrate.layer, { excludeTestServices: true })("the worlds model: rules", (it) => {
 	programTests(it, {
 		suite: "pg/world-model/rules",
@@ -105,7 +136,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: rules",
 		required,
 		realities: drawnRealities,
 		lead: leadsOf(dbSession(required), domainRefusing),
-		check: witnessesShowTheirOwn
+		check: witnessesShowTheirOwn,
+		kept: []
 	})
 	programTests(it, {
 		suite: "pg/world-model/rules/drawn-key",
@@ -117,6 +149,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: rules",
 		required: drawnKeyRequired,
 		realities: drawnRealities,
 		lead: dbSession(drawnKeyRequired),
-		check: witnessesShowTheirOwn
+		check: witnessesShowTheirOwn,
+		kept: [arbiteredRepeat]
 	})
 })

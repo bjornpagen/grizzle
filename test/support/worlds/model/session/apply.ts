@@ -1,6 +1,7 @@
 import { Array as Arr, Option, Record as Rec, Result } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import {
+	addedAs,
 	collide,
 	type HostLaw,
 	type HostOp,
@@ -11,7 +12,7 @@ import {
 	transition,
 	valueText
 } from "#test/support/laws/model.ts"
-import { nextDraw, withSerial, withSerials } from "#test/support/worlds/model/draws.ts"
+import { holdsDraw, nextDraw, withSerial, withSerials } from "#test/support/worlds/model/draws.ts"
 import { uniqueFacts, entryRows, isMember } from "#test/support/worlds/model/host.ts"
 import {
 	type Cell,
@@ -494,7 +495,9 @@ const carriedFields = (base: BaseSpec, w: Written): ReadonlySet<string> =>
  * (write/frontend/entry.ts entryFacts): a query entry's fixed fields are one value for the whole stratum, so they take
  * no part, and a span key whose span the entry does not carry is not checked here. A generated addition takes part on
  * no key holding its serial field. Equal facts are one, as normalize.ts collapses them before it compares keys, so
- * equal generated additions are one addition, drawn once.
+ * equal generated additions are one addition, drawn once; and each addition is the fact it is among the stratum's
+ * complete additions, whose statement runs before the generated additions' (laws/model.ts addedAs), so a generated
+ * addition equal at every field it states to a complete one at its arbiter is that fact (normalize.ts sameKey).
  */
 const keyConflictOf = (
 	state: ModelState,
@@ -514,7 +517,12 @@ const keyConflictOf = (
 		Arr.map(submitted, (x) => x.fact),
 		nextDraw(state)
 	).facts
-	const additions = Arr.map(Arr.zip(submitted, drawn), ([x, fact]) => ({ fact, w: x.w }))
+	const complete = Arr.filter(drawn, (fact) => !holdsDraw(fact))
+	const met = Arr.map(Arr.zip(submitted, drawn), ([x, fact]) => ({
+		fact: addedAs(state.host, target, complete, fact),
+		w: x.w
+	}))
+	const additions = Arr.dedupeWith(met, (a, b) => sameValues(a.fact, b.fact))
 	return conflictAmong(state, target, additions)
 }
 
@@ -855,7 +863,9 @@ const onHost = (refusal: ActionOutcome): Called => ({ kind: "host", refusals: [r
  *   key's law. Which of these refusals, and a law another op of the stratum breaks meanwhile, on the same target or another,
  *   comes first is the order of the stratum's statements, which the model leaves open, as README "Writing through a
  *   role" leaves which refusal a ChangeSet meets first: an op's own refusal stops its statement before it writes;
- * - each stratum's S' = (S \ D) ∪ A meets the laws PostgreSQL checks at a statement, and the final state the laws it
+ * - each stratum's S' = (S \ D) ∪ A, each generated addition of A the fact it is among those its statement finds
+ *   (laws/model.ts addedAs: a fact equal to it at every field it states, met at its arbiter, draws nothing), meets the
+ *   laws PostgreSQL checks at a statement, and the final state the laws it
  *   checks at COMMIT, each refusal's witness the most README "Errors and outcomes" allows; else `accepted`, or `no-change` when the
  *   final state is the first. Nothing is written on any refusal, and a derived relation keeps its facts until a refresh.
  */

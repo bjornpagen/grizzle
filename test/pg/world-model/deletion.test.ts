@@ -78,6 +78,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: deletio
 			dbSession(required),
 			derivedLeftStale(required)
 		),
-		check: noCheck
+		check: noCheck,
+		kept: []
 	})
 })

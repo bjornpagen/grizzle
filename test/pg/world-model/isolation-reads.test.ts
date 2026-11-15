@@ -87,7 +87,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 			required: readsRequired,
 			realities: docsChainedRealities,
 			lead: leadsOf(directTransaction(readsRequired), dbSession(readsRequired)),
-			check: noCheck
+			check: noCheck,
+			kept: []
 		})
 	}
 )
