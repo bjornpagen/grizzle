@@ -8,24 +8,46 @@
  * stored row. Such a condition, an OR of EXISTS over the held rows, plans as no semi-join but a sequential scan: a
  * whole-table read per call and a relation SIRead lock, which fails overlapping SERIALIZABLE writers of the relation
  * with 40001.
+ *
+ * Keysets relate to each other by one GROUP BY over their keys, each tagged by its keyset (`keysetWhere`,
+ * `flaggedKeys`), never by a join of two: a CTE holds no statistics, so PostgreSQL estimates it at a row and may pair
+ * every row of one with every row of the other.
  */
 import { defined } from "#compiler/core/invariant.ts"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { typedEq } from "#compiler/ir/compare.ts"
 import type { Family, TreeShape } from "#compiler/ir/family.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
-import type { Cte, Expr, FromItem, FromSource, JoinStep, OperandSelect } from "#compiler/sql/ast.ts"
+import type {
+	Cte,
+	Expr,
+	FromItem,
+	FromSource,
+	JoinStep,
+	OperandSelect,
+	Select,
+	Target
+} from "#compiler/sql/ast.ts"
 import {
 	and,
+	call,
 	col,
 	core,
 	cte,
 	cteRefAs,
+	derived,
 	distinctCore,
+	eq,
+	lit,
+	not,
+	operandSelect,
+	operandUnionAll,
+	provedCore,
 	select,
 	setOperation,
 	simpleSelect,
-	target
+	target,
+	types
 } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { internal, one, tableAs } from "#compiler/write/family/written.ts"
@@ -105,7 +127,7 @@ interface Reach {
 }
 
 /** A reach as one FROM item. */
-const reachFrom = (w: WriteContext, reach: Reach): FromItem => {
+export const reachFrom = (w: WriteContext, reach: Reach): FromItem => {
 	const held = cteRefAs(reach.held.cte, reach.held.alias)
 	const step = (hop: Hop): JoinStep => ({
 		kind: "on",
@@ -177,6 +199,119 @@ export const keysetOf = (
 		materialized
 	})
 	return { name, access, columns }
+}
+
+/**
+ * The rows of a GROUP BY over keysets at one access path, each key once with the keysets that hold it: `SELECT <key>,
+ * <aggregates> FROM (SELECT <key>, 0 FROM <keyset 0> UNION ALL SELECT <key>, 1 FROM <keyset 1> ...) AS u(<key>, tag)
+ * GROUP BY <key> [HAVING <having>]`, `holds(i)` the aggregate `bool_or(tag = i)`, whether keyset `i` holds the key.
+ * PostgreSQL holds no statistics of a CTE and estimates a join of two at a row each, which it may run as a nested loop
+ * pairing every row of one with every row of the other; a GROUP BY reads each row once, by one sort or hash, whatever
+ * it estimates.
+ */
+const tagged = (
+	supply: NameSupply,
+	keysets: NonEmptyReadonlyArray<Keyset>,
+	project: (
+		holds: (i: number) => Expr,
+		key: NonEmptyReadonlyArray<Expr>
+	) => {
+		readonly targets: ReadonlyArray<Target>
+		readonly having: Expr | undefined
+	}
+): Select => {
+	const [first] = keysets
+	const u = supply.relation(internal("tagged keys"))
+	const key = mapNonEmpty(first.columns, () => supply.column(internal("tagged key")))
+	const tag = supply.column(internal("tag"))
+	const arm = (keyset: Keyset, i: number) => {
+		const k = supply.relation(internal("tagged keyset"))
+		return core(
+			[...keyset.columns.map((c) => target(col(k, c))), target(lit.int(i, types.integer))],
+			[cteRefAs(keyset.name, k)],
+			undefined
+		)
+	}
+	const keyExprs = mapNonEmpty(key, (c) => col(u, c))
+	const holds = (i: number): Expr => call("bool_or", [eq(col(u, tag), lit.int(i, types.integer))])
+	const chosen = project(holds, keyExprs)
+	return select({
+		...provedCore(
+			"grouped",
+			chosen.targets,
+			[derived(operandSelect(operandUnionAll(mapNonEmpty(keysets, arm))), u, [...key, tag], false)],
+			undefined
+		),
+		groupBy: [...keyExprs],
+		having: chosen.having
+	})
+}
+
+/**
+ * The keyset of the keys at one access path that every keyset of `all` holds and no keyset of `none` holds, by one
+ * GROUP BY over them (`tagged`), its CTE pushed onto `ctes` as `materialized` says; `all`'s one keyset itself where
+ * there is nothing to judge.
+ */
+export const keysetWhere = (
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	sets: { readonly all: NonEmptyReadonlyArray<Keyset>; readonly none: ReadonlyArray<Keyset> },
+	materialized: Cte["materialized"]
+): Keyset => {
+	const [first, ...more] = sets.all
+	if (!isNonEmpty(more) && !isNonEmpty(sets.none)) {
+		return first
+	}
+	const name = supply.relation(internal("keyset"))
+	const columns = mapNonEmpty(first.columns, () => supply.column(internal("keyset key")))
+	const keysets: NonEmptyReadonlyArray<Keyset> = [first, ...more, ...sets.none]
+	ctes.push({
+		...cte(
+			name,
+			[...columns],
+			tagged(supply, keysets, (holds, key) => ({
+				targets: key.map((e) => target(e)),
+				having: and([
+					...mapNonEmpty(sets.all, (_, i) => holds(i)),
+					...sets.none.map((_, j) => not(holds(sets.all.length + j)))
+				])
+			}))
+		),
+		materialized
+	})
+	return { name, access: first.access, columns }
+}
+
+/** A keyset whose every key carries whether another keyset holds it, in its column `flag`. */
+export interface Flagged extends Keyset {
+	readonly flag: string
+}
+
+/**
+ * Each key of `of` with whether `holds`, a keyset of some of its keys at its access path, holds it, by one GROUP BY
+ * over the two (`tagged`), its CTE pushed onto `ctes`, materialized.
+ */
+export const flaggedKeys = (
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	of: Keyset,
+	holds: Keyset
+): Flagged => {
+	const name = supply.relation(internal("flagged keys"))
+	const columns = mapNonEmpty(of.columns, () => supply.column(internal("flagged key")))
+	const flag = supply.column(internal("flag"))
+	ctes.push({
+		...cte(
+			name,
+			[...columns, flag],
+			tagged(supply, [of, holds], (held, key) => ({
+				targets: [...key.map((e) => target(e)), target(held(1))],
+				having: undefined
+			}))
+		),
+		materialized: "MATERIALIZED"
+	})
+	return { name, access: of.access, columns, flag }
 }
 
 /**

@@ -1,23 +1,39 @@
 --- a/packages/engine/src/write/delete/unit.ts
 +++ b/packages/engine/src/write/delete/unit.ts
-@@ -73,6 +73,8 @@
+@@ -70,6 +70,7 @@
+ import { type ColumnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
+ import type { Cte, Expr, Select } from "#compiler/sql/ast.ts"
+ import {
++	and,
+ 	asc,
+ 	call,
+ 	col,
+@@ -77,11 +78,14 @@
+ 	cte,
+ 	cteRefAs,
+ 	derived,
++	exists,
+ 	le,
  	not,
  	notExists,
- 	or,
-+	provedCore,
-+	select,
- 	simpleSelect,
++	or,
+ 	provedCore,
+ 	select,
++	simpleSelect,
  	target,
- 	targetAs
-@@ -103,6 +105,7 @@
+ 	targetAs,
+ 	windowOf
+@@ -114,7 +118,9 @@
+ 	type FamilyWriteSql,
+ 	installed,
  	internal,
- 	one,
++	one,
  	slotReader,
 +	tableAs,
  	taggedRows
  } from "#compiler/write/family/written.ts"
  import type { MemberSlot } from "#compiler/write/frontend/compile.ts"
-@@ -546,7 +549,56 @@
+@@ -673,7 +679,56 @@
  			}
  		})
  		if (tree === undefined) {
