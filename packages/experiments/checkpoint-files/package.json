@@ -1,0 +1,7 @@
+{
+	"name": "@bjornpagen/grizzle-experiment-checkpoint-files",
+	"private": true,
+	"description": "Experiment: which test-support objects the network tier creates make the checkpointer of each cluster sync hundreds of thousands of files; deleted once its verdict is in (README.md)",
+	"license": "0BSD",
+	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>"
+}

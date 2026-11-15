@@ -327,6 +327,8 @@ importers:
 
   packages/experiments/batch-judge: {}
 
+  packages/experiments/checkpoint-files: {}
+
   packages/experiments/ssi-summary: {}
 
   packages/grizzle:
