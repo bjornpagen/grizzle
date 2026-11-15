@@ -172,6 +172,7 @@ export type EveryKindKey =
 	| "ProjectSet(arm Manual)"
 	| "Union(hetero)"
 	| "ProjectSet(exprs)"
+	| "Step"
 
 export interface EveryKind {
 	readonly dag: ValidDag
@@ -808,6 +809,14 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		meta: conservativeMeta
 	})
 
+	const fenced = b.node({
+		kind: "Step",
+		input: project,
+		heading: accountAmount,
+		loc: undefined,
+		meta: conservativeMeta
+	})
+
 	/** In allocation order, which is the order of the roots. */
 	const nodes = {
 		Base: task,
@@ -845,7 +854,8 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		"ProjectSet(arm Automatic)": armA,
 		"ProjectSet(arm Manual)": armM,
 		"Union(hetero)": hetero,
-		"ProjectSet(exprs)": exprs
+		"ProjectSet(exprs)": exprs,
+		Step: fenced
 	}
 	return { dag: b.build(Rec.values(nodes)), nodes, params: x.params }
 }
