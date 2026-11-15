@@ -20,8 +20,8 @@
  *   sends no ANALYZE of its carriers (write/program/staged.ts analyzeOf). Some interleaving overlaps them (the first
  *   import waits on the gate's key while the second commits).
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/staged-imports-every-probe-finds-a-row.patch, a probe of stored rows that
- * always finds one, answers each import unchanged and must turn the property red.
+ * @plant test/plants/schedules/fin/staged-imports-every-probe-finds-a-row.patch A probe of stored rows by key binds no
+ * key column (write/probe.ts probeKey), so it finds any stored row; the property fails.
  */
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec, Result, String as Str } from "effect"

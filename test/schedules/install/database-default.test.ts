@@ -19,8 +19,8 @@
  *
  * Feature: an interleaving in which a block waited, which the space must hold.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): database-default-unlocked (a block tries its advisory lock and runs on
- * without it, so two installations update the settings row at once).
+ * @plant test/plants/schedules/install/database-default-unlocked.patch The database lock only tries its advisory lock
+ * (pg_try_advisory_xact_lock) and a block runs on without it, so two installations update the settings row at once.
  */
 
 import { layer } from "@effect/vitest"

@@ -39,9 +39,12 @@
  * Features: the race's ends (the migration succeeded, refused by the law or aborted), each waiting on the other, and a
  * violation committed before the law or refused by it.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): validate-rows-unvalidated (a CHECK added NOT VALID over stored rows is
- * never validated) and validate-race-unvalidated (a foreign key added NOT VALID over a table that may hold rows is never
- * validated).
+ * @plant test/plants/schedules/migrate/validate-rows-unvalidated.patch A CHECK added NOT VALID over stored rows is
+ * never validated (deploy/diff/diff.ts drafts no VALIDATE CONSTRAINT for it), so the migration stops at its drift stage
+ * rather than refusing with the law; the violating-rows property fails.
+ * @plant test/plants/schedules/migrate/validate-race-unvalidated.patch A foreign key added NOT VALID over a table that
+ * may hold rows is never validated (deploy/diff/diff.ts foreignKey drafts no VALIDATE CONSTRAINT), so the migration
+ * stops at its drift stage rather than refusing with the law; the properties fail.
  */
 
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
