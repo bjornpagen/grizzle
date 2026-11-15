@@ -6,12 +6,25 @@
  * reaches state, so PostgreSQL refuses p0 there, ParamRejected, before the first stratum's key is met, and the model
  * (test/support/oracle/write/expect.ts) expects that refusal.
  *
+ * And lane TYPEWRITE's case 26 (TEST_SEED=1377187137, the rotating stream), replayed and shrunk at 41abe3e9 by lane
+ * ORACLEDRAW, whose third case puts every field of a mutable relation G0R0(a bigserial, b bigserial) on an identity
+ * sequence lagging at 1, behind the stored { a: 1, b: 1 } and { a: 2, b: 3 }, under contained(G0R1(a), G0R0(a)), a
+ * deferred containment. One stratum adds a generated unit fact to G0R0, described and enumerated, deletes every G0R0
+ * and G0R1 fact, and adds G0R1 { a: 2, b: 1.5 } back. The realization draws after the stratum's deletions (write/frontend
+ * schedule.ts phaseOf), takes a = 1, b = 1 and re-creates the deleted fact, so G0R1 { a: 2 } names no G0R0 fact and
+ * COMMIT refuses the change; the calculator's own draws pass the deleted fact, take a = 2 and would accept. The
+ * sequences record those draws after the rollback, and each side is judged under them (harness.ts expectedOf,
+ * addwins.ts Draws `realized`).
+ *
  * @plant test/plants/pg/write/oracle/write-oracle-admission-after-strata.patch The model judges the parameters after
  * the strata (expect.ts expectUnder), so it expects the first stratum's key law where both realizations refuse p0 at
  * the admission; the kept case fails.
  * @plant test/plants/pg/oracle/optimized/installations-without-params.patch The oracle harness installs a case's schema
  * without the parameter types its query declares (test/support/oracle/write/run.ts openTarget), so a parameter cast to a
  * pattern domain meets UninstalledDomain.
+ * @plant test/plants/pg/write/oracle/write-oracle-sides-under-own-draws.patch The harness judges each side under the
+ * calculator's own draws (harness.ts expectedOf), not the draws the side's sequences record, so the second kept case,
+ * whose refused sides drew the deleted fact's values, is expected accepted; it fails.
  */
 import { writeOracleSuite, writeSuite } from "#test/pg/write/oracle/support.ts"
 import type { WriteSuite } from "#test/support/oracle/write/index.ts"
@@ -445,7 +458,455 @@ const parameterAfterRefusedStratum: WriteSuite["kept"][number] = {
 	reaches: ["strata:3", "parameters bound", "outcome refused at bind"]
 }
 
+/**
+ * TYPEWRITE's case 26 (see the header): a refused side whose lagging draw re-created a fact its stratum deletes, judged
+ * under the draws its sequences record.
+ */
+const refusedUnderItsDraws: WriteSuite["kept"][number] = {
+	note: "a refused side whose lagging draw re-created a fact its stratum deletes",
+	sketch: [
+		{
+			schema: {
+				groups: [
+					{
+						relations: [
+							{
+								width: 6428,
+								kinds: [52721, 12599, 12883, 20746],
+								key: [28917, 23465, 38434, 61295],
+								candidate: [24691, 64805, 32060, 26055],
+								serial: { at: 54603, kind: 30395, count: 54717, second: 15634 },
+								target: 37563
+							},
+							{
+								width: 18059,
+								kinds: [42628, 40389, 14766, 51288],
+								key: [29394, 7192, 25549, 59730],
+								candidate: [26595, 12383, 58513, 6121],
+								serial: { at: 32953, kind: 35977, count: 19432, second: 35186 },
+								target: 24522
+							}
+						]
+					},
+					{
+						relations: [
+							{
+								width: 6724,
+								kinds: [34133, 18372, 47381, 3649],
+								key: [49, 35569, 20111, 36622],
+								candidate: [65449, 57514, 3920, 40561],
+								serial: { at: 48429, kind: 44900, count: 58179, second: 36146 },
+								target: 1479
+							},
+							{
+								width: 57670,
+								kinds: [63765, 10381, 12093, 26924],
+								key: [8689, 56956, 50844, 176],
+								candidate: [53715, 36268, 49813, 44169],
+								serial: { at: 49727, kind: 46246, count: 26907, second: 18 },
+								target: 11666
+							}
+						]
+					}
+				],
+				planted: true,
+				swarm: { allIdentities: 1, mutable: 2, references: 1 }
+			},
+			statistics: "none",
+			ambient: {
+				path: { kind: "grizzleFirst" },
+				settings: [
+					{ parameter: "DateStyle", value: "SQL, DMY" },
+					{ parameter: "IntervalStyle", value: "iso_8601" },
+					{ parameter: "bytea_output", value: "hex" }
+				]
+			},
+			cases: [
+				{
+					group: 58403,
+					facts: [
+						[],
+						[
+							{ values: [23024, 18264, 11724, 14602], target: 0 },
+							{ values: [32183, 64610, 36418, 29654], target: 65392 },
+							{ values: [30678, 31603, 1577, 60203], target: 15870 },
+							{ values: [28398, 33056, 7907, 19499], target: 8946 }
+						],
+						[]
+					],
+					behind: false,
+					changes: {
+						strata: [
+							[
+								{
+									op: 1,
+									relation: 33015,
+									source: 2,
+									facts: [],
+									from: { other: false, relation: 64717 },
+									filter: { on: false, column: 64281, value: 6667 },
+									head: [
+										{ term: 1, value: 5480 },
+										{ term: 3, value: 3 },
+										{ term: 2, value: 60288 },
+										{ term: 1, value: 62797 }
+									]
+								},
+								{
+									op: 2,
+									relation: 3,
+									source: 8,
+									facts: [],
+									from: { other: false, relation: 39425 },
+									filter: { on: false, column: 23317, value: 33843 },
+									head: [
+										{ term: 2, value: 12448 },
+										{ term: 3, value: 46 },
+										{ term: 1, value: 47677 },
+										{ term: 2, value: 53167 }
+									]
+								}
+							],
+							[
+								{
+									op: 2,
+									relation: 51692,
+									source: 3,
+									facts: [],
+									from: { other: true, relation: 47746 },
+									filter: { on: false, column: 40305, value: 2628 },
+									head: [
+										{ term: 4, value: 40228 },
+										{ term: 0, value: 7822 },
+										{ term: 4, value: 6766 },
+										{ term: 2, value: 61583 }
+									]
+								}
+							],
+							[
+								{
+									op: 2,
+									relation: 25400,
+									source: 8,
+									facts: [
+										{
+											mode: 6,
+											pick: 3501,
+											row: { values: [63534, 50439, 32893, 65535], target: 30850 }
+										}
+									],
+									from: { other: false, relation: 1744 },
+									filter: { on: false, column: 5233, value: 65390 },
+									head: [
+										{ term: 1, value: 34789 },
+										{ term: 4, value: 5965 },
+										{ term: 4, value: 52270 },
+										{ term: 0, value: 28110 }
+									]
+								},
+								{
+									op: 0,
+									relation: 39736,
+									source: 7,
+									facts: [
+										{
+											mode: 1,
+											pick: 45326,
+											row: { values: [1258, 32464, 22914, 64840], target: 22747 }
+										},
+										{
+											mode: 4,
+											pick: 61702,
+											row: { values: [27810, 65534, 61184, 54817], target: 56434 }
+										}
+									],
+									from: { other: true, relation: 794 },
+									filter: { on: true, column: 27723, value: 63493 },
+									head: [
+										{ term: 0, value: 38438 },
+										{ term: 2, value: 63347 },
+										{ term: 3, value: 65535 },
+										{ term: 0, value: 45188 }
+									]
+								},
+								{
+									op: 0,
+									relation: 4751,
+									source: 5,
+									facts: [
+										{
+											mode: 7,
+											pick: 1506,
+											row: { values: [60679, 31824, 13089, 13166], target: 6174 }
+										}
+									],
+									from: { other: true, relation: 6214 },
+									filter: { on: true, column: 16740, value: 4 },
+									head: [
+										{ term: 0, value: 52405 },
+										{ term: 2, value: 48707 },
+										{ term: 2, value: 53901 },
+										{ term: 4, value: 39688 }
+									]
+								}
+							]
+						],
+						reads: [],
+						swarm: { paramMembers: 1, outsideDomain: 1, compiled: 2 }
+					}
+				},
+				{
+					group: 53364,
+					facts: [
+						[
+							{ values: [61241, 51721, 39512, 30043], target: 25907 },
+							{ values: [41399, 42985, 58844, 1], target: 52451 },
+							{ values: [65528, 4555, 36374, 34082], target: 64623 },
+							{ values: [62184, 62, 42333, 24399], target: 58939 },
+							{ values: [13029, 16674, 36274, 45768], target: 21481 }
+						],
+						[
+							{ values: [17110, 40775, 30592, 47792], target: 20381 },
+							{ values: [36599, 14772, 55159, 16520], target: 39765 },
+							{ values: [54902, 56667, 55086, 59105], target: 49443 }
+						],
+						[]
+					],
+					behind: false,
+					changes: {
+						strata: [
+							[
+								{
+									op: 1,
+									relation: 19424,
+									source: 9,
+									facts: [
+										{
+											mode: 1,
+											pick: 59068,
+											row: { values: [32331, 46526, 47262, 35748], target: 21846 }
+										},
+										{
+											mode: 7,
+											pick: 46807,
+											row: { values: [65532, 51298, 4586, 65533], target: 37955 }
+										},
+										{
+											mode: 6,
+											pick: 62007,
+											row: { values: [29174, 46268, 26476, 15906], target: 23585 }
+										}
+									],
+									from: { other: false, relation: 19780 },
+									filter: { on: true, column: 18882, value: 50475 },
+									head: [
+										{ term: 3, value: 35 },
+										{ term: 4, value: 23 },
+										{ term: 0, value: 63687 },
+										{ term: 3, value: 34069 }
+									]
+								},
+								{
+									op: 0,
+									relation: 60782,
+									source: 3,
+									facts: [],
+									from: { other: false, relation: 27285 },
+									filter: { on: false, column: 62932, value: 34816 },
+									head: [
+										{ term: 2, value: 10190 },
+										{ term: 4, value: 65533 },
+										{ term: 0, value: 29 },
+										{ term: 3, value: 14420 }
+									]
+								}
+							],
+							[]
+						],
+						reads: [
+							{ relation: 21365, source: 0, parent: { on: true, containment: 65039, clear: true } },
+							{
+								relation: 47923,
+								source: 1,
+								parent: { on: false, containment: 31445, clear: false }
+							}
+						],
+						swarm: {
+							projections: 2,
+							paramMembers: 1,
+							reread: 2,
+							nearMisses: 3,
+							strata: 2,
+							reads: 2,
+							outsideDomain: 2,
+							streams: 3,
+							bind: 3,
+							compiled: 3,
+							unitAdditions: 3,
+							equalities: 3
+						}
+					}
+				},
+				{
+					group: 3006,
+					facts: [
+						[
+							{ values: [5517, 15304, 35070, 13320], target: 56920 },
+							{ values: [27433, 33153, 63513, 13597], target: 48907 },
+							{ values: [17, 12554, 20864, 45270], target: 52995 },
+							{ values: [17436, 33215, 61805, 14946], target: 9 },
+							{ values: [26009, 58502, 63887, 18033], target: 8279 }
+						],
+						[
+							{ values: [65506, 18765, 50345, 13174], target: 34965 },
+							{ values: [34328, 36887, 53069, 46191], target: 58808 },
+							{ values: [22257, 1774, 17103, 17947], target: 11286 },
+							{ values: [48552, 247, 12825, 40667], target: 18724 },
+							{ values: [16852, 56025, 23895, 20559], target: 265 }
+						],
+						[{ values: [53216, 7093, 0, 61188], target: 42929 }]
+					],
+					behind: true,
+					changes: {
+						strata: [
+							[
+								{
+									op: 0,
+									relation: 26323,
+									source: 6,
+									facts: [
+										{
+											mode: 2,
+											pick: 22069,
+											row: { values: [27521, 31053, 31826, 14809], target: 56512 }
+										}
+									],
+									from: { other: true, relation: 44343 },
+									filter: { on: false, column: 15299, value: 186 },
+									head: [
+										{ term: 3, value: 49746 },
+										{ term: 0, value: 25814 },
+										{ term: 4, value: 47144 },
+										{ term: 4, value: 13460 }
+									]
+								},
+								{
+									op: 1,
+									relation: 60420,
+									source: 7,
+									facts: [],
+									from: { other: true, relation: 22289 },
+									filter: { on: true, column: 59293, value: 6174 },
+									head: [
+										{ term: 1, value: 29143 },
+										{ term: 3, value: 26283 },
+										{ term: 3, value: 5480 },
+										{ term: 3, value: 40430 }
+									]
+								},
+								{
+									op: 0,
+									relation: 62772,
+									source: 7,
+									facts: [
+										{
+											mode: 4,
+											pick: 14929,
+											row: { values: [58934, 17527, 43950, 65454], target: 36158 }
+										}
+									],
+									from: { other: false, relation: 5291 },
+									filter: { on: true, column: 17069, value: 48935 },
+									head: [
+										{ term: 0, value: 63742 },
+										{ term: 0, value: 54527 },
+										{ term: 3, value: 41227 },
+										{ term: 3, value: 2027 }
+									]
+								}
+							]
+						],
+						reads: [
+							{ relation: 36540, source: 2, parent: { on: true, containment: 65521, clear: true } }
+						],
+						swarm: {
+							projections: 2,
+							paramMembers: 1,
+							reread: 1,
+							nearMisses: 2,
+							strata: 3,
+							reads: 3,
+							outsideDomain: 3,
+							streams: 2,
+							bind: 1,
+							unitAdditions: 1,
+							equalities: 1
+						}
+					}
+				},
+				{
+					group: 33392,
+					facts: [
+						[
+							{ values: [7006, 3, 65284, 0], target: 60085 },
+							{ values: [65528, 29896, 62657, 0], target: 5666 },
+							{ values: [25147, 64106, 38312, 15630], target: 12513 }
+						],
+						[{ values: [1, 56978, 61468, 27861], target: 56629 }],
+						[
+							{ values: [20839, 14947, 2105, 59999], target: 49822 },
+							{ values: [23131, 62940, 35297, 41394], target: 15089 },
+							{ values: [65531, 19387, 41115, 34584], target: 20878 },
+							{ values: [36651, 12558, 2639, 12759], target: 2752 }
+						]
+					],
+					behind: false,
+					changes: {
+						strata: [[]],
+						reads: [],
+						swarm: {
+							projections: 2,
+							paramMembers: 1,
+							reread: 3,
+							nearMisses: 3,
+							strata: 3,
+							reads: 3,
+							outsideDomain: 1,
+							streams: 1,
+							bind: 3,
+							compiled: 1,
+							unitAdditions: 3,
+							equalities: 1
+						}
+					}
+				}
+			],
+			planted: { facts: [[], [], []] }
+		},
+		{
+			settings: [
+				"enable_hashjoin = off",
+				"enable_mergejoin = off",
+				"plan_cache_mode = force_generic_plan",
+				"parallel_tuple_cost = 0",
+				"min_parallel_table_scan_size = 0"
+			],
+			multiplier: 2
+		},
+		{ shift: 45, respell: 55 }
+	],
+	draws: "1.2.2.0.0.1.0.1.1.0.1.0.2.1.2.1.1.0",
+	reaches: [
+		"every field an identity column",
+		"two identity columns",
+		"deferred containment",
+		"a unit addition described and enumerated",
+		"delete project",
+		"a verdict under the realization's draws"
+	]
+}
+
 writeSuite(
-	writeOracleSuite(1, [parameterAfterRefusedStratum]),
+	writeOracleSuite(1, [parameterAfterRefusedStratum, refusedUnderItsDraws]),
 	"the three-way write oracle, suite 1"
 )

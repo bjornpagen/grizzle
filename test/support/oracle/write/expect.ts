@@ -122,10 +122,11 @@ export type Expected =
 			/** Per relation the change generates into, the TransientFailures its draws may meet. */
 			readonly collisions: ReadonlyMap<string, Collisions>
 			/**
-			 * The expectation under a realization's own draws: each generated addition taking the serial values of the
-			 * fact of `committed`, by relation, whose other fields it holds (the facts that realization committed for
-			 * its generated additions). Which stored or removed facts the draws repeat, and with them the outcome and
-			 * its counts, are the draws'.
+			 * The expectation under the facts a realization committed for its generated additions: each taking the
+			 * serial values of the fact of `committed`, by relation, whose other fields it holds, which of its draws
+			 * went to which addition, the order its statement inserted them in, which only a commit shows (its
+			 * sequences record the values alone, addwins.ts Draws). Which stored or removed facts the draws repeat, and
+			 * with them the outcome and its counts, are the draws'.
 			 */
 			readonly pin: (committed: ReadonlyMap<string, ReadonlyArray<Fact>>) => Expected
 	  }
@@ -619,20 +620,22 @@ export const unorderableStrata = (group: WGroup, c: WChangeSet): ReadonlyArray<C
  * initial state.
  *
  * The expected result of applying `c` to `facts`, each identity sequence where `sequences` states it, and every other
- * past the stored values, where a migration that loaded them leaves it: its generated additions drawn as the add-wins
- * calculator draws them, and, applied, the same expectation under the draws a realization made (Expected's `pin`); or
- * its refusal as it compiles, where a stratum's writes the keys order in a cycle.
+ * past the stored values, where a migration that loaded them leaves it: its generated additions taking their serial
+ * values as `draws` says, the add-wins calculator's own draws or a realization's as its identity sequences record
+ * them, refused or not (addwins.ts Draws), and, applied, the same expectation under the facts a realization committed
+ * for them (Expected's `pin`); or its refusal as it compiles, where a stratum's writes the keys order in a cycle.
  */
 export const expectChangeSet = (
 	ctx: ExpectContext,
 	facts: WFacts,
 	c: WChangeSet,
-	sequences: Readonly<Record<string, SequenceState>>
+	sequences: Readonly<Record<string, SequenceState>>,
+	draws: Draws
 ): Expected => {
 	const unorderable = unorderableStrata(ctx.group, c)
 	return Arr.isReadonlyArrayNonEmpty(unorderable)
 		? { kind: "unorderable", strata: unorderable }
-		: expectUnder(ctx, facts, c, sequences, { kind: "sequences" })
+		: expectUnder(ctx, facts, c, sequences, draws)
 }
 
 /**

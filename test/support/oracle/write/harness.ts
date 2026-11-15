@@ -288,6 +288,7 @@ export type WriteOracleFeature =
 	| "lagging differing"
 	| "a generated repeat of a kept fact, drawing nothing"
 	| "counts under the realization's draws"
+	| "a verdict under the realization's draws"
 	| "an UPDATE ... FROM put advancing its sequence"
 	| "facts reordered on a second reading"
 	| "a fact respelled on a second reading"
@@ -1302,6 +1303,11 @@ export interface Ran {
  * outcome again and agree exactly with its first reading. The conservative realization is the oracle's baseline, not
  * an answer an application receives, so only db.apply's side is read again.
  *
+ * Each side is judged under its own draws, whatever its outcome or the calculator's: nextval is never rolled back, so
+ * the sequences a side leaves record the values its last attempt drew, after its stratum's deletions, a lagging one's
+ * repeating a fact the stratum deletes among them, and the expectation takes them, then the calculator's own past them
+ * (addwins.ts Draws `realized`). A refused side is judged under the values it drew, as an applied one is.
+ *
  * Generated additions are compared up to renaming of their serial values. Within one attempt the realization draws
  * values from the identity sequences as the add-wins calculator does, but which generated fact takes which value is
  * the order the statement inserts them in, which nothing fixes, and an attempt that runs again draws fresh values,
@@ -1320,6 +1326,9 @@ export interface Ran {
  *
  * The realization's draws repeated another stored or removed fact than the calculator's, which changes the
  * counts the definition gives.
+ *
+ * The realization's draws, as the sequences it left record them, committed or rolled back, give another verdict than
+ * the calculator's own: a lagging draw re-creating a fact its stratum deletes, where the calculator draws past it.
  *
  * The single-flight property judged a logged flight: a logger that recorded nothing would leave it
  * vacuous.
@@ -1397,7 +1406,9 @@ export const runCase = (
 				],
 				"\n"
 			)
-		const expected = expectChangeSet({ group, laws: t.laws }, facts, c, sequences)
+		const expected = expectChangeSet({ group, laws: t.laws }, facts, c, sequences, {
+			kind: "sequences"
+		})
 		const entry = programOf(t, changes)
 		if (expected.kind === "unorderable") {
 			const refused = unorderableProblems(expected, entry)
@@ -1453,11 +1464,20 @@ export const runCase = (
 			note(realization)
 		}
 		/**
-		 * What a side is judged against: the expectation at the sequences its last attempt drew from (Applied's start),
-		 * whose fresh values can decide the outcome.
+		 * What a side is judged against: the expectation from the sequences its last attempt drew from (Applied's start),
+		 * under the draws that attempt made, as the sequences it left record them, committed or rolled back (addwins.ts
+		 * Draws `realized`), since which stored or deleted facts its values repeat can decide the outcome.
 		 */
-		const expectedOf = (applied: Applied): Expected =>
-			expectChangeSet({ group, laws: t.laws }, facts, c, Rec.fromEntries([...applied.start]))
+		const expectedOf = (applied: Applied, left: GroupState): Expected =>
+			expectChangeSet({ group, laws: t.laws }, facts, c, Rec.fromEntries([...applied.start]), {
+				kind: "realized",
+				ends: left.sequences
+			})
+		/** The expectation from the sequences a side's last attempt drew from, under the calculator's own draws. */
+		const ownOf = (applied: Applied): Expected =>
+			expectChangeSet({ group, laws: t.laws }, facts, c, Rec.fromEntries([...applied.start]), {
+				kind: "sequences"
+			})
 		const outcomes: Array<Result.Result<WriteOutcome, unknown>> = []
 		/** Each side's expectation under its own draws (judgedExpectation), where it committed an applied change. */
 		const realized: Array<Expected> = []
@@ -1474,7 +1494,9 @@ export const runCase = (
 				perturbation
 			)
 			const state = yield* readGroup(t, group)
-			const sideExpected = expectedOf(applied)
+			const sideExpected = expectedOf(applied, state)
+			const own = ownOf(applied)
+			noteIf(sideExpected.kind !== own.kind, "a verdict under the realization's draws")
 			outcomes.push(applied.outcome)
 			if (applied.collided > 0) {
 				note("generated after a collision")
@@ -1484,7 +1506,8 @@ export const runCase = (
 				realized.push(judged)
 				noteIf(
 					judged.kind === "applied" &&
-						!sameCounts(judged.outcome.counts, sideExpected.outcome.counts),
+						own.kind === "applied" &&
+						!sameCounts(judged.outcome.counts, own.outcome.counts),
 					"counts under the realization's draws"
 				)
 			}
@@ -1526,7 +1549,7 @@ export const runCase = (
 		const againState = yield* readGroup(t, group)
 		const readAgain = `optimized, read again over its facts stored otherwise (${restored.reordered ? "reordered" : "in their order"}, ${restored.respelled ? "one value respelled" : "no value respelled"}), ${printPerturbation(secondPlan)}`
 		const againProblems = [
-			...judgeWrite(group, c, expectedOf(again), again.outcome, againState),
+			...judgeWrite(group, c, expectedOf(again, againState), again.outcome, againState),
 			...(optimized === undefined
 				? []
 				: agreement(["optimized", optimized], ["optimized read again", again.outcome]))

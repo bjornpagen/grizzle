@@ -328,7 +328,7 @@ describe("the write oracle's judgement", () => {
 								return { group: aimed.group, facts: aimed.facts, c: aimed.changes }
 							}
 						})
-						const expected = expectChangeSet({ group, laws }, facts, c, {})
+						const expected = expectChangeSet({ group, laws }, facts, c, {}, { kind: "sequences" })
 						/** The state a side commits: the initial one, or none where the compile refuses the ChangeSet. */
 						const state: GroupState =
 							expected.kind === "unorderable"

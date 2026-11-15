@@ -1,9 +1,8 @@
 diff --git a/test/support/oracle/addwins.ts b/test/support/oracle/addwins.ts
-index e728784c..fef63e32 100644
 --- a/test/support/oracle/addwins.ts
 +++ b/test/support/oracle/addwins.ts
-@@ -681,7 +681,6 @@ const transition = (
- 			}
+@@ -713,7 +713,6 @@
+ 			})
  			const admitted = admit(relation, relation.heading, fact)
  			const collides =
 -				current.has(admitted.identity) ||

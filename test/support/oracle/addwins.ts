@@ -378,13 +378,30 @@ interface RejectedOutcome {
 export type AddWinsOutcome = AppliedOutcome | RejectedOutcome
 
 /**
- * Where a ChangeSet's generated additions take their serial values (see the header): drawn from the identity sequences
- * in identity order, or given, by relation, as the facts a realization committed for them, each generated addition
- * taking the serial values of the given fact whose other fields it holds.
+ * Where a ChangeSet's generated additions take their serial values (see the header), each in identity order:
+ * - `sequences`: this calculator's own draws from the identity sequences, nextval, drawn again past a fact it would
+ *   repeat;
+ * - `realized`: a realization's draws as its identity sequences record them, which no rollback undoes: `ends` holds
+ *   each sequence, by `<relation>.<field>`, where the realization's last attempt left it, so every value nextval
+ *   reaches at or before it is one that attempt drew, taken whatever fact it repeats, and every value past it is this
+ *   calculator's own;
+ * - `given`: by relation, the facts a realization committed for them, each generated addition taking the serial values
+ *   of the given fact whose other fields it holds.
  */
 export type Draws =
 	| { readonly kind: "sequences" }
+	| { readonly kind: "realized"; readonly ends: ReadonlyMap<string, SequenceState> }
 	| { readonly kind: "given"; readonly facts: ReadonlyMap<string, ReadonlyArray<Fact>> }
+
+/**
+ * A serial value a generated addition takes, the sequence past it, and whose draw it is: the realization's, which the
+ * addition takes whatever fact it repeats, or this calculator's own, drawn again past a fact it would repeat.
+ */
+interface Drawn {
+	readonly whose: "realization" | "calculator"
+	readonly value: bigint
+	readonly next: SequenceState
+}
 
 const serialCarrier = (relation: OracleRelation, field: string): "int2" | "int4" | "int8" => {
 	const carrier = specOf(relation, field).carrier
@@ -404,39 +421,52 @@ const nextval = (s: SequenceState): { readonly value: bigint; readonly next: Seq
 		: { value: s.lastValue, next: { lastValue: s.lastValue, isCalled: true } }
 
 /**
- * How one relation's generated additions take each serial field's value from that field's sequence: nextval, or the
- * value given for the addition, past which the sequence then stands, `id` the addition's identity over the heading
- * without its serial fields.
+ * Whether a sequence a realization left at `end` handed out `value`: nextval reaches it at or before `end`, so it is
+ * not one nextval can still return from there.
+ */
+const handedOut = (end: SequenceState, value: bigint): boolean =>
+	value < end.lastValue || (value === end.lastValue && end.isCalled)
+
+/**
+ * How one relation's generated additions take each serial field's value from that field's sequence: nextval, the
+ * calculator's own or, where the realization's sequence handed it out, the realization's; or the value given for the
+ * addition, past which the sequence then stands, `id` the addition's identity over the heading without its serial
+ * fields.
  */
 const drawer = (
 	relation: OracleRelation,
 	partialHeading: ReadonlyArray<HeadingField>,
 	draws: Draws
-): ((
-	s: SequenceState,
-	id: FactIdentity,
-	field: string
-) => { readonly value: bigint; readonly next: SequenceState }) => {
-	if (draws.kind === "sequences") {
-		return nextval
-	}
-	const byPartial = factSetOf(
-		Arr.map(draws.facts.get(relation.name) ?? [], (fact) => {
-			const partial = Rec.fromEntries(
-				Arr.filter(Rec.toEntries(fact), ([f]) => !relation.serial.includes(f))
+): ((s: SequenceState, id: FactIdentity, field: string) => Drawn) => {
+	switch (draws.kind) {
+		case "sequences":
+			return (s) => ({ ...nextval(s), whose: "calculator" })
+		case "realized":
+			return (s, _id, field) => {
+				const drawn = nextval(s)
+				const end = entryOf(draws.ends, sequenceKey(relation.name, field), "the realized sequences")
+				return { ...drawn, whose: handedOut(end, drawn.value) ? "realization" : "calculator" }
+			}
+		case "given": {
+			const byPartial = factSetOf(
+				Arr.map(draws.facts.get(relation.name) ?? [], (fact) => {
+					const partial = Rec.fromEntries(
+						Arr.filter(Rec.toEntries(fact), ([f]) => !relation.serial.includes(f))
+					)
+					return [admit(relation, partialHeading, partial).identity, fact] as const
+				})
 			)
-			return [admit(relation, partialHeading, partial).identity, fact] as const
-		})
-	)
-	return (s, id, field) => {
-		const fact = byPartial.get(id)
-		if (fact === undefined) {
-			throw new Error(
-				`${relation.name}: no fact given for the generated addition (${Arr.join(id, ", ")})`
-			)
+			return (s, id, field) => {
+				const fact = byPartial.get(id)
+				if (fact === undefined) {
+					throw new Error(
+						`${relation.name}: no fact given for the generated addition (${Arr.join(id, ", ")})`
+					)
+				}
+				const value = integerOf(fact[field], field)
+				return { value, next: advancePast(s, value), whose: "realization" }
+			}
 		}
-		const value = integerOf(fact[field], field)
-		return { value, next: advancePast(s, value) }
 	}
 }
 
@@ -494,9 +524,10 @@ interface RelationStep {
  *   statement. A realization may still draw the key of a fact its stratum has deleted, adding that fact back, and the
  *   stratum's change nets: that is a draw of the realization's. Generated values therefore depend on draw order,
  *   which nothing fixes, and an attempt that runs again draws fresh values: the outcome is the definition's under
- *   some draws. This calculator draws in identity order (`sequences`), or takes the serial values given for each
- *   generated addition (`given`), so a comparison against a database computes the outcome under the realization's
- *   own draws.
+ *   some draws. This calculator draws in identity order (`sequences`), or takes the realization's draws: the values
+ *   its identity sequences record handing out, in identity order, whatever fact they repeat, then its own past them
+ *   (`realized`), or the serial values given for each generated addition (`given`), so a comparison against a
+ *   database computes the outcome under the realization's own draws, whether it committed them or not.
  * - The outcome's deltas compare the initial and final states. Its counts attribute each stratum's actual change to
  *   the members of that stratum and net them across the strata in order, as the realization does over its per-stratum
  *   RETURNING carriers (delta.ts).
@@ -660,25 +691,26 @@ const transition = (
 	}
 
 	/**
-	 * Generated additions, in identity order, each with fresh values that collide with no key containing a serial
-	 * field and repeat no fact of the state before the stratum or of the state they join, or with the values given for
-	 * it.
+	 * Generated additions, in identity order, each with the calculator's own values that collide with no key containing a
+	 * serial field and repeat no fact of the state before the stratum or of the state they join, or with the
+	 * realization's values, whatever they repeat.
 	 */
 	const generatedIds: Array<FactIdentity> = []
 	const serialKeys = Arr.filter(allKeys(relation), (k) =>
 		Arr.some(k.fields, (f) => serialSet.has(f))
 	)
 	const draw = drawer(relation, partialHeading, draws)
-	/** The generated addition `id` with its serial values drawn, again while they collide and the sequences draw them. */
+	/** The generated addition `id` with its serial values drawn, again while they collide and are the calculator's own. */
 	const drawGenerated = (id: FactIdentity, partial: Fact): ReturnType<typeof admit> => {
 		for (;;) {
 			const fact: Record<string, unknown> = { ...partial }
-			for (const field of serial) {
+			const whose = Arr.map(serial, (field) => {
 				const key = sequenceKey(relation.name, field)
 				const drawn = draw(entryOf(sequences, key, "the sequences"), id, field)
 				sequences.set(key, drawn.next)
 				fact[field] = serialHost(serialCarrier(relation, field), drawn.value)
-			}
+				return drawn.whose
+			})
 			const admitted = admit(relation, relation.heading, fact)
 			const collides =
 				current.has(admitted.identity) ||
@@ -690,7 +722,7 @@ const transition = (
 						(other) => keyIdentity(relation, key.fields, other) === k
 					)
 				})
-			if (!collides || draws.kind !== "sequences") {
+			if (!collides || Arr.some(whose, (w) => w === "realization")) {
 				return admitted
 			}
 		}
