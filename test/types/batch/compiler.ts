@@ -127,7 +127,7 @@ const statFields = regex(
  * tree when any of its threads is), and the CPU time it has spent, in clock ticks: its own and its waited-for
  * children's, so a child's time stays counted after it exits.
  */
-type Reading = Readonly<{ busy: boolean; ticks: number }>
+export type Reading = Readonly<{ busy: boolean; ticks: number }>
 
 /**
  * The states in which a thread is making progress or waits only on the machine: running or runnable (R) and in an
@@ -136,8 +136,25 @@ type Reading = Readonly<{ busy: boolean; ticks: number }>
  */
 const BUSY_STATES: ReadonlySet<string> = new Set(["R", "D"])
 
-/** Whether a failed read found its /proc entry gone: its process or thread has ended and been reaped. */
-const gone = (error: PlatformError.PlatformError): boolean => error.reason._tag === "NotFound"
+/**
+ * The errors a /proc read fails with once the process or thread it describes has ended: ENOENT once it is reaped and its
+ * entry is gone, and ESRCH while its entry stands but its task has exited (proc(5)), which a thread meets between the
+ * listing of its process's tasks and the read of its own files.
+ */
+const ENDED_ERRNOS: ReadonlySet<string> = new Set(["ENOENT", "ESRCH"])
+
+/** The errno code a failed read's cause carries, none where its cause is no errno exception. */
+const errnoOf = (cause: unknown): Option.Option<string> =>
+	typeof cause === "object" && cause !== null && "code" in cause && typeof cause.code === "string"
+		? Option.some(cause.code)
+		: Option.none()
+
+/**
+ * Whether a failed read found its process or thread ended (ENDED_ERRNOS): nothing to read, so no progress and no error;
+ * any other failure of a read is the reader's, which the guard reports.
+ */
+const gone = (error: PlatformError.PlatformError): boolean =>
+	Option.exists(errnoOf(error.reason.cause), (code) => ENDED_ERRNOS.has(code))
 
 /** A /proc file's text, none once the process or thread it describes is gone. */
 const procText = (fs: FileSystem.FileSystem, file: string) =>
@@ -177,7 +194,7 @@ const statOf = (fs: FileSystem.FileSystem, file: string) =>
  * reading of each child its threads started (/proc/pid/task/tid/children); a thread or a child gone mid-reading adds
  * nothing, and its time moves to its parent's waited-for children's once reaped.
  */
-const readingOf = (
+export const readingOf = (
 	fs: FileSystem.FileSystem,
 	pid: number
 ): Effect.Effect<Option.Option<Reading>, CpuTimeUnreadable | PlatformError.PlatformError> =>

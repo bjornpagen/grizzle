@@ -8,6 +8,11 @@
  *   directive claims, a twin's label on one line alone, and the lines of one label raising different diagnostics; and
  *   a diagnostic in a file no unit owns fails the batch, naming that file. Oracle: a second implementation, the model
  *   of each planted line's diagnostics armed and disarmed, compared as sets.
+ * - The stall guard's reading: a planted process tree read through a file system that serves only its /proc, each file
+ *   standing or failing as its task ended mid-reading (ENOENT reaped, ESRCH exited and not yet reaped), reads as the
+ *   tree that stands, and never fails for a process or thread that ended. Oracle: a model of the reading over the
+ *   standing processes and threads. Plant (~/.cache/grizzle-release/GREENTRUNK/plants): stall-guard-thread-ended-unread
+ *   .patch reads an ESRCH as a failure, as 3a59f4b7 did.
  * - The stall guard: a compiler whose process tree is idle for its window, no thread running, waiting for a CPU or on
  *   the disk and no CPU time spent, fails with CompilerStalled and its goroutines, and one that checks to its end never
  *   does, nor a command whose work runs past its window in a child while its own process waits. Oracle: tsgo's watch
@@ -51,6 +56,7 @@ import {
 	Option,
 	Order,
 	Path,
+	PlatformError,
 	Record as Rec,
 	Result,
 	String as Str
@@ -67,7 +73,7 @@ import {
 	type UnitSpec,
 	whenWritten
 } from "#test/types/batch/batch.ts"
-import { guardedRun } from "#test/types/batch/compiler.ts"
+import { guardedRun, type Reading, readingOf } from "#test/types/batch/compiler.ts"
 import { type Diagnostic, type FileLine, lineKey } from "#test/types/batch/directives.ts"
 import { startBatch } from "#test/types/batch/global-setup.ts"
 import { type BatchAt, type TypeRun, typeRun } from "#test/types/batch/provided.ts"
@@ -609,6 +615,238 @@ const busyScripts = {
 	child: "const end = Date.now() + Number(process.argv[2])\nwhile (Date.now() < end) {}\n"
 } as const
 
+/** A thread of a planted process tree: its id, its state as proc(5) prints it, and the processes it started. */
+type PlantedTask = Readonly<{
+	tid: number
+	state: "R" | "S" | "D"
+	children: ReadonlyArray<number>
+}>
+
+/**
+ * A process of a planted tree: its pid, its command's name, which may hold a parenthesis, its own user and system time
+ * and its waited-for children's, in clock ticks, and its threads.
+ */
+type PlantedProcess = Readonly<{
+	pid: number
+	comm: string
+	times: readonly [number, number, number, number]
+	tasks: ReadonlyArray<PlantedTask>
+}>
+
+/** How a /proc file of a planted tree fails once the task it describes has ended: reaped, or exited and not yet. */
+type Ended = "ENOENT" | "ESRCH"
+
+/**
+ * A planted process tree as /proc shows it mid-reading: its processes, the first its root, each later one a child of a
+ * thread of an earlier one, and the files whose task has ended by the time the reader reaches them.
+ */
+type PlantedTree = Readonly<{
+	processes: ReadonlyArray<PlantedProcess>
+	ended: ReadonlyArray<readonly [string, Ended]>
+}>
+
+/** What a planted tree's reading reaches. */
+type TreeFeature =
+	| "a thread ended as it was read"
+	| "a process reaped as it was read"
+	| "a busy child under a waiting parent"
+	| "a command name holding a parenthesis"
+
+/** A planted tree's files, each by its path: a process's stat and task directory, each thread's stat and children. */
+const treeFiles = (processes: ReadonlyArray<PlantedProcess>): ReadonlyArray<string> =>
+	Arr.flatMap(processes, (p) => [
+		`/proc/${p.pid}/stat`,
+		`/proc/${p.pid}/task`,
+		...Arr.flatMap(p.tasks, (t) => [
+			`/proc/${p.pid}/task/${t.tid}/stat`,
+			`/proc/${p.pid}/task/${t.tid}/children`
+		])
+	])
+
+/**
+ * How a planted tree is drawn: freely, each thread's state and each file's fate drawn; or as a check under tsc's Node
+ * wrapper, whose root's threads all sleep while a child it started runs, every file of the two standing.
+ */
+type TreeArm = "drawn" | "waiting parent"
+
+const plantedTree: Gen<PlantedTree> = (source) => {
+	const arm = source.draw(element<TreeArm>(["drawn", "waiting parent"]))
+	const count = source.draw(int(arm === "drawn" ? 1 : 2, 4))
+	const shapes = Array.from({ length: count }, (_, i) => ({
+		pid: 100 + i,
+		comm: source.draw(element(["tsgo", "node", "a) b", "(x)"])),
+		times: [
+			source.draw(int(0, 2500)),
+			source.draw(int(0, 2500)),
+			source.draw(int(0, 2500)),
+			source.draw(int(0, 2500))
+		] as const,
+		threads: source.draw(int(1, 3)),
+		states: Array.from({ length: 3 }, (_, k) =>
+			arm === "waiting parent" && i === 0
+				? "S"
+				: arm === "waiting parent" && i === 1 && k === 0
+					? "R"
+					: source.draw(element(["R", "S", "D"] as const))
+		),
+		parent: i === 0 ? 0 : arm === "waiting parent" && i === 1 ? 0 : source.draw(int(0, i - 1)),
+		at: source.draw(int(0, 2))
+	}))
+	const processes = Arr.map(shapes, (shape, s): PlantedProcess => ({
+		pid: shape.pid,
+		comm: shape.comm,
+		times: shape.times,
+		tasks: Array.from({ length: shape.threads }, (_, k) => ({
+			tid: k === 0 ? shape.pid : shape.pid * 10 + k,
+			state: defined(shape.states[k], "a thread's state"),
+			children: Arr.flatMap(shapes, (child, c) =>
+				c > 0 && child.parent === s && child.at % shape.threads === k ? [child.pid] : []
+			)
+		}))
+	}))
+	const standing = new Set(arm === "waiting parent" ? treeFiles(Arr.take(processes, 2)) : [])
+	const ended = Arr.flatMap(
+		treeFiles(processes),
+		(file): ReadonlyArray<readonly [string, Ended]> => {
+			if (standing.has(file)) {
+				return []
+			}
+			const fate = source.draw(element(["stands", "ENOENT", "ESRCH"] as const))
+			return fate === "stands" ? [] : [[file, fate]]
+		}
+	)
+	return { processes, ended }
+}
+
+/** A planted file's stat line: its process's or thread's id, command, state and times, in proc(5)'s fields. */
+const statLine = (
+	id: number,
+	comm: string,
+	state: string,
+	times: readonly [number, number, number, number]
+): string =>
+	`${id} (${comm}) ${state} 1 ${id} ${id} 0 -1 4194560 0 0 0 0 ${Arr.join(Arr.map(times, String), " ")} 20 0 1 0 0 0 0\n`
+
+/** The planted tree as a file system that reads only /proc: each file as it stands, or failing as its task ended. */
+const plantedProc = (tree: PlantedTree): FileSystem.FileSystem => {
+	const ended = new Map(tree.ended)
+	const byPid = new Map(Arr.map(tree.processes, (p) => [p.pid, p] as const))
+	const fail = (method: string, path: string, errno: Ended) =>
+		Effect.fail(
+			PlatformError.systemError({
+				_tag: errno === "ENOENT" ? "NotFound" : "Unknown",
+				module: "FileSystem",
+				method,
+				pathOrDescriptor: path,
+				cause: { code: errno }
+			})
+		)
+	const parts = (path: string): ReadonlyArray<string> =>
+		Arr.filter(Str.split(path, "/"), (x) => x !== "")
+	return FileSystem.makeNoop({
+		readFileString: (path) => {
+			const gone = ended.get(path)
+			if (gone !== undefined) {
+				return fail("readFileString", path, gone)
+			}
+			const [, pid, third, tid, file] = parts(path)
+			const owner = byPid.get(Number(pid))
+			if (owner === undefined) {
+				return fail("readFileString", path, "ENOENT")
+			}
+			if (third === "stat") {
+				return Effect.succeed(statLine(owner.pid, owner.comm, "S", owner.times))
+			}
+			const thread = Number(tid)
+			const task = Arr.findFirst(owner.tasks, (t) => t.tid === thread)
+			return Option.match(task, {
+				onNone: () => fail("readFileString", path, "ENOENT"),
+				onSome: (t) =>
+					Effect.succeed(
+						file === "stat"
+							? statLine(t.tid, owner.comm, t.state, [0, 0, 0, 0])
+							: Arr.join(
+									Arr.map(t.children, (c) => `${c} `),
+									""
+								)
+					)
+			})
+		},
+		readDirectory: (path) => {
+			const gone = ended.get(path)
+			if (gone !== undefined) {
+				return fail("readDirectory", path, gone)
+			}
+			const [, pid] = parts(path)
+			return Option.match(Option.fromUndefinedOr(byPid.get(Number(pid))), {
+				onNone: () => fail("readDirectory", path, "ENOENT"),
+				onSome: (p) => Effect.succeed(Arr.map(p.tasks, (t) => String(t.tid)))
+			})
+		}
+	})
+}
+
+/**
+ * The model's reading of the planted tree at `pid`: none once its stat has ended; otherwise busy where a thread whose
+ * stat stands runs, waits for a CPU or on the disk, or a child's reading is busy, and its ticks its own four times and
+ * every standing child's, each child read where its thread's children file stands.
+ */
+const modelReading = (tree: PlantedTree, pid: number): Option.Option<Reading> => {
+	const ended = new Set(Arr.map(tree.ended, ([file]) => file))
+	const at = (id: number): Option.Option<Reading> =>
+		Option.flatMap(
+			Arr.findFirst(tree.processes, (p) => p.pid === id),
+			(p) => {
+				if (ended.has(`/proc/${p.pid}/stat`)) {
+					return Option.none()
+				}
+				const tasks = ended.has(`/proc/${p.pid}/task`) ? [] : p.tasks
+				const children = Arr.getSomes(
+					Arr.flatMap(tasks, (t) =>
+						ended.has(`/proc/${p.pid}/task/${t.tid}/children`) ? [] : Arr.map(t.children, at)
+					)
+				)
+				return Option.some({
+					busy:
+						Arr.some(
+							tasks,
+							(t) => !ended.has(`/proc/${p.pid}/task/${t.tid}/stat`) && t.state !== "S"
+						) || Arr.some(children, (c) => c.busy),
+					ticks: Arr.reduce(
+						children,
+						Arr.reduce(p.times, 0, (sum, t) => sum + t),
+						(sum, c) => sum + c.ticks
+					)
+				})
+			}
+		)
+	return at(pid)
+}
+
+/** What a planted tree reaches, by its ended files and its processes. */
+const treeFeatures = (tree: PlantedTree): ReadonlyArray<TreeFeature> => {
+	const ended = new Map(tree.ended)
+	const root = defined(tree.processes[0], "the tree's root")
+	const waiting = Arr.every(
+		root.tasks,
+		(t) => t.state === "S" || ended.has(`/proc/${root.pid}/task/${t.tid}/stat`)
+	)
+	return [
+		...(Arr.some(tree.ended, ([file, errno]) => errno === "ESRCH" && Str.includes("/task/")(file))
+			? (["a thread ended as it was read"] as const)
+			: []),
+		...(Arr.some(tree.ended, ([file, errno]) => errno === "ENOENT" && Str.endsWith("/stat")(file))
+			? (["a process reaped as it was read"] as const)
+			: []),
+		...(waiting && Option.exists(modelReading(tree, root.pid), (r) => r.busy)
+			? (["a busy child under a waiting parent"] as const)
+			: []),
+		...(Arr.some(tree.processes, (p) => Str.includes(")")(p.comm))
+			? (["a command name holding a parenthesis"] as const)
+			: [])
+	]
+}
+
 /**
  * What a planted builder does once it has read its request to the end: writes a batch of `units` into the request's
  * directory, one output line each, whose unattributed lines are the request it read and whether it ran in a process of
@@ -1013,6 +1251,47 @@ layer(NodeServices.layer, { excludeTestServices: true })("the type-test batch", 
 								)
 							})
 						)
+				)
+			)
+	)
+
+	it.effect(
+		"reads a process tree as it stands though its processes and threads end mid-reading, never failing for one that ended",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "compiler stall guard's reading",
+						oracle: {
+							kind: "second-implementation",
+							name: "a model of the planted tree's reading, over the processes and threads whose files stand"
+						},
+						draw: drawn(plantedTree),
+						literal: Formatter.format,
+						coverage: required<TreeFeature>(
+							[
+								"a thread ended as it was read",
+								"a process reaped as it was read",
+								"a busy child under a waiting parent",
+								"a command name holding a parenthesis"
+							],
+							{ cases: 200, sense: notesOnly }
+						),
+						kept: [],
+						runs: 200,
+						shrink: boundedShrink(200),
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(tree, c) =>
+						Effect.gen(function* () {
+							Arr.forEach(treeFeatures(tree), (f) => c.note(f))
+							const root = defined(tree.processes[0], "the tree's root")
+							const read = yield* Effect.exit(readingOf(plantedProc(tree), root.pid))
+							assert.deepEqual(read, Exit.succeed(modelReading(tree, root.pid)))
+						})
 				)
 			)
 	)
