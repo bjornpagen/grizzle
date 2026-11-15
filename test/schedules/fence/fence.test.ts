@@ -25,10 +25,12 @@
  * for ROW SHARE on a relation the publisher held, its deferred check meeting the fence; and that learner accepted,
  * placed after the replace it waited on.
  *
- * Plants (~/.cache/grizzle-release/G3VERIFY/plants): fence-exclude-dropped (the prologue's "exclude" step never
- * sent, so the learner's check waits on the deleted row and refuses with 23503); fence-maintain-dropped (the login's
- * MAINTAIN grant left out, which the installed-catalog checker refuses) and fence-maintain-unrecorded (left out of the
- * installation altogether, so the lock is refused 42501).
+ * @plant test/plants/schedules/fence/fence-exclude-dropped.patch The prologue's "exclude" step is never sent, so the
+ * learner's check waits on the deleted row and refuses with 23503, a run no serial order explains.
+ * @plant test/plants/schedules/fence/fence-maintain-dropped.patch The login's MAINTAIN grant on the fenced tables is
+ * left out of migrate's statements, which the installed-catalog checker refuses.
+ * @plant test/plants/schedules/fence/fence-maintain-unrecorded.patch The login's MAINTAIN grant is left out of the
+ * installation altogether, its fenced tables recorded as none, so the publisher's lock is refused 42501.
  */
 
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
