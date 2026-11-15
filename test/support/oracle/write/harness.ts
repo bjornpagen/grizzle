@@ -23,7 +23,6 @@ import { type ReadonlyTupleSet, TupleMap } from "#compiler/core/tuple-map.ts"
 import type { WriteStepResult } from "#compiler/runtime/write/steps.ts"
 import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
-import type { DeleteResult } from "#compiler/write/insert/statement.ts"
 import type { ArtifactStatement, WriteArtifact } from "#compiler/write/program/artifact.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
 import type { AmbientFeature } from "#test/support/ambient.ts"
@@ -1157,7 +1156,10 @@ const takesOf = (
  * of `mode` and by an insertion: an exact deletion excepting the slot's facts, its stratum's additions, beside their
  * insert (D EXCEPT A, delete/exact.ts), or a put's displacing deletion beside its insert half.
  */
-const stagedBeside = (artifact: WriteArtifact, mode: DeleteResult["mode"]): boolean => {
+const stagedBeside = (
+	artifact: WriteArtifact,
+	mode: Extract<WriteStepResult, { readonly kind: "delete" }>["mode"]
+): boolean => {
 	const readers = (result: (r: WriteStepResult) => boolean) =>
 		Arr.filter(artifact.statements, (st) => st.step.kind === "write" && result(st.step.result))
 	const deletions = readers((r) => r.kind === "delete" && r.mode === mode)
