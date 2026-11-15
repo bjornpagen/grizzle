@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/theory/query.ts b/packages/engine/src/analysis/theory/query.ts
+index fef2b0e7..7534b200 100644
+--- a/packages/engine/src/analysis/theory/query.ts
++++ b/packages/engine/src/analysis/theory/query.ts
+@@ -1512,7 +1512,7 @@ export const newProbes = (
+ 				matches: mapNonEmpty(arm.matches, (x, j) => (j === i ? { ...x, bindings } : x)),
+ 				where: [...arm.where, ...pins]
+ 			})
+-			const byValues = violating(rule, restricted([...keyPins, ...valuePins]), loc)
++			const byValues = violating(rule, restricted(keyPins), loc)
+ 			const keyed = violating(rule, restricted(keyPins), loc)
+ 			return byValues.map((r, n) => ({
+ 				query: queryOf([r], loc),
