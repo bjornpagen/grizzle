@@ -459,6 +459,19 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   (adapter/outcomes uniqueAbortsAt), so it reaches the classifier as `invariant-rejected` with an `unreported` witness
   where the insert protocol's is TransientFailure{UnseenOccupant}. List each probed object of a family INSERT as its
   step's abort, as the protocol's probed inserts do. Concurrency only; no stated row reaches it.
+- **A refusal at two keys of one shape beside the arbiter names the one whose fields sort first (ARBITER,
+  2026-11-15):** 517ab999 makes a generated addition's arbiter a declared key (write/insert/unique.ts
+  generatedArbiter), but a request that conflicts at two keys beside its arbiter, which a renaming of their fields
+  swaps, is still refused by one law, chosen in law order, which for keys of one shape is their fields' names. No rule
+  naming one law is free of names there. Five places choose so, for complete facts and generated additions alike:
+  write/insert/unique.ts:180 probeOrder (keys of one width and predicate keep law order); runtime/write/normalize.ts:658
+  keyConflictIn (the host's same-key check tries the keys in law order); write/insert/protocol.ts:927 (the `every`
+  arbitration classes a met row `other + i` at the first object in law order that met it); write/refusal.ts:396
+  sourcedGuard (several arms raise the first by rank, then by DETAIL, whose text holds the field names);
+  runtime/write/witness.ts:424 statedKey (the first declared key a fact carries whole). The fix: a probe's refusal names
+  every object the refused fact conflicts at, a DETAIL of several laws decoded at runtime into Refused's laws, and the
+  oracle (test/support/oracle) states that set. It changes the SQL QTI is served, so it rides a repin. Until then
+  test/pg/write/renamed-keys draws at most one key beside a plain primary key.
 - **Every insert's unique check at a flat success cost (WITNESS, 2026-11-11):** each insert probes every unique object
   besides its arbiter for every row, beside PostgreSQL's own check, about doubling unique-index work on success. ON
   CONFLICT DO NOTHING with no target arbitrates every unique and exclusion object at PostgreSQL's one check, and only the
