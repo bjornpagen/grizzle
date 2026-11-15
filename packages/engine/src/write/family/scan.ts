@@ -38,7 +38,15 @@ import { columnReads } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
 import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
-import type { Cte, Expr, FromItem, Select, SetCore, TypeRef } from "#compiler/sql/ast.ts"
+import type {
+	Cte,
+	Expr,
+	FromItem,
+	FromSource,
+	Select,
+	SetCore,
+	TypeRef
+} from "#compiler/sql/ast.ts"
 import {
 	and,
 	binary,
@@ -403,24 +411,25 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 			spec.group.kind === "stored" ? [fromBase, seededFrom(spec.group.seed)] : [fromBase]
 		)
 	)
-	/** The names every layer holds, in order, each read from the layer below by name. */
-	const held: Array<string> = [
-		...group,
-		slot,
-		first,
-		count,
-		...own.values(),
-		...owner.values(),
-		...seed.values()
-	]
-	let below: Select = based
+	let below: Layer = {
+		query: based,
+		columns: [...group, slot, first, count, ...own.values(), ...owner.values(), ...seed.values()]
+	}
 	const drawn = new Set<ColumnKey>()
 	const pending: Array<FillColumn> = [...spec.drawn]
 	while (pending.length > 0) {
 		const at = supply.relation(internal("scan layer"))
 		const ready = pending.flatMap((c) => {
 			const built = columnOf(w, spec, layout, at, drawn, c)
-			return built.kind === "built" ? [{ c, expr: built.expr }] : []
+			return built.kind === "built"
+				? [
+						{
+							c,
+							expr: built.expr,
+							name: defined(columns.get(columnKey(c.column)), "a drawn column")
+						}
+					]
+				: []
 		})
 		if (ready.length === 0) {
 			const waiting = pending.map((c) => c.name)
@@ -431,22 +440,22 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 				)
 			)
 		}
-		below = select(
-			provedCore(
-				"keyed",
-				[
-					...held.map((n) => targetAs(col(at, n), n)),
-					...ready.map(({ c, expr }) =>
-						targetAs(expr, defined(columns.get(columnKey(c.column)), "a drawn column"))
-					)
-				],
-				[derived(below, at, [], false)],
-				undefined
-			)
-		)
+		below = {
+			query: select(
+				provedCore(
+					"keyed",
+					[
+						...below.columns.map((n) => targetAs(col(at, n), n)),
+						...ready.map(({ expr, name: n }) => targetAs(expr, n))
+					],
+					[over(below, at)],
+					undefined
+				)
+			),
+			columns: [...below.columns, ...ready.map(({ name: n }) => n)]
+		}
 		for (const { c } of ready) {
 			drawn.add(columnKey(c.column))
-			held.push(defined(columns.get(columnKey(c.column)), "a drawn column"))
 			pending.splice(pending.indexOf(c), 1)
 		}
 	}
@@ -455,7 +464,7 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 		provedCore(
 			"keyed",
 			[...group, slot, first, count, ...columns.values()].map((n) => targetAs(col(top, n), n)),
-			[derived(below, top, [], false)],
+			[over(below, top)],
 			undefined
 		)
 	)
@@ -469,6 +478,19 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
 		rows: out
 	}
 }
+
+/**
+ * A layer of a scan: its query and the names of the columns it delivers, in order, which the layer above lists where it
+ * reads it as a derived table, and reads by name.
+ */
+interface Layer {
+	readonly query: Select
+	readonly columns: ReadonlyArray<string>
+}
+
+/** `layer` as the derived table `alias`, its columns listed as it delivers them. */
+const over = (layer: Layer, alias: string): FromSource =>
+	derived(layer.query, alias, layer.columns, false)
 
 /**
  * One drawn column of a scanned member over the layer `at` below it, which holds `drawn`: its fill rule over the row's
