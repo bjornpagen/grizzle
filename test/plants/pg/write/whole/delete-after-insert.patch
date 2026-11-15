@@ -1,0 +1,21 @@
+diff --git a/packages/engine/src/write/frontend/schedule.ts b/packages/engine/src/write/frontend/schedule.ts
+index c05be3a8..7827d539 100644
+--- a/packages/engine/src/write/frontend/schedule.ts
++++ b/packages/engine/src/write/frontend/schedule.ts
+@@ -497,14 +497,14 @@ export const scheduleStratum = <A extends Scheduled>(
+ 				if (removes(x) && referencesUnit(x.action.relation)) {
+ 					before(other, vertex)
+ 				} else {
+-					before(vertex, other)
++					before(other, vertex)
+ 				}
+ 			}
+ 			for (const { node: n, vertex: other } of statements) {
+ 				if (n.kind === "removals" && referencesUnit(n.member)) {
+ 					before(other, vertex)
+ 				} else {
+-					before(vertex, other)
++					before(other, vertex)
+ 				}
+ 			}
+ 			continue

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/delete/unit.ts b/packages/engine/src/write/delete/unit.ts
+index 242622cf..6f795510 100644
+--- a/packages/engine/src/write/delete/unit.ts
++++ b/packages/engine/src/write/delete/unit.ts
+@@ -568,7 +568,7 @@ export const unitSql = (
+ 			"trees"
+ 		)
+ 	}
+-	const returnings = mapNonEmpty(unitRelations(units, below), (relation): FamilyReturning => {
++	const returnings = mapNonEmpty(unitRelations(units, below.slice(0, -1)), (relation): FamilyReturning => {
+ 		const found = doomedOf(doomed, relation.name)
+ 		const t = supply.relation(internal(`unit delete ${relation.name}`))
+ 		const k = supply.relation(internal("unit delete key"))

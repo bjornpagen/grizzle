@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/program/compile.ts b/packages/engine/src/write/program/compile.ts
+index 22e762bf..71b3b654 100644
+--- a/packages/engine/src/write/program/compile.ts
++++ b/packages/engine/src/write/program/compile.ts
+@@ -736,7 +736,7 @@ const familyProgram = (frontend: WriteFrontend, w: WriteContext): FamilyProgram
+ 									sources,
+ 									families: familiesOf(relation),
+ 									owns: all.filter((f) => f.owner.name === name && !isSequence(f)),
+-									riders: appendRidersOf(relation, node.appends === "rows" ? node.riders : [])
++									riders: appendRidersOf(relation, [])
+ 								}
+ 							]
+ 						}

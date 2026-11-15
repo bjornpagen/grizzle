@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/write/delete/unit.ts b/packages/engine/src/write/delete/unit.ts
+index 242622cf..fd0dd24e 100644
+--- a/packages/engine/src/write/delete/unit.ts
++++ b/packages/engine/src/write/delete/unit.ts
+@@ -587,8 +587,7 @@ export const unitSql = (
+ 				where: and([
+ 					...mapNonEmpty(relation.primaryFields, (f) =>
+ 						typedEq(rowType(f), stored(t, relation, f), col(k, found.keys.of(f)), w.names)
+-					),
+-					not(among(relation, t, found.kept, found.keptKeys))
++					)
+ 				]),
+ 				returning: returned.map((x) => targetAs(stored(t, relation, x.field), x.alias))
+ 			})

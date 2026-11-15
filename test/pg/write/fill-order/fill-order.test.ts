@@ -74,11 +74,11 @@ import { fullWorld } from "#test/support/worlds.ts"
  * the unit suite holds the refusals. PostgreSQL proves every value grizzle wrote through the installation's natives,
  * so an accepted insert with the reference writer's rows is the property.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/fill-order-index-off-by-one.patch, the fill drawing each member's index
- * one past its slot, must turn the property red. Plant: ~/.cache/grizzle-release/FAMILYMOVE/plants/
- * fill-order-moved-owner-riders-left-out.patch, the additions refilling no rider, so a moved owner's counted members
- * keep their copy of its old index, fails the case aimed at "a follow-up that moves an owner whose counted members copy
- * its index".
+ * @plant test/plants/pg/write/fill-order/fill-order-index-off-by-one.patch The fill draws each member's index one past
+ * its slot (runtime/write/fill.ts); the property fails.
+ * @plant test/plants/pg/write/fill-order/fill-order-moved-owner-riders-left-out.patch The additions refill no rider
+ * (write/program/compile.ts), so a moved owner's counted members keep their copy of its old index; the case aimed at
+ * "a follow-up that moves an owner whose counted members copy its index" fails.
  */
 
 type ClusterSituation =

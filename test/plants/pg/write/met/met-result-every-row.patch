@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/insert/protocol.ts b/packages/engine/src/write/insert/protocol.ts
+index 9dd2898a..87484a6c 100644
+--- a/packages/engine/src/write/insert/protocol.ts
++++ b/packages/engine/src/write/insert/protocol.ts
+@@ -1254,7 +1254,7 @@ export const buildInsert = (
+ 			fields: fieldNames(outFields),
+ 			key: fieldNames(relation.primaryFields)
+ 		}
+-		const inserted = cV === undefined ? [] : [eq(verdict(cV), integer(verdictClass.inserted))]
++		const inserted = cV === undefined ? [] : [binary("<=", verdict(cV), integer(verdictClass.met))]
+ 		/** Each side of the rows the statement returns (statement.ts Returning): the verdict rows of each class, where
+ 		 * they carry one; else every row its INSERT returned, a fact it inserted. */
+ 		const returning: Returning =

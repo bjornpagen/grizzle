@@ -97,16 +97,21 @@ import { fullWorld } from "#test/support/worlds.ts"
  *   its tuple and the transaction that wrote it, as PostgreSQL's ctid and xmin show; so is a crossing component whose
  *   every test and assembly the ChangeSet replaces identically, its assemblies placed exactly as before.
  *
- * Plants (~/.cache/grizzle-release/WHOLEDEL/plants/), each caught by this property (plants-run.sh there):
- * one-member-left-behind.patch, the unit delete skipping the last relation below its root, refused by the family's law
- * where the model accepts; delete-after-insert.patch, the unit removal after every other write of its stratum, a replace
- * refused at its key; partial-group-refusal-removed.patch, a delete of an immutable owner's member compiled;
- * fold-end-not-recounted.patch, the kept rule comparing an owner without its accumulated ends, which keeps it with a
- * stale end, refused by the fold's law; kept-rule-dropped.patch, every doomed row deleted, an unchanged unit's rows
- * rewritten. ~/.cache/grizzle-release/REPLACEPROP/plants/: per-delete-check-restored.patch, 73c7406e reverted, each unit
- * delete judged alone, refuses every crossing delete when it compiles; units-netted.patch, a unit delete's facts netted
- * against the equal root fact its stratum inserts, so the unit is never removed and a replace that changes a nested row
- * is refused on that row's key.
+ * @plant test/plants/pg/write/whole/one-member-left-behind.patch The unit delete skips the last relation below its root
+ * (write/delete/unit.ts), so the family's law refuses where the model accepts; the property fails.
+ * @plant test/plants/pg/write/whole/delete-after-insert.patch The unit removal runs after every other write of its
+ * stratum (write/frontend/schedule.ts), so a replace is refused at its key; the property fails.
+ * @plant test/plants/pg/write/whole/partial-group-refusal-removed.patch A delete of an immutable owner's member is
+ * compiled rather than refused (write/frontend/compile.ts); the property fails.
+ * @plant test/plants/pg/write/whole/fold-end-not-recounted.patch The kept rule compares an owner without its
+ * accumulated ends, so it keeps the owner with a stale end, which the fold's law refuses; the property fails.
+ * @plant test/plants/pg/write/whole/kept-rule-dropped.patch Every doomed row is deleted, so an unchanged unit's rows are
+ * rewritten; the property fails.
+ * @plant test/plants/pg/write/whole/per-delete-check-restored.patch 73c7406e reverted: each unit delete is judged
+ * alone, so every crossing delete is refused when it compiles; the property fails.
+ * @plant test/plants/pg/write/whole/units-netted.patch A unit delete's facts are netted against the equal root fact its
+ * stratum inserts, so the unit is never removed and a replace that changes a nested row is refused on that row's key;
+ * the property fails.
  */
 
 const Node = relation(

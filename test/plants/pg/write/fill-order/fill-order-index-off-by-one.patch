@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/write/fill.ts b/packages/engine/src/runtime/write/fill.ts
+index d0e70744..8af33821 100644
+--- a/packages/engine/src/runtime/write/fill.ts
++++ b/packages/engine/src/runtime/write/fill.ts
+@@ -901,7 +901,7 @@ const ruleValue = (
+ 		case "own":
+ 			return valueOf(row, rule.to, evaluate)
+ 		case "index":
+-			return Result.ok(BigInt(row.at))
++			return Result.ok(BigInt(row.at + 1))
+ 		case "copy": {
+ 			const counts = row.owner === undefined ? row.counts : row.owner.counts
+ 			return Result.ok(BigInt(counts.get(familyOf(row)) ?? 0))

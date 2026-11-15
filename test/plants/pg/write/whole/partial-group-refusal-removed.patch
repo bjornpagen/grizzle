@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/frontend/compile.ts b/packages/engine/src/write/frontend/compile.ts
+index 4009d67f..daa06f35 100644
+--- a/packages/engine/src/write/frontend/compile.ts
++++ b/packages/engine/src/write/frontend/compile.ts
+@@ -1314,7 +1314,7 @@ const compile = (
+ 					!isTreeOf(f, relation.name) &&
+ 					!writtenOf(f.owner.name, loc).mutable
+ 			)
+-			if (fixed !== undefined && member.op === "delete") {
++			if (fixed !== undefined && member.op === "delete" && unitDelete) {
+ 				refuse(
+ 					"UnsupportedOperation",
+ 					loc,

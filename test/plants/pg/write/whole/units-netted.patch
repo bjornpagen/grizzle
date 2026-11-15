@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/runtime/write/normalize.ts b/packages/engine/src/runtime/write/normalize.ts
+index 18480d54..c5e20442 100644
+--- a/packages/engine/src/runtime/write/normalize.ts
++++ b/packages/engine/src/runtime/write/normalize.ts
+@@ -1016,6 +1016,7 @@ export const normalizeChangeSet = (
+ 		}
+ 		for (const id of [...sets.insert.keys(), ...sets.put.keys()]) {
+ 			sets.delete.delete(id)
++			sets.units.delete(id)
+ 		}
+ 		for (const [category, slot] of slotOf) {
+ 			normals.push({ slot, relation: facts.stated, normal: normalFacts(sets[category]) })

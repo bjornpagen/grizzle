@@ -30,11 +30,12 @@
  * Features: each relation met, added beside met, unchanged with met rows only, and, where its facts have a payload,
  * refused at a differing key. A witness whose turn aims at a pending one runs a case constructed to reach it.
  *
- * Plants: ~/.cache/grizzle-release/DELTAMET/plants/met-marker-inverted.patch, the `returned` form's met marker read as
- * inserted, must turn the property red; ~/.cache/grizzle-release/DELTAMET/plants/met-result-every-row.patch, the
- * insert's own rows every verdict row but a refusal's, met rows counted as added, must turn it red; and
- * ~/.cache/grizzle-release/DELTAMET/plants/met-occupant-met.patch, occupantVerdict answering met for an insertion, a
- * differing occupant met where its key's law refuses it, must turn it red.
+ * @plant test/plants/pg/write/met/met-marker-every-met.patch The `returned` form's met marker compares the new row's key
+ * with itself (write/insert/protocol.ts), so every returned row is marked met; the property fails.
+ * @plant test/plants/pg/write/met/met-result-every-row.patch The insert's own rows are every verdict row but a
+ * refusal's (write/insert/protocol.ts), so met rows are counted as added; the property fails.
+ * @plant test/plants/pg/write/met/met-occupant-met.patch occupantVerdict answers met for every insertion, so a differing
+ * occupant is met where its key's law refuses it; the property fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
