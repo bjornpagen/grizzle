@@ -346,6 +346,15 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   holders hold at most 11 backends (CLUSTER's 64-wide run), which leaves 64 × 57 = 3648 spare connections and absorbs
   any realistic queue, but nothing guarantees it. A K-cluster family does not make it moot: a member is sized for its
   share of one run's workers, and another run's files queue on the same members the same way.
+- **unleasedConnections is a bare 5 (concurrency-limit audit, 2026-11-15; main: log only):** packages/pg/src/lease.ts
+  `unleasedConnections`, the connections no lease covers, is both the reserve leaseSlots and size.ts clusterConnections
+  set aside of max_connections and the budget a process's global setup and sweep draw from (substrate/shared.ts
+  unleased). Its JSDoc names four users (the global setup, the doctor, the sweep, an operator's psql) and no count for
+  any: the setup holds two at once (ensureSharedDatabase's claim session and ensureDatabase's admin), the sweep one, the
+  doctor's psql sessions draw from no budget, and the budget is per process, so runs that start beside each other each
+  draw up to 5 from the one reserve. No published, measured or derived authority was found, so it stays (deleting the
+  reserve would hand its connections to lease slots): derive it from a roster of what each user holds at once, as
+  substrateSessions is, or measure it.
 - **The repeats left in a login's served file and OpenAPI document (OUTPUTSIZE, 2026-11-14; main: not now):** since
   5e47fdd7 every repeated shape is written once wherever a reference can stand, but some are still written again where
   none can. Measured on qti-pie pantry's author_app (f65ea15e plus 5e47fdd7's change) as the bytes a reference would
