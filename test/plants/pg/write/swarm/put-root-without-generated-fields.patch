@@ -1,0 +1,13 @@
+--- a/packages/engine/src/write/family/removals.ts
++++ b/packages/engine/src/write/family/removals.ts
+@@ -445,9 +445,7 @@
+ 	relation: RelationInfo,
+ 	facts: Shaped
+ ): Shaped => {
+-	const generated = relation.fields.filter(
+-		(f) => f.writing.kind === "generated" && !facts.columns.has(fieldKey(f.name))
+-	)
++	const generated = relation.fields.filter(() => false)
+ 	if (!isNonEmpty(generated)) {
+ 		return facts
+ 	}

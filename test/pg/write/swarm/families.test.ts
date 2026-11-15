@@ -105,6 +105,10 @@ import { fullWorld } from "#test/support/worlds.ts"
  * @plant test/plants/pg/write/swarm/pair-counts-the-fact-itself.patch A family member's candidate is paired with itself
  * at a unique object of no span beside its primary key (write/insert/unique.ts pairedFacts, count(*) > 0), so every
  * insert of members under a member key is refused by that key.
+ * @plant test/plants/pg/write/swarm/put-root-without-generated-fields.patch A put's rows, from which a refill reads
+ * the values its cascade carries into the members' copies, hold only the fields the put states
+ * (write/family/removals.ts leftByPut), so a copy of a generated field is redrawn from its stored value; the kept case
+ * of TEST_SEED=3927981720 fails.
  * @plant test/plants/pg/write/swarm/queried-owner-append-direct-members-only.patch The served compile refuses an owner's
  * write from a query only beside a member of its counted family that the stratum writes itself, so an immutable owner
  * written from a query beside its members nested under another relation's insert compiles, is inserted at its count's
@@ -2056,6 +2060,52 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 			"an owner's write from a query beside its family's append refused",
 			"one member per fact"
 		]
+	},
+	{
+		note: "KEYEDWRITE's red (TEST_SEED=3927981720, the rotating stream, case 8), reduced by hand to the two relations it needs, since a shrink with no budget drifted to another failure: R1's counted members copy R0's generated g (g = v) along its owner axis and sum the copy into R0's end; a put of R0's v alone changes g, which the put's cascade carries into the copy, and the refill ahead of it drew the members' running sums from the stored g, so the cascade's row broke the fold's CHECK",
+		sketch: {
+			spec: {
+				fill: {
+					relations: [
+						{ generated: true, mutable: true },
+						{ generated: true, mutable: true }
+					],
+					families: [{ kind: "counted", owner: 0, member: 1, fold: "sum" }],
+					copies: [{ family: 0, axis: "owner", source: { kind: "generated" } }],
+					steps: [{ family: 0, copy: 0 }]
+				},
+				ends: [],
+				plains: [],
+				laws: []
+			},
+			steps: [
+				inserted(
+					[
+						{ relation: 0, id: 1, v: 0n, memberOf: [] },
+						{ relation: 1, id: 2, v: -1n, memberOf: [{ family: 0, owner: 1, slot: 0 }] }
+					],
+					false,
+					undefined
+				),
+				{
+					kind: "follow",
+					followUp: {
+						owner: 0,
+						row: 1,
+						put: Option.some(1n),
+						inserted: [],
+						removed: Option.none(),
+						appended: Option.none(),
+						moved: Option.none()
+					},
+					plain: [],
+					query: undefined,
+					shape: { split: false, repeat: false }
+				}
+			]
+		},
+		draws: "",
+		reaches: ["a follow-up accepted", "a follow-up refilling a value"]
 	}
 ]
 

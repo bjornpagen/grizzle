@@ -387,9 +387,15 @@ export const removalsSql = (
 		slots,
 		deferred: deferring.map((d) => ({ ...d, facts: slots(d.relation, d.slot) }))
 	}
-	/** Each put root's facts, the root's rows as the stratum leaves them, by relation. */
+	/** Each put root's rows as the stratum leaves them (`leftByPut`), by relation. */
 	const putFacts = new Map(
-		roots.map((r) => [r.relation.name, slots(r.relation.name, r.slot)] as const)
+		roots.map(
+			(r) =>
+				[
+					r.relation.name,
+					leftByPut(w, supply, ctes, r.relation, slots(r.relation.name, r.slot))
+				] as const
+		)
 	)
 	/** The edited members first, and then the riders an edit's refills rewrite, whose rows start at the edited rows
 	 * their families redraw. */
@@ -423,6 +429,56 @@ export const removalsSql = (
 		throw defect("a family write that removes returns its deletions")
 	}
 	return taggedRows(supply, ctes, [firstReturning, ...restReturnings], params, [])
+}
+
+/**
+ * A put root's rows as the stratum leaves them: its facts, every caller field it states, and every field of `relation`
+ * PostgreSQL generates from them as the put writes the row (scan.ts scannedValue), which an owner axis cascades into the
+ * members' copies as it cascades a stated field. A refill reads a copy's new value from these rows (`cascaded`, a
+ * redraw's owner value), so a copy of a generated field takes the value the put's cascade will write, and the folds and
+ * checks over it are drawn from that value, not the stored one.
+ */
+const leftByPut = (
+	w: WriteContext,
+	supply: NameSupply,
+	ctes: Array<Cte>,
+	relation: RelationInfo,
+	facts: Shaped
+): Shaped => {
+	const generated = relation.fields.filter(
+		(f) => f.writing.kind === "generated" && !facts.columns.has(fieldKey(f.name))
+	)
+	if (!isNonEmpty(generated)) {
+		return facts
+	}
+	const out = shapedCte(supply, "put root", [
+		...facts.columns.keys(),
+		...generated.map((f) => fieldKey(f.name))
+	])
+	const r = supply.relation(internal("put fact"))
+	ctes.push(
+		cte(
+			out.name,
+			[...out.columns.values()],
+			select(
+				provedCore(
+					"input",
+					[
+						...[...facts.columns].map(([key, name]) => targetAs(col(r, name), columnAt(out, key))),
+						...generated.map((field) =>
+							targetAs(
+								scannedValue(w, relation, r, facts, { kind: "field", field }),
+								columnAt(out, fieldKey(field.name))
+							)
+						)
+					],
+					[cteRefAs(facts.name, r)],
+					undefined
+				)
+			)
+		)
+	)
+	return out
 }
 
 /**
