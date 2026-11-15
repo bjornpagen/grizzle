@@ -30,8 +30,8 @@
  * every box requires both ends, each meeting a refusal at commit, so the search itself shows a real COMMIT never
  * decides otherwise than the checked end.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/fin-fold-check-after-equals-before.patch, a fold's CHECK holding each
- * after to its before, refuses every lawful fold and must turn both properties red.
+ * @plant test/plants/pg/fin/fin-fold-check-after-equals-before.patch A fold's CHECK holds each after to its before, so
+ * every lawful fold is refused; both properties fail.
  */
 import { exhaust, type Oracle } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

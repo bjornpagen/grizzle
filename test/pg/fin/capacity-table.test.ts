@@ -14,8 +14,8 @@
  * native, because a containment's target must contain a key (laws/model/plan.ts, "a containment into an unkeyed side
  * is not admitted"); its replacement here is the counted family with `check(T, n ≥ 1)`, the count row with lo = 1.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/fin-fold-check-after-equals-before.patch, a fold's CHECK holding each
- * after to its before, refuses a lawful weighted or duration state and must turn the property red.
+ * @plant test/plants/pg/fin/fin-fold-check-after-equals-before.patch A fold's CHECK holds each after to its before, so
+ * a lawful weighted or duration state is refused; the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -15,7 +15,8 @@
  * either.
  *
  * - **the export**, `WHERE doc = $1 ORDER BY start`: one scan of an index led by (r, start), the tree's primary key
- *   (T1) or the owner axis's target superkey (r, start, children), reading each row once;
+ *   (T1) or the owner axis's target superkey (r, start, children), reading each row once; the primary key itself is
+ *   (r, start), the identity and the document order at once (T1), as the installed catalog shows;
  * - **descendants** of a row, `start > n.start AND start < n.end`: a range scan of such an index reading exactly them;
  * - **an ordered family's members**, `WHERE g = $1 ORDER BY at`: a scan of the family key UNIQUE (g, at), or of its
  *   successor key UNIQUE (g, ‹p›), each led by the group, reading exactly its members, whether the planner sorts them
@@ -25,8 +26,9 @@
  *   (installed.ts), never by an allocated name; and each read's rows against the tree's parent links
  *   (families/tree.ts descendantsOf) or the family as written, a second implementation that reads no interval.
  *
- * Plant: ~/.cache/grizzle-release/TREEKEY/plants/fin-plans-tree-key-start-first.patch, the tree's primary key planned
- * as (start, r), leaves the export no index in its order and must turn the property red.
+ * @plant test/plants/pg/fin/fin-plans-tree-key-start-first.patch The primary key is planned over its fields in reverse,
+ * so the tree's is (start, r), no longer its document order; the owner axis's superkey still serves the export, and
+ * the installed catalog's T1 fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -50,7 +52,7 @@ import { constraintOf as familyConstraintOf, familySeat } from "#test/pg/fin/fam
 import { type Catalogued, sameRoles, seatOf } from "#test/pg/fin/installed.ts"
 import { nativesOf, nodeBatchParams, nodeBatchSql, RELATIONS, Trees } from "#test/pg/fin/tree.ts"
 import { loadTree, rowsByDepth, type TreeRow } from "#test/pg/substrate/tree.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { assert, deepEquals, defined, nonEmpty } from "#test/support/assert.ts"
 import { descendantsOf } from "#test/support/families/tree.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
@@ -170,6 +172,13 @@ layer(Substrate.layer)(
 						yield* s.admin.query(
 							`ANALYZE ${trees.table("Node")}, ${f.table("Owner")}, ${f.table("Member")}`,
 							[]
+						)
+						assert.ok(
+							Arr.some(
+								trees.constraints,
+								(c: Catalogued) => c.kind === "primary" && deepEquals(c.columns, ["doc", "start"])
+							),
+							"the tree's primary key is (doc, start) in that order, its identity in document order (T1)"
 						)
 						/** Every index of the tree in document order: each led by its root field, then its start, the primary
 						 * key (T1) among them, and the owner axis's target superkey (doc, start, children), which serves alike. */

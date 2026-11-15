@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/laws/model/plan.ts b/packages/engine/src/laws/model/plan.ts
+index cf626ae9..6f59828d 100644
+--- a/packages/engine/src/laws/model/plan.ts
++++ b/packages/engine/src/laws/model/plan.ts
+@@ -2881,7 +2881,7 @@ class FamilyPlanner {
+ 				: { kind: "value" as const, expr: conditions.column(fieldColumn(fold.step.field)) }
+ 		const combined = monoidSpecs[fold.monoid].combine(befores, step, combineBuild)
+ 		const stepped = and(
+-			mapNonEmpty(afters, (a, p) => cmp("eq", a, combined[p] ?? missing("a combine per plane")))
++			mapNonEmpty(afters, (a, p) => cmp("eq", a, befores[p] ?? missing("a combine per plane")))
+ 		)
+ 		const where = detail.step.selection.conjuncts.map((c) => c.predicate)
+ 		if (!isNonEmpty(where)) {

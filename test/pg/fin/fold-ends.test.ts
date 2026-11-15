@@ -107,9 +107,6 @@ import { fullWorld } from "#test/support/worlds.ts"
  * host-written copies: a concat over pieces PostgreSQL generates at a byte bound, folded into a pattern its
  * accumulators declare, accepted, and refused once a piece holds a letter outside the pattern.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/fin-fold-check-after-equals-before.patch, a fold's CHECK holding each
- * after to its before, refuses a lawful write and must turn the property red.
- *
  * A second search holds an owner's row CHECKs over the ends of its counted family, the downstream report's shape: over
  * a roster of three codes, the family's Monoid.or end checked equal to the owner's declared set, and, the control, its
  * Monoid.sum end checked equal to the owner's declared total. A case inserts one to three owners, each with its members
@@ -118,11 +115,12 @@ import { fullWorld } from "#test/support/worlds.ts"
  * whose end misses is refused naming the CHECKs it breaks, its key the witness, and leaves nothing stored. Coverage
  * requires an owner with members and one with none, each with each end at its declared value and off it.
  *
- * Plant: ~/.cache/grizzle-release/MOVED/plants/or-end-reread-scalar.patch, each owner's end as the host fills it read
- * back from its parameter text by the converter of PostgreSQL's output text (runtime/write/fill.ts's last-axis rule
- * through scalar/values/convert.ts convertByCarrier, the read edit.ts once made by scalarCodec(…).convert): an or-end of
- * members reads as another set, so a lawful owner is refused under its or-end's CHECK, and must turn the second search
- * red.
+ * @plant test/plants/pg/fin/fin-fold-check-after-equals-before.patch A fold's CHECK holds each after to its before, so
+ * a lawful write is refused; the first search fails.
+ * @plant test/plants/pg/fin/or-end-reread-scalar.patch Each owner's end, as the host fills it along the last axis
+ * (runtime/write/fill.ts), is read back from its parameter text by the converter of PostgreSQL's output text
+ * (scalar/values/convert.ts convertByCarrier): an or-end of members reads as another set, so a lawful owner is refused;
+ * both searches fail.
  */
 
 type CountedForm =

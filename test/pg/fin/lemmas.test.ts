@@ -27,8 +27,8 @@
  * a refusal at commit through each, so the search itself shows a real COMMIT never decides otherwise than the checked
  * end.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/fin-bound-check-at-most-count.patch, the bound CHECK admitting a row at
- * the count, commits a row beyond the family and must turn both properties red.
+ * @plant test/plants/pg/fin/fin-bound-check-at-most-count.patch The bound CHECK admits a row at the count (`i <= ‹n›`),
+ * so a row beyond the family commits; both properties fail.
  */
 import { runProgram } from "@bjornpagen/testing/commands"
 import { drawn as drawnCase, exhaust, explore, type Oracle } from "@bjornpagen/testing/explore"

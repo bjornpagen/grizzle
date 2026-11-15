@@ -17,8 +17,8 @@
  * ends by a real COMMIT whose rows are read and cleared, as the case draws its end on its tape (installed.ts endGen):
  * the box requires both ends.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/fin-predecessor-axis-deferral-swapped.patch, the ordered predecessor axis
- * installed deferred, commits a split the model refuses and must turn the property red.
+ * @plant test/plants/pg/fin/fin-predecessor-axis-deferral-swapped.patch The predecessor axis's deferral is swapped: the
+ * ordered family's installed deferred, so a split the model refuses commits; the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -1,0 +1,29 @@
+diff --git a/packages/engine/src/runtime/write/fill.ts b/packages/engine/src/runtime/write/fill.ts
+index d0e70744..d040255d 100644
+--- a/packages/engine/src/runtime/write/fill.ts
++++ b/packages/engine/src/runtime/write/fill.ts
+@@ -30,7 +30,8 @@
+  * and admits no column whose source a later stage fills, so every column a rule reads is filled when it is read.
+  */
+ import { encodeFailure } from "#compiler/codec/fault.ts"
+-import { carrierSpecOf } from "#compiler/codec/scalar.ts"
++import { admittedParam, carrierSpecOf } from "#compiler/codec/scalar.ts"
++import { convertByCarrier } from "#compiler/scalar/values/convert.ts"
+ import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
+ import type { StoredRelationName } from "#compiler/core/ids.ts"
+ import { defect, defined } from "#compiler/core/invariant.ts"
+@@ -923,7 +924,13 @@ const ruleValue = (
+ 			)
+ 		case "last": {
+ 			const last = row.last.get(rule.family)
+-			return Result.ok(last === undefined ? rule.base : filledBefore(last, rule.to, row))
++			return Result.ok(
++				last === undefined
++					? rule.base
++					: convertByCarrier[column.spec.carrier](column.spec)(
++							admittedParam(column.spec, filledBefore(last, rule.to, row))
++						)
++			)
+ 		}
+ 		case "after": {
+ 			const befores: Array<unknown> = []

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/laws/model/plan.ts b/packages/engine/src/laws/model/plan.ts
+index 970c7025..241f7065 100644
+--- a/packages/engine/src/laws/model/plan.ts
++++ b/packages/engine/src/laws/model/plan.ts
+@@ -2521,7 +2521,7 @@ class FamilyPlanner {
+ 			{
+ 				kind: "Unique",
+ 				relation: member,
+-				columns: familyKeyColumns,
++				columns: tree === undefined ? familyKeyColumns : familyKeyColumns.slice(tree.root.length),
+ 				entry: plannedEntry(
+ 					familyKeyColumns,
+ 					`the UNIQUE of ${member.name} that ${familyText(this.#shape())} numbers its members by`,

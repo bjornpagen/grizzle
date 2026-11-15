@@ -20,8 +20,8 @@
  * inserted with their counted members through a served member, one is put with a new label, and PostgreSQL then holds
  * every owner with its label, count and fold end, and every member, exactly as the families model states them.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/fin-fold-check-after-equals-before.patch, a fold's CHECK holding each
- * after to its before, refuses a lawful edit and must turn both properties red.
+ * @plant test/plants/pg/fin/fin-fold-check-after-equals-before.patch A fold's CHECK holds each after to its before, so
+ * a lawful edit is refused; both properties fail.
  */
 import { drawn as drawnCase, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

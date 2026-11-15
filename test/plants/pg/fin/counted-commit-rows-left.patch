@@ -1,0 +1,13 @@
+diff --git a/test/pg/fin/installed.ts b/test/pg/fin/installed.ts
+index 401344ee..96c28c1f 100644
+--- a/test/pg/fin/installed.ts
++++ b/test/pg/fin/installed.ts
+@@ -462,7 +462,7 @@ export const ended = <A>(
+ 			return real
+ 		}
+ 		const found = yield* read
+-		if (start === "empty") {
++		if (start === "empty" && relations.length === 0) {
+ 			yield* cleared(seat, relations)
+ 		}
+ 		return { kind: "committed", read: found } satisfies Checked<A>
