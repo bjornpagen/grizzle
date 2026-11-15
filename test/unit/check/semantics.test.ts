@@ -16,11 +16,13 @@
  * Oracles: the generated program's own parameters and declarations; the parameter and member rules restated as
  * checkers; int4's positive range; and the reference evaluator against the items no Tag holds at the label.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): semantics-take-zero.patch (a take of zero is admitted),
- * semantics-member-extra-column.patch (a member's head may hold a column its relation lacks).
- *
  * Features: each declaration kind, each parameter situation admitted, each member rule and op, each kind of take
  * bound, and an item tagged at the label or at another.
+ *
+ * @plant test/plants/unit/check/semantics-take-zero.patch A take of zero is admitted (check/checker.ts); the take's
+ * bound property fails.
+ * @plant test/plants/unit/check/semantics-member-extra-column.patch A member's head may hold a column its relation
+ * lacks (check/member.ts); the members property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

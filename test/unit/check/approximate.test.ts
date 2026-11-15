@@ -11,10 +11,12 @@
  * Oracles: the eligibility rule restated over the drawn search; a result is approximate exactly when it is computed
  * from a search.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): approximate-hnsw-bound-refused.patch (a vector at HNSW's bound is
- * refused), approximate-provenance-shallow.patch (only a search itself is approximate, not what is computed from it).
- *
  * Features: each broken rule, each reading refused or admitted, a vector at HNSW's bound, and each composition.
+ *
+ * @plant test/plants/unit/check/approximate-hnsw-bound-refused.patch A vector at HNSW's bound is refused
+ * (check/approximate/trace.ts); the eligibility property fails.
+ * @plant test/plants/unit/check/approximate-provenance-shallow.patch Only a search itself is approximate, not what is
+ * computed from it (check/approximate/provenance.ts); the provenance property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

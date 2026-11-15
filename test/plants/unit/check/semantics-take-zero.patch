@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/check/checker.ts b/packages/engine/src/check/checker.ts
+index 58881598..8baf82bb 100644
+--- a/packages/engine/src/check/checker.ts
++++ b/packages/engine/src/check/checker.ts
+@@ -749,7 +749,7 @@ const int4TakeCapability = `a positive integer bound for take, at most ${int4Max
+  * the query that binds it, in int4's terms.
+  */
+ const int4TakeBound = (k: bigint, loc: SourceLoc): TakeBound => {
+-	if (k < 1n || k > BigInt(int4Max.value)) {
++	if (k < 0n || k > BigInt(int4Max.value)) {
+ 		fail("MalformedDescription", loc, int4TakeCapability)
+ 	}
+ 	return { kind: "literal", k }

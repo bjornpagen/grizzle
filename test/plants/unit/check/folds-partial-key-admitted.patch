@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/check/checker.ts b/packages/engine/src/check/checker.ts
+index 58881598..08b06c40 100644
+--- a/packages/engine/src/check/checker.ts
++++ b/packages/engine/src/check/checker.ts
+@@ -3640,7 +3640,7 @@ class RuleCheck {
+ 				...occurrence.constants.map((c) => c.column)
+ 			])
+ 			const keys = this.#sourceKeys(occurrence.source)
+-			const key = keys.find((k) => k.every((f) => bound.has(f)))
++			const key = keys.find((k) => k.some((f) => bound.has(f)))
+ 			if (key === undefined) {
+ 				return failWith({
+ 					_tag: "FoldOverProjection",

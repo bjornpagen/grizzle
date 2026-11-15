@@ -1,0 +1,27 @@
+diff --git a/packages/engine/src/check/checker.ts b/packages/engine/src/check/checker.ts
+index 58881598..5fbd1d35 100644
+--- a/packages/engine/src/check/checker.ts
++++ b/packages/engine/src/check/checker.ts
+@@ -2100,9 +2100,6 @@ export class Checker {
+ 				if (mask === undefined) {
+ 					return fail("MalformedDescription", loc, `an Allen mask in 1..${allenMaskMax}`)
+ 				}
+-				if (mask === emptyAllenMask) {
+-					return fail("MalformedDescription", loc, "a nonempty Allen mask")
+-				}
+ 				return lowered(
+ 					allenExpr(mask, left.expr, right, left.carrier, bool, (spec) => this.emit(spec))
+ 				)
+diff --git a/packages/engine/src/ir/desc.ts b/packages/engine/src/ir/desc.ts
+index e2fb9d03..21a702d5 100644
+--- a/packages/engine/src/ir/desc.ts
++++ b/packages/engine/src/ir/desc.ts
+@@ -1622,7 +1622,7 @@ const exprCases = {
+ 		left: S.ref("an expression", () => exprDescShape),
+ 		mask: S.refine(
+ 			S.integer,
+-			(m) => m >= 1 && m <= allenMaskMax,
++			(m) => m >= 0 && m <= allenMaskMax,
+ 			`an Allen mask in 1..${allenMaskMax}`
+ 		),
+ 		right: S.ref("an expression", () => exprDescShape)

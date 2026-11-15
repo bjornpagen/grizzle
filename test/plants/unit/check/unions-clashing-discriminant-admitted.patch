@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/check/checker.ts b/packages/engine/src/check/checker.ts
+index 58881598..d3784fc0 100644
+--- a/packages/engine/src/check/checker.ts
++++ b/packages/engine/src/check/checker.ts
+@@ -1273,7 +1273,7 @@ export class Checker {
+ 			})
+ 			discriminant = rostered.length > 0 && !clashes(rostered) ? rostered : literal
+ 			const clash = clashes(discriminant)
+-			if (discriminant.length === 0 || clash) {
++			if (discriminant.length === 0) {
+ 				fail(
+ 					"MissingDiscriminant",
+ 					loc,

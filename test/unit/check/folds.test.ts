@@ -44,7 +44,8 @@ import {
  * A fold reads each fact its rule matches once, by a key (ir/rel.ts FoldInput, check/checker.ts foldInput), one rule
  * for every aggregate: count, sum, mean, min and max alike.
  *
- * The search draws every rule over Post(id, org, views) and Comment(id, post, author), both keyed by id, of these
+ * The search draws every rule over Post(id, org, views), keyed by id, and Comment(id, post, author), keyed by id or
+ * by (post, id), drawn, so a match can bind a key of two fields in part, of these
  * shapes: one match of either relation binding a nonempty subset of its fields; a join of Post bound by (id, org) with
  * Comment bound by its post, with or without Comment's id; and an attached child of Comment under each post, with or
  * without Comment's id. Each folds by an aggregate, grouped by a bound variable or not, with a constant beside the fold
@@ -60,24 +61,33 @@ import {
  *   checked IR equals the host's fold over the matched facts, each matched fact tuple once, so equal values on distinct
  *   facts both contribute. A mean is compared to meanDigits places, every other fold exactly (foldText).
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): folds-partial-key-admitted.patch (a match binding part of a key is
- * read as keyed).
+ * Features: each shape and aggregate, refused and admitted; equal values summed twice; a constant beside the fold; a
+ * match binding a key of two fields in part, refused, and whole, admitted.
  *
- * Features: each shape and aggregate, refused and admitted; equal values summed twice; a constant beside the fold.
+ * @plant test/plants/unit/check/folds-partial-key-admitted.patch A match binding part of a key is read as keyed
+ * (check/checker.ts foldInput); the refusal oracle fails.
+ * @plant test/plants/unit/check/folds-sum-over-projection.patch The checker binds a sum's fold to the tuple of its
+ * group keys and its argument, so equal values on distinct facts count once; the host fold's oracle fails at the sum
+ * arm.
  */
 
-const Blog: SchemaDesc = {
+/** Comment's primary key: its id, or its post and id, so a match can bind a key of two fields in part. */
+type CommentKey = readonly ["id"] | readonly ["post", "id"]
+const commentKeys: Arr.NonEmptyReadonlyArray<CommentKey> = [["id"], ["post", "id"]]
+
+/** The box's schema, Comment keyed by `commentKey`. */
+const blogOf = (commentKey: CommentKey): SchemaDesc => ({
 	name: "Blog",
 	relations: [
 		relation("Post", { id: f.integer, org: f.integer, views: f.integer }, ["id"]),
-		relation("Comment", { id: f.integer, post: f.integer, author: f.integer }, ["id"])
+		relation("Comment", { id: f.integer, post: f.integer, author: f.integer }, commentKey)
 	],
 	statements: [],
 	extends: undefined
-}
+})
 
-/** Blog as the reference reads its Base nodes: each relation's columns in declared order, keyed by id. */
-const blogFacts: GenSchema = {
+/** Blog as the reference reads its Base nodes: each relation's columns in declared order, Comment keyed by `commentKey`. */
+const blogFactsOf = (commentKey: CommentKey): GenSchema => ({
 	name: "Blog",
 	relations: [
 		{
@@ -98,14 +108,14 @@ const blogFacts: GenSchema = {
 				{ name: "post", type: int4 },
 				{ name: "author", type: int4 }
 			],
-			primaryKey: ["id"],
+			primaryKey: commentKey,
 			keys: [],
 			mutable: false
 		}
 	],
 	closed: [],
 	containments: []
-}
+})
 
 type RelationName = "Post" | "Comment"
 type Field = "id" | "org" | "views" | "post" | "author"
@@ -148,6 +158,7 @@ type Shape =
 	| { readonly kind: "attached"; readonly commentId: boolean }
 
 interface FoldCase {
+	readonly commentKey: CommentKey
 	readonly shape: Shape
 	readonly fn: Fn
 	readonly grouped: boolean
@@ -172,6 +183,7 @@ const shapeGen: Gen<Shape> = (source) => {
 }
 
 const caseGen: Gen<FoldCase> = (source) => ({
+	commentKey: source.draw(element(commentKeys)),
 	shape: source.draw(shapeGen),
 	fn: source.draw(element(fns)),
 	grouped: source.draw(boolean),
@@ -230,8 +242,13 @@ interface Built {
 	readonly arg: { readonly relation: RelationName; readonly field: Field }
 }
 
-/** A key is bound when the match binds its one field, the relation's id. */
-const binds = (bound: ReadonlyArray<Field>): boolean => bound.includes("id")
+/** A relation's primary key in a case: Post's id, Comment's drawn key. */
+const keyOf = (c: FoldCase, relation: RelationName): ReadonlyArray<Field> =>
+	relation === "Comment" ? c.commentKey : ["id"]
+
+/** A key is bound when the match binds every one of its fields. */
+const binds = (key: ReadonlyArray<Field>, bound: ReadonlyArray<Field>): boolean =>
+	Arr.every(key, (field) => bound.includes(field))
 
 const built = (c: FoldCase): Built => {
 	switch (c.shape.kind) {
@@ -265,7 +282,7 @@ const built = (c: FoldCase): Built => {
 						attach: []
 					})
 				),
-				refusedAt: binds(bound) ? undefined : relation,
+				refusedAt: binds(keyOf(c, relation), bound) ? undefined : relation,
 				group,
 				arg: { relation, field: argField }
 			}
@@ -296,7 +313,7 @@ const built = (c: FoldCase): Built => {
 						attach: []
 					})
 				),
-				refusedAt: c.shape.commentId ? undefined : "Comment",
+				refusedAt: binds(keyOf(c, "Comment"), ["post", ...commentBound]) ? undefined : "Comment",
 				group: c.grouped ? { relation: "Post", field: "org" } : undefined,
 				arg: { relation: "Comment", field: "author" }
 			}
@@ -339,7 +356,7 @@ const built = (c: FoldCase): Built => {
 					"comments",
 					child
 				),
-				refusedAt: c.shape.commentId ? undefined : "Comment",
+				refusedAt: binds(keyOf(c, "Comment"), ["post", ...commentBound]) ? undefined : "Comment",
 				group: c.grouped ? { relation: "Comment", field: "author" } : undefined,
 				arg: { relation: "Comment", field: "author" }
 			}
@@ -462,7 +479,7 @@ const referenceAnswer = (
 		Arr.map(rows, (row) => Arr.map(row, (n): TypedLiteral => ({ kind: "int", value: BigInt(n) })))
 	const db = c.database
 	const reference = Reference.of(dag, {
-		schema: blogFacts,
+		schema: blogFactsOf(c.commentKey),
 		facts: canonicalFacts({ Post: literals(db.Post), Comment: literals(db.Comment) }),
 		params: {},
 		observer: unobserved
@@ -497,6 +514,8 @@ type Feature =
 	| `admitted ${Shape["kind"]}`
 	| "equal values summed twice"
 	| "a constant beside the fold"
+	| "refused a key of two fields bound in part"
+	| "admitted a key of two fields"
 
 const situations: Arr.NonEmptyReadonlyArray<Feature> = [
 	"refused one",
@@ -507,6 +526,8 @@ const situations: Arr.NonEmptyReadonlyArray<Feature> = [
 	"admitted attached",
 	"equal values summed twice",
 	"a constant beside the fold",
+	"refused a key of two fields bound in part",
+	"admitted a key of two fields",
 	...Arr.flatMap(fns, (fn): ReadonlyArray<Feature> => [`refused ${fn}`, `admitted ${fn}`])
 ]
 
@@ -514,6 +535,19 @@ const refusalOf = (
 	reason: CompileReason
 ): Extract<CompileReason, { _tag: "FoldOverProjection" }> | undefined =>
 	reason._tag === "FoldOverProjection" ? reason : undefined
+
+/** Whether a case's rule matches Comment. */
+const matchesComment = (c: FoldCase): boolean =>
+	c.shape.kind !== "one" || c.shape.relation === "Comment"
+
+/** Whether a case's one match of Comment binds some field of its key of two fields but not every one. */
+const boundPart = (c: FoldCase): boolean => {
+	if (c.shape.kind !== "one" || c.shape.relation !== "Comment") {
+		return false
+	}
+	const bound = c.shape.bound
+	return Arr.some(c.commentKey, (field) => bound.includes(field)) && !binds(c.commentKey, bound)
+}
 
 /** Whether some group of a case's matched tuples holds two of them whose folded values are equal. */
 const equalValuesTwice = (c: FoldCase, b: Built): boolean => {
@@ -555,7 +589,12 @@ describe("a fold reads each fact it matches once, by a key", () => {
 					(c, k) =>
 						Effect.sync(() => {
 							const b = built(c)
-							const checked = checkAuthored(checking(Blog), b.query, checkOptions("query"))
+							const checked = checkAuthored(
+								checking(blogOf(c.commentKey)),
+								b.query,
+								checkOptions("query")
+							)
+							const twoFields = c.commentKey.length === 2 && matchesComment(c)
 							if (b.refusedAt !== undefined) {
 								assert.equal(checked.ok, false, "a fold over a projection is refused")
 								if (checked.ok) {
@@ -564,9 +603,12 @@ describe("a fold reads each fact it matches once, by a key", () => {
 								const refusal = refusalOf(checked.error.reason)
 								assert.deepEqual(
 									refusal === undefined ? undefined : { source: refusal.source, key: refusal.key },
-									{ source: b.refusedAt, key: ["id"] },
+									{ source: b.refusedAt, key: keyOf(c, b.refusedAt) },
 									"the refusal names the match's source and its key"
 								)
+								if (twoFields && b.refusedAt === "Comment" && boundPart(c)) {
+									k.note("refused a key of two fields bound in part")
+								}
 								k.note(`refused ${c.fn}`)
 								k.note(`refused ${c.shape.kind}`)
 								return
@@ -577,6 +619,9 @@ describe("a fold reads each fact it matches once, by a key", () => {
 							}
 							k.note(`admitted ${c.fn}`)
 							k.note(`admitted ${c.shape.kind}`)
+							if (twoFields) {
+								k.note("admitted a key of two fields")
+							}
 							if (c.constant) {
 								k.note("a constant beside the fold")
 							}

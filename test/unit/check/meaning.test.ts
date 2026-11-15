@@ -10,12 +10,13 @@
  * before any answer is compared. Where the reference declines a value, its reason is rated, so a class of cases it
  * stops judging shows on the report.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): meaning-negation-first-key-dropped.patch (a negation's join drops its
- * first equated column). (~/.cache/grizzle-release/PROBESPLIT/plants): negation-binds-region.patch (a negated import's
- * bind values read the rule's region rather than the node the negation is over, which a filter stands between), which
- * the floor stream fails at a negated import bound to an outer variable beside a filter.
- *
  * Features: the language's own terms the program reaches, each mixed form, and each node kind the checked IR holds.
+ *
+ * @plant test/plants/unit/check/meaning-negation-first-key-dropped.patch A negation's join drops its first equated
+ * column (check/checker.ts negation); the property fails.
+ * @plant test/plants/unit/check/negation-binds-region.patch A negated import's bind values read the rule's region
+ * rather than the node the negation is over, which a filter stands between; the floor stream fails at a negated import
+ * bound to an outer variable beside a filter.
  */
 import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { rating, required } from "@bjornpagen/testing/features"

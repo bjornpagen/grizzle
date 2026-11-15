@@ -1,0 +1,17 @@
+diff --git a/packages/engine/src/check/refinement/index.ts b/packages/engine/src/check/refinement/index.ts
+index 3d3434b8..1d73e902 100644
+--- a/packages/engine/src/check/refinement/index.ts
++++ b/packages/engine/src/check/refinement/index.ts
+@@ -52,7 +52,11 @@ export const guarantees = (a: ScalarType, b: ScalarType): boolean => {
+ 		}
+ 	}
+ 	if (ba.carrier === "text" && bb.carrier === "text") {
+-		return bb.text.regex === "wildcard" || sameRegex(ba.text.regex, bb.text.regex)
++		return (
++			ba.text.regex === "wildcard" ||
++			bb.text.regex === "wildcard" ||
++			sameRegex(ba.text.regex, bb.text.regex)
++		)
+ 	}
+ 	return true
+ }

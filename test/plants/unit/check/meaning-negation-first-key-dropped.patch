@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/check/checker.ts b/packages/engine/src/check/checker.ts
+index 58881598..6595c5f7 100644
+--- a/packages/engine/src/check/checker.ts
++++ b/packages/engine/src/check/checker.ts
+@@ -3254,7 +3254,10 @@ class RuleCheck {
+ 			},
+ 			loc
+ 		)
+-		const node = this.cx.node({ kind: "AntiJoin", left, right, on, heading: left.heading }, loc)
++		const node = this.cx.node(
++			{ kind: "AntiJoin", left, right, on: on.slice(1), heading: left.heading },
++			loc
++		)
+ 		this.cx.inherit(node, left)
+ 		return node
+ 	}
