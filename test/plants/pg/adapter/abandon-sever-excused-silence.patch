@@ -1,0 +1,11 @@
+--- a/packages/grizzle/src/adapter/wire/batch.ts
++++ b/packages/grizzle/src/adapter/wire/batch.ts
+@@ -771,7 +771,7 @@
+ 	}
+ 	switch (state.silence) {
+ 		case "excused":
+-			return { _tag: "cancelling", answered: state.answered, silence: "spent" }
++			return severed
+ 		case "spent":
+ 			return severed
+ 	}

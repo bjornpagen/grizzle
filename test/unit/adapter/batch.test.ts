@@ -70,6 +70,9 @@ import { testSql } from "#test/support/sql.ts"
  * Plants (~/.cache/grizzle-release/BR04/plants): batch-cancel-after-drain.patch (an interrupted flight that drained
  * still sends a CancelRequest), batch-joined-part-overreads.patch (a joined part reads the next part's first outcome).
  *
+ * @plant test/plants/pg/adapter/abandon-cancel-once.patch abandon destroys the connection after one CancelRequest,
+ * so the answers the server made after the request never reach the client; both flight properties fail.
+ *
  * Features: each ending, commit and retirement the model names; for joined flights, no part, a part of no statement,
  * and several parts.
  */
