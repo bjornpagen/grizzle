@@ -20,9 +20,10 @@
  * Oracle: D itself, the complete sorted result read by the query's unpaged member, which the windows cut; and
  * PostgreSQL's reading of each anchor's boundary text as its column's type.
  *
- * Plants: window-anchor-float-rounded (a double's anchor written through twelve significant digits).
- *
  * Features: each ordered field's edge classes and spellings, each direction and window size.
+ *
+ * @plant test/plants/pg/page/window-anchor-float-rounded.patch A double's anchor is written through twelve significant
+ * digits.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

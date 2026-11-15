@@ -27,9 +27,10 @@
  *
  * Oracle: PostgreSQL's EXPLAIN (ANALYZE) of each statement sent, under the specification above.
  *
- * Plants: page-access-paths-dropped (the workload requests no access path, so a window scans or sorts the table).
- *
  * Features: each order, each anchor kind, and each seek direction the plans name.
+ *
+ * @plant test/plants/pg/page/page-access-paths-dropped.patch The workload requests no access path, so a window scans or
+ * sorts the table.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

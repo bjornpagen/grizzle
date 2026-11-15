@@ -4,9 +4,9 @@
  * Oracle: the conservative lowering's complete sorted distinct result D, which the windows of each walk cut, each
  * window's attachments D's children of its delivered rows.
  *
- * Plants: window-after-seek-inclusive (the after template's seek admits the anchor's own row).
- *
  * Features: generated.ts's PageFeature, every required one.
+ *
+ * @plant test/plants/pg/page/window-after-seek-inclusive.patch The after template's seek admits the anchor's own row.
  */
 import { generatedSuite } from "#test/pg/page/generated.ts"
 

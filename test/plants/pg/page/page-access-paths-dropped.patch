@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/program/workload/compile.ts b/packages/engine/src/program/workload/compile.ts
+index 88074a00..3cc10c7f 100644
+--- a/packages/engine/src/program/workload/compile.ts
++++ b/packages/engine/src/program/workload/compile.ts
+@@ -607,7 +607,7 @@ export const compileWorkload = (
+ 			}))
+ 		)
+ 	)
+-	const paths: ReadonlyArray<AccessPath> = uniquePaths(planned.flatMap((p) => p.paths))
++	const paths: ReadonlyArray<AccessPath> = []
+ 	const physical: WorkloadPhysical = {
+ 		schema: artifacts.fingerprint,
+ 		paths,

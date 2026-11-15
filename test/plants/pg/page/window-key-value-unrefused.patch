@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/page/window.ts b/packages/grizzle/src/adapter/page/window.ts
+index 6f95e2eb..18c06fb6 100644
+--- a/packages/grizzle/src/adapter/page/window.ts
++++ b/packages/grizzle/src/adapter/page/window.ts
+@@ -77,7 +77,7 @@ const boundaryOf = (
+ 	for (const [at, codec] of codecs.entries()) {
+ 		const text = codec.encode(values[at])
+ 		if (!text.ok) {
+-			return refused("anchor")
++			continue
+ 		}
+ 		texts.push(text.value)
+ 	}
