@@ -1,0 +1,11 @@
+diff --git a/packages/engine/src/types/fields/regex.ts b/packages/engine/src/types/fields/regex.ts
+index c80924bd..ac45c463 100644
+--- a/packages/engine/src/types/fields/regex.ts
++++ b/packages/engine/src/types/fields/regex.ts
+@@ -166,5 +166,5 @@ export type RegexInfer<S extends string, F extends RegexFlags> =
+ 			? string
+ 			: LanguageCount<N> extends "over"
+ 				? string
+-				: OnePlaceholderPerRun<regex.infer<N, F>>
++				: OnePlaceholderPerRun<regex.infer<N, F>> | string
+ 		: string

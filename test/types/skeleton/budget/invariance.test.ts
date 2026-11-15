@@ -9,8 +9,9 @@
  * relation, and a query's rows inserted into another relation, raise exactly the diagnostics, codes and refusals, they
  * raise over the twin. Oracle: the twin, a program at the smallest scale the probes read.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): scale-keys-past-hundred.patch drops a schema's declared candidate keys
- * once it holds a hundred statements, which the twin never does and the program at scale does.
+ * @plant test/plants/types/schema/budget/scale-keys-past-hundred.patch A schema's declared candidate keys (KeyIndexOf)
+ * are dropped once it holds a hundred statements, which the twin never does and the program at scale does; the
+ * invariance property fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

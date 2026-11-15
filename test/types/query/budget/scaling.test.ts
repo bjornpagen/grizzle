@@ -8,14 +8,19 @@
  * no more than the first, so no unit costs more for the units before it. Its types, which the checker interns, are not
  * judged by the law (test/types/batch/measured.ts). Oracle: the compiler's own counts, compared step against step.
  *
- * Plants (~/.cache/grizzle-release/QUERYBUDGET/plants): attach-schema-method.patch types an attachment's method over the
- * whole schema rather than its own source; once-over-program.patch gives each member's calls a once over the whole
- * program; phantom-params-exclude.patch reads a bundle's parameters through an Exclude over its phantom's union; and
- * workload-kinds-tuple.patch checks a member by its workload's kinds rather than its own. (~/.cache/grizzle-release/
- * TYPEREGRESS/plants) heldby-deferred-tuple.patch reads a relation's declared keys through a tuple the checker defers.
- * Each turns relations with their rules and members superlinear in instantiations, by second differences of 11,200,
- * 16,000, 1,600, 3,200 and 640 at 46356a00, where the tree's is 0 (~/.cache/grizzle-release/GREENTRUNK/out/
- * plant-scales.txt, from GREENTRUNK/tools/plant-scales.sh).
+ * Each plant below turns relations with their rules and members superlinear in instantiations, by the second
+ * difference it names, measured by GREENTRUNK at 46356a00, where the tree's is 0.
+ *
+ * @plant test/plants/types/query/budget/attach-schema-method.patch An attachment's method is typed over the whole
+ * schema rather than its own source: a second difference of 11,200.
+ * @plant test/plants/types/query/budget/once-over-program.patch Each member's calls get a once over the whole program:
+ * a second difference of 16,000.
+ * @plant test/plants/types/query/budget/phantom-params-exclude.patch A bundle's parameters are read through an Exclude
+ * over its phantom's union: a second difference of 1,600.
+ * @plant test/plants/types/query/budget/workload-kinds-tuple.patch A member is checked by its workload's kinds rather
+ * than its own: a second difference of 3,200.
+ * @plant test/plants/types/query/budget/heldby-deferred-tuple.patch A relation's declared keys are read through a
+ * tuple the checker defers: a second difference of 640.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

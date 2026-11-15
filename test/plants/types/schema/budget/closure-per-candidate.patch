@@ -1,0 +1,40 @@
+diff --git a/packages/engine/src/types/evidence/evidence.ts b/packages/engine/src/types/evidence/evidence.ts
+index 5cf934b9..4f7c2653 100644
+--- a/packages/engine/src/types/evidence/evidence.ts
++++ b/packages/engine/src/types/evidence/evidence.ts
+@@ -863,7 +863,14 @@ type KeysUnder<
+ 	H,
+ 	FixedFields extends string,
+ 	Stated
+-> = MinimalOf<Passing<Candidates<S, Os, H, FixedFields>, H, Stated, FixedFields>>
++> = MinimalOf<
++	Passing<
++		Candidates<S, Os, H, FixedFields>,
++		H,
++		DepsOf<S, Os[number], FixedFields> | Stated,
++		FixedFields
++	>
++>
+ 
+ /** A dependency among a rule's variables, by origin key: the origins From determine the origins To. */
+ interface Dep<out From extends string, out To extends string> {
+@@ -998,15 +1005,15 @@ type OriginsOfFields<H, C> = { [N in keyof H & C]-?: OriginKey<H[N]> }[keyof H &
+  * those of the matches it keys none of: the closure of its fields' origins under every dependency, read once per
+  * dependency of each match it keys nothing of, never once per key of every match for each candidate.
+  */
+-type Passing<Cs, H, Stated, FixedFields extends string> = Cs extends readonly [
++type Passing<Cs, H, Deps, FixedFields extends string> = Cs extends readonly [
+ 	infer C,
+-	infer Fired extends string,
+-	infer Unfired
++	unknown,
++	unknown
+ ]
+ 	? Covers<
+ 			H,
+ 			C,
+-			Closure<Unfired | Stated, (OriginsOfFields<H, C> & string) | Fired | FixedFields>,
++			Closure<Deps, (OriginsOfFields<H, C> & string) | FixedFields>,
+ 			FixedFields
+ 		> extends true
+ 		? readonly [C]

@@ -30,7 +30,9 @@ import { regex } from "arkregex"
  * invalidated notification's forms), and at 20 relations alone 50 anonymous type parameters and one union of 20 members
  * (each program traced with --generateTrace and its types diffed as a multiset), which turned that program's second
  * difference of types from -28 to +23 with no change of shape (GREENTRUNK, 2026-11-15). Every plant of a superlinear
- * cost the type tier keeps turns the instantiations red (~/.cache/grizzle-release/GREENTRUNK/out/plant-scales.txt).
+ * cost the type tier keeps turns the instantiations red: the plant tags of the budget tests that run this law
+ * (test/types/query/budget/scaling.test.ts, test/types/schema/budget/scaling.test.ts, families.test.ts and
+ * logins.test.ts, and test/types/regex/scaling.test.ts) name each one and its second difference.
  */
 
 /**

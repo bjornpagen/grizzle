@@ -1,0 +1,20 @@
+diff --git a/packages/engine/src/types/schema/schema.ts b/packages/engine/src/types/schema/schema.ts
+index 996eaa28..12fa289e 100644
+--- a/packages/engine/src/types/schema/schema.ts
++++ b/packages/engine/src/types/schema/schema.ts
+@@ -584,9 +584,12 @@ export type KeysOf<S, R> = R extends { readonly kind: "context" }
+  * read passes over the statement tuple, and no read takes the index's keys (`keyof`), which a remapped index computes
+  * again at every read.
+  */
+-type KeyIndexOf<S> = {
+-	readonly [K in KeySideOf<StatementOf<S>> as NameOf<SourceOf<K>>]: TermsOf<K>
+-} & { readonly [name: string]: never }
++type KeyIndexOf<S> =
++	StatementsOf<S> extends { readonly 99: unknown }
++		? { readonly [name: string]: never }
++		: {
++				readonly [K in KeySideOf<StatementOf<S>> as NameOf<SourceOf<K>>]: TermsOf<K>
++			} & { readonly [name: string]: never }
+ 
+ /**
+  * The candidate keys declared for every relation of S named in N: a generic relation's, whose name is the union of its

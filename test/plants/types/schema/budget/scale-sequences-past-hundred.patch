@@ -1,0 +1,20 @@
+diff --git a/packages/engine/src/types/changeset/changeset.ts b/packages/engine/src/types/changeset/changeset.ts
+index 1a15fdbe..a5863470 100644
+--- a/packages/engine/src/types/changeset/changeset.ts
++++ b/packages/engine/src/types/changeset/changeset.ts
+@@ -295,9 +295,12 @@ type AnyTree = Tree<unknown, unknown, ReadonlyArray<string>>
+  * built once per schema, in one pass over its sequences, so an owner's addition reads its own few sequences by name,
+  * which it then maps by their count fields.
+  */
+-type SequenceIndexOf<S> = {
+-	readonly [Fa in SequenceOf<S> as OwnerNameOf<Fa>]: Fa
+-} & { readonly [owner: string]: never }
++type SequenceIndexOf<S> =
++	StatementsOf<S> extends { readonly 99: unknown }
++		? { readonly [owner: string]: never }
++		: {
++				readonly [Fa in SequenceOf<S> as OwnerNameOf<Fa>]: Fa
++			} & { readonly [owner: string]: never }
+ 
+ /** The name of the relation a sequence's slots count over: its owner's. */
+ type OwnerNameOf<Fa> = Fa extends { readonly slots: Fin<infer O, string> } ? NameOf<O> : never

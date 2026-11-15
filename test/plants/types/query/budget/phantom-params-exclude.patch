@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/live/program.ts b/packages/engine/src/live/program.ts
+index 3cccaa4d..7bc6e318 100644
+--- a/packages/engine/src/live/program.ts
++++ b/packages/engine/src/live/program.ts
+@@ -362,7 +362,7 @@ type ProgramParams<P> = P extends unknown
+ 		: ParamsOf<P>
+ 	: never
+ type PhantomParams<P> = typeof phantom extends keyof P
+-	? BundleParams<NonNullable<P[typeof phantom & keyof P]>>
++	? BundleParams<Exclude<P[typeof phantom & keyof P], undefined>>
+ 	: unknown
+ type BundleParams<B> = B extends unknown
+ 	? "needs" extends keyof B

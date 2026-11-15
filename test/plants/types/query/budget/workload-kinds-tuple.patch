@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/types/db/workload.ts b/packages/engine/src/types/db/workload.ts
+index 3c1ee8e3..a5081d10 100644
+--- a/packages/engine/src/types/db/workload.ts
++++ b/packages/engine/src/types/db/workload.ts
+@@ -197,7 +197,7 @@ type ProgramChecks<S, X> = ChecksOf<S, X, Kinds<X>>
+  * ProgramChecks over the kinds K of X's programs, a parameter of its own: a tuple of an alias over X is a reference the
+  * checker resolves later, holding X, and deciding the test instantiates it, X whole with it.
+  */
+-type ChecksOf<S, X, K> = [K] extends ["read"]
++type ChecksOf<S, X, K> = [Kinds<X>] extends ["read"]
+ 	? ["read"] extends [K]
+ 		? WithinRoleContexts<S, ReadContexts<X>>
+ 		: AllChecks<S, X>

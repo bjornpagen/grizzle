@@ -1,0 +1,39 @@
+diff --git a/packages/engine/src/types/changeset/changeset.ts b/packages/engine/src/types/changeset/changeset.ts
+index 1a15fdbe..8ae1255b 100644
+--- a/packages/engine/src/types/changeset/changeset.ts
++++ b/packages/engine/src/types/changeset/changeset.ts
+@@ -1358,21 +1358,20 @@ export type PlannedStrata<X> = AppendsBeside<
+ 	X extends Phantom<{ readonly strata: infer St }> ? St : readonly []
+ >
+ 
+-/**
+- * The owners of S's ordered and counted families under the name of their member relation, a member of several families
+- * once with all their owners, and none under any other name: built once per schema, in one pass over its families, so
+- * a member's owners are one property read, as SequenceIndexOf reads an owner's sequences.
+- */
+-type RowOwnerIndexOf<S> = {
+-	readonly [Fa in RowFamilyOf<S> as NameOf<MemberRelationOf<Fa>>]: OwnerNameOf<Fa>
+-} & { readonly [member: string]: never }
+-
+-/**
+- * The immutable owners of the ordered and counted families R is a member of in S: one read of the schema's index
+- * (RowOwnerIndexOf), so insertAll's keys cost one each, however many families the schema holds.
+- */
++/** The immutable owners of the ordered and counted families R is a member of in S. */
+ type FixedOwnerOf<S, R> =
+-	string extends NameOf<R> ? never : Exclude<RowOwnerIndexOf<S>[NameOf<R>], MutableName<S>>
++	string extends NameOf<R>
++		? never
++		: Exclude<
++				RowFamilyOf<S> extends infer Fa
++					? Fa extends unknown
++						? [Extract<NameOf<MemberRelationOf<Fa>>, NameOf<R>>] extends [never]
++							? never
++							: OwnerNameOf<Fa>
++						: never
++					: never,
++				MutableName<S>
++			>
+ 
+ /** Whether R is a member of an ordered or a counted family of S, whose every write the engine plans as an edit. */
+ type IsFamilyMember<S, R> =

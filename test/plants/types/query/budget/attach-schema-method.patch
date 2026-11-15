@@ -1,0 +1,23 @@
+diff --git a/packages/engine/src/types/query/query.ts b/packages/engine/src/types/query/query.ts
+index 2e228cfb..66cfae65 100644
+--- a/packages/engine/src/types/query/query.ts
++++ b/packages/engine/src/types/query/query.ts
+@@ -510,16 +510,15 @@ export interface Query<
+ 	 * (DeliveredHeading), and keep the origins the parent's evidence records.
+ 	 */
+ 	attach<
+-		Over,
++		Over extends S,
+ 		const Name extends string,
+-		C extends Child<Over>,
++		C extends Child<S>,
+ 		CH,
+ 		CI,
+ 		const K extends DeliveryKind,
+ 		const F extends keyof Head & string,
+ 		const Hd extends string
+ 	>(
+-		this: QueryOver<Over>,
+ 		name: AttachmentName<Name, Head>,
+ 		child: (
+ 			parent: ParentVars<DeliveredHeading<Head, Hc>, Ev>

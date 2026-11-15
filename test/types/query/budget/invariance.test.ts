@@ -8,8 +8,9 @@
  * a parameter of another type and an order by a field one arm lacks, raises exactly the diagnostics, codes and
  * refusals, that it raises over the twin. Oracle: the twin, a program at the smallest scale the probes read.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): scale-keys-past-hundred.patch drops a schema's declared candidate keys
- * once it holds a hundred statements, which the twin never does and the program at scale does.
+ * @plant test/plants/types/schema/budget/scale-keys-past-hundred.patch A schema's declared candidate keys (KeyIndexOf)
+ * are dropped once it holds a hundred statements, which the twin never does and the program at scale does; the
+ * invariance property fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
