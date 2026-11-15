@@ -9,8 +9,11 @@
  * which is outside its pattern is refused by PostgreSQL, ReadFailure ParamRejected at stage execute, which a call
  * answers as an `input` CallError; every other case delivers exactly the values it bound.
  *
- * Plants (~/.cache/grizzle-release/LIVE-PARSE/plants): param-domain-uncast (a parameter's placeholder cast to its base,
- * so no domain checks it).
+ * @plant test/plants/pg/parameters/param-domain-uncast.patch A scalar parameter's placeholder is cast to its base
+ * (lower/conservative/context.ts scalarParam), so no domain checks it.
+ * @plant test/plants/pg/parameters/param-cast-to-field-domain.patch A parameter of a pattern a stored field declares is
+ * cast to that field's text domain rather than its own pattern domain (lower/conservative/context.ts paramTypeRef), so
+ * PostgreSQL's refusal names the field's domain and is no ParamRejected naming the parameter.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

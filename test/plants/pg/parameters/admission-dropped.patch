@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/program/compile.ts b/packages/engine/src/write/program/compile.ts
+index 22e762bf..cb33497b 100644
+--- a/packages/engine/src/write/program/compile.ts
++++ b/packages/engine/src/write/program/compile.ts
+@@ -1866,7 +1866,7 @@ const compile = (
+ 		},
+ 		heldUnits(frontend)
+ 	)
+-	const admission = buildAdmission(lowering.w, callerParams(frontend.params))
++	const admission: ReturnType<typeof buildAdmission> = undefined
+ 	const optimized = optimizedArtifact(restated, plan, lowering, admission, options)
+ 	unwrap(insertOnly(schema, optimized.statements, options.names, options.laws))
+ 	const family = familyProgram(restated, lowering.w)

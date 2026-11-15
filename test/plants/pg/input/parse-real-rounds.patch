@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/float.ts b/packages/engine/src/scalar/values/float.ts
+index c8a2e4e7..a95803f0 100644
+--- a/packages/engine/src/scalar/values/float.ts
++++ b/packages/engine/src/scalar/values/float.ts
+@@ -31,7 +31,7 @@ export const parseReal = (x: unknown): Result.Result<CanonicalFloat, ValueFault>
+ 		return Result.err("floatType")
+ 	}
+ 	const real = fround(x)
+-	return real === x || Number.isNaN(x) ? Result.ok(real) : Result.err("realInexact")
++	return toReal(x)
+ }
+ 
+ /**

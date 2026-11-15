@@ -26,8 +26,8 @@
  * skipWhenEmptyOf), which reads that input and no caller parameter; and a refined take bound, since a bound is an
  * integer the checker refuses to type by a contract or a pattern beside it (check/params.ts ParamCell.use).
  *
- * Plants (~/.cache/grizzle-release/CONTRACTDOMAIN/plants): admission-dropped.patch places no admission, so a code
- * outside its pattern after a colliding first stratum is refused by Item's key instead.
+ * @plant test/plants/pg/parameters/admission-dropped.patch A write places no admission (write/program/compile.ts), so a
+ * code outside its pattern after a colliding first stratum is refused by Item's key instead.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

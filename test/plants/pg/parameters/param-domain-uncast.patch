@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/context.ts b/packages/engine/src/lower/conservative/context.ts
+index e598c4d0..38d335e9 100644
+--- a/packages/engine/src/lower/conservative/context.ts
++++ b/packages/engine/src/lower/conservative/context.ts
+@@ -806,7 +806,7 @@ export class LowerContext {
+ 		if (p === undefined || p.kind === "relation") {
+ 			return refuse("MalformedDescription", at, `a declared scalar parameter ${param}`)
+ 		}
+-		const checked = this.paramTypeRef(p.type, { kind: "scalar", param })
++		const checked = this.baseTypeRef(p.type)
+ 		return p.kind === "clock"
+ 			? { kind: "clock", param: p.name, unit: p.unit, type: checked }
+ 			: this.params.scalar(param, type, checked)

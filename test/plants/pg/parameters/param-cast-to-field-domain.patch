@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/context.ts b/packages/engine/src/lower/conservative/context.ts
+index e598c4d0..c5691526 100644
+--- a/packages/engine/src/lower/conservative/context.ts
++++ b/packages/engine/src/lower/conservative/context.ts
+@@ -790,7 +790,7 @@ export class LowerContext {
+ 			const p = this.physicalType(t)
+ 			return p.kind === "type" ? p.ref : this.baseTypeRef(t)
+ 		}
+-		const domain = this.names.paramDomain(place, regex)
++		const domain = this.names.textDomain(regex) ?? this.names.paramDomain(place, regex)
+ 		return { kind: "named", schema: domain.schema, name: domain.name, typmod: [], array: false }
+ 	}
+ 
