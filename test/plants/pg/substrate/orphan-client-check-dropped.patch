@@ -1,0 +1,16 @@
+diff --git a/packages/pg/src/settings.ts b/packages/pg/src/settings.ts
+index 21d92b84..3ade8e3e 100644
+--- a/packages/pg/src/settings.ts
++++ b/packages/pg/src/settings.ts
+@@ -1,4 +1,3 @@
+-import type { Array as Arr } from "effect"
+ import { type Limit, measured } from "#compiler/core/limits.ts"
+ 
+ /**
+@@ -39,5 +38,4 @@ export const clientCheckInterval: Limit = measured({
+  * scripts/pg/doctor.sh requires each of every member exactly; never none, since the shell reads them a line each. The
+  * settings sized to the machine are size.ts clusterSize.
+  */
+-export const clusterSettings: Arr.NonEmptyReadonlyArray<readonly [setting: string, value: number]> =
+-	[["client_connection_check_interval", clientCheckInterval.value]]
++export const clusterSettings: ReadonlyArray<readonly [setting: string, value: number]> = []

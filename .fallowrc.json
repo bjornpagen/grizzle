@@ -14,6 +14,7 @@
 		"scripts/dev/profile/read.ts",
 		"scripts/gen/allen/main.ts",
 		"packages/pg/src/cluster.ts",
+		"packages/pg/src/cluster-settings.ts",
 		"packages/pg/src/cluster-size.ts",
 		"packages/pg/src/family-cli.ts",
 		"packages/pg/src/foreign-postmasters.ts",

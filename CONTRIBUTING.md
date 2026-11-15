@@ -94,6 +94,10 @@ through (the toolchain's `vendor/toolchain/packages/devtools/bin/gate.sh`): a co
       `shared_buffers` each worker's database, no more, since PostgreSQL scans every shared buffer at each commit that
       drops a relation, and `max_pred_locks_per_transaction` a worker's predicate locks for each worker, spread over
       the connections, since every index drop and every read of `pg_locks` scans the whole predicate-lock table;
+    - the same on every member whatever the machine (`packages/pg/src/settings.ts` `clusterSettings`,
+      `packages/pg/src/cluster-settings.ts`): `client_connection_check_interval = 1000`, so a backend whose client died
+      mid-statement (a test process ended by its hang guard or a SIGKILL) ends at its next poll of the client and lets
+      go of its transaction id, which every logical slot's creation on the member waits behind;
     - a local CA and server certificate, plus an unrelated CA for the refusal tests;
     - the role `grizzle_dev` (the migration identity and owner, not a superuser, with CREATEROLE to create the logins
       and world roles a migration declares, and REPLICATION), with SET on `deadlock_timeout`;
@@ -101,8 +105,8 @@ through (the toolchain's `vendor/toolchain/packages/devtools/bin/gate.sh`): a co
       runs `deadlock_timeout = 10ms` and `default_transaction_isolation = serializable` as its own defaults, and commits
       synchronously, PostgreSQL's default, so a VACUUM after a load settles the visibility map
       (`test/support/pg.ts` `testDatabaseSettings`).
-- **`pnpm pg:doctor`** is the go/no-go check: version and build, the machine's sizing, `jit` off,
-  `max_pred_locks_per_relation`, `wal_level`,
+- **`pnpm pg:doctor`** is the go/no-go check: version and build, the machine's sizing, the settings every member
+  holds, `jit` off, `max_pred_locks_per_relation`, `wal_level`,
   extensions, locale, money formatting, `ON CONFLICT DO SELECT`, verify-full TLS with a wrong CA, a wrong host name
   and plaintext all refused, and the owner's SET on `deadlock_timeout`. `--quick` runs the checks
   that need no scratch database, and every database test run starts with it.

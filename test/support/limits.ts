@@ -4,11 +4,13 @@
  * counted budget (its runs, required cases, exhaustive space and shrink candidates), however busy the machine is. The
  * tiers choose one number, how long one case, hook or wait may run before it is judged hung, measured on their own
  * runs; every other bound a test reads derives from it, is a published constant, or is read from the machine the tests
- * run on.
+ * run on. One property is a time itself, how soon a killed client's backend ends under the cluster's client check
+ * (orphanExitBound), and its slack is measured on its own.
  */
 import { Duration } from "effect"
 import { derived, type Limit, measured, published } from "#compiler/core/limits.ts"
 import { testPoolMax } from "#pg/lease.ts"
+import { clientCheckInterval } from "#pg/settings.ts"
 
 /**
  * How long one case of a search, one hook of `pnpm test`, one substrate's build past its lease, or one wait inside a
@@ -145,6 +147,47 @@ export const backendWaitStep: Limit = published({
 	quote:
 		"Wait in steps of waittime milliseconds until this function exits or timeout. [...] int64 waittime = 100;",
 	verified: "2026-11-15"
+})
+
+/**
+ * How long past the cluster's client check interval (packages/pg/src/settings.ts clientCheckInterval) a test gives the
+ * backend of a client it killed mid-statement to be seen gone from pg_stat_activity: the backend's exit once its poll
+ * finds the socket closed, and the test's own step to see it (backendWaitStep). A backend that polls no client never
+ * leaves, so no slack passes it.
+ */
+const orphanExitSlack: Limit = measured({
+	value: 1000,
+	owner: "grizzle's network tier (test/pg/substrate/orphan.test.ts)",
+	unit: "milliseconds",
+	scope:
+		"one backend of a client a test killed mid-statement, from the kill plus the client check interval until the test sees it gone from pg_stat_activity",
+	evidence:
+		"~/.cache/grizzle-release/ORPHAN/run/lag.sh <socket directory> 10 against a throwaway postmaster at client_connection_check_interval = 1000: for each of three statements holding a transaction id (a recursive CTE that never ends, pg_sleep('infinity'), a wait on an advisory lock another session holds), a psql client SIGKILLed once pg_stat_activity shows the statement running, and the milliseconds from the kill until pg_stat_activity, read by psql back to back, lists its backend no more; its output kept at ~/.cache/grizzle-release/ORPHAN/out/lag.txt on cassowary",
+	observed: "2026-11-15 14:19:40 to 14:20:11 UTC, one run",
+	environment:
+		"cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores, load average 23 to 30 from other sessions; a throwaway postmaster of the pinned PostgreSQL 19rc2 build (scripts/pg/pin.env) at initdb's defaults, no other session on it; grizzle 17b28413",
+	workload: "thirty kills, ten of each statement, one at a time",
+	result:
+		"999 to 1,017 ms from kill to gone, at most 17 ms past the interval: the recursive CTE 1,011 to 1,017, pg_sleep 999 to 1,005, the lock wait 1,000 to 1,005; every backend logged FATAL connection to client lost. No run on a loaded machine",
+	decision:
+		"1,000 ms, about 58 times the most observed past the interval, which takes in the test's own step of 100 ms (backendWaitStep) and the exit's lag on a machine far busier than the measured one, unmeasured: the network tier's full runs load cassowary to 340 to 440 (hangLimit). A backend that polls no client never leaves, so a red case waits this once and no slack could pass it",
+	revalidate:
+		"a case red on a loaded machine whose backend did leave; a change to the client check interval; a PostgreSQL repin; another machine"
+})
+
+/**
+ * How long a test waits, from killing a client mid-statement, for its backend to be seen gone from pg_stat_activity:
+ * the cluster's client check interval, then the slack for the exit and the test's step (orphanExitSlack).
+ */
+export const orphanExitBound: Limit = derived({
+	owner: "grizzle's network tier (test/pg/substrate/orphan.test.ts)",
+	unit: "milliseconds",
+	scope:
+		"one backend of a client a test killed mid-statement, from the kill until the test sees it gone from pg_stat_activity",
+	from: [clientCheckInterval, orphanExitSlack],
+	derivation:
+		"a backend polls its client once each interval while its statement runs (the timer start_xact_command arms and each poll re-arms, REL_19_RC2 src/backend/tcop/postgres.c#L2818 and #L3453), so its first poll after the kill comes at most one interval later; the slack takes in its exit and the test's step to see it",
+	compute: ([interval, slack]) => interval.value + slack.value
 })
 
 /**

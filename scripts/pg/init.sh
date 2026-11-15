@@ -20,6 +20,9 @@ require_build
 # and as postgresql.conf lines, read before an existing family is deleted.
 sized_settings="$(cluster_size)"
 sized="${sized_settings// / = }"
+# The settings every member holds exactly, whatever the machine (lib.sh cluster_settings), in both forms.
+fixed_settings="$(cluster_settings)"
+fixed="${fixed_settings// / = }"
 size="$(family_cli size)"
 family_file="$(family_cli file)"
 
@@ -138,6 +141,10 @@ create_member() {
 	# A connection lease for each network worker this member serves (its share of the cores over the family's members),
 	# and each such worker's database in shared buffers (packages/pg/src/size.ts clusterSize, family.ts memberShare).
 	$sized
+	# The settings every member holds exactly, whatever the machine (packages/pg/src/settings.ts clusterSettings): among
+	# them a running statement's poll of its client's socket, so a backend whose client died mid-statement ends at its
+	# next poll and lets go of its transaction id.
+	$fixed
 	EOF
 
 	cat > "$GRIZZLE_PG_DATA/pg_hba.conf" <<-EOF
@@ -204,14 +211,14 @@ create_member() {
 }
 
 # Sizes the running member whose environment is declared to its share of this machine, the settings create_member
-# writes (lib.sh cluster_size), and restarts it, since shared_buffers and max_connections take effect only at a start.
-# So a family that grows keeps the memory it had, divided over more members, never a kept member's old share beside
-# the new members' smaller ones.
+# writes (lib.sh cluster_size), gives it the settings every member holds (lib.sh cluster_settings), and restarts it,
+# since shared_buffers and max_connections take effect only at a start. So a family that grows keeps the memory it had,
+# divided over more members, never a kept member's old share beside the new members' smaller ones.
 resize_member() {
 	local setting value
 	while read -r setting value; do
 		admin_psql -d postgres -c "ALTER SYSTEM SET $setting = $value"
-	done <<<"$sized_settings"
+	done <<<"$sized_settings"$'\n'"$fixed_settings"
 	"$(pg_bin pg_ctl)" -D "$GRIZZLE_PG_DATA" -l "$GRIZZLE_PG_LOG/startup.log" -w restart >/dev/null
 	echo "Member sized to its share: PostgreSQL $PG_PIN_VERSION on localhost:$PG_PORT"
 }

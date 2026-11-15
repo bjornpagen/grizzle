@@ -69,6 +69,12 @@ cluster_size() {
 	pg_node cluster-size.ts
 }
 
+# The settings every member holds exactly, whatever the machine, one "<setting> <value>" line each, the value in the
+# setting's own unit: packages/pg/src/settings.ts clusterSettings, which init.sh writes and doctor.sh requires.
+cluster_settings() {
+	pg_node cluster-settings.ts
+}
+
 admin_psql() {
 	"$(pg_bin psql)" -X -q -v ON_ERROR_STOP=1 -h "$GRIZZLE_PG_SOCKET" -p "$PG_PORT" -U postgres "$@"
 }

@@ -63,6 +63,16 @@ check_member() {
 		fail "the cluster's size for this machine" "scripts/pg/lib.sh cluster_size failed"
 	fi
 
+	# Each setting every member holds exactly, whatever the machine, holds what lib.sh cluster_settings gives it.
+	if fixed="$(cluster_settings)"; then
+		while read -r setting value; do
+			check "$setting is $value, as every member's" "$value" \
+				"$(admin_psql -d postgres -At -c "SELECT setting FROM pg_catalog.pg_settings WHERE name = '$setting'")"
+		done <<<"$fixed"
+	else
+		fail "the settings every member holds" "scripts/pg/lib.sh cluster_settings failed"
+	fi
+
 	# Every table the connection lease locks exists: the cluster creates them (init.sh), never a lease.
 	if leased="$(lease_tables)"; then
 		check "the connection lease's $(wc -l <<<"$leased") tables exist" "" \
