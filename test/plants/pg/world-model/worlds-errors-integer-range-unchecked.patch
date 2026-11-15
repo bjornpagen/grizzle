@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/scalar/values/integer.ts b/packages/engine/src/scalar/values/integer.ts
+index 8512c206..0c82098c 100644
+--- a/packages/engine/src/scalar/values/integer.ts
++++ b/packages/engine/src/scalar/values/integer.ts
+@@ -10,7 +10,7 @@ const checkNumber = (
+ 	if (typeof value !== "number" || !Number.isInteger(value)) {
+ 		return Result.err("integerType")
+ 	}
+-	if (value < min || value > max) {
++	if (value < min && value > max) {
+ 		return Result.err("integerRange")
+ 	}
+ 	return Result.ok(value === 0 ? 0 : value)
+@@ -33,7 +33,7 @@ export const toInt8 = (value: unknown): Result.Result<bigint, ValueFault> => {
+ 	if (typeof value !== "bigint") {
+ 		return Result.err("integerType")
+ 	}
+-	if (value < int8Min.value || value > int8Max.value) {
++	if (value < int8Min.value && value > int8Max.value) {
+ 		return Result.err("integerRange")
+ 	}
+ 	return Result.ok(value)

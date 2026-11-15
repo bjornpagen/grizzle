@@ -40,7 +40,10 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
  * The suite is the unbiased explorer: it aims at nothing, so it requires only what its generator reaches by construction
  * (`required`), and the aimed suites of each area require that area's features of the worlds feature map.
  *
- * Plants (main's test phase): worlds-pool-claims-outlive-transaction.patch, worlds-laws-foreign-keys-dropped.patch.
+ * Plants (main's test phase): worlds-laws-foreign-keys-dropped.patch.
+ *
+ * @plant test/plants/pg/world-model/worlds-pool-claims-outlive-transaction.patch A Db's claims set for the session, not
+ * the transaction, so a pooled connection holds them between transactions; the driver's probe fails.
  */
 const guide: Arr.NonEmptyReadonlyArray<string> = [
 	"packages/engine/src/schema/world.ts",

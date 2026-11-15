@@ -32,7 +32,8 @@ import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types
  * recursive query. Beside the model, a shown witness carries only what the writer submitted or holds whole
  * (drive/acting.ts witnessesShowTheirOwn).
  *
- * Plants (main's test phase): worlds-rules-span-key-overlaps.patch.
+ * @plant test/plants/pg/world-model/worlds-rules-span-key-overlaps.patch A span key installed without WITHOUT
+ * OVERLAPS, so a write whose span overlaps a stored one of its key is accepted where the model refuses it.
  */
 const focus: Focus = ["open-db", "apply", "read", "close", "direct-begin", "direct", "direct-end"]
 

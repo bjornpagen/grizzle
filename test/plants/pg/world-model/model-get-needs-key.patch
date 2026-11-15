@@ -1,0 +1,20 @@
+diff --git a/test/support/worlds/model/reads.ts b/test/support/worlds/model/reads.ts
+index a6053e06..0d9030cb 100644
+--- a/test/support/worlds/model/reads.ts
++++ b/test/support/worlds/model/reads.ts
+@@ -4,6 +4,7 @@ import type { ValueIdentity } from "#test/support/kernel/identity.ts"
+ import { sameValue, sameValues } from "#test/support/laws/model.ts"
+ import { factKey, fieldDomain, headFieldDomain } from "#test/support/worlds/model/host.ts"
+ import { inFieldDomain } from "#test/support/worlds/model/session/domains.ts"
++import { entryKeyed } from "#test/support/worlds/model/session/keys.ts"
+ import { relationSpecOf, roleEntryOf } from "#test/support/worlds/model/session/state.ts"
+ import type {
+ 	BaseSpec,
+@@ -58,6 +59,7 @@ export const getCompiles = (
+ 	const entry = roleEntryOf(role, relation)
+ 	return (
+ 		entry !== undefined &&
++		entryKeyed(base, entry, Rec.keys(key)) &&
+ 		Arr.every(Rec.toEntries(key), ([field, value]) => {
+ 			const domain = entryFieldDomain(base, entry, field)
+ 			return domain !== undefined && inFieldDomain(domain, value)

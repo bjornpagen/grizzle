@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/ddl/isolation.ts b/packages/engine/src/physical/ddl/isolation.ts
+index a9088383..2dda46a7 100644
+--- a/packages/engine/src/physical/ddl/isolation.ts
++++ b/packages/engine/src/physical/ddl/isolation.ts
+@@ -51,7 +51,7 @@ const refuseBelowSerializable: PlStatement = {
+ 					kind: "raise",
+ 					message: "a write to a grizzle table requires SERIALIZABLE",
+ 					using: [
+-						{ option: "ERRCODE", value: lit.text("invalid_transaction_state", types.text) },
++						{ option: "ERRCODE", value: lit.text("insufficient_privilege", types.text) },
+ 						{ option: "SCHEMA", value: tgSpecial("TG_TABLE_SCHEMA") },
+ 						{ option: "TABLE", value: tgSpecial("TG_TABLE_NAME") },
+ 						{ option: "HINT", value: lit.text("write at SERIALIZABLE", types.text) }

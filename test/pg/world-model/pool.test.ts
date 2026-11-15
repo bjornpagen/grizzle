@@ -25,7 +25,8 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
  * (invalid:session:after-refusal) is the inductive suite's, whose drawn states hold a direct transaction a refusal
  * aborted (pg/world-model/inductive).
  *
- * Plants (main's test phase): worlds-pool-claims-outlive-transaction.patch.
+ * @plant test/plants/pg/world-model/worlds-pool-claims-outlive-transaction.patch A Db's claims set for the session,
+ * not the transaction, so the pooled connection holds them between transactions; the driver's probe fails.
  */
 const pooled: Focus = [
 	"open-db",

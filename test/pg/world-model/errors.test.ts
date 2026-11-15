@@ -29,7 +29,10 @@ import type { ActionOutcome } from "#test/support/worlds/model/types.ts"
  * that fact's values. A tamper changes database settings, so the file runs in a database of its own. A token that does not decode
  * through a role's contexts is the claims suite's (isolation-claims.test.ts).
  *
- * Plants (main's test phase): worlds-errors-integer-range-unchecked.patch, worlds-direct-guard-sqlstate.patch.
+ * @plant test/plants/pg/world-model/worlds-errors-integer-range-unchecked.patch The encoder's integer range check
+ * dropped, so a value past its integer type's range reaches PostgreSQL; the refusal disagrees with the model's.
+ * @plant test/plants/pg/world-model/worlds-direct-guard-sqlstate.patch The isolation guard raises 42501, not 25000; a
+ * direct writer's refusal disagrees with the model.
  */
 const refusals: ReadonlyArray<ActionOutcome["kind"]> = [
 	"open-refused",

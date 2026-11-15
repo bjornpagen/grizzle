@@ -1,0 +1,13 @@
+diff --git a/test/support/worlds/execute/writer.ts b/test/support/worlds/execute/writer.ts
+index 47fc18a7..47628c0c 100644
+--- a/test/support/worlds/execute/writer.ts
++++ b/test/support/worlds/execute/writer.ts
+@@ -55,7 +55,7 @@ const fieldTexts = (fields: PgErrorFields): ReadonlyArray<Found> => [
+ 	{ field: "message", text: fields.message },
+ 	...Option.match(fields.detail, {
+ 		onNone: () => [],
+-		onSome: (text): ReadonlyArray<Found> => [{ field: "detail", text }]
++		onSome: (_text): ReadonlyArray<Found> => []
+ 	}),
+ 	...Option.match(fields.hint, {
+ 		onNone: () => [],

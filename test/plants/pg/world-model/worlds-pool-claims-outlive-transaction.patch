@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/ledger/ledger.ts b/packages/engine/src/deploy/ledger/ledger.ts
+index 8a9b8d78..258ed590 100644
+--- a/packages/engine/src/deploy/ledger/ledger.ts
++++ b/packages/engine/src/deploy/ledger/ledger.ts
+@@ -385,7 +385,7 @@ export const ledgerStatements = (schema: string): Result.Result<LedgerStatements
+ 			[
+ 				targetAs(guardCall(schema), "c1"),
+ 				targetAs(localSetting("role", 2), "c2"),
+-				targetAs(localSetting(claimsSettingName, 3), "c3")
++				targetAs(call("set_config", [lit.text(claimsSettingName, types.text), param(3, types.text), lit.bool(false)]), "c3")
+ 			],
+ 			[],
+ 			undefined

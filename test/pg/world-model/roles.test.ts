@@ -58,7 +58,8 @@ import {
  * target are exactly the ones README "Security model" derives from the classification (worlds/privileges.ts
  * expectedPrivileges), and Db.open of its role, with a token whose claims it reads, opens as the worlds model says.
  *
- * Plants (main's test phase): worlds-roles-login-creates-in-schema.patch.
+ * @plant test/plants/pg/world-model/worlds-roles-login-creates-in-schema.patch A login granted CREATE beside USAGE on
+ * the base schema; its privileges differ from the ones README "Security model" derives.
  */
 
 const integer = { kind: "integer", bits: 32 } as const

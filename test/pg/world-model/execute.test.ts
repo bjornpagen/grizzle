@@ -45,7 +45,8 @@ import type {
  * The table, the key value or the id is the planted value: a scan that stopped reading a field, or read it under
  * another name, would let a real leak pass every suite unseen.
  *
- * Plants (main's test phase): worlds-leak-scan-skips-detail.patch.
+ * @plant test/plants/pg/world-model/worlds-leak-scan-skips-detail.patch The leak scan stops reading a direct writer's
+ * refusal's DETAIL, so a key value planted there goes unreported.
  */
 
 /** A statement a direct writer sends on a relation's table. */

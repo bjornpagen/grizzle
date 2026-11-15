@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/admission/drift.ts b/packages/grizzle/src/adapter/admission/drift.ts
+index 00c9830e..98ddb521 100644
+--- a/packages/grizzle/src/adapter/admission/drift.ts
++++ b/packages/grizzle/src/adapter/admission/drift.ts
+@@ -970,7 +970,7 @@ const compareDescriptions = (
+ 			out.push({ kind: "unexpected", fact: fact(key, have) })
+ 		}
+ 	}
+-	for (const [key, have] of installed) {
++	for (const [key, have] of expected) {
+ 		if (!expected.has(key)) {
+ 			out.push({ kind: "unexpected", fact: fact(key, have) })
+ 		}

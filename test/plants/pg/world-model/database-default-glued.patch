@@ -1,0 +1,22 @@
+diff --git a/test/support/compile.ts b/test/support/compile.ts
+index 1242b205..ba6c7396 100644
+--- a/test/support/compile.ts
++++ b/test/support/compile.ts
+@@ -86,7 +86,7 @@ import {
+ } from "#compiler/schema/own.ts"
+ import type { Cte, OperandSelect, Select, SqlStatement } from "#compiler/sql/ast.ts"
+ import { col, cteRef, provedCore, select, target } from "#compiler/sql/build.ts"
+-import { printCommands } from "#compiler/sql/print.ts"
++import { printCommands, printStatement } from "#compiler/sql/print.ts"
+ import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
+ import type { AnySchema } from "#compiler/types/schema/schema.ts"
+ import type { AnyRole } from "#compiler/types/schema/world.ts"
+@@ -706,7 +706,7 @@ export interface DraftedScript {
+ 
+ /** `statements` printed as `grizzle generate` drafts them, each as its commands (DraftedScript). */
+ const drafted = (statements: ReadonlyArray<SqlStatement>): DraftedScript => ({
+-	statements: Arr.flatMap(statements, (statement) => printCommands(statement))
++	statements: Arr.map(statements, (statement) => printStatement(statement))
+ })
+ 
+ /** An installation's script as `grizzle generate` drafts it, in install order (drafted). */
