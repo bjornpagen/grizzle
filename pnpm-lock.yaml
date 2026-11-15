@@ -327,8 +327,6 @@ importers:
 
   packages/experiments/axisindex-repin-cost: {}
 
-  packages/experiments/edullm-repin: {}
-
   packages/experiments/ssi-summary: {}
 
   packages/grizzle:
