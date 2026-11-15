@@ -46,6 +46,9 @@ import { checked } from "#test/types/batch/batch.ts"
  * delete after a put in one stratum is admitted; the agreement's program fails.
  * @plant test/plants/types/changeset/types-put-beside-doomed-admitted.patch A put beside a whole delete of its row in
  * one stratum is admitted (DoomedRefusal never refuses); the agreement's program fails.
+ * @plant test/plants/unit/write/owner-put-beside-whole-delete-compiled.patch The engine compiles a put beside a whole
+ * delete of its row in one stratum (write/frontend/compile.ts skips its refusal for a put), which the types refuse:
+ * the agreement's program fails, and so does the floor's, its three put-beside-a-whole-delete faults admitted.
  * @plant test/plants/types/changeset/types-union-doomed-admitted.patch A union's UnionDoomed never refuses, so one
  * operand's put of a row the other removes whole in an aligned stratum is admitted; the agreement's program fails.
  * @plant test/plants/types/changeset/types-delete-keyed.patch A delete's facts are judged at the primary key, so two
