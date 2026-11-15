@@ -109,6 +109,9 @@ interface Lit {
  */
 const widened: Lit = { text: "widened", value: "^[a-z]+$" }
 
+/** A digits pattern's text, of the widened value's length, every character once: a map opposite it, either way. */
+const digitsPattern: Lit = { text: '"^[0-9]+$"', value: "^[0-9]+$" }
+
 /**
  * The JavaScript values a case draws, the values the catalogue's literal typing branches on: numbers whole and not,
  * zero and negative; bigints; exact decimal strings and other text, patterns well formed and not; a boolean; a uuid; a
@@ -127,7 +130,7 @@ const lits: Arr.NonEmptyReadonlyArray<Lit> = [
 	{ text: '"2.50"', value: "2.50" },
 	{ text: '"0"', value: "0" },
 	{ text: '"x"', value: "x" },
-	{ text: '"^[0-9]+$"', value: "^[0-9]+$" },
+	digitsPattern,
 	{ text: '"a("', value: "a(" },
 	{ text: "true", value: true },
 	{ text: '"00000000-0000-4000-8000-000000000001"', value: "00000000-0000-4000-8000-000000000001" },
@@ -374,6 +377,24 @@ const digestNotes = [
 ] as const
 type DigestNote = (typeof digestNotes)[number]
 
+/**
+ * What a translate at a case's root reaches where its map is the widened value, a string TypeScript types as string,
+ * as its from or its to: a map computed at run time, whose values the engine judges as a literal map's, so where the
+ * engine admits it the types take it as any string and type the result text.
+ */
+const mapNotes = ["a translate over a map typed string, admitted"] as const
+type MapNote = (typeof mapNotes)[number]
+
+/** What a translate over the widened value reached (mapNotes): none for any other case. */
+const mapNotesOf = (spec: CaseSpec, verdict: Verdict): ReadonlyArray<MapNote> =>
+	verdict.kind === "admitted" &&
+	spec.kind === "term" &&
+	spec.term.kind === "apply" &&
+	spec.term.fn === "translate" &&
+	Arr.some(Arr.drop(spec.term.args, 1), (o) => o.kind === "literal" && o.lit === widened)
+		? ["a translate over a map typed string, admitted"]
+		: []
+
 /** What a digest case reached (digestNotes): none for any other case. */
 const digestNotesOf = (spec: CaseSpec, verdict: Verdict): ReadonlyArray<DigestNote> => {
 	if (spec.kind !== "digest") {
@@ -532,6 +553,7 @@ export type ComputeNote =
 	| HeadingNote
 	| ByteNote
 	| DigestNote
+	| MapNote
 	| ContractNote
 	| ContestedNote
 	| FamilyNote
@@ -3842,6 +3864,9 @@ const caseOf = ({ spec, reached }: Drawn): ComputeCase => {
 	for (const note of digestNotesOf(spec, verdict)) {
 		notes.add(note)
 	}
+	for (const note of mapNotesOf(spec, verdict)) {
+		notes.add(note)
+	}
 	for (const note of contractNotesOf(spec, verdict)) {
 		notes.add(note)
 	}
@@ -3942,7 +3967,8 @@ const expressionOf = (rendering: Rendering, spec: CaseSpec): string => {
 /**
  * The situations the floor's witnesses reach beside the verdicts, Refusals, decisions and inferences: every construct,
  * each admitted but a literal standing first, and each refused but the byte guard, whose casts the types always admit;
- * a column read through a heading both ways; and each byte guard situation (byteNotes).
+ * a column read through a heading both ways; each byte guard situation (byteNotes); and a translate over a map
+ * TypeScript types as string, admitted (mapNotes).
  */
 export const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
 	...computeFeatures,
@@ -3953,6 +3979,7 @@ export const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
 	...exactLiteralNotes,
 	...byteNotes,
 	...digestNotes,
+	...mapNotes,
 	...contractNotes,
 	contestedNote,
 	...Arr.map(
@@ -3994,6 +4021,38 @@ const reachedBy = (c: ComputeCase): ReadonlyArray<Reached<ComputeNote>> => [
 
 /** The cases each root's stratum of the floor draws. */
 const rootCount = 12
+
+/**
+ * The translates whose map is the widened value, so the floor reaches mapNotes by construction, whatever its draws: a
+ * text parameter translated from the widened value to the digits pattern, and a word from the digits pattern to the
+ * widened value, both maps of one length with every character once, which both admit, typed text.
+ */
+const mapKept: Arr.NonEmptyReadonlyArray<Extract<CaseSpec, { readonly kind: "term" }>> = [
+	{
+		kind: "term",
+		term: {
+			kind: "apply",
+			fn: "translate",
+			args: [
+				{ kind: "param", name: "p0", field: "text" },
+				{ kind: "literal", lit: widened },
+				{ kind: "literal", lit: digitsPattern }
+			]
+		}
+	},
+	{
+		kind: "term",
+		term: {
+			kind: "apply",
+			fn: "translate",
+			args: [
+				{ kind: "field", field: "word" },
+				{ kind: "literal", lit: digitsPattern },
+				{ kind: "literal", lit: widened }
+			]
+		}
+	}
+]
 
 /**
  * One digest case per digest note, so the floor reaches each by construction, whatever its draws: the pantry's
@@ -4053,7 +4112,8 @@ const keptStratum = (): Readonly<{
 	const values = [
 		...Arr.map(digestKept, (spec) => caseOf({ spec, reached: new Set(["digest"]) })),
 		...Arr.map(bytesKept, (spec) => caseOf({ spec, reached: new Set(["byte guard"]) })),
-		...Arr.map(overlapKept, (spec) => caseOf({ spec, reached: new Set(["when", "matches"]) }))
+		...Arr.map(overlapKept, (spec) => caseOf({ spec, reached: new Set(["when", "matches"]) })),
+		...Arr.map(mapKept, (spec) => caseOf({ spec, reached: new Set(["translate"]) }))
 	]
 	const tally = tallyOf("floor")
 	for (const value of values) {
@@ -4065,8 +4125,8 @@ const keptStratum = (): Readonly<{
 /**
  * The floor's witnesses: one stratum per construct, each drawn under its own label alone with the construct at its
  * root, so the floor is the same in every run and every construct is drawn often enough to meet both verdicts, and the
- * kept cases (keptStratum), which reach the digest's and the byte guard's notes and a match's overlap by construction;
- * they are the only cases whose constructs and verdicts meet the required situations
+ * kept cases (keptStratum), which reach the digest's and the byte guard's notes, a match's overlap and a map typed string
+ * by construction; they are the only cases whose constructs and verdicts meet the required situations
  * (test/types/compute/compute.test.ts).
  */
 export const computeWitnesses = () => [

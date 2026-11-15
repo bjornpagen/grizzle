@@ -1074,14 +1074,16 @@ export interface ComputeApi {
 	 * character to a wider one. Admitted in contract predicates, row checks and generated fields; in a query only over a
 	 * text whose type bounds it within 268,435,454 bytes, since PostgreSQL's translate allocates four bytes for every
 	 * byte of its operand and refuses past 1 GB. The engine reads from and to before the subject, so a subject that is no
-	 * term is refused as one only beside two strings.
+	 * term is refused as one only beside two strings. from and to are read as every operand is (Fit): a literal keeps
+	 * its type, and a string TypeScript types as string, a map computed at run time, is a string here too, whose values
+	 * compilation judges as a literal map's.
 	 */
 	translate<A extends TermBase | FirstValue, X, PA, OA, const Fr, const To>(
 		x: A &
 			(Every<[Takes<Fr, string>, Takes<To, string>]> extends true ? FirstTerm<A> : unknown) &
 			InputTerm<X, PA, OA, "text">,
-		from: Fr & string,
-		to: To & string
+		from: Fit<Fr, string>,
+		to: Fit<To, string>
 	): Admitted<
 		Every<[TakesFirst<A, "text">, Takes<Fr, string>, Takes<To, string>]>,
 		Term<string, PA, ComputedOrigin<OA>, "text">

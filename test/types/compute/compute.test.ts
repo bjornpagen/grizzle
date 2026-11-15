@@ -20,9 +20,13 @@ import { checked } from "#test/types/batch/batch.ts"
  * admitted case's term type, SQL type, head and parameters equal the engine's, each asserted exactly.
  *
  * The floor's witnesses, the same in every run, reach every construct admitted and, where the catalogue can refuse it,
- * refused, every Refusal the Compute catalogue names, and every inference the program asserts, so the program is never
- * vacuous on any seed.
+ * refused, every Refusal the Compute catalogue names, every inference the program asserts, and a translate over a map
+ * TypeScript types as string, admitted, so the program is never vacuous on any seed.
  *
+ * @plant test/plants/types/compute/translate-map-intersection.patch translate types its map as `Fr & string` and
+ * `To & string` again, from which TypeScript infers nothing for a string typed string, so a translate over a map
+ * computed at run time, which the engine admits, is typed never; the kept translates over the widened value fail their
+ * type assertions and the agreement's program fails.
  * @plant test/plants/types/compute/compute-literal-first.patch A literal is admitted as an operation's first operand
  * (types/compute/scalar.ts FirstTerm answers unknown for a JavaScript value); the agreement's program fails.
  */

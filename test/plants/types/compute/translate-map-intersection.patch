@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/types/compute/compute.ts b/packages/engine/src/types/compute/compute.ts
+index e0a96a7b..76153ae7 100644
+--- a/packages/engine/src/types/compute/compute.ts
++++ b/packages/engine/src/types/compute/compute.ts
+@@ -1082,8 +1082,8 @@ export interface ComputeApi {
+ 		x: A &
+ 			(Every<[Takes<Fr, string>, Takes<To, string>]> extends true ? FirstTerm<A> : unknown) &
+ 			InputTerm<X, PA, OA, "text">,
+-		from: Fit<Fr, string>,
+-		to: Fit<To, string>
++		from: Fr & string,
++		to: To & string
+ 	): Admitted<
+ 		Every<[TakesFirst<A, "text">, Takes<Fr, string>, Takes<To, string>]>,
+ 		Term<string, PA, ComputedOrigin<OA>, "text">
