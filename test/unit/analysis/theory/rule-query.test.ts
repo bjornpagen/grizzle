@@ -49,9 +49,10 @@
  * @plant test/plants/unit/analysis/theory/rule-literal-binding-first.patch An equation binding a literal written
  * literal first, which the checker refuses, and a literal binding substituted for its definition's variable, which
  * carries it first into the definition's conditions (analysis/theory/query.ts equal and its inlining); the first box
- * must fail, and does not yet.
- * @plant test/plants/unit/analysis/theory/rule-text-meet-narrowed.patch Two texts of different patterns met as the
- * first's pattern, not the wildcard (scalar/compute/types.ts commonType); the second box must fail, and does not yet.
+ * fails, at a trigger probe.
+ * @plant test/plants/unit/analysis/theory/rule-text-correlation-refused.patch A negated text correlated with a region
+ * text of another pattern refused, as the check c2f719c1 deleted refused it (check/checker.ts correlatedBinding); the
+ * second box fails.
  * @plant test/plants/unit/analysis/theory/rule-head-literal-untyped.patch A bare head literal left untyped where a
  * term of its column stands (analysis/theory/query.ts); the third box fails.
  * @plant test/plants/unit/analysis/theory/rule-negation-conjunction-whole.patch A conjunction holding a negation read
@@ -69,8 +70,11 @@ import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import * as Result from "#compiler/core/result.ts"
 import { numericMaxPrecision, numericMaxScale } from "#compiler/ir/carriers.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { TableConstraintLaw } from "#compiler/laws/model/model.ts"
 import { theoryViolations } from "#compiler/laws/model/violations.ts"
+import { completeInstallOptions } from "#compiler/physical/complete.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { type Law, sameLaw } from "#compiler/public/changeset.ts"
 import { Decimal, pg } from "#compiler/public/fields.ts"
@@ -86,17 +90,38 @@ import {
 	select
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { installationsOf, rostersOf } from "#compiler/schema/own.ts"
 import { assert } from "#test/support/assert.ts"
 import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { ownedInput } from "#test/support/policy.ts"
 
 /**
  * A schema's artifacts with its laws' violation queries written, each rule over a query's checked against the checked
- * schema (laws/model/violations.ts theoryViolations), as generate writes them into the snapshot.
+ * schema (laws/model/violations.ts theoryViolations), as generate writes them into the snapshot, and its installation
+ * compiled as generate drafts it (physical/install/compile.ts compileInstallation over the complete install options),
+ * every trigger probe of each rule over a query among it (physical/ddl/rules.ts newProbes and oldProbes, each checked
+ * as a query).
  */
 const compiledOf = (schema: FixtureSchema): Result.Result<SchemaArtifacts, CompileError> =>
 	Result.flatMap(testArtifacts(schema, testCompile), (artifacts) =>
-		Result.map(theoryViolations(artifacts.laws.checked, artifacts.laws.theory), () => artifacts)
+		Result.flatMap(theoryViolations(artifacts.laws.checked, artifacts.laws.theory), () =>
+			Result.flatMap(ownedInput(schema), (owned) =>
+				Result.map(
+					compileInstallation(
+						owned,
+						completeInstallOptions(
+							owned,
+							installationsOf(owned),
+							[],
+							[],
+							firstCodebook(rostersOf(owned))
+						)
+					),
+					() => artifacts
+				)
+			)
+		)
 	)
 
 /** How a definition binds a field: by a variable, or by a literal, which takes the type of the field it meets. */
