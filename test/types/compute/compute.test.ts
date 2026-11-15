@@ -23,8 +23,8 @@ import { checked } from "#test/types/batch/batch.ts"
  * refused, every Refusal the Compute catalogue names, and every inference the program asserts, so the program is never
  * vacuous on any seed.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): compute-literal-first.patch admits a literal as an operation's first
- * operand.
+ * @plant test/plants/types/compute/compute-literal-first.patch A literal is admitted as an operation's first operand
+ * (types/compute/scalar.ts FirstTerm answers unknown for a JavaScript value); the agreement's program fails.
  */
 const required: Situations<ComputeNote> = [
 	"admitted",

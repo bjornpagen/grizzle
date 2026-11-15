@@ -1,0 +1,22 @@
+diff --git a/bench/query/support/kit.ts b/bench/query/support/kit.ts
+index 7803f28f..af8be7c1 100644
+--- a/bench/query/support/kit.ts
++++ b/bench/query/support/kit.ts
+@@ -47,7 +47,7 @@ import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
+ import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
+ import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
+ import { queryInput } from "#compiler/program/compile.ts"
+-import type { InstalledArtifacts } from "#compiler/program/schema.ts"
++import type { SchemaArtifacts } from "#compiler/program/schema.ts"
+ import { servedSession } from "#compiler/program/served.ts"
+ import { type CompiledTemplate, templateFor } from "#compiler/program/template.ts"
+ import { workload } from "#compiler/program/workload/value.ts"
+@@ -344,7 +344,7 @@ export interface Compiled {
+ 	readonly desc: QueryDesc
+ 	/** What it compiled over, the installation's own (test/support/compile.ts installedArtifacts): a gate runs only what
+ 	 * its installation stands behind, so no parameter is cast to a type the installation lacks. */
+-	readonly artifacts: InstalledArtifacts
++	readonly artifacts: SchemaArtifacts
+ 	readonly spine: ServedSpine
+ 	/** The first compilation, and the compilations of the same query after it. */
+ 	readonly compileFirstMs: number

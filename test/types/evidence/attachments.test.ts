@@ -24,12 +24,11 @@ import { typeRun } from "#test/types/batch/provided.ts"
  * witnesses reach every delivery, refusal, proof and shape, a derived parent's and a nested attachment's among them,
  * and a child over no level of its parent's schema, which both refuse.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): attach-one-unproved.patch admits the one child where the evidence
- * proves at most one per parent.
- *
- * Plant (~/.cache/grizzle-release/TYPEREGRESS/plants): attach-declared-key-dropped.patch drops PlanBudget's declared key
- * from the oracle's declared-only delivery, so a child of it bound by its plan, which the types prove by that key, is
- * expected an array.
+ * @plant test/plants/types/evidence/attach-one-unproved.patch The one child is admitted where the evidence proves at
+ * most one per parent (types/evidence/evidence.ts Claims' one); the agreement's program fails.
+ * @plant test/plants/types/evidence/attach-declared-key-dropped.patch The oracle's declared-only delivery drops
+ * PlanBudget's declared key, so a child of it bound by its plan, which the types prove by that key, is expected an
+ * array; the agreement's program fails.
  */
 const required: Situations<AttachNote> = [
 	...Arr.map(attachRefusals, (refusal): AttachNote => `refused: ${refusal}`),

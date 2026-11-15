@@ -1,0 +1,24 @@
+diff --git a/test/support/agreement/attachments.ts b/test/support/agreement/attachments.ts
+index 661eae50..81696429 100644
+--- a/test/support/agreement/attachments.ts
++++ b/test/support/agreement/attachments.ts
+@@ -1191,7 +1191,7 @@ const factKeysOf = (rel: Rel): ReadonlyArray<string> => {
+ 	if (facts === undefined) {
+ 		return []
+ 	}
+-	const declared = keyOf[rel]
++	const declared: ReadonlyArray<string> = []
+ 	return Arr.flatMap(fieldsOf[rel], (f) => {
+ 		const values = Arr.map(facts, (fact) => valueText(fact[f.name]))
+ 		return new Set(values).size === values.length &&
+@@ -1218,7 +1218,9 @@ const declaredDelivery = (attachment: Attachment, proved: Delivery): Delivery =>
+ 		child.arms === "one" &&
+ 		child.head.kind === "own" &&
+ 		child.shape !== "first" &&
+-		!Arr.every(keyOf[child.rel], (k) => Arr.contains(fixed, k)) &&
++		!Arr.every(closedFacts[child.rel] === undefined ? keyOf[child.rel] : [""], (k) =>
++			Arr.contains(fixed, k)
++		) &&
+ 		Arr.some(factKeysOf(child.rel), (k) => Arr.contains(fixed, k))
+ 	return restsOnFacts ? "array" : proved
+ }

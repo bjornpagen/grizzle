@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/types/compute/scalar.ts b/packages/engine/src/types/compute/scalar.ts
+index cf829101..d2a8a0a3 100644
+--- a/packages/engine/src/types/compute/scalar.ts
++++ b/packages/engine/src/types/compute/scalar.ts
+@@ -331,7 +331,7 @@ type IsHeadLiteral<A> =
+  * inferred with (Compute.when's branch), where no type parameter holds the value itself.
+  */
+ export type FirstTerm<A> = A extends FirstValue
+-	? Refusal<"a term first: a literal takes its place opposite a term, never first">
++	? unknown
+ 	: OwnTerm<A> & NotStoredOnly<SqlOfTerm<A>>
+ 
+ /**
