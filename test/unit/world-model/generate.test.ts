@@ -19,7 +19,14 @@
  * - The small box: from every reality of the box, after drawn steps, the box's actions in a state are duplicate-free up
  *   to renaming the values the state does not hold, cover every kind the state offers, and keep the serial rule.
  *
- * Oracles: the specification, each rule above stated apart from the generator it judges. Features: every invalid
+ * Oracles: the specification, each rule above stated apart from the generator it judges but one. Whether a kind is
+ * offered (the invalid kinds, the actions, and the small box's cover) is judged by generate/offered.ts applicable and
+ * namesOffered, the policy actionGen and the box draw through, so a fault in that policy moves its judge with it; only
+ * the features that every action kind is reached notice a kind it drops. The policy is the serial driver's schedule and
+ * what the model leaves to the runner, not a refusal the model states: the model's step (model/step.ts) takes a
+ * perturbation and a second direct transaction where the policy offers neither (a direct transaction open, a folder
+ * unfinished, the catalog past its contract), so it cannot judge the policy, and a copy of the policy here would drift
+ * with it. Features: every invalid
  * kind; live and invalid actions; realities with facts and empty; every installation kind, two logins and a query
  * entry; each forced move and an unforced one; the box's kinds.
  *
