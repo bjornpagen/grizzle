@@ -28,7 +28,7 @@
 		"prepare": "effect-tsgo patch && lefthook install",
 		"types": "turbo run typecheck --filter=./packages/* --filter=//",
 		"check": "turbo run typecheck:full workspace-gate oxlint format dead-code architecture dedupe plants:check --filter=./packages/* --filter=// --continue=dependencies-successful",
-		"typecheck": "effect-tsgo tsrs -b",
+		"typecheck": "toolchain-typecheck -b",
 		"typecheck:full": "toolchain-typecheck -p tsconfig.json --incremental false",
 		"workspace-gate": "workspace-gate",
 		"oxlint": "toolchain-oxlint test bench scripts oxlint.config.ts oxlint.ast.config.ts toolchain.config.ts",

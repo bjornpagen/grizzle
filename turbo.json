@@ -18,7 +18,7 @@
 			"dependsOn": ["^source"]
 		},
 		"typecheck": {
-			"description": "pnpm types: each project checked incrementally, from the build info its last build left. tsrs -b builds the package's project and the projects it references, so it runs after theirs. Its outputs are types/: the declarations and the build info they were built from (tsconfig tsBuildInfoFile), so a cache hit restores both together and the next build compares the sources against the declarations on disk.",
+			"description": "pnpm types: each project checked incrementally, from the build info its last build left. toolchain-typecheck -b (tsrs -b, with the machine's TOOLCHAIN_TS_CHECKERS as --checkers) builds the package's project and the projects it references, so it runs after theirs. Its outputs are types/: the declarations and the build info they were built from (tsconfig tsBuildInfoFile), so a cache hit restores both together and the next build compares the sources against the declarations on disk.",
 			"dependsOn": ["^typecheck"],
 			"outputs": ["types/**"],
 			"passThroughEnv": ["TOOLCHAIN_TS_CHECKERS"]
@@ -52,7 +52,7 @@
 			"passThroughEnv": ["TOOLCHAIN_TSGOLINT_PROCS"]
 		},
 		"//#typecheck": {
-			"description": "The tooling project (test, bench, scripts) builds after both packages' projects, which tsrs -b then finds up to date; its build info is tsconfig.tsbuildinfo, beside its tsconfig. A root task's inputs are the whole repository, the packages and the toolchain included; the root checks but format read no Markdown, so theirs leave it out.",
+			"description": "The tooling project (test, bench, scripts) builds after both packages' projects, which toolchain-typecheck -b then finds up to date; its build info is tsconfig.tsbuildinfo, beside its tsconfig. A root task's inputs are the whole repository, the packages and the toolchain included; the root checks but format read no Markdown, so theirs leave it out.",
 			"dependsOn": ["@bjornpagen/grizzle-engine#typecheck", "@bjornpagen/grizzle#typecheck"],
 			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"],
 			"outputs": ["tsconfig.tsbuildinfo"],

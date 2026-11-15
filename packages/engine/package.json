@@ -29,7 +29,7 @@
 	},
 	"sideEffects": false,
 	"scripts": {
-		"typecheck": "effect-tsgo tsrs -b",
+		"typecheck": "toolchain-typecheck -b",
 		"typecheck:full": "rm -rf types && toolchain-typecheck -p tsconfig.json",
 		"oxlint": "toolchain-oxlint"
 	},

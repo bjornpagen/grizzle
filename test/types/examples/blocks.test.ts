@@ -14,8 +14,8 @@ import { regex } from "arkregex"
 /**
  * README.md's and packages/grizzle/skills/grizzle/SKILL.md's ```ts blocks are checked code. Each block is mirrored, line for line and in
  * order, in a fixture of the examples type-test unit: README.md in fixtures/readme.ts, SKILL.md in fixtures/skill.ts.
- * The examples batch unit (examples.test.ts) and `pnpm typecheck` (`tsrs -b`) typecheck the fixtures, and this test
- * holds every block to its fixture:
+ * The examples batch unit (examples.test.ts) and `pnpm typecheck` (`toolchain-typecheck -b`) typecheck the fixtures,
+ * and this test holds every block to its fixture:
  * - a block imports nothing through a # subpath, which resolves only inside grizzle's own package: a reader imports
  *   grizzle's public names from @bjornpagen/grizzle;
  * - every name a block imports from a package is imported by the fixture from that package, by its exported name;
