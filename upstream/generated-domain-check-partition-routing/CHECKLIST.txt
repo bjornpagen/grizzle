@@ -1,0 +1,31 @@
+CHECKLIST: PostgreSQL contribution policy, applied to the domain-typed generated column under tuple routing
+
+Outcome: a bug report for pgsql-bugs with a proposed diff. Nothing has been sent.
+
+A. GATES BEFORE REPORTING
+  [x] Check whether the problem is already known (https://www.postgresql.org/docs/current/bug-reporting.html 5.1).
+      MULTICORE's pgsql-bugs search and the archive searches of EVIDENCE.txt 6 found no report. The nearest, BUG
+      #19807, is a different defect, and commitfest 5668 is the change that introduced this one. The owner should
+      search "generated" "domain" "partition" and the error text once more before sending.
+  [x] Check the current development branch. Master 81b2179b49's code on the path is identical (EVIDENCE.txt 1).
+      Nothing has touched preptlist.c since fba4233c83 (includes only). REL_19_STABLE's executor commits since RC2
+      concern MERGE. Not run on master: there is no master build here, and the CPU freeze ruled out making one.
+  [x] Don't duplicate a discussion. 7c87284940's thread never mentions partitioned tables, tuple routing or slots.
+  [x] A released version is affected, not only the release candidates: 18.6 (EVIDENCE.txt 3).
+
+B. REPORT CONTENT
+  [x] Self-contained reproduction runnable with psql -X: repro.sql, which creates and drops its own domains and
+      tables.
+  [x] Observed and expected behaviour, version and platform: EVIDENCE.txt's header and 3.
+  [x] List: pgsql-bugs, since a valid INSERT is refused in released versions.
+  [x] Plain text, no top-posting: email.txt.
+
+C. PATCH (offered, not yet ready for hackers)
+  [ ] Build against master with assertions and run the regression suites. The diff is unbuilt and untested (the CPU
+      freeze of 2026-11-15).
+  [ ] Add a regression test to src/test/regress/sql/generated_stored.sql: a partitioned table with a domain-typed
+      stored generated column read by a CHECK, inserted into through the parent. 7c87284940's gtest24nn must still
+      pass.
+  [ ] Check that the diff applies to REL_14_STABLE through REL_18_STABLE, where 7c87284940's back-patches changed the
+      same lines.
+  [ ] git format-patch with the owner's author line, pgindent, git diff --check.

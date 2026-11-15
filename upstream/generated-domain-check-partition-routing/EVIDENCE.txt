@@ -1,0 +1,183 @@
+EVIDENCE: an INSERT routed through a partitioned table fails with 42804 when a CHECK reads a domain-typed stored
+generated column
+
+Run 2026-11-15 on aarch64-linux (Ubuntu 26.04, gcc 15.2.0), each build in its own throwaway cluster (initdb -E UTF8
+--locale=C.UTF-8, Unix socket only, under nice 19), started one at a time and deleted after its run:
+  - PostgreSQL 19rc1 (REL_19_RC1, 0b8bff042a), stock: RC1TARGET's build with the meson flags of scripts/pg/source.sh,
+    no cassert, no patches.
+  - PostgreSQL 19rc2 (REL_19_RC2, dffcca2e3c), grizzle's pin (scripts/pg/pin.env, ~/.local/opt/postgresql/19rc2). It
+    carries grizzle's three source patches (scripts/pg/patches); the relcache one touches execMain.c and
+    nodeModifyTable.c, which is the path the CHECK takes, so the stock builds are the ones that count.
+  - PostgreSQL 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1), the distribution's package.
+All three give the same result.
+
+1. THE CAUSE, IN THE SOURCE (line numbers are REL_19_RC2's, dffcca2e3c. On master 81b2179b49, 2026-11-14,
+   preptlist.c and nodeResult.c are byte-identical, and so are ExecCheckPlanOutput, ExecInitInsertProjection,
+   ExecGetInsertNewTuple, ExecComputeStoredGenerated, ExecPrepareTupleRouting, table_slot_callbacks,
+   CheckExprStillValid and CheckVarSlotCompatibility. preptlist.c is unchanged on master and REL_19_STABLE since
+   fba4233c83, 2026-03-16, which touched its includes only.)
+   a. src/backend/optimizer/prep/preptlist.c, expand_insert_targetlist(), lines 457-471: an INSERT that omits a
+      generated column gets a target entry that is a NULL Const of the domain's base type:
+          else if (att_tup->attgenerated)
+          {
+              /* Generated column, insert a NULL of the base type */
+              ...
+              baseTypeId = getBaseTypeAndTypmod(baseTypeId, &baseTypeMod);
+              new_expr = (Node *) makeConst(baseTypeId, baseTypeMod, ...);
+      EXPLAIN VERBOSE shows it as "Output: 'a'::text, 1, NULL::integer" for a d_int column (3).
+   b. The Result node's output slot is virtual (nodeResult.c:219) and its descriptor comes from ExecTypeFromTL()
+      over that target list: a RECORD descriptor whose third attribute is integer, not d_int.
+   c. src/backend/executor/nodeModifyTable.c, ExecInitInsertProjection(), line 683: ri_newTupleSlot =
+      table_slot_create(). table_slot_callbacks() (access/table/tableam.c:75-86) gives a partitioned table
+      TTSOpsVirtual; a heap table gets its AM's buffer heap slot.
+   d. ExecGetInsertNewTuple(), lines 794-803: with no projection, the plan's slot is passed on as is when its ops
+      equal ri_newTupleSlot's, and copied into ri_newTupleSlot, whose descriptor is the relation's, otherwise. A heap
+      table copies; a partitioned table passes the plan's slot on, base-typed attribute and all.
+   e. ExecPrepareTupleRouting(), lines 4406-4412: the slot is converted into the partition's own
+      ri_PartitionTupleSlot only when the partition's attributes differ from the root's (ExecGetRootToChildMap). A
+      partition made with PARTITION OF has the root's layout, so the plan's slot reaches ExecInsert() unchanged.
+   f. ExecInsert(): ExecComputeStoredGenerated() (line 1073) stores g's value into that slot but cannot change its
+      descriptor. ExecWithCheckOptions() (1101), ExecConstraints() (1107) and ExecInsertIndexTuples() (1271) then
+      evaluate expressions whose Var for g has vartype d_int. On an expression's first run,
+      ExecInterpExprStillValid() -> CheckExprStillValid() -> CheckVarSlotCompatibility()
+      (executor/execExprInterp.c:2357, 2428-2435) compares that vartype with the slot's attribute type and raises
+      42804 "attribute 3 of type record has wrong type".
+   ExecCheckPlanOutput() (nodeModifyTable.c:252-268) accepts any NULL Const for a generated column: "It doesn't seem
+   worth insisting on that exact type though, since a null value is type-independent." The value is; the descriptor
+   built from its type is not.
+   The accepted cases in 3 fit this reading. The partition itself and a plain table copy into a slot of the
+   relation's own type (d). COPY builds its slot from the relation. MERGE projects its INSERT action into the root's
+   ri_newTupleSlot (ExecInitMerge). A row-moving UPDATE inserts the projected new tuple, also a relation-typed slot.
+   A partition whose columns stand in another order gets the converted slot (e).
+
+2. THE BACKTRACE (backtrace_functions = 'CheckVarSlotCompatibility', server log, stock 19rc1; static frames
+   resolved with addr2line)
+       CheckVarSlotCompatibility      execExprInterp.c
+       CheckExprStillValid
+       ExecInterpExprStillValid
+       ExecCheck
+       ExecConstraints
+       ExecInsert                     nodeModifyTable.c
+       ExecModifyTable                nodeModifyTable.c
+       standard_ExecutorRun
+       ProcessQuery                   pquery.c
+       PortalRunMulti                 pquery.c
+       PortalRun
+       exec_simple_query              postgres.c
+       PostgresMain
+   for INSERT INTO parted (k, x) VALUES ('a', 1). The 19rc2 pin gives the same frames.
+
+3. repro.sql, run with psql -X (VERBOSITY verbose), stock 19rc1
+   $ psql -X -h <socket dir> -d scratch -f upstream/generated-domain-check-partition-routing/repro.sql
+                                 version                              
+   -------------------------------------------------------------------
+    PostgreSQL 19rc1 on aarch64-linux, compiled by gcc-15.2.0, 64-bit
+   (1 row)
+   
+   CREATE DOMAIN
+   CREATE TABLE
+   CREATE TABLE
+   CREATE TABLE
+                    QUERY PLAN                  
+   ---------------------------------------------
+    Insert on public.parted
+      ->  Result
+            Output: 'a'::text, 1, NULL::integer
+   (3 rows)
+   
+   psql:upstream/generated-domain-check-partition-routing/repro.sql:22: ERROR:  42804: attribute 3 of type record has wrong type
+   DETAIL:  Table has type integer, but query expects d_int.
+   LOCATION:  CheckVarSlotCompatibility, execExprInterp.c:2429
+   psql:upstream/generated-domain-check-partition-routing/repro.sql:23: ERROR:  42804: attribute 3 of type record has wrong type
+   DETAIL:  Table has type integer, but query expects d_int.
+   LOCATION:  CheckVarSlotCompatibility, execExprInterp.c:2429
+   psql:upstream/generated-domain-check-partition-routing/repro.sql:24: ERROR:  42804: attribute 3 of type record has wrong type
+   DETAIL:  Table has type integer, but query expects d_int.
+   LOCATION:  CheckVarSlotCompatibility, execExprInterp.c:2429
+   INSERT 0 1
+   INSERT 0 1
+   COPY 1
+   MERGE 1
+   CREATE TABLE
+   ALTER TABLE
+   INSERT 0 1
+   UPDATE 1
+    partition | k | x | g  
+   -----------+---+---+----
+    parted_a  | a | 4 |  8
+    parted_b  | b | 5 | 10
+    parted_a  | a | 6 | 12
+    parted_b  | b | 7 | 14
+   (4 rows)
+   
+   CREATE TABLE
+   CREATE TABLE
+   CREATE INDEX
+   psql:upstream/generated-domain-check-partition-routing/repro.sql:47: ERROR:  42804: attribute 3 of type record has wrong type
+   DETAIL:  Table has type integer, but query expects d_int.
+   LOCATION:  CheckVarSlotCompatibility, execExprInterp.c:2429
+   DROP INDEX
+   CREATE INDEX
+   psql:upstream/generated-domain-check-partition-routing/repro.sql:50: ERROR:  42804: attribute 3 of type record has wrong type
+   DETAIL:  Table has type integer, but query expects d_int.
+   LOCATION:  CheckVarSlotCompatibility, execExprInterp.c:2429
+   DROP INDEX
+   INSERT 0 1
+   CREATE DOMAIN
+   CREATE TABLE
+   CREATE TABLE
+   psql:upstream/generated-domain-check-partition-routing/repro.sql:60: ERROR:  42804: attribute 3 of type record has wrong type
+   DETAIL:  Table has type bit, but query expects d16.
+   LOCATION:  CheckVarSlotCompatibility, execExprInterp.c:2429
+   INSERT 0 1
+   DROP TABLE
+   DROP DOMAIN
+
+   19rc2 (the pin) prints the same, but for its version line. 18.6 prints the same, but for its version line and
+   LOCATION execExprInterp.c:2427.
+
+   Refused (42804): INSERT ... VALUES, INSERT ... SELECT and INSERT ... ON CONFLICT DO NOTHING through the
+   partitioned table, when a CHECK, an index expression or an index predicate reads g; the bit(16) domain read by a
+   CHECK through a cast to bit, as we met it.
+   Accepted: the same INSERT into a plain table and into the partition directly; COPY, MERGE ... INSERT and an UPDATE
+   moving a row between partitions, all through the partitioned table; an INSERT routed to a partition whose columns
+   stand in another order; the partitioned table once nothing reads g.
+
+4. ALSO REFUSED, NOT IN repro.sql (it needs a role): a row security policy's WITH CHECK reading g, stock 19rc1 and
+   the 19rc2 pin
+       CREATE TABLE parted_rls (k text NOT NULL, x int NOT NULL,
+           g d_int GENERATED ALWAYS AS (x * 2) STORED) PARTITION BY LIST (k);
+       CREATE TABLE parted_rls_a PARTITION OF parted_rls FOR VALUES IN ('a');
+       ALTER TABLE parted_rls ENABLE ROW LEVEL SECURITY;
+       CREATE POLICY ins ON parted_rls FOR INSERT WITH CHECK (g > 0);
+       -- as a role granted INSERT:
+       INSERT INTO parted_rls (k, x) VALUES ('a', 1);
+       ERROR:  42804: attribute 3 of type record has wrong type
+       DETAIL:  Table has type integer, but query expects d_int.
+       LOCATION:  CheckVarSlotCompatibility, execExprInterp.c:2429
+   Also refused on the 19rc2 pin: a domain with constraints (CREATE DOMAIN d_pos AS int NOT NULL CHECK (VALUE > 0)),
+   "Table has type integer, but query expects d_pos", and the same tables made TEMP.
+
+5. HISTORY
+   - 7c87284940 (2025-04-15, committed by Tom Lane, author jian he), "Fix failure for generated column with a not-null
+     domain constraint", commitfest 5668, thread
+     https://postgr.es/m/CACJufxG59tip2+9h=rEv-ykOFjt0cbsPVchhi0RTij8bABBA0Q@mail.gmail.com, made the generated
+     column's NULL a Const of the base type, so that a NOT NULL domain is not checked against a value
+     ExecComputeStoredGenerated() overwrites. Backpatch-through: 14: REL_17_STABLE 3c39c000c8, REL_16_STABLE
+     f04e0faa37, REL_15_STABLE 97d6716723, REL_14_STABLE 4604928edd. GitHub's compare puts them in REL_17_5,
+     REL_16_9, REL_15_13 and REL_14_18 (REL_17_4 lacks it), and 7c87284940 in REL_18_0.
+   - Before it, the entry was coerce_null_to_domain()'s CoerceToDomain over a NULL (0da39aa766, 2025-01-29), which
+     eval_const_expressions() reduces to a Const of the domain type when the domain has no constraints. Either way
+     its exprType was the column's type, so the plan's slot matched the relation. This is read from the source; no
+     build older than 7c87284940 was run.
+   - The thread does not mention partitioned tables, tuple routing, slots or table CHECK constraints, and labelling
+     the NULL Const with the domain type itself, without a CoerceToDomain, was not discussed.
+   - Since RC2: no commit touches preptlist.c on master or REL_19_STABLE. REL_19_STABLE's commits to
+     nodeModifyTable.c and execPartition.c after RC2 (a2adfc411b, 84b86f7a51) concern MERGE.
+
+6. PRIOR REPORTS
+   - MULTICORE searched pgsql-bugs and found none. The postgresql.org archive search for "but query expects"
+     generated domain (all time) and for generated column domain partitioned "wrong type" (last year), 2026-11-15,
+     finds nothing related.
+   - Nearest: BUG #19807 (2026-10-29, 18.6), a partitioned table's CHECK not enforced when a partition overrides a
+     virtual generated column's expression, a different defect; and commitfest 5668, the fix above.

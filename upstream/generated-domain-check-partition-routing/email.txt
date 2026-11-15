@@ -1,0 +1,66 @@
+To: pgsql-bugs@lists.postgresql.org
+Subject: INSERT through a partitioned table fails with 42804 when a CHECK reads a domain-typed generated column
+
+Hi,
+
+On PostgreSQL 19rc2 (also 19rc1 and 18.6), an INSERT routed through a
+partitioned table fails when a CHECK constraint reads a stored generated
+column whose type is a domain:
+
+    CREATE DOMAIN d_int AS int;
+    CREATE TABLE parted (k text NOT NULL, x int NOT NULL,
+        g d_int GENERATED ALWAYS AS (x * 2) STORED,
+        CONSTRAINT g_positive CHECK (g > 0)) PARTITION BY LIST (k);
+    CREATE TABLE parted_a PARTITION OF parted FOR VALUES IN ('a');
+    INSERT INTO parted (k, x) VALUES ('a', 1);
+    ERROR:  42804: attribute 3 of type record has wrong type
+    DETAIL:  Table has type integer, but query expects d_int.
+    LOCATION:  CheckVarSlotCompatibility, execExprInterp.c:2429
+
+The same INSERT succeeds on a plain table and straight into parted_a, and
+COPY, MERGE ... INSERT and a row-moving UPDATE through parted succeed.  It
+also fails for INSERT ... SELECT and INSERT ... ON CONFLICT DO NOTHING,
+and, with no CHECK, when an index expression, an index predicate or a row
+security WITH CHECK reads g.  A partition whose columns stand in another
+order than the parent's is not affected.  A self-contained script is
+attached.
+
+This looks like a side effect of 7c87284940 ("Fix failure for generated
+column with a not-null domain constraint", back-patched to 14), though I
+haven't run a build from before it.  Since then expand_insert_targetlist()
+fills an omitted generated column with a NULL Const of the domain's base
+type; EXPLAIN VERBOSE shows "Output: 'a'::text, 1, NULL::integer".  The
+Result node's slot descriptor is built from that targetlist.  A
+partitioned table's ri_newTupleSlot is virtual, like the plan's slot, so
+ExecGetInsertNewTuple() passes the plan's slot on as is instead of copying
+it into a slot of the table's rowtype, and ExecPrepareTupleRouting()
+converts it only when the partition's layout differs from the parent's.
+ExecInsert() then evaluates the partition's CHECK on a slot whose third
+attribute is integer, and CheckVarSlotCompatibility() rejects the d_int
+Var.  A plain heap table escapes because its buffer slot differs from the
+plan's virtual one, which forces the copy.  The backtrace runs
+CheckVarSlotCompatibility <- CheckExprStillValid <-
+ExecInterpExprStillValid <- ExecCheck <- ExecConstraints <- ExecInsert <-
+ExecModifyTable.
+
+ExecCheckPlanOutput()'s comment says it isn't worth insisting on the
+NULL's exact type, "since a null value is type-independent".  The value
+is, but the slot descriptor built from its type isn't.
+
+A possible fix is to keep 7c87284940's bare NULL Const, with no
+CoerceToDomain, but label it with the column's own type instead of the
+base type; a diff is attached, not yet built or tested.  The plan's output
+then has the table's types again, and the domain's constraints are still
+not applied to a value ExecComputeStoredGenerated() overwrites.  An
+alternative on the executor side would be for ExecGetInsertNewTuple() to
+copy whenever the plan's descriptor differs from the relation's.
+
+The code involved is the same on master (81b2179b49).
+
+Reproduction (psql -X; it creates and drops its own domains and tables):
+attached as repro.sql.  The case we met is a bit(16) domain read by
+CHECK (g::"bit" = B'0000000000000001' OR x <= 0), in generated DDL for
+tables we wanted to partition.
+
+Thanks,
+Bjorn Pagen

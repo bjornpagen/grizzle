@@ -759,6 +759,11 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   delete the folder.
 - upstream/generated-column-collation-before-planning: PostgreSQL 19 can't choose a collation for a generated column's
   comparison of two texts that read no row (42P22); grizzle folds such constants on the host.
+- upstream/generated-domain-check-partition-routing: since 7c87284940 (in 18.0, 17.5, 16.9, 15.13 and 14.18) an
+  INSERT routed through a partitioned table fails with 42804 when a CHECK, an index expression or predicate, or a
+  row security WITH CHECK reads a domain-typed stored generated column. A pgsql-bugs report with an unbuilt diff. It
+  blocks partitioning edullm's 9 tables whose laws read such columns (MULTICORE); once the pin carries a fix, they
+  can be partitioned.
 - upstream/plpgsql-lineno-rescan: PL/pgSQL rescans the source on every location-to-line lookup. The pin carries the
   fix as scripts/pg/patches/19rc2-plpgsql-lineno-binary-search.patch.
 - upstream/btree-gist-multibyte-penalty: btree_gist's fix for multibyte text keys (b82d69abf6) is on master only. The
