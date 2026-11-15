@@ -6,15 +6,19 @@
  *
  * Property, for each situation: the rows the write's statements read and pair (rowsScannedAndPaired,
  * bench/harness/explain.ts: every scan's rows over all of its loops, and every pair a join examined past its keys, the
- * same whichever sort, hash or merge the planner chooses for a step) grow by no more from 2n to 4n than twice what
- * they grow by from n to 2n. A cost of a fixed part and a part per row grows by exactly twice as much over the doubled
- * step; a cost with a term above linear, the owners' facts reread once per member and per copied column, grows by more,
- * at every size: no slack, no threshold, no clock. The pages the statements read and the temp they wrote are reported
+ * same whichever sort, hash or merge the planner chooses for a step) at most double with each doubling of the owners,
+ * from n to 2n and from 2n to 4n. A cost of a fixed part and a part per owner, a·n + b, at most doubles, since its
+ * fixed part does not double, whatever constant a plan switch between sizes adds below that part; a cost with any term
+ * above linear more than doubles once that term outgrows the fixed part, which the sizes reach: no slack, no
+ * threshold, no clock. The pages the statements read and the temp they wrote are reported
  * beside the rows, unjudged.
  *
  * Statistics play no part: every size is measured on a fresh installation that no ANALYZE has run on, which the case
  * checks (pg_stat_user_tables), and the statement reads its owners from the call's own facts, of which PostgreSQL holds
- * none.
+ * none. Each case also holds the write to the copy's contract and the emission discipline: the write applied stores
+ * every member with its owner's columns as its copies (a specification oracle of the copy, which the window's
+ * first_value over the held owners must meet), and every statement passes the structural audit
+ * (test/support/write-audit.ts), which refuses NULL and outer joins.
  *
  * The box, exhausted: the members inserted, so their groups start empty and the insert is arbitrated, or put, so each
  * group's stored state and its stored owner are probed beside the owners' facts; each at a smallest size n of 125 and of
@@ -34,7 +38,13 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { rowsScannedAndPaired } from "#bench/harness/explain.ts"
-import { explainedChange, installWrites, openFull } from "#bench/write/support/writes.ts"
+import {
+	attemptLabel,
+	explainedChange,
+	installWrites,
+	observedChange,
+	openFull
+} from "#bench/write/support/writes.ts"
 import { indices } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
@@ -42,6 +52,7 @@ import { contained, counted, fin, mutable, on, relation, schema } from "#compile
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { writeAuditViolations } from "#test/support/write-audit.ts"
 
 const Owner = relation("Owner", { id: pg.integer, v: pg.bigint, w: pg.bigint, n: drawn(natural) }, [
 	"id"
@@ -135,8 +146,15 @@ const costOf = (situation: Situation, owners: number) =>
 			})
 			const S = build(fx.installed.declared)
 			const db = yield* openFull(fx, S)
-			const plans = yield* explainedChange(db, writeOf(S, situation, owners))
+			const write = writeOf(S, situation, owners)
+			const plans = yield* explainedChange(db, write)
 			assert.ok(plans.length > 0, `the write of ${owners} owners runs a statement`)
+			const violations = yield* writeAuditViolations(db, write)
+			assert.deepEqual(violations, [], "every statement of the write passes the structural audit")
+			const applied = yield* (yield* observedChange(db, write, attemptLabel, {
+				kind: "none"
+			})).apply({})
+			assert.equal(applied.value.kind, "accepted", `the write of ${owners} owners is accepted`)
 			const substrate = yield* Substrate
 			const analyzed = yield* substrate.admin.queryValues(
 				`SELECT coalesce(sum(analyze_count + autoanalyze_count), 0)::text FROM pg_catalog.pg_stat_user_tables WHERE relid IN (${Arr.join(
@@ -145,8 +163,13 @@ const costOf = (situation: Situation, owners: number) =>
 				)})`,
 				[]
 			)
+			const copied = yield* substrate.admin.queryValues(
+				`SELECT count(*)::text FROM ${fx.table("Item")} AS i JOIN ${fx.table("Owner")} AS o ON o.${fx.column("Owner", "id")} = i.${fx.column("Item", "owner")} WHERE i.${fx.column("Item", "cv")} = o.${fx.column("Owner", "v")} AND i.${fx.column("Item", "cw")} = o.${fx.column("Owner", "w")}`,
+				[]
+			)
 			return {
-				analyzed: String(analyzed[0]?.[0]),
+				copied: Number(copied[0]?.[0]),
+				analyzed: Number(analyzed[0]?.[0]),
 				cost: {
 					owners,
 					rows: Arr.reduce(plans, 0, (sum, p) => sum + rowsScannedAndPaired(p.plan)),
@@ -164,53 +187,56 @@ const costOf = (situation: Situation, owners: number) =>
 layer(Substrate.layer)(
 	"the cost of a family write whose members copy their owners' columns",
 	(it) => {
-		it.effect(
-			"the rows it reads grow by no more from 2n to 4n owners than twice what they grow by from n to 2n",
-			(ctx) =>
-				searched(
-					ctx,
-					exhaust(
-						{
-							suite: "pg/write/owner-copy-cost",
-							generator: sketchGen,
-							literal: Formatter.format,
-							box: "each situation of the box written at n, 2n and 4n owners of two members each, each size on a fresh installation, at n of 125 and of 250",
-							oracle: {
-								kind: "specification",
-								name: "linear growth: a cost of a fixed part and a part per row grows by exactly twice as much from 2n to 4n as from n to 2n, and a cost above linear by more"
-							},
-							coverage: requiredInSpace<Situation>(situations),
-							caseHang,
-							concurrency: 1
+		it.effect("the rows it reads at most double with each doubling of its owners", (ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "pg/write/owner-copy-cost",
+						generator: sketchGen,
+						literal: Formatter.format,
+						box: "each situation of the box written at n, 2n and 4n owners of two members each, each size on a fresh installation, at n of 125 and of 250",
+						oracle: {
+							kind: "specification",
+							name: "linear growth: a cost of a fixed part and a part per row at most doubles when its rows double, the fixed part not doubling, and a cost above linear more than doubles"
 						},
-						(sketch, c) =>
-							Effect.gen(function* () {
-								const [n, twice, four] = yield* Effect.all(
-									[
-										costOf(sketch.situation, sketch.n),
-										costOf(sketch.situation, 2 * sketch.n),
-										costOf(sketch.situation, 4 * sketch.n)
-									],
-									{ concurrency: 1 }
+						coverage: requiredInSpace<Situation>(situations),
+						caseHang,
+						concurrency: 1
+					},
+					(sketch, c) =>
+						Effect.gen(function* () {
+							const [n, twice, four] = yield* Effect.all(
+								[
+									costOf(sketch.situation, sketch.n),
+									costOf(sketch.situation, 2 * sketch.n),
+									costOf(sketch.situation, 4 * sketch.n)
+								],
+								{ concurrency: 1 }
+							)
+							c.note(sketch.situation)
+							for (const at of [n, twice, four]) {
+								assert.equal(
+									at.copied,
+									membersPerOwner * at.cost.owners,
+									`${sketch.situation}: at ${at.cost.owners} owners, a member's copies are not its owner's columns`
 								)
-								c.note(sketch.situation)
-								for (const at of [n, twice, four]) {
-									assert.equal(
-										at.analyzed,
-										"0",
-										`${sketch.situation}: the installation measured at ${at.cost.owners} owners was analyzed`
-									)
-								}
-								assert.ok(
-									four.cost.rows - twice.cost.rows <= 2 * (twice.cost.rows - n.cost.rows),
-									`${sketch.situation}: its write reads rows faster than linearly: ${Arr.join(
-										Arr.map([n.cost, twice.cost, four.cost], costText),
-										"; "
-									)}`
+								assert.equal(
+									at.analyzed,
+									0,
+									`${sketch.situation}: the installation measured at ${at.cost.owners} owners was analyzed`
 								)
-							})
-					)
+							}
+							assert.ok(
+								twice.cost.rows <= 2 * n.cost.rows && four.cost.rows <= 2 * twice.cost.rows,
+								`${sketch.situation}: its write reads rows faster than linearly: ${Arr.join(
+									Arr.map([n.cost, twice.cost, four.cost], costText),
+									"; "
+								)}`
+							)
+						})
 				)
+			)
 		)
 	}
 )

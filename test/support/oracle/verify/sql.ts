@@ -1459,6 +1459,17 @@ class StatementAuditor {
 				this.ident(item.proposed, "met rows' proposal", "proposed")
 				this.ident(item.scan, "proposed row", "scan")
 				this.ident(item.returned, "returned row", "returned")
+				this.ident(item.sides, "met rows' sides", "sides")
+				this.ident(item.marker, "met rows' marker", "marker")
+				this.ident(item.marked, "marked met rows", "marked")
+				this.ident(item.hit, "met rows' hit", "hit")
+				this.at("columns", () => {
+					for (const [i, c] of item.columns.entries()) {
+						this.at(i, () => {
+							this.ident(c.returned, "returned column", "returned")
+						})
+					}
+				})
 				this.at("key", () => {
 					for (const [i, k] of item.key.entries()) {
 						this.at(i, () => {
@@ -1467,7 +1478,13 @@ class StatementAuditor {
 						})
 					}
 				})
-				const columns = this.at("columns", () => this.columnList(item.columns, "met rows", true))
+				const columns = this.at("columns", () =>
+					this.columnList(
+						Arr.map(item.columns, (c) => c.column),
+						"met rows",
+						true
+					)
+				)
 				this.defineRelation(item.alias, "alias")
 				return register(item.alias, { columns })
 			}

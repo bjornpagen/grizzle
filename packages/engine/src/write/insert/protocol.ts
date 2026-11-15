@@ -954,7 +954,7 @@ export const buildInsert = (
 				metRowsOf(w, supply, {
 					insert: r2,
 					proposed: from.name,
-					columns: mapNonEmpty(all, (f) => from.columns.of(f)),
+					columns: mapNonEmpty(all, (f) => ({ column: from.columns.of(f), returned: retCol(f) })),
 					key: mapNonEmpty(pk, (f) => ({
 						field: f,
 						column: from.columns.of(f),

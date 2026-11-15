@@ -66,18 +66,18 @@ import type {
 	Expr,
 	FromItem,
 	JoinStep,
-	OperandCore,
 	Select,
 	SetArm
 } from "#compiler/sql/ast.ts"
 import {
 	and,
 	arrays,
+	asc,
 	binary,
+	call,
 	cast,
 	col,
 	conjunction,
-	core,
 	cte,
 	cteRef,
 	cteRefAs,
@@ -87,16 +87,17 @@ import {
 	firstNonNull,
 	join,
 	lit,
+	ne,
 	not,
 	notExists,
 	provedCore,
 	select,
-	setOperation,
 	simpleSelect,
 	target,
 	targetAs,
 	types,
-	unionAll
+	unionAll,
+	windowOf
 } from "#compiler/sql/build.ts"
 import { NameSupply } from "#compiler/sql/naming.ts"
 import {
@@ -829,11 +830,10 @@ const appendScan = (
 	/**
 	 * The owner's rows among those the stratum inserts, which the statement's parameters hold, one CTE per source
 	 * (`ownerShapes`): each row at the owner's key, the family's group order, with every owner column a `held` copy reads,
-	 * its column or a generated field's generation over the fields it reads (scan.ts scannedValue). The groups join each
-	 * once at their key, every column at once, so the groups read their owners in one pass of each source however many
-	 * columns they copy; no source repeats a key (a slot's facts are host-normalized, insert/input.ts readInput, and a
-	 * stratum's nested rows are one per key, program/bind.ts nestedPlans), so a group meets at most one row of each. None
-	 * where no copy is held.
+	 * its column or a generated field's generation over the fields it reads (scan.ts scannedValue), every column at once,
+	 * so the groups read their owners in one pass of each source however many columns they copy (`groups`); no source
+	 * repeats a key (a slot's facts are host-normalized, insert/input.ts readInput, and a stratum's nested rows are one
+	 * per key, program/bind.ts nestedPlans), so a group meets at most one row of each. None where no copy is held.
 	 */
 	const heldOwners = isNonEmpty(heldReads)
 		? ownerShapes().map((owners): PerGroup => {
@@ -876,8 +876,9 @@ const appendScan = (
 	/**
 	 * The groups the appends join, each with its kept count and its owner's columns. Its kept count: 0 at `base`; else its
 	 * stored last member's slot plus one, read by the probe of its group's last member (probe.ts probeGroup `last`), 0
-	 * where it holds none. Its owner's columns (`ownerValue`), each held one read from the held owners each group joins
-	 * at its key (`heldOwners`).
+	 * where it holds none. Its owner's columns, each from where its copy reads it (schedule.ts CopySource): a `held`
+	 * copy's the owner's row among those the stratum inserts (`heldOwners`), else the stored owner's (`ownerFallback`);
+	 * a `stored` or `drawn` copy's the stored owner's alone.
 	 */
 	const groups = {
 		name: supply.relation(internal("appended group")),
@@ -889,30 +890,29 @@ const appendScan = (
 	}
 	const g0 = supply.relation(internal("appended group row"))
 	const g0Keys = memberGroup(g0, appended)
-	const held = heldOwners.map((copies) => ({
-		copies,
-		alias: supply.relation(internal("held owner row"))
-	}))
-	/**
-	 * A group's copy of an owner column, from where the copy reads it (schedule.ts CopySource): a `held` copy the owner's
-	 * row among those the stratum inserts (`heldOwners`), else the stored owner's; a `stored` or `drawn` copy the stored
-	 * owner's alone, a drawn one's owner written by an earlier statement. A group that names no owner at all takes the
-	 * copy's base, so its rows are inserted and the family's owner axis refuses them at the statement's end, as it refuses
-	 * any member naming no owner. Read as COALESCE, since an owner's column is never NULL (rule 0).
-	 */
-	const ownerValue = (
-		key: ColumnKey,
-		read: {
-			readonly to: NativeColumn
-			readonly from: NativeColumn
-			readonly type: LawField["type"]
-		}
-	): Expr => {
-		const base = defined(
-			baseLiteral(family, read.from),
-			`the base of ${name}'s owner copy ${columnKey(read.from)}, an accumulated column`
+	/** The base of an owner copy, an accumulated column's start or a fold's identity, as a literal of its type. */
+	const baseOf = (read: { readonly from: NativeColumn; readonly type: LawField["type"] }): Expr =>
+		lowerLiteral(
+			w.names,
+			defined(
+				baseLiteral(family, read.from),
+				`the base of ${name}'s owner copy ${columnKey(read.from)}, an accumulated column`
+			),
+			read.type
 		)
-		/** The stored owner's column, read by the probe of the owner at the group's key. */
+	/**
+	 * A group's copy of an owner column where no owner row the stratum inserts holds it: the stored owner's, read by the
+	 * probe of the owner at the group's key where the group's state is stored, and at `base` where the copy is `drawn`
+	 * (the owner's own earlier statement of this call wrote the column, which only its row holds); else, and where no
+	 * owner is stored, the copy's base. At `base` a `held` copy reads the call's own rows, and a `stored` one none, its
+	 * owner stored, so the family's owner axis refuses the append whatever the copy is, as it refuses any member naming no
+	 * owner, whose rows take the base. Read as COALESCE, since an owner's column is never NULL (rule 0).
+	 */
+	const ownerFallback = (read: {
+		readonly to: NativeColumn
+		readonly from: NativeColumn
+		readonly type: LawField["type"]
+	}): Expr => {
 		const stored = (): Expr => {
 			const ownerRow = probeKey(
 				w,
@@ -940,30 +940,10 @@ const appendScan = (
 				)
 			}
 		}
-		const source = copySource(columnKey(read.from))
-		const heldValues =
-			source === "held" ? held.map(({ copies, alias }) => col(alias, columnAt(copies, key))) : []
-		/** The stored owner is read where the group's state is stored, and at `base` where the copy is `drawn`: the
-		 * owner's own earlier statement of this call wrote the column, which only its row holds. At `base` a `held` copy
-		 * reads the call's own rows, and a `stored` one none, its owner stored, so the family's owner axis refuses the
-		 * append whatever the copy is. */
 		const reads =
-			state === "stored" || source === "drawn" ? appendNonEmpty(heldValues, stored()) : heldValues
-		return firstNonNull(appendNonEmpty(reads, lowerLiteral(w.names, base, read.type)))
+			state === "stored" || copySource(columnKey(read.from)) === "drawn" ? [stored()] : []
+		return firstNonNull(appendNonEmpty(reads, baseOf(read)))
 	}
-	const [firstHeld, ...restHeld] = held
-	const groupsFrom: FromItem =
-		firstHeld === undefined
-			? cteRefAs(appended.name, g0)
-			: {
-					kind: "joins",
-					first: cteRefAs(appended.name, g0),
-					steps: mapNonEmpty([firstHeld, ...restHeld], ({ copies, alias }) => ({
-						kind: "left",
-						source: cteRefAs(copies.name, alias),
-						on: sameGroupExprs(w.names, family, g0Keys, alias, copies.group)
-					}))
-				}
 	const storedKept = (): Expr => {
 		const last = probeGroup(w, supply, name, "last", groupAt(g0Keys), [index], {
 			read: [index],
@@ -984,28 +964,182 @@ const appendScan = (
 			]
 		}
 	}
+	/** Each appended group once, with its kept count and each owner column's fallback (`ownerFallback`): the groups
+	 * themselves where no copy is held. */
+	const fallen: PerGroup & { readonly kept: string } = isNonEmpty(heldOwners)
+		? {
+				name: supply.relation(internal("appended group fallback")),
+				group: mapNonEmpty(family.group, () => supply.column(internal("fallback group key"))),
+				kept: supply.column(internal("fallback kept count")),
+				columns: new Map(
+					[...ownerReads.keys()].map(
+						(k) => [k, supply.column(internal("fallback owner column"))] as const
+					)
+				)
+			}
+		: { ...groups, columns: groups.owner }
 	ctes.push(
 		cte(
-			groups.name,
-			[...groups.group, groups.kept, ...groups.owner.values()],
+			fallen.name,
+			[...fallen.group, fallen.kept, ...fallen.columns.values()],
 			select(
 				distinctCore(
 					[
-						...mapNonEmpty(groups.group, (c, i) => targetAs(defined(g0Keys[i], "a group key"), c)),
+						...mapNonEmpty(fallen.group, (c, i) => targetAs(defined(g0Keys[i], "a group key"), c)),
 						targetAs(
 							state === "base" ? lit.int(0, bigint) : cast(storedKept(), bigint),
-							groups.kept
+							fallen.kept
 						),
 						...[...ownerReads].map(([k, read]) =>
-							targetAs(ownerValue(k, read), defined(groups.owner.get(k), "a group owner column"))
+							targetAs(ownerFallback(read), columnAt(fallen, k))
 						)
 					],
-					[groupsFrom],
+					[cteRefAs(appended.name, g0)],
 					undefined
 				)
 			)
 		)
 	)
+	const [firstHeld, ...restHeld] = heldOwners
+	if (firstHeld !== undefined) {
+		/**
+		 * Each group's owner columns, a held copy's the first held source's row at the group's key, in `ownerShapes`'s
+		 * order, else its fallback: the held sources' rows and the groups, each tagged with its place, those after the
+		 * sources, are one UNION ALL, and first_value over each key's partition in tag order is the first that holds the
+		 * key. No join pairs a group with an owner row, and no NULL stands for an absent one: a group no source holds
+		 * reads its own fallback. It is the COALESCE of the held rows' values and the fallback, since no held value is
+		 * NULL: each is a column of an owner row the stratum's own earlier statement inserted, NOT NULL in the owner's
+		 * table (rule 0), or a generated field's generation, which that insert stored NOT NULL too.
+		 */
+		const sources: NonEmptyReadonlyArray<PerGroup> = [firstHeld, ...restHeld]
+		const sides = {
+			name: supply.relation(internal("group owner sides")),
+			group: mapNonEmpty(family.group, () => supply.column(internal("group owner side key"))),
+			tag: supply.column(internal("group owner side tag")),
+			kept: supply.column(internal("group owner side kept count")),
+			columns: new Map(
+				[...ownerReads.keys()].map(
+					(k) => [k, supply.column(internal("group owner side column"))] as const
+				)
+			)
+		}
+		const sideTargets = (
+			key: NonEmptyReadonlyArray<Expr>,
+			tag: number,
+			kept: Expr,
+			value: (k: ColumnKey) => Expr
+		) => [
+			...mapNonEmpty(sides.group, (c, i) => targetAs(defined(key[i], "a side key"), c)),
+			targetAs(lit.int(tag, types.integer), sides.tag),
+			targetAs(kept, sides.kept),
+			...[...sides.columns].map(([k, c]) => targetAs(value(k), c))
+		]
+		const fallenRow = supply.relation(internal("fallen group"))
+		ctes.push(
+			cte(
+				sides.name,
+				[...sides.group, sides.tag, sides.kept, ...sides.columns.values()],
+				select(
+					unionAll("disjoint", [
+						...mapNonEmpty(sources, (copies, i) => {
+							const h = supply.relation(internal("held owner row"))
+							return provedCore(
+								"keyed",
+								sideTargets(
+									mapNonEmpty(copies.group, (c) => col(h, c)),
+									i,
+									lit.int(0, bigint),
+									(k) => {
+										const column = copies.columns.get(k)
+										return column === undefined
+											? baseOf(defined(ownerReads.get(k), "an owner read"))
+											: col(h, column)
+									}
+								),
+								[cteRefAs(copies.name, h)],
+								undefined
+							)
+						}),
+						provedCore(
+							"keyed",
+							sideTargets(
+								mapNonEmpty(fallen.group, (c) => col(fallenRow, c)),
+								sources.length,
+								col(fallenRow, fallen.kept),
+								(k) => col(fallenRow, columnAt(fallen, k))
+							),
+							[cteRefAs(fallen.name, fallenRow)],
+							undefined
+						)
+					])
+				)
+			)
+		)
+		const ranked = supply.relation(internal("group owners"))
+		const rankedColumns = new Map(
+			[...ownerReads.keys()].map((k) => [k, supply.column(internal("group owner value"))] as const)
+		)
+		const rankedGroup = mapNonEmpty(family.group, () => supply.column(internal("group owners key")))
+		const rankedTag = supply.column(internal("group owners tag"))
+		const rankedKept = supply.column(internal("group owners kept count"))
+		const s = supply.relation(internal("group owner side"))
+		const sideKey = sides.group.map((c) => col(s, c))
+		ctes.push(
+			cte(
+				ranked,
+				[...rankedGroup, rankedTag, rankedKept, ...rankedColumns.values()],
+				select(
+					provedCore(
+						"keyed",
+						[
+							...mapNonEmpty(rankedGroup, (c, i) =>
+								targetAs(col(s, defined(sides.group[i], "a side key")), c)
+							),
+							targetAs(col(s, sides.tag), rankedTag),
+							targetAs(col(s, sides.kept), rankedKept),
+							...[...rankedColumns].map(([k, c]) => {
+								const side = col(s, defined(sides.columns.get(k), "a side column"))
+								return targetAs(
+									heldReads.some(([h]) => h === k)
+										? {
+												...call("first_value", [side]),
+												over: windowOf(sideKey, [asc(col(s, sides.tag))])
+											}
+										: side,
+									c
+								)
+							})
+						],
+						[cteRefAs(sides.name, s)],
+						undefined
+					)
+				)
+			)
+		)
+		const r = supply.relation(internal("group owners row"))
+		ctes.push(
+			cte(
+				groups.name,
+				[...groups.group, groups.kept, ...groups.owner.values()],
+				select(
+					provedCore(
+						"keyed",
+						[
+							...mapNonEmpty(groups.group, (c, i) =>
+								targetAs(col(r, defined(rankedGroup[i], "a ranked key")), c)
+							),
+							targetAs(col(r, rankedKept), groups.kept),
+							...[...groups.owner].map(([k, c]) =>
+								targetAs(col(r, defined(rankedColumns.get(k), "a ranked column")), c)
+							)
+						],
+						[cteRefAs(ranked, r)],
+						eq(col(r, rankedTag), lit.int(sources.length, types.integer))
+					)
+				)
+			)
+		)
+	}
 	/** Each group's seed at `stored`: its stored member at the kept count less one, with every column a predecessor rule
 	 * reads, read by the probe of the member at that slot of its group. */
 	const seedReads = new Map<ColumnKey, NativeColumn>(
@@ -1487,6 +1621,12 @@ const metRefusal = (
 	const pk = relation.primaryFields
 	const proposedColumn = (f: LawField): string =>
 		defined(made.columnOf(fieldKey(f.name)), `the proposed column of ${name}.${f.name}`)
+	/** The INSERT's RETURNING of a field, which returns every field of the relation (`insertOf`). */
+	const returnedOf = (f: LawField): string =>
+		defined(
+			returned.find((r) => r.field === f),
+			`the returned column of ${name}.${f.name}`
+		).alias
 	const stated = relation.fields.filter(
 		(f) => d.appended.columns.has(fieldKey(f.name)) && statesColumn(d.source, fieldKey(f.name))
 	)
@@ -1498,15 +1638,12 @@ const metRefusal = (
 				pk,
 				stated.filter((f) => !pk.includes(f))
 			),
-			proposedColumn
+			(f) => ({ column: proposedColumn(f), returned: returnedOf(f) })
 		),
 		key: mapNonEmpty(pk, (f) => ({
 			field: f,
 			column: proposedColumn(f),
-			returned: defined(
-				returned.find((r) => r.field === f),
-				"a returned key column"
-			).alias
+			returned: returnedOf(f)
 		}))
 	})
 	const repeat = metNarrowed(
@@ -1750,8 +1887,11 @@ const recountOf = (
 	/**
 	 * Every recounted owner key with each family's recounted columns beside it, one row per key, which the UPDATE joins
 	 * at the owner row's key and reads every column of at once: the one family's recount source itself, whose rows are
-	 * its groups, one each; else the keys of every family's source, each family's source joined at its key, NULL where
-	 * it recounts no group of the key. Each source is read once, never once per owner row and recounted column.
+	 * its groups, one each; else every family's source as one UNION ALL, each row tagged with its family and holding its
+	 * own family's columns and the others' bases, and over each key's partition, for each family, whether a row of it
+	 * stands there (bool_or) and its columns (first_value with its own family's rows first). Each source is read once,
+	 * never once per owner row and recounted column, no join pairs two sources, and no NULL stands for a family that
+	 * recounts no group of the key: its flag is false, and the owner keeps its stored column.
 	 */
 	const row = supply.relation(internal("recount row"))
 	const recount = ((): {
@@ -1759,7 +1899,8 @@ const recountOf = (
 		readonly at: Expr
 		readonly value: (
 			x: { readonly family: Family; readonly last: PerGroup },
-			column: string
+			column: string,
+			stored: Expr
 		) => Expr
 	} => {
 		const [only, ...others] = lasts
@@ -1767,71 +1908,103 @@ const recountOf = (
 			return {
 				source: only.last.name,
 				at: sameGroupExprs(w.names, only.family, ownerKey(only.family), row, only.last.group),
-				value: (_, column) => col(row, column)
+				value: (_, column, stored) => firstNonNull([col(row, column), stored])
 			}
 		}
-		const keys = mapNonEmpty(owner.primaryFields, () => supply.column(internal("recounted key")))
-		const keyset = supply.relation(internal("recounted keys"))
-		const keyArm = ({ last }: { readonly last: PerGroup }): OperandCore => {
-			const l = supply.relation(internal("recounted group"))
-			return core(
-				mapNonEmpty(last.group, (c) => target(col(l, c))),
-				[cteRefAs(last.name, l)],
+		/** Each family's source columns, its count and its ends, each with the base its family starts it at. */
+		const sourced = lasts.map((x) => ({
+			...x,
+			columns: [
+				{ column: x.last.count, base: lit.int(0, bigint) },
+				...[...x.last.columns].map(([key, column]) => {
+					const field = defined(
+						endColumns(x.family).find((f) => fieldKey(f.name) === key),
+						`the end ${key} of ${name}`
+					)
+					return {
+						column,
+						base: lowerLiteral(
+							w.names,
+							defined(
+								baseLiteral(x.family, { kind: "field", field }),
+								`the start of ${name}'s end ${key}`
+							),
+							field.type
+						)
+					}
+				})
+			].map((c) => ({ ...c, side: supply.column(internal("recount side column")) }))
+		}))
+		const sides = supply.relation(internal("recount sides"))
+		const sideKeys = mapNonEmpty(owner.primaryFields, () =>
+			supply.column(internal("recount side key"))
+		)
+		const sideTag = supply.column(internal("recount side tag"))
+		const sideColumns = sourced.flatMap((x) => x.columns.map((c) => c.side))
+		const arms = mapNonEmpty([only, ...others], (_, j): SetArm => {
+			const x = defined(sourced[j], "a recounted family")
+			const l = supply.relation(internal("recount source row"))
+			return provedCore(
+				"keyed",
+				[
+					...mapNonEmpty(sideKeys, (c, i) =>
+						targetAs(col(l, defined(x.last.group[i], "a recounted group column")), c)
+					),
+					targetAs(lit.int(j, types.integer), sideTag),
+					...sourced.flatMap((y) =>
+						y.columns.map((c) => targetAs(y === x ? col(l, c.column) : c.base, c.side))
+					)
+				],
+				[cteRefAs(x.last.name, l)],
 				undefined
 			)
-		}
+		})
 		ctes.push(
-			cte(
-				keyset,
-				[...keys],
-				select(setOperation("UNION", [keyArm(only), ...mapNonEmpty(others, keyArm)]))
-			)
+			cte(sides, [...sideKeys, sideTag, ...sideColumns], select(unionAll("disjoint", arms)))
 		)
-		const k = supply.relation(internal("recounted key row"))
-		const joined = lasts.map((x) => ({
-			...x,
-			alias: supply.relation(internal("recount source")),
-			columns: new Map(
-				[x.last.count, ...x.last.columns.values()].map(
-					(c) => [c, supply.column(internal("recounted column"))] as const
-				)
-			)
-		}))
 		const recounts = supply.relation(internal("recounts"))
-		const [firstJoined, ...restJoined] = joined
-		if (firstJoined === undefined) {
-			throw defect(`a recount of ${name} joins its families' sources`)
-		}
+		const keys = mapNonEmpty(owner.primaryFields, () => supply.column(internal("recounted key")))
+		const s = supply.relation(internal("recount side"))
+		const partition = sideKeys.map((c) => col(s, c))
+		const joined = sourced.map((x, j) => {
+			const mine = eq(col(s, sideTag), lit.int(j, types.integer))
+			return {
+				family: x.family,
+				present: supply.column(internal("recounted family present")),
+				presentValue: { ...call("bool_or", [mine]), over: windowOf(partition, []) },
+				columns: new Map(
+					x.columns.map((c) => [
+						c.column,
+						{
+							as: supply.column(internal("recounted column")),
+							value: {
+								...call("first_value", [col(s, c.side)]),
+								over: windowOf(partition, [asc(ne(col(s, sideTag), lit.int(j, types.integer)))])
+							}
+						}
+					])
+				)
+			}
+		})
 		ctes.push(
 			cte(
 				recounts,
-				[...keys, ...joined.flatMap((x) => [...x.columns.values()])],
+				[
+					...keys,
+					...joined.flatMap((x) => [x.present, ...[...x.columns.values()].map((c) => c.as)])
+				],
 				select(
-					provedCore(
-						"keyed",
+					distinctCore(
 						[
-							...mapNonEmpty(keys, (c) => targetAs(col(k, c), c)),
-							...joined.flatMap((x) =>
-								[...x.columns].map(([column, as]) => targetAs(col(x.alias, column), as))
-							)
+							...mapNonEmpty(keys, (c, i) =>
+								targetAs(col(s, defined(sideKeys[i], "a side key")), c)
+							),
+							...joined.flatMap((x) => [
+								targetAs(x.presentValue, x.present),
+								...[...x.columns.values()].map((c) => targetAs(c.value, c.as))
+							])
 						],
-						[
-							{
-								kind: "joins",
-								first: cteRefAs(keyset, k),
-								steps: mapNonEmpty([firstJoined, ...restJoined], (x) => ({
-									kind: "left",
-									source: cteRefAs(x.last.name, x.alias),
-									on: sameGroupExprs(
-										w.names,
-										x.family,
-										keys.map((c) => col(k, c)),
-										x.alias,
-										x.last.group
-									)
-								}))
-							}
-						],
+						[cteRefAs(sides, s)],
 						undefined
 					)
 				)
@@ -1849,14 +2022,23 @@ const recountOf = (
 					)
 				)
 			),
-			value: (x, column) =>
-				col(
-					row,
-					defined(
-						joined.find((j) => j.family === x.family)?.columns.get(column),
-						"a recounted column"
-					)
+			value: (x, column, stored) => {
+				const j = defined(
+					joined.find((y) => y.family === x.family),
+					"a recounted family"
 				)
+				return {
+					kind: "case",
+					operand: undefined,
+					whens: [
+						{
+							when: col(row, j.present),
+							result: col(row, defined(j.columns.get(column), "a recounted column").as)
+						}
+					],
+					else: stored
+				}
+			}
 		}
 	})()
 	const sets: Array<Assignment> = []
@@ -1868,7 +2050,7 @@ const recountOf = (
 			/** The column's recounted value, its stored one where the row's key recounts no group of the family: a
 			 * recounted count or end is never NULL. */
 			const value = (): Expr =>
-				written(w, firstNonNull([recount.value(x, column), col(o, installedColumn)]), field.type)
+				written(w, recount.value(x, column, col(o, installedColumn)), field.type)
 			sets.push({ column: installedColumn, value: value() })
 			changed.push({
 				kind: "not",

@@ -604,6 +604,13 @@ export interface DrivenColumn {
 	readonly as: string
 }
 
+/** A column of an INSERT's met rows (FromSource `metRows`): the proposed CTE's `column`, and the INSERT's RETURNING of
+ * the same field, `returned`. */
+export interface MetColumn {
+	readonly column: string
+	readonly returned: string
+}
+
 /**
  * A column bound to a met row's column (FromSource `metRows`, `met`): a column of the bound side, `column`, equal to the
  * met rows' column `from`, compared by the builtin operator or the extension's qualified one over a vector (`schema`).
@@ -658,20 +665,41 @@ export type FromSource =
 	  }
 	| {
 			/**
-			 * The requested rows an INSERT proposed and did not insert, its met rows: `(SELECT "<scan>"."<column>", ... FROM
-			 * "<proposed>" AS "<scan>" WHERE NOT EXISTS (SELECT 1 FROM "<insert>" AS "<returned>" WHERE
-			 * "<returned>"."<returned key>" = "<scan>"."<key column>" AND ...)) AS "<alias>"("<column>", ...)`. `insert` is
-			 * the statement's data-modifying CTE whose INSERT proposes `proposed` alone, every column of it, and arbitrates
-			 * by ON CONFLICT DO NOTHING, with no target or at its primary key, each key column paired with that INSERT's
-			 * RETURNING of it: every row it reads is a row the INSERT proposed and its arbitration met.
+			 * The requested rows an INSERT proposed and did not insert, its met rows. `insert` is the statement's
+			 * data-modifying CTE whose INSERT proposes `proposed` alone, every column of it, and arbitrates by ON CONFLICT
+			 * DO NOTHING, with no target or at its primary key, each of `columns` paired with that INSERT's RETURNING of it
+			 * (`returned`), each key column too: every row it reads is a row the INSERT proposed and its arbitration met.
+			 * They are the proposed rows less those whose key the INSERT returned, a set difference read by sorting, never
+			 * by pairing rows: the proposed rows, marked false, and the returned rows, marked true, are one UNION ALL,
+			 * `sides`, whose rows of one key are one window partition, and a proposed row is met where no row of its
+			 * partition is marked, `hit` false:
+			 *
+			 *   (SELECT "<marked>"."<column>", ... FROM (SELECT "<sides>"."<column>", ..., "<sides>"."<marker>",
+			 *   pg_catalog.bool_or("<sides>"."<marker>") OVER (PARTITION BY "<sides>"."<key column>", ...) AS "<hit>" FROM
+			 *   (SELECT "<scan>"."<column>", ..., false FROM "<proposed>" AS "<scan>" UNION ALL SELECT
+			 *   "<returned>"."<returned column>", ..., true FROM "<insert>" AS "<returned>") AS "<sides>"("<column>", ...,
+			 *   "<marker>")) AS "<marked>" WHERE NOT "<marked>"."<hit>") AS "<alias>"("<column>", ...)
+			 *
+			 * The sides list `columns`, then each key column `columns` leaves out. A partition holds the rows equal at every
+			 * key column by its type's default ordering, the equality `=` compares it by, a vector's included, and no NULL
+			 * key reaches either side: the key is the relation's primary key, which no stored row and no row the INSERT
+			 * accepts holds NULL. So a proposed row is met exactly where no returned row shares its key, as `NOT EXISTS
+			 * (SELECT 1 FROM "<insert>" WHERE <its key> = <the row's key>)` reads it; a returned row's other columns are
+			 * read for no row the source delivers. The window sorts the sides once, so no plan reads more than every row of
+			 * both once, however PostgreSQL estimates either CTE (two CTEs estimated at a row each were paired as a nested
+			 * loop, every proposed row against every returned one), and the source names no NULL and no outer join.
 			 */
 			readonly kind: "metRows"
 			readonly insert: string
 			readonly proposed: string
 			readonly key: NonEmptyReadonlyArray<MetKey>
-			readonly columns: NonEmptyReadonlyArray<string>
+			readonly columns: NonEmptyReadonlyArray<MetColumn>
 			readonly scan: string
 			readonly returned: string
+			readonly sides: string
+			readonly marker: string
+			readonly marked: string
+			readonly hit: string
 			readonly alias: string
 	  }
 	| {

@@ -47,7 +47,7 @@ import { upTo } from "#test/support/up-to.ts"
  * plan's contract, not its text: for a small set, Entry is read by index only and at most k + 1 rows per parent; for a
  * large one, in one scan, once. The rows the insert returns are, in both forms, the first two entries of each named
  * account, which the loaded facts fix. its explain explains the form an application sends: the whole-relation form
- * ranks Entry's rows (a WindowAgg node, row_number) and the LATERAL form does not.
+ * ranks Entry's rows (a WindowAgg node over a read of Entry, row_number) and the LATERAL form does not.
  *
  * Features: the LATERAL form for few parents and the whole-relation form for many. Plant:
  * ~/.cache/grizzle-release/BR08/plants/take-form-threshold-doubled.patch, the choice comparing its parents against
@@ -96,8 +96,18 @@ const rowsReadOf = (plan: PlanNode, relation: string): number =>
 			sum + (n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck) * n.actualLoops
 	)
 
-/** Whether a plan ranks rows: a WindowAgg node, the whole-relation form's row_number. */
-const ranked = (plan: Plan): boolean => plan.node === "WindowAgg" || Arr.some(plan.children, ranked)
+/** Whether a plan reads Entry, by its table or an index of it, at its root or beneath. */
+const readsEntry = (plan: Plan): boolean =>
+	((plan.on.kind === "relation" || plan.on.kind === "index") && plan.on.relation === "Entry") ||
+	Arr.some(plan.children, readsEntry)
+
+/**
+ * Whether a plan ranks Entry's rows: a WindowAgg node over a read of Entry, the whole-relation form's row_number. The
+ * insert's met rows (sql/ast.ts FromSource `metRows`) are a window over the statement's own CTEs, which reads no
+ * Entry row.
+ */
+const ranked = (plan: Plan): boolean =>
+	(plan.node === "WindowAgg" && readsEntry(plan)) || Arr.some(plan.children, ranked)
 
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a write's take over a relation parameter",

@@ -1852,8 +1852,9 @@ const columnOfItem = (item: FromItem): Expr | undefined => {
 		case "derived":
 		case "function":
 		case "values":
-		case "metRows":
 			return at(item.alias, item.columns[0])
+		case "metRows":
+			return at(item.alias, item.columns[0].column)
 		case "probe":
 		case "met":
 			return at(item.alias, item.columns[0].as)

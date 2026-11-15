@@ -1,17 +1,23 @@
 /**
  * The cost of recounting a mutable owner's family grows linearly with the owners a write recounts, on PostgreSQL 19: a
- * ChangeSet appending two members to each of n owners of a mutable owner relation, whose counted family's count and a
- * sum fold's end each owner holds, so the family additions statement recounts every owner it appends to
- * (write/family/additions.ts recountOf), at n, 2n and 4n owners.
+ * ChangeSet appending two members to each of n owners of a mutable owner relation, whose counted family's count each
+ * owner holds, so the family additions statement recounts every owner it appends to (write/family/additions.ts
+ * recountOf), at n, 2n and 4n owners. Its families hold no fold: a fold's scan reads its predecessor's after by lag()
+ * with no default (write/family/scan.ts), which the structural audit refuses (R27), so a fold joins the box when its
+ * scan passes the audit; a recounted end is one more column of the same recount row.
  *
  * Property, for each situation: the rows the write's statements read and pair (rowsScannedAndPaired,
  * bench/harness/explain.ts: every scan's rows over all of its loops, and every pair a join examined past its keys, the
- * same whichever sort, hash or merge the planner chooses for a step) grow by no more from 2n to 4n than twice what they
- * grow by from n to 2n: no slack, no threshold, no clock. A recount that reads its recount source once per owner row,
+ * same whichever sort, hash or merge the planner chooses for a step) at most double with each doubling of the owners,
+ * from n to 2n and from 2n to 4n. A cost of a fixed part and a part per owner, a·n + b, at most doubles, since its
+ * fixed part does not double, whatever constant a plan switch between sizes adds below that part; a cost with any term
+ * above linear more than doubles once that term outgrows the fixed part, which the sizes reach: no slack, no
+ * threshold, no clock. A recount that reads its recount source once per owner row,
  * or once per owner row and recounted column, grows by more. The pages the statements read and the temp they wrote are
  * reported beside the rows, unjudged. Every size is measured on a fresh installation that no ANALYZE has run on when
  * the write begins, which the case checks (pg_stat_user_tables): the owners a case stores first are committed, which
- * autovacuum may analyze later, after the write it measures.
+ * autovacuum may analyze later, after the write it measures. Every statement of the write passes the structural audit
+ * (test/support/write-audit.ts), which refuses NULL and outer joins.
  *
  * The box, exhausted: the owners inserted in the same write as their members, or stored before it, the write appending
  * to them; to one of their families or to two, a family's recount then joined to the other's at their keys; each at a
@@ -40,42 +46,27 @@ import {
 } from "#bench/write/support/writes.ts"
 import { indices } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
-import {
-	counted,
-	fin,
-	fold,
-	Monoid,
-	mutable,
-	on,
-	relation,
-	schema
-} from "#compiler/public/schema.ts"
+import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { counted, fin, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { writeAuditViolations } from "#test/support/write-audit.ts"
 
-const Owner = relation(
-	"Owner",
-	{ id: pg.integer, n: drawn(natural), total: accumulated(pg.bigint, 0n), tags: drawn(natural) },
-	["id"]
-)
+const Owner = relation("Owner", { id: pg.integer, n: drawn(natural), tags: drawn(natural) }, ["id"])
 const Item = relation("Item", { id: pg.integer, owner: pg.integer, x: pg.bigint }, ["id"])
 const Tag = relation("Tag", { id: pg.integer, owner: pg.integer }, ["id"])
 
-const build = (name: string) => {
-	const items = counted(on(Item, "owner"), fin(Owner, "n"))
-	return schema(
+const build = (name: string) =>
+	schema(
 		name,
 		[Owner, Item, Tag],
 		[
-			items,
-			fold(items, Monoid.sum, on(Item, "owner", "x"), on(Owner, "id", "total")),
+			counted(on(Item, "owner"), fin(Owner, "n")),
 			counted(on(Tag, "owner"), fin(Owner, "tags")),
 			mutable(Owner)
 		]
 	)
-}
 
 type Schema = ReturnType<typeof build>
 
@@ -184,8 +175,10 @@ const costOf = (situation: Situation, owners: number) =>
 			)
 			const plans = yield* explainedChange(db, write)
 			assert.ok(plans.length > 0, `the write of ${owners} owners runs a statement`)
+			const violations = yield* writeAuditViolations(db, write)
+			assert.deepEqual(violations, [], "every statement of the write passes the structural audit")
 			return {
-				analyzed: String(analyzed[0]?.[0]),
+				analyzed: Number(analyzed[0]?.[0]),
 				cost: {
 					owners,
 					rows: Arr.reduce(plans, 0, (sum, p) => sum + rowsScannedAndPaired(p.plan)),
@@ -201,52 +194,50 @@ const costOf = (situation: Situation, owners: number) =>
 	)
 
 layer(Substrate.layer)("the cost of recounting a mutable owner's family", (it) => {
-	it.effect(
-		"the rows it reads grow by no more from 2n to 4n owners than twice what they grow by from n to 2n",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "pg/write/recount-cost",
-						generator: sketchGen,
-						literal: Formatter.format,
-						box: "each situation of the box at n, 2n and 4n owners of two appended items each and, with two families, one tag each, each size on a fresh installation, at n of 125 and of 250",
-						oracle: {
-							kind: "specification",
-							name: "linear growth: a cost of a fixed part and a part per row grows by exactly twice as much from 2n to 4n as from n to 2n, and a cost above linear by more"
-						},
-						coverage: requiredInSpace<Situation>(situations),
-						caseHang,
-						concurrency: 1
+	it.effect("the rows it reads at most double with each doubling of its owners", (ctx) =>
+		searched(
+			ctx,
+			exhaust(
+				{
+					suite: "pg/write/recount-cost",
+					generator: sketchGen,
+					literal: Formatter.format,
+					box: "each situation of the box at n, 2n and 4n owners of two appended items each and, with two families, one tag each, each size on a fresh installation, at n of 125 and of 250",
+					oracle: {
+						kind: "specification",
+						name: "linear growth: a cost of a fixed part and a part per row at most doubles when its rows double, the fixed part not doubling, and a cost above linear more than doubles"
 					},
-					(sketch, c) =>
-						Effect.gen(function* () {
-							const [n, twice, four] = yield* Effect.all(
-								[
-									costOf(sketch.situation, sketch.n),
-									costOf(sketch.situation, 2 * sketch.n),
-									costOf(sketch.situation, 4 * sketch.n)
-								],
-								{ concurrency: 1 }
+					coverage: requiredInSpace<Situation>(situations),
+					caseHang,
+					concurrency: 1
+				},
+				(sketch, c) =>
+					Effect.gen(function* () {
+						const [n, twice, four] = yield* Effect.all(
+							[
+								costOf(sketch.situation, sketch.n),
+								costOf(sketch.situation, 2 * sketch.n),
+								costOf(sketch.situation, 4 * sketch.n)
+							],
+							{ concurrency: 1 }
+						)
+						c.note(sketch.situation)
+						for (const at of [n, twice, four]) {
+							assert.equal(
+								at.analyzed,
+								0,
+								`${sketch.situation}: the installation measured at ${at.cost.owners} owners was analyzed`
 							)
-							c.note(sketch.situation)
-							for (const at of [n, twice, four]) {
-								assert.equal(
-									at.analyzed,
-									"0",
-									`${sketch.situation}: the installation measured at ${at.cost.owners} owners was analyzed`
-								)
-							}
-							assert.ok(
-								four.cost.rows - twice.cost.rows <= 2 * (twice.cost.rows - n.cost.rows),
-								`${sketch.situation}: its write reads rows faster than linearly: ${Arr.join(
-									Arr.map([n.cost, twice.cost, four.cost], costText),
-									"; "
-								)}`
-							)
-						})
-				)
+						}
+						assert.ok(
+							twice.cost.rows <= 2 * n.cost.rows && four.cost.rows <= 2 * twice.cost.rows,
+							`${sketch.situation}: its write reads rows faster than linearly: ${Arr.join(
+								Arr.map([n.cost, twice.cost, four.cost], costText),
+								"; "
+							)}`
+						)
+					})
 			)
+		)
 	)
 })

@@ -1138,9 +1138,13 @@ const fromSource = (
 				insert: p.insert,
 				proposed: p.proposed,
 				key: [{ column: OWN_COLUMN, from: OWN_COLUMN, schema: undefined }],
-				columns: [OWN_COLUMN],
+				columns: [{ column: OWN_COLUMN, returned: OWN_COLUMN }],
 				scan: `${p.alias}m`,
 				returned: `${p.alias}r`,
+				sides: `${p.alias}s`,
+				marker: `${p.alias}k`,
+				marked: `${p.alias}w`,
+				hit: `${p.alias}h`,
 				alias: p.alias
 			}
 		case "table":

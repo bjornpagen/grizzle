@@ -78,7 +78,7 @@ import {
 	type WindowSpec,
 	type With
 } from "#compiler/sql/ast.ts"
-import { and, conjunction, types } from "#compiler/sql/build.ts"
+import { conjunction, types } from "#compiler/sql/build.ts"
 import {
 	type CatalogCall,
 	type CatalogCast,
@@ -824,19 +824,28 @@ const printFromItem = (item: FromItem): string => {
 				"LIMIT 1"
 			)
 		case "metRows": {
-			const read = item.columns.map((c) => `${quoteIdent(item.scan)}.${quoteIdent(c)}`).join(", ")
-			const unreturned = printExpr(
-				and(
-					mapNonEmpty(item.key, (k): Expr => ({
-						kind: "binary",
-						op: "=",
-						left: { kind: "column", table: item.returned, column: k.from },
-						right: { kind: "column", table: item.scan, column: k.column },
-						schema: k.schema
-					}))
-				)
+			const sides = [
+				...item.columns,
+				...item.key
+					.filter((k) => !item.columns.some((c) => c.column === k.column))
+					.map((k) => ({ column: k.column, returned: k.from }))
+			]
+			const at = (table: string, columns: ReadonlyArray<string>): string =>
+				columns.map((c) => `${quoteIdent(table)}.${quoteIdent(c)}`).join(", ")
+			const names = sides.map((c) => c.column)
+			const proposedArm = `SELECT ${at(item.scan, names)}, false FROM ${quoteIdent(item.proposed)} AS ${quoteIdent(item.scan)}`
+			const returnedArm = `SELECT ${at(
+				item.returned,
+				sides.map((c) => c.returned)
+			)}, true FROM ${quoteIdent(item.insert)} AS ${quoteIdent(item.returned)}`
+			const partition = at(
+				item.sides,
+				item.key.map((k) => k.column)
 			)
-			return `(SELECT ${read} FROM ${quoteIdent(item.proposed)} AS ${quoteIdent(item.scan)} WHERE NOT EXISTS (SELECT 1 FROM ${quoteIdent(item.insert)} AS ${quoteIdent(item.returned)} WHERE ${unreturned})) AS ${quoteIdent(item.alias)}(${printIdentList(item.columns)})`
+			const hit = `${inCatalog("bool_or")}(${quoteIdent(item.sides)}.${quoteIdent(item.marker)}) OVER (PARTITION BY ${partition}) AS ${quoteIdent(item.hit)}`
+			const marked = `SELECT ${at(item.sides, [...names, item.marker])}, ${hit} FROM (${proposedArm} UNION ALL ${returnedArm}) AS ${quoteIdent(item.sides)}(${printIdentList([...names, item.marker])})`
+			const columns = item.columns.map((c) => c.column)
+			return `(SELECT ${at(item.marked, columns)} FROM (${marked}) AS ${quoteIdent(item.marked)} WHERE NOT ${quoteIdent(item.marked)}.${quoteIdent(item.hit)}) AS ${quoteIdent(item.alias)}(${printIdentList(columns)})`
 		}
 		case "cte":
 			return item.alias === undefined

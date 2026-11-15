@@ -12,7 +12,14 @@ import type { LawField } from "#compiler/ir/law.ts"
 import { columnReads, type UniqueObject } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env, LowerContext } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import type { DrivenColumn, Expr, FromSource, MetKey, ProbeColumn } from "#compiler/sql/ast.ts"
+import type {
+	DrivenColumn,
+	Expr,
+	FromSource,
+	MetColumn,
+	MetKey,
+	ProbeColumn
+} from "#compiler/sql/ast.ts"
 import { binary, col, exists, lit, simpleSelect, target, types } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { rowType, type WriteContext } from "#compiler/write/insert/statement.ts"
@@ -289,7 +296,8 @@ export const metFound = (
 
 /**
  * The met rows of the INSERT `insert`, which proposes the CTE `proposed` alone (FromSource `metRows`): `proposed`'s
- * `columns`, each key field `key` paired with its column there and the INSERT's RETURNING of it.
+ * `columns`, each paired with the INSERT's RETURNING of it, and each key field `key` paired with its column there and
+ * the INSERT's RETURNING of it.
  */
 export const metRowsOf = (
 	w: WriteContext,
@@ -297,7 +305,7 @@ export const metRowsOf = (
 	spec: {
 		readonly insert: string
 		readonly proposed: string
-		readonly columns: NonEmptyReadonlyArray<string>
+		readonly columns: NonEmptyReadonlyArray<MetColumn>
 		readonly key: NonEmptyReadonlyArray<{
 			readonly field: LawField
 			readonly column: string
@@ -320,6 +328,10 @@ export const metRowsOf = (
 			columns: spec.columns,
 			scan: supply.relation(internal("proposed row")),
 			returned: supply.relation(internal("returned row")),
+			sides: supply.relation(internal("met sides")),
+			marker: supply.column(internal("met marker")),
+			marked: supply.relation(internal("marked met")),
+			hit: supply.column(internal("met hit")),
 			alias
 		}
 	}
