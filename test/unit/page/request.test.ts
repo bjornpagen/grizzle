@@ -15,8 +15,11 @@
  * Features: each admitted kind, each refusal, an inherited member, a key of another length, and each comparator's key
  * value admitted and refused.
  *
- * Plants: window-size-zero-admitted (a size of 0 admitted), window-key-length-unchecked (a key longer than the
- * comparators admitted), window-inherited-kind-read (an inherited kind read as the anchor's).
+ * @plant test/plants/unit/page/window-size-zero-admitted.patch A size of 0 is admitted; the property fails.
+ * @plant test/plants/unit/page/window-key-length-unchecked.patch A key longer than the comparators is admitted; the
+ * property fails.
+ * @plant test/plants/unit/page/window-inherited-kind-read.patch An inherited kind is read as the anchor's, by the
+ * anchor's reading and by exactRecord (adapter/db/input.ts); the property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

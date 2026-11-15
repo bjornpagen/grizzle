@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/lower/shapes/page/seek.ts b/packages/engine/src/lower/shapes/page/seek.ts
+index f7a33f97..f9c7b38f 100644
+--- a/packages/engine/src/lower/shapes/page/seek.ts
++++ b/packages/engine/src/lower/shapes/page/seek.ts
+@@ -288,7 +288,9 @@ export const seekPredicate = (
+ 
+ /** ORDER BY items with every direction reversed: last and before reverse every sort direction. */
+ export const reversedOrder = (items: ReadonlyArray<OrderItem>): ReadonlyArray<OrderItem> =>
+-	items.map((item) => (item.direction === "DESC" ? asc(item.expr) : desc(item.expr)))
++	items.map((item, i) =>
++		i > 0 ? item : item.direction === "DESC" ? asc(item.expr) : desc(item.expr)
++	)
+ 
+ /**
+  * A completed order with every direction reversed: the fetch order of a backward variant, which a heading-group merge

@@ -1,0 +1,10 @@
+diff --git a/packages/engine/src/runtime/lower/take.ts b/packages/engine/src/runtime/lower/take.ts
+index f604a49e..835ca357 100644
+--- a/packages/engine/src/runtime/lower/take.ts
++++ b/packages/engine/src/runtime/lower/take.ts
+@@ -7,4 +7,4 @@
+ export const runsLargeForm = (
+ 	choice: { readonly threshold: number },
+ 	distinctCount: number
+-): boolean => distinctCount > choice.threshold
++): boolean => distinctCount >= choice.threshold

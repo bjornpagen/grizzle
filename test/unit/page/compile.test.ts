@@ -13,8 +13,8 @@
  *
  * Features: each union, and each order over the take: the union's own, and its key reversed.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): page-bounded-union-paged (an order over the take paged as an unbounded
- * union is).
+ * @plant test/plants/unit/page/page-bounded-union-paged.patch An order over the take is paged as an unbounded union
+ * is, not refused; the property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

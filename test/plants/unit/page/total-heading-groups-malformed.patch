@@ -1,0 +1,18 @@
+diff --git a/packages/engine/src/lower/shapes/page/compile.ts b/packages/engine/src/lower/shapes/page/compile.ts
+index 7378826a..53edee36 100644
+--- a/packages/engine/src/lower/shapes/page/compile.ts
++++ b/packages/engine/src/lower/shapes/page/compile.ts
+@@ -384,8 +384,11 @@ const pageShapeOf = <F extends PageFill>(
+ 				)
+ 			case "none":
+ 			case "order":
+-				assertMergeOrder(plan.union, root.order)
+-				return { kind: "groups", order: root.order, heading: plan.union.heading, plan }
++				return refuse(
++					"MalformedDescription",
++					nodeLabel(plan.union),
++					"a page over a heterogeneous union delivered per heading group"
++				)
+ 		}
+ 	}
+ 	const rows = root.input
