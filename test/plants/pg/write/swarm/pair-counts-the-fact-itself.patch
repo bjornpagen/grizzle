@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/insert/unique.ts b/packages/engine/src/write/insert/unique.ts
+index 47dd3058..786faeec 100644
+--- a/packages/engine/src/write/insert/unique.ts
++++ b/packages/engine/src/write/insert/unique.ts
+@@ -518,7 +518,7 @@ const pairedFacts = (
+ 					false
+ 				)
+ 			],
+-			where: gt(col(counted, facts), lit.int(1, types.bigint)),
++			where: gt(col(counted, facts), lit.int(0, types.bigint)),
+ 			of: factsAt(counted, countedColumns).at
+ 		}
+ 	}

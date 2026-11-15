@@ -55,6 +55,10 @@ import type { FullWorld } from "#test/support/worlds.ts"
  * The oracle is a second implementation, the host interval model above. Plant:
  * ~/.cache/grizzle-release/BR08/plants/span-key-requested-overlap-unseen.patch, the insert's verdicts blind to another
  * requested fact's overlap, must turn the property red.
+ *
+ * @plant test/plants/pg/write/span-key/pair-before-first-reaches-its-own-end.patch The first requested fact of a room in
+ * start order reads its own end as the reach of the fact before it (write/insert/unique.ts pairedFacts, lag's default
+ * upper(span)), so it is paired though no other fact overlaps it, and a described insert is refused by the span key.
  */
 const note = str.regex("^[a-z]{1,8}$")
 const Room = relation("Room", { room: uuid, during: span(pg.bigint), guest: uuid }, [

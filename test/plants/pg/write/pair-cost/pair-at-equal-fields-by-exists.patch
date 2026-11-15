@@ -1,0 +1,94 @@
+diff --git a/packages/engine/src/write/insert/unique.ts b/packages/engine/src/write/insert/unique.ts
+index 47dd3058..9bef2221 100644
+--- a/packages/engine/src/write/insert/unique.ts
++++ b/packages/engine/src/write/insert/unique.ts
+@@ -7,6 +7,7 @@ import {
+ 	type NonEmptyReadonlyArray
+ } from "#compiler/core/nonempty.ts"
+ import * as Order from "#compiler/core/order.ts"
++import { rowNe, typedEq } from "#compiler/ir/compare.ts"
+ import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
+ import type { SerialClass } from "#compiler/ir/write.ts"
+ import {
+@@ -35,12 +36,13 @@ import {
+ 	call,
+ 	col,
+ 	conjunction,
+-	countStar,
+ 	cte,
+ 	cteRef,
++	cteRefAs,
+ 	derived,
+ 	distinctCore,
+ 	eq,
++	exists,
+ 	gt,
+ 	lit,
+ 	lt,
+@@ -495,32 +497,42 @@ const pairedFacts = (
+ 		false
+ 	)
+ 	const unique = factsAt(distinct, distinctColumns)
+-	if (check.kind !== "span") {
+-		const counted = supply.relation(internal("facts at the compared fields"))
+-		const countedColumns = columnsOf()
+-		const facts = supply.column(internal("count at the compared fields"))
+-		return {
+-			from: [
+-				derived(
+-					select(
+-						provedCore(
+-							"keyed",
+-							[
+-								...unique.carried,
+-								target({ ...countStar(), over: windowOf(check.equal.map(unique.at), []) })
+-							],
+-							[distinctFacts],
+-							undefined
++	const other = supply.relation(internal("other requested fact"))
++	const otherAt = factsAt(other, inputs).at
++	const pairs = {
++		from: [cteRef(input)],
++		where: and(
++			appendNonEmpty(
++				withinRow(w.cx, check, read.at),
++				exists(
++					simpleSelect(
++						[target(lit.int(1, types.integer))],
++						[cteRefAs(input, other)],
++						and(
++							appendNonEmpty(
++								[
++									...withinRow(w.cx, check, otherAt),
++									...check.equal.map((f) => typedEq(rowType(f), otherAt(f), read.at(f), w.names))
++								],
++								rowNe(
++									{
++										fields,
++										typeOf: rowType,
++										left: otherAt,
++										right: (f) => col(input, inputs.of(f))
++									},
++									w.names
++								)
++							)
+ 						)
+-					),
+-					counted,
+-					[...countedColumns.columns, facts],
+-					false
++					)
+ 				)
+-			],
+-			where: gt(col(counted, facts), lit.int(1, types.bigint)),
+-			of: factsAt(counted, countedColumns).at
+-		}
++			)
++		),
++		of: read.at
++	}
++	if (check.kind !== "span") {
++		return pairs
+ 	}
+ 	const lower = (e: Expr): Expr => call("lower", [e])
+ 	const upper = (e: Expr): Expr => call("upper", [e])

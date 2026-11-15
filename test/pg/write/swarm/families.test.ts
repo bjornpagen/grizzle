@@ -95,6 +95,10 @@ import { fullWorld } from "#test/support/worlds.ts"
  * swarm-moved-member-count-redrawn.patch, a moved member inserted again with its own counted family's count and ends as
  * its put's slot carries them, an empty family's, fails the floor's case 4 and, with that case's follow-ups left out, the
  * case aimed at "a member owning a family moved between owners" (`ownerMoved`; TEST_SEED=3402740402, steered case 8).
+ *
+ * @plant test/plants/pg/write/swarm/pair-counts-the-fact-itself.patch A family member's candidate is paired with itself
+ * at a unique object of no span beside its primary key (write/insert/unique.ts pairedFacts, count(*) > 0), so every
+ * insert of members under a member key is refused by that key.
  */
 
 /** What the search reached: shapes written, refusals justified, and the downstream defects' shapes. */

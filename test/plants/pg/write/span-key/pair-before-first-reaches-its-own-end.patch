@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/insert/unique.ts b/packages/engine/src/write/insert/unique.ts
+index 47dd3058..d21f8168 100644
+--- a/packages/engine/src/write/insert/unique.ts
++++ b/packages/engine/src/write/insert/unique.ts
+@@ -545,7 +545,7 @@ const pairedFacts = (
+ 						[
+ 							...reaching.carried,
+ 							target({
+-								...call("lag", [col(reached, reach), one, lower(reaching.at(check.span))]),
++								...call("lag", [col(reached, reach), one, upper(reaching.at(check.span))]),
+ 								over: byStart(reaching.at)
+ 							}),
+ 							target({

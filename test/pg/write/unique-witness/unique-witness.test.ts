@@ -83,6 +83,10 @@ import { fullWorld } from "#test/support/worlds.ts"
  * selection over the whole relation (write/probe.ts withinRow reads no guard); driven-where-text.patch, a driven
  * read's key bindings and filter joined as text (sql/print.ts printDriven), so a stored row a disjunct of the selection
  * holds at another key meets the probe. Each must turn the property red.
+ *
+ * @plant test/plants/pg/write/swarm/pair-counts-the-fact-itself.patch A stated line is paired with itself at a declared
+ * key or a key over a selection (write/insert/unique.ts pairedFacts, count(*) > 0), so every write of lines under such
+ * a key is refused by it.
  */
 
 /** The roster of a doc's kind, which its lines copy. */

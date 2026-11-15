@@ -1,0 +1,160 @@
+diff --git a/packages/engine/src/write/insert/unique.ts b/packages/engine/src/write/insert/unique.ts
+index 47dd3058..ec7d34f4 100644
+--- a/packages/engine/src/write/insert/unique.ts
++++ b/packages/engine/src/write/insert/unique.ts
+@@ -7,6 +7,7 @@ import {
+ 	type NonEmptyReadonlyArray
+ } from "#compiler/core/nonempty.ts"
+ import * as Order from "#compiler/core/order.ts"
++import { rowNe, typedEq } from "#compiler/ir/compare.ts"
+ import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
+ import type { SerialClass } from "#compiler/ir/write.ts"
+ import {
+@@ -19,34 +20,25 @@ import {
+ 	type UniqueObjects,
+ 	witnessFields
+ } from "#compiler/laws/model/uniques.ts"
+-import type {
+-	Cte,
+-	Expr,
+-	FromItem,
+-	OrderItem,
+-	Select,
+-	SetCore,
+-	Target,
+-	WindowSpec
+-} from "#compiler/sql/ast.ts"
++import type { Cte, Expr, FromItem, OrderItem, Select, SetCore, Target } from "#compiler/sql/ast.ts"
+ import {
+ 	and,
+ 	asc,
+-	call,
+ 	col,
+ 	conjunction,
+ 	countStar,
+ 	cte,
+ 	cteRef,
++	cteRefAs,
+ 	derived,
+ 	distinctCore,
+ 	eq,
++	exists,
+ 	gt,
+ 	lit,
+-	lt,
+ 	not,
+ 	notExists,
+-	or,
++	binary,
+ 	provedCore,
+ 	provedSelect,
+ 	select,
+@@ -522,76 +514,42 @@ const pairedFacts = (
+ 			of: factsAt(counted, countedColumns).at
+ 		}
+ 	}
+-	const lower = (e: Expr): Expr => call("lower", [e])
+-	const upper = (e: Expr): Expr => call("upper", [e])
+-	const byStart = (at: (f: LawField) => Expr): WindowSpec =>
+-		windowOf(check.equal.map(at), [asc(lower(at(check.span)))])
+-	const reached = supply.relation(internal("facts with their reach"))
+-	const reachedColumns = columnsOf()
+-	const reach = supply.column(internal("reach"))
+-	const reaching = factsAt(reached, reachedColumns)
+-	const one = lit.int(1, types.integer)
+-	const neighboured = supply.relation(internal("facts with their neighbours"))
+-	const neighbouredColumns = columnsOf()
+-	const before = supply.column(internal("reach before"))
+-	const after = supply.column(internal("start after"))
+-	const of = factsAt(neighboured, neighbouredColumns).at
+-	return {
+-		from: [
+-			derived(
+-				select(
+-					provedCore(
+-						"keyed",
+-						[
+-							...reaching.carried,
+-							target({
+-								...call("lag", [col(reached, reach), one, lower(reaching.at(check.span))]),
+-								over: byStart(reaching.at)
+-							}),
+-							target({
+-								...call("lead", [
+-									lower(reaching.at(check.span)),
+-									one,
+-									upper(reaching.at(check.span))
+-								]),
+-								over: byStart(reaching.at)
+-							})
+-						],
+-						[
+-							derived(
+-								select(
+-									provedCore(
+-										"keyed",
+-										[
+-											...unique.carried,
+-											target({
+-												...call("max", [upper(unique.at(check.span))]),
+-												over: byStart(unique.at)
+-											})
+-										],
+-										[distinctFacts],
+-										undefined
+-									)
+-								),
+-								reached,
+-								[...reachedColumns.columns, reach],
+-								false
++	const other = supply.relation(internal("other requested fact"))
++	const otherAt = factsAt(other, inputs).at
++	const pairs = {
++		from: [cteRef(input)],
++		where: and(
++			appendNonEmpty(
++				withinRow(w.cx, check, read.at),
++				exists(
++					simpleSelect(
++						[target(lit.int(1, types.integer))],
++						[cteRefAs(input, other)],
++						and(
++							appendNonEmpty(
++								[
++									...withinRow(w.cx, check, otherAt),
++									...check.equal.map((f) => typedEq(rowType(f), otherAt(f), read.at(f), w.names)),
++									binary("&&", otherAt(check.span), read.at(check.span))
++								],
++								rowNe(
++									{
++										fields,
++										typeOf: rowType,
++										left: otherAt,
++										right: (f) => col(input, inputs.of(f))
++									},
++									w.names
++								)
+ 							)
+-						],
+-						undefined
++						)
+ 					)
+-				),
+-				neighboured,
+-				[...neighbouredColumns.columns, before, after],
+-				false
++				)
+ 			)
+-		],
+-		where: or([
+-			gt(col(neighboured, before), lower(of(check.span))),
+-			lt(col(neighboured, after), upper(of(check.span)))
+-		]),
+-		of
++		),
++		of: read.at
+ 	}
++	return pairs
+ }
+ 
+ /** The probe CTEs of an insert or an upsert over `spec.input` (see `buildProbe`); undefined when there is nothing to

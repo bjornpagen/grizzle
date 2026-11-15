@@ -7,7 +7,6 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import * as Order from "#compiler/core/order.ts"
-import { rowNe, typedEq } from "#compiler/ir/compare.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { SerialClass } from "#compiler/ir/write.ts"
 import {
@@ -20,27 +19,42 @@ import {
 	type UniqueObjects,
 	witnessFields
 } from "#compiler/laws/model/uniques.ts"
-import type { Cte, Expr, OrderItem, Select, SetCore, Target } from "#compiler/sql/ast.ts"
+import type {
+	Cte,
+	Expr,
+	FromItem,
+	OrderItem,
+	Select,
+	SetCore,
+	Target,
+	WindowSpec
+} from "#compiler/sql/ast.ts"
 import {
 	and,
 	asc,
-	binary,
+	call,
 	col,
+	conjunction,
+	countStar,
 	cte,
 	cteRef,
-	cteRefAs,
+	derived,
+	distinctCore,
 	eq,
-	exists,
+	gt,
 	lit,
+	lt,
 	not,
 	notExists,
+	or,
 	provedCore,
 	provedSelect,
 	select,
 	simpleSelect,
 	target,
 	types,
-	unionAll
+	unionAll,
+	windowOf
 } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
@@ -403,6 +417,183 @@ export const probeGuard = (
 		arms: probeArms(relation, probe.checks, probe.ordinal, probe.refusalValue)
 	})
 
+/** The rows of a probe branch (`buildProbe`): its FROM, read where `where` holds, and each row's requested fact, its value
+ * at each field read by `of` in that FROM's scope. */
+interface BranchRows {
+	readonly from: ReadonlyArray<FromItem>
+	readonly where: Expr
+	readonly of: (f: LawField) => Expr
+}
+
+/**
+ * The requested facts of `input` another requested fact conflicts with at `check` (`buildProbe`'s pair branch), each
+ * meeting the check's guards, read by windows over the input's distinct facts: the input once, however PostgreSQL
+ * estimates it, never once per fact.
+ *
+ * They are the facts the pair `EXISTS (SELECT 1 FROM <input> AS o WHERE <o meets the guards> AND <o conflicts with the
+ * fact> AND (<o's fields>) <> (<the fact's>))` keeps: a fact o meeting the guards, equal to the fact at the check's
+ * compared fields and, at a span object, its span overlapping the fact's, and unequal to it at some field, so neither
+ * the fact itself nor one equal to it at every field. PostgreSQL estimates a CTE it holds no statistics of at a row and
+ * ran that pair as a nested loop of two scans of the input, k² rows for a check k facts meet.
+ *
+ * The windows read the distinct facts meeting the guards, SELECT DISTINCT of every field. No field is NULL (a requested
+ * fact is a value of each field's type, and the statement names no NULL), and DISTINCT and a window's partition compare
+ * a column by its type's default equality, the `=` the pair compares by and whose negation its `<>` is, a vector's too.
+ * So a fact's others are exactly the other distinct facts, and two of them agree at the compared fields exactly where
+ * one partition by those fields holds both.
+ *
+ * - At an object of no span: a fact is paired where its partition by the compared fields holds another fact,
+ *   `count(*) OVER (PARTITION BY <compared>) > 1`.
+ * - At a span object: every span is nonempty, bounded and half-open (ir/scalar.ts SpanInfo), so lower() and upper()
+ *   are never NULL, and two spans overlap exactly where each starts before the other ends. Over each partition by the
+ *   compared fields, ordered by lower(span), a fact's reach is max(upper(span)) over the facts starting no later than
+ *   it (the default frame, which takes its peers), one value for peers. A fact r is paired where the fact before it
+ *   reaches past r's start, lag(reach, 1, lower(span)) > lower(span), or the fact after it starts before r's end,
+ *   lead(lower(span), 1, upper(span)) < upper(span); the defaults, r's own start and end, hold neither. Each holds only
+ *   of an overlap: a reach past r's start is the end of a fact starting no later than r, another fact, or r itself
+ *   where the fact before r is its peer, which then overlaps it; and the fact after r starts no earlier than r, so
+ *   starting before r's end it overlaps r. Each overlap holds one: a fact y overlapping r and starting before it starts
+ *   no later than the fact before r, whose reach is then at least y's end, or r's own where that fact is r's peer; a
+ *   peer of r is before it, and so is the fact just before r, or after it, and so is the fact just after r; and a fact
+ *   starting after r, before r's end, leaves the fact just after r starting no later.
+ *
+ * Each fact paired is one row, where the pair kept one for each input row equal to it: the probe reads its branches'
+ * rows only for the one refusal it orders by their fields and limits to (`buildProbe`), which a repeat does not change.
+ */
+const pairedFacts = (
+	w: WriteContext,
+	supply: NameSupply,
+	spec: {
+		readonly relation: RelationInfo
+		readonly fields: NonEmptyReadonlyArray<LawField>
+		readonly input: string
+		readonly inputs: FieldColumns<string>
+		readonly check: UniqueObject
+	}
+): BranchRows => {
+	const { relation, fields, input, inputs, check } = spec
+	const columnsOf = (): FieldColumns<string> =>
+		fieldColumns(fields, () => supply.column(internal("paired fact column")))
+	/** The facts read from `alias`, each field's column under it, and every such column as a target. */
+	const factsAt = (alias: string, columns: FieldColumns<string>) => ({
+		at: requestedValue(w, relation, fields, (f) => col(alias, columns.of(f))),
+		carried: fields.map((f) => target(col(alias, columns.of(f))))
+	})
+	const read = factsAt(input, inputs)
+	const distinct = supply.relation(internal("distinct requested fact"))
+	const distinctColumns = columnsOf()
+	const distinctFacts = derived(
+		select(
+			distinctCore(
+				mapNonEmpty(fields, (f) => target(col(input, inputs.of(f)))),
+				[cteRef(input)],
+				conjunction(withinRow(w.cx, check, read.at))
+			)
+		),
+		distinct,
+		distinctColumns.columns,
+		false
+	)
+	const unique = factsAt(distinct, distinctColumns)
+	if (check.kind !== "span") {
+		const counted = supply.relation(internal("facts at the compared fields"))
+		const countedColumns = columnsOf()
+		const facts = supply.column(internal("count at the compared fields"))
+		return {
+			from: [
+				derived(
+					select(
+						provedCore(
+							"keyed",
+							[
+								...unique.carried,
+								target({ ...countStar(), over: windowOf(check.equal.map(unique.at), []) })
+							],
+							[distinctFacts],
+							undefined
+						)
+					),
+					counted,
+					[...countedColumns.columns, facts],
+					false
+				)
+			],
+			where: gt(col(counted, facts), lit.int(1, types.bigint)),
+			of: factsAt(counted, countedColumns).at
+		}
+	}
+	const lower = (e: Expr): Expr => call("lower", [e])
+	const upper = (e: Expr): Expr => call("upper", [e])
+	const byStart = (at: (f: LawField) => Expr): WindowSpec =>
+		windowOf(check.equal.map(at), [asc(lower(at(check.span)))])
+	const reached = supply.relation(internal("facts with their reach"))
+	const reachedColumns = columnsOf()
+	const reach = supply.column(internal("reach"))
+	const reaching = factsAt(reached, reachedColumns)
+	const one = lit.int(1, types.integer)
+	const neighboured = supply.relation(internal("facts with their neighbours"))
+	const neighbouredColumns = columnsOf()
+	const before = supply.column(internal("reach before"))
+	const after = supply.column(internal("start after"))
+	const of = factsAt(neighboured, neighbouredColumns).at
+	return {
+		from: [
+			derived(
+				select(
+					provedCore(
+						"keyed",
+						[
+							...reaching.carried,
+							target({
+								...call("lag", [col(reached, reach), one, lower(reaching.at(check.span))]),
+								over: byStart(reaching.at)
+							}),
+							target({
+								...call("lead", [
+									lower(reaching.at(check.span)),
+									one,
+									upper(reaching.at(check.span))
+								]),
+								over: byStart(reaching.at)
+							})
+						],
+						[
+							derived(
+								select(
+									provedCore(
+										"keyed",
+										[
+											...unique.carried,
+											target({
+												...call("max", [upper(unique.at(check.span))]),
+												over: byStart(unique.at)
+											})
+										],
+										[distinctFacts],
+										undefined
+									)
+								),
+								reached,
+								[...reachedColumns.columns, reach],
+								false
+							)
+						],
+						undefined
+					)
+				),
+				neighboured,
+				[...neighbouredColumns.columns, before, after],
+				false
+			)
+		],
+		where: or([
+			gt(col(neighboured, before), lower(of(check.span))),
+			lt(col(neighboured, after), upper(of(check.span)))
+		]),
+		of
+	}
+}
+
 /** The probe CTEs of an insert or an upsert over `spec.input` (see `buildProbe`); undefined when there is nothing to
  * probe. Its names are drawn after every name the statement already holds, so a statement without one is unchanged.
  *
@@ -478,117 +669,77 @@ export const buildProbe = (
 		return undefined
 	}
 	const inCol = (alias: string, f: LawField): Expr => col(alias, inputs.of(f))
-	const same = (f: LawField, a: Expr, b: Expr): Expr => typedEq(rowType(f), a, b, w.names)
 	const predicate = (check: UniqueObject, of: (f: LawField) => Expr): ReadonlyArray<Expr> =>
 		withinRow(w.cx, check, of)
-	/** `a` and `b` conflict at the object: equal compared fields, overlapping spans. */
-	const conflict = (
-		check: UniqueObject,
-		a: (f: LawField) => Expr,
-		b: (f: LawField) => Expr
-	): NonEmptyReadonlyArray<Expr> =>
-		check.kind === "span"
-			? appendNonEmpty(
-					check.equal.map((f) => same(f, a(f), b(f))),
-					binary("&&", a(check.span), b(check.span))
-				)
-			: mapNonEmpty(check.equal, (f) => same(f, a(f), b(f)))
 	const one = [target(lit.int(1, types.integer))]
 	/** A requested fact's value at a field, read under `alias`: its input's column for a field it carries, and a
 	 * generated field's generation expression over them (statement.ts requestedValue), the value PostgreSQL stores. */
 	const requestedAt = (alias: string): ((f: LawField) => Expr) =>
 		requestedValue(w, relation, fields, (f) => inCol(alias, f))
 	const fact = requestedAt(input)
-	/** Each branch: its rows with any further targets `extra` after its own, and its witness rank, if it ranks one. */
+	/** Each branch: its rows, its signed ordinal, and its witnesses' rank, if it ranks them. */
 	const branches: Array<{
-		readonly core: (extra: ReadonlyArray<Target>) => SetCore
+		readonly rows: BranchRows
+		readonly ordinal: number
 		readonly rank: Expr | undefined
 	}> = []
 	for (const [i, { object: check, pairs, witness }] of checks.entries()) {
 		const ordinal = i + 1
 		const own = predicate(check, fact)
 		if (!spec.normalized || pairs === "statement") {
-			/** Another requested fact the object cannot hold beside this one. */
-			const other = supply.relation(internal("other requested fact"))
-			const otherCol = requestedAt(other)
+			const rows = pairedFacts(w, supply, { relation, fields, input, inputs, check })
 			branches.push({
+				rows,
+				ordinal: -ordinal,
 				rank:
 					witness === "requestedAnew"
-						? storedAt(w, supply, relation.name, atFields(w, relation.name, fields, fact))
-						: undefined,
-				core: (extra) =>
-					provedCore(
-						"keyed",
-						[
-							...fields.map((f) => target(fact(f))),
-							target(lit.int(-ordinal, types.integer)),
-							...extra
-						],
-						[cteRef(input)],
-						and(
-							appendNonEmpty(
-								own,
-								exists(
-									simpleSelect(
-										one,
-										[cteRefAs(input, other)],
-										and(
-											appendNonEmpty(
-												[...predicate(check, otherCol), ...conflict(check, otherCol, fact)],
-												rowNe(
-													{
-														fields,
-														typeOf: rowType,
-														left: otherCol,
-														right: (f) => inCol(input, f)
-													},
-													w.names
-												)
-											)
-										)
-									)
-								)
-							)
-						)
-					)
+						? storedAt(w, supply, relation.name, atFields(w, relation.name, fields, rows.of))
+						: undefined
 			})
 		}
 		if (spec.occupants === "probed") {
 			branches.push({
+				ordinal,
 				rank: undefined,
-				core: (extra) =>
-					provedCore(
-						"keyed",
-						[
-							...fields.map((f) => target(fact(f))),
-							target(lit.int(ordinal, types.integer)),
-							...extra
-						],
-						[cteRef(input)],
-						and(
-							appendNonEmpty(
-								[
-									...own,
-									...(requested.kind === "none"
-										? []
-										: [
-												not(
-													storedAt(
-														w,
-														supply,
-														relation.name,
-														atObject(w, relation.name, requested.arbiter, fact)
-													)
+				rows: {
+					from: [cteRef(input)],
+					where: and(
+						appendNonEmpty(
+							[
+								...own,
+								...(requested.kind === "none"
+									? []
+									: [
+											not(
+												storedAt(
+													w,
+													supply,
+													relation.name,
+													atObject(w, relation.name, requested.arbiter, fact)
 												)
-											])
-								],
-								storedAt(w, supply, relation.name, atObject(w, relation.name, check, fact))
-							)
+											)
+										])
+							],
+							storedAt(w, supply, relation.name, atObject(w, relation.name, check, fact))
 						)
-					)
+					),
+					of: fact
+				}
 			})
 		}
 	}
+	/** A branch's rows: the requested fact's fields, its signed ordinal, and any further targets `extra`. */
+	const coreOf = (b: (typeof branches)[number], extra: ReadonlyArray<Target>): SetCore =>
+		provedCore(
+			"keyed",
+			[
+				...fields.map((f) => target(b.rows.of(f))),
+				target(lit.int(b.ordinal, types.integer)),
+				...extra
+			],
+			b.rows.from,
+			b.rows.where
+		)
 	const refusal = supply.relation(internal("unique refusal"))
 	const refused = fieldColumns(fields, () => supply.column(internal("refused fact column")))
 	const ordinalCol = supply.column(internal("unique ordinal"))
@@ -608,10 +759,10 @@ export const buildProbe = (
 	let query: Select
 	if (rest.length === 0) {
 		query = {
-			...select(first.core([])),
+			...select(coreOf(first, [])),
 			orderBy: [
 				...(first.rank === undefined ? [] : [asc(first.rank)]),
-				...apart.map((f) => asc(fact(f)))
+				...apart.map((f) => asc(first.rows.of(f)))
 			],
 			limit: lit.int(1, types.integer)
 		}
@@ -624,7 +775,7 @@ export const buildProbe = (
 		const allOrdinal = col(all, probedOrdinal)
 		const probedRank = ranked ? supply.column(internal("probe rank")) : undefined
 		const arm = (b: (typeof branches)[number]): SetCore =>
-			b.core(probedRank === undefined ? [] : [target(b.rank ?? lit.bool(false))])
+			coreOf(b, probedRank === undefined ? [] : [target(b.rank ?? lit.bool(false))])
 		ctes.push(
 			cte(
 				all,
