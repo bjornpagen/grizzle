@@ -1,4 +1,4 @@
-import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -31,7 +31,7 @@ import { searched } from "@bjornpagen/testing/vitest"
  *   the operation does not declare. Oracle: exit 2 and no connection.
  *
  * A case draws a focus, a feature or none, and the run aimed at it; while the floor and the steered phase still miss a
- * required feature, the case aims at one of those instead (Case.steering), so each is reached on every run seed.
+ * required feature, the case aims at one of those instead, so each is reached on every run seed.
  *
  * Plants, each applied to src/runtime-src/runtime and seen to fail this suite and reverted:
  * - negotiate.ts's selectRequestMedia taking the first declared media type by default instead of the JSON one;
@@ -72,6 +72,7 @@ import {
 import { formPairs, type Pair } from "#test/support/form.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
 import { boundaryOf, partsOf, partType } from "#test/support/multipart.ts"
+import { aimedAmong } from "#test/support/steering.ts"
 
 /** The operations of the box. */
 type Operation = "messages" | "uploads" | "events"
@@ -617,30 +618,6 @@ const FOCUS: Gen<Option.Option<AlternativeFeature>> = weighted([
 	[1, map(element(FEATURES), Option.some)]
 ])
 
-/** The run a case draws: while features are still pending, one aimed at one of those; otherwise its drawn focus's. */
-const aimed = (
-	drawnFocus: Option.Option<AlternativeFeature>,
-	k: SearchCase<AlternativeFeature>
-): Gen<Send> =>
-	Option.match(
-		Option.orElse(
-			Option.flatMap(k.steering, (pending) =>
-				Option.map(
-					Arr.match(
-						Arr.filter(FEATURES, (feature) => pending.names(feature)),
-						{
-							onEmpty: () => Option.none(),
-							onNonEmpty: Option.some
-						}
-					),
-					(pendingFeatures) => k.draw(element(pendingFeatures))
-				)
-			),
-			() => drawnFocus
-		),
-		{ onNone: () => send, onSome: caseFor }
-	)
-
 /** The suite's fixture: the capture server, the package built against it, and each operation's command. */
 class AlternativesFixture extends Context.Service<
 	AlternativesFixture,
@@ -694,19 +671,18 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's request bodies"
 								kind: "specification",
 								name: "each media type's own reading of the body, and exit 2 with no connection for a planted fault"
 							},
-							draw: drawn(FOCUS),
+							draw: aimedAmong(FEATURES, FOCUS, (feature) => constant(Option.some(feature))),
 							literal: Formatter.format,
 							coverage: required<AlternativeFeature>(FEATURES, { cases: 30, sense: notesOnly }),
 							kept: [],
 							runs: 12,
 							shrink: { kind: "bounded", candidates: 30 },
-							concurrency: 1,
 							steerEvery: 1,
 							caseHang: Duration.seconds(60)
 						},
-						(drawnFocus, k) =>
+						(focus, k) =>
 							Effect.gen(function* () {
-								const s = k.draw(aimed(drawnFocus, k))
+								const s = k.draw(Option.match(focus, { onNone: () => send, onSome: caseFor }))
 								k.noteAll(sendFeatures(s))
 								if (s.kind === "message as multipart") {
 									yield* fs.writeFile(file, s.file)

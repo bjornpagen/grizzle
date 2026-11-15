@@ -341,7 +341,6 @@ layer(harnessLayer, { excludeTestServices: true })("emit: the README", (it) => {
 						kept: [],
 						runs: 200,
 						shrink: { kind: "bounded", candidates: 200 },
-						concurrency: 1,
 						steerEvery: 100,
 						caseHang: Duration.seconds(20)
 					},

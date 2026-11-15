@@ -2531,7 +2531,6 @@ describe("emit: the printer", () => {
 								kept: [],
 								runs: 300,
 								shrink: { kind: "bounded", candidates: 300 },
-								concurrency: 1,
 								steerEvery: 100,
 								caseHang
 							},
@@ -2608,7 +2607,6 @@ describe("emit: the printer", () => {
 						kept: [],
 						runs: 300,
 						shrink: { kind: "bounded", candidates: 300 },
-						concurrency: 1,
 						steerEvery: 100,
 						caseHang
 					},
@@ -2660,7 +2658,6 @@ describe("emit: the printer", () => {
 								kept: [],
 								runs: 300,
 								shrink: { kind: "bounded", candidates: 300 },
-								concurrency: 1,
 								steerEvery: 100,
 								caseHang
 							},
@@ -2731,7 +2728,6 @@ describe("emit: the printer", () => {
 								kept: [],
 								runs: 200,
 								shrink: { kind: "bounded", candidates: 300 },
-								concurrency: 1,
 								steerEvery: 100,
 								caseHang
 							},

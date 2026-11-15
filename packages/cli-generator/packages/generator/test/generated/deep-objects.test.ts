@@ -26,7 +26,7 @@
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
-import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -76,6 +76,7 @@ import {
 } from "#test/support/cli-package.ts"
 import { formPairs, type Pair, queryPairs } from "#test/support/form.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
+import { aimedAmong } from "#test/support/steering.ts"
 
 /** An author config switch for `deepObject`. */
 type Switch = "brackets" | "scalars"
@@ -1065,24 +1066,6 @@ const caseFor = (mode: Mode, focus: Feature): Gen<Case> => {
 	}
 }
 
-/** A focus a case runs: the drawn one, or, while the config's features are still pending, one of those. */
-const aimedFocus = (mode: Mode, drawnFocus: Feature, k: SearchCase<Feature>): Feature =>
-	Option.match(
-		Option.flatMap(k.steering, (pending) =>
-			Arr.match(
-				Arr.filter(featuresOf(mode), (feature) => pending.names(feature)),
-				{
-					onEmpty: () => Option.none(),
-					onNonEmpty: (pendingFeatures) => Option.some(pendingFeatures)
-				}
-			)
-		),
-		{
-			onNone: () => drawnFocus,
-			onSome: (pendingFeatures) => k.draw(element(pendingFeatures))
-		}
-	)
-
 /** An empty `204`. */
 const done: ScriptedResponse = {
 	status: 204,
@@ -1250,19 +1233,20 @@ Arr.forEach(MODES, (mode) => {
 									kind: "second-implementation",
 									name: "the pairs the deepObject rules give, read back off the wire by each wire's own rules, and exit 2 with no connection for a fault"
 								},
-								draw: drawn(element(featuresOf(mode))),
+								draw: aimedAmong(featuresOf(mode), element(featuresOf(mode)), (feature) =>
+									constant(feature)
+								),
 								literal: Formatter.format,
 								coverage: required<Feature>(featuresOf(mode), { cases: 24, sense: notesOnly }),
 								kept: [],
 								runs: 6,
 								shrink: { kind: "bounded", candidates: 30 },
-								concurrency: 1,
 								steerEvery: 1,
 								caseHang: Duration.seconds(60)
 							},
-							(drawnFocus, k) =>
+							(focus, k) =>
 								Effect.gen(function* () {
-									const c = k.draw(caseFor(mode, aimedFocus(mode, drawnFocus, k)))
+									const c = k.draw(caseFor(mode, focus))
 									k.noteAll(caseFeatures(c))
 									const { command, args } = invocationOf(c)
 									const observed = yield* server.observe(

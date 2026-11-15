@@ -336,7 +336,6 @@ describe("the capture server", () => {
 							kept: [],
 							runs: 100,
 							shrink: { kind: "bounded", candidates: 200 },
-							concurrency: 1,
 							steerEvery: 25,
 							caseHang: Duration.seconds(10)
 						},
@@ -411,7 +410,6 @@ describe("the capture server", () => {
 					kept: [],
 					runs: 200,
 					shrink: { kind: "bounded", candidates: 200 },
-					concurrency: 1,
 					steerEvery: 50,
 					caseHang: Duration.seconds(10)
 				},
@@ -495,7 +493,6 @@ describe("the capture server", () => {
 							kept: [],
 							runs: 100,
 							shrink: { kind: "bounded", candidates: 200 },
-							concurrency: 1,
 							steerEvery: 25,
 							caseHang: Duration.seconds(10)
 						},
@@ -583,7 +580,6 @@ describe("the capture server", () => {
 						kept: [],
 						runs: 50,
 						shrink: { kind: "bounded", candidates: 100 },
-						concurrency: 1,
 						steerEvery: 25,
 						caseHang: Duration.seconds(10)
 					},
@@ -705,7 +701,6 @@ layer(harnessLayer, { excludeTestServices: true })("the TLS capture server", (it
 							kept: [],
 							runs: 20,
 							shrink: { kind: "bounded", candidates: 60 },
-							concurrency: 1,
 							steerEvery: 10,
 							caseHang: Duration.seconds(10)
 						},

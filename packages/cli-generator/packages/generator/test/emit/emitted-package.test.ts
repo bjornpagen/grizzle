@@ -22,10 +22,10 @@
  * - cli.ts's isArrayParameter without its content check, so an optional array parameter written by content reached its
  *   builder as the flag's Option (the kept case).
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import type { Case, Kept } from "@bjornpagen/testing/explore"
+import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
+import type { Kept } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"
-import type { Gen } from "@bjornpagen/testing/gen"
+import { type Gen, map } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
@@ -145,15 +145,6 @@ const AIMED: ReadonlyArray<readonly [Feature, (drawnCase: PackageCase) => Packag
 	["an apiKey cookie scheme", withAdded([COOKIE_KEYED], [COOKIE_KEY])],
 	["an operation refused", withAdded([REFUSED], [])]
 ]
-
-/** The case a run generates: the drawn one, with what AIMED adds where the case is steered at its situation. */
-const aimedCase = (drawnCase: PackageCase, k: Case<Feature>): PackageCase =>
-	Option.match(
-		Option.flatMap(k.steering, (pending) =>
-			Arr.findFirst(AIMED, ([feature]) => pending.aimed(feature))
-		),
-		{ onNone: () => drawnCase, onSome: ([, add]) => add(drawnCase) }
-	)
 
 /** A package case whose package has a command, so its root services layer provides Servers: a generated document
  * with COMMANDED among its operations, and an author config that fits it. */
@@ -646,7 +637,10 @@ layer(harnessLayer, { excludeTestServices: true })("emit: generated packages", (
 							kind: "specification",
 							name: "tsc over the emitted package, oxfmt's fixed point, the runtime's sources byte for byte and the lazy root's imports"
 						},
-						draw: drawn(caseGen),
+						draw: aimed(
+							caseGen,
+							Arr.map(AIMED, ([feature, add]) => [feature, map(caseGen, add)] as const)
+						),
 						literal: Formatter.format,
 						coverage: required<Feature>(
 							[
@@ -695,14 +689,12 @@ layer(harnessLayer, { excludeTestServices: true })("emit: generated packages", (
 						kept: [OPTIONAL_ARRAY_CONTENT],
 						runs: 8,
 						shrink: { kind: "bounded", candidates: 60 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang: Duration.minutes(2)
 					},
-					(plainCase, k) =>
+					(drawnCase, k) =>
 						Effect.scoped(
 							Effect.gen(function* () {
-								const drawnCase = aimedCase(plainCase, k)
 								const generated = yield* generateFixture({
 									spec: { path: "openapi.json", text: textOf(documentOf(drawnCase.document)) },
 									config: { path: "author-config.json", text: textOf(configOf(drawnCase.config)) },
@@ -757,7 +749,6 @@ layer(harnessLayer, { excludeTestServices: true })("emit: generated packages", (
 						kept: [],
 						runs: 8,
 						shrink: { kind: "bounded", candidates: 20 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang: Duration.minutes(2)
 					},

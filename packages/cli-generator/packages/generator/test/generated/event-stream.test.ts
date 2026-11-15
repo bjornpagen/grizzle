@@ -24,7 +24,7 @@
  * Every event's data is checked against its event's `contentSchema` before it prints, so the scripted data is what the
  * fixture's schemas admit; an exhaustion sends one event of each type a read sends whose data its schema refuses, and
  * the command must end with exit 5 (`invalidData`) printing nothing of it. The feed's draws aim at a pending feature
- * (Case.steering).
+ *.
  *
  * Features: a stop at ready, a stream followed to its end, an interrupted stream, data across lines, a comment, a write
  * that splits an event; each failure verdict with and without a budget, on the read and on the write; a cut read and a
@@ -37,7 +37,7 @@
  * (local, reverted: the cut write is called again under a budget; the cut read exits 5), and api.ts eventDataExpr
  * naming no schema for checked data (local, reverted: refused data printed).
  */
-import { type Case as SearchCase, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -74,6 +74,7 @@ import {
 import { Headers, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { generateFixture } from "#test/support/cli-package.ts"
+import { aimedAmong } from "#test/support/steering.ts"
 
 /** The generated package: its directory and its built entry. */
 class Site extends Context.Service<
@@ -380,24 +381,6 @@ const FEED_FOCUS: Gen<Option.Option<FeedFeature>> = weighted([
 	[1, map(element(FEED_FEATURES), Option.some)]
 ])
 
-/** The feed a case sends: while features are pending, one aimed at one of those (Case.steering); otherwise its focus's. */
-const aimedFeed = (focus: Option.Option<FeedFeature>, k: SearchCase<FeedFeature>): Gen<Feed> =>
-	Option.match(
-		Option.orElse(
-			Option.flatMap(k.steering, (pending) =>
-				Option.map(
-					Arr.match(
-						Arr.filter(FEED_FEATURES, (feature) => pending.names(feature)),
-						{ onEmpty: () => Option.none(), onNonEmpty: Option.some }
-					),
-					(pendingFeatures) => k.draw(element(pendingFeatures))
-				)
-			),
-			() => focus
-		),
-		{ onNone: () => feed, onSome: feedFor }
-	)
-
 /** An event's data as written: its tokens with the feed's gaps between them, a gap with a line feed splitting lines. */
 const writtenData = (
 	event: Readonly<{ tokens: Arr.NonEmptyReadonlyArray<string> }>,
@@ -611,19 +594,20 @@ layer(environment, { timeout: Duration.minutes(5) })(
 								kind: "specification",
 								name: "the events' own lines, through the stop point the command's flags name"
 							},
-							draw: drawn(FEED_FOCUS),
+							draw: aimedAmong(FEED_FEATURES, FEED_FOCUS, (feature) =>
+								constant(Option.some(feature))
+							),
 							literal: Formatter.format,
 							coverage: required<FeedFeature>(FEED_FEATURES, { cases: 16, sense: notesOnly }),
 							kept: [],
 							runs: 4,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 4,
 							caseHang: Duration.seconds(60)
 						},
 						(focus, c) =>
 							Effect.gen(function* () {
-								const sent = c.draw(aimedFeed(focus, c))
+								const sent = c.draw(Option.match(focus, { onNone: () => feed, onSome: feedFor }))
 								const server = yield* Server
 								yield* server.script([
 									{ writes: writesOf(bodyOf(sent), sent.writes), close: sent.ends }
@@ -662,7 +646,6 @@ layer(environment, { timeout: Duration.minutes(5) })(
 								name: "the stream's contract: the lines printed, the exit code, the calls made and the header each carried, and the error object's data"
 							},
 							box: "every pairing of the error event's verdict, a --retries budget or none, and the read or the write",
-							concurrency: 1,
 							generator: failureCase,
 							literal: Formatter.format,
 							coverage: requiredInSpace<FailureFeature>([
@@ -811,7 +794,6 @@ layer(environment, { timeout: Duration.minutes(5) })(
 								name: "the event's contentSchema: data it refuses ends the stream with invalidData, exit 5, and is never printed"
 							},
 							box: "the read sent one event of each type whose data its contentSchema refuses",
-							concurrency: 1,
 							generator: refusedData,
 							literal: Formatter.format,
 							coverage: requiredInSpace<RefusedData>([
@@ -855,7 +837,6 @@ layer(environment, { timeout: Duration.minutes(5) })(
 								name: "a cut read is a retry-safe unavailable event and a cut write ends the run: the lines printed, the exit code and the calls made"
 							},
 							box: "the read followed past its ready and the write, each cut before its terminal event, with a --retries budget or none",
-							concurrency: 1,
 							generator: cutCase,
 							literal: Formatter.format,
 							coverage: requiredInSpace<CutFeature>([

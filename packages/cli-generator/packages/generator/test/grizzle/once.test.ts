@@ -32,7 +32,7 @@
  * A CallError whose `retry` is `safe`, from either side, is no answer of the call's: nothing committed, so the call is
  * made again, as `--retries` makes it, until it is answered. A case draws a focus, a required feature or none, and the
  * case aimed at it; while the floor and the steered phase still miss a feature, it aims at one of those instead
- * (Case.steering), so each is reached on every run seed. A case may run as long as grizzle lets one case of its own
+ *, so each is reached on every run seed. A case may run as long as grizzle lets one case of its own
  * searches run (test/support/limits.ts caseHang), which the driver reports: its calls wait on the same cluster.
  *
  * Plants, each applied to the generator, seen to fail this suite on a private cluster, and reverted: sse.ts eventSteps
@@ -41,7 +41,7 @@
  * sent as `{}`, its flags gone); sse.ts eventSteps stopping at `ready` under `--follow` too (a followed read's change
  * never printed).
  */
-import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, int, shuffled, weighted } from "@bjornpagen/testing/gen"
 import { exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
@@ -76,6 +76,7 @@ import {
 	runBin
 } from "#test/support/cli-package.ts"
 import { type GrizzleDriver, grizzleDriver } from "#test/support/grizzle.ts"
+import { aimedAmong } from "#test/support/steering.ts"
 
 /** An item as the wire spells it: an int4 key, an int8, a numeric(12, 2), a money, a boolean, a float4, a name, a date, bytes, a uuid. */
 type Item = Readonly<{
@@ -516,24 +517,6 @@ const FOCUS: Gen<Option.Option<Feature>> = weighted([
 	[1, (source) => Option.some(source.draw(element(FEATURES)))]
 ])
 
-/** The case a run draws: while features are pending, one aimed at one of those (Case.steering); otherwise its focus's. */
-const aimed = (focus: Option.Option<Feature>, k: SearchCase<Feature>): Gen<Case> =>
-	Option.match(
-		Option.orElse(
-			Option.flatMap(k.steering, (pending) =>
-				Option.map(
-					Arr.match(
-						Arr.filter(FEATURES, (feature) => pending.names(feature)),
-						{ onEmpty: () => Option.none(), onNonEmpty: Option.some }
-					),
-					(pendingFeatures) => k.draw(element(pendingFeatures))
-				)
-			),
-			() => focus
-		),
-		{ onNone: () => caseGen, onSome: caseFor }
-	)
-
 /** A call's whole request body. */
 const bodyOf = (call: Call): Schema.Json => {
 	switch (call.program) {
@@ -952,19 +935,18 @@ layer(fixture, { excludeTestServices: true })("a generated CLI against a grizzle
 							kind: "second-implementation",
 							name: "grizzle's in-process once of the same call on a twin installation, encoded as its server frames encode it"
 						},
-						draw: drawn(FOCUS),
+						draw: aimedAmong(FEATURES, FOCUS, (feature) => constant(Option.some(feature))),
 						literal: Formatter.format,
 						coverage: required<Feature>(FEATURES, { cases: 32, sense: notesOnly }),
 						kept: [],
 						runs: 16,
 						shrink: { kind: "bounded", candidates: 24 },
-						concurrency: 1,
 						steerEvery: 1,
 						caseHang: Duration.millis(caseHangMillis)
 					},
 					(focus, notes) =>
 						Effect.gen(function* () {
-							const c = notes.draw(aimed(focus, notes))
+							const c = notes.draw(Option.match(focus, { onNone: () => caseGen, onSome: caseFor }))
 							/** The CLI's run of `call`, by `by`, made again while it ends at an error safe to make again. */
 							const cliRun = (call: Call, by: By) =>
 								Effect.repeat(

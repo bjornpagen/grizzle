@@ -172,7 +172,6 @@ layer(harnessLayer, { excludeTestServices: true })("a built bin's run", (it) => 
 							kept: [],
 							runs: 20,
 							shrink: { kind: "bounded", candidates: 60 },
-							concurrency: 1,
 							steerEvery: 10,
 							caseHang: Duration.seconds(30)
 						},

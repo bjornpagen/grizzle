@@ -463,7 +463,6 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's client certific
 						kept: [],
 						runs: 20,
 						shrink: { kind: "bounded", candidates: 40 },
-						concurrency: 1,
 						steerEvery: 10,
 						caseHang: Duration.seconds(60)
 					},
@@ -535,7 +534,6 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's client certific
 							kept: [],
 							runs: 12,
 							shrink: { kind: "bounded", candidates: 30 },
-							concurrency: 1,
 							steerEvery: 6,
 							caseHang: Duration.seconds(60)
 						},

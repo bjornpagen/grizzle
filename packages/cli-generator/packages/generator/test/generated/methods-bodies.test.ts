@@ -298,7 +298,6 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's requests", (it)
 						kept: [],
 						runs: 30,
 						shrink: { kind: "bounded", candidates: 40 },
-						concurrency: 1,
 						steerEvery: 10,
 						caseHang: Duration.seconds(60)
 					},

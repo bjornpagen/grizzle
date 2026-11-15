@@ -19,7 +19,7 @@
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
-import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -65,6 +65,7 @@ import {
 	runBin
 } from "#test/support/cli-package.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
+import { aimedAmong } from "#test/support/steering.ts"
 
 /** An operation of the box, named by its path. */
 type Operation = "ref-siblings" | "closed" | "open" | "closed-patterned" | "nested"
@@ -659,27 +660,6 @@ const caseFor = (focus: Option.Option<Feature>): Gen<Case> => {
 	}
 }
 
-/** A focus a case runs: while features are still pending, one of those; otherwise the drawn one. */
-const aimedFocus = (
-	drawnFocus: Option.Option<Feature>,
-	k: SearchCase<Feature>
-): Option.Option<Feature> =>
-	Option.match(
-		Option.flatMap(k.steering, (pending) =>
-			Arr.match(
-				Arr.filter(FEATURES, (feature) => pending.names(feature)),
-				{
-					onEmpty: () => Option.none(),
-					onNonEmpty: (pendingFeatures) => Option.some(pendingFeatures)
-				}
-			)
-		),
-		{
-			onNone: () => drawnFocus,
-			onSome: (pendingFeatures) => Option.some(k.draw(element(pendingFeatures)))
-		}
-	)
-
 /** A focus, or none, each half the time. */
 const FOCUS: Gen<Option.Option<Feature>> = weighted([
 	[1, constant(Option.none())],
@@ -741,19 +721,18 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's JSON request bo
 							kind: "second-implementation",
 							name: "a reference check of the body against each schema's rules"
 						},
-						draw: drawn(FOCUS),
+						draw: aimedAmong(FEATURES, FOCUS, (feature) => constant(Option.some(feature))),
 						literal: Formatter.format,
 						coverage: required<Feature>(FEATURES, { cases: 24, sense: notesOnly }),
 						kept: [],
 						runs: 6,
 						shrink: { kind: "bounded", candidates: 30 },
-						concurrency: 1,
 						steerEvery: 1,
 						caseHang: Duration.seconds(60)
 					},
-					(drawnFocus, k) =>
+					(focus, k) =>
 						Effect.gen(function* () {
-							const c = k.draw(caseFor(aimedFocus(drawnFocus, k)))
+							const c = k.draw(caseFor(focus))
 							k.noteAll(caseFeatures(c))
 							const observed = yield* server.observe(
 								() => done,

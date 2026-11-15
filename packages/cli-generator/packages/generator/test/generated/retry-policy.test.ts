@@ -24,7 +24,7 @@
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
-import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -68,6 +68,7 @@ import {
 	runBin
 } from "#test/support/cli-package.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
+import { aimedAmong } from "#test/support/steering.ts"
 import { latin1Bytes } from "#test/support/wire.ts"
 
 /** An object answer. */
@@ -818,27 +819,6 @@ const caseFor = (focus: Option.Option<Feature>): Gen<Case> => {
 	}
 }
 
-/** A focus a case runs: while features are still pending, one of those; otherwise the drawn one. */
-const aimedFocus = (
-	drawnFocus: Option.Option<Feature>,
-	k: SearchCase<Feature>
-): Option.Option<Feature> =>
-	Option.match(
-		Option.flatMap(k.steering, (pending) =>
-			Arr.match(
-				Arr.filter(FEATURES, (feature) => pending.names(feature)),
-				{
-					onEmpty: () => Option.none(),
-					onNonEmpty: (pendingFeatures) => Option.some(pendingFeatures)
-				}
-			)
-		),
-		{
-			onNone: () => drawnFocus,
-			onSome: (pendingFeatures) => Option.some(k.draw(element(pendingFeatures)))
-		}
-	)
-
 /** A focus, or none, each half the time. */
 const FOCUS: Gen<Option.Option<Feature>> = weighted<Option.Option<Feature>>([
 	[1, constant(Option.none())],
@@ -916,19 +896,18 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's retries", (it) 
 							kind: "second-implementation",
 							name: "a model of the retry rules run over the server's sequence of answers"
 						},
-						draw: drawn(FOCUS),
+						draw: aimedAmong(FEATURES, FOCUS, (feature) => constant(Option.some(feature))),
 						literal: Formatter.format,
 						coverage: required<Feature>(FEATURES, { cases: 24, sense: notesOnly }),
 						kept: [],
 						runs: 6,
 						shrink: { kind: "bounded", candidates: 30 },
-						concurrency: 1,
 						steerEvery: 1,
 						caseHang: Duration.seconds(60)
 					},
-					(drawnFocus, k) =>
+					(focus, k) =>
 						Effect.gen(function* () {
-							const c = k.draw(caseFor(aimedFocus(drawnFocus, k)))
+							const c = k.draw(caseFor(focus))
 							k.noteAll(caseFeatures(c))
 							const observed = yield* server.observe(
 								(_request, attempt) => responseOf(answerAt(c.answers, attempt)),

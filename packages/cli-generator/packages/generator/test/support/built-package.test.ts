@@ -265,7 +265,6 @@ layer(fixture, { excludeTestServices: true })("a built generated CLI", (it) => {
 						kept: [],
 						runs: 12,
 						shrink: { kind: "bounded", candidates: 40 },
-						concurrency: 1,
 						steerEvery: 6,
 						caseHang: Duration.seconds(60)
 					},

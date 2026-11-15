@@ -240,7 +240,6 @@ layer(harnessLayer, { excludeTestServices: true })("names: reserved namespaces",
 					kept: [],
 					runs: 40,
 					shrink: { kind: "bounded", candidates: 60 },
-					concurrency: 1,
 					steerEvery: 20,
 					caseHang: Duration.seconds(30)
 				},

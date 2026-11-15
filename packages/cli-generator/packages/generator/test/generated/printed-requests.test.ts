@@ -31,7 +31,7 @@
  * - output.ts's JSON error without `requestId`, so a 404 carrying its declared request id rendered without it.
  */
 import { createServer } from "node:net"
-import { type Case as SearchCase, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	characterOf,
@@ -76,6 +76,7 @@ import {
 } from "#test/support/cli-package.ts"
 import { listen } from "#test/support/connection.ts"
 import type { WireRequest } from "#test/support/http.ts"
+import { aimedAmong } from "#test/support/steering.ts"
 import { latin1Bytes } from "#test/support/wire.ts"
 
 const OBJECT = { "application/json": { schema: { type: "object" } } } as const
@@ -390,27 +391,6 @@ const requestFor = (focus: Option.Option<ShownFeature>): Gen<Request> => {
 	}
 }
 
-const aimedFocus = <F extends string>(
-	features: ReadonlyArray<F>,
-	drawnFocus: Option.Option<F>,
-	k: SearchCase<F>
-): Option.Option<F> =>
-	Option.match(
-		Option.flatMap(k.steering, (pending) =>
-			Arr.match(
-				Arr.filter(features, (feature) => pending.names(feature)),
-				{
-					onEmpty: () => Option.none(),
-					onNonEmpty: (pendingFeatures) => Option.some(pendingFeatures)
-				}
-			)
-		),
-		{
-			onNone: () => drawnFocus,
-			onSome: (pendingFeatures) => Option.some(k.draw(element(pendingFeatures)))
-		}
-	)
-
 const FOCUS: Gen<Option.Option<ShownFeature>> = weighted<Option.Option<ShownFeature>>([
 	[1, constant(Option.none())],
 	[1, map(element(SHOWN_FEATURES), Option.some)]
@@ -666,19 +646,20 @@ layer(fixture, { excludeTestServices: true })(
 									kind: "specification",
 									name: "the dry run, the verbose send and what reached the capture server, each against the others"
 								},
-								draw: drawn(FOCUS),
+								draw: aimedAmong(SHOWN_FEATURES, FOCUS, (feature) =>
+									constant(Option.some(feature))
+								),
 								literal: Formatter.format,
 								coverage: required<ShownFeature>(SHOWN_FEATURES, { cases: 16, sense: notesOnly }),
 								kept: [],
 								runs: 4,
 								shrink: { kind: "bounded", candidates: 20 },
-								concurrency: 1,
 								steerEvery: 1,
 								caseHang: Duration.seconds(60)
 							},
-							(drawnFocus, k) =>
+							(focus, k) =>
 								Effect.gen(function* () {
-									const request = k.draw(requestFor(aimedFocus(SHOWN_FEATURES, drawnFocus, k)))
+									const request = k.draw(requestFor(focus))
 									k.noteAll(shownFeatures(request))
 									const args = Arr.flatten([
 										commands[operationOfRequest(request)],
@@ -756,7 +737,6 @@ layer(fixture, { excludeTestServices: true })(
 									name: "one JSON error line with the keys its error carries, nothing on stdout, and its exit code"
 								},
 								box: "every failure the suite lists: API errors with and without a request id, a refused connection, a missing credential, a usage error and a Retry-After past the timeout",
-								concurrency: 1,
 								generator: element(FAILURES),
 								literal: Formatter.format,
 								coverage: requiredInSpace<Failure>(FAILURES),

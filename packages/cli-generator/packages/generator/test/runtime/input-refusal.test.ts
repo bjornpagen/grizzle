@@ -7,7 +7,7 @@
  * escapes, and an array; both objects are closed, as the domain module writes `additionalProperties: false`, a plain
  * Struct the body is checked against with every excess property refused. A property draws a valid body, then plants
  * exactly one fault: a required member left out, a value of another JSON type, or a member no property declares, aimed
- * while a feature is pending at one that is (Case.steering). The oracle is the plant: the message names the planted
+ * while a feature is pending at one that is. The oracle is the plant: the message names the planted
  * place's pointer, and `(required)`, the JSON type the schema expects there, or `(additionalProperties)`, and quotes no
  * planted value.
  *
@@ -15,7 +15,7 @@
  * the path's tokens unescaped; the leaf hook's MissingKey worded without `(required)`; structuredBody's check without
  * `closedObjects`, so an excess member passes.
  */
-import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -39,6 +39,7 @@ import {
 	String as Str
 } from "effect"
 import * as Input from "#runtime-src/runtime/input.ts"
+import { aimedAmong } from "#test/support/steering.ts"
 
 /** A member name holding both characters a JSON pointer escapes. */
 const odd = "a/b~c"
@@ -185,21 +186,6 @@ const faultFor =
 		}
 	}
 
-/** The fault a case draws: while features are pending, one aimed at one of those (Case.steering); otherwise any. */
-const aimed = (k: SearchCase<RefusalFeature>): Gen<Fault> =>
-	Option.match(
-		Option.flatMap(k.steering, (pending) =>
-			Arr.match(
-				Arr.filter(FEATURES, (feature) => pending.names(feature)),
-				{ onEmpty: () => Option.none(), onNonEmpty: Option.some }
-			)
-		),
-		{
-			onNone: () => faultGen,
-			onSome: (pending) => (source) => source.draw(faultFor(source.draw(element(pending))))
-		}
-	)
-
 /** What `place` holds in a body: the planted value, `valid`, or nothing where the fault leaves it out. */
 const holding = (fault: Fault, place: Place, valid: Schema.Json): Option.Option<Schema.Json> => {
 	switch (fault.kind) {
@@ -282,19 +268,18 @@ layer(Layer.mergeAll(NodeFileSystem.layer, stdin, Input.stdinClaimLayer))(
 							kind: "specification",
 							name: "the planted fault's RFC 6901 pointer and the keyword it breaks, and no planted value in the message"
 						},
-						draw: drawn(int(1, 3)),
+						draw: aimedAmong(FEATURES, faultGen, faultFor),
 						literal: Formatter.format,
 						coverage: required<RefusalFeature>(FEATURES, { cases: 40, sense: notesOnly }),
 						kept: [],
 						runs: 40,
 						shrink: { kind: "bounded", candidates: 40 },
-						concurrency: 1,
 						steerEvery: 10,
 						caseHang: Duration.seconds(30)
 					},
-					(items, notes) =>
+					(fault, notes) =>
 						Effect.gen(function* () {
-							const fault = notes.draw(aimed(notes))
+							const items = notes.draw(int(1, 3))
 							const { path, expectation } =
 								fault.kind === "extra"
 									? {

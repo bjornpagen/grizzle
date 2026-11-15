@@ -23,7 +23,7 @@
  *
  * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
-import { type Case as SearchCase, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, type RequiredCoverage, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	boolean,
@@ -71,6 +71,7 @@ import {
 } from "#test/support/cli-package.ts"
 import { metavarOf } from "#test/support/help.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
+import { aimedAmong } from "#test/support/steering.ts"
 
 /** A path parameter style. */
 type PathStyle = "simple" | "label" | "matrix"
@@ -1005,31 +1006,6 @@ const headerCaseFor = (focus: Option.Option<HeaderFeature>): Gen<HeaderCase> => 
 	}
 }
 
-/**
- * A focus a case runs: while `features` are still pending, one of those; otherwise the drawn one, which is no focus
- * as often as some feature.
- */
-const aimedFocus = <F extends string>(
-	features: ReadonlyArray<F>,
-	drawnFocus: Option.Option<F>,
-	k: SearchCase<F>
-): Option.Option<F> =>
-	Option.match(
-		Option.flatMap(k.steering, (pending) =>
-			Arr.match(
-				Arr.filter(features, (feature) => pending.names(feature)),
-				{
-					onEmpty: () => Option.none(),
-					onNonEmpty: (pendingFeatures) => Option.some(pendingFeatures)
-				}
-			)
-		),
-		{
-			onNone: () => drawnFocus,
-			onSome: (pendingFeatures) => Option.some(k.draw(element(pendingFeatures)))
-		}
-	)
-
 /** A focus, or none, each half the time. */
 const focusOf = <F extends string>(features: Arr.NonEmptyReadonlyArray<F>): Gen<Option.Option<F>> =>
 	weighted([
@@ -1156,19 +1132,20 @@ const exploreLocation = <C, F extends string>(location: Location<C, F>) =>
 				kind: "second-implementation",
 				name: "each style's RFC 6570 expansion of the drawn object, byte for byte against what reached the server"
 			},
-			draw: drawn(focusOf(location.features)),
+			draw: aimedAmong(location.features, focusOf(location.features), (feature) =>
+				constant(Option.some(feature))
+			),
 			literal: Formatter.format,
 			coverage: location.coverage,
 			kept: [],
 			runs: 6,
 			shrink: { kind: "bounded", candidates: 30 },
-			concurrency: 1,
 			steerEvery: 1,
 			caseHang: Duration.seconds(60)
 		},
-		(drawnFocus, k) =>
+		(focus, k) =>
 			Effect.gen(function* () {
-				const c = k.draw(location.caseFor(aimedFocus(location.features, drawnFocus, k)))
+				const c = k.draw(location.caseFor(focus))
 				k.noteAll(location.featuresOf(c))
 				const { operation, args } = location.invocationOf(c)
 				const outcome = yield* observedRun(operation, args)
@@ -1292,7 +1269,6 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's object paramete
 					suite: "object parameters: text that is not JSON",
 					oracle: { kind: "specification", name: "exit 2 before any connection" },
 					box: "every JSON input kind, given R alone or R and one of , = 1",
-					concurrency: 1,
 					generator: (source) => ({
 						target: element(NOT_JSON_TARGETS)(source),
 						text: NOT_JSON(source)

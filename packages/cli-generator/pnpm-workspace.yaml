@@ -33,7 +33,7 @@ catalog:
   arkregex: 0.0.14
   effect: 4.1.4
   eslint-plugin-better-tailwindcss: 4.11.0
-  fallow: 3.43.0
+  fallow: 3.43.1
   lefthook: 2.2.2
   oxfmt: 0.78.0
   oxlint: 1.93.0

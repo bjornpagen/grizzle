@@ -561,7 +561,6 @@ describe("emit: the domain module", () => {
 								kept: [ALIAS_OF_RECURSIVE],
 								runs: 200,
 								shrink: { kind: "bounded", candidates: 200 },
-								concurrency: 1,
 								steerEvery: 100,
 								caseHang: Duration.seconds(20)
 							},
@@ -642,7 +641,6 @@ describe("emit: the domain module", () => {
 						kept: [],
 						runs: 100,
 						shrink: { kind: "bounded", candidates: 100 },
-						concurrency: 1,
 						steerEvery: 50,
 						caseHang: Duration.seconds(20)
 					},

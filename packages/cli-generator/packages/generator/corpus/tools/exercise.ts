@@ -35,10 +35,9 @@ const filledArrayDepth = 2
  * @owner the exercise of a built CLI (exerciseCommands)
  * @unit CLI processes at once
  * @scope one exercise of one built package, in the benchmark's process; the benchmark runs beside the gate's other
- * tasks, and every process that sizes itself so adds up, which TOOLCHAIN_TEST_WORKERS caps on a shared machine
+ * tasks, and every process that sizes itself so adds up
  * @derivation testWorkers, the testing library's count of test processes one run holds at once: availableParallelism(),
- * one a logical CPU, since each invocation is a Node process of one JavaScript thread, or TOOLCHAIN_TEST_WORKERS, the
- * machine owner's cap, when the environment sets it
+ * one a logical CPU, since each invocation is a Node process of one JavaScript thread
  */
 const invocationsAtOnce = testWorkers
 

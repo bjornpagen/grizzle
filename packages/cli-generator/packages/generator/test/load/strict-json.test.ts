@@ -663,7 +663,6 @@ describe("load: strict JSON", () => {
 						kept: [],
 						runs: 600,
 						shrink: { kind: "bounded", candidates: 400 },
-						concurrency: 1,
 						steerEvery: 200,
 						caseHang: Duration.seconds(10)
 					},

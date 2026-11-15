@@ -442,7 +442,6 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's routes", (it) =
 							kept: [],
 							runs: 12,
 							shrink: { kind: "bounded", candidates: 30 },
-							concurrency: 1,
 							steerEvery: 3,
 							caseHang: Duration.seconds(60)
 						},

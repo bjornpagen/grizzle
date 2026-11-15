@@ -275,11 +275,9 @@ const invocationsOf = (
  * @owner this suite's differential against the eager oracle
  * @unit CLI processes at once
  * @scope one exhaustion, in one Vitest worker; the run's other test files go on in workers of their own beside it, so
- * the run holds these processes on top of its workers while it lasts, and TOOLCHAIN_TEST_WORKERS caps both on a shared
- * machine
+ * the run holds these processes on top of its workers while it lasts
  * @derivation testWorkers, the testing library's count of test processes one run holds at once: availableParallelism(),
- * one a logical CPU, since each bin is a Node process of one JavaScript thread, or TOOLCHAIN_TEST_WORKERS, the machine
- * owner's cap, when the environment sets it
+ * one a logical CPU, since each bin is a Node process of one JavaScript thread
  */
 const INVOCATIONS_AT_ONCE = testWorkers
 
@@ -447,7 +445,6 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's lazy root", (it
 							name: "one request, carrying the key, wherever the global flags go"
 						},
 						box: "each global flag before the group or after the arguments, under a limit of 1 or 2",
-						concurrency: 1,
 						generator: requestCaseOf,
 						literal: Formatter.format,
 						coverage: requiredInSpace<RequestFeature>([

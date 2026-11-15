@@ -652,7 +652,6 @@ describe("an SSE response's event contract", () => {
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang: Duration.seconds(10)
 					},

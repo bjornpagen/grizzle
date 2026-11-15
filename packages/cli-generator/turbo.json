@@ -2,18 +2,10 @@
 	"$schema": "https://turbo.build/schema.json",
 	"agentGuidance": false,
 	"concurrency": "100%",
-	"globalDependencies": [
-		"pnpm-workspace.yaml",
-		"pnpm-lock.yaml",
-		"tsconfig.json",
-		"oxlint.config.ts"
-	],
+	"globalDependencies": ["tsconfig.json", "oxlint.config.ts"],
 	"globalEnv": ["NODE_ENV"],
 	"globalPassThroughEnv": [
 		"NODE_OPTIONS",
-		"TOOLCHAIN_TEST_WORKERS",
-		"TOOLCHAIN_TSGOLINT_PROCS",
-		"TOOLCHAIN_TS_CHECKERS",
 		"COREPACK_HOME",
 		"TMPDIR",
 		"HTTP_PROXY",
@@ -30,9 +22,21 @@
 			"description": "Carries each package's source hash to its dependents, so a check reruns when a package it loads changes, without waiting for that package's checks.",
 			"dependsOn": ["^source"]
 		},
+		"surface": {
+			"description": "What a dependent can read of a package: its whole source but its tests, SQL, docs and scratch, which nothing imports. A package's checks wait on its dependencies' surface, not their whole source, so a commit that changes only a dependency's tests re-checks nothing downstream. The build still waits on the whole source.",
+			"dependsOn": ["^surface"],
+			"inputs": [
+				"$TURBO_DEFAULT$",
+				"!**/*.test.ts",
+				"!**/*.test.tsx",
+				"!**/*.sql",
+				"!**/docs/**",
+				"!**/work/**"
+			]
+		},
 		"typecheck": {
 			"description": "Incremental, for pnpm types after every edit and before every commit: each tsconfig keeps its .tsbuildinfo under its own node_modules/.cache. The dev tools' tsconfig bases, which the root tsconfig and every Effect-free package extend, are inputs too.",
-			"dependsOn": ["^source"],
+			"dependsOn": ["^surface"],
 			"inputs": [
 				"$TURBO_DEFAULT$",
 				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/tsconfig.base.json",
@@ -41,7 +45,7 @@
 		},
 		"typecheck:full": {
 			"description": "The gate's typecheck, run in full (--incremental false), so no stale .tsbuildinfo can pass it. The dev tools' tsconfig bases are inputs too.",
-			"dependsOn": ["^source"],
+			"dependsOn": ["^surface"],
 			"inputs": [
 				"$TURBO_DEFAULT$",
 				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/tsconfig.base.json",
@@ -50,7 +54,7 @@
 		},
 		"oxlint": {
 			"description": "The dev tools' preset and plugin, the testing library's plugin and the repository's toolchain config are inputs too.",
-			"dependsOn": ["^source"],
+			"dependsOn": ["^surface"],
 			"inputs": [
 				"$TURBO_DEFAULT$",
 				"$TURBO_ROOT$/toolchain.config.ts",
@@ -60,11 +64,11 @@
 		},
 		"runtime-gate": {
 			"description": "Generates the runtime-gate fixture into a scratch directory and typechecks the generated package against the installed dependencies, until the property that every emitted package typechecks covers it.",
-			"dependsOn": ["^source"]
+			"dependsOn": ["^surface"]
 		},
 		"benchmark": {
 			"description": "Generates every corpus specification whose bytes are committed (qti-pie's grizzle documents), builds each package against the installed dependencies, compares its verdict byte for byte and runs every command's --help and --dry-run against what its document describes.",
-			"dependsOn": ["^source"]
+			"dependsOn": ["^surface"]
 		},
 		"//#typecheck": {},
 		"//#typecheck:full": {},
@@ -75,7 +79,8 @@
 			"description": "fallow's cycles, boundaries and policy rules, which dead-code reports too until fallow's next major drops them from it."
 		},
 		"//#dedupe": {
-			"description": "The lockfile is already deduplicated: pnpm dedupe would change nothing."
+			"description": "pnpm dedupe --check reads the manifests, the lockfile and the workspace file, never source.",
+			"inputs": ["**/package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "!**/node_modules/**"]
 		},
 		"//#workspace-gate": {
 			"description": "The repository-wide tsconfig, manifest and file-name checks. Uncached: it reads the whole tree in about a second, which a cache would have to hash.",

@@ -1,4 +1,4 @@
-import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	bytes,
@@ -29,7 +29,7 @@ import { searched } from "@bjornpagen/testing/vitest"
  *   value with a line break. Oracle: exit 2 and no connection.
  *
  * A case draws a focus, a feature or none, and the run aimed at it; while the floor and the steered phase still miss a
- * required feature, the case aims at one of those instead (Case.steering), so each is reached on every run seed.
+ * required feature, the case aims at one of those instead, so each is reached on every run seed.
  *
  * Plants, each applied to src/runtime-src/runtime and seen to fail this suite and reverted:
  * - multipart.ts's part head leaving out a part's first declared header;
@@ -67,6 +67,7 @@ import {
 } from "#test/support/cli-package.ts"
 import { type HeaderList, valuesOf, type WireRequest } from "#test/support/http.ts"
 import { boundaryOf, type Part, partsOf, partType } from "#test/support/multipart.ts"
+import { aimedAmong } from "#test/support/steering.ts"
 
 /** The operations of the box. */
 type Operation = "uploads" | "docs"
@@ -517,27 +518,6 @@ const FOCUS: Gen<Option.Option<PartFeature>> = weighted([
 	[1, map(element(FEATURES), Option.some)]
 ])
 
-/** The run a case draws: while features are still pending, one aimed at one of those; otherwise its drawn focus's. */
-const aimed = (drawnFocus: Option.Option<PartFeature>, k: SearchCase<PartFeature>): Gen<Run> =>
-	Option.match(
-		Option.orElse(
-			Option.flatMap(k.steering, (pending) =>
-				Option.map(
-					Arr.match(
-						Arr.filter(FEATURES, (feature) => pending.names(feature)),
-						{
-							onEmpty: () => Option.none(),
-							onNonEmpty: Option.some
-						}
-					),
-					(pendingFeatures) => k.draw(element(pendingFeatures))
-				)
-			),
-			() => drawnFocus
-		),
-		{ onNone: () => runOf, onSome: caseFor }
-	)
-
 /** The suite's fixture: the capture server, the package built against it, and each operation's command. */
 class PartsFixture extends Context.Service<
 	PartsFixture,
@@ -591,19 +571,18 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's multipart parts
 								kind: "second-implementation",
 								name: "the reference multipart reader (multipart.ts), and exit 2 with no connection for a planted fault"
 							},
-							draw: drawn(FOCUS),
+							draw: aimedAmong(FEATURES, FOCUS, (feature) => constant(Option.some(feature))),
 							literal: Formatter.format,
 							coverage: required<PartFeature>(FEATURES, { cases: 30, sense: notesOnly }),
 							kept: [],
 							runs: 12,
 							shrink: { kind: "bounded", candidates: 30 },
-							concurrency: 1,
 							steerEvery: 1,
 							caseHang: Duration.seconds(60)
 						},
-						(drawnFocus, k) =>
+						(focus, k) =>
 							Effect.gen(function* () {
-								const r = k.draw(aimed(drawnFocus, k))
+								const r = k.draw(Option.match(focus, { onNone: () => runOf, onSome: caseFor }))
 								k.noteAll(runFeatures(r))
 								const invoked = invocationOf(r, file)
 								yield* fs.writeFile(file, invoked.file)

@@ -1026,7 +1026,6 @@ describe("the SSE parser", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang: Duration.seconds(10)
 					},
@@ -1084,7 +1083,6 @@ describe("an event stream", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang: Duration.seconds(10)
 					},

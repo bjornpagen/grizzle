@@ -22,9 +22,9 @@
  * Plants (local only, reverted): input.ts stripLineEnd keeping a credential file's line end; auth.ts appendCookie
  * joining the cookie's name and value with a colon; auth.ts credentialFileSetting describing no flag.
  */
-import { type Case as SearchCase, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { aimed, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
-import { boolean, characterOf, element, type Gen, string } from "@bjornpagen/testing/gen"
+import { boolean, characterOf, constant, element, type Gen, string } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
@@ -57,6 +57,7 @@ import {
 	runBinOnTerminal
 } from "#test/support/cli-package.ts"
 import { valuesOf, type WireRequest } from "#test/support/http.ts"
+import { aimedAmong } from "#test/support/steering.ts"
 import { latin1Bytes } from "#test/support/wire.ts"
 
 /** The schemes of the box, one per kind and place a credential travels. */
@@ -179,14 +180,31 @@ type Value =
 /** One run: the scheme, where its credential comes from, the value, and whether a file or stdin ends it with a line end. */
 type Case = Readonly<{ scheme: Scheme; source: Source; value: Value; lineEnd: boolean }>
 
-/** Header-safe text: no edge space, an inner space maybe, and characters up to U+00FF. */
-const headerText: Gen<string> = (source) => {
-	const core = string(characterOf(["a", "Z", "0", "-", ".", "_", "~", "+", "/", "=", "é"]), {
-		min: 8,
-		max: 12
-	})(source)
-	return boolean(source) ? `${Str.slice(0, 4)(core)} ${Str.slice(4)(core)}` : core
-}
+/** The schemes whose value travels in a header: it may hold an inner space and characters up to U+00FF. */
+const HEADER_SCHEMES: Arr.NonEmptyReadonlyArray<Scheme> = [
+	"bearerAuth",
+	"headerKey",
+	"oauth",
+	"oidc"
+]
+
+/**
+ * Header-safe text: no edge space, an inner space where `spaced` draws one, and characters up to U+00FF, an é at
+ * its start where `accented` is set.
+ */
+const headerTextOf =
+	(spaced: Gen<boolean>, accented: boolean): Gen<string> =>
+	(source) => {
+		const drawn = string(characterOf(["a", "Z", "0", "-", ".", "_", "~", "+", "/", "=", "é"]), {
+			min: 8,
+			max: 12
+		})(source)
+		const core = accented ? `é${Str.slice(1)(drawn)}` : drawn
+		return spaced(source) ? `${Str.slice(0, 4)(core)} ${Str.slice(4)(core)}` : core
+	}
+
+/** Header-safe text, an inner space half the time. */
+const headerText: Gen<string> = headerTextOf(boolean, false)
 
 /** Text of URL-unreserved characters, sent in the query as written. */
 const queryText: Gen<string> = string(characterOf(["a", "Z", "0", "-", ".", "_", "~"]), {
@@ -310,15 +328,27 @@ const sourceCaseOf =
 		}
 	}
 
-/** A run of any value its scheme's carrier admits, from the environment, for a scheme the property may aim. */
+/** A run of a value its scheme's carrier admits, from the environment. */
 const valueCaseOf =
-	(scheme: Scheme): Gen<Case> =>
+	(scheme: Scheme, text: Gen<string>): Gen<Case> =>
 	(source) => ({
 		scheme,
 		source: "the environment",
-		value: { kind: "valid", text: validText(scheme)(source) },
+		value: { kind: "valid", text: text(source) },
 		lineEnd: false
 	})
+
+/** A run of the value a drawn scheme's carrier admits. */
+const anyValueCase: Gen<Case> = (source) => {
+	const scheme = source.draw(element(SCHEMES))
+	return source.draw(valueCaseOf(scheme, validText(scheme)))
+}
+
+/** A run of a drawn header scheme's value, `text`. */
+const headerValueCase =
+	(text: Gen<string>): Gen<Case> =>
+	(source) =>
+		source.draw(valueCaseOf(source.draw(element(HEADER_SCHEMES)), text))
 
 /** A planted fault's run: a fault of the given families, a scheme whose carrier refuses it, and a source that delivers it. */
 const faultCaseOf =
@@ -547,24 +577,6 @@ const sourceFeatures = (from: Source): Arr.NonEmptyReadonlyArray<CredentialFeatu
 		from === "a file" || from === "stdin" ? ["a value ending in a line end" as const] : []
 	)
 
-/** A scheme a case runs: the drawn one, or, while schemes are still pending, one of those, so steering reaches each. */
-const aimedScheme = (drawnScheme: Scheme, k: SearchCase<CredentialFeature>): Scheme =>
-	Option.match(
-		Option.flatMap(k.steering, (pending) =>
-			Arr.match(
-				Arr.filter(SCHEMES, (candidate) => pending.names(candidate)),
-				{
-					onEmpty: () => Option.none(),
-					onNonEmpty: (pendingSchemes) => Option.some(pendingSchemes)
-				}
-			)
-		),
-		{
-			onNone: () => drawnScheme,
-			onSome: (pendingSchemes) => k.draw(element(pendingSchemes))
-		}
-	)
-
 /** Checks the contract on every case of a small box of runs, against the suite's built package. */
 const exhaustRuns = (
 	suite: string,
@@ -585,7 +597,6 @@ const exhaustRuns = (
 					name: "one request with the credential in exactly its scheme's place, exit 3 or 2 with no request when there is none or it is refused, and its value nowhere in what the run prints"
 				},
 				box,
-				concurrency: 1,
 				generator,
 				literal: Formatter.format,
 				coverage: requiredInSpace<CredentialFeature>(situations),
@@ -655,7 +666,14 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's credentials", (
 							kind: "specification",
 							name: "the credential in exactly its scheme's place on the one request, and its value nowhere in what the run prints"
 						},
-						draw: drawn(element(SCHEMES)),
+						draw: aimed(anyValueCase, [
+							...Arr.map(
+								SCHEMES,
+								(scheme) => [scheme, valueCaseOf(scheme, validText(scheme))] as const
+							),
+							["a value holding a space", headerValueCase(headerTextOf(constant(true), false))],
+							["a value beyond ASCII", headerValueCase(headerTextOf(boolean, true))]
+						]),
 						literal: Formatter.format,
 						coverage: required<CredentialFeature>(
 							[...SCHEMES, "a value holding a space", "a value beyond ASCII"],
@@ -664,14 +682,11 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's credentials", (
 						kept: [],
 						runs: 8,
 						shrink: { kind: "bounded", candidates: 30 },
-						concurrency: 1,
 						steerEvery: 2,
 						caseHang: Duration.seconds(60)
 					},
-					(drawnScheme, k) =>
+					(c, k) =>
 						Effect.gen(function* () {
-							const scheme = aimedScheme(drawnScheme, k)
-							const c = k.draw(valueCaseOf(scheme))
 							k.noteAll(caseFeatures(c))
 							yield* checkRun(c, {
 								server,
@@ -714,19 +729,17 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's credentials", (
 							kind: "specification",
 							name: "the typed credential in its scheme's place on the one request, and the typed value nowhere the terminal shows"
 						},
-						draw: drawn(element(SCHEMES)),
+						draw: aimedAmong(SCHEMES, element(SCHEMES), (scheme) => constant(scheme)),
 						literal: Formatter.format,
 						coverage: required<CredentialFeature>(SCHEMES, { cases: 20, sense: notesOnly }),
 						kept: [],
 						runs: 7,
 						shrink: { kind: "bounded", candidates: 20 },
-						concurrency: 1,
 						steerEvery: 2,
 						caseHang: Duration.seconds(60)
 					},
-					(drawnScheme, k) =>
+					(scheme, k) =>
 						Effect.gen(function* () {
-							const scheme = aimedScheme(drawnScheme, k)
 							const text = k.draw(validText(scheme))
 							k.note(scheme)
 							const observed = yield* server.observe(

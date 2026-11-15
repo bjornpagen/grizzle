@@ -283,7 +283,6 @@ const exhaustFault = (fault: Fault) =>
 					name: "design 7.4's error format: the error once in the run's format, exit 2 before any connection, and no secret shown"
 				},
 				box: "every error-format flag and variable setting, an invalid variable among them",
-				concurrency: 1,
 				generator: (source): Case => ({ fault, setting: settingOf(source) }),
 				literal: Formatter.format,
 				coverage: requiredInSpace<FormatFeature>([
@@ -393,7 +392,6 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's run-scoped rend
 							name: "one plaintext warning a run, however many attempts carry the credential"
 						},
 						box: "0, 1 and 2 retries",
-						concurrency: 1,
 						generator: element<Retries>([0, 1, 2]),
 						literal: Formatter.format,
 						coverage: requiredInSpace<RetryFeature>(["no retry", "one retry", "two retries"]),

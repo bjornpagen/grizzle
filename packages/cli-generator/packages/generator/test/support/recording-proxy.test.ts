@@ -298,7 +298,6 @@ describe("the recording proxy", () => {
 							kept: [],
 							runs: 60,
 							shrink: { kind: "bounded", candidates: 200 },
-							concurrency: 1,
 							steerEvery: 20,
 							caseHang: Duration.seconds(10)
 						},

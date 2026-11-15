@@ -1317,7 +1317,6 @@ describe("emit: help", () => {
 						kept: [],
 						runs: 400,
 						shrink: { kind: "bounded", candidates: 400 },
-						concurrency: 1,
 						steerEvery: 200,
 						caseHang: Duration.seconds(10)
 					},
@@ -1390,7 +1389,6 @@ describe("emit: help", () => {
 					kept: [],
 					runs: 300,
 					shrink: { kind: "bounded", candidates: 300 },
-					concurrency: 1,
 					steerEvery: 100,
 					caseHang: Duration.seconds(10)
 				},
