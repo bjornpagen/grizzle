@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/ddl/tables.ts b/packages/engine/src/physical/ddl/tables.ts
+index de9ceb9f..e15ca611 100644
+--- a/packages/engine/src/physical/ddl/tables.ts
++++ b/packages/engine/src/physical/ddl/tables.ts
+@@ -384,7 +384,7 @@ const addReference = (
+ 
+ /** A foreign key's update action as its constraint spells it: CASCADE, or NO ACTION, PostgreSQL's default, by none. */
+ const onUpdateOf: Readonly<Record<NativeOf<"ForeignKey">["onUpdate"], "CASCADE" | undefined>> = {
+-	cascade: "CASCADE",
++	cascade: undefined,
+ 	noAction: undefined
+ }
+ 
