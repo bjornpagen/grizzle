@@ -16,9 +16,10 @@
  * feature: which forms the population reaches is the gate's own required features, as above. Features of the
  * configuration properties: a closure under the acyclic configuration.
  *
- * Plants (~/.cache/grizzle-release/BR07/plants): query-facts-key-unchecked.patch (facts drawn with no key conflict
- * check) turns the validity property red; query-acyclic-ignored.patch (the acyclic configuration ignored) the
- * configuration one.
+ * @plant test/plants/unit/oracle-gen/query-facts-key-unchecked.patch Facts are kept with no key conflict check, so two
+ * facts of a relation may share a key; the validity property fails.
+ * @plant test/plants/unit/oracle-gen/query-acyclic-ignored.patch A closure filters its edges only when its own sketch
+ * asks, the acyclic configuration ignored; the acyclic configuration property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

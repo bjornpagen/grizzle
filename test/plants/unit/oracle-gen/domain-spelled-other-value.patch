@@ -1,0 +1,13 @@
+diff --git a/test/support/oracle/gen/domain.ts b/test/support/oracle/gen/domain.ts
+index e0225790..34382f6f 100644
+--- a/test/support/oracle/gen/domain.ts
++++ b/test/support/oracle/gen/domain.ts
+@@ -944,7 +944,7 @@ export const resolveParamValue = (
+ 
+ /** The stored value a sketch names: its class's value, in the spelling `sketch.sp` picks. */
+ export const resolveStored = (type: ScalarType, sketch: ValueSketch, edge: boolean): SpelledValue =>
+-	spelledAt(type, resolveValue(type, sketch, edge), sketch.sp)
++	spelledAt(type, resolveValue(type, { ...sketch, cls: sketch.cls + sketch.sp }, edge), sketch.sp)
+ 
+ /** A literal's identity under native equality, the identity keys and fact equality use. */
+ export const literalEqualityKey = (literal: TypedLiteral): string => nativeEqualityKey(literal)

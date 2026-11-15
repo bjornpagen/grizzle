@@ -13,9 +13,10 @@
  * every carrier the claims single out, edge classes, a type that is its own key type, a computed numeric; a canonical
  * and a twin spelling.
  *
- * Plants (~/.cache/grizzle-release/BR07/plants): domain-duplicate-class.patch (a type's classes holding one twice)
- * turns the types property red; domain-spelled-other-value.patch (a stored value spelling another class's value) the
- * spelling one.
+ * @plant test/plants/unit/oracle-gen/domain-duplicate-class.patch A computed numeric's raw classes, brought within its
+ * bound, are no longer deduplicated, so its classes hold one value twice; the types property fails.
+ * @plant test/plants/unit/oracle-gen/domain-spelled-other-value.patch A stored value in a twin spelling is another
+ * class's value, the class index shifted by the spelling's; the spelling property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
