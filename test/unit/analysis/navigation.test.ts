@@ -1,5 +1,6 @@
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
+import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { required, requiredInSpace } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -18,6 +19,18 @@ import { searched } from "@bjornpagen/testing/vitest"
  *
  * @plant test/plants/unit/analysis/navigate-drops-step-conditions.patch A condition placed inside a step is dropped;
  * the search fails in its steered phase.
+ * A second property states the gate (analysis/theory/navigate.ts Navigator.rule) over a write member's shape, a join of
+ * A and B keyed by the call's parameter p with up to three negations, each over a relation of its own and declared in
+ * order: a negation that reads no variable of its rule, only p or a literal, stands among the conditions of the chain's
+ * own rule, in declared order, so PostgreSQL judges it once, before the chain reads a row; a negation that reads a
+ * variable wraps the rule before it, in declared order, the first innermost. Its box is every assignment of the three
+ * negations' slots: none, a gate by p, a gate by a literal, or correlated through A's k, exhausted. Oracle: the gate's
+ * rule restated over the navigated IR, the negated relations found in the chain's rule and in each wrapper. Features: a
+ * gate by a parameter, a gate by a literal, a gate declared after a correlated negation, two gates.
+ *
+ * @plant test/plants/unit/analysis/navigate-gates-nested.patch Navigation nests a negation that reads no variable as a
+ * correlated one is, so its gate is judged after the chain, under the wrappers, not once before it; the gate property
+ * fails.
  * @plant test/plants/unit/analysis/navigate-negation-drops-a-column.patch A negated relation's step reads one column
  * fewer than the negation binds; the search fails in its steered phase.
  */
@@ -27,11 +40,14 @@ import { navigateMember } from "#compiler/analysis/theory/navigate.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import type { InferredQuery } from "#compiler/ir/desc.ts"
+import type { InferredExpr, InferredQuery, InferredRule } from "#compiler/ir/desc.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import { succeeded } from "#test/support/assert.ts"
+import { pg } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { relation, schema } from "#compiler/public/schema.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
@@ -160,5 +176,177 @@ describe("navigation", () => {
 					})
 			)
 		)
+	)
+})
+
+/** One negation slot of a gate case: none, a gate by the parameter p, a gate by a literal, or correlated through k. */
+type Slot = "none" | "gate by a parameter" | "gate by a literal" | "correlated"
+
+/** A gate case: the slots of N0, N1 and N2, declared in that order. */
+type GateCase = readonly [Slot, Slot, Slot]
+
+type GateFeature =
+	| "a gate by a parameter"
+	| "a gate by a literal"
+	| "a gate declared after a correlated negation"
+	| "two gates"
+
+const slotGen: Gen<Slot> = element<Slot>([
+	"none",
+	"gate by a parameter",
+	"gate by a literal",
+	"correlated"
+])
+
+const gateCaseGen: Gen<GateCase> = (s) => [s.draw(slotGen), s.draw(slotGen), s.draw(slotGen)]
+
+const isGate = (slot: Slot): boolean =>
+	slot === "gate by a parameter" || slot === "gate by a literal"
+
+const A = relation("A", { id: pg.integer, k: pg.integer }, ["id"])
+const B = relation("B", { k: pg.integer, v: pg.integer }, ["k"])
+const N0 = relation("N0", { k: pg.integer }, ["k"])
+const N1 = relation("N1", { k: pg.integer }, ["k"])
+const N2 = relation("N2", { k: pg.integer }, ["k"])
+const Gates = schema("Gates", [A, B, N0, N1, N2], [])
+
+/** A write member's query of a gate case: A at p joined to B by k, then each slot's negation, in slot order. */
+const gateQueryOf = (c: GateCase): InferredQuery =>
+	succeeded(
+		queryInput(
+			query(Gates).rule((r) => {
+				const { k } = v(A, "a")
+				const { v: value } = v(B, "b")
+				const p = r.param("p", pg.integer)
+				const negations = Arr.flatMap(
+					[
+						[N0, c[0]],
+						[N1, c[1]],
+						[N2, c[2]]
+					] as const,
+					([N, slot]) => {
+						switch (slot) {
+							case "none":
+								return []
+							case "gate by a parameter":
+								return [r.not(N, { k: p })]
+							case "gate by a literal":
+								return [r.not(N, { k: 1 })]
+							case "correlated":
+								return [r.not(N, { k })]
+						}
+					}
+				)
+				const matched = r.match(A, { id: p, k }).match(B, { k, v: value })
+				const head = { k, v: value }
+				const [n0, n1, n2] = negations
+				return n0 === undefined
+					? matched.find(head)
+					: n1 === undefined
+						? matched.where(n0).find(head)
+						: n2 === undefined
+							? matched.where(n0, n1).find(head)
+							: matched.where(n0, n1, n2).find(head)
+			})
+		)
+	).desc
+
+/** The relation a navigated negation reads, the one relation its step's rule matches: none for any other condition. */
+const negatedRelation = (e: InferredExpr): ReadonlyArray<string> => {
+	if (e.kind !== "absent" || e.source.kind !== "step" || e.source.query.stage.kind !== "rules") {
+		return []
+	}
+	const [match] = e.source.query.stage.arms[0].matches
+	return match?.source.kind === "relation" ? [match.source.name] : []
+}
+
+/** Whether a navigated rule wraps the rule before it: its one match a step whose rule matches only steps. */
+const wrapped = (rule: InferredRule): InferredRule | undefined => {
+	const [only, ...more] = rule.matches
+	if (only === undefined || more.length > 0 || only.source.kind !== "step") {
+		return undefined
+	}
+	const stage = only.source.query.stage
+	if (stage.kind !== "rules") {
+		return undefined
+	}
+	const [inner] = stage.arms
+	return Arr.every(inner.matches, (m) => m.source.kind === "step") ? inner : undefined
+}
+
+/**
+ * The negated relations of a navigated rule: those among the conditions of the chain's own rule, and those of each
+ * wrapper, the innermost first.
+ */
+const negationsOf = (
+	rule: InferredRule
+): { readonly gates: ReadonlyArray<string>; readonly wrappers: ReadonlyArray<string> } => {
+	const outer: Array<ReadonlyArray<string>> = []
+	let at = rule
+	for (let inner = wrapped(at); inner !== undefined; inner = wrapped(at)) {
+		outer.push(Arr.flatMap(at.where, negatedRelation))
+		at = inner
+	}
+	return {
+		gates: Arr.flatMap(at.where, negatedRelation),
+		wrappers: Arr.flatten(Arr.reverse(outer))
+	}
+}
+
+describe("navigation's gate", () => {
+	it.effect(
+		"judges a write member's negation that reads no variable among the chain's own conditions, in declared order, and wraps the chain in every other",
+		(ctx) =>
+			searched(
+				ctx,
+				exhaust(
+					{
+						suite: "unit/analysis/navigation-gates",
+						generator: gateCaseGen,
+						literal: Formatter.format,
+						box: "every assignment of three negations' slots, each none, a gate by the parameter, a gate by a literal or correlated, over a join of A at the parameter and B",
+						oracle: {
+							kind: "specification",
+							name: "the gate's rule restated: a negation that reads no variable among the chain's own conditions in declared order, every other a wrapper in declared order"
+						},
+						coverage: requiredInSpace<GateFeature>([
+							"a gate by a parameter",
+							"a gate by a literal",
+							"a gate declared after a correlated negation",
+							"two gates"
+						]),
+						caseHang,
+						concurrency: 1
+					},
+					(c, k) =>
+						Effect.sync(() => {
+							const navigated = navigateMember(gateQueryOf(c), loc)
+							if (navigated.stage.kind !== "rules") {
+								return assert.fail("a navigated member is one rules stage")
+							}
+							const names = ["N0", "N1", "N2"] as const
+							const expected = (keep: (slot: Slot) => boolean): ReadonlyArray<string> =>
+								Arr.flatMap(names, (name, i) => (keep(c[i] ?? "none") ? [name] : []))
+							assert.deepEqual(
+								negationsOf(navigated.stage.arms[0]),
+								{ gates: expected(isGate), wrappers: expected((s) => s === "correlated") },
+								`${Formatter.format(c)}: gates among the chain's conditions, the rest wrappers, each in declared order`
+							)
+							if (Arr.contains(c, "gate by a parameter")) {
+								k.note("a gate by a parameter")
+							}
+							if (Arr.contains(c, "gate by a literal")) {
+								k.note("a gate by a literal")
+							}
+							if (Arr.filter(c, isGate).length >= 2) {
+								k.note("two gates")
+							}
+							const firstCorrelated = c.indexOf("correlated")
+							if (firstCorrelated >= 0 && Arr.some(c.slice(firstCorrelated + 1), isGate)) {
+								k.note("a gate declared after a correlated negation")
+							}
+						})
+				)
+			)
 	)
 })
