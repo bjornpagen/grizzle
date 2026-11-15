@@ -11,9 +11,8 @@
  *   refuses each (MalformedDescription) at every entry. A key, a check and a containment are rules over the
  *   definition, which ownership owns and the analysis of derived relations reads, and AccountBudget's definition
  *   aggregates, which no rule reads, so the entry that compiles the laws refuses each, by the named refusal the types
- *   name too. Oracle: that rule, restated per law shape. Plant: derived-law-relation-admitted (ownership admits a
- *   statement writing a derived relation's rows). Features: each law shape, a law naming both derived relations, a
- *   containment out of and into a derived relation.
+ *   name too. Oracle: that rule, restated per law shape. Features: each law shape, a law naming both derived
+ *   relations, a containment out of and into a derived relation.
  * - Unwritable definitions: levels, parameters and contexts an unchecked description can still write down are refused
  *   as MalformedDescription, a materialized view reading no parameter and holding no session. Each case draws a schema
  *   of the derived oracle (drawn levels and definitions over drawn base relations), which ownership admits, and one
@@ -21,9 +20,12 @@
  *   it, given a drawn parameter in its first arm's condition, or given a drawn context's match there; where the
  *   mutation has a control without the defect (the twin a level up, the condition over a literal), ownership admits
  *   the control. The builder refuses a parameterized definition at construction. Oracle: a derived relation stands
- *   above the root, reads only lower levels, reads no parameter and matches no context. Plant:
- *   derived-definition-parameter-admitted (ownership admits a definition that reads one parameter). Features: each
- *   mutation.
+ *   above the root, reads only lower levels, reads no parameter and matches no context. Features: each mutation.
+ *
+ * @plant test/plants/unit/derived/derived-law-relation-admitted.patch Ownership admits a statement writing a derived
+ * relation's rows (schema/own.ts lawRelation); the statements over derived relations fail.
+ * @plant test/plants/unit/derived/derived-definition-parameter-admitted.patch Ownership admits a definition that reads
+ * one parameter (schema/own.ts checkDerived); the unwritable definitions fail.
  */
 import { drawn, explore, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

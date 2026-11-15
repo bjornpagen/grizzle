@@ -7,20 +7,18 @@
  *
  * - Key rules: over the derived oracle's generated schemas (drawn levels, aggregates, take forms), every relation's
  *   keys keep those rules, a level is one above the derived relations it reads, and queries over a relation see its
- *   keys. Oracle: the rules as a checker (keyRules). Plant: derived-one-fact-last-column (a definition of one fact is
- *   keyed by its last representable column). Features: the whole heading, at most one fact, a level over a derived
- *   relation, and a negation over a level whose conditional count is numeric (sum(cond(flag, 1, 0)), an exact numeric
- *   the generator must type as one, or it binds that count to a bigint field: test/pg/derived/oracle/gen.ts aggregated).
- *   Plant: derived-cond-count-int8 (the conditional count typed int8).
+ *   keys. Oracle: the rules as a checker (keyRules). Features: the whole heading, at most one fact, a level over a
+ *   derived relation, and a negation over a level whose conditional count is numeric (sum(cond(flag, 1, 0)), an exact
+ *   numeric the generator must type as one, or it binds that count to a bigint field: test/pg/derived/oracle/gen.ts
+ *   aggregated).
  * - Join keys: over generated joins of relations keyed by primary and candidate keys, each matched once, their heads
  *   in a drawn order, every key the view indexes is a minimal set of head columns whose closure, under each relation's
  *   keys bound whole, holds the head, and the keys the view states, each key's factors chosen among its alternatives,
- *   are exactly those minimal sets. Oracle: the closure of the head's variables, a second implementation. Plant:
- *   derived-keys-no-alternatives (no factor's alternatives are listed). Features: JoinFeature, and two pairs of them.
+ *   are exactly those minimal sets. Oracle: the closure of the head's variables, a second implementation. Features:
+ *   JoinFeature, and two pairs of them.
  * - Product keys: over products of relations keyed by either of two fields, through projections, joins, several rules
  *   and a level above, the view indexes one unique index per alternative of a factor and states exactly its minimal
- *   keys. Oracle: the minimal sets by closure and their finest product partition, found by brute force. Plant:
- *   derived-keys-first-factor-alternatives (only the first factor's alternatives are listed). Features:
+ *   keys. Oracle: the minimal sets by closure and their finest product partition, found by brute force. Features:
  *   ProductFeature, and two pairs of them.
  * - Storable: over generated definitions of one relation of drawn field types (uuid, integer, bounded and wildcard
  *   text, vectors of drawn dimensions): a plain head in a drawn order, possibly empty; a grouped count; a global
@@ -29,15 +27,31 @@
  *   definition proves (the primary key when the head or the group holds it, the group, the head, or the first
  *   representable column of one fact) refused at the first whose unique index layout faults, as wholeHeading,
  *   inheritedKey or oneFact with that fault, and admitted with exactly those keys otherwise. Oracle: that model, a
- *   specification. Plant: derived-key-fault-kind-swapped (a faulting key refused under the other kind). Features:
- *   each refusal kind and fault, admitted, and one fact keyed past its first column. The faults themselves (unbounded
- *   text, B-tree entry bytes, column count) are the representability suite's, against PostgreSQL's own sizes.
+ *   specification. Features: each refusal kind and fault, admitted, and one fact keyed past its first column. The
+ *   faults themselves (unbounded text, B-tree entry bytes, column count) are the representability suite's, against
+ *   PostgreSQL's own sizes.
+
  * - Named key: every view of a relation keyed by its id that names the id one to three times, beside its other field
  *   or not, and a level reading the view whole, state each name as a key alone. Oracle: every name of the key is one
- *   column of every row, each a key alone. Plant: derived-keys-no-alternatives. Features: one, two and three names.
+ *   column of every row, each a key alone: the view states the other names as the key's members, the columns its
+ *   definition makes equal to its field (classMembers), not as alternatives of a factor. Features: one, two and three
+ *   names.
  *
  * That the keys are sound, a refreshed view never holding two facts under one, is the refresh oracle's, whose views
  * are refreshed concurrently over their unique indexes.
+ *
+ * @plant test/plants/unit/derived/derived-one-fact-last-column.patch A definition of one fact is keyed by its last
+ * representable column; the key rules and the storable property fail.
+ * @plant test/plants/unit/derived/derived-cond-count-int8.patch The derived oracle's generator types the conditional
+ * count int8 (test/pg/derived/oracle/gen.ts aggregated), binding that count to a bigint field; the key rules fail.
+ * @plant test/plants/unit/derived/derived-keys-no-alternatives.patch No factor's alternatives are listed (ir/keys.ts
+ * keyFactor); the join keys and the product keys fail.
+ * @plant test/plants/unit/derived/derived-keys-first-factor-alternatives.patch Only the first factor's alternatives are
+ * listed; the product keys fail.
+ * @plant test/plants/unit/derived/derived-key-fault-kind-swapped.patch A faulting key is refused under the other kind,
+ * wholeHeading for inheritedKey and back; the storable property fails.
+ * @plant test/plants/unit/derived/derived-key-members-dropped.patch A view's key states none of its members
+ * (analysis/derived/analyze.ts viewKeysOf), so a name of the key but the first is no key; the named key fails.
  */
 import { type Case, drawn, exhaust, explore, sketched } from "@bjornpagen/testing/explore"
 import { type Reached, required, requiredInSpace } from "@bjornpagen/testing/features"

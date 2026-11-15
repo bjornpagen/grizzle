@@ -13,18 +13,22 @@
  *
  * - View indexes: a program over the key lands on the key's unique index, every other column takes one created index
  *   keyed by it alone, standing on access, compared as a set; a view not installed is deferred and takes none.
- *   Oracle: that rule, restated over the drawn programs. Plant: workload-view-key-not-served (a request whose
- *   columns an inherited unique index leads with takes an index of its own). Features: an index of a column, the
- *   key's own index, two columns indexed, deferred, the empty workload.
+ *   Oracle: that rule, restated over the drawn programs. Features: an index of a column, the key's own index, two
+ *   columns indexed, deferred, the empty workload.
  * - Drafts: over two drafts, the second's workload indexes are exactly those its workload asks for that the first's
  *   did not, each built concurrently, or all of them, each after the view, where a changed definition drops and
  *   recreates the view, compared as a set of the columns each index keys. Oracle: that rule, restated over both
- *   drafts' programs. Plant: workload-view-index-not-concurrent (an index on a standing relation is drafted without
- *   CONCURRENTLY). Features: an index built concurrently, an index after its recreated view, a standing index the
+ *   drafts' programs. Features: an index built concurrently, an index after its recreated view, a standing index the
  *   later draft keeps.
  *
  * That the index is the one the program's statement uses on PostgreSQL is the database suite's
  * (test/pg/derived/workload-index.test.ts).
+ *
+ * @plant test/plants/unit/derived/workload-view-key-not-served.patch A request whose columns an inherited unique index
+ * leads with takes an index of its own (physical/indexes/engine.ts planIndexes counts no view's unique index); the view
+ * indexes fail.
+ * @plant test/plants/unit/derived/workload-view-index-not-concurrent.patch An index on a standing relation is drafted
+ * without CONCURRENTLY (deploy/diff/diff.ts buildConcurrently); the drafts fail.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

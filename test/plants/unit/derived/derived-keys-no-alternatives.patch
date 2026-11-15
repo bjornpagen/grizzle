@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/keys.ts b/packages/engine/src/ir/keys.ts
+index 9d70aa59..10fd80db 100644
+--- a/packages/engine/src/ir/keys.ts
++++ b/packages/engine/src/ir/keys.ts
+@@ -746,7 +746,7 @@ export const keyAlternative = (columns: KeySet, determines: Implication): KeyAlt
+ export const keyFactor = (
+ 	key: NonEmptyReadonlyArray<string>,
+ 	alternatives: ReadonlyArray<KeyAlternative>
+-): KeyFactor => Object.freeze({ key, alternatives: Object.freeze([...alternatives]) })
++): KeyFactor => Object.freeze({ key, alternatives: Object.freeze([]) })
+ 
+ /** A key no factor search split: one factor of one minimal key, the key itself, and none for the empty key. */
+ export const soleFactor = (key: KeySet): ReadonlyArray<KeyFactor> =>

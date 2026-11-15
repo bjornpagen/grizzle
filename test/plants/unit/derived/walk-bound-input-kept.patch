@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/schema/walk.ts b/packages/engine/src/schema/walk.ts
+index 9f79ef95..9ad348e8 100644
+--- a/packages/engine/src/schema/walk.ts
++++ b/packages/engine/src/schema/walk.ts
+@@ -149,15 +149,9 @@ class Collector {
+ 				}
+ 				const bound = new Set(Object.keys(s.bind))
+ 				for (const input of inner.inputs) {
+-					const name = input.startsWith("parameter ")
+-						? input.slice("parameter ".length)
+-						: input.startsWith("relation parameter ")
+-							? input.slice("relation parameter ".length)
+-							: undefined
+-					if (name === undefined || !bound.has(name)) {
+-						this.inputs.add(input)
+-					}
++					this.inputs.add(input)
+ 				}
++
+ 				for (const b of Object.values(s.bind)) {
+ 					if (b.kind === "relationParam") {
+ 						this.inputs.add(`relation parameter ${b.name}`)

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/derived/fields.ts b/packages/engine/src/analysis/derived/fields.ts
+index 1f2cdc3e..32d90f09 100644
+--- a/packages/engine/src/analysis/derived/fields.ts
++++ b/packages/engine/src/analysis/derived/fields.ts
+@@ -45,7 +45,7 @@ export const declaredDescOf = (
+ 	if (contract !== undefined) {
+ 		const declared = contracts[contract.name]
+ 		if (declared === undefined) {
+-			return Result.err({ kind: "undeclared", contract: contract.name })
++			return Result.err({ kind: "exact", type: contract.name })
+ 		}
+ 		return Result.ok(declared.desc)
+ 	}

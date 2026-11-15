@@ -1,0 +1,18 @@
+diff --git a/packages/engine/src/check/checker.ts b/packages/engine/src/check/checker.ts
+index 58881598..95db85a3 100644
+--- a/packages/engine/src/check/checker.ts
++++ b/packages/engine/src/check/checker.ts
+@@ -290,11 +290,12 @@ const rootOrder = (order: StageOrder, role: RootRole): StatedOrderDesc | undefin
+ 		case "rows":
+ 		case "page":
+ 		case "readBack":
++		case "definition":
+ 			return order.kind === "none" ? undefined : order.stated
+ 		case "membership":
+ 		case "member":
+-		case "definition":
+ 			return undefined
++
+ 	}
+ }
+ 

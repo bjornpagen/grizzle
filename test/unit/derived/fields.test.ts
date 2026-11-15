@@ -5,16 +5,19 @@
  * - Declared kinds: over drawn relations of one to four fields of every declarable type (field-sketch.ts: every pg
  *   descriptor, serials among them, the numeric typmod box, refined and wildcard text, contracts over drawn bases,
  *   spans, closed ids and sets over drawn rosters, vectors), every declared field's descriptor comes back from its
- *   type unchanged. Oracle: the round trip fieldDescOf ∘ scalarOf = id. Plant: fielddesc-int2 (declaredDescOf gives
- *   an int2 column integer's descriptor). Features: each kind, and a serial form.
+ *   type unchanged. Oracle: the round trip fieldDescOf ∘ scalarOf = id. Features: each kind, and a serial form.
  * - Undeclared contracts: over drawn contracts, each declared by a relation or not, and a derived field cast to one
  *   of them, a contract no relation declares has no descriptor, fieldDescOf names it and the derived field is
  *   refused at that field (DerivedRefused, undeclaredContract); a declared one is the derived field's descriptor, as
- *   the relation declaring it holds it. Oracle: that rule, restated. Plant: fielddesc-undeclared-as-exact (a column
- *   whose contract is undeclared is refused as an exact field). Features: declared, undeclared.
+ *   the relation declaring it holds it. Oracle: that rule, restated. Features: declared, undeclared.
  *
  * That each inferred type is PostgreSQL's own result type, for every aggregate overload, refinement, roster and
  * contract, with its typmod and collation, is the database suite's, against the installed views' catalog.
+ *
+ * @plant test/plants/unit/derived/fielddesc-int2.patch declaredDescOf gives an int2 column integer's descriptor; the
+ * declared kinds' round trip fails.
+ * @plant test/plants/unit/derived/fielddesc-undeclared-as-exact.patch A column whose contract is undeclared is refused
+ * as an exact field; the undeclared contracts' property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

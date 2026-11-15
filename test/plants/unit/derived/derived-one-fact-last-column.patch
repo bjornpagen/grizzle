@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/logical/derived.ts b/packages/engine/src/analysis/logical/derived.ts
+index b495b57d..6fe9bca8 100644
+--- a/packages/engine/src/analysis/logical/derived.ts
++++ b/packages/engine/src/analysis/logical/derived.ts
+@@ -45,7 +45,7 @@ export const inheritedKeys = <C extends HeadingColumn>(
+ ): ReadonlyArray<InheritedKey<C>> => {
+ 	const empty = proved.find((k) => k.key.length === 0)
+ 	if (empty !== undefined) {
+-		const single = heading.find((c) => representable(c))
++		const single = heading.findLast((c) => representable(c))
+ 		return [{ columns: single === undefined ? heading : [single], proof: empty }]
+ 	}
+ 	const position = new Map(heading.map((c, i) => [c.name, i]))

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/derived/analyze.ts b/packages/engine/src/analysis/derived/analyze.ts
+index ec470fba..ae55901d 100644
+--- a/packages/engine/src/analysis/derived/analyze.ts
++++ b/packages/engine/src/analysis/derived/analyze.ts
+@@ -83,7 +83,7 @@ const viewKeysOf = (relation: string, keys: ReadonlyArray<DerivedKey>): Readonly
+ 		fields: k.fields,
+ 		premises: [derivedKeyPremise(relation, k.fields)],
+ 		context: "immediate",
+-		members: classMembers(k.proof),
++		members: [],
+ 		alternatives: viewAlternatives(k.proof)
+ 	}))
+ 

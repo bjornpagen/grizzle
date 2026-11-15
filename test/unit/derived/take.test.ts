@@ -12,11 +12,11 @@
  * Oracle: the specification that a view's rows are a set, read off the installed statements' typed SQL (an ORDER BY
  * with no LIMIT is a delivered order), never their text.
  *
- * Plant: take-definition-ordered (check/checker.ts rootOrder delivers a definition's rows in its take's order, as a
- * root a caller reads).
- *
  * Features: each owner (a derived relation, a world entry) taking from each form (one rule, a union, a count), a
  * take of one row, of two rows or more, and a descending key.
+ *
+ * @plant test/plants/unit/derived/take-definition-ordered.patch check/checker.ts rootOrder delivers a definition's rows
+ * in its take's order, as a root a caller reads.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

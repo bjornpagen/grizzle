@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/analysis/derived/analyze.ts b/packages/engine/src/analysis/derived/analyze.ts
+index ec470fba..27e81599 100644
+--- a/packages/engine/src/analysis/derived/analyze.ts
++++ b/packages/engine/src/analysis/derived/analyze.ts
+@@ -161,9 +161,10 @@ const declaredHeading = (
+ 	loc: SourceLoc
+ ): Result.Result<NonEmptyReadonlyArray<DeclaredColumn>, CompileError> =>
+ 	catchRefusal(() => {
+-		const columns = new DeclaredNamespace(`relation ${relation}'s field`)
+ 		return mapNonEmpty(heading, (c): DeclaredColumn => {
++			const columns = new DeclaredNamespace(`relation ${relation}'s field`)
+ 			const name = columns.declare(
++
+ 				c.name,
+ 				"field",
+ 				labeledChildLoc(loc, c.name, `field ${relation}.${c.name}`)

@@ -1,0 +1,30 @@
+diff --git a/packages/engine/src/schema/own.ts b/packages/engine/src/schema/own.ts
+index 553b9350..a339a34c 100644
+--- a/packages/engine/src/schema/own.ts
++++ b/packages/engine/src/schema/own.ts
+@@ -1662,14 +1662,8 @@ class Owner {
+ 	#lawRelation(name: string, s: StatementEntry): LawRelationEntry {
+ 		const entry = this.#declared(name, s)
+ 		const desc = entry.desc
+-		if (desc.kind === "derived") {
+-			return fail(
+-				"MalformedDescription",
+-				s.desc.loc,
+-				`${statementLabel(s.desc)} over a stored relation; ${name} is a derived relation, whose rows its definition states and no write draws`
+-			)
+-		}
+ 		return { desc, level: entry.level, heading: headingOf(desc) }
++
+ 	}
+ 
+ 	/**
+@@ -1687,7 +1681,8 @@ class Owner {
+ 	#ordinary(name: string, s: StatementEntry, why: string): OrdinaryEntry {
+ 		const entry = this.#lawRelation(name, s)
+ 		const desc = entry.desc
+-		if (desc.kind !== "relation") {
++		if (desc.kind === "closed") {
++
+ 			return fail(
+ 				"MalformedDescription",
+ 				s.desc.loc,

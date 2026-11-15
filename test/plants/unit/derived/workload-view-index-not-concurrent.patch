@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/diff/diff.ts b/packages/engine/src/deploy/diff/diff.ts
+index 7bc41bba..8fb1b665 100644
+--- a/packages/engine/src/deploy/diff/diff.ts
++++ b/packages/engine/src/deploy/diff/diff.ts
+@@ -2317,7 +2317,7 @@ class Differ {
+ 		const name = objectName(index.table.schema, index.name)
+ 		this.sql("indexes.concurrent", [
+ 			{ kind: "dropIndex", name, concurrently: true, ifExists: true },
+-			{ ...index, concurrently: true }
++			{ ...index, concurrently: false }
+ 		])
+ 	}
+ 

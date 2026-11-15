@@ -18,14 +18,14 @@
  * is a record, so two equal names would be one field); names apart are a sequence and that sequence with one word
  * changed to another or one word appended, each spelled any way. The three are drawn equally often.
  *
- * Plant: derived-heading-namespace (analysis/derived/analyze.ts declaredHeading declares each head column in a
- * namespace of its own, so no two ever collide).
- *
  * Features: a collision of one word's spellings, a collision of several words' spellings, names apart by a changed
  * word, names apart by an appended word, names apart in one spelling.
  *
  * What a derived relation installs, each view column's type, typmod and collation, and every refreshed view against
  * its definition, is PostgreSQL's to judge, in the database suites.
+ *
+ * @plant test/plants/unit/derived/derived-heading-namespace.patch analysis/derived/analyze.ts declaredHeading
+ * declares each head column in a namespace of its own, so no two ever collide; a collision installs as two columns.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

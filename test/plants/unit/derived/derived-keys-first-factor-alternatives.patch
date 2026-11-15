@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/logical/derived.ts b/packages/engine/src/analysis/logical/derived.ts
+index b495b57d..d39b534e 100644
+--- a/packages/engine/src/analysis/logical/derived.ts
++++ b/packages/engine/src/analysis/logical/derived.ts
+@@ -52,7 +52,7 @@ export const inheritedKeys = <C extends HeadingColumn>(
+ 	const at = (c: C) => defined(position.get(c.name), "a key's column is a column of its heading")
+ 	const listed = proved.flatMap((proof) => [
+ 		proof,
+-		...proof.factors.flatMap((f) =>
++		...proof.factors.slice(0, 1).flatMap((f) =>
+ 			f.alternatives.flatMap((a) => {
+ 				const swapped = prove(keyWith(proof, f, a))
+ 				return swapped === undefined ? [] : [swapped]
