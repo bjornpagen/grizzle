@@ -46,6 +46,9 @@
  * @plant test/plants/pg/isolation/count-without-zero-rule.patch den's count shape counting the stored Claims by one
  * rule alone (support/lease.ts countShape), which over no Claim yields no row, so its claim never inserts; den's
  * lease fails, its forced race of two claims each alone by a count never caught.
+ * @plant test/plants/pg/isolation/barrier-granted-lock.patch The barrier reads a blocked backend's granted lock as the
+ * one it waits for (test/support/substrate/barrier.ts waitedLockQuery), so the learner's COMMIT waiting for ROW SHARE
+ * on Pub is never seen as such; G3's fenced replace leaves that wait unreached.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
