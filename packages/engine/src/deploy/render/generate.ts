@@ -1,4 +1,4 @@
-import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, Refusal, sameText } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
 import { TemporaryCensus } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -45,6 +45,7 @@ import {
 } from "#compiler/deploy/snapshot/build.ts"
 import type {
 	DeploySnapshot,
+	SnapshotContent,
 	SnapshotDerived,
 	SnapshotFiles
 } from "#compiler/deploy/snapshot/types.ts"
@@ -108,13 +109,7 @@ const unwrap = <A>(r: Result.Result<A, CompileError>): A => {
 }
 
 /** Everything of a snapshot but its fingerprint, for the no-change test. */
-const comparable = (s: Omit<DeploySnapshot, "fingerprint"> | DeploySnapshot): string => {
-	if (!("fingerprint" in s)) {
-		return canonicalTextOf(s)
-	}
-	const { fingerprint, ...content } = s
-	return canonicalTextOf(content)
-}
+const contentOf = ({ fingerprint, ...content }: DeploySnapshot): SnapshotContent => content
 
 /** One table's constraint names to their laws, each also under every name `swaps` builds it under on `table`. */
 const builtUnder = (
@@ -223,7 +218,7 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 		const finished = unwrap(
 			finishSnapshot(unwrap(withAttnums(state, applied.previous, plan, tableMaxColumns.value)))
 		)
-		const changed = plan.steps.length > 0 || comparable(finished) !== comparable(previous)
+		const changed = plan.steps.length > 0 || !sameText(contentOf(finished), contentOf(previous))
 		const snapshot = changed ? finished : previous
 		const drafted = changed ? planFiles(plan) : []
 		const files = drafted.map((f) => ({ name: f.name, text: unwrap(renderFile(f)) }))

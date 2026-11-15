@@ -1,4 +1,4 @@
-import { Refusal } from "#compiler/core/canonical.ts"
+import { Refusal, sameText } from "#compiler/core/canonical.ts"
 import { type Dropped, undeclaredDrop, unsupported } from "#compiler/core/errors.ts"
 import {
 	conversionOf,
@@ -31,8 +31,7 @@ import {
 	nameKey,
 	type PartOf,
 	partsAt,
-	partsByTable,
-	same
+	partsByTable
 } from "#compiler/deploy/snapshot/objects.ts"
 import type {
 	DeploySnapshot,
@@ -689,8 +688,8 @@ const sameSequence = (
 		Object.entries(previous.theory.laws).some(
 			([law, stated]) =>
 				stated.shape === shape &&
-				same(was, drawnWriting({ role: { kind: role }, laws: [law] })) &&
-				same(counted.writing, drawnWriting({ role: { kind: "count" }, laws: [law] }))
+				sameText(was, drawnWriting({ role: { kind: role }, laws: [law] })) &&
+				sameText(counted.writing, drawnWriting({ role: { kind: "count" }, laws: [law] }))
 		)
 	)
 }
@@ -734,7 +733,7 @@ const restatedWritings = (
 					}
 					const spell = new PreviousSpelling(names, installation.laws.theory.relations)
 					const restated = fieldWriting(installation, fillers, now.name, field, spell)
-					return (spell.complete && same(restated, f.writing)) ||
+					return (spell.complete && sameText(restated, f.writing)) ||
 						sameSequence(previous, installation, now.name, field.name, f.writing)
 						? { ...f, writing: into.writing }
 						: f
@@ -992,7 +991,7 @@ interface Paired {
 	readonly to: string
 }
 
-/** The parts of `was` paired with those of `now` of the same definition (`same`), each with the name `now` gives it:
+/** The parts of `was` paired with those of `now` of the same definition (`sameText`), each with the name `now` gives it:
  * one of its own name first, so a part both name alike stays as it is, then any other, each taken once. */
 const pairBy = <P extends { readonly name: string }>(
 	kind: (p: P) => Owned["kind"],
@@ -1078,20 +1077,20 @@ const pairedParts = (
 		const now = partsAt(nowParts, table)
 		const pairs = [
 			...pairBy(constraintKind, was.constraint, now.constraint, (a, b) =>
-				same({ ...a.constraint, name: "" }, { ...b.constraint, name: "" })
+				sameText({ ...a.constraint, name: "" }, { ...b.constraint, name: "" })
 			),
 			...pairBy(
 				() => "index",
 				was.index,
 				now.index,
-				(a, b) => same({ ...a.create, name: "" }, { ...b.create, name: "" })
+				(a, b) => sameText({ ...a.create, name: "" }, { ...b.create, name: "" })
 			),
 			...pairBy(
 				() => "statistics",
 				was.statistics,
 				now.statistics,
 				(a, b) =>
-					same(
+					sameText(
 						{ ...a.create, name: { ...a.create.name, name: "" } },
 						{ ...b.create, name: { ...b.create.name, name: "" } }
 					)

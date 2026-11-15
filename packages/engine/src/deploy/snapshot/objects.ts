@@ -1,4 +1,4 @@
-import { canonicalTextOf, Refusal } from "#compiler/core/canonical.ts"
+import { Refusal } from "#compiler/core/canonical.ts"
 import { malformedArtifact } from "#compiler/core/errors.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import type { PhysicalObject } from "#compiler/ir/products.ts"
@@ -53,8 +53,6 @@ export function refuse(ident: string, what: string): never {
 export function refuseLaw(law: string, what: string): never {
 	throw new Refusal(malformedArtifact("snapshot", ["laws", law], what))
 }
-
-export const same = (a: unknown, b: unknown): boolean => canonicalTextOf(a) === canonicalTextOf(b)
 
 /** An installed object read once with the statement that defines it, by its kind: the diff reads each object through
  * this view, so every object's form is checked here, once, and no rule probes a statement list again. An object whose

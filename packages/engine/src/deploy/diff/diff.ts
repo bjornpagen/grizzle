@@ -1,6 +1,6 @@
 import { appendAll } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
-import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { canonicalTextOf, catchRefusal, Refusal, sameText } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import {
 	type Identity,
@@ -69,8 +69,7 @@ import {
 	type Parts,
 	partsAt,
 	partsByTable,
-	refuse,
-	same
+	refuse
 } from "#compiler/deploy/snapshot/objects.ts"
 import type {
 	DeploySnapshot,
@@ -861,7 +860,7 @@ class Differ {
 				continue
 			}
 			const old = this.constraintOf(arrival.before, this.prev)
-			if (same(old, keyOrCheckDefinition(v, this.next))) {
+			if (sameText(old, keyOrCheckDefinition(v, this.next))) {
 				continue
 			}
 			const key = keyBefore(v.table, constraintColumns(old))
@@ -974,7 +973,7 @@ class Differ {
 						const fate =
 							now === undefined
 								? droppedColumn
-								: same(p.ddl, now.ddl)
+								: sameText(p.ddl, now.ddl)
 									? keptColumn
 									: redefinedColumn
 						const reads = builtOver(w, (c) => keyOrCheckDefinition(c, this.prev))?.columns ?? []
@@ -1247,7 +1246,7 @@ class Differ {
 		for (const o of this.input.target.manifest.objects) {
 			const v = installed(o)
 			const before = this.prev.get(o.ident)
-			if (v.kind === "materializedView" && before !== undefined && !same(o.ddl, before.ddl)) {
+			if (v.kind === "materializedView" && before !== undefined && !sameText(o.ddl, before.ddl)) {
 				seeds.add(relationKey(v))
 			}
 		}
@@ -1431,7 +1430,7 @@ class Differ {
 			const c = keyOrCheckDefinition(v, this.next)
 			const before =
 				arrival.kind === "follows" ? this.constraintOf(arrival.before, this.prev) : undefined
-			if (before === undefined || !same(before, c)) {
+			if (before === undefined || !sameText(before, c)) {
 				this.attached.add(keyAfter(t, constraintColumns(c)))
 			}
 		}
@@ -1470,7 +1469,7 @@ class Differ {
 			case "refusalFunction":
 			case "isolationFunction":
 			case "snapshotGuard":
-				if (before === undefined || !same(before.ddl, o.ddl)) {
+				if (before === undefined || !sameText(before.ddl, o.ddl)) {
 					this.sql("setup", o.ddl)
 				}
 				return
@@ -1479,7 +1478,7 @@ class Differ {
 			case "extension":
 				if (before === undefined) {
 					this.sql("setup", o.ddl)
-				} else if (!same(before.ddl, o.ddl)) {
+				} else if (!sameText(before.ddl, o.ddl)) {
 					refuseUnsupported({
 						loc: SourceLoc(`object ${o.ident}`, []),
 						capability:
@@ -1520,19 +1519,19 @@ class Differ {
 			case "unitFunction":
 				if (before === undefined) {
 					this.sql("structure", o.ddl)
-				} else if (!same(before.ddl, o.ddl)) {
+				} else if (!sameText(before.ddl, o.ddl)) {
 					this.unitFunction(before, v.create, o.ddl)
 				}
 				return
 			case "advanceFunction":
-				if (before === undefined || !same(before.ddl, o.ddl)) {
+				if (before === undefined || !sameText(before.ddl, o.ddl)) {
 					this.sql("structure", o.ddl)
 				}
 				return
 			case "role":
 				if (before === undefined) {
 					this.roleObject(v)
-				} else if (!same(before.ddl, o.ddl)) {
+				} else if (!sameText(before.ddl, o.ddl)) {
 					refuseUnsupported({
 						loc: SourceLoc(`object ${o.ident}`, []),
 						capability: loginRoleExchange
@@ -1561,7 +1560,7 @@ class Differ {
 			case "membership":
 				if (before === undefined) {
 					this.sql("publish.grants", o.ddl)
-				} else if (!same(before.ddl, o.ddl)) {
+				} else if (!sameText(before.ddl, o.ddl)) {
 					const was = installed(before)
 					this.sql("publish.grants", [
 						...(was.kind === "membership" ? [revokeRoleOf(was.grant)] : []),
@@ -1575,14 +1574,14 @@ class Differ {
 				}
 				return
 			case "lawFunction":
-				if (before === undefined || !same(before.ddl, o.ddl)) {
+				if (before === undefined || !sameText(before.ddl, o.ddl)) {
 					this.sql("validate", o.ddl)
 				}
 				return
 			case "lawTrigger":
 				if (before === undefined) {
 					this.sql("validate", o.ddl)
-				} else if (!same(before.ddl, o.ddl)) {
+				} else if (!sameText(before.ddl, o.ddl)) {
 					this.sql("validate", [
 						{ kind: "dropTrigger", name: v.create.name, table: v.create.table, ifExists: false },
 						...o.ddl
@@ -1596,10 +1595,10 @@ class Differ {
 				}
 				return
 			case "publication":
-				if (before !== undefined && !same(before.ddl, o.ddl)) {
+				if (before !== undefined && !sameText(before.ddl, o.ddl)) {
 					this.sql("structure.drop", [{ kind: "dropPublication", name: v.create.name }])
 				}
-				if (before === undefined || !same(before.ddl, o.ddl)) {
+				if (before === undefined || !sameText(before.ddl, o.ddl)) {
 					this.sql("publish", o.ddl)
 				}
 				return
@@ -1674,7 +1673,7 @@ class Differ {
 		const previous = installed(before)
 		const drop: ReadonlyArray<SqlStatement> =
 			previous.kind === "unitFunction" &&
-			!same(functionNameOf(previous.create), functionNameOf(create))
+			!sameText(functionNameOf(previous.create), functionNameOf(create))
 				? [{ kind: "dropFunction", name: functionNameOf(previous.create), ifExists: false }]
 				: []
 		this.sql("structure", [...drop, ...ddl])
@@ -1688,7 +1687,7 @@ class Differ {
 	 * migrations directory holds any, and never changed. */
 	schemaObject(o: ManifestObject, before: ManifestObject | undefined): void {
 		if (before !== undefined) {
-			if (!same(before.ddl, o.ddl)) {
+			if (!sameText(before.ddl, o.ddl)) {
 				refuseUnsupported({
 					loc: SourceLoc(`object ${o.ident}`, []),
 					capability:
@@ -1732,8 +1731,8 @@ class Differ {
 		const was = installed(before)
 		if (
 			was.kind !== "constant" ||
-			!same(was.create, v.create) ||
-			!same(before.ddl.slice(1), v.object.ddl.slice(1))
+			!sameText(was.create, v.create) ||
+			!sameText(before.ddl.slice(1), v.object.ddl.slice(1))
 		) {
 			refuse(before.ident, "a constant whose name digests what it installs")
 		}
@@ -1754,7 +1753,7 @@ class Differ {
 			refuse(before.ident, "a CREATE DOMAIN")
 		}
 		if (
-			!same(
+			!sameText(
 				{ b: was.create.base, c: was.create.collation },
 				{ b: create.base, c: create.collation }
 			)
@@ -1769,7 +1768,7 @@ class Differ {
 		 * holds two constraints, and validated against the stored values once Structure has converted what it must. */
 		const a = was.constraint
 		const b = v.constraint
-		if (a !== undefined && b !== undefined && same(a, b)) {
+		if (a !== undefined && b !== undefined && sameText(a, b)) {
 			return
 		}
 		if (a === undefined && b === undefined) {
@@ -1842,7 +1841,7 @@ class Differ {
 				continue
 			}
 			const before = this.prev.get(o.ident)
-			const changed = before === undefined || !same(before.ddl, o.ddl)
+			const changed = before === undefined || !sameText(before.ddl, o.ddl)
 			const recast = [...qualifiedNames(o.ddl, this.levelSchemas)].some((k) =>
 				this.reconstrained.has(k)
 			)
@@ -2077,7 +2076,7 @@ class Differ {
 	): void {
 		const { object: o, table: t, column } = v
 		if (before !== undefined) {
-			if (same(before.ddl, o.ddl)) {
+			if (sameText(before.ddl, o.ddl)) {
 				return
 			}
 			this.sql("structure", [alter(t, [{ kind: "dropColumn", column }])])
@@ -2121,7 +2120,7 @@ class Differ {
 		}
 		const was = arrival.kind === "follows" ? arrival.before : undefined
 		const old = was === undefined ? undefined : this.constraintOf(was, this.prev)
-		if (old !== undefined && same(old, c)) {
+		if (old !== undefined && sameText(old, c)) {
 			return
 		}
 		const replace = old !== undefined
@@ -2223,7 +2222,7 @@ class Differ {
 			const t = v.table
 			const c = keyOrCheckDefinition(v, this.prev)
 			const now = this.next.get(o.ident)
-			if (now !== undefined && same(this.constraintOf(now, this.next), c)) {
+			if (now !== undefined && sameText(this.constraintOf(now, this.next), c)) {
 				continue
 			}
 			const targetKeys = new Set(
@@ -2302,7 +2301,7 @@ class Differ {
 				continue
 			}
 			const { table: source, constraint: fk } = v
-			if (!same(this.constraintOf(before, this.prev), fk)) {
+			if (!sameText(this.constraintOf(before, this.prev), fk)) {
 				continue
 			}
 			this.sql("validate.attach", [alter(source, [{ kind: "dropConstraint", name: fk.name }])])
@@ -2330,7 +2329,7 @@ class Differ {
 	): void {
 		const { table: t, constraint: c } = v
 		if (before !== undefined) {
-			if (same(this.constraintOf(before, this.prev), c)) {
+			if (sameText(this.constraintOf(before, this.prev), c)) {
 				return
 			}
 			this.sql("structure", [alter(t, [{ kind: "dropConstraint", name: c.name }])])
@@ -2376,7 +2375,7 @@ class Differ {
 	): void {
 		const { object: o, create } = v
 		const t = create.table
-		if (before !== undefined && same(before.ddl, o.ddl)) {
+		if (before !== undefined && sameText(before.ddl, o.ddl)) {
 			return
 		}
 		if (!this.mayHoldRows(t)) {
@@ -2413,7 +2412,7 @@ class Differ {
 		before: ManifestObject | undefined
 	): void {
 		const { object: o, create } = v
-		if (before !== undefined && same(before.ddl, o.ddl)) {
+		if (before !== undefined && sameText(before.ddl, o.ddl)) {
 			return
 		}
 		if (before !== undefined) {
@@ -2637,7 +2636,7 @@ class Differ {
 			const a = before.get(role) ?? []
 			const b = after.get(role) ?? []
 			const namesRecreated = b.some((o) => o.ddl.some((s) => s.kind === "grant" && recreated(s)))
-			return same(
+			return sameText(
 				a.map((o) => o.ddl),
 				b.map((o) => o.ddl)
 			) && !namesRecreated
@@ -2673,7 +2672,7 @@ class Differ {
 		}
 		const ledgerA = this.prev.get(ledgerPrivilegesIdent(this.schema))
 		const ledgerB = this.next.get(ledgerPrivilegesIdent(this.schema))
-		if (ledgerA !== undefined && (ledgerB === undefined || !same(ledgerA.ddl, ledgerB.ddl))) {
+		if (ledgerA !== undefined && (ledgerB === undefined || !sameText(ledgerA.ddl, ledgerB.ddl))) {
 			const granted = ledgerB === undefined ? [] : ledgerB.ddl
 			const holds = (name: string): boolean =>
 				granted.some(
@@ -2688,7 +2687,7 @@ class Differ {
 			})
 			this.sql("publish.grants", revokes)
 		}
-		if (ledgerB !== undefined && (ledgerA === undefined || !same(ledgerA.ddl, ledgerB.ddl))) {
+		if (ledgerB !== undefined && (ledgerA === undefined || !sameText(ledgerA.ddl, ledgerB.ddl))) {
 			this.sql("publish.grants", ledgerB.ddl)
 		}
 	}
@@ -2801,7 +2800,10 @@ class Differ {
 			}
 		}
 		if (
-			!same(this.input.previous.manifest.publicRevokes, this.input.target.manifest.publicRevokes)
+			!sameText(
+				this.input.previous.manifest.publicRevokes,
+				this.input.target.manifest.publicRevokes
+			)
 		) {
 			this.sql("publish.defaults", this.input.target.manifest.publicRevokes)
 		} else {
@@ -3121,7 +3123,7 @@ const fieldChange = (b: ColumnDef, c: ColumnDef, retyped: Retyped): FieldChange 
 		if (retyped(b, c)) {
 			return { kind: "rewritten" }
 		}
-		return same(before, after) ? { kind: "kept" } : { kind: "reexpressed", expr: after }
+		return sameText(before, after) ? { kind: "kept" } : { kind: "reexpressed", expr: after }
 	}
 	const wasUuidv7 = b.generated?.kind === "uuidv7"
 	const nowUuidv7 = c.generated?.kind === "uuidv7"
@@ -3217,7 +3219,7 @@ const redrawn = (
 ): ReadonlyMap<string, FieldChange> =>
 	new Map(
 		[...changes].map(([column, change]): readonly [string, FieldChange] =>
-			isDrawn(after.get(column)) && !same(before.get(column), after.get(column))
+			isDrawn(after.get(column)) && !sameText(before.get(column), after.get(column))
 				? [column, { kind: "rewritten" }]
 				: [column, change]
 		)
@@ -3563,7 +3565,7 @@ const sameInputs = (
 	a.size === b.size &&
 	[...a].every(([input, ddl]) => {
 		const other = b.get(input)
-		return other !== undefined && same(ddl, other)
+		return other !== undefined && sameText(ddl, other)
 	})
 
 /** The roles' views, world functions and policies a migration drops at the start of Structure and creates again (in
@@ -3592,7 +3594,7 @@ const worldChangesOf = (
 	const changed = new Set<string>(beneath)
 	for (const o of target.objects) {
 		const was = before.get(o.ident)
-		if (was === undefined || !same(was.ddl, o.ddl)) {
+		if (was === undefined || !sameText(was.ddl, o.ddl)) {
 			changed.add(o.ident)
 		}
 	}

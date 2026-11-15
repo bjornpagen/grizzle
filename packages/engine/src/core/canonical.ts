@@ -122,18 +122,6 @@ export const everyProperty: EncodeOptions = { omit: () => false }
 /** Every property but the SourceLocs: the text of the value's semantic identity. */
 export const withoutSourceLocs: EncodeOptions = { omit: omitSourceLocs }
 
-/** A record's members as withoutSourceLocs' text holds them: each one stated, read as memberOf reads it, and not omitted. */
-const identityMembers = (record: Readonly<Record<string, unknown>>): Map<string, unknown> => {
-	const members = new Map<string, unknown>()
-	for (const key of Object.keys(record)) {
-		const member = memberOf(record[key])
-		if (member !== undefined && !omitSourceLocs(key, member, [])) {
-			members.set(key, member)
-		}
-	}
-	return members
-}
-
 /** JSON text, admitted as an unknown value for the structural decode that follows; undefined for text that is not JSON. */
 const parseJsonText = (text: string): Result.Result<unknown, undefined> => {
 	try {
@@ -404,6 +392,23 @@ export const canonicalOf = (value: unknown): CanonicalValue | Outside => {
 type MemberPairs = ReadonlyArray<readonly [unknown, unknown]> | undefined
 
 /**
+ * Which members of a record a text leaves out, by the member's key and its value as memberOf reads it: a rule that reads
+ * no path (OmitRule), since a comparison walks two values at once and states none.
+ */
+type LeftOut = (key: string, member: unknown) => boolean
+
+/** The member of a record under one of its keys as a text holds it, read as memberOf reads it; undefined where the
+ * text holds none: the member is not stated, or `leftOut` leaves it out. */
+const heldMember = (
+	record: Readonly<Record<string, unknown>>,
+	key: string,
+	leftOut: LeftOut
+): unknown => {
+	const member = memberOf(record[key])
+	return member === undefined || leftOut(key, member) ? undefined : member
+}
+
+/**
  * The tagged value a canonical object is written as: a vector's, a non-finite number's or a protocol value's; undefined
  * for any other.
  */
@@ -424,29 +429,46 @@ const writtenTag = (read: CanonicalObject | Outside): TaggedValue | undefined =>
 const itemPairs = (x: ReadonlyArray<unknown>, y: ReadonlyArray<unknown>): MemberPairs =>
 	x.length === y.length ? x.map((item, i) => [item, y[i]] as const) : undefined
 
-/** The members of two records under one set of keys, key by key; undefined for records under two. */
+/**
+ * The members of two records a text holds under one set of keys, key by key, each as the text holds it (heldMember);
+ * undefined for records whose texts hold two sets of keys.
+ */
 const recordPairs = (
 	x: Readonly<Record<string, unknown>>,
-	y: Readonly<Record<string, unknown>>
+	y: Readonly<Record<string, unknown>>,
+	leftOut: LeftOut
 ): MemberPairs => {
-	const membersX = identityMembers(x)
-	const membersY = identityMembers(y)
 	const pairs: Array<readonly [unknown, unknown]> = []
-	for (const [key, member] of membersX) {
-		if (!membersY.has(key)) {
+	for (const key of Object.keys(x)) {
+		const member = heldMember(x, key, leftOut)
+		if (member === undefined) {
+			continue
+		}
+		const other = Object.hasOwn(y, key) ? heldMember(y, key, leftOut) : undefined
+		if (other === undefined) {
 			return undefined
 		}
-		pairs.push([member, membersY.get(key)])
+		pairs.push([member, other])
 	}
-	return membersX.size === membersY.size ? pairs : undefined
+	let held = 0
+	for (const key of Object.keys(y)) {
+		if (heldMember(y, key, leftOut) !== undefined) {
+			held++
+		}
+	}
+	return held === pairs.length ? pairs : undefined
 }
 
 /**
- * What two canonical objects hold one text exactly when: a vector, a non-finite number or a protocol value beside any
- * of one tag and payload, nothing more; two arrays, their items; two records, their members; and never a value outside
- * the model.
+ * What two canonical objects hold one text exactly when, a record's members as `leftOut` leaves them: a vector, a
+ * non-finite number or a protocol value beside any of one tag and payload, nothing more; two arrays, their items; two
+ * records, their members; and never a value outside the model.
  */
-const memberPairs = (x: CanonicalObject | Outside, y: CanonicalObject | Outside): MemberPairs => {
+const memberPairs = (
+	x: CanonicalObject | Outside,
+	y: CanonicalObject | Outside,
+	leftOut: LeftOut
+): MemberPairs => {
 	switch (x.kind) {
 		case "vector":
 		case "floatSpecial":
@@ -459,40 +481,58 @@ const memberPairs = (x: CanonicalObject | Outside, y: CanonicalObject | Outside)
 		case "array":
 			return y.kind === "array" ? itemPairs(x.items, y.items) : undefined
 		case "record":
-			return y.kind === "record" ? recordPairs(x.record, y.record) : undefined
+			return y.kind === "record" ? recordPairs(x.record, y.record, leftOut) : undefined
 		case "outside":
 			return undefined
 	}
 }
 
 /**
- * Whether two values a builder made have one semantic identity: whether the texts withoutSourceLocs writes of them are
- * one text, read by walking both at once and writing neither, each value read by the canonical model (canonicalOf). A
- * scalar is itself, a finite number its value, -0 being 0; NaN, an infinity, a vector or a value implementing the
- * protocol its tag and payload, so NaN is the same as NaN; a list its items in order; a record its members by key in
- * any order, a member the text leaves out left out here; and a value outside the model, which no text holds, the same
- * as nothing but itself. One value met twice is one value at
- * once, so a value is read only where it differs from the other. The pairs still to compare wait on a stack on the
+ * Whether two values have one text under the members `leftOut` leaves out, read by walking both at once and writing
+ * neither, each value read by the canonical model (canonicalOf). A scalar is itself, a finite number its value, -0
+ * being 0; NaN, an infinity, a vector or a value implementing the protocol its tag and payload, so NaN is the same as
+ * NaN; a list its items in order; a record its members by key in any order, a member the text leaves out left out here;
+ * and a value outside the model, which no text holds, the same as nothing but itself. One value met twice is one value
+ * at once, so a value is read only where it differs from the other. The pairs still to compare wait on a stack on the
  * heap, so no depth of value deepens the call stack.
  */
-export const sameContent = (a: unknown, b: unknown): boolean => {
-	const pending: Array<readonly [unknown, unknown]> = [[a, b]]
-	for (let pair = pending.pop(); pair !== undefined; pair = pending.pop()) {
-		const [x, y] = pair
-		if (x === y) {
-			continue
+const sameUnder =
+	(leftOut: LeftOut) =>
+	(a: unknown, b: unknown): boolean => {
+		const pending: Array<readonly [unknown, unknown]> = [[a, b]]
+		for (let pair = pending.pop(); pair !== undefined; pair = pending.pop()) {
+			const [x, y] = pair
+			if (x === y) {
+				continue
+			}
+			const readX = canonicalOf(x)
+			const readY = canonicalOf(y)
+			const pairs =
+				typeof readX === "object" && typeof readY === "object"
+					? memberPairs(readX, readY, leftOut)
+					: undefined
+			if (pairs === undefined) {
+				return false
+			}
+			appendAll(pending, pairs)
 		}
-		const readX = canonicalOf(x)
-		const readY = canonicalOf(y)
-		const pairs =
-			typeof readX === "object" && typeof readY === "object" ? memberPairs(readX, readY) : undefined
-		if (pairs === undefined) {
-			return false
-		}
-		appendAll(pending, pairs)
+		return true
 	}
-	return true
-}
+
+/**
+ * Whether two values a builder made have one semantic identity: whether the texts withoutSourceLocs writes of them are
+ * one text (sameUnder).
+ */
+export const sameContent: (a: unknown, b: unknown) => boolean = sameUnder((key, member) =>
+	omitSourceLocs(key, member, [])
+)
+
+/**
+ * Whether two values the compiler owns have one canonical text of every property (canonicalTextOf), read by walking
+ * both at once rather than writing two texts to compare (sameUnder): a diff's test that an object is unchanged, which
+ * reads the two values the texts are of.
+ */
+export const sameText: (a: unknown, b: unknown) => boolean = sameUnder(() => false)
 
 /** A container of a canonical value: an array, or a plain record. */
 type ContainerKind = "array" | "object"
