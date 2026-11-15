@@ -247,9 +247,9 @@ const eventsOf = (
  * What lowers is the probe navigated (analysis/theory/navigate.ts navigateMember): a probe that joins two stored
  * relations or more is one chain of steps, each a lookup of one relation by the columns the steps before it bound, so no
  * estimate PostgreSQL makes, with statistics or none, turns it into a join of every relation the probe reads. Its index
- * requests are the probe's own as written: navigation reads the same columns by equality in an order of its own, and a
- * B-tree index serves an equality on each of its leading columns in any order, so the indexes the probe as written
- * requests serve every step.
+ * requests are those of the probe as written (Probe `requested`): navigation reads the same columns by equality in an
+ * order of its own, and a B-tree index serves an equality on each of its leading columns in any order, so the indexes
+ * the probe as written requests serve every step.
  */
 const compileProbe = (
 	b: InstallBuilder,
@@ -259,7 +259,7 @@ const compileProbe = (
 	probe: Probe
 ): Compiled => {
 	const label = `rule ${rule.law.named.display} on ${relation.name}`
-	const written = checkQuery(b.checked, probe.query, { read: "rows", label })
+	const written = checkQuery(b.checked, probe.requested, { read: "rows", label })
 	if (!written.ok) {
 		throw new Refusal(written.error)
 	}
