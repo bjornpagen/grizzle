@@ -250,13 +250,20 @@ const gitOutput = Effect.fn("gitOutput")(function* (root: string, args: Readonly
 const pathsIn = (output: string): ReadonlyArray<string> =>
 	Arr.filter(Str.split("\0")(output), Str.isNonEmpty)
 
-/** The files git shows under test/, tracked or untracked but not ignored, by path from `root`, in path order. */
-const testFiles = Effect.fn("testFiles")(function* (root: string) {
+/**
+ * Which files a reading of the tree takes: the `tracked` ones, what git holds and a commit or a push carries, which the
+ * check judges (a gate's snapshot keeps untracked files from earlier runs, which are no part of what it checks); or the
+ * `working` tree's, the untracked but not ignored files too, which a plant run plants in, a new plant or test before its
+ * commit among them.
+ */
+export type Listing = "tracked" | "working"
+
+/** The files under test/ that `listing` takes, by path from `root`, in path order. */
+const testFiles = Effect.fn("testFiles")(function* (root: string, listing: Listing) {
 	const output = yield* gitOutput(root, [
 		"ls-files",
 		"--cached",
-		"--others",
-		"--exclude-standard",
+		...(listing === "working" ? ["--others", "--exclude-standard"] : []),
 		"-z",
 		"--",
 		"test"
@@ -296,11 +303,14 @@ export const unappliedIn = Effect.fn("unappliedIn")(function* (
 	return unapplied
 })
 
-/** The tree as it stands under `root`: every TypeScript source under test/ with its text, and every plant's path. */
-export const readTree = Effect.fn("readTree")(function* (root: string) {
+/**
+ * The tree as it stands under `root`, the files `listing` takes: every TypeScript source under test/ with its text, and
+ * every plant's path.
+ */
+export const readTree = Effect.fn("readTree")(function* (root: string, listing: Listing) {
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
-	const listed = yield* testFiles(root)
+	const listed = yield* testFiles(root, listing)
 	const files = yield* Effect.filter(listed, (file) =>
 		fs.exists(path.join(root, file)).pipe(Effect.mapError(failureFrom(`${file} could not be read`)))
 	)

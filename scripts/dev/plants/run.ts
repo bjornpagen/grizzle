@@ -372,7 +372,7 @@ const main = Effect.gen(function* () {
 	const fs = yield* FileSystem.FileSystem
 	const root = yield* repositoryRoot
 	const { asked, logs: given } = yield* argumentsOf(process.argv.slice(2))
-	const tree = yield* readTree(root)
+	const tree = yield* readTree(root, "working")
 	const findings = findingsOf(tree)
 	if (Arr.isReadonlyArrayNonEmpty(findings)) {
 		return yield* DevtoolFailure.make({

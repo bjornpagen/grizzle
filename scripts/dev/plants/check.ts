@@ -18,7 +18,8 @@ import {
  * It refuses a tag that names no such path or no bug, a citation outside a test (no test would run while its plant is
  * planted), a citation of a plant that is no file, a file under test/plants/ that no test cites, and two plants under
  * one name, and a plant git will not apply to the tree (`git apply --check`, each plant alone), which plants nothing
- * and so proves nothing. It reads only the tree; `pnpm plants` runs the plants (scripts/dev/plants/run.ts).
+ * and so proves nothing. It reads the files git tracks, what a commit or a push carries, and only the tree; `pnpm
+ * plants` runs the plants (scripts/dev/plants/run.ts).
  *
  *   node scripts/dev/plants/check.ts
  *
@@ -26,7 +27,7 @@ import {
  */
 const main = Effect.gen(function* () {
 	const root = yield* repositoryRoot
-	const tree = yield* readTree(root)
+	const tree = yield* readTree(root, "tracked")
 	const unapplied = yield* unappliedIn(root, tree.plants)
 	const findings = [...findingsOf(tree), ...unapplied]
 	yield* Effect.forEach(findings, (finding) => Console.error(findingText(finding)), {
