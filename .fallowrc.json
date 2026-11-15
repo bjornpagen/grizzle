@@ -22,11 +22,7 @@
 		"packages/pg/src/pin-verdict.ts",
 		"packages/pg/src/port-free.ts",
 		"scripts/dev/toolchain-imports.ts",
-		"oxlint.ast.config.ts",
-		// An experiment's script, run by hand until its verdict deletes it (packages/experiments/worlds-lookahead/README.md).
-		"packages/experiments/worlds-lookahead/walk.ts",
-		"packages/experiments/worlds-lookahead/cpu.config.ts",
-		"packages/experiments/worlds-lookahead/cpu-setup.ts"
+		"oxlint.ast.config.ts"
 	],
 	"ignorePatterns": [
 		"!packages/engine/src/query/build/**",

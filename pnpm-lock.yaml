@@ -333,18 +333,6 @@ importers:
 
   packages/experiments/ssi-summary: {}
 
-  packages/experiments/worlds-lookahead:
-    dependencies:
-      '@bjornpagen/testing':
-        specifier: workspace:*
-        version: link:../../../vendor/toolchain/packages/testing
-      effect:
-        specifier: 'catalog:'
-        version: 4.1.4
-      vitest:
-        specifier: 'catalog:'
-        version: 5.1.0(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0))
-
   packages/grizzle:
     dependencies:
       '@bjornpagen/grizzle-engine':
