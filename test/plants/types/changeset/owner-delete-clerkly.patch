@@ -1,0 +1,15 @@
+diff --git a/test/support/agreement/changesets.ts b/test/support/agreement/changesets.ts
+index 1562bddc..4465afbf 100644
+--- a/test/support/agreement/changesets.ts
++++ b/test/support/agreement/changesets.ts
+@@ -1760,9 +1760,7 @@ const memberWrites = (m: MemberSpec): ReadonlyArray<string> => {
+ 		case "family":
+ 			return (m.relation === "Order" || m.relation === "Cart") && m.op === "insert"
+ 				? [m.relation, sequenceMembers[m.relation]]
+-				: m.op === "delete" && isFamilyOwner(m.relation)
+-					? [m.relation, familyMemberRelation(m.relation)]
+-					: [m.relation]
++				: [m.relation]
+ 		case "appended":
+ 			return [m.owner, countedMembers[m.owner]]
+ 		case "array":

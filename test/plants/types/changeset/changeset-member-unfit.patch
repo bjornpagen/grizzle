@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/types/changeset/changeset.ts b/packages/engine/src/types/changeset/changeset.ts
+index 1a15fdbe..49843457 100644
+--- a/packages/engine/src/types/changeset/changeset.ts
++++ b/packages/engine/src/types/changeset/changeset.ts
+@@ -131,7 +131,7 @@ type MemberFit<M, F, R, Keyed extends boolean> =
+ 						? KeyLawRefusal<NameOf<R>, PrimaryKeyOf<R>>
+ 						: unknown
+ 					: unknown
+-				: Refusal<"a member fact is not a fact of the relation">
++				: unknown
+ 			: unknown
+ 
+ /**

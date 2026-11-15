@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/types/changeset/changeset.ts b/packages/engine/src/types/changeset/changeset.ts
+index 1a15fdbe..69020d29 100644
+--- a/packages/engine/src/types/changeset/changeset.ts
++++ b/packages/engine/src/types/changeset/changeset.ts
+@@ -555,7 +555,7 @@ type MemberOwningSequence<S, R> =
+  * under it (UnitWrites).
+  */
+ type DeletedRow<S, R> =
+-	IsTreeRow<S, R> extends true ? Pick<Written<R>, TreeRootOf<S, R> & keyof Written<R>> : Written<R>
++	IsTreeRow<S, R> extends true ? Written<R> & Pick<Written<R>, TreeRootOf<S, R> & keyof Written<R>> : Written<R>
+ 
+ /** The root fields of R's tree in S: a tree is a family of its relation over itself, so it is among R's sequences. */
+ type TreeRootOf<S, R> =

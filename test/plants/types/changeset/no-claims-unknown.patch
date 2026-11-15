@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/types/schema/relation.ts b/packages/engine/src/types/schema/relation.ts
+index e049bdde..e71a8d1f 100644
+--- a/packages/engine/src/types/schema/relation.ts
++++ b/packages/engine/src/types/schema/relation.ts
+@@ -89,7 +89,7 @@ type FieldClaims<M extends ReadonlyArray<unknown>, K extends ReadonlyArray<strin
+  * every other fact's claims and meets none of them at never. Its fields are never read, where claims under a key text
+  * of never would read each field's value and then claim nothing under it.
+  */
+-type NoClaims = Readonly<Record<string, string>>
++type NoClaims = unknown
+ 
+ /**
+  * One fact's claims at the fields F beside its key: each field whose value is one literal, its value's text under the

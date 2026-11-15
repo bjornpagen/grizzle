@@ -1,0 +1,13 @@
+diff --git a/test/support/agreement/changesets.ts b/test/support/agreement/changesets.ts
+index 1562bddc..5959f4f6 100644
+--- a/test/support/agreement/changesets.ts
++++ b/test/support/agreement/changesets.ts
+@@ -1269,7 +1269,7 @@ const familyMemberOf = (d: Drawing, clean: boolean): MemberSpec => {
+ 	const op = d.choose(
+ 		relation === "Item"
+ 			? (["insert", "put"] as const)
+-			: relation === "Order" || relation === "Pool" || !clean
++			: relation === "Order" || relation === "Pool"
+ 				? (["insert", "delete"] as const)
+ 				: (["insert", "delete", "put"] as const)
+ 	)

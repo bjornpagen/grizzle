@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/types/changeset/changeset.ts b/packages/engine/src/types/changeset/changeset.ts
+index e5023eee..f58c8702 100644
+--- a/packages/engine/src/types/changeset/changeset.ts
++++ b/packages/engine/src/types/changeset/changeset.ts
+@@ -114,7 +114,7 @@ type MemberCheck<M, F, R> = MemberFit<M, F, R, true>
+  * two facts at one key that differ elsewhere delete at most the one stored (runtime/write/normalize.ts judges only
+  * additions and puts at a key).
+  */
+-type DeletedCheck<M, F, R> = MemberFit<M, F, R, false>
++type DeletedCheck<M, F, R> = MemberFit<M, F, R, true>
+ 
+ /** A member's facts M as arms of F, the row type of R its op takes, then, where Keyed, its literal facts at R's key. */
+ type MemberFit<M, F, R, Keyed extends boolean> =

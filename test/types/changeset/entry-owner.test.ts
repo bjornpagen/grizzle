@@ -4,8 +4,8 @@
  * through the entry is admitted exactly when its fact states no family field, and refused otherwise with the refusal
  * the engine names. Oracle: the box's rule, which the engine meets (test/unit/write/entry-owner.test.ts).
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): changeset-member-unfit.patch admits a member fact that is no fact of its
- * relation.
+ * @plant test/plants/types/changeset/changeset-member-unfit.patch A member fact that is no fact of its relation is
+ * admitted (types/changeset/changeset.ts MemberFit); the program fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

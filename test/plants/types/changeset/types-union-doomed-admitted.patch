@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/types/changeset/changeset.ts b/packages/engine/src/types/changeset/changeset.ts
+index 1a15fdbe..59395a17 100644
+--- a/packages/engine/src/types/changeset/changeset.ts
++++ b/packages/engine/src/types/changeset/changeset.ts
+@@ -1327,7 +1327,7 @@ type PutsDoomed<St> = St extends readonly [infer H extends Stratum, ...infer T]
+  */
+ type UnionDoomed<D1 extends Strata, L1 extends Stratum, D2 extends Strata, L2 extends Stratum> = [
+ 	(D1[number] | L1 | D2[number] | L2)["doomed"]
+-] extends [never]
++] extends [unknown]
+ 	? unknown
+ 	: DoomedRefusal<PutsDoomed<Aligned<readonly [...D1, L1], readonly [...D2, L2]>>>
+ 

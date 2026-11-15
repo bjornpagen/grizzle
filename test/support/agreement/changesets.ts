@@ -305,6 +305,14 @@ type OutsideShape = (typeof outsideShapes)[number]
 const conflictShapes = ["a key conflict beside a fact no literal keys"] as const
 
 /**
+ * Where an application's call meets the key law that its ChangeSet does not: a union whose operands each hold an array
+ * member of one op and relation, their facts at one literal key with different values (unionConflict). The ChangeSet is
+ * admitted, and its application's call, which passes both operands' facts gathered under that op and relation, is
+ * refused (callVerdictOf). A case notes it only where it is applied and so judged (caseOf).
+ */
+const callConflicts = ["a key conflict at the application's call"] as const
+
+/**
  * Where a stratum's put of a mutable ordered owner and its insert with its members nested meet: at one key, two rows
  * at that key, since the put leaves the owner's sequence as it is and the insert states it (README Families), which
  * the engine refuses on the key before any SQL; or at different keys, each written.
@@ -408,7 +416,7 @@ const swarmedFeatures = [
  * where it is aimed at them or a plain choice of the fault's own draws them (conflictShapes), which no swarm weighs, so
  * a kept case's tape draws the same swarm whatever shapes a fault gains.
  */
-const changeSetFeatures = [...swarmedFeatures, ...conflictShapes] as const
+const changeSetFeatures = [...swarmedFeatures, ...conflictShapes, ...callConflicts] as const
 type ChangeSetFeature = (typeof changeSetFeatures)[number]
 
 /** The Refusals the ChangeSet facade, its compilation and its binding name, by the engine's reason (claimOf). */
@@ -1608,9 +1616,37 @@ const describedWithParam = (d: Drawing): MemberSpec => {
 	}
 }
 
+/**
+ * A union of two ChangeSets over Work, each holding one array member of one op and of Task, their facts at one literal
+ * key, the second's account another uuid than the first's: the key law refuses a call that passes both.
+ */
+const unionConflict = (d: Drawing): ChangeSpec => {
+	d.note("union")
+	d.note("array member")
+	const op = d.choose(["insert", "put"] as const)
+	const first = factOf(d, op, "Task", undefined, 0)
+	const second = Arr.map(first, ([name, lit]) =>
+		name === "account"
+			? ([name, lit.text === uuidLit(1).text ? uuidLit(2) : uuidLit(1)] as const)
+			: ([name, lit] as const)
+	)
+	const operand = (fact: ReadonlyArray<readonly [string, Lit]>): BuiltSpec => ({
+		kind: "built",
+		level: "Work",
+		members: [{ kind: "array", op, relation: "Task", facts: [fact] }],
+		grouped: false,
+		reads: [],
+		bind: undefined
+	})
+	return { kind: "union", a: operand(first), b: operand(second) }
+}
+
 /** A case's ChangeSet: one built over Work or its extension, or a union or sequence of two. */
 const changeOf = (d: Drawing, fault: ChangeSetFault | undefined): ChangeSpec => {
 	const clean = fault === undefined
+	if (clean && d.aimed("a key conflict at the application's call")) {
+		return unionConflict(d)
+	}
 	const applied =
 		fault === "a role that does not write the relation" ||
 		fault === "a parameter left unbound" ||
@@ -3160,6 +3196,9 @@ const caseOf = ({ spec, reached }: Drawn): ChangeSetCase => {
 	const called = callVerdictOf(groups, verdict)
 	const served = verdict.kind === "admitted" ? servedOf(spec, verdict.admitted, rendering) : []
 	const notes = new Set<ChangeSetNote>(reached)
+	if (spec.apply !== undefined && verdict.kind === "admitted" && called.kind === "refused") {
+		notes.add("a key conflict at the application's call")
+	}
 	for (const call of served) {
 		notes.add(`served: ${call.variant}`)
 		if (call.verdict.kind === "refused" && call.verdict.claim.kind === "refusal") {
@@ -3214,8 +3253,8 @@ const insertAllFaults = [
 /**
  * The situations the floor's witnesses reach: every construct and fault, each construct admitted and each fault
  * refused; a value outside its field in each of its shapes; a key two facts share and a derived relation written, under
- * each op; a derived relation's delta, added and removed; and each fault an insert's member carries, at an insertAll
- * key.
+ * each op; a derived relation's delta, added and removed; each fault an insert's member carries, at an insertAll key;
+ * and an admitted ChangeSet whose application's call the key law refuses.
  */
 export const changeSetRequired: ReadonlyArray<Reached<ChangeSetNote>> = [
 	...changeSetFeatures,
@@ -3297,6 +3336,7 @@ const prerequisites: { readonly [F in ChangeSetFeature]?: ReadonlyArray<ChangeSe
 	"an immutable family": ["family member"],
 	"an append beside its owner": ["family member", "a counted member", "insert"],
 	"a partial write list": ["applied"],
+	"a key conflict at the application's call": ["applied"],
 	"a generated addition": ["insert"],
 	insertAll: ["insert"],
 	bind: ["described member", "a parameter"]

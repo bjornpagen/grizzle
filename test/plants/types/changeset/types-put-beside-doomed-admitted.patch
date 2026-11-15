@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/types/changeset/changeset.ts b/packages/engine/src/types/changeset/changeset.ts
+index e5023eee..3397ff51 100644
+--- a/packages/engine/src/types/changeset/changeset.ts
++++ b/packages/engine/src/types/changeset/changeset.ts
+@@ -1155,7 +1155,7 @@ type PutMeetsDoomed<Put extends string, Doomed extends string> = string extends
+ 			: true
+ 
+ /** A stratum puts no row its deletes remove whole, as the engine plans a stratum's unit deletes before its puts. */
+-type DoomedRefusal<Meets> = Meets extends true
++type DoomedRefusal<Meets> = Meets extends never
+ 	? Refusal<"a stratum puts no row its deletes remove whole: a delete of a tree or of a family's owner removes every row nested under it, so put in another stratum (ChangeSet.sequence), or insert the rows again whole">
+ 	: unknown
+ 

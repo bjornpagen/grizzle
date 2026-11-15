@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/types/changeset/changeset.ts b/packages/engine/src/types/changeset/changeset.ts
+index 1a15fdbe..f04e28a4 100644
+--- a/packages/engine/src/types/changeset/changeset.ts
++++ b/packages/engine/src/types/changeset/changeset.ts
+@@ -875,8 +875,7 @@ type ChangeSetDelete = <
+ 	relation: R &
+ 		WritableCheck<S, R> &
+ 		EditCheck<S, R, "delete"> &
+-		EditsOnce<Done, EditsWith<Last, S, R>> &
+-		PutBesideDoomed<Last["puts"], DoomedBy<S, R>>,
++		EditsOnce<Done, EditsWith<Last, S, R>>,
+ 	facts: M & DeletedCheck<M, DeletedRow<S, R>, R>
+ ) => ChangeSetOf<
+ 	S,

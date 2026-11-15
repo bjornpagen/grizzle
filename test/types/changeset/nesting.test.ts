@@ -4,8 +4,8 @@
  * admitted exactly when no type it declares states a field beyond its nesting's, at whatever depth its types recur, and
  * refused otherwise. Oracle: the box's rule over the types each case declares.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): changeset-member-unfit.patch admits a member fact that is no fact of its
- * relation.
+ * @plant test/plants/types/changeset/changeset-member-unfit.patch A member fact that is no fact of its relation is
+ * admitted (types/changeset/changeset.ts MemberFit); the program fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
