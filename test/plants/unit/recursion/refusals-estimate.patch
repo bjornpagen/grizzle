@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/check/recursion/termination.ts b/packages/engine/src/check/recursion/termination.ts
+--- a/packages/engine/src/check/recursion/termination.ts
++++ b/packages/engine/src/check/recursion/termination.ts
+@@ -761,7 +761,7 @@
+ 			m.forms.flatMap(({ form }) => (form.value.kind === "counter" ? [form.value] : []))
+ 		)
+ 		const range = counter === undefined ? undefined : counterRange(counter.range, all, steps)
+-		const count = range === undefined ? valueCount(all) : range[1] - range[0] + 1n
++		const count = range === undefined ? valueCount(all) : range[1] - range[0]
+ 		for (const m of members) {
+ 			const deltas = m.forms.flatMap(({ form }) =>
+ 				form.value.kind === "counter" ? [form.value.delta] : []

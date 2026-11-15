@@ -10,8 +10,10 @@
  * Oracle: the estimate's rule restated as a formula, and the hashing rule (a specification). Features: each copied
  * column's type, a computed column, two tags, the widest grid; each roster size.
  *
- * Plants, each failing its search: a counting recursion's estimate one more than its states (refusals-estimate); a set
- * state column counted as hashable (termination-bits-hashable).
+ * @plant test/plants/unit/recursion/refusals-estimate.patch A counter's count of states one short of every integer from
+ * its least value to its greatest; the estimate search fails.
+ * @plant test/plants/unit/recursion/termination-bits-hashable.patch A set state column counted as hashable; the
+ * estimate-sets search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/check/recursion/termination.ts b/packages/engine/src/check/recursion/termination.ts
+--- a/packages/engine/src/check/recursion/termination.ts
++++ b/packages/engine/src/check/recursion/termination.ts
+@@ -409,7 +409,10 @@
+ 		/** The last current value each guard lets the counter advance from, towards the side it moves. */
+ 		const [first, ...more] = guards(rule, column, b).flatMap((g) => {
+ 			const v = g.bound.known
+-			const last = delta > 0n ? risingLast(g.op, v ?? max) : fallingLast(g.op, v ?? min)
++			const last =
++				delta > 0n
++					? (risingLast(g.op, v ?? max) ?? fallingLast(g.op, v ?? min))
++					: (fallingLast(g.op, v ?? min) ?? risingLast(g.op, v ?? max))
+ 			return last === undefined ? [] : [last]
+ 		})
+ 		if (first === undefined) {

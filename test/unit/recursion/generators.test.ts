@@ -11,8 +11,10 @@
  * Oracle: each shape's definition as a checker, and a cycle search over the traversed edges (a second implementation).
  * Features: each form, direction and termination the bag search must reach.
  *
- * Plants, each failing its search: the chain's edges pointed backwards (generator-chain-reversed); an acyclic
- * recursion counted as looping (generator-bag-bounded-only).
+ * @plant test/plants/unit/recursion/generator-chain-reversed.patch The chain's edges pointed backwards; the
+ * generators-shapes search fails.
+ * @plant test/plants/unit/recursion/generator-bag-bounded-only.patch terminatesAsBag holds only where every recursion
+ * is bounded, so an acyclic traversal is counted as looping; the generators-bag-termination search fails.
  */
 import { drawn, explore, sketched } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

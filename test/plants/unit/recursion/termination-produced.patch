@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/check/recursion/termination.ts b/packages/engine/src/check/recursion/termination.ts
+--- a/packages/engine/src/check/recursion/termination.ts
++++ b/packages/engine/src/check/recursion/termination.ts
+@@ -419,7 +419,7 @@
+ 			(acc, x) => (delta > 0n ? (x < acc ? x : acc) : x > acc ? x : acc),
+ 			first
+ 		)
+-		const produced = limit + delta
++		const produced = limit + delta + delta
+ 		if (produced > max || produced < min) {
+ 			failRecursion(loc, {
+ 				kind: "carrierOverflow",

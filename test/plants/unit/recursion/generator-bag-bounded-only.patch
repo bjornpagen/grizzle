@@ -1,0 +1,12 @@
+diff --git a/test/support/oracle/gen/recursive.ts b/test/support/oracle/gen/recursive.ts
+--- a/test/support/oracle/gen/recursive.ts
++++ b/test/support/oracle/gen/recursive.ts
+@@ -2112,7 +2112,7 @@
+ 	if (graph.kind === "text" && (parts.roots === "input" || parts.consumer === "attach")) {
+ 		features.push("relation roots over text")
+ 	}
+-	const terminatesAsBag = Arr.every(q.notes, (n) => n.bounded || n.acyclic)
++	const terminatesAsBag = Arr.every(q.notes, (n) => n.bounded)
+ 	const label = `${printGraph(graph)}\nrecursion ${Formatter.format(parts)}`
+ 	return {
+ 		schema: q.schema,

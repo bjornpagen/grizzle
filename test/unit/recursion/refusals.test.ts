@@ -26,11 +26,21 @@
  *
  * Features: each verdict and each cause of each family, several rules refusing one definition, and the admitted controls.
  *
- * Plants, each failing its search: an arm head's extra column admitted (refusals-head-extra); a numeric typmod change
- * converted (refusals-typmod); feedback read twice admitted (refusals-two-reads); r.pack over self admitted
- * (refusals-pack); a counter bounded on the side it moves away from admitted (refusals-wrong-side); a cycle of computed
- * columns admitted (refusals-cycle); an import's bind map read as reading no state (refusals-laundered); a countdown's
- * estimate one short (refusals-estimate).
+ * @plant test/plants/unit/recursion/refusals-head-extra.patch An arm head's extra column admitted; the arm-heads search
+ * fails.
+ * @plant test/plants/unit/recursion/refusals-typmod.patch A numeric typmod change of precision alone converted; the
+ * state-heading search fails.
+ * @plant test/plants/unit/recursion/refusals-two-reads.patch Feedback read twice admitted; the feedback-shape search
+ * fails.
+ * @plant test/plants/unit/recursion/refusals-pack.patch r.pack over self admitted; the pack search fails.
+ * @plant test/plants/unit/recursion/refusals-wrong-side.patch A counter bounded on the side it moves away from
+ * admitted; the unbounded-counter search fails.
+ * @plant test/plants/unit/recursion/refusals-cycle.patch A cycle of computed columns admitted, only a column computed
+ * from its own value refused; the computed-cycle search fails.
+ * @plant test/plants/unit/recursion/refusals-laundered.patch A variable an import binds read as data whatever its bind
+ * map reads; the import-laundering search fails.
+ * @plant test/plants/unit/recursion/refusals-estimate.patch A counter's count of states one short of every integer from
+ * its least value to its greatest; the countdown search fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

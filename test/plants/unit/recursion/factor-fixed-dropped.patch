@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/check/recursion/factor.ts b/packages/engine/src/check/recursion/factor.ts
+--- a/packages/engine/src/check/recursion/factor.ts
++++ b/packages/engine/src/check/recursion/factor.ts
+@@ -255,7 +255,9 @@
+ 		const state: ResolvedMatch = {
+ 			source: { kind: "interior", id: interior },
+ 			bindings: {
+-				...substBindings(self.bindings, s),
++				...Object.fromEntries(
++					Object.entries(substBindings(self.bindings, s)).filter(([, e]) => e.kind === "var")
++				),
+ 				...Object.fromEntries(parentVars.map((p) => [p.column, variable(p.var)] as const))
+ 			},
+ 			loc: self.loc

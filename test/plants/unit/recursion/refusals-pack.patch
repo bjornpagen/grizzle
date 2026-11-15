@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/check/recursion/scan.ts b/packages/engine/src/check/recursion/scan.ts
+--- a/packages/engine/src/check/recursion/scan.ts
++++ b/packages/engine/src/check/recursion/scan.ts
+@@ -293,7 +293,7 @@
+ 				if (h.kind === "aggregate") {
+ 					return [{ key, fold: h.fn }]
+ 				}
+-				return h.kind === "producer" && h.fn === "pack" ? [{ key, fold: h.fn }] : []
++				return []
+ 			}
+ 		)
+ 		if (firstSelf !== undefined && fold !== undefined) {

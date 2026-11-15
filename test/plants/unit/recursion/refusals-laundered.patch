@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/check/recursion/termination.ts b/packages/engine/src/check/recursion/termination.ts
+--- a/packages/engine/src/check/recursion/termination.ts
++++ b/packages/engine/src/check/recursion/termination.ts
+@@ -124,7 +124,7 @@
+ 	)
+ 	let data: ReadonlySet<string> = new Set(
+ 		rule.matches.flatMap((m, i) =>
+-			i !== self && m.source.kind !== "query" && m.source.kind !== "step" ? boundVars(m) : []
++			i !== self ? boundVars(m) : []
+ 		)
+ 	)
+ 	for (;;) {

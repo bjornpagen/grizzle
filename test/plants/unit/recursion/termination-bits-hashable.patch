@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/check/recursion/state.ts b/packages/engine/src/check/recursion/state.ts
+--- a/packages/engine/src/check/recursion/state.ts
++++ b/packages/engine/src/check/recursion/state.ts
+@@ -77,7 +77,7 @@
+ 	type: ScalarType,
+ 	loc: SourceLoc
+ ): StateType => {
+-	if (type.carrier === "bits" || type.carrier === "bytes" || !type.caps.includes("hashing")) {
++	if (type.carrier === "bytes" || (type.carrier !== "bits" && !type.caps.includes("hashing"))) {
+ 		failRecursion(loc, {
+ 			kind: "unhashableState",
+ 			recursion,
