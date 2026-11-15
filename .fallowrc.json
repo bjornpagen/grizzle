@@ -22,7 +22,9 @@
 		"packages/pg/src/pin-verdict.ts",
 		"packages/pg/src/port-free.ts",
 		"scripts/dev/toolchain-imports.ts",
-		"oxlint.ast.config.ts"
+		"oxlint.ast.config.ts",
+		// An experiment's script, run by hand until its verdict deletes it (packages/experiments/worlds-lookahead/README.md).
+		"packages/experiments/worlds-lookahead/walk.ts"
 	],
 	"ignorePatterns": [
 		"!packages/engine/src/query/build/**",
@@ -35,6 +37,11 @@
 	"ignoreDependencies": ["grizzle:config"],
 	"boundaries": {
 		"zones": [
+			{
+				// Experiments on main, each run by hand until its verdict deletes it (owner, 2026-11-15): no package imports one.
+				"name": "experiments",
+				"patterns": ["packages/experiments/**"]
+			},
 			{
 				// The one reader of PostgreSQL's output texts (codec/read.ts), which the decode zones alone import.
 				"name": "reader",
