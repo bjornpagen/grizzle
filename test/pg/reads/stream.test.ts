@@ -18,9 +18,8 @@
  *   last event is one ready.
  * - Oracle: the rows the case inserted, and the count on the read's own decoder.
  * - Features: a read of two rows or more, by construction.
- * - Plants (~/.cache/grizzle-release/LIVE-WATCH/plants): stream-buffer-whole-result.patch (readStream hands its rows
- *   to the stream only once the flight answered) hangs the case; stream-drop-reset.patch (readStream sends no reset)
- *   turns it red.
+ *
+ * @plant test/plants/pg/reads/stream-drop-reset.patch readStream sends no reset.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

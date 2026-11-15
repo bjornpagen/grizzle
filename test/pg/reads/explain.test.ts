@@ -24,7 +24,8 @@
  *   in a transaction that is rolled back: no fact written, no identity sequence advanced, which EXPLAIN ANALYZE would
  *   have done; a read-back rides the statement that makes its delta, so no plan reads a carrier;
  * - a served ChangeSet inserting a box with its parts nested, each part's body a drawn share of the session's message
- *   bound, within it or past it, on a session whose bound is planted at the longest Parse message of the texts explain
+ *   bound, within it or past it, and among the cases bodies each within it and together past it, which the application
+ *   cuts across executions, on a session whose bound is planted at the longest Parse message of the texts explain
  *   sends of the write, each planned one as its EXPLAIN (test/support/staged.ts explainedTextBound), as a server whose
  *   bound is below the protocol's holds it: explain plans it exactly where the application of the same call on the
  *   same session writes it, each cutting its executions under the session's bound (apply/run.ts sessionTransport);
@@ -37,22 +38,27 @@
  *   PostgreSQL's message limit is the one resource refusal, a unit test's (test/unit/adapter/bind.test.ts), since a
  *   gibibyte of parameters is no case to send.
  *
- * Plants: ~/.cache/grizzle-release/BR08/plants/explain-first-plan-dropped.patch, explain's plans without the first,
- * must turn the reads' and the ChangeSets' properties red;
- * ~/.cache/grizzle-release/BR08/plants/explain-change-leases-first.patch, a ChangeSet's explain leasing a session
- * before its host checks, the refusals'; ~/.cache/grizzle-release/BR08/plants/explain-uncut-by-session-bound.patch,
- * explain's executions cut by no session bound, the session bound's;
- * ~/.cache/grizzle-release/EXPLAIN/plants/index-wrong-relation.patch, an index node naming another relation than the one
- * whose table holds the index, the reads' and the ChangeSets'; ~/.cache/grizzle-release/EXPLAIN/plants/unprepared-statement.patch,
- * each plan reported under its unnamed EXPLAIN's own name rather than the served statement's, the reads' and the
- * ChangeSets'; ~/.cache/grizzle-release/EXPLAIN/plants/change-analyzed.patch, a ChangeSet's statements run under EXPLAIN
- * ANALYZE, the ChangeSets' (its serial field's sequence advanced). ~/.cache/grizzle-release/EXPLAIN/plants/rollback-dropped.patch,
- * explain's transactions committed, leaves the database's state as a ROLLBACK does, since an estimate-only explain runs
- * nothing but a carrier's CREATE TEMPORARY TABLE ... ON COMMIT DROP and its ANALYZE and an analyzed read runs READ ONLY,
- * so no state here witnesses it: test/pg/adapter/round-trips.test.ts, which reads each explain's transaction off the
- * wire, kills it.
+ * An explain whose transaction commits instead of rolling back leaves the database's state as a ROLLBACK does, since an
+ * estimate-only explain runs nothing but a carrier's CREATE TEMPORARY TABLE ... ON COMMIT DROP and its ANALYZE and an
+ * analyzed read runs READ ONLY, so no state here witnesses it: test/pg/adapter/round-trips.test.ts, which reads each
+ * explain's transaction off the wire, catches it.
+ *
+ * @plant test/plants/pg/reads/explain-first-plan-dropped.patch Explain's plans come without the first; the reads' and
+ * the ChangeSets' properties fail.
+ * @plant test/plants/pg/reads/explain-change-leases-first.patch A ChangeSet's explain leases a session before its host
+ * checks; the refusals' property fails.
+ * @plant test/plants/pg/reads/explain-host-refusal-unwitnessed.patch Explain's host refusal of a same-key pair reports
+ * its witness as unreported; the refusals' property fails.
+ * @plant test/plants/pg/reads/explain-uncut-by-session-bound.patch Explain's executions are cut by no session bound;
+ * the session bound's property fails.
+ * @plant test/plants/pg/reads/unprepared-statement.patch Each plan is reported under its unnamed EXPLAIN's own name
+ * rather than the served statement's; the reads' and the ChangeSets' properties fail.
+ * @plant test/plants/pg/reads/change-analyzed.patch A ChangeSet's statements run under EXPLAIN ANALYZE, so its serial
+ * field's sequence advances; the ChangeSets' property fails.
+ * @plant test/plants/unit/adapter/index-wrong-relation.patch An index node names another relation than the one whose
+ * table holds the index; the reads' and the ChangeSets' properties fail.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { set } from "@bjornpagen/testing/oracle"
@@ -533,7 +539,23 @@ const boundPool = (pool: SessionPool, limit: number): SessionPool => ({
 /** A part body's length as a share of the session's bound, in thousandths of `boundWhole`. */
 const boundWhole = 1_000
 
-type BoundFeature = "a body past the bound" | "bodies within the bound"
+/**
+ * Where a box's bodies stand against the session's bound: a body past it, which neither the application nor explain
+ * sends; every body within it and all of them within it together; or every body within it and together past it, so the
+ * application cuts the write into several executions, each under the bound.
+ */
+type BoundFeature =
+	| "a body past the bound"
+	| "bodies within the bound together"
+	| "bodies within the bound, together past it"
+
+/** The situation of a box whose bodies are `shares` of the bound (BoundFeature). */
+const boundFeatureOf = (shares: ReadonlyArray<number>): BoundFeature =>
+	Arr.some(shares, (share) => share > boundWhole)
+		? "a body past the bound"
+		: Arr.reduce(shares, 0, (sum, share) => sum + share) > boundWhole
+			? "bodies within the bound, together past it"
+			: "bodies within the bound together"
 
 /** A box's parts, each body's length a share of the session's bound: within it, or past it by up to the bound again. */
 interface BoundCase {
@@ -546,6 +568,22 @@ const boundCaseGen: Gen<BoundCase> = (source) => ({
 		"a box holds a part"
 	)
 })
+
+/** Two to four bodies each past half the bound and within it, so they are within it alone and past it together. */
+const togetherPastGen: Gen<BoundCase> = (source) => ({
+	shares: nonEmpty(
+		source.draw(array(int(boundWhole / 2 + 1, boundWhole), { min: 2, max: 4 })),
+		"a box holds a part"
+	)
+})
+
+/** The case's shares: its drawn ones, or, where its turn aims at bodies together past the bound, togetherPastGen's. */
+const aimedShares = (drawnCase: BoundCase, notes: Case<BoundFeature>): BoundCase =>
+	Option.exists(notes.steering, (pending) =>
+		pending.aimed("bodies within the bound, together past it")
+	)
+		? notes.draw(togetherPastGen)
+		: drawnCase
 
 /** Each search's budget beside its suite, draw and features. */
 const budget = {
@@ -1099,21 +1137,22 @@ layer(Substrate.layer)("workload explain", (it) => {
 										kept: [],
 										runs: 12,
 										coverage: required<BoundFeature>(
-											["a body past the bound", "bodies within the bound"],
+											[
+												"a body past the bound",
+												"bodies within the bound together",
+												"bodies within the bound, together past it"
+											],
 											{ cases: 12, sense: notesOnly }
 										)
 									},
-									(c, notes) =>
+									(drawnCase, notes) =>
 										Effect.gen(function* () {
 											next += 1
+											const c = aimedShares(drawnCase, notes)
 											const lengths = Arr.map(c.shares, (share) =>
 												Math.floor((limit * share) / boundWhole)
 											)
-											notes.note(
-												Arr.some(lengths, (n) => n > limit)
-													? "a body past the bound"
-													: "bodies within the bound"
-											)
+											notes.note(boundFeatureOf(c.shares))
 											const facts = {
 												insert: {
 													Box: [

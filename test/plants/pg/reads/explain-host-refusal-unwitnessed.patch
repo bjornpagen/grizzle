@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/served/explain.ts b/packages/grizzle/src/adapter/served/explain.ts
+index 09f1bcf0..fc81cc19 100644
+--- a/packages/grizzle/src/adapter/served/explain.ts
++++ b/packages/grizzle/src/adapter/served/explain.ts
+@@ -192,7 +192,7 @@ export const explainChange = (
+ 			return yield* new ReadFailure({
+ 				reason: new InputRejected({
+ 					refused: { kind: "every", laws: [inputs.refused] },
+-					witness: inputs.witness
++					witness: { kind: "unreported" }
+ 				})
+ 			})
+ 		}

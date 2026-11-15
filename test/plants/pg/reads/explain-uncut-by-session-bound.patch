@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/served/explain.ts b/packages/grizzle/src/adapter/served/explain.ts
+index 09f1bcf0..8198e561 100644
+--- a/packages/grizzle/src/adapter/served/explain.ts
++++ b/packages/grizzle/src/adapter/served/explain.ts
+@@ -217,7 +217,7 @@ export const explainChange = (
+ 			chunks: Chunks,
+ 			session: Session
+ 		): Result.Result<ReadonlyArray<Explained>, ReadFailure> => {
+-			const transport = sessionTransport(session)
++			const transport = sessionTransport({ messageMaxBytes: Number.MAX_SAFE_INTEGER })
+ 			const statements: Array<Explained> = []
+ 			for (const s of entry.program.flight.statements) {
+ 				if (skip.has(s.index)) {
