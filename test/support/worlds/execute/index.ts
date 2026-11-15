@@ -31,7 +31,7 @@ import { namedRole, roleReadNames, worldNames } from "#compiler/physical/ddl/nam
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { login as loginBuilder } from "#compiler/program/workload/login.ts"
 import { type OwnedRole, ownRole } from "#compiler/schema/own.ts"
-import { roleDescOf, role as roleBuilder } from "#compiler/schema/world.ts"
+import { roleDescOf, roleBuilder } from "#compiler/schema/world.ts"
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import type { LoginRole } from "#compiler/types/schema/world.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"

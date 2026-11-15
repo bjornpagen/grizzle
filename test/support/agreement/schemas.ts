@@ -50,18 +50,18 @@ import {
 	admitClosedRelation,
 	admitRoster,
 	bitsOf,
-	closed,
+	closedBuilder as closed,
 	materializedDerived,
 	drawnField,
 	closedRelation,
 	generatedField,
 	generatedRelation,
-	relation,
+	relationBuilder as relation,
 	relationDescOf,
 	slotField,
 	writingOf
 } from "#compiler/schema/relation.ts"
-import { admitSchema, schema } from "#compiler/schema/schema.ts"
+import { admitSchema, schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import {
 	alternativesBuilder,
 	checkBuilder,
@@ -83,7 +83,7 @@ import {
 	treeBuilder
 } from "#compiler/schema/statements.ts"
 import { rowHelpers } from "#compiler/schema/terms.ts"
-import { insertableNamesOf, role, roleDescOf } from "#compiler/schema/world.ts"
+import { insertableNamesOf, roleBuilder as role, roleDescOf } from "#compiler/schema/world.ts"
 import { regexField, str } from "#compiler/text/field.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"

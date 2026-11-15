@@ -2,7 +2,6 @@ import type * as Layer from "effect/Layer"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import { liveSourceLayer } from "#adapter/pool/live.ts"
 import { servedLayer } from "#adapter/pool/served.ts"
-import { served as servedValue } from "#adapter/served/served.ts"
 import type {
 	LoginBase,
 	DbConfigShape,
@@ -12,8 +11,7 @@ import type {
 	LiveOf,
 	LiveSourceConfigShape,
 	LiveSourceConstructor,
-	LiveSourceService,
-	ServedConstructor
+	LiveSourceService
 } from "#adapter/types/layer.ts"
 import type { AnyLogin } from "#compiler/plan/common.ts"
 
@@ -64,6 +62,7 @@ export type {
 	Verify
 } from "#adapter/types/layer.ts"
 export type { Isolation } from "#compiler/plan/common.ts"
+export { served } from "#adapter/served/served.ts"
 
 export const DbLayer: DbLayerConstructor = {
 	make: <const L extends AnyLogin>(
@@ -84,10 +83,3 @@ export const LiveSource: LiveSourceConstructor = {
 		config: LiveSourceConfigShape<L>
 	): Layer.Layer<LiveSourceService<LoginBase<L>>, OpenError> => liveSourceLayer(config)
 }
-
-/**
- * served(file, name): a login's committed workload, `migrations/<root>/served/<login>.json`, which `grizzle generate`
- * compiles and `grizzle check` holds to the compile, served as the login's type: `served<typeof App>(file, "app")`, the
- * type imported with `import type`, so no schema module is evaluated.
- */
-export const served: ServedConstructor = servedValue

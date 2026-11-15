@@ -10,8 +10,12 @@ import { indices } from "#compiler/core/array.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { generatedField, generatedRelation, relation } from "#compiler/schema/relation.ts"
-import { schema } from "#compiler/schema/schema.ts"
+import {
+	generatedField,
+	generatedRelation,
+	relationBuilder as relation
+} from "#compiler/schema/relation.ts"
+import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import {
 	containedBuilder,
 	keyBuilder,

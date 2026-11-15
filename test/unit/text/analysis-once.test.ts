@@ -32,8 +32,13 @@ import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
-import { admittedClosedId, closed, closedRelation, relation } from "#compiler/schema/relation.ts"
-import { schema } from "#compiler/schema/schema.ts"
+import {
+	admittedClosedId,
+	closedBuilder as closed,
+	closedRelation,
+	relationBuilder as relation
+} from "#compiler/schema/relation.ts"
+import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { containedBuilder, keyBuilder, onBuilder } from "#compiler/schema/statements.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"

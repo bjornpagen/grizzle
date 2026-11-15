@@ -91,7 +91,11 @@ import {
 	type Statement
 } from "#compiler/public/schema.ts"
 import { constraintLawsOf } from "#compiler/runtime/write/laws.ts"
-import { generatedField, generatedRelation, relation } from "#compiler/schema/relation.ts"
+import {
+	generatedField,
+	generatedRelation,
+	relationBuilder as relation
+} from "#compiler/schema/relation.ts"
 import {
 	alternativesBuilder,
 	checkBuilder,

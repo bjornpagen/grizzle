@@ -103,7 +103,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { role } from "#compiler/schema/world.ts"
+import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import {
 	apply,

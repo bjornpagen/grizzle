@@ -40,7 +40,11 @@ import type { ChangedColumn, DerivedReader, FamilyName } from "#compiler/core/ca
 import { accumulated, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { type AnyFamily, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { generatedField, generatedRelation, relation } from "#compiler/schema/relation.ts"
+import {
+	generatedField,
+	generatedRelation,
+	relationBuilder as relation
+} from "#compiler/schema/relation.ts"
 import {
 	containedBuilder,
 	countedBuilder,

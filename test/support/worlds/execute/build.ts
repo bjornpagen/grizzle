@@ -21,7 +21,7 @@ import {
 import { compute } from "#compiler/scalar/compute/builders.ts"
 import { materializedDerived } from "#compiler/schema/relation.ts"
 import { alternativesBuilder } from "#compiler/schema/statements.ts"
-import { contextDescOf, role } from "#compiler/schema/world.ts"
+import { contextDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"

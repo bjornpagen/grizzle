@@ -24,7 +24,7 @@ import {
 	type StatementsWithin
 } from "#compiler/public/schema.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
-import { schema as builtSchema } from "#compiler/schema/schema.ts"
+import { schemaBuilder as builtSchema } from "#compiler/schema/schema.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"

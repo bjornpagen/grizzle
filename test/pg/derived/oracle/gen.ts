@@ -17,9 +17,13 @@ import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/qu
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { closed, materializedDerived, relation } from "#compiler/schema/relation.ts"
-import { schema } from "#compiler/schema/schema.ts"
-import { role } from "#compiler/schema/world.ts"
+import {
+	closedBuilder as closed,
+	materializedDerived,
+	relationBuilder as relation
+} from "#compiler/schema/relation.ts"
+import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
+import { roleBuilder as role } from "#compiler/schema/world.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import type { StorageCarrier } from "#test/support/oracle/gen/domain.ts"

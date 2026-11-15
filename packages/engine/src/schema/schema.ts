@@ -703,7 +703,7 @@ const admitFragment = (
  * program over a level is. No statement of such a schema may decide how a relation of the fragment is written unless it
  * is the fragment's own (fragment.ts fragmentReach).
  */
-export const fragment = <
+export const fragmentBuilder = <
 	const Relations extends ReadonlyArray<AnyRelation | AnyClosed>,
 	const Statements extends ReadonlyArray<Statement>
 >(
@@ -758,6 +758,6 @@ export const fragment = <
  * construction. Its type parameters are as wide as that value allows; the typed facade (schema/api.ts) is a view that
  * narrows them to the public signatures.
  */
-export const schema: typeof rootSchema & { readonly extend: typeof extend } = Object.freeze(
+export const schemaBuilder: typeof rootSchema & { readonly extend: typeof extend } = Object.freeze(
 	Object.assign(rootSchema, { extend })
 )

@@ -176,10 +176,11 @@ const labelled = (text: string, value: C.CatalogExpr): C.CatalogExpr =>
 	C.concat([C.text(text), value])
 
 const owner = (oid: C.CatalogExpr): C.CatalogExpr =>
-	labelled("owner ", C.asText(C.call("pg_get_userbyid", [oid])))
+	labelled("owner ", C.asText(C.catalogCall("pg_get_userbyid", [oid])))
 
 /** A name as PostgreSQL quotes it. */
-const quoted = (name: C.CatalogExpr): C.CatalogExpr => C.call("quote_ident", [C.asText(name)])
+const quoted = (name: C.CatalogExpr): C.CatalogExpr =>
+	C.catalogCall("quote_ident", [C.asText(name)])
 
 /** A collation as `<schema>.<name>`; no row, and so no part of the description, for none. */
 const collationOf = (oid: C.CatalogExpr): C.CatalogExpr => {
@@ -203,7 +204,7 @@ const collationOf = (oid: C.CatalogExpr): C.CatalogExpr => {
 
 /** The parts of a description joined by `; `; concat_ws leaves out a part that is absent. */
 const parts = (items: NonEmptyReadonlyArray<C.CatalogExpr>): C.CatalogExpr =>
-	C.call("concat_ws", [C.text("; "), ...items])
+	C.catalogCall("concat_ws", [C.text("; "), ...items])
 
 /** A key's parts: its kind, then the schema the keys spell ($2) and each name, quoted as PostgreSQL quotes it. */
 const keyParts = (
@@ -211,7 +212,7 @@ const keyParts = (
 	names: NonEmptyReadonlyArray<C.CatalogExpr>
 ): NonEmptyReadonlyArray<C.CatalogExpr> => [
 	C.text(`${kind} `),
-	C.call("quote_ident", [C.param(2, "text")]),
+	C.catalogCall("quote_ident", [C.param(2, "text")]),
 	...Arr.flatMap(names, (n) => [C.text("."), quoted(n)])
 ]
 
@@ -274,7 +275,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 				[
 					C.concat([
 						C.text("as "),
-						C.call("format_type", [q.col("seqtypid"), C.literal(-1n, "integer")]),
+						C.catalogCall("format_type", [q.col("seqtypid"), C.literal(-1n, "integer")]),
 						C.text(" increment "),
 						C.asText(q.col("seqincrement")),
 						C.text(" minimum "),
@@ -343,7 +344,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 							],
 							C.text("default ")
 						),
-						C.call("pg_get_expr", [d.col("adbin"), d.col("adrelid")])
+						C.catalogCall("pg_get_expr", [d.col("adbin"), d.col("adrelid")])
 					])
 				],
 				[d.item],
@@ -352,7 +353,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 		)
 	}
 	const statisticsColumns = (): C.CatalogExpr => {
-		const u = C.fromFunction(C.call("unnest", [x.col("stxkeys")]), "u", ["n"], false)
+		const u = C.fromFunction(C.catalogCall("unnest", [x.col("stxkeys")]), "u", ["n"], false)
 		const sa = C.from("pg_attribute", "a")
 		return C.scalar(
 			C.query(
@@ -379,11 +380,21 @@ const descriptionSelect = (): C.CatalogSelect => {
 		)
 	}
 	const policyRoles = (): C.CatalogExpr => {
-		const o = C.fromFunction(C.call("unnest", [policy.col("polroles")]), "o", ["role"], false)
-		const roleName = C.asText(C.call("pg_get_userbyid", [o.col("role")]))
+		const o = C.fromFunction(
+			C.catalogCall("unnest", [policy.col("polroles")]),
+			"o",
+			["role"],
+			false
+		)
+		const roleName = C.asText(C.catalogCall("pg_get_userbyid", [o.col("role")]))
 		return C.scalar(
 			C.query(
-				[labelled("to ", C.joinedSet(C.collateC(C.call("quote_ident", [roleName])), C.text(", ")))],
+				[
+					labelled(
+						"to ",
+						C.joinedSet(C.collateC(C.catalogCall("quote_ident", [roleName])), C.text(", "))
+					)
+				],
 				[o.item],
 				undefined
 			)
@@ -406,7 +417,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 	return C.union([
 		C.catalogCore(
 			[
-				C.concat([C.text("schema "), C.call("quote_ident", [C.param(2, "text")])]),
+				C.concat([C.text("schema "), C.catalogCall("quote_ident", [C.param(2, "text")])]),
 				parts([owner(n.col("nspowner"))])
 			],
 			[n.item],
@@ -434,11 +445,14 @@ const descriptionSelect = (): C.CatalogSelect => {
 						[
 							{
 								when: C.inList(c.col("relkind"), C.letters(["m", "v"])),
-								result: labelled("as ", C.call("pg_get_viewdef", [c.col("oid"), C.bool(false)]))
+								result: labelled(
+									"as ",
+									C.catalogCall("pg_get_viewdef", [c.col("oid"), C.bool(false)])
+								)
 							},
 							{
 								when: C.inList(c.col("relkind"), C.letters(["i", "I"])),
-								result: C.call("pg_get_indexdef", [c.col("oid")])
+								result: C.catalogCall("pg_get_indexdef", [c.col("oid")])
 							}
 						],
 						undefined
@@ -459,7 +473,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 			[
 				keyOf("column", [c.col("relname"), a.col("attname")]),
 				parts([
-					C.call("format_type", [a.col("atttypid"), a.col("atttypmod")]),
+					C.catalogCall("format_type", [a.col("atttypid"), a.col("atttypmod")]),
 					collationOf(a.col("attcollation")),
 					when(a.col("attnotnull"), C.text("not null")),
 					C.caseOf(
@@ -491,7 +505,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 		C.catalogCore(
 			[
 				keyOf("constraint", [c.col("relname"), k.col("conname")]),
-				C.call("pg_get_constraintdef", [k.col("oid")])
+				C.catalogCall("pg_get_constraintdef", [k.col("oid")])
 			],
 			[
 				inNamespace(
@@ -509,7 +523,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 		C.catalogCore(
 			[
 				keyOf("domain constraint", [t.col("typname"), k.col("conname")]),
-				C.call("pg_get_constraintdef", [k.col("oid")])
+				C.catalogCall("pg_get_constraintdef", [k.col("oid")])
 			],
 			[
 				inNamespace(
@@ -528,13 +542,16 @@ const descriptionSelect = (): C.CatalogSelect => {
 					owner(t.col("typowner")),
 					when(
 						C.eq(t.col("typtype"), C.letter("d")),
-						labelled("over ", C.call("format_type", [t.col("typbasetype"), t.col("typtypmod")]))
+						labelled(
+							"over ",
+							C.catalogCall("format_type", [t.col("typbasetype"), t.col("typtypmod")])
+						)
 					),
 					collationOf(t.col("typcollation")),
 					when(t.col("typnotnull"), C.text("not null")),
 					labelled(
 						"default ",
-						C.call("pg_get_expr", [t.col("typdefaultbin"), C.literal(0n, "oid")])
+						C.catalogCall("pg_get_expr", [t.col("typdefaultbin"), C.literal(0n, "oid")])
 					)
 				])
 			],
@@ -546,7 +563,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 				C.concat([
 					...keyParts("function", [p.col("proname")]),
 					C.text("("),
-					C.call("pg_get_function_identity_arguments", [p.col("oid")]),
+					C.catalogCall("pg_get_function_identity_arguments", [p.col("oid")]),
 					C.text(")")
 				]),
 				parts([
@@ -557,12 +574,12 @@ const descriptionSelect = (): C.CatalogSelect => {
 								when: C.eq(p.col("provolatile"), C.letter("i")),
 								result: labelled(
 									"constant returning ",
-									C.call("format_type", [p.col("prorettype"), C.literal(-1n, "integer")])
+									C.catalogCall("format_type", [p.col("prorettype"), C.literal(-1n, "integer")])
 								)
 							},
 							{
 								when: C.inList(p.col("prokind"), C.letters(["f", "p"])),
-								result: C.call("pg_get_functiondef", [p.col("oid")])
+								result: C.catalogCall("pg_get_functiondef", [p.col("oid")])
 							}
 						],
 						labelled("kind ", C.asText(p.col("prokind")))
@@ -576,7 +593,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 			[
 				keyOf("trigger", [c.col("relname"), g.col("tgname")]),
 				parts([
-					C.call("pg_get_triggerdef", [g.col("oid"), C.bool(false)]),
+					C.catalogCall("pg_get_triggerdef", [g.col("oid"), C.bool(false)]),
 					when(
 						C.ne(g.col("tgenabled"), C.letter("O")),
 						labelled("enabled ", C.asText(g.col("tgenabled")))
@@ -601,7 +618,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 					statisticsColumns(),
 					labelled(
 						"expressions ",
-						C.asText(C.call("pg_get_statisticsobjdef_expressions", [x.col("oid")]))
+						C.asText(C.catalogCall("pg_get_statisticsobjdef_expressions", [x.col("oid")]))
 					),
 					statisticsTable()
 				])
@@ -620,11 +637,11 @@ const descriptionSelect = (): C.CatalogSelect => {
 					),
 					labelled(
 						"using ",
-						C.call("pg_get_expr", [policy.col("polqual"), policy.col("polrelid")])
+						C.catalogCall("pg_get_expr", [policy.col("polqual"), policy.col("polrelid")])
 					),
 					labelled(
 						"check ",
-						C.call("pg_get_expr", [policy.col("polwithcheck"), policy.col("polrelid")])
+						C.catalogCall("pg_get_expr", [policy.col("polwithcheck"), policy.col("polrelid")])
 					),
 					policyRoles()
 				])
@@ -641,7 +658,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 		C.catalogCore(
 			[
 				keyOf("rule", [c.col("relname"), rule.col("rulename")]),
-				C.call("pg_get_ruledef", [rule.col("oid"), C.bool(false)])
+				C.catalogCall("pg_get_ruledef", [rule.col("oid"), C.bool(false)])
 			],
 			[
 				inNamespace(
@@ -668,7 +685,7 @@ const descriptions: CatalogQuery<readonly [string, string]> = {
 
 /** A name as PostgreSQL prints it. */
 const quotedIdent: CatalogQuery<string> = {
-	sql: emitCatalog(C.query([C.call("quote_ident", [C.param(1, "text")])], [], undefined)),
+	sql: emitCatalog(C.query([C.catalogCall("quote_ident", [C.param(1, "text")])], [], undefined)),
 	what: "a quoted name",
 	row: ([printed]) => printed
 }
@@ -708,9 +725,9 @@ const publicationQuery: CatalogQuery<readonly [string, string]> = {
 			C.catalogCore(
 				[
 					C.concat([C.text("publication "), C.asText(publications.col("pubname"))]),
-					C.call("concat_ws", [
+					C.catalogCall("concat_ws", [
 						C.text(" "),
-						C.call("concat_ws", [
+						C.catalogCall("concat_ws", [
 							C.text(","),
 							C.caseWhen(
 								[{ when: publications.col("pubinsert"), result: C.text("insert") }],

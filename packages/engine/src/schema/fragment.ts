@@ -1,5 +1,5 @@
 /**
- * What a schema that lists a fragment may state over the fragment's relations (schema.ts fragment).
+ * What a schema that lists a fragment may state over the fragment's relations (schema.ts fragmentBuilder).
  *
  * A program over a fragment reads and writes the fragment's relations alone, typed by the fragment's statements, and is
  * compiled in every schema that lists the fragment, so it must mean there what it means over the fragment. A statement

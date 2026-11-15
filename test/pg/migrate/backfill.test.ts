@@ -100,8 +100,8 @@ import {
 	tree
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { relation as storedRelation } from "#compiler/schema/relation.ts"
-import { schema as schemaOf } from "#compiler/schema/schema.ts"
+import { relationBuilder as storedRelation } from "#compiler/schema/relation.ts"
+import { schemaBuilder as schemaOf } from "#compiler/schema/schema.ts"
 import {
 	finBuilder,
 	foldBuilder,

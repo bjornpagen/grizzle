@@ -39,7 +39,7 @@ import { actionKinds } from "#test/support/worlds/generate/weights.ts"
 import { enumeratePerturbations, worldFunctionsOf } from "#test/support/worlds/invalid/catalog.ts"
 import { refusedClaimSettings } from "#test/support/worlds/invalid/claims.ts"
 import { opKinds, type FactWriter } from "#test/support/worlds/invalid/facts.ts"
-import { jsonObject, jsonText } from "#test/support/worlds/invalid/json.ts"
+import { jsonObject, treeText } from "#test/support/worlds/invalid/json.ts"
 import { rosterMigrations, violatingLaws } from "#test/support/worlds/invalid/migrations.ts"
 import { patternEdges } from "#test/support/worlds/invalid/patterns.ts"
 import { droppedNames, nonexistentNames } from "#test/support/worlds/invalid/roles.ts"
@@ -353,7 +353,7 @@ const invalidTokens = (
 	const last = box.facts.at(-1)
 	const payload = last === undefined ? {} : box.payloadOf(last, new Set())
 	const contexts = contextsRead(state.install.base, role)
-	const text = jsonText(jsonObject([]))
+	const text = treeText(jsonObject([]))
 	const stale: ReadonlyArray<StaleSource> =
 		contexts.length === 0
 			? []
@@ -445,7 +445,7 @@ const wildText = (wild: TokenWild, contexts: ReadonlyArray<ContextSpec>, empty: 
 		case "refinement-edge": {
 			const domain = field?.domain
 			return domain?.kind === "text"
-				? at(jsonText({ kind: "string", value: patternEdges(domain)[0].value }))
+				? at(treeText({ kind: "string", value: patternEdges(domain)[0].value }))
 				: domain?.kind === "contract"
 					? at(String(domain.max + 1))
 					: empty

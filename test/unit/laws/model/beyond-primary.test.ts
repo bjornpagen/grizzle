@@ -36,8 +36,8 @@ import type { PrimaryKeyObject, UniqueObject, UniqueObjects } from "#compiler/la
 import { uuid } from "#compiler/public/fields.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
-import { relation } from "#compiler/schema/relation.ts"
-import { schema } from "#compiler/schema/schema.ts"
+import { relationBuilder as relation } from "#compiler/schema/relation.ts"
+import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import {
 	containedBuilder,
 	keyBuilder,

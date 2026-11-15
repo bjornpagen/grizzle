@@ -60,6 +60,7 @@
 		"@bjornpagen/grizzle": "link:packages/grizzle",
 		"@bjornpagen/testing": "link:vendor/toolchain/packages/testing",
 		"@clerk/backend": "catalog:",
+		"@effect/language-service": "catalog:",
 		"@effect/tsgo": "catalog:",
 		"@effect/vitest": "catalog:",
 		"@hyperjump/json-schema": "catalog:",

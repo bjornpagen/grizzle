@@ -40,11 +40,11 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import {
 	accumulatedField,
 	bitsOf,
-	closed,
+	closedBuilder as closed,
 	drawnField,
 	generatedField,
 	generatedRelation,
-	relation
+	relationBuilder as relation
 } from "#compiler/schema/relation.ts"
 import {
 	countedBuilder,

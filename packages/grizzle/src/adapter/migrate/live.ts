@@ -41,7 +41,7 @@ export type SurveyedDecoder =
 	| { readonly kind: "login"; readonly role: string; readonly held: boolean }
 
 /** The server's wal_level, as the survey reads it beside the session's role. */
-export const walLevelColumn: C.CatalogExpr = C.call("current_setting", [C.text("wal_level")])
+export const walLevelColumn: C.CatalogExpr = C.catalogCall("current_setting", [C.text("wal_level")])
 
 const self = C.from("pg_roles", "s")
 const rdsReplication = C.from("pg_roles", "x")
@@ -68,7 +68,7 @@ export const membershipGrantColumn: C.CatalogExpr = C.asText(
 			[rdsReplication.item],
 			C.and([
 				C.eq(rdsReplication.col("rolname"), C.literal("rds_replication", "name")),
-				C.call("pg_has_role", [
+				C.catalogCall("pg_has_role", [
 					C.currentUser,
 					rdsReplication.col("oid"),
 					C.text("USAGE WITH ADMIN OPTION")

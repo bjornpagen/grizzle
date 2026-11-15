@@ -194,11 +194,15 @@ const applyLock = (schema: string): ApplyLock => {
 	const key = applyLockKey(schema)
 	return {
 		take: {
-			sql: emitCatalog(C.query([C.asText(C.call("pg_try_advisory_lock", [key]))], [], undefined)),
+			sql: emitCatalog(
+				C.query([C.asText(C.catalogCall("pg_try_advisory_lock", [key]))], [], undefined)
+			),
 			what: "a Boolean",
 			row: ([taken]) => (taken === "true" ? true : taken === "false" ? false : undefined)
 		},
-		release: emitCatalog(C.query([C.asText(C.call("pg_advisory_unlock", [key]))], [], undefined))
+		release: emitCatalog(
+			C.query([C.asText(C.catalogCall("pg_advisory_unlock", [key]))], [], undefined)
+		)
 	}
 }
 const roleName = ([name]: ReadonlyArray<string>): string | undefined => name
@@ -314,7 +318,7 @@ const namespace = C.from("pg_namespace", "n")
 const schemaOwner: CatalogQuery<string> = {
 	sql: emitCatalog(
 		C.query(
-			[C.asText(C.call("pg_get_userbyid", [namespace.col("nspowner")]))],
+			[C.asText(C.catalogCall("pg_get_userbyid", [namespace.col("nspowner")]))],
 			[namespace.item],
 			C.eq(namespace.col("nspname"), C.param(1, "text"))
 		)

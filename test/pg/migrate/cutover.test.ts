@@ -158,7 +158,11 @@ import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/p
 import { type AnyRelation, type Statement, schema } from "#compiler/public/schema.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
-import { generatedField, generatedRelation, relation } from "#compiler/schema/relation.ts"
+import {
+	generatedField,
+	generatedRelation,
+	relationBuilder as relation
+} from "#compiler/schema/relation.ts"
 import {
 	containedBuilder,
 	countedBuilder,

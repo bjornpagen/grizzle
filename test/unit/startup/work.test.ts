@@ -61,7 +61,7 @@ import {
 	type Statement
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { role } from "#compiler/schema/world.ts"
+import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { servedPath } from "#compiler/served/forms.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyClosed, AnyRelation, Relation } from "#compiler/types/schema/relation.ts"

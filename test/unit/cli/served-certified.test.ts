@@ -17,7 +17,7 @@ import { grantedPrivileges } from "#compiler/physical/ddl/roles.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { type AnyLogin, login, wholeEntriesOf } from "#compiler/public/schema.ts"
-import { role } from "#compiler/schema/world.ts"
+import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import {

@@ -701,7 +701,7 @@ export type ChangeSetAt<L> = L extends unknown ? ChangeSetOver<L> : never
  * attachments). read adds one, and union and sequence merge their arguments' (core/decoder.ts merge), so Reads is the
  * type of the records that decoder assembles (ReadsOf).
  *
- * insert, insertAll, delete and put are functions over the ChangeSet they are called on, `this: ChangeSet<S, Params,
+ * insert, insertAll, delete and put are functions over the ChangeSet they are called on, `this: ChangeSetOf<S, Params,
  * Writes, Reads, Cx, Done, Last, Arrays>`, declared once at the top level (ChangeSetInsert, ChangeSetInsertAll,
  * ChangeSetDelete, ChangeSetPut), as Rule's members are (types/query/rule.ts). The checker instantiates a method of a
  * generic interface in two steps, the interface's type arguments, then the call's own, and the second walks every
@@ -710,8 +710,11 @@ export type ChangeSetAt<L> = L extends unknown ? ChangeSetOver<L> : never
  * maps S to the schema without walking it. A member is called on its ChangeSet, as a method is, and on one ChangeSet
  * type, not a union of several. read and bind stay methods: each is called once on a ChangeSet, and a read on a
  * choice between two ChangeSets is one call.
+ *
+ * ChangeSetOf is the whole type, with every parameter; its public name, over S, Params, Writes and Reads, is
+ * public/changeset.ts ChangeSet, the one module that names a ChangeSet's type and its constructors' value alike.
  */
-export interface ChangeSet<
+export interface ChangeSetOf<
 	S,
 	Params = unknown,
 	Writes extends string = never,
@@ -773,7 +776,7 @@ export interface ChangeSet<
 	read<const Name extends string, Q extends QueryAt<LevelsOf<S>> | OrderedAt<LevelsOf<S>>, IHead>(
 		name: ReadName<Name, Reads>,
 		readBack: (delta: Delta<S>) => Q & Decoders<unknown, IHead>
-	): ChangeSet<
+	): ChangeSetOf<
 		S,
 		JointParams<Params, ParamsOf<Q>>,
 		Writes,
@@ -785,7 +788,7 @@ export interface ChangeSet<
 	>
 	bind<const Arg>(
 		params: ParamArg<Params> & Arg & OnlyParams<Arg, Params>
-	): ChangeSet<S, unknown, Writes, Reads, Cx, Done, Last, Arrays>
+	): ChangeSetOf<S, unknown, Writes, Reads, Cx, Done, Last, Arrays>
 }
 
 /** ChangeSet.insert over the ChangeSet it is called on (ChangeSet). */
@@ -801,13 +804,13 @@ type ChangeSetInsert = <
 	R extends AnyRelation | AnyWorld,
 	const M extends Member<S, unknown>
 >(
-	this: ChangeSet<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
+	this: ChangeSetOf<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
 	relation: R &
 		WritableCheck<S, R> &
 		NotSequenceMember<S, R> &
 		EditsOnce<Done, EditsWith<Last, S, R>>,
 	facts: M & MemberCheck<M, AdditionIn<S, R>, R>
-) => ChangeSet<
+) => ChangeSetOf<
 	S,
 	JointParams<Params, ParamsOf<M>>,
 	Writes | NameOf<R> | NestedWrites<S, R>,
@@ -836,9 +839,9 @@ type ChangeSetInsertAll = <
 	Arrays,
 	const Rows extends { readonly [K in keyof Rows]: Member<S, unknown> }
 >(
-	this: ChangeSet<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
+	this: ChangeSetOf<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
 	rows: Rows & { readonly [K in keyof Rows]: InsertAt<S, Rows, K, Done, Last> }
-) => ChangeSet<
+) => ChangeSetOf<
 	S,
 	JointParams<Params, InsertedParams<Rows>>,
 	Writes | InsertedWrites<S, Rows>,
@@ -868,14 +871,14 @@ type ChangeSetDelete = <
 	R extends AnyRelation | AnyWorld,
 	const M extends Member<S, unknown>
 >(
-	this: ChangeSet<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
+	this: ChangeSetOf<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
 	relation: R &
 		WritableCheck<S, R> &
 		EditCheck<S, R, "delete"> &
 		EditsOnce<Done, EditsWith<Last, S, R>> &
 		PutBesideDoomed<Last["puts"], DoomedBy<S, R>>,
 	facts: M & DeletedCheck<M, DeletedRow<S, R>, R>
-) => ChangeSet<
+) => ChangeSetOf<
 	S,
 	JointParams<Params, ParamsOf<M>>,
 	Writes | NameOf<R> | DeletedWrites<S, R>,
@@ -905,14 +908,14 @@ type ChangeSetPut = <
 	R extends AnyRelation | AnyWorld,
 	const M extends Member<S, unknown>
 >(
-	this: ChangeSet<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
+	this: ChangeSetOf<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
 	relation: R &
 		WritableCheck<S, R> &
 		EditCheck<S, R, "put"> &
 		EditsOnce<Done, EditsWith<Last, S, R>> &
 		PutBesideDoomed<NameOf<R>, Last["doomed"]>,
 	facts: M & MemberCheck<M, Written<R>, R>
-) => ChangeSet<
+) => ChangeSetOf<
 	S,
 	JointParams<Params, ParamsOf<M>>,
 	Writes | NameOf<R>,
@@ -1459,7 +1462,7 @@ type DisjointReads<A, B> = [keyof A & keyof B] extends [never]
 export interface ChangeSetConstructor {
 	empty<S extends AnySchema | AnyFragment | AnyRole>(
 		schema: S
-	): ChangeSet<S, unknown, never, unknown, never, readonly [], Unwritten>
+	): ChangeSetOf<S, unknown, never, unknown, never, readonly [], Unwritten>
 	/** The commutative combination: one add-wins transition, its strata combined position by position. */
 	union<
 		SA,
@@ -1479,13 +1482,13 @@ export interface ChangeSetConstructor {
 		A1,
 		A2
 	>(
-		a: ChangeSet<SA, P1, W1, R1, C1, D1, L1, A1>,
-		b: ChangeSet<SB, P2, W2, R2, C2, D2, L2, A2> &
+		a: ChangeSetOf<SA, P1, W1, R1, C1, D1, L1, A1>,
+		b: ChangeSetOf<SB, P2, W2, R2, C2, D2, L2, A2> &
 			LevelCheck<HigherLevel<SA, SB>> &
 			DisjointReads<R1, R2> &
 			UnionEdits<D1, L1, D2, L2> &
 			UnionDoomed<D1, L1, D2, L2>
-	): ChangeSet<
+	): ChangeSetOf<
 		HigherLevel<SA, SB>,
 		JointParams<P1, P2>,
 		W1 | W2,
@@ -1517,12 +1520,12 @@ export interface ChangeSetConstructor {
 		A1,
 		A2
 	>(
-		a: ChangeSet<SA, P1, W1, R1, C1, D1, L1, A1>,
-		b: ChangeSet<SB, P2, W2, R2, C2, D2, L2, A2> &
+		a: ChangeSetOf<SA, P1, W1, R1, C1, D1, L1, A1>,
+		b: ChangeSetOf<SB, P2, W2, R2, C2, D2, L2, A2> &
 			LevelCheck<HigherLevel<SA, SB>> &
 			DisjointReads<R1, R2> &
 			EditsRefusal<[EditsIn<D1, L1>, EditsIn<D2, L2>] extends [true, true] ? true : false>
-	): ChangeSet<
+	): ChangeSetOf<
 		HigherLevel<SA, SB>,
 		JointParams<P1, P2>,
 		W1 | W2,

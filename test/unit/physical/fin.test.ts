@@ -50,7 +50,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import {
-	closed as closedBuilder,
+	closedBuilder,
 	closedRelation as closedRelationBuilder,
 	slotField
 } from "#compiler/schema/relation.ts"

@@ -116,7 +116,10 @@ const rewrittenSelect = (view: ObjectName): C.CatalogSelect => {
 		[C.cte("lock", ["c1"], C.query([C.literal(1n, "integer")], [locked.item], C.bool(false)))],
 		C.query(
 			[
-				C.distinctFrom(C.call("pg_relation_filenode", [views.col("oid")]), views.col("relfilenode"))
+				C.distinctFrom(
+					C.catalogCall("pg_relation_filenode", [views.col("oid")]),
+					views.col("relfilenode")
+				)
 			],
 			[viewsIn],
 			C.and([

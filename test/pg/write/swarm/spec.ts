@@ -27,10 +27,10 @@ import { type AnyFamily, type RowScalars, schema, type Statement } from "#compil
 import {
 	accumulatedField,
 	bitsOf,
-	closed,
+	closedBuilder as closed,
 	generatedField,
 	generatedRelation,
-	relation
+	relationBuilder as relation
 } from "#compiler/schema/relation.ts"
 import {
 	checkBuilder,

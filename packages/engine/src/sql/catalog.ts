@@ -10,7 +10,7 @@ import type {
 	Refresh,
 	Select
 } from "#compiler/sql/ast.ts"
-import { provedSelect, call as valueCall, lit, target, types } from "#compiler/sql/build.ts"
+import { call, lit, provedSelect, target, types } from "#compiler/sql/build.ts"
 
 /**
  * The catalog-read AST: the SQL grizzle's shell sends to read PostgreSQL's catalog (admission, drift, the ledger's
@@ -455,7 +455,10 @@ export const cast = (expr: CatalogExpr, type: CatalogTypeName): CatalogExpr => (
 /** `expr::text`, the one type every value of a read arrives as. */
 export const asText = (expr: CatalogExpr): CatalogExpr => cast(expr, "text")
 
-export const call = (fn: CatalogFunction, args: ReadonlyArray<CatalogExpr>): CatalogCall => ({
+export const catalogCall = (
+	fn: CatalogFunction,
+	args: ReadonlyArray<CatalogExpr>
+): CatalogCall => ({
 	kind: "call",
 	fn,
 	args
@@ -627,7 +630,9 @@ export const anyRow = (items: ReadonlyArray<CatalogFrom>, where: CatalogExpr): C
 /** The current database's oid. */
 export const currentDatabaseOid = (): CatalogExpr => {
 	const b = from("pg_database", "b")
-	return scalar(query([b.col("oid")], [b.item], eq(b.col("datname"), call("current_database", []))))
+	return scalar(
+		query([b.col("oid")], [b.item], eq(b.col("datname"), catalogCall("current_database", [])))
+	)
 }
 
 /** The oid of the role named by `name`, NULL when there is none. */
@@ -708,9 +713,9 @@ export const databaseDefaultBlock = (statement: AlterDatabaseDefault): DoBlock =
 			kind: "execute",
 			command: {
 				kind: "formatted",
-				text: valueCall("format", [
+				text: call("format", [
 					lit.text(`ALTER DATABASE %I SET ${statement.parameter} = %L`, types.text),
-					valueCall("current_database", []),
+					call("current_database", []),
 					lit.text(statement.value, types.text)
 				])
 			},
@@ -745,7 +750,7 @@ export const replicationRightBlock = (role: string, grant: ReplicationGrant): Do
 			kind: "execute",
 			command: {
 				kind: "formatted",
-				text: valueCall("format", [
+				text: call("format", [
 					lit.text(replicationStatement[grant], types.text),
 					lit.text(role, types.text)
 				])
@@ -778,7 +783,7 @@ export const databaseLock: Select = provedSelect(
 	"oneRow",
 	[
 		target(
-			valueCall("pg_advisory_xact_lock", [lit.int(advisoryKey({ kind: "database" }), types.bigint)])
+			call("pg_advisory_xact_lock", [lit.int(advisoryKey({ kind: "database" }), types.bigint)])
 		)
 	],
 	[],

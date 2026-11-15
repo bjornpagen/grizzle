@@ -72,11 +72,7 @@ import {
 } from "#compiler/physical/install/compile.ts"
 import { closedId, natural, slot } from "#compiler/public/fields.ts"
 import { closed, fin, schema } from "#compiler/public/schema.ts"
-import {
-	admitClosedRelation,
-	closed as closedBuilder,
-	relationDescOf
-} from "#compiler/schema/relation.ts"
+import { admitClosedRelation, closedBuilder, relationDescOf } from "#compiler/schema/relation.ts"
 import type { ObjectName, PackConstant } from "#compiler/sql/ast.ts"
 import { pack } from "#compiler/sql/constants.ts"
 import type { Token } from "#compiler/sql/lexer.ts"

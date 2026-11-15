@@ -242,8 +242,8 @@ export type RoleRule =
 	  }
 
 /**
- * A rule of a login a description breaks (schema/world.ts login at the builder, schema/own.ts ownLogin at ownership),
- * the rule of a LoginRefused CompileError:
+ * A rule of a login a description breaks (schema/world.ts loginBuilder at the builder, schema/own.ts ownLogin at
+ * ownership), the rule of a LoginRefused CompileError:
  * - `roleBase`: a role over another base than the login's `base`.
  * - `roleName`: a role named as its login.
  * - `roleTwice`: a role already in the login `login`.
@@ -259,7 +259,7 @@ export type LoginRule =
 	| { readonly kind: "programTwice"; readonly program: string }
 
 /**
- * A rule of a context's claims a description breaks (schema/world.ts context), the rule of a ContextRefused
+ * A rule of a context's claims a description breaks (schema/world.ts contextBuilder), the rule of a ContextRefused
  * CompileError: `claimType`, a field whose descriptor is no claim type: text, uuid, boolean, an integer type, a
  * contract over one, or a closed handle.
  */

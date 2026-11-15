@@ -85,7 +85,11 @@ const isServedRoles = <L>(roles: object, names: ReadonlyArray<string>): roles is
 	Reflect.ownKeys(roles).length === names.length &&
 	Arr.every(names, (name) => Reflect.has(roles, name))
 
-/** served(file, name) (see the header). */
+/**
+ * served(file, name): a login's committed workload, `migrations/<root>/served/<login>.json`, which `grizzle generate`
+ * compiles and `grizzle check` holds to the compile, served as the login's type: `served<typeof App>(file, "app")`, the
+ * type imported with `import type`, so no schema module is evaluated. The public barrel (public/layer.ts) re-exports it.
+ */
 export const served: ServedConstructor = <L extends AnyLogin>(
 	file: unknown,
 	name: NoInfer<L["name"]>

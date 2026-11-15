@@ -75,12 +75,12 @@ import {
 	admitDerived,
 	admitRelation,
 	admitRoster,
-	closed,
+	closedBuilder as closed,
 	materializedDerived,
-	relation,
+	relationBuilder as relation,
 	relationDescOf
 } from "#compiler/schema/relation.ts"
-import { admitSchema, schema, schemaDescOf } from "#compiler/schema/schema.ts"
+import { admitSchema, schemaBuilder as schema, schemaDescOf } from "#compiler/schema/schema.ts"
 import {
 	alternativesBuilder,
 	checkBuilder,

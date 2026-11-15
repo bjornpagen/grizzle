@@ -36,12 +36,12 @@ import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import {
 	admittedClosedId,
-	closed,
+	closedBuilder as closed,
 	closedRelation,
 	generatedField,
 	generatedRelation
 } from "#compiler/schema/relation.ts"
-import { schema } from "#compiler/schema/schema.ts"
+import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"

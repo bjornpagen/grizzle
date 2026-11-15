@@ -51,7 +51,7 @@ import {
 	select,
 	type Statement
 } from "#compiler/public/schema.ts"
-import { role } from "#compiler/schema/world.ts"
+import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { servedPath } from "#compiler/served/forms.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"

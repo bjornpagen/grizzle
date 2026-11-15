@@ -10,7 +10,7 @@ import {
 	type StatementsReadBack,
 	type StatementsWithin
 } from "#compiler/public/schema.ts"
-import { schema as builtSchema } from "#compiler/schema/schema.ts"
+import { schemaBuilder as builtSchema } from "#compiler/schema/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import {

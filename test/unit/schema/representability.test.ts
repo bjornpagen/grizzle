@@ -55,9 +55,9 @@ import { natural, uuid } from "#compiler/public/fields.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
 import {
 	accumulatedField,
-	closed,
+	closedBuilder as closed,
 	drawnField,
-	relation,
+	relationBuilder as relation,
 	relationDescOf
 } from "#compiler/schema/relation.ts"
 import {
@@ -71,7 +71,7 @@ import {
 	lengthBound,
 	textByteBound
 } from "#compiler/schema/representability.ts"
-import { schema } from "#compiler/schema/schema.ts"
+import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import {
 	finBuilder,
 	foldBuilder,

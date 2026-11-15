@@ -9,7 +9,7 @@ import { Array as Arr, Effect, Formatter, pipe, Record as Rec, String as Str } f
 import type { LawId } from "#compiler/core/ids.ts"
 import { drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { check, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
-import { relation } from "#compiler/schema/relation.ts"
+import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import {
 	containedBuilder,
 	countedBuilder,

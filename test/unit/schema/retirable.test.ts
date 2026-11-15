@@ -22,8 +22,8 @@ import { Array as Arr, Effect, Formatter, Result as EffectResult } from "effect"
 import * as Result from "#compiler/core/result.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { relation, retirementField } from "#compiler/schema/relation.ts"
-import { schema } from "#compiler/schema/schema.ts"
+import { relationBuilder as relation, retirementField } from "#compiler/schema/relation.ts"
+import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import {
 	containedBuilder,
 	keyBuilder,

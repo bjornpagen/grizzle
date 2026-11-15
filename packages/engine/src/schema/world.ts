@@ -182,7 +182,7 @@ export const admitContext = (
  * context(name, fields, options?). The value holds a frozen copy of the fields, its heading, and `fact`, the decoder of
  * its one fact. A JavaScript caller's arguments past the options are refused.
  */
-export const context = <
+export const contextBuilder = <
 	const Name extends string,
 	const Fields extends Readonly<Record<string, ContextField>>
 >(
@@ -536,7 +536,7 @@ const noNames: readonly [] = Object.freeze([] as const)
  * relation), the base's statements whose every relation is a whole entry, and frozen copies of the write (or insert)
  * and refresh lists, the insert list as `write`.
  */
-export const role = <
+export const roleBuilder = <
 	Base extends AnySchema,
 	const Name extends string,
 	const Rs extends Readonly<Record<string, EntryValue>>,
@@ -772,7 +772,7 @@ const isLoginOf = <
  * options' workloads first. The value holds the base, each role by its name reached through the login
  * (`Web.roles.member`, what Db.open takes), and the workloads; each role is recorded as this login's.
  */
-export const login = <
+export const loginBuilder = <
 	Base extends AnySchema,
 	const Name extends string,
 	const Roles extends readonly [AnyRole, ...ReadonlyArray<AnyRole>],

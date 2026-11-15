@@ -115,7 +115,7 @@ import { type ClosedReadNode, evaluateTable } from "#compiler/scalar/compute/eva
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { ownLogin } from "#compiler/schema/own.ts"
-import { loginDescOf, role } from "#compiler/schema/world.ts"
+import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { apply, kept, noFurther, openMigrator, reviewedSource } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"

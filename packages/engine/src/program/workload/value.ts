@@ -409,9 +409,9 @@ const copyRecord = <P extends object>(record: P): P => {
  * workload(schema, programs): the exported query workload as a value.
  *
  * The workload is an application artifact naming, by name, the queries, ordered queries, ChangeSets, relation keys and
- * refreshes the application runs, which a login owns (schema/world.ts login): `grizzle generate` compiles each once,
- * into the login's served file, and a Db reaches it as `db.workload.<name>`. Its WorkloadDesc holds every program but
- * the refreshes, which plan no access. Like every builder, workload is pure and synchronous and records a
+ * refreshes the application runs, which a login owns (schema/world.ts loginBuilder): `grizzle generate` compiles each
+ * once, into the login's served file, and a Db reaches it as `db.workload.<name>`. Its WorkloadDesc holds every program
+ * but the refreshes, which plan no access. Like every builder, workload is pure and synchronous and records a
  * Description: the value is frozen, exposes `schema` and `programs` exactly as given, and carries its
  * WorkloadDesc privately, so the migration generator reads the schema and the workload together (program/workload/compile.ts).
  * A malformed argument the TypeScript signature already forbids, from a JavaScript caller, throws CompileError

@@ -217,10 +217,10 @@ export const parseSchemaInput = (value: unknown): Result.Result<SchemaInput, Com
 }
 
 /**
- * What a program is written over, parsed once: a schema input (SchemaInput), or a fragment fragment(...) built, with its
- * Description and its content, a root level's (schema/schema.ts fragment). A fragment is never what a program compiles
- * against: it installs nothing, and a program over it is compiled against a schema that lists it, or a role that holds
- * it whole (levelSchema).
+ * What a program is written over, parsed once: a schema input (SchemaInput), or a fragment fragment(...) built, with
+ * its Description and its content, a root level's (schema/schema.ts fragmentBuilder). A fragment is never what a
+ * program compiles against: it installs nothing, and a program over it is compiled against a schema that lists it, or a
+ * role that holds it whole (levelSchema).
  */
 export type Over =
 	| SchemaInput

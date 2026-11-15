@@ -215,8 +215,8 @@ export const queryHeadingOf = (value: unknown): ReadonlyMap<string, HeadingTypin
 
 /**
  * Each kind of owned value: the value a builder returns, at the widest of its public type, the Description it carries,
- * and the content it was built with, read once at its build: the roster a roster's handles type (relation.ts closed), a
- * statement's canonical form and text (own.ts CanonicalStatement) and the relations it was built over
+ * and the content it was built with, read once at its build: the roster a roster's handles type (relation.ts
+ * closedBuilder), a statement's canonical form and text (own.ts CanonicalStatement) and the relations it was built over
  * (statements.ts relationsOver), a mirrors' its two containments' and its relations, a schema's content
  * (levels.ts SchemaContent), a fragment's content with its declarations and statements (schema.ts FragmentContent), a
  * role's level (world.ts RoleLevel), and nothing for any other kind: a relation's identity

@@ -109,7 +109,7 @@ const granteesOfOwners: CatalogQuery<string> = (() => {
 	const c = C.from("pg_class", "c")
 	const n = C.from("pg_namespace", "n")
 	const x = C.fromFunction(
-		C.call("aclexplode", [c.col("relacl")]),
+		C.catalogCall("aclexplode", [c.col("relacl")]),
 		"x",
 		["grantor", "grantee", "privilege_type", "is_grantable"],
 		true
@@ -117,7 +117,7 @@ const granteesOfOwners: CatalogQuery<string> = (() => {
 	return {
 		sql: emitCatalog(
 			C.query(
-				[C.asText(C.call("pg_get_userbyid", [x.col("grantee")]))],
+				[C.asText(C.catalogCall("pg_get_userbyid", [x.col("grantee")]))],
 				[C.join(c.item, n.item, C.eq(c.col("relnamespace"), n.col("oid"))), x.item],
 				C.and([
 					C.any(C.asText(n.col("nspname")), C.arrayParam(1, "text")),
@@ -236,10 +236,10 @@ const droppedSlots = (slots: ReadonlyArray<string>): BatchStatement => {
 	return oneShotStatement(
 		emitCatalog(
 			C.query(
-				[C.call("pg_drop_replication_slot", [s.col("slot_name")])],
+				[C.catalogCall("pg_drop_replication_slot", [s.col("slot_name")])],
 				[s.item],
 				C.and([
-					C.eq(s.col("database"), C.call("current_database", [])),
+					C.eq(s.col("database"), C.catalogCall("current_database", [])),
 					C.any(C.asText(s.col("slot_name")), C.arrayParam(1, "text"))
 				])
 			)

@@ -27,8 +27,8 @@ export interface SchemaContent {
 	readonly canonical: ReadonlyArray<CanonicalStatement>
 	readonly below: SchemaContent | undefined
 	/**
-	 * The content of each fragment the level's list holds (schema.ts fragment), in list order: each is a level of every
-	 * schema whose levels list it (isLevelOf). It is no part of the level's identity (sameLevel), since a listed
+	 * The content of each fragment the level's list holds (schema.ts fragmentBuilder), in list order: each is a level of
+	 * every schema whose levels list it (isLevelOf). It is no part of the level's identity (sameLevel), since a listed
 	 * fragment's relations and statements are the level's own; a level read from its description lists none, and a
 	 * fragment's own content none.
 	 */

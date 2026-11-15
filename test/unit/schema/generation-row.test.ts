@@ -27,8 +27,12 @@ import { indices } from "#compiler/core/array.ts"
 import { accumulated, Bits, bits, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { closed } from "#compiler/public/schema.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { generatedField, generatedRelation, relation } from "#compiler/schema/relation.ts"
-import { schema } from "#compiler/schema/schema.ts"
+import {
+	generatedField,
+	generatedRelation,
+	relationBuilder as relation
+} from "#compiler/schema/relation.ts"
+import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import {
 	countedBuilder,
 	finBuilder,

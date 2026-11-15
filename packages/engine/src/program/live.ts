@@ -10,7 +10,7 @@ import {
 	and,
 	arrayParam,
 	bool,
-	call,
+	catalogCall,
 	asText,
 	type CatalogExpr,
 	cast,
@@ -36,7 +36,7 @@ const preparedRead = (read: CatalogSelect) => prepared(emitCatalog(read))
  * A WAL position as a live source's texts carry it (live/notify.ts WalPosition): its bytes from 0/0, as decimal text.
  */
 const positionText = (lsn: CatalogExpr): CatalogExpr =>
-	asText(call("pg_wal_lsn_diff", [lsn, cast(text("0/0"), "pg_lsn")]))
+	asText(catalogCall("pg_wal_lsn_diff", [lsn, cast(text("0/0"), "pg_lsn")]))
 
 /**
  * The position the slot of `$1::name` stands at in the current database, not invalidated: its confirmed_flush_lsn
@@ -49,7 +49,7 @@ const slotPosition = (): CatalogSelect => {
 		[slot.item],
 		and([
 			eq(slot.col("slot_name"), param(1, "name")),
-			eq(slot.col("database"), call("current_database", [])),
+			eq(slot.col("database"), catalogCall("current_database", [])),
 			eq(coalesce([slot.col("invalidation_reason"), text("")]), text(""))
 		])
 	)
@@ -98,14 +98,14 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 	}
 	const publication = identifierOf(identity.liveSource(root))
 	const secret = fromObject({ schema: root, name: identifierOf(identity.liveSecret()) }, "s")
-	const ids = fromFunction(call("unnest", [arrayParam(1, "text")]), "t", ["x"], false)
+	const ids = fromFunction(catalogCall("unnest", [arrayParam(1, "text")]), "t", ["x"], false)
 	const running = fromFunction(
-		call("pg_snapshot_xip", [call("pg_current_snapshot", [])]),
+		catalogCall("pg_snapshot_xip", [catalogCall("pg_current_snapshot", [])]),
 		"v",
 		["v"],
 		false
 	)
-	const payloads = fromFunction(call("unnest", [arrayParam(1, "text")]), "p", ["p"], false)
+	const payloads = fromFunction(catalogCall("unnest", [arrayParam(1, "text")]), "p", ["p"], false)
 	const settings = from("pg_settings", "s")
 	return {
 		kind: "source",
@@ -116,12 +116,12 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 		views: source.views,
 		listen: prepared(emitCatalog({ kind: "listen", channel: publication })),
 		secret: preparedRead(
-			query([call("encode", [secret.col("secret"), text("hex")])], [secret.item], undefined)
+			query([catalogCall("encode", [secret.col("secret"), text("hex")])], [secret.item], undefined)
 		),
 		lock: emitCatalog(
 			query(
 				[
-					call("pg_advisory_lock", [
+					catalogCall("pg_advisory_lock", [
 						literal(advisoryKey({ kind: "live", source: publication }), "bigint")
 					])
 				],
@@ -145,7 +145,7 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 			query(
 				[
 					coalesce([scalar(slotPosition()), text("")]),
-					positionText(call("pg_current_wal_lsn", []))
+					positionText(catalogCall("pg_current_wal_lsn", []))
 				],
 				[],
 				undefined
@@ -160,7 +160,7 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 							query(
 								[bool(true)],
 								[running.item],
-								eq(call("xid", [running.col("v")]), {
+								eq(catalogCall("xid", [running.col("v")]), {
 									kind: "cast",
 									expr: ids.col("x"),
 									type: { name: "xid", array: false }
@@ -174,11 +174,15 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 			)
 		),
 		fanout: preparedRead(
-			query([call("pg_notify", [text(publication), payloads.col("p")])], [payloads.item], undefined)
+			query(
+				[catalogCall("pg_notify", [text(publication), payloads.col("p")])],
+				[payloads.item],
+				undefined
+			)
 		),
 		announce: preparedRead(
 			query(
-				[call("pg_logical_emit_message", [bool(true), text(publication), param(1, "text")])],
+				[catalogCall("pg_logical_emit_message", [bool(true), text(publication), param(1, "text")])],
 				[],
 				undefined
 			)

@@ -49,7 +49,7 @@ interface StoredSetting {
 const noOid = C.literal(0n, "oid")
 const settingRows = C.from("pg_db_role_setting", "d")
 const settingTexts = C.fromFunction(
-	C.call("unnest", [settingRows.col("setconfig")]),
+	C.catalogCall("unnest", [settingRows.col("setconfig")]),
 	"s",
 	["setting"],
 	true
@@ -234,7 +234,7 @@ const privilegedRelations = C.letters(["r", "p", "m", "v", "f"])
 
 /** The privilege types of a family, one row each, as `p.t`. */
 const typesOf = (family: PrivilegeFamily): C.CatalogSource =>
-	C.fromFunction(C.call("unnest", [typesArray(family)]), "p", ["t"], false)
+	C.fromFunction(C.catalogCall("unnest", [typesArray(family)]), "p", ["t"], false)
 
 /**
  * Every privilege the role holds on the judged schemas $2, the other schemas $3, and each object of the judged schemas
@@ -244,7 +244,7 @@ const typesOf = (family: PrivilegeFamily): C.CatalogSource =>
 const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 	const d = C.from("pg_database", "d")
 	const x = C.fromFunction(
-		C.call("aclexplode", [d.col("datacl")]),
+		C.catalogCall("aclexplode", [d.col("datacl")]),
 		"x",
 		["grantor", "grantee", "privilege_type", "is_grantable"],
 		true
@@ -272,7 +272,7 @@ const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 					C.any(n.col("nspname"), C.arrayParam(2, "text")),
 					C.any(n.col("nspname"), C.arrayParam(3, "text"))
 				]),
-				C.call("has_schema_privilege", [granteeOid(), n.col("oid"), schema.col("t")])
+				C.catalogCall("has_schema_privilege", [granteeOid(), n.col("oid"), schema.col("t")])
 			])
 		),
 		C.catalogCore(
@@ -281,7 +281,7 @@ const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 			C.and([
 				inJudged(c.col("relnamespace")),
 				C.inList(c.col("relkind"), privilegedRelations),
-				C.call("has_table_privilege", [granteeOid(), c.col("oid"), table.col("t")])
+				C.catalogCall("has_table_privilege", [granteeOid(), c.col("oid"), table.col("t")])
 			])
 		),
 		C.catalogCore(
@@ -303,13 +303,13 @@ const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 			C.and([
 				inJudged(c.col("relnamespace")),
 				C.inList(c.col("relkind"), privilegedRelations),
-				C.call("has_column_privilege", [
+				C.catalogCall("has_column_privilege", [
 					granteeOid(),
 					c.col("oid"),
 					a.col("attnum"),
 					column.col("t")
 				]),
-				C.not(C.call("has_table_privilege", [granteeOid(), c.col("oid"), column.col("t")]))
+				C.not(C.catalogCall("has_table_privilege", [granteeOid(), c.col("oid"), column.col("t")]))
 			])
 		),
 		C.catalogCore(
@@ -318,7 +318,7 @@ const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 			C.and([
 				inJudged(c.col("relnamespace")),
 				C.eq(c.col("relkind"), C.letter("S")),
-				C.call("has_sequence_privilege", [granteeOid(), c.col("oid"), sequence.col("t")])
+				C.catalogCall("has_sequence_privilege", [granteeOid(), c.col("oid"), sequence.col("t")])
 			])
 		),
 		C.catalogCore(
@@ -333,7 +333,7 @@ const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 					)
 				),
 				C.notExists(C.anyRow([e.item], C.eq(e.col("typarray"), t.col("oid")))),
-				C.call("has_type_privilege", [granteeOid(), t.col("oid"), type.col("t")])
+				C.catalogCall("has_type_privilege", [granteeOid(), t.col("oid"), type.col("t")])
 			])
 		),
 		C.catalogCore(
@@ -341,7 +341,7 @@ const heldArms = (): readonly [C.CatalogCore, ...Array<C.CatalogCore>] => {
 			[C.crossJoin(f.item, fn.item)],
 			C.and([
 				inJudged(f.col("pronamespace")),
-				C.call("has_function_privilege", [granteeOid(), f.col("oid"), fn.col("t")])
+				C.catalogCall("has_function_privilege", [granteeOid(), f.col("oid"), fn.col("t")])
 			])
 		),
 		C.catalogCore(
@@ -382,15 +382,18 @@ const resolvedOid = (e: C.CatalogSource): C.CatalogExpr =>
 		[
 			{
 				when: C.text("schema"),
-				result: C.cast(C.call("to_regnamespace", [e.col("object")]), "oid")
+				result: C.cast(C.catalogCall("to_regnamespace", [e.col("object")]), "oid")
 			},
 			{ when: C.text("table"), result: relationOid(e) },
 			{ when: C.text("column"), result: relationOid(e) },
 			{ when: C.text("sequence"), result: relationOid(e) },
-			{ when: C.text("type"), result: C.cast(C.call("to_regtype", [e.col("object")]), "oid") },
+			{
+				when: C.text("type"),
+				result: C.cast(C.catalogCall("to_regtype", [e.col("object")]), "oid")
+			},
 			{
 				when: C.text("function"),
-				result: C.cast(C.call("to_regprocedure", [e.col("object")]), "oid")
+				result: C.cast(C.catalogCall("to_regprocedure", [e.col("object")]), "oid")
 			},
 			{ when: C.text("database"), result: C.currentDatabaseOid() }
 		],
@@ -398,8 +401,8 @@ const resolvedOid = (e: C.CatalogSource): C.CatalogExpr =>
 	)
 
 /** The current database's name, quoted as an identifier where it needs it, as a privilege difference names it. */
-const databaseName: C.CatalogExpr = C.call("quote_ident", [
-	C.asText(C.call("current_database", []))
+const databaseName: C.CatalogExpr = C.catalogCall("quote_ident", [
+	C.asText(C.catalogCall("current_database", []))
 ])
 
 /** A held object `h` as PostgreSQL names it, a column's after its relation's and a dot. */
@@ -418,7 +421,7 @@ const heldName = (h: C.CatalogSource): C.CatalogExpr => {
 				result: C.concat([
 					named("regclass"),
 					C.text("."),
-					C.call("quote_ident", [h.col("attname")])
+					C.catalogCall("quote_ident", [h.col("attname")])
 				])
 			}
 		],
@@ -443,12 +446,12 @@ const privilegesSelect = (): C.CatalogSelect => {
 	const r = C.from("pg_roles", "r")
 	const u = C.fromRows(
 		[
-			C.call("unnest", [C.arrayParam(4, "text")]),
-			C.call("unnest", [C.arrayParam(5, "text")]),
-			C.call("unnest", [C.arrayParam(6, "text")]),
-			C.call("unnest", [C.arrayParam(7, "text")]),
-			C.call("unnest", [C.arrayParam(8, "text")]),
-			C.call("unnest", [C.arrayParam(9, "text")])
+			C.catalogCall("unnest", [C.arrayParam(4, "text")]),
+			C.catalogCall("unnest", [C.arrayParam(5, "text")]),
+			C.catalogCall("unnest", [C.arrayParam(6, "text")]),
+			C.catalogCall("unnest", [C.arrayParam(7, "text")]),
+			C.catalogCall("unnest", [C.arrayParam(8, "text")]),
+			C.catalogCall("unnest", [C.arrayParam(9, "text")])
 		],
 		"u",
 		["f", "o", "c", "p", "s", "n"]
@@ -496,7 +499,7 @@ const privilegesSelect = (): C.CatalogSelect => {
 								result: C.concat([
 									x.col("object"),
 									C.text("."),
-									C.call("quote_ident", [x.col("attname")])
+									C.catalogCall("quote_ident", [x.col("attname")])
 								])
 							},
 							{ when: C.text("database"), result: databaseName }
@@ -578,9 +581,9 @@ const grantTargets = (
 	other: C.CatalogSource
 ): readonly [C.CatalogExpr, ...Array<C.CatalogExpr>] => [
 	C.asText(other.col("rolname")),
-	C.asText(C.call("bool_or", [members.col("inherit_option")])),
-	C.asText(C.call("bool_or", [members.col("set_option")])),
-	C.asText(C.call("bool_or", [members.col("admin_option")]))
+	C.asText(C.catalogCall("bool_or", [members.col("inherit_option")])),
+	C.asText(C.catalogCall("bool_or", [members.col("set_option")])),
+	C.asText(C.catalogCall("bool_or", [members.col("admin_option")]))
 ]
 
 const granted = C.from("pg_roles", "g")
@@ -901,7 +904,7 @@ export const defaultPrivilegesQuery = (
 	const t = C.fromValues([[C.letter("f")], [C.letter("T")]], "t", ["k"])
 	const a = C.fromCte("acls", "a")
 	const x = C.fromFunction(
-		C.call("aclexplode", [a.col("acl")]),
+		C.catalogCall("aclexplode", [a.col("acl")]),
 		"x",
 		["grantor", "grantee", "privilege_type", "is_grantable"],
 		true
@@ -929,7 +932,7 @@ export const defaultPrivilegesQuery = (
 												C.and([owned, global, C.eq(d.col("defaclobjtype"), t.col("k"))])
 											)
 										),
-										C.call("acldefault", [t.col("k"), o.col("oid")])
+										C.catalogCall("acldefault", [t.col("k"), o.col("oid")])
 									])
 								],
 								[C.crossJoin(o.item, t.item)],
@@ -960,7 +963,7 @@ export const defaultPrivilegesQuery = (
 						C.asText(a.col("objects")),
 						C.caseWhen(
 							[{ when: C.eq(x.col("grantee"), noOid), result: C.text("PUBLIC") }],
-							C.asText(C.call("pg_get_userbyid", [x.col("grantee")]))
+							C.asText(C.catalogCall("pg_get_userbyid", [x.col("grantee")]))
 						),
 						C.asText(x.col("privilege_type"))
 					],

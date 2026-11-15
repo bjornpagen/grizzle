@@ -51,7 +51,7 @@ import { closed, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver as query, type QueryValue, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { record } from "#compiler/schema/record.ts"
-import { role } from "#compiler/schema/world.ts"
+import { roleBuilder as role } from "#compiler/schema/world.ts"
 import type { QueryBase } from "#compiler/types/query/query.ts"
 import {
 	arraySlot,

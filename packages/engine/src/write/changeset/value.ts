@@ -39,7 +39,7 @@ import { malformed, orThrow, requireName } from "#compiler/schema/protocol.ts"
 import { named, record } from "#compiler/schema/record.ts"
 import type {
 	ChangeSetConstructor,
-	ChangeSet as ChangeSetOf,
+	ChangeSetOf,
 	Delta,
 	ReadName,
 	Strata,
@@ -1142,7 +1142,7 @@ const constructors: ChangeSetConstructor = {
 	union: (a, b, ...extra: ReadonlyArray<unknown>) => unionOf(a, b, extra),
 	sequence: (a, b, ...extra: ReadonlyArray<unknown>) => sequenceOf(a, b, extra)
 }
-export const ChangeSet: ChangeSetConstructor = Object.freeze(constructors)
+export const changeSets: ChangeSetConstructor = Object.freeze(constructors)
 
 /** The constructors for a JavaScript caller, whose schema and ChangeSets are known only at run time: the same values,
  * under the view (ChangeSetValue). */

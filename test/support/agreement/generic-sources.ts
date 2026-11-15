@@ -6,7 +6,7 @@ import * as Result from "#compiler/core/result.ts"
 import type { RowScalars, Statement } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { schema } from "#compiler/schema/schema.ts"
+import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import {
 	alternativesBuilder,
 	checkBuilder,

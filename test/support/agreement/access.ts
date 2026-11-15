@@ -15,9 +15,15 @@ import { writtenNames } from "#compiler/ir/desc.ts"
 import { lawsOf } from "#compiler/program/laws.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { schema } from "#compiler/schema/schema.ts"
+import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
-import { login, role, roleDescOf, wholeEntriesOf, writableNamesOf } from "#compiler/schema/world.ts"
+import {
+	loginBuilder as login,
+	roleBuilder as role,
+	roleDescOf,
+	wholeEntriesOf,
+	writableNamesOf
+} from "#compiler/schema/world.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { AnyRole, EntryValue, RoleOptionRecord } from "#compiler/types/schema/world.ts"
 import {

@@ -19,8 +19,8 @@ import { indices } from "#compiler/core/array.ts"
 import { bits, uuid } from "#compiler/public/fields.ts"
 import { closed } from "#compiler/public/schema.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
-import { relation } from "#compiler/schema/relation.ts"
-import { schema } from "#compiler/schema/schema.ts"
+import { relationBuilder as relation } from "#compiler/schema/relation.ts"
+import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import {
 	containedBuilder,
 	keyBuilder,

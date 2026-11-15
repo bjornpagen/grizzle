@@ -44,13 +44,13 @@ import { queryOver, queryValueDesc, varsOver } from "#compiler/query/build/query
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { own } from "#compiler/schema/own.ts"
 import {
-	closed,
+	closedBuilder as closed,
 	closedRelation,
 	materializedDerived,
 	drawnField,
-	relation
+	relationBuilder as relation
 } from "#compiler/schema/relation.ts"
-import { schema, schemaDescOf } from "#compiler/schema/schema.ts"
+import { schemaBuilder as schema, schemaDescOf } from "#compiler/schema/schema.ts"
 import {
 	alternativesBuilder,
 	checkBuilder,

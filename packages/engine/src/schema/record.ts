@@ -139,9 +139,9 @@ export const bindGroups = <A>(
  *   column reading either arm's cell by the key's type (unionColumn). Each row is one arm's record,
  *   so its type is A | B.
  *
- * - roleRelations(relations, make): a role's relations (schema/world.ts role), one per entry of its relation record,
- *   each made by `make` from its key and value, which TypeScript checks: the base relation itself for a whole entry,
- *   the world relation of the key for a query entry: RoleRelations<Rs> (types/schema/world.ts).
+ * - roleRelations(relations, make): a role's relations (schema/world.ts roleBuilder), one per entry of its relation
+ *   record, each made by `make` from its key and value, which TypeScript checks: the base relation itself for a whole
+ *   entry, the world relation of the key for a query entry: RoleRelations<Rs> (types/schema/world.ts).
  * - wholeEntries(relations): a full role's entries (schema/world.ts wholeEntriesOf), every relation of a schema's
  *   record under its own key but the closed relations, each kept or dropped by its kind, as its type keeps or drops it
  *   by its type: WholeEntries<Rs> (types/schema/world.ts).

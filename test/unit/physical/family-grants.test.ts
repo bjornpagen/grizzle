@@ -75,7 +75,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
-import { loginDescOf, role } from "#compiler/schema/world.ts"
+import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import type { Expr, SqlStatement } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"

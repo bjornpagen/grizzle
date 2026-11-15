@@ -77,7 +77,7 @@ import { key, on, type Relation, relation, schema } from "#compiler/public/schem
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { materializedDerived as runtimeDerived } from "#compiler/schema/relation.ts"
-import { schema as runtimeSchema } from "#compiler/schema/schema.ts"
+import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import {
 	buildSchema,

@@ -13,7 +13,7 @@ import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { relation } from "#compiler/schema/relation.ts"
+import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import {
 	containedBuilder,
 	countedBuilder,

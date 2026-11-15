@@ -11,7 +11,7 @@ export type {
 	AboveRefusedLaw,
 	AnyChangeSet,
 	ArraysOf,
-	ChangeSet,
+	ChangeSetOf,
 	FactsCheck,
 	KeyHost,
 	Law,

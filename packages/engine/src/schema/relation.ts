@@ -549,7 +549,7 @@ const admitGenerated = <G>(
  * [...PrimaryKey]`, which is PrimaryKey itself for every key a call writes; its `fact` is the decoder of its facts, made
  * once by record(...) from its fields' columns, and its heading the fields, the carriers v mints its variables over.
  */
-export const relation = <
+export const relationBuilder = <
 	const Name extends string,
 	const Fields extends Readonly<Record<string, FieldBase>>,
 	const PrimaryKey extends ReadonlyArray<keyof Fields & string>
@@ -659,7 +659,7 @@ export const admitRoster = (
  * taken once (ir/scalar.ts Roster), which every closed id over it reads (closedIdOf): none when the name is no declared
  * name, which every reader of the roster refuses before it resolves one (scalar/registry.ts rosterAt).
  */
-export const closed = <
+export const closedBuilder = <
 	const Name extends string,
 	const Handles extends NonEmptyReadonlyArray<string>
 >(
@@ -1019,7 +1019,7 @@ const derivedOf =
  * variables over, and its `fact` the decoder of that heading. derived.materialized(name, definition) is the same
  * relation stored as a materialized view.
  */
-export const derived = derivedOf("live")
+export const derivedBuilder = derivedOf("live")
 export const materializedDerived = derivedOf("materialized")
 
 /**

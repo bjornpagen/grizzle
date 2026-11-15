@@ -26,7 +26,7 @@ import { schema, type Statement } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
-import { relation } from "#compiler/schema/relation.ts"
+import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import { btreeMaxItemSize, keyLayout } from "#compiler/schema/representability.ts"
 import {
 	containedBuilder,

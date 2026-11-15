@@ -13,7 +13,7 @@ import {
 	type Role,
 	role
 } from "#compiler/public/schema.ts"
-import { login } from "#compiler/schema/world.ts"
+import { loginBuilder as login } from "#compiler/schema/world.ts"
 import type { EntryContexts, RoleRelations } from "#compiler/types/schema/world.ts"
 import { soleWorldOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"

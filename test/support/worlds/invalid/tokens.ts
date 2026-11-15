@@ -26,7 +26,7 @@ import {
 	jsonObject,
 	jsonOf,
 	jsonString,
-	jsonText
+	treeText
 } from "#test/support/worlds/invalid/json.ts"
 import type { BoundaryArms, Variant } from "#test/support/worlds/invalid/kinds.ts"
 import { patternEdges } from "#test/support/worlds/invalid/patterns.ts"
@@ -552,7 +552,7 @@ const atSite = (
 	return Arr.isReadonlyArrayNonEmpty(among)
 		? Option.some((draft: Draft) => (source) => {
 				const site = source.draw(element(among))
-				return jsonText(draftJson(editSite(draft, site, source.draw(json(site)))))
+				return treeText(draftJson(editSite(draft, site, source.draw(json(site)))))
 			})
 		: Option.none()
 }
@@ -587,7 +587,7 @@ const atObject = (sites: ReadonlyArray<FieldSite>, json: Gen<Edit>): Option.Opti
 	return Arr.isReadonlyArrayNonEmpty(keys)
 		? Option.some((draft: Draft) => (source) => {
 				const key = source.draw(element(keys))
-				return jsonText(editObject(draft, key, source.draw(json)))
+				return treeText(editObject(draft, key, source.draw(json)))
 			})
 		: Option.none()
 }
@@ -600,7 +600,7 @@ const wildMakers = (
 		[
 			"not-json",
 			Option.some((draft: Draft) => {
-				const live = jsonText(draftJson(draft))
+				const live = treeText(draftJson(draft))
 				return weighted([
 					[
 						1,
@@ -682,7 +682,7 @@ const wildMakers = (
 			"proto-key",
 			Option.some((draft: Draft) =>
 				map(element(protoKeys), (key) =>
-					jsonText(jsonObject([[key, draftJson(draft)], ...draft.top, ...draftJsonMembers(draft)]))
+					treeText(jsonObject([[key, draftJson(draft)], ...draft.top, ...draftJsonMembers(draft)]))
 				)
 			)
 		],
@@ -690,7 +690,7 @@ const wildMakers = (
 			"huge-payload",
 			Option.some((draft: Draft) => {
 				const padded = constant(
-					jsonText(
+					treeText(
 						jsonObject([...draft.top, ...draftJsonMembers(draft), ["pad", jsonString(huge)]])
 					)
 				)
@@ -699,7 +699,7 @@ const wildMakers = (
 					? oneOf([
 							padded,
 							map(element(strings), (site) =>
-								jsonText(draftJson(editSite(draft, site, { kind: "set", json: jsonString(huge) })))
+								treeText(draftJson(editSite(draft, site, { kind: "set", json: jsonString(huge) })))
 							)
 						])
 					: padded
@@ -725,7 +725,7 @@ const wildMakers = (
 					["role", jsonString("owner")]
 				]
 				const added = constant(
-					jsonText(
+					treeText(
 						jsonObject([
 							...draft.top,
 							...extra,
@@ -742,14 +742,14 @@ const wildMakers = (
 					: weighted([
 							[
 								1,
-								constant(jsonText(jsonObject([...draft.top, first, ...draftJsonMembers(draft)])))
+								constant(treeText(jsonObject([...draft.top, first, ...draftJsonMembers(draft)])))
 							],
 							[2, added]
 						])
 			})
 		],
-		["verify-throws", Option.some((draft: Draft) => constant(jsonText(draftJson(draft))))],
-		["verify-not-object", Option.some((draft: Draft) => constant(jsonText(draftJson(draft))))]
+		["verify-throws", Option.some((draft: Draft) => constant(treeText(draftJson(draft))))],
+		["verify-not-object", Option.some((draft: Draft) => constant(treeText(draftJson(draft))))]
 	]
 	return Arr.flatMap(makers, ([wild, maker]) =>
 		Arr.map(Arr.fromOption(maker), (m) => [wild, m] as const)

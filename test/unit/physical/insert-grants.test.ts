@@ -69,7 +69,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installationsOf, ownLogin, rostersOf } from "#compiler/schema/own.ts"
-import { loginDescOf, role, roleDescOf } from "#compiler/schema/world.ts"
+import { loginDescOf, roleBuilder as role, roleDescOf } from "#compiler/schema/world.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { EntryValue } from "#compiler/types/schema/world.ts"

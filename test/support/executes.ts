@@ -3,8 +3,8 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { Bits, bits, closedId, contract, pg, uuid } from "#compiler/public/fields.ts"
 import { check, closed, contained, login, on, relation, select } from "#compiler/public/schema.ts"
-import { schema } from "#compiler/schema/schema.ts"
-import { role } from "#compiler/schema/world.ts"
+import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
+import { roleBuilder as role } from "#compiler/schema/world.ts"
 import type { Expr, SqlStatement } from "#compiler/sql/ast.ts"
 import {
 	type AstHooks,

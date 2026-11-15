@@ -36,8 +36,12 @@ import { indices } from "#compiler/core/array.ts"
 import { Compute } from "#compiler/public/compute.ts"
 import { contract, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
-import { admittedClosedId, closed, relation } from "#compiler/schema/relation.ts"
-import { schema } from "#compiler/schema/schema.ts"
+import {
+	admittedClosedId,
+	closedBuilder as closed,
+	relationBuilder as relation
+} from "#compiler/schema/relation.ts"
+import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { ordinarySession } from "#test/support/ambient.ts"

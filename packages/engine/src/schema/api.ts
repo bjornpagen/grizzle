@@ -1,11 +1,11 @@
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
-	closed as closedBuilder,
+	closedBuilder,
 	closedRelation as closedRelationBuilder,
 	generatedRelation,
-	relation as relationBuilder
+	relationBuilder
 } from "#compiler/schema/relation.ts"
-import { fragment as fragmentBuilder, schema as schemaBuilder } from "#compiler/schema/schema.ts"
+import { fragmentBuilder, schemaBuilder } from "#compiler/schema/schema.ts"
 import {
 	alternativesBuilder,
 	checkBuilder,
@@ -25,7 +25,7 @@ import {
 	selectBuilder,
 	treeBuilder
 } from "#compiler/schema/statements.ts"
-import { context as contextBuilder, role as roleBuilder } from "#compiler/schema/world.ts"
+import { contextBuilder, roleBuilder } from "#compiler/schema/world.ts"
 import type { UnwrittenFieldsOf } from "#compiler/types/changeset/changeset.ts"
 import type {
 	MembersTyped,

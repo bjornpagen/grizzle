@@ -1,5 +1,5 @@
 import {
-	derived as derivedBuilder,
+	derivedBuilder,
 	materializedDerived as materializedBuilder
 } from "#compiler/schema/relation.ts"
 import type {
@@ -142,7 +142,7 @@ export type {
  * builder of a derived relation's value (schema/relation.ts).
  *
  * derived(name, definition) and derived.materialized(name, definition): views over the builders of a derived
- * relation's value (schema/relation.ts derived and materializedDerived), which narrow its definition to one
+ * relation's value (schema/relation.ts derivedBuilder and materializedDerived), which narrow its definition to one
  * DefinitionCheck admits.
  */
 export const derived: DerivedConstructor = Object.freeze(

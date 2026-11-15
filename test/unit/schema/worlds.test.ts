@@ -64,7 +64,13 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { ownLogin, ownRole } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
-import { admitContext, admitRole, login, role, roleDescOf } from "#compiler/schema/world.ts"
+import {
+	admitContext,
+	admitRole,
+	loginBuilder as login,
+	roleBuilder as role,
+	roleDescOf
+} from "#compiler/schema/world.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import { buildSchema, caseSketchGen } from "#test/pg/derived/oracle/gen.ts"
 import {
