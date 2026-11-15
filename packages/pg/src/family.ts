@@ -16,31 +16,34 @@ import { machineWorkers } from "#pg/workers.ts"
 import { regex } from "arkregex"
 
 /**
- * c*, the network test files one cluster runs at once at which its SERIALIZABLE commit throughput peaks: past it, more
- * files wait on the cluster's SSI LWLocks (SerializableFinishedList, SerializableXactHash, SerializablePredicateList),
- * which every SERIALIZABLE transaction of the cluster shares, and the cluster commits less. Provisional: measured on a
- * machine other lanes loaded, to be measured again at a quiet window after the cutover.
+ * c*, the network test files one member of the family runs at once. Every cost it divides is the member's own, a
+ * cluster's, and grows with the files that share it: the SSI LWLocks (SerializableFinishedList, SerializableXactHash,
+ * SerializablePredicateList) and SxactGlobalXmin, which every SERIALIZABLE transaction of the cluster shares; the safe
+ * snapshot a DEFERRABLE read waits for, until every SERIALIZABLE writer of the cluster that began before it has ended;
+ * and the one checkpointer, which syncs every file the cluster wrote since its last checkpoint. So it bounds the files
+ * per member, and the members' count follows from it (familyMembers), each member's memory from its share (size.ts
+ * clusterSize), so a family's total stays what one cluster sized for every worker would hold.
  */
 const filesPerCluster: Limit = measured({
-	value: 32,
+	value: 16,
 	owner: "grizzle's network test tier (packages/pg/src/family.ts)",
 	unit: "test files",
 	scope:
-		"the network test files one member of the local cluster family runs at once, each in a Vitest worker of its own, on a member sized for at least that many",
+		"the network test files one member of the local cluster family runs at once, each in a Vitest worker of its own, at the widest run (machineWorkers), on a member sized for its share",
 	evidence:
-		"`TEST_SEED=1688532047 pnpm -s test:network --maxWorkers=<c> <files>` on one private cluster (GRIZZLE_PG_CLUSTER=<port>, pnpm pg:init, sized for 64 workers) at each c, sampled every 5 s as the bootstrap superuser: `SELECT sum(xact_commit) FROM pg_catalog.pg_stat_database` and, of pg_stat_activity's client backends, the active ones, those waiting on an LWLock named Serializable%, and those on the CPU (active, no wait event), beside the machine's 1-minute load; uncommitted run files in ~/.cache/grizzle-release/LEASEBUDGET/run/cstar (S<c>.tsv, H<c>.tsv, cdefault.tsv)",
+		"packages/experiments/cluster-share at 14b2e2b9 (deleted in the commit after it): two checkouts of grizzle 0b7b5f31 that differ only in this value, each tagged by tag.sh and on a private family pnpm pg:init made from it (2 members at 32, 4 at 16), run at once by `TEST_SEED=1234567 pair.sh <out> c32 <tree> 5771 c16 <tree> 5781`, every member's pg_stat_activity sampled each second and its SERIALIZABLE transactions every ten as the bootstrap superuser, then `compare.sh <out> c32 c16` with the seven files failing for causes outside this value left out; each member's checkpoint lines from its server log; uncommitted run files in ~/.cache/grizzle-release/IDLEXACT/measure (c32.out, c16.out, c32.wall, c16.wall, c32.<port>.samples, c16.<port>.samples, checkpoints.<port>.log, verdict.txt)",
 	observed:
-		"2026-11-14, 04:54 to 07:21 UTC: a full tier run at 64 (04:54 to 07:01), a light run at each c (05:55 to 06:08), heavy windows at each c (06:09 to 07:21)",
+		"2026-11-14 23:08:31 to 2026-11-15 02:06:52 UTC, the two runs at once (16's ended at 01:49:31)",
 	environment:
-		"cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GB of memory, shared with other lanes' runs (the load beside each result); the local PostgreSQL 19rc2 (scripts/pg/pin.env) on a private cluster sized for 64 workers (max_connections 4423, shared_buffers 2432512 kB); grizzle f31086cc; Node 26.13.1, Vitest 5.1.0",
+		"cassowary, Ubuntu 26.04 on arm64 in AWS, 64 cores and 247 GB of memory, shared with other lanes' runs (1-minute load 300 to 455 during the runs); the local PostgreSQL 19rc2 (scripts/pg/pin.env), each member sized by pnpm pg:init for its share (size.ts clusterSize: at 32, shared_buffers 1216256 kB and max_connections 2215 a member; at 16, 608128 kB and 1111); grizzle 0b7b5f31 with vendor/toolchain at its pin, whose testWorkers is availableParallelism(), 64; Node 26.13.1, Vitest 5.1.0",
 	workload:
-		"the network tier's 334 files split by their durations in the full run at 64: the 144 that passed within 120 s (light) run to completion at each c of 4, 8, 16, 32 and 64; the other 190 (heavy, the long SERIALIZABLE suites) run for a 600 s window at each c, 16 and 32 twice; c is Vitest's maxWorkers, the files one cluster runs at once, one run at a time",
+		"the whole network tier, 342 files and 594 tests, at 64 workers, TEST_SEED=1234567: at 32, 2 members of 32 files each; at 16, 4 members of 16; the two runs at once, one run at each value",
 	result:
-		"commits/s over the middle half of each run (its first and last quarters hold the setup's and teardown's sweeps, whose dropped databases leave pg_stat_database), the waiting share of the active backends, and the load. Light: 4 356 (0% of 2.0, load 88), 8 638 (1% of 2.8, 91), 16 1244 (2% of 4.5, 46), 32 2027 (8% of 8.8, 65), 64 1315 (63% of 26.9, 149); wall time 304, 196, 121, 72 and 107 s. Heavy: 4 721 (4% of 3.2, 107), 8 1802 (6% of 5.9, 55), 16 1837 (49% of 20.3, 52) and 1109 (58% of 21.9, 104), 32 1583 (79% of 57.4, 104) and 1727 (79% of 56.0, 83), 64 949 (88% of 93.6, 96). The full tier at 64: 4885 commits/s over its middle half, 89% of 68.8 active backends waiting, 7659 s, 46 tests past their 3600 s timeout. No cluster errors; LeaseBudgetExhausted only in the claim bench, since sized (2ea05562)",
+		"Wall time 10701 s at 32 and 9660 s at 16, both set by test/pg/substrate/tree.test.ts, the last file of both, cut by its hour (10515 s and 9230 s). Over the 311 files both runs passed, leaving out pg/fin/plans, schedules/install/database-default, pg/serverless/pool, pg/sql/print, pg/migrate/redraft, pg/live/routing and pg/world-model/inductive: 236111 s summed at 32 and 169681 s at 16, a ratio of 0.72, the per-file ratio's median 0.70 and geometric mean 0.69. Files cut by their hour: 23 at 32, 13 at 16, each of 16's also cut at 32 but pg/live/exactness; no other failure. SSI LWLock waiters, as a share of the active backends: 8% and 10% of the members at 32; 1%, 2%, 5% and 1% at 16 (92% on one cluster at be5f3ec4). The oldest SERIALIZABLE transaction: 571 s at 32, 439 s at 16 beside serverless/pool's hung lease (3591 s). Freeze windows (10 s and more with at most two backends on the CPU and half the active ones waiting on SSI's LWLocks): none at 32; one of 12 s at 16, as the hung lease's transaction ended. Checkpoints back to back on every member: 1.07 and 1.11 million files synced a member at 32, 0.59 to 0.92 million at 16, the longest 2267 s and 2296 s. Safe-snapshot waits past 10 s: 5482 samples at 32, 3236 at 16 (2326 of them behind the hung lease). A family's shared memory: 2 x 1454 MB at 32, 4 x 738 MB at 16. No cluster errors",
 	decision:
-		"32, the maximum of the light runs (the one fixed workload run to completion at every c, 2027 commits/s in 72 s) and of the heavy windows at comparable load (83 to 107: 1583 and 1727 at 32, 1109 at 16, 949 at 64, 721 at 4). The heavy windows at 8 and 16 under half that load (1802 and 1837) lie within the spread one count shows across loads (16: 1837 and 1109), so these samples do not tell 16 from 32; between 32 and 64 is unmeasured. No headroom added",
+		"16: at this load every measure favors it over 32: 28% less time over the files both runs passed, the ratio steady across them (median 0.70), 9.7% less wall time, ten fewer hour cuts, a tenth to a half of 32's SSI waiting share and less checkpoint sync work a member, for 44 MB more shared memory a family, since each member's memory follows its share (size.ts clusterSize, and init.sh --adopt sizes the members a growing family keeps). Every coupling it divides is a cluster's own, so the quantity is the files one member runs at once. One run at each value, at one seed, on a loaded machine; below 16 is unmeasured. No headroom added",
 	revalidate:
-		"a quiet window after the cutover (load under the cores' count) to tell 16 from 32; a network tier whose files hold more SERIALIZABLE transactions or hold them longer; a change of SSI's settings (max_pred_locks_*) or of the lease's grant (leaseGrant); a PostgreSQL repin; another machine or core count"
+		"a run at 8, and at 16 again, at a quiet window; a run of fewer workers than machineWorkers (TOOLCHAIN_TEST_WORKERS, which the toolchain past this pin reads), whose files spread fewer to a member (4 at 16 workers) than this run measured; a network tier whose files hold more SERIALIZABLE transactions or hold them longer, or create more databases (the checkpoints' sync work); a change of SSI's settings (max_pred_locks_*), of the checkpoint settings or of the lease's grant (leaseGrant); a PostgreSQL repin; another machine or core count"
 })
 
 /**

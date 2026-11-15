@@ -8,17 +8,18 @@
 #   init.sh [--force | --adopt]
 # An existing family is refused, recorded or not: a first member's state directory there is someone's cluster.
 # --force deletes every member the family file records, and the first, then creates the family anew. --adopt keeps the
-# running members there are as they are, untouched: a first member that predates the family file, or the members a
-# family file records from before the family's size grew. It creates the further members the size asks for and
-# records the family: how a cluster made before families, the default one among them, becomes one, and how a family
-# grows, by an operator who knows they are theirs. A family recorded with more members than its size is refused, and so
-# is a port taken on localhost.
+# running members there are, their data untouched: a first member that predates the family file, or the members a
+# family file records from before the family's size grew. It sizes each to its share of the machine, restarting it,
+# creates the further members the size asks for and records the family: how a cluster made before families, the
+# default one among them, becomes one, and how a family grows, by an operator who knows they are theirs. A family
+# recorded with more members than its size is refused, and so is a port taken on localhost.
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 require_build
-# The settings that size each member to its share of this machine (lib.sh cluster_size), as postgresql.conf lines, read
-# before an existing family is deleted.
-sized="$(cluster_size | sed 's/ / = /')"
+# The settings that size each member to its share of this machine (lib.sh cluster_size), a setting and its value a line,
+# and as postgresql.conf lines, read before an existing family is deleted.
+sized_settings="$(cluster_size)"
+sized="${sized_settings// / = }"
 size="$(family_cli size)"
 family_file="$(family_cli file)"
 
@@ -202,9 +203,26 @@ create_member() {
 	echo "Member ready: PostgreSQL $PG_PIN_VERSION on localhost:$PG_PORT (verify-full TLS, CA $GRIZZLE_PG_TLS/ca.crt), state directory $GRIZZLE_PG_STATE"
 }
 
+# Sizes the running member whose environment is declared to its share of this machine, the settings create_member
+# writes (lib.sh cluster_size), and restarts it, since shared_buffers and max_connections take effect only at a start.
+# So a family that grows keeps the memory it had, divided over more members, never a kept member's old share beside
+# the new members' smaller ones.
+resize_member() {
+	local setting value
+	while read -r setting value; do
+		admin_psql -d postgres -c "ALTER SYSTEM SET $setting = $value"
+	done <<<"$sized_settings"
+	"$(pg_bin pg_ctl)" -D "$GRIZZLE_PG_DATA" -l "$GRIZZLE_PG_LOG/startup.log" -w restart >/dev/null
+	echo "Member sized to its share: PostgreSQL $PG_PIN_VERSION on localhost:$PG_PORT"
+}
+
 members=("$FAMILY_PORT")
 if [[ "$mode" == --adopt ]]; then
 	members=("${kept[@]}")
+	for port in "${kept[@]}"; do
+		member_env "$port"
+		resize_member
+	done
 else
 	create_member
 fi
