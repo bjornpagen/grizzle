@@ -1,0 +1,42 @@
+diff --git a/packages/engine/src/types/query/query.ts b/packages/engine/src/types/query/query.ts
+index 137283fb..384b7a9b 100644
+--- a/packages/engine/src/types/query/query.ts
++++ b/packages/engine/src/types/query/query.ts
+@@ -20,7 +20,6 @@ import type {
+ 	Meets,
+ 	Minted,
+ 	OperandOrigin,
+-	ParamNeeds,
+ 	ParamsContribution,
+ 	ParamsOfTerm,
+ 	ParamType,
+@@ -1036,26 +1035,6 @@ export type ImmediateHeadOf<Q> = Q extends { readonly immediate: RowDecoder<infe
+  * whole, every relation of the schema with them, once for each program it tests. A term, which holds no schema, is read
+  * by ParamsOfTerm.
+  */
+-export type ParamsOf<X> = X extends unknown
+-	? string extends keyof X
+-		? unknown
+-		: typeof phantom extends keyof X
+-			? UnionToIntersection<
+-					ParamsContribution<PhantomParams<NonNullable<X[typeof phantom & keyof X]>>>
+-				>
+-			: unknown
+-	: never
+-
+-/**
+- * The parameters each shape of a program's phantom B states, each its own: the map its `needs` member needs, else the map
+- * its `params` member carries, else none, each member read by its key. ParamsOf folds the shapes' maps by intersection,
+- * as ParamsOfTerm folds a phantom read across its shapes at once.
+- */
+-type PhantomParams<B> = B extends unknown
+-	? "needs" extends keyof B
+-		? [B["needs" & keyof B]] extends [ParamNeeds<infer P>]
+-			? P
+-			: PhantomMap<B>
+-		: PhantomMap<B>
+-	: never
+-type PhantomMap<B> = "params" extends keyof B ? B["params" & keyof B] : unknown
++export type ParamsOf<X> = X extends ReadonlyArray<unknown> | Stream.Stream<unknown, unknown, unknown>
++	? unknown
++	: ParamsOfTerm<X>

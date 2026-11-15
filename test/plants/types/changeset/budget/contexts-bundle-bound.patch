@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/types/query/query.ts b/packages/engine/src/types/query/query.ts
+index cc7b1750..156396e1 100644
+--- a/packages/engine/src/types/query/query.ts
++++ b/packages/engine/src/types/query/query.ts
+@@ -1020,9 +1020,7 @@ export type EvidenceOfQuery<Q> =
+  * a test of the program (ChildContexts): a query holds its schema, and a conditional the checker resolves instantiates
+  * its operands whole, every relation of the schema with them, once for each program it tests.
+  */
+-export type ContextsOf<Q> = Q extends unknown
+-	? PhantomContexts<NonNullable<Q[typeof phantom & keyof Q]>>
+-	: never
++export type ContextsOf<Q> = Q extends Phantom<infer B> ? PhantomContexts<B> : never
+ /** The contexts a phantom reads, each of its shapes its own: none for a shape that reads none. */
+ type PhantomContexts<B> = B extends unknown ? ContextsRead<B["readsContexts" & keyof B]> : never
+ /** The records a query delivers to a read inside a write transaction, a read-back: its immediate decoder's. */

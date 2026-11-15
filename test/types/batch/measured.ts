@@ -188,19 +188,30 @@ const measuredProgram = (dir: string, size: number, source: (entries: PreludeAt)
 		})
 	)
 
+/** A program to measure: its size, as its report names it, and its source, its imports reached through `entries`. */
+export interface SizedProgram {
+	readonly size: number
+	readonly source: (entries: PreludeAt) => string
+}
+
 /**
- * The program at each of the steps' sizes, every size checked at once: each check is a process of its own with one
- * checker, whose counts its own program alone decides, so checking them at once moves no count.
+ * Each program, in order, every one checked at once: each check is a process of its own with one checker, whose counts
+ * its own program alone decides, so checking them at once moves no count.
  */
+export const measuredEach = (dir: string, programs: ReadonlyArray<SizedProgram>) =>
+	Effect.forEach(programs, (p) => measuredProgram(dir, p.size, p.source), {
+		concurrency: programs.length
+	})
+
+/** The program at each of the steps' sizes, every size checked at once (measuredEach). */
 export const measuredSizes = (
 	dir: string,
 	at: EqualSteps,
 	source: (size: number, entries: PreludeAt) => string
 ) =>
-	Effect.forEach(
-		at.sizes,
-		(size) => measuredProgram(dir, size, (entries) => source(size, entries)),
-		{ concurrency: at.sizes.length }
+	measuredEach(
+		dir,
+		Arr.map(at.sizes, (size) => ({ size, source: (entries: PreludeAt) => source(size, entries) }))
 	)
 
 /** A program typechecks with no diagnostic: no error of its own and no line about anything else. */

@@ -20,6 +20,7 @@ import type {
 	Meets,
 	Minted,
 	OperandOrigin,
+	ParamNeeds,
 	ParamsContribution,
 	ParamsOfTerm,
 	ParamType,
@@ -221,10 +222,11 @@ type ChildContexts<C extends Phantom<ChildReads>> = C extends unknown
 		: ContextsRead<ChildPhantom<C>["readsContexts"]>
 	: never
 /**
- * The contexts a phantom's `readsContexts` member reads. An alias of its own: a type the checker resolves within a test
- * of a child's keys would carry the child, and instantiate it whole.
+ * The contexts a phantom's `readsContexts` member reads, none where it reads `unknown`, as the member of a value typed
+ * `any` does. An alias of its own: a type the checker resolves within a test of a child's keys would carry the child,
+ * and instantiate it whole.
  */
-type ContextsRead<F> = F extends (read: infer X) => void ? X : never
+type ContextsRead<F> = F extends (read: infer X) => void ? (unknown extends X ? never : X) : never
 
 /**
  * What a query, ordered query or finished arm delivers: the records its rows decode to under the snapshot reading
@@ -1012,38 +1014,48 @@ export type EvidenceOfQuery<Q> =
 		: Evidence.Unknown
 
 /**
- * The contexts a query reads, at any depth of its rules, imports and attachments: a phantom its rules collect from the
- * contexts they match, carried contravariantly (`readsContexts`) so that a query reading contexts is still a query to
- * every consumer that names none.
+ * The contexts a program reads, at any depth of its rules, imports and attachments: a phantom its rules collect from
+ * the contexts they match, carried contravariantly (`readsContexts`) so that a query reading contexts is still a query to
+ * every consumer that names none. Each program of a union, and each shape of a phantom that is a union of shapes, reads
+ * its own; a value with no phantom, and one typed `any` (ContextsRead), read none. The phantom is read by key, never by
+ * a test of the program (ChildContexts): a query holds its schema, and a conditional the checker resolves instantiates
+ * its operands whole, every relation of the schema with them, once for each program it tests.
  */
-export type ContextsOf<Q> =
-	Q extends Phantom<infer B>
-		? B extends { readonly readsContexts: (read: infer C) => void }
-			? C
-			: never
-		: never
-
-/**
- * The contexts a program reads (ContextsOf), its member read alone, never its phantom whole (core/phantom.ts
- * ParamsOfOne), as a reader of every program of a workload reads them: a value with no phantom, and one typed `any`,
- * whose keys are every symbol, read none, and a phantom that is a union of shapes is read shape by shape.
- */
-export type ContextsReadOf<Q> =
-	Q extends Phantom<{ readonly readsContexts: (read: infer C) => void }>
-		? typeof phantom extends keyof Q
-			? symbol extends keyof Q
-				? never
-				: C
-			: never
-		: Q extends Phantom<infer B>
-			? ContextsOfBundle<B>
-			: never
-type ContextsOfBundle<B> = B extends { readonly readsContexts: (read: infer C) => void } ? C : never
+export type ContextsOf<Q> = Q extends unknown
+	? PhantomContexts<NonNullable<Q[typeof phantom & keyof Q]>>
+	: never
+/** The contexts a phantom reads, each of its shapes its own: none for a shape that reads none. */
+type PhantomContexts<B> = B extends unknown ? ContextsRead<B["readsContexts" & keyof B]> : never
 /** The records a query delivers to a read inside a write transaction, a read-back: its immediate decoder's. */
 export type ImmediateHeadOf<Q> = Q extends { readonly immediate: RowDecoder<infer I> } ? I : never
-/** An array or Stream member contributes no named parameter; a query, ordered query or ChangeSet its own map. */
-export type ParamsOf<X> = X extends
-	| ReadonlyArray<unknown>
-	| Stream.Stream<unknown, unknown, unknown>
-	? unknown
-	: ParamsOfTerm<X>
+/**
+ * The parameters a program needs, each program of a union its own: a query's, ordered query's or ChangeSet's map, read
+ * off its phantom by key and folded as ParamsOfTerm folds a value's (core/phantom.ts); an array or Stream member, which
+ * has no phantom, and a value typed `any`, whose keys are every string, none, `unknown`. A program is told by its keys,
+ * never by a test of it: a query holds its schema, and a conditional the checker resolves instantiates its operands
+ * whole, every relation of the schema with them, once for each program it tests. A term, which holds no schema, is read
+ * by ParamsOfTerm.
+ */
+export type ParamsOf<X> = X extends unknown
+	? string extends keyof X
+		? unknown
+		: typeof phantom extends keyof X
+			? UnionToIntersection<
+					ParamsContribution<PhantomParams<NonNullable<X[typeof phantom & keyof X]>>>
+				>
+			: unknown
+	: never
+
+/**
+ * The parameters each shape of a program's phantom B states, each its own: the map its `needs` member needs, else the map
+ * its `params` member carries, else none, each member read by its key. ParamsOf folds the shapes' maps by intersection,
+ * as ParamsOfTerm folds a phantom read across its shapes at once.
+ */
+type PhantomParams<B> = B extends unknown
+	? "needs" extends keyof B
+		? [B["needs" & keyof B]] extends [ParamNeeds<infer P>]
+			? P
+			: PhantomMap<B>
+		: PhantomMap<B>
+	: never
+type PhantomMap<B> = "params" extends keyof B ? B["params" & keyof B] : unknown

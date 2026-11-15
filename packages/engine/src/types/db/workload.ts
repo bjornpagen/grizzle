@@ -1,6 +1,6 @@
 import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { phantom, Phantom } from "#compiler/core/phantom.ts"
+import type { Phantom } from "#compiler/core/phantom.ts"
 import type {
 	AnyChangeSet,
 	ChangeSetAt,
@@ -11,7 +11,6 @@ import type { MembersTyped, Refusal } from "#compiler/types/core/phantom.ts"
 import type { AnyMaterialized } from "#compiler/types/derived/derived.ts"
 import type {
 	ContextsOf,
-	ContextsReadOf,
 	OrderedAt,
 	OrderedBase,
 	PageOf,
@@ -160,14 +159,14 @@ type ProgramContexts<X> =
 	X extends Deferrable<infer Y>
 		? ProgramContexts<Y>
 		: X extends Paged<infer O>
-			? ContextsReadOf<O>
+			? ContextsOf<O>
 			: X extends Clocked<infer P, unknown>
 				? ProgramContexts<P>
 				: X extends AnyChangeSet
 					? X extends Phantom<{ readonly contexts: infer Cx }>
 						? Cx
 						: never
-					: ContextsReadOf<X>
+					: ContextsOf<X>
 
 /**
  * A ChangeSet program's array members, which a served call's facts key by op and relation (FactsCheck): none two of one
@@ -222,7 +221,7 @@ type Kinds<X> = X extends unknown
 /**
  * ProgramContexts of a program that is no ChangeSet, each member of a union its own, told by its keys: a deferrable
  * member's read's, a paged member's ordered query's, a clocked read's program's, and a query's own, read off its phantom
- * by key (ContextsByKey). A value typed `any` or holding a ChangeSet's reads is read by ProgramContexts itself.
+ * by key (ContextsOf). A value typed `any` or holding a ChangeSet's reads is read by ProgramContexts itself.
  */
 type ReadContexts<X> = X extends unknown
 	? symbol extends keyof X
@@ -230,25 +229,13 @@ type ReadContexts<X> = X extends unknown
 		: "deferrable" extends keyof X
 			? ReadContexts<X["deferrable" & keyof X]>
 			: "paged" extends keyof X
-				? ContextsByKey<X["paged" & keyof X]>
+				? ContextsOf<X["paged" & keyof X]>
 				: "clocked" extends keyof X
 					? ReadContexts<X["clocked" & keyof X]>
 					: "reads" extends keyof X
 						? ProgramContexts<X>
-						: ContextsByKey<X>
+						: ContextsOf<X>
 	: never
-
-/**
- * ContextsOf, the phantom read by key: none for a value with no phantom, each shape of a union of shapes its own, and a
- * value typed `any` read by ContextsOf itself.
- */
-type ContextsByKey<X> = symbol extends keyof X
-	? ContextsOf<X>
-	: typeof phantom extends keyof X
-		? BundleContexts<NonNullable<X[typeof phantom & keyof X]>>
-		: never
-type BundleContexts<B> = B extends unknown ? ContextsRead<B["readsContexts" & keyof B]> : never
-type ContextsRead<F> = F extends (read: infer C) => void ? C : never
 
 /**
  * workload(schema, programs): each program over a level of the schema (ProgramAt), a ChangeSet's appends each beside

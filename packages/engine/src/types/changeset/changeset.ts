@@ -2,7 +2,7 @@ import type { Stream } from "effect"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { ConstraintName, GeneratedLawId, LawId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import type { Built, Delivering, delta, Phantom } from "#compiler/core/phantom.ts"
+import type { Built, Delivering, delta, Phantom, phantom } from "#compiler/core/phantom.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import type { MonoidName, SideDesc, SlotsDesc } from "#compiler/ir/desc.ts"
 import type { Patterns } from "#compiler/ir/scalar.ts"
@@ -116,23 +116,49 @@ type MemberCheck<M, F, R> = MemberFit<M, F, R, true>
  */
 type DeletedCheck<M, F, R> = MemberFit<M, F, R, false>
 
-/** A member's facts M as arms of F, the row type of R its op takes, then, where Keyed, its literal facts at R's key. */
-type MemberFit<M, F, R, Keyed extends boolean> =
-	M extends Phantom<{ readonly heading: infer H }>
-		? IsNone<UnfitArms<H, F, never>> extends true
-			? IsNone<MistypedFields<M, R>> extends true
-				? unknown
-				: Refusal<"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast">
-			: Refusal<"the query's head is not a fact of the relation">
-		: M extends ReadonlyArray<infer E> | Stream.Stream<infer E, unknown, unknown>
-			? IsNone<UnfitArms<E, F, never>> extends true
-				? Keyed extends true
-					? ConflictsAtKey<M, PrimaryKeyOf<R>> extends true
-						? KeyLawRefusal<NameOf<R>, PrimaryKeyOf<R>>
-						: unknown
-					: unknown
-				: Refusal<"a member fact is not a fact of the relation">
+/**
+ * A member's facts M as arms of F, the row type of R its op takes, then, where Keyed, its literal facts at R's key: a
+ * query's head, read off its phantom, and an array's or a Stream's facts, each member of a union its own. A member is
+ * told by its keys, and a query's head and carriers are read by key, never by a test of the query: a query holds its
+ * schema, and a conditional the checker resolves instantiates its operands whole, every relation of the schema with
+ * them, once for each member it tests. A member typed `any`, whose keys are every string, is checked by MemberShapeFit.
+ */
+type MemberFit<M, F, R, Keyed extends boolean> = M extends unknown
+	? string extends keyof M
+		? MemberShapeFit<M, F, R, Keyed>
+		: typeof phantom extends keyof M
+			? "heading" extends keyof PhantomOf<M>
+				? HeadFit<PhantomOf<M>["heading" & keyof PhantomOf<M>], M, F, R>
+				: MemberShapeFit<M, F, R, Keyed>
+			: MemberShapeFit<M, F, R, Keyed>
+	: never
+
+/** A value's phantom, read by key: its bundle, without the `undefined` its optional member admits. */
+type PhantomOf<M> = NonNullable<M[typeof phantom & keyof M]>
+
+/** A query member's head H as arms of F, then its carriers each at its field's type (MistypedFields). */
+type HeadFit<H, M, F, R> =
+	IsNone<UnfitArms<H, F, never>> extends true
+		? IsNone<MistypedFields<M, R>> extends true
+			? unknown
+			: Refusal<"a member's head writes each field at its type: an exact value re-enters a plain field only by Compute.cast">
+		: Refusal<"the query's head is not a fact of the relation">
+
+/**
+ * MemberFit of a member with no head in its phantom, as its shape tells it: an array's or a Stream's facts, each an arm
+ * of F, and anything else admitted, as a value typed `any` is.
+ */
+type MemberShapeFit<M, F, R, Keyed extends boolean> = M extends
+	| ReadonlyArray<infer E>
+	| Stream.Stream<infer E, unknown, unknown>
+	? IsNone<UnfitArms<E, F, never>> extends true
+		? Keyed extends true
+			? ConflictsAtKey<M, PrimaryKeyOf<R>> extends true
+				? KeyLawRefusal<NameOf<R>, PrimaryKeyOf<R>>
+				: unknown
 			: unknown
+		: Refusal<"a member fact is not a fact of the relation">
+	: unknown
 
 /**
  * Whether X is none. A test of a part read from S is written as this alias over the part, never as a tuple of it,
@@ -147,14 +173,18 @@ type PrimaryKeyOf<R> = R extends { readonly primaryKey: infer P extends Readonly
 	? P
 	: readonly []
 
-/** The fields of R a query member's head delivers at a type other than the field's own (WritesAt). */
-type MistypedFields<M, R> =
-	M extends Headed<infer Hc>
-		? R extends Headed<infer C>
-			? {
-					[K in keyof Hc & keyof C]-?: WritesAt<Hc[K], C[K]> extends true ? never : K
-				}[keyof Hc & keyof C]
-			: never
+/**
+ * The fields of R a query member's head delivers at a type other than the field's own (WritesAt): its carriers read by
+ * key, as MemberFit reads its head.
+ */
+type MistypedFields<M, R> = "heading" extends keyof M
+	? MistypedCarriers<M["heading" & keyof M], R>
+	: never
+type MistypedCarriers<Hc, R> =
+	R extends Headed<infer C>
+		? {
+				[K in keyof Hc & keyof C]-?: WritesAt<Hc[K], C[K]> extends true ? never : K
+			}[keyof Hc & keyof C]
 		: never
 
 /**
@@ -488,7 +518,7 @@ type InsertedEdits<Last extends Stratum, S, Rows> = boolean extends Last["edits"
  * relation's, in the stratum after the strata Done, over S; none where no key's members are an array.
  */
 type InsertedArrays<S, Rows, Done extends Strata> = {
-	[K in keyof Rows]-?: [Rows[K]] extends [ReadonlyArray<unknown>]
+	[K in keyof Rows]-?: IsArrayMember<Rows[K]> extends true
 		? MemberOf<"insert", InsertedRelation<S, K>, PositionOf<Done>, S>
 		: never
 }[keyof Rows]
@@ -1033,10 +1063,22 @@ type MemberOf<Op extends ArrayOp, R, At extends ReadonlyArray<unknown>, S> = [R]
  * them (write/changeset/value.ts); two in two strata meet with no position (RepeatedArrays), which a workload refuses
  * (types/db/workload.ts), as the engine refuses them in a served workload (UnservedMember).
  */
-type ArrayAdded<Op extends ArrayOp, R, M, S, Done extends Strata> = [M] extends [
-	ReadonlyArray<unknown>
-]
-	? MemberOf<Op, R, PositionOf<Done>, S>
+type ArrayAdded<Op extends ArrayOp, R, M, S, Done extends Strata> =
+	IsArrayMember<M> extends true ? MemberOf<Op, R, PositionOf<Done>, S> : never
+
+/**
+ * Whether every member of the union M is an array, true for none: told by its keys, as MemberFit tells it, so a query
+ * member is never tested whole. A member typed `any`, whose keys are every string, is one, as `[any]` is an array's.
+ */
+type IsArrayMember<M> = ArrayArm<M> extends true ? true : false
+type ArrayArm<M> = M extends unknown
+	? string extends keyof M
+		? true
+		: typeof phantom extends keyof M
+			? false
+			: M extends ReadonlyArray<unknown>
+				? true
+				: false
 	: never
 
 /** sequence's array members of b: each a stratum later by every stratum of a, `Before`, bound as MemberOf binds. */

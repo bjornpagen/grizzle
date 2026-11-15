@@ -62,6 +62,7 @@ const typeBatchRunners: Exemption = {
 /** The type layer's cost gates. */
 const typeCostGates: Exemption = {
 	files: [
+		"test/types/changeset/budget/members.test.ts",
 		"test/types/query/budget/invariance.test.ts",
 		"test/types/query/budget/scaling.test.ts",
 		"test/types/regex/scaling.test.ts",
@@ -72,7 +73,7 @@ const typeCostGates: Exemption = {
 		"test/types/skeleton/budget/invariance.test.ts"
 	],
 	reason:
-		"The type layer's cost gates: each typechecks programs generated at three sizes an equal step apart and holds their types and instantiations to grow no faster than linearly, the second step adding no more than the first (test/support/growth.ts), a performance property; or holds the largest program's inference and refusals to its twin's, the same declarations at the smallest scale its probes read. No verdict is one a person wrote."
+		"The type layer's cost gates: each typechecks programs generated at three sizes an equal step apart and holds their types and instantiations to grow no faster than linearly, the second step adding no more than the first (test/support/growth.ts), a performance property; or holds the largest program's inference and refusals to its twin's, the same declarations at the smallest scale its probes read; or holds the instantiations a ChangeSet's members add to be the same over a small schema and a large one (changeset/budget/members.test.ts). No verdict is one a person wrote."
 }
 
 /** `pnpm test`'s exemptions: the unit and type tiers' files among them. */
