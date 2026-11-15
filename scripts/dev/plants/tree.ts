@@ -13,7 +13,7 @@ import {
 	String as Str
 } from "effect"
 import { ChildProcess } from "effect/process"
-import { type Citation, plantRoot, readingOf } from "#scripts/dev/plants/citations.ts"
+import { type Citation, plantRoot, readingOf, type Refusal } from "#scripts/dev/plants/citations.ts"
 
 /** A file under test/: its path from the repository's root, and its text. */
 export interface Source {
@@ -32,7 +32,8 @@ type At = Readonly<{ file: string; line: number; plant: string }>
 
 /**
  * What the check refuses, each a way a citation and its plant can fail to meet:
- * - `malformed`: an @plant tag whose first word is no plant path, or that names no bug;
+ * - `refused`: a line the citation form refuses (citations.ts Refusal): a malformed tag, a lost plant directory, or
+ *   a plant named in prose;
  * - `outsideTest`: a citation in a file that is no test, so no test runs while its plant is planted;
  * - `dangling`: a citation of a plant that is no file;
  * - `uncited`: a file under test/plants/ that no citation names, so nothing runs it;
@@ -40,7 +41,7 @@ type At = Readonly<{ file: string; line: number; plant: string }>
  * - `unapplied`: a plant git will not apply to the tree as it stands, which plants nothing and so proves nothing.
  */
 export type Finding =
-	| Readonly<{ kind: "malformed"; file: string; line: number; text: string }>
+	| Readonly<{ kind: "refused"; file: string; refusal: Refusal }>
 	| (Readonly<{ kind: "outsideTest" }> & At)
 	| (Readonly<{ kind: "dangling" }> & At)
 	| Readonly<{ kind: "uncited"; plant: string }>
@@ -73,7 +74,7 @@ const byKey = <A>(groups: Readonly<Record<string, Arr.NonEmptyArray<A>>>) =>
 	)
 
 /**
- * Every finding of the tree, in a fixed order: each source's malformed tags, citations outside tests and dangling
+ * Every finding of the tree, in a fixed order: each source's refused lines, citations outside tests and dangling
  * citations, in source order; then each plant no citation names, in path order; then each name two plants share.
  */
 export const findingsOf = (tree: Tree): ReadonlyArray<Finding> => {
@@ -81,11 +82,10 @@ export const findingsOf = (tree: Tree): ReadonlyArray<Finding> => {
 	const named = new Set(Arr.map(citedIn(tree), ({ citation }) => citation.plant))
 	const ofSources = Arr.flatMap(tree.sources, (source): ReadonlyArray<Finding> => {
 		const reading = readingOf(source.text)
-		const malformed = Arr.map(reading.malformed, (tag): Finding => ({
-			kind: "malformed",
+		const refused = Arr.map(reading.refusals, (refusal): Finding => ({
+			kind: "refused",
 			file: source.path,
-			line: tag.line,
-			text: tag.text
+			refusal
 		}))
 		const placed = Arr.flatMap(reading.citations, (citation): ReadonlyArray<Finding> => {
 			const at: At = { file: source.path, line: citation.line, plant: citation.plant }
@@ -97,7 +97,7 @@ export const findingsOf = (tree: Tree): ReadonlyArray<Finding> => {
 				: [{ kind: "dangling", ...at }]
 			return Arr.appendAll(outside, dangling)
 		})
-		return Arr.appendAll(malformed, placed)
+		return Arr.appendAll(refused, placed)
 	})
 	const uncited = Arr.map(
 		Arr.sort(
@@ -114,11 +114,18 @@ export const findingsOf = (tree: Tree): ReadonlyArray<Finding> => {
 	return [...ofSources, ...uncited, ...shared]
 }
 
+/** What each kind of refused line is told. */
+const refusalText: { readonly [K in Refusal["kind"]]: string } = {
+	malformed: `an @plant tag names a plant by its path under ${plantRoot}, ending .patch, then the bug it plants`,
+	prose: `a plant is cited only by an @plant tag naming its file under ${plantRoot}, never by name in prose (the capitalized Plant or Plants outside a tag)`,
+	lost: `plants live under ${plantRoot}, never in ~/.cache/grizzle-release/<lane>/plants, where the old VM's were lost`
+}
+
 /** A finding in words, led by where it is. */
 export const findingText = (finding: Finding): string => {
 	switch (finding.kind) {
-		case "malformed":
-			return `${finding.file}:${finding.line}: an @plant tag names a plant by its path under ${plantRoot}, ending .patch, then the bug it plants: ${finding.text}`
+		case "refused":
+			return `${finding.file}:${finding.refusal.line}: ${refusalText[finding.refusal.kind]}: ${finding.refusal.text}`
 		case "outsideTest":
 			return `${finding.file}:${finding.line}: ${finding.plant} is cited outside a test, so no test runs while it is planted: cite it in the header of the test it turns red`
 		case "dangling":

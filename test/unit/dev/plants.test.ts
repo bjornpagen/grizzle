@@ -8,7 +8,9 @@
  *   directories) and prose, so a tag may name a plant and a bug on its own line, carry its bug over the prose lines
  *   below it, or name no plant path or no bug. Oracle: the citations and malformed tags the drawn blocks state, read
  *   off the blocks rather than the text: a tag's words are its own and those of the prose lines right below it in its
- *   comment, and its first word is a plant path by its segments, a second implementation of the path's form.
+ *   comment, and its first word is a plant path by its segments, a second implementation of the path's form; a line
+ *   holding the old cache directory is lost, and a comment line no tag holds that has the capitalized word of the old
+ *   citations is prose.
  * - Judgment: a tree drawn as plant files from a pool of three suites and three names, so two suites can hold one
  *   name, beside a file under test/plants that no tag can name, and sources, tests or a support file, each citing
  *   plants of the pool, some holding a malformed tag. Oracle: the findings the drawn tree states, by set differences
@@ -22,15 +24,20 @@
  *   when the contents are, the files as a set.
  *
  * Features: for reading, a citation on its tag's line, a citation whose bug carries over the lines below, a one-line
- * citation, a tag naming no plant path, a tag naming no bug, and a tag spelled in code; for judgment, each finding
- * kind and a tree the check passes; for plans, a citation with a kept verdict, one with none, a named test's plants, a
- * named plant's tests, a plant two tests cite, and a name that picks nothing; for keys, equal contents with the files in
- * another order, and contents apart by the plant, the test, a file's blob or a file absent.
+ * citation, a tag naming no plant path, a tag naming no bug, a tag spelled in code, a plant named in prose and a lost
+ * plant directory; for judgment, each finding kind and a tree the check passes; for plans, a citation with a kept
+ * verdict, one with none, one outside the run's directories, a named test's plants, a named plant's tests, a plant two
+ * tests cite, and a name that picks nothing; for keys, equal contents with the files in another order, and contents
+ * apart by the plant, the test, a file's blob or a file absent.
  *
  * @plant test/plants/unit/dev/plants-continuation-dropped.patch A tag's bug is read off its own line alone, so a
  * citation whose bug sits on the lines below it is malformed; the reading property fails.
  * @plant test/plants/unit/dev/plants-path-unchecked.patch Any first word is taken for a plant path, so a tag naming
  * none cites it; the reading property fails.
+ * @plant test/plants/unit/dev/plants-prose-unrefused.patch A plant named in prose outside a tag is never refused;
+ * the reading property fails.
+ * @plant test/plants/unit/dev/plants-lost-tags-spared.patch A lost plant directory on a tag's own lines is not
+ * refused; the reading property fails.
  * @plant test/plants/unit/dev/plants-dangling-unchecked.patch The judgment never finds a citation of a plant that is
  * no file; the judgment property fails.
  * @plant test/plants/unit/dev/plants-same-name-unchecked.patch The judgment never finds two plants under one name; the
@@ -52,7 +59,7 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
-import { type Citation, type Malformed, readingOf } from "#scripts/dev/plants/citations.ts"
+import { type Citation, readingOf, type Refusal } from "#scripts/dev/plants/citations.ts"
 import {
 	type Finding,
 	findingsOf,
@@ -73,6 +80,12 @@ const PLANT_PATHS = [
 	"test/plants/x-1.patch"
 ] as const
 
+/**
+ * The refused path that names a plant directory outside the repository, in the old VM's cache. It is spelled in parts
+ * because the check reads this file too, and a whole path on any line of it would be a citation of a lost plant.
+ */
+const LOST_PATH = Arr.join(["~/.cache/grizzle-release", "BR06", "plants", "x.patch"], "/")
+
 /** Paths the citation form refuses, each one way: case, a dot segment, a suffix, a directory, the old cache. */
 const REFUSED_PATHS = [
 	"test/plants/A.patch",
@@ -83,7 +96,7 @@ const REFUSED_PATHS = [
 	"test/plants/x.patch.bak",
 	"test/plant/x.patch",
 	"plants/x.patch",
-	"~/.cache/grizzle-release/BR06/plants/x.patch",
+	LOST_PATH,
 	"x-dropped"
 ] as const
 
@@ -201,6 +214,48 @@ const blockLines = (block: Block): Arr.NonEmptyReadonlyArray<string> => {
 	}
 }
 
+/** A rendered line: its text, its words, whether it is a comment's line, and whether a plant tag holds it. */
+interface Line {
+	readonly text: string
+	readonly words: ReadonlyArray<string>
+	readonly comment: boolean
+	readonly tagged: boolean
+}
+
+/** Whether item `at` of a comment is a prose line a tag above it carries: every item between them is prose. */
+const carriedAt = (items: ReadonlyArray<Item>, at: number): boolean =>
+	Arr.match(
+		Arr.dropWhile(Arr.reverse(Arr.take(items, at)), (item: Item) => item.kind === "prose"),
+		{
+			onEmpty: () => false,
+			onNonEmpty: ([above]) => above.kind === "tag"
+		}
+	)
+
+/** A block's lines with what the check reads of each. */
+const linesOf = (block: Block): ReadonlyArray<Line> => {
+	const texts = blockLines(block)
+	switch (block.kind) {
+		case "comment": {
+			const inner = Arr.map(block.items, (item: Item, at: number): Line => ({
+				text: itemLine(block.indent, item),
+				words: item.kind === "blank" ? [] : item.words,
+				comment: true,
+				tagged: item.kind === "tag" || (item.kind === "prose" && carriedAt(block.items, at))
+			}))
+			return [
+				{ text: Arr.headNonEmpty(texts), words: [], comment: true, tagged: false },
+				...inner,
+				{ text: Arr.lastNonEmpty(texts), words: [], comment: true, tagged: false }
+			]
+		}
+		case "oneLine":
+			return [{ text: Arr.headNonEmpty(texts), words: block.words, comment: true, tagged: true }]
+		case "code":
+			return [{ text: Arr.headNonEmpty(texts), words: block.words, comment: false, tagged: false }]
+	}
+}
+
 /** A file's text: its blocks' lines, one after another. */
 const textOf = (file: ReadonlyArray<Block>): string =>
 	`${Arr.join(Arr.flatMap(file, blockLines), "\n")}\n`
@@ -244,10 +299,12 @@ type ReadingFeature =
 	| "a tag naming no plant path"
 	| "a tag naming no bug"
 	| "a tag spelled in code"
+	| "a plant named in prose"
+	| "a lost plant directory"
 
 /** What a tag states, its citation or its malformation, and the feature it is. */
 type JudgedTag = readonly [
-	Readonly<{ citation: ReadonlyArray<Citation>; malformed: ReadonlyArray<Malformed> }>,
+	Readonly<{ citation: ReadonlyArray<Citation>; malformed: ReadonlyArray<Refusal> }>,
 	ReadingFeature
 ]
 
@@ -262,10 +319,16 @@ const judgedTag = (
 	const words = Arr.appendAll(own, carried)
 	return Arr.match(words, {
 		onEmpty: () =>
-			[{ citation: [], malformed: [{ line, text }] }, "a tag naming no plant path"] as const,
+			[
+				{ citation: [], malformed: [{ kind: "malformed", line, text }] },
+				"a tag naming no plant path"
+			] as const,
 		onNonEmpty: ([first, ...bug]) =>
 			!isPlantPath(first)
-				? ([{ citation: [], malformed: [{ line, text }] }, "a tag naming no plant path"] as const)
+				? ([
+						{ citation: [], malformed: [{ kind: "malformed", line, text }] },
+						"a tag naming no plant path"
+					] as const)
 				: Arr.isReadonlyArrayNonEmpty(bug)
 					? ([
 							{ citation: [{ plant: first, bug: Arr.join(bug, " "), line }], malformed: [] },
@@ -275,7 +338,10 @@ const judgedTag = (
 									? "a citation whose bug carries over the lines below"
 									: "a citation on its tag's line"
 						] as const)
-					: ([{ citation: [], malformed: [{ line, text }] }, "a tag naming no bug"] as const)
+					: ([
+							{ citation: [], malformed: [{ kind: "malformed", line, text }] },
+							"a tag naming no bug"
+						] as const)
 	})
 }
 
@@ -316,17 +382,43 @@ const statedOf = (file: ReadonlyArray<Block>) => {
 			}
 		}
 	)
+	const lines = Arr.flatMap(file, linesOf)
+	const refusals = Arr.flatMap(lines, (line, at): ReadonlyArray<Refusal> =>
+		Arr.some(line.words, (word) => word === LOST_PATH)
+			? [{ kind: "lost", line: at + 1, text: Str.trim(line.text) }]
+			: line.comment && !line.tagged && Arr.some(line.words, (word) => word === "Plant")
+				? [{ kind: "prose", line: at + 1, text: Str.trim(line.text) }]
+				: []
+	)
 	return {
 		citations: Arr.flatMap(judged, ([stated]: JudgedTag) => stated.citation),
-		malformed: Arr.flatMap(judged, ([stated]: JudgedTag) => stated.malformed),
+		refusals: Arr.sort(
+			Arr.appendAll(
+				Arr.flatMap(judged, ([stated]: JudgedTag) => stated.malformed),
+				refusals
+			),
+			refusalOrder
+		),
 		features: [
 			...Arr.map(judged, ([, feature]: JudgedTag) => feature),
 			...(Arr.some(file, (block) => block.kind === "code")
 				? ["a tag spelled in code" as const]
+				: []),
+			...(Arr.some(refusals, (refusal) => refusal.kind === "prose")
+				? ["a plant named in prose" as const]
+				: []),
+			...(Arr.some(refusals, (refusal) => refusal.kind === "lost")
+				? ["a lost plant directory" as const]
 				: [])
 		]
 	}
 }
+
+/** A refusal's place in a reading: by line, then by kind. */
+const refusalOrder: Order.Order<Refusal> = Order.combine(
+	Order.mapInput(Order.Number, (refusal: Refusal) => refusal.line),
+	Order.mapInput(Order.String, (refusal: Refusal) => refusal.kind)
+)
 
 /** The suites and names plants are drawn from: three suites holding three names, so two suites can share one. */
 const POOL = Arr.flatMap(["unit/a", "unit/b", "pg/c"], (suite) =>
@@ -447,10 +539,13 @@ const statedFindings = (drawnTree: DrawnTree): ReadonlyArray<Finding> => {
 		...(drawnSource.malformed
 			? [
 					{
-						kind: "malformed" as const,
+						kind: "refused" as const,
 						file: drawnSource.path,
-						line: FIRST_TAG_LINE + drawnSource.cites.length,
-						text: Str.trim(MALFORMED_TAG)
+						refusal: {
+							kind: "malformed" as const,
+							line: FIRST_TAG_LINE + drawnSource.cites.length,
+							text: Str.trim(MALFORMED_TAG)
+						}
 					}
 				]
 			: [])
@@ -650,7 +745,7 @@ const steered = Object.freeze({ cases: 200, sense: notesOnly })
 
 describe("readingOf", () => {
 	it.effect(
-		"reads every citation and malformed tag a file's comments state, and nothing its code spells",
+		"reads every citation and refused line a file states, and no citation its code spells",
 		(ctx) =>
 			searched(
 				ctx,
@@ -658,7 +753,7 @@ describe("readingOf", () => {
 					{
 						oracle: {
 							kind: "specification",
-							name: "the citations and malformed tags read off the drawn blocks, a tag's words its own and the prose lines below it"
+							name: "the citations and refused lines read off the drawn blocks, a tag's words its own and the prose lines below it"
 						},
 						suite: "unit/dev/plants-reading",
 						draw: drawn(fileGen),
@@ -670,7 +765,9 @@ describe("readingOf", () => {
 								"a one-line citation",
 								"a tag naming no plant path",
 								"a tag naming no bug",
-								"a tag spelled in code"
+								"a tag spelled in code",
+								"a plant named in prose",
+								"a lost plant directory"
 							],
 							steered
 						),
@@ -686,7 +783,7 @@ describe("readingOf", () => {
 							const stated = statedOf(file)
 							const read = readingOf(textOf(file))
 							assert.deepEqual(read.citations, stated.citations)
-							assert.deepEqual(read.malformed, stated.malformed)
+							assert.deepEqual(read.refusals, stated.refusals)
 							for (const feature of stated.features) {
 								c.note(feature)
 							}
@@ -735,7 +832,7 @@ describe("findingsOf", () => {
 							assert.deepEqual(asSet(findingsOf(treeOf(drawnTree))), asSet(stated))
 							const kinds = new Set(Arr.map(stated, (finding) => finding.kind))
 							const noted: ReadonlyArray<readonly [Finding["kind"], JudgmentFeature]> = [
-								["malformed", "a malformed tag"],
+								["refused", "a malformed tag"],
 								["outsideTest", "a citation outside a test"],
 								["dangling", "a dangling citation"],
 								["uncited", "an uncited plant"],

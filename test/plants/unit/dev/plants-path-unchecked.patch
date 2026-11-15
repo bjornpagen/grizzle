@@ -1,11 +1,13 @@
+diff --git a/scripts/dev/plants/citations.ts b/scripts/dev/plants/citations.ts
+index c855ecdd..7c94123f 100644
 --- a/scripts/dev/plants/citations.ts
 +++ b/scripts/dev/plants/citations.ts
-@@ -58,7 +58,7 @@
+@@ -66,7 +66,7 @@ const settled = (open: Open): Reading => {
  	const [first = "", ...rest] = Arr.flatMap(open.words, (words) =>
  		Arr.filter(Str.split(regex("\\s+"))(words), Str.isNonEmpty)
  	)
 -	return plantPath.test(first) && Arr.isReadonlyArrayNonEmpty(rest)
 +	return first !== "" && Arr.isReadonlyArrayNonEmpty(rest)
- 		? { citations: [{ plant: first, bug: Arr.join(rest, " "), line: open.line }], malformed: [] }
- 		: { citations: [], malformed: [{ line: open.line, text: open.text }] }
+ 		? { citations: [{ plant: first, bug: Arr.join(rest, " "), line: open.line }], refusals: [] }
+ 		: { citations: [], refusals: [{ kind: "malformed", line: open.line, text: open.text }] }
  }

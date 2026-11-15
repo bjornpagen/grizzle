@@ -1,7 +1,9 @@
+diff --git a/scripts/dev/plants/citations.ts b/scripts/dev/plants/citations.ts
+index c855ecdd..752f7259 100644
 --- a/scripts/dev/plants/citations.ts
 +++ b/scripts/dev/plants/citations.ts
-@@ -93,7 +93,7 @@
- 		return { read: closeOpen(), open: Option.some(open) }
+@@ -131,7 +131,7 @@ const step = (walk: Walk, text: string, index: number): Walk => {
+ 		}
  	}
  	const carried = Option.flatMap(
 -		Option.filter(walk.open, (open) => !open.closed),
