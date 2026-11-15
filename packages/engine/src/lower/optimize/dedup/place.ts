@@ -3,6 +3,8 @@ import { placementCertificate } from "#compiler/analysis/certificates/builder.ts
 import {
 	analyzePhysical,
 	type PhysicalAnalysis,
+	type PhysicalEnv,
+	reanalyzePhysical,
 	type RootObservation
 } from "#compiler/analysis/physical/analyze.ts"
 import type { Realization } from "#compiler/analysis/physical/props.ts"
@@ -34,18 +36,16 @@ interface PlacementEnv {
 const defect = (where: string, capability: string): CompileError =>
 	malformedDescription(SourceLoc("dedup placement", [where]), capability)
 
-/** The analysis of a realization, each node's decision by its label, under the placement's environment. */
-const analyzeRealization = (
-	dag: RelDag,
+/** The physical analysis's environment of a realization, each node's decision by its label, under the placement's. */
+const physicalEnv = (
 	realization: ReadonlyMap<NodeId, Realization>,
 	env: PlacementEnv
-): PhysicalAnalysis =>
-	analyzePhysical(dag, {
-		context: env.context,
-		realization: (id) => realization.get(id),
-		catalog: env.catalog,
-		roots: env.roots
-	})
+): PhysicalEnv => ({
+	context: env.context,
+	realization: (id) => realization.get(id),
+	catalog: env.catalog,
+	roots: env.roots
+})
 
 /** The nodes some outstanding target lies strictly below: one pass in topological order over data inputs. */
 const belowTargets = (
@@ -77,7 +77,8 @@ const belowTargets = (
  * input only delivers another node's rows (an attachment, a law query, an ordered result), the DISTINCT sits on the
  * node whose rows it delivers, the last one with a fragment of its own (policy.ts placementTarget).
  *
- * The worklist ends. Each round analyzes the current realization once, then either
+ * The worklist ends. Each round analyzes the current realization once, every node below the round before's decisions
+ * carrying the properties that round computed (analysis/physical/analyze.ts reanalyzePhysical), then either
  *
  * 1. relaxes every set UNION whose plain form a physical key proves unique to UNION ALL (R17.unionAll),
  *    which can only keep its consumers' obligations discharged, since its plain form is unique; or
@@ -113,8 +114,13 @@ export const placeDeduplication = (
 	const pinnedUnions = new Set<RelNode>()
 	const placements: Array<Placement> = []
 	const placementCerts: Array<Certificate<MultiplicityRule>> = []
+	const analyzed = physicalEnv(realization, env)
+	/**
+	 * The current realization's analysis: the policy's at first, then each round's carried into the next over the labels
+	 * the round decided (reanalyzePhysical), so a node below every decision keeps the properties it was computed with.
+	 */
+	let a = analyzePhysical(dag, analyzed)
 	for (;;) {
-		const a = analyzeRealization(dag, realization, env)
 		/** 1. Set UNION over unique, pairwise disjoint arms is UNION ALL. */
 		const relaxed = a.order.filter(
 			(node) =>
@@ -127,6 +133,7 @@ export const placeDeduplication = (
 			realization.set(node.id, "plain")
 		}
 		if (relaxed.length > 0) {
+			a = reanalyzePhysical(a, analyzed, new Set(relaxed.map((node) => node.id)))
 			continue
 		}
 		/** 2. The outstanding obligations a node placement discharges. */
@@ -180,6 +187,7 @@ export const placeDeduplication = (
 			}
 			placementCerts.push(cert.value)
 		}
+		a = reanalyzePhysical(a, analyzed, new Set([...placed].map((node) => node.id)))
 	}
 }
 

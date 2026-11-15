@@ -106,12 +106,54 @@ export interface PhysicalAnalysis {
  * Physical multiplicity: evidence lifetime, uniqueness inference, consumer sensitivity, and the obligations the
  * duplicate-elimination placement reads.
  */
-export const analyzePhysical = (dag: RelDag, env: PhysicalEnv): PhysicalAnalysis => {
-	const order = topoOrder(dag)
+export const analyzePhysical = (dag: RelDag, env: PhysicalEnv): PhysicalAnalysis =>
+	analysisOver(dag, topoOrder(dag), env, new Map())
+
+/**
+ * The analysis of `previous`'s DAG under `env`, whose realization differs from the one `previous` was computed under at
+ * the labels `changed` alone: a placement round's, after the round before decided those nodes (lower/optimize/dedup).
+ * A node's properties read its own realization, its inputs' properties and, for a SelfRef, its Recursive's realization
+ * (rules.ts), so a node none of whose inputs is computed again, whose label is not changed and that is no SelfRef of a
+ * changed Recursive has the properties `previous` computed, which it carries; every other node is computed again,
+ * inputs first. The analysis is the one analyzePhysical computes under `env`.
+ */
+export const reanalyzePhysical = (
+	previous: PhysicalAnalysis,
+	env: PhysicalEnv,
+	changed: ReadonlySet<NodeId>
+): PhysicalAnalysis => {
+	const again = new Set<RelNode>()
+	const kept = new Map<RelNode, PhysicalProps>()
+	for (const node of previous.order) {
+		if (
+			changed.has(node.id) ||
+			(node.kind === "SelfRef" && changed.has(node.recursive)) ||
+			inputsOf(node).some((input) => again.has(input))
+		) {
+			again.add(node)
+		} else {
+			kept.set(node, previous.of(node).props)
+		}
+	}
+	return analysisOver(previous.dag, previous.order, env, kept)
+}
+
+/** The analysis of `dag`, its nodes in topological order `order`, under `env`, each node `kept` holds carrying the
+ * properties it holds and every other computed from its inputs'. */
+const analysisOver = (
+	dag: RelDag,
+	order: ReadonlyArray<RelNode>,
+	env: PhysicalEnv,
+	kept: ReadonlyMap<RelNode, PhysicalProps>
+): PhysicalAnalysis => {
 	const { context, catalog } = env
 	const realization = (node: RelNode): Realization => realizationOf(env.realization, node)
 	/** Each node's physical properties, its inputs' first: every input is yielded before its rule reads it. */
 	const props = new Fold<RelNode, PhysicalProps>(function* (node) {
+		const carried = kept.get(node)
+		if (carried !== undefined) {
+			return carried
+		}
 		for (const input of inputsOf(node)) {
 			yield input
 		}
