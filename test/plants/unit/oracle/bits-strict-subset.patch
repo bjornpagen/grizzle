@@ -1,0 +1,13 @@
+diff --git a/test/support/oracle/evaluate/catalog.ts b/test/support/oracle/evaluate/catalog.ts
+index 93daf790..d790265b 100644
+--- a/test/support/oracle/evaluate/catalog.ts
++++ b/test/support/oracle/evaluate/catalog.ts
+@@ -277,7 +277,7 @@ const setAlgebra = (fn: SetFn, op: NativeOp, args: ReadonlyArray<CarrierValue>):
+ 		case "cardinality":
+ 			return Result.succeed(BigInt(a.size))
+ 		case "subset":
+-			return Result.succeed(Arr.every([...a], (h) => other.has(h)))
++			return Result.succeed(Arr.every([...a], (h) => other.has(h)) && a.size < other.size)
+ 		case "disjoint":
+ 			return Result.succeed(!Arr.some([...a], (h) => other.has(h)))
+ 	}

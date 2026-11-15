@@ -1,0 +1,14 @@
+diff --git a/test/support/oracle/addwins.ts b/test/support/oracle/addwins.ts
+index e728784c..e19cd1e4 100644
+--- a/test/support/oracle/addwins.ts
++++ b/test/support/oracle/addwins.ts
+@@ -628,6 +628,9 @@ const transition = (
+ 						: member.op === "put"
+ 							? puts
+ 							: deletes
++			if (target === deletes) {
++				inserts.delete(admitted.identity)
++			}
+ 			target.set(admitted.identity, admitted.fact)
+ 		}
+ 	}

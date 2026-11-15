@@ -1,0 +1,13 @@
+diff --git a/test/support/oracle/write/changeset.ts b/test/support/oracle/write/changeset.ts
+index bae93b0e..c5f2536f 100644
+--- a/test/support/oracle/write/changeset.ts
++++ b/test/support/oracle/write/changeset.ts
+@@ -718,7 +718,7 @@ const headValue = (t: HeadTerm, fact: Fact, params: ParamMap): unknown => {
+ 				throw new TypeError(`a numeric value that is no Decimal: ${String(value)}`)
+ 			}
+ 			return value.compare(low) >= 0 && value.compare(high) <= 0
+-				? castValue(t.into, value)
++				? value
+ 				: castOtherwise(t.into)
+ 		}
+ 		case "param":

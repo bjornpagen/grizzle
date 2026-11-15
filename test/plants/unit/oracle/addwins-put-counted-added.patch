@@ -1,0 +1,13 @@
+diff --git a/test/support/oracle/delta.ts b/test/support/oracle/delta.ts
+index c0ea7eff..25ee245a 100644
+--- a/test/support/oracle/delta.ts
++++ b/test/support/oracle/delta.ts
+@@ -159,7 +159,7 @@ export const attributeStratum = (
+ 	const removed = new TupleMap<FactIdentity, "delete" | "displaced">()
+ 	for (const identity of delta.added.keys()) {
+ 		if (requested.put.has(identity)) {
+-			added.set(identity, "put")
++			added.set(identity, "insert")
+ 		} else if (requested.insert.has(identity)) {
+ 			added.set(identity, "insert")
+ 		} else {

@@ -1,0 +1,13 @@
+diff --git a/test/support/oracle/addwins.ts b/test/support/oracle/addwins.ts
+index e728784c..0e035616 100644
+--- a/test/support/oracle/addwins.ts
++++ b/test/support/oracle/addwins.ts
+@@ -537,7 +537,7 @@ export const applyAddWins = (
+ 		}
+ 		state = { relations, sequences }
+ 		const violations = keyViolations(schema, state)
+-		if (violations.length > 0) {
++		if (violations.length > 0 && index === changes.strata.length - 1) {
+ 			return {
+ 				kind: "invariant-rejected",
+ 				law: elementAt(violations, 0, "the key violations").law,
