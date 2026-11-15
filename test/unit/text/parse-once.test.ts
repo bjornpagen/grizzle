@@ -30,7 +30,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { compileLaws } from "#compiler/laws/model/model.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
-import { closedLeaf, hostEvaluator } from "#compiler/runtime/write/fill.ts"
+import { closedLeaf, evaluatedRelation, hostEvaluator } from "#compiler/runtime/write/fill.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
@@ -261,13 +261,18 @@ describe("an admitted pattern", () => {
 								const writing = fieldOf("m").writing
 								const generated =
 									writing.kind === "generated" ? writing.expr : assert.fail("m is generated")
-								return { relation, fields, generated }
+								return {
+									relation,
+									evaluated: evaluatedRelation(relation.fields, codes),
+									fields,
+									generated
+								}
 							})
 							const [answers, rowCounts] = yield* callCounts(
 								Effect.sync(() =>
-									Arr.map(relations, ({ relation, generated }) => ({
+									Arr.map(relations, ({ evaluated, generated }) => ({
 										matched: Arr.map(c.texts, (text) =>
-											evaluate(relation, predicateTable(generated), (field) =>
+											evaluate(evaluated, predicateTable(generated), (field) =>
 												field === "t0" ? text : undefined
 											)
 										)

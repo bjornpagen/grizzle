@@ -112,11 +112,36 @@ export interface FilledNode {
 	}>
 }
 
-/** The fields of a relation an expression over one of its rows reads, each by its name with its type: a LawRelation's,
- * or a fill's relation (`FillRelation`). */
+/**
+ * The fields of a relation an expression over one of its rows reads, each by its name with its carrier's spec under
+ * the installation's codes (`evaluatedRelation`): read once, where the relation the evaluator judges is laid out, so no
+ * evaluation of a row reads a field's type again.
+ */
 export interface EvaluatedRelation {
-	readonly fields: ReadonlyArray<HeadingColumn>
+	readonly carriers: ReadonlyMap<string, CarrierSpec>
 }
+
+/** A relation's fields `fields`, a LawRelation's or a fill's relation's (`FillRelation`), as the evaluator reads them
+ * under `codes` (`EvaluatedRelation`). */
+export const evaluatedRelation = (
+	fields: ReadonlyArray<HeadingColumn>,
+	codes: Codebook
+): EvaluatedRelation => ({
+	carriers: new Map(fields.map((f) => [f.name, carrierSpecOf(f.type, codes)] as const))
+})
+
+/**
+ * One conjunct of a fold's selection as the host steps it: the table of an expression over the member's row, and the
+ * fields that table reads of the row (ir/expr.ts tableReads), found once where the selection is built, so a fold reads
+ * them as a field at every row it steps over.
+ */
+export interface Selection {
+	readonly table: ExprTable
+	readonly reads: ReadonlyArray<string>
+}
+
+/** The conjunct `table` of a fold's selection, its reads found (`Selection`). */
+export const selection = (table: ExprTable): Selection => ({ table, reads: tableReads(table) })
 
 /**
  * The host's evaluation of an expression's table over one row of `relation`, a generated field's generation expression
@@ -190,21 +215,21 @@ export const fillRefusal = (
  */
 export const selects = <E>(
 	relation: EvaluatedRelation,
-	where: ReadonlyArray<ExprTable>,
+	where: ReadonlyArray<Selection>,
 	evaluate: HostEvaluator,
 	read: (field: string) => Result.Result<unknown, E>,
 	unevaluated: (stop: EvalStop) => E
 ): Result.Result<boolean, E> => {
 	for (const w of where) {
 		const values = new Map<string, unknown>()
-		for (const field of tableReads(w)) {
+		for (const field of w.reads) {
 			const value = read(field)
 			if (!value.ok) {
 				return value
 			}
 			values.set(field, value.value)
 		}
-		const holds = evaluate(relation, w, (field) => values.get(field))
+		const holds = evaluate(relation, w.table, (field) => values.get(field))
 		if (!holds.ok) {
 			return Result.err(unevaluated(holds.error))
 		}
@@ -222,8 +247,9 @@ export type Filler = (root: HostNode, position: FillAt) => Result.Result<FilledN
 
 /** A relation as the host fills its rows (`HostFill`): its name, its fields with their types, which an expression over a
  * row reads, and its declared keys by their fields' names, the primary key first, which a refusal states a row by. */
-export interface FillRelation extends EvaluatedRelation {
+export interface FillRelation {
 	readonly name: StoredRelationName
+	readonly fields: ReadonlyArray<HeadingColumn>
 	readonly keys: ReadonlyArray<NonEmptyReadonlyArray<string>>
 }
 
@@ -332,12 +358,19 @@ type Rule =
 	| {
 			readonly kind: "after"
 			readonly family: FamilyId
-			readonly fold: FillFold
+			readonly fold: HostFold
 			readonly plane: 0 | 1
 			readonly befores: ReadonlyArray<ColumnKey>
 			readonly x: ColumnKey | undefined
 	  }
 	| { readonly kind: "generated"; readonly expr: ExprTable }
+
+/** A fold as the host steps it (`FillFold`): its monoid, and each conjunct of its step side's selection with the fields
+ * it reads (`Selection`). */
+interface HostFold {
+	readonly monoid: MonoidName
+	readonly where: ReadonlyArray<Selection>
+}
 
 /** A column the host fills of a relation: its key, its name as a refusal names it, its carrier's spec, and its rule. */
 interface Column {
@@ -351,10 +384,12 @@ interface Column {
 
 /**
  * A relation's columns at one position, by key and by the stage that fills each, the columns waiting on a sequence by
- * that sequence's key, and the families its rows own.
+ * that sequence's key, and the families its rows own; and the relation as the evaluator reads it (`EvaluatedRelation`),
+ * which a generated field or a fold's selection over its rows is evaluated over.
  */
 interface Layout {
 	readonly relation: FillRelation
+	readonly evaluated: EvaluatedRelation
 	readonly columns: ReadonlyMap<ColumnKey, Column>
 	readonly entering: ReadonlyArray<Column>
 	readonly after: ReadonlyMap<string, ReadonlyArray<Column>>
@@ -388,13 +423,27 @@ const hostRule = (rule: FillRuleData, spec: CarrierSpec): Rule => {
 				base: literalHost(spec, rule.base)
 			}
 		case "after":
+			return {
+				kind: "after",
+				family: rule.family,
+				fold: { monoid: rule.fold.monoid, where: rule.fold.where.map(selection) },
+				plane: rule.plane,
+				befores: rule.befores,
+				x: rule.x
+			}
 		case "generated":
 			return rule
 	}
 }
 
-/** A layout as the host fills it (`FillLayoutData`), of `relation`, under the installation's codes. */
-const hostLayout = (layout: FillLayoutData, relation: FillRelation, codes: Codebook): Layout => {
+/** A fill's relation with its fields as the evaluator reads them, read once for the fill (`filler`). */
+interface FilledRelation {
+	readonly relation: FillRelation
+	readonly evaluated: EvaluatedRelation
+}
+
+/** A layout as the host fills it (`FillLayoutData`), of `filled`'s relation, under the installation's codes. */
+const hostLayout = (layout: FillLayoutData, filled: FilledRelation, codes: Codebook): Layout => {
 	const columns = new Map<ColumnKey, Column>()
 	const entering: Array<Column> = []
 	const after = new Map<string, Array<Column>>()
@@ -423,7 +472,15 @@ const hostLayout = (layout: FillLayoutData, relation: FillRelation, codes: Codeb
 				break
 		}
 	}
-	return { relation, columns, entering, after, settling, owns: layout.owns.map(familyKey) }
+	return {
+		relation: filled.relation,
+		evaluated: filled.evaluated,
+		columns,
+		entering,
+		after,
+		settling,
+		owns: layout.owns.map(familyKey)
+	}
 }
 
 /**
@@ -527,19 +584,16 @@ export const literalHost = (spec: CarrierSpec, literal: TypedLiteral): unknown =
 
 /**
  * The host evaluator over the closed relations `closed` answers and the compiled program's admitted patterns
- * (scalar/regex/patterns.ts ProgramPatterns): a row's field read through its relation's carrier, and the result back as
- * the expression type's host value.
+ * (scalar/regex/patterns.ts ProgramPatterns): a row's field read through its carrier as the relation it judges holds it
+ * (`EvaluatedRelation`), and the result back as the expression type's host value.
  */
 export const hostEvaluator =
 	(codes: Codebook, closed: EvalLeaves["closed"], patterns: PatternReads): HostEvaluator =>
 	(relation, table, read) => {
-		const specOf = new Map(
-			relation.fields.map((f) => [f.name, carrierSpecOf(f.type, codes)] as const)
-		)
 		const leaves: EvalLeaves = {
 			value: undefined,
 			column: (ref) => {
-				const spec = specOf.get(ref.name)
+				const spec = relation.carriers.get(ref.name)
 				const value = read(ref.name)
 				return spec === undefined || value === undefined
 					? undefined
@@ -935,7 +989,7 @@ const ruleValue = (
 				befores.push(v.value)
 			}
 			const selected = selects(
-				row.layout.relation,
+				row.layout.evaluated,
 				rule.fold.where,
 				evaluate,
 				(field) => fieldOf(row, field, evaluate),
@@ -955,7 +1009,7 @@ const ruleValue = (
 			return after.ok ? after : Result.err(refusalAt(row, column, after.error))
 		}
 		case "generated": {
-			const v = evaluate(row.layout.relation, rule.expr, readerOf(row, evaluate))
+			const v = evaluate(row.layout.evaluated, rule.expr, readerOf(row, evaluate))
 			return !v.ok
 				? Result.err(refusalAt(row, column, { kind: "evaluation", stop: v.error }))
 				: v.value === sqlNull
@@ -1066,12 +1120,18 @@ const subtreeSizes = (root: HostNode, tree: FamilyId): ReadonlyMap<HostNode, num
 
 /**
  * The filler of nestings by a write's host fill (`HostFill`): each relation's columns at each position it stands at,
- * laid out under the installation's codes when the walk first meets them. The fill order the write's fill is sliced
+ * laid out under the installation's codes when the walk first meets them, and each relation's fields as the evaluator
+ * reads them, read once as the filler is built. The fill order the write's fill is sliced
  * from admits no column whose source is filled after it, so every fill finds what it reads.
  */
 export const filler = (fill: HostFill, codes: Codebook, evaluate: HostEvaluator): Filler => {
 	const byKey = new Map(fill.families.map((f) => [familyKey(f.id), f] as const))
-	const relations = new Map(fill.relations.map((r) => [r.name, r] as const))
+	const relations = new Map(
+		fill.relations.map(
+			(relation) =>
+				[relation.name, { relation, evaluated: evaluatedRelation(relation.fields, codes) }] as const
+		)
+	)
 	const layouts = new Map<string, Layout>()
 	/** A row's layout at a position, which the write's fill laid out. */
 	const laidOut = (relation: StoredRelationName, position: FillAt): Layout => {

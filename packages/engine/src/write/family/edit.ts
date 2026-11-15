@@ -55,11 +55,13 @@ import type { CountRow, MemberKey, Owner, Recount, Row } from "#compiler/runtime
 import {
 	type ColumnKey,
 	columnKey,
+	evaluatedRelation,
 	fieldKey,
 	fillRefusal,
 	type FillStop,
 	type GeneratedNull,
 	literalHost,
+	selection,
 	selects,
 	stepped
 } from "#compiler/runtime/write/fill.ts"
@@ -320,8 +322,10 @@ const rowValue = (
 	if (field?.writing.kind !== "generated") {
 		return { kind: "none" }
 	}
-	const v = ctx.evaluate(relation, predicateTable(field.writing.expr), (name) =>
-		valueAt(ctx, relation, values, fieldKey(name))
+	const v = ctx.evaluate(
+		evaluatedRelation(relation.fields, ctx.codes),
+		predicateTable(field.writing.expr),
+		(name) => valueAt(ctx, relation, values, fieldKey(name))
 	)
 	if (!v.ok) {
 		return v.error.kind === "undefined"
@@ -696,8 +700,8 @@ const fillGroup = (
 		for (const fold of family.folds) {
 			const befores = fold.planes.map((p) => values.get(columnKey(p.before)))
 			const selected = selects(
-				relation,
-				fold.where.map(predicateTable),
+				evaluatedRelation(relation.fields, ctx.codes),
+				fold.where.map((w) => selection(predicateTable(w))),
 				ctx.evaluate,
 				(name) => carriedAt(ctx, relation, values, fieldKey(name)),
 				(stop): FillStop => ({ kind: "evaluation", stop })

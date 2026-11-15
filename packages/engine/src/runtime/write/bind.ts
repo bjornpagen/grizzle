@@ -82,7 +82,9 @@ import {
 	type NestedCells,
 	nestedColumn,
 	type NestedPlaceholder,
-	type NestedRowBound
+	type NestedRowBound,
+	type NestedSource,
+	nestedSource
 } from "#compiler/runtime/write/staged.ts"
 import type { OwnStep } from "#compiler/runtime/write/steps.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
@@ -753,8 +755,25 @@ export const bindWrite = (
 		row: bound.row
 	})
 	/**
+	 * Every stratum's nested rows of a relation a statement of the flight sends, by stratum and relation, as each
+	 * statement that sends them reads them (staged.ts NestedSource): built once for the write, so no statement builds,
+	 * writes or measures the cells or a column another statement sends.
+	 */
+	const sources = new TupleMap<readonly [StratumAt, StoredRelationName], NestedSource>()
+	for (const statement of flight.statements) {
+		for (const slot of form(statement).paramSlots) {
+			if (slot.kind === "nestedRows" && !sources.has([slot.stratum, slot.relation])) {
+				sources.set(
+					[slot.stratum, slot.relation],
+					nestedSource(nestedCellsOf(nestedRowsOf, slot.stratum, slot.relation))
+				)
+			}
+		}
+	}
+	/**
 	 * The executions under `transport` of a statement no family step plans, each member slot's facts by `slotFacts`: its
-	 * one, or, where its nested rows' arrays are past the transport's message, its staged form's (`Chunks`).
+	 * one, or, where its nested rows' arrays are past the transport's message, its staged form's (`Chunks`); each
+	 * placeholder of nested rows sends its source as the write built it (`sources`).
 	 */
 	const statementChunks = (
 		statement: FlightStatement,
@@ -762,16 +781,17 @@ export const bindWrite = (
 		slotFacts: (slot: ParamId) => NormalizedSlot
 	): Result.Result<ReadonlyArray<Execution>, EncodingFailure | LiteralBound | FamilyRowBound> => {
 		const sent = form(statement)
-		const sources = new Map<string, NestedCells>()
-		const nested = sent.paramSlots.map((slot): NestedPlaceholder | undefined => {
-			if (slot.kind !== "nestedRows") {
-				return undefined
-			}
-			const source = `${slot.stratum} ${slot.relation}`
-			const cells = sources.get(source) ?? nestedCellsOf(nestedRowsOf, slot.stratum, slot.relation)
-			sources.set(source, cells)
-			return { part: slot.part, cells }
-		})
+		const nested = sent.paramSlots.map((slot): NestedPlaceholder | undefined =>
+			slot.kind === "nestedRows"
+				? {
+						part: slot.part,
+						source: defined(
+							sources.get([slot.stratum, slot.relation]),
+							`the nested rows of ${slot.relation} in stratum ${slot.stratum}, which a statement of the flight sends`
+						)
+					}
+				: undefined
+		)
 		const executions = executionsOf(
 			{ text: sent.text, staged: statement.staged, nested },
 			partOf(statement.step),

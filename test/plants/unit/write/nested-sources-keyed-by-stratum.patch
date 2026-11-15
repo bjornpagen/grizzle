@@ -1,0 +1,27 @@
+--- a/packages/engine/src/runtime/write/bind.ts
++++ b/packages/engine/src/runtime/write/bind.ts
+@@ -759,12 +759,12 @@
+ 	 * statement that sends them reads them (staged.ts NestedSource): built once for the write, so no statement builds,
+ 	 * writes or measures the cells or a column another statement sends.
+ 	 */
+-	const sources = new TupleMap<readonly [StratumAt, StoredRelationName], NestedSource>()
++	const sources = new TupleMap<readonly [StratumAt], NestedSource>()
+ 	for (const statement of flight.statements) {
+ 		for (const slot of form(statement).paramSlots) {
+-			if (slot.kind === "nestedRows" && !sources.has([slot.stratum, slot.relation])) {
++			if (slot.kind === "nestedRows" && !sources.has([slot.stratum])) {
+ 				sources.set(
+-					[slot.stratum, slot.relation],
++					[slot.stratum],
+ 					nestedSource(nestedCellsOf(nestedRowsOf, slot.stratum, slot.relation))
+ 				)
+ 			}
+@@ -786,7 +786,7 @@
+ 				? {
+ 						part: slot.part,
+ 						source: defined(
+-							sources.get([slot.stratum, slot.relation]),
++							sources.get([slot.stratum]),
+ 							`the nested rows of ${slot.relation} in stratum ${slot.stratum}, which a statement of the flight sends`
+ 						)
+ 					}

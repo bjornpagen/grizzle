@@ -50,6 +50,7 @@ import {
 	nestedColumn,
 	type NestedPlaceholder,
 	type NestedRowBound,
+	nestedSource,
 	type StagedAnalyze,
 	type StagedStatement
 } from "#compiler/runtime/write/staged.ts"
@@ -160,8 +161,9 @@ const resolved = (sketch: Sketch) => {
 		)
 	}
 	const width = sketch.kinds.length
+	const source = nestedSource(cells)
 	const nested: ReadonlyArray<NestedPlaceholder | undefined> = [
-		...Arr.map(sketch.kinds, (_, part) => ({ part, cells })),
+		...Arr.map(sketch.kinds, (_, part) => ({ part, source })),
 		undefined
 	]
 	const columns = Arr.map(sketch.kinds, (_, part) => part)

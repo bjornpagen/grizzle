@@ -186,6 +186,36 @@ const columnMeasure = (cells: NestedCells, part: number): Measure => {
 	return measure ?? emptyMeasure(type)
 }
 
+/** One column of a source's every row: its array as a placeholder carries it (`nestedColumn`), or why it has none, and
+ * that array measured from its cells' lengths (`columnMeasure`). */
+interface SourceColumn {
+	readonly whole: Result.Result<Param, LiteralBound | EncodingFailure>
+	readonly measure: Measure
+}
+
+/**
+ * A stratum's nested rows of one relation as every statement that sends them reads them: their cells, and each column
+ * of their sent layout, by its part, written whole and measured once (`SourceColumn`), so no statement writes or
+ * measures a column of a source another statement sends. A write builds each of its sources once (runtime/write/bind.ts).
+ */
+export interface NestedSource {
+	readonly cells: NestedCells
+	readonly columns: ReadonlyArray<SourceColumn>
+}
+
+/** The source of `cells` (`NestedSource`): each column of their sent layout written over every row and measured. */
+export const nestedSource = (cells: NestedCells): NestedSource => ({
+	cells,
+	columns: cells.types.map((_, part) => ({
+		whole: nestedColumn(cells, part, cells.rows),
+		measure: columnMeasure(cells, part)
+	}))
+})
+
+/** Column `part` of a source. */
+const columnAt = (source: NestedSource, part: number): SourceColumn =>
+	defined(source.columns[part], `column ${part + 1} of ${source.cells.relation}'s sent layout`)
+
 /** The bytes a placeholder's value adds to its Bind message's parameters. */
 const paramBytes = (param: Param): number =>
 	typeof param === "string" ? utf8Length(param) : param.byteLength
@@ -257,15 +287,16 @@ const chunksOf = (
 	return Result.ok(chunks)
 }
 
-/** A placeholder of nested rows as one execution binds it: its column's part, and its source's rows. */
+/** A placeholder of nested rows as one execution binds it: its column's part, and its source. */
 export interface NestedPlaceholder {
 	readonly part: number
-	readonly cells: NestedCells
+	readonly source: NestedSource
 }
 
 /**
  * A statement as its executions read it: its inline text, its staged form, and each placeholder's nested rows, by
- * position, none for a placeholder of any other value; the placeholders of one source share its cells.
+ * position, none for a placeholder of any other value; the placeholders of one source share it, as every statement
+ * that sends the source does.
  */
 export interface StagedStatement {
 	readonly text: Prepared<EmittedText>
@@ -279,7 +310,8 @@ export interface StagedStatement {
  * and filled chunk by chunk, their ANALYZE where the staged statement needs one (StagedAnalyze), then the staged
  * statement. `part` is what the statement itself does, which
  * its inline execution is. `encode` writes the value of the placeholder at a position that carries no nested rows.
- * Each array of nested rows is written once, in the executions that send it.
+ * An inline execution sends each column's array as its source holds it, written once for every statement that sends
+ * it, and the cut reads each column's measure there; a fill writes its chunk's arrays.
  */
 export const executionsOf = (
 	statement: StagedStatement,
@@ -305,7 +337,7 @@ export const executionsOf = (
 				params.push(defined(values.get(position), "the value of a placeholder of no nested rows"))
 				continue
 			}
-			const array = nestedColumn(slot.cells, slot.part, slot.cells.rows)
+			const array = columnAt(slot.source, slot.part).whole
 			if (!array.ok) {
 				return array
 			}
@@ -325,7 +357,7 @@ export const executionsOf = (
 			bind += frame.parameter + paramBytes(defined(values.get(position), "an encoded value"))
 			continue
 		}
-		const measure = columnMeasure(slot.cells, slot.part)
+		const { measure } = columnAt(slot.source, slot.part)
 		bind += frame.parameter + measure.bytes
 		literalsFit &&= measure.units <= literalUnits
 	}
@@ -337,7 +369,8 @@ export const executionsOf = (
 		const slots = mapNonEmpty(carrier.columns, (position) =>
 			defined(statement.nested[position], "a carrier's column of nested rows")
 		)
-		const [{ cells }] = slots
+		const [{ source }] = slots
+		const { cells } = source
 		const parts = mapNonEmpty(slots, (slot) => slot.part)
 		out.push({ text: carrier.create, params: [], part: "create" })
 		const chunks = chunksOf(cells, parts, transport)
