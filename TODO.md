@@ -285,6 +285,24 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   settled-or-unknown outcome the caller can read beside the interruption.
 
 ### Next
+- **A replace of a content-addressed relation diffed by its address (BULKLOAD-STAGE, 2026-11-15; main: when
+  republishing a stored package becomes a workload, not before):** a replace of pantry's Entry reads every stored
+  entry's content of the package (detoasted) for its D EXCEPT A, and every met row's content for its exact-repeat probe.
+  The law first: comparing a digest in place of its content treats sha256 as injective, so the schema states it as a law
+  (a content address: this field determines that one), and the compiler compares by the address only where the schema
+  says so, never because it recognises `Compute.sha256` in a generated field. Today Entry states the digest only as a
+  generated field (pantry src/qti/package.ts:138-143; PostgreSQL's STORED column, edullm migrations/qti init
+  02-structure.sql:970; engine ir/law.ts:61-64 FieldWriting). Then three compile-only steps, none of them an API or a
+  pantry change: (a) an anchored deletion beside its stratum's additions: a delete member whose head is the written
+  fields (check/member.ts:41-53 forbids a generated field in it, pantry src/qti/logins.ts:786 omits digest) anchors on
+  its occurrence, which write/delete/anchor.ts:59-63 refuses today (its head must be the whole heading) and
+  write/schedule/plan.ts:289-307 allows only with no addition to except: `DELETE FROM entry r3 WHERE <the member's
+  conditions on r3> AND NOT EXISTS (SELECT 1 FROM <A's slot carrier> a WHERE a.key = r3.key AND a.address =
+  r3.address)`, A's address computed once at its carrier's fill (write/program/slot-carriers.ts) by the generated
+  column's own expression, so no stored content is read; (b) the insert's exact-repeat probe compares the address, not
+  the content (write/insert/protocol.ts classifyMet ~947-990, FAMWRITE's); (c) a deletion returns the stored address
+  for the outcome (write/delete/exact.ts:111 returnedColumn), not encode(sha256(r3.content)). A fresh publish gains
+  nothing: its D is empty and nothing is met. Not built.
 - **One stratum per family's members, until no family write is unserved (PLANTS-PGWRITE, main's ruling 2026-11-15):** a
   ChangeSet writes a family's members in one stratum, refused by its type (types/changeset/changeset.ts:1261, the
   vocabulary core/refusals.ts:9) and when it compiles (write/frontend/compile.ts:2866), and a refill only in the first
