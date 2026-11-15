@@ -23,9 +23,10 @@
  * split by the width, several pools in one case, every kind of opener in one case, and the permit of a login the server
  * refused drawn again by a later opener: the refused login draws a permit to connect and must give it back at once.
  *
- * Plants (~/.cache/grizzle-release/LEASEBUDGET/plants): transport-without-permit.patch (the cluster's transport opens
- * its sockets without drawing a permit), failed-open-keeps-permit.patch (a session's permit held for its scope even when
- * its connect fails).
+ * @plant test/plants/pg/substrate/transport-without-permit.patch The cluster's transport opens its sockets without drawing a permit, so a
+ * pool's calls past the width connect.
+ * @plant test/plants/pg/substrate/failed-open-keeps-permit.patch A session's permit is held for its scope even when its connect fails, so the
+ * permit of a login the server refused is never drawn again.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

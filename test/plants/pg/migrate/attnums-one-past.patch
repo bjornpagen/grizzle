@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/snapshot/build.ts b/packages/engine/src/deploy/snapshot/build.ts
+index 9fd4bc2f..6ac5a24e 100644
+--- a/packages/engine/src/deploy/snapshot/build.ts
++++ b/packages/engine/src/deploy/snapshot/build.ts
+@@ -413,7 +413,7 @@ export const withAttnums = (
+ 			was?.kind === "relation" && was.ident === r.ident
+ 				? was.attnums + (added.get(r.ident) ?? 0)
+ 				: r.attnums
+-		if (attnums > limit) {
++		if (attnums > limit + 1) {
+ 			return Result.err(
+ 				unsupported(
+ 					SourceLoc(`grizzle generate of schema ${state.schemaName}`, [name]),

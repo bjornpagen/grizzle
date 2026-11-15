@@ -30,8 +30,8 @@
  *   Swaps and chains of relations, fields and handles are family-renames' and histories' (test/pg/migrate), a field
  *   renamed with its type changed histories' and paths'.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): renames-handle-forgotten (the codebook draft ignores a declared handle
- * rename, so the renamed handle takes a new code).
+ * @plant test/plants/pg/migrate/renames-handle-forgotten.patch The codebook draft ignores a declared handle rename, so
+ * the renamed handle takes a new code.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

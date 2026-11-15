@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/deploy/diff/backfill.ts b/packages/engine/src/deploy/diff/backfill.ts
+index 7b4d1de6..a70ff83d 100644
+--- a/packages/engine/src/deploy/diff/backfill.ts
++++ b/packages/engine/src/deploy/diff/backfill.ts
+@@ -998,8 +998,7 @@ const treeDerivation = (
+ 			...key,
+ 			...owner,
+ 			...parent,
+-			...(drawIndex ? [] : [index]),
+-			...foldReads(installation, member, folds)
++			...(drawIndex ? [] : [index])
+ 		])
+ 	}
+ }

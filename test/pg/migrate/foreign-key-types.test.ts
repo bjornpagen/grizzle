@@ -18,10 +18,10 @@
  *   the second.
  * - **Features:** each way's two verdicts, implemented and refused.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): fk-types-implicit-casts (the model forgets PostgreSQL's implicit casts,
- * so it refuses a smallint column referencing a numeric key that PostgreSQL implements).
- *
  * The test's own tables, columns, constraints and types live in a schema of its own, under names no installation has.
+ *
+ * @plant test/plants/pg/migrate/fk-types-implicit-casts.patch The model forgets PostgreSQL's implicit casts, so it
+ * refuses a smallint column referencing a numeric key that PostgreSQL implements.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -13,8 +13,8 @@
  *
  * Features: an addition ending below the bound, on it, one past it and further past it.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): attnums-one-past (a draft admits an addition one attribute number past
- * PostgreSQL's bound).
+ * @plant test/plants/pg/migrate/attnums-one-past.patch A draft admits an addition one attribute number past PostgreSQL's bound, which
+ * PostgreSQL refuses with 54011.
  */
 import { type Case, exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

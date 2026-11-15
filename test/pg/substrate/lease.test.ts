@@ -50,9 +50,14 @@ import { upTo } from "#test/support/up-to.ts"
  * released. A file that waited on one slot of its own would leave another freed slot free while it waits.
  *
  * Features: several slots, files queued behind the first, a released slot other than the first, and a slot released
- * by a file the lease admitted. Plants (~/.cache/grizzle-release/CLUSTER/plants): lease-fixed-slot.patch (the waiting
- * file waits on the slot its process id names, as before 2026-11-14), claim-on-lease.patch (the shared database's claim
- * taken on the lease's connection, inside the transaction that holds its slot, as 5ba895fe did).
+ * by a file the lease admitted.
+ *
+ * @plant test/plants/pg/substrate/lease-fixed-slot.patch The waiting file waits on the slot its process id names, as before 2026-11-14, so a
+ * freed slot other than its own stays free while it waits.
+ * @plant test/plants/pg/substrate/claim-on-lease.patch The shared database's claim is taken on the lease's connection, inside the transaction
+ * that holds its slot, as 5ba895fe did, so the lease's backend holds a transaction id.
+ * @plant test/plants/pg/substrate/wait-takes-snapshot.patch The lease's wait runs in a REPEATABLE READ transaction that reads before it waits,
+ * so a waiting file's backend holds a snapshot.
  */
 interface LeaseCase {
 	readonly slots: number

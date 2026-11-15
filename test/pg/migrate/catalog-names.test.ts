@@ -26,8 +26,8 @@
  *
  * Features: each object kind under the installation-first path, and every catalog type's name taken.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): catalog-names-bare (the printer spells every pg_catalog type it should
- * qualify bare, so the installation's own type of that name answers under the installation-first path).
+ * @plant test/plants/pg/migrate/catalog-names-bare.patch The printer spells every pg_catalog type it should qualify bare, so the
+ * installation's own type of that name answers under the installation-first path.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { type Reached, requiredInSpace } from "@bjornpagen/testing/features"

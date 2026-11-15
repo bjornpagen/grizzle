@@ -25,12 +25,6 @@
  * not; two trees, a root alone, a node of several children, a grandchild; and each fate of a vector key. Each pending situation is aimed at by a case constructed to reach it (a leading owner of a
  * drawn size, keys written from the highest down, a fixed tree shape, a fixed fate), never by filtering draws.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): backfill-family-index-from-one (a family's backfilled index counts
- * from 1) and backfill-vector-stored-key-ignored (members keyed anew are ordered by their new key, not the one their
- * rows were distinct by); (~/.cache/grizzle-release/TREEKEY/plants) tree-copy-crosses-roots (a copy along a tree's
- * parent drawn from the node at the parent's start under any root value) and tree-fold-crosses-roots (a fold over a
- * tree's siblings partitioned by their parent's start alone).
- *
  * A stored index is data: an ordered family whose owner is re-keyed keeps each member's stored index (README "A stored
  * index is data"). A case stores one or two ordered families over one owner, keyed by an int4 id, each family's
  * members in a drawn stored order (keys drawn apart, so mostly out of the stored order), the first folded by sum of x
@@ -51,10 +45,21 @@
  * Features: two ordered families on one owner, a fold over a kept order out of member-key order, a regroup refused
  * and a regroup redrawn as declared, each aimed at by a re-key constructed to reach it.
  *
- * Plants (~/.cache/grizzle-release/ORDERKEEP/plants): orderkeep-member-key-redraw (a re-pointed family's index is drawn
- * again in member-key order), orderkeep-fold-in-key-order (the folds over a kept index run in member-key order),
- * orderkeep-silent-renumber (a kept index is renumbered within each new group, so no regroup is refused) and
- * orderkeep-declared-drop-refused (`--drop M.at` beside a declared M.at is refused).
+ * @plant test/plants/unit/deploy/backfill-counts-from-one.patch A family's backfilled index counts from 1; the counted
+ * family's values disagree with the reference fold.
+ * @plant test/plants/pg/migrate/backfill-vector-stored-key-ignored.patch Members keyed anew are ordered by their new
+ * key, not the one their rows were distinct by; a vector key's fate disagrees with the reference.
+ * @plant test/plants/pg/migrate/tree-copy-crosses-roots.patch A copy along a tree's parent is drawn from the node at the
+ * parent's start under any root value; two trees sharing a start disagree with the pre-order reference.
+ * @plant test/plants/pg/migrate/tree-fold-crosses-roots.patch A fold over a tree's siblings is partitioned by their
+ * parent's start alone; two trees sharing a start disagree with the pre-order reference.
+ * @plant test/plants/pg/migrate/orderkeep-member-key-redraw.patch A re-pointed family's index is drawn again in
+ * member-key order, sameSequence no longer keeping it, so the kept order is lost.
+ * @plant test/plants/pg/migrate/orderkeep-fold-in-key-order.patch The folds over a kept index run in member-key order.
+ * @plant test/plants/pg/migrate/orderkeep-silent-renumber.patch A kept index is renumbered within each new group by the
+ * backfill, whose UPDATE meets the family's (g, at) key with 23505, so a broken regroup is refused under no law of the
+ * family.
+ * @plant test/plants/pg/migrate/orderkeep-declared-drop-refused.patch `--drop M.at` beside a declared M.at is refused.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

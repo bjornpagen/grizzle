@@ -1,0 +1,20 @@
+diff --git a/packages/engine/src/deploy/diff/diff.ts b/packages/engine/src/deploy/diff/diff.ts
+index 7bc41bba..248aa211 100644
+--- a/packages/engine/src/deploy/diff/diff.ts
++++ b/packages/engine/src/deploy/diff/diff.ts
+@@ -2516,15 +2516,6 @@ class Differ {
+ 				)
+ 				return
+ 			case "lawTrigger":
+-				drop(
+-					v.kind,
+-					statement({
+-						kind: "dropTrigger",
+-						name: v.create.name,
+-						table: v.create.table,
+-						ifExists: false
+-					})
+-				)
+ 				return
+ 			case "lawColumn":
+ 				drop(v.kind, statement(alter(v.table, [{ kind: "dropColumn", column: v.column }])))

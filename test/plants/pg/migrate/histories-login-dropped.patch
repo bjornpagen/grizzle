@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/diff/declared.ts b/packages/engine/src/deploy/diff/declared.ts
+index 8e6cf8eb..1228c7f6 100644
+--- a/packages/engine/src/deploy/diff/declared.ts
++++ b/packages/engine/src/deploy/diff/declared.ts
+@@ -1617,7 +1617,7 @@ const loginRenamed = (
+ 	logins: ReadonlyMap<string, HeldLogin>,
+ 	temporaries: TemporaryCensus
+ ): { readonly statements: ReadonlyArray<SqlStatement>; readonly previous: DeploySnapshot } => {
+-	if (logins.size === 0) {
++	if (logins.size >= 0) {
+ 		return { statements: [], previous }
+ 	}
+ 	const moves = [...logins].map(([name, to]) => {

@@ -8,7 +8,9 @@
  * it opened is open, no socket, connection attempt or timer, which the child reports before the case awaits its exit,
  * and the child then exits by itself with status 0.
  *
- * Plants (main's test phase): substrate-exit-pool-never-ended.patch.
+ * @plant test/plants/pg/substrate/substrate-exit-pool-never-ended.patch A DbLayer's scope never ends its session pool
+ * (adapter/wire/session.ts, its end no finalizer of the layer), so a closed Db leaves its sockets holding the process
+ * open.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -1,0 +1,23 @@
+diff --git a/packages/engine/src/deploy/diff/backfill.ts b/packages/engine/src/deploy/diff/backfill.ts
+index 7b4d1de6..398cc842 100644
+--- a/packages/engine/src/deploy/diff/backfill.ts
++++ b/packages/engine/src/deploy/diff/backfill.ts
+@@ -1582,7 +1582,17 @@ const staged = (
+ 		return {
+ 			kind: "case",
+ 			operand: undefined,
+-			whens: [{ when: col(aliasOf(by), hitName), result: col(aliasOf(by), drawn.value) }],
++			whens: [
++				{
++					when: by.derivation.set.some((d) => d.value === indexName)
++						? and([
++								col(aliasOf(by), hitName),
++								binary("<>", col(aliasOf(by), indexName), lit.int(0n, types.bigint))
++							])
++						: col(aliasOf(by), hitName),
++					result: col(aliasOf(by), drawn.value)
++				}
++			],
+ 			else: col("k", column)
+ 		}
+ 	}

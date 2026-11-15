@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/diff/diff.ts b/packages/engine/src/deploy/diff/diff.ts
+index 7bc41bba..6d4b7b7b 100644
+--- a/packages/engine/src/deploy/diff/diff.ts
++++ b/packages/engine/src/deploy/diff/diff.ts
+@@ -2330,7 +2330,7 @@ class Differ {
+ 	): void {
+ 		const { table: t, constraint: c } = v
+ 		if (before !== undefined) {
+-			if (same(this.constraintOf(before, this.prev), c)) {
++			if (this.constraintOf(before, this.prev).name === c.name) {
+ 				return
+ 			}
+ 			this.sql("structure", [alter(t, [{ kind: "dropConstraint", name: c.name }])])

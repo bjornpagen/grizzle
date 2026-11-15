@@ -36,8 +36,11 @@
  * Features: every fixture family, an extension added, an extension dropped, and a version drafted again, each pending
  * one aimed at by drawing from the families that reach it.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): fixtures-redraft-changes (a version drafted again after itself
- * reports a schema change).
+ * @plant test/plants/pg/migrate/fixtures-redraft-changes.patch A version drafted again after itself reports a schema
+ * change: generate compares the finished snapshot with the previous one as objects, never by content.
+ * @plant test/plants/pg/migrate/certificate-whole-statements.patch The install script certificate counts whole
+ * statements again, not ALTER TABLE subcommands (test/support/install-migrate.ts runsInstallScript), so work's first
+ * migration, two law columns and two UNIQUEs in one ALTER TABLE, fails the certificate.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

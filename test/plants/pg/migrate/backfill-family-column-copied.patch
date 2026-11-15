@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/deploy/diff/backfill.ts b/packages/engine/src/deploy/diff/backfill.ts
+index e71c2430..641f9af2 100644
+--- a/packages/engine/src/deploy/diff/backfill.ts
++++ b/packages/engine/src/deploy/diff/backfill.ts
+@@ -1285,9 +1285,7 @@ const copiesOf = (
+ 	return (["owner", "predecessor", "last"] as const).flatMap((axis) =>
+ 		family.axes[axis].flatMap((pair): ReadonlyArray<Copy> =>
+ 			hostFilled(pair.from) &&
+-			!families.has(
+-				cellKey({ table: axis === "last" ? owner : member, column: columnOf(pair.from) })
+-			)
++			families.size >= 0
+ 				? [
+ 						{
+ 							family,

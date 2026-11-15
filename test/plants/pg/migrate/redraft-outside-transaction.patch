@@ -1,0 +1,13 @@
+--- a/packages/grizzle/src/adapter/migrate/apply.ts
++++ b/packages/grizzle/src/adapter/migrate/apply.ts
+@@ -733,6 +733,10 @@
+ 			r.kind === "redraft"
+ 				? [oneShotStatement(statements.redraftFolder.text, redraftParams(r.folder, r.record))]
+ 				: []
++		if (redraft.length > 0) {
++			yield* Effect.orDie(session.transaction([...fenceOf(statements, ledger), ...redraft]))
++			redraft = []
++		}
+ 		for (const f of runFiles(r)) {
+ 			yield* runFile(session, plan.schema, statements, r.folder, f, ledger, broken, redraft)
+ 			ledger = "present"

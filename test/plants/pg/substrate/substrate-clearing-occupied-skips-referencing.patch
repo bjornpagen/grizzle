@@ -1,0 +1,13 @@
+diff --git a/test/support/substrate/replace.ts b/test/support/substrate/replace.ts
+index 690e1301..7e15c654 100644
+--- a/test/support/substrate/replace.ts
++++ b/test/support/substrate/replace.ts
+@@ -55,7 +55,7 @@ export const schemaGroup = (
+ ): Effect.Effect<ResetGroup, SqlError> =>
+ 	Effect.map(
+ 		admin.queryValues(
+-			"SELECT c.relname::text FROM pg_catalog.pg_class AS c WHERE c.relnamespace = $1::text::regnamespace AND c.relkind IN ('r', 'p') ORDER BY 1",
++			"SELECT c.relname::text FROM pg_catalog.pg_class AS c WHERE c.relnamespace = $1::text::regnamespace AND c.relkind IN ('r', 'p') AND NOT EXISTS (SELECT FROM pg_catalog.pg_constraint AS f WHERE f.conrelid = c.oid AND f.contype = 'f') ORDER BY 1",
+ 			[quoteIdent(schema)]
+ 		),
+ 		(rows) =>

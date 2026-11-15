@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/render/generate.ts b/packages/engine/src/deploy/render/generate.ts
+index 4f0619ea..b78ae89b 100644
+--- a/packages/engine/src/deploy/render/generate.ts
++++ b/packages/engine/src/deploy/render/generate.ts
+@@ -223,7 +223,7 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
+ 		const finished = unwrap(
+ 			finishSnapshot(unwrap(withAttnums(state, applied.previous, plan, tableMaxColumns.value)))
+ 		)
+-		const changed = plan.steps.length > 0 || comparable(finished) !== comparable(previous)
++		const changed = plan.steps.length > 0 || finished !== previous
+ 		const snapshot = changed ? finished : previous
+ 		const drafted = changed ? planFiles(plan) : []
+ 		const files = drafted.map((f) => ({ name: f.name, text: unwrap(renderFile(f)) }))

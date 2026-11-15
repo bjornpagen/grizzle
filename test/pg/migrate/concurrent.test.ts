@@ -31,11 +31,13 @@
  * case granting on the vector extension's schema; the two doors in one case; three installations at once. Each is
  * aimed at while pending.
  *
- * Plants (~/.cache/grizzle-release/DEFACL/plants): database-lock-dropped (databaseWide emits a statement's own command
- * alone: a setup refused, XX000 on the database default); guards-before-732aa5b2 (the database default and a grant on
- * the database alone behind the lock: a publish refused, XX000 on ALTER DEFAULT PRIVILEGES ... ON FUNCTIONS, the
- * defect 2484d498 met); lock-glued-into-one-command (the lock and its statement one command, as 732aa5b2 printed
- * them: the script door refused, 42601).
+ * @plant test/plants/pg/migrate/database-lock-dropped.patch databaseWide emits a statement's own command alone, so a
+ * setup is refused with XX000 on the database default.
+ * @plant test/plants/pg/migrate/guards-before-732aa5b2.patch The database default and a grant on the database alone
+ * behind the lock, so a publish is refused with XX000 on ALTER DEFAULT PRIVILEGES ... ON FUNCTIONS, the defect 2484d498
+ * met.
+ * @plant test/plants/pg/migrate/lock-glued-into-one-command.patch The lock and its statement one command, as 732aa5b2
+ * printed them, so the script door is refused with 42601.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

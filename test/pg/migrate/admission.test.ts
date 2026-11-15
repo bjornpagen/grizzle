@@ -23,8 +23,8 @@
  *
  * Features: each edit kind with its outcome, admitted or refused.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): admission-unexpected-ignored (the drift check reports what the
- * snapshot requires and the catalog lacks, never what the catalog holds beyond it, so an extra index is admitted).
+ * @plant test/plants/pg/migrate/admission-unexpected-ignored.patch The drift check reports what the snapshot requires and the catalog
+ * lacks, never what the catalog holds beyond it, so an extra index is admitted.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

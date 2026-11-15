@@ -1,0 +1,13 @@
+diff --git a/test/pg/substrate/temporal.test.ts b/test/pg/substrate/temporal.test.ts
+index 8679ab0d..7c79ca21 100644
+--- a/test/pg/substrate/temporal.test.ts
++++ b/test/pg/substrate/temporal.test.ts
+@@ -71,7 +71,7 @@ const spanColumns =
+ /** The coverage lowering in a schema: btree_gist in it for the scalar key column, the target, and the covered source. */
+ const coverageDdl = (schema: string, deferral: "immediate" | "deferred"): ReadonlyArray<string> => [
+ 	`CREATE EXTENSION IF NOT EXISTS btree_gist SCHEMA ${quoteIdent(schema)}`,
+-	`CREATE TABLE ${qualified(schema, "target")} (${spanColumns}, CONSTRAINT target_span UNIQUE NULLS DISTINCT (k, r WITHOUT OVERLAPS))`,
++	`CREATE TABLE ${qualified(schema, "target")} (${spanColumns}, CONSTRAINT target_span UNIQUE NULLS DISTINCT (k, r))`,
+ 	`CREATE TABLE ${qualified(schema, "source")} (${spanColumns}, CONSTRAINT source_covered FOREIGN KEY (k, PERIOD r) REFERENCES ${qualified(schema, "target")} (k, PERIOD r) MATCH SIMPLE ${deferral === "deferred" ? "DEFERRABLE INITIALLY DEFERRED" : "NOT DEFERRABLE"})`
+ ]
+ 

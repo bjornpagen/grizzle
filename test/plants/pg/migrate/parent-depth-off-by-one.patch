@@ -1,0 +1,17 @@
+diff --git a/packages/engine/src/deploy/diff/backfill.ts b/packages/engine/src/deploy/diff/backfill.ts
+index 1f7b94ae..f35ff85b 100644
+--- a/packages/engine/src/deploy/diff/backfill.ts
++++ b/packages/engine/src/deploy/diff/backfill.ts
+@@ -1284,7 +1284,11 @@ const parentUpdate = (
+ 						over(
+ 							"sum",
+ 							[col("e", "__step")],
+-							window(rootOf("e"), [col("e", "__at"), col("e", "__step")], false)
++							window(
++								rootOf("e"),
++								[col("e", "__at"), binary("-", int(0n), col("e", "__step"))],
++								false
++							)
+ 						),
+ 						"__level"
+ 					)

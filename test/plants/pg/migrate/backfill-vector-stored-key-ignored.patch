@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/diff/backfill.ts b/packages/engine/src/deploy/diff/backfill.ts
+index 7b4d1de6..f7afa80e 100644
+--- a/packages/engine/src/deploy/diff/backfill.ts
++++ b/packages/engine/src/deploy/diff/backfill.ts
+@@ -401,7 +401,7 @@ const memberKey = (
+ 	added: ReadonlySet<string>
+ ): NonEmptyReadonlyArray<string> => {
+ 	const own = mapNonEmpty(member.primaryFields, (f) => f.column)
+-	if (!own.some((c) => added.has(c))) {
++	if (own.length > 0) {
+ 		return own
+ 	}
+ 	const was = input.previous.relations[member.name]

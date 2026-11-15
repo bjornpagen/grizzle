@@ -1,0 +1,13 @@
+diff --git a/test/support/substrate/shared.ts b/test/support/substrate/shared.ts
+index 7da04e01..c44dfd81 100644
+--- a/test/support/substrate/shared.ts
++++ b/test/support/substrate/shared.ts
+@@ -56,8 +56,6 @@ SELECT l.what FROM (
+ 			AND e.extnamespace = pg_catalog.to_regnamespace('vector_ext'))
+ 	UNION ALL SELECT 'relation public.' || c.relname::text FROM pg_catalog.pg_class AS c
+ 	WHERE c.relnamespace = pg_catalog.to_regnamespace('public')
+-	UNION ALL SELECT 'routine public.' || p.proname::text FROM pg_catalog.pg_proc AS p
+-	WHERE p.pronamespace = pg_catalog.to_regnamespace('public')
+ 	UNION ALL SELECT 'type public.' || t.typname::text FROM pg_catalog.pg_type AS t
+ 	WHERE t.typnamespace = pg_catalog.to_regnamespace('public') AND t.typrelid = 0::oid AND t.typcategory <> 'A'
+ 	UNION ALL SELECT 'privileges on schema public' FROM pg_catalog.pg_namespace AS n

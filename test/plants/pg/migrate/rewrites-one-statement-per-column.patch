@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/deploy/diff/diff.ts b/packages/engine/src/deploy/diff/diff.ts
+index 7bc41bba..57d06d11 100644
+--- a/packages/engine/src/deploy/diff/diff.ts
++++ b/packages/engine/src/deploy/diff/diff.ts
+@@ -1032,11 +1032,6 @@ class Differ {
+ 	 * pass by pass), and nothing between the two reads it but what reads the table, which may read it sooner. */
+ 	alter(slot: TableSlot, table: ObjectName, actions: NonEmptyReadonlyArray<Alteration>): void {
+ 		const key = nameKey(table)
+-		const held = this.alterations[slot].get(key)
+-		if (held !== undefined) {
+-			appendAll(held.rest, actions)
+-			return
+-		}
+ 		const [first, ...rest] = actions
+ 		const alteration: TableAlteration = { table, first, rest }
+ 		this.alterations[slot].set(key, alteration)

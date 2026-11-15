@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/render/sql.ts b/packages/engine/src/deploy/render/sql.ts
+index d30fad65..911d33ce 100644
+--- a/packages/engine/src/deploy/render/sql.ts
++++ b/packages/engine/src/deploy/render/sql.ts
+@@ -204,7 +204,7 @@ const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
+ 												option: "ERRCODE",
+ 												value: lit.text("integrity_constraint_violation", types.text)
+ 											},
+-											{ option: "CONSTRAINT", value: lit.text(action.law, types.text) }
++											{ option: "CONSTRAINT", value: lit.text(`${action.law}_elsewhere`, types.text) }
+ 										]
+ 									}
+ 								]

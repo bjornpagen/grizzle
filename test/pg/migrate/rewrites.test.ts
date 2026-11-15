@@ -21,8 +21,8 @@
  *
  * The event trigger is the database's, so the file builds a database of its own (Substrate.isolatedLayer).
  *
- * Plant (~/.cache/grizzle-release/MIGBATCH/plants/rewrites-one-statement-per-column.patch): the diff drafts one ALTER
- * TABLE per subcommand again, so a table gaining two generated columns is rewritten twice.
+ * @plant test/plants/pg/migrate/rewrites-one-statement-per-column.patch The diff drafts one ALTER TABLE per
+ * subcommand again, so a table gaining two generated columns is rewritten twice.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

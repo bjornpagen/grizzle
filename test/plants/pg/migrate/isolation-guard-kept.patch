@@ -1,0 +1,20 @@
+diff --git a/packages/engine/src/deploy/diff/diff.ts b/packages/engine/src/deploy/diff/diff.ts
+index 7bc41bba..2f5c632c 100644
+--- a/packages/engine/src/deploy/diff/diff.ts
++++ b/packages/engine/src/deploy/diff/diff.ts
+@@ -2576,15 +2576,6 @@ class Differ {
+ 				])
+ 				return
+ 			case "isolationTrigger":
+-				drop(
+-					v.kind,
+-					statement({
+-						kind: "dropTrigger",
+-						name: v.create.name,
+-						table: v.create.table,
+-						ifExists: false
+-					})
+-				)
+ 				return
+ 		}
+ 	}

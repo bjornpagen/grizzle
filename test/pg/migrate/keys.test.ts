@@ -22,8 +22,8 @@
  * Features: a key moved over rows that keep it, over rows that repeat it, and over rows that repeat it in the first of
  * two pending folders, each a steered case constructs while it is pending.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): keys-swap-unrecorded (a key's index built under its swap name is no
- * Swap of the plan, so a refused build names no law).
+ * @plant test/plants/pg/migrate/keys-swap-unrecorded.patch A key's index built under its swap name is no Swap of the plan, so a
+ * refused build names no law.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

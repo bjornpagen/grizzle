@@ -41,14 +41,19 @@
  *
  * Features: each family kind and fold, a copy, the owner, member and count renamed, relations, fields and handles
  * swapped and chained, the roster renamed, a selected fold's handle renamed, and stored members; for a changed filler,
- * each change on each kind, trees among them, and an ordered family's group change kept, refused and redrawn as
- * declared, each aimed at by a case constructed to reach it.
+ * each change on each kind, trees among them, and an ordered family's group change kept, refused with its member moved
+ * onto a family (the key check's refusal) and onto none (VALIDATE's), and redrawn as declared, each aimed at by a case
+ * constructed to reach it.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): family-renames-law-columns-rebuilt (a declared rename restates no law
- * column, so the family's law columns are dropped and drawn again) and family-changes-stale-filler (a field whose filler
- * changes keeps its stale values); (~/.cache/grizzle-release/ORDERKEEP/plants) orderkeep-member-key-redraw (a
- * re-pointed family's index is drawn again in member-key order) and orderkeep-silent-renumber (a kept index is
- * renumbered within each new group, so no regroup is refused).
+ * @plant test/plants/pg/migrate/family-renames-law-columns-rebuilt.patch A declared rename restates no law column, so
+ * the family's law columns are dropped and drawn again; the rename's no-stored-byte oracle fails.
+ * @plant test/plants/pg/migrate/family-changes-stale-filler.patch A field whose filler changes keeps its stale values.
+ * @plant test/plants/pg/migrate/orderkeep-member-key-redraw.patch A re-pointed family's index is drawn again in
+ * member-key order.
+ * @plant test/plants/pg/migrate/orderkeep-silent-renumber.patch A kept index is renumbered within each new group by the
+ * backfill, which writes it on every row of the family, so a rename updates rows.
+ * @plant test/plants/pg/migrate/violation-check-raises-under-another-name.patch The violation check raises under
+ * `<law>_elsewhere` (render/sql.ts), so a broken regroup's refusal names no law of the family.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -1009,7 +1014,7 @@ type ChangeFeature =
 	| Change
 	| "stored members"
 	| "group kept on an ordered family"
-	| "group refused on an ordered family"
+	| `group refused, moved onto ${Onto}, on an ordered family`
 	| "group redrawn as declared on an ordered family"
 
 /** What a reshaping history changes at its third version: the field its fold steps over, the field its copy reads,
@@ -1025,10 +1030,18 @@ type Change = "fold step" | "copy target" | "group" | "fold added"
  */
 type Regroup =
 	| { readonly kind: "kept"; readonly onto: ReadonlyMap<number, number> }
-	| { readonly kind: "broken"; readonly moved: number; readonly to: number }
+	| { readonly kind: "broken"; readonly moved: number; readonly to: number; readonly onto: Onto }
 	| { readonly kind: "redrawn" }
 
-const regroups = ["kept", "broken", "redrawn"] as const
+/**
+ * Where a broken regroup moves its member: onto an owner holding a family under g, whose member at index 0 the moved
+ * one then repeats, so the backfill's check of the family's key (h, at) refuses it under the family's law; or onto an
+ * owner holding none, so only the gap the owner it leaves starts with breaks a law, at VALIDATE.
+ */
+const ontos = ["a family", "no family"] as const
+type Onto = (typeof ontos)[number]
+
+const regroups = ["kept", "broken onto a family", "broken onto no family", "redrawn"] as const
 type RegroupKind = (typeof regroups)[number]
 
 interface ChangeCase {
@@ -1073,11 +1086,25 @@ const regroupOf =
 	): Gen<Regroup> =>
 	(source) => {
 		const owners = Arr.map(storedRows(stored, "Owner"), (o) => valueOf(o, "id"))
-		const firsts = firstsOfSeveral(stored)
-		const admitted: Arr.NonEmptyReadonlyArray<RegroupKind> =
-			owners.length > 1 && Arr.isReadonlyArrayNonEmpty(firsts)
-				? ["kept", "broken", "redrawn"]
-				: ["kept", "redrawn"]
+		const members = storedRows(stored, "Member")
+		/** Each move of a first member of several onto another owner, by whether that owner holds a family under g. */
+		const moves = (onto: Onto) =>
+			Arr.flatMap(firstsOfSeveral(stored), (first) =>
+				Arr.flatMap(owners, (to) =>
+					to !== valueOf(first, "g") &&
+					Arr.some(members, (m) => valueOf(m, "g") === to) === (onto === "a family")
+						? [{ moved: valueOf(first, "member"), to, onto }]
+						: []
+				)
+			)
+		const broken = (onto: Onto) => source.draw(element(nonEmpty(moves(onto), "a move")))
+		const admitted: Arr.NonEmptyReadonlyArray<RegroupKind> = [
+			"kept",
+			...Arr.flatMap(ontos, (onto): ReadonlyArray<RegroupKind> =>
+				Arr.isReadonlyArrayNonEmpty(moves(onto)) ? [`broken onto ${onto}`] : []
+			),
+			"redrawn"
+		]
 		switch (source.draw(kind(admitted))) {
 			case "kept": {
 				const onto = source.draw(shuffled(owners, { min: owners.length, max: owners.length }))
@@ -1088,22 +1115,10 @@ const regroupOf =
 					)
 				}
 			}
-			case "broken": {
-				const first = source.draw(element(nonEmpty(firsts, "a family of several")))
-				const from = valueOf(first, "g")
-				return {
-					kind: "broken",
-					moved: valueOf(first, "member"),
-					to: source.draw(
-						element(
-							nonEmpty(
-								Arr.filter(owners, (o) => o !== from),
-								"another owner"
-							)
-						)
-					)
-				}
-			}
+			case "broken onto a family":
+				return { kind: "broken", ...broken("a family") }
+			case "broken onto no family":
+				return { kind: "broken", ...broken("no family") }
 			case "redrawn":
 				return { kind: "redrawn" }
 		}
@@ -1155,8 +1170,9 @@ const changeCaseGen: Gen<ChangeCase> = changeCaseOf(
 	swarmedRegroup
 )
 
-/** An ordered family's group change regrouped as `kind` says, over rows that admit it: two or three owners, and the
- * first two of two to six members sharing their owner under g. */
+/** An ordered family's group change regrouped as `kind` says over two or three owners and the first two of two to six
+ * members sharing their owner under g, where those rows admit it, and kept where they do not: a broken regroup onto a
+ * family needs another owner holding one, onto no family another owner holding none. */
 const regroupedAs = (kind: RegroupKind): Gen<ChangeCase> =>
 	changeCaseOf(
 		constant<Change>("group"),
@@ -1165,13 +1181,17 @@ const regroupedAs = (kind: RegroupKind): Gen<ChangeCase> =>
 			...source.draw(familyRowsOf({ owners: int(2, 3), total: int(2, 6), sharing: true })),
 			source.draw(spareRows)
 		],
-		() => () => constant(kind)
+		() => (admitted) => constant(Arr.contains(admitted, kind) ? kind : "kept")
 	)
 
 /** The cases each required regroup is aimed at while it is pending (Case.steering). */
 const changeAims: ReadonlyArray<Aim<ChangeCase, ChangeFeature>> = [
 	["group kept on an ordered family", regroupedAs("kept")],
-	["group refused on an ordered family", regroupedAs("broken")],
+	["group refused, moved onto a family, on an ordered family", regroupedAs("broken onto a family")],
+	[
+		"group refused, moved onto no family, on an ordered family",
+		regroupedAs("broken onto no family")
+	],
 	["group redrawn as declared on an ordered family", regroupedAs("redrawn")]
 ]
 
@@ -1267,7 +1287,7 @@ const regroupFeature = (regroup: Regroup): ChangeFeature => {
 		case "kept":
 			return "group kept on an ordered family"
 		case "broken":
-			return "group refused on an ordered family"
+			return `group refused, moved onto ${regroup.onto}, on an ordered family`
 		case "redrawn":
 			return "group redrawn as declared on an ordered family"
 	}
@@ -1481,7 +1501,8 @@ layer(Substrate.layer)(
 									"fold selecting by weight",
 									"stored members",
 									"group kept on an ordered family",
-									"group refused on an ordered family",
+									"group refused, moved onto a family, on an ordered family",
+									"group refused, moved onto no family, on an ordered family",
 									"group redrawn as declared on an ordered family"
 								],
 								{ cases: 60, sense: notesOnly }

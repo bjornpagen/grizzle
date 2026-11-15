@@ -1,0 +1,18 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index f376c18d..87128185 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -1378,7 +1378,12 @@ type Emitter = (command: Command) => NonEmptyReadonlyArray<Command>
+ 
+ const own: Emitter = (command) => [command]
+ 
+-const databaseWide: Emitter = (command) => [(out) => writeCommand(out, databaseLock), command]
++const databaseWide: Emitter = (command) => [
++	(out) => {
++		terminated(out, (lines) => writeCommand(lines, databaseLock))
++		command(out)
++	}
++]
+ 
+ /**
+  * How a GRANT or REVOKE on each kind of object is emitted (Emitter): the current database's ACL is a row of

@@ -33,9 +33,9 @@
  * domain; a text domain under a parameter that stays stored, and one staying for the parameter once its stored field is
  * dropped.
  *
- * Plants (~/.cache/grizzle-release/CONTRACTDOMAIN/plants): param-domain-identity-alone.patch names a parameter's domain
- * by its place and its pattern's definition alone, as the first version was named, so `slug`'s domain keeps its name
- * across the change of its base, and the draft is refused as UnsupportedOperation, changing the base type of a domain.
+ * @plant test/plants/pg/migrate/param-domain-identity-alone.patch A parameter's domain named by its place and its
+ * pattern's definition alone, as the first version was named, so `slug`'s domain keeps its name across the change of
+ * its base, and the draft is refused as UnsupportedOperation, changing the base type of a domain.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { type Reached, requiredInSpace } from "@bjornpagen/testing/features"

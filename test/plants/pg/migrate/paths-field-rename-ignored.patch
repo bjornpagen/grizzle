@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/diff/declared.ts b/packages/engine/src/deploy/diff/declared.ts
+index 8e6cf8eb..caaff366 100644
+--- a/packages/engine/src/deploy/diff/declared.ts
++++ b/packages/engine/src/deploy/diff/declared.ts
+@@ -507,7 +507,7 @@ export const applyDeclarations = (
+ 			anew.set(d.relation, (anew.get(d.relation) ?? new Set<string>()).add(d.field))
+ 		}
+ 	}
+-	const relations = renamedSnapshot(previous, target, renamed, fields, anew, temporaries)
++	const relations = renamedSnapshot(previous, target, renamed, new Map(), anew, temporaries)
+ 	const names = previousNames(before, after, renamed, fields, anew, handles, handlesAway)
+ 	const columns = lawColumnRenames(relations.previous, installation, names, temporaries)
+ 	/** The tables a declaration touched: each renamed relation's, each one whose fields are renamed, and each whose law

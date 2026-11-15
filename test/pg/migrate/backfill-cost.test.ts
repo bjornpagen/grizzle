@@ -29,12 +29,14 @@ import { searched } from "@bjornpagen/testing/vitest"
  * backfill meets its rows at their tids (deploy/diff/backfill.ts rowColumn), so a tid carried from before a row moved
  * would meet no row, and the row would keep its placeholder.
  *
- * Plants (~/.cache/grizzle-release/TREECOST/plants): tree-closure-restored (each row's children counted over the
- * closure of its tree's parents, under a WITH RECURSIVE, as before 2026-11-14) and tree-children-paired (each row's
- * children counted over every pair of its tree's rows) turn the law red; tids-materialized-earlier (a table's drawn rows
- * materialized, with their tids, in a statement before two UPDATEs that each meet them) turns the reference red.
- *
  * The file builds Substrate.isolatedLayer: the old-form tree installs under its own fixed schema name, old_tree.
+ *
+ * @plant test/plants/unit/deploy/tree-closure-restored.patch Each row's children counted over the closure of its tree's
+ * parents, under a WITH RECURSIVE, as before 2026-11-14; the law of linear growth fails.
+ * @plant test/plants/pg/migrate/tree-children-paired.patch Each row's children counted over every pair of its tree's
+ * rows; the law of linear growth fails.
+ * @plant test/plants/pg/migrate/tids-materialized-earlier.patch A table's drawn rows materialized, with their tids, in a
+ * statement before two UPDATEs that each meet them; the reference's rows fail.
  */
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"

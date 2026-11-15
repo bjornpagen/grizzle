@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/deploy/diff/diff.ts b/packages/engine/src/deploy/diff/diff.ts
+index 7bc41bba..4d02fb91 100644
+--- a/packages/engine/src/deploy/diff/diff.ts
++++ b/packages/engine/src/deploy/diff/diff.ts
+@@ -1130,7 +1130,6 @@ class Differ {
+ 	 * drop one; recorded as the plan's Swap, which the folder's laws read a refusal of the build by. */
+ 	swapName(table: ObjectName, name: string): string {
+ 		const swap = this.temporary(identity.swap(name))
+-		this.swaps.push({ table: table.name, name: swap, of: name })
+ 		return swap
+ 	}
+ 

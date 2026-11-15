@@ -38,8 +38,8 @@
  *
  * Features: every command kind, each reached by a generated program.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): ledger-resume-every-file (a partial folder resumes at its first file,
- * running again the files the ledger recorded).
+ * @plant test/plants/pg/migrate/ledger-resume-every-file.patch A partial folder resumes at its first file, running again the files the
+ * ledger recorded.
  */
 import {
 	accepting,

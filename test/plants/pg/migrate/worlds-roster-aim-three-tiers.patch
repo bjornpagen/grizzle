@@ -1,0 +1,13 @@
+diff --git a/test/pg/migrate/worlds.test.ts b/test/pg/migrate/worlds.test.ts
+index 1dbc50ad..53c873bc 100644
+--- a/test/pg/migrate/worlds.test.ts
++++ b/test/pg/migrate/worlds.test.ts
+@@ -318,7 +318,7 @@ const aims: ReadonlyArray<Aim<History, WorldsFeature>> = [
+ 	["the login is renamed back", twice(startOf(anyKnobs), turnOf.login)],
+ 	[
+ 		"a roster under a world view grows",
+-		once(startOf({ ...anyKnobs, tiers: constant<Knobs["tiers"]>(["Free", "Pro"]) }), turnOf.tiers)
++		once(startOf({ ...anyKnobs, tiers: constant<Knobs["tiers"]>(["Free", "Pro", "Team"]) }), turnOf.tiers)
+ 	],
+ 	[
+ 		"a column under a derived relation and a world view is retyped",

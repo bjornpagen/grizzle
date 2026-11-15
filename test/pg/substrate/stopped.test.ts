@@ -47,7 +47,8 @@ import { upTo } from "#test/support/up-to.ts"
  * ends before the search that stopped it returns, so no schema outlives it into the next test, or into the file's
  * release, which fails on any.
  *
- * Plants (main's test phase): substrate-stopped-release-keeps-roles.patch.
+ * @plant test/plants/pg/substrate/substrate-stopped-release-keeps-roles.patch A role's release drops what the role owns
+ * and keeps the role (substrate.ts dropRole), so a role a stopped case created outlives the search.
  */
 type Stop = "cut" | "hung" | "interrupted"
 

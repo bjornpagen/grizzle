@@ -31,8 +31,8 @@
  * over rows that break it, an intermediate folder refused, and a refused write naming its law by a foreign key and by a
  * trigger, each pending one constructed.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): lowering-triggers-kept (a migration keeps a rule's law triggers when the
- * rule leaves them for foreign keys).
+ * @plant test/plants/pg/migrate/lowering-triggers-kept.patch A migration keeps a rule's law triggers when the rule leaves them for
+ * foreign keys.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -48,9 +48,12 @@
  * requires every legal intent, each steered case aiming its first B intent at the pending one its turn falls on as the
  * steering reads it after every case (steerEvery 1), so the steered phase's one case per intent reaches them all.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): paths-relation-rename-ignored (a draft ignores every declared relation
- * rename) and paths-field-rename-ignored (a draft ignores every declared field rename); ROLEVARS/plants:
- * intents-unaimed (a steered case runs its drawn intents).
+ * @plant test/plants/pg/migrate/paths-relation-rename-ignored.patch A draft ignores every declared relation rename in
+ * the snapshot it renames, so a renamed relation's path fails.
+ * @plant test/plants/pg/migrate/paths-field-rename-ignored.patch A draft ignores every declared field rename in the
+ * snapshot it renames, so a renamed field's path fails.
+ * @plant test/plants/pg/migrate/intents-unaimed.patch A steered case runs its drawn intents, never the pending one its
+ * turn aims at, so the intents stream leaves a required intent unreached.
  */
 import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

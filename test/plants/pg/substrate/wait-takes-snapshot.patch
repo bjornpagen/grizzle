@@ -1,0 +1,14 @@
+diff --git a/test/support/substrate/shared.ts b/test/support/substrate/shared.ts
+index 7da04e01..8f4dddfa 100644
+--- a/test/support/substrate/shared.ts
++++ b/test/support/substrate/shared.ts
+@@ -155,7 +155,8 @@ const awaitLock = (lock: PgConnection, table: string): Effect.Effect<void, SqlEr
+ 		if (yield* tryLock(lock, table)) {
+ 			return
+ 		}
+-		yield* lock.query("BEGIN", [])
++		yield* lock.query("BEGIN ISOLATION LEVEL REPEATABLE READ", [])
++		yield* lock.query("SELECT 1", [])
+ 		yield* lock.query(`LOCK TABLE ${leaseTable(table)} IN EXCLUSIVE MODE`, [])
+ 	})
+ 

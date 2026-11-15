@@ -1,0 +1,13 @@
+diff --git a/test/support/pg.ts b/test/support/pg.ts
+index b0e34b8a..4417eb0c 100644
+--- a/test/support/pg.ts
++++ b/test/support/pg.ts
+@@ -638,7 +638,7 @@ export const session = (
+ 	cluster: BudgetedCluster,
+ 	options: SessionOptions
+ ): Effect.Effect<PgConnection, SqlError, Scope.Scope> =>
+-	cluster.budget.opened(connectOnce(cluster, options))
++	Effect.andThen(cluster.budget.within(1), connectOnce(cluster, options))
+ 
+ /**
+  * The session pool of a test's DbLayer: one session per core (testPoolMax), no session closed for idleness while its

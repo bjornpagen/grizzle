@@ -1,0 +1,78 @@
+diff --git a/packages/engine/src/deploy/diff/backfill.ts b/packages/engine/src/deploy/diff/backfill.ts
+index 7b4d1de6..acb9ada7 100644
+--- a/packages/engine/src/deploy/diff/backfill.ts
++++ b/packages/engine/src/deploy/diff/backfill.ts
+@@ -1681,7 +1681,7 @@ const derivationCte = (
+  * reads of another table's drawn columns it draws itself, by the same derivations. Each table's rows are written once,
+  * so a migration writes one new version of each row it backfills, however many of its families' columns it draws.
+  */
+-const passes = (derivations: ReadonlyArray<Derivation>): ReadonlyArray<Update> => {
++const passes = (derivations: ReadonlyArray<Derivation>): ReadonlyArray<SqlStatement> => {
+ 	const named = derivations.map((derivation, i): Named => ({
+ 		name: drawingName(i + 1),
+ 		derivation
+@@ -1701,7 +1701,7 @@ const passes = (derivations: ReadonlyArray<Derivation>): ReadonlyArray<Update> =
+ 		const key = nameKey(n.derivation.table)
+ 		tables.set(key, appendNonEmpty(tables.get(key) ?? [], n))
+ 	}
+-	return [...tables.values()].map((own): Update => {
++	return [...tables.values()].flatMap((own): ReadonlyArray<SqlStatement> => {
+ 		const needed = new Set<Named>()
+ 		const need = (n: Named): void => {
+ 			if (!needed.has(n)) {
+@@ -1719,16 +1719,32 @@ const passes = (derivations: ReadonlyArray<Derivation>): ReadonlyArray<Update> =
+ 		if (!isNonEmpty(ctes)) {
+ 			throw defect("a table's UPDATE reads its own derivations")
+ 		}
+-		return {
+-			kind: "update",
+-			with: { recursive: false, ctes },
+-			table,
+-			alias: "t",
+-			set: mapNonEmpty(columns, (column) => ({ column, value: col("b", column) })),
+-			from: [derived(staged(table, columns, ownerOf, true), "b", [], false)],
+-			where: eq(col("t", rowColumn), col("b", rowColumn)),
+-			returning: []
+-		}
++		const view = objectName(table.schema, `__staged_${table.name}`)
++		const stagedRows = staged(table, columns, ownerOf, true)
++		const [head, ...tail] = columns
++		const halves: ReadonlyArray<NonEmptyReadonlyArray<string>> = isNonEmpty(tail)
++			? [[head], tail]
++			: [[head]]
++		return [
++			{
++				kind: "createMaterializedView",
++				name: view,
++				columns: ["__tid", ...columns],
++				query: { ...stagedRows, with: { recursive: false, ctes } }
++			},
++			...halves.map(
++				(half): Update => ({
++					kind: "update",
++					with: undefined,
++					table,
++					alias: "t",
++					set: mapNonEmpty(half, (column) => ({ column, value: col("b", column) })),
++					from: [{ kind: "table", table: view, alias: "b" }],
++					where: eq(col("t", rowColumn), col("b", "__tid")),
++					returning: []
++				})
++			)
++		]
+ 	})
+ }
+ 
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index f376c18d..5f636b1f 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -1829,7 +1829,7 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
+ 				`CREATE MATERIALIZED VIEW ${printObjectName(statement.name)} (${printIdentList(statement.columns)}) AS`
+ 			)
+ 			selectBlock(out, statement.query)
+-			return out.line("WITH NO DATA")
++			return out.line("WITH DATA")
+ 		case "createView":
+ 			out.line(
+ 				`CREATE VIEW ${printObjectName(statement.name)} (${printIdentList(statement.columns)})${statement.barrier ? " WITH (security_barrier)" : ""} AS`

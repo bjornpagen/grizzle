@@ -18,8 +18,8 @@
  *
  * Features: each place, the ledger's lock, a file's statement, a ledger row and the drift check's replay.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): lock-table-settings-swapped (the refusal reports
- * max_connections as max_locks_per_transaction and the other way round).
+ * @plant test/plants/pg/migrate/lock-table-settings-swapped.patch The refusal reports max_connections as max_locks_per_transaction and
+ * the other way round.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/codec/bits.ts b/packages/engine/src/codec/bits.ts
+index 835d2dc5..c56b6bfe 100644
+--- a/packages/engine/src/codec/bits.ts
++++ b/packages/engine/src/codec/bits.ts
+@@ -148,7 +148,7 @@ export const andNot = (target: Accumulator, source: BitString): void =>
+  */
+ const wordCount = (x: number): number => {
+ 	const pairs = x - ((x >>> 1) & 0x5555_5555)
+-	const nibbles = (pairs & 0x3333_3333) + ((pairs >>> 2) & 0x3333_3333)
++	const nibbles = (pairs & 0x3333_3333) + ((pairs >>> 2) & 0x1111_1111)
+ 	const bytes = (nibbles + (nibbles >>> 4)) & 0x0f0f_0f0f
+ 	return Math.imul(bytes, 0x0101_0101) >>> 24
+ }

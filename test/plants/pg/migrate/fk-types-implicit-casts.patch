@@ -1,0 +1,16 @@
+diff --git a/test/support/migrate/interpret.ts b/test/support/migrate/interpret.ts
+index a20c7a9c..79c40db9 100644
+--- a/test/support/migrate/interpret.ts
++++ b/test/support/migrate/interpret.ts
+@@ -395,10 +395,7 @@ const comparable = (from: TypeRef, to: TypeRef): boolean => {
+ 	if (from.array) {
+ 		return false
+ 	}
+-	return (
+-		Arr.some(families, (f) => f.has(from.name) && f.has(to.name)) ||
+-		implicitCasts.get(from.name)?.has(to.name) === true
+-	)
++	return Arr.some(families, (f) => f.has(from.name) && f.has(to.name))
+ }
+ 
+ /** The columns an expression names. */

@@ -14,8 +14,8 @@
  * Features: an owner with no member, an owner of several members, members written out of their key order; each pending
  * one aimed at by a case constructed to reach it.
  *
- * Plant (~/.cache/grizzle-release/MIGBATCH/plants/backfill-one-update-per-part.patch): no member part joins its
- * table's UPDATE, so Member takes two.
+ * @plant test/plants/unit/deploy/backfill-pass-per-derivation.patch No member part joins its table's UPDATE, each
+ * derivation written by an UPDATE of its own, so Member takes two.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

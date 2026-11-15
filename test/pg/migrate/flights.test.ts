@@ -17,8 +17,8 @@
  * - **Features:** an absent ledger admitted, every folder in one apply, a no-transaction file, the rest of a history
  *   after its start, and nothing pending.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): flights-drift-extra (the drift check reads the server's lock-table
- * settings in a flight of their own before its own).
+ * @plant test/plants/pg/migrate/flights-drift-extra.patch The drift check reads the server's lock-table settings in a flight of their
+ * own before its own.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

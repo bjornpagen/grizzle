@@ -39,8 +39,8 @@
  * Features: every command kind, chains of renames, a relation renamed back, a world entry over a renamed relation,
  * renames and drops declared by identity, and a renamed login kept in place.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): histories-login-dropped (a draft ignores every declared login rename,
- * so the login's PostgreSQL role is dropped and created again under its new name).
+ * @plant test/plants/pg/migrate/histories-login-dropped.patch A draft ignores every declared login rename, so the login's PostgreSQL
+ * role is dropped and created again under its new name.
  */
 import {
 	accepting,

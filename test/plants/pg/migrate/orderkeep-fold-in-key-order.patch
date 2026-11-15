@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/diff/backfill.ts b/packages/engine/src/deploy/diff/backfill.ts
+index 7b4d1de6..34881244 100644
+--- a/packages/engine/src/deploy/diff/backfill.ts
++++ b/packages/engine/src/deploy/diff/backfill.ts
+@@ -554,7 +554,7 @@ const memberDerivation = (
+ 	const group = mapNonEmpty(family.group, (g) => g.member.column)
+ 	const carried = dedupeNonEmpty([rowColumn, ...key, ...group])
+ 	const partition = group.map(tableCol)
+-	const inOrder = [tableCol(indexName)]
++	const inOrder = key.map(tableCol)
+ 	const numbered = binary(
+ 		"-",
+ 		over("row_number", [], window(partition, key.map(tableCol), false)),
