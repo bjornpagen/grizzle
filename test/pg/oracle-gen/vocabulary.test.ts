@@ -14,12 +14,16 @@
  * Oracle: PostgreSQL itself: pg_aggregate's overloads and pg_typeof, = over each type's class literals, and the
  * declared constraints over every fact loaded.
  *
- * Plants: compute-aggregate-count-int4 (count(*) types as integer), oracle-gen-float-text-negative-zero (a float's
- * text keeps -0 apart from 0, so the value classes and the facts' keys split what PostgreSQL equates), and
- * ~/.cache/grizzle-release/TREEORACLE/plants/sum-integer-declared-numeric-native.patch (sum over integer typed numeric
- * but lowered natively, whose result PostgreSQL types bigint).
- *
  * Features: an aggregate typed as PostgreSQL types it and one declined and defined, and facts loaded.
+ *
+ * @plant test/plants/pg/oracle-gen/compute-aggregate-count-int4.patch count(*) types as integer, in the engine's
+ * overload (scalar/aggregate.ts countOverload) and in the generators' claim (test/support/oracle/gen/ops.ts
+ * aggregateResult); the typing property fails here, the engine's half is test/pg/compute/aggregate.test.ts's.
+ * @plant test/plants/pg/oracle-gen/oracle-gen-float-text-negative-zero.patch A float's -0 is a value class of its own,
+ * keyed apart from 0 (test/support/oracle/gen/domain.ts literalEqualityKey), so the value classes split what
+ * PostgreSQL equates.
+ * @plant test/plants/pg/oracle-gen/sum-integer-declared-numeric-native.patch sum over integer typed numeric but
+ * lowered natively (scalar/aggregate.ts widenedSum), whose result PostgreSQL types bigint.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@bjornpagen/testing/features"
