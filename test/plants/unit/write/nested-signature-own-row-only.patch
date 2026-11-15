@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/runtime/write/nesting.ts b/packages/engine/src/runtime/write/nesting.ts
+index eccce4c5..df6c3ada 100644
+--- a/packages/engine/src/runtime/write/nesting.ts
++++ b/packages/engine/src/runtime/write/nesting.ts
+@@ -259,7 +259,6 @@ export const nestedRows = (
+ 				known.set(row.key, identities)
+ 				const held = identities.get(row.identity) ?? row
+ 				identities.set(row.identity, held)
+-				signature.push(held)
+ 			}
+ 		}
+ 		const signatures = byKey.get(key) ?? new TupleMap<ReadonlyArray<Signed>, NestedFact>()
