@@ -197,6 +197,7 @@ export const hostSchema = (spec: SwarmSpec, built: BuiltSwarm, laws: Laws): Host
 			table: relationName(i),
 			fields: Arr.map(fieldNames(spec, { kind: "core", r: i }), (name) => ({ name, column: name })),
 			key: keyOfRelation(spec.fill, i),
+			serial: [],
 			mutable: r.mutable
 		})),
 		...Arr.map(spec.plains, (p, j) => ({
@@ -204,6 +205,7 @@ export const hostSchema = (spec: SwarmSpec, built: BuiltSwarm, laws: Laws): Host
 			table: plainName(j),
 			fields: Arr.map(fieldNames(spec, { kind: "plain", j }), (name) => ({ name, column: name })),
 			key: p.kind === "set" ? ["x"] : ["id"],
+			serial: [],
 			mutable: p.mutable
 		}))
 	]

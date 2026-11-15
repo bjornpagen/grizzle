@@ -1249,6 +1249,10 @@ const isSelected = (side: SideSpec): boolean => Rec.keys(side.where).length > 0
 export const selectionOf = (side: SideSpec): HostSelection =>
 	isSelected(side) ? fieldsEqual(side.where) : everyFact
 
+/** The fields of a relation its identity draws: those of the serial domain. */
+const serialFields = (relation: RelationSpec): ReadonlyArray<string> =>
+	Arr.flatMap(relation.fields, (f) => (f.domain.kind === "serial" ? [f.name] : []))
+
 const hostRelation = (names: InstalledNames, relation: RelationSpec): HostRelation => {
 	const columns = required(own(names.columns, relation.name), `the columns of ${relation.name}`)
 	return {
@@ -1259,6 +1263,7 @@ const hostRelation = (names: InstalledNames, relation: RelationSpec): HostRelati
 			column: required(own(columns, f.name), `the column of ${relation.name}.${f.name}`)
 		})),
 		key: relation.key,
+		serial: serialFields(relation),
 		mutable: relation.mutability === "mutable"
 	}
 }
@@ -1542,6 +1547,7 @@ export const judgedSchemaOf = (base: BaseSpec): HostSchema => ({
 		table: r.name,
 		fields: Arr.map(r.fields, (f) => ({ name: f.name, column: f.name })),
 		key: r.key,
+		serial: serialFields(r),
 		mutable: r.mutability === "mutable"
 	})),
 	laws: [

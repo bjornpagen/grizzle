@@ -56,6 +56,7 @@ const worker: HostRelation = {
 		{ name: "name", column: "name" }
 	],
 	key: ["id"],
+	serial: [],
 	mutable: false
 }
 

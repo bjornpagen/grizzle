@@ -729,6 +729,7 @@ export const compiled = (relations: Relations, laws: ReadonlyArray<Law>): Compil
 			column: fieldName
 		})),
 		key,
+		serial: [],
 		mutable: false
 	})
 	return {

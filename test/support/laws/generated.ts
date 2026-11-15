@@ -76,7 +76,8 @@ const rel = (
 			name: field,
 			column: identity.column(parsedName(field)).identifier
 		})),
-		key: keyFields
+		key: keyFields,
+		serial: Arr.flatMap(fields, ([field, encoding]) => (encoding === "identity" ? [field] : []))
 	},
 	encodings: Rec.fromEntries(fields)
 })

@@ -76,12 +76,9 @@ import {
 	type AcceptableRefusal,
 	type AcceptableRefusals,
 	type DomainRefusal,
-	type Drafted,
 	type Expected,
 	expectChangeSet,
 	type GeneratedDraws,
-	printDrafted,
-	type StratumOrder,
 	type Violations
 } from "#test/support/oracle/write/expect.ts"
 
@@ -121,6 +118,7 @@ import {
 } from "#test/support/oracle/write/schema.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { holdsCycle, printOrder } from "#test/support/stratum-order.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -731,38 +729,6 @@ const unboundProblems = (
 			]
 }
 
-/** A stratum's order as a report prints it: each pair the keys order. */
-const printOrder = (order: StratumOrder): string =>
-	`stratum ${order.stratum}: ${listed(
-		Arr.map(order.before, ([a, b]) => `${printDrafted(a)} before ${printDrafted(b)}`),
-		", ",
-		"no pair ordered"
-	)}`
-
-/**
- * Whether a cycle a refusal names, each write's relation and operation, is one of `order`'s: each of its writes runs
- * before the next by a pair the stratum's keys order, and the last before the first, an insertion either class the
- * stratum drafts.
- */
-const holdsCycle = (
-	order: StratumOrder,
-	cycle: Arr.NonEmptyReadonlyArray<{ readonly relation: string; readonly op: string }>
-): boolean => {
-	const drafted = (step: (typeof cycle)[number]): ReadonlyArray<Drafted> =>
-		Arr.filter(order.writes, (w) => w.relation === step.relation && w.op === step.op)
-	const precedes = (a: Drafted, b: Drafted): boolean =>
-		Arr.some(order.before, ([x, y]) => x === a && y === b)
-	const [first, ...rest] = cycle
-	return Arr.some(drafted(first), (start) =>
-		Arr.some(
-			Arr.reduce(rest, [start], (reached: ReadonlyArray<Drafted>, step) =>
-				Arr.filter(drafted(step), (w) => Arr.some(reached, (x) => precedes(x, w)))
-			),
-			(last) => precedes(last, start)
-		)
-	)
-}
-
 /**
  * The problems of a ChangeSet's compile against strata whose writes the keys order in a cycle: refused with
  * UnorderableStratum, naming a cycle of one of them (`holdsCycle`).
@@ -778,7 +744,7 @@ const unorderableProblems = (
 	if (reason._tag !== "UnorderableStratum") {
 		return [`the ChangeSet does not compile: ${entry.failure.message}`]
 	}
-	return Arr.some(expected.strata, (order) => holdsCycle(order, reason.cycle))
+	return Arr.some(expected.strata, (s) => holdsCycle(s.order, reason.cycle))
 		? []
 		: [
 				`refused naming the cycle ${Arr.join(
@@ -1212,7 +1178,10 @@ const realizationsOf = (program: CompiledChange["compiled"]): ReadonlyArray<Writ
 const printExpected = (expected: Expected): string => {
 	switch (expected.kind) {
 		case "unorderable":
-			return `UnorderableStratum, the keys ordering ${Arr.join(Arr.map(expected.strata, printOrder), "; ")}`
+			return `UnorderableStratum, the keys ordering ${Arr.join(
+				Arr.map(expected.strata, (s) => `stratum ${s.stratum}: ${printOrder(s.order)}`),
+				"; "
+			)}`
 		case "applied":
 			return expected.outcome.kind
 		case "rejected":

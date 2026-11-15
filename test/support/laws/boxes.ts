@@ -178,7 +178,8 @@ const label = str.regex("^[a-z]{0,8}$")
 /** The traits of a family of a few fixed schemas. */
 export const noTraits = (): ReadonlyArray<string> => []
 
-/** A relation as the host sees it: its table and columns named by the naming door (core/identity.ts). */
+/** A relation as the host sees it: its table and columns named by the naming door (core/identity.ts), and no field an
+ * identity draws, a box's relations holding no identity column. */
 export const hostRelation = (
 	name: string,
 	fields: ReadonlyArray<string>,
@@ -192,6 +193,7 @@ export const hostRelation = (
 		column: identity.column(parsedName(field)).identifier
 	})),
 	key: keyFields,
+	serial: [],
 	mutable
 })
 

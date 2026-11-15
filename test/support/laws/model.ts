@@ -1,6 +1,13 @@
 import { type Equivalence, exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
+import {
+	type OrderMember,
+	type OrderSchema,
+	type StratumOrder,
+	stratumOrder,
+	unorderable
+} from "#test/support/stratum-order.ts"
 
 /**
  * A span, half-open [start, end) with start < end. Every span is built start first, so two equal spans have one text.
@@ -107,6 +114,12 @@ export interface HostRelation {
 	/** The fields in heading order, each with its column. */
 	readonly fields: ReadonlyArray<{ readonly name: string; readonly column: string }>
 	readonly key: ReadonlyArray<string>
+	/**
+	 * The fields its identity draws, which an insertion may leave out: none where it has no identity column. An
+	 * insertion into a relation with some is compiled to insert generated facts too, whatever facts it is applied with
+	 * (`orderOf`).
+	 */
+	readonly serial: ReadonlyArray<string>
 	/**
 	 * Whether the relation is declared `mutable`: its writers hold UPDATE on it, and grizzle's put replaces a fact in
 	 * place; an immutable relation's UPDATE is refused by privilege, and a put is its DELETE-then-insert pair.
@@ -349,18 +362,6 @@ export interface Violation {
 	readonly violators: ReadonlyArray<Violator>
 }
 
-/** A write of a stratum as its schedule orders it, and as an UnorderableStratum's cycle names it: an op on a relation. */
-export interface StratumOp {
-	readonly relation: string
-	readonly op: OpKind
-}
-
-/** One write of a stratum its order runs before another. */
-export interface Precedes {
-	readonly before: StratumOp
-	readonly after: StratumOp
-}
-
 /**
  * What a ChangeSet of one stratum must do: commit, changing the state or not; be refused by the laws its final state
  * violates; or be refused when it compiles, before any SQL and whatever the state, since its writes `order` requires
@@ -369,7 +370,7 @@ export interface Precedes {
 export type Expected =
 	| { readonly kind: "accepted" | "no-change"; readonly state: HostState }
 	| { readonly kind: "invariant-rejected"; readonly violations: ReadonlyArray<Violation> }
-	| { readonly kind: "unorderable"; readonly order: ReadonlyArray<Precedes> }
+	| { readonly kind: "unorderable"; readonly order: StratumOrder }
 
 export const relationOf = (schema: HostSchema, name: string): HostRelation => {
 	const r = Arr.findFirst(schema.relations, (x) => x.name === name)
@@ -847,107 +848,49 @@ export const overlapsUnequally = (state: HostState, law: HostLaw): boolean => {
 	return pairs.length > 0 && Arr.every(pairs, (equal) => !equal)
 }
 
-/** The order an op takes among one relation's writes: its deletions, then its puts, then its insertions. */
-const phase: { readonly [K in OpKind]: number } = { delete: 0, put: 1, insert: 2 }
-
-/** Whether a write adds facts: an insertion or a put. */
-const adds = (w: StratumOp): boolean => w.op !== "delete"
-
 /**
- * Whether a write removes facts: a deletion, or a put of a relation with a field outside its key, which displaces the
- * occupant of each key it writes; a pure set's put only adds, its fact at a key being the key.
+ * A schema as a stratum's order reads it (stratum-order.ts): where each relation's facts meet, at its key where a field
+ * lies outside it, else, a pure set's, at another key or a span key of it, else nowhere; whether its identity draws a
+ * field; and the containments whose foreign key is immediate (isImmediate).
  */
-const removes = (schema: HostSchema, w: StratumOp): boolean => {
-	if (w.op !== "put") {
-		return w.op === "delete"
-	}
-	const relation = relationOf(schema, w.relation)
-	return Arr.some(relation.fields, (f) => !relation.key.includes(f.name))
-}
+const orderSchemaOf = (schema: HostSchema): OrderSchema => ({
+	relations: Arr.map(schema.relations, (r) => {
+		const primary = (fields: ReadonlyArray<string>): boolean =>
+			fields.length === r.key.length && Arr.every(fields, (f) => r.key.includes(f))
+		return {
+			name: r.name,
+			meeting: !Arr.every(r.fields, (f) => r.key.includes(f.name))
+				? "key"
+				: Arr.some(
+							schema.laws,
+							(l) =>
+								(l.kind === "key" &&
+									l.relation === r.name &&
+									!(l.selection.kind === "every" && primary(l.fields))) ||
+								(l.kind === "spanKey" && l.relation === r.name)
+					  )
+					? "unique"
+					: "nowhere",
+			serial: r.serial.length > 0
+		}
+	}),
+	references: Arr.flatMap(schema.laws, (l) =>
+		l.kind === "contained" && l.source.relation !== l.target.relation && isImmediate(schema, l)
+			? [{ from: l.source.relation, to: l.target.relation }]
+			: []
+	)
+})
 
-/**
- * Whether a relation's facts meet nowhere (schedule.ts Meeting `nowhere`): every field is in its key, a pure set, and no
- * key besides it reads it, so each fact is its own key and a deletion of it frees nothing an addition of it takes.
- */
-const meetsNowhere = (schema: HostSchema, relation: string): boolean => {
-	const r = relationOf(schema, relation)
-	const primary = (fields: ReadonlyArray<string>): boolean =>
-		fields.length === r.key.length && Arr.every(fields, (f) => r.key.includes(f))
-	return (
-		Arr.every(r.fields, (f) => r.key.includes(f.name)) &&
-		!Arr.some(
-			schema.laws,
-			(l) =>
-				(l.kind === "key" &&
-					l.relation === relation &&
-					!(l.selection.kind === "every" && primary(l.fields))) ||
-				(l.kind === "spanKey" && l.relation === relation)
+/** The order a stratum of `ops` takes (stratum-order.ts), each op an enumerated member. */
+const orderOf = (schema: HostSchema, ops: ReadonlyArray<HostOp>): StratumOrder =>
+	stratumOrder(
+		orderSchemaOf(schema),
+		Arr.map(ops, (o): OrderMember =>
+			o.kind === "insert"
+				? { relation: o.relation, op: "insert", source: "enumerated" }
+				: { relation: o.relation, op: o.kind }
 		)
 	)
-}
-
-/** Whether two writes are one: the same op on the same relation. */
-const sameWrite = (a: StratumOp, b: StratumOp): boolean =>
-	a.relation === b.relation && a.op === b.op
-
-/**
- * The order a stratum's writes require, as the README's statement order states it: one relation's deletions before its
- * puts and its puts before its insertions, since its keys are checked at each statement, but a deletion of a relation
- * whose facts meet nowhere (`meetsNowhere`), which may follow them; and along a containment whose
- * foreign key is immediate (isImmediate), checked at each statement too, the target's additions before the source's
- * and the source's removals before the target's.
- */
-const stratumOrder = (schema: HostSchema, ops: ReadonlyArray<HostOp>): ReadonlyArray<Precedes> => {
-	const writes = Arr.dedupeWith(
-		Arr.map(ops, (o): StratumOp => ({ relation: o.relation, op: o.kind })),
-		sameWrite
-	)
-	const references = Arr.filter(
-		schema.laws,
-		(l): l is HostContainment =>
-			l.kind === "contained" && l.source.relation !== l.target.relation && isImmediate(schema, l)
-	)
-	const required = (a: StratumOp, b: StratumOp): boolean =>
-		a.relation === b.relation
-			? phase[a.op] < phase[b.op] && !(a.op === "delete" && meetsNowhere(schema, a.relation))
-			: Arr.some(
-					references,
-					(r) =>
-						(r.target.relation === a.relation &&
-							r.source.relation === b.relation &&
-							adds(a) &&
-							adds(b)) ||
-						(r.source.relation === a.relation &&
-							r.target.relation === b.relation &&
-							removes(schema, a) &&
-							removes(schema, b))
-				)
-	return Arr.flatMap(writes, (before) =>
-		Arr.flatMap(writes, (after) => (required(before, after) ? [{ before, after }] : []))
-	)
-}
-
-/** Whether `order` runs some write after itself: removing every write no remaining write precedes leaves some. */
-const cyclic = (order: ReadonlyArray<Precedes>): boolean => {
-	let pending = Arr.dedupeWith(
-		Arr.flatMap(order, (p) => [p.before, p.after]),
-		sameWrite
-	)
-	const unblocked = (): Option.Option<StratumOp> =>
-		Arr.findFirst(
-			pending,
-			(w) =>
-				!Arr.some(
-					order,
-					(p) => sameWrite(p.after, w) && Arr.some(pending, (x) => sameWrite(x, p.before))
-				)
-		)
-	for (let free = unblocked(); Option.isSome(free); free = unblocked()) {
-		const placed = free.value
-		pending = Arr.filter(pending, (w) => !sameWrite(w, placed))
-	}
-	return pending.length > 0
-}
 
 /**
  * The laws a stratum is refused by, each with the facts its witness may name; none when it commits: the immediate laws
@@ -968,8 +911,8 @@ type Judged =
 
 /** What a ChangeSet of `ops` meets of the laws from the lawful `state` (expect), its commit's change unread. */
 const judgedOps = (schema: HostSchema, state: HostState, ops: ReadonlyArray<HostOp>): Judged => {
-	const order = stratumOrder(schema, ops)
-	if (cyclic(order)) {
+	const order = orderOf(schema, ops)
+	if (unorderable(order)) {
 		return { kind: "unorderable", order }
 	}
 	const next = transition(keyedSchema(schema), state, ops)
@@ -980,7 +923,7 @@ const judgedOps = (schema: HostSchema, state: HostState, ops: ReadonlyArray<Host
 }
 
 /**
- * What a ChangeSet of `ops` must do from the lawful `state`. A stratum whose writes' order (stratumOrder) runs in a
+ * What a ChangeSet of `ops` must do from the lawful `state`. A stratum whose writes' order (`orderOf`) runs in a
  * cycle is refused when it compiles, before any SQL or host normalization. Every relation's primary key is one of the
  * schema's laws (keyedSchema), so a state holding one fact twice is always that key's violation, never an outcome the
  * laws pass. Two facts a stratum deletes at one key are no refusal: a deletion names its fact exactly, so at most one

@@ -46,7 +46,6 @@ import {
 	type OpKind,
 	overlapsUnequally,
 	pinned,
-	type Precedes,
 	projection,
 	relationOf,
 	rowsDifference,
@@ -64,6 +63,7 @@ import { CaseFailed } from "#test/support/oracle/write/harness.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { pickFrom, pickGen, pickOf, pickSpan } from "#test/support/pick.ts"
 import { applicationOf, openServedDb, type ServedOn } from "#test/support/served-db.ts"
+import { holdsCycle, printOrder } from "#test/support/stratum-order.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -1756,27 +1756,6 @@ const stepOutcome = (
 			: Effect.succeed({ kind: "unorderable", cycle })
 	})
 
-/**
- * The first order of a cycle, each write before the next and the last before the first, that the stratum's writes do
- * not require (`order`), if any.
- */
-const unrequiredStep = (
-	order: ReadonlyArray<Precedes>,
-	cycle: Arr.NonEmptyReadonlyArray<CycleWrite>
-): readonly [CycleWrite, CycleWrite] | undefined =>
-	Arr.findFirst(
-		Arr.zip(cycle, Arr.append(Arr.tailNonEmpty(cycle), Arr.headNonEmpty(cycle))),
-		([a, b]) =>
-			!Arr.some(
-				order,
-				(p) =>
-					p.before.relation === a.relation &&
-					p.before.op === a.op &&
-					p.after.relation === b.relation &&
-					p.after.op === b.op
-			)
-	).pipe(Option.getOrUndefined)
-
 const showWrites = (writes: ReadonlyArray<CycleWrite>): string =>
 	Arr.join(
 		Arr.map(writes, (w) => `${w.op} ${w.relation}`),
@@ -1791,12 +1770,11 @@ const mismatch = (
 ): string | undefined => {
 	if (expected.kind === "unorderable") {
 		if (outcome.kind !== "unorderable") {
-			return `expected UnorderableStratum, the stratum's writes ordered in a cycle by ${Formatter.format(expected.order)}, got ${Formatter.format(outcome)}`
+			return `expected UnorderableStratum, the stratum's writes ordered in a cycle by ${printOrder(expected.order)}, got ${Formatter.format(outcome)}`
 		}
-		const step = unrequiredStep(expected.order, outcome.cycle)
-		return step === undefined
+		return holdsCycle(expected.order, outcome.cycle)
 			? undefined
-			: `refused with UnorderableStratum, whose order ${showWrites(step)} the stratum's writes do not require; the cycle: ${showWrites(outcome.cycle)}`
+			: `refused with UnorderableStratum naming the cycle ${showWrites(outcome.cycle)}, which the stratum's writes, ordered by ${printOrder(expected.order)}, do not hold`
 	}
 	if (outcome.kind === "unorderable") {
 		return `refused with UnorderableStratum (${showWrites(outcome.cycle)}), where some order of the stratum's writes keeps every immediate key; expected ${expected.kind}`

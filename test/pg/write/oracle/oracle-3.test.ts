@@ -8,6 +8,9 @@
  * @plant test/plants/pg/write/oracle/schedule-drops-referencing-removal-edge.patch The scheduler no longer runs a
  * referencing relation's removals before the referenced one's across an immediate foreign key, so a stratum the keys
  * order in a cycle compiles where the oracle expects UnorderableStratum.
+ * @plant test/plants/pg/laws/families/stratum-order-drops-generated-class.patch The order model
+ * (test/support/stratum-order.ts) drafts no generated insertion from an enumerated insert into a relation with an
+ * identity column, so the installation compiles TREECOST's stratum, which grizzle refuses.
  * @plant test/plants/pg/write/oracle/schedule-drops-nowhere-exception.patch The scheduler runs a deletion where facts
  * meet nowhere before every addition of its relation, so it refuses the planted arm "deletion meeting nowhere", which
  * only that exception orders.

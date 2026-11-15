@@ -37,6 +37,13 @@ import {
 	type WRelation,
 	type WriteLawNames
 } from "#test/support/oracle/write/schema.ts"
+import {
+	type OrderMember,
+	type OrderSchema,
+	type StratumOrder,
+	stratumOrder,
+	unorderable
+} from "#test/support/stratum-order.ts"
 
 /** A key law's violations: its relation and fields, the facts that violate it, and their keys at its fields. */
 export interface Violations {
@@ -99,7 +106,7 @@ export type Expected =
 			 * it runs.
 			 */
 			readonly kind: "unorderable"
-			readonly strata: Arr.NonEmptyReadonlyArray<StratumOrder>
+			readonly strata: Arr.NonEmptyReadonlyArray<CyclicStratum>
 	  }
 	| {
 			readonly kind: "applied"
@@ -503,147 +510,74 @@ const collisionsOf = (
 	return out
 }
 
-/**
- * A write a stratum's schedule orders (write/frontend/schedule.ts), as the front end drafts it from the stratum's
- * members (write/frontend/compile.ts compileChangeSet, steps 2 and 3): a deletion or a put of a relation, or an
- * insertion of its complete facts or of its generated ones, which leave every serial field to its identity.
- */
-export type Drafted =
-	| { readonly relation: string; readonly op: "delete" }
-	| { readonly relation: string; readonly op: "put" }
-	| { readonly relation: string; readonly op: "insert"; readonly facts: "complete" | "generated" }
-
-/**
- * One stratum's writes as the keys order them: each class of write it drafts once (`draftedOf`), since writes of one
- * class order alike and never one another, and each pair the keys order, the first before the second (`runsBefore`).
- */
-export interface StratumOrder {
+/** A stratum of a ChangeSet whose writes the keys order in a cycle: its place among the strata, and its order. */
+export interface CyclicStratum {
 	readonly stratum: number
-	readonly writes: ReadonlyArray<Drafted>
-	readonly before: ReadonlyArray<readonly [Drafted, Drafted]>
+	readonly order: StratumOrder
 }
 
-type WMember = WChangeSet["strata"][number][number]
+/**
+ * A group as a stratum's order reads it (stratum-order.ts): where each relation's facts meet, at the primary key where
+ * a field lies outside it, else, a pure set's, at a candidate or projected key of it, else nowhere, no key the oracle
+ * draws being implied by the primary key (schema.ts resolveRelation, resolveGroup); whether it has serial fields; and
+ * the immediate containments (schema.ts isImmediate).
+ */
+const orderSchemaOf = (group: WGroup): OrderSchema => ({
+	relations: Arr.map(group.relations, (r) => ({
+		name: r.name,
+		meeting: Arr.some(r.columns, (col) => !r.primaryKey.includes(col.name))
+			? "key"
+			: r.keys.length > 0 || Arr.some(group.projectedKeys, (k) => k.relation === r.name)
+				? "unique"
+				: "nowhere",
+		serial: serialColumns(r).length > 0
+	})),
+	references: Arr.flatMap(group.containments, (c) =>
+		isImmediate(group, c) ? [{ from: c.from.relation, to: c.to.relation }] : []
+	)
+})
 
 /**
- * The writes a member drafts: a deletion and a put their own; an insertion into a relation with no serial field its
- * complete facts; an enumerated insertion into one with serial fields both classes, whatever facts it holds, since the
- * program is compiled before its facts are drawn; and a described insertion the class its head delivers, generated
- * where the head leaves out every serial field.
+ * A member as a stratum's order reads it: an array's insertion enumerated; a projection's described, generated where
+ * its head leaves out every serial field of its relation; a parameter's or a take's described, of complete facts.
  */
-const draftedOf = (group: WGroup, m: WMember): ReadonlyArray<Drafted> => {
+const orderMemberOf = (group: WGroup, m: WChangeSet["strata"][number][number]): OrderMember => {
 	if (m.op !== "insert") {
-		return [{ relation: m.relation, op: m.op }]
-	}
-	const complete: Drafted = { relation: m.relation, op: "insert", facts: "complete" }
-	const generated: Drafted = { relation: m.relation, op: "insert", facts: "generated" }
-	const serial = serialColumns(relationIn(group, m.relation))
-	if (serial.length === 0) {
-		return [complete]
+		return { relation: m.relation, op: m.op }
 	}
 	switch (m.source.kind) {
 		case "array":
-			return [complete, generated]
+			return { relation: m.relation, op: "insert", source: "enumerated" }
 		case "project": {
 			const head = m.source.head
-			return [Arr.every(serial, (col) => !Rec.has(head, col.name)) ? generated : complete]
+			const serial = serialColumns(relationIn(group, m.relation))
+			return {
+				relation: m.relation,
+				op: "insert",
+				source:
+					serial.length > 0 && Arr.every(serial, (col) => !Rec.has(head, col.name))
+						? "generated"
+						: "complete"
+			}
 		}
 		case "param":
 		case "scoped":
 		case "top":
-			return [complete]
+			return { relation: m.relation, op: "insert", source: "complete" }
 	}
 }
 
-/**
- * Where two distinct facts of a relation meet (write/frontend/schedule.ts Meeting): at its primary key where a field
- * lies outside it; else, a pure set's, at a candidate or projected key of it; else nowhere. No key the oracle draws is
- * implied by the primary key (schema.ts resolveRelation, resolveGroup).
- */
-const meetingOf = (group: WGroup, relation: string): "key" | "unique" | "nowhere" => {
-	const r = relationIn(group, relation)
-	return Arr.some(r.columns, (col) => !r.primaryKey.includes(col.name))
-		? "key"
-		: r.keys.length > 0 || Arr.some(group.projectedKeys, (k) => k.relation === relation)
-			? "unique"
-			: "nowhere"
-}
-
-/** A write's phase on its own relation: its deletion, then its put, its complete facts' insertion, its generated one's. */
-const phaseOf = (w: Drafted): number =>
-	w.op === "delete" ? 0 : w.op === "put" ? 1 : w.facts === "complete" ? 2 : 3
-
-/** Whether a write removes facts: a deletion, or a put where facts meet at the key, which displaces its occupant. */
-const removes = (group: WGroup, w: Drafted): boolean =>
-	w.op === "delete" || (w.op === "put" && meetingOf(group, w.relation) === "key")
-
-/**
- * Whether the keys run `a` before `b`, two writes of one stratum (write/frontend/schedule.ts scheduleStratum). On one
- * relation, by phase, its keys and unique objects being immediate; but a deletion where facts meet nowhere orders
- * nothing against a put or an insertion of complete facts, which meet no fact it frees but their own, which it excepts
- * (D EXCEPT A), while a generated insertion still follows it, whose drawn facts it does not except. Across an
- * immediate containment (schema.ts isImmediate) from C into P: P's additions before C's, and C's removals before P's.
- */
-const runsBefore = (group: WGroup, a: Drafted, b: Drafted): boolean => {
-	if (a.relation === b.relation) {
-		return (
-			phaseOf(a) < phaseOf(b) &&
-			!(
-				a.op === "delete" &&
-				meetingOf(group, a.relation) === "nowhere" &&
-				!(b.op === "insert" && b.facts === "generated")
-			)
+/** The strata of `c` whose writes the keys order in a cycle (`CyclicStratum`), none where every stratum orders. */
+export const unorderableStrata = (group: WGroup, c: WChangeSet): ReadonlyArray<CyclicStratum> => {
+	const schema = orderSchemaOf(group)
+	return Arr.flatMap(c.strata, (members, stratum) => {
+		const order = stratumOrder(
+			schema,
+			Arr.map(members, (m) => orderMemberOf(group, m))
 		)
-	}
-	const into = (from: string, to: string): boolean =>
-		Arr.some(
-			group.containments,
-			(c) => c.from.relation === from && c.to.relation === to && isImmediate(group, c)
-		)
-	return (
-		(into(b.relation, a.relation) && a.op !== "delete" && b.op !== "delete") ||
-		(into(a.relation, b.relation) && removes(group, a) && removes(group, b))
-	)
-}
-
-/** Whether no order of `writes` keeps every pair of `before`: some remain once every write that follows none left is
- * taken away, again and again. */
-const cyclic = (
-	writes: ReadonlyArray<Drafted>,
-	before: ReadonlyArray<readonly [Drafted, Drafted]>
-): boolean => {
-	const free = Arr.filter(
-		writes,
-		(w) => !Arr.some(before, ([x, y]) => y === w && writes.includes(x))
-	)
-	return free.length === 0
-		? writes.length > 0
-		: cyclic(
-				Arr.filter(writes, (w) => !free.includes(w)),
-				before
-			)
-}
-
-/** The strata of `c` whose writes the keys order in a cycle (`StratumOrder`), none where every stratum orders. */
-export const unorderableStrata = (group: WGroup, c: WChangeSet): ReadonlyArray<StratumOrder> =>
-	Arr.flatMap(c.strata, (members, stratum) => {
-		const writes = Arr.dedupeWith(
-			Arr.flatMap(members, (m) => draftedOf(group, m)),
-			(x: Drafted, y: Drafted) =>
-				x.relation === y.relation &&
-				(x.op === "insert" && y.op === "insert" ? x.facts === y.facts : x.op === y.op)
-		)
-		const before = Arr.flatMap(writes, (a) =>
-			Arr.flatMap(writes, (b): ReadonlyArray<readonly [Drafted, Drafted]> =>
-				a !== b && runsBefore(group, a, b) ? [[a, b]] : []
-			)
-		)
-		return cyclic(writes, before) ? [{ stratum, writes, before }] : []
+		return unorderable(order) ? [{ stratum, order }] : []
 	})
-
-/** A drafted write as a report prints it. */
-export const printDrafted = (w: Drafted): string =>
-	`${w.op} ${w.relation}${w.op === "insert" ? ` (${w.facts})` : ""}`
+}
 
 /**
  * What a generated ChangeSet must do, by definition.
