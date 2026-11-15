@@ -2863,7 +2863,7 @@ const compile = (
 		refuse(
 			"UnsupportedOperation",
 			at,
-			"family members written in more than one stratum: each stratum's edits are planned from what one read before the changeset's writes finds, so write a ChangeSet's family members in one stratum"
+			"family members written in more than one stratum: a family write grizzle cannot serve is planned on the host from what one read before the changeset's writes finds (write/program/bind.ts legacyFlights), so write a ChangeSet's family members in one stratum"
 		)
 	}
 	/** A refill draws from what the one read before the changeset's writes finds, so it is planned only in the first

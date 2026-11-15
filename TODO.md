@@ -285,6 +285,20 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   settled-or-unknown outcome the caller can read beside the interruption.
 
 ### Next
+- **One stratum per family's members, until no family write is unserved (PLANTS-PGWRITE, main's ruling 2026-11-15):** a
+  ChangeSet writes a family's members in one stratum, refused by its type (types/changeset/changeset.ts:1261, the
+  vocabulary core/refusals.ts:9) and when it compiles (write/frontend/compile.ts:2866), and a refill only in the first
+  stratum beside every edit (compile.ts:2871). The reason is a family write grizzle cannot serve (served/unserved.ts
+  UnservedReason: an edit, a refill or a nested write the host fills from a read flight): write/program/bind.ts:109
+  runnableWrite falls back to legacyFlights (bind.ts:123), which plans every stratum's family work on the host from one
+  read before the ChangeSet's writes. A served write's family statements are per-stratum SQL, each planned from its
+  own stratum's edits (write/program/compile.ts familyProgram) and reading the state its statement finds, so two
+  editing strata are believed, unverified, to be lawful and servable there. A ChangeSet's type cannot tell whether it
+  is served, so the rule goes only with its reason: eliminating legacy flights means serving every UnservedReason of
+  kind edit, refill and nested as SQL, then deleting bind.ts legacyFlights and the host family planner it drives
+  (write/family/edit.ts planEdits, family/state.ts), then lifting both refusals and the refill-first rule, with a
+  served two-strata edit drawn by test/pg/write/strata-families, whose behaviour cannot see an edit planned in a stratum
+  not its own today.
 - **One netting rule, not two (READBACK, 2026-11-14):** runtime/write/net.ts stratumChange (~l.83) cancels a fact its own
   stratum both removes and adds, and netStrata (net.ts:137-157) applies each stratum's removals before its additions,
   which cancels the identical pair anyway: a plant dropping stratumChange's cancellation stayed green on write/oracle-0..3.

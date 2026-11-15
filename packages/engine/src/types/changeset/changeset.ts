@@ -1252,9 +1252,13 @@ type EditsTwice<St, Seen extends boolean = false> = St extends readonly [
 		: EditsTwice<T, Seen>
 	: false
 
-/** A family's members are written in one stratum: the engine plans each stratum's edits from one read before its writes. */
+/**
+ * A family's members are written in one stratum: a family write grizzle cannot serve is planned on the host from one read
+ * before the ChangeSet's writes (write/program/bind.ts legacyFlights), and a ChangeSet's type cannot tell whether it is
+ * served.
+ */
 type EditsRefusal<Twice> = Twice extends true
-	? Refusal<"a ChangeSet writes a family's members in one stratum: each stratum's edits are planned from one read before the ChangeSet's writes">
+	? Refusal<"a ChangeSet writes a family's members in one stratum: a family write grizzle cannot serve is planned on the host from one read before the ChangeSet's writes">
 	: unknown
 type EditsInOneStratum<St> = EditsRefusal<EditsTwice<St>>
 /** A last stratum that edits, after strata of which none may. */

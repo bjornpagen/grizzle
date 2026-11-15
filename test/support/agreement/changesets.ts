@@ -451,7 +451,7 @@ const refusalNotes = {
 		"refused: a fixed family",
 	"an immutable owner's family takes an append only beside an insert of its owner in the same stratum: insert the owner with it, or declare it mutable":
 		"refused: an append to a stored owner",
-	"a ChangeSet writes a family's members in one stratum: each stratum's edits are planned from one read before the ChangeSet's writes":
+	"a ChangeSet writes a family's members in one stratum: a family write grizzle cannot serve is planned on the host from one read before the ChangeSet's writes":
 		"refused: edits in two strata",
 	"a stratum puts no row its deletes remove whole: a delete of a tree or of a family's owner removes every row nested under it, so put in another stratum (ChangeSet.sequence), or insert the rows again whole":
 		"refused: a put beside a whole delete",
@@ -2244,7 +2244,7 @@ const unplannedOf = (capability: string): ChangeSetRefusal | undefined =>
 						: Str.includes("appending to an owner this stratum does not insert")(capability)
 							? "an immutable owner's family takes an append only beside an insert of its owner in the same stratum: insert the owner with it, or declare it mutable"
 							: Str.startsWith("family members written in more than one stratum")(capability)
-								? "a ChangeSet writes a family's members in one stratum: each stratum's edits are planned from one read before the ChangeSet's writes"
+								? "a ChangeSet writes a family's members in one stratum: a family write grizzle cannot serve is planned on the host from one read before the ChangeSet's writes"
 								: undefined
 
 /** The Refusals the ChangeSet facade, its compilation and its binding name (refusalNotes). */
