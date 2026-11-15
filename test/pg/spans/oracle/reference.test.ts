@@ -10,9 +10,12 @@
  *
  * Features: how two spans meet; no spans, spans merged and kept apart; each generated query shape and relation.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): reference-difference-closed.patch (the reference's difference keeping
- * one point of the subtracted span), reference-pack-adjacent.patch (the reference's pack keeping adjacent spans
- * apart), reference-generator-overlaps.patch (the generator keeping overlapping facts of a span-keyed relation).
+ * @plant test/plants/pg/spans/oracle/reference-difference-closed.patch The reference's difference keeps one point of
+ * the subtracted span; the intersection and difference property fails.
+ * @plant test/plants/pg/spans/oracle/reference-pack-adjacent.patch The reference's pack keeps adjacent spans apart;
+ * the packing property fails.
+ * @plant test/plants/pg/spans/oracle/reference-generator-overlaps.patch The generator keeps overlapping facts of a
+ * span-keyed relation; the generators property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

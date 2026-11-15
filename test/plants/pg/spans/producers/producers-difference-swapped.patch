@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/producers/difference.ts b/packages/engine/src/lower/conservative/producers/difference.ts
+index 8a0067fc..c04c8edc 100644
+--- a/packages/engine/src/lower/conservative/producers/difference.ts
++++ b/packages/engine/src/lower/conservative/producers/difference.ts
+@@ -49,7 +49,7 @@ export const differenceQuery = (
+ 	const piece = cx.supply.column(origin)
+ 	const pieces: FromItem = {
+ 		kind: "function",
+-		call: call("range_minus_multi", [a, b]),
++		call: call("range_minus_multi", [b, a]),
+ 		alias,
+ 		columns: [piece],
+ 		lateral: true

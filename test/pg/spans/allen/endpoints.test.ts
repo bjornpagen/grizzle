@@ -13,8 +13,7 @@
  *
  * Features: each type rewritten, and selecting every fact, none and some; each tree shape above.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): endpoints-upper-inclusive.patch (pointIn of an upper endpoint read as
- * inclusive).
+ * @plant test/plants/pg/spans/allen/endpoints-upper-inclusive.patch pointIn of an upper endpoint is read as inclusive.
  */
 import { drawn, exhaust } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

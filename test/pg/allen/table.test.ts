@@ -10,9 +10,10 @@
  *   the pair is in the mask, and each atom literal and its negation, PostgreSQL's operator, holds exactly where the
  *   host's transcription of it does.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): allen-canonical-upper-inclusive.patch (the host canonicalization
- * leaving an inclusive upper bound where it is), allen-atom-before-strict.patch (the `<<` atom's relations read as
- * strictly before, without meets).
+ * @plant test/plants/pg/allen/allen-canonical-upper-inclusive.patch The host canonicalization leaves an inclusive upper
+ * bound where it is; the canonicalization property fails.
+ * @plant test/plants/pg/allen/allen-transcription-before-strict.patch The host's transcription of `<<` reads it as
+ * strictly before, without meets; the masks and literals property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

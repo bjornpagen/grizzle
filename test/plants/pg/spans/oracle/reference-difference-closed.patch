@@ -1,0 +1,13 @@
+diff --git a/test/support/oracle/gen/spans.ts b/test/support/oracle/gen/spans.ts
+index f77cfcc1..51765074 100644
+--- a/test/support/oracle/gen/spans.ts
++++ b/test/support/oracle/gen/spans.ts
+@@ -697,7 +697,7 @@ export const spanDifference = (a: HalfOpen, b: HalfOpen): ReadonlyArray<HalfOpen
+ 	}
+ 	const out: Array<HalfOpen> = []
+ 	if (a.lo < b.lo) {
+-		out.push({ lo: a.lo, hi: b.lo })
++		out.push({ lo: a.lo, hi: b.lo + 1n })
+ 	}
+ 	if (b.hi < a.hi) {
+ 		out.push({ lo: b.hi, hi: a.hi })

@@ -5,7 +5,8 @@
  *
  * Features: each query kind over each endpoint kind.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): allen-atom-before-strict.patch.
+ * @plant test/plants/pg/spans/allen/allen-before-literal-strict.patch The `<<` literal of a formula is lowered as
+ * strictly before, without meets.
  */
 import { drawn } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

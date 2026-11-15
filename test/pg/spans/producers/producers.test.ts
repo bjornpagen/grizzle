@@ -8,7 +8,7 @@
  *
  * Features: each correlated outcome; each producer kind and tuple shape, with rows.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): producers-difference-swapped.patch (a difference's operands swapped).
+ * @plant test/plants/pg/spans/producers/producers-difference-swapped.patch A difference's operands are swapped.
  */
 import { drawn } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

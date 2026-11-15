@@ -1,0 +1,12 @@
+diff --git a/test/support/oracle/gen/spans.ts b/test/support/oracle/gen/spans.ts
+index f77cfcc1..00a2f6c1 100644
+--- a/test/support/oracle/gen/spans.ts
++++ b/test/support/oracle/gen/spans.ts
+@@ -337,7 +337,6 @@ const resolveFacts = (
+ 				)
+ 				if (Option.isSome(clash)) {
+ 					dropped.push({ relation: name, fact, overlaps: clash.value })
+-					continue
+ 				}
+ 			}
+ 			kept.push(fact)

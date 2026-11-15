@@ -14,8 +14,14 @@
  *
  * Features: every basic relation a mask includes; each point type in each artifact; each window type at each edge.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): allen-atom-before-strict.patch,
- * classifications-point-in-doubled.patch (pointIn lowered over the point doubled).
+ * A mask reaches PostgreSQL as its formula in the shipped table (allen/table.generated.ts), each literal one range
+ * operator (check/allen.ts allenExpr), so the relations each atom of allen/atoms.ts holds for are the table
+ * generator's, which test/unit/allen/table.test.ts holds.
+ *
+ * @plant test/plants/pg/spans/allen/allen-before-literal-strict.patch The `<<` literal of a formula is lowered as
+ * strictly before, without meets; the masks property fails.
+ * @plant test/plants/pg/spans/allen/classifications-point-in-doubled.patch pointIn is lowered over the point doubled;
+ * the pointIn properties fail.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace, type Situations } from "@bjornpagen/testing/features"

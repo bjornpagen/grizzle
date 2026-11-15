@@ -1,0 +1,12 @@
+diff --git a/test/support/oracle/allen.ts b/test/support/oracle/allen.ts
+index eff05dfa..4f046a70 100644
+--- a/test/support/oracle/allen.ts
++++ b/test/support/oracle/allen.ts
+@@ -275,7 +275,6 @@ export const canonicalize = (type: RangeType, s: RangeSpelling): Canonical => {
+ 		if (hi === max) {
+ 			return { kind: "error", sqlstate: "22003" }
+ 		}
+-		hi += 1n
+ 	}
+ 	if (lo >= hi) {
+ 		return { kind: "empty" }

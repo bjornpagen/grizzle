@@ -1,0 +1,13 @@
+diff --git a/test/support/oracle/gen/spans.ts b/test/support/oracle/gen/spans.ts
+index f77cfcc1..020c8fe3 100644
+--- a/test/support/oracle/gen/spans.ts
++++ b/test/support/oracle/gen/spans.ts
+@@ -710,7 +710,7 @@ export const spanPack = (spans: ReadonlyArray<HalfOpen>): ReadonlyArray<HalfOpen
+ 	const out: Array<HalfOpen> = []
+ 	for (const span of Arr.sort(spans, compareSpans)) {
+ 		const last = out[out.length - 1]
+-		if (last !== undefined && span.lo <= last.hi) {
++		if (last !== undefined && span.lo < last.hi) {
+ 			out[out.length - 1] = { lo: last.lo, hi: span.hi > last.hi ? span.hi : last.hi }
+ 		} else {
+ 			out.push(span)
