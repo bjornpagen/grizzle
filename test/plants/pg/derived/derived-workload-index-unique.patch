@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/indexes/engine.ts b/packages/engine/src/physical/indexes/engine.ts
+index cbe39228..dbb196cb 100644
+--- a/packages/engine/src/physical/indexes/engine.ts
++++ b/packages/engine/src/physical/indexes/engine.ts
+@@ -1141,7 +1141,7 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
+ 					: { schema: k.opclass.schema, name: vectorCosineOpclass },
+ 			direction: k.dir === "desc" ? "DESC" : "ASC"
+ 		})),
+-		unique: false,
++		unique: true,
+ 		concurrently: false,
+ 		include: [],
+ 		where: undefined

@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/refresh/run.ts b/packages/grizzle/src/adapter/refresh/run.ts
+index 0f7ba33a..3ecb3dfb 100644
+--- a/packages/grizzle/src/adapter/refresh/run.ts
++++ b/packages/grizzle/src/adapter/refresh/run.ts
+@@ -158,7 +158,7 @@ const refreshFlight = (
+ 			const concurrently = populated.has(place)
+ 			return Object.freeze({
+ 				relation: t.relation,
+-				concurrently,
++				concurrently: true,
+ 				sql: concurrently ? t.concurrently : t.plain
+ 			})
+ 		})

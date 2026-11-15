@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/compute/lower.ts b/packages/engine/src/scalar/compute/lower.ts
+index 524d6ffb..e058d2bc 100644
+--- a/packages/engine/src/scalar/compute/lower.ts
++++ b/packages/engine/src/scalar/compute/lower.ts
+@@ -3392,7 +3392,7 @@ class Lowering<R extends Refs> {
+ 				if (low === undefined || high === undefined) {
+ 					return stop("MalformedDescription", at, "Compute.within's bounds: two finite literals")
+ 				}
+-				return { predicate: this.comparison("between", [subject, lo, hi], at), within: [low, high] }
++				return { predicate: this.comparison("ge", [subject, lo], at), within: [low, high] }
+ 			}
+ 			case "matches":
+ 				return {

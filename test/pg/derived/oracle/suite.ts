@@ -69,8 +69,6 @@ const explored = (suite: string) =>
  * The generated refresh oracle's suites, one per seed: every refreshed view equals its definition, in one commit,
  * writing nothing it need not (property.ts derivedCase), against the definition evaluated by the conservative lowering
  * on the same snapshot.
- *
- * Plants (main's test phase): derived-refresh-always-plain.patch, derived-refresh-level-order.patch.
  */
 export const suite = (name: string, seeds: ReadonlyArray<number>): void => {
 	for (const seed of seeds) {

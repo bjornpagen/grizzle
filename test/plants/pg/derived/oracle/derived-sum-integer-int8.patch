@@ -1,0 +1,13 @@
+diff --git a/test/pg/derived/oracle/gen.ts b/test/pg/derived/oracle/gen.ts
+index 17d740ee..34bfa4e4 100644
+--- a/test/pg/derived/oracle/gen.ts
++++ b/test/pg/derived/oracle/gen.ts
+@@ -142,7 +142,7 @@ const literal: ReadonlySet<Kind> = new Set([
+  * The native result kinds: a contract contributes its base type to sum and mean. The sum of an integer of any width
+  * is an exact numeric (README: "the r.sum of an integer is an exact Decimal"), so only a float's sum is a float.
+  */
+-const sumKind = (k: Kind): Kind => (k === "f8" ? "f8" : "num")
++const sumKind = (k: Kind): Kind => (k === "int4" ? "int8" : k === "f8" ? "f8" : "num")
+ const meanKind = (k: Kind): Kind => (k === "f8" ? "f8" : "num")
+ 
+ /** An aggregate a definition's head computes, by what it reads: a count, a conditional count, or sum, mean, min or max

@@ -77,8 +77,18 @@ import { regex } from "#test/unit/schema/support.ts"
  * That every refreshed view equals its definition, over drawn levels, take forms and aggregates, is the derived
  * oracle's; the installed catalog is the catalog spec checker's.
  *
- * Plants (main's test phase): derived-descriptor-typmod-uncast.patch, derived-literal-pattern-uncast.patch,
- * recursion-existence-deferred-evidence.patch, derived-definition-snapshot-evidence.patch.
+ * @plant test/plants/pg/derived/derived-descriptor-typmod-uncast.patch A view column whose inferred type carries a
+ * numeric typmod is not cast to it (physical/derived/definition.ts closingOf), so min or max of a numeric(p, s) field
+ * is a numeric column of no typmod; the descriptor property fails.
+ * @plant test/plants/pg/derived/derived-literal-pattern-uncast.patch A view column whose inferred type carries a
+ * structural pattern is not cast to its domain (physical/derived/definition.ts closingOf), so a refined-text literal
+ * is plain text; the literal property fails.
+ * @plant test/plants/pg/recursion/recursion-existence-deferred-evidence.patch A transaction admits committed-snapshot
+ * evidence (ir/evidence.ts admits), so a deferred containment, which may be false before COMMIT, proves existence
+ * inside a transaction; the transaction evidence property fails.
+ * @plant test/plants/pg/derived/derived-definition-snapshot-evidence.patch A derived definition is lowered for a
+ * snapshot rather than a transaction (physical/derived/definition.ts lowerDefinition), so a refresh inside an owner's
+ * transaction relies on a deferred containment; the transaction evidence property fails.
  */
 
 const id = (n: number): Uuid =>

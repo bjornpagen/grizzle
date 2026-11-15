@@ -47,8 +47,13 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *
  * What a refresh writes and its races are the derived oracle's and the schedule suites'.
  *
- * Plants (main's test phase): derived-refresh-level-order.patch, derived-refresh-named-twice.patch,
- * derived-refresh-report-concurrently.patch.
+ * @plant test/plants/pg/derived/derived-refresh-level-order.patch A refresh call's targets keep the order its member
+ * names them in rather than level then declared order (adapter/refresh/targets.ts refreshTargets), so a member naming the
+ * level-2 view first refreshes it first.
+ * @plant test/plants/pg/derived/refresh/derived-refresh-named-twice.patch A relation a member names twice is refreshed
+ * twice (adapter/refresh/targets.ts refreshTargets keeps no dedupe).
+ * @plant test/plants/pg/derived/refresh/derived-refresh-report-concurrently.patch The refresh report records every
+ * statement as concurrent, whatever the refresh block ran (adapter/refresh/run.ts).
  */
 const build = (name: string) => {
 	const Sitting = relation(

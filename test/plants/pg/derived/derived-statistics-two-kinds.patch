@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/statistics/statistics.ts b/packages/engine/src/physical/statistics/statistics.ts
+index b375fa94..978773d6 100644
+--- a/packages/engine/src/physical/statistics/statistics.ts
++++ b/packages/engine/src/physical/statistics/statistics.ts
+@@ -71,7 +71,7 @@ export const mergeStatistics = (
+ 		merged.set(key, {
+ 			relation: r.relation,
+ 			columns: r.columns,
+-			kinds: statisticsKinds.filter((k) => prior.kinds.includes(k) || r.kinds.includes(k)),
++			kinds: statisticsKinds.filter((k) => prior.kinds.includes(k) || r.kinds.includes(k)).slice(0, 2),
+ 			uses: [...new Set([...prior.uses, ...r.uses])].toSorted(compareText)
+ 		})
+ 	}

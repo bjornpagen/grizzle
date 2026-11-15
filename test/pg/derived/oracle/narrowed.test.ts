@@ -27,7 +27,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * money's range among them, refreshes the derived relation, and checks that the stored view, its definition evaluated
  * by the conservative lowering and the host's exact sums agree, every amount compared by value.
  *
- * Plants (main's test phase): derived-narrowed-within-upper-bound-lost.patch.
+ * @plant test/plants/pg/derived/oracle/derived-narrowed-within-upper-bound-lost.patch Compute.within's predicate tests
+ * its low bound alone while its interval keeps the high one (scalar/compute/lower.ts guardPredicate), so a narrowing
+ * is proved of a total past money's greatest value.
  */
 
 /** Money's range in minor units, a signed 64-bit integer. */

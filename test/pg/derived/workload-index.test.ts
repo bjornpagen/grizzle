@@ -46,7 +46,8 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * the index serves the range. Features: an account selected, an account below the threshold, one at it, none
  * selected.
  *
- * Plants (main's test phase): derived-workload-index-unique.patch.
+ * @plant test/plants/pg/derived/derived-workload-index-unique.patch A workload access index is created UNIQUE
+ * (physical/indexes/engine.ts).
  */
 const busyAccounts = query(W.Reports).rule((r) => {
 	const { account, tasks, budget } = v(W.AccountBudget, "accountBudget")

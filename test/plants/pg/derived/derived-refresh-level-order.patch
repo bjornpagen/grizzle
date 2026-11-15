@@ -1,0 +1,15 @@
+diff --git a/packages/grizzle/src/adapter/refresh/targets.ts b/packages/grizzle/src/adapter/refresh/targets.ts
+index 067c7a91..5ab946aa 100644
+--- a/packages/grizzle/src/adapter/refresh/targets.ts
++++ b/packages/grizzle/src/adapter/refresh/targets.ts
+@@ -174,9 +174,6 @@ export const refreshTargets = (
+ 			})
+ 		})
+ 	return Result.map(Result.all(Arr.map(relations, targetOf)), (targets) =>
+-		Arr.sort(
+-			Arr.dedupeWith(targets, (a, b) => a.relation === b.relation),
+-			Order.Struct({ level: Order.Number, position: Order.Number })
+-		)
++		Arr.dedupeWith(targets, (a, b) => a.relation === b.relation)
+ 	)
+ }

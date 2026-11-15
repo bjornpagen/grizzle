@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/derived/definition.ts b/packages/engine/src/physical/derived/definition.ts
+index 31bab016..38bdb9b7 100644
+--- a/packages/engine/src/physical/derived/definition.ts
++++ b/packages/engine/src/physical/derived/definition.ts
+@@ -267,7 +267,7 @@ export const lowerDefinition = (
+ 	const lowered = lowerOptimized(annotated.value, {
+ 		names: options.names,
+ 		subject: { kind: "derivedDefinition" },
+-		context: "transaction",
++		context: "snapshot",
+ 		catalog: options.catalog
+ 	})
+ 	if (!lowered.ok) {
