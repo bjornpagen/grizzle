@@ -1,0 +1,26 @@
+diff --git a/packages/engine/src/types/changeset/changeset.ts b/packages/engine/src/types/changeset/changeset.ts
+index 0b4c0886..6a7f3e87 100644
+--- a/packages/engine/src/types/changeset/changeset.ts
++++ b/packages/engine/src/types/changeset/changeset.ts
+@@ -1108,13 +1108,15 @@ type RecordOf<S, A> =
+ 		infer At extends ReadonlyArray<unknown>,
+ 		infer Address
+ 	>
+-		? RelationIn<Spelled, RelationsOf<LevelOfMember<S, Address, Spelled>>> extends infer R
+-			? RowOfOp<Op, LevelOfMember<S, Address, Spelled>, R> extends infer Row
+-				? {
+-						readonly [O in Op]: {
+-							readonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At>
++		? LevelOfMember<S, Address, Spelled> extends infer L
++			? RelationIn<Spelled, RelationsOf<L>> extends infer R
++				? RowOfOp<Op, L, R> extends infer Row
++					? {
++							readonly [O in Op]: {
++								readonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At>
++							}
+ 						}
+-					}
++					: never
+ 				: never
+ 			: never
+ 		: never

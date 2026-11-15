@@ -1019,10 +1019,14 @@ export type EvidenceOfQuery<Q> =
  * every consumer that names none. Each program of a union, and each shape of a phantom that is a union of shapes, reads
  * its own; a value with no phantom, and one typed `any` (ContextsRead), read none. The phantom is read by key, never by
  * a test of the program (ChildContexts): a query holds its schema, and a conditional the checker resolves instantiates
- * its operands whole, every relation of the schema with them, once for each program it tests.
+ * its operands whole, every relation of the schema with them, once for each program it tests. A value without the key
+ * is never indexed by it: the key's intersection with its keys is never, and an indexable value indexed by never is its
+ * element, an array member's fact.
  */
 export type ContextsOf<Q> = Q extends unknown
-	? PhantomContexts<NonNullable<Q[typeof phantom & keyof Q]>>
+	? typeof phantom extends keyof Q
+		? PhantomContexts<NonNullable<Q[typeof phantom & keyof Q]>>
+		: never
 	: never
 /** The contexts a phantom reads, each of its shapes its own: none for a shape that reads none. */
 type PhantomContexts<B> = B extends unknown ? ContextsRead<B["readsContexts" & keyof B]> : never
@@ -1033,8 +1037,9 @@ export type ImmediateHeadOf<Q> = Q extends { readonly immediate: RowDecoder<infe
  * off its phantom by key and folded as ParamsOfTerm folds a value's (core/phantom.ts); an array or Stream member, which
  * has no phantom, and a value typed `any`, whose keys are every string, none, `unknown`. A program is told by its keys,
  * never by a test of it: a query holds its schema, and a conditional the checker resolves instantiates its operands
- * whole, every relation of the schema with them, once for each program it tests. A term, which holds no schema, is read
- * by ParamsOfTerm.
+ * whole, every relation of the schema with them, once for each program it tests. A value without the phantom's key is
+ * never indexed by it, as ContextsOf says: an array member's facts would be read as its phantom, and a fact's field
+ * named `params` as its parameters. A term, which holds no schema, is read by ParamsOfTerm.
  */
 export type ParamsOf<X> = X extends unknown
 	? string extends keyof X

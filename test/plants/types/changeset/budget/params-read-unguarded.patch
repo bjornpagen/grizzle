@@ -1,0 +1,19 @@
+diff --git a/packages/engine/src/types/query/query.ts b/packages/engine/src/types/query/query.ts
+index be4b51c0..3306d0d6 100644
+--- a/packages/engine/src/types/query/query.ts
++++ b/packages/engine/src/types/query/query.ts
+@@ -1044,11 +1044,9 @@ export type ImmediateHeadOf<Q> = Q extends { readonly immediate: RowDecoder<infe
+ export type ParamsOf<X> = X extends unknown
+ 	? string extends keyof X
+ 		? unknown
+-		: typeof phantom extends keyof X
+-			? UnionToIntersection<
+-					ParamsContribution<PhantomParams<NonNullable<X[typeof phantom & keyof X]>>>
+-				>
+-			: unknown
++		: UnionToIntersection<
++				ParamsContribution<PhantomParams<NonNullable<X[typeof phantom & keyof X]>>>
++			>
+ 	: never
+ 
+ /**

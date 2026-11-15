@@ -1029,18 +1029,18 @@ type LevelAt<S, Depth> = DepthOf<S>["length"] extends Depth
 type LevelAddress<S> = S extends AnyFragment ? "fragment" : DepthOf<S>["length"]
 
 /**
- * The level of S at a member's address, the member spelling its relation Spelled: at a depth, the level at that depth,
- * AtDepth; at a fragment's mark, the fragment among S and the fragments S's levels list that holds the relation, one
- * name naming one relation across a schema's levels and the fragments they list. AtDepth is LevelAt<S, Address>, read
- * by its caller once per address: reached through this alias, one instantiation for each spelling, LevelAt's walk down
- * S's levels ran again for every member.
+ * The level of S at a member's address, the member spelling its relation Spelled: at a depth, the level at that depth
+ * (LevelAt); at a fragment's mark, the fragment among S and the fragments S's levels list that holds the relation, one
+ * name naming one relation across a schema's levels and the fragments they list. Its caller passes it on as an
+ * argument and never binds it by `infer`: a level is a schema, and a bound type the checker reads again in a branch it
+ * instantiates whole, every relation of the schema with it, once for each member.
  */
-type LevelOfMember<S, Address, Spelled, AtDepth> = Address extends "fragment"
+type LevelOfMember<S, Address, Spelled> = Address extends "fragment"
 	? Extract<
 			Extract<S, AnyFragment> | AllFragmentsOf<S>,
 			{ readonly relations: { readonly [N in NameOfSpelled<Spelled>]: unknown } }
 		>
-	: AtDepth
+	: LevelAt<S, Address>
 
 /**
  * The array member of the relations R over S, each spelled as S's record names it, none where R is no relation. Its
@@ -1097,8 +1097,9 @@ type Shifted<A, Before extends ReadonlyArray<unknown>> =
 /**
  * The array member A of a ChangeSet over S as the record of its facts by op, then relation name (ArrayFacts), one
  * record for each member, as each call that adds one adds it: its relation is the one its spelling names in its level,
- * and its row the facts its op takes for that relation over that level. Each part is bound by `infer`, so the record
- * holds ArrayFacts itself, as the call wrote it, and no alias of it.
+ * and its row the facts its op takes for that relation over that level (RowOfOp). The relation and the row are bound by
+ * `infer`, so the record holds ArrayFacts itself, as the call wrote it, and no alias of it; the level is passed on, never
+ * bound (LevelOfMember).
  */
 type RecordOf<S, A> =
 	A extends ArrayMember<
@@ -1107,26 +1108,23 @@ type RecordOf<S, A> =
 		infer At extends ReadonlyArray<unknown>,
 		infer Address
 	>
-		? LevelAt<S, Address> extends infer AtDepth
-			? LevelOfMember<S, Address, Spelled, AtDepth> extends infer L
-				? RelationIn<Spelled, RelationsOf<L>> extends infer R
-					? (
-							Op extends "insert"
-								? AdditionIn<L, R>
-								: Op extends "delete"
-									? DeletedRow<L, R>
-									: Written<R>
-						) extends infer Row
-						? {
-								readonly [O in Op]: {
-									readonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At>
-								}
-							}
-						: never
-					: never
+		? RelationIn<Spelled, RelationsOf<LevelOfMember<S, Address, Spelled>>> extends infer R
+			? RowOfOp<Op, LevelOfMember<S, Address, Spelled>, R> extends infer Row
+				? {
+						readonly [O in Op]: {
+							readonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At>
+						}
+					}
 				: never
 			: never
 		: never
+
+/** The facts Op takes for R over its level L: an insert's addition, a delete's row, a put's written fact. */
+type RowOfOp<Op, L, R> = Op extends "insert"
+	? AdditionIn<L, R>
+	: Op extends "delete"
+		? DeletedRow<L, R>
+		: Written<R>
 
 /** The name of a spelled relation: the name it is spelled by, or the name of the relation spelled as itself. */
 type NameOfSpelled<Spelled> = Spelled extends string ? Spelled : NameOf<Spelled>

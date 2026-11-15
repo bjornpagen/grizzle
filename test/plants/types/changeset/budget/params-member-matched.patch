@@ -1,5 +1,5 @@
 diff --git a/packages/engine/src/types/query/query.ts b/packages/engine/src/types/query/query.ts
-index 137283fb..384b7a9b 100644
+index de260780..22908bc8 100644
 --- a/packages/engine/src/types/query/query.ts
 +++ b/packages/engine/src/types/query/query.ts
 @@ -20,7 +20,6 @@ import type {
@@ -10,9 +10,9 @@ index 137283fb..384b7a9b 100644
  	ParamsContribution,
  	ParamsOfTerm,
  	ParamType,
-@@ -1036,26 +1035,6 @@ export type ImmediateHeadOf<Q> = Q extends { readonly immediate: RowDecoder<infe
-  * whole, every relation of the schema with them, once for each program it tests. A term, which holds no schema, is read
-  * by ParamsOfTerm.
+@@ -1041,26 +1040,6 @@ export type ImmediateHeadOf<Q> = Q extends { readonly immediate: RowDecoder<infe
+  * never indexed by it, as ContextsOf says: an array member's facts would be read as its phantom, and a fact's field
+  * named `params` as its parameters. A term, which holds no schema, is read by ParamsOfTerm.
   */
 -export type ParamsOf<X> = X extends unknown
 -	? string extends keyof X

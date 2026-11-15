@@ -1,13 +1,15 @@
 diff --git a/packages/engine/src/types/query/query.ts b/packages/engine/src/types/query/query.ts
-index cc7b1750..156396e1 100644
+index de260780..3d48cb42 100644
 --- a/packages/engine/src/types/query/query.ts
 +++ b/packages/engine/src/types/query/query.ts
-@@ -1020,9 +1020,7 @@ export type EvidenceOfQuery<Q> =
-  * a test of the program (ChildContexts): a query holds its schema, and a conditional the checker resolves instantiates
-  * its operands whole, every relation of the schema with them, once for each program it tests.
+@@ -1023,11 +1023,7 @@ export type EvidenceOfQuery<Q> =
+  * is never indexed by it: the key's intersection with its keys is never, and an indexable value indexed by never is its
+  * element, an array member's fact.
   */
 -export type ContextsOf<Q> = Q extends unknown
--	? PhantomContexts<NonNullable<Q[typeof phantom & keyof Q]>>
+-	? typeof phantom extends keyof Q
+-		? PhantomContexts<NonNullable<Q[typeof phantom & keyof Q]>>
+-		: never
 -	: never
 +export type ContextsOf<Q> = Q extends Phantom<infer B> ? PhantomContexts<B> : never
  /** The contexts a phantom reads, each of its shapes its own: none for a shape that reads none. */
