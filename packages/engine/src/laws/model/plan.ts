@@ -1009,6 +1009,26 @@ const servesProbe = (
 	probe: NonEmptyReadonlyArray<SideColumn>
 ): boolean => within(index, probe) || sameColumns(index.slice(0, probe.length), probe)
 
+/**
+ * The B-trees the index engine creates for reverse probes no index serves: it plans the widest request first and drafts
+ * each index to serve every later request it can (physical/indexes/engine.ts draftFor), so a probe over a subset of a
+ * wider probe's columns leads that probe's index instead of taking one of its own, and a chain of probes, each over a
+ * subset of the one before it, shares one index. Each probe, widest first, joins the first chain whose narrowest probe
+ * holds its columns, or starts one.
+ */
+const probeIndexes = (probes: ReadonlyArray<NonEmptyReadonlyArray<SideColumn>>): number => {
+	const narrowest: Array<NonEmptyReadonlyArray<SideColumn>> = []
+	for (const probe of probes.toSorted((a, b) => b.length - a.length)) {
+		const at = narrowest.findIndex((tail) => within(probe, tail))
+		if (at === -1) {
+			narrowest.push(probe)
+		} else {
+			narrowest[at] = probe
+		}
+	}
+	return narrowest.length
+}
+
 /** The items of `items` with no earlier one `same` holds of, in their order. */
 const distinct = <A>(items: ReadonlyArray<A>, same: (a: A, b: A) => boolean): ReadonlyArray<A> =>
 	items.filter((a, i) => !items.slice(0, i).some((b) => same(a, b)))
@@ -1050,8 +1070,9 @@ interface FixedTarget {
 /**
  * The fixed targets of one relation that take the shared reference: a choice by what each configuration adds to the
  * whole schema, counted exactly. A configuration's objects are the distinct UNIQUEs its targets land on that no
- * planned UNIQUE is, the reverse probes no planned UNIQUE and no landing serves, each needing a B-tree, the distinct law
- * columns its landings add, and the distinct constants its shared references add to their sources. From every target
+ * planned UNIQUE is, the B-trees the reverse probes no planned UNIQUE and no landing serves need, a chain of them over
+ * nested column sets sharing one (`probeIndexes`), the distinct law columns its landings add, and the distinct
+ * constants its shared references add to their sources. From every target
  * at its own columns, which is what keys restated over the targets would plan, it moves targets to their shared
  * UNIQUE, all of one shared UNIQUE's targets at once or one alone, taking the move that leaves the fewest objects
  * while that is no more than before; so it never plans more objects than the own columns would, and keeps the superkey
@@ -1089,7 +1110,7 @@ const takingShared = (
 				landed.filter((l) => !l.planned).map((l) => l.columns),
 				sameColumns
 			).length +
-			(probes.length - served.size) +
+			probeIndexes(probes.filter((_, i) => !served.has(i))) +
 			distinct(
 				landed.flatMap((l) => l.fresh),
 				sameSideColumn

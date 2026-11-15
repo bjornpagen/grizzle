@@ -40,7 +40,9 @@
  * same selection probes, and test/pg/laws/target-keys.test.ts draws such a probe beside every key a target may be held
  * by, over a selection or not, its terms holding a fixed field or not.
  *
- * Plants (~/.cache/grizzle-release/R10/plants): probed-target-shared-always (every fixed target at its terms and fixed
+ * Plants (~/.cache/grizzle-release/AXISINDEX/plants): probed-target-probe-per-index (the choice counting every
+ * unserved probe a B-tree of its own again, laws/model/plan.ts probeIndexes: caught by the kept case's restated keys'
+ * objects). Plants (~/.cache/grizzle-release/R10/plants): probed-target-shared-always (every fixed target at its terms and fixed
  * field: caught by the restated keys' objects), probed-target-constants-free (the choice counting a constant column as
  * nothing, so a superkey is taken though the target's own columns need no constant and cost less: caught by the
  * restated keys' objects), probed-target-probe-beside (each reverse probe a B-tree of its own beside a unique index that
@@ -708,7 +710,31 @@ describe("a fixed target's UNIQUE beside the reverse probes out of its selection
 						draw: drawn(sketchGen),
 						literal: Formatter.format,
 						coverage: required<Feature>(FEATURES, { cases: 300, sense: notesOnly }),
-						kept: [],
+						kept: [
+							{
+								note: "Two targets fixing kind = 2 over (a, b), K on (a, kind) over select(T, c = 1), and probes out of K's selection over (id, a, b) and (a, b): the superkey (a, b, kind) leads the (a, b) probe, but the engine's index for the (id, a, b) probe leads with (a, b) too, so the superkey saves no B-tree and its two constants cost one more object than the targets' own columns. The choice counted each unserved probe a B-tree of its own until probeIndexes, and K alone planned 20 objects to the restated keys' 19 (rotating case 166)",
+								sketch: {
+									selected: true,
+									key: ["a", "kind"],
+									targets: [
+										{ value: 2, guarded: false, terms: ["a", "b"] },
+										{ value: 2, guarded: false, terms: ["a", "b"] }
+									],
+									probes: [
+										{ at: { kind: "fixed", value: 2, guarded: false }, terms: ["id", "a"] },
+										{ at: { kind: "key" }, terms: ["id", "a", "b"] },
+										{ at: { kind: "key" }, terms: ["a", "b"] }
+									]
+								},
+								draws: "",
+								reaches: [
+									"a target a probe out of its selection misses a term of",
+									"a probe out of another selection of T",
+									"K over a selection",
+									"K's terms holding the fixed field"
+								]
+							}
+						],
 						runs: 300,
 						shrink: completeShrink,
 						concurrency: 1,
