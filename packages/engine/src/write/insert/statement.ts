@@ -1,4 +1,3 @@
-import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import type { ConstraintName, EntryName, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
@@ -557,13 +556,6 @@ export const returnedRows = (
 		},
 		columns.map((c) => c.delivered),
 		[]
-	)
-
-/** A value as its exact result text (codec resultTextCasts): money through numeric. */
-export const resultText = (e: Expr, type: ScalarType): Expr =>
-	resultTextCasts(type).reduce<Expr>(
-		(acc, t) => cast(acc, t === "numeric" ? types.numeric : types.text),
-		e
 	)
 
 /** The SQL type of an input column: its scalar type, and the PostgreSQL type its SQL expression has when the input

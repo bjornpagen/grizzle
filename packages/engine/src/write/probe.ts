@@ -449,12 +449,6 @@ export const metRowsOf = (
 	}
 }
 
-/** `access` narrowed further by `more`, conditions over the probed row read under the alias `inner` names. */
-export const narrowed = (access: Access, more: (inner: string) => ReadonlyArray<Expr>): Access => ({
-	...access,
-	filter: (inner) => [...access.filter(inner), ...more(inner)]
-})
-
 /** The columns that place a row at the unique object `u`: its compared fields', then its span's at a span object. */
 const placedBy = (
 	w: WriteContext,
