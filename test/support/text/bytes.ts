@@ -17,9 +17,11 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
  * (`^.*$`), at most so many code points (`^.{0,L}$`) or lowercase letters of no bound (`^[a-z]*$`), bounded or not by
  * str.bytes; the target, a key, is bounded by its pattern or its bytes. The program declares each case's relations and
  * schema over the public API, and states that each str.bytes field's type is its pattern's own, both ways; it must
- * typecheck with no diagnostic. The cases are drawn as test/types/text/contained.ts draws its patterns: those the
- * label fixes (the floor), the same on every run, which must reach every required situation, and those the run's seed
- * draws, new on every run.
+ * typecheck with no diagnostic. Every pattern a case draws has string for its type, which no bound's type can be told
+ * from, so beside each side str.bytes bounds the program bounds a finite language by the same bound (finitePattern),
+ * whose type is its members' union, and states that field's type is that pattern's own too. The cases are drawn as
+ * test/types/text/contained.ts draws its patterns: those the label fixes (the floor), the same on every run, which
+ * must reach every required situation, and those the run's seed draws, new on every run.
  */
 
 /** A side's pattern: every text, at most so many code points, or letters of no bound. */
@@ -148,13 +150,26 @@ const patternText = (p: BytesPattern): string => {
 	return `str.regex(${jsonText(source)}, ${jsonText(flags)})`
 }
 
-/** The program's declarations of a side's text: its pattern, and its field, str.bytes over it or the pattern itself. */
+/** A finite language's pattern, whose type is its members' union, `"a" | "b"`, where every drawn pattern's is string. */
+const finitePattern = `str.regex(${jsonText("^(?:a|b)$")}, ${jsonText("u")})`
+
+/**
+ * The program's declarations of a side's text: its pattern, and its field, str.bytes over it or the pattern itself;
+ * and where str.bytes bounds it, the finite language bounded by the same bound, its field's type that pattern's own.
+ */
 const sideLines = (name: string, t: Text): ReadonlyArray<string> => [
 	`export const ${name}Pattern = ${patternText(t.pattern)}`,
 	t.bytes === undefined
 		? `export const ${name} = ${name}Pattern`
 		: `export const ${name} = str.bytes(${t.bytes}, ${name}Pattern)`,
-	`export const ${name}Same: Same<typeof ${name}, typeof ${name}Pattern> = true`
+	`export const ${name}Same: Same<typeof ${name}, typeof ${name}Pattern> = true`,
+	...(t.bytes === undefined
+		? []
+		: [
+				`export const ${name}FinitePattern = ${finitePattern}`,
+				`export const ${name}Finite = str.bytes(${t.bytes}, ${name}FinitePattern)`,
+				`export const ${name}FiniteSame: Same<typeof ${name}Finite, typeof ${name}FinitePattern> = true`
+			])
 ]
 
 /** The program's declarations of a case at a position: its sides, its relations and its schema. */

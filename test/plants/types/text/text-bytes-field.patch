@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/text/field.ts b/packages/engine/src/text/field.ts
+index fc780723..2664e50a 100644
+--- a/packages/engine/src/text/field.ts
++++ b/packages/engine/src/text/field.ts
+@@ -172,7 +172,7 @@ const admitBytes = (
+ const bytesConstructor = <Host extends string>(
+ 	bytes: number,
+ 	text: RegexText<Host>
+-): RegexText<Host> => {
++): RegexText<string> => {
+ 	const { octets, language } = admitBytes(bytes, text)
+ 	return textField<Host>(text.patterns, language, octets)
+ }

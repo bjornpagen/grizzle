@@ -1,11 +1,13 @@
 /**
  * str.bytes's types (test/support/text/bytes.ts), one program the type batch checks armed: a text a byte bound refines
- * has its pattern's own type, both ways, and meets every text its pattern meets, as a containment's source and as a
- * key; the program has no diagnostic. Oracle: the pattern-refined text's own type. The floor's cases, which the label
- * fixes, reach every required situation on every seed.
+ * has its pattern's own type, both ways, and so does a finite language's text under each drawn bound, whose type is no
+ * string; and it meets every text its pattern meets, as a containment's source and as a key; the program has no
+ * diagnostic. Oracle: the pattern-refined text's own type. The floor's cases, which the label fixes, reach every
+ * required situation on every seed.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): text-bytes-field.patch types str.bytes as a text field that is no
- * pattern's.
+ * @plant test/plants/types/text/text-bytes-field.patch str.bytes is typed as a text whose host is string, no pattern's
+ * (text/field.ts bytesConstructor), so a finite language's bounded text is no longer its pattern's type; the program
+ * fails.
  */
 import { unreachedOf } from "@bjornpagen/testing/features"
 import { NodeServices } from "@effect/platform-node"
