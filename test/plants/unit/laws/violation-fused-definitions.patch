@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/analysis/theory/query.ts b/packages/engine/src/analysis/theory/query.ts
+index 4215e7a4..ce520c5f 100644
+--- a/packages/engine/src/analysis/theory/query.ts
++++ b/packages/engine/src/analysis/theory/query.ts
+@@ -1179,7 +1179,16 @@ const wholeSide = (
+ 	const guarded = mapNonEmpty(side.terms, guardedTerm)
+ 	return {
+ 		vars: fields.map((f) => ({ id: id(f), origin: { relation: side.relation, field: f }, loc })),
+-		match: { source: liveSource(side.relation, definition), bindings: bound, loc },
++		match: {
++			source: imported(
++				mapNonEmpty(side.arms, (a) =>
++					ruleDesc(a.vars, a.matches.map(matchDesc), conditionsOf(a, loc), a.head, loc)
++				),
++				loc
++			),
++			bindings: bound,
++			loc
++		},
+ 		where: [
+ 			...side.selection.conjuncts.map((c) => mapLeaves(c, leaves)),
+ 			...guarded.flatMap((g) => g.guard.map((x) => mapLeaves(x, leaves)))
