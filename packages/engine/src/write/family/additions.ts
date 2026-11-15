@@ -66,6 +66,7 @@ import type {
 	Expr,
 	FromItem,
 	JoinStep,
+	OperandCore,
 	Select,
 	SetArm
 } from "#compiler/sql/ast.ts"
@@ -76,6 +77,7 @@ import {
 	cast,
 	col,
 	conjunction,
+	core,
 	cte,
 	cteRef,
 	cteRefAs,
@@ -89,6 +91,7 @@ import {
 	notExists,
 	provedCore,
 	select,
+	setOperation,
 	simpleSelect,
 	target,
 	targetAs,
@@ -1744,35 +1747,128 @@ const recountOf = (
 	const o = supply.relation(internal("recounted owner"))
 	const ownerKey = (family: Family): ReadonlyArray<Expr> =>
 		family.group.map((g) => col(o, w.names.column(name, g.owner.name)))
-	/** The recount source's row of the owner row's group, read as `l`. */
-	const at = (family: Family, last: PerGroup, l: string) =>
-		sameGroupExprs(w.names, family, ownerKey(family), l, last.group)
-	const hasGroup = (family: Family, last: PerGroup): Expr => {
-		const l = supply.relation(internal("recount source"))
-		return exists(simpleSelect([target(one)], [cteRefAs(last.name, l)], at(family, last, l)))
-	}
 	/**
-	 * A family's recounted value of an owner column, its stored one where it recounts no group of the row: a recounted
-	 * count or end is never NULL.
+	 * Every recounted owner key with each family's recounted columns beside it, one row per key, which the UPDATE joins
+	 * at the owner row's key and reads every column of at once: the one family's recount source itself, whose rows are
+	 * its groups, one each; else the keys of every family's source, each family's source joined at its key, NULL where
+	 * it recounts no group of the key. Each source is read once, never once per owner row and recounted column.
 	 */
-	const valueAt = (family: Family, last: PerGroup, column: string, stored: Expr): Expr => {
-		const l = supply.relation(internal("recount value"))
-		return firstNonNull([
-			{
-				kind: "subquery",
-				query: simpleSelect([target(col(l, column))], [cteRefAs(last.name, l)], at(family, last, l))
-			},
-			stored
-		])
-	}
+	const row = supply.relation(internal("recount row"))
+	const recount = ((): {
+		readonly source: string
+		readonly at: Expr
+		readonly value: (
+			x: { readonly family: Family; readonly last: PerGroup },
+			column: string
+		) => Expr
+	} => {
+		const [only, ...others] = lasts
+		if (!isNonEmpty(others)) {
+			return {
+				source: only.last.name,
+				at: sameGroupExprs(w.names, only.family, ownerKey(only.family), row, only.last.group),
+				value: (_, column) => col(row, column)
+			}
+		}
+		const keys = mapNonEmpty(owner.primaryFields, () => supply.column(internal("recounted key")))
+		const keyset = supply.relation(internal("recounted keys"))
+		const keyArm = ({ last }: { readonly last: PerGroup }): OperandCore => {
+			const l = supply.relation(internal("recounted group"))
+			return core(
+				mapNonEmpty(last.group, (c) => target(col(l, c))),
+				[cteRefAs(last.name, l)],
+				undefined
+			)
+		}
+		ctes.push(
+			cte(
+				keyset,
+				[...keys],
+				select(setOperation("UNION", [keyArm(only), ...mapNonEmpty(others, keyArm)]))
+			)
+		)
+		const k = supply.relation(internal("recounted key row"))
+		const joined = lasts.map((x) => ({
+			...x,
+			alias: supply.relation(internal("recount source")),
+			columns: new Map(
+				[x.last.count, ...x.last.columns.values()].map(
+					(c) => [c, supply.column(internal("recounted column"))] as const
+				)
+			)
+		}))
+		const recounts = supply.relation(internal("recounts"))
+		const [firstJoined, ...restJoined] = joined
+		if (firstJoined === undefined) {
+			throw defect(`a recount of ${name} joins its families' sources`)
+		}
+		ctes.push(
+			cte(
+				recounts,
+				[...keys, ...joined.flatMap((x) => [...x.columns.values()])],
+				select(
+					provedCore(
+						"keyed",
+						[
+							...mapNonEmpty(keys, (c) => targetAs(col(k, c), c)),
+							...joined.flatMap((x) =>
+								[...x.columns].map(([column, as]) => targetAs(col(x.alias, column), as))
+							)
+						],
+						[
+							{
+								kind: "joins",
+								first: cteRefAs(keyset, k),
+								steps: mapNonEmpty([firstJoined, ...restJoined], (x) => ({
+									kind: "left",
+									source: cteRefAs(x.last.name, x.alias),
+									on: sameGroupExprs(
+										w.names,
+										x.family,
+										keys.map((c) => col(k, c)),
+										x.alias,
+										x.last.group
+									)
+								}))
+							}
+						],
+						undefined
+					)
+				)
+			)
+		)
+		return {
+			source: recounts,
+			at: and(
+				mapNonEmpty(owner.primaryFields, (f, i) =>
+					typedEq(
+						f.type,
+						col(o, w.names.column(name, f.name)),
+						col(row, defined(keys[i], "a recounted key")),
+						w.names
+					)
+				)
+			),
+			value: (x, column) =>
+				col(
+					row,
+					defined(
+						joined.find((j) => j.family === x.family)?.columns.get(column),
+						"a recounted column"
+					)
+				)
+		}
+	})()
 	const sets: Array<Assignment> = []
 	const changed: Array<Expr> = []
-	for (const { family, last } of lasts) {
+	for (const x of lasts) {
+		const { family, last } = x
 		const assign = (field: LawField, column: string): void => {
 			const installedColumn = w.names.column(name, field.name)
-			/** The column's recounted value, built apart for the SET and for the WHERE that tests it changed. */
+			/** The column's recounted value, its stored one where the row's key recounts no group of the family: a
+			 * recounted count or end is never NULL. */
 			const value = (): Expr =>
-				written(w, valueAt(family, last, column, col(o, installedColumn)), field.type)
+				written(w, firstNonNull([recount.value(x, column), col(o, installedColumn)]), field.type)
 			sets.push({ column: installedColumn, value: value() })
 			changed.push({
 				kind: "not",
@@ -1801,7 +1897,6 @@ const recountOf = (
 	)
 	const update = supply.relation(internal("family recount"))
 	const returning = updateReturning(w, supply, owner, fields, update)
-	const [firstLast, ...restLasts] = lasts
 	ctes.push(
 		cte(update, [], {
 			kind: "update",
@@ -1809,11 +1904,9 @@ const recountOf = (
 			table: w.names.relation(name),
 			alias: o,
 			set: [firstSet, ...restSets],
-			from: [],
+			from: [cteRefAs(recount.source, row)],
 			where: and([
-				restLasts.length === 0
-					? hasGroup(firstLast.family, firstLast.last)
-					: { kind: "or", args: mapNonEmpty(lasts, (x) => hasGroup(x.family, x.last)) },
+				recount.at,
 				restChanges.length === 0 ? firstChange : { kind: "or", args: [firstChange, ...restChanges] }
 			]),
 			returning: returning.returning
