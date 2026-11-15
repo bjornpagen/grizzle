@@ -1,0 +1,26 @@
+diff --git a/packages/engine/src/write/insert/protocol.ts b/packages/engine/src/write/insert/protocol.ts
+index 780ce800..9997b5f0 100644
+--- a/packages/engine/src/write/insert/protocol.ts
++++ b/packages/engine/src/write/insert/protocol.ts
+@@ -751,7 +751,20 @@ export const buildInsert = (
+ 					return {
+ 						kind: "columns",
+ 						columns: mapNonEmpty(pk, column),
+-						action: { kind: "doSelect", where: undefined }
++						action: {
++							kind: "doSelect",
++							where: isNonEmpty(arbitration.payload)
++								? rowNe(
++										{
++											fields: arbitration.payload,
++											typeOf,
++											left: (f) => col(r3, column(f)),
++											right: (f) => ({ kind: "excluded", column: column(f) })
++										},
++										w.names
++									)
++								: undefined
++						}
+ 					}
+ 			}
+ 		}

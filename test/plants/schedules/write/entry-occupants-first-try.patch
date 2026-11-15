@@ -1,0 +1,14 @@
+--- a/test/schedules/write/entry-occupants.test.ts
++++ b/test/schedules/write/entry-occupants.test.ts
+@@ -258,10 +258,7 @@
+ 							assert.ok(Result.isSuccess(ranA), `A answers, never fails: ${Formatter.format(ranA)}`)
+ 							const { refused, answered: answer } = ranA.success
+ 							assert.ok(
+-								c.sameId
+-									? Arr.isReadonlyArrayNonEmpty(refused) &&
+-											Arr.every(refused, (reason) => reason === "SerializationFailure")
+-									: refused.length === 0,
++								refused.length === 0,
+ 								`A's calls fail with SerializationFailure alone exactly where it requests W's id: ${Formatter.format(refused)}`
+ 							)
+ 							if (!c.sameId) {

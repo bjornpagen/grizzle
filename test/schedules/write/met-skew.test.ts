@@ -29,8 +29,8 @@
  *
  * Oracle: specification, the two serial orders of L and D over the stated rows.
  *
- * Plant: ~/.cache/grizzle-release/DELTAMET/plants/met-unseen.patch, a SERIALIZABLE `returned` insert classing a met row
- * with no read of it under the snapshot, must turn the property red: the skew commits.
+ * @plant test/plants/schedules/write/met-unseen.patch A SERIALIZABLE `returned` insert classes a met row with no read
+ * of it under the snapshot (the read is asked at READ COMMITTED instead), so the skew commits; the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

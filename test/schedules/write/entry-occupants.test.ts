@@ -34,10 +34,12 @@
  * Oracle: specification, the serial order W, then A, over the stated seats, with the SerializationFailure of a call
  * whose snapshot misses W's commit at its key.
  *
- * Plants (~/.cache/grizzle-release/RC2BEHAVE/plants): entry-insert-read-committed.patch (the certifier reads a key
- * probe's call as reading no table, so holder runs READ COMMITTED and carl's seat meets SELECT's policy, 42501) and
- * entry-occupants-first-try.patch (the oracle expects the key's law on A's first call, the contract PostgreSQL 19rc1's
- * order gave), each of which must turn the property red.
+ * @plant test/plants/schedules/write/entry-insert-read-committed.patch The certifier reads a key probe's call as
+ * reading no table, so generate certifies holder READ COMMITTED, where carl's seat would meet SELECT's policy, 42501;
+ * the property fails at its certification.
+ * @plant test/plants/schedules/write/entry-occupants-first-try.patch The oracle expects the key's law on A's first
+ * call, the contract PostgreSQL 19rc1's order gave, so at W's id it expects no SerializationFailure; the property
+ * fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

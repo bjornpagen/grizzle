@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/insert/unique.ts b/packages/engine/src/write/insert/unique.ts
+index 663551e3..b7237e30 100644
+--- a/packages/engine/src/write/insert/unique.ts
++++ b/packages/engine/src/write/insert/unique.ts
+@@ -238,7 +238,7 @@ export const generatedArbiter = (
+ 	uniques: RelationUniques,
+ 	drawn: ReadonlyArray<string>
+ ): KeyArbiter | undefined => {
+-	for (const key of uniques.keys) {
++	for (const key of [...uniques.keys].reverse()) {
+ 		if (key.kind === "key" && !key.equal.some((f) => drawn.includes(f.name))) {
+ 			return key
+ 		}

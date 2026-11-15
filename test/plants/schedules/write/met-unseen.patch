@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/insert/protocol.ts b/packages/engine/src/write/insert/protocol.ts
+index 780ce800..5df3c2da 100644
+--- a/packages/engine/src/write/insert/protocol.ts
++++ b/packages/engine/src/write/insert/protocol.ts
+@@ -886,7 +886,7 @@ export const buildInsert = (
+ 			mark: string
+ 		): Select["body"] => {
+ 			const seen =
+-				w.level === "serializable"
++				w.level === "readCommitted"
+ 					? [
+ 							{
+ 								when: not(

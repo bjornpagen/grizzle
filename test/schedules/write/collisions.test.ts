@@ -45,10 +45,11 @@
  * aims at a pending one that depends on the form or on two of B's requests runs a case constructed to reach it
  * (`aims`).
  *
- * Plants: ~/.cache/grizzle-release/BR08/plants/collisions-generated-arbiter-last-key.patch, a generated addition
- * arbitrated at the last declared key holding no drawn field (slot) instead of the first, must turn the property red;
- * so must ~/.cache/grizzle-release/DELTAMET/plants/met-keep-where.patch, the arbiter's DO SELECT returning only an
- * occupant whose payload differs, so an exact repeat meets nothing it reads back.
+ * @plant test/plants/schedules/write/collisions-generated-arbiter-last-key.patch A generated addition is arbitrated at
+ * the last declared key holding no drawn field (slot) instead of the first (write/insert/unique.ts generatedArbiter);
+ * the property fails.
+ * @plant test/plants/schedules/write/met-keep-where.patch The arbiter's DO SELECT returns only an occupant whose payload
+ * differs, so an exact repeat meets nothing it reads back; the property fails.
  */
 import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

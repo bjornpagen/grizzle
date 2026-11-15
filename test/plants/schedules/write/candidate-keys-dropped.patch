@@ -1,0 +1,11 @@
+--- a/test/schedules/write/races.test.ts
++++ b/test/schedules/write/races.test.ts
+@@ -960,7 +960,7 @@
+ 					candidateKeyFields(statement.side),
+ 					`a key of ${relation} over every fact, the one the model means`
+ 				)
+-				return [keyOver(o.names.lawOfDesc(statement), relation, fields)]
++				return Arr.take([keyOver(o.names.lawOfDesc(statement), relation, fields)], 0)
+ 			}
+ 			case "contained": {
+ 				const from = relNamed(statement.left.relation)

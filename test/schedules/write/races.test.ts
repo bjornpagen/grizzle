@@ -36,12 +36,17 @@
  * nature's branches, a write held between its strata by a blocker, generated and explicit serials, and each planted
  * shape.
  *
- * Plants: ~/.cache/grizzle-release/BR08/plants/races-assignments-keep-stored-values.patch, every assignment of a put in
- * place keeping the stored value, must turn the races' property red;
- * ~/.cache/grizzle-release/BR08/plants/races-inserter-served-serializable.patch, the certified READ COMMITTED inserter
- * served its SERIALIZABLE projection, the inserters';
- * ~/.cache/grizzle-release/BR08/plants/races-inserter-begins-swapped.patch, each level's BEGIN sent for the other's,
- * the inserter alone's.
+ * Plants: ~/.cache/grizzle-release/BR08/plants/races-inserter-begins-swapped.patch, each level's BEGIN sent for the
+ * other's, the inserter alone's.
+ *
+ * @plant test/plants/schedules/write/races-assignments-keep-stored-values.patch Every assignment of a put in place
+ * (the upsert's DO UPDATE, the UPDATE ... FROM and the MERGE's update) keeps the stored value; the races' property
+ * fails.
+ * @plant test/plants/schedules/write/races-inserter-served-serializable.patch A role certified READ COMMITTED is served
+ * its SERIALIZABLE form, so the inserter runs SERIALIZABLE; the inserters' property fails.
+ * @plant test/plants/schedules/write/candidate-keys-dropped.patch The model's laws drop every `key` statement's
+ * candidate key (lawsOf), so a call refused at Badge's code is a run no serial order explains; the races' property
+ * fails.
  */
 
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
