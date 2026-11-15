@@ -26,11 +26,19 @@
  * member; once, explain, a read-back
  * and nothing to write; a refresh of an unpopulated and of a populated view; each first call and several Dbs opened.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): round-trips-read-write.patch (a read's transaction opened READ
- * WRITE), round-trips-commit-flight.patch (a call's COMMIT sent in a flight of its own),
- * round-trips-refresh-frame.patch (a refresh opened READ ONLY); ~/.cache/grizzle-release/EXPLAIN/plants/rollback-dropped.patch
- * (an explain's transaction committed); ~/.cache/grizzle-release/DEFERRABLE/plants/read-never-deferrable.patch (a
- * deferrable member's read begun without DEFERRABLE), read-always-deferrable.patch (every read begun DEFERRABLE).
+ * Plants (~/.cache/grizzle-release/DEFERRABLE/plants): read-never-deferrable.patch (a deferrable member's read begun
+ * without DEFERRABLE).
+ *
+ * @plant test/plants/pg/adapter/round-trips-read-write.patch A read's transaction opened READ WRITE; the reads property
+ * fails.
+ * @plant test/plants/pg/adapter/batch-parity-split-flight.patch A Db call's COMMIT sent in a flight of its own; the reads,
+ * writes and refreshes properties fail on their one round trip.
+ * @plant test/plants/pg/adapter/round-trips-refresh-frame.patch A refresh opened READ ONLY; the refreshes property
+ * fails.
+ * @plant test/plants/pg/adapter/rollback-dropped.patch An explain's transaction committed, not rolled back; the reads
+ * and writes properties fail on an explain.
+ * @plant test/plants/pg/adapter/read-always-deferrable.patch Every read begun DEFERRABLE; the reads property fails on a
+ * plain member.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

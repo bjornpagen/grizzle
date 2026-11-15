@@ -27,7 +27,8 @@
  * Features: a read-committed write frame, a deferrable read's frame, each interruption point, a CancelRequest sent, each refused ending, and a
  * write committed after an interruption.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): interrupt-no-cancel.patch.
+ * @plant test/plants/pg/adapter/interrupt-no-cancel.patch An interrupted flight sends no CancelRequest and waits for its
+ * drain; the scripted and real sessions disagree on whether a CancelRequest was sent.
  */
 import { type Case, explore, type Kept, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

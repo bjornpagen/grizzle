@@ -19,9 +19,12 @@
  * through are the worlds model's (test/pg/world-model), and a Db's reads on databases with and without its schema are
  * test/pg/reads/open.test.ts's.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): connection-servername-host.patch (the certificate checked against the
- * dialled host, not the verified name), connection-plaintext.patch (an SSLRequest answered `N` reported as
- * unanswered), connection-password-twice.patch (the password Effect evaluated twice per attempt).
+ * @plant test/plants/pg/adapter/connection-servername-host.patch The certificate checked against the dialled host, not
+ * the verified name; the verify-full TLS property fails.
+ * @plant test/plants/pg/adapter/connection-plaintext.patch An SSLRequest answered `N` reported as unanswered; the no
+ * plaintext fallback property fails.
+ * @plant test/plants/pg/adapter/connection-password-twice.patch The password Effect evaluated twice per attempt; the
+ * password Effect property fails.
  */
 import { createServer, type Socket } from "node:net"
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"

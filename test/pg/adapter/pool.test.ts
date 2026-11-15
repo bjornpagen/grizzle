@@ -17,9 +17,12 @@
  * Features: each step kind, a lease after a retirement, an idle and a new session leased; every statement in every
  * flight; every standing, a release before any answer and mid-answer.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): pool-retired-reused.patch (a retired session released without an
- * error, so pg's Pool keeps it), interrupt-session-kept.patch (an interrupted flight's session left undestroyed),
- * pool-release-awaits.patch (a layer's release leaving its sessions' connections up).
+ * @plant test/plants/pg/adapter/pool-retired-reused.patch A retired session released without an error, so pg's Pool
+ * keeps it; the retirement property fails.
+ * @plant test/plants/pg/adapter/interrupt-session-kept.patch An interrupted flight's session left open, never retired,
+ * so the pool leases it again; the interruption property fails.
+ * @plant test/plants/pg/adapter/pool-release-awaits.patch A layer's release leaving its leased sessions' connections up;
+ * the release property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

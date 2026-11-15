@@ -17,9 +17,12 @@
  * Interruption of a flight is test/pg/adapter/flight.test.ts's and interrupt.test.ts's; a lease's wait for a pooled
  * session is test/pg/serverless/pool.test.ts's.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): batch-parity-split-flight.patch (a flight's COMMIT sent in a second
- * flight), batch-parity-refused-index.patch (a refusal reported one statement late), batch-parity-reparse.patch (a
- * served statement sent unnamed, parsed on every flight).
+ * @plant test/plants/pg/adapter/batch-parity-split-flight.patch A Db call's COMMIT sent in a second flight after its
+ * statements answered; the one round trip property fails.
+ * @plant test/plants/pg/adapter/batch-parity-refused-index.patch A refusal reported one statement late; the refusal
+ * property fails.
+ * @plant test/plants/pg/adapter/batch-parity-reparse.patch A served statement sent unnamed, so it is parsed on every
+ * flight and no name is kept; the prepared names property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/outcomes/index.ts b/packages/grizzle/src/adapter/outcomes/index.ts
+index d441dc9c..d203e1e2 100644
+--- a/packages/grizzle/src/adapter/outcomes/index.ts
++++ b/packages/grizzle/src/adapter/outcomes/index.ts
+@@ -273,7 +273,7 @@ export const transientFailureOf = (
+  */
+ export const classifyServerError = (failure: ServerError, context: ClassifyContext): Classified => {
+ 	const transient = transientFailureOf(failure, uniqueAbortsAt(context.origin))
+-	if (transient !== undefined) {
++	if (transient !== undefined && context.origin.kind !== "commit") {
+ 		return { kind: "failed", error: transient }
+ 	}
+ 	const violation = context.violation(failure, writtenAt(context))

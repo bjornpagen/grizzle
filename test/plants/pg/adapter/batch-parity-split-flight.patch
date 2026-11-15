@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/wire/batch.ts b/packages/grizzle/src/adapter/wire/batch.ts
+index 4a729f92..eebb6bd0 100644
+--- a/packages/grizzle/src/adapter/wire/batch.ts
++++ b/packages/grizzle/src/adapter/wire/batch.ts
+@@ -1459,7 +1459,7 @@ export const runFramed = (
+ 	Effect.suspend((): Effect.Effect<ReadonlyArray<BatchOutcome>, FlightFailure> => {
+ 		const overrun = bindOverrun(statements, session.messageMaxBytes)
+ 		return overrun === undefined
+-			? runEntered(session, asDb(frame), statements, frame, "whole")
++			? runFramedTwice(session, frame, statements, () => Effect.succeed([]))
+ 			: Effect.fail(overrun)
+ 	})
+ 
