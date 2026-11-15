@@ -327,6 +327,8 @@ importers:
 
   packages/experiments/axisindex-repin-cost: {}
 
+  packages/experiments/edullm-repin: {}
+
   packages/experiments/multicore: {}
 
   packages/experiments/ssi-summary: {}
