@@ -26,83 +26,27 @@ import { fitRange } from "#compiler/scalar/compute/lower.ts"
 import { statedKey } from "#test/support/fixtures/ir/build.ts"
 import { f as field } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { orderSensitiveWindowFns } from "#test/support/oracle/dag-validate.ts"
+import { type DagRule, orderSensitiveWindowFns } from "#test/support/oracle/dag-validate.ts"
 import { scalarTypes } from "#test/unit/ir/fixture.ts"
 
-/** Where the validator must report the rule a corrupted DAG breaks. */
+/**
+ * What the validator must report of a corrupted DAG at a site:
+ * - `own`: a problem under the rule the corruption breaks;
+ * - `rule`: a problem under another rule, where the site breaks that one in breaking its own and the validator holds
+ *   its own nowhere else (a closed relation's heading is its rows', so a column added to it leaves its rows short);
+ * - `shape`: the shape stage's refusal, which names no rule, where the value breaks the table's shape.
+ */
+export type DagReport =
+	| { readonly kind: "own" }
+	| { readonly kind: "rule"; readonly rule: DagRule }
+	| { readonly kind: "shape" }
+
+/** Where the validator must report a corrupted DAG, at `path` or within it, and what. */
 export interface DagRefusal {
 	readonly path: ReadonlyArray<string | number>
 	readonly match: "within" | "at"
+	readonly reports: DagReport
 }
-
-/**
- * Every rule a corruption breaks, as the validator holds it: a corruption names one of these, so a misspelt rule is a
- * compile error.
- */
-export type DagRule =
-	| "a feedback edge names a node"
-	| "a column reference names a column of its node"
-	| "a binding names a declared variable"
-	| "a variable is declared by one region"
-	| "a region declares a variable once"
-	| "a region's variables have distinct names"
-	| "an occurrence id is fresh"
-	| "a region binds its own variables only"
-	| "a heading names each column once"
-	| "a heading column has a name"
-	| "a heading is the one its kind defines"
-	| "a heading column has the type its kind defines"
-	| "a group's keys lie in its bound tuple"
-	| "a declared key names columns of the heading"
-	| "a union of several headings has a discriminant"
-	| "every arm binds the discriminant to a literal"
-	| "arms of different headings differ in their discriminant literals"
-	| "an arm has its group's heading"
-	| "an attachment binds a parent variable"
-	| "an attachment delivers no narrower than its child's evidence"
-	| "an order belongs to a delivered array"
-	| "a delivery node lies on its root's delivered rows"
-	| "a filter's predicate is boolean"
-	| "an approximate search is sealed and scored by a double precision column"
-	| "a take's bound is positive"
-	| "set operation inputs have equal headings"
-	| "join columns exist on both sides at one base type"
-	| "a producer has its arity"
-	| "a closed row has the heading's width"
-	| "closed facts are distinct under native equality"
-	| "an expression reads its node's input only"
-	| "a scope expression's column is bound on its way to every root"
-	| "an aggregate reads only its bound tuple"
-	| "a node's read dependencies are the computed ones"
-	| "a node's parameter dependencies are the computed ones"
-	| "an order is total"
-	| "a logical key names heading columns"
-	| "logical keys are distinct"
-	| "the empty key needs at most one row"
-	| "a recursion's self is its feedback reference"
-	| "a recursion's base and step have its state heading"
-	| "a recursion has one feedback reference"
-	| "a recursion's base never reads its feedback"
-	| "a recursion's step reads its feedback"
-	| "only the step reads the feedback"
-	| "a window function has its arity"
-	| "lead and lag take an integer offset and a default of the value's type"
-	| "a ROWS frame belongs to an ordered window aggregate, start before end"
-	| "only a count is filtered"
-	| "an aggregate has its arity"
-	| "an ordered-set aggregate orders by one column, with a double precision fraction per output"
-	| "a literal fits its type"
-	| "a comparison parameter is bound as its base type"
-	| "an expression's dependencies are the computed ones"
-	| "an expression is stable when an argument is"
-	| "a conditional has a boolean condition and branches of its type"
-	| "VALUE appears only in a contract predicate"
-	| "a column reference keeps its column's type"
-	| "a partial operation stands with a proof the kernel re-derives"
-	| "every precondition of a partial operation stands with a proof of its own"
-	| "a domain cast targets a refined type"
-	| "a node or expression holds its kind's properties only"
-	| "no field holds null"
 
 export type DagCorruption = Corruption<DagTable, DagRefusal, DagRule>
 
@@ -158,16 +102,48 @@ const withExpr = (dag: DagTable, key: string, expr: unknown): Raw => withExprs(d
 const absentNode = NodeId("n-absent")
 const absentVar = VarId("v-absent")
 
-const refused = (path: ReadonlyArray<string | number>, match: "within" | "at"): DagRefusal => ({
-	path,
-	match
-})
+/** The corruption's own rule. */
+const own: DagReport = { kind: "own" }
 
+/** The shape stage's refusal. */
+const shape: DagReport = { kind: "shape" }
+
+const refused = (
+	path: ReadonlyArray<string | number>,
+	match: "within" | "at",
+	reports: DagReport
+): DagRefusal => ({ path, match, reports })
+
+/** The corruption's own rule, reported within a node. */
 const atNode = (id: NodeId, ...rest: ReadonlyArray<string | number>): DagRefusal =>
-	refused(["nodes", id, ...rest], "within")
+	refused(["nodes", id, ...rest], "within", own)
 
+/** The corruption's own rule, reported within an expression. */
 const atExpr = (id: ExprId, ...rest: ReadonlyArray<string | number>): DagRefusal =>
-	refused(["exprs", id, ...rest], "within")
+	refused(["exprs", id, ...rest], "within", own)
+
+/** The shape stage's refusal, within a node. */
+const shapeAtNode = (id: NodeId, ...rest: ReadonlyArray<string | number>): DagRefusal =>
+	refused(["nodes", id, ...rest], "within", shape)
+
+/** The shape stage's refusal, within an expression. */
+const shapeAtExpr = (id: ExprId, ...rest: ReadonlyArray<string | number>): DagRefusal =>
+	refused(["exprs", id, ...rest], "within", shape)
+
+/**
+ * What the validator reports of a node whose heading is no longer the one its kind defines: the corruption's own rule,
+ * but where another rule keeps that heading. A Recursive's heading is its base's and its step's, so theirs no longer
+ * agree with it; a Closed relation's heading is its rows', so they no longer fit it (`rows`).
+ */
+const headingReport = (n: TableNode, rows: DagRule): DagReport => {
+	if (n.kind === "Recursive") {
+		return { kind: "rule", rule: "a recursion's base and step have its state heading" }
+	}
+	if (n.kind === "Closed") {
+		return { kind: "rule", rule: rows }
+	}
+	return own
+}
 
 const site = (value: unknown, refusal: DagRefusal, at: string): Broken<DagRefusal> => ({
 	value,
@@ -404,6 +380,31 @@ const references: Arr.NonEmptyReadonlyArray<DagCorruption> = [
 			)
 	},
 	{
+		rule: "a termination premise names a node",
+		from: "stale",
+		weight: 1,
+		sites: (dag) =>
+			Arr.flatMap(ofKind(dag, "Recursive"), (r) =>
+				Arr.some(r.termination.premises, (p) => p.kind === "node")
+					? [
+							site(
+								withNode(dag, r.id, {
+									...r,
+									termination: {
+										...r.termination,
+										premises: Arr.map(r.termination.premises, (p) =>
+											p.kind === "node" ? { kind: "node", node: absentNode } : p
+										)
+									}
+								}),
+								atNode(r.id),
+								r.termination.kind
+							)
+						]
+					: []
+			)
+	},
+	{
 		rule: "a column reference names a column of its node",
 		from: "stale",
 		weight: 1,
@@ -635,7 +636,7 @@ const headings: ReadonlyArray<DagCorruption> = [
 					: [
 							site(
 								withNode(dag, n.id, { ...n, heading: [{ ...first, name: "" }, ...rest] }),
-								atNode(n.id),
+								shapeAtNode(n.id),
 								n.kind
 							)
 						]
@@ -653,7 +654,7 @@ const headings: ReadonlyArray<DagCorruption> = [
 					: [
 							site(
 								withNode(dag, n.id, { ...n, heading: [...n.heading, first] }),
-								atNode(n.id, "heading"),
+								shapeAtNode(n.id, "heading"),
 								n.kind
 							)
 						]
@@ -673,7 +674,11 @@ const headings: ReadonlyArray<DagCorruption> = [
 							{ name: freshName(n.heading, "ghost"), type: n.heading[0]?.type ?? scalarTypes.int4 }
 						]
 					}),
-					atNode(n.id),
+					refused(
+						["nodes", n.id],
+						"within",
+						headingReport(n, "a closed row has the heading's width")
+					),
 					n.kind
 				)
 			)
@@ -696,7 +701,7 @@ const headings: ReadonlyArray<DagCorruption> = [
 									...n,
 									heading: [{ ...first, type: otherType(first.type) }, ...rest]
 								}),
-								atNode(n.id),
+								refused(["nodes", n.id], "within", headingReport(n, "a literal fits its type")),
 								n.kind
 							)
 						]
@@ -751,7 +756,7 @@ const unions: ReadonlyArray<DagCorruption> = [
 			Arr.map(heteroUnions(dag), (u) =>
 				site(
 					withNode(dag, u.id, { ...u, discriminant: [] }),
-					refused(["nodes", u.id], "within"),
+					refused(["nodes", u.id], "within", own),
 					u.kind
 				)
 			)
@@ -776,7 +781,7 @@ const unions: ReadonlyArray<DagCorruption> = [
 					return [
 						site(
 							withNode(dag, u.id, { ...u, discriminant: [...u.discriminant, c.name] }),
-							refused(["nodes", u.id, "groups", first[0], "arms", first[1]], "within"),
+							refused(["nodes", u.id, "groups", first[0], "arms", first[1]], "within", own),
 							u.kind
 						)
 					]
@@ -821,7 +826,7 @@ const unions: ReadonlyArray<DagCorruption> = [
 							nodes: { ...dag.nodes, [head.id]: { ...head, out } }
 						}
 					}
-					const refusal = refused(["nodes", u.id, "groups", i + 1], "within")
+					const refusal = refused(["nodes", u.id, "groups", i + 1], "within", own)
 					return [site(copied(), refusal, "the same literal")]
 				})
 			})
@@ -859,7 +864,7 @@ const attachments: ReadonlyArray<DagCorruption> = [
 			Arr.map(ofKind(dag, "Attach"), (a) =>
 				site(
 					withNode(dag, a.id, { ...a, correlation: [] }),
-					refused(["nodes", a.id], "within"),
+					refused(["nodes", a.id], "within", own),
 					a.delivered
 				)
 			)
@@ -914,7 +919,7 @@ const attachments: ReadonlyArray<DagCorruption> = [
 					return []
 				}
 				const order = { keys: Arr.map(child.heading, (c) => ({ column: c.name, dir: "asc" })) }
-				return [site(withNode(dag, a.id, { ...a, order }), atNode(a.id), a.delivered)]
+				return [site(withNode(dag, a.id, { ...a, order }), shapeAtNode(a.id), a.delivered)]
 			})
 	},
 	{
@@ -992,7 +997,7 @@ const kinds: ReadonlyArray<DagCorruption> = [
 					(c) => baseOf(c.type).carrier !== "float8"
 				)
 				return [
-					site(withNode(dag, a.id, { ...a, sealed: false }), atNode(a.id), "unsealed"),
+					site(withNode(dag, a.id, { ...a, sealed: false }), shapeAtNode(a.id), "unsealed"),
 					...(Option.isNone(unscored)
 						? []
 						: [
@@ -1015,7 +1020,7 @@ const kinds: ReadonlyArray<DagCorruption> = [
 					? Arr.map([0n, -1n], (k) =>
 							site(
 								withNode(dag, t.id, { ...t, bound: { kind: "literal", k } }),
-								atNode(t.id),
+								shapeAtNode(t.id),
 								k === 0n ? "zero" : "negative"
 							)
 						)
@@ -1089,7 +1094,7 @@ const kinds: ReadonlyArray<DagCorruption> = [
 				const [first] = p.args
 				return site(
 					withNode(dag, p.id, { ...p, args: p.producer === "spanPack" ? [first, first] : [first] }),
-					atNode(p.id),
+					shapeAtNode(p.id),
 					p.producer
 				)
 			})
@@ -1647,7 +1652,7 @@ const internal: ReadonlyArray<DagCorruption> = [
 							...w,
 							frame: { unit: "rows", start: { following: 1n }, end: "currentRow" }
 						}),
-						atNode(w.id),
+						shapeAtNode(w.id),
 						"backward frame"
 					)
 				]
@@ -1701,7 +1706,7 @@ const internal: ReadonlyArray<DagCorruption> = [
 								j === i ? { ...b, fn: a.args.length === 0 ? "sum" : "count" } : b
 							)
 						}),
-						atNode(g.id, "aggs", i),
+						shapeAtNode(g.id, "aggs", i),
 						a.fn
 					)
 				)
@@ -1760,12 +1765,12 @@ const internal: ReadonlyArray<DagCorruption> = [
 ]
 
 /**
- * A contract over a type's base, which a comparison parameter is never bound as: a type the validator's input may
- * hold, whether or not its shape is one the decoder admits.
+ * A contract over a type's base, which a comparison parameter is never bound as: a contract of no facts, a shape the
+ * decoder admits, so the rule refused is the comparison parameter's.
  */
 const refinedOver = (t: ScalarType): unknown => {
 	const base = baseOf(t)
-	return { ...base, contract: { name: "Ghost", base } }
+	return { ...base, contract: { name: "Ghost", base, facts: [] } }
 }
 
 /** The parents of each expression, with the argument position. */
@@ -2024,10 +2029,10 @@ const shapes: ReadonlyArray<DagCorruption> = [
 		weight: 1,
 		sites: (dag) => [
 			...Arr.map(nodesOf(dag), (n) =>
-				site(withNode(dag, n.id, { ...n, ghost: 1 }), atNode(n.id), n.kind)
+				site(withNode(dag, n.id, { ...n, ghost: 1 }), shapeAtNode(n.id), n.kind)
 			),
 			...Arr.map(exprsOf(dag), (e) =>
-				site(withExpr(dag, e.id, { ...e, ghost: 1 }), atExpr(e.id), e.kind)
+				site(withExpr(dag, e.id, { ...e, ghost: 1 }), shapeAtExpr(e.id), e.kind)
 			)
 		]
 	},
@@ -2038,12 +2043,12 @@ const shapes: ReadonlyArray<DagCorruption> = [
 		sites: (dag) => [
 			...Arr.flatMap(nodesOf(dag), (n) =>
 				Arr.map(fieldNames({ ...n }), (k) =>
-					site(withNode(dag, n.id, { ...n, [k]: null }), atNode(n.id), `${n.kind}.${k}`)
+					site(withNode(dag, n.id, { ...n, [k]: null }), shapeAtNode(n.id), `${n.kind}.${k}`)
 				)
 			),
 			...Arr.flatMap(exprsOf(dag), (e) =>
 				Arr.map(fieldNames({ ...e }), (k) =>
-					site(withExpr(dag, e.id, { ...e, [k]: null }), atExpr(e.id), `${e.kind}.${k}`)
+					site(withExpr(dag, e.id, { ...e, [k]: null }), shapeAtExpr(e.id), `${e.kind}.${k}`)
 				)
 			)
 		]

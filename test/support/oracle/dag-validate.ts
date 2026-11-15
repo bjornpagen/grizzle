@@ -94,7 +94,7 @@ import { meets } from "#compiler/scalar/compute/types.ts"
 import { defined } from "#test/support/assert.ts"
 import { definedness } from "#test/support/compute.ts"
 import { toTable } from "#test/support/dag.ts"
-import { nativeProofHolds, operationProofHolds } from "#test/support/oracle/proof.ts"
+import { nativeProofHolds, operationProofHolds, proofCovers } from "#test/support/oracle/proof.ts"
 
 /**
  * The strict re-reader of a DAG: every rule a DAG grizzle's builders and editors assemble holds by construction,
@@ -102,9 +102,100 @@ import { nativeProofHolds, operationProofHolds } from "#test/support/oracle/proo
  * conformed strictly (dagTableShape), then its semantics are checked.
  */
 
-/** A rule a DAG breaks: the rule, `message`, and where it breaks it, `path`, inside its table. */
+/**
+ * Every rule the validator holds a DAG to, as it reports one broken: the shape stage's (dagTableShape), whose refusal
+ * names none of them, and the semantic stage's, each problem under its own. A corruption (test/unit/ir/corruptions.ts)
+ * names the rule it breaks among these, so a misspelt rule is a compile error.
+ */
+export type DagRule =
+	| "a feedback edge names a node"
+	| "a column reference names a column of its node"
+	| "a binding names a declared variable"
+	| "a variable is declared by one region"
+	| "a region declares a variable once"
+	| "a region's variables have distinct names"
+	| "an occurrence id is fresh"
+	| "a region binds its own variables only"
+	| "a heading names each column once"
+	| "a heading column has a name"
+	| "a heading is the one its kind defines"
+	| "a heading column has the type its kind defines"
+	| "a group's keys lie in its bound tuple"
+	| "a declared key names columns of the heading"
+	| "a union of several headings has a discriminant"
+	| "every arm binds the discriminant to a literal"
+	| "arms of different headings differ in their discriminant literals"
+	| "an arm has its group's heading"
+	| "an attachment binds a parent variable"
+	| "an attachment delivers no narrower than its child's evidence"
+	| "an order belongs to a delivered array"
+	| "a delivery node lies on its root's delivered rows"
+	| "a filter's predicate is boolean"
+	| "an approximate search is sealed and scored by a double precision column"
+	| "a take's bound is positive"
+	| "set operation inputs have equal headings"
+	| "join columns exist on both sides at one base type"
+	| "a producer has its arity"
+	| "a closed row has the heading's width"
+	| "closed facts are distinct under native equality"
+	| "an expression reads its node's input only"
+	| "a scope expression's column is bound on its way to every root"
+	| "an aggregate reads only its bound tuple"
+	| "a node's read dependencies are the computed ones"
+	| "a node's parameter dependencies are the computed ones"
+	| "an order is total"
+	| "a logical key names heading columns"
+	| "logical keys are distinct"
+	| "the empty key needs at most one row"
+	| "a recursion's self is its feedback reference"
+	| "a recursion's base and step have its state heading"
+	| "a recursion has one feedback reference"
+	| "a recursion's base never reads its feedback"
+	| "a recursion's step reads its feedback"
+	| "only the step reads the feedback"
+	| "a window function has its arity"
+	| "lead and lag take an integer offset and a default of the value's type"
+	| "a ROWS frame belongs to an ordered window aggregate, start before end"
+	| "only a count is filtered"
+	| "an aggregate has its arity"
+	| "an ordered-set aggregate orders by one column, with a double precision fraction per output"
+	| "a literal fits its type"
+	| "a comparison parameter is bound as its base type"
+	| "an expression's dependencies are the computed ones"
+	| "an expression is stable when an argument is"
+	| "a conditional has a boolean condition and branches of its type"
+	| "VALUE appears only in a contract predicate"
+	| "a column reference keeps its column's type"
+	| "a partial operation stands with a proof the kernel re-derives"
+	| "every precondition of a partial operation stands with a proof of its own"
+	| "a domain cast targets a refined type"
+	| "a node or expression holds its kind's properties only"
+	| "no field holds null"
+	| "a data input or argument names an entry of the table, through no cycle"
+	| "a termination premise names a node"
+	| "an occurrence reads columns of its source at their types"
+	| "equated variables have one base type"
+	| "a relation parameter or a context has a column"
+	| "a column a node names lies in the heading it reads"
+	| "a union's groups have distinct headings"
+	| "an aggregate's name differs from its group's keys"
+	| "an attachment's name differs from its parent's columns"
+	| "an order-sensitive window function is ordered"
+	| "an operation is an overload the registry holds"
+	| "an operation defined everywhere stands with no proof"
+	| "a native operation stands with a proof the kernel re-derives"
+	| "a closed read stands only in a side's predicate or a generated field's expression"
+
+/** A rule a DAG breaks: the rule, where it breaks it, `path`, inside its table, and `message`, what it lacks there. */
 interface DagProblem {
 	readonly path: ReadonlyArray<string | number>
+	readonly rule: DagRule
+	readonly message: string
+}
+
+/** A rule an expression of a DAG breaks, before the place it breaks it at is known. */
+interface ExprProblem {
+	readonly rule: DagRule
 	readonly message: string
 }
 
@@ -133,13 +224,20 @@ const closureOf = (table: DagTable, roots: ReadonlyArray<ExprId>): ReadonlyArray
 	return out
 }
 
-/** The node names a node holds beside its data edges: a SelfRef's Recursive and a certificate's node premises. */
-const namesOf = (node: TableNode): ReadonlyArray<NodeId> => {
+/**
+ * The node names a node holds beside its data edges, each with the rule it keeps by naming a node of the table: a
+ * SelfRef's Recursive and a certificate's node premises.
+ */
+const namesOf = (
+	node: TableNode
+): ReadonlyArray<{ readonly id: NodeId; readonly rule: DagRule }> => {
 	switch (node.kind) {
 		case "SelfRef":
-			return [node.recursive]
+			return [{ id: node.recursive, rule: "a feedback edge names a node" }]
 		case "Recursive":
-			return Arr.flatMap(node.termination.premises, (p) => (p.kind === "node" ? [p.node] : []))
+			return Arr.flatMap(node.termination.premises, (p) =>
+				p.kind === "node" ? [{ id: p.node, rule: "a termination premise names a node" }] : []
+			)
 		case "Base":
 		case "Closed":
 		case "Context":
@@ -171,7 +269,7 @@ const namesOf = (node: TableNode): ReadonlyArray<NodeId> => {
  * The defect a DAG grizzle built raises at its first problem: grizzle's own compiler assembled it, so a rule it breaks
  * is a bug in grizzle, never a refusal of anyone's input. It names the rule and where the DAG breaks it.
  */
-const broken = (p: DagProblem): Error =>
+const broken = (p: Pick<DagProblem, "path" | "message">): Error =>
 	defect(
 		`a DAG grizzle built breaks a rule at ${formatLoc(SourceLoc("relational DAG", p.path))}: ${p.message}`
 	)
@@ -192,6 +290,15 @@ const sameColumns = (a: Heading, b: Heading): boolean =>
 		const d = b[i]
 		return d !== undefined && c.name === d.name && sameScalarType(c.type, d.type)
 	})
+
+/**
+ * The rule a heading unequal to the one its kind defines breaks: the column types, when its column names are the
+ * defined ones in their order, and otherwise the heading itself.
+ */
+const headingRule = (actual: Heading, defined: Heading): DagRule =>
+	actual.length === defined.length && Arr.every(actual, (c, i) => defined[i]?.name === c.name)
+		? "a heading column has the type its kind defines"
+		: "a heading is the one its kind defines"
 
 /** Equal as sets of (name, type), whatever the order. */
 const sameColumnSet = (a: Heading, b: Heading): boolean =>
@@ -481,9 +588,9 @@ class Checker {
 		this.table = table
 	}
 
-	/** The rule `message`, broken at `path`. */
-	report(path: ReadonlyArray<string | number>, message: string) {
-		this.problems.push({ path, message })
+	/** `rule`, broken at `path`, as `message` states what the DAG lacks there. */
+	report(rule: DagRule, path: ReadonlyArray<string | number>, message: string) {
+		this.problems.push({ path, rule, message })
 	}
 
 	headingOf(id: NodeId): Heading | undefined {
@@ -531,6 +638,7 @@ class Checker {
 			firstArgumentCycle(table.exprs, Rec.keys(table.exprs)) !== undefined
 		) {
 			this.report(
+				"a data input or argument names an entry of the table, through no cycle",
 				["nodes"],
 				"data inputs and expression arguments that name entries of the table, through no cycle"
 			)
@@ -559,6 +667,7 @@ class Checker {
 			)) {
 				reported.add(id)
 				this.report(
+					"a delivery node lies on its root's delivered rows",
 					["nodes", id],
 					`a delivery node on the delivered rows of every root that reaches it; the root ${root} reads it off them, where no statement delivers it`
 				)
@@ -573,9 +682,16 @@ class Checker {
 		const seen: Array<ReadonlySet<string>> = []
 		for (const [i, claimed] of meta.logicalKeys.entries()) {
 			const key = claimed.key
-			this.requireColumns([...path, "logicalKeys", i], heading, key, "a logical key column")
+			this.requireColumns(
+				"a logical key names heading columns",
+				[...path, "logicalKeys", i],
+				heading,
+				key,
+				"a logical key column"
+			)
 			if (key.length === 0 && meta.card === "many") {
 				this.report(
+					"the empty key needs at most one row",
 					[...path, "logicalKeys", i],
 					"the empty key only on a node of at most one row (card atMostOne or one), not on card many"
 				)
@@ -588,6 +704,7 @@ class Checker {
 				)
 			) {
 				this.report(
+					"logical keys are distinct",
 					[...path, "logicalKeys", i],
 					`distinct logical keys; (${Arr.join(key, ", ")}) repeats`
 				)
@@ -610,12 +727,14 @@ class Checker {
 			}
 			if (!sameIds(node.meta.paramDeps, deps.params)) {
 				this.report(
+					"a node's parameter dependencies are the computed ones",
 					["nodes", node.id, "meta", "paramDeps"],
 					`parameter dependencies equal to the computed [${Arr.join(deps.params, ", ")}]`
 				)
 			}
 			if (!sameIds(node.meta.reads, deps.reads)) {
 				this.report(
+					"a node's read dependencies are the computed ones",
 					["nodes", node.id, "meta", "reads"],
 					`read dependencies equal to the computed [${Arr.join(deps.reads, ", ")}]`
 				)
@@ -640,6 +759,7 @@ class Checker {
 			for (const [id, columns] of Arr.filter([...deps.outer], ([outer]) => !reported.has(outer))) {
 				reported.add(id)
 				this.report(
+					"a scope expression's column is bound on its way to every root",
 					["nodes", id],
 					`every column a scope expression reads bound by a scope on its way to a root; ${Arr.join(
 						Arr.map([...columns], (c) => `${id}.${c}`),
@@ -669,6 +789,7 @@ class Checker {
 				columns.push(expr.column.name)
 			} else {
 				this.report(
+					"an expression reads its node's input only",
 					path,
 					`${what} reading its input ${input} only, not ${expr.column.node}.${expr.column.name}, which is out of scope`
 				)
@@ -708,6 +829,7 @@ class Checker {
 					const literal = this.literalBinding(arm, column)
 					if (literal === undefined) {
 						this.report(
+							"every arm binds the discriminant to a literal",
 							[...path, "groups", gi, "arms", ai],
 							`a discriminant ${column} that the arm ${arm} binds to a literal`
 						)
@@ -731,6 +853,7 @@ class Checker {
 		)
 		for (const { gi, other } of clashes) {
 			this.report(
+				"arms of different headings differ in their discriminant literals",
 				[...path, "groups", gi],
 				`discriminant literals that differ from those of group ${other}, which has another heading`
 			)
@@ -747,13 +870,20 @@ class Checker {
 			const prior = this.#declared.get(v.id)
 			if (prior !== undefined) {
 				this.report(
+					prior === node.id
+						? "a region declares a variable once"
+						: "a variable is declared by one region",
 					["nodes", node.id, "vars", i],
 					`a variable declared once; ${v.id} is also declared in ${prior}`
 				)
 			}
 			this.#declared.set(v.id, node.id)
 			if (names.has(v.name)) {
-				this.report(["nodes", node.id, "vars", i], `distinct variable names; ${v.name} repeats`)
+				this.report(
+					"a region's variables have distinct names",
+					["nodes", node.id, "vars", i],
+					`distinct variable names; ${v.name} repeats`
+				)
 			}
 			names.add(v.name)
 		}
@@ -764,7 +894,11 @@ class Checker {
 		const claimOccurrence = (id: OccurrenceId, node: NodeId) => {
 			const prior = occurrences.get(id)
 			if (prior !== undefined) {
-				this.report(["nodes", node], `a fresh occurrence id; ${id} also scans in ${prior}`)
+				this.report(
+					"an occurrence id is fresh",
+					["nodes", node],
+					`a fresh occurrence id; ${id} also scans in ${prior}`
+				)
 			}
 			occurrences.set(id, node)
 		}
@@ -794,6 +928,9 @@ class Checker {
 			for (const v of Arr.filter(uses, (used) => !local.has(used))) {
 				const owner = this.#declared.get(v)
 				this.report(
+					owner === undefined
+						? "a binding names a declared variable"
+						: "a region binds its own variables only",
 					["nodes", node.id],
 					owner === undefined
 						? `a declared variable, not the dangling ${v}`
@@ -805,9 +942,13 @@ class Checker {
 
 	/** Every node name a node holds beside its data edges names a node of the table: a feedback, a premise. */
 	checkNames(node: TableNode): void {
-		for (const id of namesOf(node)) {
-			if (nodeAt(this.table, id) === undefined) {
-				this.report(["nodes", node.id], `a node named ${id} in the table, not a dangling reference`)
+		for (const name of namesOf(node)) {
+			if (nodeAt(this.table, name.id) === undefined) {
+				this.report(
+					name.rule,
+					["nodes", node.id],
+					`a node named ${name.id} in the table, not a dangling reference`
+				)
 			}
 		}
 	}
@@ -824,10 +965,14 @@ class Checker {
 		/** Its volatility is its own joined with its arguments' (exprEffects): a stable argument makes it stable. */
 		const effects = exprEffects(expr, args)
 		if (effects.volatility !== expr.volatility) {
-			this.report(path, `${effects.volatility} volatility`)
+			this.report(
+				"an expression is stable when an argument is",
+				path,
+				`${effects.volatility} volatility`
+			)
 		}
 		for (const problem of this.kindProblems(expr, args)) {
-			this.report(path, problem)
+			this.report(problem.rule, path, problem.message)
 		}
 		const params = new Set<string>()
 		const nodes = new Set<string>()
@@ -841,6 +986,7 @@ class Checker {
 		}
 		if (!sameIds(expr.deps.params, [...params]) || !sameIds(expr.deps.nodes, [...nodes])) {
 			this.report(
+				"an expression's dependencies are the computed ones",
 				path,
 				"dependencies equal to the parameters and column nodes the expression reads"
 			)
@@ -848,31 +994,54 @@ class Checker {
 	}
 
 	/** The problems an expression's kind has of its own in a query DAG, given its arguments' entries. */
-	kindProblems(expr: TableExpr, args: ReadonlyArray<TableExpr>): ReadonlyArray<string> {
+	kindProblems(expr: TableExpr, args: ReadonlyArray<TableExpr>): ReadonlyArray<ExprProblem> {
 		switch (expr.kind) {
 			case "column":
 				return this.columnProblems(expr)
 			case "value":
-				return ["VALUE only inside a contract predicate, never in a query DAG"]
+				return [
+					{
+						rule: "VALUE appears only in a contract predicate",
+						message: "VALUE only inside a contract predicate, never in a query DAG"
+					}
+				]
 			case "param":
 				return expr.role === "compare" && isRefined(expr.type)
-					? ["a comparison parameter bound as its base type, never a refined domain"]
+					? [
+							{
+								rule: "a comparison parameter is bound as its base type",
+								message: "a comparison parameter bound as its base type, never a refined domain"
+							}
+						]
 					: []
 			case "literal": {
 				const problem = literalProblem(expr.value, expr.type)
-				return problem === undefined ? [] : [problem]
+				return problem === undefined ? [] : [{ rule: "a literal fits its type", message: problem }]
 			}
 			case "domainCast":
 				return !isRefined(expr.type)
-					? ["a contract or regex-refined target for a domain cast"]
+					? [
+							{
+								rule: "a domain cast targets a refined type",
+								message: "a contract or regex-refined target for a domain cast"
+							}
+						]
 					: operationProofHolds(expr.proof, [{ kind: "contract" }], {
 								type: expr.type,
 								operand: args[0]?.type
 						  })
 						? []
-						: ["a proof the kernel re-derives from its premises"]
+						: [
+								{
+									rule: "a partial operation stands with a proof the kernel re-derives",
+									message: "a proof the kernel re-derives from its premises"
+								}
+							]
 			case "cond":
-				return condProblems(expr.type, args)
+				return Arr.map(condProblems(expr.type, args), (message) => ({
+					rule: "a conditional has a boolean condition and branches of its type",
+					message
+				}))
 			case "cast":
 				return "native" in expr
 					? nativeProblems(expr.cast, expr.native, expr.type, args)
@@ -884,7 +1053,11 @@ class Checker {
 			case "closedAt":
 			case "closedRow":
 				return [
-					"a closed read only in a side's predicate or a generated field's expression, never in a query DAG"
+					{
+						rule: "a closed read stands only in a side's predicate or a generated field's expression",
+						message:
+							"a closed read only in a side's predicate or a generated field's expression, never in a query DAG"
+					}
 				]
 			case "closedHas":
 				return []
@@ -892,24 +1065,39 @@ class Checker {
 	}
 
 	/** A column reference names a column of a node in the table, at that column's type. */
-	columnProblems(expr: TableExprOf<"column">): ReadonlyArray<string> {
+	columnProblems(expr: TableExprOf<"column">): ReadonlyArray<ExprProblem> {
+		const rule = "a column reference names a column of its node"
 		const heading = this.headingOf(expr.column.node)
 		if (heading === undefined) {
-			return [`a column of a node in the table, not of the dangling ${expr.column.node}`]
+			return [
+				{
+					rule,
+					message: `a column of a node in the table, not of the dangling ${expr.column.node}`
+				}
+			]
 		}
 		const column = columnOf(heading, expr.column.name)
 		if (column === undefined) {
 			return [
-				`a column of ${expr.column.node} ${describeHeading(heading)}, not ${expr.column.name}`
+				{
+					rule,
+					message: `a column of ${expr.column.node} ${describeHeading(heading)}, not ${expr.column.name}`
+				}
 			]
 		}
 		return sameScalarType(column.type, expr.type)
 			? []
-			: [`the type of ${expr.column.node}.${expr.column.name}; a column reference is never cast`]
+			: [
+					{
+						rule: "a column reference keeps its column's type",
+						message: `the type of ${expr.column.node}.${expr.column.name}; a column reference is never cast`
+					}
+				]
 	}
 
 	/** Columns named by the node must exist in `heading`. */
 	requireColumns(
+		rule: DagRule,
 		path: ReadonlyArray<string | number>,
 		heading: Heading | undefined,
 		columns: ReadonlyArray<string>,
@@ -920,7 +1108,7 @@ class Checker {
 		}
 		for (const c of columns) {
 			if (!hasColumn(heading, c)) {
-				this.report(path, `${what} ${c} in ${describeHeading(heading)}`)
+				this.report(rule, path, `${what} ${c} in ${describeHeading(heading)}`)
 			}
 		}
 	}
@@ -951,6 +1139,7 @@ class Checker {
 			return
 		}
 		this.report(
+			"an order is total",
 			path,
 			`${what}: a completed total order, its columns covering ${describeHeading(input.heading)} or a key of it`
 		)
@@ -968,7 +1157,11 @@ class Checker {
 		}
 		const step = this.reach(rec.step)
 		if (!step.has(rec.self)) {
-			this.report(["nodes", rec.id, "step"], `a step that reads its feedback reference ${rec.self}`)
+			this.report(
+				"a recursion's step reads its feedback",
+				["nodes", rec.id, "step"],
+				`a step that reads its feedback reference ${rec.self}`
+			)
 		}
 		const dependents = new Set(
 			reachFrom([rec.self], (id) =>
@@ -977,6 +1170,7 @@ class Checker {
 		)
 		if (rec.base === rec.self || dependents.has(rec.base)) {
 			this.report(
+				"a recursion's base never reads its feedback",
 				["nodes", rec.id, "base"],
 				`a nonrecursive base that does not read the feedback reference ${rec.self}`
 			)
@@ -984,6 +1178,7 @@ class Checker {
 		for (const d of dependents) {
 			if (!step.has(d)) {
 				this.report(
+					"only the step reads the feedback",
 					["nodes", d],
 					`a reader of ${rec.self} only inside the step of ${rec.id}, not outside it`
 				)
@@ -1008,12 +1203,14 @@ class Checker {
 			Arr.some(declared, (k) => Arr.every(k, holds))
 		if (node.delivered === "one" && card !== "one") {
 			this.report(
+				"an attachment delivers no narrower than its child's evidence",
 				path,
 				`a bare child only over evidence of exactly one row per parent, not card ${card}`
 			)
 		}
 		if (node.delivered === "option" && card === "many" && !keyBound) {
 			this.report(
+				"an attachment delivers no narrower than its child's evidence",
 				path,
 				"an option only over a child of at most one row per parent: card atMostOne or one, or correlated child columns covering a key of the child"
 			)
@@ -1023,6 +1220,7 @@ class Checker {
 	requireHeading(node: TableNode, expected: Heading | undefined, what: string) {
 		if (expected !== undefined && !sameColumns(node.heading, expected)) {
 			this.report(
+				headingRule(node.heading, expected),
 				["nodes", node.id, "heading"],
 				`the heading of ${what} ${describeHeading(expected)}, not ${describeHeading(node.heading)}`
 			)
@@ -1034,9 +1232,21 @@ class Checker {
 		const heading = node.heading
 		switch (node.kind) {
 			case "Base":
-				this.requireColumns(path, heading, node.primaryKey, "a primary key column")
+				this.requireColumns(
+					"a declared key names columns of the heading",
+					path,
+					heading,
+					node.primaryKey,
+					"a primary key column"
+				)
 				for (const key of node.keys) {
-					this.requireColumns(path, heading, key, "a key column")
+					this.requireColumns(
+						"a declared key names columns of the heading",
+						path,
+						heading,
+						key,
+						"a key column"
+					)
 				}
 				return
 			case "Closed":
@@ -1044,17 +1254,31 @@ class Checker {
 				return
 			case "InputSet":
 				if (heading.length === 0) {
-					this.report(path, "a relation parameter with at least one column")
+					this.report(
+						"a relation parameter or a context has a column",
+						path,
+						"a relation parameter with at least one column"
+					)
 				}
 				return
 			case "Context":
 				if (heading.length === 0) {
-					this.report(path, "a context with at least one column")
+					this.report(
+						"a relation parameter or a context has a column",
+						path,
+						"a context with at least one column"
+					)
 				}
 				return
 			case "Delta":
 				for (const key of node.keys) {
-					this.requireColumns(path, heading, key, "a key column")
+					this.requireColumns(
+						"a declared key names columns of the heading",
+						path,
+						heading,
+						key,
+						"a key column"
+					)
 				}
 				return
 			case "MatchRegion":
@@ -1065,7 +1289,7 @@ class Checker {
 				this.requireScope([...path, "pred"], node.input, [node.pred], "a predicate")
 				const t = this.exprType(node.pred)
 				if (t !== undefined && !isBool(t)) {
-					this.report(path, "a boolean predicate")
+					this.report("a filter's predicate is boolean", path, "a boolean predicate")
 				}
 				return
 			}
@@ -1088,8 +1312,14 @@ class Checker {
 							(t === undefined || sameScalarType(t, col.type))
 						)
 					})
+				const named =
+					heading.length === node.out.length &&
+					Arr.every(node.out, (o, i) => heading[i]?.name === o.name)
 				if (!ok) {
 					this.report(
+						named
+							? "a heading column has the type its kind defines"
+							: "a heading is the one its kind defines",
 						[...path, "heading"],
 						`the projected heading (${Arr.join(names, ", ")}) at the output types`
 					)
@@ -1108,7 +1338,11 @@ class Checker {
 				const left = this.headingOf(node.left)
 				const right = this.headingOf(node.right)
 				if (left !== undefined && right !== undefined && !sameColumnSet(left, right)) {
-					this.report(path, "compatible headings: equal columns at equal types")
+					this.report(
+						"set operation inputs have equal headings",
+						path,
+						"compatible headings: equal columns at equal types"
+					)
 				}
 				this.requireHeading(node, left, "its left input")
 				return
@@ -1117,8 +1351,20 @@ class Checker {
 				this.requireHeading(node, this.headingOf(node.input), "its input")
 				const ordered = Arr.map(node.order.keys, (k) => k.column)
 				const correlated = Arr.map(node.correlation, (c) => c.column)
-				this.requireColumns(path, heading, ordered, "an order column")
-				this.requireColumns(path, heading, correlated, "a correlated column")
+				this.requireColumns(
+					"a column a node names lies in the heading it reads",
+					path,
+					heading,
+					ordered,
+					"an order column"
+				)
+				this.requireColumns(
+					"a column a node names lies in the heading it reads",
+					path,
+					heading,
+					correlated,
+					"a correlated column"
+				)
 				this.requireTotalOrder([...path, "order"], node.input, [...ordered, ...correlated], "take")
 				return
 			}
@@ -1127,14 +1373,24 @@ class Checker {
 				return
 			case "Produce": {
 				const input = this.headingOf(node.input)
-				this.requireColumns(path, input, node.carried, "a carried column")
+				this.requireColumns(
+					"a column a node names lies in the heading it reads",
+					path,
+					input,
+					node.carried,
+					"a carried column"
+				)
 				this.requireScope([...path, "args"], node.input, node.args, "a producer argument")
 				const expected = [...node.carried, node.out]
 				if (
 					heading.length !== expected.length ||
 					!Arr.every(expected, (n, i) => heading[i]?.name === n)
 				) {
-					this.report([...path, "heading"], `the produced heading (${Arr.join(expected, ", ")})`)
+					this.report(
+						"a heading is the one its kind defines",
+						[...path, "heading"],
+						`the produced heading (${Arr.join(expected, ", ")})`
+					)
 				}
 				return
 			}
@@ -1144,7 +1400,11 @@ class Checker {
 			case "SelfRef": {
 				const rec = nodeAt(this.table, node.recursive)
 				if (rec?.kind !== "Recursive" || rec.self !== node.id) {
-					this.report(path, "a feedback reference to the Recursive node that names it as self")
+					this.report(
+						"a recursion has one feedback reference",
+						path,
+						"a feedback reference to the Recursive node that names it as self"
+					)
 				} else {
 					this.requireHeading(node, rec.heading, "its recursive relation")
 				}
@@ -1158,7 +1418,11 @@ class Checker {
 					source !== undefined &&
 					!(score !== undefined && baseOf(score.type).carrier === "float8")
 				) {
-					this.report(path, `a double precision cosine-distance column ${node.score}`)
+					this.report(
+						"an approximate search is sealed and scored by a double precision column",
+						path,
+						`a double precision cosine-distance column ${node.score}`
+					)
 				}
 				return
 			}
@@ -1168,7 +1432,13 @@ class Checker {
 			case "OrderedResult": {
 				this.requireHeading(node, this.headingOf(node.input), "its input")
 				const ordered = Arr.map(node.order.keys, (k) => k.column)
-				this.requireColumns(path, heading, ordered, "an order column")
+				this.requireColumns(
+					"a column a node names lies in the heading it reads",
+					path,
+					heading,
+					ordered,
+					"an order column"
+				)
 				this.requireTotalOrder([...path, "order"], node.input, ordered, "an ordered result")
 				return
 			}
@@ -1197,7 +1467,11 @@ class Checker {
 		const idAt = Arr.findFirstIndex(heading, (col) => col.name === "id")
 		for (const [r, row] of node.rows.entries()) {
 			if (row.length !== heading.length) {
-				this.report([...path, "rows", r], `a row of ${heading.length} values`)
+				this.report(
+					"a closed row has the heading's width",
+					[...path, "rows", r],
+					`a row of ${heading.length} values`
+				)
 				continue
 			}
 			/**
@@ -1210,7 +1484,7 @@ class Checker {
 				return problem === undefined ? [] : [{ c, problem }]
 			})
 			for (const { c, problem } of unfit) {
-				this.report([...path, "rows", r, c], problem)
+				this.report("a literal fits its type", [...path, "rows", r, c], problem)
 			}
 			if (unfit.length > 0) {
 				continue
@@ -1221,7 +1495,11 @@ class Checker {
 				"\u0000"
 			)
 			if (seen.has(key)) {
-				this.report([...path, "rows", r], "distinct closed facts: a set has no repeats")
+				this.report(
+					"closed facts are distinct under native equality",
+					[...path, "rows", r],
+					"distinct closed facts: a set has no repeats"
+				)
 			}
 			seen.add(key)
 		}
@@ -1241,18 +1519,27 @@ class Checker {
 			const a = vars.get(e.a)
 			const b = vars.get(e.b)
 			if (a !== undefined && b !== undefined && !sameScalarType(baseOf(a.type), baseOf(b.type))) {
-				this.report([...path, "equalities", i], "equated variables of one base type")
+				this.report(
+					"equated variables have one base type",
+					[...path, "equalities", i],
+					"equated variables of one base type"
+				)
 			}
 		}
 		for (const [i, col] of heading.entries()) {
 			const v = Arr.findFirst(node.vars, (d) => d.name === col.name)
 			if (Option.isNone(v)) {
 				this.report(
+					"a heading is the one its kind defines",
 					[...path, "heading", i],
 					`a region column naming one of its variables, not ${col.name}`
 				)
 			} else if (!sameScalarType(v.value.type, col.type)) {
-				this.report([...path, "heading", i], `${col.name} at its variable's type`)
+				this.report(
+					"a heading column has the type its kind defines",
+					[...path, "heading", i],
+					`${col.name} at its variable's type`
+				)
 			}
 		}
 	}
@@ -1274,22 +1561,38 @@ class Checker {
 			const col = columnOf(source, b.column)
 			const v = vars.get(b.var)
 			if (col === undefined) {
-				this.report(path, `a source column ${b.column} in ${describeHeading(source)}`)
+				this.report(
+					"an occurrence reads columns of its source at their types",
+					path,
+					`a source column ${b.column} in ${describeHeading(source)}`
+				)
 			} else if (v !== undefined && !sameScalarType(col.type, v.type)) {
-				this.report(path, `${b.var} of the type of ${b.column}`)
+				this.report(
+					"an occurrence reads columns of its source at their types",
+					path,
+					`${b.var} of the type of ${b.column}`
+				)
 			}
 		}
 		for (const c of o.constants) {
 			const col = columnOf(source, c.column)
 			const t = this.exprType(c.expr)
 			if (col === undefined) {
-				this.report(path, `a source column ${c.column} in ${describeHeading(source)}`)
+				this.report(
+					"an occurrence reads columns of its source at their types",
+					path,
+					`a source column ${c.column} in ${describeHeading(source)}`
+				)
 			} else if (
 				t !== undefined &&
 				!sameScalarType(baseOf(col.type), baseOf(t)) &&
 				!meets(baseOf(col.type), baseOf(t))
 			) {
-				this.report(path, `a constant for ${c.column} of its base type or its exact family`)
+				this.report(
+					"an occurrence reads columns of its source at their types",
+					path,
+					`a constant for ${c.column} of its base type or its exact family`
+				)
 			}
 		}
 	}
@@ -1306,9 +1609,17 @@ class Checker {
 			const l = columnIn(left, p.left)
 			const r = columnIn(right, p.right)
 			if (l === undefined || r === undefined) {
-				this.report([...path, "on", i], `columns ${p.left} and ${p.right} of the two inputs`)
+				this.report(
+					"join columns exist on both sides at one base type",
+					[...path, "on", i],
+					`columns ${p.left} and ${p.right} of the two inputs`
+				)
 			} else if (!sameScalarType(baseOf(l.type), baseOf(r.type))) {
-				this.report([...path, "on", i], "correlated columns of one base type")
+				this.report(
+					"join columns exist on both sides at one base type",
+					[...path, "on", i],
+					"correlated columns of one base type"
+				)
 			}
 		}
 	}
@@ -1324,6 +1635,7 @@ class Checker {
 			const h = this.headingOf(arm)
 			if (h !== undefined && !sameColumnSet(h, g.heading)) {
 				this.report(
+					"an arm has its group's heading",
 					[...path, "arms", ai],
 					`an arm of the group heading ${describeHeading(g.heading)}`
 				)
@@ -1331,7 +1643,11 @@ class Checker {
 		}
 		for (const prior of node.groups.slice(0, gi)) {
 			if (sameColumnSet(prior.heading, g.heading)) {
-				this.report(path, "distinct group headings; arms of one heading share a group")
+				this.report(
+					"a union's groups have distinct headings",
+					path,
+					"distinct group headings; arms of one heading share a group"
+				)
 			}
 		}
 	}
@@ -1342,10 +1658,15 @@ class Checker {
 		}
 		if (node.groups.length > 1) {
 			if (node.discriminant.length === 0) {
-				this.report(path, "a literal discriminant present in every arm")
+				this.report(
+					"a union of several headings has a discriminant",
+					path,
+					"a literal discriminant present in every arm"
+				)
 			}
 			for (const [gi, g] of node.groups.entries()) {
 				this.requireColumns(
+					"a column a node names lies in the heading it reads",
 					[...path, "groups", gi],
 					g.heading,
 					node.discriminant,
@@ -1356,15 +1677,27 @@ class Checker {
 				this.checkDiscriminant(node)
 			}
 		}
-		this.requireColumns(path, heading, node.discriminant, "a discriminant column")
+		this.requireColumns(
+			"a column a node names lies in the heading it reads",
+			path,
+			heading,
+			node.discriminant,
+			"a discriminant column"
+		)
 		const common = Arr.every(heading, (col) =>
 			Arr.every(node.groups, (g) => {
 				const other = columnOf(g.heading, col.name)
 				return other !== undefined && sameScalarType(other.type, col.type)
 			})
 		)
+		const named =
+			(node.groups.length > 1 || heading.length === node.groups[0].heading.length) &&
+			Arr.every(heading, (col) => Arr.every(node.groups, (g) => hasColumn(g.heading, col.name)))
 		if (node.groups.length === 1 ? !sameColumnSet(heading, node.groups[0].heading) : !common) {
 			this.report(
+				named
+					? "a heading column has the type its kind defines"
+					: "a heading is the one its kind defines",
 				[...path, "heading"],
 				"the union's heading: its group's, or the columns common to every group"
 			)
@@ -1386,33 +1719,59 @@ class Checker {
 		)
 		for (const c of new Set(read)) {
 			if (!node.bound.columns.includes(c)) {
-				this.report(path, `an aggregate reading columns of the bound tuple only, not ${c}`)
+				this.report(
+					"an aggregate reads only its bound tuple",
+					path,
+					`an aggregate reading columns of the bound tuple only, not ${c}`
+				)
 			}
 		}
 		const arity = aggregateArity(a.fn)
 		if (a.args.length !== arity) {
-			this.report(path, `${arity} argument(s) for ${a.fn}, not ${a.args.length}`)
+			this.report(
+				"an aggregate has its arity",
+				path,
+				`${arity} argument(s) for ${a.fn}, not ${a.args.length}`
+			)
 		}
 		if (a.filter !== undefined) {
 			if (a.fn !== "count") {
-				this.report(path, "a filter on count only; a conditional sum is sum(CASE ...)")
+				this.report(
+					"only a count is filtered",
+					path,
+					"a filter on count only; a conditional sum is sum(CASE ...)"
+				)
 			}
 			const t = this.exprType(a.filter)
 			if (t !== undefined && !isBool(t)) {
-				this.report(path, "a boolean filter")
+				this.report("a filter's predicate is boolean", path, "a boolean filter")
 			}
 		}
 		if (node.keys.includes(a.name)) {
-			this.report(path, `an aggregate name distinct from the keys, not ${a.name}`)
+			this.report(
+				"an aggregate's name differs from its group's keys",
+				path,
+				`an aggregate name distinct from the keys, not ${a.name}`
+			)
 		}
 	}
 
 	checkGroup(node: TableOf<"Group">, path: ReadonlyArray<string | number>, heading: Heading): void {
 		const input = this.headingOf(node.input)
-		this.requireColumns(path, input, node.bound.columns, "a bound column")
+		this.requireColumns(
+			"a column a node names lies in the heading it reads",
+			path,
+			input,
+			node.bound.columns,
+			"a bound column"
+		)
 		for (const k of node.keys) {
 			if (!node.bound.columns.includes(k)) {
-				this.report(path, `a group key within the bound tuple, not ${k}`)
+				this.report(
+					"a group's keys lie in its bound tuple",
+					path,
+					`a group key within the bound tuple, not ${k}`
+				)
 			}
 		}
 		for (const [i, a] of node.aggs.entries()) {
@@ -1431,7 +1790,15 @@ class Checker {
 			!Arr.every(expected, (n) => hasColumn(heading, n)) ||
 			!keysTyped
 		) {
-			this.report([...path, "heading"], `the group heading (${Arr.join(expected, ", ")})`)
+			const named =
+				heading.length === expected.length && Arr.every(expected, (n) => hasColumn(heading, n))
+			this.report(
+				named
+					? "a heading column has the type its kind defines"
+					: "a heading is the one its kind defines",
+				[...path, "heading"],
+				`the group heading (${Arr.join(expected, ", ")})`
+			)
 		}
 	}
 
@@ -1442,7 +1809,11 @@ class Checker {
 	): void {
 		const self = nodeAt(this.table, node.self)
 		if (self?.kind !== "SelfRef" || self.recursive !== node.id) {
-			this.report(path, `a SelfRef feeding back to ${node.id} as its self reference`)
+			this.report(
+				"a recursion's self is its feedback reference",
+				path,
+				`a SelfRef feeding back to ${node.id} as its self reference`
+			)
 		}
 		for (const [side, id] of [
 			["base", node.base],
@@ -1450,10 +1821,15 @@ class Checker {
 		] as const) {
 			const h = this.headingOf(id)
 			if (h !== undefined && !sameColumnSet(h, heading)) {
-				this.report([...path, side], `the state heading ${describeHeading(heading)}`)
+				this.report(
+					"a recursion's base and step have its state heading",
+					[...path, side],
+					`the state heading ${describeHeading(heading)}`
+				)
 			}
 		}
 		this.requireColumns(
+			"a column a node names lies in the heading it reads",
 			[...path, "origin"],
 			heading,
 			node.origin,
@@ -1467,15 +1843,21 @@ class Checker {
 		const childNode = nodeAt(this.table, node.child)
 		this.requireHeading(node, parent, "its parent (the parent set is unchanged)")
 		if (node.correlation.length === 0) {
-			this.report(path, "a child that binds a parent variable")
+			this.report(
+				"an attachment binds a parent variable",
+				path,
+				"a child that binds a parent variable"
+			)
 		}
 		this.requireColumns(
+			"a column a node names lies in the heading it reads",
 			path,
 			parent,
 			Arr.map(node.correlation, (c) => c.parent),
 			"a parent column"
 		)
 		this.requireColumns(
+			"a column a node names lies in the heading it reads",
 			path,
 			childNode?.heading,
 			Arr.map(node.correlation, (c) => c.child),
@@ -1486,7 +1868,13 @@ class Checker {
 		}
 		if (node.order !== undefined) {
 			const ordered = Arr.map(node.order.keys, (k) => k.column)
-			this.requireColumns(path, childNode?.heading, ordered, "a child order column")
+			this.requireColumns(
+				"a column a node names lies in the heading it reads",
+				path,
+				childNode?.heading,
+				ordered,
+				"a child order column"
+			)
 			this.requireTotalOrder(
 				[...path, "order"],
 				node.child,
@@ -1495,7 +1883,11 @@ class Checker {
 			)
 		}
 		if (parent !== undefined && hasColumn(parent, node.name)) {
-			this.report(path, `an attachment name distinct from the parent's columns, not ${node.name}`)
+			this.report(
+				"an attachment's name differs from its parent's columns",
+				path,
+				`an attachment name distinct from the parent's columns, not ${node.name}`
+			)
 		}
 	}
 
@@ -1506,8 +1898,20 @@ class Checker {
 	): void {
 		const input = this.headingOf(node.input)
 		const ordered = Arr.map(node.order.keys, (k) => k.column)
-		this.requireColumns(path, input, node.partition, "a partition column")
-		this.requireColumns(path, input, ordered, "an order column")
+		this.requireColumns(
+			"a column a node names lies in the heading it reads",
+			path,
+			input,
+			node.partition,
+			"a partition column"
+		)
+		this.requireColumns(
+			"a column a node names lies in the heading it reads",
+			path,
+			input,
+			ordered,
+			"an order column"
+		)
 		this.requireScope(
 			[...path, "args"],
 			node.input,
@@ -1517,6 +1921,7 @@ class Checker {
 		const [lo, hi] = windowArity[node.fn]
 		if (node.args.length < lo || node.args.length > hi) {
 			this.report(
+				"a window function has its arity",
 				path,
 				`${lo === hi ? lo : `${lo} to ${hi}`} argument(s) for ${node.fn}, not ${node.args.length}`
 			)
@@ -1524,16 +1929,32 @@ class Checker {
 		const aggregate = windowAggregates.includes(node.fn)
 		const sensitive = orderSensitiveWindowFns.includes(node.fn)
 		if ((sensitive || node.fn === "rank" || node.fn === "denseRank") && ordered.length === 0) {
-			this.report(path, `an ORDER BY for ${node.fn}`)
+			this.report(
+				"an order-sensitive window function is ordered",
+				path,
+				`an ORDER BY for ${node.fn}`
+			)
 		}
 		if (node.frame !== undefined && !aggregate) {
-			this.report(path, `a frame only on a window aggregate; ${node.fn} ignores it`)
+			this.report(
+				"a ROWS frame belongs to an ordered window aggregate, start before end",
+				path,
+				`a frame only on a window aggregate; ${node.fn} ignores it`
+			)
 		}
 		if (node.frame !== undefined && ordered.length === 0) {
-			this.report(path, "an ORDER BY for a ROWS frame")
+			this.report(
+				"a ROWS frame belongs to an ordered window aggregate, start before end",
+				path,
+				"an ORDER BY for a ROWS frame"
+			)
 		}
 		if (aggregate && ordered.length > 0 && node.frame === undefined) {
-			this.report(path, "an explicit ROWS frame on an ordered window aggregate")
+			this.report(
+				"a ROWS frame belongs to an ordered window aggregate, start before end",
+				path,
+				"an explicit ROWS frame on an ordered window aggregate"
+			)
 		}
 		if (sensitive || node.frame !== undefined) {
 			this.requireTotalOrder(
@@ -1545,11 +1966,11 @@ class Checker {
 		}
 		if (node.filter !== undefined) {
 			if (node.fn !== "count") {
-				this.report(path, "a filter on count only")
+				this.report("only a count is filtered", path, "a filter on count only")
 			}
 			const t = this.exprType(node.filter)
 			if (t !== undefined && !isBool(t)) {
-				this.report(path, "a boolean filter")
+				this.report("a filter's predicate is boolean", path, "a boolean filter")
 			}
 		}
 		const value = node.args[0] === undefined ? undefined : this.exprType(node.args[0])
@@ -1557,10 +1978,18 @@ class Checker {
 			const offset = node.args[1] === undefined ? undefined : this.exprType(node.args[1])
 			const fallback = node.args[2] === undefined ? undefined : this.exprType(node.args[2])
 			if (offset !== undefined && baseOf(offset).carrier !== "int4") {
-				this.report(path, `an integer offset for ${node.fn}`)
+				this.report(
+					"lead and lag take an integer offset and a default of the value's type",
+					path,
+					`an integer offset for ${node.fn}`
+				)
 			}
 			if (value !== undefined && fallback !== undefined && !sameScalarType(value, fallback)) {
-				this.report(path, `a ${node.fn} default of the value's type`)
+				this.report(
+					"lead and lag take an integer offset and a default of the value's type",
+					path,
+					`a ${node.fn} default of the value's type`
+				)
 			}
 		}
 		if (input !== undefined) {
@@ -1568,21 +1997,39 @@ class Checker {
 				heading.length === input.length + 1 &&
 				sameColumns(heading.slice(0, input.length), input) &&
 				heading[input.length]?.name === node.out
+			const named =
+				heading.length === input.length + 1 &&
+				Arr.every(input, (c, i) => heading[i]?.name === c.name) &&
+				heading[input.length]?.name === node.out
 			if (!ok) {
-				this.report([...path, "heading"], `its input's heading then ${node.out}`)
+				this.report(
+					named
+						? "a heading column has the type its kind defines"
+						: "a heading is the one its kind defines",
+					[...path, "heading"],
+					`its input's heading then ${node.out}`
+				)
 			}
 		}
 		const out = columnOf(heading, node.out)
 		if (out !== undefined) {
 			if (bigintResults.includes(node.fn) && out.type.carrier !== "int8") {
-				this.report([...path, "heading"], `a bigint ${node.out} for ${node.fn}`)
+				this.report(
+					"a heading column has the type its kind defines",
+					[...path, "heading"],
+					`a bigint ${node.out} for ${node.fn}`
+				)
 			}
 			if (
 				(node.fn === "lag" || node.fn === "lead" || node.fn === "min" || node.fn === "max") &&
 				value !== undefined &&
 				!sameScalarType(value, out.type)
 			) {
-				this.report([...path, "heading"], `${node.out} at the type of ${node.fn}'s value`)
+				this.report(
+					"a heading column has the type its kind defines",
+					[...path, "heading"],
+					`${node.out} at the type of ${node.fn}'s value`
+				)
 			}
 		}
 	}
@@ -1594,23 +2041,51 @@ class Checker {
 	): void {
 		const input = this.headingOf(node.input)
 		const ordered = Arr.map(node.order.keys, (k) => k.column)
-		this.requireColumns(path, input, node.keys, "a group key")
-		this.requireColumns(path, input, ordered, "an order column")
+		this.requireColumns(
+			"a column a node names lies in the heading it reads",
+			path,
+			input,
+			node.keys,
+			"a group key"
+		)
+		this.requireColumns(
+			"a column a node names lies in the heading it reads",
+			path,
+			input,
+			ordered,
+			"an order column"
+		)
 		this.requireScope([...path, "fractions"], node.input, node.fractions, "a fraction")
 		if (ordered.length !== 1) {
-			this.report(path, "WITHIN GROUP (ORDER BY value): exactly one order column")
+			this.report(
+				"an ordered-set aggregate orders by one column, with a double precision fraction per output",
+				path,
+				"WITHIN GROUP (ORDER BY value): exactly one order column"
+			)
 		}
 		if (node.fn === "mode") {
 			if (node.fractions.length > 0 || node.outs.length !== 1) {
-				this.report(path, "mode with no fraction and one output")
+				this.report(
+					"an ordered-set aggregate orders by one column, with a double precision fraction per output",
+					path,
+					"mode with no fraction and one output"
+				)
 			}
 		} else if (node.fractions.length === 0 || node.fractions.length !== node.outs.length) {
-			this.report(path, `one fraction per output for ${node.fn}`)
+			this.report(
+				"an ordered-set aggregate orders by one column, with a double precision fraction per output",
+				path,
+				`one fraction per output for ${node.fn}`
+			)
 		}
 		for (const [i, f] of node.fractions.entries()) {
 			const t = this.exprType(f)
 			if (t !== undefined && baseOf(t).carrier !== "float8") {
-				this.report([...path, "fractions", i], "a double precision fraction")
+				this.report(
+					"an ordered-set aggregate orders by one column, with a double precision fraction per output",
+					[...path, "fractions", i],
+					"a double precision fraction"
+				)
 			}
 		}
 		const expected = [...node.keys, ...node.outs]
@@ -1618,7 +2093,11 @@ class Checker {
 			heading.length !== expected.length ||
 			!Arr.every(expected, (n, i) => heading[i]?.name === n)
 		) {
-			this.report([...path, "heading"], `the heading (${Arr.join(expected, ", ")})`)
+			this.report(
+				"a heading is the one its kind defines",
+				[...path, "heading"],
+				`the heading (${Arr.join(expected, ", ")})`
+			)
 		}
 		const valueColumn = ordered[0] === undefined ? undefined : columnIn(input, ordered[0])
 		for (const name of node.outs) {
@@ -1627,10 +2106,18 @@ class Checker {
 				continue
 			}
 			if (node.fn !== "percentileCont" && !sameScalarType(valueColumn.type, out.type)) {
-				this.report([...path, "heading"], `${name} at the ordered value's type`)
+				this.report(
+					"a heading column has the type its kind defines",
+					[...path, "heading"],
+					`${name} at the ordered value's type`
+				)
 			}
 			if (node.fn === "percentileCont" && baseOf(out.type).carrier !== "float8") {
-				this.report([...path, "heading"], `a double precision ${name}`)
+				this.report(
+					"a heading column has the type its kind defines",
+					[...path, "heading"],
+					`a double precision ${name}`
+				)
 			}
 		}
 	}
@@ -2226,21 +2713,50 @@ const proofProblems = (
 	proof: OperationProof | undefined,
 	type: ScalarType,
 	args: ReadonlyArray<TableExpr>
-): ReadonlyArray<string> => {
+): ReadonlyArray<ExprProblem> => {
 	const defined = definedness(op)
 	switch (defined.kind) {
 		case "unknown":
-			return [`an overload the registry holds, not ${describeOp(op)}`]
+			return [
+				{
+					rule: "an operation is an overload the registry holds",
+					message: `an overload the registry holds, not ${describeOp(op)}`
+				}
+			]
 		case "everywhere":
 			return proof === undefined
 				? []
-				: [`no proof on an overload defined everywhere, ${describeOp(op)}`]
+				: [
+						{
+							rule: "an operation defined everywhere stands with no proof",
+							message: `no proof on an overload defined everywhere, ${describeOp(op)}`
+						}
+					]
 		case "partial":
-			return proof === undefined
-				? [`the proof a partial overload stands with, ${describeOp(op)}`]
-				: operationProofHolds(proof, defined.preconditions, { type, operand: args[0]?.type })
-					? []
-					: [`a proof of each precondition of ${describeOp(op)}, re-derived from its own premises`]
+			if (proof === undefined) {
+				return [
+					{
+						rule: "a partial operation stands with a proof the kernel re-derives",
+						message: `the proof a partial overload stands with, ${describeOp(op)}`
+					}
+				]
+			}
+			if (!proofCovers(proof, defined.preconditions)) {
+				return [
+					{
+						rule: "every precondition of a partial operation stands with a proof of its own",
+						message: `one proof for each precondition of ${describeOp(op)}, in the registry's order`
+					}
+				]
+			}
+			return operationProofHolds(proof, defined.preconditions, { type, operand: args[0]?.type })
+				? []
+				: [
+						{
+							rule: "a partial operation stands with a proof the kernel re-derives",
+							message: `a proof of each precondition of ${describeOp(op)}, re-derived from its own premises`
+						}
+					]
 	}
 }
 
@@ -2254,10 +2770,15 @@ const nativeProblems = (
 	proof: NativeProof,
 	type: ScalarType,
 	args: ReadonlyArray<TableExpr>
-): ReadonlyArray<string> =>
+): ReadonlyArray<ExprProblem> =>
 	nativeProofHolds(proof, { op, type, operand: args[0]?.type })
 		? []
-		: [`a native proof the kernel re-derives, on an IEEE 754 overload, not ${describeOp(op)}`]
+		: [
+				{
+					rule: "a native operation stands with a proof the kernel re-derives",
+					message: `a native proof the kernel re-derives, on an IEEE 754 overload, not ${describeOp(op)}`
+				}
+			]
 
 /**
  * Validates a DAG grizzle built over its outside form (validateTable); a label two of its nodes share is a defect. It

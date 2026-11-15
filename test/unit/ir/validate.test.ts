@@ -5,13 +5,17 @@
  *
  * - A live DAG and every live variant of it is accepted and comes back validated.
  * - A corrupted one is a defect naming the first problem the validator reports, its place's label and path and its
- *   rule, and its own rule is among the problems reported, at the corruption's place or within it.
+ *   rule, and the problem its site expects is among those reported, at the corruption's place or within it: a problem
+ *   under the corruption's own rule; under another the site names, where breaking its own breaks that one and the
+ *   validator holds its own nowhere else; or the shape stage's refusal, where the value breaks the table's shape.
  *
  * Oracle: each corruption's rule restated over the table, and the place it breaks, compared by label and path.
  *
  * Features: live, every corruption's rule beside the site it broke, and every node kind a live DAG holds.
  *
- * Plants: ir-validate-dangling-name (a node naming a node outside the table passes).
+ * @plant test/plants/unit/ir/ir-validate-dangling-name.patch The validator never checks the names a node holds beside
+ * its data edges, a SelfRef's feedback and a termination premise, so a node naming a node outside the table breaks no
+ * rule of its own; the validator's property fails on a dangling feedback edge or premise.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -43,11 +47,16 @@ import {
 } from "#test/support/assert.ts"
 import { toTable } from "#test/support/dag.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { dagProblems, dagTableShape, validateTable } from "#test/support/oracle/dag-validate.ts"
+import {
+	type DagRule,
+	dagProblems,
+	dagTableShape,
+	validateTable
+} from "#test/support/oracle/dag-validate.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import {
 	type DagRefusal,
-	type DagRule,
+	type DagReport,
 	dagCorruptions,
 	liveVariants
 } from "#test/unit/ir/corruptions.ts"
@@ -57,23 +66,62 @@ import { generatedDags } from "#test/unit/ir/population.ts"
 /** The label every place of a DAG's problems is under. */
 const dagLabel = "relational DAG"
 
-/** A rule broken, as the validator reports it: where, by its label and path, and the rule. */
-interface Reported {
-	readonly place: Place
-	readonly rule: string
-}
+/**
+ * What the validator reports, where, by its label and path, and in what words: the shape stage's refusal, which names
+ * no rule, or a problem of the semantic stage under its rule.
+ */
+type Reported =
+	| { readonly stage: "shape"; readonly place: Place; readonly message: string }
+	| {
+			readonly stage: "rules"
+			readonly place: Place
+			readonly rule: DagRule
+			readonly message: string
+	  }
 
 /** What the validator reports of a value: the shape stage's one refusal, or every problem of the semantic stage. */
 const reported = (value: unknown): ReadonlyArray<Reported> => {
 	const shaped = decodeWith(dagTableShape, value, dagLabel)
 	if (!shaped.ok) {
-		return [{ place: placeOf(refusalLoc(shaped.error)), rule: shaped.error.message }]
+		return [
+			{ stage: "shape", place: placeOf(refusalLoc(shaped.error)), message: shaped.error.message }
+		]
 	}
-	return Arr.map(dagProblems(shaped.value), (p) => ({
+	return Arr.map(dagProblems(shaped.value), (p): Reported => ({
+		stage: "rules",
 		place: { label: dagLabel, path: p.path },
-		rule: p.message
+		rule: p.rule,
+		message: p.message
 	}))
 }
+
+/** Whether a reported problem is the one a corruption's site expects: its own rule, another named, or the shape's. */
+const answers = (problem: Reported, report: DagReport, own: DagRule): boolean => {
+	switch (report.kind) {
+		case "own":
+			return problem.stage === "rules" && problem.rule === own
+		case "rule":
+			return problem.stage === "rules" && problem.rule === report.rule
+		case "shape":
+			return problem.stage === "shape"
+	}
+}
+
+/** What a site expects, as a failure states it. */
+const expectation = (report: DagReport): string => {
+	switch (report.kind) {
+		case "own":
+			return "its own rule"
+		case "rule":
+			return `"${report.rule}"`
+		case "shape":
+			return "the shape's refusal"
+	}
+}
+
+/** A reported problem as a failure lists it: its rule, or the shape's refusal, and its path. */
+const described = (p: Reported): string =>
+	`${p.stage === "rules" ? p.rule : `the shape: ${p.message}`} at ${formatPath(p.place.path)}`
 
 /** Whether `path` is `within` or a path inside it. */
 const inside = (path: ReadonlyArray<string | number>, within: ReadonlyArray<string | number>) =>
@@ -138,13 +186,13 @@ const judged = (c: Corrupted<unknown, DagRefusal, DagRule>): DagTable | undefine
 	assert.ok(
 		first !== undefined &&
 			Str.includes(formatLoc(SourceLoc(first.place.label, first.place.path)))(answer.error) &&
-			Str.endsWith(first.rule)(answer.error),
+			Str.endsWith(first.message)(answer.error),
 		`"${c.rule}" broken at a ${c.at}: the defect ${answer.error} names the first problem reported`
 	)
 	assert.ok(
-		Arr.some(problems, (p) => meets(p, c.refusal)),
-		`"${c.rule}" broken at a ${c.at}: expected a problem ${c.refusal.match} ${formatPath(c.refusal.path)}; reported ${Arr.join(
-			Arr.map(problems, (p) => `${p.rule} at ${formatPath(p.place.path)}`),
+		Arr.some(problems, (p) => answers(p, c.refusal.reports, c.rule) && meets(p, c.refusal)),
+		`"${c.rule}" broken at a ${c.at}: expected ${expectation(c.refusal.reports)} ${c.refusal.match} ${formatPath(c.refusal.path)}; reported ${Arr.join(
+			Arr.map(problems, described),
 			"; "
 		)}`
 	)

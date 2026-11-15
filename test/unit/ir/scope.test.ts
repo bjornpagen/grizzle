@@ -10,7 +10,8 @@
  * Features: every way a reference is made, bound and carried the search names, a free variable, a reference to a node
  * that is no region, and a scope shared with an input.
  *
- * Plants: ir-scope-own-refs-dropped (a node's own references left out of its scope).
+ * @plant test/plants/unit/ir/ir-scope-own-refs-dropped.patch A node that carries an input's references leaves its own
+ * scope expressions' references out of its scope; the scope property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

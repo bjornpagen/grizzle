@@ -215,24 +215,28 @@ const samePrecondition = (a: Precondition, b: Precondition): boolean =>
 	("form" in a && "form" in b ? a.form === b.form : true)
 
 /**
- * Whether an operation's kept proof proves every precondition its overload requires (`required`, the registry's
- * Totality, or a domain cast's contract): one entry per precondition, in its order, none missing and none besides, each
- * re-derived from its own premises (proofHolds). No precondition stands on another's premises.
+ * Whether an operation's kept proof has one entry for each precondition its overload requires (`required`, the
+ * registry's Totality, or a domain cast's contract), in its order, none missing and none besides.
+ */
+export const proofCovers = (
+	proof: OperationProof,
+	required: NonEmptyReadonlyArray<Precondition>
+): boolean =>
+	proof.length === required.length &&
+	Arr.every(proof, (p, i) => {
+		const precondition = required[i]
+		return precondition !== undefined && samePrecondition(p.precondition, precondition)
+	})
+
+/**
+ * Whether an operation's kept proof proves every precondition its overload requires: it covers them (proofCovers), and
+ * each entry is re-derived from its own premises (proofHolds). No precondition stands on another's premises.
  */
 export const operationProofHolds = (
 	proof: OperationProof,
 	required: NonEmptyReadonlyArray<Precondition>,
 	node: { readonly type: ScalarType; readonly operand: ScalarType | undefined }
-): boolean =>
-	proof.length === required.length &&
-	Arr.every(proof, (p, i) => {
-		const precondition = required[i]
-		return (
-			precondition !== undefined &&
-			samePrecondition(p.precondition, precondition) &&
-			proofHolds(p, node)
-		)
-	})
+): boolean => proofCovers(proof, required) && Arr.every(proof, (p) => proofHolds(p, node))
 
 /**
  * Whether a node's native proof re-derives that PostgreSQL's own overload computes its IEEE 754 operation where it
