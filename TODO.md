@@ -691,6 +691,25 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   the owner's word, since nothing moves from live to main.
 
 ### Parked by the scope lock (the owner, 2026-11-10)
+- **A query rule generic over relations of different headings (TYPEWRITE G4 part 1, 2026-11-15; main: parked):**
+  `<R extends typeof A | typeof B>(r: R) => query(S).rule((q) => { const x = v(r, "x"); return q.match(r, x)…find(x) })`
+  is refused where A and B share no heading: v infers its heading F from R's constraint
+  (types/query/query.ts VConstructor `R & HeadedBy<F>`), and match its kind, name, heading and key
+  (types/query/rule.ts RuleMatch, terms.ts SourceShows), so the first relation's heading wins and the rest are refused.
+  It fails closed. Typing the variables from R itself does not flow through TypeScript; three probes
+  (~/.cache/grizzle-release/TYPEWRITE/out/p1-probes): (1) by key, `Minted<R["heading"], …>`: `x.f` stays a deferred
+  conditional (Minted's template and DomainOf are conditionals, types/core/phantom.ts Minted), so eq reads its
+  operand's domain as never and refuses a parameter; (2) distributed over R, `R extends unknown ? VarsOf<R, N> :
+  never`: `x.f` resolves through the constraint and eq passes, but every reader that walks a head's keys reads
+  `keyof` of the conditional as string (find's per-key check, `Hc extends Carriers`, attach's invariant parent
+  variables), so the rule comes back `Query<S, unknown, …>`; (3) a record keyed by `keyof R["heading"]`, each field
+  distributed over R: the keyed readers pass, and field access is deferred again, as in (1). The two sides it fails on:
+  a term's use needs the variables a conditional over R, a head's readers need a mapped type over `keyof
+  R["heading"]`. A fix restates them all to be generic-safe: HeadTerms, the Carriers constraint on Hc (Query, Ordered,
+  Finished, ArmOf, UnionHeading), attach's parent variables, FinishedHead's evidence readers, and match's binding
+  checks (NoExcess, DeadConstants, Bindings), then re-measures every type-cost law. The case that asked for it,
+  pantry's replaceWrite, is ChangeSet.deleteWhere's now. Revisit when a real caller needs a generic helper that
+  deleteWhere cannot express.
 - **A whole delete that reaches another family's member is refused when it compiles, though the family's axes refuse
   every partial group at commit (WHOLEDEL, 2026-11-14), the owner's call:** a delete of a relation that owns a family
   and is no family's member is refused where a relation nested under it is a member of a family whose owner no delete
