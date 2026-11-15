@@ -22,7 +22,9 @@
  *   change member whose first stratum's rows are the call's facts and whose second's are query members over the call's
  *   relation parameters, is explained one plan per plannable statement its apply sends, under its name, over its text,
  *   in a transaction that is rolled back: no fact written, no identity sequence advanced, which EXPLAIN ANALYZE would
- *   have done; a read-back rides the statement that makes its delta, so no plan reads a carrier;
+ *   have done; a read-back rides the statement that makes its delta, so no plan reads a carrier but a staged member
+ *   slot's, the call's own facts that two statements read (write/program/slot-carriers.ts: the first stratum's array of
+ *   Seat is two insertions, so its slot is staged);
  * - a served ChangeSet inserting a box with its parts nested, each part's body a drawn share of the session's message
  *   bound, within it or past it, and among the cases bodies each within it and together past it, which the application
  *   cuts across executions, on a session whose bound is planted at the longest Parse message of the texts explain
@@ -105,6 +107,7 @@ import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, a2, t2, t4, tMissing, workFacts } from "#test/support/fixtures/golden/work.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
+import { flightSlotCarriers, textsNaming } from "#test/support/slot-carriers.ts"
 import { explainedTextBound } from "#test/support/staged.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { tableState } from "#test/support/substrate/state.ts"
@@ -929,13 +932,32 @@ layer(Substrate.layer)("workload explain", (it) => {
 												notes.note("a refused apply")
 											}
 											if (c.readBack !== "none") {
+												assertVariant(
+													change,
+													"kind",
+													"change",
+													"the changes member is a ChangeSet's"
+												)
+												const flight = variantOf(context, change.variants).entry.program.flight
+												const staged = flightSlotCarriers(flight)
 												assert.deepEqual(
 													Arr.filter(
-														Arr.flatMap(plans.value, (p) => nodes(p.plan)),
+														flight.statements,
+														(s) => s.step.kind === "carrier" && !staged.has(s.step.carrier)
+													),
+													[],
+													"a read-back rides the statement that makes its delta: every carrier the flight creates is a staged member slot's"
+												)
+												const naming = textsNaming(flight, staged)
+												assert.deepEqual(
+													Arr.filter(
+														Arr.flatMap(plans.value, (p) =>
+															naming.has(p.statement) ? [] : nodes(p.plan)
+														),
 														(n) => n.on.kind === "carrier"
 													),
 													[],
-													"a read-back rides the statement that makes its delta and creates no carrier"
+													"a read-back rides the statement that makes its delta: no plan reads a carrier but a staged member slot's statements"
 												)
 												notes.note("a read-back")
 											}
