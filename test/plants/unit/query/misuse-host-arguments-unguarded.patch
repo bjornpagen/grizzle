@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/query/build/host.ts b/packages/engine/src/query/build/host.ts
+index 2e52e0b6..d268f65a 100644
+--- a/packages/engine/src/query/build/host.ts
++++ b/packages/engine/src/query/build/host.ts
+@@ -59,7 +59,7 @@ const noFault = (): undefined => undefined
+ export const hostArguments = (label: string, args: ReadonlyArray<unknown>): void => {
+ 	const seen = new Set<object>()
+ 	const read = hostRead(noFault, () => Result.ok(args.every((a) => dataOnly(a, seen))))
+-	if (!read.ok || !read.value) {
++	if (read.ok && !read.value) {
+ 		throw malformed(
+ 			label,
+ 			"an argument whose properties can be read as data: no getter, setter or refusing proxy"

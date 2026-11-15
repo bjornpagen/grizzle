@@ -14,8 +14,8 @@
  *
  * Features: each step kind.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): scaling-step-copies-chain (a step that copies its whole stage, so it
- * builds as many containers as the chain holds).
+ * @plant test/plants/unit/query/build/scaling-step-copies-chain.patch Every step copies its whole stage into its
+ * Description, so it builds as many containers as the chain holds; the step-count search fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

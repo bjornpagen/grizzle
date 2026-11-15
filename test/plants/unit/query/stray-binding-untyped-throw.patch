@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/query/build/rule.ts b/packages/engine/src/query/build/rule.ts
+index f03c7fe3..5a55e7d1 100644
+--- a/packages/engine/src/query/build/rule.ts
++++ b/packages/engine/src/query/build/rule.ts
+@@ -203,7 +203,7 @@ const bindingsDesc = (bindings: unknown, source: Heading, label: string): OpenBi
+ 		}
+ 		const typing = source.fields.get(field)
+ 		if (typing === undefined) {
+-			throw builderRefusal(label, "not a field of the arms the bindings select")
++			throw new Error("not a field of the arms the bindings select")
+ 		}
+ 		if (value === undefined) {
+ 			throw malformed(

@@ -8,7 +8,8 @@
  *
  * Features: a query, and a node of each common kind (rules, relation, var, compare).
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): desc-order-shallow-freeze (the Description frozen at its root alone).
+ * @plant test/plants/unit/query/desc-order-shallow-freeze.patch The builder's Description frozen at its root alone;
+ * the frozen-throughout check of the search fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

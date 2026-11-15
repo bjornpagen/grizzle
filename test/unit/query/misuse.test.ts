@@ -35,9 +35,12 @@
  * Oracles: the contract above, a specification over the drawn argument's kind; for named scopes, the two calls' own
  * sites.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): misuse-host-arguments-unguarded (a hostile argument let past the
- * builder's entry) and named-scopes-calls-swapped (the duplicate reported at the earlier call); MISUSE/plants:
- * stray-binding-untyped-throw (a binding naming no field thrown as an untyped error).
+ * @plant test/plants/unit/query/misuse-host-arguments-unguarded.patch The entry's guarded read refuses a getter or
+ * setter but lets an argument whose reading throws past the builder's entry; the misuse search fails.
+ * @plant test/plants/unit/query/named-scopes-calls-swapped.patch A duplicate scope name reported at the earlier call,
+ * naming the later; the named-scopes search fails.
+ * @plant test/plants/unit/query/stray-binding-untyped-throw.patch A binding naming no field of its source thrown as an
+ * untyped Error rather than the builder's refusal; the misuse search's near misses fail.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

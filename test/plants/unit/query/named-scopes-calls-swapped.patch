@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/query/build/rule.ts b/packages/engine/src/query/build/rule.ts
+index f03c7fe3..dcd7d341 100644
+--- a/packages/engine/src/query/build/rule.ts
++++ b/packages/engine/src/query/build/rule.ts
+@@ -256,8 +256,8 @@ const finishRule = (
+ 			if (prior !== undefined && prior !== ref.scope) {
+ 				throw CompileError.make({
+ 					_tag: "DuplicateIdentity",
+-					at: ref.scope.loc,
+-					duplicate: { kind: "scope", name: ref.scope.name, earlier: prior.loc }
++					at: prior.loc,
++					duplicate: { kind: "scope", name: ref.scope.name, earlier: ref.scope.loc }
+ 				})
+ 			}
+ 			scopes.set(ref.scope.name, ref.scope)

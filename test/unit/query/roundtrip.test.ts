@@ -15,8 +15,10 @@
  *
  * Features: each op of a chain and each ending, a chain cut inside; a roster handle and a text that is none.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): roundtrip-rebuilt-attachment-lost (a rebuilt attach stage without its
- * attachment's name) and roundtrip-rebuilt-row-untyped (a rebuilt field typed by its Description untyped).
+ * @plant test/plants/unit/query/roundtrip-rebuilt-attachment-lost.patch A heading rebuilt from an attach stage
+ * without its attachment's name; the attachments search and both generated-chain searches fail.
+ * @plant test/plants/unit/query/roundtrip-rebuilt-row-untyped.patch A field with no descriptor, typed only by its
+ * Description, rebuilt untyped; the rebuilt recursive row's search fails.
  */
 import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"
