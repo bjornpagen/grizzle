@@ -1,0 +1,20 @@
+diff --git a/packages/engine/src/analysis/theory/families.ts b/packages/engine/src/analysis/theory/families.ts
+index 8b55fe16..d750d038 100644
+--- a/packages/engine/src/analysis/theory/families.ts
++++ b/packages/engine/src/analysis/theory/families.ts
+@@ -383,6 +383,7 @@ const selectsMembers = (f: FamilyShape, conjuncts: ReadonlyArray<ExprDesc>): boo
+ 	const isStart = (e: ExprDesc): boolean => e.kind === "field" && e.field === start
+ 	switch (only.op) {
+ 		case "gt":
++		case "ge":
+ 			return isStart(only.left) && isZero(only.right)
+ 		case "lt":
+ 			return isZero(only.left) && isStart(only.right)
+@@ -391,7 +392,6 @@ const selectsMembers = (f: FamilyShape, conjuncts: ReadonlyArray<ExprDesc>): boo
+ 				(isStart(only.left) && isZero(only.right)) || (isZero(only.left) && isStart(only.right))
+ 			)
+ 		case "eq":
+-		case "ge":
+ 		case "le":
+ 			return false
+ 	}

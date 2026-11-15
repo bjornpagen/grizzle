@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/theory/families.ts b/packages/engine/src/analysis/theory/families.ts
+index 8b55fe16..9627afb8 100644
+--- a/packages/engine/src/analysis/theory/families.ts
++++ b/packages/engine/src/analysis/theory/families.ts
+@@ -526,7 +526,7 @@ export const ridesOf = (
+ 			if (
+ 				atEnd(f, a.source, from) &&
+ 				atEnd(f, a.target, to) &&
+-				pairs.length >= width &&
++				pairs.length > width &&
+ 				a.source.key.every((t, j) => {
+ 					const p = pairs[j]
+ 					const target = a.target.key[j]
