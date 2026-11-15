@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/program/workload/compile.ts b/packages/engine/src/program/workload/compile.ts
+index e9975c68..2bc0f402 100644
+--- a/packages/engine/src/program/workload/compile.ts
++++ b/packages/engine/src/program/workload/compile.ts
+@@ -530,9 +530,7 @@ const livePlanOf = (footprints: WorkloadFootprints): LivePlan => {
+ 	}
+ 	return {
+ 		kind: "reads",
+-		tables: [...tables]
+-			.toSorted(([a], [b]) => compareText(a, b))
+-			.map(([relation, fields]) => ({ relation, routes: [...fields].toSorted(compareText) })),
++		tables: [],
+ 		views: [...views].toSorted(compareText)
+ 	}
+ }

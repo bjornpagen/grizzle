@@ -9,9 +9,11 @@
  *
  * - every role's certificate, its level and its reasons, under a drawn set of the login's reads, is the one it has
  *   under no read at all, where no table is a live source;
- * - the draft with no read plans no live table (its snapshot's live plan is empty), and the draft with reads plans every
- *   footprint table of its reads, so the two drafts certify over installations that differ by exactly their live
- *   source.
+ * - the draft with no read plans no live table (its snapshot's live plan is empty), and the sitting shape's draft with
+ *   reads plans exactly the relations its reads match as footprint tables, so the two drafts certify over
+ *   installations that differ by their live source, and the first property is not met by two equal drafts. The
+ *   platform's reads run through derived relations, whose footprints the live suites judge; here their draft is held
+ *   to the certificates alone.
  *
  * The oracle is the certifier's verdict without the live source: the same logins' draft with every read left out, whose
  * workloads hold their writes alone, and whose roles, privileges and writes are the drawn draft's.
@@ -21,12 +23,18 @@
  * whole and writes nothing, and serves nothing in the draft without reads; for the platform, a drawn subset of the
  * billing workload's reads, its billing role and login built again over the same schema.
  *
- * The live source is a publication and a replica identity, and the certifier reads neither: its facts are the law
- * model's, the grants' and the change members' alone (program/isolation/input.ts isolationInput), so no bug of a line or
- * two couples a verdict to the reads, and no patch is cited here.
+ * The live source is a publication and a replica identity, and the certifier reads neither: its input holds the law
+ * model's facts, the grants and the change members alone (program/isolation/input.ts IsolationInput), so no field of it
+ * can carry a read, a bug that couples a certificate to the reads is unrepresentable, and a certifier's bug moves both
+ * drafts alike. The bug this file can catch is the one that would make its first property hold of two equal drafts: a
+ * live plan without the reads' footprint tables.
  *
  * Features: each fixture, a role certified READ COMMITTED, a role certified SERIALIZABLE, a live table a READ
  * COMMITTED role writes, no read kept, a read kept.
+ *
+ * @plant test/plants/unit/live/certification-live-tables-dropped.patch The live plan holds no footprint table whatever
+ * the reads (program/workload/compile.ts livePlanOf), so the drafts with and without reads install the same tables; the
+ * sitting shape's draft with reads fails the footprint property.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -36,7 +44,7 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema } from "#cli/generate.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
@@ -76,6 +84,17 @@ const sittingReads = [
 ] as const
 
 type SittingRead = (typeof sittingReads)[number]
+
+/** The relation each sitting read matches, its one footprint table. */
+const sittingFootprint: {
+	readonly [R in SittingRead]: keyof ReturnType<typeof sittingShape>["schema"]["relations"]
+} = {
+	docByNode: "Doc",
+	poolsOfDoc: "Pool",
+	sittingsOfDoc: "Sitting",
+	servedOfSitting: "Served",
+	docs: "Doc"
+}
 
 /**
  * A case: its fixture, and for the sitting shape the reads its reader is given. The platform's reads kept are drawn
@@ -309,6 +328,16 @@ layer(NodeServices.layer, { excludeTestServices: true })("a role's certificate",
 								`every role certifies as it does with no live source\n${Formatter.format(c)}`
 							)
 							assert.deepEqual([...without.live], [], "a draft with no read plans no live table")
+							if (c.fixture.kind === "sitting") {
+								assert.deepEqual(
+									Arr.sort([...withTriggers.live], Order.String),
+									Arr.sort(
+										Arr.dedupe(Arr.map(c.sitting, (read) => sittingFootprint[read])),
+										Order.String
+									),
+									"the sitting shape's draft with reads plans exactly the relations its reads match"
+								)
+							}
 							for (const certified of withTriggers.certification) {
 								if (certified.certificate.level === "readCommitted") {
 									notes.note("a role certified READ COMMITTED")
