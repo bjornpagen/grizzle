@@ -4,8 +4,8 @@
  *
  * Property: the login-scale program, checked alone at three relation counts an equal step apart, each step a whole
  * number of its modules, the largest past qti-pie's 370 relations by more than half again, typechecks with no
- * diagnostic, no expression of it past TypeScript's 5,000,000 instantiations, and its types and instantiations grow
- * no faster than linearly, exactly (test/support/growth.ts incrementsDoNotGrow): the second step adds no more than the
+ * diagnostic, no expression of it past TypeScript's 5,000,000 instantiations, and its instantiations grow no faster
+ * than linearly, exactly (test/support/growth.ts incrementsDoNotGrow; types are not judged: types/batch/measured.ts): the second step adds no more than the
  * first, so the role, the login and the ChangeSet over the role cost no more per relation at a larger schema. Oracle:
  * the compiler's own counts, compared step against step.
  *
@@ -25,7 +25,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("the login-scale schema
 		`typechecks a login, its workloads and a ChangeSet over its role at ${Arr.join(
 			Arr.map(loginSizes.sizes, (n) => `${n}`),
 			", "
-		)} relations listed by module, with no diagnostic, its types and instantiations growing no faster than linearly`,
+		)} relations listed by module, with no diagnostic, its instantiations growing no faster than linearly`,
 		() =>
 			Effect.gen(function* () {
 				const sizes = yield* measuredSizes("test/types/schema", loginSizes, generateLoginSource)

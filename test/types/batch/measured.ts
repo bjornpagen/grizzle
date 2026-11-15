@@ -17,10 +17,20 @@ import { regex } from "arkregex"
  *
  * A scaling test checks a program at three sizes of one dimension an equal step apart, 2h, 4h and 6h (EqualSteps), each step
  * a whole number of the periods its generator repeats with, so every step adds the same units in the same proportions.
- * It holds every program to no diagnostic and both counts to grow no faster than linearly, exactly
- * (test/support/growth.ts incrementsDoNotGrow): the second step adds no more than the first, so no unit costs more for
- * the units before it, and any count whose cost per unit grows with the program, a call that reads a schema-sized
- * union per unit among them, adds more. No ratio is read.
+ * It holds every program to no diagnostic, each step to add both types and instantiations, and the instantiations to
+ * grow no faster than linearly, exactly (test/support/growth.ts incrementsDoNotGrow): the second step adds no more than
+ * the first, so no unit costs more for the units before it, and a cost per unit that grows with the program, a call
+ * that reads a schema-sized union per unit among them, instantiates more. No ratio is read.
+ *
+ * The types a program makes are not judged by the law: the checker interns them, reusing a type it made before, and
+ * orders a union's members by type id, so where a declaration elsewhere shifts the ids the checker meets a program's
+ * types in another order and makes other intermediates, by tens, at one size and not the next. At 1d492a7c the
+ * insertAll program's types at 10, 20 … 60 relations step by 5,145, 5,273, 5,173, 5,175 and 5,243, its instantiations
+ * by exactly 48,902 each time. 1e51dd0d added 24 types of its own at every size (its WalPosition brand, its Result, the
+ * invalidated notification's forms), and at 20 relations alone 50 anonymous type parameters and one union of 20 members
+ * (each program traced with --generateTrace and its types diffed as a multiset), which turned that program's second
+ * difference of types from -28 to +23 with no change of shape (GREENTRUNK, 2026-11-15). Every plant of a superlinear
+ * cost the type tier keeps turns the instantiations red (~/.cache/grizzle-release/GREENTRUNK/out/plant-scales.txt).
  */
 
 /**
@@ -201,8 +211,9 @@ export const assertClean = (m: Measured, what: string): void => {
 }
 
 /**
- * Types and instantiations of the program measured at the steps' sizes each grow no faster than linearly
- * (incrementsDoNotGrow), and each step adds some of them, so the dimension costs what it measures.
+ * Each step of the program measured at the steps' sizes adds types and instantiations, so the dimension costs what it
+ * measures, and its instantiations grow no faster than linearly (incrementsDoNotGrow); its types are interned, so they
+ * are not judged by the law (see the header).
  */
 export const assertGrowthLaw = (
 	what: string,
@@ -223,6 +234,6 @@ export const assertGrowthLaw = (
 			of(sized(middle)) > of(sized(small)),
 			`each step of ${what} adds ${count}: ${of(sized(small))} at ${small}, ${of(sized(middle))} at ${middle}`
 		)
-		incrementsDoNotGrow((size) => of(sized(size)), at.half, `${count} of ${what}`)
 	}
+	incrementsDoNotGrow((size) => sized(size).instantiations, at.half, `instantiations of ${what}`)
 }

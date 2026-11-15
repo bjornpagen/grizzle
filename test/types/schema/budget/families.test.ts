@@ -4,8 +4,8 @@
  * Properties:
  * - Cost: the family-scale program, checked alone at three family counts an equal step apart, each step a whole number
  *   of its period, typechecks with no diagnostic, every relation a ChangeSet inserts at its top level inserted at once
- *   from the rows grizzle types (a round trip), and its types and instantiations grow no faster than linearly, exactly
- *   (test/support/growth.ts incrementsDoNotGrow): the second step adds no more than the first. Oracle: the compiler's
+ *   from the rows grizzle types (a round trip), and its instantiations grow no faster than linearly, exactly
+ *   (test/support/growth.ts incrementsDoNotGrow; types are not judged: types/batch/measured.ts): the second step adds no more than the first. Oracle: the compiler's
  *   own counts, compared step against step.
  * - Invariance: at the largest size, beside its twin, the same declarations over the first and the last unit of each
  *   kind alone, checked by the type batch disarmed, every unit's additions, the relations a ChangeSet inserts at its
@@ -35,7 +35,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("the family-scale schem
 		`typechecks ${Arr.join(
 			Arr.map(familySizes.sizes, (n) => `${n}`),
 			", "
-		)} families and as many folds, nested two deep and with trees, with no diagnostic, its types and instantiations growing no faster than linearly`,
+		)} families and as many folds, nested two deep and with trees, with no diagnostic, its instantiations growing no faster than linearly`,
 		() =>
 			Effect.gen(function* () {
 				const sizes = yield* measuredSizes("test/types/schema", familySizes, generateFamiliesSource)

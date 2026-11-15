@@ -3,8 +3,9 @@
  * list's names, a roster's and a set's handles, laws per relation, roles per schema and fields per relation, each
  * program checked alone at three sizes an equal step apart, each step a whole number of its generator's periods.
  *
- * Properties: every program typechecks with no diagnostic; and its types and instantiations grow no faster than
- * linearly, exactly (test/support/growth.ts incrementsDoNotGrow): the second step adds no more than the first, so no
+ * Properties: every program typechecks with no diagnostic; each step adds types and instantiations; and its
+ * instantiations grow no faster than linearly, exactly (test/support/growth.ts incrementsDoNotGrow; its types, which the
+ * checker interns, are not judged by the law: test/types/batch/measured.ts): the second step adds no more than the first, so no
  * unit costs more for the units before it. Oracle: the compiler's own counts, compared step against step.
  *
  * Plants (~/.cache/grizzle-release/BR14/plants): schema-scale-quadratic.patch finds a statement's relations among the
@@ -27,7 +28,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("the schema-scale progr
 			`typechecks ${Arr.join(
 				Arr.map(dimension.steps.sizes, (n) => `${n}`),
 				", "
-			)} ${dimension.name} with no diagnostic, its types and instantiations growing no faster than linearly`,
+			)} ${dimension.name} with no diagnostic, its instantiations growing no faster than linearly`,
 			() =>
 				Effect.gen(function* () {
 					const sizes = yield* measuredSizes(
