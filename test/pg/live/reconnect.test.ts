@@ -21,6 +21,8 @@
  * the call made again, and every
  * other subscription, sends at every `ready` the fresh read's value at some commit prefix, at prefixes that never
  * decrease, and settles at each commit after it on the fresh read's value there (test/support/live/system.ts reaches).
+ * A drop interrupts its call, which never fails it, so a `ready` sent on a COMMIT refused or lost is
+ * test/unit/live/flights.test.ts's.
  *
  * The installation is fresh, so its live source stands only once the leader its first registration starts has made the
  * replication slot: a call made before then is refused `unavailable` (SlotAbsent) before any flight, and called again,
@@ -32,8 +34,6 @@
  * Features: each drop point, each surface, a drop before the first answer and one after COMMIT's, a drop with a re-run
  * in flight, a call refused before the slot stood.
  *
- * @plant test/plants/unit/live/ready-before-commit.patch A read's `ready` sent once its rows decode, before COMMIT's
- * answer, so a drop in the first flight between its rows and COMMIT's answer finds the dropped call's `ready`.
  * @plant test/plants/pg/live/flight-gate-any-role.patch A flight's gate names the next session of any role to write, so
  * a fresh installation's listener is gated in the call's place.
  * @plant test/plants/pg/live/consume-ends-at-slot-absent.patch A call refused for a slot not made yet ends its

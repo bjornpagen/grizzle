@@ -1,10 +1,22 @@
 diff --git a/packages/engine/src/physical/ddl/isolation.ts b/packages/engine/src/physical/ddl/isolation.ts
-index a9088383..af1e2913 100644
+index a9088383..cc2fbe02 100644
 --- a/packages/engine/src/physical/ddl/isolation.ts
 +++ b/packages/engine/src/physical/ddl/isolation.ts
-@@ -44,7 +44,7 @@ const refuseBelowSerializable: PlStatement = {
+@@ -17,7 +17,7 @@ import type {
+ 	PlStatement,
+ 	Revoke
+ } from "#compiler/sql/ast.ts"
+-import { call, lit, ne, objectName, types } from "#compiler/sql/build.ts"
++import { call, lit, lt, objectName, types } from "#compiler/sql/build.ts"
+ 
+ /** The name of the guard function. */
+ export const isolationGuardName: string = identifierOf(identity.isolationGuard())
+@@ -42,9 +42,9 @@ const refuseBelowSerializable: PlStatement = {
+ 	kind: "if",
+ 	branches: [
  		{
- 			condition: ne(
+-			condition: ne(
++			condition: lt(
  				call("current_setting", [lit.text("transaction_isolation", types.text)]),
 -				lit.text("serializable", types.text)
 +				lit.text("repeatable read", types.text)

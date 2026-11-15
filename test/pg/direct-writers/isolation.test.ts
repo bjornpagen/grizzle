@@ -38,10 +38,10 @@
  * - Features: each statement under each verdict, the guard's refusal on each kind of table and after a read, and a write
  *   admitted at the database's default.
  *
- * @plant test/plants/pg/direct-writers/isolation-guard-admits-repeatable-read.patch The guard compares against
- * REPEATABLE READ; the property fails.
+ * @plant test/plants/pg/direct-writers/isolation-guard-admits-repeatable-read.patch The guard refuses only the levels
+ * below REPEATABLE READ, so a write at REPEATABLE READ runs; the property fails.
  * @plant test/plants/pg/direct-writers/isolation-no-database-default.patch The installation leaves the database's
- * default level alone; the property fails at the database's default.
+ * default level alone; the installed-catalog checker the installation runs refuses it.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
