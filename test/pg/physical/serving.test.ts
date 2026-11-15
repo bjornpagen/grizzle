@@ -91,9 +91,18 @@
  * @plant test/plants/pg/physical/index-lead-committed.patch the index engine commits a draft to the first lead it may
  * take, so a later request one of the other leads serves is refused
  */
-import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { aimed, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
-import { array, boolean, element, type Gen, int, shuffled, weighted } from "@bjornpagen/testing/gen"
+import {
+	array,
+	boolean,
+	element,
+	type Gen,
+	int,
+	map,
+	shuffled,
+	weighted
+} from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
@@ -1081,11 +1090,25 @@ const read = (
 	key: { relation: 0, which: 0, fact: 0, absent: 0, roster: 0 }
 })
 
+/**
+ * A workload case's sketch: the program its case sketch resolves to, and the reads it installs: the program's drawn
+ * ones, or one read constructed to reach a workload's statistics in their place (statisticsCaseGen), which a witness
+ * whose turn aims at that feature draws (workloadAims). The property resolves both on the case's own tape
+ * (workloadGen), so a kept sketch installs the reads its case ran.
+ */
+interface WorkloadSketch {
+	readonly program: CaseSketch
+	readonly reads: "drawn" | "a correlated selection"
+}
+
+/** A workload of `program` with its drawn reads. */
+const drawnReads = (program: CaseSketch): WorkloadSketch => ({ program, reads: "drawn" })
+
 /** The generated workloads kept from failure reports, each replayed first by value (see the header). */
-const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeature>> = [
+const workloadKept: ReadonlyArray<Kept<WorkloadSketch, ServingFeature | WorkloadFeature>> = [
 	{
 		note: "an equality lookup on A's boolean key column, which answers half its rows through the primary key, beside a span predicate on Task binding its closed id but not the numeric of many values after it in the GiST index another span predicate creates",
-		sketch: {
+		sketch: drawnReads({
 			population: "forms",
 			swarm: {
 				"bind fresh": 2,
@@ -1884,7 +1907,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 				padding: 0,
 				side: { kind: 1, values: [0, 2, 1] }
 			}
-		},
+		}),
 		draws:
 			"0.0.0.0.0.0.4.1.0.4.3.3.2.0.0.2.2.0.0.0.0.0.0.0.7.1.5.3.4.5.3.0.1.2.0.2.0.0.0.0.2.0.0.3.0.0.0.1.0.0.1.0.0.2.1.2.3.2.2.1.0.0.0.1.0.2.0.2.2.1.0.4.3.4.4.4.0.0.7.4.6.4.0.0.0.0.1.0.0",
 		reaches: [
@@ -1898,7 +1921,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 	},
 	{
 		note: "a join key on Rel1x0's (HTTPRoute, field1) beside span predicates on (HTTPRoute, field1, fixed0, span40) and (fixed0, span40), whose GiST index on (fixed0, HTTPRoute, field1, span40) PostgreSQL sweeps for the join key, which its own B-tree alone serves",
-		sketch: {
+		sketch: drawnReads({
 			population: "forms",
 			swarm: {
 				"bind join": 3,
@@ -1946,7 +1969,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 				padding: 0,
 				side: { kind: 0, values: zeros(3) }
 			}
-		},
+		}),
 		draws: "0.0.0.3.1.0.2.0.0.0.0.0.2.0.0.2.0.0.0.0.2.5.5.2.5.0.3.0.0.4.0.0.4.1.0",
 		reaches: [
 			"a workload installed",
@@ -1956,7 +1979,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 	},
 	{
 		note: "a span predicate on Timestamptztypmodin's (PolyOverleft, span80) beside a take seek whose B-tree holds both, PolyOverleft a field of the two-field key the load makes unique on its own: without the predicate's GiST index PostgreSQL finds its one row through the B-tree, whose filter on span80 removes none, yet the B-tree does not search span80 by overlap, so the GiST index is needed",
-		sketch: {
+		sketch: drawnReads({
 			population: "delivered",
 			swarm: {
 				"bind fresh": 3,
@@ -2193,7 +2216,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 				padding: 2,
 				side: { kind: 0, values: [0, 2, 0] }
 			}
-		},
+		}),
 		draws: "0.0.1.0.0.0.0.0.1.0.0.0.2.0.0.1.0.0.0.0.0.0.0.0.0.0",
 		reaches: [
 			"a workload installed",
@@ -2205,7 +2228,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 	},
 	{
 		note: "a span predicate on Rel1x0's (Bool, span40), Bool a text field of its key the load fills with two ideographs, whose GiST index is led by that text: the pinned PostgreSQL's btree_gist (scripts/pg/patches/19rc2-btree-gist-multibyte-penalty.patch) prices the ideographs by their bytes past the common prefix, so the index places them precisely and reads the predicate's one row within its bound",
-		sketch: {
+		sketch: drawnReads({
 			population: "swarm",
 			swarm: {
 				"bind fresh": 1,
@@ -2278,7 +2301,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 				padding: 0,
 				side: { kind: 0, values: zeros(3) }
 			}
-		},
+		}),
 		draws: "0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0",
 		reaches: [
 			"a workload installed",
@@ -2289,7 +2312,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 	},
 	{
 		note: "a join key on Rel1x0's (Bool, tick0) planned on the B-tree a range creates on (tick0, field1, Bool), led by tick0, whose field1 the join key leaves unbound is a boolean: PostgreSQL reads the join key by a skip scan over field1 in 2 descents within tick0's rows, as many as a boolean holds",
-		sketch: {
+		sketch: drawnReads({
 			population: "forms",
 			swarm: {
 				"bind fresh": 1,
@@ -2605,7 +2628,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 				padding: 0,
 				side: { kind: 0, values: [0, 0, 0] }
 			}
-		},
+		}),
 		draws:
 			"0.2.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.2.0.0.1.2.0.1.1.2.0.0.0.0.0.0.3.0.0.0.0.1.0.1.0.0.0",
 		reaches: [
@@ -2619,7 +2642,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 	},
 	{
 		note: "a range on Overlaps' JsonbPretty, a closed handle, by equality and its fixed0, a numeric of many values, by a range, beside span predicates whose GiST index holds both: GiST places its entries by fixed0, so its scan would read the range across every handle, and the range is planned on a B-tree of its own",
-		sketch: {
+		sketch: drawnReads({
 			population: "forms",
 			swarm: {
 				"bind join": 2,
@@ -3325,7 +3348,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 				padding: 29156,
 				side: { kind: 15588, values: [28912, 21291, 0] }
 			}
-		},
+		}),
 		draws:
 			"1.0.0.5.6.3.2.2.2.1.4.6.5.5.4.3.1.2.1.2.0.1.7.6.6.2.0.1.2.2.0.6.3.4.1.8.0.1.1.5.0.6.0.7.3.4.1.2.2.2.0.6.3.5.0.6.0.7.5.8.8.7.1.3.0.2.1.2.1.0.1.3.5.2.8.5.2.2.1.4.2.1.5.1.1.3.2.8.3.1.2.2.2",
 		reaches: [
@@ -3341,7 +3364,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 	},
 	{
 		note: "a range on DateSubtract's (fixed0, tick0, B1), planned on a B-tree led by fixed0, beside span predicates whose GiST index leads with Bool for one on (LineVertical, Bool) and holds fixed0 and tick0 but not B1: PostgreSQL sweeps that GiST index for the range, which no order of it serves beside the requests its order answers to, though it lacks one of the range's fields (serving.ts keyOrdersConflict)",
-		sketch: {
+		sketch: drawnReads({
 			population: "forms",
 			swarm: {
 				"bind fresh": 3,
@@ -4107,7 +4130,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 					values: [12273, 55073, 757]
 				}
 			}
-		},
+		}),
 		draws: "2.0.1.0.2.1.1.2.a.9.5.0.3.9.3.3.8.1.0.2.7.3.3.5.9.a.1.a.7.4.b.a.a.2.7.2.1",
 		reaches: [
 			"range probe served",
@@ -4120,7 +4143,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 	},
 	{
 		note: "lookups and a join key on DistPs's (fixed0, tick0), (Nameicregexeq, tick0) and four of its fields beside span predicates on five of its fields, on (Nameicregexeq, tick0, Bool), on (tick0, Bool) and on Bool alone: the widest predicate's GiST index answers every one of the predicates, each column that may lead it kept until the one on Bool narrows them (physical/indexes/engine.ts leadDraft), so it leads with Bool, and PostgreSQL sweeps it for the lookups, which no order of it serves beside them",
-		sketch: {
+		sketch: drawnReads({
 			population: "spelled",
 			swarm: {
 				"bind fresh": 2,
@@ -6909,7 +6932,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 					values: [20721, 61838, 24023]
 				}
 			}
-		},
+		}),
 		draws:
 			"2.0.2.2.1.4.1.0.3.4.1.1.2.0.1.0.1.1.3.2.2.0.1.2.1.1.1.0.4.1.3.2.3.4.3.1.1.4.2.3.1.2.0.0.0.1.4.0.3.1.3.3.4.1.0.1.1.1.0.2.3.3.2.2.2.2.1.1.2.1.2.0.1.2.3.3.0.0.1.3.1.1.4.1.3.4.3.0.0.4.4.0.0.0.2.3.1.2.1.2.3.1.3.1.1.1.0.1.0.1.0.2.4.3.2.1.2.0.0.2.1.1.0.1.1.1.0.2.0.0.4.1.3.4.1.0.1.4.0.4.0.4.3.0.0.0.0",
 		reaches: [
@@ -6924,7 +6947,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 	},
 	{
 		note: "an equality lookup on SpgTextLeafConsistent's Name, planned on its primary key, beside a span predicate on (Name, tick0, Bool) whose GiST index leads with tick0 for a span predicate on (tick0, Bool) that another GiST index serves, one its order answers to (PlannedIndex answers): PostgreSQL sweeps it for the lookup, which no order of it serves beside them",
-		sketch: {
+		sketch: drawnReads({
 			population: "spelled",
 			swarm: {
 				"bind fresh": 3,
@@ -10831,7 +10854,7 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 					values: [46740, 45607, 61903]
 				}
 			}
-		},
+		}),
 		draws:
 			"1.1.2.1.1.2.0.1.0.0.1.4.0.3.4.1.0.1.3.4.2.3.2.2.2.2.4.1.1.5.2.2.1.4.2.1.2.1.3.0.1.1.0.1.1.4.2.2.1.1.2.2.2.1.1.0.2.0.2.3.0.3.0.1.0.2.3.0.2.3.3.2.1.1.3.3.0.0.1.3.4.1.3.1.1.1.0.2.1.1.0.1.2.0.2.3.2.3.0.1.2.0.1.0.0.0.0.2.1.2.2.2.0.4.1.2.0.0.0.0.4.2.1.1.1.1.0.3.2.0.2.2.1.2.1.1.4.2.2.0.0.1.0.2.1.0.0.1.5.5.1.1.2.4.1.1.4.3.3.1.2.2.4.4.5.2.2.2.0.1.2",
 		reaches: [
@@ -10913,18 +10936,31 @@ const statisticsCaseGen =
 	}
 
 /**
- * The case a case installs: its drawn one, or, where its turn aims at a workload's statistics (Case.steering),
- * statisticsCaseGen's.
+ * The workload a witness whose turn aims at a workload's statistics draws (aimed): a drawn program, installed with a
+ * read constructed to reach them in place of its drawn reads.
  */
-const aimedWorkload = (
-	c: ProgramCase,
-	search: Case<ServingFeature | WorkloadFeature>
-): ProgramCase =>
-	Option.exists(search.steering, (pending) =>
-		pending.aimed("a workload's statistics installed as requested")
-	)
-		? Option.getOrElse(search.draw(statisticsCaseGen(c)), () => c)
-		: c
+const workloadAims: ReadonlyArray<readonly [WorkloadFeature, Gen<WorkloadSketch>]> = [
+	[
+		"a workload's statistics installed as requested",
+		map(caseSketchGen, (program): WorkloadSketch => ({ program, reads: "a correlated selection" }))
+	]
+]
+
+/**
+ * The case a workload sketch installs, resolved on the case's own tape: its program with its drawn reads, or with
+ * statisticsCaseGen's read in their place, its drawn reads where no relation has the pair that read needs.
+ */
+const workloadGen =
+	(sketch: WorkloadSketch): Gen<ProgramCase> =>
+	(source) => {
+		const c = source.draw(resolveCase(sketch.program))
+		switch (sketch.reads) {
+			case "drawn":
+				return c
+			case "a correlated selection":
+				return Option.getOrElse(source.draw(statisticsCaseGen(c)), () => c)
+		}
+	}
 
 const workloadSuite = (runs: number) => (ctx: TestContext) =>
 	searched(
@@ -10936,7 +10972,7 @@ const workloadSuite = (runs: number) => (ctx: TestContext) =>
 					name: "PostgreSQL's serving judge: every planned request's probe runs through an index the installation planned, and every created index is needed"
 				},
 				suite: "pg/physical/serving-workload",
-				draw: drawn(caseSketchGen),
+				draw: aimed(map(caseSketchGen, drawnReads), workloadAims),
 				literal: Formatter.format,
 				coverage: required<ServingFeature | WorkloadFeature>(
 					[
@@ -10953,8 +10989,7 @@ const workloadSuite = (runs: number) => (ctx: TestContext) =>
 				steerEvery: 16,
 				caseHang
 			},
-			(sketch, cx) =>
-				Effect.scoped(workloadCase(aimedWorkload(cx.draw(resolveCase(sketch)), cx), cx.note))
+			(sketch, cx) => Effect.scoped(workloadCase(cx.draw(workloadGen(sketch)), cx.note))
 		)
 	)
 

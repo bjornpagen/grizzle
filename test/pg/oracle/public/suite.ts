@@ -1,6 +1,6 @@
 import {
+	aimed,
 	type Case,
-	drawn,
 	type Explored,
 	explore,
 	type Kept,
@@ -124,6 +124,17 @@ export type PublicFeature =
 	| "pages, several"
 	| ProgramFeature
 
+/**
+ * The reads a case runs: its sketch's, or in their place one get bound to the key of a fact the case then leaves out
+ * (missingKeyCaseGen), which answers none.
+ */
+type ReadsRun = "sketched" | "a key left out"
+
+/** A case of the suite as it is drawn: its sketch, resolved on the case's own decisions, and the reads it runs. */
+interface PublicSketch extends CaseSketch {
+	readonly readsRun: ReadsRun
+}
+
 /** The kept sketches, each the floor of every pick, zero, but for the picks that select what it plants. */
 const zeros = (length: number): ReadonlyArray<number> => Array.from({ length }, () => 0)
 const floorValue = { cls: 0, sp: 0 } as const
@@ -145,7 +156,7 @@ const relation = (
 const caseSketch = (
 	population: Population,
 	relations: ReadonlyArray<RelationSketch>
-): CaseSketch => ({
+): PublicSketch => ({
 	population,
 	swarm: {},
 	perturbation: unperturbed,
@@ -161,7 +172,8 @@ const caseSketch = (
 		handle: 0,
 		padding: 0,
 		side: { kind: 0, values: zeros(3) }
-	}
+	},
+	readsRun: "sketched"
 })
 
 /**
@@ -170,7 +182,7 @@ const caseSketch = (
  * facts in the other order (its restorage), both judged by the one exact check. An acceptance case resolves drawing
  * nothing.
  */
-const planted: ReadonlyArray<Kept<CaseSketch, PublicFeature>> = [
+const planted: ReadonlyArray<Kept<PublicSketch, PublicFeature>> = [
 	{
 		note: "issue #3's shrunk case: Task's 0 in two spellings, collapsed under its plan",
 		sketch: {
@@ -257,11 +269,32 @@ const missingKeyCaseGen =
 		})
 	}
 
-/** The case a case runs: its drawn one, or, where its turn aims at a get of no row, missingKeyCaseGen's. */
-const aimedCase = (c: ProgramCase, search: Case<PublicFeature>): ProgramCase =>
-	Option.exists(search.steering, (pending) => pending.aimed("get none"))
-		? Option.getOrElse(search.draw(missingKeyCaseGen(c)), () => c)
-		: c
+/** The suite's sketches, each running the reads `readsRun` names. */
+const publicSketchGen =
+	(readsRun: ReadsRun): Gen<PublicSketch> =>
+	(source) => ({ ...source.draw(caseSketchGen), readsRun })
+
+/**
+ * The situation a drawn case seldom reaches, with the case aimed at it: a witness whose turn aims at a get of no row
+ * draws a case reading a key its facts leave out (aimed), the case it runs, prints and keeps.
+ */
+const aims: ReadonlyArray<readonly [PublicFeature, Gen<PublicSketch>]> = [
+	["get none", publicSketchGen("a key left out")]
+]
+
+/**
+ * The case a sketch runs, resolved on the case's own decisions: the sketch's, or, where it runs a key left out,
+ * missingKeyCaseGen's of it, the sketch's own where no relation holding facts has such a key.
+ */
+const caseOf = (sketch: PublicSketch, c: Case<PublicFeature>): ProgramCase => {
+	const sketched = c.draw(resolveCase(sketch))
+	switch (sketch.readsRun) {
+		case "sketched":
+			return sketched
+		case "a key left out":
+			return Option.getOrElse(c.draw(missingKeyCaseGen(sketched)), () => sketched)
+	}
+}
 
 /**
  * The public-boundary differential as an exploration: generated programs through grizzle's public builders and
@@ -305,9 +338,10 @@ const aimedCase = (c: ProgramCase, search: Case<PublicFeature>): ProgramCase =>
  * space the run likely missed.
  *
  * Explores the public-boundary differential: the adapter's delivery as delivered, its cell texts checked against the
- * library's conversion (cells.ts). A case draws its sketch, then resolves it on its own decisions. The Dbs connect to
- * the substrate's target, so cases run one at a time. Shrinking stops after 150 candidates: each candidate installs a
- * schema, and a shrunk sketch past that is already the size of one a person reads.
+ * library's conversion (cells.ts). A case draws its sketch, one reading a key left out where its turn aims at a get of
+ * no row (aims), then resolves it on its own decisions. The Dbs connect to the substrate's target, so cases run one at
+ * a time. Shrinking stops after 150 candidates: each candidate installs a schema, and a shrunk sketch past that is
+ * already the size of one a person reads.
  */
 export const explorePublic: Effect.Effect<Explored, SearchFailure, Substrate | Run> = explore(
 	{
@@ -316,7 +350,7 @@ export const explorePublic: Effect.Effect<Explored, SearchFailure, Substrate | R
 			name: "the reference evaluator's per-parent delivery, and the read itself under another storage"
 		},
 		suite: "public",
-		draw: drawn(caseSketchGen),
+		draw: aimed(publicSketchGen("sketched"), aims),
 		literal: Formatter.format,
 		coverage: rating(
 			required<PublicFeature>(situations, { cases: cases, sense: notesOnly }),
@@ -329,5 +363,5 @@ export const explorePublic: Effect.Effect<Explored, SearchFailure, Substrate | R
 		steerEvery: 16,
 		caseHang
 	},
-	(sketch, c) => runCase(aimedCase(c.draw(resolveCase(sketch)), c), c.note)
+	(sketch, c) => runCase(caseOf(sketch, c), c.note)
 )

@@ -1,4 +1,4 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	boolean,
@@ -60,7 +60,7 @@ import { withLayer } from "#test/support/with-layer.ts"
  * scope closes, no role under its prefix remains on the substrate's member, the one every installation of the file
  * runs on (packages/pg/src/family.ts memberOf), where its roles live, cluster-wide: the schema's release sweeps every
  * `<schema>_*` role, so a role an installation created is dropped though nothing else names it. Each situation is
- * required, and a steered case whose turn aims at one constructs it (aimedReleasing).
+ * required, and a steered case whose turn aims at one draws a schema constructed to reach it (releaseAims).
  *
  * @plant test/plants/pg/substrate/substrate-leftovers-miss-routines.patch The leftover listing reads no routine of public, so a stray
  * function goes unnamed.
@@ -332,7 +332,7 @@ const releasingGen: Gen<Releasing> = (source) => ({ creators: source.draw(subarr
 /** What a released schema held: a role each creator made, roles of both in one schema, or no role. */
 type ReleaseFeature = `a role ${Creator} created` | "roles of both creators" | "no role"
 
-/** The creators a steered case gives its schema to reach each feature (Case.steering). */
+/** The creators a steered case gives its schema to reach each feature (releaseAims). */
 const reaching: Readonly<Record<ReleaseFeature, ReadonlyArray<Creator>>> = {
 	"a role the substrate created": ["the substrate"],
 	"a role an installation created": ["an installation"],
@@ -348,14 +348,11 @@ const releaseFeatures = [
 	"no role"
 ] as const satisfies ReadonlyArray<ReleaseFeature>
 
-/** The schema a case releases: the drawn one, or, while its turn aims at a feature, one its creators reach. */
-const aimedReleasing = (drawnCase: Releasing, c: Case<ReleaseFeature>): Releasing =>
-	Option.match(
-		Option.flatMap(c.steering, (pending) =>
-			Arr.findFirst(releaseFeatures, (feature) => pending.aimed(feature))
-		),
-		{ onNone: () => drawnCase, onSome: (feature) => ({ creators: reaching[feature] }) }
-	)
+/** Each feature, with the schema a case whose turn aims at it releases (aimed): one its creators reach. */
+const releaseAims: ReadonlyArray<readonly [ReleaseFeature, Gen<Releasing>]> = Arr.map(
+	releaseFeatures,
+	(feature) => [feature, constant({ creators: reaching[feature] })] as const
+)
 
 /** Every role on the substrate's member whose name starts with the prefix of the allocated schema name `schema`. */
 const rolesUnder = (s: SubstrateShape, schema: string) =>
@@ -514,7 +511,7 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 				explore(
 					{
 						suite: "substrate/released roles",
-						draw: drawn(releasingGen),
+						draw: aimed(releasingGen, releaseAims),
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
@@ -528,9 +525,8 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 						steerEvery: 1,
 						caseHang
 					},
-					(drawnCase, c) =>
+					(p, c) =>
 						Effect.gen(function* () {
-							const p = aimedReleasing(drawnCase, c)
 							const s = yield* Substrate
 							const held = yield* Effect.scoped(
 								Effect.gen(function* () {

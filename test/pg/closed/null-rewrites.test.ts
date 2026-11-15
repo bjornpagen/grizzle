@@ -30,7 +30,7 @@
  * conjunction of its three parts, which accepts the downstream case's row in the containment's check and refuses it in
  * the row check's negation.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -640,37 +640,34 @@ const verdict = (
 }
 
 /**
- * The case a witness runs, its generated field aimed, by draws of its own, at a BETWEEN of two literals and the row's
- * text beside a match of the row's text against a literal while no witness has put either in a generation expression
- * (Case.steering): half its cases. A rotating or kept case runs as drawn.
+ * A case as the generator draws it, its generated field aimed, by draws of its own, at a BETWEEN of two literals and the
+ * row's text beside a match of the row's text against a literal while no witness has put either in a generation
+ * expression (Steered): half its cases. A rotating case is drawn unaimed.
  */
-const aimed = (c: RewriteCase, notes: Case<Feature>): RewriteCase => {
+const aimedCaseGen: Steered<RewriteCase, Feature> = (steering) => (source) => {
+	const c = source.draw(caseGen)
 	if (
-		!Option.exists(
-			notes.steering,
-			(pending) => pending.has(betweenPair) || pending.has(matchPair)
-		) ||
-		!notes.draw(boolean)
+		!Option.exists(steering, (pending) => pending.has(betweenPair) || pending.has(matchPair)) ||
+		!source.draw(boolean)
 	) {
 		return c
 	}
-	const value: Operand = { kind: "literal", text: notes.draw(textGen) }
-	const bound: Operand = { kind: "literal", text: notes.draw(textGen) }
+	const value: Operand = { kind: "literal", text: source.draw(textGen) }
+	const bound: Operand = { kind: "literal", text: source.draw(textGen) }
 	const row: Operand = { kind: "row" }
-	const between: Pred = notes.draw(boolean)
+	const between: Pred = source.draw(boolean)
 		? { kind: "between", a: value, low: bound, high: row }
 		: { kind: "between", a: value, low: row, high: bound }
 	const match: Pred = {
 		kind: "matches",
 		subject: row,
-		pattern: { kind: "literal", text: notes.draw(textGen) }
+		pattern: { kind: "literal", text: source.draw(textGen) }
 	}
 	return { ...c, generated: { kind: "and", args: [between, match] } }
 }
 
-const rewriteCase = (drawnCase: RewriteCase, notes: Case<Feature>) =>
+const rewriteCase = (c: RewriteCase, notes: Case<Feature>) =>
 	Effect.gen(function* () {
-		const c = aimed(drawnCase, notes)
 		const built = schemaOf(c)
 		const o = yield* installed(built.Rewrites, {}, { label: "rewrites", programs: built.programs })
 		const names = namesOf(o.installed)
@@ -815,7 +812,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 				explore(
 					{
 						suite: "pg/closed/null-rewrites",
-						draw: drawn(caseGen),
+						draw: steered(aimedCaseGen, (c) => c),
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",

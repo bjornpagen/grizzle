@@ -1,13 +1,13 @@
 diff --git a/test/pg/migrate/paths.test.ts b/test/pg/migrate/paths.test.ts
-index 82fb1436..2df2cfdf 100644
+index 66a25d03..8a28f33c 100644
 --- a/test/pg/migrate/paths.test.ts
 +++ b/test/pg/migrate/paths.test.ts
-@@ -388,7 +388,7 @@ const aimedIntents = (
- 	)
- 	return Option.match(pending, {
- 		onNone: () => sketch,
--		onSome: (kind) => ({ ...sketch, toB: [{ kind }, ...Arr.drop(sketch.toB, 1)] })
-+		onSome: () => sketch
- 	})
- }
+@@ -394,7 +394,7 @@
+ 		)
+ 		return Option.match(pending, {
+ 			onNone: () => sketch,
+-			onSome: (kind) => ({ ...sketch, toB: [{ kind }, ...Arr.drop(sketch.toB, 1)] })
++			onSome: () => sketch
+ 		})
+ 	}
  

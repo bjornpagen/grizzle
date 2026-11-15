@@ -549,11 +549,14 @@ text match. A type batch's population judges its requirements on `floorPopulatio
   library's reporter prints it, one line per suite.
 - **Coverage steering** is part of a requirement: `coverage: required(situations, { cases, sense })`, or
   `noCoverage`, and `requiredInSpace(situations)` for an exhaustion. Every suite that requires situations states its
-  steered phase, which runs only while one is unreached, on a stream its label fixes. Floor and steered cases see what
-  is pending (`Case.steering`) and may aim their draws at it. Rotating and kept cases are plain draws: they never meet
-  a requirement, and only the rotating stream's independent cases enter the residual-risk estimate, whose Good-Turing
-  assumption needs them; a witness's notes never reach that tally, by its type. Never raise `runs` to reach coverage:
-  give the generator an arm, aim the draws, or give the steered phase more cases.
+  steered phase, which runs only while one is unreached, on a stream its label fixes. The generator of a floor or
+  steered case sees what is pending and may draw a case aimed at it: `aimed(gen, aims)` for a table of situations and
+  the generators that reach them, `steered((steering) => gen, resolve)` otherwise. A property never sees steering, so
+  the case an aim drew is the one the search runs, prints, shrinks, keeps and replays. Rotating cases are plain draws
+  and a kept case is its sketch: they never meet a requirement, and only the rotating stream's independent cases enter
+  the residual-risk estimate, whose Good-Turing assumption needs them; a witness's notes never reach that tally, by its
+  type. An exhaustion steers nothing: every case of its box runs. Never raise `runs` to reach coverage: give the
+  generator an arm, aim it, or give the steered phase more cases.
 - **The connection-leak check runs everywhere:** a role's release waits until its backends are gone from
   pg_stat_activity. A closed session's backend always goes; a session the test never closed holds the release, its
   backends named on stderr, until the hang guard reports the test.

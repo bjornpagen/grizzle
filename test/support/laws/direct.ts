@@ -1,4 +1,4 @@
-import type { Case } from "@bjornpagen/testing/explore"
+import { aimed, type Case, type Draw } from "@bjornpagen/testing/explore"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, constant, element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
 import { agree } from "@bjornpagen/testing/oracle"
@@ -211,7 +211,7 @@ const updatesGen: Gen<ReadonlyArray<UpdateSketch>> = weighted([
  * members are one step's (support.ts familyStepSketchGen: drawn, filled, supported, unlinked and near), or none: a
  * transaction of updates alone.
  */
-export const directCaseGen =
+const directCaseGen =
 	(variants: number): Gen<DirectCase> =>
 	(source) => {
 		const variant = source.draw(int(0, variants - 1))
@@ -231,7 +231,7 @@ export const directCaseGen =
 /**
  * The ending of each move a direct suite requires, with the twin mode aimed at it. A drawn case meets that mode where
  * its state holds a fact for the mode to move only now and then, so a witness plants it while the ending is pending
- * (aimedCase).
+ * (directDraw).
  */
 const aims: ReadonlyArray<readonly [Reached<DirectFeature>, UpdateMode]> = [
 	[["statement update key", "committed"], "carried"],
@@ -242,26 +242,30 @@ const aims: ReadonlyArray<readonly [Reached<DirectFeature>, UpdateMode]> = [
 	[["statement selection of a referring fact", "refused at COMMIT"], "entered"]
 ]
 
-/**
- * The case a witness runs: its drawn one, or, where its turn aims at the ending of a move `aims` names (Case.steering),
- * the drawn one with one more transaction, an UPDATE of the mode aimed at it alone, drawn from the case's tape.
- */
-export const aimedCase = (k: DirectCase, c: Case<DirectFeature>): DirectCase => {
-	const pending = Option.getOrUndefined(c.steering)
-	return Option.match(
-		Arr.findFirst(aims, ([situation]) => pending?.aimed(situation) === true),
-		{
-			onNone: () => k,
-			onSome: ([, mode]) => ({
-				...k,
-				transactions: [
-					...k.transactions,
-					{ members: none, updates: [c.draw(updateSketchOf(constant(mode)))] }
-				]
-			})
+/** A direct case over `variants` schemas with one more transaction, an UPDATE of `mode` alone. */
+const withUpdateGen =
+	(variants: number, mode: UpdateMode): Gen<DirectCase> =>
+	(source) => {
+		const k = source.draw(directCaseGen(variants))
+		return {
+			...k,
+			transactions: [
+				...k.transactions,
+				{ members: none, updates: [source.draw(updateSketchOf(constant(mode)))] }
+			]
 		}
+	}
+
+/**
+ * A direct suite's draw over `variants` schemas (directCaseGen), aimed (aimed): a witness whose turn aims at the ending
+ * of a move `aims` names draws a case with one more transaction, an UPDATE of the mode aimed at it alone
+ * (withUpdateGen), the case it runs, prints and keeps.
+ */
+export const directDraw = (variants: number): Draw<DirectCase, DirectCase, DirectFeature> =>
+	aimed(
+		directCaseGen(variants),
+		Arr.map(aims, ([situation, mode]) => [situation, withUpdateGen(variants, mode)] as const)
 	)
-}
 
 /** A direct writer's statement, resolved against the state the transaction has reached. */
 type Statement =

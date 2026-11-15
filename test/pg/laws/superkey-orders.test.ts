@@ -47,7 +47,7 @@
  * @plant test/plants/pg/laws/superkey-orders-unique-per-order.patch A UNIQUE's identity read in its plan's order
  * instead of as its column set (laws/model/model.ts nativeIdentity), so two unique indexes are installed over one set.
  */
-import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { aimed, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int, shuffled, subset } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -306,8 +306,8 @@ const clashGen: Gen<Drawn> = (source) => {
 	}
 }
 
-/** What each required situation is aimed at while it is pending (Case.steering). */
-const aims: ReadonlyArray<readonly [Feature, Gen<Drawn>]> = [
+/** What each required situation is aimed at while it is pending, drawn beside a drawn case (besideDrawn). */
+const aimsAt: ReadonlyArray<readonly [Feature, Gen<Drawn>]> = [
 	["two references over one set in two orders", sameSetGen("superkey")],
 	["a fixed target and a superkey reference over one set", sameSetGen("fixed")],
 	[
@@ -325,19 +325,23 @@ const aims: ReadonlyArray<readonly [Feature, Gen<Drawn>]> = [
 	["a declared key over the set of another key of T refused", clashGen]
 ]
 
-/**
- * A case's draw, and, where its turn aims at a situation `aims` reaches (Case.steering), what is aimed at it beside
- * it.
- */
-const aimed = (d: Drawn, c: Case<Feature>): Drawn => {
-	const pending = Option.getOrUndefined(c.steering)
-	const aim = Arr.findFirst(aims, ([feature]) => pending?.aimed(feature) === true)
-	if (Option.isNone(aim)) {
-		return d
+/** A drawn case with what `aim` draws beside it: both one's keys and references. */
+const besideDrawn =
+	(aim: Gen<Drawn>): Gen<Drawn> =>
+	(source) => {
+		const d = source.draw(drawnGen)
+		const more = source.draw(aim)
+		return { keys: [...d.keys, ...more.keys], refs: [...d.refs, ...more.refs] }
 	}
-	const more = c.draw(aim.value[1])
-	return { keys: [...d.keys, ...more.keys], refs: [...d.refs, ...more.refs] }
-}
+
+/**
+ * Each required situation `aimsAt` names, with the case a witness whose turn aims at it draws (aimed): a drawn case
+ * with what is aimed at the situation beside it.
+ */
+const aims: ReadonlyArray<readonly [Feature, Gen<Drawn>]> = Arr.map(
+	aimsAt,
+	([feature, aim]) => [feature, besideDrawn(aim)] as const
+)
 
 /** The source relation of reference `i`: its key `id`, and a field for each of T's columns. */
 const sourceName = (i: number): string => `S${i}`
@@ -614,7 +618,7 @@ layer(Substrate.layer)("references into one relation's superkeys in different or
 							name: "the keys T declares and its references' sets, against its installed unique indexes and PostgreSQL's foreign-key verdicts"
 						},
 						suite: "laws/superkey-orders",
-						draw: drawn(drawnGen),
+						draw: aimed(drawnGen, aims),
 						literal: Formatter.format,
 						coverage: required<Feature>(
 							[
@@ -636,7 +640,7 @@ layer(Substrate.layer)("references into one relation's superkeys in different or
 						steerEvery: 16,
 						caseHang
 					},
-					(d, cx) => Effect.scoped(referencesCase(aimed(d, cx), cx.note))
+					(d, cx) => Effect.scoped(referencesCase(d, cx.note))
 				)
 			)
 	)

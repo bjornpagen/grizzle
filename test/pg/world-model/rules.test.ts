@@ -1,7 +1,7 @@
 import type { Situations } from "@bjornpagen/testing/features"
 import { constant, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { layer } from "@effect/vitest"
-import { Array as Arr } from "effect"
+import { Array as Arr, Option } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { witnessesShowTheirOwn } from "#test/support/worlds/drive/acting.ts"
@@ -125,7 +125,8 @@ const arbiteredRepeat: KeptProgram = {
 			validity: { live: 1, stale: 0, wild: 1 }
 		},
 		steps: 3,
-		led: false
+		led: false,
+		pending: Option.none()
 	},
 	draws: "2.0.0.0.1.1.0.0.0.0.0.0.1.1.1.0.0.0.0.0.0.0.0.1.1.0.0.0.1.1.0",
 	reaches: ["op:apply:inside:absent:db:applied", "connection:after-no-change"]

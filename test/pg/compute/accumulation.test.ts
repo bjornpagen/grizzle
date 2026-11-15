@@ -22,7 +22,7 @@
  * @plant test/plants/pg/compute/compute-accumulation-float-sum-native.patch A double precision sum lowers to the native
  * sum, whose total depends on the order its rows are scanned in.
  */
-import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { explore, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -402,29 +402,31 @@ const overflowingGroups: Arr.NonEmptyReadonlyArray<ReadonlyArray<number>> = [
 ]
 
 /**
- * The case a witness runs, aimed at what no witness has reached yet (Case.steering), each pending situation in half
+ * A case as the generator draws it, aimed at what no witness has reached yet (Steered), each pending situation in half
  * its cases by a draw of its own: its plans forced parallel, and its third group drawn from overflowingGroups in place
- * of its own; a rotating or kept case runs as drawn. The situations are computed from the aimed case, so a note never
- * claims what the case does not hold.
+ * of its own; a rotating case is drawn unaimed. The situations are computed from the case, so a note never claims what
+ * the case does not hold.
  */
-const aimed = (k: AccumulationCase, c: Case<OrderSituation>): AccumulationCase =>
-	Option.match(c.steering, {
+const aimedCaseGen: Steered<AccumulationCase, OrderSituation> = (steering) => (source) => {
+	const k = source.draw(caseGen)
+	return Option.match(steering, {
 		onNone: () => k,
 		onSome: (pending) => ({
 			...k,
 			entries:
-				pending.has("float sum overflowing in some order but not in total") && c.draw(boolean)
+				pending.has("float sum overflowing in some order but not in total") && source.draw(boolean)
 					? [
 							...Arr.filter(k.entries, (x) => x.grp !== 3),
-							...Arr.map(c.draw(element(overflowingGroups)), (x) => plainEntry(3, x, 0n))
+							...Arr.map(source.draw(element(overflowingGroups)), (x) => plainEntry(3, x, 0n))
 						]
 					: k.entries,
 			perturbation:
-				pending.has("aggregate under forced parallel plans") && c.draw(boolean)
+				pending.has("aggregate under forced parallel plans") && source.draw(boolean)
 					? forcedParallel
 					: k.perturbation
 		})
 	})
+}
 
 const double = (x: number): TypedLiteral => ({ kind: "float", value: canonicalZero(x) })
 
@@ -506,7 +508,7 @@ layer(Substrate.layer)("aggregates against the exact reference on PostgreSQL 19"
 								name: "the reference evaluator's exact sums and means"
 							},
 							suite: "pg/compute/accumulation",
-							draw: drawn(caseGen),
+							draw: steered(aimedCaseGen, (k) => k),
 							literal: Formatter.format,
 							coverage: required<OrderSituation>(
 								[
@@ -525,9 +527,8 @@ layer(Substrate.layer)("aggregates against the exact reference on PostgreSQL 19"
 							steerEvery: 16,
 							caseHang
 						},
-						(drawnCase, c) => {
-							const k = aimed(drawnCase, c)
-							return Effect.gen(function* () {
+						(k, c) =>
+							Effect.gen(function* () {
 								c.noteAll(situationsOf(k))
 								for (const [label, desc] of ledgerQueries) {
 									yield* judged(
@@ -550,7 +551,6 @@ layer(Substrate.layer)("aggregates against the exact reference on PostgreSQL 19"
 									"R41 rewrote the running total"
 								)
 							}).pipe(Effect.provideService(CurrentPerturbation, k.perturbation))
-						}
 					)
 				})
 			)

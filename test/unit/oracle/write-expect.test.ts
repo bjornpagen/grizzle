@@ -42,8 +42,8 @@
  * @plant test/plants/unit/oracle/write-judge-unorderable-passes.patch The judge passes any outcome where the
  * expectation is that the compile refuses an unorderable stratum, so the mutant "applied where unorderable" passes.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
+import { explore, steered } from "@bjornpagen/testing/explore"
+import { type Pending, required } from "@bjornpagen/testing/features"
 import { boolean } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
@@ -63,12 +63,18 @@ import { caseHang } from "#test/support/limits.ts"
 import { planRealInstall } from "#test/support/oracle/install/real.ts"
 import {
 	castsTypmod,
+	type ChangeSetSketch,
 	changeSetSketchGen,
 	resolveChangeSet
 } from "#test/support/oracle/write/changeset.ts"
 import { typeInfo } from "#test/support/oracle/write/domain.ts"
 import { expectChangeSet, type Violations } from "#test/support/oracle/write/expect.ts"
-import { factsSketchGen, keyOf, resolveFacts } from "#test/support/oracle/write/facts.ts"
+import {
+	type FactsSketch,
+	factsSketchGen,
+	keyOf,
+	resolveFacts
+} from "#test/support/oracle/write/facts.ts"
 import { judgeWrite, plantedCase } from "#test/support/oracle/write/harness.ts"
 import type { GroupState, WriteOutcome, OutcomeWitness } from "#test/support/oracle/write/run.ts"
 import {
@@ -77,6 +83,7 @@ import {
 	lawNames,
 	relationIn,
 	resolveSchema,
+	type SchemaSketch,
 	schemaSketchGen,
 	type WGroup,
 	type WriteLawNames,
@@ -219,36 +226,63 @@ const domainSituations: ReadonlyArray<WriteExpectFeature> = [
 /** The planted arms a witness may judge in place of its drawn case (`plantedAimed`). */
 type AimedArm = "wider member" | "typmod cast" | "unorderable stratum"
 
+/** The arm a case judges: its drawn ChangeSet, or a planted arm aimed at a pending situation. */
+type CaseArm = "drawn" | AimedArm
+
 /**
- * The planted arm a witness judges in place of its drawn case, aimed at what no witness reached yet (Case.steering),
- * in half its cases by a draw of its own, on the schema's planted group: where its turn aims at a domain refusal's
- * situation, the "wider member" arm, which reads a stored wide text past the narrow domain into it (changeset.ts
- * plantedChangeSet); where it aims at the typmod cast's, the "typmod cast" arm, which reads a precise numeric into a
- * rounded one; where it aims at an unorderable stratum's, the "unorderable stratum" arm, whose one stratum's writes the
- * keys order in a cycle; so the cases of one window aim at distinct pending situations. A drawn ChangeSet reaches each
- * too rarely. None for a schema without the planted group, and for a rotating or kept case, which runs as drawn.
+ * The planted arm a witness's turn aims at: where it aims at a domain refusal's situation, the "wider member" arm,
+ * which reads a stored wide text past the narrow domain into it (changeset.ts plantedChangeSet); where it aims at the
+ * typmod cast's, the "typmod cast" arm, which reads a precise numeric into a rounded one; where it aims at an
+ * unorderable stratum's, the "unorderable stratum" arm, whose one stratum's writes the keys order in a cycle; so the
+ * cases of one window aim at distinct pending situations. A drawn ChangeSet reaches each too rarely.
+ */
+const armAimedAt = (pending: Pending<WriteExpectFeature>): Option.Option<AimedArm> =>
+	Arr.some(domainSituations, (s) => pending.aimed(s))
+		? Option.some("wider member")
+		: pending.aimed("applied: a typmod cast")
+			? Option.some("typmod cast")
+			: pending.aimed("mutant: applied where unorderable")
+				? Option.some("unorderable stratum")
+				: Option.none()
+
+/** A case: its schema, the group it picks, its facts and its ChangeSet, and the arm it judges. */
+type WriteSketch = readonly [SchemaSketch, number, FactsSketch, ChangeSetSketch, CaseArm]
+
+/**
+ * A case, drawn under its steering: its arm the planted one its turn aims at (armAimedAt), in half its cases by a draw
+ * of its own, else drawn, and always drawn for a rotating case.
+ */
+const writeDraw = steered<WriteSketch, WriteSketch, WriteExpectFeature>(
+	(steering) => {
+		const aim = Option.flatMap(steering, armAimedAt)
+		return (source) => [
+			source.draw(schemaSketchGen),
+			source.draw(pickGen),
+			source.draw(factsSketchGen(5)),
+			source.draw(changeSetSketchGen),
+			Option.match(aim, {
+				onNone: (): CaseArm => "drawn",
+				onSome: (arm): CaseArm => (source.draw(boolean) ? arm : "drawn")
+			})
+		]
+	},
+	(sketch) => sketch
+)
+
+/**
+ * The planted group and arm a case judges in place of its drawn case, as its sketch's arm says, on the schema's planted
+ * group. None for a drawn arm, and for a schema without the planted group, which runs as drawn.
  */
 const plantedAimed = (
 	schema: WSchema,
-	n: Case<WriteExpectFeature>
+	arm: CaseArm
 ): Option.Option<{ readonly group: WGroup; readonly arm: AimedArm }> =>
-	Option.flatMap(
-		Arr.findFirst(schema.groups, (g) => g.role === "planted"),
-		(group) =>
-			Option.flatMap(n.steering, (pending) => {
-				const arm: Option.Option<AimedArm> = Arr.some(domainSituations, (s) => pending.aimed(s))
-					? Option.some("wider member")
-					: pending.aimed("applied: a typmod cast")
-						? Option.some("typmod cast")
-						: pending.aimed("mutant: applied where unorderable")
-							? Option.some("unorderable stratum")
-							: Option.none()
-				return Option.filter(
-					Option.map(arm, (a) => ({ group, arm: a })),
-					() => n.draw(boolean)
-				)
-			})
-	)
+	arm === "drawn"
+		? Option.none()
+		: Option.map(
+				Arr.findFirst(schema.groups, (g) => g.role === "planted"),
+				(group) => ({ group, arm })
+			)
 
 describe("the write oracle's judgement", () => {
 	it.effect("passes a faithful realization and refuses every planted mutant of it", (ctx) =>
@@ -261,15 +295,7 @@ describe("the write oracle's judgement", () => {
 						name: "the expectation's faithful realization passes the judge and every planted mutant of it fails"
 					},
 					suite: "unit/oracle/write-judge",
-					draw: drawn(
-						(source) =>
-							[
-								source.draw(schemaSketchGen),
-								source.draw(pickGen),
-								source.draw(factsSketchGen(5)),
-								source.draw(changeSetSketchGen)
-							] as const
-					),
+					draw: writeDraw,
 					literal: Formatter.format,
 					coverage: required<WriteExpectFeature>(situations, { cases: 400, sense: notesOnly }),
 					kept: [],
@@ -279,7 +305,7 @@ describe("the write oracle's judgement", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				([schemaSketch, groupPick, factsSketch, changesSketch], n) =>
+				([schemaSketch, groupPick, factsSketch, changesSketch, arm], n) =>
 					Effect.sync(() => {
 						const schema = n.draw(resolveSchema(schemaSketch))
 						const [first, ...rest] = schema.groups
@@ -287,7 +313,7 @@ describe("the write oracle's judgement", () => {
 							return
 						}
 						const laws = writeLawNames(schema)
-						const { group, facts, c } = Option.match(plantedAimed(schema, n), {
+						const { group, facts, c } = Option.match(plantedAimed(schema, arm), {
 							onNone: () => {
 								const drawnGroup = pickFrom([first, ...rest], groupPick)
 								const drawnFacts = resolveFacts(drawnGroup, factsSketch)

@@ -19,9 +19,9 @@
  *
  * The population must reach a fact whose removal changes a read past a take: a read of an earlier read's rows that take
  * the first k of their order, filtered by a parameter. A take's rows each depend on every row it ranks, so its routes
- * read its input whole whatever its consumers bind. A case whose turn aims at it is constructed to reach it
- * (takeCaseGen: the take leaves out one fact, of its field's least value, and the read past it binds that value, so
- * removing a fact of a greater value lets the left-out fact in).
+ * read its input whole whatever its consumers bind. A witness whose turn aims at it draws a sketch whose case is
+ * constructed to reach it (takeCaseGen: the take leaves out one fact, of its field's least value, and the read past it
+ * binds that value, so removing a fact of a greater value lets the left-out fact in).
  *
  * A read through a query entry is held to the same property, constructed in every case: a role whose query entry
  * `Seen` holds each fact of one of the case's relations that holds facts, and its read of `Seen`'s facts whose drawn
@@ -43,7 +43,7 @@
  * declares it (a trailing underscore), so a fact whose removal changes the answer is routed under a parameter the read
  * never binds; the property fails.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -70,7 +70,11 @@ import { sameIdentity } from "#test/support/kernel/identity.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { type Answer, answerEquivalence, shapeOf } from "#test/support/oracle/public/answer.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
-import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
+import {
+	type CaseSketch,
+	caseSketchGen,
+	resolveCase
+} from "#test/support/oracle/public/generate.ts"
 import { expectedQuery, factsOf, referenceSchema } from "#test/support/oracle/public/meaning.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import {
@@ -378,20 +382,37 @@ const takeCaseGen =
 		return Option.some({ ...c, reads: [taken, past] })
 	}
 
+/** How a case's reads are made: as drawn, or constructed to reach a routed read's change or a change past a take. */
+type Reads = "drawn" | "routed" | "past a take"
+
+/** A case's sketch: its public case's, and how its reads are made. */
+type Sketch = readonly [CaseSketch, Reads]
+
+/** A sketch whose reads are made as `reads` says. */
+const sketchGen =
+	(reads: Reads): Gen<Sketch> =>
+	(source) => [source.draw(caseSketchGen), reads]
+
 /**
- * The case a case checks: its drawn one, or, where its turn aims at a routed read's change, routedCaseGen's, and at a
- * change past a take, takeCaseGen's.
+ * A witness whose turn aims at a routed read's change draws a sketch whose reads routedCaseGen constructs, and at a
+ * change past a take, one whose reads takeCaseGen constructs (aimed); any other case, a drawn one.
  */
-const aimedCase = (c: ProgramCase, notes: Case<Feature>): ProgramCase =>
-	Option.match(notes.steering, {
-		onNone: () => c,
-		onSome: (pending) =>
-			pending.aimed(routedChange)
-				? Option.getOrElse(notes.draw(routedCaseGen(c)), () => c)
-				: pending.aimed(takeChange)
-					? Option.getOrElse(notes.draw(takeCaseGen(c)), () => c)
-					: c
-	})
+const sketchDraw = aimed(sketchGen("drawn"), [
+	[routedChange, sketchGen("routed")],
+	[takeChange, sketchGen("past a take")]
+])
+
+/** The case a case checks, as its sketch's `reads` says: the drawn one, routedCaseGen's or takeCaseGen's. */
+const caseOf = (c: ProgramCase, reads: Reads, draw: <A>(generator: Gen<A>) => A): ProgramCase => {
+	switch (reads) {
+		case "drawn":
+			return c
+		case "routed":
+			return Option.getOrElse(draw(routedCaseGen(c)), () => c)
+		case "past a take":
+			return Option.getOrElse(draw(takeCaseGen(c)), () => c)
+	}
+}
 
 /** The parameter a read through `Seen` binds its drawn field to. */
 const seenParam = "seen"
@@ -532,7 +553,7 @@ describe("a read's routes", () => {
 						name: "the reference's answer over the case's facts with and without each fact (meaning.ts expectedQuery)"
 					},
 					suite: "unit/served/routes-sound",
-					draw: drawn(caseSketchGen),
+					draw: sketchDraw,
 					literal: Formatter.format,
 					coverage: required<Feature>(
 						[
@@ -550,8 +571,10 @@ describe("a read's routes", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				(sketch, notes) =>
-					Effect.sync(() => sound(aimedCase(notes.draw(resolveCase(sketch)), notes), notes.note))
+				([sketch, reads], notes) =>
+					Effect.sync(() =>
+						sound(caseOf(notes.draw(resolveCase(sketch)), reads, notes.draw), notes.note)
+					)
 			)
 		)
 	)

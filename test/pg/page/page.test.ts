@@ -31,9 +31,8 @@
  * own writes state, D read by the query's unpaged member; and the window rule restated, with no flight counted.
  *
  * Features: each query through each member, each anchor kind, the anchors the walk names, and each input refusal. A
- * drawn input reaches its key's own refusal only past every earlier check, about one input in a hundred, so an input
- * whose turn aims at one (Case.steering) is admitted by every check before its key and carries the refused key
- * (keyAims).
+ * drawn input reaches its key's own refusal only past every earlier check, about one input in a hundred, so a case
+ * whose turn aims at one draws an input every check before its key admits, carrying the refused key (keyAims).
  *
  * @plant test/plants/pg/page/window-after-seek-inclusive.patch The after template's seek admits the anchor's own row;
  * the window property fails.
@@ -42,7 +41,7 @@
  * @plant test/plants/pg/page/window-key-value-unrefused.patch An anchor key value its codec refuses is skipped; the
  * input refusal property fails.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -588,27 +587,20 @@ const admittedGen: Gen<InputSketch> = (source) => ({
 	key: { kind: "the row's" }
 })
 
-/** Each refusal of an input's key, with the key a case whose turn aims at it carries (see the header). */
-const keyAims: ReadonlyArray<readonly [InputFeature, Gen<InputSketch["key"]>]> = [
-	["a key of another length", otherLengthGen],
-	["a key value no codec admits", refusedKeyGen]
-]
+/** An input every check before its key admits (admittedGen), carrying a key `key` draws. */
+const admittedWith =
+	(key: Gen<InputSketch["key"]>): Gen<InputSketch> =>
+	(source) => ({ ...source.draw(admittedGen), key: source.draw(key) })
 
 /**
- * The input a case reads: its drawn one, or, where its turn aims at a key's refusal (Case.steering), one every check
- * before its key admits (admittedGen), carrying that refusal's key (keyAims). The features noted are still the rule's
- * (expectedOf), so a note never claims what the input does not hold.
+ * Each refusal of an input's key, with the input a case whose turn aims at it draws (aimed): one every check before
+ * its key admits, carrying that refusal's key (see the header). The features noted are still the rule's (expectedOf),
+ * so a note never claims what the input does not hold.
  */
-const aimedInput = (drawnInput: InputSketch, notes: Case<InputFeature>): InputSketch =>
-	Option.match(
-		Option.flatMap(notes.steering, (pending) =>
-			Arr.findFirst(keyAims, ([feature]) => pending.aimed(feature))
-		),
-		{
-			onNone: () => drawnInput,
-			onSome: ([, key]) => ({ ...notes.draw(admittedGen), key: notes.draw(key) })
-		}
-	)
+const keyAims: ReadonlyArray<readonly [InputFeature, Gen<InputSketch>]> = [
+	["a key of another length", admittedWith(otherLengthGen)],
+	["a key value no codec admits", admittedWith(refusedKeyGen)]
+]
 
 /** The key an input's anchor carries, from `row`, the delivered row's key. */
 const keyInput = (sketch: InputSketch["key"], row: RowKey): unknown => {
@@ -1051,7 +1043,7 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 											name: "the window rule restated, a refusal sending no flight and every other input one"
 										},
 										suite: "pg/page/inputs",
-										draw: drawn(inputSketchGen),
+										draw: aimed(inputSketchGen, keyAims),
 										literal: Formatter.format,
 										kept: [],
 										runs: 200,
@@ -1074,9 +1066,8 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 											{ cases: 200, sense: notesOnly }
 										)
 									},
-									(drawnInput, notes) =>
+									(c, notes) =>
 										Effect.gen(function* () {
-											const c = aimedInput(drawnInput, notes)
 											const paging = member(loaded, memberName(c.query, "member"))
 											const calls = onceCalls(recording.ctx, paging)
 											const compiled = pageTemplate(paging, opened.installed.names.codes)

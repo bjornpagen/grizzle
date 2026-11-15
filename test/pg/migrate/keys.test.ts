@@ -25,7 +25,7 @@
  * @plant test/plants/pg/migrate/keys-swap-unrecorded.patch A key's index built under its swap name is no Swap of the plan, so a
  * refused build names no law.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -38,13 +38,7 @@ import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import {
-	type Aim,
-	aimedAt,
-	apply,
-	checkedAdmission,
-	openMigrator
-} from "#test/pg/migrate/support.ts"
+import { type Aim, apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import {
@@ -245,7 +239,8 @@ const twoRows =
 		]
 	}
 
-/** The cases each required situation is aimed at while it is pending (Case.steering). */
+/** The cases each required situation is aimed at while it is pending: the generator draws the one a case's turn aims
+ * at (aimed) in place of its plain draw. */
 const aims: ReadonlyArray<Aim<KeyCase, Feature>> = [
 	["a primary key moved over rows that keep it", movedOver(twoRows("distinct"), "each alone")],
 	[
@@ -258,9 +253,6 @@ const aims: ReadonlyArray<Aim<KeyCase, Feature>> = [
 	]
 ]
 
-/** The case a search runs: its drawn one, or, while a situation `aims` reaches is pending, the one aimed at it. */
-const aimed = aimedAt(aims)
-
 layer(Substrate.layer)("a primary key moved over stored rows", (it) => {
 	it.effect(
 		"migrate a primary key to another field exactly when the stored rows keep it, naming its law when they do not",
@@ -270,7 +262,7 @@ layer(Substrate.layer)("a primary key moved over stored rows", (it) => {
 				explore(
 					{
 						suite: "migrate/keys",
-						draw: drawn(caseGen),
+						draw: aimed(caseGen, aims),
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
@@ -291,7 +283,7 @@ layer(Substrate.layer)("a primary key moved over stored rows", (it) => {
 						steerEvery: 4,
 						caseHang
 					},
-					(c, cx) => Effect.scoped(walk(aimed(c, cx), cx.note))
+					(c, cx) => Effect.scoped(walk(c, cx.note))
 				)
 			)
 	)

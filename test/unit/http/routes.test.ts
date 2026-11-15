@@ -21,10 +21,10 @@
  * The oracle is the served file itself, its roles' members and contexts, and the order of the call's checks.
  *
  * A drawn probe calls with no bearer token a route whose role reads a context only as one in nine calls of such a
- * route, and the streams the suite's label fixes held none, so a case whose turn aims at it (Case.steering) is
- * constructed to: its login's first role holds the query entry wherever a field may carry a claim (served-login.ts
- * liveLoginGen), and after its drawn probes it calls a route of a role reading a context, naming the route's wire, with
- * no Authorization header.
+ * route, and the streams the suite's label fixes held none, so a witness whose turn aims at it draws a sketch whose
+ * case is constructed to (aimed, `no bearer`): its login's first role holds the query entry wherever a field may carry
+ * a claim (served-login.ts liveLoginGen), and after its drawn probes it calls a route of a role reading a context,
+ * naming the route's wire, with no Authorization header.
  *
  * @plant test/plants/unit/http/http-route-non-member.patch The table serves a route no member names, each route's line
  * with a trailing slash: the routes are not the members.
@@ -33,7 +33,7 @@
  * @plant test/plants/unit/http/http-token-after-body.patch A call's missing token is checked after its body's JSON, so
  * a call with no bearer token and no JSON body is an `input`.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	characterOf,
@@ -49,15 +49,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import {
-	Result as Answered,
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	String as Str
-} from "effect"
+import { Result as Answered, Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { served } from "#adapter/public/layer.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
@@ -70,8 +62,12 @@ import { assert, defined } from "#test/support/assert.ts"
 import { readStream, type StreamRead } from "#test/support/event-stream.ts"
 import { caseHang, nodeTimerMax, nodeTimerMin } from "#test/support/limits.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
-import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
-import { lawLevelGen } from "#test/support/oracle/public/laws.ts"
+import {
+	type CaseSketch,
+	caseSketchGen,
+	resolveCase
+} from "#test/support/oracle/public/generate.ts"
+import { type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import {
@@ -225,9 +221,19 @@ const probesGen =
 /** The requirement a drawn probe seldom meets, which a case whose turn aims at it is built to meet (see the header). */
 const noBearer: Feature = "a route called with no bearer token"
 
-/** Whether the case's turn aims at a call with no bearer token (Case.steering); a rotating or kept case never does. */
-const aimsNoBearer = (c: Case<Feature>): boolean =>
-	Option.exists(c.steering, (pending) => pending.aimed(noBearer))
+/** How a case draws its login and its probes: as drawn, or aimed at a call with no bearer token (see the header). */
+type Probing = "drawn" | "no bearer"
+
+/** A case's sketch: its schema's, its law level, and how it draws its login and its probes. */
+type Sketch = readonly [CaseSketch, LawLevel, Probing]
+
+/** A sketch whose login and probes are drawn as `probing` says. */
+const sketchGen =
+	(probing: Probing): Gen<Sketch> =>
+	(source) => [source.draw(caseSketchGen), source.draw(lawLevelGen), probing]
+
+/** A witness whose turn aims at a call with no bearer token draws a sketch aimed at it; any other case, a drawn one. */
+const sketchDraw = aimed(sketchGen("drawn"), [[noBearer, sketchGen("no bearer")]])
 
 /**
  * The probes of a case aimed at a call with no bearer token (see the header): its drawn ones, then a call naming its
@@ -432,9 +438,7 @@ describe("an HTTP handler's routes", () => {
 							name: "the served file's members, their roles' contexts, and the order of a call's checks"
 						},
 						suite: "unit/http/routes",
-						draw: drawn(
-							(source) => [source.draw(caseSketchGen), source.draw(lawLevelGen)] as const
-						),
+						draw: sketchDraw,
 						literal: Formatter.format,
 						coverage: required<Feature>(
 							[
@@ -461,11 +465,11 @@ describe("an HTTP handler's routes", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					([sketch, level], notes) =>
+					([sketch, level, probing], notes) =>
 						Effect.gen(function* () {
 							const schema = drawnSchema(notes.draw(resolveCase(sketch)), level)
-							const aimed = aimsNoBearer(notes)
-							const shapes = notes.draw((aimed ? liveLoginGen : loginGen)(schema))
+							const aimedAtNoBearer = probing === "no bearer"
+							const shapes = notes.draw((aimedAtNoBearer ? liveLoginGen : loginGen)(schema))
 							const compiled = yield* Effect.result(
 								compiledLogin(drawnLogin(schema, shapes), schema.laws.codes)
 							)
@@ -489,7 +493,7 @@ describe("an HTTP handler's routes", () => {
 								return
 							}
 							const probes = notes.draw(
-								aimed ? noBearerProbesGen(routes) : probesGen(routes.length)
+								aimedAtNoBearer ? noBearerProbesGen(routes) : probesGen(routes.length)
 							)
 							yield* Effect.gen(function* () {
 								const handler = yield* httpHandler({

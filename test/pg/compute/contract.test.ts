@@ -20,7 +20,7 @@
  * @plant test/plants/pg/compute/compute-utf16-host-code-points.patch The host counts a text's code points for its UTF-16
  * units, so units and three-units disagree with PostgreSQL over a supplementary character.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { drawn, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -337,19 +337,31 @@ const fixtures = (): ReadonlyArray<Fixture> => {
 }
 
 /**
- * The values a witness checks: its drawn batch, or, while a value the domain admits or one it refuses is pending, every
- * edge of its contract and then the drawn batch, so a contract that admits few values (halves admits four of all the
- * int8 values) meets one; the drawn batch is checked whole either way. None for a rotating or kept case, which runs as
- * drawn.
+ * The values a case checks, as the generator draws them: a drawn batch of the contract's values, its edges weighted
+ * among them, or, while a value the domain admits or one it refuses is pending (Steered), every edge of the contract and
+ * then the drawn batch, so a contract that admits few values (halves admits four of all the int8 values) meets one; the
+ * drawn batch is checked whole either way. A rotating case is drawn unaimed.
  */
-const aimedBatch = (
-	f: Fixture,
-	drawnBatch: ReadonlyArray<LiteralDesc>,
-	c: Case<DomainFeature>
-): ReadonlyArray<LiteralDesc> =>
-	Option.exists(c.steering, (pending) => pending.names("admitted") || pending.names("refused"))
-		? [...f.edges, ...drawnBatch]
-		: drawnBatch
+const batchGen =
+	(f: Fixture): Steered<ReadonlyArray<LiteralDesc>, DomainFeature> =>
+	(steering) =>
+	(source) => {
+		const drawnBatch = source.draw(
+			array(
+				weighted<LiteralDesc>([
+					[1, element(nonEmpty(f.edges, "a contract's edges"))],
+					[8, f.values]
+				]),
+				{ min: 1, max: f.batch }
+			)
+		)
+		return Option.exists(
+			steering,
+			(pending) => pending.names("admitted") || pending.names("refused")
+		)
+			? [...f.edges, ...drawnBatch]
+			: drawnBatch
+	}
 
 /** A schema with the evaluator installed: the session a contract's domain checks run on. */
 const evaluatorSchema = Effect.gen(function* () {
@@ -398,15 +410,7 @@ const contractSearch = (f: Fixture) =>
 			{
 				oracle: { kind: "postgresql", name: "the domain cast of each value" },
 				suite: `pg/compute/contract/${f.name}`,
-				draw: drawn(
-					array(
-						weighted<LiteralDesc>([
-							[1, element(nonEmpty(f.edges, "a contract's edges"))],
-							[8, f.values]
-						]),
-						{ min: 1, max: f.batch }
-					)
-				),
+				draw: steered(batchGen(f), (batch) => batch),
 				literal: Formatter.format,
 				coverage: required<DomainFeature>(["admitted", "refused"], {
 					cases: domainRuns,
@@ -419,9 +423,9 @@ const contractSearch = (f: Fixture) =>
 				steerEvery: 16,
 				caseHang
 			},
-			(drawnBatch, c) =>
+			(batch, c) =>
 				Effect.gen(function* () {
-					const cases = Arr.map(aimedBatch(f, drawnBatch, c), (value) => {
+					const cases = Arr.map(batch, (value) => {
 						const bindings = { x: { kind: "literal", field: f.base, value } } as const
 						const lowered = lowerWith("query", cast, bindings, false, baseParams)
 						const literal = succeeded(lowerWith("query", operand, bindings, false, baseParams))

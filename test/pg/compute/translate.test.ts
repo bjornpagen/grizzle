@@ -22,7 +22,7 @@
  * each tab before a space into two tabs (lower/conservative/expr/ops.ts collapseText), so a run of three or more white
  * space characters keeps more than one space.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { drawn, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int, proportional } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -139,16 +139,21 @@ const withRepeated = (c: SqlCase, repeated: number, target: number): SqlCase => 
 })
 
 /**
- * The case a witness checks: its drawn one, or, while a repeated character read by its first is pending, in half its
- * cases by a draw of its own, the drawn one with a drawn character repeated in its raw `from` and met in a text
- * (withRepeated), which a drawn case reaches too rarely for the floor and the steered phase. None for a rotating or
- * kept case, which runs as drawn.
+ * A case as the generator draws it: a drawn one, or, while a repeated character read by its first is pending
+ * (Steered), in half its cases by a draw of its own, a drawn one with a drawn character repeated in its raw `from` and
+ * met in a text (withRepeated), which a drawn case reaches too rarely for the floor and the steered phase. A rotating
+ * case is drawn unaimed.
  */
-const aimedSql = (drawnCase: SqlCase, k: Case<SqlFeature>): SqlCase =>
-	Option.exists(k.steering, (pending) => pending.names("a repeated character read by its first")) &&
-	k.draw(boolean)
-		? withRepeated(drawnCase, k.draw(character), k.draw(character))
-		: drawnCase
+const aimedSqlCase: Steered<SqlCase, SqlFeature> = (steering) => (source) => {
+	const drawnCase = source.draw(sqlCase)
+	if (
+		Option.exists(steering, (pending) => pending.names("a repeated character read by its first")) &&
+		source.draw(boolean)
+	) {
+		return withRepeated(drawnCase, source.draw(character), source.draw(character))
+	}
+	return drawnCase
+}
 
 /** Whether a code point is one of XML's four white space characters. */
 const isXmlSpace = (c: number): boolean => c === 0x09 || c === 0x0a || c === 0x0d || c === 0x20
@@ -180,7 +185,7 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 				return yield* explore(
 					{
 						suite: "pg/compute/translate-sql",
-						draw: drawn(sqlCase),
+						draw: steered(aimedSqlCase, (c) => c),
 						literal: Formatter.format,
 						oracle: { kind: "second-implementation", name: "the reference evaluator" },
 						coverage: required<SqlFeature>(
@@ -209,9 +214,8 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 						steerEvery: 16,
 						caseHang
 					},
-					(drawnCase, k) =>
+					(c, k) =>
 						Effect.gen(function* () {
-							const c = aimedSql(drawnCase, k)
 							const lower = (desc: ExprDesc) => {
 								const lowered = lowerWith("check", desc, { v: textColumn }, false, baseParams)
 								if (!lowered.ok) {

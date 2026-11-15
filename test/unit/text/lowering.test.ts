@@ -25,7 +25,7 @@
  * @plant test/plants/unit/text/text-finite-tie-regex.patch A finite language whose two forms print in as many bytes is
  * enforced by the regex, not the IN list; the finite form property fails.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { drawn, explore, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -50,6 +50,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { refinementBounds } from "#test/support/text.ts"
 import {
 	type FiniteLanguage,
+	type Flags,
 	families,
 	finiteLanguageOver,
 	flagsGen,
@@ -431,8 +432,8 @@ const formsOf = (language: FiniteLanguage, refinement: TextRefinement): Forms =>
 /**
  * The first run of two letters or more, `^a{k}$`, whose IN list prints as long as its regex: a list of two letters
  * prints shorter than the counted regex, and the list then grows by a byte a letter while the regex grows only with the
- * count's digits, so the two meet. Steered in where a tie is pending, since a drawn language rarely prints as long both
- * ways.
+ * count's digits, so the two meet. The generator draws it where a tie is pending (finiteDraw), since a drawn language
+ * rarely prints as long both ways.
  */
 const tieFrom = (k: number): FiniteLanguage => {
 	const language: FiniteLanguage = { source: `^a{${k}}$`, members: [Str.repeat(k)("a")] }
@@ -450,6 +451,33 @@ const apostrophe = 0x27
 
 type FormFeature = "IN list chosen" | "regex chosen" | "tie"
 
+/** A finite language under its flags, and strings over its family's alphabet to match against it. */
+interface FiniteCase {
+	readonly language: FiniteLanguage
+	readonly flags: Flags
+	readonly strings: ReadonlyArray<string>
+}
+
+/**
+ * A finite case, drawn under its steering: a family's language, its flags and strings over the family's alphabet with
+ * the quote, its language `tie` where a tie is pending.
+ */
+const finiteDraw = steered<FiniteCase, FiniteCase, FormFeature>(
+	(steering) => (source) => {
+		const family = source.draw(element(families))
+		const alphabet: Arr.NonEmptyReadonlyArray<number> = [...family.alphabet, apostrophe]
+		const drawnCase: FiniteCase = {
+			language: source.draw(finiteLanguageOver(alphabet, mostFiniteMembers)),
+			flags: source.draw(flagsGen),
+			strings: source.draw(array(stringsOver(element(alphabet), 6), { min: 1, max: 24 }))
+		}
+		return Option.exists(steering, (pending) => pending.has("tie"))
+			? { ...drawnCase, language: tie }
+			: drawnCase
+	},
+	(finite) => finite
+)
+
 describe("the enforcement of a finite language", () => {
 	it.effect(
 		"prints no longer than its other form, the IN list on a tie, and both forms recognize the language",
@@ -463,15 +491,7 @@ describe("the enforcement of a finite language", () => {
 							name: "the shorter emitted DDL by UTF-8 bytes, the IN list on a tie, and ECMAScript's RegExp test"
 						},
 						suite: "unit/text/finite-form",
-						draw: drawn((source) => {
-							const family = source.draw(element(families))
-							const alphabet: Arr.NonEmptyReadonlyArray<number> = [...family.alphabet, apostrophe]
-							return {
-								language: source.draw(finiteLanguageOver(alphabet, mostFiniteMembers)),
-								flags: source.draw(flagsGen),
-								strings: source.draw(array(stringsOver(element(alphabet), 6), { min: 1, max: 24 }))
-							}
-						}),
+						draw: finiteDraw,
 						literal: Formatter.format,
 						coverage: required<FormFeature>(["IN list chosen", "regex chosen", "tie"], {
 							cases: 1000,
@@ -484,14 +504,8 @@ describe("the enforcement of a finite language", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(drawnCase, c) =>
+					({ language, flags, strings }, c) =>
 						Effect.sync(() => {
-							const { language, flags, strings } = Option.getOrElse(
-								Option.flatMap(c.steering, (pending) =>
-									pending.has("tie") ? Option.some({ ...drawnCase, language: tie }) : Option.none()
-								),
-								() => drawnCase
-							)
 							const label = `/${language.source}/${flags}`
 							const r = succeeded(
 								analyzeText([{ source: language.source, flags: flags }], loc),

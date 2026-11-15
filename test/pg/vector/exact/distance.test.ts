@@ -23,7 +23,7 @@
  * @plant test/plants/pg/vector/exact/vector-norm-float32.patch The host's norm sums in binary32.
  * @plant test/plants/pg/vector/exact/vector-cosine-domain-exclusive.patch The host's cosine domain excludes its bounds.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -43,16 +43,7 @@ import { double, float } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { runOfProcess } from "@bjornpagen/testing/vitest/run"
 import { layer } from "@effect/vitest"
-import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	pipe,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Formatter, Order, pipe, Record as Rec, String as Str } from "effect"
 import { planIndexNames } from "#bench/harness/explain.ts"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import { indices } from "#compiler/core/array.ts"
@@ -487,6 +478,11 @@ const pairsAt =
 
 const pairsGen = pairsAt(dimsGen)
 
+/** Each width, with the pairs a case whose turn aims at it draws (aimed): pairs at a dimension count of that width. */
+const pairAims: ReadonlyArray<
+	readonly [PairFeature, Gen<{ readonly dims: number; readonly pairs: ReadonlyArray<PairDraw> }>]
+> = Arr.map(widthFeatures, (feature) => [feature, pairsAt(dimsOf[feature])] as const)
+
 /** A pair's vectors, and the distance its construction fixes. */
 const pairOf = (
 	dims: number,
@@ -564,6 +560,12 @@ const checkCaseOf =
 	}
 
 const checkCaseGen = checkCaseOf(int(0, widthRelations.length - 1))
+
+/** Each relation's width, with the CHECK case a case whose turn aims at it draws (aimed): one on that relation. */
+const checkAims: ReadonlyArray<readonly [CheckFeature, Gen<CheckCase>]> = Arr.map(
+	widthRelations,
+	(r, place) => [widthFeatureOf(r.fields.value.dimensions), checkCaseOf(constant(place))] as const
+)
 
 /** The largest finite binary32 value. */
 const maxFloat32 = (2 - 2 ** -23) * 2 ** 127
@@ -694,6 +696,17 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 					const probeGen: Gen<ProbeSketch> = oneOf(
 						nonEmpty(Rec.values(probeOfKind), "a generator per probe kind")
 					)
+					/** A case of an account and the probe `probe` draws. */
+					const probeCaseOf =
+						(
+							probe: Gen<ProbeSketch>
+						): Gen<{ readonly account: (typeof accounts)[number]; readonly probe: ProbeSketch }> =>
+						(source) => ({ account: source.draw(element(accounts)), probe: source.draw(probe) })
+					/** Each kind's feature, with what a case whose turn aims at it draws (aimed): its kind's probe. */
+					const probeAims = Arr.map(
+						probeKinds,
+						(kind) => [probeFeatureOf[kind], probeCaseOf(probeOfKind[kind])] as const
+					)
 					const probeOf = (sketch: ProbeSketch): Vector => {
 						switch (sketch.kind) {
 							case "stored":
@@ -714,10 +727,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 					return yield* explore(
 						{
 							suite: "pg/vector/exact/distance",
-							draw: drawn((source) => ({
-								account: source.draw(element(accounts)),
-								probe: source.draw(probeGen)
-							})),
+							draw: aimed(probeCaseOf(probeGen), probeAims),
 							literal: Formatter.format,
 							oracle: {
 								kind: "second-implementation",
@@ -739,17 +749,8 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 							steerEvery: 4,
 							caseHang
 						},
-						({ account, probe: drawnProbe }, k) =>
+						({ account, probe: sketch }, k) =>
 							Effect.gen(function* () {
-								const sketch = Option.getOrElse(
-									Option.flatMap(k.steering, (pending) =>
-										Option.map(
-											Arr.findFirst(probeKinds, (kind) => pending.aimed(probeFeatureOf[kind])),
-											(kind) => k.draw(probeOfKind[kind])
-										)
-									),
-									() => drawnProbe
-								)
 								k.note(probeFeatureOf[sketch.kind])
 								const probe = probeOf(sketch)
 								const params = { account, vector: probe }
@@ -813,7 +814,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 					return yield* explore(
 						{
 							suite: "pg/vector/exact/cosine-domain",
-							draw: drawn(pairsGen),
+							draw: aimed(pairsGen, pairAims),
 							literal: Formatter.format,
 							oracle: {
 								kind: "specification",
@@ -838,17 +839,8 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 							steerEvery: 4,
 							caseHang
 						},
-						(drawnPairs, k) =>
+						({ dims, pairs }, k) =>
 							Effect.gen(function* () {
-								const { dims, pairs } = Option.getOrElse(
-									Option.flatMap(k.steering, (pending) =>
-										Option.map(
-											Arr.findFirst(widthFeatures, (feature) => pending.aimed(feature)),
-											(feature) => k.draw(pairsAt(dimsOf[feature]))
-										)
-									),
-									() => drawnPairs
-								)
 								k.note(widthFeatureOf(dims))
 								const built = Arr.map(pairs, (pair) => {
 									k.note(pair.kind)
@@ -905,7 +897,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 					return yield* explore(
 						{
 							suite: "pg/vector/exact/norm-check",
-							draw: drawn(checkCaseGen),
+							draw: aimed(checkCaseGen, checkAims),
 							literal: Formatter.format,
 							oracle: {
 								kind: "postgresql",
@@ -928,27 +920,16 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 							steerEvery: 4,
 							caseHang
 						},
-						(drawnCheck, k) =>
+						(checkCase, k) =>
 							Effect.gen(function* () {
-								const drawnCase = Option.getOrElse(
-									Option.flatMap(k.steering, (pending) =>
-										Option.map(
-											Arr.findFirstIndex(widthRelations, (r) =>
-												pending.aimed(widthFeatureOf(r.fields.value.dimensions))
-											),
-											(place) => k.draw(checkCaseOf(constant(place)))
-										)
-									),
-									() => drawnCheck
-								)
-								const relation = at(widthRelations, drawnCase.relation)
+								const relation = at(widthRelations, checkCase.relation)
 								const dims = relation.fields.value.dimensions
 								k.note(widthFeatureOf(dims))
 								const constraint = names.normCheck(relation, "value")
-								const bound = drawnCase.greatest ? cosineNormMax.value : cosineNormMin.value
-								const direction = directionOf(dims, drawnCase.direction)
+								const bound = checkCase.greatest ? cosineNormMax.value : cosineNormMin.value
+								const direction = directionOf(dims, checkCase.direction)
 								const length = Math.sqrt(Arr.reduce(direction, 0, (a, x) => a + x * x))
-								const factor = (bound * (1 + drawnCase.nudge)) / length
+								const factor = (bound * (1 + checkCase.nudge)) / length
 								const v = Vector.make(
 									Float32Array.from(direction, (x) => x * factor),
 									dims
@@ -962,7 +943,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 									[rawText(v)]
 								)
 								const native = Number(row?.[0])
-								const label = `${relation.name} near ${bound} by ${drawnCase.nudge}`
+								const label = `${relation.name} near ${bound} by ${checkCase.nudge}`
 								expectNormAgrees(v, native, label)
 								/** The CHECK is vector_norm between the bounds: it admits exactly the native domain. */
 								const inside = native >= cosineNormMin.value && native <= cosineNormMax.value

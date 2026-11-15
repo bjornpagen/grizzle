@@ -14,9 +14,10 @@
  *   emits the same texts byte for byte.
  *
  * Its Wild breaks (audit/operators.ts) each break one rule at one site of one statement, picked by kind first so a
- * kind every draw holds once is reached as often as one it holds sixty times, and, where a case steers, among the
- * statements holding a site of a situation still pending: the statement audit reports that rule and no other, under
- * the reason the rule maps to (MalformedDescription for structure, UnsupportedOperation for the emission discipline).
+ * kind every draw holds once is reached as often as one it holds sixty times, and, where a case's sketch aims at the
+ * situations still pending when it was drawn, among the statements holding a site of one: the statement audit reports
+ * that rule and no other, under the reason the rule maps to (MalformedDescription for structure, UnsupportedOperation
+ * for the emission discipline).
  * Its faithful rewrites are admitted and print as declared.
  * Its print, broken at one token, is reported by the text audit as exactly the rule broken.
  *
@@ -50,8 +51,9 @@
  * @plant test/plants/unit/sql/paired-arm-unnamed.patch The same-key pair's arm of an insert's verdict UNION ALL leaves its fact columns
  * unnamed (write/insert/protocol.ts paired); the written statements' search fails.
  */
-import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { type Case, type Draw, drawn, exhaust, explore, steered } from "@bjornpagen/testing/explore"
 import {
+	keyOf,
 	type Reached,
 	required,
 	requiredInSpace,
@@ -235,7 +237,7 @@ const pickedStatement = (
 /**
  * How a suite's operators meet a statement: what the suite reads of a statement, the situations an operator reaches
  * in what it read, and whether the operator has a site there. A property notes exactly what `reaches` names for each
- * operator with a site, and a steered case aims its pick by the same two, so what is aimed at is what gets noted.
+ * operator with a site, and an aimed case picks by the same two, so what is aimed at is what gets noted.
  */
 interface Reaching<V, O, F extends string> {
 	readonly view: (s: SqlStatement) => V
@@ -254,47 +256,64 @@ const noteReached = <F extends string>(c: Case<F>, situation: Reached<F>): void 
 }
 
 /**
- * The statements a case picks among. Where the case steers, those of the draw with a site of an operator that reaches
- * a situation still pending, when the draw holds one, so a pending situation's site is picked while it is pending
- * rather than left to its share of chance; every statement once none is pending, and where the case may not steer, so
- * a rotating case and a kept case are plain draws, and a replay, whose token records the steering, picks as its case
- * did.
+ * The statements a case picks among: those of the draw with a site of an operator that reaches a situation its sketch
+ * aims at, when the draw holds one, so a pending situation's site is picked while it is pending rather than left to its
+ * share of chance; every statement where it aims at none, or the draw holds no site of one.
  */
 const candidates = <V, O, F extends string>(
 	live: Live,
-	steering: Case<F>["steering"],
+	aims: ReadonlyArray<Reached<F>>,
 	reaching: Reaching<V, O, F>
-): Arr.NonEmptyReadonlyArray<Twinned> =>
-	Option.match(steering, {
-		onNone: () => live.statements,
-		onSome: (pending) =>
-			Arr.match(
-				Arr.filter(live.statements, (t) => {
-					const v = reaching.view(t.statement)
-					return Arr.some(
-						reaching.operators,
-						(operator) =>
-							Arr.some(reaching.reaches(v, operator), pending.has) && reaching.applies(v, operator)
-					)
-				}),
-				{ onEmpty: () => live.statements, onNonEmpty: (aimed) => aimed }
+): Arr.NonEmptyReadonlyArray<Twinned> => {
+	const aimed = new Set(Arr.map(aims, keyOf))
+	return Arr.match(
+		Arr.filter(live.statements, (t) => {
+			const v = reaching.view(t.statement)
+			return Arr.some(
+				reaching.operators,
+				(operator) =>
+					Arr.some(reaching.reaches(v, operator), (situation) => aimed.has(keyOf(situation))) &&
+					reaching.applies(v, operator)
 			)
-	})
+		}),
+		{ onEmpty: () => live.statements, onNonEmpty: (picked) => picked }
+	)
+}
 
-/** What a break case draws: the Live source, the statement it acts on, and the site each operator picks. */
-interface BreakCase {
+/**
+ * What a break case draws: the Live source, the statement it acts on, the site each operator picks, and the situations
+ * it aims at.
+ */
+interface BreakCase<F extends string> {
 	readonly live: LiveSketch
 	readonly statement: StatementPick
 	readonly sites: ReadonlyArray<number>
+	readonly aims: ReadonlyArray<Reached<F>>
 }
 
-const breakCaseGen =
-	(live: Gen<LiveSketch>, operators: number): Gen<BreakCase> =>
-	(source) => ({
-		live: source.draw(live),
-		statement: source.draw(statementPickGen),
-		sites: source.draw(array(pickGen, { min: operators, max: operators }))
-	})
+/**
+ * A break case, drawn under its steering: its Live source and picks, and the situations among `situations` still
+ * pending where the case steers, none where it may not, so a rotating case is a plain draw and a kept case picks as its
+ * sketch says.
+ */
+const breakCaseDraw = <F extends string>(
+	live: Gen<LiveSketch>,
+	operators: number,
+	situations: Situations<F>
+): Draw<BreakCase<F>, BreakCase<F>, F> =>
+	steered(
+		(steering) =>
+			(source): BreakCase<F> => ({
+				live: source.draw(live),
+				statement: source.draw(statementPickGen),
+				sites: source.draw(array(pickGen, { min: operators, max: operators })),
+				aims: Option.match(steering, {
+					onNone: () => [],
+					onSome: (pending) => Arr.filter(situations, pending.has)
+				})
+			}),
+		(breakCase) => breakCase
+	)
 
 /**
  * What a Live draw reached: its source, each statement's kind and shape, and the float literals the persisted forms
@@ -571,7 +590,7 @@ describe("a statement broken at one site", () => {
 							name: "each break refused for exactly the rule it declares, under that rule's reason"
 						},
 						suite: "unit/sql/audit-breaks",
-						draw: drawn(breakCaseGen(breakSketchGen, statementBreaks.length)),
+						draw: breakCaseDraw(breakSketchGen, statementBreaks.length, situations),
 						literal: Formatter.format,
 						coverage: required<BreakFeature>(situations, { cases: 600, sense: notesOnly }),
 						kept: [],
@@ -582,10 +601,10 @@ describe("a statement broken at one site", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					({ live: sketch, statement, sites }, c) =>
+					({ live: sketch, statement, sites, aims }, c) =>
 						Effect.sync(() => {
 							const live = resolveLive(sketch)
-							const s = pickedStatement(candidates(live, c.steering, breakReaching), statement)
+							const s = pickedStatement(candidates(live, aims, breakReaching), statement)
 							const problems: Array<string> = []
 							for (const [i, operator] of statementBreaks.entries()) {
 								const [first, ...rest] = breaks(s, operator)
@@ -641,7 +660,7 @@ describe("a statement broken at one site", () => {
 							name: "each faithful rewrite admitted, printing as it declares"
 						},
 						suite: "unit/sql/audit-faithful",
-						draw: drawn(breakCaseGen(liveSketchGen, faithfulRewrites.length)),
+						draw: breakCaseDraw(liveSketchGen, faithfulRewrites.length, situations),
 						literal: Formatter.format,
 						coverage: required<FaithfulFeature>(situations, { cases: 300, sense: notesOnly }),
 						kept: [],
@@ -652,10 +671,10 @@ describe("a statement broken at one site", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					({ live: sketch, statement, sites }, c) =>
+					({ live: sketch, statement, sites, aims }, c) =>
 						Effect.sync(() => {
 							const live = resolveLive(sketch)
-							const s = pickedStatement(candidates(live, c.steering, faithfulReaching), statement)
+							const s = pickedStatement(candidates(live, aims, faithfulReaching), statement)
 							const before = printStatement(s)
 							const problems: Array<string> = []
 							for (const [i, r] of faithfulRewrites.entries()) {
@@ -705,7 +724,7 @@ describe("a printed statement broken at one token", () => {
 						name: "each text break refused by the text audit for exactly the rule it declares"
 					},
 					suite: "unit/sql/audit-text-breaks",
-					draw: drawn(breakCaseGen(breakSketchGen, textBreaks.length)),
+					draw: breakCaseDraw(breakSketchGen, textBreaks.length, situations),
 					literal: Formatter.format,
 					coverage: required<TextBreakFeature>(situations, { cases: 400, sense: notesOnly }),
 					kept: [],
@@ -716,10 +735,10 @@ describe("a printed statement broken at one token", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				({ live: sketch, statement, sites }, c) =>
+				({ live: sketch, statement, sites, aims }, c) =>
 					Effect.sync(() => {
 						const live = resolveLive(sketch)
-						const s = pickedStatement(candidates(live, c.steering, textReaching), statement)
+						const s = pickedStatement(candidates(live, aims, textReaching), statement)
 						const printed = printStatement(s)
 						const problems: Array<string> = []
 						for (const [i, b] of textBreaks.entries()) {

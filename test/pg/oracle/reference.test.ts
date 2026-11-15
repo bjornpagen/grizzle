@@ -12,8 +12,9 @@
  *   built to match it: a fault the conservative program of a generated case offers a target for is planted in it, or
  *   none, and the comparison must report exactly the differences the plant makes, read off the program's statement
  *   labels (compare.ts labeledStatements) before and after it, and none where it plants nothing. The cases are the
- *   generator's own with an attaching root, so most programs offer an attachment to drop or rename; the steered phase
- *   aims at a fault still pending wherever the program offers it.
+ *   generator's own with an attaching root, so most programs offer an attachment to drop or rename; each case draws
+ *   the fault it plants, a fault still pending where its turn is steered, and plants it where the program offers it
+ *   a target.
  *
  * That the reference agrees with PostgreSQL's capture of every hard spelling is the conservative gate's
  * (conservative.test.ts), whose generated facts store NaN, -0, display scales and supplementary-plane text.
@@ -27,7 +28,7 @@
  * @plant test/plants/pg/oracle/oracle-compare-types-ignored.patch The comparison reads no column type
  * (test/support/oracle/compare.ts typeDifferences), so a narrowed column type is no structural difference.
  */
-import { drawn, explore, Run } from "@bjornpagen/testing/explore"
+import { drawn, explore, Run, type Steered, steered } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -47,7 +48,7 @@ import {
 	repeatsOn,
 	type StructuralDifference
 } from "#test/support/oracle/compare.ts"
-import { defaultGenConfig } from "#test/support/oracle/gen/case.ts"
+import { defaultGenConfig, type QueryCase } from "#test/support/oracle/gen/case.ts"
 import { float4 } from "#test/support/oracle/gen/domain.ts"
 import { defaultQueryConfig, queryGenerators } from "#test/support/oracle/gen/query.ts"
 import { projectRoot, rootedCaseGen } from "#test/support/oracle/mutants/cases.ts"
@@ -78,6 +79,12 @@ const structureFaults: readonly [StructureFault, ...ReadonlyArray<StructureFault
 
 /** What a planted lowering delivers: the conservative program with one fault planted, or unchanged. */
 type PlantFeature = StructureFault | "no fault"
+
+/** Every plant feature: no fault, then each fault. */
+const plantFeatures: readonly [PlantFeature, ...ReadonlyArray<PlantFeature>] = [
+	"no fault",
+	...structureFaults
+]
 
 /** The roots the structure cases draw: an attachment, each with its nested chain, over a generated body. */
 const attachedRoot = queryGenerators({
@@ -217,21 +224,39 @@ const plantIn = (
 }
 
 /**
- * Every plant `program` offers, `pick` choosing each fault's target: the program unchanged, whose comparison reports
- * no difference, then each fault it offers a target for.
+ * The plant of `fault` in `program`, `pick` choosing its target: the program unchanged, whose comparison reports no
+ * difference, where the fault is none or the program offers it no target.
  */
-const plantsOf = (
-	program: SentProgram,
-	pick: number
-): readonly [Offered, ...ReadonlyArray<Offered>] => [
-	["no fault", { program, expected: [] }],
-	...Arr.flatMap(structureFaults, (fault): ReadonlyArray<Offered> =>
-		Option.match(plantIn(program, fault, pick), {
-			onNone: () => [],
-			onSome: (plant) => [[fault, plant]]
-		})
-	)
-]
+const plantOf = (program: SentProgram, fault: PlantFeature, pick: number): Offered => {
+	const unchanged: Offered = ["no fault", { program, expected: [] }]
+	return fault === "no fault"
+		? unchanged
+		: Option.match(plantIn(program, fault, pick), {
+				onNone: () => unchanged,
+				onSome: (plant) => [fault, plant]
+			})
+}
+
+/** A structure case: a generated case, the fault its planted lowering plants, and the pick of the fault's target. */
+interface StructureSketch {
+	readonly case: QueryCase
+	readonly pick: number
+	readonly fault: PlantFeature
+}
+
+/**
+ * The structure cases: a generated case with an attaching root, its target's pick, and the fault it plants, drawn among
+ * the faults still pending where the case's turn is steered and some is, among every fault otherwise.
+ */
+const structureSketchGen: Steered<StructureSketch, PlantFeature> = (steering) => {
+	const pending = Arr.filter(plantFeatures, (fault) => Option.exists(steering, (p) => p.has(fault)))
+	const faults = Arr.isReadonlyArrayNonEmpty(pending) ? pending : plantFeatures
+	return (source) => ({
+		case: source.draw(rootedCaseGen(attachedRoot, defaultGenConfig)),
+		pick: source.draw(pickGen),
+		fault: source.draw(element(faults))
+	})
+}
 
 layer(Substrate.layer)("the reference side of the oracle discriminates", (it) => {
 	it.effect(
@@ -312,16 +337,13 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 					return yield* explore(
 						{
 							suite: "oracle/reference-structure",
-							draw: drawn((source) => ({
-								case: source.draw(rootedCaseGen(attachedRoot, defaultGenConfig)),
-								pick: source.draw(pickGen)
-							})),
+							draw: steered(structureSketchGen, (sketch) => sketch),
 							literal: Formatter.format,
 							oracle: {
 								kind: "specification",
 								name: "the structural differences a plant makes, read off the program's statement labels before and after it"
 							},
-							coverage: required<PlantFeature>(["no fault", ...structureFaults], {
+							coverage: required<PlantFeature>(plantFeatures, {
 								cases: 300,
 								sense: notesOnly
 							}),
@@ -332,25 +354,19 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 							steerEvery: 16,
 							caseHang
 						},
-						(drawnCase, c) =>
+						(sketch, c) =>
 							Effect.gen(function* () {
 								const chosen: Array<Offered> = []
 								const lowering: Lowering = {
 									name: planted,
 									lower: (input) =>
 										Result.map(conservative.lower(input), (program) => {
-											const offered = plantsOf(program, drawnCase.pick)
-											const aimed = Arr.filter(offered, ([feature]) =>
-												Option.exists(c.steering, (pending) => pending.has(feature))
-											)
-											const plant = c.draw(
-												element(Arr.isReadonlyArrayNonEmpty(aimed) ? aimed : offered)
-											)
+											const plant = plantOf(program, sketch.fault, sketch.pick)
 											chosen.push(plant)
 											return plant[1].program
 										})
 								}
-								const outcome = yield* runOracle(drawnCase.case, lowering, reference, {
+								const outcome = yield* runOracle(sketch.case, lowering, reference, {
 									...defaultRunOptions,
 									schema: { kind: "named", name }
 								})

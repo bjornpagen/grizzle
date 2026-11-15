@@ -1,4 +1,4 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -365,13 +365,10 @@ const movedBeside: Gen<RenameCase> = (source) => {
 	}
 }
 
-/** The case a witness runs: its drawn one, or, where its turn aims at the moved member's shape, that shape. */
-const aimedCase = (drawnCase: RenameCase, c: Case<Situation>): RenameCase =>
-	Option.getOrUndefined(c.steering)?.aimed(
-		"a moved member and its own member's insert, renamed to sort the other way"
-	) === true
-		? c.draw(movedBeside)
-		: drawnCase
+/** The moved member's shape, the case a witness whose turn aims at it draws (aimed), which it runs, prints and keeps. */
+const aims: ReadonlyArray<readonly [Situation, Gen<RenameCase>]> = [
+	["a moved member and its own member's insert, renamed to sort the other way", movedBeside]
+]
 
 /** A drawn swarm case and a permutation of its relations. */
 const renameGen: Gen<RenameCase> = (source) => {
@@ -424,7 +421,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					explore(
 						{
 							suite: "pg/write/rename",
-							draw: drawn(renameGen),
+							draw: aimed(renameGen, aims),
 							literal: Formatter.format,
 							coverage: required<Situation>(situations, { cases: 40, sense: notesOnly }),
 							kept: [],
@@ -438,9 +435,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								name: "a relation's name is no part of what a write does: the same case with its relations renamed by a permutation of their names"
 							}
 						},
-						(drawnCase, c) =>
+						(rc, c) =>
 							Effect.gen(function* () {
-								const rc = aimedCase(drawnCase, c)
 								const as = yield* written(rc.drawn, "as drawn")
 								const other = renamed(rc.drawn, rc.order)
 								const renamedRuns = yield* written(other, "renamed")

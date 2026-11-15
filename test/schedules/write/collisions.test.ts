@@ -52,7 +52,7 @@
  * @plant test/plants/schedules/write/met-keep-where.patch The arbiter's DO SELECT returns only an occupant whose payload
  * differs, so an exact repeat meets nothing it reads back; the property fails.
  */
-import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { aimed, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -266,6 +266,8 @@ const besides = (a: Request): Request => ({
 	slot: (a.slot % 3) + 1
 })
 
+/** The situations reachingIn constructs, each with its case: a witness whose turn aims at a pending one draws that case
+ * (aimed), the case it runs, prints and keeps. */
 const aims: ReadonlyArray<readonly [CollisionFeature, Gen<Collision>]> = [
 	["a row in flight met, read back", reachingIn("concurrent", "query", (a) => [a])],
 	["a visible row met, read back", reachingIn("sequential", "query", (a) => [a])],
@@ -286,16 +288,6 @@ const aims: ReadonlyArray<readonly [CollisionFeature, Gen<Collision>]> = [
 		reachingIn("concurrent", "array", (a) => [atSlotOf(a), besides(a)])
 	]
 ]
-
-/**
- * The case a witness runs: its drawn one, or, where its turn aims at a pending situation `aims` constructs (Case.steering),
- * one constructed to reach it, drawn on the case's own tape.
- */
-const aimedCase = (drawnCase: Collision, k: Case<CollisionFeature>): Collision => {
-	const pending = Option.getOrUndefined(k.steering)
-	const aim = Arr.findFirst(aims, ([situation]) => pending?.aimed(situation) === true)
-	return Option.isNone(aim) ? drawnCase : k.draw(aim.value[1])
-}
 
 /** The law a refusal names, by the statement that states it. */
 type KeyName = "sitting" | "slot"
@@ -722,7 +714,7 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 				return yield* explore(
 					{
 						suite: "schedules/write/collisions",
-						draw: drawn(collisionGen),
+						draw: aimed(collisionGen, aims),
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
@@ -752,9 +744,8 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 						steerEvery: 16,
 						caseHang
 					},
-					(drawnCase, k) =>
+					(c, k) =>
 						Effect.gen(function* () {
-							const c = aimedCase(drawnCase, k)
 							yield* rig.replace(
 								c.stored.length === 0
 									? []

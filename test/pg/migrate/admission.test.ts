@@ -26,9 +26,9 @@
  * @plant test/plants/pg/migrate/admission-unexpected-ignored.patch The drift check reports what the snapshot requires and the catalog
  * lacks, never what the catalog holds beyond it, so an extra index is admitted.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
+import { type Pending, required } from "@bjornpagen/testing/features"
+import { boolean, element } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
@@ -148,22 +148,13 @@ const outcomeOf = (kind: EditKind): EditOutcome =>
 			? "statement"
 			: "admitted"
 
-/** A drawn edit's sketch: whether the edited folder is the second version's (the CHECK and the VALIDATE a draft adds
- * NOT VALID are), and picks into what the folder drafts. */
-interface EditSketch {
+/** A drawn edit: whether the edited folder is the second version's (the CHECK and the VALIDATE a draft adds NOT VALID
+ * are), picks into what the folder drafts, and its kind, drawn under the case's steering (kindsFor). */
+interface Edit {
 	readonly second: boolean
 	readonly picks: readonly [number, number, number]
-}
-
-/** A drawn edit: its sketch, and its kind, which the case draws (kindsFor). */
-interface Edit extends EditSketch {
 	readonly kind: EditKind
 }
-
-const editGen: Gen<EditSketch> = (source) => ({
-	second: source.draw(boolean),
-	picks: [source.draw(pickGen), source.draw(pickGen), source.draw(pickGen)]
-})
 
 type EditFeature = `${EditKind} ${"admitted" | "refused"}`
 
@@ -172,11 +163,13 @@ const featureOf = (kind: EditKind): EditFeature =>
 	`${kind} ${outcomeOf(kind) === "admitted" ? "admitted" : "refused"}`
 
 /**
- * The kinds a case draws its edit from: where the case steers, the kinds whose feature the run had not reached when the
- * case's window began, so a kind is drawn while it is pending rather than left to its share of chance; every kind once
- * none is pending, and where the case may not steer, so the rotating stream's edits are plain draws.
+ * The kinds the generator draws an edit's kind from: where the case steers, the kinds whose feature the run had not
+ * reached when the case's window began, so a kind is drawn while it is pending rather than left to its share of chance;
+ * every kind once none is pending, and where the case may not steer, so the rotating stream's edits are plain draws.
  */
-const kindsFor = (steering: Case<EditFeature>["steering"]): Arr.NonEmptyReadonlyArray<EditKind> =>
+const kindsFor = (
+	steering: Option.Option<Pending<EditFeature>>
+): Arr.NonEmptyReadonlyArray<EditKind> =>
 	Option.match(steering, {
 		onNone: () => editKinds,
 		onSome: (pending) =>
@@ -185,6 +178,14 @@ const kindsFor = (steering: Case<EditFeature>["steering"]): Arr.NonEmptyReadonly
 				{ onEmpty: () => editKinds, onNonEmpty: (open) => open }
 			)
 	})
+
+/** An edit, its kind drawn among those its steering leaves pending (kindsFor) and kept in the sketch, so a kept case
+ * runs the kind it was drawn with. */
+const editGen: Steered<Edit, EditFeature> = (steering) => (source) => ({
+	second: source.draw(boolean),
+	picks: [source.draw(pickGen), source.draw(pickGen), source.draw(pickGen)],
+	kind: steering.pipe(kindsFor, element, source.draw)
+})
 
 /** The folder an edit is made in: the CHECK and the VALIDATE are only the second version's to draft; the grants and
  * the indexes the edits pick from are the first's. */
@@ -499,7 +500,7 @@ layer(Substrate.layer)("post-apply admission refuses drift", (it) => {
 							name: "an edit reaching the same state is admitted, one changing it refused at drift, a raising statement stops at itself"
 						},
 						suite: "migrate/hand-edits",
-						draw: drawn(editGen),
+						draw: steered(editGen, (edit) => edit),
 						literal: Formatter.format,
 						kept: [],
 						runs: 6,
@@ -512,10 +513,9 @@ layer(Substrate.layer)("post-apply admission refuses drift", (it) => {
 						}),
 						caseHang
 					},
-					(sketch, c) =>
+					(edit, c) =>
 						Effect.scoped(
 							Effect.gen(function* () {
-								const edit: Edit = { ...sketch, kind: c.steering.pipe(kindsFor, element, c.draw) }
 								const schema = yield* substrate.schema({ create: false, label: "hand_edit" })
 								const folders = historyOf(
 									inSecond(edit) ? [shopV1, shopV2] : [shopV1],

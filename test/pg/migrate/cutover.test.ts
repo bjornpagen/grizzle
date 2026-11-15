@@ -127,7 +127,7 @@ import {
 	runProgram,
 	took
 } from "@bjornpagen/testing/commands"
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array as arrayGen,
@@ -1207,6 +1207,14 @@ const steeredGen =
 		}
 	}
 
+/** A case under its steering: a plain draw where the case does not steer, else the steered case aimed at the features
+ * its steering leaves pending, its world and program the sketch it runs. */
+const cutoverSteered: Steered<Cutover, Feature> = (steering) =>
+	Option.match(steering, {
+		onNone: () => cutoverGen,
+		onSome: (pending) => steeredGen(new Set(Arr.filter(features, (f) => pending.has(f))))
+	})
+
 /** What a history runs on: its schema, the folders applied, the snapshot they reached, the installation the next
  * writes are served from, and how many drafts it made. */
 interface History {
@@ -1894,6 +1902,14 @@ const treeFeatures: Arr.NonEmptyReadonlyArray<TreeFeature> = [
 	...treeShapes
 ]
 
+/** A tree case under its steering: a plain draw where the case does not steer, else the tree case aimed at the
+ * features its steering leaves pending, its documents and roots the sketch it runs. */
+const treeSteered: Steered<TreeCase, TreeFeature> = (steering) =>
+	Option.match(steering, {
+		onNone: () => treeCaseGen,
+		onSome: (pending) => steeredTreeGen(new Set(Arr.filter(treeFeatures, (f) => pending.has(f))))
+	})
+
 /** The law a refused merge names: the keyed tree's primary key's, which the backfill checks before it draws. */
 const treeKeyLaw = (installation: Installation): string =>
 	Option.getOrThrowWith(
@@ -2077,7 +2093,7 @@ layer(Substrate.isolatedLayer)("the migrator under the identity cutover's deltas
 							name: "the world model and its key mapping, judged by PostgreSQL's rows, a fresh install's catalog and its table_rewrite events"
 						},
 						suite: "pg/migrate/cutover",
-						draw: drawn(cutoverGen),
+						draw: steered(cutoverSteered, (c) => c),
 						literal: Formatter.format,
 						coverage: required<Feature>(features, { cases: 32, sense: notesOnly }),
 						kept: [],
@@ -2087,15 +2103,7 @@ layer(Substrate.isolatedLayer)("the migrator under the identity cutover's deltas
 						steerEvery: 4,
 						caseHang
 					},
-					(drawnCase, c: Case<Feature>) =>
-						history(
-							Option.match(c.steering, {
-								onNone: () => drawnCase,
-								onSome: (pending) =>
-									c.draw(steeredGen(new Set(Arr.filter(features, (f) => pending.has(f)))))
-							}),
-							(f) => c.note(f)
-						)
+					(cutover, c: Case<Feature>) => history(cutover, (f) => c.note(f))
 				)
 			)
 	)
@@ -2111,7 +2119,7 @@ layer(Substrate.isolatedLayer)("the migrator under the identity cutover's deltas
 							name: "the direct pre-order numbering of each old tree under its new root, judged by PostgreSQL's rows, a fresh install's catalog and its table_rewrite events"
 						},
 						suite: "pg/migrate/cutover-tree",
-						draw: drawn(treeCaseGen),
+						draw: steered(treeSteered, (c) => c),
 						literal: Formatter.format,
 						coverage: required<TreeFeature>(treeFeatures, { cases: 16, sense: notesOnly }),
 						kept: [],
@@ -2121,15 +2129,7 @@ layer(Substrate.isolatedLayer)("the migrator under the identity cutover's deltas
 						steerEvery: 4,
 						caseHang
 					},
-					(drawnCase, k: Case<TreeFeature>) =>
-						treeHistory(
-							Option.match(k.steering, {
-								onNone: () => drawnCase,
-								onSome: (pending) =>
-									k.draw(steeredTreeGen(new Set(Arr.filter(treeFeatures, (f) => pending.has(f)))))
-							}),
-							(f) => k.note(f)
-						)
+					(tree, k: Case<TreeFeature>) => treeHistory(tree, (f) => k.note(f))
 				)
 			)
 	)

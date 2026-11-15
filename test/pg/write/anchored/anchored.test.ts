@@ -1,4 +1,4 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, increasing, int, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -134,21 +134,13 @@ const anchoredGen: Gen<Anchored> = anchoredOf(element(SHAPES), keysGen)
 const readByIndex = (shape: Shape): AnchoredFeature =>
 	`${shape}: Wanted read once, by an index condition`
 
-/** The case each required feature is aimed at while it is pending (Case.steering), constructed to reach it. */
+/** The case each required feature is aimed at while it is pending, constructed to reach it: a witness whose turn aims at
+ * one draws that case (aimed), the case it runs, prints and keeps. */
 const aims: Arr.NonEmptyReadonlyArray<readonly [AnchoredFeature, Gen<Anchored>]> = [
 	["a relation parameter of no keys", anchoredOf(constant(named), noKeys)],
 	["a relation parameter of several keys", anchoredOf(constant(named), severalKeys)],
 	...Arr.map(SHAPES, (shape) => [readByIndex(shape), anchoredOf(constant(shape), keysGen)] as const)
 ]
-
-/** The case a witness runs: its drawn one, or, while a feature is pending, the one aimed at its turn's feature. */
-const aimedCase = (drawnCase: Anchored, c: Case<AnchoredFeature>): Anchored =>
-	Option.match(
-		Option.flatMap(c.steering, (pending) =>
-			Arr.findFirst(aims, ([feature]) => pending.aimed(feature))
-		),
-		{ onNone: () => drawnCase, onSome: ([, reaching]) => c.draw(reaching) }
-	)
 
 /** Every node of a plan that reads `relation`'s rows: not the DELETE itself, nor a bitmap index scan, which only yields
  * row locations to its heap scan. */
@@ -285,7 +277,7 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 				return yield* explore(
 					{
 						suite: "pg/write/anchored",
-						draw: drawn(anchoredGen),
+						draw: aimed(anchoredGen, aims),
 						literal: Formatter.format,
 						oracle: {
 							kind: "postgresql",
@@ -302,9 +294,8 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 						steerEvery: 8,
 						caseHang
 					},
-					(drawnCase, c) =>
+					({ shape, keys, from, key, params }, c) =>
 						Effect.gen(function* () {
-							const { shape, keys, from, key, params } = aimedCase(drawnCase, c)
 							const numbered = [from, key, ...keys]
 							const digestRows = yield* s.admin.queryValues(
 								`SELECT ${digestOf("n")} FROM pg_catalog.unnest(ARRAY[${Arr.join(Arr.map(numbered, String), ", ")}]::integer[]) WITH ORDINALITY AS u (n, at) ORDER BY at`,

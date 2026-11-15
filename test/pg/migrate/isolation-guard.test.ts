@@ -28,7 +28,7 @@
  *
  * @plant test/plants/pg/migrate/isolation-guard-kept.patch A migration never drops a table's isolation guard while the table stands.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, subarray, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -53,7 +53,6 @@ import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import {
 	type Aim,
-	aimedAt,
 	apply,
 	checkedAdmission,
 	openMigrator,
@@ -451,9 +450,6 @@ const aims: ReadonlyArray<Aim<GuardCase, Feature>> = [
 	]
 ]
 
-/** The case a search runs: its drawn one, or, while a situation `aims` reaches is pending, the one aimed at it. */
-const aimed = aimedAt(aims)
-
 layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 	"a table's isolation guard, migrated as its writers' certified levels change",
 	(it) => {
@@ -465,7 +461,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 					explore(
 						{
 							suite: "migrate/isolation-guard",
-							draw: drawn(caseGen),
+							draw: aimed(caseGen, aims),
 							literal: Formatter.format,
 							oracle: {
 								kind: "specification",
@@ -490,7 +486,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 							steerEvery: 8,
 							caseHang
 						},
-						(c, cx) => Effect.scoped(walk(aimed(c, cx), cx.note))
+						(c, cx) => Effect.scoped(walk(c, cx.note))
 					)
 				)
 		)

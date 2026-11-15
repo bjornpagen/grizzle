@@ -1,4 +1,4 @@
-import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { aimed, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -400,16 +400,6 @@ const storesExactly = (
 		}
 	})
 
-/**
- * The case a witness runs: its drawn one, or, where its turn aims at a situation `aims` reaches (Case.steering), an
- * aimed one.
- */
-const aimedCase = (drawnCase: SwarmCase, c: Case<Situation>): SwarmCase => {
-	const pending = Option.getOrUndefined(c.steering)
-	const aim = Arr.findFirst(aims, ([situation]) => pending?.aimed(situation) === true)
-	return Option.isNone(aim) ? drawnCase : c.draw(aim.value[1])
-}
-
 /** A case over a fixed spec, its ChangeSets drawn under `on` at full weight. */
 const over =
 	(spec: SwarmSpec, on: ReadonlyArray<SwarmFeature>): Gen<SwarmCase> =>
@@ -694,7 +684,10 @@ const together = over(
 	["follow-ups", "strata", "query insert", "repeated fact"]
 )
 
-/** The situations the drawn cases reach only now and then, each with the case a witness draws to reach it. */
+/**
+ * The situations the drawn cases reach only now and then, each with the case a witness whose turn aims at it draws
+ * (aimed), the case it runs, prints and keeps.
+ */
 const aims: ReadonlyArray<readonly [Situation, Gen<SwarmCase>]> = [
 	["every fact stated twice written once", together],
 	["a member's row named by an owner, inserted between it and the owner's members", importWrites],
@@ -2118,7 +2111,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 				explore(
 					{
 						suite: "pg/write/swarm/families",
-						draw: drawn(caseGen),
+						draw: aimed(caseGen, aims),
 						literal: Formatter.format,
 						coverage: required<Situation>(situations, { cases: 160, sense: notesOnly }),
 						kept: kept,
@@ -2132,9 +2125,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 							name: "the reference writer (families/fill.ts writtenRows) and the law model (laws/model.ts) over the facts written"
 						}
 					},
-					(drawnCase, c) =>
+					({ spec, steps }, c) =>
 						Effect.gen(function* () {
-							const { spec, steps } = aimedCase(drawnCase, c)
 							const built = buildSwarm(spec)
 							const declared = built.rename("Swarm")
 							const done = yield* installMigrated(declared, {

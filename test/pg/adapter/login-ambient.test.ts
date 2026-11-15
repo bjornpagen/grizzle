@@ -29,7 +29,7 @@
  * whose pin is reset starts under the database's default for it; the property fails where a reset extra_float_digits
  * pin leaves the database's -15, which prints floats short of their round trip.
  */
-import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { explore, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -197,33 +197,6 @@ const settingFeature = (s: AmbientSetting): SettingFeature => `${s.parameter} ${
 const pinFeature = (pin: Pin): Feature =>
 	pin === "standing" ? "every pin standing" : `the ${pin.parameter} pin reset`
 
-/**
- * The case a witness runs, aimed at what no witness reached yet (Case.steering): each setting value no witness has run
- * under takes its parameter's place in half the case's draws of it, and each pin no witness has reset is the case's pin
- * in half the case's draws of it; a rotating or kept case runs as drawn.
- */
-const aimed = (c: LoginCase, cx: Case<Feature>): LoginCase =>
-	Option.match(cx.steering, {
-		onNone: () => c,
-		onSome: (pending) => ({
-			...c,
-			pin: Arr.reduce(roleDefaultSettings, c.pin, (pin, p): Pin =>
-				pending.has(pinFeature(p)) && cx.draw(boolean) ? p : pin
-			),
-			ambient: {
-				...c.ambient,
-				settings: Arr.reduce(
-					Arr.flatten(ambientSettingValues),
-					c.ambient.settings,
-					(settings, s): ReadonlyArray<AmbientSetting> =>
-						pending.has(settingFeature(s)) && cx.draw(boolean)
-							? [...Arr.filter(settings, (x) => x.parameter !== s.parameter), s]
-							: settings
-				)
-			}
-		})
-	})
-
 const textGen: Gen<TextFact> = (source) => ({
 	id: source.draw(element(ids)),
 	note: source.draw(element(notes))
@@ -266,6 +239,35 @@ const caseGen: Gen<LoginCase> = (source) => ({
 	),
 	program: source.draw(programGen)
 })
+
+/**
+ * A case as the generator draws it, aimed at what no witness reached yet (Steered): each setting value no witness has
+ * run under takes its parameter's place in half the case's draws of it, and each pin no witness has reset is the case's
+ * pin in half the case's draws of it; a rotating case is drawn unaimed.
+ */
+const aimedCaseGen: Steered<LoginCase, Feature> = (steering) => (source) => {
+	const c = source.draw(caseGen)
+	return Option.match(steering, {
+		onNone: () => c,
+		onSome: (pending) => ({
+			...c,
+			pin: Arr.reduce(roleDefaultSettings, c.pin, (pin, p): Pin =>
+				pending.has(pinFeature(p)) && source.draw(boolean) ? p : pin
+			),
+			ambient: {
+				...c.ambient,
+				settings: Arr.reduce(
+					Arr.flatten(ambientSettingValues),
+					c.ambient.settings,
+					(settings, s): ReadonlyArray<AmbientSetting> =>
+						pending.has(settingFeature(s)) && source.draw(boolean)
+							? [...Arr.filter(settings, (x) => x.parameter !== s.parameter), s]
+							: settings
+				)
+			}
+		})
+	})
+}
 
 /**
  * The installation's schemas first, and every setting at a value a draw gives it that is neither a login's pin nor
@@ -529,7 +531,7 @@ layer(Substrate.isolatedLayer)("a login under hostile database defaults", (it) =
 								name: "the program under the drawn defaults answers as under the database's own"
 							},
 							suite: "pg/adapter/login-ambient",
-							draw: drawn(caseGen),
+							draw: steered(aimedCaseGen, (c) => c),
 							literal: Formatter.format,
 							coverage: required<Feature>(situations, { cases: 64, sense: notesOnly }),
 							kept,
@@ -539,9 +541,8 @@ layer(Substrate.isolatedLayer)("a login under hostile database defaults", (it) =
 							steerEvery: 4,
 							caseHang
 						},
-						(drawnCase, cx) =>
+						(c, cx) =>
 							Effect.gen(function* () {
-								const c = aimed(drawnCase, cx)
 								cx.noteAll(ambientFeatures(c.ambient))
 								cx.noteAll(Arr.map(c.ambient.settings, settingFeature))
 								cx.note(pinFeature(c.pin))

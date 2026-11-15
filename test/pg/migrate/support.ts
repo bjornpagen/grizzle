@@ -1,4 +1,3 @@
-import type { Case } from "@bjornpagen/testing/explore"
 import type { Gen } from "@bjornpagen/testing/gen"
 import {
 	Array as Arr,
@@ -776,22 +775,7 @@ export const storedRowsOf = (
 	})
 
 /**
- * A required situation and the generator that constructs a case reaching it: what a steered case draws while the
- * situation is pending.
+ * A required situation and the generator that constructs a case reaching it: what a search's generator draws in place
+ * of its plain one when the case's turn aims at the situation (explore's `aimed`), the case it runs, prints and keeps.
  */
 export type Aim<A, F extends string> = readonly [situation: F, reaching: Gen<A>]
-
-/**
- * The case a search runs: its drawn one, or, when the situation its turn aims at is one an aim names (Case.steering),
- * the case that aim's generator constructs, drawn from the case's own tape. The cases of one window aim at distinct
- * pending situations, so no aim waits behind another. Rotating and kept cases are never steered, so they run as drawn.
- */
-export const aimedAt =
-	<A, F extends string>(aims: ReadonlyArray<Aim<A, F>>) =>
-	(drawnCase: A, c: Case<F>): A =>
-		Option.match(
-			Option.flatMap(c.steering, (pending) =>
-				Arr.findFirst(aims, ([situation]) => pending.aimed(situation))
-			),
-			{ onNone: () => drawnCase, onSome: ([, reaching]) => c.draw(reaching) }
-		)

@@ -33,8 +33,8 @@
  * a column the reference declines, a read refused for a key over prose, and, required and aimed, an admitted program
  * whose live answers match the reference over an index read: a read looked up by a scalar parameter, which the compile
  * serves by the index its lookup plans or a key, agreeing on both surfaces with the reference. A case whose turn aims
- * at it (Case.steering) is drawn from the sketches the compile admits by construction (oracle/public/generate.ts
- * admittedSketchGen), so a run that draws mostly refused programs still compares served ones.
+ * at it draws its sketch from those the compile admits by construction (oracle/public/generate.ts admittedSketchGen,
+ * `aims`), the sketch it runs, prints and keeps, so a run that draws mostly refused programs still compares served ones.
  *
  * @plant test/plants/pg/client/client-int8-decoded-as-number.patch A wire codec that respells a value, an int8 decoded
  * as a number; the HTTP value differs from the in-process one.
@@ -43,8 +43,9 @@
  * @plant test/plants/pg/live/differential-compares-nothing.patch A case returns once installed, comparing nothing; the
  * required index-read feature goes unreached.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
+import type { Gen } from "@bjornpagen/testing/gen"
 import { agree } from "@bjornpagen/testing/oracle"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -80,6 +81,7 @@ import {
 import { buildRoot, buildSchema, factRecord, hostValue } from "#test/support/oracle/public/build.ts"
 import {
 	admittedSketchGen,
+	type CaseSketch,
 	caseSketchGen,
 	resolveCase
 } from "#test/support/oracle/public/generate.ts"
@@ -112,6 +114,14 @@ type Feature =
 	| "an admitted program whose live answers match the reference over an index read"
 
 const cases = 40
+
+/** The admitted program over an index read, with the sketches a witness whose turn aims at it draws (aimed). */
+const aims: ReadonlyArray<readonly [Feature, Gen<CaseSketch>]> = [
+	[
+		"an admitted program whose live answers match the reference over an index read",
+		admittedSketchGen
+	]
+]
 
 /**
  * Whether `error` is the compile's refusal of an index over a prose field of `schema`, the generated schema's text with
@@ -183,7 +193,7 @@ layer(Substrate.layer)("a generated program", (it) => {
 							name: "the reference evaluator's answer, and the two surfaces held to each other exactly"
 						},
 						suite: "pg/live/differential",
-						draw: drawn(caseSketchGen),
+						draw: aimed(caseSketchGen, aims),
 						literal: Formatter.format,
 						coverage: required<Feature>(
 							[
@@ -206,12 +216,7 @@ layer(Substrate.layer)("a generated program", (it) => {
 					},
 					(sketch, notes) =>
 						Effect.gen(function* () {
-							const aimed = Option.exists(notes.steering, (pending) =>
-								pending.aimed(
-									"an admitted program whose live answers match the reference over an index read"
-								)
-							)
-							const c = notes.draw(resolveCase(aimed ? notes.draw(admittedSketchGen) : sketch))
+							const c = notes.draw(resolveCase(sketch))
 							const reads = Arr.flatMap(c.reads, (read, place) =>
 								read.kind === "query" ? [{ read, place }] : []
 							)

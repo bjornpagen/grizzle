@@ -34,18 +34,18 @@
  * - a filter returns the rows it makes true, an aggregate the groups of those rows and no row where none is, and a head
  *   delivers PostgreSQL's value, or is refused at compile when it reads a closed relation.
  *
- * Steering aims a witness at each operator family a NULL operand has not reached in a position yet: its world leaves
- * its last kind absent from Pick, and the position's expression is built around a node of that family over a read at
- * it (language.ts aimedPredGen, aimedStoredGen).
+ * The generator aims a steered witness at each operator family a NULL operand has not reached in a position yet
+ * (steeredCases): its world leaves its last kind absent from Pick, and the position's expression is built around a node
+ * of that family over a read at it (language.ts aimedPredGen, aimedStoredGen).
  *
  * Features: every operator family in every position, reached by a NULL operand.
  *
  * @plant test/plants/pg/null/null-greatest-null-wins.patch The host's greatest and least return NULL when any operand
  * is NULL.
  */
-import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
-import { type Reached, required } from "@bjornpagen/testing/features"
-import { array, boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { type Case, explore, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
+import { type Pending, type Reached, required } from "@bjornpagen/testing/features"
+import { array, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { agree, exact } from "@bjornpagen/testing/oracle"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { boundedShrink } from "@bjornpagen/testing/shrink"
@@ -55,6 +55,7 @@ import {
 	Array as Arr,
 	Effect,
 	Formatter,
+	Function,
 	Option,
 	Order,
 	Predicate,
@@ -274,76 +275,84 @@ const situations: NonEmptyReadonlyArray<Reached<Feature>> = [
 ]
 
 /**
- * The case a witness runs: under steering, for each position a NULL operand has not reached some family in yet, a
- * draw may aim it there, under the world whose last kind Pick holds no row at.
+ * `nc` aimed at what is `pending`: for each position a NULL operand has not reached some family in yet, its expression
+ * drawn around a node of such a family, under the world whose last kind Pick holds no row at.
  */
-const aimed = (nc: NullCase, notes: Case<Feature>): NullCase => {
-	const pending = Option.getOrUndefined(notes.steering)
-	if (pending === undefined || !notes.draw(boolean)) {
-		return nc
-	}
-	const shares = pending.has(
-		"a key holds apart only its selection: an unknown row shares a selected value"
-	)
-	const w = shares ? twoKindWorld(nc.world) : aimedWorld(nc.world)
-	const missing = (position: Position): ReadonlyArray<Family> =>
-		Arr.filter(families, (family) => pending.has([family, position]))
-	const pred = (position: Position, drawnPred: Pred): Pred => {
-		const open = missing(position)
-		const [first, ...rest] = open
-		return first === undefined
-			? drawnPred
-			: notes.draw(
-					aimedPredGen(
-						w,
-						notes.draw(element([first, ...rest])),
-						position === "filter" || position === "aggregate" ? "query" : "check"
+const aimedGen =
+	(nc: NullCase, pending: Pending<Feature>): Gen<NullCase> =>
+	(s) => {
+		const shares = pending.has(
+			"a key holds apart only its selection: an unknown row shares a selected value"
+		)
+		const w = shares ? twoKindWorld(nc.world) : aimedWorld(nc.world)
+		const missing = (position: Position): ReadonlyArray<Family> =>
+			Arr.filter(families, (family) => pending.has([family, position]))
+		const pred = (position: Position, drawnPred: Pred): Pred => {
+			const open = missing(position)
+			const [first, ...rest] = open
+			return first === undefined
+				? drawnPred
+				: s.draw(
+						aimedPredGen(
+							w,
+							s.draw(element([first, ...rest])),
+							position === "filter" || position === "aggregate" ? "query" : "check"
+						)
 					)
-				)
-	}
-	const quotient = pending.has("a float quotient of NULL by zero is NULL")
-	const singletons: ReadonlyArray<readonly [Decision, NullIdSource]> = [
-		["a singleton of an id read at an absent key is NULL", "absent key"],
-		["a singleton of an id read at a NULL key is NULL", "NULL key"],
-		["a singleton of an id an operation leaves NULL is NULL", "operation"]
-	]
-	const [single] = Arr.filter(singletons, ([decision]) => pending.has(decision))
-	const [genFirst, ...genRest] = missing("generated")
-	const stored = (spec: GeneratedSpec): GeneratedSpec =>
-		genFirst === undefined
-			? spec
-			: {
-					...notes.draw(aimedStoredGen(w, notes.draw(element([genFirst, ...genRest])))),
-					check: spec.check
-				}
-	return {
-		...nc,
-		world: w,
-		checks: [
-			pred("check", nc.checks[0]),
-			pred("check", nc.checks[1]),
-			single === undefined ? nc.checks[2] : nullSingletonPred(w, single[1])
-		],
-		contained: pred("contained", nc.contained),
-		keyed: shares ? heldKindPred : pred("key", nc.keyed),
-		generated: [
-			stored(nc.generated[0]),
-			stored(nc.generated[1]),
-			single === undefined
-				? nc.generated[2]
+		}
+		const quotient = pending.has("a float quotient of NULL by zero is NULL")
+		const singletons: ReadonlyArray<readonly [Decision, NullIdSource]> = [
+			["a singleton of an id read at an absent key is NULL", "absent key"],
+			["a singleton of an id read at a NULL key is NULL", "NULL key"],
+			["a singleton of an id an operation leaves NULL is NULL", "operation"]
+		]
+		const [single] = Arr.filter(singletons, ([decision]) => pending.has(decision))
+		const [genFirst, ...genRest] = missing("generated")
+		const stored = (spec: GeneratedSpec): GeneratedSpec =>
+			genFirst === undefined
+				? spec
 				: {
-						sort: "set",
-						term: { t: "singleton", a: nullIdOf(w, single[1]) },
-						check: nc.generated[2].check
+						...s.draw(aimedStoredGen(w, s.draw(element([genFirst, ...genRest])))),
+						check: spec.check
 					}
-		],
-		fold: pred("fold", nc.fold),
-		filter: quotient ? notes.draw(nullQuotientGen(w, ["ne"])) : pred("filter", nc.filter),
-		aggregate: quotient
-			? notes.draw(nullQuotientGen(w, ["lt", "gt", "ne"]))
-			: pred("aggregate", nc.aggregate)
+		return {
+			...nc,
+			world: w,
+			checks: [
+				pred("check", nc.checks[0]),
+				pred("check", nc.checks[1]),
+				single === undefined ? nc.checks[2] : nullSingletonPred(w, single[1])
+			],
+			contained: pred("contained", nc.contained),
+			keyed: shares ? heldKindPred : pred("key", nc.keyed),
+			generated: [
+				stored(nc.generated[0]),
+				stored(nc.generated[1]),
+				single === undefined
+					? nc.generated[2]
+					: {
+							sort: "set",
+							term: { t: "singleton", a: nullIdOf(w, single[1]) },
+							check: nc.generated[2].check
+						}
+			],
+			fold: pred("fold", nc.fold),
+			filter: quotient ? s.draw(nullQuotientGen(w, ["ne"])) : pred("filter", nc.filter),
+			aggregate: quotient
+				? s.draw(nullQuotientGen(w, ["lt", "gt", "ne"]))
+				: pred("aggregate", nc.aggregate)
+		}
 	}
-}
+
+/**
+ * The cases a witness runs: drawn ones (caseGen), or, under steering, half of them a drawn one aimed at what is pending
+ * (aimedGen), the case it runs, prints and keeps.
+ */
+const steeredCases: Steered<NullCase, Feature> = (steering) =>
+	Option.match(steering, {
+		onNone: () => caseGen,
+		onSome: (pending) => oneOf([caseGen, (s) => s.draw(aimedGen(s.draw(caseGen), pending))])
+	})
 
 /** The rows written into Keyed: each row at every kind, so rows its selection keeps and leaves share their integer. */
 const keyedRows = (nc: NullCase): ReadonlyArray<Item> =>
@@ -629,9 +638,8 @@ const verdict = (
 	)
 }
 
-const nullCase = (drawnCase: NullCase, notes: Case<Feature>) =>
+const nullCase = (nc: NullCase, notes: Case<Feature>) =>
 	Effect.gen(function* () {
-		const nc = aimed(drawnCase, notes)
 		const w = nc.world
 		const built = schemaOf(nc)
 		const c: Closed = built.c
@@ -1261,7 +1269,7 @@ layer(Substrate.layer, { excludeTestServices: true })("NULL in every position", 
 				explore(
 					{
 						suite: "pg/null/positions",
-						draw: drawn(caseGen),
+						draw: steered(steeredCases, Function.identity),
 						literal: Formatter.format,
 						oracle: {
 							kind: "postgresql",

@@ -14,7 +14,7 @@
  * @plant test/plants/pg/fields/fields-delivery-chunk-offset.patch A delivered chunk is written at the wrong offset.
  * @plant test/plants/pg/fields/fields-delivery-order-reversed.patch The assembled rows come back in reverse order.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -23,6 +23,7 @@ import {
 	constant,
 	type Gen,
 	int,
+	map,
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
@@ -30,7 +31,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Option, Order, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Function, Layer, Option, Order, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { assembledIn } from "#compiler/codec/delivery.ts"
 import {
@@ -126,11 +127,12 @@ const cases: Gen<Drawn> = (s) => {
 	}
 }
 
-/** The case a witness runs: its drawn one, or, while no case has answered no row, the drawn one with no row stored. */
-const aimed = (d: Drawn, c: Case<Feature>): Drawn =>
-	Option.exists(c.steering, (pending) => pending.has("an answer of no row"))
-		? { ...d, rows: [] }
-		: d
+/** The cases a witness draws: plain ones, or, while no case has answered no row (Pending `has`), each with no row
+ * stored, the case it runs, prints and keeps. */
+const steeredCases: Steered<Drawn, Feature> = (steering) =>
+	Option.exists(steering, (pending) => pending.has("an answer of no row"))
+		? map(cases, (d) => ({ ...d, rows: [] }))
+		: cases
 
 const Blob = relation("Blob", { id: pg.integer, a: bytes, b: bytes, t: str.regex("^.*$", "su") }, [
 	"id"
@@ -204,7 +206,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a delivery at chunk bound
 					{
 						suite: "pg/fields/delivery",
 						oracle: { kind: "second-implementation", name: "the drawn rows themselves" },
-						draw: drawn(cases),
+						draw: steered(steeredCases, Function.identity),
 						literal: (d: Drawn) =>
 							Formatter.format({
 								chunkLength: d.chunkLength,
@@ -233,10 +235,9 @@ layer(Substrate.layer, { excludeTestServices: true })("a delivery at chunk bound
 						steerEvery: 16,
 						caseHang
 					},
-					(drawnCase: Drawn, c: Case<Feature>) =>
+					(d: Drawn, c: Case<Feature>) =>
 						Effect.scoped(
 							Effect.gen(function* () {
-								const d = aimed(drawnCase, c)
 								for (const feature of notes(d)) {
 									c.note(feature)
 								}

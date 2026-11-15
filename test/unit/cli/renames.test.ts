@@ -32,7 +32,7 @@
  * @plant test/plants/unit/cli/renames-handle-roster-spelling.patch A handle rename's two sides are one name only when
  * their rosters are spelled alike byte for byte.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { drawn, explore, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -453,25 +453,31 @@ const listingFeatures = (listing: Listing): ReadonlyArray<Listed> => {
 const aimCandidates = 32
 
 /**
- * The command line a case reads: the drawn one, or, where steering names situations no case has reached, the first of
- * up to `aimCandidates` further draws that reaches one, else the drawn one.
+ * The command line a case reads, drawn under its steering: a drawn one, or, where steering names situations no case has
+ * reached and the drawn one reaches none, the first of up to `aimCandidates` further draws that reaches one, else the
+ * drawn one. The command line chosen is the sketch, so a kept case reads it unsteered.
  */
-const aimedListing = (drawnListing: Listing, c: Case<Listed>): Listing =>
-	Option.match(c.steering, {
-		onNone: () => drawnListing,
-		onSome: (pending) => {
-			const reaches = (l: Listing) => Arr.some(listingFeatures(l), (f) => pending.has(f))
-			return reaches(drawnListing)
-				? drawnListing
-				: Option.getOrElse(
-						Arr.findFirst(
-							c.draw(array(listingGen, { min: aimCandidates, max: aimCandidates })),
-							reaches
-						),
-						() => drawnListing
-					)
-		}
-	})
+const listingDraw = steered<Listing, Listing, Listed>(
+	(steering) => (source) => {
+		const drawnListing = source.draw(listingGen)
+		return Option.match(steering, {
+			onNone: () => drawnListing,
+			onSome: (pending) => {
+				const reaches = (l: Listing) => Arr.some(listingFeatures(l), (f) => pending.has(f))
+				return reaches(drawnListing)
+					? drawnListing
+					: Option.getOrElse(
+							Arr.findFirst(
+								source.draw(array(listingGen, { min: aimCandidates, max: aimCandidates })),
+								reaches
+							),
+							() => drawnListing
+						)
+			}
+		})
+	},
+	(listing) => listing
+)
 
 /** A handle rename's new side: a roster and a handle. */
 interface Renamed {
@@ -632,7 +638,7 @@ describe("the rename declaration reader", () => {
 				explore(
 					{
 						suite: "unit/cli/renames-lists",
-						draw: drawn(listingGen),
+						draw: listingDraw,
 						literal: Formatter.format,
 						coverage: required<Listed>(
 							["parsed", "twice", "merged", "refused", "an alike repeat"],
@@ -649,9 +655,8 @@ describe("the rename declaration reader", () => {
 							name: "D9: one declaration per old name and per new name, names alike being one"
 						}
 					},
-					(drawnListing, c) =>
+					(listing, c) =>
 						Effect.sync(() => {
-							const listing = aimedListing(drawnListing, c)
 							const ruling = listRuling(listing)
 							const read = parseDeclarations(listing.renames, listing.drops)
 							c.noteAll(listingFeatures(listing))

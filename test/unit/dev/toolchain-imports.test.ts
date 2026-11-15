@@ -18,7 +18,7 @@
  * @plant test/plants/unit/dev/toolchain-imports-grizzle-oxfmt.patch The script formats what it renamed with oxfmt from
  * grizzle's root, under grizzle's configuration; the property fails.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, option } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -102,20 +102,12 @@ const drawnGen: Gen<Drawn> = drawnOf(packageGen, packageGen)
 
 type Feature = "a moved import renamed" | "a file with nothing to rename left as it was"
 
-/** The file each feature is aimed at while it is pending (Case.steering): a moved import first, or no moved import. */
+/** The file each feature is aimed at while it is pending: a witness whose turn aims at one draws that file (aimed), the
+ * file it runs, prints and keeps: a moved import first, or no moved import. */
 const aims: Arr.NonEmptyReadonlyArray<readonly [Feature, Gen<Drawn>]> = [
 	["a moved import renamed", drawnOf(movedGen, packageGen)],
 	["a file with nothing to rename left as it was", drawnOf(keptGen, keptGen)]
 ]
-
-/** The file a case runs: its drawn one, or, while a feature is pending, the one aimed at its turn's feature. */
-const aimedFile = (drawnFile: Drawn, c: Case<Feature>): Drawn =>
-	Option.match(
-		Option.flatMap(c.steering, (pending) =>
-			Arr.findFirst(aims, ([feature]) => pending.aimed(feature))
-		),
-		{ onNone: () => drawnFile, onSome: ([, reaching]) => c.draw(reaching) }
-	)
 
 /** A specifier as written under `scope` for a moved package, or as it is for a kept one. */
 const specifierOf = (from: Package, scope: "@grizzle" | "@bjornpagen"): string =>
@@ -170,7 +162,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("toolchain-imports", (i
 					return yield* explore(
 						{
 							suite: "unit/dev/toolchain-imports",
-							draw: drawn(drawnGen),
+							draw: aimed(drawnGen, aims),
 							literal: Formatter.format,
 							oracle: {
 								kind: "specification",
@@ -187,10 +179,9 @@ layer(NodeServices.layer, { excludeTestServices: true })("toolchain-imports", (i
 							steerEvery: 4,
 							caseHang
 						},
-						(drawnFile, c) =>
+						(file, c) =>
 							Effect.scoped(
 								Effect.gen(function* () {
-									const file = aimedFile(drawnFile, c)
 									const repository = yield* fs.makeTempDirectoryScoped({
 										prefix: "toolchain-imports-"
 									})

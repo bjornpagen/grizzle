@@ -1,5 +1,6 @@
-import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { aimed, explore, type Kept } from "@bjornpagen/testing/explore"
 import { type Reached, required } from "@bjornpagen/testing/features"
+import { constant, type Gen } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -283,8 +284,13 @@ const plantedRefusals = <P>(
 	return planted
 }
 
-/** Each requirement's situation and the planted case that reaches it. */
-type Aim = readonly [situation: Reached<FamilyFeature>, planted: FamilyCase]
+/**
+ * Each requirement's situation and the planted case that reaches it, the case a witness whose turn aims at that
+ * requirement draws (aimed): the one it runs, prints and keeps, so the steered phase reaches every requirement by
+ * construction, since a kept case never counts. The cases of one window aim at distinct pending requirements, so none
+ * waits behind another.
+ */
+type Aim = readonly [situation: Reached<FamilyFeature>, planted: Gen<FamilyCase>]
 
 const aimsOf = <P>(
 	family: Family<P>,
@@ -300,33 +306,12 @@ const aimsOf = <P>(
 			),
 			{
 				onNone: () => [],
-				onSome: (k): ReadonlyArray<Aim> => [[reachedOf(family, variants, q), k.kept.sketch]]
+				onSome: (k): ReadonlyArray<Aim> => [
+					[reachedOf(family, variants, q), constant(k.kept.sketch)]
+				]
 			}
 		)
 	)
-
-/**
- * The case a case runs: the drawn one, or, where the requirement its turn aims at (Case.steering) is one a planted case
- * reaches, that planted case, so the steered phase reaches every requirement by construction, since a kept case never
- * counts. The cases of one window aim at distinct pending requirements, so none waits behind another. A steered case
- * reads the steering it was drawn under, so it replays alike.
- */
-const aimedCase = (
-	drawnCase: FamilyCase,
-	steering: Case<FamilyFeature>["steering"],
-	aims: ReadonlyArray<Aim>
-): FamilyCase =>
-	Option.match(steering, {
-		onNone: () => drawnCase,
-		onSome: (pending) =>
-			Option.getOrElse(
-				Option.map(
-					Arr.findFirst(aims, ([situation]) => pending.aimed(situation)),
-					([, planted]) => planted
-				),
-				() => drawnCase
-			)
-	})
 
 /** A suite's own kept cases, by population: counterexamples its search once found, each replayed in every run. */
 export type KeptCases = Readonly<Record<Mode, ReadonlyArray<Kept<FamilyCase, FamilyFeature>>>>
@@ -394,7 +379,7 @@ export const familySuite = <P>(
 						{
 							oracle: { kind: "unstated" },
 							suite: `laws/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(family.label)}/${mode}`,
-							draw: drawn(familyCaseGen(variants.length)),
+							draw: aimed(familyCaseGen(variants.length), aims),
 							literal: Formatter.format,
 							coverage: required<FamilyFeature>(situations, { cases: 4 * cases, sense: notesOnly }),
 							kept: [...Arr.map(planted, (k) => k.kept), ...kept[mode]],
@@ -404,9 +389,8 @@ export const familySuite = <P>(
 							steerEvery: 16,
 							caseHang
 						},
-						(drawnCase, c) =>
+						(k, c) =>
 							Effect.gen(function* () {
-								const k = aimedCase(drawnCase, c.steering, aims)
 								const p = elementAt(variants, k.variant, "the family's schemas")
 								const schemaFeature: FamilyFeature = `schema ${family.describe(p)}`
 								const traits = Arr.map(

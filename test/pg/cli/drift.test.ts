@@ -32,8 +32,8 @@
  * mismatches naming every changed object, and passes once every change is undone.
  *
  * Features: every operator planted, nothing planted, several at once, and a privilege granted beside the role's
- * column grants, which a steered case whose turn aims at it constructs: the editor's first privilege on Note, whose
- * columns the editor holds SELECT on.
+ * column grants, which the generator constructs for a case whose turn aims at it: the editor's first privilege on Note,
+ * whose columns the editor holds SELECT on.
  *
  * @plant test/plants/pg/cli/workflow-drift-unchecked.patch The drift check compares no catalog fact, so drift passes
  * over every change made by hand.
@@ -43,7 +43,7 @@
  * privileges the role holds on no table alone, as it did before, so a SELECT the editor holds on Note's columns is
  * granted on the table and its undo takes the column grants away: the next case finds drift it never made.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -444,37 +444,43 @@ const besideColumnGrants: Picks = [
 	0
 ]
 
-/** How many candidates a steered case draws for plants that reach a pending situation. */
+/** How many candidates the generator draws, under steering, for plants that reach a pending situation. */
 const aimCandidates = 32
 
 /**
- * The plants a case runs: the drawn ones; or, where the case's turn aims at a privilege granted beside a role's column
- * grants, which the catalog decides and no draw of picks foresees, that privilege alone (besideColumnGrants); or,
- * where steering names situations no case has reached, the first of up to `aimCandidates` further draws that reaches
- * one, else the drawn one.
+ * A case's plants as the generator draws them: where the case's turn aims at a privilege granted beside a role's column
+ * grants, which the catalog decides and no draw of picks foresees, that privilege alone (besideColumnGrants); else the
+ * drawn ones, or, where steering names situations no case has reached and they reach none, the first of up to
+ * `aimCandidates` further draws that reaches one, else the drawn ones; a rotating case is drawn unaimed.
  */
-const aimedPlants = (drawnPlants: Plants, c: Case<DriftFeature>): Plants =>
-	Option.match(c.steering, {
+const aimedPlantsGen: Steered<Plants, DriftFeature> = (steering) => (source) => {
+	if (
+		Option.exists(steering, (pending) =>
+			pending.aimed("a privilege granted beside the role's column grants")
+		)
+	) {
+		return {
+			...plantsOf(() => Option.none()),
+			"a privilege granted": Option.some(besideColumnGrants)
+		}
+	}
+	const drawnPlants = source.draw(plantsGen)
+	return Option.match(steering, {
 		onNone: () => drawnPlants,
 		onSome: (pending) => {
-			if (pending.aimed("a privilege granted beside the role's column grants")) {
-				return {
-					...plantsOf(() => Option.none()),
-					"a privilege granted": Option.some(besideColumnGrants)
-				}
-			}
 			const reaches = (p: Plants) => Arr.some(plantsFeatures(p), (f) => pending.has(f))
 			return reaches(drawnPlants)
 				? drawnPlants
 				: Option.getOrElse(
 						Arr.findFirst(
-							c.draw(array(plantsGen, { min: aimCandidates, max: aimCandidates })),
+							source.draw(array(plantsGen, { min: aimCandidates, max: aimCandidates })),
 							reaches
 						),
 						() => drawnPlants
 					)
 		}
 	})
+}
 
 const at = DateTime.makeUnsafe({
 	year: 2026,
@@ -534,7 +540,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 							return yield* explore(
 								{
 									suite: "pg/cli/drift-worlds",
-									draw: drawn(plantsGen),
+									draw: steered(aimedPlantsGen, (plants) => plants),
 									literal: Formatter.format,
 									coverage: required<DriftFeature>(
 										[
@@ -566,9 +572,8 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 										name: "the catalog PostgreSQL holds after the changes by hand, as the drift check reads it"
 									}
 								},
-								(drawnPlants: Plants, c: Case<DriftFeature>) =>
+								(plants, c) =>
 									Effect.gen(function* () {
-										const plants = aimedPlants(drawnPlants, c)
 										c.noteAll(plantsFeatures(plants))
 										const planted = plantedOf(plants)
 										const changes = yield* Effect.forEach(planted, ([kind, picks]) =>

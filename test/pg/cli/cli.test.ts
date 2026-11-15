@@ -22,15 +22,15 @@
  * The oracle is each schema's own model: its directory, its committed snapshot and its ledger.
  *
  * Features: each executor, several schemas, the ledger fixture, each connection, and the refusal of a role that does not
- * own the schemas by each executor, so in process its typed refusal at stage owner is read; a steered case whose turn
- * aims at a refusal runs by its executor as that role.
+ * own the schemas by each executor, so in process its typed refusal at stage owner is read; the generator draws a case
+ * whose turn aims at a refusal run by its executor as that role (aimed).
  *
  * @plant test/plants/pg/cli/cli-owner-unchecked.patch migrate's owner stage passes a schema another role owns, so in
  * process the refusal of a role that does not own the schemas comes at a later stage than owner.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
-import { array, constant, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
+import { array, constant, element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
@@ -121,26 +121,22 @@ const configGen: Gen<ConfigSketch> = (source) => ({
 })
 
 /**
- * The configuration a case runs: the drawn one, or, while its steering's turn aims at a refusal by an executor, the
- * drawn one run by that executor and connected as a role that does not own the schemas (Case.steering). The steered
- * phase reaches each refusal so, which a draw of the executor and the connection apart reaches rarely.
+ * The configurations aimed at a refusal by an executor, each by its situation: the drawn configuration run by that
+ * executor and connected as a role that does not own the schemas, which a case whose turn aims at the refusal draws
+ * (aimed). The steered phase reaches each refusal so, which a draw of the executor and the connection apart reaches
+ * rarely.
  */
-const aimedSketch = (sketch: ConfigSketch, c: Case<CliFeature>): ConfigSketch =>
-	Option.match(
-		Option.flatMap(c.steering, (steering) =>
-			Arr.findFirst(executors, (executor) =>
-				steering.aimed(`a role that does not own the schemas refused, run by ${executor}`)
-			)
-		),
-		{
-			onNone: () => sketch,
-			onSome: (executor) => ({
-				...sketch,
-				executor,
-				connection: "a role that does not own the schemas"
-			})
-		}
-	)
+const refusalAims: ReadonlyArray<readonly [CliFeature, Gen<ConfigSketch>]> = Arr.map(
+	executors,
+	(executor): readonly [CliFeature, Gen<ConfigSketch>] => [
+		`a role that does not own the schemas refused, run by ${executor}`,
+		map(configGen, (sketch) => ({
+			...sketch,
+			executor,
+			connection: "a role that does not own the schemas"
+		}))
+	]
+)
 
 type CliFeature =
 	| `run by ${Executor}`
@@ -263,7 +259,7 @@ const configurations = (ctx: TestContext) =>
 					name: "each schema's own model: its directory, committed snapshot and ledger"
 				},
 				suite: "cli/configurations",
-				draw: drawn(configGen),
+				draw: aimed(configGen, refusalAims),
 				literal: Formatter.format,
 				kept: [],
 				runs: 3,
@@ -285,10 +281,9 @@ const configurations = (ctx: TestContext) =>
 					{ cases: 32, sense: notesOnly }
 				)
 			},
-			(drawnSketch, c) =>
+			(sketch, c) =>
 				Effect.scoped(
 					Effect.gen(function* () {
-						const sketch = aimedSketch(drawnSketch, c)
 						const substrate = yield* Substrate
 						c.note(`run by ${sketch.executor}`)
 						c.note(`connected by ${sketch.connection}`)

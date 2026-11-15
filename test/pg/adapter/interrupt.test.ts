@@ -27,7 +27,7 @@
  * @plant test/plants/pg/adapter/interrupt-lease-leaked.patch An interrupted call's retired session never counted out of
  * the pool's leases; the oracle's no session leased clause fails.
  */
-import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { explore, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -312,15 +312,16 @@ const situations: Arr.NonEmptyReadonlyArray<InterruptFeature> = [
 ]
 
 /**
- * The sketch a witness runs, aimed at what no witness reached yet (Case.steering): while no write has completed before
- * its gate, half its cases by a draw of their own are a write under no lock whose gate is past its end, its members and
- * gate type as drawn; while no read has been interrupted waiting for a safe snapshot, half of the rest are a
- * deferrable read under the owner's open transaction; a rotating or kept case runs as drawn.
+ * A sketch as the generator draws it, aimed at what no witness reached yet (Steered): while no write has completed
+ * before its gate, half its cases by a draw of their own are a write under no lock whose gate is past its end, its
+ * members and gate type as drawn; while no read has been interrupted waiting for a safe snapshot, half of the rest are
+ * a deferrable read under the owner's open transaction; a rotating case is drawn unaimed.
  */
-const aimedSketch = (sketch: CaseSketch, cx: Case<InterruptFeature>): CaseSketch => {
+const aimedSketchGen: Steered<CaseSketch, InterruptFeature> = (steering) => (source) => {
+	const sketch = source.draw(caseSketchGen)
 	const pending = (feature: InterruptFeature) =>
-		Option.exists(cx.steering, (features) => features.has(feature))
-	if (pending("write completed before the gate") && cx.draw(boolean)) {
+		Option.exists(steering, (features) => features.has(feature))
+	if (pending("write completed before the gate") && source.draw(boolean)) {
 		return {
 			...sketch,
 			call: "write",
@@ -329,7 +330,7 @@ const aimedSketch = (sketch: CaseSketch, cx: Case<InterruptFeature>): CaseSketch
 			point: { ...sketch.point, arm: "beyond" }
 		}
 	}
-	if (pending("interrupted where the server waits for a safe snapshot") && cx.draw(boolean)) {
+	if (pending("interrupted where the server waits for a safe snapshot") && source.draw(boolean)) {
 		return { ...sketch, call: "read", deferrable: true, blocker: "statement" }
 	}
 	return sketch
@@ -396,7 +397,7 @@ const interruptCases = Effect.gen(function* () {
 				name: "README: an interrupted call cancels exactly before its last answer and leaves the state before or after"
 			},
 			suite: `pg/adapter/interrupt`,
-			draw: drawn(caseSketchGen),
+			draw: steered(aimedSketchGen, (sketch) => sketch),
 			literal: Formatter.format,
 			coverage: required<InterruptFeature>(situations, { cases: 30, sense: notesOnly }),
 			kept: interruptKept,
@@ -406,10 +407,9 @@ const interruptCases = Effect.gen(function* () {
 			steerEvery: 16,
 			caseHang
 		},
-		(drawnSketch, cx) =>
+		(sketch, cx) =>
 			Effect.scoped(
 				Effect.gen(function* () {
-					const sketch = aimedSketch(drawnSketch, cx)
 					serial++
 					const before = yield* notesNow
 					const write = resolveWrite(sketch.members, before, serial)

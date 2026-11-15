@@ -22,7 +22,7 @@
  * @plant test/plants/pg/text/differential-arcs-undercounted.patch The compile space's held arcs of the optimized NFA
  * counted once (scalar/regex/space.ts), so a pattern past PostgreSQL's limit is admitted; the at-limit property fails.
  */
-import { drawn, explore, sketched } from "@bjornpagen/testing/explore"
+import { aimed, drawn, explore, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -39,7 +39,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Exit, Formatter, Option, Pool, String as Str } from "effect"
+import { Array as Arr, Effect, Exit, Formatter, Pool, String as Str } from "effect"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
 import { domainDigest } from "#compiler/core/fingerprint.ts"
@@ -228,7 +228,7 @@ const edgeLimits = [
 ] as const satisfies Arr.NonEmptyReadonlyArray<RegexSpaceMeasure["kind"]>
 type EdgeLimit = (typeof edgeLimits)[number]
 
-/** Each limit's shape, the one a case whose turn aims at that pending limit steers to (Case.steering). */
+/** Each limit's shape, the one a case whose turn aims at that pending limit draws (edgeAims). */
 const shapeOf: { readonly [K in EdgeLimit]: Gen<Growth> } = {
 	depth: nestingGen,
 	arcs: colorfulGen,
@@ -236,6 +236,12 @@ const shapeOf: { readonly [K in EdgeLimit]: Gen<Growth> } = {
 	matchCells: colorsGen,
 	anchors: anchorsGen
 }
+
+/** Each limit, with the shape a case whose turn aims at it draws (aimed). */
+const edgeAims: ReadonlyArray<readonly [EdgeFeature, Gen<Growth>]> = Arr.map(
+	edgeLimits,
+	(kind) => [kind, shapeOf[kind]] as const
+)
 
 /** A drawn shape, each limit's among them. */
 const growthGen: Gen<Growth> = weighted<Growth>([
@@ -594,7 +600,7 @@ layer(Substrate.layer)(
 						return yield* explore(
 							{
 								suite: "text/differential/at-limit",
-								draw: drawn(growthGen),
+								draw: aimed(growthGen, edgeAims),
 								literal: (growth) => Formatter.format(Str.slice(0, 160)(growth.at(1))),
 								oracle: {
 									kind: "postgresql",
@@ -608,18 +614,9 @@ layer(Substrate.layer)(
 								steerEvery: atLimitSteerEvery,
 								caseHang
 							},
-							(drawnGrowth, k) =>
+							(growth, k) =>
 								Effect.gen(function* () {
 									const db = yield* Pool.get(sessions)
-									const growth = Option.getOrElse(
-										Option.flatMap(k.steering, (pending) =>
-											Option.map(
-												Arr.findFirst(edgeLimits, (kind) => pending.aimed(kind)),
-												(kind) => k.draw(shapeOf[kind])
-											)
-										),
-										() => drawnGrowth
-									)
 									if (measureAt(growth, 1) !== "admitted") {
 										k.note("a shape refused at its first count")
 										return

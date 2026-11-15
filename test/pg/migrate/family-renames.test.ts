@@ -55,7 +55,7 @@
  * @plant test/plants/pg/migrate/violation-check-raises-under-another-name.patch The violation check raises under
  * `<law>_elsewhere` (render/sql.ts), so a broken regroup's refusal names no law of the family.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	boolean,
@@ -91,7 +91,6 @@ import { compileInstallation, type Installation } from "#compiler/physical/insta
 import { quoteIdent } from "#compiler/sql/print.ts"
 import {
 	type Aim,
-	aimedAt,
 	apply,
 	checkedAdmission,
 	kept,
@@ -1184,7 +1183,8 @@ const regroupedAs = (kind: RegroupKind): Gen<ChangeCase> =>
 		() => (admitted) => constant(Arr.contains(admitted, kind) ? kind : "kept")
 	)
 
-/** The cases each required regroup is aimed at while it is pending (Case.steering). */
+/** The cases each required regroup is aimed at while it is pending: the generator draws the one a case's turn aims at
+ * (aimed) in place of its plain draw. */
 const changeAims: ReadonlyArray<Aim<ChangeCase, ChangeFeature>> = [
 	["group kept on an ordered family", regroupedAs("kept")],
 	["group refused, moved onto a family, on an ordered family", regroupedAs("broken onto a family")],
@@ -1309,9 +1309,8 @@ const keyOrderIndices = (members: ReadonlyArray<Indexed>): ReadonlyArray<Indexed
 		at: Arr.filter(members, (other) => other.h === m.h && other.member < m.member).length
 	}))
 
-const changeCase = (drawnCase: ChangeCase, k: Case<ChangeFeature>) =>
+const changeCase = (c: ChangeCase, k: Case<ChangeFeature>) =>
 	Effect.gen(function* () {
-		const c = aimedAt(changeAims)(drawnCase, k)
 		k.noteAll([
 			c.shape.kind,
 			`fold ${c.shape.fold}`,
@@ -1478,7 +1477,7 @@ layer(Substrate.layer)(
 					explore(
 						{
 							suite: "pg/migrate/family-changes",
-							draw: drawn(changeCaseGen),
+							draw: aimed(changeCaseGen, changeAims),
 							literal: Formatter.format,
 							oracle: {
 								kind: "postgresql",

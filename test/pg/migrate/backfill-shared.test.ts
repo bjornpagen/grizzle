@@ -17,7 +17,7 @@
  * @plant test/plants/unit/deploy/backfill-pass-per-derivation.patch No member part joins its table's UPDATE, each
  * derivation written by an UPDATE of its own, so Member takes two.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -148,12 +148,12 @@ const reached = (c: SharedCase): ReadonlyArray<Feature> => {
 	]
 }
 
-/** The case run: the drawn one, or, while its steering leaves members out of their key order pending, one whose keys
+/** The case drawn: a plain one, or, while its steering leaves members out of their key order pending, one whose keys
  * are written from the highest down. */
-const aimed = (c: SharedCase, notes: Case<Feature>): SharedCase =>
-	Option.exists(notes.steering, (p) => p.names("members written out of their key order"))
-		? notes.draw(caseOf(descendingKeys))
-		: c
+const aimedGen: Steered<SharedCase, Feature> = (steering) =>
+	Option.exists(steering, (p) => p.names("members written out of their key order"))
+		? caseOf(descendingKeys)
+		: caseGen
 
 const namesOf = (declared: string) => {
 	const schemaIdent = quoteIdent(identifierOf(identity.schema(parsedSchemaName(declared))))
@@ -191,11 +191,10 @@ const inserted = (owner: RawSession, declared: string, c: SharedCase): Effect.Ef
 
 const failed = (report: string) => Effect.fail(new PropertyFailed({ report }))
 
-const property = (drawnCase: SharedCase, notes: Case<Feature>) =>
+const property = (c: SharedCase, notes: Case<Feature>) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
-			const c = aimed(drawnCase, notes)
 			for (const feature of reached(c)) {
 				notes.note(feature)
 			}
@@ -283,7 +282,7 @@ layer(Substrate.layer)("two families over one member table, backfilled", (it) =>
 							name: "the applied Structure file's UPDATEs of the member table, each owner's drawn count against its members counted over the written rows, and VALIDATE of both families' natives"
 						},
 						suite: "pg/migrate/backfill-shared",
-						draw: drawn(caseGen),
+						draw: steered(aimedGen, (c) => c),
 						literal: Formatter.format,
 						coverage: required<Feature>(features, { cases: 2 * features.length, sense: notesOnly }),
 						kept: [],

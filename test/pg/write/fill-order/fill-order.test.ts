@@ -1,6 +1,6 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
-import { constant, type Gen, int } from "@bjornpagen/testing/gen"
+import { constant, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { boundedShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -758,15 +758,15 @@ const ownerPutBesideReplacedCountedMember: ClusterCase = {
 }
 
 /**
- * The case a witness runs: its drawn one, or, while situations `aims` reaches are pending, a case of one of their aims,
- * drawn among them, so no aim that seldom reaches its situation holds back the others.
+ * The case a witness runs, drawn under its steering: while situations `aims` reaches are pending, a case of one of their
+ * aims, drawn among them, so no aim that seldom reaches its situation holds back the others; otherwise a drawn one. The
+ * generator draws it, so it is the case the search runs, prints and keeps.
  */
-const aimedCase = (drawnCase: ClusterCase, c: Case<ClusterSituation>): ClusterCase => {
-	const pending = Option.getOrUndefined(c.steering)
-	const open = Arr.filter(aims, ([situation]) => pending?.has(situation) === true)
-	return Arr.isReadonlyArrayNonEmpty(open)
-		? c.draw(defined(open[c.draw(int(0, open.length - 1))], "a pending aim")[1])
-		: drawnCase
+const clusterCases: Steered<ClusterCase, ClusterSituation> = (steering) => {
+	const open = Arr.filter(aims, ([situation]) =>
+		Option.exists(steering, (pending) => pending.has(situation))
+	)
+	return Arr.isReadonlyArrayNonEmpty(open) ? oneOf(Arr.map(open, ([, aim]) => aim)) : caseGen
 }
 
 layer(Substrate.layer, { excludeTestServices: true })("the fill order on the cluster", (it) => {
@@ -778,7 +778,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 				explore(
 					{
 						suite: "pg/write/fill-order",
-						draw: drawn(caseGen),
+						draw: steered(clusterCases, (k) => k),
 						literal: Formatter.format,
 						coverage: required<ClusterSituation>(situations, { cases: 60, sense: notesOnly }),
 						kept: [
@@ -890,9 +890,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 							name: "the reference writer (test/support/families/fill.ts writtenRows)"
 						}
 					},
-					(drawnCase, c) =>
+					({ spec, rows, followUp }, c) =>
 						Effect.gen(function* () {
-							const { spec, rows, followUp } = aimedCase(drawnCase, c)
 							const built = buildFill(spec)
 							const declared = built.rename("Fill")
 							const done = yield* installMigrated(declared, {

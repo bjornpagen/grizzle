@@ -24,7 +24,7 @@
  * @plant test/plants/unit/sql/quote-ident-undoubled.patch A quoted name's quotes are left undoubled; the quoted identifier search fails.
  * @plant test/plants/unit/sql/float-literal-precision.patch A float literal is printed to fifteen digits; the float literal search fails.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { drawn, explore, steered } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -380,21 +380,25 @@ const statementLines = (body: Arr.NonEmptyReadonlyArray<PlStatement>): ReadonlyA
 type WriteFeature = `wide ${WidePosition}` | "narrow" | "split"
 
 /**
- * A wide sketch aimed, where the case steers, at the wide position its turn falls on (Case.steering), so a few wide
- * cases reach every position rather than leave one to its share of chance; any other sketch as drawn.
+ * A block sketch, drawn under its steering: a wide one aimed, where the case steers, at the wide position its turn
+ * falls on, so a few wide cases reach every position rather than leave one to its share of chance; any other as drawn.
  */
-const aimed = (sketch: BlockSketch, steering: Case<WriteFeature>["steering"]): BlockSketch => {
-	const width = sketch.width
-	if (width.kind === "narrow") {
-		return sketch
-	}
-	return Option.match(
-		Option.flatMap(steering, (pending) =>
-			Arr.findFirst(widePositions, (at) => pending.aimed(`wide ${at}`))
-		),
-		{ onNone: () => sketch, onSome: (at) => ({ ...sketch, width: { ...width, at } }) }
-	)
-}
+const blockDraw = steered<BlockSketch, BlockSketch, WriteFeature>(
+	(steering) => (source) => {
+		const sketch = source.draw(blockSketch)
+		const width = sketch.width
+		if (width.kind === "narrow") {
+			return sketch
+		}
+		return Option.match(
+			Option.flatMap(steering, (pending) =>
+				Arr.findFirst(widePositions, (at) => pending.aimed(`wide ${at}`))
+			),
+			{ onNone: () => sketch, onSome: (at) => ({ ...sketch, width: { ...width, at } }) }
+		)
+	},
+	(sketch) => sketch
+)
 
 describe("PL/pgSQL through the line sink", () => {
 	it.effect(
@@ -409,7 +413,7 @@ describe("PL/pgSQL through the line sink", () => {
 							name: "a block's statement lines are the concatenation of any split's halves"
 						},
 						suite: "unit/sql/pl-width",
-						draw: drawn(blockSketch),
+						draw: blockDraw,
 						literal: Formatter.format,
 						kept: [],
 						runs: 96,
@@ -429,9 +433,8 @@ describe("PL/pgSQL through the line sink", () => {
 							{ cases: 96, sense: notesOnly }
 						)
 					},
-					(drawnSketch, c) =>
+					(sketch, c) =>
 						Effect.sync(() => {
-							const sketch = aimed(drawnSketch, c.steering)
 							const block = resolveBlock(sketch)
 							printStatement(triggerFunction(block))
 							doText(block)

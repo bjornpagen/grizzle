@@ -42,8 +42,8 @@
  *   selection makes true. On the server, each stored member's after set to its other branch (its before where the
  *   selection is true, its stepped value where it is false or unknown) must be refused by the fold's CHECK, 23514,
  *   wherever its integer is not 0. Coverage requires a member stepped by a selection that is one set read, true at the
- *   empty set of a flag completed nowhere, which the host's fill reads as the contract does; a steered case whose turn
- *   aims at it constructs it (aimedCase).
+ *   empty set of a flag completed nowhere, which the host's fill reads as the contract does; the generator constructs it
+ *   for a case whose turn aims at it (emptySetFoldGen).
  *
  * Each drawn row is written into each relation by grizzle's writer through the full world's served workload, one
  * insert per call: into a generated relation through the one insert of them all whose call holds the row in that
@@ -102,7 +102,7 @@
  * @plant test/plants/pg/closed/absent-row-reads-empty-as-full.patch PostgreSQL's C.row reads every handle where its
  * prefix is NULL or completed nowhere, so the guarded search accepts a row whose flags that read leaves unknown.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -110,6 +110,7 @@ import {
 	element,
 	type Gen,
 	int,
+	map,
 	oneOf,
 	subarray,
 	weighted
@@ -118,7 +119,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { boundedShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Record as Rec, Result } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
@@ -1435,34 +1436,26 @@ const foldedTotal = (c: AbsentCase, members: ReadonlyArray<Item>): number =>
 const keyedRows = (c: AbsentCase): ReadonlyArray<Item> =>
 	Arr.flatMap(c.items, (item) => Arr.map(codesBelow(c.world.kinds), (kind) => ({ ...item, kind })))
 
-/** One case: its schema installed, every row written into every relation, and the generated values read back. */
 /**
- * The case a search runs: the drawn one, or, where the case's turn aims at a fold stepping a member by the empty set of
- * a flag completed nowhere, the drawn one with the fold's selection that set read alone, `subset` of the row's own flag,
- * the first member's flag completed nowhere in FlagRel and its integer 1, so the fold steps it exactly where the
- * empty set is read as the contract reads it.
+ * A case aimed at a fold stepping a member by the empty set of a flag completed nowhere, which a case whose turn aims at
+ * it draws (aimed): a drawn one with the fold's selection that set read alone, `subset` of the row's own flag, the first
+ * member's flag completed nowhere in FlagRel and its integer 1, so the fold steps it exactly where the empty set is read
+ * as the contract reads it.
  */
-const aimedCase = (c: AbsentCase, notes: Case<Feature>): AbsentCase => {
+const emptySetFoldGen: Gen<AbsentCase> = map(caseGen, (c) => {
 	const [first, ...rest] = c.items
-	return Option.exists(notes.steering, (pending) =>
-		pending.aimed(
-			"a fold steps a member its selection, one set read, makes true at the empty set of a flag completed nowhere"
-		)
-	)
-		? {
-				...c,
-				world: {
-					...c.world,
-					next: Arr.map(c.world.next, (completions, flag) =>
-						flag === first.flag ? [] : completions
-					)
-				},
-				folded: { kind: "subset", of: "own" },
-				items: [{ ...first, n: 1 }, ...rest]
-			}
-		: c
-}
+	return {
+		...c,
+		world: {
+			...c.world,
+			next: Arr.map(c.world.next, (completions, flag) => (flag === first.flag ? [] : completions))
+		},
+		folded: { kind: "subset", of: "own" },
+		items: [{ ...first, n: 1 }, ...rest]
+	}
+})
 
+/** One case: its schema installed, every row written into every relation, and the generated values read back. */
 const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 	Effect.gen(function* () {
 		const built = schemaOf(c)
@@ -1878,7 +1871,12 @@ layer(Substrate.layer, { excludeTestServices: true })("a closed read at an absen
 			explore(
 				{
 					suite: "pg/closed/absent",
-					draw: drawn(caseGen),
+					draw: aimed(caseGen, [
+						[
+							"a fold steps a member its selection, one set read, makes true at the empty set of a flag completed nowhere",
+							emptySetFoldGen
+						]
+					]),
 					literal: Formatter.format,
 					oracle: {
 						kind: "specification",
@@ -2058,8 +2056,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a closed read at an absen
 					steerEvery: 8,
 					caseHang
 				},
-				(drawnCase: AbsentCase, notes: Case<Feature>) =>
-					absentCase(aimedCase(drawnCase, notes), notes)
+				absentCase
 			)
 		)
 	)

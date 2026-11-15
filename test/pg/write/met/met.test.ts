@@ -37,7 +37,7 @@
  * @plant test/plants/pg/write/met/met-occupant-met.patch occupantVerdict answers met for every insertion, so a differing
  * occupant is met where its key's law refuses it; the property fails.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -415,23 +415,16 @@ const reaching =
 		}
 	}
 
-/** Each required situation with the cases constructed to reach it. */
+/**
+ * Each required situation with the cases constructed to reach it: a witness whose turn aims at a pending one draws such
+ * a case (aimed), the case it runs, prints and keeps, so the cases of one window aim at distinct pending situations.
+ */
 const aims: ReadonlyArray<readonly [MetFeature, Gen<Met>]> = Arr.flatMap(names, (n) =>
 	Arr.map(
 		situationsOf(shapes[n].shape),
 		(situation) => [`${n}: ${situation}`, reaching(n, situation)] as const
 	)
 )
-
-/**
- * The case a witness runs: its drawn one, or, where its turn aims at a pending situation (Case.steering), one
- * constructed to reach it, drawn on the case's own tape, so the cases of one window aim at distinct pending situations.
- */
-const aimedCase = (drawnCase: Met, k: Case<MetFeature>): Met => {
-	const pending = Option.getOrUndefined(k.steering)
-	const aim = Arr.findFirst(aims, ([situation]) => pending?.aimed(situation) === true)
-	return Option.isNone(aim) ? drawnCase : k.draw(aim.value[1])
-}
 
 /** Rows in one order: by k, then a. */
 const byKey: Order.Order<Row> = Order.combine(
@@ -662,7 +655,7 @@ layer(Substrate.layer)("the rows an insertion met", (it) => {
 					return yield* explore(
 						{
 							suite: "pg/write/met",
-							draw: drawn(metGen),
+							draw: aimed(metGen, aims),
 							literal: Formatter.format,
 							oracle: {
 								kind: "specification",
@@ -676,9 +669,8 @@ layer(Substrate.layer)("the rows an insertion met", (it) => {
 							steerEvery: 16,
 							caseHang
 						},
-						(drawnCase, k) =>
+						(c, k) =>
 							Effect.gen(function* () {
-								const c = aimedCase(drawnCase, k)
 								const { shape } = shapes[c.relation]
 								const stated = Arr.filter(columnsOf(c.relation), (col) => col !== "id")
 								const valueOf = (f: Fact, col: string): number =>

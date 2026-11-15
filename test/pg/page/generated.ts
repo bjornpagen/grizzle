@@ -1,11 +1,21 @@
-import { type Case, drawn, type Kept } from "@bjornpagen/testing/explore"
+import { type Case, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec, Result } from "effect"
+import {
+	Array as Arr,
+	Data,
+	Effect,
+	Formatter,
+	Function,
+	Option,
+	Order,
+	Record as Rec,
+	Result
+} from "effect"
 import { DatabaseError } from "pg"
 import type { TestContext } from "vitest"
 import { type ReadError, ReadFailure } from "#adapter/errors/execution.ts"
@@ -468,15 +478,15 @@ const longOrderedCaseGen: Gen<OrderedCase> = map(
 )
 
 /**
- * The case a case pages: the drawn one, or, while the case's steering leaves a walk of 200 windows pending, a long
- * walk drawn from the case's own tape, which no drawn population of this size reaches by itself.
+ * The cases a witness pages: drawn ones (orderedCaseGen), or, while its steering leaves a walk of 200 windows pending
+ * (Pending `has`), a long walk (longOrderedCaseGen), which no drawn population of this size reaches by itself.
  */
-const aimedCase = (o: OrderedCase, c: Case<PageFeature>): OrderedCase =>
-	Option.exists(c.steering, (pending) =>
+const steeredOrderedCases: Steered<OrderedCase, PageFeature> = (steering) =>
+	Option.exists(steering, (pending) =>
 		pending.has("a walk of at least 200 windows in one direction")
 	)
-		? c.draw(longOrderedCaseGen)
-		: o
+		? longOrderedCaseGen
+		: orderedCaseGen
 
 const printCase = (o: OrderedCase): string =>
 	`order: rotate ${o.rotate}, stated ${o.stated}, ${Arr.join(
@@ -1540,7 +1550,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 							const s = yield* Substrate
 							const schema = yield* s.schema({ create: false, label: "page_rt" })
 							return yield* oracleCheck(
-								drawn(orderedCaseGen),
+								steered(steeredOrderedCases, Function.identity),
 								{
 									suite: `page/generated-${artifact}`,
 									oracle: {
@@ -1554,7 +1564,7 @@ export const generatedSuite = (artifact: PageArtifactName): void => {
 									shrink: completeShrink,
 									perturb: "all"
 								},
-								(o, c) => runCase(aimedCase(o, c), schema, c, ctx)
+								(o, c) => runCase(o, schema, c, ctx)
 							)
 						})
 					)

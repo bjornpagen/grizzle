@@ -35,7 +35,7 @@
  * @plant test/plants/unit/served/served-claims-uncast.patch The cut leaves a context's claims out of the domains a
  * write casts to (adapter/served/project.ts refusalsOf), so the claim's domain is no law of the cut.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { element, type Gen, int, map, subarray } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -56,7 +56,11 @@ import type { ConcurrentChangeTag } from "#compiler/runtime/write/refusal.ts"
 import type { Refuser } from "#compiler/runtime/write/witness.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
+import {
+	type CaseSketch,
+	caseSketchGen,
+	resolveCase
+} from "#test/support/oracle/public/generate.ts"
 import {
 	type LawFeature,
 	type LawLevel,
@@ -486,23 +490,45 @@ const differential = (
 const contractClaim: Feature =
 	"a write reading a context field whose contract domain types only unwritten stored columns"
 
+/** How a case draws its login: as drawn, or aimed at a write casting a context claim to a checked contract's domain. */
+type Login = "drawn" | "contract claim"
+
+/** A case's sketch: its schema's, its law level, and how it draws its login. */
+type Sketch = readonly [CaseSketch, LawLevel, Login]
+
+/** A sketch whose login is drawn as `login` says. */
+const sketchGen =
+	(login: Login): Gen<Sketch> =>
+	(source) => [source.draw(caseSketchGen), source.draw(lawLevelGen), login]
+
 /**
- * The login a case's roles are: its drawn ones, or, where its turn aims at a write casting a context claim to a checked
- * contract's domain that types only unwritten columns (Case.steering), the one role constructed to (served-login.ts
- * contractClaimRoleGen), where the schema holds such a claim and an entry target apart from it. A drawn role meets it
- * only with a query entry, a write through it, a held claim drawn as a checked contract's field among every claim
- * field, and no write to a relation that contract types, and the streams the suite's label fixes held none.
+ * A witness whose turn aims at a write casting a context claim to a checked contract's domain that types only unwritten
+ * columns draws a sketch whose login is constructed to (aimed); any other case, a drawn one. A drawn role meets it only
+ * with a query entry, a write through it, a held claim drawn as a checked contract's field among every claim field, and
+ * no write to a relation that contract types, and the streams the suite's label fixes held none.
  */
-const aimedLogin = (
+const sketchDraw = aimed(sketchGen("drawn"), [[contractClaim, sketchGen("contract claim")]])
+
+/**
+ * The login a case's roles are, as its sketch says: drawn ones, or the one role constructed to cast a context claim to
+ * a checked contract's domain that types only unwritten columns (served-login.ts contractClaimRoleGen), where the
+ * schema holds such a claim and an entry target apart from it.
+ */
+const loginOf = (
 	drawn: DrawnSchema,
-	notes: Case<Feature>
-): Arr.NonEmptyReadonlyArray<RoleShape> =>
-	Option.exists(notes.steering, (pending) => pending.aimed(contractClaim))
-		? Option.match(notes.draw(contractClaimRoleGen(drawn)), {
-				onNone: () => notes.draw(loginGen(drawn)),
+	login: Login,
+	draw: <A>(generator: Gen<A>) => A
+): Arr.NonEmptyReadonlyArray<RoleShape> => {
+	switch (login) {
+		case "drawn":
+			return draw(loginGen(drawn))
+		case "contract claim":
+			return Option.match(draw(contractClaimRoleGen(drawn)), {
+				onNone: () => draw(loginGen(drawn)),
 				onSome: (role): Arr.NonEmptyReadonlyArray<RoleShape> => [role]
 			})
-		: notes.draw(loginGen(drawn))
+	}
+}
 
 describe("a served login's classifier", () => {
 	it.effect(
@@ -517,9 +543,7 @@ describe("a served login's classifier", () => {
 							name: "the installation's full classifier (adapter/served/refusals.ts installationWitness), over the refusals test/support/served-reach.ts computes"
 						},
 						suite: "unit/served/refusals",
-						draw: drawn(
-							(source) => [source.draw(caseSketchGen), source.draw(lawLevelGen)] as const
-						),
+						draw: sketchDraw,
 						literal: Formatter.format,
 						coverage: required<Feature>(
 							[
@@ -546,10 +570,16 @@ describe("a served login's classifier", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					([sketch, level], notes) =>
+					([sketch, level, login], notes) =>
 						Effect.suspend(() => {
 							const drawn = drawnSchema(notes.draw(resolveCase(sketch)), level)
-							return differential(drawn, level, aimedLogin(drawn, notes), notes.draw, notes.note)
+							return differential(
+								drawn,
+								level,
+								loginOf(drawn, login, notes.draw),
+								notes.draw,
+								notes.note
+							)
 						})
 				)
 			)

@@ -1,5 +1,10 @@
-import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
-import { type Reached, required, type Situations } from "@bjornpagen/testing/features"
+import { type Case, type Draw, explore, type Kept } from "@bjornpagen/testing/explore"
+import {
+	type Pending as Unreached,
+	type Reached,
+	required,
+	type Situations
+} from "@bjornpagen/testing/features"
 import { element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -929,9 +934,10 @@ export const docsAtBoundRealities = (base: BaseSpec, host: HostSchema): Gen<Host
 /**
  * A program case: an installation and the ambient session its owner sessions start under
  * (test/support/ambient.ts), the case's swarm weights (its kinds the suite's focus), the weights of its lead's draws,
- * and how many actions its program runs after them. The property draws the rest from the case's own tape (`Case.draw`):
- * the reality once the installation's names exist, and each action from the model's state as the program reaches it,
- * so every draw replays and shrinks with the case.
+ * what its steering left pending, resolved as it was drawn (PendingFeatures), and how many actions its program runs
+ * after them. The property draws the rest from the case's own tape (`Case.draw`): the reality once the installation's
+ * names exist, and each action from the model's state as the program reaches it, so every draw replays and shrinks
+ * with the case.
  */
 export interface ProgramCase {
 	readonly install: InstallSpec
@@ -940,6 +946,7 @@ export interface ProgramCase {
 	readonly lead: Lead
 	/** Whether the program takes a targeted lead (Leading). */
 	readonly led: boolean
+	readonly pending: PendingFeatures
 	readonly steps: number
 }
 
@@ -947,51 +954,63 @@ export interface ProgramCase {
 export type CaseDraw = Case<WorldFeature>["draw"]
 
 /**
- * What a case's steering leaves pending, read of the library's steering (`Case.steering`): none where a case may not
- * steer (the rotating stream, a kept case), so it aims at nothing; otherwise, a replay of a steered case among them,
- * since its token carries the steering it was drawn under, whether an aim, any text, is still pending: a feature of
- * the worlds feature map or of the suite's own requirements that a required situation the run had not reached when the
- * case's window began holds, or any other text, a lead's own move among them, which no case notes.
+ * What a case's steering left pending, resolved by the generator that drew it (pendingOf) and kept in its sketch, so a
+ * kept case and a replay aim as the case drawn did: none where it was drawn under no steering (the rotating stream),
+ * so it aims at nothing; otherwise each feature of the worlds feature map and of the suite's own requirements that a
+ * required situation the run had not reached when the case's window began names.
+ */
+export type PendingFeatures = Option.Option<ReadonlyArray<string>>
+
+/**
+ * What a case's pending features (PendingFeatures) leave pending of an aim, any text: none where the case was drawn
+ * under no steering, so it aims at nothing; otherwise whether the aim is one of them, or no feature of the worlds
+ * feature map or of the suite's own requirements at all, a lead's own move among them, which no case notes.
  */
 export type Pending = Option.Option<(aim: string) => boolean>
 
-/** Every feature of the worlds feature map by its text: the features a suite requires, and so the ones it aims at. */
-const requirable: ReadonlyMap<string, WorldFeature> = new Map<string, WorldFeature>(
-	Arr.map(
-		Arr.flatMap(requiredWorldFeatures, (r): ReadonlyArray<WorldFeature> =>
-			Predicate.isString(r) ? [r] : r
-		),
-		(feature) => [feature, feature] as const
-	)
-)
+/** The features of required situations, each pair as its two features. */
+const featuresIn = <F extends string>(required: ReadonlyArray<Reached<F>>): ReadonlyArray<F> =>
+	Arr.flatMap(required, (r): ReadonlyArray<F> => (Predicate.isString(r) ? [r] : r))
+
+/** Every feature of the worlds feature map: the features a suite requires, and so the ones it aims at. */
+const requirable: ReadonlyArray<WorldFeature> = featuresIn<WorldFeature>(requiredWorldFeatures)
 
 /**
- * A case's pending aims (Pending), each feature of the worlds feature map (requirable) and of the suite's own
- * requirements `required` read of the case's steering, so a feature a suite of its own requires (an education role's
- * write, say) is pending only while it is.
+ * Every feature a case's aims may name as a requirement: each of the worlds feature map (requirable) and each of the
+ * suite's own requirements `required`.
  */
-const pendingOf = <F extends string>(
-	steering: Case<F | WorldFeature>["steering"],
+const namedOf = <F extends string>(
+	required: ReadonlyArray<Reached<F | WorldFeature>>
+): ReadonlyArray<F | WorldFeature> => [...requirable, ...featuresIn<F | WorldFeature>(required)]
+
+/**
+ * What the steering a case is drawn under leaves pending (PendingFeatures): each feature named (namedOf) that a required
+ * situation still pending names, so a feature a suite of its own requires (an education role's write, say) is pending
+ * only while it is. A generator resolves it into the sketch it draws.
+ */
+export const pendingOf = <F extends string>(
+	steering: Option.Option<Unreached<F | WorldFeature>>,
+	required: ReadonlyArray<Reached<F | WorldFeature>>
+): PendingFeatures =>
+	Option.map(steering, (unreached) =>
+		Arr.fromIterable(new Set<string>(Arr.filter(namedOf<F>(required), (f) => unreached.names(f))))
+	)
+
+/** A case's pending aims (Pending), read of its pending features as resolved of the suite's requirements `required`. */
+const pendingIn = <F extends string>(
+	features: PendingFeatures,
 	required: ReadonlyArray<Reached<F | WorldFeature>>
 ): Pending => {
-	const named = new Map<string, F | WorldFeature>([
-		...requirable,
-		...Arr.map(
-			Arr.flatMap(required, (r): ReadonlyArray<F | WorldFeature> =>
-				typeof r === "string" ? [r] : r
-			),
-			(feature) => [feature, feature] as const
-		)
-	])
-	return Option.map(steering, (pending) => (aim: string) => {
-		const feature = named.get(aim)
-		return feature === undefined || pending.names(feature)
+	const named = new Set<string>(namedOf<F>(required))
+	return Option.map(features, (pending) => {
+		const still = new Set<string>(pending)
+		return (aim: string) => !named.has(aim) || still.has(aim)
 	})
 }
 
 /**
  * A program's lead: the weights of the draws it makes before its own steps, one per draw, from the case's weights, its
- * installation and what the case's steering leaves pending. A move a suite needs is drawn here by construction, not by
+ * installation and what the case's steering left pending. A move a suite needs is drawn here by construction, not by
  * weighting the program's own draws: a draw narrowed to one kind and role, or aimed on every draw at the move (Aims
  * `every`). A lead toward required features draws only while one of them is pending (whilePending).
  */
@@ -999,7 +1018,7 @@ export type Lead = (weights: Weights, install: InstallSpec, at: Leading) => Read
 
 /**
  * Where a program's lead stands: whether the case takes a targeted lead at all (three in four do; the fourth keeps
- * every draw its own, from the staged state, as an unsteered program would), and what the case's steering leaves
+ * every draw its own, from the staged state, as an unsteered program would), and what the case's steering left
  * pending (Pending), read only by a lead that needs it.
  */
 export interface Leading {
@@ -1018,9 +1037,9 @@ export const leadsOf =
 
 /**
  * A targeted lead's draws, in a case that takes its lead, while a feature it reaches is still pending; none once every
- * one is reached, nor where the case may not steer, so a lead spends no program's draws on what the population already
- * holds, the rotating stream's cases are plain draws of the suite's distribution, and one program in four keeps every
- * draw its own.
+ * one is reached, nor where the case was drawn under no steering, so a lead spends no program's draws on what the
+ * population already holds, the rotating stream's cases are plain draws of the suite's distribution, and one program
+ * in four keeps every draw its own.
  */
 export const whilePending = (
 	targets: ReadonlyArray<string>,
@@ -1033,11 +1052,7 @@ export const whilePending = (
 const requiredFeatures = (
 	required: ReadonlyArray<Reached<WorldFeature>>,
 	holds: (feature: WorldFeature) => boolean
-): ReadonlyArray<WorldFeature> =>
-	Arr.filter(
-		Arr.flatMap(required, (r): ReadonlyArray<WorldFeature> => (Predicate.isString(r) ? [r] : r)),
-		holds
-	)
+): ReadonlyArray<WorldFeature> => Arr.filter(featuresIn<WorldFeature>(required), holds)
 
 /** The validity weights of a live draw only. */
 const liveOnly: Weights["validity"] = { live: 1, stale: 0, wild: 0 }
@@ -1121,9 +1136,7 @@ export const aimsAt = <F extends string>(
 	required: ReadonlyArray<Reached<F>>,
 	read: FeatureReading<F>
 ): Aims => {
-	const [first, ...rest] = Arr.flatMap(required, (r): ReadonlyArray<F> =>
-		Predicate.isString(r) ? [r] : r
-	)
+	const [first, ...rest] = featuresIn<F>(required)
 	return first === undefined
 		? noAims
 		: {
@@ -1149,17 +1162,28 @@ const worldDraws = (spec: Pick<ProgramSuite, "focus" | "required" | "lead">): Dr
 	lead: spec.lead
 })
 
-/** The program cases of a suite's installations and draws, each running up to `maxSteps` actions after its lead. */
-export const programCaseGen =
-	(installs: Gen<InstallSpec>, { lead, ...draws }: Draws, maxSteps: number): Gen<ProgramCase> =>
-	(source) => ({
+/**
+ * The program cases of a suite's installations and draws, each running up to `maxSteps` actions after its lead, with
+ * what the steering it is drawn under leaves pending of the suite's requirements `required` resolved into its sketch
+ * (pendingOf): its lead and its aims read that alone, so the case a kept or replayed sketch runs is the one drawn.
+ */
+export const programDraw = <F extends string>(
+	installs: Gen<InstallSpec>,
+	{ lead, ...draws }: Draws,
+	maxSteps: number,
+	required: ReadonlyArray<Reached<F | WorldFeature>>
+): Draw<ProgramCase, ProgramCase, F | WorldFeature> => ({
+	generator: (steering) => (source) => ({
 		install: source.draw(installs),
 		ambient: source.draw(ambientSessionGen),
 		weights: { ...source.draw(weightsGen), ...draws },
 		steps: source.draw(int(1, maxSteps)),
 		led: source.draw(int(0, 3)) > 0,
+		pending: pendingOf<F>(steering, required),
 		lead
-	})
+	}),
+	resolve: (pc) => pc
+})
 
 /** A world brought to a case's start: the real world and the model's state of it. */
 export interface Staged {
@@ -1200,9 +1224,10 @@ export const drawAction = (draw: CaseDraw, state: ModelState, weights: Weights):
  * the features still pending that the program has not itself reached yet (`reached`, its own notes so far), so its
  * aimed draws spread over what is left rather than reaching one pending feature again and again; once the program
  * reached every pending one, to the pending ones; a lead's own moves, which no case notes, stay pending, and aims with
- * none pending stay as they are. Where the case may not steer, the weights are the case's own, unsteered, so every
- * case of the rotating stream is an independent draw of the suite's distribution, the only kind residual risk counts.
- * A case's steering is the snapshot its window began with, so every draw of a program reads one answer.
+ * none pending stay as they are. Where the case was drawn under no steering, the weights are the case's own, unsteered,
+ * so every case of the rotating stream is an independent draw of the suite's distribution, the only kind residual
+ * risk counts. A case's pending features are resolved once, as it is drawn, so every draw of a program reads one
+ * answer.
  */
 const steered = (weights: Weights, pending: Pending, reached: ReadonlySet<string>): Weights => {
 	const aims = weights.aims
@@ -1226,12 +1251,13 @@ const steered = (weights: Weights, pending: Pending, reached: ReadonlySet<string
 const nothingReached: ReadonlySet<string> = new Set<string>()
 
 /**
- * The weights of a case that draws one action, steered (steered): while a feature it aims at is pending, its draw is
- * aimed every time rather than half the time, since the case has no other draw for the unaimed half; once every one
- * is reached, or where the case may not steer, the case's own weights, whose aims keep their kind.
+ * The weights of a case that draws one action, steered (steered) by its pending features (PendingFeatures): while a
+ * feature it aims at is pending, its draw is aimed every time rather than half the time, since the case has no other
+ * draw for the unaimed half; once every one is reached, or where the case was drawn under no steering, the case's own
+ * weights, whose aims keep their kind.
  */
-export const steeredOnce = (weights: Weights, c: Pick<Case<WorldFeature>, "steering">): Weights => {
-	const pending = pendingOf(c.steering, requiredWorldFeatures)
+export const steeredOnce = (weights: Weights, features: PendingFeatures): Weights => {
+	const pending = pendingIn<WorldFeature>(features, requiredWorldFeatures)
 	const aimed = steered(weights, pending, nothingReached)
 	const aims = aimed.aims
 	return aims.kind === "half" &&
@@ -1581,28 +1607,29 @@ export const moveAction = (draw: CaseDraw, state: ModelState, move: LeadMove): A
 }
 
 /**
- * The moves of a led inductive case past its planned state, while a required feature is pending where the case steers
- * and always where it may not: a lead drawn from its tape evenly among the leads; its first move drawn evenly among the
- * actions of its kind the box offers in the planned state (offeredOf), or under the weights the lead aims it with; and
- * its later moves steered toward what is pending (steered). None where nothing is pending or the box offers an offered
- * lead's kind nothing. The case's one action aims at the required features as every case's does, so no draw of a case
- * steps more than the box of the state it is drawn in, each candidate once and its COMMIT after it at most
- * (commitAfter): no box is listed past another's move.
+ * The moves of a led inductive case past its planned state, while a required feature is pending (PendingFeatures)
+ * where the case was drawn steered and always where it was not: a lead drawn from its tape (`draw`) evenly among the
+ * leads; its first move drawn evenly among the actions of its kind the box offers in the planned state (offeredOf), or
+ * under the weights the lead aims it with; and its later moves steered toward what is pending (steered). None where
+ * nothing is pending or the box offers an offered lead's kind nothing. The case's one action aims at the required
+ * features as every case's does, so no draw of a case steps more than the box of the state it is drawn in, each
+ * candidate once and its COMMIT after it at most (commitAfter): no box is listed past another's move.
  */
 export const leadOf = (
 	required: ReadonlyArray<Reached<WorldFeature>>,
 	weights: Weights,
 	state: ModelState,
-	c: Pick<Case<WorldFeature>, "steering" | "draw">
+	features: PendingFeatures,
+	draw: CaseDraw
 ): ReadonlyArray<LeadMove> => {
-	const pending = pendingOf(c.steering, required)
+	const pending = pendingIn<WorldFeature>(features, required)
 	const [first, ...rest] = requiredFeatures(required, (f) =>
 		Option.match(pending, { onNone: () => true, onSome: (isPending) => isPending(f) })
 	)
 	if (first === undefined) {
 		return []
 	}
-	const lead = c.draw(element(inductiveLeads))
+	const lead = draw(element(inductiveLeads))
 	const after = Arr.map(lead.after(weights, [first, ...rest]), (w): LeadMove => ({
 		kind: "drawn",
 		weights: steered(w, pending, nothingReached)
@@ -1611,7 +1638,7 @@ export const leadOf = (
 		case "offered":
 			return Arr.match(offeredOf(state, [lead.first.of], weights.roles, aimScope), {
 				onEmpty: (): ReadonlyArray<LeadMove> => [],
-				onNonEmpty: (moves) => [{ kind: "taken", action: c.draw(element(moves)) }, ...after]
+				onNonEmpty: (moves) => [{ kind: "taken", action: draw(element(moves)) }, ...after]
 			})
 		case "aimed":
 			return [
@@ -1658,15 +1685,16 @@ interface Progress {
 	readonly reached: ReadonlySet<string>
 }
 
-/** A program case's lead draws (Lead), under what its case's steering leaves pending (Pending). */
+/** A program case's lead draws (Lead), under what its steering left pending (Pending). */
 const programLead = (pc: ProgramCase, pending: Pending): ReadonlyArray<Weights> =>
 	pc.lead(pc.weights, pc.install, { led: pc.led, pending })
 
 /**
  * Runs a case's program on its staged world: its lead's draws, each under its own weights, then `pc.steps` actions
  * under the case's; each drawn from the case's tape in the state the model is in after the one before (drawAction),
- * performed by the driver (runStep) and held to the suite's own rule. Its lead and its aims read what the case's
- * steering leaves pending of the suite's requirements `required` (pendingOf). Returns the last state.
+ * performed by the driver (runStep) and held to the suite's own rule. Its lead and its aims read what its steering left
+ * pending (`pc.pending`) as resolved of the suite's requirements `required`, the ones it was drawn under
+ * (programDraw). Returns the last state.
  */
 export const driveProgram = <F extends string>(
 	staged: Staged,
@@ -1676,7 +1704,7 @@ export const driveProgram = <F extends string>(
 	check: StepCheck
 ): Effect.Effect<ModelState, ModelMismatch> =>
 	Effect.suspend(() => {
-		const pending = pendingOf(c.steering, required)
+		const pending = pendingIn<F>(pc.pending, required)
 		const lead = programLead(pc, pending)
 		return Effect.map(
 			Effect.reduce(
@@ -1743,9 +1771,10 @@ export interface ProgramSuite {
 
 /**
  * A program case kept by value (explore's Kept): what its sketch drew of its own, every field of a ProgramCase but
- * those the suite's draws give every case (programCaseGen), its swarm weights' action and validity weights among them;
- * the tape token of what its program drew; and the features it must still reach. The suite's kinds, roles, aims and
- * lead complete its sketch (keptCase), so a kept case is plain data a failure's report prints.
+ * those the suite's draws give every case (programDraw), its swarm weights' action and validity weights and what its
+ * steering left pending among them; the tape token of what its program drew; and the features it must still reach.
+ * The suite's kinds, roles, aims and lead complete its sketch (keptCase), so a kept case is plain data a failure's
+ * report prints.
  */
 export interface KeptProgram {
 	readonly note: string
@@ -1756,7 +1785,7 @@ export interface KeptProgram {
 	readonly reaches: Arr.NonEmptyReadonlyArray<WorldFeature>
 }
 
-/** A kept program's case, its sketch completed by the suite's draws as programCaseGen completes a drawn one. */
+/** A kept program's case, its sketch completed by the suite's draws as programDraw completes a drawn one. */
 const keptCase = (
 	{ lead, ...draws }: Draws,
 	kept: KeptProgram
@@ -1879,16 +1908,15 @@ const programWidth = (pc: ProgramCase, lead: ReadonlyArray<Weights>): number => 
 /**
  * A program case's installation realized afresh in a substrate of its own (caseSubstrates), a database no case beside
  * it uses, every login's pool serial (serialPool), within the connections its program holds at once at most
- * (programWidth, its lead read under what the case's steering leaves pending of `required`).
+ * (programWidth, its lead read under what its steering left pending, resolved of `required` as driveProgram reads it).
  */
 export const realizedProgram = <F extends string>(
 	substrates: CaseSubstrate,
 	pc: ProgramCase,
-	c: Case<F | WorldFeature>,
 	required: ReadonlyArray<Reached<F | WorldFeature>>
 ): Effect.Effect<RealWorld, RealizeRefused | SqlError, Scope.Scope> =>
 	Effect.flatMap(
-		substrates(programWidth(pc, programLead(pc, pendingOf(c.steering, required)))),
+		substrates(programWidth(pc, programLead(pc, pendingIn<F>(pc.pending, required)))),
 		(substrate) =>
 			Effect.provideService(realizeRace(pc.install, pc.ambient, serialPool), Substrate, substrate)
 	)
@@ -1917,7 +1945,7 @@ export const programTests = (it: Vitest.MethodsNonLive<Substrate>, spec: Program
 							name: "the worlds model (test/support/worlds/model), stepped beside every action: its allowed observations, its stored relations and every open session's probe"
 						},
 						suite: spec.suite,
-						draw: drawn(programCaseGen(spec.installs, worldDraws(spec), spec.steps)),
+						draw: programDraw(spec.installs, worldDraws(spec), spec.steps, spec.required),
 						literal: Formatter.format,
 						coverage: required<WorldFeature>(spec.required, {
 							cases: programSteered * spec.cases,
@@ -1933,7 +1961,7 @@ export const programTests = (it: Vitest.MethodsNonLive<Substrate>, spec: Program
 					(pc, c) =>
 						Effect.scoped(
 							Effect.gen(function* () {
-								const world = yield* realizedProgram(substrates, pc, c, spec.required)
+								const world = yield* realizedProgram(substrates, pc, spec.required)
 								noteNaming(pc, c)
 								const staged = yield* stage(world, pc.install, c.draw, spec.realities)
 								yield* driveProgram(staged, pc, c, spec.required, spec.check)

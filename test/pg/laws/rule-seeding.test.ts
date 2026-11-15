@@ -54,8 +54,8 @@
  * COMMIT and read as OLD's values in its place; and one that deletes a link and its children at once, so one tuple
  * loses rows from several matches and the relaxation order decides which probe withdraws it. A drawn history reaches
  * either rarely, as it does a refusal by an inserted block, so each has a case constructed to reach it, which a witness
- * runs where its turn aims at the refusal (aimedCase): a lawful build drawn on the case's tape, then the withdrawal,
- * which leaves a source fact its every target fact withdrawn (withdrawalsOf). A key is refused by single-row deletes
+ * whose turn aims at the refusal draws (aimsOf): a lawful build, then the withdrawal, which leaves a source fact its
+ * every target fact withdrawn (withdrawalsOf). A key is refused by single-row deletes
  * of a block alone, which adds the facts it held out, and never by an unwind or an inserted block, so key's and
  * tagged's searches require the first refusal only.
  *
@@ -85,7 +85,7 @@
  * probe is read through) ranks a read a literal alone binds with one a key binds, so deep's probe of an L2 starts from
  * every key's L2 of value 1 and deep's locality search finds it reading more rows beside more keys.
  */
-import { drawn, explore, type Case as Search } from "@bjornpagen/testing/explore"
+import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -628,17 +628,14 @@ const withdrawalsOf = (shape: Shape): NonEmptyReadonlyArray<readonly [Withdrawal
 }
 
 /**
- * The case a witness runs: its drawn one, or, where its turn aims at a refusal a withdrawal reaches (Case.steering), the
- * case constructed to reach it, drawn on the case's own tape.
+ * Each refusal a shape's withdrawals reach, with the case constructed to reach it, which a witness whose turn aims at
+ * the refusal draws (aimed).
  */
-const aimedCase = (drawnCase: Case, search: Search<EquivalenceFeature>): Case => {
-	const pending = Option.getOrUndefined(search.steering)
-	const aim = Arr.findFirst(
-		withdrawalsOf(drawnCase.shape),
-		([withdrawal]) => pending?.aimed(refusedAfter[withdrawal]) === true
+const aimsOf = (shape: Shape): ReadonlyArray<readonly [EquivalenceFeature, Gen<Case>]> =>
+	Arr.map(
+		withdrawalsOf(shape),
+		([withdrawal, constructed]) => [refusedAfter[withdrawal], constructed] as const
 	)
-	return Option.isNone(aim) ? drawnCase : search.draw(aim.value[1])
-}
 
 /** The statements of one write on `seat`. */
 const statementsOf = (seat: Seat, op: Op): ReadonlyArray<string> => {
@@ -1102,7 +1099,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							return yield* explore(
 								{
 									suite: `laws/rule-seeding/${shape}`,
-									draw: drawn(caseGen(shape)),
+									draw: aimed(caseGen(shape), aimsOf(shape)),
 									literal: Formatter.format,
 									oracle: {
 										kind: "postgresql",
@@ -1119,7 +1116,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									steerEvery: 16,
 									caseHang
 								},
-								(c, search) => judgeHistory(installed, aimedCase(c, search), search.note)
+								(c, search) => judgeHistory(installed, c, search.note)
 							)
 						})
 					)

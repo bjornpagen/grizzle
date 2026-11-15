@@ -1,13 +1,13 @@
 diff --git a/test/pg/oracle/public/suite.ts b/test/pg/oracle/public/suite.ts
-index ebe9f79f..ac04d8bf 100644
+index 1a8fb14..d6a0c01 100644
 --- a/test/pg/oracle/public/suite.ts
 +++ b/test/pg/oracle/public/suite.ts
-@@ -260,7 +260,7 @@ const missingKeyCaseGen =
- /** The case a case runs: its drawn one, or, where its turn aims at a get of no row, missingKeyCaseGen's. */
- const aimedCase = (c: ProgramCase, search: Case<PublicFeature>): ProgramCase =>
- 	Option.exists(search.steering, (pending) => pending.aimed("get none"))
--		? Option.getOrElse(search.draw(missingKeyCaseGen(c)), () => c)
-+		? c
- 		: c
+@@ -292,7 +292,7 @@ const caseOf = (sketch: PublicSketch, c: Case<PublicFeature>): ProgramCase => {
+ 		case "sketched":
+ 			return sketched
+ 		case "a key left out":
+-			return Option.getOrElse(c.draw(missingKeyCaseGen(sketched)), () => sketched)
++			return sketched
+ 	}
+ }
  
- /**

@@ -1,4 +1,4 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	constant,
@@ -334,19 +334,29 @@ const aims = (
 ]
 
 /**
- * The plant a case runs: its drawn one, or, for a witness while some situation is pending, a draw of the arm of one
- * pending situation, itself drawn among them, so one steering window reaches several.
+ * The plant a case runs, drawn under its steering: a draw of every plant, or, for a witness while some situation is
+ * pending, a draw of the arm of one pending situation, itself drawn among them, so one steering window reaches several.
+ * The plant drawn is the sketch, so a kept case runs it unsteered.
  */
-const aimedPlant = (plant: Plant, c: Case<Situation>, programs: number, paths: number): Plant =>
-	Option.match(c.steering, {
-		onNone: () => plant,
-		onSome: (pending) => {
-			const [first, ...rest] = Arr.filter(aims(programs, paths), ([situation]) =>
-				pending.names(situation)
-			)
-			return first === undefined ? plant : c.draw(c.draw(element([first, ...rest]))[1])
-		}
-	})
+const plantDraw = (programs: number, paths: number) =>
+	steered<Plant, Plant, Situation>(
+		(steering) =>
+			Arr.match(
+				Option.match(steering, {
+					onNone: () => [],
+					onSome: (pending) =>
+						Arr.filter(aims(programs, paths), ([situation]) => pending.names(situation))
+				}),
+				{
+					onEmpty: () => plantGen(programs, paths),
+					onNonEmpty:
+						(arms): Gen<Plant> =>
+						(source) =>
+							source.draw(source.draw(element(arms))[1])
+				}
+			),
+		(plant) => plant
+	)
 
 /** The finding a plant makes: its kind, the served file it names, and what its problem must say. */
 interface Expected {
@@ -493,7 +503,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("served files", (it) =>
 					return yield* explore(
 						{
 							suite: "unit/cli/served",
-							draw: drawn(plantGen(programs.length, paths.length)),
+							draw: plantDraw(programs.length, paths.length),
 							literal: Formatter.format,
 							oracle: {
 								kind: "specification",
@@ -521,10 +531,9 @@ layer(NodeServices.layer, { excludeTestServices: true })("served files", (it) =>
 							steerEvery: 16,
 							caseHang
 						},
-						(drawnPlant, c) =>
+						(plant, c) =>
 							Effect.scoped(
 								Effect.gen(function* () {
-									const plant = aimedPlant(drawnPlant, c, programs.length, paths.length)
 									c.noteAll(situationsOf(plant, programs))
 									const ws = yield* workspace("served-planted")
 									yield* fs.copy(base, ws, { overwrite: true })

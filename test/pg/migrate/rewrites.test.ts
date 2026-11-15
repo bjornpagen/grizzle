@@ -24,8 +24,8 @@
  * @plant test/plants/pg/migrate/rewrites-one-statement-per-column.patch The diff drafts one ALTER TABLE per
  * subcommand again, so a table gaining two generated columns is rewritten twice.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
+import { type Case, explore, type Steered, steered } from "@bjornpagen/testing/explore"
+import { type Pending, required } from "@bjornpagen/testing/features"
 import { array, boolean, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -145,9 +145,9 @@ const reached = (d: Delta): ReadonlyArray<Feature> => [
 		: [])
 ]
 
-/** The delta a case runs: the drawn one, with every feature its steering leaves pending turned on. */
-const aimed = (d: Delta, c: Case<Feature>): Delta =>
-	Option.match(c.steering, {
+/** The delta drawn under a case's steering: the drawn one, with every feature its steering leaves pending turned on. */
+const aimed = (d: Delta, steering: Option.Option<Pending<Feature>>): Delta =>
+	Option.match(steering, {
 		onNone: () => d,
 		onSome: (pending) => ({
 			selections:
@@ -166,6 +166,13 @@ const aimed = (d: Delta, c: Case<Feature>): Delta =>
 			referenced: d.referenced || pending.names("a cross-table foreign key onto a new UNIQUE")
 		})
 	})
+
+/** A case under its steering: its delta aimed at what the steering leaves pending (aimed) and kept in the sketch, so a
+ * kept case runs the delta it was drawn with. */
+const caseSteered: Steered<RewriteCase, Feature> = (steering) => (source) => {
+	const c = source.draw(caseGen)
+	return { ...c, delta: aimed(c.delta, steering) }
+}
 
 const s = relation("S", { id: f.integer, x: f.integer }, ["id"])
 
@@ -274,7 +281,7 @@ const property = (c: RewriteCase, notes: Case<Feature>) =>
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
 			const observer = yield* rewriteObserver(substrate)
-			const d = aimed(c.delta, notes)
+			const d = c.delta
 			for (const feature of reached(d)) {
 				notes.note(feature)
 			}
@@ -355,7 +362,7 @@ layer(Substrate.isolatedLayer)("one rewrite per table on PostgreSQL", (it) => {
 							name: "PostgreSQL's table_rewrite events during the migration, and its catalog of the migrated and of a fresh installation"
 						},
 						suite: "pg/migrate/rewrites",
-						draw: drawn(caseGen),
+						draw: steered(caseSteered, (c) => c),
 						literal: Formatter.format,
 						coverage: required<Feature>(features, { cases: 2 * features.length, sense: notesOnly }),
 						kept: [],

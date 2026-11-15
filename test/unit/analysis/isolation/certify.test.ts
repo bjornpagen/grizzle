@@ -60,7 +60,7 @@
  * where a folder is part-way (55Z02) or the latest complete target is another snapshot (55Z01), before its first
  * statement takes a snapshot (adapter/wire/batch.ts Prologue, physical/ddl/ledger.ts snapshotGuardDdl). So no call of
  * the unfenced writers runs once a call of the relaxed reader can. A reader so relaxed is required, and a case of the
- * newlyFenced shape (newlyFencedGen) is built where a case's turn aims at it, so every run exercises the exemption.
+ * newlyFenced shape (newlyFencedGen) is drawn where a case's turn aims at it, so every run exercises the exemption.
  * Every counterexample comes out SERIALIZABLE.
  *
  * Planted in a scratch copy, each of these fails the search: condition 2's SERIALIZABLE readers left out; the fixpoint
@@ -185,7 +185,7 @@
  * a change member of a role that runs SERIALIZABLE reading a relation the role writes (serializableReasons); the
  * search fails.
  */
-import { type Case as Explored, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, element, type Gen, int, shuffled, subset, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -2340,19 +2340,6 @@ const shapeCaseGen =
 		return { sketch, shape, extension: s.draw(extensionGen(sketch)) }
 	}
 
-/**
- * The case a witness judges: its drawn one, or, where its turn aims at a situation a fixed shape reaches
- * (Explored.steering, shapeAims), a case of that shape drawn from its own tape, so every shape is reached however many
- * arms the shapes' draw holds. A rotating or kept case runs as drawn.
- */
-const aimedCase = (drawnCase: Case, k: Explored<IsolationFeature>): Case =>
-	Option.match(
-		Option.flatMap(k.steering, (pending) =>
-			Arr.findFirst(shapeAims, ([situation]) => pending.aimed(situation))
-		),
-		{ onNone: () => drawnCase, onSome: ([, shape]) => k.draw(shapeCaseGen(shape)) }
-	)
-
 const relationName = (i: number): string => `R${i}`
 
 /** Whether some role of the sketch deletes the relation, by a privilege or by a member of either of its forms. */
@@ -3500,6 +3487,16 @@ const shapeAims: ReadonlyArray<readonly [IsolationFeature, Exclude<Shape, "drawn
 	...Arr.map(shapes, (shape) => [`the ${shape}`, shape] as const)
 ]
 
+/**
+ * The case a witness judges, drawn under its steering: a drawn one, or, where its turn aims at a situation a fixed
+ * shape reaches (shapeAims), a case of that shape (aimed), so every shape is reached however many arms the shapes'
+ * draw holds. A rotating case is a plain draw.
+ */
+const caseDraw = aimed(
+	caseGen,
+	Arr.map(shapeAims, ([situation, shape]) => [situation, shapeCaseGen(shape)] as const)
+)
+
 const levelsOf = (verdicts: ReadonlyArray<RoleIsolation>) =>
 	Arr.map(verdicts, (v) => v.certificate.level)
 
@@ -4318,7 +4315,7 @@ describe("the isolation certifier", () => {
 				explore(
 					{
 						suite: "unit/analysis/isolation",
-						draw: drawn(caseGen),
+						draw: caseDraw,
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
@@ -4362,9 +4359,8 @@ describe("the isolation certifier", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(drawnCase, k) =>
+					(c, k) =>
 						Effect.sync(() => {
-							const c = aimedCase(drawnCase, k)
 							const input = inputOf(c.sketch)
 							const verdicts = verdictsOf(c.sketch, input.relations)
 							const expected = oracle(c.sketch)

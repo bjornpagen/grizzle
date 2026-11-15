@@ -20,15 +20,15 @@
  *   replication slot until the live leader it starts makes one, and its caller calls again, as the contract says. Over
  *   HTTP a read's once is its watch's first value, so it registers live too. A refusal of any other kind fails the case.
  *
- * A case whose turn aims at a pending write feature (Case.steering) runs one constructed to reach it (aimedCase): a put
- * of an item no stored item states, or a put of stored items as stored, so the label-fixed streams reach both.
+ * A case whose turn aims at a pending write feature is drawn constructed to reach it (aimed, aims): a put of an item no
+ * stored item states, or a put of stored items as stored, so the label-fixed streams reach both.
  *
  * @plant test/plants/pg/client/client-int8-decoded-as-number.patch live/wire.ts carrierWire.int8 decoding an int8 as a
  * number; a read's once over HTTP differs from the in-process once.
  * @plant test/plants/pg/client/client-watch-every-event.patch The client's watch takes a value at every event, before
  * `ready`; a read's watch differs from the in-process watch folded to its `ready`.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { boolean, constant, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -180,9 +180,9 @@ const caseGen: Gen<ClientCase> = (source) => {
 }
 
 /**
- * Each write feature with the case constructed to reach it, drawn on the case's own tape: a put of one item whose id
- * the stored items leave free, which no stored item states, so it is accepted; or a put of stored items exactly as
- * stored, so it is unchanged.
+ * Each write feature with the case constructed to reach it, which a case whose turn aims at the feature draws (aimed),
+ * so the cases of one window aim at distinct pending features: a put of one item whose id the stored items leave free,
+ * which no stored item states, so it is accepted; or a put of stored items exactly as stored, so it is unchanged.
  */
 const aims: ReadonlyArray<readonly [Feature, Gen<ClientCase>]> = [
 	[
@@ -210,16 +210,6 @@ const aims: ReadonlyArray<readonly [Feature, Gen<ClientCase>]> = [
 		}
 	]
 ]
-
-/**
- * The case a property runs: its drawn one, or, where its turn aims at a pending write feature (Case.steering), one
- * constructed to reach it, drawn on the case's own tape, so the cases of one window aim at distinct pending features.
- */
-const aimedCase = (drawnCase: ClientCase, k: Case<Feature>): ClientCase => {
-	const pending = Option.getOrUndefined(k.steering)
-	const aim = Arr.findFirst(aims, ([feature]) => pending?.aimed(feature) === true)
-	return Option.isNone(aim) ? drawnCase : k.draw(aim.value[1])
-}
 
 /** Whether two items state one fact. */
 const sameItem = (a: ItemFact, b: ItemFact): boolean =>
@@ -315,7 +305,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the client over HTTP", (i
 						name: "the same layer's in-process calls of the member (adapter/db/handles.ts memberCalls) and the live fold"
 					},
 					suite: "pg/client/client",
-					draw: drawn((source) => source.draw(caseGen)),
+					draw: aimed(caseGen, aims),
 					literal: Formatter.format,
 					coverage: required<Feature>(
 						[
@@ -338,9 +328,8 @@ layer(Substrate.layer, { excludeTestServices: true })("the client over HTTP", (i
 					steerEvery: 4,
 					caseHang
 				},
-				(drawnCase, notes) =>
+				({ stored, call, write }, notes) =>
 					Effect.gen(function* () {
-						const { stored, call, write } = aimedCase(drawnCase, notes)
 						const generated = yield* installGenerated(
 							(name) => ({
 								schema: itemsNamed(name),

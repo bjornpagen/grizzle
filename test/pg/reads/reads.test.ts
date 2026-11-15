@@ -18,8 +18,8 @@
  * @plant test/plants/pg/reads/reads-read-only-at-read-committed.patch Every read begins READ COMMITTED; the third
  * property fails.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
+import { drawn, explore, type Steered, steered } from "@bjornpagen/testing/explore"
+import { type Pending, required } from "@bjornpagen/testing/features"
 import {
 	array,
 	boolean,
@@ -295,33 +295,52 @@ const waits: Arr.NonEmptyReadonlyArray<Wait> = Arr.flatMap(
 /** What a wait reaches. */
 const waitingOn = (wait: Wait): SnapshotFeature => `${wait.read} waiting on ${wait.table.name}`
 
+/** Every wait's place in `waits`. */
+const waitPlaces: Arr.NonEmptyReadonlyArray<number> = Arr.map(waits, (_, at) => at)
+
 /**
- * The waits a case draws its own from: where the case steers, those whose feature the run had not reached when the
- * case's window began, so the floor stream draws each wait while it is pending rather than leaving it to its share of
- * chance; every wait once none is pending, and where the case may not steer, so the rotating stream's waits are plain
- * draws.
+ * The waits a case draws from, as their places in `waits`: where the case steers, those whose feature the run had not
+ * reached when the case's window began, so the floor stream draws each wait while it is pending rather than leaving it
+ * to its share of chance; every wait once none is pending, and where the case may not steer, so the rotating stream's
+ * waits are plain draws.
  */
-const waitsFor = (steering: Case<SnapshotFeature>["steering"]): Arr.NonEmptyReadonlyArray<Wait> =>
+const waitsFor = (
+	steering: Option.Option<Pending<SnapshotFeature>>
+): Arr.NonEmptyReadonlyArray<number> =>
 	Option.match(steering, {
-		onNone: () => waits,
+		onNone: () => waitPlaces,
 		onSome: (pending) =>
 			Arr.match(
-				Arr.filter(waits, (wait) => pending.has(waitingOn(wait))),
-				{ onEmpty: () => waits, onNonEmpty: (open) => open }
+				Arr.filter(waitPlaces, (at) => pending.has(waitingOn(Arr.getUnsafe(waits, at)))),
+				{ onEmpty: () => waitPlaces, onNonEmpty: (open) => open }
 			)
 	})
 
-/** A snapshot case: whether the commit deletes. Its wait is the case's own draw (waitsFor). */
+/** A snapshot case as drawn: its wait's place in `waits`, and whether the commit deletes. */
+interface SnapshotSketch {
+	readonly wait: number
+	readonly deletes: boolean
+}
+
+/** A snapshot case: the wait its read makes, and whether the commit deletes. */
 interface SnapshotCase {
+	readonly wait: Wait
 	readonly deletes: boolean
 }
 
 /**
  * The commit: a new account with an automatic and a manual task, one noted, and a stored task of each kind deleted,
- * so each statement's answer changes.
+ * so each statement's answer changes; and the wait, drawn among those the case's steering leaves (waitsFor).
  */
-const snapshotCaseGen: Gen<SnapshotCase> = (source) => ({
-	deletes: source.draw(boolean)
+const snapshotSketches: Steered<SnapshotSketch, SnapshotFeature> = (steering) => (source) => ({
+	deletes: source.draw(boolean),
+	wait: steering.pipe(waitsFor, element, source.draw)
+})
+
+/** The snapshot case a sketch states: the wait at its place in `waits`. */
+const snapshotCaseOf = (sketch: SnapshotSketch): SnapshotCase => ({
+	wait: Arr.getUnsafe(waits, sketch.wait),
+	deletes: sketch.deletes
 })
 
 /** A union's case: its facts, its order and its take. */
@@ -593,7 +612,7 @@ layer(Substrate.layer)("reads through Db", (it) => {
 								 * The read's backend waits on the holder's lock (the substrate's lock-wait barrier).
 								 */
 								suite: "reads/snapshot",
-								draw: drawn(snapshotCaseGen),
+								draw: steered(snapshotSketches, snapshotCaseOf),
 								kept: [],
 								runs: 24,
 								/**
@@ -606,9 +625,8 @@ layer(Substrate.layer)("reads through Db", (it) => {
 									{ cases: 24, sense: notesOnly }
 								)
 							},
-							(c, notes) =>
+							({ wait, deletes }, notes) =>
 								Effect.gen(function* () {
-									const wait = notes.steering.pipe(waitsFor, element, notes.draw)
 									const preRead = yield* reads[wait.read]
 									const pre = answer(preRead)
 									const g = group++
@@ -656,7 +674,7 @@ layer(Substrate.layer)("reads through Db", (it) => {
 										`INSERT INTO ${n(W.TaskNote)} (${names.column(W.TaskNote, "task")}, ${names.column(W.TaskNote, "note")}) VALUES ($1::uuid, 'committed')`,
 										[manual]
 									)
-									if (c.deletes) {
+									if (deletes) {
 										/** The previous case's automatic and manual task, each with what hangs on it. */
 										const gone = [uuidAt(0x40 + g - 1, 1), uuidAt(0x40 + g - 1, 2)]
 										const deleteGone = (

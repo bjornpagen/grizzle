@@ -22,12 +22,12 @@
  * Oracle: a model of the bounded union computed by definition, and the conservative artifact beside the optimized one.
  *
  * Features: each delivery of the take, each kind of the roster with and without a memo, and a heading group the take
- * cuts stored out of its order, which a steered turn aiming at it builds (cutOutOfOrderGen).
+ * cuts stored out of its order, which the generator builds on a turn aimed at it (cutOutOfOrderGen).
  *
  * @plant test/plants/pg/oracle/oracle-union-take-unordered.patch A heading group's statement of a union take drops its
  * ORDER BY (lower/shapes/index.ts groupSpec), so the group's LIMIT takes rows as stored.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -42,7 +42,7 @@ import {
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "effect"
 import { partRuns } from "#adapter/reader/execution.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
@@ -251,11 +251,13 @@ const agreed = (template: OracleTemplate) =>
 
 const sorted = (rows: ReadonlyArray<string>): ReadonlyArray<string> => Arr.sort(rows, Order.String)
 
-/** The case a case runs: its drawn one, or, where its turn aims at a cut group stored out of its order, one built to. */
-const aimedCase = (c: UnionCase, search: Case<Feature>): UnionCase =>
-	Option.exists(search.steering, (pending) => pending.aimed("a cut group stored out of its order"))
-		? search.draw(cutOutOfOrderGen)
-		: c
+/**
+ * The situation a drawn case seldom reaches, with the case built to reach it: a witness whose turn aims at a cut group
+ * stored out of its order draws cutOutOfOrderGen's case (aimed), the case it runs, prints and keeps.
+ */
+const aims: ReadonlyArray<readonly [Feature, Gen<UnionCase>]> = [
+	["a cut group stored out of its order", cutOutOfOrderGen]
+]
 
 /**
  * Whether the take cuts a heading group whose first `k` rows as stored are not its first `k` in the completed order, so
@@ -307,7 +309,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									name: "the bounded union computed by definition, and the conservative artifact"
 								},
 								suite: "oracle/union-take",
-								draw: drawn(caseGen),
+								draw: aimed(caseGen, aims),
 								literal: Formatter.format,
 								coverage: required<Feature>(
 									[
@@ -326,9 +328,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								steerEvery: 8,
 								caseHang
 							},
-							(drawnCase, c) =>
+							(unionCase, c) =>
 								Effect.gen(function* () {
-									const unionCase = aimedCase(drawnCase, c)
 									const { facts, union } = modelOf(unionCase, code)
 									yield* replaceMigrated(installed, facts)
 									const k = unionCase.k

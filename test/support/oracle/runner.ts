@@ -9,7 +9,7 @@ import {
 	type PropertyFalsified,
 	type Run as SearchRun,
 	type SearchFailure,
-	sketched
+	steered
 } from "@bjornpagen/testing/explore"
 import { failureText } from "@bjornpagen/testing/failure"
 import type { Coverage } from "@bjornpagen/testing/features"
@@ -1256,11 +1256,12 @@ const perturbations = (perturb: CheckOptions<unknown, string>["perturb"]): Gen<P
 }
 
 /**
- * The exploration of a check: the suite's draw with each case's perturbation drawn after its sketch, so the two shrink
- * together; a kept sketch replays unperturbed, and a sketch prints as the suite prints it, ready to keep.
+ * The exploration of a check: the suite's draw, under the case's steering, with each case's perturbation drawn after
+ * its sketch, so the two shrink together; a kept sketch replays unperturbed, and a sketch prints as the suite prints
+ * it, ready to keep.
  */
 const checked = <S, T, F extends string, E, R>(
-	draw: Draw<S, T>,
+	draw: Draw<S, T, F>,
 	options: CheckOptions<S, F>,
 	property: (value: T, c: Case<F>) => Effect.Effect<void, E, R>
 ): Effect.Effect<Explored, SearchFailure, SearchRun | Exclude<R, Scope.Scope>> =>
@@ -1268,14 +1269,15 @@ const checked = <S, T, F extends string, E, R>(
 		{
 			oracle: options.oracle,
 			suite: options.suite,
-			draw: sketched(
-				(source): readonly [S, Conditions] => [
-					source.draw(draw.generator),
-					{
-						perturbation: source.draw(perturbations(options.perturb)),
-						restorage: source.draw(restorageGen)
-					}
-				],
+			draw: steered(
+				(steering) =>
+					(source): readonly [S, Conditions] => [
+						source.draw(draw.generator(steering)),
+						{
+							perturbation: source.draw(perturbations(options.perturb)),
+							restorage: source.draw(restorageGen)
+						}
+					],
 				([sketch, conditions]): readonly [T, Conditions] => [draw.resolve(sketch), conditions]
 			),
 			literal: ([sketch]) => options.literal(sketch),
@@ -1297,10 +1299,11 @@ const checked = <S, T, F extends string, E, R>(
  * Explores `property` over the suite's draw with the library's exploration, each case under a plan perturbation drawn
  * with it. A case fails when the property fails or dies; the exploration then shrinks it and fails with the shrunk
  * case's report, its perturbation appended. Plain suites pass `drawn(gen)`; a suite with kept sketches passes
- * `sketched(gen, resolve)` and its kept sketches, which replay unperturbed.
+ * `sketched(gen, resolve)` and its kept sketches, which replay unperturbed; a suite whose generator aims at what is
+ * pending passes `aimed(gen, aims)` or `steered(generator, resolve)`, drawn under each case's steering.
  */
 export const oracleCheck = <S, T, F extends string, E, R>(
-	draw: Draw<S, T>,
+	draw: Draw<S, T, F>,
 	options: CheckOptions<S, F>,
 	property: (value: T, c: Case<F>) => Effect.Effect<void, E, R>
 ): Effect.Effect<Explored, SearchFailure, SearchRun | Exclude<R, Scope.Scope>> =>
@@ -1366,7 +1369,7 @@ type LastFailure<T> = { readonly value: T; readonly verdict: Option.Option<KillV
  * a stall, an unreached feature, a stale kept case) fails it still.
  */
 export const oracleKill = <S, T, F extends string, R>(
-	draw: Draw<S, T>,
+	draw: Draw<S, T, F>,
 	options: CheckOptions<S, F>,
 	property: (value: T, c: Case<F>) => Effect.Effect<void, Verdict, R>
 ): Effect.Effect<

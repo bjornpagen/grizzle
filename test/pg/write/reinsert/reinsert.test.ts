@@ -1,6 +1,6 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
-import { constant, element, type Gen, int, subset, weighted } from "@bjornpagen/testing/gen"
+import { constant, element, type Gen, int, oneOf, subset, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { boundedShrink } from "@bjornpagen/testing/shrink"
 import { swarm } from "@bjornpagen/testing/swarm"
@@ -589,13 +589,17 @@ const aimedGen =
 		}
 	}
 
-/** The case a witness runs: its drawn one, or, while a situation is pending, a case aimed at one drawn among them. */
-const aimedCase = (drawnCase: ReinsertCase, c: Case<Situation>): ReinsertCase => {
-	const pending = Option.getOrUndefined(c.steering)
-	const open = Arr.filter(aims, ([situation]) => pending?.has(situation) === true)
+/**
+ * The case a witness runs, drawn under its steering: while a situation is pending, a case aimed at one drawn among them;
+ * otherwise a drawn one. The generator draws it, so it is the case the search runs, prints and keeps.
+ */
+const reinsertCases: Steered<ReinsertCase, Situation> = (steering) => {
+	const open = Arr.filter(aims, ([situation]) =>
+		Option.exists(steering, (pending) => pending.has(situation))
+	)
 	return Arr.isReadonlyArrayNonEmpty(open)
-		? c.draw(aimedGen(defined(open[c.draw(int(0, open.length - 1))], "a pending aim")[1]))
-		: drawnCase
+		? oneOf(Arr.map(open, ([, aim]) => aimedGen(aim)))
+		: caseGen
 }
 
 /** The laws a refusal is judged by: an outcome's law by its identity, a relation's primary key, a family's own law. */
@@ -756,7 +760,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 				explore(
 					{
 						suite: "pg/write/reinsert",
-						draw: drawn(caseGen),
+						draw: steered(reinsertCases, (k) => k),
 						literal: Formatter.format,
 						coverage: required<Situation>(situations, { cases: 72, sense: notesOnly }),
 						kept: [
@@ -870,9 +874,8 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 							name: "the README's set rule over relations as sets of facts (test/support/families/again.ts againVerdict), every drawn value the reference writer's (test/support/families/fill.ts writtenRows)"
 						}
 					},
-					(drawnCase, c) =>
+					({ spec, rows, again }, c) =>
 						Effect.gen(function* () {
-							const { spec, rows, again } = aimedCase(drawnCase, c)
 							const built = buildFill(spec)
 							const declared = built.rename("Again")
 							const done = yield* installMigrated(declared, {

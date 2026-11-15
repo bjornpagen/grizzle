@@ -1,4 +1,4 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -6,6 +6,7 @@ import {
 	element,
 	type Gen,
 	int,
+	oneOf,
 	shuffled,
 	subset,
 	weighted
@@ -499,13 +500,17 @@ const aims: ReadonlyArray<readonly [Situation, Aim]> = [
 	["a delete refused on the containment", { kind: "delete", beside: true, held: true }]
 ]
 
-/** The case a witness runs: its drawn one, or, while an aimed situation is pending, a case aimed at one of them. */
-const aimedCase = (drawnCase: KeyCase, c: Case<Situation>): KeyCase => {
-	const pending = Option.getOrUndefined(c.steering)
-	const open = Arr.filter(aims, ([situation]) => pending?.has(situation) === true)
+/**
+ * The case a witness runs, drawn under its steering: while aimed situations are pending, a case aimed at one drawn among
+ * them; otherwise a drawn one. The generator draws it, so it is the case the search runs, prints and keeps.
+ */
+const keyCases: Steered<KeyCase, Situation> = (steering) => {
+	const open = Arr.filter(aims, ([situation]) =>
+		Option.exists(steering, (pending) => pending.has(situation))
+	)
 	return Arr.isReadonlyArrayNonEmpty(open)
-		? c.draw(caseWith(Option.some(c.draw(element(open))[1])))
-		: drawnCase
+		? oneOf(Arr.map(open, ([, aim]) => caseWith(Option.some(aim))))
+		: caseGen
 }
 
 /** A row's values at `fields`. */
@@ -767,7 +772,7 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 				explore(
 					{
 						suite: "pg/write/compound-key",
-						draw: drawn(caseGen),
+						draw: steered(keyCases, (k) => k),
 						literal: Formatter.format,
 						coverage: required<Situation>(situations, { cases: 64, sense: notesOnly }),
 						kept: [],
@@ -781,9 +786,8 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 							name: "PostgreSQL's B-tree item limit (54000) and its catalog and plans, beside the set model of each write"
 						}
 					},
-					(drawnCase, c) =>
+					(k, c) =>
 						Effect.gen(function* () {
-							const k = aimedCase(drawnCase, c)
 							const s = k.shape
 							const b = built(s)
 							const widestRow = widest(s, k.salt)

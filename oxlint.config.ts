@@ -327,7 +327,11 @@ export default defineConfig(
 						names: ["oneOf", "weighted", "proportional"],
 						draws: "union"
 					},
-					{ module: "@bjornpagen/testing/explore", names: ["drawn", "sketched"], draws: "each" }
+					{
+						module: "@bjornpagen/testing/explore",
+						names: ["drawn", "sketched", "aimed"],
+						draws: "each"
+					}
 				],
 				cases: ["test/"]
 			},

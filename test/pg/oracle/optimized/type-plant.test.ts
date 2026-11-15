@@ -14,6 +14,7 @@
  * type PostgreSQL resolves otherwise than the IR states (test/support/oracle/verify/types.ts typeProblems), so a type
  * that differs between the two is no difference.
  */
+import { drawn } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -23,7 +24,7 @@ import { flight } from "#compiler/lower/conservative/types.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { builtinType, cast, types } from "#compiler/sql/build.ts"
 import { printStatement } from "#compiler/sql/print.ts"
-import { optimizedShrink, resolved } from "#test/pg/oracle/optimized/suite.ts"
+import { optimizedShrink } from "#test/pg/oracle/optimized/suite.ts"
 import { type TypePlant, typedPlants } from "#test/pg/oracle/optimized/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { optimizerGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
@@ -87,7 +88,7 @@ layer(Substrate.layer)("the type oracle over a statement's tagged parts", (it) =
 				Effect.gen(function* () {
 					const placement = yield* namedPlacement("typeplant")
 					return yield* oracleCheck(
-						resolved(queryCaseGen(optimizerGenConfig)),
+						drawn(queryCaseGen(optimizerGenConfig)),
 						{
 							suite: "optimized/type-plant",
 							oracle: {
@@ -101,9 +102,9 @@ layer(Substrate.layer)("the type oracle over a statement's tagged parts", (it) =
 							shrink: optimizedShrink,
 							perturb: "none"
 						},
-						(population, k) =>
+						(queryCase, k) =>
 							Effect.gen(function* () {
-								const typed = yield* typedPlants(k.draw(population), { placement }, plantsOf).pipe(
+								const typed = yield* typedPlants(queryCase, { placement }, plantsOf).pipe(
 									Effect.mapError(
 										(e) =>
 											new PropertyFailed({ report: `${e.stage} failed on ${e.side}: ${e.message}` })

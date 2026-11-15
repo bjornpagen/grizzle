@@ -20,8 +20,8 @@
  * right side reads, so a right side correlated on its left, whose fixed columns the logical analysis would read as
  * fixed per evaluation of the semi-join, breaks no rule; the validator's property fails on that corruption.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
+import { explore, steered } from "@bjornpagen/testing/explore"
+import { type Pending, required } from "@bjornpagen/testing/features"
 import { constant, type Gen, map, oneOf, weighted } from "@bjornpagen/testing/gen"
 import {
 	type Corrupted,
@@ -220,16 +220,95 @@ const liveTables: Gen<DagTable> = weighted([
 	[3, map(generatedDags, (dag) => succeeded(toTable(dag)))]
 ])
 
-/** A live DAG, and the live variant a case corrupts: none, or one picked, since the variants are the DAG's own. */
-const caseGen: Gen<readonly [DagTable, LiveChoice]> = (source) => [
-	source.draw(liveTables),
-	source.draw(
-		oneOf<LiveChoice>([
-			constant({ kind: "generated" }),
-			map(pickGen, (pick): LiveChoice => ({ kind: "variant", pick }))
-		])
-	)
-]
+/** The live variant a case corrupts: none, or one picked, since the variants are the DAG's own. */
+const choiceGen: Gen<LiveChoice> = oneOf<LiveChoice>([
+	constant({ kind: "generated" }),
+	map(pickGen, (pick): LiveChoice => ({ kind: "variant", pick }))
+])
+
+/**
+ * What a case aims at, as its generator resolved it under its steering: nothing, a drawn corruption of its drawn DAG; a
+ * live DAG, while a node kind is pending; or a corruption of a pending rule, by its feature, while a rule is pending.
+ * An aimed case corrupts the every-kind fixture.
+ */
+type DagAim =
+	| { readonly kind: "drawn" }
+	| { readonly kind: "live" }
+	| {
+			readonly kind: "rules"
+			readonly rules: Arr.NonEmptyReadonlyArray<CorruptedFeature<DagRule>>
+	  }
+
+/** What a case aims at under what is pending: a live DAG while a node kind is, else the pending rules, if any. */
+const aimOf = (pending: Pending<DagFeature>): DagAim =>
+	Arr.some(relKinds, (k) => pending.has(`node ${k}`))
+		? { kind: "live" }
+		: Arr.match(
+				Arr.filter(ruleFeatures, (feature) => pending.has(feature)),
+				{
+					onEmpty: (): DagAim => ({ kind: "drawn" }),
+					onNonEmpty: (rules): DagAim => ({ kind: "rules", rules })
+				}
+			)
+
+/** A case: a live DAG, the live variant it corrupts, and what it aims at. */
+type DagCase = readonly [DagTable, LiveChoice, DagAim]
+
+/** A case, drawn under its steering: its live DAG the every-kind fixture where it aims at anything. */
+const caseDraw = steered<DagCase, DagCase, DagFeature>(
+	(steering) => {
+		const aim = Option.match(steering, { onNone: (): DagAim => ({ kind: "drawn" }), onSome: aimOf })
+		return (source) => [
+			aim.kind === "drawn" ? source.draw(liveTables) : everyKindTable,
+			source.draw(choiceGen),
+			aim
+		]
+	},
+	(sketch) => sketch
+)
+
+/**
+ * The corruption a case judges of `dag`, as its aim says: a drawn one; none, the DAG live; or, among the aimed rules'
+ * corruptions that hold a site of it, one picked, broken at a site picked, and a drawn one where none holds a site.
+ */
+const corruptionOf = (
+	dag: DagTable,
+	aim: DagAim,
+	draw: <A>(generator: Gen<A>) => A
+): Corrupted<unknown, DagRefusal, DagRule> => {
+	switch (aim.kind) {
+		case "drawn":
+			return draw(corrupted(dag, dagCorruptions))
+		case "live":
+			return { kind: "live", value: dag }
+		case "rules":
+			return Arr.match(
+				Arr.filter(
+					dagCorruptions,
+					(corruption) =>
+						Arr.contains(aim.rules, `${corruption.from} ${corruption.rule}`) &&
+						Arr.isReadonlyArrayNonEmpty(corruption.sites(dag))
+				),
+				{
+					onEmpty: () => draw(corrupted(dag, dagCorruptions)),
+					onNonEmpty: (aimable): Corrupted<unknown, DagRefusal, DagRule> => {
+						const corruption = pickFrom(aimable, draw(pickGen))
+						const broken = pickFrom(
+							nonEmpty(corruption.sites(dag), "a site of a pending rule"),
+							draw(pickGen)
+						)
+						return {
+							kind: corruption.from,
+							rule: corruption.rule,
+							at: broken.at,
+							value: broken.value,
+							refusal: broken.refusal
+						}
+					}
+				}
+			)
+	}
+}
 
 describe("validateDag", () => {
 	it.effect(
@@ -241,7 +320,7 @@ describe("validateDag", () => {
 					{
 						suite: "unit/ir/validate-generated",
 						literal: Formatter.format,
-						draw: drawn(caseGen),
+						draw: caseDraw,
 						runs: 150,
 						shrink: completeShrink,
 						coverage: required<DagFeature>(
@@ -257,46 +336,13 @@ describe("validateDag", () => {
 							name: "each corruption's rule restated over the table"
 						}
 					},
-					([table, choice], n) =>
+					([table, choice, aim], n) =>
 						Effect.sync(() => {
-							const pending = Option.getOrUndefined(n.steering)
-							const pendingRules = Arr.filter(
-								dagCorruptions,
-								(corruption) => pending?.has(`${corruption.from} ${corruption.rule}`) === true
-							)
-							const pendingNodes = Arr.some(relKinds, (k) => pending?.has(`node ${k}`) === true)
-							const live = liveFrom(
-								Arr.isReadonlyArrayNonEmpty(pendingRules) || pendingNodes ? everyKindTable : table,
-								choice
-							)
+							const live = liveFrom(table, choice)
 							if (live.variant.kind === "at") {
 								n.note(`variant ${live.variant.at}`)
 							}
-							const [aimable, ...moreAimable] = Arr.filter(pendingRules, (corruption) =>
-								Arr.isReadonlyArrayNonEmpty(corruption.sites(live.dag))
-							)
-							const aimed =
-								aimable === undefined
-									? Option.none()
-									: Option.some(pickFrom([aimable, ...moreAimable], n.draw(pickGen)))
-							const c: Corrupted<unknown, DagRefusal, DagRule> = pendingNodes
-								? { kind: "live", value: live.dag }
-								: Option.match(aimed, {
-										onNone: () => n.draw(corrupted(live.dag, dagCorruptions)),
-										onSome: (corruption) => {
-											const broken = pickFrom(
-												nonEmpty(corruption.sites(live.dag), "a site of a pending rule"),
-												n.draw(pickGen)
-											)
-											return {
-												kind: corruption.from,
-												rule: corruption.rule,
-												at: broken.at,
-												value: broken.value,
-												refusal: broken.refusal
-											}
-										}
-									})
+							const c = corruptionOf(live.dag, aim, n.draw)
 							n.note(corruptedFeature(c))
 							if (c.kind !== "live") {
 								n.pair(corruptedFeature(c), `site ${c.at}`)

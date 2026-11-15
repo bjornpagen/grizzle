@@ -1,6 +1,6 @@
 import { availableParallelism } from "node:os"
 import { inspect } from "node:util"
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, drawn, explore, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -1551,25 +1551,31 @@ const loadingNotes = (loading: Loading): ReadonlyArray<LoadingFeature> => {
 const aimCandidates = 32
 
 /**
- * The loading a case runs: the drawn one, or, where steering names situations no case has reached, the first of up to
- * `aimCandidates` further draws that reaches one, else the drawn one.
+ * The loading a case runs, drawn under its steering: a drawn one, or, where steering names situations no case has
+ * reached and the drawn one reaches none, the first of up to `aimCandidates` further draws that reaches one, else the
+ * drawn one. The loading chosen is the sketch, so a kept case runs it unsteered.
  */
-const aimedLoading = (drawnLoading: Loading, c: Case<LoadingFeature>): Loading =>
-	Option.match(c.steering, {
-		onNone: () => drawnLoading,
-		onSome: (pending) => {
-			const reaches = (loading: Loading) => Arr.some(loadingNotes(loading), (f) => pending.has(f))
-			return reaches(drawnLoading)
-				? drawnLoading
-				: Option.getOrElse(
-						Arr.findFirst(
-							c.draw(array(loadingGen, { min: aimCandidates, max: aimCandidates })),
-							reaches
-						),
-						() => drawnLoading
-					)
-		}
-	})
+const loadingDraw = steered<Loading, Loading, LoadingFeature>(
+	(steering) => (source) => {
+		const drawnLoading = source.draw(loadingGen)
+		return Option.match(steering, {
+			onNone: () => drawnLoading,
+			onSome: (pending) => {
+				const reaches = (loading: Loading) => Arr.some(loadingNotes(loading), (f) => pending.has(f))
+				return reaches(drawnLoading)
+					? drawnLoading
+					: Option.getOrElse(
+							Arr.findFirst(
+								source.draw(array(loadingGen, { min: aimCandidates, max: aimCandidates })),
+								reaches
+							),
+							() => drawnLoading
+						)
+			}
+		})
+	},
+	(loading) => loading
+)
 
 layer(NodeServices.layer, { excludeTestServices: true })("the bin's configuration file", (it) => {
 	it.effect(
@@ -1580,7 +1586,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("the bin's configuratio
 				explore(
 					{
 						suite: "unit/cli/bin-loading",
-						draw: drawn(loadingGen),
+						draw: loadingDraw,
 						literal: Formatter.format,
 						coverage: required<LoadingFeature>(
 							[
@@ -1613,10 +1619,9 @@ layer(NodeServices.layer, { excludeTestServices: true })("the bin's configuratio
 							name: "the exit statuses run.ts documents: 1 for a refusal, 2 for a usage error; and a refusal writes nothing"
 						}
 					},
-					(drawnLoading, c) =>
+					(loading, c) =>
 						Effect.scoped(
 							Effect.gen(function* () {
-								const loading = aimedLoading(drawnLoading, c)
 								c.noteAll(loadingNotes(loading))
 								const ws = yield* workspace("loading")
 								yield* loadingFile(ws, loading)

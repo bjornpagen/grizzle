@@ -1,4 +1,4 @@
-import { type Case, drawn, exhaust, explore, type Kept } from "@bjornpagen/testing/explore"
+import { aimed, exhaust, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -1044,14 +1044,13 @@ const aims: ReadonlyArray<readonly [FillSituation, Planted]> = [
 ]
 
 /**
- * The case a witness runs: its drawn one, or, where its turn aims at a situation `aims` plants (Case.steering), a
- * planted one, so the cases of one window aim at distinct pending situations.
+ * The case a witness runs, drawn under its steering: a drawn one, or, where its turn aims at a situation `aims` plants,
+ * a planted one (aimed), so the cases of one window aim at distinct pending situations.
  */
-const aimedCase = (drawnCase: FillCase, c: Case<FillSituation>): FillCase => {
-	const pending = Option.getOrUndefined(c.steering)
-	const aim = Arr.findFirst(aims, ([situation]) => pending?.aimed(situation) === true)
-	return Option.isNone(aim) ? drawnCase : c.draw(plantedCaseGen(aim.value[1]))
-}
+const fillDraw = aimed(
+	caseGen,
+	Arr.map(aims, ([situation, planted]) => [situation, plantedCaseGen(planted)] as const)
+)
 
 /**
  * The exhausted box: one family of each kind, its owner a top relation, a nested one (an ordered member of a parent)
@@ -1594,7 +1593,7 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 				explore(
 					{
 						suite: "unit/write/fill-order",
-						draw: drawn(caseGen),
+						draw: fillDraw,
 						literal: Formatter.format,
 						coverage: required<FillSituation>(fillSituations, { cases: 240, sense: notesOnly }),
 						kept: [
@@ -1619,10 +1618,7 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 							name: "the reference model of the fill order and the reference writer (families/fill.ts)"
 						}
 					},
-					(drawnCase, c) => {
-						const { spec, rows, followUp } = aimedCase(drawnCase, c)
-						return property(spec, rows, followUp, (s) => c.note(s))
-					}
+					({ spec, rows, followUp }, c) => property(spec, rows, followUp, (s) => c.note(s))
 				)
 			)
 	)

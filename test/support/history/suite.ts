@@ -1,5 +1,6 @@
-import { type Case, explore, drawn, type Kept } from "@bjornpagen/testing/explore"
+import { aimed, type Case, explore, type Kept } from "@bjornpagen/testing/explore"
 import { type Reached, required } from "@bjornpagen/testing/features"
+import { constant, type Gen } from "@bjornpagen/testing/gen"
 import { type PctSchedule, pctSchedule } from "@bjornpagen/testing/interleave"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -280,32 +281,36 @@ const plantedOn = <P>(
 }
 
 /**
- * The case a history runs: the drawn one, or, where the case's turn aims at a trait's direct acceptance
- * (Case.steering), the planted serial history (plantedHistories) on the first schema bearing that trait that has one,
- * its direct writer's step accepted there. The cases of one window aim at distinct pending traits, so none waits
- * behind another. A steered case reads the steering it was drawn under, so it replays alike.
+ * The cases a history suite aims at its traits: for each trait of the population's schemas, the planted serial history
+ * (plantedHistories) on the first schema bearing that trait that has one, its direct writer's step accepted there. A
+ * witness whose turn aims at a trait's direct acceptance draws that case (aimed), the case it runs, prints and keeps;
+ * the cases of one window aim at distinct pending traits, so none waits behind another.
  */
-const aimedCase = <P>(
+const traitAims = <P>(
 	h: HistoryFamily<P>,
-	variants: Arr.NonEmptyReadonlyArray<P>,
-	drawnCase: HistoryCase,
-	steering: Case<HistoryFeature>["steering"]
-): HistoryCase => {
-	if (Option.isNone(steering)) {
-		return drawnCase
-	}
-	const pending = steering.value
-	for (const [i, p] of variants.entries()) {
-		if (!Arr.some(h.family.traits(p), (t) => pending.aimed([`trait ${t}`, "direct accepted"]))) {
-			continue
-		}
-		const planted = plantedHistories(h.family.host(p), h.family.domains)
-		if (planted !== undefined) {
-			return { variant: i, history: planted.serial, order: "listed" }
-		}
-	}
-	return drawnCase
-}
+	variants: Arr.NonEmptyReadonlyArray<P>
+): ReadonlyArray<readonly [Reached<HistoryFeature>, Gen<HistoryCase>]> =>
+	Arr.flatMap(
+		[...new Set(Arr.flatMap(variants, (p) => h.family.traits(p)))],
+		(t): ReadonlyArray<readonly [Reached<HistoryFeature>, Gen<HistoryCase>]> =>
+			Option.toArray(
+				Option.map(
+					Arr.findFirst(variants, (p, i) =>
+						Arr.contains(h.family.traits(p), t)
+							? Option.map(
+									Option.fromUndefinedOr(plantedHistories(h.family.host(p), h.family.domains)),
+									(planted): HistoryCase => ({
+										variant: i,
+										history: planted.serial,
+										order: "listed"
+									})
+								)
+							: Option.none()
+					),
+					(planted) => [[`trait ${t}`, "direct accepted"], constant(planted)] as const
+				)
+			)
+	)
 
 /** Installs `p` and checks the installation enforces the host's laws as the host states them. */
 const installChecked = <P>(
@@ -376,7 +381,7 @@ export const historySuite = <P>(h: HistoryFamily<P>): void => {
 								name: "the history check (history/check.ts): a real-time serial order of the committed operations explains every outcome, refusal and abort, and the state left"
 							},
 							suite: `history/${label}/${mode}`,
-							draw: drawn(historyCaseGen(variants.length)),
+							draw: aimed(historyCaseGen(variants.length), traitAims(h, variants)),
 							literal: Formatter.format,
 							coverage: required<HistoryFeature>(reach, { cases: 4 * runs, sense: notesOnly }),
 							kept,
@@ -390,9 +395,8 @@ export const historySuite = <P>(h: HistoryFamily<P>): void => {
 							steerEvery: 16,
 							caseHang
 						},
-						(drawnCase, c) =>
+						(hc, c) =>
 							Effect.gen(function* () {
-								const hc = aimedCase(h, variants, drawnCase, c.steering)
 								const p = elementAt(variants, hc.variant, "the family's schemas")
 								c.note(`schema ${h.family.describe(p)}`)
 								const traits = Arr.map(h.family.traits(p), (t): HistoryFeature => `trait ${t}`)

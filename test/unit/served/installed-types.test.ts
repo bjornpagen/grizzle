@@ -36,7 +36,7 @@
  * second copy of its structural domain's; the property fails, no case reaching a parameter's pattern domain over a
  * field's structural domain with no CHECK of its own.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { explore, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -60,7 +60,11 @@ import type { CreateDomain } from "#compiler/sql/ast.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { compiledInstallation, compiledSnapshot } from "#test/support/compiled-served.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
+import {
+	type CaseSketch,
+	caseSketchGen,
+	resolveCase
+} from "#test/support/oracle/public/generate.ts"
 import { type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import {
@@ -96,9 +100,9 @@ const keptGen: Gen<Kept> = (source) => ({
 })
 
 /**
- * What a case aimed at a pending feature keeps of every role (Case.steering): every program, for a parameter type
- * installed and compiled; all but the clocked reads, whose `now` is the one contract outside the base, for an
- * uninstalled contract; the clocked reads alone, for an uninstalled pattern domain, a pattern parameter being a read's.
+ * What a case aimed at a pending feature keeps of every role: every program, for a parameter type installed and
+ * compiled; all but the clocked reads, whose `now` is the one contract outside the base, for an uninstalled contract;
+ * the clocked reads alone, for an uninstalled pattern domain, a pattern parameter being a read's.
  */
 const aims: ReadonlyArray<readonly [Feature, Kept]> = [
 	["a pattern parameter installed, compiled", { clocked: true, reads: true, world: true }],
@@ -109,6 +113,43 @@ const aims: ReadonlyArray<readonly [Feature, Kept]> = [
 	["an uninstalled contract refused", { clocked: false, reads: true, world: true }],
 	["an uninstalled pattern domain refused", { clocked: true, reads: false, world: false }]
 ]
+
+/** What the dropped installation keeps of a case's roles: each role's own, drawn, or one `Kept` for every role. */
+type Keeping = Readonly<{ kind: "drawn" }> | Readonly<{ kind: "every role"; kept: Kept }>
+
+/** A case's sketch: its schema's, its law level, and what its installation keeps of its roles. */
+type Sketch = readonly [CaseSketch, LawLevel, Keeping]
+
+/**
+ * A case's sketch, drawn under its steering: where some feature `aims` names is pending, the first of them sets what
+ * every role keeps, so the case is aimed at it; otherwise each role's is drawn.
+ */
+const sketchDraw = steered<Sketch, Sketch, Feature>(
+	(steering) => (source) => [
+		source.draw(caseSketchGen),
+		source.draw(lawLevelGen),
+		Option.match(
+			Option.flatMap(steering, (pending) =>
+				Arr.findFirst(aims, ([feature]) => pending.has(feature))
+			),
+			{
+				onNone: (): Keeping => ({ kind: "drawn" }),
+				onSome: ([, kept]): Keeping => ({ kind: "every role", kept })
+			}
+		)
+	],
+	(sketch) => sketch
+)
+
+/** What the dropped installation keeps of one role, as its case's sketch says. */
+const keptOf = (keeping: Keeping, draw: <A>(generator: Gen<A>) => A): Kept => {
+	switch (keeping.kind) {
+		case "drawn":
+			return draw(keptGen)
+		case "every role":
+			return keeping.kept
+	}
+}
 
 /** A drawn role and which of its programs the dropped installation keeps. */
 interface DrawnRole {
@@ -597,7 +638,8 @@ const neverTrueRead = {
 				side: { kind: 0, values: [0, 0, 0] }
 			}
 		},
-		{ holes: [0], trailing: 0, key: "id", least: [0, 0], generated: false, check: false }
+		{ holes: [0], trailing: 0, key: "id", least: [0, 0], generated: false, check: false },
+		{ kind: "drawn" }
 	],
 	draws:
 		"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0",
@@ -615,7 +657,7 @@ describe("a served compile under a snapshot", () => {
 						name: "the parameter types the login declares against those snapshot.json records (derived.params)"
 					},
 					suite: "unit/served/installed-types",
-					draw: drawn((source) => [source.draw(caseSketchGen), source.draw(lawLevelGen)] as const),
+					draw: sketchDraw,
 					literal: Formatter.format,
 					coverage: required<Feature>(
 						[
@@ -635,15 +677,12 @@ describe("a served compile under a snapshot", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				([sketch, level], notes) =>
+				([sketch, level, keeping], notes) =>
 					Effect.suspend(() => {
 						const schema = drawnSchema(notes.draw(resolveCase(sketch)), level)
-						const aimed = Option.flatMap(notes.steering, (pending) =>
-							Arr.findFirst(aims, ([feature]) => pending.has(feature))
-						)
 						const roles = mapNonEmpty(notes.draw(liveLoginGen(schema)), (shape) => ({
 							shape,
-							kept: Option.isSome(aimed) ? aimed.value[1] : notes.draw(keptGen)
+							kept: keptOf(keeping, notes.draw)
 						}))
 						return property(schema, level, roles, notes.note)
 					})

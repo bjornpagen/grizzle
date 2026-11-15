@@ -63,8 +63,8 @@
  * unpairing refused: a probe that kept the target arm's other negations read the listing through neither insert, only a
  * probe of U reads the pairing, and only a probe that drops the negated arm's match after the held one reads the
  * unpairing, since each deleted row's other is gone at COMMIT. A drawn history reaches the listing rarely and never the
- * other two, so each has a history constructed to reach it (constructed), which a witness runs where its turn aims at
- * it (aimedCase).
+ * other two, so each has a history constructed to reach it (constructed), which a witness whose turn aims at it draws
+ * (aimed).
  *
  * @plant test/plants/pg/laws/rule-query-no-capture-on-a-table.patch no capture of the first table each rule reads
  * (physical/ddl/rules.ts judgedTables), so a write there alone that breaks the rule commits; the search fails.
@@ -106,7 +106,7 @@
  * @plant test/plants/pg/laws/judge-region-other-side.patch a probe over its region reads the other side's delta,
  * delta.removed for NEW and delta.added for OLD (analysis/theory/query.ts regionQuery); the search fails.
  */
-import { drawn, explore, type Case as Search } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -725,14 +725,19 @@ interface RuleCase {
 	}
 }
 
-const caseGen: Gen<RuleCase> = (s) => ({
-	history: s.draw(array(transactionGen, { min: 1, max: 6 })),
-	concurrent: {
-		first: s.draw(concurrentGen),
-		second: s.draw(concurrentGen),
-		grizzle: s.draw(grizzleGen)
-	}
-})
+/** A case of `history`, beside its drawn concurrent writers. */
+const caseOf =
+	(history: Gen<ReadonlyArray<Transaction>>): Gen<RuleCase> =>
+	(s) => ({
+		history: s.draw(history),
+		concurrent: {
+			first: s.draw(concurrentGen),
+			second: s.draw(concurrentGen),
+			grizzle: s.draw(grizzleGen)
+		}
+	})
+
+const caseGen: Gen<RuleCase> = caseOf(array(transactionGen, { min: 1, max: 6 }))
 
 type Feature =
 	| "committed"
@@ -814,16 +819,13 @@ const constructed: Arr.NonEmptyReadonlyArray<readonly [Feature, Gen<ReadonlyArra
 	]
 
 /**
- * The case a witness runs: its drawn one, or, where its turn aims at a situation a history is constructed to reach
- * (Case.steering), that history drawn on the case's own tape, beside the drawn case's concurrent writers.
+ * Each situation a history is constructed to reach, with the case a witness whose turn aims at it draws (aimed): that
+ * history, beside drawn concurrent writers.
  */
-const aimedCase = (drawnCase: RuleCase, search: Search<Feature>): RuleCase => {
-	const pending = Option.getOrUndefined(search.steering)
-	const aim = Arr.findFirst(constructed, ([feature]) => pending?.aimed(feature) === true)
-	return Option.isNone(aim)
-		? drawnCase
-		: { history: search.draw(aim.value[1]), concurrent: drawnCase.concurrent }
-}
+const aims: ReadonlyArray<readonly [Feature, Gen<RuleCase>]> = Arr.map(
+	constructed,
+	([feature, history]) => [feature, caseOf(history)] as const
+)
 
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
@@ -1646,7 +1648,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						return yield* explore(
 							{
 								suite: "laws/rule-query",
-								draw: drawn(caseGen),
+								draw: aimed(caseGen, aims),
 								literal: Formatter.format,
 								oracle: {
 									kind: "specification",
@@ -1688,9 +1690,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								steerEvery: 16,
 								caseHang
 							},
-							(drawnCase, c) =>
+							(rc, c) =>
 								Effect.gen(function* () {
-									const rc = aimedCase(drawnCase, c)
 									yield* cleared(u.seat, RELATIONS)
 									const keys = new Keys()
 									let state: State = emptyState

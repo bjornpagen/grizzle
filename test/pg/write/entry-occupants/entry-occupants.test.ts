@@ -1,4 +1,4 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	boolean,
@@ -263,16 +263,15 @@ type OccupantFeature =
 	| "accepted"
 
 /**
- * The case a witness checks: its drawn one, or, while an occupant inside the entry at the at most one lead is pending,
- * in half its cases by a draw of its own, one built to meet it (insideLeadGen), which a drawn case meets too rarely for
- * the floor and the steered phase. None for a rotating or kept case, which runs as drawn.
+ * The case a witness checks, drawn under its steering: while an occupant inside the entry at the at most one lead is
+ * pending, in half its cases one built to meet it (insideLeadGen), which a drawn case meets too rarely for the floor and
+ * the steered phase; otherwise a drawn one, as a rotating case always is. The generator draws it, so it is the case the
+ * search runs, prints and keeps.
  */
-const aimedOccupants = (drawnCase: OccupantCase, cx: Case<OccupantFeature>): OccupantCase =>
-	Option.exists(cx.steering, (pending) =>
-		pending.names("inside occupant at the at most one lead")
-	) && cx.draw(boolean)
-		? cx.draw(insideLeadGen)
-		: drawnCase
+const occupantCases: Steered<OccupantCase, OccupantFeature> = (steering) =>
+	Option.exists(steering, (pending) => pending.names("inside occupant at the at most one lead"))
+		? oneOf([caseGen, insideLeadGen])
+		: caseGen
 
 /** The objects where the stored seat of `world` conflicts with the submitted one: ann's own, unless it is the same
  * seat, an exact repeat; carl's, whatever its values, since a seat of his is never hers. */
@@ -335,7 +334,7 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 										name: "each unique object's conflict over the drawn seats, its law and the submitted key as witness"
 									},
 									suite: "pg/write/entry-occupants",
-									draw: drawn(caseGen),
+									draw: steered(occupantCases, (c) => c),
 									literal: Formatter.format,
 									coverage: required<OccupantFeature>(
 										[
@@ -368,9 +367,8 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 									steerEvery: 16,
 									caseHang
 								},
-								(drawnCase, cx) =>
+								(c, cx) =>
 									Effect.gen(function* () {
-										const c = aimedOccupants(drawnCase, cx)
 										const stored = [
 											...Option.match(c.hidden, {
 												onNone: () => [],

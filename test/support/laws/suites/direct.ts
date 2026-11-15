@@ -1,4 +1,4 @@
-import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { explore, type Kept } from "@bjornpagen/testing/explore"
 import { type Reached, required } from "@bjornpagen/testing/features"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -7,10 +7,9 @@ import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { grizzleFirstSession, ordinarySession } from "#test/support/ambient.ts"
 import { type Family, type Mode, populationsOf } from "#test/support/laws/boxes.ts"
 import {
-	aimedCase,
 	type DirectCase,
 	type DirectFeature,
-	directCaseGen,
+	directDraw,
 	runDirect
 } from "#test/support/laws/direct.ts"
 import { installVariant, schemaPairs, shrink } from "#test/support/laws/suites/family.ts"
@@ -48,9 +47,9 @@ export type Planted = Readonly<Record<Mode, ReadonlyArray<Kept<DirectCase, Direc
  * side's selection, each in a transaction that commits and in one refused at COMMIT), a refusal at a statement by a
  * key, a refusal at COMMIT by a foreign key when the family's schemas install one (every deferred law is one: fin.md
  * §7), and commits; the immutable population, an UPDATE refused by privilege; and every schema, a commit. A witness
- * aims each ending of a move still pending with an UPDATE of the mode aimed at it alone (direct.ts aimedCase), since a
- * move needs a fact in the state to move. Kept cases are replayed before the streams (Planted). Shrinking and the time
- * bound are the family suite's.
+ * whose turn aims at an ending of a move still pending draws a case with an UPDATE of the mode aimed at it alone
+ * (direct.ts directDraw), since a move needs a fact in the state to move. Kept cases are replayed before the streams
+ * (Planted). Shrinking and the time bound are the family suite's.
  */
 export const directSuite = <P>(family: Family<P>, cases: number, planted: Planted): void => {
 	layer(Substrate.layer, { excludeTestServices: true })(
@@ -93,7 +92,7 @@ export const directSuite = <P>(family: Family<P>, cases: number, planted: Plante
 						{
 							oracle: { kind: "unstated" },
 							suite: `laws/direct/${Str.replaceAll(regex("[^a-z0-9]+", "g"), "-")(family.label)}/${mode}`,
-							draw: drawn(directCaseGen(variants.length)),
+							draw: directDraw(variants.length),
 							literal: Formatter.format,
 							coverage: required<DirectFeature>(situations, {
 								cases: directCases(cases),
@@ -120,15 +119,7 @@ export const directSuite = <P>(family: Family<P>, cases: number, planted: Plante
 								const direct = installed.world(
 									familyWriters(family.schema(p)(installed.declared)).direct
 								)
-								yield* runDirect(
-									installed,
-									direct,
-									family.host(p),
-									family.domains,
-									aimedCase(k, c),
-									c,
-									ended
-								)
+								yield* runDirect(installed, direct, family.host(p), family.domains, k, c, ended)
 							})
 					)
 				})

@@ -18,7 +18,7 @@
  * typmod'd numeric is refused for an infinity its domain cannot hold, and over nonzero of one that keeps zero out is
  * ContractLiteral.
  */
-import { type Case as Search, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -191,19 +191,24 @@ const caseGen: Gen<Case> = (source) => {
 }
 
 /**
- * The case a witness runs, aimed at a refusal while no witness has reached one (Case.steering): half its cases, by a
- * draw of their own, isFinite over a contract of an integer, which the types refuse; a rotating case runs as drawn.
+ * A case as the generator draws it, aimed at a refusal while no witness has reached one (Steered): half its cases, by a
+ * draw of their own, isFinite over a contract of an integer, which the types refuse; a rotating case is drawn unaimed.
  */
-const aimed = (c: Case, k: Search<Feature>): Case =>
-	Option.exists(k.steering, (pending) => pending.has("refused where the types refuse")) &&
-	k.draw(boolean)
+const aimedCaseGen: Steered<Case, Feature> = (steering) => (source) => {
+	const c = source.draw(caseGen)
+	return Option.exists(steering, (pending) => pending.has("refused where the types refuse")) &&
+		source.draw(boolean)
 		? {
 				...c,
-				base: { kind: "integer", sql: k.draw(element(["smallint", "integer", "bigint"] as const)) },
+				base: {
+					kind: "integer",
+					sql: source.draw(element(["smallint", "integer", "bigint"] as const))
+				},
 				guard: "isFinite",
 				values: []
 			}
 		: c
+}
 
 /** A base's test field. */
 const baseField = (base: Base): TestField => {
@@ -358,7 +363,7 @@ layer(Substrate.layer)("a fact guard over a contract on PostgreSQL 19", (it) => 
 								kind: "second-implementation",
 								name: "the types' verdict and the reference evaluator"
 							},
-							draw: drawn(caseGen),
+							draw: steered(aimedCaseGen, (c) => c),
 							literal: Formatter.format,
 							coverage: required<Feature>(
 								[
@@ -378,9 +383,8 @@ layer(Substrate.layer)("a fact guard over a contract on PostgreSQL 19", (it) => 
 							steerEvery: 16,
 							caseHang
 						},
-						(drawnCase, k) =>
+						(c, k) =>
 							Effect.gen(function* () {
-								const c = aimed(drawnCase, k)
 								const field = contractOver(c.base, c.keeps)
 								const lowered = yield* Effect.result(compiled(c, field))
 								if (!typesAdmit(c)) {

@@ -55,7 +55,7 @@ import {
 	runProgram,
 	took
 } from "@bjornpagen/testing/commands"
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, map, subset } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -423,23 +423,9 @@ interface Run {
 }
 
 /**
- * A case as drawn: the roster, a swarm over the commands with `write`, which applies in every state, kept on (the
- * all-off draw's guard), and a program of one to six steps from the swarm.
- */
-const runGen: Gen<Run> = (source) => {
-	const installed = source.draw(installedGen(tierName, { min: 2, max: 4 }))
-	const drawnSwarm = source.draw(swarm(nonEmpty(commandNames, "the commands")))
-	const guarded: Swarm<keyof Params> = { ...drawnSwarm, write: drawnSwarm.write ?? 1 }
-	return {
-		installed,
-		program: source.draw(program(machine(initialOf(installed)), { min: 1, max: 6 }, guarded))
-	}
-}
-
-/**
  * The situations the steered phase aims a case at, each by a program that reaches it (aimedProgram): every required one,
- * since most need several commands in order, which a drawn program meets only by chance. A case is aimed at the one
- * its turn falls on (Case.steering), so no situation waits behind another its program does not reach.
+ * since most need several commands in order, which a drawn program meets only by chance. The generator aims a case at
+ * the one its turn falls on (runGen), so no situation waits behind another its program does not reach.
  */
 const aimedFeatures = [
 	"a handle grown",
@@ -457,61 +443,94 @@ const aimedFeatures = [
 ] as const satisfies ReadonlyArray<Feature>
 
 /**
- * A program that reaches `feature` from `initial`, for the steered phase to aim a case at a situation that needs several
- * commands in order (Case.steering): a row or a set written before its handle's removal, Sets added before the roster
- * grows, closed rows that break their law. Every step is one the machine applies there, and the system is still
- * judged step by step against the model; `draw` draws a fresh name from the case's own tape.
+ * A program that reaches `feature` from `initial`, for the generator to aim a case at a situation that needs several
+ * commands in order (runGen): a row or a set written before its handle's removal, Sets added before the roster grows,
+ * closed rows that break their law. Every step is one the machine applies there, and the system is still judged step by
+ * step against the model; a grown handle's fresh name is drawn.
  */
-const aimedProgram = (
-	feature: (typeof aimedFeatures)[number],
-	initial: Model,
-	draw: <A>(gen: Gen<A>) => A
-): Program<Params> => {
-	const handle = Arr.headNonEmpty(liveOf(initial.tier))
-	const remove = (data: DataStep, drop: DropDeclaration) =>
-		({ command: "remove", parameters: { handle, data, drop } }) as const
-	switch (feature) {
-		case "a handle grown":
-			return [
+const aimedProgram =
+	(feature: (typeof aimedFeatures)[number], initial: Model): Gen<Program<Params>> =>
+	(source) => {
+		const handle = Arr.headNonEmpty(liveOf(initial.tier))
+		const remove = (data: DataStep, drop: DropDeclaration) =>
+			({ command: "remove", parameters: { handle, data, drop } }) as const
+		switch (feature) {
+			case "a handle grown":
+				return [
+					{
+						command: "grow",
+						parameters: source.draw(rosterCommands(initial.tier).grow.parameters(initial.tier))
+					}
+				]
+			case "a handle removed":
+				return [remove("drafted", "declared")]
+			case "a removed name declared again":
+				return [remove("drafted", "declared"), { command: "readd", parameters: { handle } }]
+			case "a reorder refused":
+				return [{ command: "reorder", parameters: { first: 0, second: 1 } }]
+			case "nothing drafted":
+				return [{ command: "regenerate", parameters: {} }]
+			case "closed rows changed":
+				return [
+					{ command: "closed rows", parameters: { allowed: ["North", "South"], from: ["South"] } }
+				]
+			case "VALIDATE refused a removed code a row holds":
+				return [{ command: "write", parameters: { handle } }, remove("after a refusal", "declared")]
+			case "VALIDATE refused a removed bit a set holds":
+				return [
+					{ command: "add sets", parameters: {} },
+					{ command: "write set", parameters: { members: [handle] } },
+					remove("after a refusal", "declared")
+				]
+			case "a data step drafted":
+				return [{ command: "write", parameters: { handle } }, remove("drafted", "declared")]
+			case "a set column widened":
+				return [
+					{ command: "add sets", parameters: {} },
+					{
+						command: "grow",
+						parameters: source.draw(rosterCommands(initial.tier).grow.parameters(initial.tier))
+					}
+				]
+			case "an undeclared drop refused":
+				return [remove("drafted", "undeclared")]
+			case "closed rows refused by their law":
+				return [{ command: "closed rows", parameters: { allowed: ["North"], from: ["South"] } }]
+		}
+	}
+
+/**
+ * A drawn program from `initial`: a swarm over the commands with `write`, which applies in every state, kept on (the
+ * all-off draw's guard), and a program of one to six steps from the swarm.
+ */
+const programGen =
+	(initial: Model): Gen<Program<Params>> =>
+	(source) => {
+		const drawnSwarm = source.draw(swarm(nonEmpty(commandNames, "the commands")))
+		const guarded: Swarm<keyof Params> = { ...drawnSwarm, write: drawnSwarm.write ?? 1 }
+		return source.draw(program(machine(initial), { min: 1, max: 6 }, guarded))
+	}
+
+/**
+ * A case as the generator draws it: the roster, and the program run after it, which is the program that reaches the
+ * situation of aimedFeatures the case's turn aims at (Steered, aimedProgram), and otherwise a drawn one (programGen).
+ */
+const runGen: Steered<Run, Feature> = (steering) => (source) => {
+	const installed = source.draw(installedGen(tierName, { min: 2, max: 4 }))
+	const initial = initialOf(installed)
+	return {
+		installed,
+		program: source.draw(
+			Option.match(
+				Option.flatMap(steering, (pending) =>
+					Arr.findFirst(aimedFeatures, (f) => pending.aimed(f))
+				),
 				{
-					command: "grow",
-					parameters: draw(rosterCommands(initial.tier).grow.parameters(initial.tier))
+					onNone: () => programGen(initial),
+					onSome: (feature) => aimedProgram(feature, initial)
 				}
-			]
-		case "a handle removed":
-			return [remove("drafted", "declared")]
-		case "a removed name declared again":
-			return [remove("drafted", "declared"), { command: "readd", parameters: { handle } }]
-		case "a reorder refused":
-			return [{ command: "reorder", parameters: { first: 0, second: 1 } }]
-		case "nothing drafted":
-			return [{ command: "regenerate", parameters: {} }]
-		case "closed rows changed":
-			return [
-				{ command: "closed rows", parameters: { allowed: ["North", "South"], from: ["South"] } }
-			]
-		case "VALIDATE refused a removed code a row holds":
-			return [{ command: "write", parameters: { handle } }, remove("after a refusal", "declared")]
-		case "VALIDATE refused a removed bit a set holds":
-			return [
-				{ command: "add sets", parameters: {} },
-				{ command: "write set", parameters: { members: [handle] } },
-				remove("after a refusal", "declared")
-			]
-		case "a data step drafted":
-			return [{ command: "write", parameters: { handle } }, remove("drafted", "declared")]
-		case "a set column widened":
-			return [
-				{ command: "add sets", parameters: {} },
-				{
-					command: "grow",
-					parameters: draw(rosterCommands(initial.tier).grow.parameters(initial.tier))
-				}
-			]
-		case "an undeclared drop refused":
-			return [remove("drafted", "undeclared")]
-		case "closed rows refused by their law":
-			return [{ command: "closed rows", parameters: { allowed: ["North"], from: ["South"] } }]
+			)
+		)
 	}
 }
 
@@ -1107,7 +1126,7 @@ layer(Substrate.layer)("roster migrations on PostgreSQL 19rc2", (it) => {
 				explore(
 					{
 						suite: "pg/closed/migrations",
-						draw: drawn(runGen),
+						draw: steered(runGen, (run) => run),
 						literal: Formatter.format,
 						coverage: required<Feature>(
 							[
@@ -1173,16 +1192,10 @@ layer(Substrate.layer)("roster migrations on PostgreSQL 19rc2", (it) => {
 									constants: new Map()
 								}
 								yield* sameAsModel(sys, initial)
-								const aimed = Option.flatMap(kase.steering, (pending) =>
-									Arr.findFirst(aimedFeatures, (f) => pending.aimed(f))
-								)
 								yield* runProgram(
 									machine(initial),
 									real(sys, (f) => kase.note(f)),
-									Option.match(aimed, {
-										onNone: () => run.program,
-										onSome: (feature) => aimedProgram(feature, initial, (gen) => kase.draw(gen))
-									})
+									run.program
 								)
 							})
 						)

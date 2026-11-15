@@ -24,7 +24,7 @@
  * @plant test/plants/pg/catalog/catalog-percentile-cont-fraction-halved.patch R30's native form takes half its
  * fraction; the agreement property fails.
  */
-import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { explore, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -451,14 +451,23 @@ const kept: ReadonlyArray<Kept<AgreementCase, AgreementFeature>> = Arr.map(
 )
 
 /**
- * The facts a witness runs over, aimed at a delivered row while no witness has delivered one (Case.steering): half its
- * cases, by a draw of their own, priced for their first sitting (withPricedSitting); a rotating or kept case runs as
- * drawn.
+ * A case as the generator draws it: an entry and the facts it runs over, aimed at a delivered row while no witness has
+ * delivered one (Steered): for an entry that delivers a row on most facts (mayDeliverNone), half its cases, by a draw of
+ * their own, are priced for their first sitting (withPricedSitting); a rotating case is drawn unaimed.
  */
-const aimedFacts = (f: Facts, c: Case<AgreementFeature>): Facts =>
-	Option.exists(c.steering, (pending) => pending.has("delivers rows")) && c.draw(boolean)
-		? withPricedSitting(f, c.draw(int(0, 104)))
-		: f
+const agreementCaseGen: Steered<AgreementCase, AgreementFeature> = (steering) => (source) => {
+	const entry = source.draw(entryGen)
+	const facts = source.draw(factsGen)
+	return {
+		entry,
+		facts:
+			!mayDeliverNone(entry) &&
+			Option.exists(steering, (pending) => pending.has("delivers rows")) &&
+			source.draw(boolean)
+				? withPricedSitting(facts, source.draw(int(0, 104)))
+				: facts
+	}
+}
 
 /**
  * A discrete percentile's case: its fraction, drawn as a dyadic m / 2^j, j up to one past the largest the rewrite
@@ -539,6 +548,25 @@ const roundingApart: ReadonlyArray<readonly [k: number, size: number]> = Arr.fla
 		)
 )
 
+/**
+ * A fraction case as the generator draws it, aimed at a rounding apart while no witness has met one (Steered): half its
+ * cases, by a draw of their own, take a decimal fraction and a first group's size whose product the model rounds apart,
+ * that group's scores each its own; a rotating case is drawn unaimed.
+ */
+const aimedFractionCaseGen: Steered<FractionCase, FractionFeature> = (steering) => (source) => {
+	const drawnCase = source.draw(fractionCaseGen)
+	if (
+		Option.exists(steering, (pending) => pending.has("kept, the native form rounding apart")) &&
+		source.draw(boolean)
+	) {
+		const [k, size] = source.draw(
+			element(nonEmpty(roundingApart, "a fraction the forms round apart"))
+		)
+		return { p: k / 100, groups: [{ size, tie: 1 }, ...Arr.drop(drawnCase.groups, 1)] }
+	}
+	return drawnCase
+}
+
 /** The native targets a rewrite names: its windows' and ordered-set aggregates' overloads. */
 const nativeTargets = (rewritten: CatalogResult): ReadonlyArray<string> =>
 	Arr.flatMap(topoOrder(rewritten.dag), (n): ReadonlyArray<string> =>
@@ -561,10 +589,7 @@ layer(Substrate.layer)("the compile-target catalog against its compositions", (i
 								name: "the composition's conservative lowering, as raw text sets, and the catalog's specification of the rules each shape admits"
 							},
 							suite: "catalog/agreement",
-							draw: drawn((source): AgreementCase => ({
-								entry: source.draw(entryGen),
-								facts: source.draw(factsGen)
-							})),
+							draw: steered(agreementCaseGen, (c) => c),
 							literal: Formatter.format,
 							coverage: required<AgreementFeature>(
 								[
@@ -591,11 +616,10 @@ layer(Substrate.layer)("the compile-target catalog against its compositions", (i
 						},
 						({ entry, facts }, c) =>
 							Effect.gen(function* () {
-								const f = mayDeliverNone(entry) ? facts : aimedFacts(facts, c)
 								const label = Formatter.format(entry)
 								const side = catalogLowering(optionsOf(entry))
 								const outcome = yield* runLabelledOracle(
-									oracleCase(label, descOf(entry), f),
+									oracleCase(label, descOf(entry), facts),
 									conservative,
 									side,
 									{ ...defaultRunOptions, schema: { kind: "named", name: schema } }
@@ -677,7 +701,7 @@ layer(Substrate.layer)("the compile-target catalog against its compositions", (i
 					return yield* explore(
 						{
 							suite: "catalog/percentile fractions",
-							draw: drawn(fractionCaseGen),
+							draw: steered(aimedFractionCaseGen, (fc) => fc),
 							literal: Formatter.format,
 							coverage: required<FractionFeature>(
 								[
@@ -699,22 +723,8 @@ layer(Substrate.layer)("the compile-target catalog against its compositions", (i
 								name: "a model of both forms' positions: the native ceil in double precision, the composition's through a 15-digit numeric"
 							}
 						},
-						(drawnCase, c) =>
+						(fc, c) =>
 							Effect.gen(function* () {
-								/**
-								 * While no witness has met a rounding apart, half the witnesses take a decimal fraction and a group
-								 * size whose product the model rounds apart, by a draw of their own.
-								 */
-								const aimed =
-									Option.exists(c.steering, (pending) =>
-										pending.has("kept, the native form rounding apart")
-									) && c.draw(boolean)
-								const [k, size] = aimed
-									? c.draw(element(nonEmpty(roundingApart, "a fraction the forms round apart")))
-									: [0, 0]
-								const fc: FractionCase = aimed
-									? { p: k / 100, groups: [{ size, tie: 1 }, ...Arr.drop(drawnCase.groups, 1)] }
-									: drawnCase
 								const label = `p = ${fc.p}`
 								const desc = Q.discretePercentile([fc.p], Q.ordinalStage)
 								const facts = fractionFacts(fc)

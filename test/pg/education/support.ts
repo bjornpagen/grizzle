@@ -1,4 +1,4 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, explore } from "@bjornpagen/testing/explore"
 import { required, type Situations } from "@bjornpagen/testing/features"
 import { constant } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -31,8 +31,8 @@ import {
 	type Focus,
 	type Lead,
 	noteNaming,
+	programDraw,
 	realizedProgram,
-	programCaseGen,
 	type SeenAction,
 	type StepCheck,
 	stage,
@@ -1375,12 +1375,11 @@ const register = (it: Vitest.MethodsNonLive<Substrate>, spec: EducationSuite): v
 							name: "the worlds model (test/support/worlds/model) at every action, and each suite's education property: a world shows its role's own records, a witness only what its caller submitted or holds whole"
 						},
 						suite: spec.suite,
-						draw: drawn(
-							programCaseGen(
-								constant(educationInstall),
-								{ kinds: spec.focus, roles: spec.roles, aims: noAims, lead: spec.lead },
-								spec.steps
-							)
+						draw: programDraw(
+							constant(educationInstall),
+							{ kinds: spec.focus, roles: spec.roles, aims: noAims, lead: spec.lead },
+							spec.steps,
+							spec.required
 						),
 						literal: Formatter.format,
 						coverage: required<Feature>(spec.required, { cases: spec.cases, sense: notesOnly }),
@@ -1396,7 +1395,7 @@ const register = (it: Vitest.MethodsNonLive<Substrate>, spec: EducationSuite): v
 							Effect.gen(function* () {
 								const world = Option.isSome(once)
 									? once.value
-									: yield* Effect.tap(realizedProgram(substrates, pc, c, spec.required), () =>
+									: yield* Effect.tap(realizedProgram(substrates, pc, spec.required), () =>
 											Effect.sync(() => {
 												noteNaming(pc, c)
 											})

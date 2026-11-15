@@ -42,7 +42,7 @@
  * statements again, not ALTER TABLE subcommands (test/support/install-migrate.ts runsInstallScript), so work's first
  * migration, two law columns and two UNIQUEs in one ALTER TABLE, fails the certificate.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -248,6 +248,24 @@ const featuresOf = (h: History): ReadonlyArray<FixtureFeature> => [
 	})
 ]
 
+/** A history under its steering: drawn from every family, or, where the case steers and some family reaches a pending
+ * situation (its own, or an extension added or dropped where it has more than one level), from those families. The
+ * history holds its family, so it runs the same unsteered. */
+const historySteered: Steered<History, FixtureFeature> = (steering) => {
+	const aimed = Option.match(steering, {
+		onNone: (): ReadonlyArray<Family> => [],
+		onSome: (pending) =>
+			Arr.filter(
+				families,
+				(f) =>
+					pending.has(f.label) ||
+					(f.levels.length > 1 &&
+						(pending.has("an extension added") || pending.has("an extension dropped")))
+			)
+	})
+	return historyFrom(Arr.isReadonlyArrayNonEmpty(aimed) ? aimed : families)
+}
+
 /** A version's installation under `name`, owned by `owner`, with its logins: the complete installation, its derived
  * relations included, as `grizzle generate` compiles it. */
 const compiledAt = (
@@ -430,7 +448,7 @@ layer(Substrate.layer)("the worked examples migrate version by version", (it) =>
 				explore(
 					{
 						suite: "pg/migrate/fixtures",
-						draw: drawn(historyFrom(families)),
+						draw: steered(historySteered, (h) => h),
 						literal: historyText,
 						coverage: required<FixtureFeature>(
 							[
@@ -452,21 +470,7 @@ layer(Substrate.layer)("the worked examples migrate version by version", (it) =>
 							name: "the fresh-install script and the test installer, against the history the runner migrated"
 						}
 					},
-					(drawnHistory, c) => {
-						const aimed = Option.match(c.steering, {
-							onNone: (): ReadonlyArray<Family> => [],
-							onSome: (pending) =>
-								Arr.filter(
-									families,
-									(f) =>
-										pending.has(f.label) ||
-										(f.levels.length > 1 &&
-											(pending.has("an extension added") || pending.has("an extension dropped")))
-								)
-						})
-						const history = Arr.isReadonlyArrayNonEmpty(aimed)
-							? c.draw(historyFrom(aimed))
-							: drawnHistory
+					(history, c) => {
 						c.noteAll(featuresOf(history))
 						return migrates(history)
 					}

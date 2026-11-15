@@ -32,8 +32,8 @@
  * which every migration session starts under, its search path PostgreSQL's own or the installation's schemas first. A
  * renamed path also draws, beside the generator's renames, an arm whose B renames a relation or a closed roster to the
  * name of a PostgreSQL type; the renamed stream requires that name under the installation-first path, the pairing
- * where a bare type name resolves to the installation's row type or domain, and a steered case takes that path while
- * the pairing is pending.
+ * where a bare type name resolves to the installation's row type or domain, and the generator draws a steered case
+ * under that path, its B taking such a name, while the pairing is pending.
  *
  * Every verdict is PostgreSQL's: its refusal of a statement, its catalog of both installations, and its reading of the
  * rows. The features are the rename kinds a path made by successor, the intents it made, what the draft declared, the
@@ -55,7 +55,7 @@
  * @plant test/plants/pg/migrate/intents-unaimed.patch A steered case runs its drawn intents, never the pending one its
  * turn aims at, so the intents stream leaves a required intent unreached.
  */
-import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { type Case, explore, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -114,7 +114,8 @@ import {
 	ambientFeatures,
 	ambientOwner,
 	ambientSessionGen,
-	grizzleFirstSession
+	grizzleFirstSession,
+	ordinarySession
 } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import { installedSchemas } from "#test/support/install-migrate.ts"
@@ -178,23 +179,12 @@ const noteRenames = (c: Case<Feature>, p: RenamedPath): void => {
 	}
 }
 
-/**
- * The ambient session a case's migrations start under, drawn: its path the installation-first one while a steered
- * case's pairing of that path with a catalog type's name is pending.
- */
-const ambientOf = (notes: Case<Feature>): AmbientSession => {
-	const drawn = notes.draw(ambientSessionGen)
-	return Option.exists(notes.steering, (pending) => pending.names("grizzle-first path"))
-		? { ...drawn, path: grizzleFirstSession.path }
-		: drawn
-}
-
-const property = (p: RenamedPath, notes: Case<Feature>) =>
+/** A path's property, its migrations started under the ambient session `ambient`. */
+const property = (p: RenamedPath, ambient: AmbientSession, notes: Case<Feature>) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const substrate = yield* Substrate
 			const owner = substrate.owner.role
-			const ambient = ambientOf(notes)
 			const x = yield* substrate.schema({ create: false, label: "paths_x" })
 			const y = yield* substrate.schema({ create: false, label: "paths_y" })
 			const login = yield* ambientOwner(
@@ -319,32 +309,46 @@ const pathDrawGen = weighted<RenamedDraw>([
 ])
 
 /**
- * The property's draws of a case kept from before its property drew an ambient session: the simplest ambient session,
- * the ordinary one, every setting unset, under which the case was found.
+ * The property's draws of an intents case kept from before its property drew an ambient session: the simplest ambient
+ * session, the ordinary one, every setting unset, under which the case was found.
  */
 const ordinaryTape = generate(recorder(), ambientSessionGen, simplestChooser).tape
 const ordinaryDraws = tokenOf(ordinaryTape.values, ordinaryTape.length)
 
-/**
- * The path a case runs: the drawn one, or, while the case's steering leaves a catalog-type name pending, a path whose B
- * takes one, drawn from the case's own tape.
- */
-const aimedDraw = (d: RenamedDraw, notes: Case<Feature>): RenamedDraw =>
-	Option.exists(notes.steering, (pending) => pending.names("catalog-type name"))
-		? notes.draw(catalogRenamedDrawGen)
-		: d
+/** A renamed path's case: the path as drawn, and the ambient session its migrations start under. */
+interface RenamedCase {
+	readonly draw: RenamedDraw
+	readonly ambient: AmbientSession
+}
 
+/**
+ * A renamed path's case under its steering: the path pathDrawGen draws, or, while the steering leaves a catalog-type
+ * name pending, one whose B takes one; and the ambient session, its path the installation-first one while the steering
+ * leaves that path's pairing with a catalog type's name pending. Both are the sketch, so a kept case runs them as drawn.
+ */
+const renamedCaseSteered: Steered<RenamedCase, Feature> = (steering) => (source) => {
+	const names = (feature: Feature): boolean =>
+		Option.exists(steering, (pending) => pending.names(feature))
+	const draw = source.draw(names("catalog-type name") ? catalogRenamedDrawGen : pathDrawGen)
+	const ambient = source.draw(ambientSessionGen)
+	return {
+		draw,
+		ambient: names("grizzle-first path") ? { ...ambient, path: grizzleFirstSession.path } : ambient
+	}
+}
+
+/** A stated path kept under the ordinary ambient session, under which it was found; its stated path draws nothing. */
 const planted = (
 	path: RenamedDraw & { readonly kind: "stated" },
 	note: string
-): Kept<RenamedDraw, Feature> => ({
+): Kept<RenamedCase, Feature> => ({
 	note,
-	sketch: path,
-	draws: ordinaryDraws,
+	sketch: { draw: path, ambient: ordinarySession },
+	draws: "",
 	reaches: ["a step applied"]
 })
 
-const kept: ReadonlyArray<Kept<RenamedDraw, Feature>> = [
+const kept: ReadonlyArray<Kept<RenamedCase, Feature>> = [
 	planted(
 		{ kind: "stated", path: referencedRenamedFirst },
 		"M49: two relation renames referencing each other"
@@ -377,23 +381,22 @@ const kept: ReadonlyArray<Kept<RenamedDraw, Feature>> = [
 ]
 
 /**
- * The intents a case runs: the drawn ones, or, while the case's steering leaves an intent pending, the drawn ones with
- * B's first intent the pending one its turn aims at (Case.steering), so each steered case reaches an intent no witness
+ * The intents a case runs, under its steering: the drawn ones, or, while the steering leaves an intent pending, the
+ * drawn ones with B's first intent the pending one its turn aims at, so each steered case reaches an intent no witness
  * has, none waits behind another, and the steered phase needs at most one case per intent. Any intent may be B's: only
- * C's are kept from naming a field B drops.
+ * C's are kept from naming a field B drops. The sketch holds the intent aimed at, so a kept case runs it.
  */
-const aimedIntents = (
-	sketch: IntentSketch & { readonly kind: "legal" },
-	notes: Case<Feature>
-): IntentSketch & { readonly kind: "legal" } => {
-	const pending = Option.flatMap(notes.steering, (steering) =>
-		Arr.findFirst(legalIntents, (kind) => steering.aimed(`the intent ${kind}`))
-	)
-	return Option.match(pending, {
-		onNone: () => sketch,
-		onSome: (kind) => ({ ...sketch, toB: [{ kind }, ...Arr.drop(sketch.toB, 1)] })
-	})
-}
+const aimedIntents: Steered<IntentSketch & { readonly kind: "legal" }, Feature> =
+	(steering) => (source) => {
+		const sketch = source.draw(legalIntentSketchGen)
+		const pending = Option.flatMap(steering, (p) =>
+			Arr.findFirst(legalIntents, (kind) => p.aimed(`the intent ${kind}`))
+		)
+		return Option.match(pending, {
+			onNone: () => sketch,
+			onSome: (kind) => ({ ...sketch, toB: [{ kind }, ...Arr.drop(sketch.toB, 1)] })
+		})
+	}
 
 /** The intent counterexamples PostgreSQL found. */
 const keptIntents: ReadonlyArray<Kept<IntentSketch & { readonly kind: "legal" }, Feature>> = [
@@ -482,7 +485,7 @@ layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
 							name: "PostgreSQL's refusals, a fresh install's catalog of each version and the carried rows read back; A to C as A to B to C"
 						},
 						suite: "pg/migrate/paths",
-						draw: drawn(pathDrawGen),
+						draw: steered(renamedCaseSteered, (c) => c),
 						literal: Formatter.format,
 						coverage: required<Feature>([["grizzle-first path", "catalog-type name"]], {
 							cases: 4 * runs,
@@ -495,7 +498,7 @@ layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
 						steerEvery: 16,
 						caseHang
 					},
-					(d, notes) => property(notes.draw(resolveRenamedDraw(aimedDraw(d, notes))), notes)
+					(c, notes) => property(notes.draw(resolveRenamedDraw(c.draw)), c.ambient, notes)
 				)
 			)
 	)
@@ -511,7 +514,7 @@ layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
 							name: "PostgreSQL's refusals, a fresh install's catalog of each version and the carried rows read back; A to C as A to B to C"
 						},
 						suite: "pg/migrate/intents",
-						draw: drawn(legalIntentSketchGen),
+						draw: steered(aimedIntents, (sketch) => sketch),
 						literal: Formatter.format,
 						coverage: required<Feature>(
 							Arr.map(legalIntents, (kind): Feature => `the intent ${kind}`),
@@ -524,12 +527,11 @@ layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
 						steerEvery: 1,
 						caseHang
 					},
-					(drawnSketch, notes) => {
-						const sketch = aimedIntents(drawnSketch, notes)
+					(sketch, notes) => {
 						for (const intent of new Set(Arr.map([...sketch.toB, ...sketch.toC], (i) => i.kind))) {
 							notes.note(`the intent ${intent}`)
 						}
-						return property(resolveLegalIntents(sketch), notes)
+						return property(resolveLegalIntents(sketch), notes.draw(ambientSessionGen), notes)
 					}
 				)
 			)

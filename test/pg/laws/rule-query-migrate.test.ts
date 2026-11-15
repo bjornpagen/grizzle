@@ -20,7 +20,7 @@
  * its rule, while the widened J2 holds their pair, which no T row holds. That case, and one for each required situation
  * a drawn case reaches in one case of twenty or fewer (a changed rule or a rule over a negated join refused over rows
  * that break it, S's captures kept through b's redefinition, a write refused after a rename), is
- * constructed (constructed), and a witness runs it where its turn aims at what it reaches (aimedCase). The rows are
+ * constructed (constructed), and a witness whose turn aims at what it reaches draws it (aimed). The rows are
  * stored under the first version, where its rule admits them. The oracle is the rule restated over the rows: the second
  * migration fails, its violation check raising 23000, exactly when the rows it carries break its rule; once it applies,
  * the migrated schema holds the catalog a fresh install of the second version holds, both read from PostgreSQL's
@@ -44,7 +44,7 @@
  * @plant test/plants/pg/laws/table-takes-along.patch the parts of a dropped table left to its DROP TABLE, so its rule
  * trigger stands when its function is dropped before the table (2BP01).
  */
-import { type Case as Search, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -119,7 +119,7 @@ const noRows: Rows = { facts: [], s: [], t: [] }
 
 /**
  * The cases constructed to reach what a drawn case reaches in one case of twenty or fewer, each from rows that keep the
- * first version's rule:
+ * first version's rule, the one a witness whose turn aims at its situation draws (aimed):
  *
  * - a changed rule the stored rows break: J2's facts whose b is not 0 changed to every fact of J2, over a fact of J2
  *   whose b is 0 and no T row;
@@ -195,16 +195,6 @@ const constructed: Arr.NonEmptyReadonlyArray<readonly [Feature, Gen<MigrationCas
 		}
 	]
 ]
-
-/**
- * The case a witness runs: its drawn one, or, where its turn aims at a situation a case is constructed to reach
- * (Case.steering), that case, drawn on the case's own tape.
- */
-const aimedCase = (drawnCase: MigrationCase, search: Search<Feature>): MigrationCase => {
-	const pending = Option.getOrUndefined(search.steering)
-	const aim = Arr.findFirst(constructed, ([feature]) => pending?.aimed(feature) === true)
-	return Option.isNone(aim) ? drawnCase : search.draw(aim.value[1])
-}
 
 /** Whether two pairs are one. */
 const samePair = (x: readonly [number, number], y: readonly [number, number]): boolean =>
@@ -536,7 +526,7 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 				explore(
 					{
 						suite: "laws/rule-query-migrate",
-						draw: drawn(caseGen),
+						draw: aimed(caseGen, constructed),
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
@@ -566,9 +556,8 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 						steerEvery: 8,
 						caseHang
 					},
-					(drawnCase, n) =>
+					(c, n) =>
 						Effect.gen(function* () {
-							const c = aimedCase(drawnCase, n)
 							const rows = keeps(c.stored, c.first, "onK") ? c.stored : noRows
 							const carried = c.change === "dropped" ? { ...rows, facts: [] } : rows
 							const breaks = !keeps(carried, c.second, secondJoin(c))

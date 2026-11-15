@@ -39,7 +39,7 @@
  * @plant test/plants/pg/migrate/lock-glued-into-one-command.patch The lock and its statement one command, as 732aa5b2
  * printed them, so the script door is refused with 42601.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { constant, element, type Gen } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -52,7 +52,7 @@ import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { type Aim, aimedAt } from "#test/pg/migrate/support.ts"
+import type { Aim } from "#test/pg/migrate/support.ts"
 import { type AmbientOwner, ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { checkInstallation } from "#test/support/catalog/installed.ts"
@@ -156,8 +156,6 @@ const aims: ReadonlyArray<Aim<ConcurrentCase, Feature>> = [
 		})
 	]
 ]
-
-const aimed = aimedAt(aims)
 
 /** An installation of a case, drafted and given its owner login: what is sent, and as whom. */
 interface Prepared {
@@ -353,7 +351,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 					explore(
 						{
 							suite: "migrate/concurrent",
-							draw: drawn(caseGen),
+							draw: aimed(caseGen, aims),
 							literal: Formatter.format,
 							oracle: {
 								kind: "specification",
@@ -375,7 +373,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 							steerEvery: 4,
 							caseHang
 						},
-						(c, cx) => Effect.scoped(walk(aimed(c, cx), cx.note))
+						(c, cx) => Effect.scoped(walk(c, cx.note))
 					)
 				)
 		)

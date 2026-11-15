@@ -46,7 +46,7 @@
  * @plant test/plants/pg/closed/codes-domain-off-by-one.patch The roster domain's CHECK reads the names constant at the
  * code, not the code plus one, so it admits a hole whose next code is live and refuses a live code before a hole.
  */
-import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
+import { drawn, exhaust, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen, int, subset } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -675,11 +675,14 @@ type BitsFeature =
 	| "a removal refused until the data step"
 	| "two migrations"
 
-/** The history a witness runs: its drawn one, or, while a growth past a hex digit is pending, one that grows past it. */
-const aimedHistory = (drawnHistory: BitsHistory, k: Case<BitsFeature>): BitsHistory =>
-	Option.getOrUndefined(k.steering)?.has("a growth past a hex digit") === true
-		? k.draw(pastDigitHistoryGen)
-		: drawnHistory
+/**
+ * A history as the generator draws it: while a growth past a hex digit is pending (Steered), one that grows past it,
+ * and otherwise a drawn one; a rotating case is drawn unaimed.
+ */
+const aimedHistoryGen: Steered<BitsHistory, BitsFeature> = (steering) =>
+	Option.exists(steering, (pending) => pending.has("a growth past a hex digit"))
+		? pastDigitHistoryGen
+		: bitsHistoryGen
 
 layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc2", (it) => {
 	it.effect(
@@ -1096,7 +1099,7 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc2", (it) => {
 				explore(
 					{
 						suite: "pg/closed/codes/bits",
-						draw: drawn(bitsHistoryGen),
+						draw: steered(aimedHistoryGen, (history) => history),
 						literal: Formatter.format,
 						oracle: {
 							kind: "second-implementation",
@@ -1118,10 +1121,9 @@ layer(Substrate.layer)("closed ids as codes on PostgreSQL 19rc2", (it) => {
 						steerEvery: 4,
 						caseHang
 					},
-					(drawnHistory, k) =>
+					(history, k) =>
 						Effect.scoped(
 							Effect.gen(function* () {
-								const history = aimedHistory(drawnHistory, k)
 								const { m, first } = yield* installFirst("closed_codes_bits", (name) =>
 									setsOf(name, history.installed)
 								)

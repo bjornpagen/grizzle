@@ -30,7 +30,7 @@
  * @plant test/plants/unit/text/text-dfa-key-sets-dropped.patch A minimal DFA's key leaves out its edges' sets; the keys
  * property fails.
  */
-import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
+import { drawn, explore, type Kept, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -227,8 +227,9 @@ describe("host NFA membership equals ECMAScript", () => {
 				}
 			)
 			/**
-			 * Each refusing pattern's planted refused string, by its label: the string a steered case tries where its
-			 * pattern's refusal is still pending, so a few of the pattern's cases reach it rather than leave it to chance.
+			 * Each refusing pattern's planted refused string, by its label: the string a steered case draws where its
+			 * pattern's refusal is still pending (familyDraw), so a few of the pattern's cases reach it rather than leave it
+			 * to chance.
 			 */
 			const plantedRefusal = new Map(
 				Arr.map(refusals, (k): readonly [string, FamilyCase[1]] => [k.sketch[0].label, k.sketch[1]])
@@ -242,13 +243,34 @@ describe("host NFA membership equals ECMAScript", () => {
 					return (source) => [p, source.draw(drawnString)]
 				})
 			)
+			/**
+			 * A family case, drawn under its steering: a pattern and a string drawn for it, the string its planted refused
+			 * one where the pattern's refusal is still pending.
+			 */
+			const familyDraw = steered<FamilyCase, FamilyCase, FamilyFeature>(
+				(steering) => (source) => {
+					const [p, drawnString] = source.draw(familyCaseGen)
+					return [
+						p,
+						Option.getOrElse(
+							Option.flatMap(steering, (pending) =>
+								pending.has(`${p.label} refuses`)
+									? Option.fromNullishOr(plantedRefusal.get(p.label))
+									: Option.none()
+							),
+							() => drawnString
+						)
+					]
+				},
+				(familyCase) => familyCase
+			)
 			return searched(
 				ctx,
 				explore(
 					{
 						oracle: { kind: "second-implementation", name: "ECMAScript's RegExp test (jsMatcher)" },
 						suite: "unit/text/membership-families",
-						draw: drawn(familyCaseGen),
+						draw: familyDraw,
 						literal: Formatter.format,
 						coverage: required<FamilyFeature>(
 							[
@@ -270,16 +292,8 @@ describe("host NFA membership equals ECMAScript", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					([p, drawnString], c) =>
+					([p, subject], c) =>
 						Effect.sync(() => {
-							const subject = Option.getOrElse(
-								Option.flatMap(c.steering, (pending) =>
-									pending.has(`${p.label} refuses`)
-										? Option.fromNullishOr(plantedRefusal.get(p.label))
-										: Option.none()
-								),
-								() => drawnString
-							)
 							if (subject.s === undefined) {
 								return
 							}

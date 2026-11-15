@@ -63,7 +63,7 @@
  * delta into a carrier it creates and fills from its RETURNING (write/program/slot-carriers.ts), no member slot's; the
  * ChangeSets' property fails.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { set } from "@bjornpagen/testing/oracle"
@@ -583,13 +583,10 @@ const togetherPastGen: Gen<BoundCase> = (source) => ({
 	)
 })
 
-/** The case's shares: its drawn ones, or, where its turn aims at bodies together past the bound, togetherPastGen's. */
-const aimedShares = (drawnCase: BoundCase, notes: Case<BoundFeature>): BoundCase =>
-	Option.exists(notes.steering, (pending) =>
-		pending.aimed("bodies within the bound, together past it")
-	)
-		? notes.draw(togetherPastGen)
-		: drawnCase
+/** The shares a case whose turn aims at bodies together past the bound draws (aimed): togetherPastGen's. */
+const boundAims: ReadonlyArray<readonly [BoundFeature, Gen<BoundCase>]> = [
+	["bodies within the bound, together past it", togetherPastGen]
+]
 
 /** Each search's budget beside its suite, draw and features. */
 const budget = {
@@ -1158,7 +1155,7 @@ layer(Substrate.layer)("workload explain", (it) => {
 										},
 										...budget,
 										suite: "reads/explain session bound",
-										draw: drawn(boundCaseGen),
+										draw: aimed(boundCaseGen, boundAims),
 										kept: [],
 										runs: 12,
 										coverage: required<BoundFeature>(
@@ -1170,10 +1167,9 @@ layer(Substrate.layer)("workload explain", (it) => {
 											{ cases: 12, sense: notesOnly }
 										)
 									},
-									(drawnCase, notes) =>
+									(c, notes) =>
 										Effect.gen(function* () {
 											next += 1
-											const c = aimedShares(drawnCase, notes)
 											const lengths = Arr.map(c.shares, (share) =>
 												Math.floor((limit * share) / boundWhole)
 											)

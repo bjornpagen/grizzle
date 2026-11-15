@@ -1,4 +1,4 @@
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { explore } from "@bjornpagen/testing/explore"
 import { required, type Situations } from "@bjornpagen/testing/features"
 import { v8Coverage } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -14,7 +14,7 @@ import {
 	noCheck,
 	noLead,
 	noteNaming,
-	programCaseGen,
+	programDraw,
 	stage
 } from "#test/support/worlds/drive/suite.ts"
 import { realize } from "#test/support/worlds/execute/index.ts"
@@ -100,12 +100,11 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							 * feature, half of each program's draws went to whatever lay one step from one, and 60 cases took 45
 							 * minutes and read no relation at all (no via:* feature reached).
 							 */
-							draw: drawn(
-								programCaseGen(
-									generatedDocsInstalls,
-									{ kinds: everyAction, roles: everyRole, aims: noAims, lead: noLead },
-									steps
-								)
+							draw: programDraw(
+								generatedDocsInstalls,
+								{ kinds: everyAction, roles: everyRole, aims: noAims, lead: noLead },
+								steps,
+								situations
 							),
 							literal: Formatter.format,
 							coverage: required<WorldFeature>(situations, { cases, sense }),

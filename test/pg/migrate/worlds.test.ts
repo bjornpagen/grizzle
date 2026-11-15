@@ -41,7 +41,7 @@
  * @plant test/plants/pg/migrate/worlds-roster-aim-three-tiers.patch The aim at a roster under a world view growing
  * starts at three tiers, so the steered phase never reaches the roster's growth.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { boolean, constant, element, type Gen, map, subset } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -65,7 +65,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { type Aim, aimedAt } from "#test/pg/migrate/support.ts"
+import type { Aim } from "#test/pg/migrate/support.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { checkInstalled, installedScope } from "#test/support/catalog/installed.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
@@ -292,7 +292,8 @@ const twice =
 /** The filters that read another relation: a filter turned to one of them reads it. */
 const reading = ["owned", "shared"] as const satisfies ReadonlyArray<Knobs["mine"]>
 
-/** The history each required situation is aimed at while it is pending (Case.steering), constructed to reach it. */
+/** The history each required situation is aimed at while it is pending, constructed to reach it: the generator draws
+ * the one a case's turn aims at (aimed) in place of its plain draw. */
 const aims: ReadonlyArray<Aim<History, WorldsFeature>> = [
 	["a read query entry's head changes", once(startOf(anyKnobs), turnOf.capped)],
 	[
@@ -365,9 +366,6 @@ const historyFeatures = (h: History): ReadonlyArray<WorldsFeature> => {
 	]
 }
 
-/** The history a case runs: its drawn one, or, while a situation `aims` reaches is pending, the one aimed at it. */
-const aimedHistory = aimedAt(aims)
-
 /** A role's OID, as the owner reads it. */
 const oidQuery = "SELECT r.oid::text FROM pg_catalog.pg_roles AS r WHERE r.rolname = $1::text"
 
@@ -380,7 +378,7 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 				explore(
 					{
 						suite: "pg/migrate/worlds",
-						draw: drawn(historyGen),
+						draw: aimed(historyGen, aims),
 						literal: Formatter.format,
 						oracle: {
 							kind: "postgresql",
@@ -408,9 +406,8 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 						steerEvery: 4,
 						caseHang
 					},
-					(drawnHistory, reached) =>
+					(h, reached) =>
 						Effect.gen(function* () {
-							const h = aimedHistory(drawnHistory, reached)
 							reached.noteAll(historyFeatures(h))
 							const versions = [h.start, ...h.later]
 							const substrate = yield* Substrate

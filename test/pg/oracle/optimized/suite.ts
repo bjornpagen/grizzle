@@ -1,13 +1,14 @@
 import {
+	aimed,
 	type Draw,
 	type Explored,
 	type Run,
 	type SearchFailure,
-	sketched
+	steered
 } from "@bjornpagen/testing/explore"
 import { array, constant, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
-import { Array as Arr, Effect, Option, Record, type Scope } from "effect"
+import { Array as Arr, Effect, Record, type Scope } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -398,18 +399,20 @@ const foldKeyTwiceGen: Gen<QueryCase> = (source) => {
 
 /**
  * The required situations the drawn populations seldom reach, each with the case built to reach it: a case whose turn
- * aims at one (Case.steering) runs that case in place of its drawn one. A suite that does not require a situation never
- * aims at it.
+ * aims at one draws that case in place of the population's (resolved), the case it runs, prints and keeps. A suite
+ * that does not require a situation never aims at it.
  */
-const aims: ReadonlyArray<{ readonly situation: OptimizedFeature; readonly gen: Gen<QueryCase> }> =
-	[{ situation: "a fold key correlated with two parent columns", gen: foldKeyTwiceGen }]
+const aims: ReadonlyArray<readonly [OptimizedFeature, Gen<QueryCase>]> = [
+	["a fold key correlated with two parent columns", foldKeyTwiceGen]
+]
 
 /**
- * A population of whole cases, each resolved as it is generated: the property's resolve draws nothing more, so a kept
- * case replays with no draws.
+ * A population of whole cases, each resolved as it is generated, `gen`'s unless the case's turn aims at a situation
+ * `aims` names, whose built case is drawn instead: the property's resolve draws nothing more, so a kept case replays
+ * with no draws.
  */
-export const resolved = (gen: Gen<QueryCase>): Draw<QueryCase, Gen<QueryCase>> =>
-	sketched(gen, constant)
+export const resolved = (gen: Gen<QueryCase>): Draw<QueryCase, Gen<QueryCase>, OptimizedFeature> =>
+	steered(aimed(gen, aims).generator, constant)
 
 /**
  * How far a failing case shrinks: every case runs on PostgreSQL, so shrinking a large case can take far longer than
@@ -433,23 +436,21 @@ export const optimizedShrink: ShrinkBudget = { kind: "bounded", candidates: 240 
  *
  * Explores the draw's cases through the differential property, each sketch resolved to its case in the property, each
  * outcome's features noted through its case. A case whose turn aims at a required situation the drawn populations
- * seldom reach runs the case built to reach it instead (`aims`). Every case also plans each statement its optimized
- * forms sent as a member's explain plans it, which fails the case where PostgreSQL refuses it, and the plan's shape
- * joins the features, so the residual risk counts the plans the population likely never met.
+ * seldom reach is the case built to reach it, which the draw's generator draws (resolved's `aims`). Every case also
+ * plans each statement its optimized forms sent as a member's explain plans it, which fails the case where PostgreSQL
+ * refuses it, and the plan's shape joins the features, so the residual risk counts the plans the population likely
+ * never met.
  */
 export const differential = <S>(
-	draw: Draw<S, Gen<QueryCase>>,
+	draw: Draw<S, Gen<QueryCase>, OptimizedFeature>,
 	placing: Effect.Effect<Placement, SqlError, Scope.Scope | Substrate>,
 	check: CheckOptions<S, OptimizedFeature>
 ): Effect.Effect<Explored, SearchFailure | SqlError, Scope.Scope | Substrate | Run> =>
 	Effect.gen(function* () {
 		const placement = yield* placing
-		return yield* oracleCheck(draw, check, (resolved, k) =>
+		return yield* oracleCheck(draw, check, (population, k) =>
 			Effect.gen(function* () {
-				const aimed = Arr.findFirst(aims, (a) =>
-					Option.exists(k.steering, (pending) => pending.aimed(a.situation))
-				)
-				const c = k.draw(Option.match(aimed, { onNone: () => resolved, onSome: (a) => a.gen }))
+				const c = k.draw(population)
 				const o = yield* differentialCase(c, { ...plainDifferential, placement })
 				k.noteAll(outcomeFeatures(o))
 				if (!baselineIsSet(o)) {

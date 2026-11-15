@@ -1,4 +1,4 @@
-import { type Case as ExploreCase, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, constant, element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -906,7 +906,8 @@ type Feature =
 	| "accepted"
 	| "unchanged"
 
-/** The situations a drawn case reaches rarely, each with a case aimed at it. */
+/** The situations a drawn case reaches rarely, each with a case aimed at it: a witness whose turn aims at one draws
+ * that case (aimed), the case it runs, prints and keeps. */
 const aims: ReadonlyArray<readonly [Feature, Gen<Case>]> = [
 	["typed key refused within the write", twiceSpelledGen(["array", "query"], ["insert", "put"])],
 	["typed key refused for a query's row", twiceSpelledGen(["query"], ["insert", "put"])],
@@ -918,16 +919,6 @@ const aims: ReadonlyArray<readonly [Feature, Gen<Case>]> = [
 	["entry key refused against a stored entry spelled with a minus", appendedTwiceGen],
 	["an entry appended to a stored mapping", appendedGen]
 ]
-
-/**
- * The case a witness runs: its drawn one, or, where its turn aims at a situation `aims` reaches (Case.steering), an
- * aimed one.
- */
-const aimedCase = (drawnCase: Case, c: ExploreCase<Feature>): Case => {
-	const pending = Option.getOrUndefined(c.steering)
-	const aim = Arr.findFirst(aims, ([situation]) => pending?.aimed(situation) === true)
-	return Option.isNone(aim) ? drawnCase : c.draw(aim.value[1])
-}
 
 /** Whether a violation names an entry of a mapping the case does not store, nested under a new mapping, which meets the
  * entry key at its index alone. */
@@ -1351,7 +1342,7 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 							return yield* explore(
 								{
 									suite: "pg/write/generated-key",
-									draw: drawn(caseGen(host)),
+									draw: aimed(caseGen(host), aims),
 									literal: Formatter.format,
 									oracle: {
 										kind: "specification",
@@ -1441,9 +1432,8 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 									),
 									caseHang
 								},
-								(drawnCase, c) =>
+								(k, c) =>
 									Effect.gen(function* () {
-										const k = aimedCase(drawnCase, c)
 										yield* replaceRows(s.admin, group, [])
 										const seeded = yield* answered(
 											db.workload.seed.once({

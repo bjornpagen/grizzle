@@ -61,7 +61,7 @@
  * family.
  * @plant test/plants/pg/migrate/orderkeep-declared-drop-refused.patch `--drop M.at` beside a declared M.at is refused.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, type Case, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	boolean,
@@ -120,7 +120,7 @@ import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { byMember, FOLD_SPECS, foldRead, foldSeatOf } from "#test/pg/fin/folds.ts"
 import { seatOfInstalled } from "#test/pg/fin/installed.ts"
-import { type Aim, aimedAt, refusedIn, refusedLaw } from "#test/pg/migrate/support.ts"
+import { type Aim, refusedIn, refusedLaw } from "#test/pg/migrate/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"
 import {
@@ -356,7 +356,8 @@ const leading =
  */
 const familyGen: Gen<Family> = familyOf(countsGen, anyOrder, boolean)
 
-/** The family each required situation of a family is aimed at while it is pending (Case.steering). */
+/** The family each required situation of a family is aimed at while it is pending: the generator draws the one a
+ * case's turn aims at (aimed) in place of its plain draw. */
 const familyAims: ReadonlyArray<Aim<Family, FamilyFeature>> = [
 	["an empty family", familyOf(leading(constant(0)), anyOrder, boolean)],
 	["a family of one", familyOf(leading(constant(1)), anyOrder, boolean)],
@@ -412,7 +413,8 @@ const forestGen: Gen<Forest> = forestOf(int(1, 2), treeShape)
 const twoChildren: Gen<ReadonlyArray<number>> = constant([0, 0])
 const chain: Gen<ReadonlyArray<number>> = constant([0, 1])
 
-/** The forest each required situation of a tree is aimed at while it is pending (Case.steering). */
+/** The forest each required situation of a tree is aimed at while it is pending: the generator draws the one a case's
+ * turn aims at (aimed) in place of its plain draw. */
 const treeAims: ReadonlyArray<Aim<Forest, TreeFeature>> = [
 	["two trees", forestOf(constant(2), treeShape)],
 	["a root alone", forestOf(int(1, 2), parents({ min: 1, max: 1 }))],
@@ -758,7 +760,8 @@ const vectorKeyFeatures = (f: VectorKeyedFamily): ReadonlyArray<VectorKeyFeature
 	)
 ]
 
-/** The vector-keyed family each required situation is aimed at while it is pending (Case.steering). */
+/** The vector-keyed family each required situation is aimed at while it is pending: the generator draws the one a
+ * case's turn aims at (aimed) in place of its plain draw. */
 const vectorKeyAims: ReadonlyArray<Aim<VectorKeyedFamily, VectorKeyFeature>> = [
 	...Arr.map(vectorKeyFates, (fate): Aim<VectorKeyedFamily, VectorKeyFeature> => [
 		`the key ${fate}`,
@@ -1374,7 +1377,8 @@ const rekeyFeatures = (r: Rekey): ReadonlyArray<RekeyFeature> => {
 	]
 }
 
-/** Each required situation of a re-key, aimed at by a re-key constructed to reach it (Case.steering). */
+/** Each required situation of a re-key, aimed at by a re-key constructed to reach it: the generator draws the one a
+ * case's turn aims at (aimed) in place of its plain draw. */
 const rekeyAims: ReadonlyArray<Aim<Rekey, RekeyFeature>> = [
 	["two ordered families on one owner", rekeyOf({ ...anyRekey, families: constant(2) })],
 	[
@@ -1568,7 +1572,7 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 				explore(
 					{
 						suite: "pg/migrate/backfill-family",
-						draw: drawn(familyGen),
+						draw: aimed(familyGen, familyAims),
 						literal: Formatter.format,
 						coverage: required<FamilyFeature>(
 							[
@@ -1592,9 +1596,8 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 							name: "the reference fold of each owner's members in key order, and each owner's tag on its members"
 						}
 					},
-					(drawnFamily: Family, c: Case<FamilyFeature>) =>
+					(family: Family, c: Case<FamilyFeature>) =>
 						Effect.gen(function* () {
-							const family = aimedAt(familyAims)(drawnFamily, c)
 							c.noteAll(familyFeatures(family))
 							const families = ownersOf(family)
 							const m = yield* migratedOver(
@@ -1666,7 +1669,7 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 				explore(
 					{
 						suite: "pg/migrate/backfill-tree",
-						draw: drawn(forestGen),
+						draw: aimed(forestGen, treeAims),
 						literal: Formatter.format,
 						coverage: required<TreeFeature>(
 							["two trees", "a root alone", "a node of several children", "a grandchild"],
@@ -1683,9 +1686,8 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 							name: "the direct pre-order numbering of each tree under its root value, NP's lawful count fold, and each parent's kind"
 						}
 					},
-					(drawnForest: Forest, c: Case<TreeFeature>) =>
+					(forest: Forest, c: Case<TreeFeature>) =>
 						Effect.gen(function* () {
-							const forest = aimedAt(treeAims)(drawnForest, c)
 							c.noteAll(forestFeatures(forest))
 							const rows = numbered(forest.trees)
 							const m = yield* migratedOver("backfilltree", treeBefore, treeAfter, [
@@ -1759,7 +1761,7 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 				explore(
 					{
 						suite: "pg/migrate/backfill-vector-key",
-						draw: drawn(vectorKeyedGen),
+						draw: aimed(vectorKeyedGen, vectorKeyAims),
 						literal: Formatter.format,
 						coverage: required<VectorKeyFeature>(
 							[
@@ -1782,9 +1784,8 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 							name: "each owner's members in the order of their vector key [k, 0], k's, numbered from 0 and summed"
 						}
 					},
-					(drawnFamily: VectorKeyedFamily, c: Case<VectorKeyFeature>) =>
+					(f: VectorKeyedFamily, c: Case<VectorKeyFeature>) =>
 						Effect.gen(function* () {
-							const f = aimedAt(vectorKeyAims)(drawnFamily, c)
 							c.noteAll(vectorKeyFeatures(f))
 							const fate = vectorFates[f.fate]
 							const owners = upTo(f.owners, (owner) => owner)
@@ -1845,7 +1846,7 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 				explore(
 					{
 						suite: "pg/migrate/backfill-rekey",
-						draw: drawn(rekeyGen),
+						draw: aimed(rekeyGen, rekeyAims),
 						literal: Formatter.format,
 						coverage: required<RekeyFeature>(
 							[
@@ -1867,9 +1868,8 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 							name: "the reference fold of each owner's members after the data step, in their stored order or, declared dropped, their member key's; and the family's or its fold's law refusing exactly where an owner's kept indices are not 0 … n − 1"
 						}
 					},
-					(drawnRekey: Rekey, c: Case<RekeyFeature>) =>
+					(r: Rekey, c: Case<RekeyFeature>) =>
 						Effect.gen(function* () {
-							const r = aimedAt(rekeyAims)(drawnRekey, c)
 							c.noteAll(rekeyFeatures(r))
 							yield* rekeyed(r)
 						})

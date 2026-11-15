@@ -1,4 +1,4 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -59,8 +59,17 @@ import type { KeyHost, Law, RefusingObject, Witness } from "#compiler/types/chan
 import { assert, defined, nonEmpty, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
-import { type LawFeature, lawFeatures, lawLevelGen } from "#test/support/oracle/public/laws.ts"
+import {
+	type CaseSketch,
+	caseSketchGen,
+	resolveCase
+} from "#test/support/oracle/public/generate.ts"
+import {
+	type LawFeature,
+	type LawLevel,
+	lawFeatures,
+	lawLevelGen
+} from "#test/support/oracle/public/laws.ts"
 import { encodeRefusalDetail } from "#test/support/oracle/write/detail.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { type DrawnSchema, drawnSchema } from "#test/support/served-login.ts"
@@ -97,8 +106,8 @@ import { nothingReported, type Reported, serverError } from "#test/support/serve
  * report as given. Which constraint maps to
  * which law is the installation's (the law families and the write oracle hold it to PostgreSQL's refusals).
  *
- * @plant test/plants/unit/adapter/witness-bits-defect-unaimed.patch The steering leaves a report aimed at a bits
- * domain's defect as drawn (aimedReport), so "defect on a bits domain" goes unreached and the search fails
+ * @plant test/plants/unit/adapter/witness-bits-defect-unaimed.patch The generator leaves a report aimed at a bits
+ * domain's defect as drawn (defectReportGen), so "defect on a bits domain" goes unreached and the search fails
  * FeaturesUnreached.
  */
 
@@ -756,30 +765,42 @@ const defectAims: ReadonlyArray<readonly [WitnessFeature, "code" | "bits"]> = [
 ]
 
 /**
- * The report a case classifies: its drawn one, or, where its turn aims at a defect on a roster's domain
- * (Case.steering), a CHECK violation in the installation's schema whose constraint is that carrier's domain CHECK of a
- * drawn roster and whose data type is the domain itself, which the rules call grizzle's defect; its column, DETAIL and
- * origin as drawn.
+ * A report aimed at a defect on a roster's domain of `carrier`: a CHECK violation in the installation's schema whose
+ * constraint is that carrier's domain CHECK of a drawn roster and whose data type is the domain itself, which the rules
+ * call grizzle's defect; its column, DETAIL and origin as drawn.
  * A drawn report is one only as a CHECK violation among fourteen SQLSTATEs, naming a roster domain's check among five
  * constraint kinds, of that carrier, in the installation's schema, owned by the constraint's own domain, and the
  * streams the suite's label fixes held none on the bits carrier.
  */
-const aimedReport = (drawnReport: ReportSketch, k: Case<WitnessFeature>): ReportSketch =>
-	Option.match(
-		Option.flatMap(k.steering, (pending) =>
-			Arr.findFirst(defectAims, ([feature]) => pending.aimed(feature))
-		),
-		{
-			onNone: () => drawnReport,
-			onSome: ([, carrier]): ReportSketch => ({
-				...drawnReport,
-				sqlstate: sqlstates.checkViolation,
-				constraint: { kind: "a roster domain's check", pick: k.draw(pick), carrier },
-				schema: "the installation's",
-				owner: "the constraint's own"
-			})
-		}
+const defectReportGen =
+	(carrier: "code" | "bits"): Gen<ReportSketch> =>
+	(source) => ({
+		...source.draw(reportGen),
+		sqlstate: sqlstates.checkViolation,
+		constraint: { kind: "a roster domain's check", pick: source.draw(pick), carrier },
+		schema: "the installation's",
+		owner: "the constraint's own"
+	})
+
+/** A case: a public case's sketch, its law level, and the report it classifies. */
+type WitnessSketch = readonly [CaseSketch, LawLevel, ReportSketch]
+
+/** A case whose report `report` draws. */
+const witnessGen =
+	(report: Gen<ReportSketch>): Gen<WitnessSketch> =>
+	(source) => [source.draw(caseSketchGen), source.draw(lawLevelGen), source.draw(report)]
+
+/**
+ * A case, drawn under its steering: its report a drawn one, or, where its turn aims at a defect on a roster's domain,
+ * one aimed at it (defectReportGen).
+ */
+const witnessDraw = aimed(
+	witnessGen(reportGen),
+	Arr.map(
+		defectAims,
+		([feature, carrier]) => [feature, witnessGen(defectReportGen(carrier))] as const
 	)
+)
 
 describe("a server error at a write", () => {
 	it.effect(
@@ -790,14 +811,7 @@ describe("a server error at a write", () => {
 				explore(
 					{
 						suite: "unit/adapter/witness",
-						draw: drawn(
-							(source) =>
-								[
-									source.draw(caseSketchGen),
-									source.draw(lawLevelGen),
-									source.draw(reportGen)
-								] as const
-						),
+						draw: witnessDraw,
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
@@ -846,9 +860,8 @@ describe("a server error at a write", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					([caseSketch, level, drawnReport], k) =>
+					([caseSketch, level, sketch], k) =>
 						Effect.sync(() => {
-							const sketch = aimedReport(drawnReport, k)
 							const artifacts = artifactsOf(drawnSchema(k.draw(resolveCase(caseSketch)), level))
 							k.noteAll(lawFeatures(level))
 							/**

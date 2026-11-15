@@ -26,13 +26,13 @@
  *   events ending before their next ready fail the case, never wait.
  *
  * Every answer is read as WHATWG HTML reads an event stream (test/support/event-stream.ts), never through the
- * server's framing. A case whose turn aims at a pending call feature runs one constructed to reach it (aimedCase), so the
+ * server's framing. A case whose turn aims at a pending call feature is drawn constructed to reach it (aims), so the
  * label-fixed streams reach every kind of call.
  *
  * @plant test/plants/pg/http/http-buffered.patch The answer's events collected before the body is written, so a live
  * read's first batch is never written: the handler asks its call for more with none of its frames written.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -200,9 +200,10 @@ const caseGen: Gen<StreamCase> = (source) => {
 }
 
 /**
- * Each call feature with the case constructed to reach it, drawn on the case's own tape: a set read, a key, an ordered
- * read's window from its start or its end, a put of one item at an id the stored items leave free, which no stored item
- * states, so it is accepted, and a put of stored items as stored, so it is unchanged.
+ * Each call feature with the case constructed to reach it, which a case whose turn aims at that pending feature draws
+ * (aimed), so the cases of one window aim at distinct pending features: a set read, a key, an ordered read's window
+ * from its start or its end, a put of one item at an id the stored items leave free, which no stored item states, so it
+ * is accepted, and a put of stored items as stored, so it is unchanged.
  */
 const aims: ReadonlyArray<readonly [Feature, Gen<StreamCase>]> = Arr.map(
 	[
@@ -271,16 +272,6 @@ const aims: ReadonlyArray<readonly [Feature, Gen<StreamCase>]> = Arr.map(
 		}
 	]
 )
-
-/**
- * The case a property runs: its drawn one, or, where its turn aims at a pending call feature (Case.steering), one
- * constructed to reach it, drawn on the case's own tape, so the cases of one window aim at distinct pending features.
- */
-const aimedCase = (drawnCase: StreamCase, k: Case<Feature>): StreamCase => {
-	const pending = Option.getOrUndefined(k.steering)
-	const aim = Arr.findFirst(aims, ([feature]) => pending?.aimed(feature) === true)
-	return Option.isNone(aim) ? drawnCase : k.draw(aim.value[1])
-}
 
 /** A call's body, `{ params, facts }` and a window's, every member present, `{}` where none. */
 const bodyOf = (call: Call): Json => {
@@ -411,7 +402,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 							name: "the same layer's in-process calls of the member (adapter/db/handles.ts memberCalls)"
 						},
 						suite: "pg/http/stream",
-						draw: drawn((source) => source.draw(caseGen)),
+						draw: aimed(caseGen, aims),
 						literal: Formatter.format,
 						coverage: required<Feature>(
 							[
@@ -434,9 +425,8 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 						steerEvery: 4,
 						caseHang
 					},
-					(drawnCase, notes) =>
+					({ stored, call, write, heartbeatMs }, notes) =>
 						Effect.gen(function* () {
-							const { stored, call, write, heartbeatMs } = aimedCase(drawnCase, notes)
 							const o = yield* installed(Items, { Item: stored }, { label: "http", programs })
 							const printed = () => Formatter.format({ stored, call, write, heartbeatMs })
 							const login = o.served.login

@@ -52,8 +52,8 @@ import {
 	runProgram,
 	took
 } from "@bjornpagen/testing/commands"
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
+import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
+import { type Pending, required } from "@bjornpagen/testing/features"
 import { element, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { fullSwarm } from "@bjornpagen/testing/swarm"
@@ -1020,13 +1020,36 @@ const aimedAt = (aims: ReadonlySet<keyof Params>): Machine<Model, Params, never>
 	}
 }
 
-/** The commands whose features a case's steering leaves pending: none where it steers none. */
-const pendingCommands = (steering: Case<Feature>["steering"]): ReadonlySet<keyof Params> =>
+/**
+ * The features a history's shape reaches beside each command's own, each with the commands that build it: a chain of
+ * renames and a relation renamed back are a relation renamed again, its names drawn from a pool of four, and a world
+ * entry over a renamed relation is an entry added beside a relation's rename.
+ */
+const shapeAims: ReadonlyArray<readonly [Feature, ReadonlyArray<keyof Params>]> = [
+	["a chain of renames", ["rename a relation"]],
+	["a relation renamed back", ["rename a relation", "swap two relations' names"]],
+	["a world entry over a renamed relation", ["rename a relation", "add an entry to a role"]]
+]
+
+/** The commands whose features a case's steering leaves pending, a command's own or a shape it builds: none where it
+ * steers none. */
+const pendingCommands = (steering: Option.Option<Pending<Feature>>): ReadonlySet<keyof Params> =>
 	Option.match(steering, {
 		onNone: () => new Set<keyof Params>(),
 		onSome: (pending) =>
-			new Set<keyof Params>(Arr.filter(Struct.keys(featureOf), (k) => pending.has(featureOf[k])))
+			new Set<keyof Params>([
+				...Arr.filter(Struct.keys(featureOf), (k) => pending.has(featureOf[k])),
+				...Arr.flatMap(shapeAims, ([feature, commands]) => (pending.has(feature) ? commands : []))
+			])
 	})
+
+/** A history's program under its steering: drawn from the machine, or, where its steering leaves a command's feature
+ * pending, from the machine aimed at those commands. The program is its steps, which the machine runs the same
+ * unsteered. */
+const stepsSteered: Steered<Program<Params>, Feature> = (steering) => {
+	const aims = pendingCommands(steering)
+	return program(aims.size === 0 ? machine : aimedAt(aims), historySize, everyCommand)
+}
 
 /** The system a program runs against: one schema, its owner, the folders applied so far, the snapshot they reached and
  * the plan that installed it, the rows the model expects there, how many drafts it made, and the PostgreSQL role's
@@ -1343,7 +1366,7 @@ layer(Substrate.layer)("rename histories on PostgreSQL", (it) => {
 							name: "the identity model, judged by a fresh install's catalog, every login's and role's OID, and the rows read back"
 						},
 						suite: "pg/migrate/histories",
-						draw: drawn(program(machine, historySize, everyCommand)),
+						draw: steered(stepsSteered, (steps) => steps),
 						literal: Formatter.format,
 						coverage: required<Feature>(
 							[
@@ -1376,14 +1399,7 @@ layer(Substrate.layer)("rename histories on PostgreSQL", (it) => {
 						steerEvery: 4,
 						caseHang
 					},
-					(drawnSteps, c) => {
-						const aims = pendingCommands(c.steering)
-						const steps =
-							aims.size === 0
-								? drawnSteps
-								: c.draw(program(aimedAt(aims), historySize, everyCommand))
-						return history(steps, (f) => c.note(f))
-					}
+					(steps, c) => history(steps, (f) => c.note(f))
 				)
 			)
 	)

@@ -22,7 +22,7 @@
  * @plant test/plants/unit/analysis/physical/conjunct-order-first-only.patch A filter's first conjunct alone fixes a
  * column (analysis/physical/rules.ts filterProps); the conjunct order fails.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, type Draw, drawn, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -155,6 +155,13 @@ const inputOf = (c: {
 	params: c.query.params,
 	observer: unobserved
 })
+
+/**
+ * The noninjective key cases (test/support/oracle/mutants/cases.ts), whose property notes the soundness features it
+ * reaches (check) though their suite requires none, so the case it notes them through is a case of those features.
+ */
+const noninjectiveCases: Draw<QueryCase, QueryCase, SoundnessFeature> =
+	drawn(noninjectiveKeyCaseGen)
 
 /** The counterexample roots of the mutant suite, by what each builds. */
 type CounterexampleRoot =
@@ -336,7 +343,7 @@ describe("every physical claim holds on the delivered rows", () => {
 						name: "the fragment evaluator: what each node's plain SQL delivers"
 					},
 					suite: "unit/analysis/physical/soundness-noninjective",
-					draw: drawn(noninjectiveKeyCaseGen),
+					draw: noninjectiveCases,
 					literal: Formatter.format,
 					coverage: noCoverage,
 					kept: [],

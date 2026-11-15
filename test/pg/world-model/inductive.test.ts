@@ -1,4 +1,4 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -30,6 +30,8 @@ import {
 	type LeadMove,
 	leadOf,
 	moveAction,
+	type PendingFeatures,
+	pendingOf,
 	type Realities,
 	stage,
 	steeredOnce,
@@ -81,8 +83,9 @@ import type {
  * statement in or one delete in, a Db one apply in, a Db opened, or a derived relation a Db left stale (drive/suite.ts
  * inductiveLeads)), brings the real system to it, and
  * then performs ONE action drawn there, valid or invalid, aimed at a required feature no case reached yet that the
- * state offers: every time while one is pending, half the time once all are reached or where the case may not steer
- * (drive/suite.ts aimsAt, steeredOnce).
+ * state offers: every time while one is pending, half the time once all are reached or where the case was drawn under
+ * no steering (drive/suite.ts aimsAt, steeredOnce), what its steering left pending resolved as it was drawn
+ * (inductiveSketches).
  * The observation must be one the worlds model allows, and the state the model enters must keep every invariant and be
  * the real system's: its stored relations and every open session's probe. An action from any such state that breaks an
  * invariant is a counterexample no reachable-states search needs to find a path to.
@@ -94,8 +97,8 @@ import type {
  * printed as DISABLE (sql/print.ts printAlterTableAction), so no relation's row security keeps a world to its own facts;
  * the installed-catalog check finds it at the installation.
  * @plant test/plants/pg/world-model/inductive-unconstructed.patch No steered turn builds the state of a constructed
- * feature (startOf), so the four features a drawn state rarely offers a way to are left to the label-fixed search,
- * which reaches none of them; the coverage verdict fails with FeaturesUnreached.
+ * feature (inductiveSketches), so the four features a drawn state rarely offers a way to are left to the label-fixed
+ * search, which reaches none of them; the coverage verdict fails with FeaturesUnreached.
  * @plant test/plants/pg/world-model/worlds-pool-claims-outlive-transaction.patch A Db's claims set for the session, not
  * the transaction, so a pooled connection holds them between transactions; the driver's probe fails.
  */
@@ -391,11 +394,13 @@ const installsGen: Gen<InstallSpec> = weighted([
 	[1, constant(docsHeldRosterInstall)]
 ])
 
+const poolGen: Gen<Pool> = element<Pool>(["a connection per Db", "one connection"])
+
 const caseGen: Gen<InductiveCase> = (source) => {
 	const install = source.draw(installsGen)
 	return {
 		install,
-		pool: source.draw(element<Pool>(["a connection per Db", "one connection"])),
+		pool: source.draw(poolGen),
 		plan: source.draw(planGen(install)),
 		weights: source.draw(weightsGen)
 	}
@@ -423,10 +428,11 @@ const demandOf = (ic: InductiveCase, setup: ReadonlyArray<Action>): WorldDemand 
 }
 
 /**
- * The required features a drawn state rarely offers a way to, each reached one action past a state a case builds where
- * its turn aims at it (Case.steering `aimed`): the editor's worlds (docsEditorInstall) over constructedReality, whose
- * one organization, on the free plan, lies outside PlanOrg, the entry the editor writes, yet visible through Org whole
- * beside it, and whose one document lies outside TenantDoc under no claims, visible through Doc whole.
+ * The required features a drawn state rarely offers a way to, each reached one action past a state the generator builds
+ * where a case's turn aims at it (Pending `aimed`, inductiveSketches): the editor's worlds (docsEditorInstall) over
+ * constructedReality, whose one organization, on the free plan, lies outside PlanOrg, the entry the editor writes, yet
+ * visible through Org whole beside it, and whose one document lies outside TenantDoc under no claims, visible through
+ * Doc whole.
  * - `readback:beside`: a Db of the editor under its tenant's claims, whose apply through TenantDoc reads Doc back, a
  *   whole entry beside the entry that writes its relation (model/session/apply.ts deltaOf);
  * - `op:direct:outside-visible:absent:direct-role:rows` and `...:law-refused`: the editor as a direct writer under no
@@ -510,46 +516,97 @@ const constructedPlan = (feature: Constructed): StatePlan => {
 }
 
 /**
+ * Where a case starts, as drawn: a drawn case; or, where its turn aims at a constructed feature, that feature, with the
+ * drawn case's pool and weights.
+ */
+type StartSketch =
+	| { readonly kind: "drawn"; readonly drawn: InductiveCase }
+	| {
+			readonly kind: "constructed"
+			readonly feature: Constructed
+			readonly pool: Pool
+			readonly weights: Weights
+	  }
+
+/**
+ * An inductive case as drawn: where it starts, and what the steering it was drawn under left pending of the required
+ * situations (PendingFeatures), resolved as it was drawn, so a kept or replayed case aims as the drawn one did.
+ */
+interface InductiveSketch {
+	readonly start: StartSketch
+	readonly pending: PendingFeatures
+}
+
+/**
+ * The cases a witness draws: a drawn case (caseGen); or, where its turn aims at a constructed feature (Pending
+ * `aimed`), that feature's start, with the drawn case's pool and weights; each with what its steering left pending
+ * (pendingOf). Every case draws caseGen first, so a tape decodes alike under every steering up to the one action, and a
+ * steered phase's mutant of a seed keeps the case its seed drew.
+ */
+const inductiveSketches: Steered<InductiveSketch, WorldFeature> = (steering) => {
+	const pending = pendingOf(steering, situations)
+	const aim = Option.flatMap(steering, (p) => Arr.findFirst(constructedFeatures, (f) => p.aimed(f)))
+	return map(caseGen, (drawn): InductiveSketch => ({
+		start: Option.match(aim, {
+			onNone: (): StartSketch => ({ kind: "drawn", drawn }),
+			onSome: (feature): StartSketch => ({
+				kind: "constructed",
+				feature,
+				pool: drawn.pool,
+				weights: drawn.weights
+			})
+		}),
+		pending
+	}))
+}
+
+/**
  * Where a case starts and what its one action aims at: the drawn case over docsAtBoundRealities, its one action aimed
- * at every required feature still pending (steeredOnce); or, where its turn aims at a constructed feature, the editor's
- * worlds in its constructed state over constructedReality, its pool as drawn, and its one action of every kind as any
- * role, aimed at that feature alone.
+ * at every required feature still pending (steeredOnce); or, at a constructed feature, the editor's worlds in its
+ * constructed state over constructedReality, its pool as drawn, and its one action of every kind as any role, aimed at
+ * that feature alone; and what its steering left pending, which a led case's moves read (leadOf).
  */
 interface Start {
 	readonly ic: InductiveCase
 	readonly realities: Realities
 	readonly action: Weights
+	readonly pending: PendingFeatures
 }
 
-const startOf = (drawnCase: InductiveCase, c: Pick<Case<WorldFeature>, "steering">): Start =>
-	Option.match(
-		Arr.findFirst(constructedFeatures, (f) => Option.exists(c.steering, (p) => p.aimed(f))),
-		{
-			onNone: (): Start => ({
-				ic: drawnCase,
+/** The start a sketch states, resolved without its steering: every choice that read it is in the sketch. */
+const startOf = ({ start, pending }: InductiveSketch): Start => {
+	switch (start.kind) {
+		case "drawn":
+			return {
+				ic: start.drawn,
 				realities: docsAtBoundRealities,
-				action: steeredOnce({ ...drawnCase.weights, aims: aimsAt(situations, featuresOf) }, c)
-			}),
-			onSome: (feature): Start => {
-				const weights: Weights = {
-					...drawnCase.weights,
-					kinds: everyAction,
-					roles: everyRole,
-					aims: aimsAt([feature], featuresOf)
-				}
-				return {
-					ic: {
-						install: docsEditorInstall,
-						pool: drawnCase.pool,
-						plan: constructedPlan(feature),
-						weights
-					},
-					realities: constructedRealities,
-					action: steeredOnce(weights, c)
-				}
+				action: steeredOnce(
+					{ ...start.drawn.weights, aims: aimsAt(situations, featuresOf) },
+					pending
+				),
+				pending
+			}
+		case "constructed": {
+			const weights: Weights = {
+				...start.weights,
+				kinds: everyAction,
+				roles: everyRole,
+				aims: aimsAt([start.feature], featuresOf)
+			}
+			return {
+				ic: {
+					install: docsEditorInstall,
+					pool: start.pool,
+					plan: constructedPlan(start.feature),
+					weights
+				},
+				realities: constructedRealities,
+				action: steeredOnce(weights, pending),
+				pending
 			}
 		}
-	)
+	}
+}
 
 /** The steering window: the cases of a window steer by what no case before it reached, and run at once. */
 const steerEvery = 16
@@ -685,7 +742,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 								name: "the worlds model (test/support/worlds/model) over a drawn state: the one action's allowed observations, the stored relations, every open session's probe and every invariant"
 							},
 							suite: "pg/world-model/inductive",
-							draw: drawn(caseGen),
+							draw: steered(inductiveSketches, startOf),
 							literal: Formatter.format,
 							coverage: required<WorldFeature>(situations, {
 								cases: steeredFactor * cases,
@@ -698,10 +755,9 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							steerEvery,
 							caseHang
 						},
-						(drawnCase, c) =>
+						({ ic, realities, action: aimed, pending }, c) =>
 							Effect.scoped(
 								Effect.gen(function* () {
-									const { ic, realities, action: aimed } = startOf(drawnCase, c)
 									const setup = setupOf(ic.plan)
 									const poolSize = poolSizeOf(ic)
 									const substrate = yield* substrates(worldWidth(poolSize, demandOf(ic, setup)))
@@ -722,7 +778,9 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 									)
 									reachedPlan(planned, ic.plan)
 									const moves: ReadonlyArray<LeadMove> =
-										ic.plan.after.kind === "led" ? leadOf(situations, ic.weights, planned, c) : []
+										ic.plan.after.kind === "led"
+											? leadOf(situations, ic.weights, planned, pending, c.draw)
+											: []
 									const reached = yield* Effect.reduce(
 										moves,
 										(): ModelState => planned,

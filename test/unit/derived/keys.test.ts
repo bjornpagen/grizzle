@@ -53,7 +53,7 @@
  * @plant test/plants/unit/derived/derived-key-members-dropped.patch A view's key states none of its members
  * (analysis/derived/analyze.ts viewKeysOf), so a name of the key but the first is no key; the named key fails.
  */
-import { type Case, drawn, exhaust, explore, sketched } from "@bjornpagen/testing/explore"
+import { aimed, drawn, exhaust, explore, steered } from "@bjornpagen/testing/explore"
 import { type Reached, required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -121,15 +121,19 @@ type KeyFeature =
 	| "a negation over a level whose conditional count is numeric"
 
 /**
- * The case a witness checks: its drawn one, or, while a negation over a level whose conditional count is numeric is
- * pending, a planted one (condNegationSketchGen), which the drawn population reaches about once a stream.
+ * The case a witness checks, drawn under its steering: a drawn one, or, while a negation over a level whose conditional
+ * count is numeric is pending, a planted one (condNegationSketchGen), which the drawn population reaches about once a
+ * stream.
  */
-const aimedSketch = (drawnSketch: CaseSketch, c: Case<KeyFeature>): CaseSketch =>
-	Option.exists(c.steering, (pending) =>
-		pending.has("a negation over a level whose conditional count is numeric")
-	)
-		? c.draw(condNegationSketchGen)
-		: drawnSketch
+const keySketchDraw = steered<CaseSketch, CaseSketch, KeyFeature>(
+	(steering) =>
+		Option.exists(steering, (pending) =>
+			pending.has("a negation over a level whose conditional count is numeric")
+		)
+			? condNegationSketchGen
+			: caseSketchGen,
+	(sketch) => sketch
+)
 
 /** The rules every derived relation's keys keep (see the header). */
 const keyRules = (r: {
@@ -535,16 +539,19 @@ const joinFeatures = (
 ]
 
 /**
- * The join a witness checks: its drawn one, or, while a key of two factors each with an alternative is pending, a
- * planted one (twoFactorSketchGen), whose factors' alternatives the analysis lists after the proof, out of heading order
- * until inheritedKeys sorts them.
+ * The join a witness checks, drawn under its steering: a drawn one, or, while a key of two factors each with an
+ * alternative is pending, a planted one (twoFactorSketchGen), whose factors' alternatives the analysis lists after the
+ * proof, out of heading order until inheritedKeys sorts them.
  */
-const aimedJoin = (drawnJoin: Join, c: Case<JoinFeature>): Join =>
-	Option.exists(c.steering, (pending) =>
-		pending.has("a key of two factors, each with an alternative")
-	)
-		? joinOf(c.draw(twoFactorSketchGen))
-		: drawnJoin
+const joinDraw = steered<JoinSketch, Join, JoinFeature>(
+	(steering) =>
+		Option.exists(steering, (pending) =>
+			pending.has("a key of two factors, each with an alternative")
+		)
+			? twoFactorSketchGen
+			: joinSketchGen,
+	joinOf
+)
 
 /** What reads a product's view a level above: nothing, the view whole, or the view whole beside a relation of its base. */
 type Above =
@@ -1058,16 +1065,10 @@ const productAims: ReadonlyArray<readonly [Reached<ProductFeature>, Gen<ProductS
 ]
 
 /**
- * The product a witness checks: its drawn one, or, where its turn aims at a requirement `productAims` plants
- * (Case.steering), that planted one, so the cases of one window aim at distinct pending requirements.
+ * The product a witness checks, drawn under its steering: a drawn one, or, where its turn aims at a requirement
+ * `productAims` plants, that planted one (aimed), so the cases of one window aim at distinct pending requirements.
  */
-const aimedProduct = (drawnProduct: Product, c: Case<ProductFeature>): Product =>
-	Option.match(
-		Option.flatMap(c.steering, (pending) =>
-			Arr.findFirst(productAims, ([situation]) => pending.aimed(situation))
-		),
-		{ onNone: () => drawnProduct, onSome: ([, planted]) => productOf(c.draw(planted)) }
-	)
+const productDraw = steered(aimed(productSketchGen, productAims).generator, productOf)
 
 /**
  * A field of the stored relation beside its uuid key `id`: a text of up to 255 characters, PostgreSQL's repetition
@@ -1472,7 +1473,7 @@ describe("derived relation keys", () => {
 							name: "proven keys in heading order, narrowest first, none implied by another, the whole heading only alone, one fact by its first representable column, a level one above what it reads"
 						},
 						suite: "unit/derived/keys",
-						draw: drawn(caseSketchGen),
+						draw: keySketchDraw,
 						literal: Formatter.format,
 						coverage: required<KeyFeature>(
 							[
@@ -1492,7 +1493,7 @@ describe("derived relation keys", () => {
 					},
 					(sketch, c) =>
 						Effect.sync(() => {
-							const built = buildSchema(aimedSketch(sketch, c), { name: "Gen" })
+							const built = buildSchema(sketch, { name: "Gen" })
 							if (Arr.some(built.derived, (d) => d.negationOverCond)) {
 								c.note("a negation over a level whose conditional count is numeric")
 							}
@@ -1543,7 +1544,7 @@ describe("derived relation keys", () => {
 				explore(
 					{
 						suite: "unit/derived/join-keys",
-						draw: sketched(joinSketchGen, joinOf),
+						draw: joinDraw,
 						literal: Formatter.format,
 						oracle: {
 							kind: "second-implementation",
@@ -1570,9 +1571,8 @@ describe("derived relation keys", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(drawnJoin, c) =>
+					(j, c) =>
 						Effect.sync(() => {
-							const j = aimedJoin(drawnJoin, c)
 							const expected = minimalKeys(j, (r) => r.keys)
 							const d = defined(
 								succeeded(
@@ -1629,7 +1629,7 @@ describe("derived relation keys", () => {
 				explore(
 					{
 						suite: "unit/derived/product-keys",
-						draw: sketched(productSketchGen, productOf),
+						draw: productDraw,
 						literal: Formatter.format,
 						oracle: {
 							kind: "second-implementation",
@@ -1659,9 +1659,8 @@ describe("derived relation keys", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					(drawnProduct, c) =>
+					(p, c) =>
 						Effect.sync(() => {
-							const p = aimedProduct(drawnProduct, c)
 							const minimal = productMinimal(p)
 							const view = runtimeDerived("D", p.definition, [])
 							const level = runtimeSchema.extend(p.base.schema, "Level1", [view], [], [])

@@ -1,4 +1,4 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -622,15 +622,14 @@ const aimedWritesGen =
 	}
 
 /**
- * The steered case: the drawn one, or, where its turn aims at a situation (Case.steering), the writes that reach it
- * (aimedWritesGen), so the steered phase reaches every situation by construction and the cases of one window reach
- * distinct ones.
+ * Each situation with the writes that reach it (aimedWritesGen): a witness whose turn aims at one draws them (aimed),
+ * the case it runs, prints and keeps, so the steered phase reaches every situation by construction and the cases of one
+ * window reach distinct ones.
  */
-const aimedCase = (drawnCase: ReadonlyArray<Write>, c: Case<Situation>): ReadonlyArray<Write> =>
-	Option.match(
-		Option.flatMap(c.steering, (pending) => Arr.findFirst(situations, (s) => pending.aimed(s))),
-		{ onNone: () => drawnCase, onSome: (situation) => c.draw(aimedWritesGen(situation)) }
-	)
+const aims: ReadonlyArray<readonly [Situation, Gen<ReadonlyArray<Write>>]> = Arr.map(
+	situations,
+	(situation) => [situation, aimedWritesGen(situation)] as const
+)
 
 layer(Substrate.layer, { excludeTestServices: true })(
 	"a counted set keyed by three fields and a name",
@@ -669,7 +668,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						return yield* explore(
 							{
 								suite: "pg/fin/counted-set",
-								draw: drawn(caseGen),
+								draw: aimed(caseGen, aims),
 								literal: Formatter.format,
 								coverage: required<Situation>(situations, { cases: 96, sense: notesOnly }),
 								kept: [],
@@ -683,9 +682,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									name: "the reference fold of each owner's members (test/support/families/fold.ts foldStoredOf) over the README's set of members"
 								}
 							},
-							(drawnCase, c) =>
+							(writes, c) =>
 								Effect.gen(function* () {
-									const writes = aimedCase(drawnCase, c)
 									yield* s.admin.query(`TRUNCATE ${names.table(Attr)}, ${names.table(Owner)}`, [])
 									let state: State = { owners: [], attrs: [] }
 									for (const [i, w] of writes.entries()) {

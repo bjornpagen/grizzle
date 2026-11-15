@@ -1,6 +1,6 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
-import { boolean, element, type Gen, int, subarray, weighted } from "@bjornpagen/testing/gen"
+import { boolean, element, type Gen, int, oneOf, subarray, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { boundedShrink } from "@bjornpagen/testing/shrink"
 import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
@@ -1057,13 +1057,17 @@ const aimedGen =
 		return { shape, stored, again: [again] }
 	}
 
-/** The case a witness runs: its drawn one, or, while a situation is pending, one aimed at a pending situation. */
-const aimedCase = (drawnCase: UniqueCase, c: Case<Situation>): UniqueCase => {
-	const pending = Option.getOrUndefined(c.steering)
-	const open = Arr.filter(aims, ([situation]) => pending?.has(situation) === true)
+/**
+ * The case a witness runs, drawn under its steering: while a situation is pending, one aimed at a pending situation
+ * drawn among them; otherwise a drawn one. The generator draws it, so it is the case the search runs, prints and keeps.
+ */
+const uniqueCases: Steered<UniqueCase, Situation> = (steering) => {
+	const open = Arr.filter(aims, ([situation]) =>
+		Option.exists(steering, (pending) => pending.has(situation))
+	)
 	return Arr.isReadonlyArrayNonEmpty(open)
-		? c.draw(aimedGen(defined(open[c.draw(int(0, open.length - 1))], "a pending aim")[1]))
-		: drawnCase
+		? oneOf(Arr.map(open, ([, aim]) => aimedGen(aim)))
+		: caseGen
 }
 
 /** A call's facts: each doc with its kind and its lines nested at its count, each line its id and payload. */
@@ -1108,7 +1112,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a family insert meeting a
 				explore(
 					{
 						suite: "pg/write/unique-witness",
-						draw: drawn(caseGen),
+						draw: steered(uniqueCases, (k) => k),
 						literal: Formatter.format,
 						coverage: required<Situation>(situations, { cases: 96, sense: notesOnly }),
 						kept: [],
@@ -1122,9 +1126,8 @@ layer(Substrate.layer, { excludeTestServices: true })("a family insert meeting a
 							name: "the README's set rule over relations as sets of rows with their unique objects, a key over a selection holding the rows its selection is true of (verdictOf)"
 						}
 					},
-					(drawnCase, c) =>
+					({ shape, stored, again }, c) =>
 						Effect.gen(function* () {
-							const { shape, stored, again } = aimedCase(drawnCase, c)
 							const statements = statementsOf(shape)
 							const schemaNamed = (name: string) =>
 								schema(name, statements.relations, statements.all)

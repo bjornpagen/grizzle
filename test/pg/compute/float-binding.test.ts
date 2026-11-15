@@ -26,7 +26,7 @@
  * @plant test/plants/pg/compute/compute-float-binding-unbound.patch The conservative delivery skips bindLaterally, so a
  * compound operand is a scalar subquery PostgreSQL runs for every row.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -322,16 +322,17 @@ const featuresOf = (c: BindingCase): ReadonlyArray<Feature> => {
 }
 
 /**
- * The case a witness runs: in half its cases, while a position no witness reached yet is pending (Case.steering), the
- * term read at one of those; the drawn case otherwise.
+ * A case as the generator draws it: in half its cases, while a position no witness reached yet is pending (Steered),
+ * the term read at one of those, the position itself kept in the case; the drawn case otherwise.
  */
-const aimed = (drawnCase: BindingCase, c: Case<Feature>): BindingCase => {
-	const pending = Option.match(c.steering, {
+const aimedCaseGen: Steered<BindingCase, Feature> = (steering) => (source) => {
+	const drawnCase = source.draw(caseGen)
+	const pending = Option.match(steering, {
 		onNone: (): ReadonlyArray<Position> => [],
 		onSome: (p) => Arr.filter(positions, (q) => p.names(`position:${q}`))
 	})
-	return Arr.isReadonlyArrayNonEmpty(pending) && c.draw(boolean)
-		? { ...drawnCase, position: c.draw(element(pending)) }
+	return Arr.isReadonlyArrayNonEmpty(pending) && source.draw(boolean)
+		? { ...drawnCase, position: source.draw(element(pending)) }
 		: drawnCase
 }
 
@@ -529,7 +530,7 @@ layer(Substrate.layer)("guarded float forms on PostgreSQL 19", (it) => {
 								name: "the reference evaluator, the conservative lowering, and EXPLAIN ANALYZE"
 							},
 							suite: "pg/compute/float-binding",
-							draw: drawn(caseGen),
+							draw: steered(aimedCaseGen, (k) => k),
 							literal: Formatter.format,
 							coverage: required<Feature>(
 								[
@@ -549,9 +550,8 @@ layer(Substrate.layer)("guarded float forms on PostgreSQL 19", (it) => {
 							steerEvery: 16,
 							caseHang
 						},
-						(drawnCase, cx) =>
+						(k, cx) =>
 							Effect.gen(function* () {
-								const k = aimed(drawnCase, cx)
 								cx.noteAll(featuresOf(k))
 								const desc = queryOf(exprOf(k.term), k.term.width, k.position)
 								const edge = ledgerCase("edge classes", desc, k.edge)

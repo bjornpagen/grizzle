@@ -34,7 +34,7 @@
  * @plant test/plants/pg/migrate/lowering-triggers-kept.patch A migration keeps a rule's law triggers when the rule leaves them for
  * foreign keys.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -50,13 +50,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import {
-	type Aim,
-	aimedAt,
-	apply,
-	checkedAdmission,
-	openMigrator
-} from "#test/pg/migrate/support.ts"
+import { type Aim, apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
 import {
@@ -566,7 +560,8 @@ const pathOver =
 		}
 	}
 
-/** The cases each required situation is aimed at while it is pending (Case.steering). */
+/** The cases each required situation is aimed at while it is pending: the generator draws the one a case's turn aims
+ * at (aimed) in place of its plain draw. */
 const aims: ReadonlyArray<Aim<WalkCase, Feature>> = [
 	[
 		"a stored containment added over stored rows that break it, refused naming its law",
@@ -646,9 +641,6 @@ const aims: ReadonlyArray<Aim<WalkCase, Feature>> = [
 	]
 ]
 
-/** The case a search runs: its drawn one, or, while a situation `aims` reaches is pending, the one aimed at it. */
-const aimed = aimedAt(aims)
-
 layer(Substrate.layer)(
 	"rules held by foreign keys or by triggers, migrated with stored rows",
 	(it) => {
@@ -660,7 +652,7 @@ layer(Substrate.layer)(
 					explore(
 						{
 							suite: "migrate/lowering",
-							draw: drawn(caseGen),
+							draw: aimed(caseGen, aims),
 							literal: Formatter.format,
 							oracle: {
 								kind: "specification",
@@ -690,7 +682,7 @@ layer(Substrate.layer)(
 							steerEvery: 8,
 							caseHang
 						},
-						(c, cx) => Effect.scoped(walk(aimed(c, cx), cx.note))
+						(c, cx) => Effect.scoped(walk(c, cx.note))
 					)
 				)
 		)

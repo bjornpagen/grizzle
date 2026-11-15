@@ -58,14 +58,23 @@
  * @plant test/plants/unit/schema/levelcheck-refused.patch A row check over a lower relation refused as LevelRefused
  * (schema/own.ts checkLevels); the logins property's schema no longer compiles.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { drawn, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
-import { array, boolean, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
+import { array, element, type Gen, int, map, oneOf, weighted } from "@bjornpagen/testing/gen"
 import { exact } from "@bjornpagen/testing/oracle"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Layer, Option, Result, String as Str } from "effect"
+import {
+	Array as Arr,
+	Effect,
+	Formatter,
+	Function,
+	Layer,
+	Option,
+	Result,
+	String as Str
+} from "effect"
 import { applyOnSession } from "#adapter/migrate/apply.ts"
 import type { MigrateError, MigrationPlace } from "#adapter/migrate/errors.ts"
 import type { MigrationTarget } from "#adapter/migrate/input.ts"
@@ -385,17 +394,17 @@ const ownFirst = (k: LoginsCase): LoginsCase => {
 }
 
 /**
- * The case a witness checks: its drawn one, or, while the author's refusal by its own check with a level's broken too is
- * pending, in half its cases by a draw of its own, the drawn one with its first row breaking an own check named first
- * (ownFirst), which a drawn case meets too rarely for the floor and the steered phase. None for a rotating or kept case,
- * which runs as drawn.
+ * The cases a witness checks: drawn ones (loginsCase), or, while the author's refusal by its own check with a level's
+ * broken too is pending (Pending `names`), in half of them the drawn one with its first row breaking an own check named
+ * first (ownFirst), which a drawn case meets too rarely for the floor and the steered phase. Unsteered (the rotating
+ * stream), a plain draw.
  */
-const aimedLogins = (drawnCase: LoginsCase, c: Case<LoginsFeature>): LoginsCase =>
-	Option.exists(c.steering, (pending) =>
+const steeredLogins: Steered<LoginsCase, LoginsFeature> = (steering) =>
+	Option.exists(steering, (pending) =>
 		pending.names("the author refused by its own check, a level's broken too")
-	) && c.draw(boolean)
-		? ownFirst(drawnCase)
-		: drawnCase
+	)
+		? oneOf([loginsCase, map(loginsCase, ownFirst)])
+		: loginsCase
 
 /** Media's checks over every row a migration case stores and probes. */
 interface MigrationCase {
@@ -453,7 +462,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 					explore(
 						{
 							suite: "pg/levels/level-checks logins",
-							draw: drawn(loginsCase),
+							draw: steered(steeredLogins, Function.identity),
 							literal: Formatter.format,
 							oracle: {
 								kind: "second-implementation",
@@ -479,10 +488,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							steerEvery: 4,
 							caseHang
 						},
-						(drawnCase, c) =>
+						(k, c) =>
 							Effect.scoped(
 								Effect.gen(function* () {
-									const k = aimedLogins(drawnCase, c)
 									const own = named("Own", k.own)
 									const level = named("Level", k.level)
 									const declared = levelsAt("LevelChecks", own, level)

@@ -36,9 +36,9 @@
  * of every fact the INSERT inserted: a race of Docs alone holds SIRead locks on Doc's indexes. Over the windowed met
  * rows alone, PostgreSQL pushes no qual holding a sublink below them, and the inlined CTE reads nothing more.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, drawn, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
-import { array, boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { array, constant, element, type Gen, int, oneOf, weighted } from "@bjornpagen/testing/gen"
 import { pctSchedule } from "@bjornpagen/testing/interleave"
 import { agree, type Equivalence, exact, ordered } from "@bjornpagen/testing/oracle"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -250,21 +250,29 @@ const disjointRaces: Gen<DisjointRace> = (s) => {
 }
 
 /**
- * The race a witness runs: its drawn one, or, while a CHECK's refusal is pending, in half its cases by a draw of its
- * own, the drawn one with its first call a post of an Invoice the CHECK refuses, at that call's own keys, so the race's
- * keys stay disjoint; a drawn race posts one too rarely for the floor and the steered phase. None for a rotating or kept
- * case, which runs as drawn.
+ * A drawn race with its first call a post of an Invoice the CHECK refuses, at that call's own keys, so the race's keys
+ * stay disjoint; a drawn race posts one too rarely for the floor and the steered phase.
  */
-const aimedDisjoint = (drawnRace: DisjointRace, c: Case<DisjointFeature>): DisjointRace =>
-	Option.exists(c.steering, (pending) => pending.names("a CHECK refused")) && c.draw(boolean)
-		? {
-				docsOnly: false,
-				calls: [
-					c.draw(postedOff(disjointInvoice(0), constant(1))),
-					...Arr.tailNonEmpty(drawnRace.calls)
-				]
-			}
-		: drawnRace
+const refusedFirst: Gen<DisjointRace> = (s) => {
+	const drawnRace = s.draw(disjointRaces)
+	return {
+		docsOnly: false,
+		calls: [
+			s.draw(postedOff(disjointInvoice(0), constant(1))),
+			...Arr.tailNonEmpty(drawnRace.calls)
+		]
+	}
+}
+
+/**
+ * The race a witness runs, drawn under its steering: while a CHECK's refusal is pending, in half its cases one whose
+ * first call the CHECK refuses (refusedFirst); otherwise a drawn one, as a rotating case always is. The generator draws
+ * it, so it is the race the search runs, prints and keeps.
+ */
+const aimedDisjoint: Steered<DisjointRace, DisjointFeature> = (steering) =>
+	Option.exists(steering, (pending) => pending.names("a CHECK refused"))
+		? oneOf([disjointRaces, refusedFirst])
+		: disjointRaces
 
 /** A race of shared keys: two or three calls over two Docs, two slugs and two Invoices, from a stored Doc or none. */
 interface SharedRace {
@@ -299,14 +307,27 @@ const sharedRaces: Gen<SharedRace> = (s) => ({
 	calls: nonEmptyList(s.draw(array(sharedCall, { min: 2, max: 3 })), "a race's calls")
 })
 
+/** A history of one to five calls over the shared keys, from a stored Doc or none. */
+const histories: Gen<SharedRace> = (s) => ({
+	initial: s.draw(element(["empty", "doc"] as const)),
+	calls: nonEmptyList(s.draw(array(sharedCall, { min: 1, max: 5 })), "a history's calls")
+})
+
+/** A drawn history after a post the CHECK refuses, its Invoice one no fact of the initial state holds. */
+const unsettledFirst: Gen<SharedRace> = (s) => {
+	const drawnHistory = s.draw(histories)
+	return { ...drawnHistory, calls: [s.draw(postedOff(3, constant(1))), ...drawnHistory.calls] }
+}
+
 /**
- * The history a witness runs: its drawn one, or, while an unsettled invoice's refusal is pending, the drawn one after a
- * post the CHECK refuses, its Invoice one no fact of the initial state holds.
+ * The history a witness runs, drawn under its steering: while an unsettled invoice's refusal is pending, one after a
+ * post the CHECK refuses (unsettledFirst); otherwise a drawn one. The generator draws it, so it is the history the
+ * search runs, prints and keeps.
  */
-const aimedHistory = (drawnHistory: SharedRace, c: Case<SerialFeature>): SharedRace =>
-	Option.exists(c.steering, (pending) => pending.names("an unsettled invoice refused"))
-		? { ...drawnHistory, calls: [c.draw(postedOff(3, constant(1))), ...drawnHistory.calls] }
-		: drawnHistory
+const aimedHistory: Steered<SharedRace, SerialFeature> = (steering) =>
+	Option.exists(steering, (pending) => pending.names("an unsettled invoice refused"))
+		? unsettledFirst
+		: histories
 
 const initialOf = (race: SharedRace) =>
 	race.initial === "doc" ? { Doc: [{ id: uuidOf(1), slug: 1, title: 0 }] } : {}
@@ -566,7 +587,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										name: "disjoint calls commit unless their Invoice is unsettled, which the Settled CHECK refuses at either level, an Invoice race's SERIALIZABLE call perhaps with 40001; no SIRead lock at READ COMMITTED, and at SERIALIZABLE none but a page or an index of Invoice, none for Docs alone"
 									},
 									suite: "pg/isolation/arbiter-disjoint",
-									draw: drawn(disjointRaces),
+									draw: steered(aimedDisjoint, (race) => race),
 									literal: Formatter.format,
 									coverage: required<DisjointFeature>(
 										["docs only", "an invoice posted", "three sessions", "a CHECK refused"],
@@ -579,9 +600,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									steerEvery: runs,
 									caseHang
 								},
-								(drawnRace, c) =>
+								(race, c) =>
 									Effect.gen(function* () {
-										const race = aimedDisjoint(drawnRace, c)
 										c.note(race.docsOnly ? "docs only" : "an invoice posted")
 										if (race.calls.length === 3) {
 											c.note("three sessions")
@@ -706,13 +726,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							{
 								oracle: { kind: "specification", name: "the READ COMMITTED form's outcomes" },
 								suite: "pg/isolation/arbiter-serial",
-								draw: drawn((s): SharedRace => ({
-									initial: s.draw(element(["empty", "doc"] as const)),
-									calls: nonEmptyList(
-										s.draw(array(sharedCall, { min: 1, max: 5 })),
-										"a history's calls"
-									)
-								})),
+								draw: steered(aimedHistory, (history) => history),
 								literal: Formatter.format,
 								coverage: required<SerialFeature>(
 									[
@@ -730,9 +744,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								steerEvery: runs,
 								caseHang
 							},
-							(drawnHistory, c) =>
+							(history, c) =>
 								Effect.gen(function* () {
-									const history = aimedHistory(drawnHistory, c)
 									const initial = initialOf(history)
 									const rc = yield* runSerial(
 										shapes.readCommitted,

@@ -25,7 +25,7 @@
  *
  * Features: each verdict, the regeneration's re-record rolled back with its refused next file, a regeneration of a
  * target alike in files but not in fingerprint, and a resume whose next file runs outside a transaction. A case whose
- * turn aims at one (Case.steering) runs a folder, a regeneration and a point that reach it (aims).
+ * turn aims at one is drawn by the generator as a folder, a regeneration and a point that reach it (aims).
  *
  * @plant test/plants/pg/migrate/redraft-outside-transaction.patch The re-record runs in a transaction of its own before
  * the next file, so a refused next file leaves the regeneration recorded.
@@ -36,7 +36,7 @@
  * @plant test/plants/unit/adapter/record-one-text-per-statement.patch A file's statements are recorded as one text, as
  * before 3e9bbb2c, so a resume under a regeneration is refused: the folder does not record 01-setup.sql as it ran.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, type Case, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { boolean, type Gen, int, weighted, constant } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -224,10 +224,11 @@ type Feature =
 	| "a regeneration resuming at a no-transaction file refused"
 
 /**
- * The case a turn aiming at a feature runs (Case.steering): a folder, a regeneration and a point the drafts reach it at,
- * as the drafts stand (Shop v1's and v2's first files are drafted alike under a key, a check or a mutable declaration
- * more or less, and every file of v2 alike without its mutable declaration; v2 drafted toward from v1 declared mutable
- * holds v2's files). The features noted are still the outcome's, so a note never claims what the case did not reach.
+ * The case the generator draws for a turn aiming at a feature (aimed): a folder, a regeneration and a point the drafts
+ * reach it at, as the drafts stand (Shop v1's and v2's first files are drafted alike under a key, a check or a mutable
+ * declaration more or less, and every file of v2 alike without its mutable declaration; v2 drafted toward from v1
+ * declared mutable holds v2's files). The features noted are still the outcome's, so a note never claims what the case
+ * did not reach.
  */
 const aims: ReadonlyArray<readonly [Feature, RedraftCase]> = [
 	[
@@ -267,15 +268,6 @@ const aims: ReadonlyArray<readonly [Feature, RedraftCase]> = [
 		{ folder: 1, regeneration: 4, completed: 1, added: false, failNext: false }
 	]
 ]
-
-/** The case a property runs: its drawn one, or the one its turn aims at (aims). */
-const aimedCase = (drawnCase: RedraftCase, k: Case<Feature>): RedraftCase =>
-	Option.match(
-		Option.flatMap(k.steering, (pending) =>
-			Arr.findFirst(aims, ([feature]) => pending.aimed(feature))
-		),
-		{ onNone: () => drawnCase, onSome: ([, aimed]) => aimed }
-	)
 
 /** A statement that fails when it runs (22012). */
 const failingStatement = "SELECT 1 / 0;"
@@ -432,9 +424,8 @@ const guardOf = (schema: string, fingerprint: string) =>
 		return reason._tag === "ServerError" ? reason.fields.code : reason.message
 	})
 
-const runCase = (drawnCase: RedraftCase, k: Case<Feature>) =>
+const runCase = (c: RedraftCase, k: Case<Feature>) =>
 	Effect.gen(function* () {
-		const c = aimedCase(drawnCase, k)
 		const substrate = yield* Substrate
 		const owner = substrate.owner.role
 		const index = c.folder
@@ -636,7 +627,10 @@ layer(Substrate.layer)("a partial folder resumed under a regeneration", (it) => 
 							name: "the resume's documented contract, restated over the drafts' texts, against the database read back and a fresh install"
 						},
 						suite: "migrate/redraft",
-						draw: drawn(caseGen),
+						draw: aimed(
+							caseGen,
+							Arr.map(aims, ([feature, c]) => [feature, constant(c)] as const)
+						),
 						literal: Formatter.format,
 						coverage: required<Feature>(
 							[

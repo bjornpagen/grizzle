@@ -84,8 +84,9 @@ interface Level {
 
 const wordGen = matching(arkregex("^[A-Z][a-z]{1,7}$"))
 
-const drawnGen = (names: number) =>
-	drawn((source) => ({
+const drawnGen =
+	(names: number): Gen<Drawn> =>
+	(source) => ({
 		name: source.draw(int(0, names - 1)),
 		variant: source.draw(
 			weighted<0 | 1>([
@@ -94,7 +95,7 @@ const drawnGen = (names: number) =>
 			])
 		),
 		copy: source.draw(boolean)
-	}))
+	})
 
 /** One of `relations` again, its name and variant, the pool's own value or a copy built again; no option where none. */
 const againOf = (relations: ReadonlyArray<Drawn>): ReadonlyArray<Weighted<Drawn>> =>
@@ -197,7 +198,7 @@ describe("composing relations into a schema", () => {
 								source.draw(array(wordGen, { min: 1, max: 3 })),
 								(w, i) => `${w}${i}`
 							)
-							const item = drawnGen(names.length).generator
+							const item = drawnGen(names.length)
 							const levels = Arr.reduce(levelNames, Arr.empty<Level>(), (below): Array<Level> => {
 								const listed = source.draw(array(item, { min: 0, max: 4 }))
 								const stated = source.draw(

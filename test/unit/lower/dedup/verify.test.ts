@@ -1,4 +1,4 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { type Draw, explore, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { type Gen, map, oneOf, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -108,14 +108,14 @@ const reported = (
 }
 
 /**
- * The options a case may take, aimed: those a pending requirement of a steering case names, where one does, else every
- * option, so a witness case spends its draw on a break no case has reached yet.
+ * The options a case may take, aimed: those its sketch aims at (brokenDraw), where it aims at any, else every option,
+ * so a witness case spends its draw on a break no case has reached yet.
  */
-const aimed = <F extends string, B extends F>(
-	c: Case<F>,
+const aimedOptions = <F extends string, B extends F>(
+	aims: ReadonlyArray<F>,
 	options: Arr.NonEmptyReadonlyArray<B>
 ): Arr.NonEmptyReadonlyArray<B> => {
-	const pending = Arr.filter(options, (b) => Option.exists(c.steering, (p) => p.names(b)))
+	const pending = Arr.filter(options, (b) => Arr.contains(aims, b))
 	return Arr.isReadonlyArrayNonEmpty(pending) ? pending : options
 }
 
@@ -168,11 +168,38 @@ const planSubjectGen: Gen<PlanSubject> = map(caseGen(defaultGenConfig), ([label,
 	catalog: genCatalog(c.schema)
 }))
 
-/** A subject and two picks: the break among those that apply to it, and the site among the break's. */
-const brokenGen =
-	<S>(subject: Gen<S>): Gen<readonly [S, number, number]> =>
-	(source) =>
-		[source.draw(subject), source.draw(pickGen), source.draw(pickGen)] as const
+/**
+ * A subject, two picks (the break among those that apply to it, and the site among the break's), and the features the
+ * case aims at.
+ */
+type Broken<S, F extends string> = readonly [
+	subject: S,
+	kindPick: number,
+	sitePick: number,
+	aims: ReadonlyArray<F>
+]
+
+/**
+ * A broken subject, drawn under its steering: a subject and two picks, and the features among `features` a pending
+ * requirement of a steering case names, none for a rotating case, so the case runs as its sketch says with no steering.
+ */
+const brokenDraw = <S, F extends string>(
+	subject: Gen<S>,
+	features: Arr.NonEmptyReadonlyArray<F>
+): Draw<Broken<S, F>, Broken<S, F>, F> =>
+	steered(
+		(steering) =>
+			(source): Broken<S, F> => [
+				source.draw(subject),
+				source.draw(pickGen),
+				source.draw(pickGen),
+				Option.match(steering, {
+					onNone: () => [],
+					onSome: (pending) => Arr.filter(features, (f) => pending.names(f))
+				})
+			],
+		(broken) => broken
+	)
 
 type PlanBreak =
 	| "a certificate dropped"
@@ -346,6 +373,11 @@ const planBreakNames: Arr.NonEmptyReadonlyArray<PlanBreak> = [
 	"a UNION relaxed to UNION ALL"
 ]
 
+const planFeatures: Arr.NonEmptyReadonlyArray<PlanFeature> = [
+	...planBreakNames,
+	"a union's certificate dropped"
+]
+
 describe("structural obligation verification", () => {
 	it.effect(
 		"reports each break of a placed plan under its rule, and passes the plan unbroken",
@@ -357,14 +389,14 @@ describe("structural obligation verification", () => {
 						suite: "unit/lower/dedup/verify/plan-breaks",
 						literal: Formatter.format,
 						kept: [],
-						draw: drawn(brokenGen(planSubjectGen)),
+						draw: brokenDraw(planSubjectGen, planFeatures),
 						runs: 250,
 						shrink: completeShrink,
 						oracle: {
 							kind: "specification",
 							name: "each planted break's rule, and no problem in the plan the placement builds"
 						},
-						coverage: required<PlanFeature>([...planBreakNames, "a union's certificate dropped"], {
+						coverage: required<PlanFeature>(planFeatures, {
 							cases: 300,
 							sense: notesOnly
 						}),
@@ -372,7 +404,7 @@ describe("structural obligation verification", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					([subject, kindPick, sitePick], c) =>
+					([subject, kindPick, sitePick, aims], c) =>
 						Effect.sync(() => {
 							const env = {
 								context: "snapshot" as const,
@@ -392,17 +424,17 @@ describe("structural obligation verification", () => {
 								),
 								"a break that applies: a realization can always be dropped"
 							)
-							/** A case steering for a union's certificate drops it where the plan holds one. */
+							/** A case aimed at a union's certificate drops it where the plan holds one. */
 							const unions = Arr.filter(
 								planBreaks["a certificate dropped"].sites(placed, subject.dag),
 								(s) => s.union
 							)
 							const aimedAtUnion =
 								Arr.isReadonlyArrayNonEmpty(unions) &&
-								Option.exists(c.steering, (p) => p.names("a union's certificate dropped"))
+								Arr.contains(aims, "a union's certificate dropped")
 							const name = aimedAtUnion
 								? "a certificate dropped"
-								: pickFrom(aimed(c, applicable), kindPick)
+								: pickFrom(aimedOptions(aims, applicable), kindPick)
 							const chosen = pickFrom(
 								Arr.isReadonlyArrayNonEmpty(unions) && aimedAtUnion
 									? unions
@@ -741,7 +773,7 @@ describe("codec and result-channel alignment", () => {
 						suite: "unit/lower/dedup/verify/channel-breaks",
 						literal: Formatter.format,
 						kept: [],
-						draw: drawn(brokenGen(programSubjectGen)),
+						draw: brokenDraw(programSubjectGen, channelBreakNames),
 						runs: 300,
 						shrink: completeShrink,
 						oracle: {
@@ -753,7 +785,7 @@ describe("codec and result-channel alignment", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					([subject, kindPick, sitePick], c) =>
+					([subject, kindPick, sitePick, aims], c) =>
 						Effect.sync(() => {
 							assert.deepEqual(channelProblems(subject.program, "statement"), [], subject.label)
 							const applicable = nonEmpty(
@@ -763,7 +795,7 @@ describe("codec and result-channel alignment", () => {
 								),
 								"a break that applies: a text can always be edited"
 							)
-							const name = pickFrom(aimed(c, applicable), kindPick)
+							const name = pickFrom(aimedOptions(aims, applicable), kindPick)
 							const broken = pickFrom(
 								nonEmpty(channelBreaks[name].sites(subject.program), "a site"),
 								sitePick
@@ -789,7 +821,7 @@ describe("codec and result-channel alignment", () => {
 						suite: "unit/lower/dedup/verify/artifact-breaks",
 						literal: Formatter.format,
 						kept: [],
-						draw: drawn(brokenGen(programSubjectGen)),
+						draw: brokenDraw(programSubjectGen, artifactBreakNames),
 						runs: 150,
 						shrink: completeShrink,
 						oracle: {
@@ -801,7 +833,7 @@ describe("codec and result-channel alignment", () => {
 						steerEvery: 16,
 						caseHang
 					},
-					([subject, kindPick, sitePick], c) =>
+					([subject, kindPick, sitePick, aims], c) =>
 						Effect.sync(() => {
 							assert.deepEqual(
 								artifactProblems(subject.program, subject.program),
@@ -815,7 +847,7 @@ describe("codec and result-channel alignment", () => {
 							if (!Arr.isReadonlyArrayNonEmpty(applicable)) {
 								return
 							}
-							const name = pickFrom(aimed(c, applicable), kindPick)
+							const name = pickFrom(aimedOptions(aims, applicable), kindPick)
 							const broken = pickFrom(
 								nonEmpty(artifactBreaks[name](subject.program), "a site"),
 								sitePick

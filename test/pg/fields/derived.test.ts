@@ -46,9 +46,9 @@
  *
  * Each case's commands are a swarm drawn per case (rule 7); the all-off draw is guarded by keeping `write`, which
  * applies in every state, always on. While no witness has added w over a row at a key Weight lacks, or written a row
- * under one of the singleton expressions at a tier whose code is no position, half the steered cases are aimed at one of
- * them (aimedRun). Bound: programs of three to eight steps, or an aimed write at each live handle, over a roster of two
- * to four handles after up to two migrations of its history.
+ * under one of the singleton expressions at a tier whose code is no position, or refused closed rows at such a key, a
+ * witness whose turn aims at one draws a run aimed at it (runAims). Bound: programs of three to eight steps, or an
+ * aimed write at each live handle, over a roster of two to four handles after up to two migrations of its history.
  *
  * Features: the vocabulary Feature below, each command and each expression kind a program reaches.
  *
@@ -67,7 +67,7 @@ import {
 	took,
 	type Verdict
 } from "@bjornpagen/testing/commands"
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { boolean, constant, element, type Gen, int, subset } from "@bjornpagen/testing/gen"
 import { agree, type Disagreement, exact } from "@bjornpagen/testing/oracle"
@@ -715,29 +715,18 @@ const singletonRunGen =
 		}
 	}
 
-/** What a steered case may be aimed at: an addition refused at an absent key, or a singleton expression's feature. */
-type Aim = "absent key" | SingletonExpr
-
-/** The feature each aim's run is aimed at. */
-const aimFeatures: Readonly<Record<Aim, Feature>> = {
-	"absent key": "an addition refused at an absent key",
-	...singletonFeatures
-}
-
 /**
- * The run a witness makes: its drawn one, or, while some aim's feature no witness has reached (Case.steering), half the
- * time a run aimed at one of them.
+ * The runs aimed at what a witness's turn aims at (aimed): at an addition refused at an absent key, and at closed rows
+ * refused at one, which a run lacking a key's Weight row reaches; and at each singleton expression's feature.
  */
-const aimedRun = (run: Run, c: Case<Feature>): Run => {
-	const aims = Arr.filter(Struct.keys(aimFeatures), (aim) =>
-		Option.exists(c.steering, (unreached) => unreached.has(aimFeatures[aim]))
-	)
-	if (!Arr.isReadonlyArrayNonEmpty(aims) || !c.draw(boolean)) {
-		return run
-	}
-	const aim = c.draw(element(aims))
-	return c.draw(aim === "absent key" ? lackingRunGen : singletonRunGen(aim))
-}
+const runAims: ReadonlyArray<readonly [Feature, Gen<Run>]> = [
+	["an addition refused at an absent key", lackingRunGen],
+	["closed rows refused at an absent key", lackingRunGen],
+	...Arr.map(Struct.keys(singletonFeatures), (expr): readonly [Feature, Gen<Run>] => [
+		singletonFeatures[expr],
+		singletonRunGen(expr)
+	])
+]
 
 /**
  * The installation a case migrates: the declared name its schema is built under, the owner's session that reads it,
@@ -1383,7 +1372,7 @@ layer(Substrate.layer)("generated fields on PostgreSQL 19rc2", (it) => {
 				explore(
 					{
 						suite: "pg/fields/derived",
-						draw: drawn(runGen),
+						draw: aimed(runGen, runAims),
 						literal: Formatter.format,
 						coverage: required<Feature>(
 							[
@@ -1417,10 +1406,9 @@ layer(Substrate.layer)("generated fields on PostgreSQL 19rc2", (it) => {
 							name: "the host evaluator and a naive model of each generation expression, against PostgreSQL's stored values; PostgreSQL's verdicts against the model's"
 						}
 					},
-					(drawnRun, kase) =>
+					(run, kase) =>
 						Effect.scoped(
 							Effect.gen(function* () {
-								const run = aimedRun(drawnRun, kase)
 								if (holesOf(run.history.state).length > 0) {
 									kase.note("a roster with a hole")
 								}

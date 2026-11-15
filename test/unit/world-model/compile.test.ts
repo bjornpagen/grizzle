@@ -13,8 +13,8 @@
  * itself and then refuses (the class of a generated addition through an entry whose every carried field is serial)
  * is caught on every seed of the unit tier. Required: both verdicts, and the additions the model admits whose every
  * carried field is serial (through a query entry, and into the base's every-serial relation written whole), complete
- * and generated, and generated ones beside carried fields. A witness aims at the additions no witness reached yet
- * (additionAim).
+ * and generated, and generated ones beside carried fields. A witness's sketch aims at the additions no witness reached
+ * yet (sketchDraw).
  *
  * The oracle is a second implementation: the worlds model's compile rules against grizzle's compile of the write the
  * executor serves.
@@ -25,9 +25,9 @@
  * (model/session/apply.ts sideCrosses); the property fails in the steered phase: an insertion of the every-serial Visit
  * read back, two statements' by its serial classes.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
+import { explore, steered } from "@bjornpagen/testing/explore"
 import { required, type Situations } from "@bjornpagen/testing/features"
-import { boolean, element } from "@bjornpagen/testing/gen"
+import { boolean, element, type Gen, map } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
@@ -84,32 +84,74 @@ const additions: Arr.NonEmptyReadonlyArray<AdditionFeature> = [
 
 const situations: Situations<CompileFeature> = ["compiled", "compile-refused", ...additions]
 
-/**
- * The additions a witness aims at, in half its cases by a draw of its own: those no witness reached yet (Case.steering).
- * None for a rotating or kept case, which runs as drawn.
- */
-const additionAim = (
-	c: Case<CompileFeature>
-): Option.Option<Arr.NonEmptyReadonlyArray<AdditionFeature>> => {
-	const pending = Option.match(c.steering, {
-		onNone: (): ReadonlyArray<AdditionFeature> => [],
-		onSome: (p) => Arr.filter(additions, (f) => p.has(f))
-	})
-	return Arr.isReadonlyArrayNonEmpty(pending) && c.draw(boolean)
-		? Option.some(pending)
-		: Option.none()
-}
+/** What a case writes under: a drawn installation, or the additions it aims at (sketchDraw). */
+type CompileSketch =
+	| Readonly<{ kind: "drawn"; install: InstallSpec }>
+	| Readonly<{ kind: "aimed"; additions: Arr.NonEmptyReadonlyArray<AdditionFeature> }>
+
+/** The sketch of a case writing under a drawn installation of the documents base. */
+const drawnSketchGen: Gen<CompileSketch> = map(installGen(docsBase), (install): CompileSketch => ({
+	kind: "drawn",
+	install
+}))
 
 /**
- * The installation an aimed witness writes under: the documents base's worlds whose roles write Visit whole (the
+ * A case's sketch, drawn under its steering: for a witness, in half its cases by a draw of its own, the additions no
+ * witness reached yet, which it aims at; a drawn installation otherwise, and always for a rotating case.
+ */
+const sketchDraw = steered<CompileSketch, CompileSketch, CompileFeature>(
+	(steering) =>
+		Arr.match(
+			Option.match(steering, {
+				onNone: (): ReadonlyArray<AdditionFeature> => [],
+				onSome: (p) => Arr.filter(additions, (f) => p.has(f))
+			}),
+			{
+				onEmpty: () => drawnSketchGen,
+				onNonEmpty:
+					(pending: Arr.NonEmptyReadonlyArray<AdditionFeature>): Gen<CompileSketch> =>
+					(source) =>
+						source.draw(boolean)
+							? { kind: "aimed", additions: pending }
+							: source.draw(drawnSketchGen)
+			}
+		),
+	(sketch) => sketch
+)
+
+/**
+ * The installation a case writes under: an aimed case's, the documents base's worlds whose roles write Visit whole (the
  * admin), through a query entry whose every carried field is serial, one filtering on a serial field and one fixing one
  * (docsVisitsInstall), beside the member's notes, whose number is serial; the drawn one otherwise, whose roles hold
  * those shapes too rarely to rely on.
  */
-const aimedInstall = (
-	aim: Option.Option<Arr.NonEmptyReadonlyArray<AdditionFeature>>,
-	drawnInstall: InstallSpec
-): InstallSpec => (Option.isSome(aim) ? docsVisitsInstall : drawnInstall)
+const installOf = (sketch: CompileSketch): InstallSpec => {
+	switch (sketch.kind) {
+		case "drawn":
+			return sketch.install
+		case "aimed":
+			return docsVisitsInstall
+	}
+}
+
+/** The weights a case's action is drawn under: `weights`, aimed for an aimed case at every addition it aims at. */
+const aimedWeights = (sketch: CompileSketch, weights: Weights): Weights => {
+	switch (sketch.kind) {
+		case "drawn":
+			return weights
+		case "aimed":
+			return {
+				...weights,
+				aims: {
+					kind: "every",
+					features: sketch.additions,
+					read: compiledAdditions,
+					worth: everyActionWorth,
+					scope: defaultScope
+				}
+			}
+	}
+}
 
 /**
  * Whether a role writes a relation, whole or through a query entry, with a serial field a fact may leave out
@@ -148,7 +190,7 @@ describe("the worlds model's compile rules", () => {
 						name: "the worlds model's compile rules, against grizzle's served compile of the write"
 					},
 					suite: "unit/world-model/compile",
-					draw: drawn(installGen(docsBase)),
+					draw: sketchDraw,
 					literal: Formatter.format,
 					coverage: required<CompileFeature>(situations, { cases: 120, sense: notesOnly }),
 					kept: [],
@@ -158,10 +200,9 @@ describe("the worlds model's compile rules", () => {
 					steerEvery: 16,
 					caseHang
 				},
-				(drawnInstall, c) =>
+				(sketch, c) =>
 					Effect.gen(function* () {
-						const aim = additionAim(c)
-						const install = aimedInstall(aim, drawnInstall)
+						const install = installOf(sketch)
 						const built = yield* Effect.orDie(buildInstall(install, install.base.name))
 						const names = yield* namesOfBuilt(install, built, atDeclaredName)
 						const host = hostSchemaOf(install.base, names)
@@ -170,7 +211,7 @@ describe("the worlds model's compile rules", () => {
 						const leaving = Arr.filter(writers, (r) => leavesOutSerials(install, r))
 						const role = c.draw(
 							element(
-								Option.isSome(aim) && Arr.isReadonlyArrayNonEmpty(leaving)
+								sketch.kind === "aimed" && Arr.isReadonlyArrayNonEmpty(leaving)
 									? leaving
 									: Arr.isReadonlyArrayNonEmpty(writers)
 										? writers
@@ -195,24 +236,7 @@ describe("the worlds model's compile rules", () => {
 						}
 						const state: ModelState = { ...loaded, sessions: [session] }
 						const weights = appliesOnly(c.draw(weightsGen))
-						const action = c.draw(
-							actionGen(
-								state,
-								Option.match(aim, {
-									onNone: () => weights,
-									onSome: (features): Weights => ({
-										...weights,
-										aims: {
-											kind: "every",
-											features,
-											read: compiledAdditions,
-											worth: everyActionWorth,
-											scope: defaultScope
-										}
-									})
-								})
-							)
-						)
+						const action = c.draw(actionGen(state, aimedWeights(sketch, weights)))
 						if (action.kind !== "apply") {
 							return assert.fail(`an apply, not ${action.kind}`)
 						}
