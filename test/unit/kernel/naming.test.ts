@@ -3,17 +3,19 @@
  * every name the law model mints keeps the naming door's rule (core/identity.ts).
  *
  * - Each case draws a schema of a law family's box (test/support/laws: keys over whole and selected sides, checks,
- *   containments, alternatives over single and composite keys, span coverage, a work queue, timekeeping), or a relation
- *   of drawn contracts under drawn names over two definitions, read at its own level or at an empty level above it. Every named native's constraint reports a law of the theory, among the
- *   constraints of its kind the kit names for that law; every key statement's law, as the kit names it, is reported by
- *   a constraint of the model; every alternatives expansion's arms and reverses are its tagged and native foreign keys;
- *   a text domain's CHECK states each column's pattern law, and a checked contract's domain CHECK, shared by contracts of
- *   one definition, states for each stored column it types the law of that column's own contract and reports its first
- *   use's (laws/model/model.ts DomainConstraintLaw), or, typing none, carries the contract's law. Every native's name
- *   is readable exactly where its
- *   identity is a declared row check's, then the check's name's conversion, and otherwise hashed, `__<stem>_<digest>`
- *   with the digest the naming door's rule restated over the identity's canonical encoding; each fits an identifier,
- *   and no two natives of one namespace share a name.
+ *   containments, alternatives over single and composite keys, span coverage, a work queue, timekeeping), a relation
+ *   of drawn contracts under drawn names over two definitions, or a check or a key over a derived relation (a rule over
+ *   a query, which its deferred constraint triggers hold), read at its own level or at an empty level above it. Every
+ *   named native's constraint reports a law of the theory, among the constraints of its kind the kit names for that
+ *   law; every constraint of the law model, a table's constraint or a rule's trigger, is found under the owner the kit
+ *   names for it (constraintOwner), reporting one of its laws; every key statement's law, as the kit names it, is
+ *   reported by a constraint of the model; every alternatives expansion's arms and reverses are its tagged and native
+ *   foreign keys; a text domain's CHECK states each column's pattern law, and a checked contract's domain CHECK, shared
+ *   by contracts of one definition, states for each stored column it types the law of that column's own contract and
+ *   reports its first use's (laws/model/model.ts DomainConstraintLaw), or, typing none, carries the contract's law.
+ *   Every native's name is readable exactly where its identity is a declared row check's, then the check's name's
+ *   conversion, and otherwise hashed, `__<stem>_<digest>` with the digest the naming door's rule restated over the
+ *   identity's canonical encoding; each fits an identifier, and no two natives of one namespace share a name.
  * - A row check's law is named by its statement rebuilt in its written operand order, which ownership reorders, over
  *   every predicate of at most two levels of connectives over two leaves.
  *
@@ -21,16 +23,21 @@
  * (hashedName); the schema's one row check's one law for the owned form.
  *
  * Features: a named native, an alternatives expansion, a checked contract, a text domain, a key statement, a readable
- * row check, a hashed law column, an empty level above; a conjunction under a disjunction and a singleton conjunction.
+ * row check, a hashed law column, an empty level above, a rule's trigger; a conjunction under a disjunction and a
+ * singleton conjunction.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): naming-digest-low-bits (a hashed name's digest from the low bits of
- * its hex, none dropped) and naming-kit-trigger-as-domain (the kit taking a trigger's owner for a domain).
+ * @plant test/plants/unit/kernel/naming-digest-low-bits.patch A hashed name's digest is read from the low bits of its
+ * hex digits, none dropped, so it is not the first 5 * digestChars bits of the SHA-256; the production-names property
+ * fails.
+ * @plant test/plants/unit/kernel/naming-kit-trigger-as-domain.patch The kit takes a trigger's owner for a domain, so a
+ * rule's trigger is not found under its table; the production-names property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	boolean,
 	codePoint,
+	element,
 	type Gen,
 	map,
 	recursive,
@@ -53,7 +60,17 @@ import type { OpenExpr } from "#compiler/ir/open.ts"
 import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
 import { constraintLawMap, type LawModel } from "#compiler/laws/model/model.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { type AnySchema, check, relation, type Statement, schema } from "#compiler/public/schema.ts"
+import { query, v } from "#compiler/public/query.ts"
+import {
+	type AnySchema,
+	check,
+	derived,
+	key,
+	on,
+	relation,
+	type Statement,
+	schema
+} from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
@@ -248,14 +265,18 @@ interface ContractSketch {
 	readonly atLeastZero: boolean
 }
 
+/** A statement over a derived relation: a rule over a query, which its deferred constraint triggers hold. */
+type RuleStatement = "check" | "key"
+
 /**
- * A case: a schema of a law family's box by its picks, or a relation of drawn contracts, read at its own level or at an
- * empty level above it.
+ * A case: a schema of a law family's box by its picks, a relation of drawn contracts, or a rule over a derived relation,
+ * read at its own level or at an empty level above it.
  */
 interface NamingCase {
 	readonly subject:
 		| { readonly kind: "family"; readonly space: number; readonly variant: number }
 		| { readonly kind: "contracts"; readonly contracts: Arr.NonEmptyReadonlyArray<ContractSketch> }
+		| { readonly kind: "rule"; readonly statement: RuleStatement }
 	readonly extended: boolean
 }
 
@@ -280,7 +301,8 @@ const namingCaseGen: Gen<NamingCase> = (source) => ({
 						"the contracts"
 					)
 				})
-			]
+			],
+			[1, (s) => ({ kind: "rule", statement: s.draw(element(["check", "key"] as const)) })]
 		])
 	),
 	extended: source.draw(boolean)
@@ -300,32 +322,63 @@ const familySchema = (spacePick: number, variantPick: number): AnySchema => {
 	return space.schemaAt(pickIndex(variantPick, space.variants))
 }
 
-/** The schema a case reads: the family's schema, or the contracts', and its subject, it or an empty level over it. */
+/** A stored relation, and the level that holds it alone. */
+const Reading = relation("Reading", { id: pg.integer, n: pg.integer }, ["id"])
+const RuleBase = schema("Rules", [Reading], [])
+
+/** Every Reading, as a derived relation of the level above: a statement over it is a rule over a query. */
+const Kept = derived(
+	"Kept",
+	query(RuleBase).rule((r) => {
+		const { id, n } = v(Reading, "reading")
+		return r.match(Reading, { id, n }).find({ id, n })
+	})
+)
+
+/** The level above Rules that derives Kept and states one rule over it, a check or a key. */
+const ruleSchema = (statement: RuleStatement): AnySchema =>
+	schema.extend(
+		RuleBase,
+		"RulesTop",
+		[Kept],
+		[
+			statement === "check"
+				? check("Nonzero", Kept, (x) => x.not(x.eq(x.n, 0)))
+				: key(on(Kept, "n"))
+		]
+	)
+
+/**
+ * The schema a case reads: the family's schema, the contracts', or the rule's level, and its subject, it or an empty
+ * level over it.
+ */
 const subjectOf = (c: NamingCase): { readonly base: AnySchema; readonly subject: AnySchema } => {
 	const sub = c.subject
 	const base =
 		sub.kind === "family"
 			? familySchema(sub.space, sub.variant)
-			: schema(
-					"Contracts",
-					[
-						relation(
-							"Line",
-							{
-								id: pg.integer,
-								...Rec.fromEntries(
-									Arr.map(
-										sub.contracts,
-										(k, i) =>
-											[`f${i}`, rawContract(k.name, pg.bigint, boundOf(k.atLeastZero))] as const
+			: sub.kind === "rule"
+				? ruleSchema(sub.statement)
+				: schema(
+						"Contracts",
+						[
+							relation(
+								"Line",
+								{
+									id: pg.integer,
+									...Rec.fromEntries(
+										Arr.map(
+											sub.contracts,
+											(k, i) =>
+												[`f${i}`, rawContract(k.name, pg.bigint, boundOf(k.atLeastZero))] as const
+										)
 									)
-								)
-							},
-							["id"]
-						)
-					],
-					[]
-				)
+								},
+								["id"]
+							)
+						],
+						[]
+					)
 	return { base, subject: c.extended ? schema.extend(base, "Above", [], []) : base }
 }
 
@@ -354,6 +407,7 @@ type NamingFeature =
 	| "a readable row check"
 	| "a hashed law column"
 	| "an empty level above"
+	| "a rule's trigger"
 
 describe("production names from src", () => {
 	it.effect(
@@ -379,7 +433,8 @@ describe("production names from src", () => {
 								"a key statement",
 								"a readable row check",
 								"a hashed law column",
-								"an empty level above"
+								"an empty level above",
+								"a rule's trigger"
 							],
 							{ cases: 100, sense: notesOnly }
 						),
@@ -460,6 +515,18 @@ describe("production names from src", () => {
 								named.length,
 								"no two natives of one namespace share a name"
 							)
+							const constraintLaws = constraintLawMap(L.model.constraints)
+							for (const entry of L.model.constraints) {
+								if (entry.kind === "trigger") {
+									k.note("a rule's trigger")
+								}
+								const laws = Arr.map(entry.laws, (l) => l.law)
+								const found = constraintLaw(constraintLaws, constraintOwner(entry), entry.name)
+								assert.ok(
+									found !== undefined && laws.includes(found),
+									`${entry.name} of ${entry.owner} is found under the owner the kit names it by, reporting one of its laws`
+								)
+							}
 							for (const statement of Arr.filter(base.statements, (s) => s.kind === "key")) {
 								k.note("a key statement")
 								const law = lawIdOf(subject, statement)

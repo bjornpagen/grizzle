@@ -1,0 +1,13 @@
+diff --git a/test/support/kernel/sqlgen.ts b/test/support/kernel/sqlgen.ts
+index 0cde1229..180d8fc4 100644
+--- a/test/support/kernel/sqlgen.ts
++++ b/test/support/kernel/sqlgen.ts
+@@ -170,7 +170,7 @@ const replaced = <N>(
+ export const oneHole = (statement: SqlStatement, holes: Holes): ReadonlyArray<Rewrite> => {
+ 	const sites = sitesOf(statement, holes)
+ 	const rewrites: Array<Rewrite> = Arr.map(holes.statement(statement), (variant) => ({
+-		kind: "statement",
++		kind: "expr",
+ 		site: 0,
+ 		statement: variant
+ 	}))

@@ -1,0 +1,13 @@
+diff --git a/test/support/message.ts b/test/support/message.ts
+index a1393c56..aee0dcc7 100644
+--- a/test/support/message.ts
++++ b/test/support/message.ts
+@@ -24,7 +24,7 @@ const chainOf = (thrown: unknown, depth: number, above: ReadonlySet<unknown>): s
+ /** One error of a chain, as messageOf states it. */
+ const errorLine = (thrown: unknown): string => {
+ 	if (isCompileError(thrown)) {
+-		return `CompileError ${thrown.message}`
++		return "CompileError"
+ 	}
+ 	if (!Error.isError(thrown)) {
+ 		return `a value that is no Error: ${Formatter.format(thrown)}`

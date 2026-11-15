@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/core/identity.ts b/packages/engine/src/core/identity.ts
+index 162d5bf6..1d956fe3 100644
+--- a/packages/engine/src/core/identity.ts
++++ b/packages/engine/src/core/identity.ts
+@@ -220,8 +220,7 @@ const nameSegments = (name: string): ReadonlyArray<string> => {
+ 			current !== "" &&
+ 			((isDigit(ch) && !isDigit(prev)) ||
+ 				(!isDigit(ch) && isDigit(prev)) ||
+-				(isUpper(ch) && isLower(prev)) ||
+-				(isUpper(ch) && isUpper(prev) && isLower(next)))
++				(isUpper(ch) && isLower(prev)))
+ 		if (boundary) {
+ 			flush()
+ 		}

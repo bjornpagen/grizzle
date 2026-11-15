@@ -14,9 +14,14 @@
  * cases plant the ones the generator draws a few times a run); a relation alias renamed; each statement kind the root
  * hole sees.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): sql-print-quote-unescaped (a quote inside an identifier printed
- * bare), sql-shape-alias-sensitive (a shape that reads an alias's length), sql-onehole-root-unmarked (the root's
- * rewrites given another kind) and sql-onehole-replaces-past-site (every site from the hole on replaced).
+ * @plant test/plants/unit/kernel/sql-print-quote-unescaped.patch A quote inside an identifier is printed bare; the
+ * generated statements' audit property fails.
+ * @plant test/plants/unit/kernel/sql-shape-alias-sensitive.patch The shape reads an alias's length, counting a table of
+ * a long alias twice; the alias-renaming property fails.
+ * @plant test/plants/unit/kernel/sql-onehole-root-unmarked.patch The root's rewrites are given the kind expr; the
+ * root-hole property fails.
+ * @plant test/plants/unit/kernel/sql-onehole-replaces-past-site.patch Every site from the hole on is replaced, not the
+ * hole's alone; the one-site property fails.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

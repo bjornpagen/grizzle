@@ -11,9 +11,14 @@
  * fieldless, a plain Error or none, in the chain or in a field; an end that is undefined, a text, an object or an Error
  * of no message.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): message-compile-error-tag-only (a CompileError stated by its tag
- * alone), message-chain-dropped (the chain of causes left out), message-field-error-named-only (an error in a field
- * stated by its name alone) and message-non-error-unstated (an end that is no Error not stated).
+ * @plant test/plants/unit/kernel/message-compile-error-tag-only.patch A CompileError is stated by its tag alone; the
+ * CompileError property fails.
+ * @plant test/plants/unit/kernel/message-chain-dropped.patch The chain of causes is left out of the report; the
+ * tagged-failure property fails.
+ * @plant test/plants/unit/kernel/message-field-error-named-only.patch An error in a field is stated by its name alone;
+ * the tagged-failure property fails.
+ * @plant test/plants/unit/kernel/message-non-error-unstated.patch An end that is no Error is said to be none, its
+ * value left out; the no-Error property fails.
  */
 
 import { drawn, explore } from "@bjornpagen/testing/explore"

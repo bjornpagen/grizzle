@@ -1,0 +1,13 @@
+diff --git a/test/support/assert.ts b/test/support/assert.ts
+index ce9de111..ee5d1c81 100644
+--- a/test/support/assert.ts
++++ b/test/support/assert.ts
+@@ -576,7 +576,7 @@ export function refused<E extends { readonly reason: { readonly _tag: string } }
+ ): E {
+ 	return failureWhere(
+ 		result,
+-		(failure) => failure.reason._tag === tag,
++		(failure) => failure.reason._tag !== undefined,
+ 		`a refusal for ${tag}`,
+ 		"refused",
+ 		why

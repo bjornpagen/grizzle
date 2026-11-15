@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/identity.ts b/packages/engine/src/core/identity.ts
+index 162d5bf6..289a1b4f 100644
+--- a/packages/engine/src/core/identity.ts
++++ b/packages/engine/src/core/identity.ts
+@@ -289,7 +289,7 @@ interface ParsedName {
+ const parsedName = (name: string): Result.Result<ParsedName, string> =>
+ 	Result.flatMap(parseNameCharacters(name), (named): Result.Result<ParsedName, string> => {
+ 		const conversion = conversionOf(named)
+-		return utf8Length(conversion) > maxIdentifierBytes.value
++		return utf8Length(conversion) >= maxIdentifierBytes.value
+ 			? Result.err(`a name whose conversion ${conversion} fits ${maxIdentifierBytes.value} bytes`)
+ 			: Result.ok({ name: declaredNameOf(named), conversion })
+ 	})

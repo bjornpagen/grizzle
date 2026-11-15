@@ -1,0 +1,28 @@
+diff --git a/test/support/assert.ts b/test/support/assert.ts
+index ce9de111..b0c41cf2 100644
+--- a/test/support/assert.ts
++++ b/test/support/assert.ts
+@@ -744,23 +744,6 @@ export function unorderedEqual<T>(
+ 	expected: ReadonlyArray<NoInfer<T>>,
+ 	...why: Why
+ ): void {
+-	for (const [side, elements] of [
+-		["actual", actual],
+-		["expected", expected]
+-	] as const) {
+-		const repeated = Arr.findFirst(elements, (element, at) =>
+-			Arr.some(Arr.drop(elements, at + 1), (later) => isDeepStrictEqual(element, later))
+-		)
+-		if (Option.isSome(repeated)) {
+-			fail(
+-				why,
+-				actual,
+-				expected,
+-				"unorderedEqual",
+-				`Expected each element once, in any order: the ${side} side holds ${inspect(repeated.value, { depth: 8 })} more than once.`
+-			)
+-		}
+-	}
+ 	const unmatched = [...expected]
+ 	const extra: Array<T> = []
+ 	for (const element of actual) {

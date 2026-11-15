@@ -9,8 +9,11 @@
  *
  * Features: a conversion under the limit, at it, one byte past and far past, and two names at the limit apart.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): declared-names-at-limit-refused (a conversion of exactly the limit
- * refused) and declared-names-acronym-unsplit (an acronym's last capital kept with it before a lowercase letter).
+ * @plant test/plants/unit/kernel/declared-names-at-limit-refused.patch A conversion of exactly maxIdentifierBytes is
+ * refused; the byte-limit property fails.
+ * @plant test/plants/unit/kernel/declared-names-acronym-unsplit.patch An acronym's last capital stays with it before a
+ * lowercase letter (HTTPRoute one segment), so a conversion is not the generator's segments; the byte-limit property
+ * fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

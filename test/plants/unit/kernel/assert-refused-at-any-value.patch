@@ -1,0 +1,13 @@
+diff --git a/test/support/assert.ts b/test/support/assert.ts
+index ce9de111..94197144 100644
+--- a/test/support/assert.ts
++++ b/test/support/assert.ts
+@@ -650,7 +650,7 @@ export function refusedAt<E, K extends LiteralFields<E>>(
+ ): E {
+ 	return failureWhere(
+ 		result,
+-		(failure) => failure[field] === value,
++		(failure) => failure[field] !== undefined,
+ 		`a refusal with ${String(field)} ${String(value)}`,
+ 		"refusedAt",
+ 		why

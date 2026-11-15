@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/identity.ts b/packages/engine/src/core/identity.ts
+index 162d5bf6..9174baca 100644
+--- a/packages/engine/src/core/identity.ts
++++ b/packages/engine/src/core/identity.ts
+@@ -181,7 +181,7 @@ const digestDropped = BigInt(4 * digestHexChars - digestBits)
+ 
+ /** The first digestBits bits of the canonical encoding's SHA-256, digestChars characters of lowercase base32. */
+ const digestOf = (canonical: string): string => {
+-	let bits = BigInt(`0x${sha256Hex(canonical).slice(0, digestHexChars)}`) >> digestDropped
++	let bits = BigInt(`0x${sha256Hex(canonical).slice(0, digestHexChars)}`)
+ 	let out = ""
+ 	for (let i = 0; i < digestChars; i++) {
+ 		out = base32.charAt(Number(bits & 31n)) + out
