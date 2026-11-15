@@ -1,6 +1,6 @@
 --- a/test/schedules/write/races.test.ts
 +++ b/test/schedules/write/races.test.ts
-@@ -960,7 +960,7 @@
+@@ -961,7 +961,7 @@
  					candidateKeyFields(statement.side),
  					`a key of ${relation} over every fact, the one the model means`
  				)
