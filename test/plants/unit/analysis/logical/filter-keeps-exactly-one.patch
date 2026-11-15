@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/logical/props.ts b/packages/engine/src/logical/props.ts
+index bcfc1b2e..6a8759e9 100644
+--- a/packages/engine/src/logical/props.ts
++++ b/packages/engine/src/logical/props.ts
+@@ -1568,7 +1568,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
+ 			const rest = keptRest(reading, input, input.context)
+ 			return finish(subject, [...carried(input, sameName, rowsKeep), ...filtered.dependencies], {
+ 				...rest,
+-				exactlyOne: false,
++				exactlyOne: input.card === "one",
+ 				equal: [...rest.equal, ...filtered.equal]
+ 			})
+ 		}

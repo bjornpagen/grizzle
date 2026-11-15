@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/logical/attach.ts b/packages/engine/src/logical/attach.ts
+index dc71df6c..e41b981a 100644
+--- a/packages/engine/src/logical/attach.ts
++++ b/packages/engine/src/logical/attach.ts
+@@ -490,7 +490,7 @@ const reflexiveOne = (attach: NodeOf<"Attach">, parent: Props, child: RelNode):
+ 		const sym = symsOf(scan)
+ 		return (
+ 			sym !== undefined &&
+-			filters.every((f) => evaluate(f.pred, (name) => sym.get(name), f.input.id) === true)
++			filters.every((f) => evaluate(f.pred, (name) => sym.get(name), f.input.id) !== false)
+ 		)
+ 	})
+ }

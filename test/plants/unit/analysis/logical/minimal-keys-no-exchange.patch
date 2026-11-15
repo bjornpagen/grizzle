@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/logical/closure.ts b/packages/engine/src/logical/closure.ts
+index c0623bc7..1fda864d 100644
+--- a/packages/engine/src/logical/closure.ts
++++ b/packages/engine/src/logical/closure.ts
+@@ -199,11 +199,6 @@ export const minimalKeys = <W>(
+ 	for (const seed of seeds) {
+ 		add(seed)
+ 	}
+-	for (const { key } of found) {
+-		for (const d of dependencies) {
+-			add([...d.from, ...key.filter((c) => !d.to.has(c))])
+-		}
+-	}
+ 	const antichain = found.filter(
+ 		(k) => !found.some((o) => o.key.length < k.key.length && o.key.every((c) => k.key.includes(c)))
+ 	)

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/theory/classes.ts b/packages/engine/src/analysis/theory/classes.ts
+index 1794c8b2..71420468 100644
+--- a/packages/engine/src/analysis/theory/classes.ts
++++ b/packages/engine/src/analysis/theory/classes.ts
+@@ -84,7 +84,7 @@ export class FieldClasses {
+ 	union(a: ClassMember, b: ClassMember): string | undefined {
+ 		const na = this.#node(a)
+ 		const nb = this.#node(b)
+-		if (!compatible(na.type, nb.type)) {
++		if (na.type.carrier !== nb.type.carrier) {
+ 			return `fields of one identity (carrier, contract and closed roster); ${typeLabel(na.type)} against ${typeLabel(nb.type)}`
+ 		}
+ 		const ra = na.root()

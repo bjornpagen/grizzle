@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/analysis/physical/rules.ts b/packages/engine/src/analysis/physical/rules.ts
+index 68f59713..2f35eb1e 100644
+--- a/packages/engine/src/analysis/physical/rules.ts
++++ b/packages/engine/src/analysis/physical/rules.ts
+@@ -1137,10 +1137,6 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
+ 				}
+ 				return
+ 			}
+-			fixedColumn(c.column, {
+-				fixed: fact.fixed,
+-				just: joinJustifications([fact.just, eqJust([v])])
+-			})
+ 		}
+ 		for (const c of constants) {
+ 			bindConstant(c)

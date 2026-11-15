@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/logical/attach.ts b/packages/engine/src/logical/attach.ts
+index dc71df6c..70b21845 100644
+--- a/packages/engine/src/logical/attach.ts
++++ b/packages/engine/src/logical/attach.ts
+@@ -313,9 +313,7 @@ const containmentOne = (
+ 			fact.from.relation,
+ 			fact.from.fields
+ 		)
+-		const selected = scans.some((s) =>
+-			fact.from.selection.every((sel) => scanSelects(parent, s, sel.column, sel.value))
+-		)
++		const selected = scans.length > 0
+ 		if (selected) {
+ 			return fact.context
+ 		}

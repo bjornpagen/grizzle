@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/physical/rules.ts b/packages/engine/src/analysis/physical/rules.ts
+index 68f59713..7507a7bf 100644
+--- a/packages/engine/src/analysis/physical/rules.ts
++++ b/packages/engine/src/analysis/physical/rules.ts
+@@ -550,7 +550,7 @@ const filterProps = (node: NodeOf<"Filter">, cx: RuleContext): PhysicalProps =>
+ 			}
+ 		}
+ 	}
+-	const held = heldPoints(conjuncts(node.pred))
++	const held = heldPoints(conjuncts(node.pred).slice(0, 1))
+ 	for (const { pred: c, held: points } of held) {
+ 		for (const h of points) {
+ 			pin(h)

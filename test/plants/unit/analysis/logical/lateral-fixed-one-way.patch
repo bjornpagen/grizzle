@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/logical/props.ts b/packages/engine/src/logical/props.ts
+index bcfc1b2e..bcb83859 100644
+--- a/packages/engine/src/logical/props.ts
++++ b/packages/engine/src/logical/props.ts
+@@ -1826,8 +1826,7 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
+ 					column,
+ 					fixed: v.derivation
+ 				})
+-				deps.push(stated.there, stated.back)
+-				equal.push(stated)
++				deps.push(stated.there)
+ 			}
+ 		}
+ 		/** A source attribute bound to no variable of the heading: a hidden attribute of the region, by its occurrence. */

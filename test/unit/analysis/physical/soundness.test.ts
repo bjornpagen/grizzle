@@ -9,17 +9,18 @@
  * `distinct`, the conservative lowering's shape, where every claim must still hold.
  *
  * Suites: plain and distinct realizations over generated cases, the mutant suite's population, its rooted cases, and
- * noninjective key expressions, each against the fragment evaluator; and the order of a filter's conjuncts, which
+ * noninjective key expressions (k % 2, k % 3 and abs(k) over a key, test/support/oracle/mutants/cases.ts), each against
+ * the fragment evaluator; and the order of a filter's conjuncts, which
  * neither analysis reads, a metamorphic relation.
- *
- * Plants (~/.cache/grizzle-release/BR03/plants): closed-distinct-column-guessed (a closed relation's column of one
- * repeated value claimed a key) for the evaluator suites; cast-numeric-scale-narrowed (a numeric cast to a smaller
- * scale kept as a key) for the noninjective expressions; for the conjunct order, conjunct-order-first-only (a filter's
- * first conjunct alone fixes a column).
  *
  * Features: each claim checked (a key, nothing owed, an obligation discharged, a bound), each node kind evaluated, a
  * correlated node evaluated per outer tuple, a node read by two consumers, a constant read laterally; a filter of two
  * conjuncts and a column fixed to two values for the conjunct order.
+ *
+ * @plant test/plants/unit/analysis/physical/closed-distinct-column-guessed.patch A closed relation's column of one
+ * repeated value claimed a key (analysis/physical/rules.ts closedProps); the evaluator suites fail.
+ * @plant test/plants/unit/analysis/physical/conjunct-order-first-only.patch A filter's first conjunct alone fixes a
+ * column (analysis/physical/rules.ts filterProps); the conjunct order fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/logical/attach.ts b/packages/engine/src/logical/attach.ts
+index dc71df6c..f9b46acb 100644
+--- a/packages/engine/src/logical/attach.ts
++++ b/packages/engine/src/logical/attach.ts
+@@ -304,7 +304,7 @@ const containmentOne = (
+ 			continue
+ 		}
+ 		const correlated = mappedExactly(fact.to.fields, parentOf)
+-		if (correlated === undefined) {
++		if (correlated === undefined || correlated.length > 1) {
+ 			continue
+ 		}
+ 		const scans = commonScan(

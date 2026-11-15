@@ -22,13 +22,16 @@ import { searched } from "@bjornpagen/testing/vitest"
  * subject describes. Every type a schema can declare is ordered, so the unordered refusals are no case.
  *
  * - Completion: over generated subjects, completeOrder appends exactly what the policy appends, and the order is total
- *   over generated relations. Plant: order-appends-fixed (a fixed column appended to the order).
+ *   over generated relations.
  * - Unions: a union of several headings read through a bound, a join, a set operation or an attachment completes as
- *   the union itself, the discriminant ascending right after the user's fields. Plant: order-discriminant-descending
- *   (the discriminant appended descending).
+ *   the union itself, the discriminant ascending right after the user's fields.
  *
- * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each completion's appended parts and refusals;
- * each wrapper completed and refused.
+ * Features: each completion's appended parts and refusals; each wrapper completed and refused.
+ *
+ * @plant test/plants/unit/analysis/logical/order-appends-fixed.patch A fixed column appended to the order
+ * (logical/order.ts completeOrder); the completion property fails.
+ * @plant test/plants/unit/analysis/logical/order-discriminant-descending.patch The discriminant appended descending
+ * (logical/order.ts completeOrder); the unions property fails.
  */ import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"

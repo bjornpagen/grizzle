@@ -1,0 +1,17 @@
+diff --git a/packages/engine/src/analysis/physical/consumers.ts b/packages/engine/src/analysis/physical/consumers.ts
+index 850fedb4..155379e1 100644
+--- a/packages/engine/src/analysis/physical/consumers.ts
++++ b/packages/engine/src/analysis/physical/consumers.ts
+@@ -232,11 +232,7 @@ export const observedNodes = (
+ 	const observed = new Set<RelNode>()
+ 	for (const node of order.toReversed()) {
+ 		if (
+-			(into.get(node) ?? []).some(
+-				(e) =>
+-					e.sensitivity === "observes" ||
+-					(e.sensitivity === "preserves" && observed.has(e.consumer.node))
+-			)
++			(into.get(node) ?? []).some((e) => e.sensitivity === "observes")
+ 		) {
+ 			observed.add(node)
+ 		}

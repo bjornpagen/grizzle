@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/physical/rules.ts b/packages/engine/src/analysis/physical/rules.ts
+index 68f59713..83e78ae8 100644
+--- a/packages/engine/src/analysis/physical/rules.ts
++++ b/packages/engine/src/analysis/physical/rules.ts
+@@ -913,7 +913,7 @@ const closedProps = (node: NodeOf<"Closed">, cx: RuleContext): PhysicalProps =>
+ 	for (const [i, { name: c, type }] of node.heading.entries()) {
+ 		const literals = closedColumn(node, i)
+ 		const values = literals.map(nativeEqualityKey)
+-		if (new Set(values).size === values.length && rows.length > 0) {
++		if ((new Set(values).size === values.length || new Set(values).size === 1) && rows.length > 0) {
+ 			const just = joinJustifications([facts, comparing([type])])
+ 			fds.identify([c], just)
+ 			fds.imply([c], columns, just)

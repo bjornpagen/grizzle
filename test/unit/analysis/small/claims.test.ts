@@ -33,17 +33,6 @@
  * whose a is 1, where a scan of every fact of S owes an Option); and the root's ordinal, inclusive and with no further
  * conjunct, where a strict ordinal or one beside a conjunct owes an Option, so a claim of one there is unsound.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): filter-keeps-exactly-one (a filter over an input of exactly one row
- * claims exactly one) and closed-distinct-column-guessed (a closed relation's column of one repeated value claimed a
- * key), each unsound on some database of the universe; bare-child-source-selection-ignored (a bare child proved from a
- * containment whose source selection the parent's fact need not satisfy), unsound for the scan of every fact of S under
- * the selected containment; reflexive-filters-unread (a filter the root's own fact leaves unknown counts as
- * satisfied), unsound for an ordinal beside a conjunct; bare-child-one-field-containments (a containment of two fields
- * proves no child), imprecise for the attachment by both fields; selection-filter-ignored (a source selection satisfied
- * only by the scan's region, never by the filter above it, as the selected scan of S states it), imprecise for the bare
- * child of a selected source; shared-child-keys-widened (a child read twice claims
- * its whole heading as its key), inexact for every shared child.
- *
  * Shared children: each plan whose attachment scans a source is annotated again with that child read twice, as the
  * attachment's child and as a root of its own, and the child claims exactly the universe's minimal keys of its own
  * rows: the column sets of its heading no two of its rows agree on on any database, neither a sound superset nor the
@@ -51,6 +40,21 @@
  *
  * Features: every claim checked, every precision situation each grammar must reach, and each elision reason
  * (ClaimFeature).
+ *
+ * @plant test/plants/unit/analysis/physical/closed-distinct-column-guessed.patch A closed relation's column of one
+ * repeated value claimed a key; unsound on some database of the universe.
+ * @plant test/plants/unit/analysis/small/bare-child-source-selection-ignored.patch A bare child proved from a
+ * containment whose source selection the parent's fact need not satisfy (logical/attach.ts); unsound for the scan of
+ * every fact of S under the selected containment.
+ * @plant test/plants/unit/analysis/small/reflexive-filters-unread.patch A filter the root's own fact leaves unknown
+ * counts as satisfied (logical/attach.ts reflexiveOne); unsound for an ordinal beside a conjunct.
+ * @plant test/plants/unit/analysis/small/bare-child-one-field-containments.patch A containment of two fields proves no
+ * child (logical/attach.ts); imprecise for the attachment by both fields.
+ * @plant test/plants/unit/analysis/small/selection-filter-ignored.patch A source selection satisfied only by the
+ * scan's region, never by the filter above it, as the selected scan of S states it (logical/attach.ts scanSelects);
+ * imprecise for the bare child of a selected source.
+ * @plant test/plants/unit/analysis/small/shared-child-keys-widened.patch A child read twice claims only proofs of its
+ * whole heading as its keys (logical/annotate.ts); inexact for every shared child.
  */
 import { type Case, exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace, type Situations } from "@bjornpagen/testing/features"

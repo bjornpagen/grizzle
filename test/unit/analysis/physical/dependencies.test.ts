@@ -10,7 +10,9 @@
  *   reading (some alternative whose every requirement has an option inside the closure of the plain dependencies), the
  *   start is a key: the encoding is the identity.
  * - The proof is the strongest: its context is the least demanding one under which a closure of only the dependencies
- *   holding in it reaches the row.
+ *   holding in it reaches the row. The search requires a start whose whole closure, every dependency admitted at once,
+ *   first reaches the row through a more demanding dependency, where only the order of the contexts finds the
+ *   strongest proof.
  * - The canonical key lies among the start's columns, identifies a row, and drops no column it could drop on a proof no
  *   more demanding.
  * - Every key the capped enumeration the analysis once ran finds (at most eight minimal keys from the options and the
@@ -22,14 +24,16 @@
  * variable, so the table closes and identifies from every start among the variables exactly as the scan without those
  * constants does under a filter equating each such variable with its value.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): proof-most-demanding-first (a start's proof sought in the most
- * demanding context first, so it is not the strongest) for the tables; region-bound-constant-unfixed (a constant on a
- * bound column fixes no variable) for the region's constants. Features: each table's closures, identities and contexts;
- * each placement of each constant.
+ * Features: each table's closures, identities and contexts; each placement of each constant.
+ *
+ * @plant test/plants/unit/analysis/physical/proof-most-demanding-first.patch A start's proof sought in the most
+ * demanding context first, so it is not the strongest (analysis/physical/fds.ts proof); the tables fail.
+ * @plant test/plants/unit/analysis/physical/region-bound-constant-unfixed.patch A constant on a bound column fixes no
+ * variable (analysis/physical/rules.ts regionProps); the region's constants fail.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
-import { array, element, type Gen, int, subarray } from "@bjornpagen/testing/gen"
+import { array, element, type Gen, int, oneOf, subarray } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -84,34 +88,61 @@ interface Spec {
 	readonly identity: Identity
 }
 
-const specGen: Gen<Spec> = (source) => {
-	const width = source.draw(int(1, columnsPool.length))
-	const heading: Arr.NonEmptyReadonlyArray<string> = [
-		columnsPool[0],
-		...columnsPool.slice(1, width)
-	]
-	const pool = [...heading, ...hiddenPool]
-	const dep: Gen<Dep> = (s) => ({
-		from: s.draw(subarray(pool)),
-		at: s.draw(subarray(heading)),
-		to: s.draw(subarray(pool)),
-		context: s.draw(element(contexts))
-	})
-	const pin: Gen<Pin> = (s) => ({
-		from: s.draw(subarray(pool)),
-		span: s.draw(element(heading)),
-		context: s.draw(element(contexts))
-	})
-	const option: Gen<ReadonlyArray<string>> = subarray(heading)
-	const requirement = array(option, { min: 1, max: 3 })
-	const alternative = array(requirement, { min: 1, max: 2 })
+/** A spec drawn freely over a heading of at least `least` columns of the pool. */
+const freeSpecGen =
+	(least: number): Gen<Spec> =>
+	(source) => {
+		const width = source.draw(int(least, columnsPool.length))
+		const heading: Arr.NonEmptyReadonlyArray<string> = [
+			columnsPool[0],
+			...columnsPool.slice(1, width)
+		]
+		const pool = [...heading, ...hiddenPool]
+		const dep: Gen<Dep> = (s) => ({
+			from: s.draw(subarray(pool)),
+			at: s.draw(subarray(heading)),
+			to: s.draw(subarray(pool)),
+			context: s.draw(element(contexts))
+		})
+		const pin: Gen<Pin> = (s) => ({
+			from: s.draw(subarray(pool)),
+			span: s.draw(element(heading)),
+			context: s.draw(element(contexts))
+		})
+		const option: Gen<ReadonlyArray<string>> = subarray(heading)
+		const requirement = array(option, { min: 1, max: 3 })
+		const alternative = array(requirement, { min: 1, max: 2 })
+		return {
+			heading,
+			deps: source.draw(array(dep, { min: 0, max: 7 })),
+			pins: source.draw(array(pin, { min: 0, max: 2 })),
+			identity: source.draw(array(alternative, { min: 0, max: 2 }))
+		}
+	}
+
+/**
+ * A spec with a shortcut, over a heading of at least three columns a, b and c: a more demanding dependency from a alone
+ * to c, listed before a less demanding one from a and b to c, and an identity alternative requiring c, beside a free
+ * spec's own. From (a, b) the less demanding context proves the row, while the whole closure first reaches c through
+ * the more demanding dependency, so only the order of the contexts finds the strongest proof.
+ */
+const shortcutSpecGen: Gen<Spec> = (source) => {
+	const free = source.draw(freeSpecGen(3))
+	/** The first three columns of the pool, which a heading of three or more begins with. */
+	const [x, y, t] = columnsPool
 	return {
-		heading,
-		deps: source.draw(array(dep, { min: 0, max: 7 })),
-		pins: source.draw(array(pin, { min: 0, max: 2 })),
-		identity: source.draw(array(alternative, { min: 0, max: 2 }))
+		...free,
+		deps: [
+			{ from: [x], at: [], to: [t], context: "immediate" },
+			{ from: [x, y], at: [], to: [t], context: "queryLocal" },
+			...free.deps
+		],
+		identity: [[[[t]]], ...free.identity]
 	}
 }
+
+/** Every spec of the search: one drawn freely, or one with a shortcut. */
+const specGen: Gen<Spec> = oneOf([freeSpecGen(1), shortcutSpecGen])
 
 /** A requirement's hidden attribute, as a rule region names an occurrence's row. */
 const requirementAttr = (alternative: number, requirement: number): string =>
@@ -288,6 +319,7 @@ type DependencyFeature =
 	| "identified"
 	| "not identified"
 	| "a less demanding stage chosen"
+	| "a proof stronger than the whole closure's"
 	| "a key the capped search found"
 	| "more minimal keys than the cap"
 
@@ -306,10 +338,10 @@ describe("a fragment's dependency table", () => {
 						suite: "unit/analysis/physical/dependencies",
 						draw: drawn(specGen),
 						literal: Formatter.format,
-						coverage: required<DependencyFeature>(["identified", "not identified"], {
-							cases: 400,
-							sense: notesOnly
-						}),
+						coverage: required<DependencyFeature>(
+							["identified", "not identified", "a proof stronger than the whole closure's"],
+							{ cases: 400, sense: notesOnly }
+						),
 						kept: [
 							{
 								note: "a dependency that reads the point an immediate rule pins and derives that span's column: the row's proof holds the pin, so it is immediate, never the dependency's query-local context alone",
@@ -370,6 +402,11 @@ describe("a fragment's dependency table", () => {
 								)
 								if (least === 0 && Arr.some(s.deps, (d) => d.context === "immediate")) {
 									c.note("a less demanding stage chosen")
+								}
+								/** The proof the whole closure's first derivations give, every dependency admitted at once. */
+								const whole = table.explain(table.closure(start), [rowAttribute])
+								if (rank(whole.context) > least) {
+									c.note("a proof stronger than the whole closure's")
 								}
 								const key = identified.key
 								assert.ok(

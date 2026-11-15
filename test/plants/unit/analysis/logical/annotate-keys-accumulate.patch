@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/logical/annotate.ts b/packages/engine/src/logical/annotate.ts
+index 9690d117..e3f43da7 100644
+--- a/packages/engine/src/logical/annotate.ts
++++ b/packages/engine/src/logical/annotate.ts
+@@ -191,7 +191,10 @@ const rebuilt = (
+ ): RelNode =>
+ 	!restated && unchangedEdges(node, body) && sameMeta(node.meta, claims)
+ 		? node
+-		: relNode(node.id, { ...body, meta: claims })
++		: relNode(node.id, {
++				...body,
++				meta: { ...claims, logicalKeys: [...node.meta.logicalKeys, ...claims.logicalKeys] }
++			})
+ 
+ /** The exclusive child `child`, whose annotation is `value`, revised to `relative` and recorded in `revised`; its node. */
+ const reviseChild = (

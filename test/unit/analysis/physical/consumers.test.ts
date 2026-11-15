@@ -11,9 +11,10 @@ import { searched } from "@bjornpagen/testing/vitest"
  *
  * Property: over the differential oracle's generated queries, analyzed unplaced, every node is observed exactly when
  * one of its observation paths ends at an edge that observes. Oracle: the paths enumerated by brute force, a second
- * implementation. Plants (~/.cache/grizzle-release/BR03/plants): observed-preserving-unclimbed (a node is observed only
- * by an edge into it that observes, never through a preserving edge). Features: an end that observes, an end that
- * ignores.
+ * implementation. Features: an end that observes, an end that ignores.
+ *
+ * @plant test/plants/unit/analysis/physical/observed-preserving-unclimbed.patch A node is observed only by an edge into
+ * it that observes, never through a preserving edge (analysis/physical/consumers.ts observedNodes); the property fails.
  */ import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { unplaced } from "#compiler/analysis/physical/analyze.ts"

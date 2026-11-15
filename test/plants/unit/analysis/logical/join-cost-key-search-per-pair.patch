@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/logical/props.ts b/packages/engine/src/logical/props.ts
+index bcfc1b2e..070c928c 100644
+--- a/packages/engine/src/logical/props.ts
++++ b/packages/engine/src/logical/props.ts
+@@ -1270,6 +1270,9 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
+ 			const within = (c: string) => factorOf.get(c) === i
+ 			const before = [...chosen]
+ 			const delivered = factor.filter((c) => !isHidden(c))
++			for (const _ of factors) {
++				minimalKeys(delivered, [delivered], () => undefined, [])
++			}
+ 			const [first, ...others] = minimalKeys(
+ 				delivered,
+ 				[delivered],

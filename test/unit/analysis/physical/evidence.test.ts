@@ -3,9 +3,10 @@
  * keys whose fields it reads, at every statement, judged over Crm's two Person keys and a scan of Person reading a
  * drawn set of its columns in either execution context.
  *
- * Oracle: the rules above, a specification. Plants (~/.cache/grizzle-release/BR03/plants): base-key-evidence-deferred
- * (a declared key's proof holds only in a committed snapshot). Features: no key proves the scan, a key proves the scan,
- * a key not read.
+ * Oracle: the rules above, a specification. Features: no key proves the scan, a key proves the scan, a key not read.
+ *
+ * @plant test/plants/unit/analysis/physical/base-key-evidence-deferred.patch A declared key's proof holds only in a
+ * committed snapshot (analysis/physical/evidence.ts keyEvidence); the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

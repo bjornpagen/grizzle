@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/logical/order.ts b/packages/engine/src/logical/order.ts
+index 2fab1904..7b07ad62 100644
+--- a/packages/engine/src/logical/order.ts
++++ b/packages/engine/src/logical/order.ts
+@@ -103,7 +103,7 @@ export const completeOrder = (
+ 			)
+ 		)
+ 	const append = (column: string) => {
+-		if (ordered.has(column) || fixed.has(column)) {
++		if (ordered.has(column)) {
+ 			return
+ 		}
+ 		ordered.add(column)

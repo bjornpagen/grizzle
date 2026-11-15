@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/theory/laws.ts b/packages/engine/src/analysis/theory/laws.ts
+index 66ec8530..0fafbc87 100644
+--- a/packages/engine/src/analysis/theory/laws.ts
++++ b/packages/engine/src/analysis/theory/laws.ts
+@@ -1813,7 +1813,7 @@ export class Normalizer {
+ 		 * coverage law.
+ 		 */
+ 		const [first, ...more] = resolved.filter((p) => isSpanField(p.from.column))
+-		if (more.length > 0) {
++		if (more.length > 1) {
+ 			return refuse(
+ 				"UnsupportedLawFamily",
+ 				loc,

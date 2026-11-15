@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/physical/evidence.ts b/packages/engine/src/analysis/physical/evidence.ts
+index bd4cb8ce..eec81bf4 100644
+--- a/packages/engine/src/analysis/physical/evidence.ts
++++ b/packages/engine/src/analysis/physical/evidence.ts
+@@ -50,7 +50,7 @@ const constraintPremise = (constraint: ConstraintName, kind: ConstraintKind): Pr
+  */
+ export const keyEvidence = (constraint: KeyConstraint): Grounds => ({
+ 	premises: [constraintPremise(constraint.constraint, constraint.kind)],
+-	context: "immediate"
++	context: "committedSnapshot"
+ })
+ 
+ /** Whether each containment family holds only at commit, whatever context the theory recorded. */

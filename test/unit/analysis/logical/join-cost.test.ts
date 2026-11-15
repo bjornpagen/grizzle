@@ -15,10 +15,10 @@ import { searched } from "@bjornpagen/testing/vitest"
  * Box: h at 2 and 3, exhausted. Oracle: universal, the increments of a count that grows no faster than linearly.
  * Assumption: no count changes shape above some k.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): join-cost-key-search-per-pair (a key search run for each factor once
- * per factor, k² of them).
- *
  * Features: from k = 4, from k = 6.
+ *
+ * @plant test/plants/unit/analysis/logical/join-cost-key-search-per-pair.patch A key search run for each factor once
+ * per factor, k² of them (logical/props.ts finish); the property fails.
  */ import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { indices } from "#compiler/core/array.ts"

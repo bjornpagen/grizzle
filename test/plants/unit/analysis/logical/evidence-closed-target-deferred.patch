@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/theory/theory.ts b/packages/engine/src/analysis/theory/theory.ts
+index 45928d8a..704d0fad 100644
+--- a/packages/engine/src/analysis/theory/theory.ts
++++ b/packages/engine/src/analysis/theory/theory.ts
+@@ -831,7 +831,7 @@ export const theoryEvidence = (
+ 							? law.source.kind
+ 							: "contained",
+ 					context:
+-						d.to.rel.kind === "closed" || immediate.has(law.id) ? "immediate" : "committedSnapshot"
++						immediate.has(law.id) ? "immediate" : "committedSnapshot"
+ 				})
+ 			}
+ 		}

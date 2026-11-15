@@ -13,15 +13,21 @@
  *
  * - Soundness (keys and cardinality bounds, under every context, delivered types rooted at attachments, bare children
  *   along declared containments and filters over one fact): every claim holds on the reference evaluator's facts.
- *   Oracle: the reference evaluator, a second implementation. Plants: filter-keeps-exactly-one (a filter over an
- *   input of exactly one row claims exactly one, though it may drop it); bare-child-coverage-admitted (a span coverage
- *   proves a bare child, which the bare children along a generated PERIOD containment into a span key refute).
+ *   Oracle: the reference evaluator, a second implementation.
  * - Idempotence (generated cases, and the proving shapes' bare children): annotating an annotated DAG states what the
- *   first annotation did, node for node. Oracle: universal. Plant: annotate-keys-accumulate (a node's claimed keys
- *   gather its earlier claims beside the new ones).
+ *   first annotation did, node for node. Oracle: universal.
  *
- * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each claim checked (EvidenceFeature), each
- * execution and containment context and an orphaned containment; each claim and delivered type for idempotence.
+ * Features: each claim checked (EvidenceFeature), each execution and containment context and an orphaned containment;
+ * each claim and delivered type for idempotence.
+ *
+ * @plant test/plants/unit/analysis/logical/filter-keeps-exactly-one.patch A filter over an input of exactly one row
+ * claims exactly one, though it may drop it (logical/props.ts); the soundness property fails.
+ * @plant test/plants/unit/analysis/logical/bare-child-coverage-admitted.patch A span coverage proves a bare child
+ * (logical/attach.ts containmentOne), which a bare child along a PERIOD containment into a span key refutes; the
+ * soundness property must fail, and does not yet: its containments are never coverages and its schemas hold no span
+ * key.
+ * @plant test/plants/unit/analysis/logical/annotate-keys-accumulate.patch A node's claimed keys gather its earlier
+ * claims beside the new ones (logical/annotate.ts rebuilt); the idempotence property fails.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required, type Situations } from "@bjornpagen/testing/features"

@@ -3,20 +3,25 @@
  *
  * - Minimal keys (logical/closure.ts minimalKeys): from the whole heading alone, closed under the exchange of a
  *   dependency's determined columns for its determinants, every minimal key of a drawn dependency table is found.
- *   Oracle: every column set's closure by brute force. Plant: minimal-keys-no-exchange (no exchange after the
- *   heading's minimization).
+ *   Oracle: every column set's closure by brute force.
  * - Class keys (logical/props.ts finish): k classes of equal columns are one key, its members every other column of
- *   each class, not 2^k keys. Oracle: the classes the filter states, as a specification. Plant: classes-ignored (every
- *   column its own class).
+ *   each class, not 2^k keys. Oracle: the classes the filter states, as a specification.
  * - Union class keys (logical/props.ts unionProps): two columns equal in every arm are equal in the union, and a key
- *   of the union is closed under them. Oracle: each arm's partition, intersected. Plant: union-equal-first-arm-alone
- *   (two columns the first arm makes equal are the union's equal columns).
+ *   of the union is closed under them. Oracle: each arm's partition, intersected.
  * - Forged union equalities (test/support/keys/kernel.ts): the key kernel accepts an arms witness only when each
- *   arm's derivation steps by equalities alone. Oracle: that rule. Plant: kernel-arms-unchained (the kernel reads an
- *   arms witness's implications and not its equality chain).
+ *   arm's derivation steps by equalities alone. Oracle: that rule.
  *
- * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: one or several minimal keys and a key of
- * several columns; each class shape and projection; each arm's copies and equalities; each forged mapping.
+ * Features: one or several minimal keys and a key of several columns; each class shape and projection; each arm's
+ * copies and equalities; each forged mapping.
+ *
+ * @plant test/plants/unit/analysis/logical/minimal-keys-no-exchange.patch No exchange after the heading's
+ * minimization (logical/closure.ts minimalKeys); the minimal keys property fails.
+ * @plant test/plants/unit/analysis/logical/classes-ignored.patch Every column its own class (logical/props.ts
+ * finish); the class keys property fails.
+ * @plant test/plants/unit/analysis/logical/union-equal-first-arm-alone.patch Two columns the first arm makes equal are
+ * the union's equal columns (logical/props.ts unionProps); the union class keys property fails.
+ * @plant test/plants/unit/analysis/logical/kernel-arms-unchained.patch The kernel reads an arms witness's
+ * implications and not its equality chain (test/support/keys/kernel.ts); the forged union equalities property fails.
  */
 import { drawn, explore, type Kept, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
