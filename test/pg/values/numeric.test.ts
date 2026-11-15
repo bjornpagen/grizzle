@@ -17,13 +17,18 @@
  *
  * Oracle: PostgreSQL itself: numeric_in, apply_typmod through both coercion paths, and numeric's comparison.
  *
- * Plants: values-numeric-parse-trailing-zeros (fromString drops a literal's trailing zeros without raising its
- * exponent), values-numeric-overflow-inclusive (normalizeNumeric admits a rounded magnitude of exactly 10^(p - s)),
- * codec-numeric-typmod-dropped (the numeric codec's carrier spec drops its typmod, so its encoder admits a value its
- * column rounds), codec-numeric-rounded (the encoder rounds to the scale where it must refuse),
- * values-numeric-nan-ties-infinity (compareDecimal ranks NaN with +Infinity).
- *
  * Features: "overflow by rounding", "negative scale" and "scale above precision", the coercions the typmod turns on.
+ *
+ * @plant test/plants/pg/values/values-numeric-parse-trailing-zeros.patch fromString drops a literal's trailing zeros
+ * without raising its exponent.
+ * @plant test/plants/pg/values/values-numeric-overflow-inclusive.patch normalizeNumeric admits a rounded magnitude of
+ * exactly 10^(p - s).
+ * @plant test/plants/pg/values/codec-numeric-typmod-dropped.patch The numeric codec's carrier spec drops its typmod, so
+ * its encoder admits a value its column rounds.
+ * @plant test/plants/pg/values/codec-numeric-rounded.patch The encoder rounds to the scale where it must refuse.
+ * @plant test/plants/pg/values/values-numeric-nan-ties-infinity.patch compareDecimal ranks NaN with +Infinity.
+ * @plant test/plants/unit/codec/numeric-full-scale-refused.patch parseNumeric reads a value at one place less than its
+ * typmod's scale, so the encoder refuses a value whose fraction fills the scale, which PostgreSQL stores unchanged.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

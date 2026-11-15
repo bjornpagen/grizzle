@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/decimal.ts b/packages/engine/src/scalar/values/decimal.ts
+index 33a09b0e..61276b48 100644
+--- a/packages/engine/src/scalar/values/decimal.ts
++++ b/packages/engine/src/scalar/values/decimal.ts
+@@ -469,7 +469,7 @@ const kindRank = (parts: DecimalParts): 0 | 1 | 2 | 3 => {
+ 		case "infinity":
+ 			return 2
+ 		case "nan":
+-			return 3
++			return 2
+ 	}
+ }
+ 

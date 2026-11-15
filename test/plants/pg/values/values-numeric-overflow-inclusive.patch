@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/decimal.ts b/packages/engine/src/scalar/values/decimal.ts
+index 33a09b0e..e43b7461 100644
+--- a/packages/engine/src/scalar/values/decimal.ts
++++ b/packages/engine/src/scalar/values/decimal.ts
+@@ -547,7 +547,7 @@ export const normalizeNumeric = (
+ 	}
+ 	const units = roundedUnits(d, scale)
+ 	const magnitude = units < 0n ? -units : units
+-	if (magnitude >= pow10(precision)) {
++	if (magnitude > pow10(precision)) {
+ 		return Result.err("numericOverflow")
+ 	}
+ 	return scale >= 0

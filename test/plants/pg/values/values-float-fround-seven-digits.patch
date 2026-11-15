@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/float.ts b/packages/engine/src/scalar/values/float.ts
+index c8a2e4e7..44b3668c 100644
+--- a/packages/engine/src/scalar/values/float.ts
++++ b/packages/engine/src/scalar/values/float.ts
+@@ -16,7 +16,7 @@ export { type CanonicalFloat, canonicalZero }
+  * float8-to-float4 cast on every value the cast admits; where the cast raises 22003, fround yields the IEEE result
+  * instead (a signed infinity on overflow, +0 on underflow), and `toReal` turns that into the refusal.
+  */
+-export const fround = (x: number): CanonicalFloat => canonicalZero(Math.fround(x))
++export const fround = (x: number): CanonicalFloat => canonicalZero(Math.fround(Number(x.toPrecision(7))))
+ 
+ /** A double precision value: any JavaScript number, -0 as +0. */
+ export const toDouble = (x: unknown): Result.Result<CanonicalFloat, ValueFault> =>

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/identity.ts b/packages/engine/src/scalar/values/identity.ts
+index 55c09e65..4a9281af 100644
+--- a/packages/engine/src/scalar/values/identity.ts
++++ b/packages/engine/src/scalar/values/identity.ts
+@@ -239,7 +239,7 @@ const coercions: Admitters = {
+  */
+ const parsers: Admitters = {
+ 	...coercions,
+-	numeric: (value, spec) => decimalAt(parseNumeric)(value, spec.typmod),
++	numeric: (value, spec) => decimalAt(normalizeNumeric)(value, spec.typmod),
+ 	float4: (value) => parseReal(value)
+ }
+ 

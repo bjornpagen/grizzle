@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/scalar/values/vector.ts b/packages/engine/src/scalar/values/vector.ts
+index 6ca42e94..8417717b 100644
+--- a/packages/engine/src/scalar/values/vector.ts
++++ b/packages/engine/src/scalar/values/vector.ts
+@@ -218,6 +218,9 @@ const componentText = (vector: Float32Array): string => {
+ 
+ /** pgvector's order (vector_cmp): the first differing component, then the dimension count. -0 and 0 are equal. */
+ const compare = (a: Float32Array, b: Float32Array): -1 | 0 | 1 => {
++	if (a.length !== b.length) {
++		return a.length < b.length ? -1 : 1
++	}
+ 	const ys = b.values()
+ 	for (const x of a.subarray(0, b.length)) {
+ 		const next = ys.next()

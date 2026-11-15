@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/float.ts b/packages/engine/src/scalar/values/float.ts
+index c8a2e4e7..57f5e969 100644
+--- a/packages/engine/src/scalar/values/float.ts
++++ b/packages/engine/src/scalar/values/float.ts
+@@ -73,7 +73,7 @@ export const compareFloat = (a: number, b: number): -1 | 0 | 1 => {
+ 	const aNaN = Number.isNaN(a)
+ 	const bNaN = Number.isNaN(b)
+ 	if (aNaN || bNaN) {
+-		return aNaN === bNaN ? 0 : aNaN ? 1 : -1
++		return aNaN === bNaN ? 0 : aNaN ? -1 : 1
+ 	}
+ 	return a < b ? -1 : a > b ? 1 : 0
+ }

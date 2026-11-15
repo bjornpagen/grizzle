@@ -12,11 +12,11 @@
  *
  * Oracle: PostgreSQL itself, the pg_c_utf8 collation's comparison.
  *
- * Plants: values-text-code-units (compareCodePoints compares UTF-16 code units, so an astral scalar sorts below
- * U+E000-U+FFFF).
- *
  * Features: "JavaScript's order differs", a batch whose UTF-16 code-unit order is not its code-point order, which the
- * plant needs to show.
+ * plant below needs to show.
+ *
+ * @plant test/plants/pg/values/values-text-code-units.patch compareCodePoints compares UTF-16 code units, so an astral
+ * scalar sorts below U+E000-U+FFFF.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
