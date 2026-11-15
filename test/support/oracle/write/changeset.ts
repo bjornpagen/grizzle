@@ -109,7 +109,7 @@ type WSource =
 	  }
 
 /** What a field-equality deletion's field equals: a scalar parameter, or a literal of the field's own values. */
-export type Equaled =
+type Equaled =
 	| { readonly kind: "param"; readonly param: string }
 	| { readonly kind: "literal"; readonly value: ParamValue }
 
@@ -1418,12 +1418,15 @@ export const resolveChangeSet =
 							kind: "equal",
 							fields: Arr.flatMap(relation.columns, (c, i) => {
 								const h = elementAt(m.head, i, "a member's head")
+								if (h.term < 2) {
+									return []
+								}
 								const value = at(typeInfo[c.kind].values, h.value)
 								const equaled: Equaled =
 									h.term === 4 && literalKind(c.kind) && fitsField(c.kind, value)
 										? { kind: "literal", value }
 										: { kind: "param", param: scalar(value) }
-								return h.term < 2 ? [] : [{ column: c.name, equaled }]
+								return [{ column: c.name, equaled }]
 							})
 						}
 					})

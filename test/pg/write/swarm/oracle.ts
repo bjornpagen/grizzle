@@ -485,7 +485,11 @@ const plainIn = (step: Step, at: Placed, reads: State): ReadonlyArray<PlainOp> =
 	return q?.at === at ? [...queried(reads, q), ...own] : own
 }
 
-/** The writes of a step's family stratum by relation and kind, as fill.ts `writesVerdict` reads them. */
+/**
+ * The writes of a step's family stratum by relation and kind, as fill.ts `writesVerdict` reads them: none for a delete of
+ * everything by selection, whose whole deletes of every top relation leave no stored row holding a value they change,
+ * so they refill nothing.
+ */
 export const familyWrites = (
 	spec: SwarmSpec,
 	state: State,
@@ -510,10 +514,15 @@ export const familyWrites = (
 		case "query put":
 			return [{ relation: step.relation, op: "put" }]
 		case "delete all":
-			return Arr.map(Arr.dedupe(Arr.map(state.rows, (r) => r.relation)), (relation) => ({
-				relation,
-				op: "delete" as const
-			}))
+			switch (step.by) {
+				case "rows":
+					return Arr.map(Arr.dedupe(Arr.map(state.rows, (r) => r.relation)), (relation) => ({
+						relation,
+						op: "delete" as const
+					}))
+				case "selection":
+					return []
+			}
 	}
 }
 
