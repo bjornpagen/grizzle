@@ -319,10 +319,30 @@ const resolveCommit = Effect.fn("resolveCommit")(function* (repo: string, revisi
 })
 
 /**
- * The workspace's node_modules in `into`: the root's with its package store linked to the repository's, and each
- * package's the tests load, so the workspace packages' own links (the root's to the packages, the shell's to the
- * engine) resolve to the packages of this tree, never the repository's: the engine, the shell, and the toolchain's
- * testing library every test runs on and dev tools the root's configs load.
+ * The directories of the workspace's packages but its root, by path from `repo`: the packages pnpm lists of the
+ * workspace pnpm-workspace.yaml declares, the toolchain's included.
+ */
+const workspacePackages = Effect.fn("workspacePackages")(function* (repo: string) {
+	const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+	const path = yield* Path.Path
+	const listed = yield* spawner.string(
+		ChildProcess.make("pnpm", ["-r", "ls", "--depth", "-1", "--parseable"], {
+			cwd: repo,
+			stderr: "inherit"
+		})
+	)
+	return Arr.filter(
+		Arr.map(Arr.filter(Str.split("\n")(listed), Str.isNonEmpty), (dir) => path.relative(repo, dir)),
+		Str.isNonEmpty
+	)
+})
+
+/**
+ * The workspace's node_modules in `into`: the root's with its package store linked to the repository's, and every
+ * other workspace package's that pnpm made (a package with no dependency has none), so the workspace packages' own
+ * links (the root's to the packages, the shell's and the local cluster's to the engine, the toolchain's testing
+ * library every test runs on and dev tools the root's configs load) resolve to the packages of this tree, never the
+ * repository's.
  */
 const linkNodeModules = Effect.fn("linkNodeModules")(function* (repo: string, into: string) {
 	const fs = yield* FileSystem.FileSystem
@@ -341,14 +361,13 @@ const linkNodeModules = Effect.fn("linkNodeModules")(function* (repo: string, in
 		}),
 		{ discard: true }
 	)
+	const packages = yield* workspacePackages(repo)
+	const installed = yield* Effect.filter(packages, (dir) =>
+		fs.exists(path.join(repo, dir, "node_modules"))
+	)
 	yield* Effect.forEach(
-		[
-			"packages/engine/node_modules",
-			"packages/grizzle/node_modules",
-			`${toolchain}/packages/devtools/node_modules`,
-			`${toolchain}/packages/testing/node_modules`
-		],
-		(dir) => cloneInto(path.join(repo, dir), path.join(into, dir)),
+		installed,
+		(dir) => cloneInto(path.join(repo, dir, "node_modules"), path.join(into, dir, "node_modules")),
 		{ discard: true }
 	)
 })
