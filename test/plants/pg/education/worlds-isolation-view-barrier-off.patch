@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/ddl/roles.ts b/packages/engine/src/physical/ddl/roles.ts
+index be4ba0c4..27f2b03b 100644
+--- a/packages/engine/src/physical/ddl/roles.ts
++++ b/packages/engine/src/physical/ddl/roles.ts
+@@ -550,7 +550,7 @@ const worldView = (
+ 					? mapNonEmpty(analysis.heading, (c) => b.name(identity.column(c.name)))
+ 					: mapNonEmpty(columns, (c) => c.name),
+ 			/** The facts of its definition, which hides the others: a barrier keeps a reader's quals after its own. */
+-			barrier: true,
++			barrier: false,
+ 			query:
+ 				reading === undefined || columns === undefined
+ 					? lowered.query

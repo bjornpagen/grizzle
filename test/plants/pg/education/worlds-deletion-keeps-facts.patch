@@ -1,0 +1,21 @@
+diff --git a/packages/engine/src/write/delete/exact.ts b/packages/engine/src/write/delete/exact.ts
+index 876bea00..e8124c90 100644
+--- a/packages/engine/src/write/delete/exact.ts
++++ b/packages/engine/src/write/delete/exact.ts
+@@ -13,6 +13,7 @@ import {
+ 	conjunction,
+ 	cte,
+ 	cteRef,
++	lit,
+ 	operandSelect,
+ 	setOp,
+ 	targetAs
+@@ -99,7 +100,7 @@ const deletion = (
+ 		table: w.names.relation(relation.name),
+ 		alias: r3,
+ 		using: match.using,
+-		where: conjunction(match.where),
++		where: mode === "exact" ? lit.bool(false) : conjunction(match.where),
+ 		returning: returned.pairs.map((p) => targetAs(stored(p.field), p.column))
+ 	}
+ 	const columns: ReadonlyArray<ResultColumn> = outFields.map((f) => ({

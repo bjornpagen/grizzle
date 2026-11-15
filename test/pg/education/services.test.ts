@@ -9,7 +9,11 @@
  * sets: each import program first writes as a direct writer under hand-set claims and under malformed ones
  * (importerUnderClaims), after a write through its Db that changes its world (roleChangesItsWorld).
  *
- * Plants (main's test phase): worlds-deletion-keeps-facts.patch, worlds-isolation-view-barrier-off.patch.
+ * @plant test/plants/pg/education/worlds-deletion-keeps-facts.patch A Db delete removes nothing, so a deleted grade
+ * stays stored and the rollup keeps it after a refresh.
+ * @plant test/plants/pg/education/worlds-isolation-view-barrier-off.patch A query entry's view is created without its
+ * security barrier, so a reader's quals may run before the view's own; the installed-catalog checker finds each such
+ * view's barrier missing, and both properties fail.
  */
 import { layer } from "@effect/vitest"
 import {

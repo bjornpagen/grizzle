@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index 77b2c1bd..8aa8331f 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -1312,7 +1312,7 @@ const printAlterTableAction = (action: AlterTableAction): string => {
+ 		case "dropConstraint":
+ 			return `DROP CONSTRAINT ${quoteIdent(action.name)}`
+ 		case "enableRowSecurity":
+-			return "ENABLE ROW LEVEL SECURITY"
++			return "DISABLE ROW LEVEL SECURITY"
+ 		case "disableRowSecurity":
+ 			return "DISABLE ROW LEVEL SECURITY"
+ 		case "replicaIdentity":
