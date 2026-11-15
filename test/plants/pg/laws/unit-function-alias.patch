@@ -1,0 +1,28 @@
+diff --git a/packages/engine/src/physical/ddl/retire.ts b/packages/engine/src/physical/ddl/retire.ts
+index 67d447c3..804afe47 100644
+--- a/packages/engine/src/physical/ddl/retire.ts
++++ b/packages/engine/src/physical/ddl/retire.ts
+@@ -234,18 +234,18 @@ const lockOpen = (
+ 			[target(lit.int(1, types.integer))],
+ 			[
+ 				join(
+-					table(unit.table.schema, unit.table.name, "r1"),
++					table(unit.table.schema, unit.table.name, "h"),
+ 					statedGroups(unit, params, "r2", "r3"),
+-					atGroup(b, unit, "r1", "r2")
++					atGroup(b, unit, "h", "r2")
+ 				)
+ 			],
+-			open(unit, "r1")
++			open(unit, "h")
+ 		),
+-		orderBy: unit.key.map((f) => asc(col("r1", f.column))),
++		orderBy: unit.key.map((f) => asc(col("h", f.column))),
+ 		limit: undefined,
+ 		offset: undefined
+ 	}
+-	return { kind: "lockRows", query, strength, of: "r1" }
++	return { kind: "lockRows", query, strength, of: "h" }
+ }
+ 
+ /**

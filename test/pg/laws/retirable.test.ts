@@ -12,6 +12,9 @@
  *
  * The space: groups, steps and attempts 0 and 1, and up to eight transactions of one operation each, run in order as
  * the installation's owner.
+ *
+ * @plant test/plants/pg/laws/unit-function-alias.patch The hold function's lock query aliases the unit's header `h`
+ * rather than a generated r<n> (physical/ddl/retire.ts), which the installation's structural audit refuses.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
