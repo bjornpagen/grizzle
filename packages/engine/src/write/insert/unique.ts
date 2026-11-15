@@ -1,3 +1,5 @@
+import { Refusal } from "#compiler/core/canonical.ts"
+import { CompileError, prose } from "#compiler/core/errors.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import {
 	appendNonEmpty,
@@ -241,29 +243,57 @@ const probedAt = (
 	)
 
 /**
- * The declared key a generated addition drawing `drawn` meets stored facts at, its ON CONFLICT arbiter: the first of the
- * relation's declared keys, the primary key first, that holds no field it draws and no span. None where every key holds
- * one: the addition is then a plain INSERT, every requested fact a new one. A request names no value of a field the
- * database draws, so it is the fact its stated fields are: an exact repeat of a stored fact agrees with it at every
- * stated field, so at every such key, and whichever of them arbitrates meets every exact repeat; the first declared
- * names the law a conflict at two keys reports.
+ * The declared key a generated addition drawing `drawn` into `relation` meets stored facts at, its ON CONFLICT arbiter,
+ * decided by what the schema declares and never by a key's name: a key that holds no field the addition draws and no
+ * span identifies a requested fact by the fields it states, and the arbiter is
+ *
+ * - the primary key, which the schema declares a fact's identity, where it is such a key, as it is for complete facts;
+ * - else the one declared key that is, where exactly one is;
+ * - else none, where none is: the addition is then a plain INSERT, every requested fact a new one.
+ *
+ * Where the primary key holds a drawn field or a span and several declared keys are such keys, nothing the schema
+ * declares ranks one of them first, and only their names would: the arbiter decides which key's law a request that
+ * conflicts at two of them reports, which of several refused requests is witnessed (Requested `stated`), and whether an
+ * occupant the snapshot does not see is met there or aborts at another key, so the addition is refused
+ * (MalformedDescription at the relation): the key that identifies a fact is the one to declare its primary key.
+ *
+ * A request names no value of a field the database draws, so it is the fact its stated fields are: an exact repeat of
+ * a stored fact agrees with it at every stated field, so at every such key, and the arbiter meets every exact repeat.
  */
 export const generatedArbiter = (
-	uniques: RelationUniques,
+	relation: RelationInfo & { readonly uniques: RelationUniques },
 	drawn: ReadonlyArray<string>
 ): KeyArbiter | undefined => {
-	for (const key of uniques.keys) {
-		if (key.kind === "key" && !key.equal.some((f) => drawn.includes(f.name))) {
-			return key
-		}
+	/** The key, where it holds no drawn field and no span, so it identifies a requested fact by its stated fields. */
+	const identifying = (key: PrimaryKeyObject): ReadonlyArray<KeyArbiter> =>
+		key.kind === "key" && !key.equal.some((f) => drawn.includes(f.name)) ? [key] : []
+	const [primary, ...declared] = relation.uniques.keys
+	const [atPrimary] = identifying(primary)
+	if (atPrimary !== undefined) {
+		return atPrimary
 	}
-	return undefined
+	const [only, ...more] = declared.flatMap(identifying)
+	if (only !== undefined && isNonEmpty(more)) {
+		const keys = [only, ...more].map((k) => `(${fieldNames(k.equal).join(", ")})`).join(", ")
+		throw new Refusal(
+			CompileError.make(
+				prose(
+					"MalformedDescription",
+					relation.loc,
+					`one key a generated addition into ${relation.name} meets stored facts at, its primary key or the one declared key that holds no field it draws and no span; its primary key (${fieldNames(keyWitness(primary)).join(", ")}) holds a drawn field or a span, and the keys ${keys} each identify a fact by the fields it states, which only their names would rank: declare the key that identifies a fact of ${relation.name} its primary key`
+				)
+			)
+		)
+	}
+	return only
 }
 
-/** Whether an insert of class `serial` meets stored facts at an arbiter: complete facts at the primary key, a generated
- * addition where it has one (`generatedArbiter`). */
-export const insertArbitered = (uniques: RelationUniques, serial: SerialClass): boolean =>
-	serial.kind === "complete" || generatedArbiter(uniques, serial.drawn) !== undefined
+/** Whether an insert of class `serial` into `relation` meets stored facts at an arbiter: complete facts at the primary
+ * key, a generated addition where it has one (`generatedArbiter`). */
+export const insertArbitered = (
+	relation: RelationInfo & { readonly uniques: RelationUniques },
+	serial: SerialClass
+): boolean => serial.kind === "complete" || generatedArbiter(relation, serial.drawn) !== undefined
 
 /**
  * The objects a generated addition drawing `drawn` probes (see `buildProbe`): every unique object of the relation that
@@ -632,8 +662,9 @@ const pairedFacts = (
  * those first, at every key and every object no key subsumes (`OutsideProbe`), so there too only a concurrent commit
  * remains.
  *
- * A generated addition meets stored facts at its arbiter, the first declared key that holds no field it draws and no
- * span (`generatedArbiter`), as complete facts do at the primary key: an exact repeat of a stored fact at every field
+ * A generated addition meets stored facts at its arbiter, the primary key where it holds no field the addition draws
+ * and no span, else the one declared key that holds neither (`generatedArbiter`), as complete facts do at the primary
+ * key: an exact repeat of a stored fact at every field
  * it states changes nothing there, and every other object that reads no drawn field is probed for a requested fact
  * whose arbiter key is free. Where every key holds a drawn field it is a plain INSERT with no arbiter, whose identity or
  * default draws the serial fields at the insert, so it is never an exact repeat, and every requested fact is probed

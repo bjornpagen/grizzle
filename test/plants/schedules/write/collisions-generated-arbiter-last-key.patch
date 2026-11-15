@@ -1,13 +1,13 @@
 diff --git a/packages/engine/src/write/insert/unique.ts b/packages/engine/src/write/insert/unique.ts
-index 663551e3..b7237e30 100644
+index 548a66c2..192c9e33 100644
 --- a/packages/engine/src/write/insert/unique.ts
 +++ b/packages/engine/src/write/insert/unique.ts
-@@ -238,7 +238,7 @@ export const generatedArbiter = (
- 	uniques: RelationUniques,
- 	drawn: ReadonlyArray<string>
- ): KeyArbiter | undefined => {
--	for (const key of uniques.keys) {
-+	for (const key of [...uniques.keys].reverse()) {
- 		if (key.kind === "key" && !key.equal.some((f) => drawn.includes(f.name))) {
- 			return key
- 		}
+@@ -268,7 +268,7 @@ export const generatedArbiter = (
+ 	const identifying = (key: PrimaryKeyObject): ReadonlyArray<KeyArbiter> =>
+ 		key.kind === "key" && !key.equal.some((f) => drawn.includes(f.name)) ? [key] : []
+ 	const [primary, ...declared] = relation.uniques.keys
+-	const [atPrimary] = identifying(primary)
++	const [atPrimary] = [...declared.flatMap(identifying), ...identifying(primary)]
+ 	if (atPrimary !== undefined) {
+ 		return atPrimary
+ 	}

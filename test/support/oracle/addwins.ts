@@ -697,9 +697,10 @@ const transition = (
 	}
 	/**
 	 * Whether a generated addition repeats a fact its statement meets, the state after the stratum's deletions and
-	 * complete additions: one equal at every field it states, found at its arbiter, the first declared key that holds no
-	 * serial field and no span (insert/unique.ts generatedArbiter). It is that fact, and draws nothing; with no such key every
-	 * generated addition is a new fact.
+	 * complete additions: one equal at every field it states, found at its arbiter, the primary key where it holds no
+	 * serial field and no span, else the one declared key that holds neither (insert/unique.ts generatedArbiter, which
+	 * refuses several such keys beside a primary key holding a serial field). It is that fact, and draws nothing; with no
+	 * such key every generated addition is a new fact.
 	 */
 	const stated = Arr.map(partialHeading, (h) => h.name)
 	const spans: ReadonlySet<string> = new Set(

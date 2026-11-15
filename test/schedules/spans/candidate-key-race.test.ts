@@ -11,11 +11,11 @@
  * target: write/insert/protocol.ts arbitrationOf), so PostgreSQL 19rc2 refuses an occupant its snapshot cannot see with
  * 40001 (nodeModifyTable.c ExecCheckTIDVisible), a SerializationFailure, and never with a 23P01 or 23505.
  *
- * Stay(id, room, during, ref, ticket) draws `id` by its `uuidv7()` default, with the span candidate key (room, during)
- * and the candidate keys ref and ticket. A generated addition of a Stay leaves the id out, so it arbitrates at ref, the
- * first of its keys in law order (ref's law name sorts before ticket's) that holds no drawn field and no span
- * (write/insert/unique.ts generatedArbiter), and the span key and ticket's are objects beside its arbiter, which
- * PostgreSQL checks as it inserts. A stay its snapshot cannot see, committed while the apply waits at one of them, fails
+ * Stay(id, room, during, ref, ticket) is keyed by ref and draws `id` by its `uuidv7()` default, with the span candidate
+ * key (room, during) and the candidate key ticket. A generated addition of a Stay leaves the id out, so it arbitrates at
+ * its primary key ref, the key the schema declares a stay's identity, which holds no drawn field and no span
+ * (write/insert/unique.ts generatedArbiter: the primary key where it holds neither, never the key whose name sorts
+ * first), and the span key and ticket's are objects beside its arbiter, which PostgreSQL checks as it inserts. A stay its snapshot cannot see, committed while the apply waits at one of them, fails
  * the statement there: overlapping the requested one, with 23P01 (execIndexing.c check_exclusion_or_unique_constraint,
  * which asks SSI nothing first); at its ticket, with 23505 (nbtinsert.c _bt_check_unique, whose SSI check finds no read
  * of the direct writer's, which reads nothing, to conflict with). The insert lists both as UnseenOccupant aborts
@@ -103,7 +103,8 @@ const Booking = relation(
 )
 const bookingSpan = key(on(Booking, "room", "during"))
 const bookingRef = key(on(Booking, "ref"))
-/** A booking whose id the database draws: a generated addition of it arbitrates at ref (see the header). */
+/** A booking keyed by its ref, whose id the database draws: a generated addition of it arbitrates at its primary key
+ * ref (see the header). */
 const Stay = relation(
 	"Stay",
 	{
@@ -113,13 +114,12 @@ const Stay = relation(
 		ref: pg.integer,
 		ticket: pg.integer
 	},
-	["id"]
+	["ref"]
 )
 const staySpan = key(on(Stay, "room", "during"))
-const stayRef = key(on(Stay, "ref"))
 const stayTicket = key(on(Stay, "ticket"))
 const relations = Object.freeze({ Booking, Stay })
-const statements = Object.freeze([bookingSpan, bookingRef, staySpan, stayRef, stayTicket])
+const statements = Object.freeze([bookingSpan, bookingRef, staySpan, stayTicket])
 
 /**
  * The schema under its installed name with its worlds: the full role `app` the grizzle writer opens, in the login

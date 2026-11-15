@@ -94,7 +94,7 @@ const proposalAt = (frontend: WriteFrontend, stratum: StratumAt, slot: ParamId):
 				? proposalOf(
 						action.info.relation,
 						action.serial,
-						insertArbitered(action.info.relation.uniques, action.serial)
+						insertArbitered(action.info.relation, action.serial)
 					)
 				: "every"
 		}

@@ -2705,12 +2705,16 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   without a value.
 - **Serial columns**, `pg.serial` and its kin and `pg.uuidv7`, may be left out of an insert's rows, all of a row's or
   none: PostgreSQL draws them for a new row, an integer from its identity and a uuid by `uuidv7()`, and a value the row
-  states is written as it is. A row that leaves them out is the fact its other fields state. At the first declared key
-  that holds no serial field and no span, a stored row equal to it at every field it states is no change, and one
+  states is written as it is. A row that leaves them out is the fact its other fields state, and it meets stored rows
+  at its arbiter key: the primary key where that holds no serial field and no span, as a complete row does, else the
+  one declared key that holds neither. There a stored row equal to it at every field it states is no change, and one
   that differs there is `refused` on that key; two inserters racing at that key meet there, the later one
   waiting for the earlier and then reading its row, which `delta.met` delivers with the values PostgreSQL drew for it.
-  With no such key, every such row is a new row, and equal such rows are one. Leaving out only some is an
-  `EncodingFailure`. A table whose every column is serial takes `[{}]`, one new row.
+  With no such key, every such row is a new row, and equal such rows are one. An insert that may leave them out, into a
+  table whose primary key holds a serial field or a span and which declares several keys holding neither, is refused
+  when it compiles (`MalformedDescription`): nothing the table declares ranks those keys, and their names never do, so
+  declare the key that identifies a row its primary key. Leaving out only some is an `EncodingFailure`. A table whose
+  every column is serial takes `[{}]`, one new row.
 - **`read`** runs its query after the change, before COMMIT. `delta.added(T)` and `delta.removed(T)` are the rows the
   change added and removed, and `delta.met(T)` the stored rows its insertions met ([Rows an insertion
   met](#rows-an-insertion-met)). A read-back name used twice in one ChangeSet is a type error.
@@ -2784,7 +2788,8 @@ export const purge = ChangeSet.empty(Blog)
 `delta.met(T)` holds each stored row of `T` an insertion of the ChangeSet met at its arbiter key and did not refuse:
 the row as stored, every field of it, a field PostgreSQL drew for it included. Without it, an insertion that repeats a
 stored row learns nothing about that row in the same call. The arbiter key is the primary key for complete rows, and
-for an insertion that leaves out its serial fields the first declared key that holds none of them. A row equal at every
+for an insertion that leaves out its serial fields the primary key where it holds none of them and no span, else the
+one declared key that holds neither ([Writes](#writes)). A row equal at every
 field the insertion states is an exact repeat: no change, and met. One that differs at a field it states is `refused`
 on the key, as always, and the ChangeSet commits nothing. A put meets nothing: an equal row at its key is its own no
 change.

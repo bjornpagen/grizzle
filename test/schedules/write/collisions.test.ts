@@ -3,8 +3,9 @@
  * some serial order does.
  *
  * Sitting(id, child, test, attempt, note, slot) draws `id` by its `uuidv7()` default and is keyed by (child, test,
- * attempt) and by slot. A generated addition leaves `id` out, so its arbiter is (child, test, attempt), the first
- * declared key that holds no drawn field, and slot is a unique object besides it. The role `learner` holds Sitting and
+ * attempt), its primary key, and by slot. A generated addition leaves `id` out, so its arbiter is (child, test,
+ * attempt), the primary key, which holds no drawn field (write/insert/unique.ts generatedArbiter), and slot is a unique
+ * object besides it. The role `learner` holds Sitting and
  * Gate by its insert list alone, and its workload is `start`, an insertion of sittings, and `held`, an insertion of
  * sittings and then, in a later stratum, of a Gate row, each in two forms, drawn per case: the sittings an array of the
  * call's facts, or a query over the call's relation parameter `sittings`, whose head leaves the id out, as edullm's
@@ -46,8 +47,8 @@
  * (`aims`).
  *
  * @plant test/plants/schedules/write/collisions-generated-arbiter-last-key.patch A generated addition is arbitrated at
- * the last declared key holding no drawn field (slot) instead of the first (write/insert/unique.ts generatedArbiter);
- * the property fails.
+ * a declared key beside its primary key that holds no drawn field (slot) instead of its primary key
+ * (write/insert/unique.ts generatedArbiter); the property fails.
  * @plant test/plants/schedules/write/met-keep-where.patch The arbiter's DO SELECT returns only an occupant whose payload
  * differs, so an exact repeat meets nothing it reads back; the property fails.
  */
@@ -64,7 +65,16 @@ import type { CallError, WriteOutcome } from "#compiler/live/index.ts"
 import { ChangeSet, sameLaw } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { key, lawsByStatement, login, on, relation, role, schema } from "#compiler/public/schema.ts"
+import {
+	key,
+	lawsByStatement,
+	lawsOf,
+	login,
+	on,
+	relation,
+	role,
+	schema
+} from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
 import type { DeltaSource, Law, Witness } from "#compiler/types/changeset/changeset.ts"
 import { assert, deepEquals, defined } from "#test/support/assert.ts"
@@ -86,19 +96,18 @@ const Sitting = relation(
 		note: pg.integer,
 		slot: pg.integer
 	},
-	["id"]
+	["child", "test", "attempt"]
 )
 /** The relation a held call inserts last, which the owner's SHARE lock holds it at. */
 const Gate = relation("Gate", { id: pg.uuidv7, n: pg.integer }, ["id"])
 /** The fields a sitting's request states: every field but its drawn id. */
 const statedFields = ["child", "test", "attempt", "note", "slot"] as const
-const sittingKey = key(on(Sitting, "child", "test", "attempt"))
 const slotKey = key(on(Sitting, "slot"))
 
 /** The schema, the role `learner`, which inserts Sitting and Gate and nothing else, and its two logins. A call of a
  * query member reads back the sittings it added and the stored sittings it met, every field of each. */
 const collisions = (name: string) => {
-	const base = schema(name, [Sitting, Gate], [sittingKey, slotKey])
+	const base = schema(name, [Sitting, Gate], [slotKey])
 	const learner = role(base, "learner", { Sitting, Gate }, { insert: ["Sitting", "Gate"] })
 	const direct = role(base, "direct", { Sitting, Gate })
 	/** The sittings a call states as its relation parameter `sittings`, every field but the drawn id. */
@@ -553,10 +562,14 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 				const rig = yield* openRig(collisions)
 				const names = namesOf(rig.installed)
 				const S = rig.worlds.schema
-				const lawOf = lawsByStatement(S)
 				const laws: { readonly [K in KeyName]: Law } = {
-					sitting: defined(lawOf(sittingKey)[0], "the sitting key's law"),
-					slot: defined(lawOf(slotKey)[0], "the slot key's law")
+					sitting: defined(
+						Option.getOrUndefined(
+							Arr.findFirst(lawsOf(S), (l) => l.kind === "primaryKey" && l.relation === "Sitting")
+						),
+						"the sitting key's law, Sitting's primary key's"
+					),
+					slot: defined(lawsByStatement(S)(slotKey)[0], "the slot key's law")
 				}
 				const sittings = names.table(Sitting)
 				const gate = names.table(Gate)

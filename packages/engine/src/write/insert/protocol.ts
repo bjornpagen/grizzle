@@ -174,8 +174,9 @@ const insertShape = (relation: RelationInfo, stated: Heading): InsertShape => {
 
 /**
  * Where an insert meets the stored facts it may repeat or conflict with: its ON CONFLICT arbiter's key and the law a
- * conflict there raises. Complete facts meet at the primary key; a generated addition at the first declared key that
- * holds no field it draws (unique.ts generatedArbiter), or nowhere, a plain INSERT, where every key holds one.
+ * conflict there raises. Complete facts meet at the primary key; a generated addition there too where it holds no field
+ * the addition draws and no span, else at the one declared key that holds neither (unique.ts generatedArbiter), or
+ * nowhere, a plain INSERT, where every key holds one.
  */
 interface InsertArbiter {
 	readonly key: NonEmptyReadonlyArray<LawField>
@@ -193,7 +194,7 @@ const arbiterOf = (
 			stated: undefined
 		}
 	}
-	const stated = generatedArbiter(relation.uniques, serial.drawn)
+	const stated = generatedArbiter(relation, serial.drawn)
 	return {
 		arbiter: stated === undefined ? undefined : { key: stated.equal, law: stated.law },
 		stated
@@ -223,7 +224,7 @@ const shapeOf = (relation: WrittenRelation, serial: SerialClass, stated: Heading
 	if (serial.kind === "complete") {
 		return insertShape(relation, stated)
 	}
-	const arbiter = generatedArbiter(relation.uniques, serial.drawn)
+	const arbiter = generatedArbiter(relation, serial.drawn)
 	return arbiter === undefined ? { variant: "generated" } : statedShape(relation, serial, arbiter)
 }
 
@@ -240,7 +241,7 @@ export const writesMet = (relation: WrittenRelation, serial: SerialClass, of: In
 	of === "insert" &&
 	(serial.kind === "complete"
 		? primaryKeyShape(relation).kind !== "span"
-		: generatedArbiter(relation.uniques, serial.drawn) !== undefined)
+		: generatedArbiter(relation, serial.drawn) !== undefined)
 
 /**
  * The verdict of a stored fact an insert meets at its arbiter key that differs from the requested fact at a field it
@@ -412,8 +413,10 @@ const arbitrationOf = (
  * - Pure sets, whose facts state their key alone: ON CONFLICT (every key column) DO SELECT, every row it met an exact
  *   repeat.
  * - Generated additions, which omit the serial fields their class draws, each taking its identity or its `uuidv7()`
- *   default: where a declared key holds none of those fields and no span, the protocol above at the first such key
- *   (unique.ts generatedArbiter), ON CONFLICT (that key) DO SELECT, its payload the fields it writes beside the key, so
+ *   default: where a declared key holds none of those fields and no span, the protocol above at its arbiter, the
+ *   primary key where it is such a key, else the one such key (unique.ts generatedArbiter, which refuses a relation
+ *   declaring several and no primary key among them), ON CONFLICT (that key) DO SELECT, its payload the fields it
+ *   writes beside the key, so
  *   an exact repeat of a stored fact at every field the addition states changes nothing and is met whole, its drawn
  *   fields the stored fact's, and any other occupant of that key is its law's conflict witness; its own refusals, a
  *   same-key pair and the probe's, are raised at the INSERT's gate, since a request it refuses never takes the values
@@ -516,7 +519,7 @@ export const buildInsert = (
 	const guarantees = inputGuarantees(input)
 	const sameKeyCheck = variant === "protocol" && !keyUniqueBy(guarantees.keyUnique)
 	const written = insertedFields(relation, serial)
-	const proposes = proposalOf(relation, serial, insertArbitered(relation.uniques, serial))
+	const proposes = proposalOf(relation, serial, insertArbitered(relation, serial))
 	const arbitration = arbitrationOf(w, relation, serial, shape)
 	const meets = writesMet(relation, serial, spec.of)
 	/** The class of a stored fact the insert meets at its arbiter key that differs from the request at a stated field

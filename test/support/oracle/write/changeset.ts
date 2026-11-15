@@ -312,7 +312,7 @@ interface ReadSketch {
  *   one addition;
  * - "lagging repeat": a generated addition into the numbered relation, whose identity column lies outside its key, of a
  *   stored fact's key, its sequence lagging at that fact's identity value: equal to the stored fact at every field it
- *   states, met at its arbiter, the declared key that holds no field it draws (write/insert/unique.ts
+ *   states, met at its arbiter, its primary key, which holds no field it draws (write/insert/unique.ts
  *   generatedArbiter), it is that fact and draws nothing: the change is no change and the sequence stays behind,
  *   never called, where a draw would take the stored fact's identity value again;
  * - "lagging retried": the lagging identical deletion beside a second generated addition, a stored fact at the
