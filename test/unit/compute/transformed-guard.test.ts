@@ -448,12 +448,13 @@ const boundedTargets: Arr.NonEmptyReadonlyArray<{
  * The oracles, written apart from the lowering:
  * - the verdict: each step's language as README states it (a translation's, the operand's pattern with each class
  *   mapped; a collapse's, the operand's own where it holds no white space, the empty text where it holds nothing else,
- *   its bounded image where its count is small enough to spell, and the collapsed texts over its other characters
- *   otherwise), and each step's bytes, a collapse's the operand's bound and a translation's the most bytes the image of
- *   a text of the operand's byte and character bounds over its pattern's characters takes, found by a dynamic program
- *   over counts of characters and bytes, each within what the step's own language bounds; language inclusion in Q
- *   decides the pattern, and the longest text of the language within the bytes, which a cast compares by automata,
- *   decides the bound.
+ *   every text over its other characters where its count leaves no room for a space between two of them, its bounded
+ *   image where its count is small enough to spell, and the collapsed texts over its other characters otherwise), and
+ *   each step's bytes, a collapse's the operand's bound and a translation's the most bytes the image of a text of the
+ *   operand's byte and character bounds over its pattern's characters takes, found by a dynamic program over counts
+ *   of characters and bytes, each within what the step's own language bounds; language inclusion in Q decides the
+ *   pattern, and the longest text of the language within the bytes, which a cast compares by automata, decides the
+ *   bound.
  * - the host: the chain evaluated by hand on a text whose first step's image takes the program's most bytes, built from
  *   its choices, and on drawn values of t's type: no image takes more than the bound, a translation first takes exactly
  *   the most, and where the cast compiles every image is of T.
@@ -619,8 +620,16 @@ const classOf = (p: Points): string =>
 	)
 
 /**
+ * The characters a bounded collapse's text begins and ends with, one of `ends` each, around its middle: a count of at
+ * most this many leaves no character between them, so a collapse of such a count is every text over its other
+ * characters of that count, a space in none.
+ */
+const boundedEnds = 2
+
+/**
  * A language as README states each step's: every text over a set, of its count; every collapsed text over a set, its
- * runs a `gap` apart; and a bounded collapse's, at most `chars` characters that begin and end with one of `ends`.
+ * runs a `gap` apart; and a bounded collapse's, at most `chars` characters that begin and end with one of `ends`, more
+ * than boundedEnds of them, so its middle has room for one of `middle`, a space among them.
  */
 type Language =
 	| { readonly kind: "free"; readonly over: Points; readonly count: Count }
@@ -649,11 +658,7 @@ const languageSource = (l: Language): string => {
 		case "collapsed":
 			return `^(?:${classOf(l.runs)}+(?:${classOf({ kind: "listed", points: [l.gap] })}${classOf(l.runs)}+)*)?$`
 		case "bounded":
-			return l.chars === 0
-				? "^$"
-				: l.chars === 1
-					? `^${classOf(l.ends)}?$`
-					: `^(?:${classOf(l.ends)}(?:${classOf(l.middle)}{0,${l.chars - 2}}${classOf(l.ends)})?)?$`
+			return `^(?:${classOf(l.ends)}(?:${classOf(l.middle)}{0,${l.chars - boundedEnds}}${classOf(l.ends)})?)?$`
 	}
 }
 
@@ -680,12 +685,7 @@ const ownBounds = (l: Language): Own => {
 			return {
 				kind: "bounded",
 				chars: l.chars,
-				bytes:
-					l.chars === 0
-						? 0
-						: l.chars === 1
-							? widest(l.ends)
-							: 2 * widest(l.ends) + (l.chars - 2) * widest(l.middle)
+				bytes: boundedEnds * widest(l.ends) + (l.chars - boundedEnds) * widest(l.middle)
 			}
 	}
 }
@@ -707,7 +707,12 @@ const typedWithin = (language: Language, bytes: number): Typed => {
 	return { language, bytes: within, chars: Math.min(own.chars, within) }
 }
 
-/** A collapse's language as README states it, of a text of `t`'s type. */
+/**
+ * A collapse's language as README states it, of a text of `t`'s type: its own where it holds no white space, the empty
+ * text where it holds nothing else, every text over its other characters of its count where the count leaves no
+ * character between a first and a last (boundedEnds), so that no space survives, a bounded collapse where the count is
+ * small enough to spell, and the collapsed texts over its other characters otherwise.
+ */
 const collapsedLanguage = (t: Typed): Language => {
 	const letters = lettersIn(t.language)
 	if (!Arr.some(white, (c) => holds(letters, c))) {
@@ -717,13 +722,16 @@ const collapsedLanguage = (t: Typed): Language => {
 	if (isNone(other)) {
 		return noText
 	}
+	if (t.chars <= boundedEnds) {
+		return { kind: "free", over: other, count: { kind: "atMost", chars: t.chars } }
+	}
 	const bounded: Language = {
 		kind: "bounded",
 		ends: other,
 		middle: withPoint(other, space),
 		chars: t.chars
 	}
-	return t.chars - 2 <= regexMaxRepeat.value &&
+	return t.chars - boundedEnds <= regexMaxRepeat.value &&
 		analyzeText([{ source: languageSource(bounded), flags: "u" }], SourceLoc("image", [])).ok
 		? bounded
 		: { kind: "collapsed", runs: other, gap: space }
@@ -1128,6 +1136,20 @@ describe("a transformed text's byte bound", () => {
 								},
 								draws: "",
 								reaches: ["collapse admitted"]
+							},
+							{
+								note: 'a full run\'s draw: translate(collapse(x), " a", "éa") over x of at most 1 byte of every character, whose collapse holds no space, so the translation keeps 1 byte and a cast 1 byte below it is refused; an oracle that reads the bounded collapse\'s middle where its count leaves it no room bounds it at 2 and refuses the cast into 1 byte',
+								sketch: {
+									operand: { bytes: 1, over: { kind: "every" }, count: { kind: "any" } },
+									steps: [
+										{ kind: "collapse" },
+										{ kind: "translate", from: [0x20, 0x61], to: [0xe9, 0x61] }
+									],
+									target: { pattern: 0, slack: -1 },
+									values: []
+								},
+								draws: "",
+								reaches: ["translate refused", "a refusal by the bound alone", "a chain of two"]
 							}
 						],
 						runs: 400,
