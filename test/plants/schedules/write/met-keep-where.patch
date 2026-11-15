@@ -1,8 +1,6 @@
-diff --git a/packages/engine/src/write/insert/protocol.ts b/packages/engine/src/write/insert/protocol.ts
-index 780ce800..9997b5f0 100644
 --- a/packages/engine/src/write/insert/protocol.ts
 +++ b/packages/engine/src/write/insert/protocol.ts
-@@ -751,7 +751,20 @@ export const buildInsert = (
+@@ -752,7 +752,20 @@
  					return {
  						kind: "columns",
  						columns: mapNonEmpty(pk, column),

@@ -4,9 +4,10 @@
  * which SSI refuses with 40001.
  *
  * Held(id, k, a) draws `id` by its `uuidv7()` default and is keyed by k, so a generated addition arbitrates at k: the
- * `returned` form of write/insert/protocol.ts, ON CONFLICT (k) DO SELECT, whose fetch of the occupant takes no SIRead
- * lock, so at SERIALIZABLE each met row is read again at its key under the transaction's snapshot. Mark(k) is a pure
- * set. The role `writer` inserts both, and its workload is `meet`, an insertion of Held and of Mark in one stratum that
+ * `returned` form of write/insert/protocol.ts, ON CONFLICT (k) DO SELECT, whose unique pre-check reads the occupant
+ * again under the query's snapshot at SERIALIZABLE (PostgreSQL's execIndexing.c check_exclusion_or_unique_constraint,
+ * 19rc1 and 19rc2 alike), so SSI sees each met row as read. Mark(k) is a pure set. The role `writer` inserts both,
+ * and its workload is `meet`, an insertion of Held and of Mark in one stratum that
  * reads back the Held rows it added and the stored ones it met, Held's from a query over the call's relation parameter
  * `held`, whose head leaves the id out, so its rows are one generated addition's and its read-backs ride that
  * statement (an array of Held is two insertions, of the rows that state the id and of those that leave it out, whose
@@ -29,8 +30,8 @@
  *
  * Oracle: specification, the two serial orders of L and D over the stated rows.
  *
- * @plant test/plants/schedules/write/met-unseen.patch A SERIALIZABLE `returned` insert classes a met row with no read
- * of it under the snapshot (the read is asked at READ COMMITTED instead), so the skew commits; the property fails.
+ * @plant test/plants/schedules/write/met-keep-where.patch The arbiter's DO SELECT returns only an occupant whose payload
+ * differs, so L's exact repeat of m meets nothing it reads back; the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
