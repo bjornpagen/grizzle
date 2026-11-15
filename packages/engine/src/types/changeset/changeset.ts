@@ -68,7 +68,7 @@ import type {
 	Fin,
 	Key,
 	Mutable,
-	Ordered,
+	OrderedFamily,
 	Side,
 	Tree
 } from "#compiler/types/schema/statements.ts"
@@ -285,7 +285,7 @@ type OmitEach<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
  * S's sequences, its ordered families and trees, which a nesting reads: the families whose order is the caller's data.
  * A counted family is a law over rows whose group key names their owner, so no write nests it.
  */
-type SequenceOf<S> = Extract<StatementsOf<S>[number], Ordered<unknown, unknown> | AnyTree>
+type SequenceOf<S> = Extract<StatementsOf<S>[number], OrderedFamily<unknown, unknown> | AnyTree>
 
 /** Any tree: Tree is covariant in what it names. */
 type AnyTree = Tree<unknown, unknown, ReadonlyArray<string>>
@@ -310,7 +310,7 @@ type MemberRelationOf<Fa> = Fa extends { readonly family: Side<infer F> } ? F : 
 
 /** What a member's nesting supplies: an ordered member's group, a tree member's root fields. */
 type NestedOf<Fa> =
-	Fa extends Ordered<
+	Fa extends OrderedFamily<
 		Side<unknown, readonly [...infer G extends ReadonlyArray<string>, AnyTerm]>,
 		unknown
 	>
@@ -402,7 +402,7 @@ type NotSequenceMember<S, R> = [DrawnFieldOf<R>] extends [never]
 
 /** The names of the member relations of S's ordered families. */
 type OrderedMemberName<S> = NameOf<
-	MemberRelationOf<Extract<SequenceOf<S>, Ordered<unknown, unknown>>>
+	MemberRelationOf<Extract<SequenceOf<S>, OrderedFamily<unknown, unknown>>>
 >
 
 /**
@@ -596,7 +596,7 @@ type FamiliesOwnedBy<S, R> =
 type DeletedWrites<S, R> = IsFamilyMember<S, R> extends true ? never : UnitWrites<S, R>
 
 /** Any ordered or counted family. */
-type RowFamily = Ordered<unknown, unknown> | Counted<unknown, unknown>
+type RowFamily = OrderedFamily<unknown, unknown> | Counted<unknown, unknown>
 
 /** Whether R is a tree's relation in S. */
 type IsTreeRow<S, R> = [DrawnFieldOf<R>] extends [never]
@@ -654,7 +654,7 @@ type MutableName<S> =
 /** S's families whose members are rows of their own: its ordered and counted families. */
 type RowFamilyOf<S> = Extract<
 	StatementsOf<S>[number],
-	Ordered<unknown, unknown> | Counted<unknown, unknown>
+	OrderedFamily<unknown, unknown> | Counted<unknown, unknown>
 >
 
 /** Whether R is the member of an ordered or a counted family of S whose owner is immutable. */

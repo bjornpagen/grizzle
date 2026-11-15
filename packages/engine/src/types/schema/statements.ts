@@ -214,7 +214,7 @@ export type AnyFin = Fin<unknown, string>
 export type SlotField<F, Fi> = F & { readonly slots: Fi }
 
 /** ordered(on(F, g…, i), fin(O, n)): each owner's members indexed by their drawn index i, exactly 0 … n − 1. */
-export interface Ordered<F, Fi> {
+export interface OrderedFamily<F, Fi> {
 	readonly kind: "ordered"
 	readonly family: F
 	readonly slots: Fi
@@ -241,7 +241,7 @@ export interface Tree<F, Fi, Root extends ReadonlyArray<string>> {
 
 /** Any family: each is covariant in what it names. */
 export type AnyFamily =
-	| Ordered<unknown, unknown>
+	| OrderedFamily<unknown, unknown>
 	| Counted<unknown, unknown>
 	| Tree<unknown, unknown, ReadonlyArray<string>>
 
@@ -385,7 +385,7 @@ export type TreeRootOf<C, Root> = Root extends readonly [string, ...ReadonlyArra
 
 /** A family's group terms, and whether it hides its order: a counted family's members have no visible index. */
 type MemberOf<Fa> =
-	Fa extends Ordered<
+	Fa extends OrderedFamily<
 		Side<unknown, readonly [...infer G extends ReadonlyArray<AnyTerm>, AnyTerm]>,
 		unknown
 	>

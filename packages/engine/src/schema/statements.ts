@@ -60,7 +60,7 @@ import type {
 	MirrorsBase,
 	Monoid,
 	Mutable,
-	Ordered,
+	OrderedFamily,
 	Pred,
 	Race,
 	Retirable,
@@ -744,7 +744,7 @@ const admitFamily = (
 }
 
 /** ordered(on(F, g…, i), fin(O, n)): the value holds its two inputs. */
-export const orderedBuilder = <F, Fi>(family: F, slots: Fi): Ordered<F, Fi> =>
+export const orderedBuilder = <F, Fi>(family: F, slots: Fi): OrderedFamily<F, Fi> =>
 	ownedStatement({ kind: "ordered", family, slots }, admitFamily("ordered", family, slots))
 
 /** counted(on(F, g…), fin(O, n)): the value holds its two inputs. */

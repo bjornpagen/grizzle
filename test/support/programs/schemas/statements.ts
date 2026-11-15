@@ -13,7 +13,7 @@ export type {
 	Key,
 	Mirrors,
 	Mutable,
-	Ordered,
+	OrderedFamily,
 	Pred,
 	Selection,
 	Side,

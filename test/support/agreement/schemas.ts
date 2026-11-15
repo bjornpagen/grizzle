@@ -5435,7 +5435,7 @@ const statementType = (desc: StatementDesc, ids: Ids): string => {
 			return `St.Containment<${sideType(desc.left, ids)}, ${sideType(desc.right, ids)}>`
 		case "family": {
 			const fin = `St.Fin<typeof ${ids(desc.slots.owner)}, ${jsonText(desc.slots.count)}>`
-			return `St.${desc.order === "ordered" ? "Ordered" : "Counted"}<${sideType(desc.member, ids)}, ${fin}>`
+			return `St.${desc.order === "ordered" ? "OrderedFamily" : "Counted"}<${sideType(desc.member, ids)}, ${fin}>`
 		}
 		case "tree":
 			return `St.Tree<${sideType(desc.member, ids)}, St.Fin<typeof ${ids(desc.slots.owner)}, ${jsonText(desc.slots.count)}>, readonly [${Arr.join(Arr.map(desc.root, jsonText), ", ")}]>`

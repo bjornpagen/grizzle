@@ -33,7 +33,7 @@ import type {
 	Mirrors,
 	MirrorsBase,
 	Mutable,
-	Ordered,
+	OrderedFamily,
 	Race,
 	RelationOfKey,
 	Selection,
@@ -164,10 +164,10 @@ type FinSpelled<Fi, Rs, To extends Spelling> =
 		: Fi
 
 type FamilySpelled<Fa, Rs, To extends Spelling> =
-	Fa extends Ordered<infer F, infer Fi>
+	Fa extends OrderedFamily<infer F, infer Fi>
 		? SideSpelled<F, Rs, To> extends infer A
 			? FinSpelled<Fi, Rs, To> extends infer B
-				? Ordered<A, B>
+				? OrderedFamily<A, B>
 				: never
 			: never
 		: Fa extends Counted<infer F, infer Fi>
@@ -295,7 +295,7 @@ export type NamedBy<St> =
 							? SideNames<L> | SideNames<R>
 							: St extends Alternatives<infer P, string, infer C, infer Arms>
 								? RelationOfKey<P> | C | RelationOfKey<Exclude<Arms[keyof Arms], undefined>>
-								: St extends Ordered<infer F, infer Fi> | Counted<infer F, infer Fi>
+								: St extends OrderedFamily<infer F, infer Fi> | Counted<infer F, infer Fi>
 									? SideNames<F> | OwnerOf<Fi>
 									: St extends Tree<infer F, infer Fi, ReadonlyArray<string>>
 										? SideNames<F> | OwnerOf<Fi>
@@ -626,7 +626,7 @@ type TermsOf<X> = X extends Side<unknown, infer T> ? T : never
 type KeySideOf<St> =
 	St extends CandidateKey<AnyRelation>
 		? St["side"]
-		: St extends Ordered<infer F, AnyFin>
+		: St extends OrderedFamily<infer F, AnyFin>
 			? F
 			: never
 

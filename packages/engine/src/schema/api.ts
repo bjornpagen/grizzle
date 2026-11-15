@@ -107,7 +107,7 @@ import type {
 	Monoid as MonoidOf,
 	Mutable,
 	NoSetKey,
-	Ordered,
+	OrderedFamily,
 	OrderedMember,
 	OverSlots,
 	OwnerRelationOf,
@@ -543,7 +543,7 @@ export const ordered = <
 		) &
 		OverSlots<Kind, OrderedMember<C, F["terms"], OC, OK>>,
 	slots: Fi & FinShows<ON, OC, OK, Kind> & FamilySlots<Kind>
-): Ordered<F, Fi> => orderedBuilder<F, Fi>(family, slots)
+): OrderedFamily<F, Fi> => orderedBuilder<F, Fi>(family, slots)
 
 /** counted(on(F, g…), fin(O, n)): each owner's n members, their index hidden. */
 export const counted = <
