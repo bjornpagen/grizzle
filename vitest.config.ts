@@ -1,6 +1,7 @@
 import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
 import { unitExamples } from "#test/support/examples.ts"
 import { hangLimit } from "#test/support/limits.ts"
+import { includeOf, tiers } from "#test/support/tiers.ts"
 
 /**
  * `pnpm test`: the tests that need no network, the unit tier and the type tier. The type tier's checks are one tsgo
@@ -17,7 +18,7 @@ import { hangLimit } from "#test/support/limits.ts"
  * test/support/examples.ts exempts, each set with its reason.
  */
 export default defineTestConfig({
-	include: ["test/unit/**/*.test.ts", "test/types/**/*.test.ts"],
+	include: includeOf(tiers.unit),
 	guided: [],
 	setup: ["test/types/batch/global-setup.ts"],
 	conditions: [],

@@ -1,5 +1,6 @@
 import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
 import { networkExamples } from "#test/support/examples.ts"
+import { includeOf, tiers } from "#test/support/tiers.ts"
 
 /**
  * `pnpm test:network`: the tests that talk to the local PostgreSQL cluster, the pg tier and the schedules tier. The
@@ -20,7 +21,7 @@ import { networkExamples } from "#test/support/examples.ts"
  * with its reason.
  */
 export default defineTestConfig({
-	include: ["test/pg/**/*.test.ts", "test/schedules/**/*.test.ts"],
+	include: includeOf(tiers.network),
 	guided: ["test/pg/world-model/random.test.ts"],
 	setup: ["test/support/pg-global-setup.ts"],
 	conditions: [],

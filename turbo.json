@@ -83,6 +83,10 @@
 		"//#architecture": {
 			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
 		},
+		"//#plants:check": {
+			"description": "Every plant a test cites is a file the repository holds, and every file under test/plants is a plant some test cites. It reads test/ and its own source, never a package's.",
+			"inputs": ["test/**", "scripts/dev/plants/**"]
+		},
 		"//#dedupe": {
 			"description": "pnpm dedupe --check reads the manifests, the lockfile and what they install, never source.",
 			"inputs": [

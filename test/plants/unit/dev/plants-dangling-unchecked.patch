@@ -1,0 +1,11 @@
+--- a/scripts/dev/plants/tree.ts
++++ b/scripts/dev/plants/tree.ts
+@@ -88,7 +88,7 @@
+ 			const outside: ReadonlyArray<Finding> = isTest(source.path)
+ 				? []
+ 				: [{ kind: "outsideTest", ...at }]
+-			const dangling: ReadonlyArray<Finding> = plants.has(citation.plant)
++			const dangling: ReadonlyArray<Finding> = plants.size >= 0
+ 				? []
+ 				: [{ kind: "dangling", ...at }]
+ 			return Arr.appendAll(outside, dangling)

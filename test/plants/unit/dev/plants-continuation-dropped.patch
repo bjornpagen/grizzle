@@ -1,0 +1,11 @@
+--- a/scripts/dev/plants/citations.ts
++++ b/scripts/dev/plants/citations.ts
+@@ -93,7 +93,7 @@
+ 		return { read: closeOpen(), open: Option.some(open) }
+ 	}
+ 	const carried = Option.flatMap(
+-		Option.filter(walk.open, (open) => !open.closed),
++		Option.filter(walk.open, () => false),
+ 		(open) =>
+ 			Option.map(Option.fromNullishOr(continuation.exec(text)), (more) => ({
+ 				...open,
