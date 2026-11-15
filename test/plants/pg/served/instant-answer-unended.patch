@@ -1,5 +1,5 @@
 diff --git a/packages/grizzle/src/adapter/db/handles.ts b/packages/grizzle/src/adapter/db/handles.ts
-index 90f2484a..d993804c 100644
+index 90f2484a..4bdbed7b 100644
 --- a/packages/grizzle/src/adapter/db/handles.ts
 +++ b/packages/grizzle/src/adapter/db/handles.ts
 @@ -488,7 +488,7 @@ const instantCalls = <S extends ReadShape, E>(
@@ -7,7 +7,7 @@ index 90f2484a..d993804c 100644
  	const events = callEvents(ctx, answer, parse)
  	return {
 -		answer: (input) => Stream.concat(events(input), Stream.make(answer.end)),
-+		answer: (input) => Stream.concat(events(input), Stream.never),
++		answer: (input) => events(input),
  		once: readOnce(events, answer.settle)
  	}
  }

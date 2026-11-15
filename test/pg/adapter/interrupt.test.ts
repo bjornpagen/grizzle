@@ -22,8 +22,8 @@
  * Features: how the call ended against the gate, where it was interrupted (a lock wait and a deferrable read's wait for
  * a safe snapshot among them), and what the interruption left (committed, rolled back).
  *
- * @plant test/plants/pg/adapter/interrupt-no-cancel.patch An interrupted flight sends no CancelRequest; the oracle's
- * CancelRequest clause fails.
+ * @plant test/plants/pg/adapter/interrupt-no-cancel.patch An interrupted flight sends no CancelRequest and severs its
+ * connection at once; the oracle's CancelRequest clause fails.
  * @plant test/plants/pg/adapter/interrupt-lease-leaked.patch An interrupted call's retired session never counted out of
  * the pool's leases; the oracle's no session leased clause fails.
  */

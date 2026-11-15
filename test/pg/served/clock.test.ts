@@ -46,8 +46,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * milliseconds; caught by ms = floor(us / 1000) at every reading.
  * @plant test/plants/pg/served/clock-clock-timestamp.patch The clock reads clock_timestamp(); caught by stamps of one
  * statement apart.
- * @plant test/plants/pg/served/instant-answer-unended.patch A clocked read answered with no `end` after its ready, as a
- * live read's answer goes on; caught by the answer's events.
+ * @plant test/plants/pg/served/instant-answer-unended.patch A clocked read answered with no `end` after its ready, its
+ * stream ending at the ready; caught by the answer's events.
  */
 
 /** An instant, and the instants on either side of 2100-01-01 in milliseconds since the epoch. */
