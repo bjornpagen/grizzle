@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/identity.ts b/packages/engine/src/core/identity.ts
+index 162d5bf6..f2f701c8 100644
+--- a/packages/engine/src/core/identity.ts
++++ b/packages/engine/src/core/identity.ts
+@@ -522,7 +522,7 @@ export const namespaceStem = (
+ 	}
+ 	const stem = role.slice(lead.length)
+ 	const at = stem.indexOf("__")
+-	return at > 0 && levels.has(stem.slice(0, at)) && isConversion(stem.slice(at + 2))
++	return at > 0 && isConversion(stem.slice(at + 2))
+ 		? stem
+ 		: undefined
+ }

@@ -31,14 +31,17 @@
  * The oracle is PostgreSQL's catalog as the drift check reads it: drift refuses exactly when a change was made, its
  * mismatches naming every changed object, and passes once every change is undone.
  *
+ * Features: every operator planted, nothing planted, several at once, and a privilege granted beside the role's
+ * column grants, which a steered case whose turn aims at it constructs: the editor's first privilege on Note, whose
+ * columns the editor holds SELECT on.
  *
- * Features: every operator planted, nothing planted, and several at once.
- *
- * Plants (~/.cache/grizzle-release/BR13/plants): workflow-drift-unchecked.patch; (~/.cache/grizzle-release/GZTEMP/plants):
- * temporary-drift-blind.patch (the drift check never reports a login's or role's missing TEMPORARY on the database);
- * (~/.cache/grizzle-release/DENAPI/plants): drift-undo-takes-column-grants.patch (a planted table privilege picked
- * among those the role holds on no table alone, as before), under which a SELECT the editor holds on Note's columns is
- * planted on the table and its undo takes the column grants away, so the next case finds drift it never planted.
+ * @plant test/plants/pg/cli/workflow-drift-unchecked.patch The drift check compares no catalog fact, so drift passes
+ * over every change made by hand.
+ * @plant test/plants/pg/cli/temporary-drift-blind.patch The drift check never reports a login's or role's missing
+ * TEMPORARY on the database, so a revoked TEMPORARY goes unnamed.
+ * @plant test/plants/pg/cli/drift-undo-takes-column-grants.patch The table privilege operator picks among the
+ * privileges the role holds on no table alone, as it did before, so a SELECT the editor holds on Note's columns is
+ * granted on the table and its undo takes the column grants away: the next case finds drift it never made.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -74,7 +77,7 @@ import {
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { pickFrom, pickGen, pickOf } from "#test/support/pick.ts"
 import { Substrate, underDatabaseLock } from "#test/support/substrate/substrate.ts"
 
 type Planted =
@@ -133,6 +136,8 @@ interface Change {
 	readonly plant: ReadonlyArray<string>
 	readonly undo: ReadonlyArray<string>
 	readonly named: string
+	/** The situations the change reaches beyond its operator's own, read off the catalog it was picked from. */
+	readonly reaches: ReadonlyArray<DriftFeature>
 }
 
 /** The installed names a change reaches: the database, the schema, its tables, the roles, and the roles' schemas. */
@@ -146,6 +151,12 @@ interface Names {
 	readonly login: string
 	readonly roleSchemas: Arr.NonEmptyReadonlyArray<string>
 }
+
+/** The installation's roles and its login an operator picks among, by their fields of Names, in pick order. */
+const pickedRoles = ["editor", "viewer", "login"] as const
+
+/** The tables an operator picks among, by their declared names, in pick order. */
+const pickedTables = ["Doc", "Note"] as const
 
 /** PostgreSQL's table privileges (GRANT's privilege list for a table). */
 const tablePrivileges = [
@@ -199,7 +210,7 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 	Effect.gen(function* () {
 		const admin = (yield* Substrate).admin
 		const table = (name: string) => `${quoteIdent(n.schema)}.${quoteIdent(name)}`
-		const roles = [n.editor, n.viewer, n.login] as const
+		const roles = Arr.map(pickedRoles, (r) => n[r])
 		/** The installation's roles and its login that hold their own TEMPORARY on the database, as its ACL holds it. */
 		const temporaryHolders = Effect.map(
 			admin.queryValues(
@@ -220,8 +231,8 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 				const set = `ALTER VIEW ${name} SET (security_barrier = true)`
 				const reset = `ALTER VIEW ${name} RESET (security_barrier)`
 				const change: Change = Str.includes("security_barrier=true")(column(row, 2))
-					? { plant: [reset], undo: [set], named: view }
-					: { plant: [set], undo: [reset], named: view }
+					? { plant: [reset], undo: [set], named: view, reaches: [] }
+					: { plant: [set], undo: [reset], named: view, reaches: [] }
 				return change
 			}
 			case "row security disabled": {
@@ -234,7 +245,8 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 				const change: Change = {
 					plant: [`ALTER TABLE ${table(name)} DISABLE ROW LEVEL SECURITY`],
 					undo: [`ALTER TABLE ${table(name)} ENABLE ROW LEVEL SECURITY`],
-					named: name
+					named: name,
+					reaches: []
 				}
 				return change
 			}
@@ -253,7 +265,8 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 				const change: Change = {
 					plant: [`ALTER POLICY ${quoteIdent(policy)} ON ${on} TO ${to}, PUBLIC`],
 					undo: [`ALTER POLICY ${quoteIdent(policy)} ON ${on} TO ${to}`],
-					named: policy
+					named: policy,
+					reaches: []
 				}
 				return change
 			}
@@ -269,7 +282,8 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 				const change: Change = {
 					plant: [`ALTER FUNCTION ${signature} ${now}`],
 					undo: [`ALTER FUNCTION ${signature} ${was}`],
-					named: column(row, 1)
+					named: column(row, 1),
+					reaches: []
 				}
 				return change
 			}
@@ -286,6 +300,14 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 					[table(name), quoteIdent(role)]
 				)
 				const held = textRows(acl)
+				/**
+				 * The role's grants on the table's columns, which a privilege granted beside them must leave as its undo
+				 * finds them.
+				 */
+				const columnGrants = yield* admin.queryValues(
+					"SELECT DISTINCT a.privilege_type::text FROM pg_catalog.pg_attribute AS t, aclexplode(t.attacl) AS a WHERE t.attrelid = $1::regclass AND t.attnum > 0 AND NOT t.attisdropped AND a.grantee = $2::regrole",
+					[table(name), quoteIdent(role)]
+				)
 				const privilege = pickFrom(
 					nonEmpty(
 						Arr.filter(tablePrivileges, (p) => !Arr.some(held, (h) => column(h, 0) === p)),
@@ -296,7 +318,10 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 				const change: Change = {
 					plant: [`GRANT ${privilege} ON ${table(name)} TO ${quoteIdent(role)}`],
 					undo: [`REVOKE ${privilege} ON ${table(name)} FROM ${quoteIdent(role)}`],
-					named: name
+					named: name,
+					reaches: Arr.isReadonlyArrayNonEmpty(textRows(columnGrants))
+						? ["a privilege granted beside the role's column grants"]
+						: []
 				}
 				return change
 			}
@@ -307,7 +332,8 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 						`ALTER ROLE ${quoteIdent(role)} SET work_mem = '${pickFrom(Arr.range(1, 64), second)}MB'`
 					],
 					undo: [`ALTER ROLE ${quoteIdent(role)} RESET work_mem`],
-					named: "work_mem"
+					named: "work_mem",
+					reaches: []
 				}
 				return change
 			}
@@ -320,7 +346,8 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 				const change: Change = {
 					plant: [`ALTER ROLE ${quoteIdent(role)} ${attribute}`],
 					undo: [`ALTER ROLE ${quoteIdent(role)} ${undo}`],
-					named: role
+					named: role,
+					reaches: []
 				}
 				return change
 			}
@@ -335,7 +362,8 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 				const change: Change = {
 					plant: [`GRANT ${quoteIdent(granted)} TO ${quoteIdent(member)}`],
 					undo: [`REVOKE ${quoteIdent(granted)} FROM ${quoteIdent(member)}`],
-					named: granted
+					named: granted,
+					reaches: []
 				}
 				return change
 			}
@@ -344,7 +372,8 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 				const change: Change = {
 					plant: [`CREATE TABLE ${stray} (a int4)`],
 					undo: [`DROP TABLE ${stray}`],
-					named: "stray_by_hand"
+					named: "stray_by_hand",
+					reaches: []
 				}
 				return change
 			}
@@ -357,7 +386,8 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 				const change: Change = {
 					plant: [temporary(n, "REVOKE", role)],
 					undo: [temporary(n, "GRANT", role)],
-					named: `role ${role} privilege TEMPORARY on database`
+					named: `role ${role} privilege TEMPORARY on database`,
+					reaches: []
 				}
 				return change
 			}
@@ -373,14 +403,19 @@ const changeOf = (kind: Planted, [first, second, third]: Picks, n: Names) =>
 				const change: Change = {
 					plant: [temporary(n, "GRANT", role)],
 					undo: [temporary(n, "REVOKE", role)],
-					named: `role ${role} privilege TEMPORARY on database`
+					named: `role ${role} privilege TEMPORARY on database`,
+					reaches: []
 				}
 				return change
 			}
 		}
 	})
 
-type DriftFeature = Planted | "nothing planted" | "several planted"
+type DriftFeature =
+	| Planted
+	| "nothing planted"
+	| "several planted"
+	| "a privilege granted beside the role's column grants"
 
 /** The operators a case plants, each at its picks, in the operators' order. */
 const plantedOf = (plants: Plants): ReadonlyArray<readonly [Planted, Picks]> =>
@@ -398,17 +433,36 @@ const plantsFeatures = (plants: Plants): ReadonlyArray<DriftFeature> => {
 	]
 }
 
+/**
+ * The privilege operator's picks that reach a role's column grants: the editor on Note, whose rule Mine reads Note's
+ * columns, so the editor holds SELECT on them (fixture.ts worlds), at pick 0: the first privilege, in PostgreSQL's
+ * privilege list, that the editor holds on neither the table nor any of its columns.
+ */
+const besideColumnGrants: Picks = [
+	pickOf(pickedRoles.indexOf("editor"), pickedRoles.length),
+	pickOf(pickedTables.indexOf("Note"), pickedTables.length),
+	0
+]
+
 /** How many candidates a steered case draws for plants that reach a pending situation. */
 const aimCandidates = 32
 
 /**
- * The plants a case runs: the drawn ones, or, where steering names situations no case has reached, the first of up to
- * `aimCandidates` further draws that reaches one, else the drawn one.
+ * The plants a case runs: the drawn ones; or, where the case's turn aims at a privilege granted beside a role's column
+ * grants, which the catalog decides and no draw of picks foresees, that privilege alone (besideColumnGrants); or,
+ * where steering names situations no case has reached, the first of up to `aimCandidates` further draws that reaches
+ * one, else the drawn one.
  */
 const aimedPlants = (drawnPlants: Plants, c: Case<DriftFeature>): Plants =>
 	Option.match(c.steering, {
 		onNone: () => drawnPlants,
 		onSome: (pending) => {
+			if (pending.aimed("a privilege granted beside the role's column grants")) {
+				return {
+					...plantsOf(() => Option.none()),
+					"a privilege granted": Option.some(besideColumnGrants)
+				}
+			}
 			const reaches = (p: Plants) => Arr.some(plantsFeatures(p), (f) => pending.has(f))
 			return reaches(drawnPlants)
 				? drawnPlants
@@ -470,10 +524,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 							const names: Names = {
 								database: substrate.database,
 								schema: identifierOf(installation),
-								tables: [
-									identifierOf(identity.table(parsedName("Doc"))),
-									identifierOf(identity.table(parsedName("Note")))
-								],
+								tables: Arr.map(pickedTables, (t) => identifierOf(identity.table(parsedName(t)))),
 								editor: roleNameOf(w.editor, {}),
 								viewer: roleNameOf(w.viewer, {}),
 								keeper: roleNameOf(w.keeper, {}),
@@ -498,6 +549,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 											"a table in a role's schema",
 											"a TEMPORARY grant revoked",
 											"a TEMPORARY grant beyond the snapshot",
+											"a privilege granted beside the role's column grants",
 											"nothing planted",
 											"several planted"
 										],
@@ -522,6 +574,7 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 										const changes = yield* Effect.forEach(planted, ([kind, picks]) =>
 											changeOf(kind, picks, names)
 										)
+										c.noteAll(Arr.flatMap(changes, (change) => change.reaches))
 										const made: Array<Change> = []
 										const plant = Effect.forEach(
 											changes,

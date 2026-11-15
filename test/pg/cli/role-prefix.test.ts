@@ -34,11 +34,18 @@
  * Features: the second installation under another prefix, and under none; an uninstall refused, then done; a decoder
  * named by an earlier derivation.
  *
- * Plants (~/.cache/grizzle-release/ROLESPACE/plants): runtime-ignores-prefix.patch (a layer logs in as the stem),
- * prefix-applied-twice.patch (migrate fills a role variable with the prefix twice), uninstall-outside-namespace.patch
- * (uninstall drops every role under the prefix), role-printed-plain.patch (the printer prints a grant's role by its
- * stem, bypassing its variable), database-variable-misfilled.patch (the database variable is filled with a role's
- * name).
+ * @plant test/plants/pg/cli/uninstall-outside-namespace.patch Uninstall takes every role under the prefix for the
+ * installation's, so it drops the bystander outside its namespace; the uninstall property fails.
+ * @plant test/plants/pg/cli/role-printed-plain.patch The printer prints a grant's role by its stem, bypassing its
+ * variable, so a grant under a prefix names a role the installation never created.
+ * @plant test/plants/pg/cli/uninstall-derives-decoder.patch Uninstall finds the decoder login by the name today's
+ * derivation gives it, as before, so a decoder an earlier derivation named is left behind; the property that a decoder
+ * named by an earlier derivation is dropped fails.
+ * @plant test/plants/unit/deploy/prefix-applied-twice.patch Migrate fills a role variable with the prefix twice, so the
+ * installation's roles are created under a name roleNameOf never gives.
+ * @plant test/plants/unit/served/runtime-ignores-prefix.patch A layer logs in as the stem: both role namers
+ * (served.ts roleNameOf and config.ts connectionRole) name the bare stem, so the disjoint property fails, `grizzle
+ * roles` listing roles roleNameOf no longer names.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

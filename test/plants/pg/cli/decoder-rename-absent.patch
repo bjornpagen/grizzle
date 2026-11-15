@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/diff/declared.ts b/packages/engine/src/deploy/diff/declared.ts
+index 8e6cf8eb..1bbee279 100644
+--- a/packages/engine/src/deploy/diff/declared.ts
++++ b/packages/engine/src/deploy/diff/declared.ts
+@@ -1753,7 +1753,7 @@ const decoderRenamed = (
+ ): { readonly statements: ReadonlyArray<SqlStatement>; readonly previous: DeploySnapshot } => {
+ 	const from = decoderLoginOf(previous.manifest.objects)
+ 	const to = decoderLoginOf(target.manifest.objects)
+-	if (from === undefined || to === undefined || from === to) {
++	if (from === undefined || to === undefined || from === to || from !== to) {
+ 		return { statements: [], previous }
+ 	}
+ 	return {

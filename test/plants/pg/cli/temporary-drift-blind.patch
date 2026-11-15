@@ -1,0 +1,16 @@
+diff --git a/packages/grizzle/src/adapter/admission/roles.ts b/packages/grizzle/src/adapter/admission/roles.ts
+index 5c1f77f7..f4ab82ff 100644
+--- a/packages/grizzle/src/adapter/admission/roles.ts
++++ b/packages/grizzle/src/adapter/admission/roles.ts
+@@ -509,7 +509,10 @@ const privilegesSelect = (): C.CatalogSelect => {
+ 					x.col("privilege")
+ 				],
+ 				[x.item],
+-				C.notExists(C.anyRow([h.item], samePrivilege(h, x)))
++				C.and([
++					C.notExists(C.anyRow([h.item], samePrivilege(h, x))),
++					C.ne(x.col("family"), C.text("database"))
++				])
+ 			),
+ 			C.catalogCore(
+ 				[C.text("unexpected"), h.col("family"), heldName(h), h.col("privilege")],

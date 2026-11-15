@@ -13,7 +13,8 @@
  * - `grizzle generate`: writes a folder exactly when the configuration changed, its added field's value a placeholder
  *   when the table existed before;
  * - review: the placeholders resolved, the marker lines deleted;
- * - `grizzle check`: passes exactly when everything is generated and resolved;
+ * - `grizzle check`: passes exactly when everything is generated and resolved, and refuses a configuration not
+ *   generated, or an unresolved marker alone once everything is generated, each a command kind of its own;
  * - `grizzle migrate`, with the configuration's connection: refuses before connecting, with nothing run, exactly when
  *   check finds a committed file to fix, here an unresolved marker; it compiles nothing, so a configuration not yet
  *   generated refuses nothing. Otherwise it applies the pending folders, stopping at a custom data step that fails,
@@ -44,8 +45,10 @@
  *
  * Features: every command kind of the loop, each scenario among them.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): workflow-markers-unchecked.patch (check finding no unresolved
- * marker), workflow-drift-unchecked.patch (the drift check comparing no catalog fact).
+ * @plant test/plants/pg/cli/workflow-markers-unchecked.patch `grizzle check` finds no unresolved marker, so check
+ * passes a committed file the model says it must refuse.
+ * @plant test/plants/pg/cli/workflow-drift-unchecked.patch The drift check compares no catalog fact, so drift passes
+ * while a table created behind grizzle's back stands in the schema.
  */
 import {
 	accepting,
@@ -189,7 +192,8 @@ const commandKinds = [
 	"generate no change",
 	"review",
 	"check passes",
-	"check refuses",
+	"check refuses an unresolved marker",
+	"check refuses a change not generated",
 	"migrate applies",
 	"migrate over an ungenerated change",
 	"migrate refuses before connecting",
@@ -292,13 +296,28 @@ const confirm = (model: Readonly<Model>, r: Workspace) =>
 		assert.equal(applied.length, model.applied, "the folders the ledger records complete")
 	})
 
+/**
+ * What `grizzle check` does in `model`: it passes; or it refuses for a marker alone, everything generated; or it
+ * refuses a configuration not generated, whatever the markers.
+ */
+const checkVerdict = (model: Readonly<Model>): Extract<CommandKind, `check ${string}`> =>
+	checks(model)
+		? "check passes"
+		: same(model.generated, model.config)
+			? "check refuses an unresolved marker"
+			: "check refuses a change not generated"
+
 /** `grizzle check`, passing exactly when the model says it does. */
 const expectCheck = (model: Readonly<Model>, r: Workspace) =>
 	Effect.gen(function* () {
-		const passes = checks(model)
-		r.c.note(passes ? "check passes" : "check refuses")
+		const verdict = checkVerdict(model)
+		r.c.note(verdict)
 		const ran = yield* command(r, ["check", configName])
-		assert.equal(ran.code, passes ? 0 : 1, `grizzle check: ${ran.stdout}${ran.stderr}`)
+		assert.equal(
+			ran.code,
+			verdict === "check passes" ? 0 : 1,
+			`grizzle check: ${ran.stdout}${ran.stderr}`
+		)
 	})
 
 /** The table a drift step creates in the schema behind grizzle's back. */
@@ -882,8 +901,8 @@ const always = (): boolean => true
  * - a workload program removed: the workload generated with its customer lookup, then without it, then generated once
  *   more; the removal drops the lookup's index in the folder that removes it, and the next generate drafts nothing;
  * - a placeholder reviewed: version 1 generated, then version 2, whose added field on the existing table is a
- *   placeholder; migrate refuses before connecting until the reviewer resolves it. Versions only advance: once version
- *   2 is generated, no later generate adds the field again;
+ *   placeholder; check refuses its marker, everything generated, and migrate refuses before connecting, until the
+ *   reviewer resolves it. Versions only advance: once version 2 is generated, no later generate adds the field again;
  * - a folder resumed: a failing custom data step over a settled workspace; migrate stops at it, the step is fixed, and
  *   migrate resumes the partial folder;
  * - a first call answering: every folder applied over a settled workspace, a failing data step fixed on the way;
@@ -921,6 +940,7 @@ const scenarios = {
 				add({ kind: "configure", config: { version: 2, workload: state().config.workload } })
 			}
 			add({ kind: "generate" })
+			add({ kind: "check" })
 			add({ kind: "migrate" })
 			add({ kind: "review" })
 		}

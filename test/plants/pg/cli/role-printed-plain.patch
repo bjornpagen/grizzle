@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index 77b2c1bd..61b62d07 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -1361,7 +1361,7 @@ export const printFunctionSignature = (fn: FunctionName): string =>
+ 	`${printObjectName(fn)}(${fn.args.map((t) => printType(t)).join(", ")})`
+ 
+ const printGrantee = (grantee: Grantee): string =>
+-	grantee.kind === "PUBLIC" ? "PUBLIC" : printRole(grantee.name)
++	grantee.kind === "PUBLIC" ? "PUBLIC" : quoteIdent(grantee.name)
+ 
+ /** One PostgreSQL command, as it writes its lines into a sink, unterminated: what one protocol message carries. */
+ export type Command = (out: Lines) => void

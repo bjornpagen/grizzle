@@ -1,0 +1,28 @@
+diff --git a/packages/grizzle/src/adapter/migrate/live.ts b/packages/grizzle/src/adapter/migrate/live.ts
+index 4eae53e2..13742764 100644
+--- a/packages/grizzle/src/adapter/migrate/live.ts
++++ b/packages/grizzle/src/adapter/migrate/live.ts
+@@ -5,7 +5,13 @@ import { oneShotStatement } from "#adapter/wire/batch.ts"
+ import type { CatalogQuery } from "#adapter/wire/statement.ts"
+ import { C } from "#compiler/plan/catalog.ts"
+ import { emitCatalog } from "#compiler/plan/common.ts"
+-import { decoderLoginOf, roleInSpace, type RoleSpace } from "#compiler/plan/migration.ts"
++import {
++	decoderLoginOf,
++	identifierOf,
++	identity,
++	roleInSpace,
++	type RoleSpace
++} from "#compiler/plan/migration.ts"
+ import type { DeploySnapshot } from "#compiler/plan/serve.ts"
+ 
+ /**
+@@ -28,7 +34,7 @@ export const decoderRole = (snapshot: DeploySnapshot, roles: RoleSpace): string
+ 	if (decoder === undefined) {
+ 		return undefined
+ 	}
+-	const named = roleInSpace(roles, decoder)
++	const named = roleInSpace(roles, identifierOf(identity.liveSource(snapshot.schema)))
+ 	return named.ok ? named.value : named.error.role
+ }
+ 

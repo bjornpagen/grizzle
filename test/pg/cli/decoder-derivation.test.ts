@@ -33,10 +33,15 @@
  *
  * Features: a slot the earlier leader made, and none; the rename alone, and beside a schema change.
  *
- * Plants (~/.cache/grizzle-release/DENAPI/plants): decoder-rename-absent.patch (the diff carries no decoder rename, so
- * it drops the earlier decoder login and creates today's), role-forms-strict.patch (a variable reads only today's
- * hashed role forms), decoder-derived-now.patch (migrate gives the replication right to the decoder login the naming
- * door names now, not the one the snapshot names).
+ * @plant test/plants/pg/cli/decoder-rename-absent.patch The diff carries no decoder rename, so it drops the earlier
+ * decoder login and creates today's; the roles property fails, the decoder login's OID changed.
+ * @plant test/plants/pg/cli/role-forms-strict.patch A variable reads only today's hashed role forms, so migrate of the
+ * earlier output is refused at stage input.
+ * @plant test/plants/pg/cli/decoder-derived-now.patch Migrate gives the replication right to the decoder login the
+ * naming door names now, not the one the snapshot names, so migrate is refused at stage drift.
+ * @plant test/plants/pg/cli/drift-derives-decoder.patch Drift's role expectation derives the decoder login from today's
+ * naming door rather than the snapshot's, so the replication right it expects is on another role and migrate is
+ * refused at stage drift.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { awaitFact } from "@bjornpagen/testing/fact"

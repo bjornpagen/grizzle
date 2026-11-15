@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/identity.ts b/packages/engine/src/core/identity.ts
+index 162d5bf6..96f32f76 100644
+--- a/packages/engine/src/core/identity.ts
++++ b/packages/engine/src/core/identity.ts
+@@ -1515,7 +1515,7 @@ const fittedOf = <K extends "login" | "role">(named: Identity<K>): Fitted<K> =>
+ /** A login's or role's PostgreSQL role, `<schema>__<name>`, refused at `loc` as RoleNameTooLong when it does not fit
+  * PostgreSQL's maxIdentifierBytes with its schema's name. */
+ const fitted = <K extends "login" | "role">(named: Identity<K>, loc: SourceLoc): Fitted<K> => {
+-	if (utf8Length(named.identifier) > maxIdentifierBytes.value) {
++	if (utf8Length(named.identifier) > maxIdentifierBytes.value + 1) {
+ 		throw new Refusal(
+ 			CompileError.make({
+ 				_tag: "RoleNameTooLong",

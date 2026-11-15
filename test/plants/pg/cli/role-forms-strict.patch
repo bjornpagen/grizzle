@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/identity.ts b/packages/engine/src/core/identity.ts
+index 23b9d002..ac384c4c 100644
+--- a/packages/engine/src/core/identity.ts
++++ b/packages/engine/src/core/identity.ts
+@@ -495,7 +495,7 @@ export const roleNameForm = (name: string): RoleNameForm | undefined => {
+ 		utf8Length(name) > maxIdentifierBytes.value ||
+ 		name.slice(digestAt - digestSeparator.length, digestAt) !== digestSeparator ||
+ 		!isDigest(name.slice(digestAt)) ||
+-		!segments.every(isSegment)
++		segments.length > 0
+ 	) {
+ 		return undefined
+ 	}

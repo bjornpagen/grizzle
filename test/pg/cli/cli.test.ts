@@ -22,12 +22,13 @@
  * The oracle is each schema's own model: its directory, its committed snapshot and its ledger.
  *
  * Features: each executor, several schemas, the ledger fixture, each connection, and the refusal of a role that does not
- * own the schemas.
+ * own the schemas by each executor, so in process its typed refusal at stage owner is read; a steered case whose turn
+ * aims at a refusal runs by its executor as that role.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): cli-owner-unchecked.patch (migrate's owner stage passing a schema
- * another role owns).
+ * @plant test/plants/pg/cli/cli-owner-unchecked.patch migrate's owner stage passes a schema another role owns, so in
+ * process the refusal of a role that does not own the schemas comes at a later stage than owner.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, constant, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -83,7 +84,8 @@ import { withLayer } from "#test/support/with-layer.ts"
 /** The clock the in-process command lines of this file read. */
 const nextNow = cliClock()
 
-type Executor = "the bin" | "in process"
+const executors = ["the bin", "in process"] as const
+type Executor = (typeof executors)[number]
 type Fixture =
 	| { readonly fixture: "shop"; readonly workload: "full" | "withoutByName" | "none" }
 	| { readonly fixture: "ledger" }
@@ -107,7 +109,7 @@ const fixtureGen: Gen<Fixture> = oneOf<Fixture>([
 ])
 
 const configGen: Gen<ConfigSketch> = (source) => ({
-	executor: source.draw(element<Executor>(["the bin", "in process"])),
+	executor: source.draw(element<Executor>(executors)),
 	schemas: source.draw(array(fixtureGen, { min: 1, max: 3 })),
 	connection: source.draw(
 		element<Connection>([
@@ -118,12 +120,34 @@ const configGen: Gen<ConfigSketch> = (source) => ({
 	)
 })
 
+/**
+ * The configuration a case runs: the drawn one, or, while its steering's turn aims at a refusal by an executor, the
+ * drawn one run by that executor and connected as a role that does not own the schemas (Case.steering). The steered
+ * phase reaches each refusal so, which a draw of the executor and the connection apart reaches rarely.
+ */
+const aimedSketch = (sketch: ConfigSketch, c: Case<CliFeature>): ConfigSketch =>
+	Option.match(
+		Option.flatMap(c.steering, (steering) =>
+			Arr.findFirst(executors, (executor) =>
+				steering.aimed(`a role that does not own the schemas refused, run by ${executor}`)
+			)
+		),
+		{
+			onNone: () => sketch,
+			onSome: (executor) => ({
+				...sketch,
+				executor,
+				connection: "a role that does not own the schemas"
+			})
+		}
+	)
+
 type CliFeature =
 	| `run by ${Executor}`
 	| "several schemas"
 	| "the ledger fixture"
 	| `connected by ${Connection}`
-	| "a role that does not own the schemas refused"
+	| `a role that does not own the schemas refused, run by ${Executor}`
 
 const id = (n: number): Uuid =>
 	`00000000-0000-4000-8000-${pipe(n.toString(16), Str.padStart(12, "0"))}`
@@ -255,14 +279,16 @@ const configurations = (ctx: TestContext) =>
 						"the ledger fixture",
 						"connected by the migration identity's password",
 						"connected by an Effect password",
-						"a role that does not own the schemas refused"
+						"a role that does not own the schemas refused, run by the bin",
+						"a role that does not own the schemas refused, run by in process"
 					],
 					{ cases: 32, sense: notesOnly }
 				)
 			},
-			(sketch, c) =>
+			(drawnSketch, c) =>
 				Effect.scoped(
 					Effect.gen(function* () {
+						const sketch = aimedSketch(drawnSketch, c)
 						const substrate = yield* Substrate
 						c.note(`run by ${sketch.executor}`)
 						c.note(`connected by ${sketch.connection}`)
@@ -316,7 +342,7 @@ const configurations = (ctx: TestContext) =>
 						const checkExit = yield* run(["check", configName])
 						assert.equal(checkExit, 0, "check")
 						if (Option.isSome(intruder)) {
-							c.note("a role that does not own the schemas refused")
+							c.note(`a role that does not own the schemas refused, run by ${sketch.executor}`)
 							const migrateExit = yield* run(["migrate", configName])
 							assert.equal(migrateExit, 1, "migrate as a role that does not own the schemas")
 							if (sketch.executor === "in process") {
