@@ -3,7 +3,8 @@
  * (sql/ast.ts FromSource `probe`), or the row an arbitration met (`met`). These are the only reads of a stored table a
  * write statement holds, so none reads a relation whole: PostgreSQL plans each apart, once per driving row, and a
  * driver of no row reads nothing (sql/ast.ts). A described member's query is its application's read, which the query
- * lowering builds, never one of these.
+ * lowering builds, never one of these. A family write's removals and a unit delete reach stored rows through keyed
+ * reads instead (write/family/keyset.ts): joins from the rows they hold, each at an access path an index serves.
  */
 import { defined } from "#compiler/core/invariant.ts"
 import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"

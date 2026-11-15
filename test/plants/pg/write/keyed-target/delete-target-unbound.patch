@@ -1,0 +1,41 @@
+--- a/packages/engine/src/write/delete/exact.ts
++++ b/packages/engine/src/write/delete/exact.ts
+@@ -1,5 +1,5 @@
+ import type { ParamId } from "#compiler/core/ids.ts"
+-import { appendNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
++import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+ import { rowEq, rowNe, typedEq } from "#compiler/ir/compare.ts"
+ import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
+ import { emptyEnv, extendEnv } from "#compiler/lower/conservative/context.ts"
+@@ -9,13 +9,17 @@
+ import type { Cte, Delete, Expr, FromItem } from "#compiler/sql/ast.ts"
+ import {
+ 	and,
++	binary,
++	cast,
+ 	col,
+ 	conjunction,
+ 	cte,
+ 	cteRef,
+ 	operandSelect,
++	row,
+ 	setOp,
+-	targetAs
++	targetAs,
++	types
+ } from "#compiler/sql/build.ts"
+ import type { NameSupply } from "#compiler/sql/naming.ts"
+ import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
+@@ -182,7 +186,11 @@
+ 		const typeOf = rowType
+ 		const where =
+ 			mode.kind === "exact"
+-				? rowEq({ fields: compared, typeOf, left: stored, right: inCol }, w.names)
++				? binary(
++						"=",
++						cast(row(mapNonEmpty(compared, stored)), types.text),
++						cast(row(mapNonEmpty(compared, inCol)), types.text)
++					)
+ 				: and(
+ 						appendNonEmpty(
+ 							pk.map((f) => typedEq(typeOf(f), stored(f), inCol(f), w.names)),

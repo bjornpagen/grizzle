@@ -1057,6 +1057,14 @@ const compile = (
 				? [f.members]
 				: []
 		)[0]
+	/** The tree `name` is the relation of, as a unit delete of it names its rows (write/delete/unit.ts UnitMatch), none
+	 * where it is no tree's. */
+	const unitTreeOf = (name: string): UnitMatch | undefined =>
+		families.flatMap((f): ReadonlyArray<UnitMatch> =>
+			f.members.kind === "tree" && f.member.name === name && f.owner.name === name
+				? [{ kind: "tree", tree: f, shape: f.members }]
+				: []
+		)[0]
 	/** A family `name` is a member of besides its own tree, none where it is no other family's member. */
 	const otherFamilyOf = (name: string): Family | undefined =>
 		families.find((f) => f.member.name === name && !isTreeOf(f, name))
@@ -2048,7 +2056,6 @@ const compile = (
 		stratum,
 		below,
 		units: units.map((unit): UnitDelete => {
-			const shape = treeShapeOf(unit.relation.name)
 			const [firstRoot, ...moreRoots] = unit.roots
 			const source: UnitSource =
 				firstRoot === undefined
@@ -2071,16 +2078,11 @@ const compile = (
 			if (firstField === undefined) {
 				throw defect(`the fields a delete of ${unit.relation.name}'s units states`)
 			}
-			const match: UnitMatch =
-				shape === undefined
-					? { kind: "facts", fields: [firstField, ...moreFields] }
-					: { kind: "tree", root: rootFieldsOf(shape) }
-			return Object.freeze({
-				relation: unit.relation,
-				match,
-				source,
-				tree: families.find((f) => isTreeOf(f, unit.relation.name))
-			})
+			const match: UnitMatch = unitTreeOf(unit.relation.name) ?? {
+				kind: "facts",
+				fields: [firstField, ...moreFields]
+			}
+			return Object.freeze({ relation: unit.relation, match, source })
 		})
 	}))
 	/** Each refused addition's sources, in the entry's facts, built after every action's. */
