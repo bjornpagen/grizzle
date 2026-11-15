@@ -5,7 +5,18 @@ import { pctSchedule } from "@bjornpagen/testing/interleave"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Layer, pipe, type Scope, String as Str } from "effect"
+import {
+	Array as Arr,
+	Data,
+	Effect,
+	Formatter,
+	Layer,
+	Option,
+	pipe,
+	Record as Rec,
+	type Scope,
+	String as Str
+} from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
@@ -21,7 +32,8 @@ import { refresh, workload } from "#compiler/public/workload.ts"
 import {
 	installDerived,
 	type Opened,
-	type OracleFixtureFailed
+	type OracleFixtureFailed,
+	snapshotOf
 } from "#test/pg/derived/oracle/harness.ts"
 import { defined } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
@@ -58,6 +70,30 @@ const derivedNames = ["StudentWeekly", "StudentTotal", "WeekBusy"] as const
 export type DerivedName = (typeof derivedNames)[number]
 
 /**
+ * The refresh members of the login `server`, by name: every order of every non-empty set of the derived relations,
+ * the views each names in that order. A call takes the member of its own order (refreshOf), so a call naming WeekBusy
+ * before StudentWeekly names them so, and the refresh, not the member, puts them in level order
+ * (adapter/refresh/targets.ts refreshTargets).
+ */
+const refreshOrders = {
+	refreshW: ["StudentWeekly"],
+	refreshT: ["StudentTotal"],
+	refreshB: ["WeekBusy"],
+	refreshWT: ["StudentWeekly", "StudentTotal"],
+	refreshTW: ["StudentTotal", "StudentWeekly"],
+	refreshWB: ["StudentWeekly", "WeekBusy"],
+	refreshBW: ["WeekBusy", "StudentWeekly"],
+	refreshTB: ["StudentTotal", "WeekBusy"],
+	refreshBT: ["WeekBusy", "StudentTotal"],
+	refreshWTB: ["StudentWeekly", "StudentTotal", "WeekBusy"],
+	refreshWBT: ["StudentWeekly", "WeekBusy", "StudentTotal"],
+	refreshTWB: ["StudentTotal", "StudentWeekly", "WeekBusy"],
+	refreshTBW: ["StudentTotal", "WeekBusy", "StudentWeekly"],
+	refreshBWT: ["WeekBusy", "StudentWeekly", "StudentTotal"],
+	refreshBTW: ["WeekBusy", "StudentTotal", "StudentWeekly"]
+} as const satisfies Readonly<Record<string, Arr.NonEmptyReadonlyArray<DerivedName>>>
+
+/**
  * The derived levels the db.refresh races run on, under the declared name `name`, with its worlds.
  *
  * The shape is one base relation, Sitting, and three derived relations: StudentWeekly (sittings and passes per student
@@ -67,7 +103,8 @@ export type DerivedName = (typeof derivedNames)[number]
  * - `refresher` and `refresher2`, two grizzle refreshers in the login `server`, each a Db opened through a DbLayer of
  *   its own over the login's served file exactly as an application opens one, whose actor is the one session its Db's
  *   pool holds; the login's workload holds the empty ChangeSet each refresher's first call applies, and a refresh of
- *   every non-empty set of the derived relations, the one a call names whatever its order;
+ *   every order of every non-empty set of the derived relations, each naming them in its order (refreshOrders), so a
+ *   call's member names its views in the call's own order;
  * - in the login `psql`, which direct sessions log in as before they take on their role:
  *   - `holder`, a third refresher that a raw session takes on: inside its open transaction a REFRESH MATERIALIZED VIEW
  *     holds the view's lock, so the grizzle refreshers that meet it wait with snapshots taken before they waited;
@@ -112,6 +149,7 @@ const build = (name: string) => {
 		})
 	)
 	const Reports = schema.extend(Level1, `${name}_2`, [WeekBusy], [])
+	const views = { StudentWeekly, StudentTotal, WeekBusy }
 	const refreshList = derivedNames
 	const refresher = role(Reports, "refresher", wholeEntriesOf(Reports), { refresh: refreshList })
 	const refresher2 = role(Reports, "refresher2", wholeEntriesOf(Reports), { refresh: refreshList })
@@ -133,13 +171,7 @@ const build = (name: string) => {
 			workload: [
 				workload(Reports, {
 					noop: ChangeSet.empty(Reports),
-					refreshW: refresh([StudentWeekly]),
-					refreshT: refresh([StudentTotal]),
-					refreshB: refresh([WeekBusy]),
-					refreshWT: refresh([StudentWeekly, StudentTotal]),
-					refreshWB: refresh([StudentWeekly, WeekBusy]),
-					refreshTB: refresh([StudentTotal, WeekBusy]),
-					refreshWTB: refresh([StudentWeekly, StudentTotal, WeekBusy])
+					...Rec.map(refreshOrders, (order) => refresh(Arr.map(order, (name) => views[name])))
 				})
 			]
 		}),
@@ -217,25 +249,17 @@ export type Writer =
 /** A grizzle refresher's one refresh call: the derived relations it names, in the order it names them. */
 export type Call = Arr.NonEmptyReadonlyArray<DerivedName>
 
-/** The refresh member of the set of derived relations a call names, each once, whatever its order. */
-const refreshOf = (call: Call) => {
-	const w = call.includes("StudentWeekly")
-	const t = call.includes("StudentTotal")
-	const b = call.includes("WeekBusy")
-	return w
-		? t
-			? b
-				? "refreshWTB"
-				: "refreshWT"
-			: b
-				? "refreshWB"
-				: "refreshW"
-		: t
-			? b
-				? "refreshTB"
-				: "refreshT"
-			: "refreshB"
-}
+/** The refresh member that names the derived relations a call names, in the call's order. */
+const refreshOf = (call: Call): keyof typeof refreshOrders =>
+	defined(
+		Option.getOrUndefined(
+			Arr.findFirst(
+				Rec.keys(refreshOrders),
+				(member) => Arr.join(refreshOrders[member], ",") === Arr.join(call, ",")
+			)
+		),
+		`the refresh member naming ${Arr.join(call, ", ")}`
+	)
 
 /**
  * A race of refreshes: the drawn labels, the initial state, the raw refresher, the grizzle refreshers' calls (the
@@ -259,6 +283,30 @@ const labeled = (labels: Labels) => ({
 
 /** What a derived relation's definition reads: Sitting at level 1, StudentWeekly at level 2. */
 const inputOf = (name: DerivedName): string => (name === "WeekBusy" ? "StudentWeekly" : "Sitting")
+
+/**
+ * The views the state a race leaves must show as their definitions over that state, the refresh's own rule
+ * (adapter/refresh/run.ts: a level reads the levels below it as the call just refreshed them): each view the race's
+ * one call names, where nothing after the call changes what they read, so no base writer writes and the holder holds
+ * none or one of them. A later base write, or another call's or the holder's refresh of a view a named one reads,
+ * leaves a named view behind lawfully, so such a race has none.
+ */
+const publishedOf = (race: DerivedRace): ReadonlyArray<DerivedName> => {
+	const [call, second] = race.calls
+	return race.writer.kind === "none" &&
+		second === undefined &&
+		(race.holder.kind === "none" || call.includes(race.holder.view))
+		? call
+		: []
+}
+
+/** A view the race's one call named that the state a run, or its serial reference, left does not show as its
+ * definition over that state (publishedOf): its rows and its definition's, each as value text, sorted. */
+class ViewUnpublished extends Data.TaggedError("ViewUnpublished")<{
+	readonly view: DerivedName
+	readonly stored: ReadonlyArray<string>
+	readonly definition: ReadonlyArray<string>
+}> {}
 
 /**
  * What a race reached: a call that waited on another session's lock, the two calls in flight together, each refusal
@@ -487,7 +535,10 @@ const textRows = (o: Fixture, sql: string): Effect.Effect<TextRows, SqlError> =>
  * Runs one race on a fresh installation, every run judged by its serial reference (runSerialRace): the holder's
  * transaction, each call (retried after each TransientFailure until it answers), the writer's and the reader's
  * transactions, each placed in a serial order that respects real time, must show what they showed in the run, and
- * the state the run left (Sitting, and each view's rows or its being unpopulated) must be that order's.
+ * the state the run left (Sitting, and each view's rows or its being unpopulated) must be that order's. That state,
+ * the run's and the reference's alike, shows each view of `publishedOf` as its definition evaluated by the oracle's
+ * conservative lowering over it (snapshotOf), the refresh's own rule, which the reference, the system itself, does not
+ * judge: a refresh that refreshed a level before the level it reads would leave the same stale view run alone.
  */
 const runDerivedRace = (
 	race: DerivedRace,
@@ -501,7 +552,8 @@ const runDerivedRace = (
 	| OpenError
 	| PsqlProcessError
 	| SerialRaceFailed
-	| ServedRefusal,
+	| ServedRefusal
+	| ViewUnpublished,
 	Substrate | Scope.Scope
 > =>
 	Effect.gen(function* () {
@@ -542,6 +594,27 @@ const runDerivedRace = (
 					appendAll(rows, viewed)
 				} else {
 					rows.push([`${name} unpopulated`])
+				}
+			}
+			const published = publishedOf(race)
+			if (Arr.isReadonlyArrayNonEmpty(published)) {
+				const snapshot = yield* Effect.provideService(
+					snapshotOf(o.opened, published, published),
+					Substrate,
+					s
+				)
+				for (const view of published) {
+					const stored = Arr.map(
+						defined(snapshot.stored.get(view), `${view}'s rows`),
+						(row) => row.value
+					)
+					const definition = defined(snapshot.defined.get(view), `${view}'s definition`)
+					if (
+						stored.length !== definition.length ||
+						!Arr.every(stored, (row, i) => row === definition[i])
+					) {
+						return yield* new ViewUnpublished({ view, stored, definition })
+					}
 				}
 			}
 			return rows
@@ -637,7 +710,7 @@ const runDerivedRace = (
 						nature: c
 					}
 		c.note(strategy.kind === "every" ? "every order" : "pct")
-		yield* runSerialRace(
+		yield* runSerialRace<void, CompileError | SqlError | TransactionRolledBack | ViewUnpublished>(
 			o.env,
 			{ direct, grizzle: o.refreshers },
 			{ name: "a race of refreshes", txns, reset, state },

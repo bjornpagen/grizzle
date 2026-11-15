@@ -18,7 +18,10 @@
  * inserted, diffs touching different rows (the waiter the pivot), and two first populations in each order of their
  * snapshots, which meet each other at the rewrite check.
  *
- * Plants (main's test phase): derived-refreshers-rewrite-check-off.patch.
+ * @plant test/plants/schedules/derived/derived-refreshers-rewrite-check-off.patch The refresh block runs its rewrite
+ * check but never refuses a plain refresh of a view another refresher rewrote after its snapshot
+ * (adapter/refresh/statements.ts), so the kept first populations never meet each other as ConcurrentRefresh; the
+ * property fails.
  */
 
 import { boolean, type Gen } from "@bjornpagen/testing/gen"
