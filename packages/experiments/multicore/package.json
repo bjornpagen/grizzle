@@ -1,7 +1,0 @@
-{
-	"name": "@bjornpagen/grizzle-experiment-multicore",
-	"private": true,
-	"description": "Experiment: whether partitioning every package-keyed relation by its package lets publishes of different packages run at once under SERIALIZABLE with no fence and no false 40001, and what the partition DDL costs; deleted once its verdict is in (README.md)",
-	"license": "0BSD",
-	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>"
-}
