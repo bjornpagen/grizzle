@@ -299,6 +299,15 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   bound. That has to handle empty spans (they overlap nothing), unbounded ends, each bound's inclusivity, and a fact
   requested twice (`other <> r1`). It needs a cost law at n, 2n and 4n refused facts on a never-analyzed installation,
   as test/pg/write/met-rows-cost does, and a plant restoring the EXISTS. Not built.
+- **A flight stages every staged slot, empty ones included (BULKLOAD, 2026-11-15; main: not now):** since fdd184b2
+  (write/program/slot-carriers.ts withStagedSlots) every member slot two statements read is staged into a carrier of
+  its own, so pantry's publish creates and fills 241 carriers in every flight, 900 statements in place of 418, whether
+  a slot holds rows or not: their creation costs 0.72-0.77 s of server CPU per publish (BULKLOAD out/{SA,SB}, g3t01 and
+  g3-science-shadow-g3-2 on rc1), and many of a package's 244 member slots are empty (g3t15's flight at 9059cfc2 executed
+  316 of the program's 417 statements, the rest skipped for empty members). A slot's emptiness is known when
+  the flight is bound, so the representation that removes it is probably a flight that stages only its non-empty slots,
+  each reader of an empty slot reading the empty set with no carrier, decided per flight from the bound facts. It needs the write oracle's staged features beside an empty staged slot, and
+  the measurement of a publish's carriers before and after. Not built.
 - **A replace of a content-addressed relation diffed by its address (BULKLOAD-STAGE, 2026-11-15; main: when
   republishing a stored package becomes a workload, not before):** a replace of pantry's Entry reads every stored
   entry's content of the package (detoasted) for its D EXCEPT A, and every met row's content for its exact-repeat probe.
