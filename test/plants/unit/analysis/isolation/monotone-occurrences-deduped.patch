@@ -1,0 +1,11 @@
+--- a/packages/engine/src/analysis/isolation/certify.ts
++++ b/packages/engine/src/analysis/isolation/certify.ts
+@@ -1141,7 +1141,7 @@
+ 	writers: Writers,
+ 	w: Witness
+ ): ReadonlyArray<{ readonly at: "rows" | "present" | "absent"; readonly relation: string }> => [
+-	...w.rows.flatMap((relation) =>
++	...[...new Set(w.rows)].flatMap((relation) =>
+ 		writers.makes(relation, "present") ? [{ at: "rows" as const, relation }] : []
+ 	),
+ 	...w.present.flatMap((relation) =>

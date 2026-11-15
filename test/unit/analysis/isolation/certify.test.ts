@@ -120,16 +120,21 @@
  * DENSEATS's repro and its five neighbours (monotoneOf): a role that inserts R and E under a rule whose witness reads
  * one row of R and E's absence runs READ COMMITTED (the monotone writer); a deleter of E, a self-join of R, E read
  * present, E a retirable unit's body, or a SERIALIZABLE inserter of E that may miss a write each leave it SERIALIZABLE.
- * Plants (~/.cache/grizzle-release/MONOTONE/plants), each failing the search: monotone-polarity-flipped (a write's
- * presence and absence swapped wherever a witness is read), monotone-occurrences-deduped (a witness's rows counted by
- * relation, so a self-join's two rows count once), monotone-retire-without-delete (a retirement making rows present
- * alone) and monotone-probe-5c-dropped (the relations a role's probes read left out of its outside reads).
  *
  * Features: each condition failed and met, each counterexample shape, each level, each capability added or fact
  * removed, a role lowered in a later round, a role whose lowered form alone reads the absence of what it writes, a held
  * check beside a READ COMMITTED role, a check of a relation one login deletes and inserts, a fence a READ COMMITTED
  * role relies on, a READ COMMITTED role whose write fires a monotone rule's probe, and one whose writes of a rule's
  * relations only withdraw its violations (the required situations of the search).
+ *
+ * @plant test/plants/unit/analysis/isolation/monotone-polarity-flipped.patch A write's presence and absence swapped
+ * wherever a witness is read (breaksAt and settable); the monotone writer's search fails.
+ * @plant test/plants/unit/analysis/isolation/monotone-occurrences-deduped.patch A witness's rows counted by relation,
+ * so a self-join's two rows count once and the self-join neighbour is certified READ COMMITTED; the search fails.
+ * @plant test/plants/unit/analysis/isolation/monotone-retire-without-delete.patch A retirement making rows present
+ * alone, so a retirable unit's body read absent is taken for monotone; the search fails.
+ * @plant test/plants/unit/analysis/isolation/monotone-probe-5c-dropped.patch The relations a role's probes read left
+ * out of its outside reads, so 5c misses the monotone rule's probe; the search fails.
  */
 import { type Case as Explored, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

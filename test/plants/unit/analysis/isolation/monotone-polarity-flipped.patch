@@ -1,0 +1,30 @@
+--- a/packages/engine/src/analysis/isolation/certify.ts
++++ b/packages/engine/src/analysis/isolation/certify.ts
+@@ -1133,8 +1133,8 @@
+  * among its `absent`.
+  */
+ const breaksAt = (made: ReadonlySet<Made>, w: Witness, relation: string): boolean =>
+-	(made.has("present") && (w.rows.includes(relation) || w.present.includes(relation))) ||
+-	(made.has("absent") && w.absent.includes(relation))
++	(made.has("absent") && (w.rows.includes(relation) || w.present.includes(relation))) ||
++	(made.has("present") && w.absent.includes(relation))
+ 
+ /** The occurrences of a witness some role's write can make true, each by where it stands and its relation. */
+ const settable = (
+@@ -1142,13 +1142,13 @@
+ 	w: Witness
+ ): ReadonlyArray<{ readonly at: "rows" | "present" | "absent"; readonly relation: string }> => [
+ 	...w.rows.flatMap((relation) =>
+-		writers.makes(relation, "present") ? [{ at: "rows" as const, relation }] : []
++		writers.makes(relation, "absent") ? [{ at: "rows" as const, relation }] : []
+ 	),
+ 	...w.present.flatMap((relation) =>
+-		writers.makes(relation, "present") ? [{ at: "present" as const, relation }] : []
++		writers.makes(relation, "absent") ? [{ at: "present" as const, relation }] : []
+ 	),
+ 	...w.absent.flatMap((relation) =>
+-		writers.makes(relation, "absent") ? [{ at: "absent" as const, relation }] : []
++		writers.makes(relation, "present") ? [{ at: "absent" as const, relation }] : []
+ 	)
+ ]
+ 
