@@ -1144,6 +1144,7 @@ export type WorldFeature =
 	| AdditionFeature
 	| `migration:${MigrationKind}:${ActionOutcome["kind"]}`
 	| "addition:generated:entry:supplied-serial"
+	| "addition:generated:arbiter-ambiguous"
 	| `connection:${"shared-by-roles" | "after-commit" | "after-no-change" | "after-invariant-rejected" | "after-outside-world" | "after-compile-refused" | "after-stale-snapshot"}`
 
 /**

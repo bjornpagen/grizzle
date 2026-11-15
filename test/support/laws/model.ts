@@ -484,40 +484,92 @@ const statedFields = (relation: HostRelation, fact: HostFact): ReadonlyArray<str
 	})
 
 /**
+ * Where a generated addition into a relation, a fact leaving the fields `drawn` for its identity to draw, meets the facts
+ * its statement finds, decided by what the schema declares (README "Writes", Serial columns;
+ * packages/engine/src/write/insert/unique.ts generatedArbiter), among the relation's keys over every fact that hold no
+ * drawn field (a span key is none of them):
+ * - `key`, its arbiter: the primary key where it is such a key, else the one declared key that is;
+ * - `none`: no key is, so the addition is a plain INSERT and every such addition a fact of its own;
+ * - `ambiguous`: the primary key is not, and several declared keys are, which only their names would rank, so grizzle
+ *   refuses the addition when it compiles (MalformedDescription), before any statement.
+ */
+export type Arbiter =
+	| { readonly kind: "key"; readonly fields: ReadonlyArray<string> }
+	| { readonly kind: "none" }
+	| { readonly kind: "ambiguous" }
+
+/** The arbiter of a generated addition into `relation` drawing `drawn` (Arbiter). */
+export const generatedArbiter = (
+	schema: HostSchema,
+	relation: string,
+	drawn: Arr.NonEmptyReadonlyArray<string>
+): Arbiter => {
+	const primary = relationOf(schema, relation).key
+	const keys = Arr.flatMap(schema.laws, (law) =>
+		law.kind === "key" &&
+		law.relation === relation &&
+		law.selection.kind === "every" &&
+		!Arr.some(law.fields, (f) => Arr.contains(drawn, f))
+			? [law.fields]
+			: []
+	)
+	const isPrimary = (key: ReadonlyArray<string>): boolean =>
+		key.length === primary.length && Arr.every(key, (f) => Arr.contains(primary, f))
+	return Option.match(Arr.findFirst(keys, isPrimary), {
+		onSome: (fields): Arbiter => ({ kind: "key", fields }),
+		onNone: (): Arbiter => {
+			const [only, ...more] = keys
+			return only === undefined
+				? { kind: "none" }
+				: Arr.isReadonlyArrayNonEmpty(more)
+					? { kind: "ambiguous" }
+					: { kind: "key", fields: only }
+		}
+	})
+}
+
+/**
  * The fact an addition to `relation` is among `present`, the facts its statement finds (README "Writes", Serial columns
- * and Rows an insertion met): it meets them at its arbiter, a key of the relation over every fact that holds only fields
- * it states (packages/engine/src/write/insert/unique.ts generatedArbiter), and a present fact it meets there that is
- * equal to it at every field it states is the fact it is, which it draws nothing for; one that differs there is no
- * such fact, and stays beside it for the key's law to refuse. A complete fact states every field, so the fact it is is
- * itself; a generated addition into a relation every key of which holds a serial field or a span meets nothing, a
- * fact of its own.
+ * and Rows an insertion met). A complete fact meets them at the primary key and states every field, so the fact it is
+ * is itself. A generated addition meets them at its arbiter (generatedArbiter): a present fact there that is equal to it
+ * at every field it states is the fact it is, which it draws nothing for, and one that differs there stays beside it for
+ * the key's law to refuse. With no arbiter, or an ambiguous one, it meets no key, a fact of its own: a reading of the
+ * laws alone (lawsRefuse) judges it so, and grizzle refuses an addition at an ambiguous arbiter when it compiles, before
+ * any law is read (the worlds model's session/apply.ts compileRefused).
  */
 export const addedAs = (
 	schema: HostSchema,
 	relation: string,
 	present: ReadonlyArray<HostFact>,
 	addition: HostFact
-): HostFact => {
-	const stated = statedFields(relationOf(schema, relation), addition)
-	const arbiters = Arr.flatMap(schema.laws, (law) =>
-		law.kind === "key" &&
-		law.relation === relation &&
-		law.selection.kind === "every" &&
-		Arr.every(law.fields, (f) => stated.includes(f))
-			? [law.fields]
-			: []
+): HostFact =>
+	Arr.match(
+		Arr.filter(Rec.keys(addition), (f) => isDrawn(fieldValue(addition, f))),
+		{
+			onEmpty: () => addition,
+			onNonEmpty: (drawn) => {
+				const arbiter = generatedArbiter(schema, relation, drawn)
+				switch (arbiter.kind) {
+					case "none":
+					case "ambiguous":
+						return addition
+					case "key": {
+						const stated = statedFields(relationOf(schema, relation), addition)
+						const at = projection(addition, stated)
+						return Option.getOrElse(
+							Arr.findFirst(
+								present,
+								(p) =>
+									projection(p, arbiter.fields) === projection(addition, arbiter.fields) &&
+									projection(p, stated) === at
+							),
+							() => addition
+						)
+					}
+				}
+			}
+		}
 	)
-	const at = projection(addition, stated)
-	return Option.getOrElse(
-		Arr.findFirst(
-			present,
-			(p) =>
-				Arr.some(arbiters, (key) => projection(p, key) === projection(addition, key)) &&
-				projection(p, stated) === at
-		),
-		() => addition
-	)
-}
 
 /**
  * One relation's facts after a stratum's members of it, `mine`, over its facts before, `current`, each fact identified

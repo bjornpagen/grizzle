@@ -3,6 +3,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import {
 	addedAs,
 	collide,
+	generatedArbiter,
 	type HostLaw,
 	type HostOp,
 	isDrawn,
@@ -13,7 +14,12 @@ import {
 	valueText
 } from "#test/support/laws/model.ts"
 import { holdsDraw, nextDraw, withSerial, withSerials } from "#test/support/worlds/model/draws.ts"
-import { uniqueFacts, entryRows, isMember } from "#test/support/worlds/model/host.ts"
+import {
+	uniqueFacts,
+	entryRows,
+	isMember,
+	judgedSchemaOf
+} from "#test/support/worlds/model/host.ts"
 import {
 	type Cell,
 	factCells,
@@ -36,6 +42,7 @@ import {
 } from "#test/support/worlds/model/session/state.ts"
 
 import {
+	drawnBy,
 	keysOf,
 	serialHead,
 	type Written,
@@ -777,13 +784,37 @@ const sideCrosses = (makers: ReadonlyArray<SideMaker>, side: SideMaker["side"]):
 }
 
 /**
+ * Whether an insertion of these strata through a role has a generated class (writes.ts drawnBy) whose target's arbiter
+ * is ambiguous (laws/model.ts generatedArbiter): its primary key holds a field the class draws, and several declared
+ * keys hold none, so grizzle refuses the insertion when it compiles (MalformedDescription), whatever facts it is
+ * applied with.
+ */
+export const ambiguousArbiter = (
+	base: BaseSpec,
+	role: RoleSpec,
+	strata: ReadonlyArray<ReadonlyArray<EntryOp>>
+): boolean =>
+	Arr.some(strata.flat(), (op) => {
+		const w = op.kind === "insert" ? writtenNamed(base, role, op.relation) : undefined
+		return w === undefined
+			? false
+			: Arr.match(drawnBy(base, w), {
+					onEmpty: () => false,
+					onNonEmpty: (drawn) =>
+						generatedArbiter(judgedSchemaOf(base), w.target, drawn).kind === "ambiguous"
+				})
+	})
+
+/**
  * Whether grizzle refuses a ChangeSet of these strata and read-backs through a role when it compiles into a served
  * member (README "Writing through a role", "Writes", "db.workload"): a relation outside the role's write list, a stratum
  * that writes a query entry and also a relation its filter reads, two strata that write one relation by one op, whose
  * array members a call's facts cannot tell apart, a read-back of a relation the role does not hold or whose delta the
  * change does not determine, or one of the added or removed side of a written target's delta that no one statement
- * makes whole (sideCrosses): the executor reads both sides of every read relation's delta. A ChangeSet's facts are a
- * call's values outside its Description, so no fact, generated or complete, is a reason to refuse it there; a
+ * makes whole (sideCrosses): the executor reads both sides of every read relation's delta; or an insertion whose
+ * generated class meets an ambiguous arbiter (laws/model.ts generatedArbiter, MalformedDescription), as a migration
+ * declaring a second key that holds no serial field beside a primary key that holds one leaves it. A ChangeSet's facts
+ * are a call's values outside its Description, so no fact, generated or complete, is a reason to refuse it there; a
  * relation's serial fields make its insertion two statements whatever facts it is applied with.
  */
 export const compileRefused = (
@@ -821,6 +852,7 @@ export const compileRefused = (
 		Arr.some(layers, (ops) => Arr.some(ops, (w) => w.written === undefined)) ||
 		!disjoint ||
 		!once ||
+		ambiguousArbiter(base, role, strata) ||
 		Arr.some(reads, (r) => roleEntryOf(role, r) === undefined) ||
 		Arr.some(reads, (relation) => {
 			const delta = deltaOf(base, role, relation, written)

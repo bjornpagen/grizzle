@@ -17,7 +17,11 @@ import {
 	sameFact
 } from "#test/support/worlds/model/host.ts"
 import { reachedPairs, steppedPairs } from "#test/support/worlds/model/reads.ts"
-import { compileRefused, readBackClasses } from "#test/support/worlds/model/session/apply.ts"
+import {
+	ambiguousArbiter,
+	compileRefused,
+	readBackClasses
+} from "#test/support/worlds/model/session/apply.ts"
 import { handSetFaults, onConflictSets } from "#test/support/worlds/model/session/direct.ts"
 import { entryKeyed } from "#test/support/worlds/model/session/keys.ts"
 import { reorderedRoster } from "#test/support/worlds/model/session/migrate.ts"
@@ -2084,6 +2088,24 @@ const declaredKeysOf = (
 }
 
 /**
+ * A ChangeSet through a Db refused when it compiled because an insertion's generated class meets an ambiguous arbiter
+ * (session/apply.ts ambiguousArbiter): its relation's primary key holds a field the class draws and several declared
+ * keys hold none, as a migration declaring a second such key leaves it (README "Writes", Serial columns).
+ */
+const ambiguousArbitersOf = (
+	state: ModelState,
+	action: Action,
+	actor: Actor,
+	observation: Observation
+): ReadonlyArray<WorldFeature> =>
+	action.kind === "apply" &&
+	actor.kind === "role" &&
+	observation.kind === "compile-refused" &&
+	ambiguousArbiter(state.install.base, actor.role, action.strata)
+		? ["addition:generated:arbiter-ambiguous"]
+		: []
+
+/**
  * The shapes of relation an accepted ChangeSet through a Db wrote (WriteShape), each op by its relation's mutability,
  * the path it took (a query entry or a whole one) and its kind: a relation keyed WITHOUT OVERLAPS, and a pure set.
  */
@@ -2177,6 +2199,7 @@ export const featuresOf = (
 			...pathsOf(state, action, observation),
 			...lawsOf(state, action, actor, observation),
 			...declaredKeysOf(state, action, actor, observation),
+			...ambiguousArbitersOf(state, action, actor, observation),
 			...writesOf(state, action, actor, observation),
 			...claimRefusalsOf(state, action, observation),
 			...(action.kind === "migrate"

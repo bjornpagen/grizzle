@@ -105,6 +105,21 @@ export const serialHead = (
 	}
 }
 
+/**
+ * The target fields an insertion's generated class draws through a written relation: the field each classed serial head
+ * field writes (serialHead), which a fact of that class leaves for its identity to draw; none where it has no such
+ * class, every fact it inserts complete (packages/engine/src/write/frontend/compile.ts classesOf).
+ */
+export const drawnBy = (base: BaseSpec, w: Written): ReadonlyArray<string> => {
+	const { classed } = serialHead(base, w)
+	return w.kind === "whole"
+		? classed
+		: Arr.flatMap(classed, (head) => {
+				const field = w.head[head]?.field
+				return field === undefined ? [] : [field]
+			})
+}
+
 /** Every relation a role writes, in its write list's order. */
 export const writtenOf = (base: BaseSpec, role: RoleSpec): ReadonlyArray<Written> =>
 	Arr.flatMap(role.write, (name): ReadonlyArray<Written> => {

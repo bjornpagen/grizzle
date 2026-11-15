@@ -51,3 +51,18 @@ export const ticketsInstall: InstallSpec = {
 	],
 	logins: [{ name: "desk", roles: ["clerk"] }]
 }
+
+/**
+ * The tickets base with a second key a ticket added without its number may be identified by, its seats beside its
+ * code: its primary key holds the number the database draws, and two declared keys hold none, which nothing the schema
+ * declares ranks, so grizzle refuses an insertion that may leave the number out when it compiles (MalformedDescription;
+ * README "Writes", Serial columns), as a migration declaring the key on seats over the tickets base leaves it.
+ */
+const ticketsTwoKeysBase: BaseSpec = {
+	...ticketsBase,
+	name: "TicketsTwoKeys",
+	laws: [...ticketsBase.laws, { kind: "key", relation: "Ticket", fields: ["seats"] }]
+}
+
+/** The tickets worlds over the base with two keys beside the drawn number (ticketsTwoKeysBase). */
+export const ticketsTwoKeysInstall: InstallSpec = { ...ticketsInstall, base: ticketsTwoKeysBase }

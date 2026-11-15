@@ -1,0 +1,19 @@
+diff --git a/test/support/laws/model.ts b/test/support/laws/model.ts
+index 5112de6..bdffd2e 100644
+--- a/test/support/laws/model.ts
++++ b/test/support/laws/model.ts
+@@ -518,12 +518,8 @@ export const generatedArbiter = (
+ 	return Option.match(Arr.findFirst(keys, isPrimary), {
+ 		onSome: (fields): Arbiter => ({ kind: "key", fields }),
+ 		onNone: (): Arbiter => {
+-			const [only, ...more] = keys
+-			return only === undefined
+-				? { kind: "none" }
+-				: Arr.isReadonlyArrayNonEmpty(more)
+-					? { kind: "ambiguous" }
+-					: { kind: "key", fields: only }
++			const [only] = keys
++			return only === undefined ? { kind: "none" } : { kind: "key", fields: only }
+ 		}
+ 	})
+ }

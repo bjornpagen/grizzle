@@ -17,7 +17,7 @@ import {
 import { installGen } from "#test/support/worlds/generate/install.ts"
 import { zeroWeights } from "#test/support/worlds/generate/weights.ts"
 import { roomsBase, roomsInstall } from "#test/support/worlds/model/bases/rooms.ts"
-import { ticketsInstall } from "#test/support/worlds/model/bases/tickets.ts"
+import { ticketsInstall, ticketsTwoKeysInstall } from "#test/support/worlds/model/bases/tickets.ts"
 import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types.ts"
 
 /**
@@ -32,7 +32,9 @@ import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types
  * and the state every accepted write leaves, read back as the owner. A row check over the tickets base
  * (model/bases/tickets.ts) refuses a ticket added without the number the database draws for it, its witness the
  * ticket's code, the first key it states, and a ticket added without its number that repeats a stored one at every
- * field it states meets it at its arbiter, the code key, and is that ticket: no change (the kept case arbiteredRepeat).
+ * field it states meets it at its arbiter, the code key, and is that ticket: no change (the kept case arbiteredRepeat);
+ * with a second key beside the code, on seats, as a migration declaring it leaves the base, a ticket's arbiter is
+ * ambiguous and an insertion that may leave the number out is refused when it compiles.
  * Reads walk a world's span fields, and chain which rooms adjoin which by a recursive query. Beside the model, a shown
  * witness carries only what the writer submitted or holds whole (drive/acting.ts witnessesShowTheirOwn).
  *
@@ -44,6 +46,10 @@ import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types
  * generated addition as a fact of its own whatever it meets at its arbiter: the kept case arbiteredRepeat's ticket,
  * equal at every field it states to stored ticket 2, is predicted refused by the code key, where PostgreSQL answers no
  * change.
+ * @plant test/plants/pg/world-model/worlds-arbiter-ambiguous-ranked.patch The model's arbiter takes the first of
+ * several declared keys beside a drawn primary key instead of finding it ambiguous: an insertion into the two-keys
+ * tickets base is predicted to run where grizzle refuses it when it compiles (MalformedDescription), and the
+ * ambiguous-arbiter suite's required refusal is never predicted.
  */
 const focus: Focus = ["open-db", "apply", "read", "close", "direct-begin", "direct", "direct-end"]
 
@@ -125,6 +131,12 @@ const arbiteredRepeat: KeptProgram = {
 	reaches: ["op:apply:inside:absent:db:applied", "connection:after-no-change"]
 }
 
+/**
+ * What the ambiguous-arbiter suite must reach, over the tickets base with a second key beside the drawn number
+ * (ticketsTwoKeysInstall): an insertion through the clerk's whole entry refused when it compiles, its arbiter ambiguous.
+ */
+const ambiguousRequired: Situations<WorldFeature> = ["addition:generated:arbiter-ambiguous"]
+
 layer(Substrate.layer, { excludeTestServices: true })("the worlds model: rules", (it) => {
 	programTests(it, {
 		suite: "pg/world-model/rules",
@@ -151,5 +163,18 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: rules",
 		lead: dbSession(drawnKeyRequired),
 		check: witnessesShowTheirOwn,
 		kept: [arbiteredRepeat]
+	})
+	programTests(it, {
+		suite: "pg/world-model/rules/ambiguous-arbiter",
+		name: "an insertion that may leave the drawn number out, beside two keys holding none, is refused when it compiles",
+		installs: constant(ticketsTwoKeysInstall),
+		focus: ["open-db", "apply", "read", "close"],
+		steps: 4,
+		cases: 4,
+		required: ambiguousRequired,
+		realities: drawnRealities,
+		lead: dbSession(ambiguousRequired),
+		check: witnessesShowTheirOwn,
+		kept: []
 	})
 })
