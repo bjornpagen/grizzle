@@ -19,7 +19,7 @@
  * flight; every standing, a release before any answer and mid-answer.
  *
  * @plant test/plants/pg/adapter/pool-retired-reused.patch A retired session released without an error, so pg's Pool
- * keeps it; the retirement property fails.
+ * keeps it; the retirement and interruption properties find the pool's size unchanged by its release.
  * @plant test/plants/pg/adapter/interrupt-session-kept.patch An interrupted flight's session left open, never retired,
  * so the pool leases it again; the interruption property fails.
  * @plant test/plants/pg/adapter/pool-release-awaits.patch A layer's release leaving its sessions' connections up,
@@ -153,8 +153,8 @@ const runIn = (session: Session, form: FlightForm, statement: BatchStatement) =>
  * maximum (1 to 3), the statement (a sleep, or a wait for an advisory lock another session holds) and its flight
  * (alone, or in a transaction ending with COMMIT): once the server runs the statement, the interrupted call ends only
  * once the server has stopped it, its backend idle and its session retired, never used again; released, the session
- * is closed, so its backend leaves pg_stat_activity, and the pool's next leases, its maximum at once, are other
- * sessions on other backends.
+ * is closed at once, the pool's size one less as the release returns, so its backend leaves pg_stat_activity, and the
+ * pool's next leases, its maximum at once, are other sessions on other backends.
  */
 const interruptedStatement = Effect.gen(function* () {
 	const s = yield* Substrate
@@ -210,7 +210,10 @@ const interruptedStatement = Effect.gen(function* () {
 					"the server has stopped the statement once the call ended"
 				)
 				assert.equal(session.state(), "retired", "the interrupted session is never used again")
+				const open = yield* pool.size
 				yield* Scope.close(leaseScope, Exit.void)
+				const kept = yield* pool.size
+				assert.equal(kept, open - 1, "the released interrupted session is closed at once")
 				yield* until(Effect.map(backendState(pid), (b) => b.state === "gone"))
 				const { leased } = yield* pool.state
 				assert.equal(leased, 0)

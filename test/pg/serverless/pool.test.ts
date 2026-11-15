@@ -9,16 +9,18 @@
  *   ends at once; a leased session released goes to a queued waiter, and one whose connection is being established gets
  *   a session; the layer released first closes the pool's scope at once, awaiting neither the leases nor the network,
  *   every leased session ended once it returns, and a lease then fails with LayerReleased, pg never asked for a client
- *   and no connection attempted. In every case the waiter holds nothing afterwards, and then every session up to the maximum is leased at once. The oracle is the
- *   pool's own counts and the waiter's exit, against this specification; the clock stands still, so a wait that needed
- *   it to move would never end, which the case's hang bound reports.
+ *   and no connection attempted. In every case the waiter holds nothing afterwards, every permit is free again, and
+ *   then every session up to the maximum is leased at once. The oracle is the pool's own counts and the waiter's exit,
+ *   against this specification; the clock stands still, so a wait that needed it to move would never end, which the
+ *   case's hang bound reports.
  * - Cut leases, over drawn interleavings of up to eight leases started at once on a pool of one to three, each kept to
  *   its end or cut: after a drawn number of the scheduler's turns, once its own connection asks for its password, once
  *   it holds its session, or while its statement waits on a lock the case holds, once pg_stat_activity shows its
  *   backend waiting on that lock: a CancelRequest that reaches a backend still reading its statement is ignored
  *   (REL_19_RC2 src/backend/tcop/postgres.c 3536-3546), so a cut as the statement is sent cuts no statement that waits.
  *   Every cut point is reached by what the case observes, never by the clock. Once every lease has settled and pg has answered every connection, the pool is at
- *   its baseline (nothing leased, no client checked out of pg's Pool, nothing queued, no lease left asking), every kept
+ *   its baseline (nothing leased, no client checked out of pg's Pool, nothing queued, no lease left asking, every
+ *   permit free: free, attempting and leased permits are the maximum in all, and none attempting), every kept
  *   lease succeeded and every cut one ended as an interruption, the pool opens at most its maximum, and a further lease
  *   of the maximum at once succeeds, none of them a session a cut destroyed mid-statement, on a backend none of those
  *   ran on. The oracle is the pool's counts against that baseline.
@@ -26,8 +28,8 @@
  * Features: each place a waiter waits by each ending; each place a lease is cut, a lease kept to its end, and more
  * leases than the pool holds.
  *
- * @plant test/plants/pg/serverless/pool-permit-lost.patch A closed session's permit never handed back; the pool leaves
- * its baseline and a further lease of the maximum waits forever.
+ * @plant test/plants/pg/serverless/pool-permit-lost.patch A closed session's permit never handed back; once every
+ * lease has returned, the pool's free permits are short of its maximum.
  * @plant test/plants/pg/adapter/pool-retired-reused.patch A retired session released without an error, so pg's Pool
  * keeps it; a further lease takes a session a cut destroyed mid-statement.
  * @plant test/plants/pg/adapter/pool-release-awaits.patch A layer's release leaving its leased sessions' connections
@@ -73,6 +75,32 @@ import { roleBackends } from "#test/pg/serverless/support.ts"
 import { assert, lacks } from "#test/support/assert.ts"
 import { caseHang, testIdleTimeout } from "#test/support/limits.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+
+/**
+ * The pool's permits once every lease has returned and pg has answered every attempt (`attempting` 0, read one step at
+ * a time until it is): every permit free and no lease waiting. Each read holds the pool's own law, that its permits
+ * are free, attempting or leased, `max` in all, so a permit a lease left with fails here, at once, where a further lease
+ * of the maximum would wait for it for ever.
+ */
+const settledPermits = (pool: SessionPool, max: number) =>
+	Effect.gen(function* () {
+		yield* until(
+			Effect.map(pool.state, (state) => {
+				assert.equal(
+					state.free + state.attempting + state.leased,
+					max,
+					"the pool's permits are max in all"
+				)
+				return state.attempting === 0
+			})
+		)
+		const settled = yield* pool.state
+		assert.deepEqual(
+			{ free: settled.free, waiting: settled.waiting },
+			{ free: max, waiting: 0 },
+			"once every lease returned and pg answered every attempt, every permit is free and no lease waits"
+		)
+	})
 
 /** What ends the wait, or keeps it from beginning. */
 type Ending = "interrupted" | "released" | "layer released"
@@ -531,6 +559,7 @@ const cutLeases = Effect.gen(function* () {
 				)
 				assert.equal(pool.native.waitingCount, 0, "nothing waits in pg's queue")
 				assert.deepEqual(waiting, [], "no lease waits on a permit the pool no longer hands on")
+				yield* settledPermits(pool, max)
 				const exits = yield* Fiber.awaitAll(fibers)
 				for (const [index, exit] of exits.entries()) {
 					const plan = leases[index]
@@ -730,6 +759,7 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 								}
 								const { leased: leasedAfter } = yield* pool.state
 								assert.equal(leasedAfter, 0)
+								yield* settledPermits(pool, w.max)
 								/** Every session up to the maximum at once. */
 								const pids = yield* Effect.scoped(
 									Effect.all(
