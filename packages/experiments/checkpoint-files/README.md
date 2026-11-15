@@ -12,6 +12,7 @@ the files are not the tests' to touch and what the cluster may do instead. Then 
 ## Run
 
 ```sh
+TEST_SEED=<seed> packages/experiments/checkpoint-files/ab.sh <out> <family-on> <family-off> <file>...
 packages/experiments/checkpoint-files/sample.sh <port> <out> <seconds>
 GRIZZLE_PG_CLUSTER=<port> TEST_SEED=<seed> packages/experiments/checkpoint-files/per-file.sh <seconds> <out> <file>...
 python3 -I packages/experiments/checkpoint-files/digests.py <member's server log> <out> <out>
@@ -23,6 +24,9 @@ python3 -I packages/experiments/checkpoint-files/digests.py <member's server log
   group of its own, between two CHECKPOINTs; a line a file of the files its member's checkpoints synced meanwhile.
 - `digests.py`: with `log_statement = 'ddl'` set on that member while per-file.sh ran, each file's installations,
   each its schema's statements with its generated name normalized, and the distinct digests among them.
+- `ab.sh <out> <family-on> <family-off> <file>...`: the same files at once on two families, the second's members set
+  to `fsync = off` first, every member's waits sampled each second (`waits.sh`), and each member's checkpoint lines
+  over the run kept beside each family's output and wall time.
 
 ## Findings so far (2026-11-15, private family 5797, REL_19_RC2)
 
