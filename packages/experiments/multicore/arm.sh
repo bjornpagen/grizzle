@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# MULTICORE: one arm. A fresh database <tag> cloned from <template> (qti: the migrated schema as generated; qti_p: the
-# same with every package-keyed table partitioned by package, partition.py), the publisher's served file <served>
-# (fenced: as generated, its LOCK TABLE ledger.published_* IN EXCLUSIVE MODE; free: IMPORTPAR's edit, no lock), and for
-# a partitioned template each listed package's partitions made first in a transaction of their own, timed
+# MULTICORE: one arm. A fresh database <tag> cloned from <template> (qti: the migrated schema as generated; qti_p,
+# qti_q, qti_h, cat43: partitioned by partition.py), the publisher's served file <served> (fenced: as generated, its LOCK
+# TABLE ledger.published_* IN EXCLUSIVE MODE; free: IMPORTPAR's edit, no lock; kfenced and kfree: the same two of
+# KEYEDWRITE's keyed reads), a statement that runs past 900 s cancelled (57014) so a pathological plan ends the attempt,
+# and for qti_p and qti_q each listed package's partitions made first in a transaction of their own, timed
 # (provision.tsv): qti_p by multicore.provision (PARTITION OF), qti_q by multicore.provision_attach (LIKE, ATTACH and
-# the package's paired foreign keys). Then the sampler, the listed packages <width> at once, the report.
+# the package's paired foreign keys). MULTICORE_WHATIF, if set, is one database setting for a what-if arm (a measurement
+# of what a setting would change, never a fix). Then the sampler, the listed packages <width> at once, the report.
 # Usage: arm.sh <tag> <template> <served> <width> <idx...>
 set -uo pipefail
 tag=$1
@@ -21,9 +23,13 @@ admin() { "$P/bin/psql" -X -q -At -v ON_ERROR_STOP=1 -h "$M/cluster/socket" -p 5
 
 admin -d postgres -c "DROP DATABASE IF EXISTS \"$tag\"" -c "CREATE DATABASE \"$tag\" TEMPLATE \"$template\" STRATEGY FILE_COPY" \
 	-c "ALTER DATABASE \"$tag\" SET default_transaction_isolation = serializable" \
+	-c "ALTER DATABASE \"$tag\" SET statement_timeout = '900s'" \
 	-c "GRANT TEMPORARY ON DATABASE \"$tag\" TO ledger__publisher"
 cp "$M/served/$served.json" "$M/edullm/packages/data/qti-database/install/migrations/qti/served/publisher_app.json"
-echo "template $template served $served width $width packages $*" > "$out/arm.txt"
+if [ -n "${MULTICORE_WHATIF:-}" ]; then
+	admin -d postgres -c "ALTER DATABASE \"$tag\" SET $MULTICORE_WHATIF"
+fi
+echo "template $template served $served width $width packages $* what-if ${MULTICORE_WHATIF:-none}" > "$out/arm.txt"
 
 case $template in
 qti_p) provision=provision ;;

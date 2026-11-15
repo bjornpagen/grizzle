@@ -24,12 +24,13 @@ for app in sorted(held):
     print(app, f"relations {len(held[app])}")
     by_pkg = {}
     for rel in held[app]:
-        s = re.search(r"__([0-9a-f]{16})$", rel)
-        key = suffix.get(s.group(1), "?") if s else "shared"
+        s = re.search(r"__([0-9a-f]{16})", rel) or re.search(r"__([0-9a-f]{3,15})_", rel)
+        key = next((n for h, n in suffix.items() if s and h.startswith(s.group(1))), "shared")
         by_pkg.setdefault(key, []).append(rel)
+    own = re.match(r"multicore-(\d+)-", app)
     for key, rels in sorted(by_pkg.items()):
-        sample = ", ".join(sorted(rels)[:6])
-        print(f"  {key}: {len(rels)} relations ({sample}{', ...' if len(rels) > 6 else ''})")
+        sample = ", ".join(f"{r} {sorted(held[app][r])}" for r in sorted(rels)[:8])
+        print(f"  {key}: {len(rels)} relations ({sample}{', ...' if len(rels) > 8 else ''})")
 
 waits = {}
 p = os.path.join(d, "activity.tsv")

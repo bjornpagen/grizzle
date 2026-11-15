@@ -3,7 +3,8 @@
 BY LIST on its package column, the representation under test: each package's heap and indexes become relations of
 their own. A partitioned table's unique key must hold the partition column itself, so:
 
-- CREATE TABLE of a listed table gains PARTITION BY LIST (<its column>): `package`, or `name` for qti.package.
+- CREATE TABLE of a listed table gains PARTITION BY LIST (<its column>): `package`, or `name` for qti.package; with
+  `hash`, PARTITION BY HASH (<its column>), a fixed number of slots made once (provision.sql multicore.slots).
 - ALTER TABLE ONLY of a listed table loses ONLY, so what is added to the parent reaches every partition.
 - A UNIQUE constraint of a listed table whose columns lack `package` (a selector key over generated columns, which
   equal `package` where the key applies and are NULL elsewhere) gains `package` in front: no two rows that conflicted
@@ -18,14 +19,16 @@ their own. A partitioned table's unique key must hold the partition column itsel
 - REPLICA IDENTITY of a listed table is written to <side out> as well: a partition does not inherit it.
 - CREATE PUBLICATION gains publish_via_partition_root = true, so the live decoder reads the parent's name.
 
-Usage: python3 -I partition.py <dump.sql> <tables file, "schema.table column" a line> <out.sql> <side out.json> [pairs]
+Usage: python3 -I partition.py <dump.sql> <tables file, "schema.table column" a line> <out.sql> <side out.json> <list|pairs|hash>
 """
 import json
 import re
 import sys
 
 dump, tables_file, out_file, side_file = sys.argv[1:5]
-pairs = sys.argv[5:6] == ["pairs"]
+mode = sys.argv[5]
+pairs = mode == "pairs"
+method = "HASH" if mode == "hash" else "LIST"
 listed = dict(line.split() for line in open(tables_file) if line.strip())
 text = open(dump).read()
 counts = {"partitioned": 0, "only": 0, "unique": 0, "foreign": 0, "paired": 0}
@@ -46,7 +49,7 @@ def rewrite_create(m):
     if table not in listed:
         return m.group(0)
     counts["partitioned"] += 1
-    return f"CREATE TABLE {m.group(1)} ({m.group(2)}\n)\nPARTITION BY LIST ({listed[table]});\n"
+    return f"CREATE TABLE {m.group(1)} ({m.group(2)}\n)\nPARTITION BY {method} ({listed[table]});\n"
 
 
 text = re.sub(r"CREATE TABLE (\S+) \((.*?)\n\);\n", rewrite_create, text, flags=re.S)

@@ -92,3 +92,34 @@ BEGIN
   RETURN made;
 END
 $$;
+
+-- multicore.slots(modulus): for a schema partitioned BY HASH (partition.py hash), every partitioned table's <modulus>
+-- partitions FOR VALUES WITH (MODULUS m, REMAINDER r), named <table>__s<r>, made once; a package's rows go to the slot
+-- its key hashes to, so no publish ever makes a partition.
+CREATE OR REPLACE FUNCTION multicore.slots(modulus integer) RETURNS integer
+LANGUAGE plpgsql AS $$
+DECLARE
+  t record;
+  made integer := 0;
+BEGIN
+  FOR t IN
+    SELECT c.oid::regclass AS parent, n.nspname, c.relname, pg_get_userbyid(c.relowner) AS owner, c.relreplident
+    FROM pg_partitioned_table pt
+    JOIN pg_class c ON c.oid = pt.partrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE NOT c.relispartition
+    ORDER BY n.nspname, c.relname
+  LOOP
+    FOR r IN 0 .. modulus - 1 LOOP
+      EXECUTE format('CREATE TABLE %I.%I PARTITION OF %s FOR VALUES WITH (MODULUS %s, REMAINDER %s)',
+        t.nspname, left(t.relname, 50) || '__s' || r, t.parent, modulus, r);
+      EXECUTE format('ALTER TABLE %I.%I OWNER TO %I', t.nspname, left(t.relname, 50) || '__s' || r, t.owner);
+      IF t.relreplident = 'f' THEN
+        EXECUTE format('ALTER TABLE %I.%I REPLICA IDENTITY FULL', t.nspname, left(t.relname, 50) || '__s' || r);
+      END IF;
+      made := made + 1;
+    END LOOP;
+  END LOOP;
+  RETURN made;
+END
+$$;
