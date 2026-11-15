@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/frontend/compile.ts b/packages/engine/src/write/frontend/compile.ts
+index 4009d67f..436dd597 100644
+--- a/packages/engine/src/write/frontend/compile.ts
++++ b/packages/engine/src/write/frontend/compile.ts
+@@ -629,7 +629,7 @@ const sameHeading = (a: Heading, b: Heading): boolean =>
+ 	a.length === b.length &&
+ 	a.every((c) => {
+ 		const d = b.find((x) => x.name === c.name)
+-		return d !== undefined && sameScalarType(c.type, d.type)
++		return d !== undefined
+ 	})
+ 
+ /** A column as a member's facts carry it: its name and its type. */

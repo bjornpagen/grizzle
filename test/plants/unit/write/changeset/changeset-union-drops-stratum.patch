@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/changeset/value.ts b/packages/engine/src/write/changeset/value.ts
+index 97a0e9d8..b9627358 100644
+--- a/packages/engine/src/write/changeset/value.ts
++++ b/packages/engine/src/write/changeset/value.ts
+@@ -1114,7 +1114,7 @@ const unionOf = <S, P, W extends string, R1, R2, Done extends Strata, Last exten
+ ): ChangeSetOf<S, P, W, Simplify<R1 & R2>, never, Done, Last, A> & SchemaMember => {
+ 	const label = "ChangeSet.union"
+ 	const { top, x, y, bound, decoder } = combined(label, a, b, extra)
+-	const n = Math.max(x.strata.length, y.strata.length)
++	const n = Math.min(x.strata.length, y.strata.length)
+ 	const strata = canonicalStrata(
+ 		indices(n).map((i) => [...(x.strata[i] ?? []), ...(y.strata[i] ?? [])])
+ 	)

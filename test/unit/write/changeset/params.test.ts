@@ -32,8 +32,8 @@ import { descOf } from "#test/unit/write/changeset/fixtures.ts"
  *
  * Features: one heading, a heading within the other, a field of another type.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): param-merge-ignores-type, two relation declarations merged by their
- * field names alone.
+ * @plant test/plants/unit/write/changeset/param-merge-ignores-type.patch Two relation declarations merged by their
+ * field names alone (write/frontend/compile.ts sameHeading).
  */
 type Declared = "b, c, d" | "b, c" | "c, b, d" | "b, c, d as a bigint"
 

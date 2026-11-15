@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/write/net.ts b/packages/engine/src/runtime/write/net.ts
+index 58782645..66487353 100644
+--- a/packages/engine/src/runtime/write/net.ts
++++ b/packages/engine/src/runtime/write/net.ts
+@@ -215,7 +215,7 @@ export const relationIdentity = (
+ 			fields.map((field) =>
+ 				field.spec.carrier === "bytes"
+ 					? digestOf(fact[field.name])
+-					: admittedText(field.spec, fact[field.name])
++					: admittedText(field.spec, fact[field.name]).toLowerCase()
+ 			)
+ 		)
+ }

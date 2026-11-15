@@ -33,8 +33,10 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  *
  * Features: past the longest string, equal values, different values, either order.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): bound-order-reversed, private parameters named against their canonical
- * texts' order; bound-key-unkeyed-long, a value past the longest string left opaque.
+ * @plant test/plants/unit/write/changeset/bound-order-reversed.patch Private parameters named against their canonical
+ * texts' order (write/changeset/value.ts boundOrder).
+ * @plant test/plants/unit/write/changeset/bound-key-unkeyed-long.patch A value whose canonical text cannot be spelled,
+ * past the longest string, left opaque (write/changeset/value.ts boundKey), so two equal ones stay two parameters.
  */
 const Note = relation("Note", { id: pg.int4, body: str.regex("^[ab]*$") }, ["id"])
 const Notes = schema("BoundNotes", [Note], [])

@@ -65,8 +65,12 @@ import { codesOf, compiled, cs, LedgerSchema } from "#test/unit/write/changeset/
  * written relation; names out of code unit order; a fact removed and added back identical; a generated fact differing
  * in its key, or in its note.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): delta-identical-readd-kept, delta-net-readd-removed,
- * delta-identity-case-folded.
+ * @plant test/plants/unit/write/changeset/delta-identical-readd-kept.patch A fact a later stratum adds back identical
+ * after an earlier one removed it is kept as added, where the two net to nothing (runtime/write/net.ts netStrata).
+ * @plant test/plants/unit/write/changeset/delta-net-readd-removed.patch A fact a later stratum adds back after an
+ * earlier one removed it stays removed (runtime/write/net.ts netStrata).
+ * @plant test/plants/unit/write/changeset/delta-identity-case-folded.patch A fact's identity case-folds its texts
+ * (runtime/write/net.ts relationIdentity), so facts that differ in case are one.
  */
 const fact = (id: string): Fact => ({ id })
 

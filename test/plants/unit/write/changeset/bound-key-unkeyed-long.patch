@@ -1,0 +1,24 @@
+diff --git a/packages/engine/src/write/changeset/value.ts b/packages/engine/src/write/changeset/value.ts
+index 97a0e9d8..835d6f10 100644
+--- a/packages/engine/src/write/changeset/value.ts
++++ b/packages/engine/src/write/changeset/value.ts
+@@ -4,6 +4,7 @@ import {
+ 	type CanonicalObject,
+ 	type CanonicalToken,
+ 	canonicalOf,
++	canonicalTextOf,
+ 	canonicalTokens,
+ 	compareCanonicalTokens,
+ 	everyProperty,
+@@ -116,6 +117,11 @@ interface BoundParam {
+ /** The key of a bound value (`BoundKey`). */
+ const boundKey = (value: ParamValue): BoundKey => {
+ 	const tokens = canonicalTokens(value, everyProperty)
++	try {
++		canonicalTextOf(value)
++	} catch {
++		return { kind: "opaque" }
++	}
+ 	return tokens.ok ? { kind: "tokens", tokens: tokens.value } : { kind: "opaque" }
+ }
+ 

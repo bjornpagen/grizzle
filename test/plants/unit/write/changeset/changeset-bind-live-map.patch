@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/changeset/value.ts b/packages/engine/src/write/changeset/value.ts
+index 97a0e9d8..737aa74c 100644
+--- a/packages/engine/src/write/changeset/value.ts
++++ b/packages/engine/src/write/changeset/value.ts
+@@ -997,7 +997,7 @@ const bindParams = <S, W extends string, Rd, Done extends Strata, Last extends S
+ 				? Result.ok(
+ 						Object.entries(params).map(([name, value]): readonly [string, ParamValue] => [
+ 							name,
+-							owned(value, ownedBound)
++							value
+ 						])
+ 					)
+ 				: Result.err(malformed(label, "a record of parameter values"))

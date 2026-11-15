@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/runtime/write/net.ts b/packages/engine/src/runtime/write/net.ts
+index 58782645..750e4955 100644
+--- a/packages/engine/src/runtime/write/net.ts
++++ b/packages/engine/src/runtime/write/net.ts
+@@ -151,9 +151,7 @@ export const netStrata = (steps: ReadonlyArray<StratumChange>): NettedRelation =
+ 			}
+ 		}
+ 		for (const [identity, change] of step.added) {
+-			if (removed.has(identity)) {
+-				removed.delete(identity)
+-			} else {
++			if (!removed.has(identity)) {
+ 				added.set(identity, change)
+ 			}
+ 		}

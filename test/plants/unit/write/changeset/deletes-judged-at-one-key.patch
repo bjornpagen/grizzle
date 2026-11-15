@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/runtime/write/normalize.ts b/packages/engine/src/runtime/write/normalize.ts
+index 18480d54..88ace7f0 100644
+--- a/packages/engine/src/runtime/write/normalize.ts
++++ b/packages/engine/src/runtime/write/normalize.ts
+@@ -1014,6 +1014,17 @@ export const normalizeChangeSet = (
+ 		if (refused !== undefined) {
+ 			return Result.ok(refused)
+ 		}
++		const deletedAtOneKey = sameKey(
++			facts,
++			compareFactIdentities,
++			serial,
++			stated,
++			sorted(compareFactIdentities, sets.delete.values()),
++			[]
++		)
++		if (deletedAtOneKey !== undefined) {
++			return Result.ok(deletedAtOneKey)
++		}
+ 		for (const id of [...sets.insert.keys(), ...sets.put.keys()]) {
+ 			sets.delete.delete(id)
+ 		}
