@@ -33,6 +33,10 @@
  * One descriptor, hand-written as a JavaScript caller or a stored snapshot states one, beside the Live values of its
  * host type. The scalar type decoder is the boundary that admits it, so it stays
  * `unknown` until decoded.
+ *
+ * @plant test/plants/unit/codec/numeric-full-scale-refused.patch parseNumeric judges exactness at the scale less one,
+ * so a Live numeric of exactly its typmod's scale in fractional digits is refused as numericScale; the encoders' and
+ * the tuple converter's properties fail.
  */
 import { inspect } from "node:util"
 import { drawn, explore } from "@bjornpagen/testing/explore"

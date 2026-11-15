@@ -21,6 +21,10 @@
  *
  * Plants (~/.cache/grizzle-release/BR06/plants): recordset-order-kept (a set encoded in the order given, not its
  * canonical order) and recordset-array-quote-unescaped (a quote inside an array element written bare).
+ *
+ * @plant test/plants/unit/codec/numeric-full-scale-refused.patch parseNumeric judges exactness at the scale less one,
+ * so a numeric(5,2) value of exactly two fractional digits is refused as numericScale; the refusal, canonical
+ * encoding and array properties fail on a valid fact.
  */
 import { drawn, explore, type Kept, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
