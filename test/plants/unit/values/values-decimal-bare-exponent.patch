@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/decimal.ts b/packages/engine/src/scalar/values/decimal.ts
+index 33a09b0e..a7bf9214 100644
+--- a/packages/engine/src/scalar/values/decimal.ts
++++ b/packages/engine/src/scalar/values/decimal.ts
+@@ -85,7 +85,7 @@ const exponentAt = (
+ 	const digitsStart = negative || text.startsWith("+", start) ? start + 1 : start
+ 	const end = digitsEnd(text, digitsStart)
+ 	if (end === digitsStart) {
+-		return Result.err("decimalSyntax")
++		return Result.ok({ value: 0, end })
+ 	}
+ 	let magnitude = 0
+ 	for (let i = digitsStart; i < end; i++) {

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/decimal.ts b/packages/engine/src/scalar/values/decimal.ts
+index 33a09b0e..32c7d884 100644
+--- a/packages/engine/src/scalar/values/decimal.ts
++++ b/packages/engine/src/scalar/values/decimal.ts
+@@ -185,7 +185,7 @@ export class Decimal implements Canonicalizable {
+ 		}
+ 		const minScale = -exponent
+ 		if (
+-			minScale > numericMaxFractionDigits.value ||
++			minScale >= numericMaxFractionDigits.value ||
+ 			digits.length - minScale > numericMaxIntegerDigits.value
+ 		) {
+ 			return Result.err("decimalRange")

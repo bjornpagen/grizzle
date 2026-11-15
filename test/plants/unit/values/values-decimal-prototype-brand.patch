@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/decimal.ts b/packages/engine/src/scalar/values/decimal.ts
+index 33a09b0e..2d95499e 100644
+--- a/packages/engine/src/scalar/values/decimal.ts
++++ b/packages/engine/src/scalar/values/decimal.ts
+@@ -162,7 +162,7 @@ export class Decimal implements Canonicalizable {
+ 	 * Decimal.prototype and no proxy holds, so a forged Decimal is never mistaken for one and runs no code of its own.
+ 	 */
+ 	static [Symbol.hasInstance](value: unknown): value is Decimal {
+-		return typeof value === "object" && value !== null && #minted in value
++		return typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Decimal.prototype
+ 	}
+ 
+ 	/**

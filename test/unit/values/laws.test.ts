@@ -12,8 +12,11 @@
  *
  * Features: each carrier's equal and unequal pairs, each constructor, and each tag written and refused as a near miss.
  *
- * Plants: values-vector-last-component (vector order skips its last component), values-money-unfrozen (a Money
- * left unfrozen), values-money-leading-zero (a money payload with a leading zero revived).
+ * @plant test/plants/unit/values/values-vector-last-component.patch Vector order skips its last component; the
+ * equality property fails.
+ * @plant test/plants/unit/values/values-money-unfrozen.patch A Money is left unfrozen; the frozen property fails.
+ * @plant test/plants/unit/values/values-money-leading-zero.patch Money's canonical-integer check is dropped, so a
+ * payload with a leading zero revives; the revival property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/decimal.ts b/packages/engine/src/scalar/values/decimal.ts
+index 33a09b0e..f6a6ff62 100644
+--- a/packages/engine/src/scalar/values/decimal.ts
++++ b/packages/engine/src/scalar/values/decimal.ts
+@@ -399,7 +399,7 @@ export class Decimal implements Canonicalizable {
+ 	static admit(input: unknown): Decimal {
+ 		const parsed = Decimal.parse(input)
+ 		if (!parsed.ok) {
+-			throw faultError(parsed.error, SourceLoc("Decimal literal", []))
++			throw faultError(parsed.error, SourceLoc(`Decimal literal ${String(input)}`, []))
+ 		}
+ 		return parsed.value
+ 	}

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/bytes.ts b/packages/engine/src/scalar/values/bytes.ts
+index eef4e1cc..194de8c4 100644
+--- a/packages/engine/src/scalar/values/bytes.ts
++++ b/packages/engine/src/scalar/values/bytes.ts
+@@ -117,7 +117,7 @@ export class DigestBook {
+ 			this.#held.set(value.digest, value.bytes)
+ 			return true
+ 		}
+-		return held === value.bytes || sameBytes(held, value.bytes)
++		return true
+ 	}
+ }
+ 

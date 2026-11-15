@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/vector.ts b/packages/engine/src/scalar/values/vector.ts
+index 6ca42e94..84421e5e 100644
+--- a/packages/engine/src/scalar/values/vector.ts
++++ b/packages/engine/src/scalar/values/vector.ts
+@@ -124,7 +124,7 @@ const shaped = <const N extends number>(
+  * its internal slots, never through its methods or its iterator, so what a subclass overrides is never called and the
+  * copy holds the components the buffer holds now.
+  */
+-const copied = (buffer: Float32Array): Float32Array => new Float32Array(buffer)
++const copied = (buffer: Float32Array): Float32Array => buffer
+ 
+ /** The buffer itself. */
+ const same = (buffer: Float32Array): Float32Array => buffer

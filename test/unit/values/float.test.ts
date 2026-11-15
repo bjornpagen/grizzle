@@ -17,8 +17,10 @@
  * Features: a double rounded, one stored exactly, a binary32 subnormal stored, each refusal, -0 stored as 0, a special
  * kept; a NaN against another value, two NaNs, -0 against 0, an infinity, and two distinct finite values.
  *
- * Plants: values-real-subnormal (a double that rounds to a binary32 subnormal refused as realUnderflow),
- * values-float-nan-low (NaN sorted below every other value).
+ * @plant test/plants/unit/values/values-real-subnormal.patch A double that rounds to a binary32 subnormal is refused
+ * as realUnderflow; the admission property fails.
+ * @plant test/plants/unit/values/values-float-nan-low.patch compareFloat sorts NaN below every other value; the order
+ * property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

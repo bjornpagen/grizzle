@@ -14,9 +14,12 @@
  *
  * Features: each carrier stored and refused; each rewrite and each change; each malformation.
  *
- * Plants: values-uuid-case (an upper-case uuid stored as written), values-identity-raw-part (a field's part of the
- * identity its value's own text rather than its canonical one), values-fact-field-unnamed (a field's fault names no
- * field).
+ * @plant test/plants/unit/values/values-uuid-case.patch An upper-case uuid is stored as written, not lower-cased;
+ * the admission and identity properties fail.
+ * @plant test/plants/unit/values/values-identity-raw-part.patch A field's part of the identity is its value's own
+ * text rather than its canonical one; the identity property fails.
+ * @plant test/plants/unit/values/values-fact-field-unnamed.patch A field's fault names no field; the refusal property
+ * fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

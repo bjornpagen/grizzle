@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/decimal.ts b/packages/engine/src/scalar/values/decimal.ts
+index 33a09b0e..23a0a627 100644
+--- a/packages/engine/src/scalar/values/decimal.ts
++++ b/packages/engine/src/scalar/values/decimal.ts
+@@ -383,7 +383,7 @@ export class Decimal implements Canonicalizable {
+ 			if (typeof input === "string") {
+ 				return Decimal.fromString(input)
+ 			}
+-			return Result.err(typeof input === "number" ? "decimalNumber" : "decimalType")
++			return typeof input === "number" ? Decimal.fromString(String(input)) : Result.err("decimalType")
+ 		})
+ 	}
+ 

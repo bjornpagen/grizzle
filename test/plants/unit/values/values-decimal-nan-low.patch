@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/scalar/values/decimal.ts b/packages/engine/src/scalar/values/decimal.ts
+index 33a09b0e..a66386b5 100644
+--- a/packages/engine/src/scalar/values/decimal.ts
++++ b/packages/engine/src/scalar/values/decimal.ts
+@@ -460,7 +460,7 @@ export class Decimal implements Canonicalizable {
+ 	}
+ }
+ 
+-const kindRank = (parts: DecimalParts): 0 | 1 | 2 | 3 => {
++const kindRank = (parts: DecimalParts): -1 | 0 | 1 | 2 => {
+ 	switch (parts.kind) {
+ 		case "-infinity":
+ 			return 0
+@@ -469,7 +469,7 @@ const kindRank = (parts: DecimalParts): 0 | 1 | 2 | 3 => {
+ 		case "infinity":
+ 			return 2
+ 		case "nan":
+-			return 3
++			return -1
+ 	}
+ }
+ 

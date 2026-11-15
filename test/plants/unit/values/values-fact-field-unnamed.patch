@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/identity.ts b/packages/engine/src/scalar/values/identity.ts
+index 55c09e65..05fa3d93 100644
+--- a/packages/engine/src/scalar/values/identity.ts
++++ b/packages/engine/src/scalar/values/identity.ts
+@@ -617,7 +617,7 @@ export const readFact = (plan: HeadingPlan, fact: unknown): Result.Result<ReadFa
+ 		}
+ 		const value = parseValue(field.spec, read.value)
+ 		if (!value.ok) {
+-			return Result.err({ fault: value.error, field: field.name })
++			return Result.err({ fault: value.error, field: undefined })
+ 		}
+ 		values.push(value.value)
+ 		parts.push(canonicalText(field.spec, value.value))

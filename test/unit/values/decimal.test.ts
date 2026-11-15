@@ -33,14 +33,28 @@
  * outputs, equal and unequal pairs of each kind, admitted and refused typmods at their bounds, each rounding outcome,
  * and every wild kind.
  *
- * Plants: values-decimal-integer-zeros (a spelling's integer trailing zeros dropped from its exponent),
- * values-decimal-bare-exponent (an exponent mark with no digits read as e0), values-decimal-fraction-limit (a value
- * at the fraction limit refused), values-decimal-negative-coefficient (fromParts takes a negative coefficient),
- * values-decimal-output-zeros (fromOutput keeps a padded text's zeros), values-decimal-nan-low (NaN ranked below
- * -Infinity), values-decimal-payload-unsigned (the IR's grammar refuses a negative payload),
- * values-decimal-payload-leading-zero (the IR's grammar takes a leading zero), values-numeric-typmod-precision (the
- * greatest precision refused), values-numeric-tie-toward-zero (a tie rounded toward zero),
- * values-decimal-number-admitted (a number read through its text).
+ * @plant test/plants/unit/values/values-decimal-integer-zeros.patch A spelling's integer trailing zeros are dropped
+ * from its exponent; the spelling property fails.
+ * @plant test/plants/unit/values/values-decimal-bare-exponent.patch An exponent mark with no digits is read as e0;
+ * the corruption property fails.
+ * @plant test/plants/unit/values/values-decimal-fraction-limit.patch A value at the fraction limit is refused; the
+ * format limits property fails.
+ * @plant test/plants/unit/values/values-decimal-negative-coefficient.patch fromParts takes a negative coefficient; the
+ * round trip fails.
+ * @plant test/plants/unit/values/values-decimal-output-zeros.patch fromOutput keeps a padded text's zeros; the
+ * numeric_out property fails.
+ * @plant test/plants/unit/values/values-decimal-nan-low.patch NaN is ranked below -Infinity; the order property
+ * fails.
+ * @plant test/plants/unit/values/values-decimal-payload-unsigned.patch The IR's grammar refuses a negative payload;
+ * the payload property fails.
+ * @plant test/plants/unit/values/values-decimal-payload-leading-zero.patch The IR's grammar takes a leading zero; the
+ * payload property fails.
+ * @plant test/plants/unit/values/values-numeric-typmod-precision.patch The greatest precision is refused; the typmod
+ * property fails.
+ * @plant test/plants/unit/values/values-numeric-tie-toward-zero.patch A tie is rounded toward zero; the typmod
+ * rounding property fails.
+ * @plant test/plants/unit/values/values-decimal-number-admitted.patch Decimal.parse reads a number through its text
+ * rather than refusing it; the literal boundary property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

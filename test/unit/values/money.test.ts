@@ -9,7 +9,8 @@
  * Features: a negative count, a count of less than one whole unit (a fraction a cents-dropping conversion loses), and a
  * count at an int8 bound, each a named arm of the count's draw.
  *
- * Plants: values-money-scale (fromDecimal rounds at one fraction digit too few).
+ * @plant test/plants/unit/values/values-money-scale.patch fromDecimal rounds at one fraction digit too few; the
+ * round trip fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

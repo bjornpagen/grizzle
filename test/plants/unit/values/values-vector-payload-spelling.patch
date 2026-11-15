@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/carriers.ts b/packages/engine/src/ir/carriers.ts
+index 60f77742..5820b78d 100644
+--- a/packages/engine/src/ir/carriers.ts
++++ b/packages/engine/src/ir/carriers.ts
+@@ -606,7 +606,7 @@ const vectorComponents = (list: string): ReadonlyArray<number> | undefined => {
+ 	const components: Array<number> = []
+ 	for (const t of texts) {
+ 		const x = Number(t)
+-		if (!Number.isFinite(x) || Math.fround(x) !== x || String(x) !== t) {
++		if (!Number.isFinite(x) || Math.fround(x) !== x) {
+ 			return undefined
+ 		}
+ 		components.push(x)

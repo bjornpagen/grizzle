@@ -9,7 +9,8 @@
  *
  * Features: each way a decimal is refused, past the range and misspelt.
  *
- * Plants: values-fault-echo (the refusal's location names the refused input).
+ * @plant test/plants/unit/values/values-fault-echo.patch Decimal.admit's refusal names the refused input in its
+ * location; the secrecy property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
