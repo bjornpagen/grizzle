@@ -20,15 +20,21 @@
  * statistics rather than over a freshly truncated relation's defaults.
  *
  * The law: doubling the size at most multiplies the work by 2^(3/2), w(2k)² ≤ 8 w(k)² for k = n and 2n, a growth
- * exponent of at most 3/2: halfway, in exponent, between linear work, which doubles, and quadratic work, which
- * quadruples once its square term dominates. A probe's B-tree descent grows by a level only past a page's fan-out of
- * entries, far below this, and the buffers a size's plan spends beside its members (a planner that reads a small
- * family differently) shrink the ratio rather than break it.
+ * exponent of at most 3/2. The exponent is a classification threshold, not a measured limit: halfway, in exponent,
+ * between linear work, which doubles, and quadratic work, which quadruples once its square term dominates, so it
+ * separates the two with room on both sides. A probe's B-tree descent grows by a level only past a page's fan-out of
+ * entries, which keeps n·log n with its constant overheads near a doubling, and the buffers a size's plan spends beside
+ * its members shrink the ratio rather than break it. Measured on a private cluster: the ordered family's whole delete
+ * read 28,039, 56,069 and 112,127 buffers at 2,000, 4,000 and 8,000 members, ×2.00 at each doubling, and under the
+ * plant below 52,039, 164,069 and 560,127, ×3.15 and ×3.41, against 2^(3/2) ≈ 2.83; the plant's ratio climbs toward 4
+ * as n grows, which is why n is drawn from 2,000 up.
  *
- * Oracle: PostgreSQL's own counters of the rows each operation touched, against the law. Features: none beyond the
- * operations, each measured in every case. Plant: ~/.cache/grizzle-release/AXISINDEX/plants/axis-index-dropped.patch
- * (no reverse index for an axis and no successor key) makes the predecessor axis's and the tree owner axis's probes
- * read the whole family and the whole tree.
+ * Oracle: PostgreSQL's own counters of the buffers each operation read, against the law. Features: none beyond the
+ * operations, each measured in every case.
+ *
+ * @plant test/plants/unit/laws/model/axis-index-dropped.patch No reverse index for an axis and no successor key, so the
+ * predecessor axis's probe scans the member and the tree owner axis's the tree: the ordered family's whole delete reads
+ * 52,039, 164,069 and 560,127 buffers at 2,000, 4,000 and 8,000 members.
  */
 import { drawn as drawnCase, explore } from "@bjornpagen/testing/explore"
 import { noCoverage } from "@bjornpagen/testing/features"

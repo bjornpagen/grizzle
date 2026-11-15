@@ -40,9 +40,7 @@
  * same selection probes, and test/pg/laws/target-keys.test.ts draws such a probe beside every key a target may be held
  * by, over a selection or not, its terms holding a fixed field or not.
  *
- * Plants (~/.cache/grizzle-release/AXISINDEX/plants): probed-target-probe-per-index (the choice counting every
- * unserved probe a B-tree of its own again, laws/model/plan.ts probeIndexes: caught by the kept case's restated keys'
- * objects). Plants (~/.cache/grizzle-release/R10/plants): probed-target-shared-always (every fixed target at its terms and fixed
+ * Plants (~/.cache/grizzle-release/R10/plants): probed-target-shared-always (every fixed target at its terms and fixed
  * field: caught by the restated keys' objects), probed-target-constants-free (the choice counting a constant column as
  * nothing, so a superkey is taken though the target's own columns need no constant and cost less: caught by the
  * restated keys' objects), probed-target-probe-beside (each reverse probe a B-tree of its own beside a unique index that
@@ -58,6 +56,10 @@
  * fixed field; a probed target beside an unprobed one; a target's own UNIQUE K implies through the field its selection
  * fixes; a generated UNIQUE refusing a pair, reported as K over a selection; and constant columns that cost the schema
  * no more objects.
+ *
+ * @plant test/plants/unit/laws/model/probed-target-probe-per-index.patch The reference choice counts every unserved
+ * reverse probe a B-tree of its own, though the engine drafts one index for a chain of probes over nested columns, so
+ * it takes a superkey that saves nothing: the kept case's K alone plans 20 objects to the restated keys' 19.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

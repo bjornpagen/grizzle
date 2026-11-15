@@ -31,6 +31,10 @@
  *
  * Features: the shapes' orders, widths and copies on each axis; each axis a lemma is restated on; one to three counted
  * families, folded and unfolded.
+ *
+ * @plant test/plants/unit/laws/model/axis-index-dropped.patch No family axis carries its reverse index and no family
+ * states its successor key, so the predecessor axis (g, ‹p›) and the owner axis (g, ‹n›) lead no index of the member:
+ * the drafted DDL fails the structural property.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

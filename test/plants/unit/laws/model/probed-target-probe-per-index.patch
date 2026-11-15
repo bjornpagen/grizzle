@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/laws/model/plan.ts b/packages/engine/src/laws/model/plan.ts
+index 970c7025..ebcd17b0 100644
+--- a/packages/engine/src/laws/model/plan.ts
++++ b/packages/engine/src/laws/model/plan.ts
+@@ -1016,7 +1016,7 @@ const servesProbe = (
+  * subset of the one before it, shares one index. Each probe, widest first, joins the first chain whose narrowest probe
+  * holds its columns, or starts one.
+  */
+-const probeIndexes = (probes: ReadonlyArray<NonEmptyReadonlyArray<SideColumn>>): number => {
++export const probeIndexes = (probes: ReadonlyArray<NonEmptyReadonlyArray<SideColumn>>): number => {
+ 	const narrowest: Array<NonEmptyReadonlyArray<SideColumn>> = []
+ 	for (const probe of probes.toSorted((a, b) => b.length - a.length)) {
+ 		const at = narrowest.findIndex((tail) => within(probe, tail))
+@@ -1110,7 +1110,7 @@ const takingShared = (
+ 				landed.filter((l) => !l.planned).map((l) => l.columns),
+ 				sameColumns
+ 			).length +
+-			probeIndexes(probes.filter((_, i) => !served.has(i))) +
++			(probes.length - served.size) +
+ 			distinct(
+ 				landed.flatMap((l) => l.fresh),
+ 				sameSideColumn

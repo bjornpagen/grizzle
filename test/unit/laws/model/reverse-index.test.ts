@@ -9,18 +9,24 @@
  * fits, else the hash index on the first column a hash index takes, and every index the installation creates is a
  * B-tree, a hash or a GiST index. Where that run is every referencing column, the drafted DDL holds the structural
  * property (test/support/laws/referencing.ts): an index led by exactly them, or a unique one within them, serves the
- * foreign key, never the interleaved key a case declares, led by the first of them and holding the rest further in. A selected source's reverse index holds law columns, each its field's where the selection holds, so its
- * width is checked; a whole source's holds the fields themselves, so its columns are. PostgreSQL's plan of the probe is
+ * foreign key, never the interleaved key a case declares, led by the first of them and holding the rest further in. A
+ * selected source's reverse index holds law columns, each its field's where the selection holds, so its width is
+ * checked; a whole source's holds the fields themselves, so its columns are. PostgreSQL's plan of the probe is
  * test/pg/laws/reverse-probe.test.ts's.
  *
  * Plants (~/.cache/grizzle-release/BR03/plants): reverse-shortest-run (the B-tree over the shortest leading run that
- * fits, its first column alone). ~/.cache/grizzle-release/AXISINDEX/plants: reverse-run-set-lower-bound (the run chosen
- * by the law model's bound from below for a set), reverse-led-placement (a law's reverse request served by an index led
- * by one of its columns holding the rest, the interleaved key).
+ * fits, its first column alone).
  *
  * Features: free text first, between or last, or only free text; a run cut short by width; a B-tree; a hash index;
  * covered by a declared key; a selected source; into a superkey; a set, and a run it cuts short; a key led by a prefix
  * of the referencing columns.
+ *
+ * @plant test/plants/unit/laws/model/reverse-run-set-lower-bound.patch The reverse run is chosen by the law model's
+ * bound from below for a set, its roster's handles, so a run holding a set fits by it and the index engine refuses it
+ * at the most codes a roster numbers: the containment of A0(c0 uuid, c1 set) is refused.
+ * @plant test/plants/unit/laws/model/reverse-led-placement.patch A law's reverse request is placed as a workload's
+ * equality lookup, so an index led by one of its columns that holds the rest further in serves it: the interleaved key
+ * (c0, x, c1) serves A0's foreign key on (c0, c1), which the structural property refuses.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

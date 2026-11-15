@@ -51,10 +51,6 @@ export type ColumnType =
 const FewTags = closed("FewTags", ["a", "b", "c"])
 const ManyTags = closed("ManyTags", ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"])
 
-/** The handles of a set column's roster, every one of which its widest value holds. */
-export const setHandles = (roster: "few" | "many"): number =>
-	roster === "few" ? FewTags.handles.length : ManyTags.handles.length
-
 /**
  * A set's datum as the index engine counts it in an index it creates (schema/representability.ts bitsBytes): its
  * bit(n) varlena, VARBITTOTALLEN(n) = 4 + 4 + ceil(n / 8), at n = 32768, smallint's non-negative values, the most codes
@@ -163,7 +159,7 @@ export interface ReverseCase {
 	readonly superkey: boolean
 	/**
 	 * Whether the source declares a key led by its first referencing column that holds every other one further in, past a
-	 * boolean `x` (`interleavedKey`): an index that leads with a prefix of the referencing columns alone, which the
+	 * uuid `x` (`interleavedKey`): an index that leads with a prefix of the referencing columns alone, which the
 	 * reverse probe never reads (physical/indexes/engine.ts reversePlacements). Its columns are then fixed-width.
 	 */
 	readonly interleaved: boolean
@@ -248,7 +244,7 @@ const boundedPositions = (c: ReverseCase): ReadonlyArray<number> =>
 	Arr.filter(indices(c.types.length), (i) => c.types[i]?.kind !== "free")
 
 /** The positions of a case's set columns. */
-const setPositions = (c: ReverseCase): ReadonlyArray<number> =>
+export const setPositions = (c: ReverseCase): ReadonlyArray<number> =>
 	Arr.filter(indices(c.types.length), (i) => c.types[i]?.kind === "set")
 
 /**
@@ -399,7 +395,11 @@ const descriptorOf = (t: ColumnType, side: "source" | "target"): FieldBase => {
 	}
 }
 
-/** The interleaved key over a case's referencing columns: its first, the boolean `x`, then every other. */
+/**
+ * The interleaved key over a case's referencing columns: its first, the uuid `x`, then every other. A column of many
+ * values between them, as edullm's start sits between dependency's (package, path) and its resource, leaves no skip scan
+ * cheap: a probe through it reads every row of the first column's value.
+ */
 const interleavedKey = (names: Arr.NonEmptyReadonlyArray<string>): ReadonlyArray<string> => [
 	Arr.headNonEmpty(names),
 	"x",
@@ -415,12 +415,12 @@ export const relationsAt = (at: number): { readonly source: string; readonly tar
 /**
  * The relations and statements of the cases, each at its position, beside the two rosters a set column is over: a source
  * keyed by `id`, with a boolean `live` its
- * selection reads, a boolean `x` the interleaved key reads, and its referencing columns; a target of the columns they meet, keyed by all of them but its sets or
+ * selection reads, a uuid `x` the interleaved key reads, and its referencing columns; a target of the columns they meet, keyed by all of them but its sets or
  * by the first of those, since a declared key counts a set at the most codes a roster numbers, past any entry;
  * the containment of the one, or of its live rows, in the other; the declared key over the source's bounded columns
  * where the case declares one, and the interleaved key where it declares that.
  */
-const reverseParts = (
+export const reverseParts = (
 	cases: ReadonlyArray<ReverseCase>
 ): {
 	readonly relations: ReadonlyArray<readonly [string, AnyRelation | AnyClosed]>
@@ -435,7 +435,7 @@ const reverseParts = (
 			{
 				id: uuid,
 				live: pgDescriptors.boolean,
-				x: pgDescriptors.boolean,
+				x: uuid,
 				...Rec.fromEntries(Arr.map(names, (n, i) => [n, descriptorOf(typeAt(i), "source")]))
 			},
 			["id"],

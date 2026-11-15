@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/indexes/engine.ts b/packages/engine/src/physical/indexes/engine.ts
+index cbe39228..cad86873 100644
+--- a/packages/engine/src/physical/indexes/engine.ts
++++ b/packages/engine/src/physical/indexes/engine.ts
+@@ -417,7 +417,7 @@ const placementsOf = (
+ 			return hashPlacements(keys)
+ 		case "btree":
+ 			return request.role === "lawMaintenance"
+-				? reversePlacements(keys, columns)
++				? equalityPlacements(keys, columns)
+ 				: btreeAccessPlacements(request.use, keys, columns, label)
+ 	}
+ }
