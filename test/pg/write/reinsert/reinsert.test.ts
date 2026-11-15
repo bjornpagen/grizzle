@@ -108,11 +108,12 @@ import { fullWorld } from "#test/support/worlds.ts"
  * witness case aims at a pending one with a schema holding every family kind, a top row owning a counted and an ordered
  * family, every relation mutable or every one immutable, every count at its most, and one difference at it.
  *
- * Plants, each of which must turn the property red: ~/.cache/grizzle-release/KEYSTRESS/plants/
- * reinsert-no-change-as-accepted.patch, a committed write answered `accepted` whatever its counts; and under
- * ~/.cache/grizzle-release/RESTATED/plants/, restated-sequence-accepted.patch, a nested owner's facts stating none of
- * its sequences' counts and ends, and counted-append-refused.patch, a nested row compared at its counted families'
- * counts and ends too.
+ * @plant test/plants/pg/write/reinsert/reinsert-no-change-as-accepted.patch A committed write is answered `accepted`
+ * whatever its counts (runtime/write/net.ts outcomeKind); the property fails.
+ * @plant test/plants/pg/write/reinsert/restated-sequence-accepted.patch A nested owner's facts state none of its
+ * sequences' counts and ends (write/insert/input.ts); the property fails.
+ * @plant test/plants/pg/write/reinsert/counted-append-refused.patch A nested row is compared at its counted families'
+ * counts and ends too (write/family/additions.ts); the property fails.
  */
 
 /** A second insert of a case: its differences from the stored instance, in order, and whether it states every fact twice. */

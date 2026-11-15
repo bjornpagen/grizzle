@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index 1c1e6cab..3ed468fa 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -935,8 +935,7 @@ const printDriven = (
+ 	tail: string
+ ): string => {
+ 	const read = columns.map((c) => `${quoteIdent(inner)}.${quoteIdent(c.read)}`).join(", ")
+-	const where = conjunction(conditions)
+-	return `LATERAL (SELECT ${read} FROM ${printObjectName(table)} AS ${quoteIdent(inner)} ${where === undefined ? "" : `WHERE ${printExpr(where)} `}${tail}) AS ${quoteIdent(alias)}(${printIdentList(mapNonEmpty(columns, (c) => c.as))})`
++	return `LATERAL (SELECT ${read} FROM ${printObjectName(table)} AS ${quoteIdent(inner)} ${conditions.length === 0 ? "" : `WHERE ${conditions.map(printExpr).join(" AND ")} `}${tail}) AS ${quoteIdent(alias)}(${printIdentList(mapNonEmpty(columns, (c) => c.as))})`
+ }
+ 
+ const printFrom = (items: ReadonlyArray<FromItem>): string => items.map(printFromItem).join(", ")

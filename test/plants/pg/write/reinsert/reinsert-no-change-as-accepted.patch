@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/write/net.ts b/packages/engine/src/runtime/write/net.ts
+index 58782645..dbae3dc1 100644
+--- a/packages/engine/src/runtime/write/net.ts
++++ b/packages/engine/src/runtime/write/net.ts
+@@ -168,7 +168,7 @@ export const outcomeKind = (counts: Iterable<Counts>): "accepted" | "no-change"
+ 			return "accepted"
+ 		}
+ 	}
+-	return "no-change"
++	return "accepted"
+ }
+ 
+ export interface RelationCounts extends Counts {

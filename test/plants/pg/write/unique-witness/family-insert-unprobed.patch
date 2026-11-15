@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/family/additions.ts b/packages/engine/src/write/family/additions.ts
+index 90c96272..2d077c29 100644
+--- a/packages/engine/src/write/family/additions.ts
++++ b/packages/engine/src/write/family/additions.ts
+@@ -1446,7 +1446,7 @@ const probeGates = (
+ 		isNonEmpty(rest) ? candidatesUnion(supply, ctes, [first, ...rest]) : first
+ 	)
+ 	appendAll(ctes, gate.ctes)
+-	return gate.guards
++	return []
+ }
+ 
+ /** The union of a member's sources' candidate rows, at every layout column, as its probe reads them. */

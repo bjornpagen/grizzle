@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/family/removals.ts b/packages/engine/src/write/family/removals.ts
+index b8180e83..08586e27 100644
+--- a/packages/engine/src/write/family/removals.ts
++++ b/packages/engine/src/write/family/removals.ts
+@@ -583,7 +583,7 @@ const cascaded = (
+ 		level: number
+ 	): ReadonlyArray<{ readonly from: NativeColumn; readonly to: NativeColumn }> => {
+ 		const hop = hopAt(way, level)
+-		return way.root.kind === "edit" && !isSequence(hop)
++		return way.root.kind === "edit" && !isSequence(hop) && way.hops.length < 0
+ 			? [
+ 					...hop.axes.owner,
+ 					{ from: { kind: "law", column: hop.copy }, to: { kind: "field", field: hop.count } }
