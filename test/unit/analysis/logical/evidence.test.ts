@@ -18,19 +18,21 @@
  *   literal, a parameter, or a column the node reads from outside it (ir/dag.ts nodeScopes, read apart from the
  *   analysis). Oracle: the reference evaluator, a second implementation; the kernel; and the scope, universal. A
  *   column a node binds holds one value per row, not per evaluation, so it is no value the kernel reads off a
- *   derivation (kept: lateralFixedThroughBoundSibling) and no name of a fixed column (kept: boundHandleNamed).
+ *   derivation (kept: lateralFixedThroughBoundSibling) and no name of a fixed column (kept: boundHandleNamed). The
+ *   bare children's schemas may key a relation by a span key, so a containment into one is a span coverage (a PERIOD
+ *   foreign key, coverage in the analysis's evidence), and the proving shapes may narrow its source facts inside their
+ *   target's spans, where a bare child would find none (kept: spanCoverageNarrowed).
  * - Idempotence (generated cases, and the proving shapes' bare children): annotating an annotated DAG states what the
  *   first annotation did, node for node. Oracle: universal.
  *
- * Features: each claim checked (EvidenceFeature), each execution and containment context and an orphaned containment;
- * each claim and delivered type for idempotence.
+ * Features: each claim checked (EvidenceFeature), each execution and containment context, an orphaned containment and
+ * a span coverage's fact covered apart from its target's spans; each claim and delivered type for idempotence.
  *
  * @plant test/plants/unit/analysis/logical/filter-keeps-exactly-one.patch A filter over an input of exactly one row
  * claims exactly one, though it may drop it (logical/props.ts); the soundness property fails.
  * @plant test/plants/unit/analysis/logical/bare-child-coverage-admitted.patch A span coverage proves a bare child
- * (logical/attach.ts containmentOne), which a bare child along a PERIOD containment into a span key refutes; the
- * soundness property must fail, and does not yet: its containments are never coverages and its schemas hold no span
- * key.
+ * (logical/attach.ts containmentOne), which a parent covered apart from its target's span refutes; the bare-children
+ * property fails on spanCoverageNarrowed.
  * @plant test/plants/unit/analysis/logical/annotate-keys-accumulate.patch A node's claimed keys gather its earlier
  * claims beside the new ones (logical/annotate.ts rebuilt); the idempotence property fails.
  * @plant test/plants/unit/analysis/logical/fixed-name-unscoped.patch A node names a fixed column by a column it binds
@@ -78,15 +80,19 @@ import {
 	resolveQueryCase,
 	soundnessGenConfig
 } from "#test/support/oracle/gen/case.ts"
-import { bool } from "#test/support/oracle/gen/domain.ts"
+import { bool, canonicallySpelled, literalRowKey } from "#test/support/oracle/gen/domain.ts"
+import { type GenFacts, rowValues, type StoredRow } from "#test/support/oracle/gen/facts.ts"
 import { compareOpId, notOp } from "#test/support/oracle/gen/ops.ts"
 import { printQueryCase } from "#test/support/oracle/gen/print.ts"
 import { undrawn } from "#test/support/oracle/gen/query.ts"
 import {
 	closedHeading,
+	type GenContainment,
 	type GenRelation,
+	keyIndices,
 	relationHeading,
-	relationNamed
+	relationNamed,
+	spanCoverage
 } from "#test/support/oracle/gen/schema.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { unobserved } from "#test/support/oracle/reference/evaluate.ts"
@@ -107,8 +113,10 @@ const both = [false, true] as const
  * containment, the target relation's plain scan attached by its key to a parent that reads the source's fields from one
  * fact of it, the attachment the containment proof types bare, or from one fact of another relation with fields of the
  * same names and types, which the containment says nothing about; and a filter directly over each closed relation,
- * which may drop the one fact it has. Each pick chooses among a shape's variants; the case's own query is replaced,
- * and kept when its schema offers neither shape.
+ * which may drop the one fact it has. Along a span coverage (a PERIOD foreign key into a span key), a variant narrows
+ * every source fact's span to its first point where it has another (narrowedFacts): the target fact still covers it,
+ * and none has its span, so its parent has no child. Each pick chooses among a shape's variants; the case's own query
+ * is replaced, and kept when its schema offers neither shape.
  */
 const provingCase = (c: QueryCase, picks: ReadonlyArray<number>): QueryCase => {
 	const b = new DagBuilder(makeIdSupply())
@@ -192,12 +200,18 @@ const provingCase = (c: QueryCase, picks: ReadonlyArray<number>): QueryCase => {
 				)
 		)
 	}
+	/** The span coverages whose source facts the case narrows. */
+	const narrowed: Array<GenContainment> = []
 	for (const [i, k] of c.schema.containments.entries()) {
 		const declared = relationNamed(c.schema, k.from.relation)
 		const variant = {
-			lookalike: pickFrom([false, false, false, true], pick(3 * i)),
-			projectParent: pickFrom(both, pick(3 * i + 1)),
-			projectChild: pickFrom(both, pick(3 * i + 2))
+			lookalike: pickFrom([false, false, false, true], pick(4 * i)),
+			projectParent: pickFrom(both, pick(4 * i + 1)),
+			projectChild: pickFrom(both, pick(4 * i + 2)),
+			narrowed: pickFrom(both, pick(4 * i + 3))
+		}
+		if (variant.narrowed && spanCoverage(c.schema, k)) {
+			narrowed.push(k)
 		}
 		const from = variant.lookalike ? Option.getOrElse(lookalike(k), () => declared) : declared
 		const to = relationNamed(c.schema, k.to.relation)
@@ -231,7 +245,7 @@ const provingCase = (c: QueryCase, picks: ReadonlyArray<number>): QueryCase => {
 			})
 		)
 	}
-	const offset = 3 * c.schema.containments.length
+	const offset = 4 * c.schema.containments.length
 	for (const [i, closed] of c.schema.closed.entries()) {
 		const [firstRow, ...restRows] = closed.rows
 		if (firstRow === undefined) {
@@ -289,7 +303,58 @@ const provingCase = (c: QueryCase, picks: ReadonlyArray<number>): QueryCase => {
 	if (!Arr.isArrayNonEmpty(roots)) {
 		return c
 	}
-	return { ...c, query: { dag: validateDag(b.build(roots)), params: {} } }
+	return {
+		...c,
+		facts: narrowedFacts(c, narrowed),
+		query: { dag: validateDag(b.build(roots)), params: {} }
+	}
+}
+
+/**
+ * The case's facts with every source fact of each span coverage of `narrowed` covering the first point of its span
+ * alone, where its span holds another. The target fact it copied still covers it, so the containment holds, and no
+ * target fact of its scalar fields has its span: target spans of one scalar value never overlap.
+ */
+const narrowedFacts = (c: QueryCase, narrowed: ReadonlyArray<GenContainment>): GenFacts =>
+	Arr.reduce(narrowed, c.facts, (facts, k) => {
+		const source = relationNamed(c.schema, k.from.relation)
+		const [span] = keyIndices(source, k.from.fields.slice(-1))
+		const rows = facts[source.name] ?? []
+		return {
+			...facts,
+			[source.name]: Arr.map(rows, (row) =>
+				Arr.map(row, (v, i) =>
+					i === span && v.literal.kind === "span" && v.literal.end - v.literal.start > 1n
+						? canonicallySpelled({
+								kind: "span",
+								start: v.literal.start,
+								end: v.literal.start + 1n
+							})
+						: v
+				)
+			)
+		}
+	})
+
+/**
+ * Whether a span coverage holds a source fact that a target fact of its scalar fields covers and none equals on the
+ * whole key: the parent reading it along the containment has no child.
+ */
+const coveredApart = (c: QueryCase, k: GenContainment): boolean => {
+	const source = relationNamed(c.schema, k.from.relation)
+	const target = relationNamed(c.schema, k.to.relation)
+	const scalars = k.from.fields.length - 1
+	const keyOf = (r: GenRelation, fields: ReadonlyArray<string>, row: StoredRow) =>
+		literalRowKey(rowValues(row), keyIndices(r, fields))
+	const targets = c.facts[target.name] ?? []
+	const whole = new Set(Arr.map(targets, (t) => keyOf(target, k.to.fields, t)))
+	const met = new Set(Arr.map(targets, (t) => keyOf(target, k.to.fields.slice(0, scalars), t)))
+	return Arr.some(
+		c.facts[source.name] ?? [],
+		(f) =>
+			met.has(keyOf(source, k.from.fields.slice(0, scalars), f)) &&
+			!whole.has(keyOf(source, k.from.fields, f))
+	)
 }
 
 /**
@@ -381,7 +446,7 @@ const contexted = (c: QueryCase, s: ContextSketch): Contexted => {
 				fields: nonEmptyList(k.to.fields, "a containment's referenced fields"),
 				selection: []
 			},
-			coverage: false,
+			coverage: spanCoverage(c.schema, k),
 			statement: "contained",
 			context
 		})),
@@ -398,6 +463,7 @@ type EvidenceFeature =
 	| `execution ${TemplateContext}`
 	| `${EvidenceContext} containment`
 	| "an orphaned containment inside a transaction"
+	| "a span coverage's fact covered apart from its target's spans"
 
 /**
  * What a suite draws: a sketch and the contexts drawn for it, and how the property resolves the sketch to its case,
@@ -417,23 +483,32 @@ const sketchedCases = (config: GenConfig): CaseDraw<QueryCaseSketch> => {
 	}
 }
 
-const defaultSketch = queryCaseSketchGen(defaultGenConfig)
+/**
+ * The proving shapes' population: the generator's own, whose relations may be keyed by a span key, so a containment
+ * into one is a span coverage (a PERIOD foreign key).
+ */
+const provingConfig: GenConfig = {
+	...defaultGenConfig,
+	schema: { ...defaultGenConfig.schema, keys: "spanKeys" }
+}
+
+const provingSketch = queryCaseSketchGen(provingConfig)
 
 /** A proving case's sketch: its generated case's sketch and the picks among its shapes' variants. */
 type ProvingSketch = readonly [QueryCaseSketch, ReadonlyArray<number>]
 
 /**
- * The proving shapes over generated cases of the default configuration, each under drawn contexts, sketched so a
+ * The proving shapes over generated cases of the proving configuration, each under drawn contexts, sketched so a
  * failure reports the sketch to keep.
  */
 const provingCases: CaseDraw<ProvingSketch> = {
 	generator: (source) =>
 		[
-			[source.draw(defaultSketch), source.draw(array(pickGen, { min: 1, max: 12 }))] as const,
+			[source.draw(provingSketch), source.draw(array(pickGen, { min: 1, max: 12 }))] as const,
 			source.draw(contextSketchGen)
 		] as const,
 	resolve: ([sketch, picks]) =>
-		map(resolveQueryCase(sketch, defaultGenConfig), (c) => provingCase(c, picks))
+		map(resolveQueryCase(sketch, provingConfig), (c) => provingCase(c, picks))
 }
 
 /**
@@ -1096,6 +1171,203 @@ const sumParameterOfInfinity: Kept<readonly [ProvingSketch, ContextSketch], Evid
 }
 
 /**
+ * A span coverage, R1(a, b) into R0's span key (b, a), whose one source fact the proving case narrowed to [1,2) inside
+ * its target's [1,3): the attachment along it finds no child for that parent, so the containment proves no bare child.
+ */
+const spanCoverageNarrowed: Kept<readonly [ProvingSketch, ContextSketch], EvidenceFeature> = {
+	note: "a span coverage typed a bare child, and a parent covered apart from its target's span had none",
+	sketch: [
+		[
+			{
+				schema: {
+					palette: [13],
+					closed: [],
+					relations: [
+						{
+							columns: [0, 0],
+							pkMask: 0,
+							pure: false,
+							keyMasks: [],
+							mutable: false,
+							fk: { enabled: false, target: 0, typed: false },
+							spanKey: true
+						},
+						{
+							columns: [0, 0],
+							pkMask: 0,
+							pure: false,
+							keyMasks: [],
+							mutable: false,
+							fk: { enabled: true, target: 0, typed: false },
+							spanKey: false
+						}
+					]
+				},
+				facts: [
+					[
+						{
+							values: [
+								{ cls: 1, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 }
+							],
+							target: 0
+						}
+					],
+					[
+						{
+							values: [
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 },
+								{ cls: 0, sp: 0 }
+							],
+							target: 0
+						}
+					],
+					[],
+					[]
+				],
+				root: {
+					tag: "plain",
+					body: {
+						tag: "union",
+						arms: [
+							{
+								tag: "project",
+								input: {
+									tag: "semi",
+									left: {
+										tag: "match",
+										occurrences: [
+											{
+												source: { tag: "relation", pick: 0 },
+												columns: [
+													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
+												]
+											}
+										],
+										equalities: [],
+										lateral: undrawn
+									},
+									right: {
+										tag: "match",
+										occurrences: [
+											{
+												source: { tag: "relation", pick: 0 },
+												columns: [
+													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
+												]
+											}
+										],
+										equalities: [],
+										lateral: undrawn
+									},
+									on: [],
+									shared: undrawn
+								},
+								out: []
+							},
+							{
+								tag: "group",
+								input: {
+									tag: "union",
+									arms: [
+										{
+											tag: "match",
+											occurrences: [
+												{
+													source: { tag: "relation", pick: 0 },
+													columns: [
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
+													]
+												}
+											],
+											equalities: [],
+											lateral: undrawn
+										},
+										{
+											tag: "match",
+											occurrences: [
+												{
+													source: { tag: "relation", pick: 0 },
+													columns: [
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
+													]
+												}
+											],
+											equalities: [],
+											lateral: undrawn
+										}
+									],
+									width: 1,
+									picks: [0],
+									tagged: false
+								},
+								full: false,
+								boundMask: 0,
+								keyMask: 0,
+								aggs: []
+							}
+						],
+						width: 1,
+						picks: [0],
+						tagged: false
+					},
+					order: undrawn
+				},
+				paramNames: [0, 0, 0, 0, 0, 0, 0, 0],
+				swarm: { filter: 1 },
+				data: { closed: 1, containments: 1 },
+				rewrite: { stated: 3, follow: 3, equate: 3, rooted: 3, regions: 3, groupFilter: 3 },
+				soundness: {
+					lateral: 3,
+					correlated: 3,
+					"correlated take": 3,
+					shared: 3,
+					window: 3,
+					approximate: 3
+				}
+			},
+			[32768]
+		],
+		{ transaction: false, containments: [] }
+	],
+	/** The swarm's thinning decision, as the shrunk case drew it. */
+	draws: "2",
+	reaches: ["a span coverage's fact covered apart from its target's spans"]
+}
+
+/**
  * The evidence a contexted case is annotated under: its containments under their drawn contexts, and the execution
  * context. Its sources' declared keys are their nodes' own.
  */
@@ -1156,6 +1428,14 @@ const holdsOn = <S>(
 					}
 					if (orphaned.length > 0) {
 						c.note("an orphaned containment inside a transaction")
+					}
+					if (
+						Arr.some(
+							contextedCase.schema.containments,
+							(k) => spanCoverage(contextedCase.schema, k) && coveredApart(contextedCase, k)
+						)
+					) {
+						c.note("a span coverage's fact covered apart from its target's spans")
 					}
 					const env = envOf({ execution, containments })
 					const analysis = analyzeLogical(contextedCase.query.dag, env)
@@ -1246,8 +1526,13 @@ describe("the logical analysis's claims hold on the facts", () => {
 			ctx,
 			"unit/analysis/logical/evidence-bare-children",
 			provingCases,
-			[sumParameterOfInfinity],
-			["delivered one", "a filter over one row", "an orphaned containment inside a transaction"]
+			[sumParameterOfInfinity, spanCoverageNarrowed],
+			[
+				"delivered one",
+				"a filter over one row",
+				"an orphaned containment inside a transaction",
+				"a span coverage's fact covered apart from its target's spans"
+			]
 		)
 	)
 })

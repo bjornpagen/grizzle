@@ -639,6 +639,17 @@ export const resolveSchema =
 		return { name: schemaName, relations, closed, containments }
 	}
 
+/**
+ * Whether a containment is a span coverage, a PERIOD foreign key: its target's key ends in a span field (a span key),
+ * so each source fact's span is covered by the union of the spans of the target facts of its scalar fields, and need
+ * equal none of them.
+ */
+export const spanCoverage = (schema: GenSchema, containment: GenContainment): boolean => {
+	const target = relationNamed(schema, containment.to.relation)
+	const last = containment.to.fields[containment.to.fields.length - 1]
+	return Arr.some(target.columns, (c) => c.name === last && isSpanType(c.type))
+}
+
 /** The containment out of a relation, when it has one. */
 export const containmentFrom = (
 	schema: GenSchema,
