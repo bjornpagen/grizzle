@@ -57,6 +57,13 @@ import { tokenOf } from "#test/support/worlds.ts"
  * exact repeat, and an insert accepted. Plant:
  * ~/.cache/grizzle-release/BR08/plants/entry-occupants-primary-key-probe-only.patch, the precheck probing the primary
  * key alone, must turn the property red.
+ *
+ * Kept: a lead-free seat inserted into an empty table (TEST_SEED=432815973's floor case 2, shrunk), whose precheck met
+ * the at most one lead object at the UNIQUE's own law column and was "permission denied for table seat": ann's role
+ * holds column SELECT on Seat's fields alone, so a write through her entry meets that object at its fields and its
+ * selection (write/insert/unique.ts entryUniques).
+ *
+ * @plant test/plants/pg/write/entry-occupants/entry-at-law-columns.patch a write through a query entry meets a key over a selected side at its UNIQUE's law column, which the entry's role may not read
  */
 const Subject = str.regex("^u_[a-z]{1,8}$")
 const Seat = relation(
@@ -343,7 +350,18 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 										],
 										{ cases: 60, sense: notesOnly }
 									),
-									kept: [],
+									kept: [
+										{
+											note: "a lead-free seat into an empty table: its precheck read the at most one lead's law column, which ann may not read (TEST_SEED=432815973, floor case 2)",
+											sketch: {
+												hidden: Option.none(),
+												inside: Option.none(),
+												submitted: { id: 1, code: 1, grp: 1, lead: false, team: 1 }
+											},
+											draws: "",
+											reaches: ["accepted"]
+										}
+									],
 									runs: 60,
 									shrink: completeShrink,
 									concurrency: 1,

@@ -1,0 +1,11 @@
+--- a/packages/engine/src/write/frontend/compile.ts
++++ b/packages/engine/src/write/frontend/compile.ts
+@@ -1272,7 +1272,7 @@
+ 		 * entryUniques). */
+ 		const relation: WrittenRelation = Object.freeze({
+ 			...written,
+-			uniques: entryUniques(written.uniques)
++			uniques: written.uniques
+ 		})
+ 		const writeWorld = options.world
+ 		if (writeWorld.kind !== "role") {

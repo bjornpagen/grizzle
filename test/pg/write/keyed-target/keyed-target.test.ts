@@ -20,18 +20,22 @@
  * pruned of the items a relation parameter no longer names, a described delete its target plays (write/delete/anchor.ts);
  * or republished, every item of the unit deleted by a query and its new items inserted in one stratum, so the delete
  * removes only what the unit no longer has (write/delete/exact.ts, its input the deleted less the inserted): edullm's
- * published pools and tests.
+ * published pools and tests. And Lead, rows of an id, a unit's key and whether the row leads it, at most one lead a
+ * unit: a key over a selected side, a UNIQUE over the unit key's law column, NULL where the row does not lead, the one
+ * index that holds the unit key, which an insert meets its stored rows at by binding that column
+ * (laws/model/uniques.ts GuardedReach), as the UNIQUE of a tree's siblings, over its parent's law column, is met.
  *
  * The box: an instance of one or two units of each kind, each tree, shelf and test of one or two nodes, books, tags and
  * instances, each test placing its own assembly, and each unit's ledger of one or two items; and a call at one unit of
  * each kind: its units deleted whole, replaced by the same value, or replaced by a changed one, each named by its facts
  * or by a query of its key (edullm's publisher replaces a package by a query); or its ledger pruned, or republished,
- * to its first item.
+ * to its first item; or a lead inserted for it.
  *
  * Features, each required: each program at each fate its units meet.
  *
  * @plant test/plants/pg/write/keyed-target/unit-or-exists.patch the unit delete's doomed keys of a member of several families read as one condition over every stored row, an OR of an EXISTS per owner (write/delete/unit.ts before this law)
  * @plant test/plants/pg/write/keyed-target/delete-target-unbound.patch an exact delete binds its target to its source rows by a row comparison cast to text, which no index of the target serves
+ * @plant test/plants/pg/write/keyed-target/guarded-by-fields.patch a key over a selected side is met at its fields with its selection over the stored row, never at its UNIQUE's own law column, so no index serves the read
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
@@ -51,8 +55,10 @@ import {
 	Monoid,
 	on,
 	ordered,
+	key,
 	relation,
 	schema,
+	select,
 	tree
 } from "#compiler/public/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
@@ -129,13 +135,14 @@ const Inst = relation(
 const Asm = relation("Asm", { a: pg.bigint, note: pg.bigint, places: drawnField(natural) }, ["a"])
 const Place = relation("Place", { t: pg.bigint, start: natural, a: pg.bigint }, ["t", "start", "a"])
 const Pub = relation("Pub", { pkg: pg.bigint, item: pg.bigint }, ["pkg", "item"])
+const Lead = relation("Lead", { id: pg.bigint, pkg: pg.bigint, leads: pg.boolean }, ["id"])
 
 const attrs = counted(on(Attr, "doc", "start"), fin(Node, "attrs"))
 const books = ordered(on(Book, "shelf", "at"), fin(Shelf, "books"))
 
 const World = schema(
 	"keyed_target",
-	[Node, Attr, Tok, Shelf, Book, Tag, Test, Inst, Asm, Place, Pub],
+	[Node, Attr, Tok, Shelf, Book, Tag, Test, Inst, Asm, Place, Pub, Lead],
 	[
 		tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["doc"] }),
 		attrs,
@@ -152,7 +159,13 @@ const World = schema(
 		tree(on(Inst, "parent", "at"), fin(Inst, "children"), { root: ["t"] }),
 		counted(on(Inst, "t"), fin(Test, "insts")),
 		counted(on(Place, "t", "start"), fin(Inst, "places")),
-		counted(on(Place, "a"), fin(Asm, "places"))
+		counted(on(Place, "a"), fin(Asm, "places")),
+		key(
+			on(
+				select(Lead, (x) => x.eq(x.leads, true)),
+				"pkg"
+			)
+		)
 	]
 )
 
@@ -167,7 +180,8 @@ const RELATIONS: Arr.NonEmptyReadonlyArray<string> = [
 	"Inst",
 	"Asm",
 	"Place",
-	"Pub"
+	"Pub",
+	"Lead"
 ]
 
 /** Each unit root's delete by a query of its key, the key a parameter of the call. */
@@ -269,10 +283,11 @@ const programs = Object.freeze({
 					.find({ pkg, item })
 			})
 		)
-		.insert(Pub, [])
+		.insert(Pub, []),
+	lead: ChangeSet.empty(World).insert(Lead, [])
 })
 
-type Program = "replace" | "replace by query" | "prune" | "republish"
+type Program = "replace" | "replace by query" | "prune" | "republish" | "lead"
 type Fate = "deleted" | "replaced unchanged" | "replaced changed"
 
 /**
@@ -291,7 +306,8 @@ const PROGRAMS: Arr.NonEmptyReadonlyArray<Program> = [
 	"replace",
 	"replace by query",
 	"prune",
-	"republish"
+	"republish",
+	"lead"
 ]
 const FATES: Arr.NonEmptyReadonlyArray<Fate> = ["deleted", "replaced unchanged", "replaced changed"]
 
@@ -300,7 +316,10 @@ const sketchGen: Gen<Sketch> = (source) => {
 	const program = source.draw(element(PROGRAMS))
 	return {
 		program,
-		fate: program === "prune" || program === "republish" ? "deleted" : source.draw(element(FATES)),
+		fate:
+			program === "replace" || program === "replace by query"
+				? source.draw(element(FATES))
+				: "deleted",
 		units,
 		size: source.draw(int(1, 2)),
 		at: source.draw(int(0, units - 1))
@@ -316,7 +335,8 @@ const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 		Arr.map(FATES, (f): Feature => `${p} with its units ${f}`)
 	),
 	"prune with its units deleted",
-	"republish with its units deleted"
+	"republish with its units deleted",
+	"lead with its units deleted"
 ]
 
 /** A unit's value: the label every node, book, tag and instance of it carries, `size` of each. */
@@ -482,6 +502,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											params: { pkg: at },
 											facts: { insert: { Pub: [{ pkg: at, item: 0n }] } }
 										})
+									case "lead":
+										return db.workload.lead.explain({
+											params: {},
+											facts: { insert: { Lead: [{ id: at, pkg: at, leads: true }] } }
+										})
 								}
 							}
 							return yield* exhaust(
@@ -489,7 +514,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									suite: "pg/write/keyed-target",
 									generator: sketchGen,
 									literal: Formatter.format,
-									box: "one or two units of each kind, each of one or two nodes, books, tags, instances and ledger items, and a call at one of them: its units deleted, replaced unchanged or replaced changed, named by facts or by a query, or its ledger pruned or republished",
+									box: "one or two units of each kind, each of one or two nodes, books, tags, instances and ledger items, and a call at one of them: its units deleted, replaced unchanged or replaced changed, named by facts or by a query, or its ledger pruned or republished, or a lead inserted",
 									oracle: {
 										kind: "postgresql",
 										name: "EXPLAIN of each statement the member sends, sequential, index and index-only scans disabled over unanalyzed relations: no sequential scan of a relation the statement modifies"
