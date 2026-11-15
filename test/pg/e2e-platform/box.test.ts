@@ -18,8 +18,8 @@
  * - every grant pays only what it holds and only over requests inside its validity, credits pay as much of each
  *   charge as the valid grants hold, and an earlier-expiring grant is spent before a later one is touched.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): laws-le-strict.patch (a check's `le` lowered as `<`, so a grant spent
- * exactly is refused).
+ * @plant test/plants/pg/spans/storage/laws-le-strict.patch A check's `le` lowered as `<`, so a grant spent exactly is
+ * refused; the box's settlements are refused where the model records them.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

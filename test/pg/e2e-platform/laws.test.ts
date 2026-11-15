@@ -32,8 +32,8 @@
  *
  * Features: each fault refused by its law.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): laws-le-strict.patch (a check's `le` lowered as `<`, so spend exactly
- * at the cap is refused).
+ * @plant test/plants/pg/spans/storage/laws-le-strict.patch A check's `le` lowered as `<`, so spend exactly at the cap
+ * is refused; the sound write is refused where it must be accepted.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

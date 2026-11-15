@@ -39,8 +39,8 @@ const subject: FieldDomain = textDomain("^u_[a-z]{1,8}$", "u")
  * context, Session { sub }, read from the token's top level. Two relations, one law, one context: the least base on
  * which a query entry can filter by a claim and write through it, and a law can refuse a write from inside a world.
  *
- * Plants (main's test phase): worlds-laws-foreign-keys-dropped.patch.
- *
+ * @plant test/plants/pg/education/worlds-laws-foreign-keys-dropped.patch No native foreign key is installed, so a write
+ * that breaks the containment is stored; the program leaves the model.
  * @plant test/plants/pg/world-model/database-default-glued.patch The harness prints each drafted statement as one text,
  * so the database-setting tamper's statements meet 42601 "cannot insert multiple commands into a prepared statement".
  * @plant test/plants/pg/world-model/get-domain-ignored.patch The worlds model judges a get without its domain check, so

@@ -90,8 +90,9 @@ import type {
  * The setup's actions are driven and checked like any other, but they note nothing: what a case reached is its one
  * action. A tamper changes database settings, so the file runs in a database of its own.
  *
- * Plants (main's test phase): worlds-isolation-row-security-off.patch.
- *
+ * @plant test/plants/pg/education/worlds-isolation-row-security-off.patch Every table's ENABLE ROW LEVEL SECURITY is
+ * printed as DISABLE (sql/print.ts printAlterTableAction), so no relation's row security keeps a world to its own facts;
+ * the installed-catalog check finds it at the installation.
  * @plant test/plants/pg/world-model/inductive-unconstructed.patch No steered turn builds the state of a constructed
  * feature (startOf), so the four features a drawn state rarely offers a way to are left to the label-fixed search,
  * which reaches none of them; the coverage verdict fails with FeaturesUnreached.
