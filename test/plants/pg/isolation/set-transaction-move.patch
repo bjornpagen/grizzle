@@ -1,0 +1,42 @@
+diff --git a/test/pg/isolation/support/race.ts b/test/pg/isolation/support/race.ts
+index 417da720..03209b18 100644
+--- a/test/pg/isolation/support/race.ts
++++ b/test/pg/isolation/support/race.ts
+@@ -523,8 +523,15 @@ const changeTxnOf = (
+ 		return {
+ 			kind: "direct",
+ 			session: call.session,
+-			begin: { _tag: "BeginAs", sql: s.writeBegins[levelOf(s, call.role)] },
+-			statements: [defined(first, "a call's statement"), ...rest],
++			begin: { _tag: "Begin" },
++			statements: [
++				{
++					sql: `SET TRANSACTION ${Str.slice(6)(s.writeBegins[levelOf(s, call.role)])}`,
++					footprint: everyRelation
++				},
++				defined(first, "a call's statement"),
++				...rest
++			],
+ 			end: "commit"
+ 		}
+ 	})
+@@ -556,11 +563,14 @@ const readTxnOf = (s: InstalledShape, call: ReadCall): Effect.Effect<RaceTxn<nev
+ 		return {
+ 			kind: "direct",
+ 			session: call.session,
+-			begin: {
+-				_tag: "BeginAs",
+-				sql: read.deferrable ? s.readBegins.deferrable : s.readBegins.immediate
+-			},
+-			statements: [{ sql, footprint: everyRelation }],
++			begin: { _tag: "Begin" },
++			statements: [
++				{
++					sql: `SET TRANSACTION ${Str.slice(6)(read.deferrable ? s.readBegins.deferrable : s.readBegins.immediate)}`,
++					footprint: everyRelation
++				},
++				{ sql, footprint: everyRelation }
++			],
+ 			end: "commit"
+ 		}
+ 	})

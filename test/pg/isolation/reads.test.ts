@@ -14,21 +14,31 @@
  * modes by SET TRANSACTION), DEFERRABLE exactly for a deferrable member; the barrier sees a read waiting for a safe
  * snapshot as it sees a lock wait (test/support/substrate/barrier.ts).
  *
- * - At generate's levels, where the teller and the closer are SERIALIZABLE (the closer, which runs SERIALIZABLE, reads
- *   what the teller writes: condition `laws`), every order of a race's moves is one some serial order of its calls
- *   explains, reads included, and no deferrable read fails: PostgreSQL waits for its safe snapshot, retaking it where
- *   the closer committed with a conflict out to the teller, so it never meets a serialization failure. A plain read
- *   reads at once; the cycle is broken by refusing the closer.
- * - With the teller forced READ COMMITTED, condition `laws` without its second half, SSI cannot see the closer miss the
- *   teller's deposit, and a deferrable read is safe at once: the oracle must find a run no serial order explains, and
- *   generate must keep the teller SERIALIZABLE.
+ * - At generate's levels, where the teller and the closer are SERIALIZABLE, every order of a race's moves is one some
+ *   serial order of its calls explains, reads included, and no deferrable read fails: PostgreSQL waits for its safe
+ *   snapshot, retaking it where the closer committed with a conflict out to the teller, so it never meets a
+ *   serialization failure. A plain read reads at once; the cycle is broken by refusing the closer. The closer runs
+ *   SERIALIZABLE and reads what the teller writes, which condition `laws`'s second half refuses the teller; generate's
+ *   certificate names condition `absence` instead, which the certifier judges first: the facts read the closer's
+ *   insertion as reading Deposit negated.
+ * - With the teller forced READ COMMITTED, as a certifier without either condition would pass it, SSI cannot see the
+ *   closer miss the teller's deposit, and a deferrable read is safe at once: the oracle must find a run no serial order
+ *   explains, and generate must keep the teller SERIALIZABLE.
  *
  * Features: a plain read and a deferrable one; a deferrable read that waited for a safe snapshot, placed after a writer
  * it waited for and placed before one; a writer refused beside a plain read; the forced teller caught.
  *
- * Plants (~/.cache/grizzle-release/DEFERRABLE/plants): read-never-deferrable.patch (a read's BEGIN never DEFERRABLE),
- * read-repeatable.patch (a deferrable read begun REPEATABLE READ READ ONLY), served-deferrable-dropped.patch (a served
- * read never deferrable), certify-laws-reader-half.patch (condition `laws` without a SERIALIZABLE member's read).
+ * @plant test/plants/pg/isolation/read-never-deferrable.patch A read's BEGIN never DEFERRABLE (sql/print.ts
+ * beginRead), so no deferrable read waits for a safe snapshot; the races at generate's levels leave those features
+ * unreached.
+ * @plant test/plants/pg/isolation/read-repeatable.patch A deferrable read begun REPEATABLE READ READ ONLY; a race at
+ * generate's levels shows a run no serial order explains.
+ * @plant test/plants/pg/isolation/served-deferrable-dropped.patch A served read never deferrable: the served file
+ * records every read member as immediate (program/served.ts servedInstantRead), so the races at generate's levels
+ * leave a deferrable read's waits unreached.
+ * @plant test/plants/pg/isolation/set-transaction-move.patch A race's transaction modes sent as a SET TRANSACTION
+ * move of its own before its statements (support/race.ts), not in its BEGIN as a Db sends them: each race has 1680
+ * orders of its moves, past the bound an every-order race may run, and both properties fail before any run.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

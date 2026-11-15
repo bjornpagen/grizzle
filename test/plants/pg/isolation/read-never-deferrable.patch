@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index 1c1e6cab..0a6e6602 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -1964,7 +1964,7 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
+ 			)
+ 		case "beginRead":
+ 			return out.line(
+-				`BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY${statement.deferrable ? " DEFERRABLE" : ""}`
++				"BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY"
+ 			)
+ 		case "beginWrite":
+ 			return out.line(`BEGIN ISOLATION LEVEL ${isolationLevels[statement.isolation]}`)
