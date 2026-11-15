@@ -12,8 +12,10 @@
  *   every value in its field's domain.
  * - Installations: a lawful one breaks no write-list rule, a planted one is classified as its defect, every role sits
  *   in exactly one login, and every query entry is one grizzle builds (ruleFaults).
- * - Forced moves: under weights of zero, a state with no open session draws a forced move, and any other an offered
- *   kind; an open is live and a direct writer begins SERIALIZABLE.
+ * - Forced moves: under weights of zero, a state with no live session draws a forced move, and any other an offered
+ *   kind; an open is live and a direct writer begins SERIALIZABLE. The forced moves are restated here from the model's
+ *   own state (forcedOf), apart from the offering the generator draws by (generate/offered.ts forcedMoves), which must
+ *   agree with them.
  * - The small box: from every reality of the box, after drawn steps, the box's actions in a state are duplicate-free up
  *   to renaming the values the state does not hold, cover every kind the state offers, and keep the serial rule.
  *
@@ -25,7 +27,8 @@
  * @plant test/plants/unit/world-model/gen-actions-unquiet.patch A session is named past the serial rule's holder; the actions property fails.
  * @plant test/plants/unit/world-model/gen-reality-unrepaired.patch A drawn reality is left unrepaired; the realities property fails.
  * @plant test/plants/unit/world-model/gen-planted-live.patch A planted installation is left lawful; the installations property fails.
- * @plant test/plants/unit/world-model/gen-forced-none.patch No move is ever forced; the forced moves property fails, its forced moves unreached.
+ * @plant test/plants/unit/world-model/gen-forced-none.patch No move is ever forced; the forced moves property fails, the
+ * generator's forced moves no longer the ones the model's state forces (forcedOf).
  * @plant test/plants/unit/world-model/gen-box-duplicate.patch The box holds a direct writer's statement twice; the small box property fails.
  * @plant test/plants/unit/world-model/worlds-box-values-of-another-state.patch The box reads every state's values once
  * for the whole process, so a state's box draws the values the first state it enumerated held; the sixth property fails.
@@ -72,6 +75,8 @@ import {
 	docsOneShareInstall
 } from "#test/support/worlds/model/bases/docs.ts"
 import { ruleFaults } from "#test/support/worlds/model/host.ts"
+import { driftOf } from "#test/support/worlds/model/session/catalog.ts"
+import { migrating, staleDb } from "#test/support/worlds/model/session/state.ts"
 import { initialState, settle, step } from "#test/support/worlds/model/step.ts"
 import type {
 	Action,
@@ -321,6 +326,28 @@ const sessionsGen = (state: ModelState): Gen<ReadonlyArray<ModelSession>> => {
 		...source.draw(array(oneOf([db, closed]), { min: 0, max: 3 })),
 		...source.draw(array(direct, { min: 0, max: 1 }))
 	]
+}
+
+/**
+ * The moves a state forces when the weights give nothing to draw, restated from the model's state apart from the
+ * generator's offering: none while a session is live (a direct writer's transaction, or a Db whose guard holds the
+ * ledger, whose claims PostgreSQL admits and whose snapshot is the installation's current version); otherwise opening a
+ * Db, and beginning a direct transaction too unless a folder is unfinished or the catalog has left its contract (the
+ * model's drift finds a perturbation).
+ */
+const forcedOf = (state: ModelState): ReadonlyArray<ActionKind> => {
+	const live = Arr.some(
+		state.sessions,
+		(s) =>
+			s.kind === "direct" ||
+			(s.kind === "db" && s.guard === "held" && s.claims === "admitted" && !staleDb(state, s))
+	)
+	if (live) {
+		return []
+	}
+	return migrating(state) || driftOf(state.install, state.tampered).length > 0
+		? ["open-db"]
+		: ["open-db", "direct-begin"]
 }
 
 /**
@@ -852,7 +879,12 @@ describe("the worlds generators", () => {
 					},
 					({ state, action }, c) =>
 						Effect.sync(() => {
-							const forced = forcedMoves(state)
+							const forced = forcedOf(state)
+							assert.deepEqual(
+								Arr.sort(forcedMoves(state), Order.String),
+								Arr.sort(forced, Order.String),
+								"the generator's forced moves are the ones the model's state forces"
+							)
 							if (forced.length > 0) {
 								assert.ok(
 									forced.includes(action.kind),
