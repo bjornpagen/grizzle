@@ -38,35 +38,47 @@
  * transaction may also mark a negation's rows as they stand at that point (a sync), mark a picked row of one, remove a
  * picked mark, or list the k of a marked row of Unlisted no S row shares: an S row whose b is 1 and a W row of its k
  * inserted at once, each blocking the row through a negated arm of its own, with the rows every other rule then needs
- * and every other negation's marks synced, so the row's stale mark is the one rule the state breaks. The search
- * requires that last situation refused: a probe that kept the target arm's other negations read it through neither
- * insert.
+ * and every other negation's marks synced, so the row's stale mark is the one rule the state breaks. Beside the drawn
+ * histories, two are constructed, each from a state that keeps every rule to a last transaction of one edit: the
+ * pairing of a marked row of Unpaired whose k an S row already holds, a U row of that S row's b, at the row's a,
+ * inserted alone, which withdraws the row from Unpaired through U, the second table of its negated join, while the U
+ * row meets a fact of J2 and the J3 fact it adds is no (2, 2); and the unpairing of a k, its one S row, the only S row
+ * of its b, and the U rows of that b deleted at once, with the k's W rows, each R row of the k given a V row and every
+ * other negation's marks synced, so the k's R rows come back to Unpaired unmarked. Each breaks one rule alone: the
+ * paired row's stale mark, and the returned rows' missing marks. The search requires the listing, the pairing and the
+ * unpairing refused: a probe that kept the target arm's other negations read the listing through neither insert, only a
+ * probe of U reads the pairing, and only a probe that drops the negated arm's match after the held one reads the
+ * unpairing, since each deleted row's other is gone at COMMIT. A drawn history reaches the listing rarely and never the
+ * other two, so each has a history constructed to reach it (constructed), which a witness runs where its turn aims at
+ * it (aimedCase).
  *
- * Planted in a scratch copy, each of these fails the search: no trigger on one table a rule reads; a NEW probe that
- * restricts only the first occurrence of the written relation in an arm, which misses the self-join; a key over a
- * query whose violation needs every heading field to differ; a target probe that joins the later occurrences as they
- * stand instead of relaxing them, which misses an unwinding; no probe for the rows a negated relation's write blocks or
- * unblocks; and a target probe that keeps the target's anti-joins, which misses a lonely row's end.
- *
- * The plants of the negations of what is no table, written for the pin-time run, each of which must fail the search: no
- * probe for a negated arm's matches after its first, so U, the second table of Unpaired's negated join, goes unread;
- * each negated arm's probes read with the other polarity, a target's negated tables probed on DELETE and the breaking
- * side's on INSERT; a probe of a breaking side's negated arm that reads the matches after the held one as they stand
- * instead of dropping them, which misses an unwinding that deletes an S row and the U row it pairs with at once; a probe
- * of a target's negated arm that keeps the target arm's other negations, as the probe of one anti-join did before
- * negated arms, which commits a marked row listed through both negations of its arm at once; and a conjunction holding
- * a negation read whole, which refuses Quiet. Beside them, for the schema agreement (test/types/schema/agreement.test.ts):
- * the engine refusing a negation of a query again, as it did before negated arms, which the agreement's derivedNegated
- * form must fail on, its types admitting what the engine refuses.
- *
- * Their patches under ~/.cache/grizzle-release/BR09/plants/, in the order above: rule-query-no-trigger-on-a-table,
- * rule-query-new-probe-first-occurrence-only, rule-query-key-every-field-differs,
- * rule-query-target-probe-joins-later-occurrences, rule-query-no-negated-probes, rule-query-target-probe-keeps-anti-joins;
- * then rule-query-negated-arm-first-match-only, rule-query-negated-probes-other-polarity,
- * rule-query-unblocked-probe-reads-later-matches, rule-query-blocked-probe-keeps-target-negations and
- * rule-query-conjunction-negation-read-whole, each a .patch.
+ * @plant test/plants/pg/laws/rule-query-no-trigger-on-a-table.patch no trigger on the first table each rule reads
+ * (physical/ddl/rules.ts addRules), so a write there alone that breaks the rule commits; the search fails.
+ * @plant test/plants/pg/laws/rule-query-new-probe-first-occurrence-only.patch a NEW probe for the first occurrence
+ * alone of the written relation in an arm, which misses the self-join; the search fails.
+ * @plant test/plants/pg/laws/rule-query-key-every-field-differs.patch a key over a query whose probe's violation needs
+ * every heading field to differ rather than one; the search fails.
+ * @plant test/plants/pg/laws/rule-query-target-probe-joins-later-occurrences.patch a target's delete probe that joins
+ * the matches after the touched one in its relaxation order as they stand instead of dropping them, which misses the
+ * unwinding of a J3 fact; the search fails.
+ * @plant test/plants/pg/laws/rule-query-no-negated-probes.patch no probe for the rows a negated relation's write blocks
+ * or unblocks; the search fails.
+ * @plant test/plants/pg/laws/rule-query-target-probe-keeps-anti-joins.patch a target's delete probe that keeps the
+ * target arm's anti-joins, which misses a lonely row's end; the search fails.
+ * @plant test/plants/pg/laws/rule-query-negated-arm-first-match-only.patch no probe for a negated arm's matches after
+ * its first, so U, the second table of Unpaired's negated join, goes unread; the search fails.
+ * @plant test/plants/pg/laws/rule-query-negated-probes-other-polarity.patch each negated arm's probes read with the
+ * other polarity, a target's negated tables probed on DELETE and the breaking side's on INSERT; the search fails.
+ * @plant test/plants/pg/laws/rule-query-unblocked-probe-reads-later-matches.patch a probe of a breaking side's negated
+ * arm that reads the matches after the held one as they stand instead of dropping them, which misses an unwinding
+ * that deletes an S row and the U row it pairs with at once; the search fails.
+ * @plant test/plants/pg/laws/rule-query-blocked-probe-keeps-target-negations.patch a probe of a target's negated arm
+ * that keeps the target arm's negations of other relations, as the probe of one anti-join did before negated arms,
+ * which commits a marked row listed through both negations of its arm at once; the search fails.
+ * @plant test/plants/pg/laws/rule-query-conjunction-negation-read-whole.patch a conjunction holding a negation read
+ * whole, so the installation refuses Quiet (UnsupportedLawFamily) and the test fails at its install.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { drawn, explore, type Case as Search } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, element, type Gen, int, type Weighted, weighted } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
@@ -497,6 +509,8 @@ type Edit =
 	| { readonly kind: "unlone"; readonly pick: number; readonly keepV: boolean }
 	| { readonly kind: "sync" }
 	| { readonly kind: "list"; readonly pick: number }
+	| { readonly kind: "pair"; readonly pick: number }
+	| { readonly kind: "unpair"; readonly pick: number }
 	| { readonly kind: "mark"; readonly form: Form; readonly pick: number }
 	| { readonly kind: "unmark"; readonly pick: number }
 
@@ -608,11 +622,78 @@ type Feature =
 	| "a fact unwound across tables while W needs it"
 	| "a lonely row deleted and blocked at once while V needs it"
 	| "a marked row listed through both negations of its arm at once"
+	| "a marked row paired through its negated join's second table alone"
+	| "a row brought back to Unpaired by an S row and its U rows deleted at once"
 	| "a grizzle write committed"
 	| "a grizzle write refused by a rule"
 	| "concurrent writers all committed"
 	| "concurrent writer refused"
 	| "concurrent writer refused by a serialization failure"
+
+/**
+ * The histories constructed to reach the situations a drawn history reaches rarely, each its last transaction's one
+ * edit, from a state that keeps every rule:
+ *
+ * - a marked row listed through both negations of its arm at once: a marked lonely row, then the listing of its k;
+ * - a marked row paired through U alone: two clusters, at k 0 with b 0 and at k 1 with b 1, the first's U row deleted
+ *   and its W row moved to k 1, which a J3 fact holds, and every mark synced, so the first R row is a marked row of
+ *   Unpaired whose k an S row holds; then its pairing;
+ * - a row brought back to Unpaired: one cluster, its b below 2 so its J3 fact keeps the check, then the unpairing of
+ *   its k.
+ */
+const constructed: Arr.NonEmptyReadonlyArray<readonly [Feature, Gen<ReadonlyArray<Transaction>>]> =
+	[
+		[
+			"a marked row listed through both negations of its arm at once",
+			(s) => [
+				{
+					writer: "sql",
+					ops: [{ kind: "lone", k: s.draw(int(0, 2)), a: s.draw(int(0, 2)), marked: true }]
+				},
+				{ writer: s.draw(element(["sql", "grizzle"] as const)), ops: [{ kind: "list", pick: 0 }] }
+			]
+		],
+		[
+			"a marked row paired through its negated join's second table alone",
+			(s) => [
+				{
+					writer: "sql",
+					ops: [
+						{ kind: "cluster", k: 0, a: s.draw(int(0, 2)), b: 0 },
+						{ kind: "cluster", k: 1, a: s.draw(int(0, 2)), b: 1 },
+						{ kind: "delete", relation: "U", pick: 0 },
+						{ kind: "update", relation: "W", pick: 0, second: false, value: 1 },
+						{ kind: "sync" }
+					]
+				},
+				{ writer: s.draw(element(["sql", "grizzle"] as const)), ops: [{ kind: "pair", pick: 0 }] }
+			]
+		],
+		[
+			"a row brought back to Unpaired by an S row and its U rows deleted at once",
+			(s) => [
+				{
+					writer: "sql",
+					ops: [
+						{ kind: "cluster", k: s.draw(int(0, 1)), a: s.draw(int(0, 2)), b: s.draw(int(0, 1)) }
+					]
+				},
+				{ writer: s.draw(element(["sql", "grizzle"] as const)), ops: [{ kind: "unpair", pick: 0 }] }
+			]
+		]
+	]
+
+/**
+ * The case a witness runs: its drawn one, or, where its turn aims at a situation a history is constructed to reach
+ * (Case.steering), that history drawn on the case's own tape, beside the drawn case's concurrent writers.
+ */
+const aimedCase = (drawnCase: RuleCase, search: Search<Feature>): RuleCase => {
+	const pending = Option.getOrUndefined(search.steering)
+	const aim = Arr.findFirst(constructed, ([feature]) => pending?.aimed(feature) === true)
+	return Option.isNone(aim)
+		? drawnCase
+		: { history: search.draw(aim.value[1]), concurrent: drawnCase.concurrent }
+}
 
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
@@ -632,8 +713,11 @@ const picked = <V>(
 
 /**
  * A transaction resolved against a state: its statements, the state it leaves, the k of each J3 fact it unwinds, the
- * id of each lonely row it deletes beside an S row of its k it inserts, keeping its V row, and the id of each marked row
- * of Unlisted whose k it lists through both negated arms of Unlisted's one arm at once, keeping its mark.
+ * id of each lonely row it deletes beside an S row of its k it inserts, keeping its V row, the id of each marked row
+ * of Unlisted whose k it lists through both negated arms of Unlisted's one arm at once, keeping its mark, the id of
+ * each marked row of Unpaired a U row it inserts pairs through an S row already standing, keeping its mark, and the id
+ * of each row it brings back to Unpaired by deleting the one S row of its k and the U rows that pair it at once,
+ * leaving it unmarked.
  */
 interface Resolved {
 	readonly statements: ReadonlyArray<string>
@@ -641,6 +725,8 @@ interface Resolved {
 	readonly unwound: ReadonlyArray<number>
 	readonly withdrawn: ReadonlyArray<number>
 	readonly listed: ReadonlyArray<number>
+	readonly paired: ReadonlyArray<number>
+	readonly unpaired: ReadonlyArray<number>
 }
 
 /** Fresh primary keys, one counter per relation, shared by every session of a case. */
@@ -668,6 +754,8 @@ const resolve = (
 	const unwound: Array<number> = []
 	const withdrawn: Array<number> = []
 	const listed: Array<number> = []
+	const paired: Array<number> = []
+	const unpaired: Array<number> = []
 	const insertRow = (relation: Rel, id: number, x: number, y: number): void => {
 		switch (relation) {
 			case "R":
@@ -911,6 +999,72 @@ const resolve = (
 				listed.push(id)
 				break
 			}
+			case "pair": {
+				const rows = negated({ R, S, U, T: Tr, W: Wr, V: Vr, N: Nr }).unpaired
+				const found = picked(
+					new Map(
+						Arr.flatMap([...R], ([id, r]) =>
+							rows.includes(id) && Nr.has(markKey(formCode.unpaired, id))
+								? Arr.map(
+										Arr.take(
+											Arr.filter([...S.values()], (x) => x.k === r.k && (r.a !== 2 || x.b !== 2)),
+											1
+										),
+										(x) => [id, { a: r.a, b: x.b }] as const
+									)
+								: []
+						)
+					),
+					op.pick
+				)
+				if (Option.isNone(found)) {
+					break
+				}
+				const [id, u] = found.value
+				insertRow("U", keys.fresh(), u.a, u.b)
+				paired.push(id)
+				break
+			}
+			case "unpair": {
+				const found = picked(
+					new Map(
+						Arr.filter(
+							[...S],
+							([, x]) =>
+								!Arr.some([...S.values()], (y) => y !== x && (y.k === x.k || y.b === x.b)) &&
+								Arr.some([...U.values()], (u) => u.b === x.b) &&
+								Arr.some([...R.values()], (r) => r.k === x.k) &&
+								!Arr.some([...R], ([id, r]) => r.k !== x.k && Wr.get(id)?.k === x.k)
+						)
+					),
+					op.pick
+				)
+				if (Option.isNone(found)) {
+					break
+				}
+				const [at, x] = found.value
+				deleteRow("S", at)
+				for (const [id, u] of U) {
+					if (u.b === x.b) {
+						deleteRow("U", id)
+					}
+				}
+				for (const [id, w] of Wr) {
+					if (w.k === x.k) {
+						deleteRow("W", id)
+					}
+				}
+				for (const [id, r] of R) {
+					if (r.k !== x.k) {
+						continue
+					}
+					Vr.set(id, id)
+					statements.push(`INSERT INTO ${table("V")} (id) VALUES (${id})`)
+					unpaired.push(id)
+				}
+				marking(Arr.filter(forms, (f) => f !== "unpaired"))
+				break
+			}
 			case "mark": {
 				const found =
 					op.form === "unused"
@@ -956,7 +1110,15 @@ const resolve = (
 			}
 		}
 	}
-	return { statements, after: { R, S, U, T: Tr, W: Wr, V: Vr, N: Nr }, unwound, withdrawn, listed }
+	return {
+		statements,
+		after: { R, S, U, T: Tr, W: Wr, V: Vr, N: Nr },
+		unwound,
+		withdrawn,
+		listed,
+		paired,
+		unpaired
+	}
 }
 
 /** The rows a table holds now, read back as integers. */
@@ -1043,6 +1205,32 @@ const unchanged = (before: State, after: State): boolean =>
 	sameKeys(before.V, after.V) &&
 	sameKeys(before.N, after.N)
 
+/**
+ * The situations a transaction of one constructed edit reaches, each where the state it leaves breaks one rule alone:
+ * a marked row of Unpaired paired by a U row inserted alone through an S row already standing, its stale mark broken,
+ * which only a probe of U, the second table of Unpaired's negated join, reads; and rows brought back to Unpaired by the
+ * one S row of their k and the U rows that pair it deleted at once, unmarked, which only a probe that drops the
+ * negated arm's other match reads, since each deleted row's other is gone at COMMIT.
+ */
+const alone = (
+	ops: ReadonlyArray<Op>,
+	t: Resolved,
+	breaks: ReadonlyArray<Rule>
+): ReadonlyArray<Feature> => {
+	const [only, ...more] = breaks
+	if (ops.length !== 1 || only === undefined || more.length > 0) {
+		return []
+	}
+	return [
+		...(only === "nUnpaired" && t.paired.length > 0
+			? ["a marked row paired through its negated join's second table alone" as const]
+			: []),
+		...(only === "unpaired" && t.unpaired.length > 0
+			? ["a row brought back to Unpaired by an S row and its U rows deleted at once" as const]
+			: [])
+	]
+}
+
 /** A serialization failure's SQLSTATE. */
 const serializationFailure = "40001"
 
@@ -1128,6 +1316,8 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										"a fact unwound across tables while W needs it",
 										"a lonely row deleted and blocked at once while V needs it",
 										"a marked row listed through both negations of its arm at once",
+										"a marked row paired through its negated join's second table alone",
+										"a row brought back to Unpaired by an S row and its U rows deleted at once",
 										"a grizzle write committed",
 										"a grizzle write refused by a rule",
 										"concurrent writers all committed",
@@ -1143,8 +1333,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								steerEvery: 16,
 								caseHang
 							},
-							(rc, c) =>
+							(drawnCase, c) =>
 								Effect.gen(function* () {
+									const rc = aimedCase(drawnCase, c)
 									yield* cleared(seat, RELATIONS)
 									const keys = new Keys()
 									let state: State = emptyState
@@ -1221,6 +1412,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											) {
 												c.note("a marked row listed through both negations of its arm at once")
 											}
+											for (const situation of alone(tx.ops, t, breaks)) {
+												c.note(situation)
+											}
 											continue
 										}
 										const verdict = yield* attempt(seat.session, t.statements)
@@ -1259,6 +1453,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											breaks.includes("nUnlisted")
 										) {
 											c.note("a marked row listed through both negations of its arm at once")
+										}
+										for (const situation of alone(tx.ops, t, breaks)) {
+											c.note(situation)
 										}
 									}
 									const a = resolve(rc.concurrent.first, state, keys, seat.table)

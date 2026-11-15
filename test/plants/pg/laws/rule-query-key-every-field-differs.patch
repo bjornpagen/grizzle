@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/theory/query.ts b/packages/engine/src/analysis/theory/query.ts
+index fef2b0e7..85497225 100644
+--- a/packages/engine/src/analysis/theory/query.ts
++++ b/packages/engine/src/analysis/theory/query.ts
+@@ -954,7 +954,7 @@ const violating = (
+ 					[
+ 						...conditionsOf(arm, loc),
+ 						connectiveExpr(
+-							"or",
++							"and",
+ 							heading.map((f): InferredExpr => ({
+ 								kind: "compare",
+ 								op: "ne",

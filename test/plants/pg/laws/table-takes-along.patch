@@ -1,0 +1,113 @@
+diff --git a/packages/engine/src/deploy/diff/diff.ts b/packages/engine/src/deploy/diff/diff.ts
+index 7bc41bba..76656847 100644
+--- a/packages/engine/src/deploy/diff/diff.ts
++++ b/packages/engine/src/deploy/diff/diff.ts
+@@ -2449,6 +2449,9 @@ class Differ {
+ 	 * table no more: every role that writes it is certified READ COMMITTED (physical/ddl/isolation.ts
+ 	 * readCommittedRelations). */
+ 	remove(o: ManifestObject, order: number): void {
++		const t = objectTable(o)
++		const tableGone =
++			t !== undefined && !this.next.has(tableIdent(t)) && !this.next.has(viewIdent(t))
+ 		const v = installed(o)
+ 		const drop = (kind: Dropped, d: Action): void => {
+ 			this.removal(dropOrder[kind], order, d)
+@@ -2484,7 +2487,9 @@ class Differ {
+ 				)
+ 				return
+ 			case "rowSecurity":
+-				drop(v.kind, statement(alter(v.table, [{ kind: "disableRowSecurity" }])))
++				if (!tableGone) {
++					drop(v.kind, statement(alter(v.table, [{ kind: "disableRowSecurity" }])))
++				}
+ 				return
+ 			case "membership":
+ 				this.sql("publish.grants", [revokeRoleOf(v.grant)])
+@@ -2516,23 +2521,30 @@ class Differ {
+ 				)
+ 				return
+ 			case "lawTrigger":
+-				drop(
+-					v.kind,
+-					statement({
+-						kind: "dropTrigger",
+-						name: v.create.name,
+-						table: v.create.table,
+-						ifExists: false
+-					})
+-				)
++				if (!tableGone) {
++					drop(
++						v.kind,
++						statement({
++							kind: "dropTrigger",
++							name: v.create.name,
++							table: v.create.table,
++							ifExists: false
++						})
++					)
++				}
+ 				return
+ 			case "lawColumn":
+-				drop(v.kind, statement(alter(v.table, [{ kind: "dropColumn", column: v.column }])))
++				if (!tableGone) {
++					drop(v.kind, statement(alter(v.table, [{ kind: "dropColumn", column: v.column }])))
++				}
+ 				return
+ 			case "primaryKey":
+ 			case "unique":
+ 			case "check":
+ 			case "foreignKey": {
++				if (tableGone && v.kind !== "foreignKey") {
++					return
++				}
+ 				if (v.kind === "foreignKey" && this.referencesReplaced(v.constraint)) {
+ 					this.sql("validate.attach", [alter(v.table, [{ kind: "dropConstraint", name: v.name }])])
+ 					return
+@@ -2545,13 +2557,18 @@ class Differ {
+ 			}
+ 			case "uniqueIndex":
+ 			case "index": {
++				if (tableGone) {
++					return
++				}
+ 				const s = v.create
+ 				const name = objectName(s.table.schema, s.name)
+ 				drop(v.kind, statement({ kind: "dropIndex", name, concurrently: false, ifExists: false }))
+ 				return
+ 			}
+ 			case "statistics":
+-				drop(v.kind, { kind: "dropStatistics", name: v.create.name })
++				if (!tableGone) {
++					drop(v.kind, { kind: "dropStatistics", name: v.create.name })
++				}
+ 				return
+ 			case "role":
+ 			case "decoder":
+@@ -2576,15 +2593,17 @@ class Differ {
+ 				])
+ 				return
+ 			case "isolationTrigger":
+-				drop(
+-					v.kind,
+-					statement({
+-						kind: "dropTrigger",
+-						name: v.create.name,
+-						table: v.create.table,
+-						ifExists: false
+-					})
+-				)
++				if (!tableGone) {
++					drop(
++						v.kind,
++						statement({
++							kind: "dropTrigger",
++							name: v.create.name,
++							table: v.create.table,
++							ifExists: false
++						})
++					)
++				}
+ 				return
+ 		}
+ 	}

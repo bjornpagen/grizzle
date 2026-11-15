@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/theory/query.ts b/packages/engine/src/analysis/theory/query.ts
+index fef2b0e7..c2eae5f7 100644
+--- a/packages/engine/src/analysis/theory/query.ts
++++ b/packages/engine/src/analysis/theory/query.ts
+@@ -1635,7 +1635,7 @@ const lostProbes = (
+ 		arm.terms.reduce((into, t) => varsOf(t, into), new Set<string>()),
+ 		at
+ 	)
+-	const h = held(touched, "OLD", new Set(), r.kept, r.dropped, arm.where, fieldOf, params)
++	const h = held(touched, "OLD", new Set(), [...r.kept, ...r.dropped], [], arm.where, fieldOf, params)
+ 	const mappedTerms = arm.terms.map((t) => mapLeaves(t, h.leaves))
+ 	const bound = mappedTerms.map((t, i): InferredExpr => (h.unbound(t) ? varRef(wildcardId(i)) : t))
+ 	const wilds = mappedTerms.flatMap((t, i) =>

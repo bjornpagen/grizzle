@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/diff/diff.ts b/packages/engine/src/deploy/diff/diff.ts
+index 7bc41bba..ec1fb538 100644
+--- a/packages/engine/src/deploy/diff/diff.ts
++++ b/packages/engine/src/deploy/diff/diff.ts
+@@ -1230,7 +1230,7 @@ class Differ {
+ 	ruleChecks(checks: ReadonlyArray<MigrationCheck>): void {
+ 		for (const c of checks) {
+ 			const was = this.input.previous.theory.laws[c.law]
+-			if (was?.kind === "trigger" && was.digest === c.digest) {
++			if (was?.kind === "trigger") {
+ 				continue
+ 			}
+ 			this.push("validate", { kind: "violation", law: c.law, query: c.query })
