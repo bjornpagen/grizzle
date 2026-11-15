@@ -16,17 +16,24 @@
  *   refused.
  *
  * Features: as each search names them: the alias and type outcomes, every kind of sketch, admitted and refused, every
- * wild kind, each forgery; for closed ids, one handle and several, two names and one.
+ * wild kind, each forgery; for the typmods, each bound and the integer past it (numeric's precision and scale, float's
+ * least, real's greatest and its own greatest, vector's least and greatest dimensions), drawn from the bounds half the
+ * time beside the wide range; for closed ids, one handle and several, two names and one.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): descriptors-float-real-past-24 (float(25) selecting real),
- * descriptors-vector-dims-past-max (a vector of one dimension past pgvector's admitted) and
- * descriptors-repeated-handle-admitted (a roster's repeated handle admitted).
+ * Plants (~/.cache/grizzle-release/BR06/plants): descriptors-repeated-handle-admitted (a roster's repeated handle
+ * admitted).
+ *
+ * @plant test/plants/unit/scalar/descriptors-float-real-past-24.patch float(25) selects real, one precision past
+ * binary32's; the typmods and alias identity properties fail.
+ * @plant test/plants/unit/scalar/descriptors-vector-dims-past-max.patch pg.vector admits one dimension past pgvector's
+ * greatest; the typmods property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import {
 	array,
 	constant,
+	element,
 	type Gen,
 	int,
 	option,
@@ -39,6 +46,7 @@ import {
 	type CorruptedFeature,
 	corruptedFeature,
 	type Corruption,
+	type Drawn,
 	drawnFeature,
 	type DrawnFeature,
 	lsw,
@@ -296,6 +304,73 @@ type TypmodFeature = "admitted" | "refused" | DrawnFeature<never>
 const isInteger = (value: unknown): value is number =>
 	typeof value === "number" && Number.isInteger(value)
 
+/** An integer at or beside a typmod's bound, and the feature its search notes on reaching it. */
+interface Bound<F extends string> {
+	readonly feature: F
+	readonly value: number
+}
+
+/**
+ * A typmod's integer argument: half the draws one of its bounds and their neighbours, the rest from `around`, so the
+ * search tries every integer near a bound however wide `around` is.
+ */
+const nearBounds = <F extends string>(
+	around: Gen<number>,
+	bounds: Arr.NonEmptyReadonlyArray<Bound<F>>
+): Gen<number> =>
+	weighted<number>([
+		[1, around],
+		[1, element(Arr.map(bounds, (bound) => bound.value))]
+	])
+
+/** The bound features a live argument reached: the bounds it equals. */
+const boundsReached = <F extends string>(
+	bounds: ReadonlyArray<Bound<F>>,
+	drawnArgument: Drawn<number, never>
+): ReadonlyArray<F> =>
+	drawnArgument.kind === "live"
+		? Arr.map(
+				Arr.filter(bounds, (bound) => bound.value === drawnArgument.value),
+				(bound) => bound.feature
+			)
+		: []
+
+/** numeric's precision bounds: none below 1, numericMaxPrecision the greatest. */
+const precisionBounds = [
+	{ feature: "precision 0", value: 0 },
+	{ feature: "precision 1", value: 1 },
+	{ feature: "the greatest precision", value: numericMaxPrecision.value },
+	{ feature: "one past the greatest precision", value: numericMaxPrecision.value + 1 }
+] as const satisfies Arr.NonEmptyReadonlyArray<Bound<string>>
+
+/** numeric's scale bounds: numericMinScale the least and numericMaxScale the greatest. */
+const scaleBounds = [
+	{ feature: "one under the least scale", value: numericMinScale.value - 1 },
+	{ feature: "the least scale", value: numericMinScale.value },
+	{ feature: "the greatest scale", value: numericMaxScale.value },
+	{ feature: "one past the greatest scale", value: numericMaxScale.value + 1 }
+] as const satisfies Arr.NonEmptyReadonlyArray<Bound<string>>
+
+/** float(p)'s bounds: none below 1, real's greatest and the one past it, double precision's greatest. */
+const floatBounds = [
+	{ feature: "precision 0", value: 0 },
+	{ feature: "precision 1", value: 1 },
+	{ feature: "real's greatest precision", value: binary32Precision.value },
+	{ feature: "one past real's greatest precision", value: binary32Precision.value + 1 },
+	{ feature: "the greatest precision", value: binary64Precision.value },
+	{ feature: "one past the greatest precision", value: binary64Precision.value + 1 }
+] as const satisfies Arr.NonEmptyReadonlyArray<Bound<string>>
+
+/** pgvector's dimension bounds: none below 1, vectorMaxDimensions the greatest, and their neighbours. */
+const dimensionBounds = [
+	{ feature: "no dimension", value: 0 },
+	{ feature: "one dimension", value: 1 },
+	{ feature: "one under the greatest dimensions", value: vectorMaxDimensions.value - 1 },
+	{ feature: "the greatest dimensions", value: vectorMaxDimensions.value },
+	{ feature: "one past the greatest dimensions", value: vectorMaxDimensions.value + 1 },
+	{ feature: "two past the greatest dimensions", value: vectorMaxDimensions.value + 2 }
+] as const satisfies Arr.NonEmptyReadonlyArray<Bound<string>>
+
 /**
  * numerictypmodin's rule: precision 1-numericMaxPrecision and scale numericMinScale-numericMaxScale, both integers and
  * both given: no numeric is without its scale. -0 is the integer 0.
@@ -331,14 +406,14 @@ describe("typmod validation", () => {
 								[
 									source.draw(
 										lsw<number>({
-											live: int(-1100, 1100),
+											live: nearBounds(int(-1100, 1100), precisionBounds),
 											stale: Option.none(),
 											wild: WILD_KINDS
 										})
 									),
 									source.draw(
 										lsw<number>({
-											live: int(-1100, 1100),
+											live: nearBounds(int(-1100, 1100), scaleBounds),
 											stale: Option.none(),
 											wild: WILD_KINDS
 										})
@@ -347,12 +422,19 @@ describe("typmod validation", () => {
 								] as const
 						),
 						literal: Formatter.format,
-						coverage: required<TypmodFeature | "arity">(
+						coverage: required<
+							| TypmodFeature
+							| "arity"
+							| (typeof precisionBounds)[number]["feature"]
+							| (typeof scaleBounds)[number]["feature"]
+						>(
 							[
 								"admitted",
 								"refused",
 								"arity",
-								...Arr.map(WILD_KINDS, (kind): TypmodFeature => `wild ${kind}`)
+								...Arr.map(WILD_KINDS, (kind): TypmodFeature => `wild ${kind}`),
+								...Arr.map(precisionBounds, (bound) => bound.feature),
+								...Arr.map(scaleBounds, (bound) => bound.feature)
 							],
 							{ cases: 2000, sense: notesOnly }
 						),
@@ -371,6 +453,14 @@ describe("typmod validation", () => {
 							const s = passed(ds)
 							if (arity === 0 || arity === 3) {
 								c.note("arity")
+							}
+							if (arity === 2) {
+								for (const feature of [
+									...boundsReached(precisionBounds, dp),
+									...boundsReached(scaleBounds, ds)
+								]) {
+									c.note(feature)
+								}
 							}
 							const args: ReadonlyArray<unknown> =
 								arity === 0 ? [] : arity === 1 ? [p] : arity === 2 ? [p, s] : [p, s, 1]
@@ -409,7 +499,7 @@ describe("typmod validation", () => {
 						suite: "unit/scalar/float-typmod",
 						draw: drawn(
 							lsw<number>({
-								live: int(-4, binary64Precision.value + 6),
+								live: nearBounds(int(-4, binary64Precision.value + 6), floatBounds),
 								stale: Option.none(),
 								wild: WILD_KINDS
 							})
@@ -419,11 +509,12 @@ describe("typmod validation", () => {
 							kind: "specification",
 							name: "PostgreSQL's float(p): real for 1-24, double precision for 25-53, an error otherwise"
 						},
-						coverage: required<TypmodFeature>(
+						coverage: required<TypmodFeature | (typeof floatBounds)[number]["feature"]>(
 							[
 								"admitted",
 								"refused",
-								...Arr.map(WILD_KINDS, (kind): TypmodFeature => `wild ${kind}`)
+								...Arr.map(WILD_KINDS, (kind): TypmodFeature => `wild ${kind}`),
+								...Arr.map(floatBounds, (bound) => bound.feature)
 							],
 							{ cases: 500, sense: notesOnly }
 						),
@@ -437,6 +528,9 @@ describe("typmod validation", () => {
 					(drawnPrecision, c) =>
 						Effect.sync(() => {
 							c.note(drawnFeature(drawnPrecision))
+							for (const feature of boundsReached(floatBounds, drawnPrecision)) {
+								c.note(feature)
+							}
 							const precision = passed(drawnPrecision)
 							if (!isInteger(precision) || precision < 1 || precision > binary64Precision.value) {
 								c.note("refused")
@@ -470,7 +564,7 @@ describe("typmod validation", () => {
 							[
 								source.draw(
 									lsw<number>({
-										live: int(-2, vectorMaxDimensions.value + 2),
+										live: nearBounds(int(-2, vectorMaxDimensions.value + 2), dimensionBounds),
 										stale: Option.none(),
 										wild: WILD_KINDS
 									})
@@ -479,11 +573,12 @@ describe("typmod validation", () => {
 							] as const
 					),
 					literal: Formatter.format,
-					coverage: required<TypmodFeature>(
+					coverage: required<TypmodFeature | (typeof dimensionBounds)[number]["feature"]>(
 						[
 							"admitted",
 							"refused",
-							...Arr.map(WILD_KINDS, (kind): TypmodFeature => `wild ${kind}`)
+							...Arr.map(WILD_KINDS, (kind): TypmodFeature => `wild ${kind}`),
+							...Arr.map(dimensionBounds, (bound) => bound.feature)
 						],
 						{ cases: 1000, sense: notesOnly }
 					),
@@ -498,6 +593,9 @@ describe("typmod validation", () => {
 				([d, extras], c) =>
 					Effect.sync(() => {
 						c.note(drawnFeature(d))
+						for (const feature of boundsReached(dimensionBounds, d)) {
+							c.note(feature)
+						}
 						const dimensions = passed(d)
 						const extra = Option.match(extras, {
 							onNone: (): ReadonlyArray<unknown> => [],

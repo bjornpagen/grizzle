@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/scalar/pg.ts b/packages/engine/src/scalar/pg.ts
+index e63da221..0bd5ecea 100644
+--- a/packages/engine/src/scalar/pg.ts
++++ b/packages/engine/src/scalar/pg.ts
+@@ -25,7 +25,7 @@ type OneThrough<
+  * PostgreSQL resolves them (floatRealPrecision and floatDoublePrecision).
+  */
+ export type FloatPrecision = OneThrough<53>
+-type RealPrecision = OneThrough<24>
++type RealPrecision = OneThrough<25>
+ 
+ /** The SQL type float(P) resolves to: real where real's precision holds P, double precision past it. */
+ export type FloatSql<P extends FloatPrecision> = P extends RealPrecision
+@@ -145,7 +145,7 @@ export const floatDescriptors: FloatDescriptors = Object.freeze({
+ 	22: real,
+ 	23: real,
+ 	24: real,
+-	25: doublePrecision,
++	25: real,
+ 	26: doublePrecision,
+ 	27: doublePrecision,
+ 	28: doublePrecision,

@@ -14,9 +14,10 @@
  * equal, small, or one component at a bound. Oracle: the specification, the domain's verdict on the float32 buffer.
  * Features: each verdict, a bound, an underflowing component, -0, and a buffer zeroed after its check.
  *
- * Plants (~/.cache/grizzle-release/BR07/plants): vector-max-norm-open.patch (the host's domain open at its greatest
- * norm) turns the values property red; vector-literal-max-norm-open.patch (a literal's domain open there) the literal
- * one.
+ * @plant test/plants/unit/vector/vector-max-norm-open.patch The host's cosine domain is open at its greatest norm; the
+ * values property fails.
+ * @plant test/plants/unit/vector/vector-literal-max-norm-open.patch A vector literal's cosine domain is open at its
+ * greatest norm; the literals property fails.
  */
 import { drawn, explore, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

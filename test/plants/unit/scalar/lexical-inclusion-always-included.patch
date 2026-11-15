@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/regex/inclusion.ts b/packages/engine/src/scalar/regex/inclusion.ts
+index 230f3d49..e9050f1a 100644
+--- a/packages/engine/src/scalar/regex/inclusion.ts
++++ b/packages/engine/src/scalar/regex/inclusion.ts
+@@ -76,7 +76,7 @@ const included = (inner: CanonicalDfa, outer: CanonicalDfa): Inclusion => {
+ 		const first = entry(inner.states, a)
+ 		const second = b === undefined ? undefined : entry(outer.states, b)
+ 		if (first.accept && second?.accept !== true) {
+-			return { kind: "refuted", witness: witness(at) }
++			return { kind: "included" }
+ 		}
+ 		const visit = (to: number, next: number | undefined, set: CharSet): Inclusion | undefined => {
+ 			const key = `${to},${next ?? "-"}`

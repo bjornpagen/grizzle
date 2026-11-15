@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/vector.ts b/packages/engine/src/scalar/values/vector.ts
+index 6ca42e94..2702d0ab 100644
+--- a/packages/engine/src/scalar/values/vector.ts
++++ b/packages/engine/src/scalar/values/vector.ts
+@@ -166,7 +166,7 @@ const norm = (vector: Float32Array): number => {
+ /** Whether the norm lies in the cosine domain [cosineNormMin, cosineNormMax]. A NaN norm lies outside. */
+ const inCosineDomain = (vector: Float32Array): boolean => {
+ 	const n = norm(vector)
+-	return n >= cosineNormMin.value && n <= cosineNormMax.value
++	return n >= cosineNormMin.value && n < cosineNormMax.value
+ }
+ 
+ /** The encode-time component check: every component finite, the norm in the cosine domain. */

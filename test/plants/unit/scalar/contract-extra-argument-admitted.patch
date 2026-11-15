@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/contract.ts b/packages/engine/src/scalar/contract.ts
+index 703ce42c..becca083 100644
+--- a/packages/engine/src/scalar/contract.ts
++++ b/packages/engine/src/scalar/contract.ts
+@@ -134,7 +134,7 @@ const declaredFacts = (
+ 	predicate: ExprDesc | undefined,
+ 	contract: string
+ ): ReadonlyArray<Fact> => {
+-	if (declared === undefined) {
++	if (!hasProperties(declared)) {
+ 		return []
+ 	}
+ 	const loc = captureLoc(`contract ${contract} proves`, [])

@@ -15,9 +15,12 @@
  * Features: each base with and without a predicate, a serial refused, no predicate built; a live contract, a string
  * name the rule refuses, every wild kind as name and as base, an extra argument.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): contract-serial-predicate-runs-first (a serial's predicate run before
- * it is refused), contract-identity-nameless (a contract's Description without its name) and
- * contract-extra-argument-admitted (one argument past the declaration admitted).
+ * Plants (~/.cache/grizzle-release/BR06/plants): contract-identity-nameless (a contract's Description without its name).
+ *
+ * @plant test/plants/unit/scalar/contract-serial-predicate-runs-first.patch A serial base's predicate is built, and so
+ * run, before the serial is refused; the domain property's serial case fails.
+ * @plant test/plants/unit/scalar/contract-extra-argument-admitted.patch An argument past the predicate that is no
+ * object is taken for no declaration, so a contract given one is admitted; the admission property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

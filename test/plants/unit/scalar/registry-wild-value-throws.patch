@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/registry.ts b/packages/engine/src/scalar/registry.ts
+index c1f70f00..f4b5a9c0 100644
+--- a/packages/engine/src/scalar/registry.ts
++++ b/packages/engine/src/scalar/registry.ts
+@@ -372,7 +372,7 @@ export const refusedField = (
+ 	loc: SourceLoc
+ ): Result.Result<never, CompileError> => {
+ 	if (!hasProperties(value)) {
+-		return Result.err(malformedDescription(loc, "a field descriptor"))
++		throw malformedDescription(loc, "a field descriptor")
+ 	}
+ 	/**
+ 	 * Testing for the brand reads the caller's value, which can run its code (`in` runs a proxy's `has` trap) and throw:

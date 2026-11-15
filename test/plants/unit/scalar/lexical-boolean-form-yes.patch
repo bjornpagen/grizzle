@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/lexical.ts b/packages/engine/src/scalar/lexical.ts
+index 87d9ebad..7dc70b38 100644
+--- a/packages/engine/src/scalar/lexical.ts
++++ b/packages/engine/src/scalar/lexical.ts
+@@ -280,7 +280,7 @@ export const formSource = (target: LexicalTarget): string => {
+ 			case "double":
+ 				return doubleForm()
+ 			case "boolean":
+-				return "true|false|1|0"
++				return "true|false|1|0|yes"
+ 			case "date":
+ 				return dateForm()
+ 			case "doubleText":
