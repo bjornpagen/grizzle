@@ -1,0 +1,10 @@
+--- a/packages/engine/src/deploy/diff/diff.ts
++++ b/packages/engine/src/deploy/diff/diff.ts
+@@ -2138,7 +2138,6 @@
+ 					})
+ 				)
+ 			])
+-			this.sql("validate", [alter(t, [{ kind: "validateConstraint", name: c.name }])])
+ 			return
+ 		}
+ 		const key = btreeKeyOf(c)

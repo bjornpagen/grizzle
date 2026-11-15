@@ -1,0 +1,11 @@
+--- a/packages/engine/src/laws/model/plan.ts
++++ b/packages/engine/src/laws/model/plan.ts
+@@ -1784,7 +1784,7 @@
+ 								relation: d.rel,
+ 								name: d.name,
+ 								named: d.named,
+-								predicate: d.predicate
++								predicate: { kind: "not", arg: d.predicate }
+ 							}
+ 						])
+ 			case "contract":

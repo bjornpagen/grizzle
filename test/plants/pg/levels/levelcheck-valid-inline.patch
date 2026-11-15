@@ -1,0 +1,11 @@
+--- a/packages/engine/src/deploy/diff/diff.ts
++++ b/packages/engine/src/deploy/diff/diff.ts
+@@ -2134,7 +2134,7 @@
+ 					replacing(replace, c.name, {
+ 						kind: "addConstraint",
+ 						constraint: c,
+-						notValid: true
++						notValid: false
+ 					})
+ 				)
+ 			])

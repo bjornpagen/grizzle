@@ -39,13 +39,24 @@
  * once, a row stored through both logins; for the migrations, the migration refused by a stored row and applied over
  * lawful ones, a probe refused and one stored.
  *
- * Plants (~/.cache/grizzle-release/LEVELCHECK/plants): levelcheck-lower-level (a level's check over a lower relation
- * stated at that relation's level, so the installation without the level would hold it), levelcheck-negated (a row
- * check's CHECK holds the negation of its predicate), levelcheck-dropped-on-migrate (a migration adds no CHECK to a
- * table that stands), levelcheck-unvalidated (a CHECK a migration adds over stored rows is never validated),
- * levelcheck-valid-inline (a CHECK a migration adds over stored rows is validated in its Structure file, not its
- * Validate file), levelcheck-own-dropped (a lower login's own checks go unnamed when a level's check refused the row),
- * levelcheck-refused (a row check over a lower relation refused as LevelRefused).
+ * @plant test/plants/pg/levels/levelcheck-lower-level.patch A level's check over a lower relation stated at that
+ * relation's level (schema/own.ts collectStatements), so the installation without the level would hold it: Base's
+ * record changes with Media, the author's login over Base matches no installed level (MalformedDescription), and the
+ * logins property fails.
+ * @plant test/plants/pg/levels/levelcheck-negated.patch A row check's CHECK holds the negation of its predicate
+ * (laws/model/plan.ts); the logins property finds an editor's refusal that does not name every check the row breaks.
+ * @plant test/plants/pg/levels/levelcheck-dropped-on-migrate.patch A migration adds no CHECK to a table that stands
+ * (deploy/diff/diff.ts ownConstraint): the migration that adds Media stops at its drift check, and the logins property
+ * fails.
+ * @plant test/plants/pg/levels/levelcheck-unvalidated.patch A CHECK a migration adds over stored rows is never
+ * validated: the migration that adds Media stops at its drift check, and the logins property fails.
+ * @plant test/plants/pg/levels/levelcheck-valid-inline.patch A CHECK a migration adds over stored rows is validated in
+ * its Structure file, not its Validate file; the migrations property finds the refusal in the Structure file.
+ * @plant test/plants/pg/levels/levelcheck-own-dropped.patch A lower login's own checks go unnamed when a level's check
+ * refused the row (runtime/write/witness.ts aboveJudgement); the logins property finds the author's refusal without
+ * its own checks beside Media's.
+ * @plant test/plants/pg/levels/levelcheck-refused.patch A row check over a lower relation refused as LevelRefused
+ * (schema/own.ts checkLevels); the logins property's schema no longer compiles.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

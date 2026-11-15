@@ -1,0 +1,11 @@
+--- a/packages/engine/src/schema/own.ts
++++ b/packages/engine/src/schema/own.ts
+@@ -1945,7 +1945,7 @@
+ 			case "race":
+ 				return reach([d.relation])
+ 			case "check":
+-				return
++				return reach([d.relation])
+ 			case "family":
+ 			case "tree":
+ 				return reach([d.member.relation, d.slots.owner])

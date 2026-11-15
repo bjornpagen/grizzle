@@ -1,0 +1,11 @@
+--- a/packages/grizzle/src/adapter/witness/classify.ts
++++ b/packages/grizzle/src/adapter/witness/classify.ts
+@@ -305,7 +305,7 @@
+ 
+ /** The law of a level above PostgreSQL named, refused by the object `by` that reported it. */
+ const aboveRefused = (law: DescribedLaw<LawId, AboveLaw>, by: RefusingObject): AboveRefusedLaw => ({
+-	law: law.described,
++	law: law.described.law,
+ 	id: law.law,
+ 	by
+ })
