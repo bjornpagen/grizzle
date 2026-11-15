@@ -15,7 +15,8 @@
  * - the one row of the reads proved at most one row is the reference's row or none, at a workspace's month the
  *   platform charged and at a drawn one;
  * - windows of the paged member invoices, each anchored after the last row of the one before at a drawn size until one
- *   answers no row, concatenate to its every row, which are in the stated order;
+ *   answers no row, concatenate to its every row, which are in the stated order; a walk reads at most the windows its
+ *   rows take, ceil(rows / size) and the empty one after them, so a walk that repeats rows ends there and fails;
  * - where the contract fully determines a number, it equals the host billing model's (test/support/platform/model.ts),
  *   a second implementation of the arithmetic: each tier piece of an event's charge and its sum per kind, which is what
  *   the model charged when the event was recorded, and a quote's price per kind.
@@ -25,7 +26,7 @@
  * tier boundary crossed within one event, an event split across grants.
  *
  * @plant test/plants/pg/e2e-platform/reads-page-skips.patch A forward page's seek made inclusive, so its anchor
- * repeats; the paged reads differ from the model.
+ * repeats; the windows no longer concatenate to the ordered rows.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -466,34 +467,44 @@ const checkArms = (readName: string, rows: ReadonlyArray<unknown>): void => {
 
 /**
  * Every invoice of an organization, windowed `size` at a time and concatenated, each window anchored after the key of
- * the last row of the one before, until a window answers no row; each window's call run again after a transient
- * refusal (untilAnswered), `refused` told of each.
+ * the last row of the one before, until a window answers no row or `windows` windows have answered; each window's call
+ * run again after a transient refusal (untilAnswered), `refused` told of each. The caller's `windows` is what its rows
+ * take: `count` rows fill ceil(count / size) windows and one empty window follows them, so a walk still answering rows
+ * past it has repeated some, and what it read is returned for the caller to compare, never walked further.
  */
 const pagedInvoices = (
 	db: PlatformDb,
 	org: Uuid,
 	size: number,
+	windows: number,
 	refused: () => void
 ): Effect.Effect<ReadonlyArray<unknown>, CallError> => {
 	const from = (
 		anchor: Anchor,
-		paged: ReadonlyArray<unknown>
+		paged: ReadonlyArray<unknown>,
+		left: number
 	): Effect.Effect<ReadonlyArray<unknown>, CallError> =>
-		Effect.flatMap(
-			untilAnswered(
-				db.workload.invoices.once({ params: { org }, facts: {}, window: { anchor, size } }),
-				refused
-			),
-			(window) => {
-				const entries = [...window.entries()]
-				return Option.match(Arr.last(entries), {
-					onNone: () => Effect.succeed(paged),
-					onSome: (last) =>
-						from({ kind: "after", key: last.key }, [...paged, ...Arr.map(entries, (e) => e.row)])
-				})
-			}
-		)
-	return from({ kind: "start" }, [])
+		left === 0
+			? Effect.succeed(paged)
+			: Effect.flatMap(
+					untilAnswered(
+						db.workload.invoices.once({ params: { org }, facts: {}, window: { anchor, size } }),
+						refused
+					),
+					(window) => {
+						const entries = [...window.entries()]
+						return Option.match(Arr.last(entries), {
+							onNone: () => Effect.succeed(paged),
+							onSome: (last) =>
+								from(
+									{ kind: "after", key: last.key },
+									[...paged, ...Arr.map(entries, (e) => e.row)],
+									left - 1
+								)
+						})
+					}
+				)
+	return from({ kind: "start" }, [], windows)
 }
 
 /** eventCost's pieces are the model's, and their sum per kind is what the model charged when the event was recorded. */
@@ -793,7 +804,13 @@ layer(Substrate.layer)(
 												),
 												refused
 											)
-											const paged = yield* pagedInvoices(db, org, size, refused)
+											const paged = yield* pagedInvoices(
+												db,
+												org,
+												size,
+												Math.ceil(all.length / size) + 1,
+												refused
+											)
 											assert.deepEqual(
 												paged,
 												[...all],
