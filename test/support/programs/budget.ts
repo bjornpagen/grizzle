@@ -24,7 +24,7 @@ export {
 	uuid
 } from "#compiler/public/fields.ts"
 export type { Infer, Uuid } from "#compiler/public/fields.ts"
-export { query, v } from "#compiler/public/query.ts"
+export { param, query, v } from "#compiler/public/query.ts"
 export type {
 	EvidenceOfQuery,
 	HeadOf,

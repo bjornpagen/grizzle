@@ -40,6 +40,7 @@ const typeBatchRunners: Exemption = {
 		"test/types/api/untyped.test.ts",
 		"test/types/api/workload.test.ts",
 		"test/types/changeset/changeset.test.ts",
+		"test/types/changeset/delete-where.test.ts",
 		"test/types/changeset/entry-owner.test.ts",
 		"test/types/changeset/nesting.test.ts",
 		"test/types/compute/compute.test.ts",

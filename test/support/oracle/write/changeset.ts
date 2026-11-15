@@ -3,7 +3,7 @@ import { keep, type Swarm, swarm as swarmOf, weightOf } from "@bjornpagen/testin
 import { Array as Arr, Option, Order, Record as Rec, Stream } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import { Decimal } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
+import { param, query, v } from "#compiler/public/query.ts"
 import type { Fact as RelationFact } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
@@ -27,10 +27,12 @@ import {
 import { elementAt, recordEntryOf } from "#test/support/oracle/pick.ts"
 import {
 	castValue,
+	fitsField,
 	isNumericKind,
 	type NumericKind,
 	printValue,
 	sameBase,
+	type TypeKind,
 	typeInfo,
 	typmodRange,
 	valueIdentity
@@ -100,6 +102,16 @@ type WSource =
 			readonly parents: string
 			readonly k: number
 	  }
+	| {
+			/** A field-equality deletion (ChangeSet.deleteWhere): each field it selects by, and what that field equals. */
+			readonly kind: "equal"
+			readonly fields: ReadonlyArray<{ readonly column: string; readonly equaled: Equaled }>
+	  }
+
+/** What a field-equality deletion's field equals: a scalar parameter, or a literal of the field's own values. */
+export type Equaled =
+	| { readonly kind: "param"; readonly param: string }
+	| { readonly kind: "literal"; readonly value: ParamValue }
 
 /** The kind of a member's source, which a member's feature names beside its op. */
 export type WSourceKind = WSource["kind"]
@@ -157,7 +169,11 @@ export type WBinding = "passed" | "bound" | "bound as streams"
  *   whose key is not in that parameter, the shape a MERGE realizes on a mutable relation;
  * - a top member, planted only: the first k facts by key of a relation, per value of one of its columns that a
  *   relation parameter names, a take bound to the parameter's rows, whose statement chooses its form by the
- *   parameter's distinct fact count.
+ *   parameter's distinct fact count;
+ * - a field-equality deletion (ChangeSet.deleteWhere), where a projection's deletion is drawn: the facts of its relation
+ *   whose fields its head picks (a term of 2 or more) equal a parameter, or a literal (a term of 4), of each field's own
+ *   values, the delete of the query it is (write/frontend/equal.ts), a literal only of a kind whose value is a
+ *   JavaScript literal deleteWhere takes (literalKind) and within its field's domain.
  *
  * An insert into a relation with identity columns may be a generated addition, which omits every serial field and
  * takes fresh values from the identity sequences: an enumerated fact without them (the empty fact, when every field is
@@ -425,7 +441,8 @@ const writeFeatures = [
 	"streams",
 	"bind",
 	"compiled",
-	"unitAdditions"
+	"unitAdditions",
+	"equalities"
 ] as const
 type WriteFeature = (typeof writeFeatures)[number]
 
@@ -489,6 +506,32 @@ const readSources: Arr.NonEmptyReadonlyArray<ReadSource> = ["added", "removed", 
 /** The element a pick selects from a list a generator built. */
 const at = <A>(items: ReadonlyArray<A>, pick: number): A =>
 	pickFrom(nonEmpty(items, "a generated list"), pick)
+
+/**
+ * Whether a kind's values are JavaScript literals deleteWhere takes as they are, whose type the checker reads from the
+ * field they meet: the integers, texts, uuids, booleans and a roster's handles; never a numeric, whose value is its
+ * text, or a float, whose specials are no literal.
+ */
+const literalKind = (kind: TypeKind): boolean => {
+	switch (kind) {
+		case "int4":
+		case "int8":
+		case "bigserial":
+		case "serial":
+		case "text":
+		case "text6":
+		case "memo":
+		case "uuid":
+		case "bool":
+		case "code":
+			return true
+		case "numeric(5, 2)":
+		case "numeric(12, 4)":
+		case "numeric(3, 0)":
+		case "float8":
+			return false
+	}
+}
 
 /**
  * The keys a planted arm's own facts take: negative, so no drawn fact, whose values come from the domain's small
@@ -1367,6 +1410,25 @@ export const resolveChangeSet =
 					})
 					continue
 				}
+				if (op === "delete" && m.source >= 5 && m.source <= 7 && kept("equalities")) {
+					out.push({
+						op,
+						relation: relation.name,
+						source: {
+							kind: "equal",
+							fields: Arr.flatMap(relation.columns, (c, i) => {
+								const h = elementAt(m.head, i, "a member's head")
+								const value = at(typeInfo[c.kind].values, h.value)
+								const equaled: Equaled =
+									h.term === 4 && literalKind(c.kind) && fitsField(c.kind, value)
+										? { kind: "literal", value }
+										: { kind: "param", param: scalar(value) }
+								return h.term < 2 ? [] : [{ column: c.name, equaled }]
+							})
+						}
+					})
+					continue
+				}
 				/** A member adding to a relation with a text field may be a projection outside that field's domain. */
 				const outside =
 					op !== "delete" &&
@@ -1499,7 +1561,10 @@ export const buildChangeSet = (
 	}
 	const bindAll = <T>(relation: WRelation, vars: Readonly<Record<string, T>>): Record<string, T> =>
 		Rec.fromEntries(Arr.map(relation.columns, (col) => [col.name, field(vars, col.name)]))
-	const sourceValue = (target: WRelation, source: WSource): MemberInput => {
+	const sourceValue = (
+		target: WRelation,
+		source: Exclude<WSource, { readonly kind: "equal" }>
+	): MemberInput => {
 		switch (source.kind) {
 			case "array":
 				return source.stream ? Stream.fromIterable(source.facts) : source.facts
@@ -1631,7 +1696,20 @@ export const buildChangeSet = (
 	const strata = Arr.map(c.strata, (members) => {
 		let value: ChangeSetValue = ChangeSet.empty(schema)
 		for (const m of members) {
-			value = value[m.op](rel(m.relation), sourceValue(relationIn(group, m.relation), m.source))
+			const source = m.source
+			value =
+				source.kind === "equal"
+					? value.deleteWhere({
+							[m.relation]: Rec.fromEntries(
+								Arr.map(source.fields, (f) => [
+									f.column,
+									f.equaled.kind === "param"
+										? param(f.equaled.param, descriptorOf(m.relation, f.column))
+										: f.equaled.value
+								])
+							)
+						})
+					: value[m.op](rel(m.relation), sourceValue(relationIn(group, m.relation), source))
 		}
 		return value
 	})
@@ -1784,6 +1862,17 @@ export const evaluateSource = (
 					) && !excluded.has(factKey(target, f))
 			)
 		}
+		case "equal":
+			return Arr.filter(factsOf(state, target.name), (f) =>
+				Arr.every(source.fields, ({ column, equaled }) =>
+					equalOn(
+						target,
+						column,
+						f[column],
+						equaled.kind === "param" ? params[equaled.param] : equaled.value
+					)
+				)
+			)
 		case "top": {
 			/** The planted top members order an int4 key, which compares as a number. */
 			const from = relationIn(group, source.from)
@@ -1860,6 +1949,15 @@ const printSource = (s: WSource): string => {
 			return `scoped where ${s.scope.column} = $${s.scope.param} and key not in $${s.exclude}`
 		case "top":
 			return `first ${s.k} of ${s.from} by key per ${s.on} in $${s.parents}`
+		case "equal":
+			return `where { ${Arr.join(
+				Arr.map(
+					s.fields,
+					(f) =>
+						`${f.column}: ${f.equaled.kind === "param" ? `$${f.equaled.param}` : printValue(f.equaled.value)}`
+				),
+				", "
+			)} }`
 	}
 }
 

@@ -49,13 +49,24 @@ import {
 } from "#compiler/query/build/state.ts"
 import * as T from "#compiler/query/build/terms.ts"
 import { spellRule } from "#compiler/query/build/walk.ts"
-import { type PredicateValue, predicateValue, type Typing } from "#compiler/scalar/compute/term.ts"
+import {
+	type PredicateValue,
+	predicateValue,
+	type TermCarrier,
+	type Typing
+} from "#compiler/scalar/compute/term.ts"
+import type { SqlTag } from "#compiler/scalar/registry.ts"
 import { malformed, builderRefusal, requireName } from "#compiler/schema/protocol.ts"
 import { headRecord, record } from "#compiler/schema/record.ts"
 import type { Carriers } from "#compiler/types/core/phantom.ts"
 import type { Evidence } from "#compiler/types/evidence/evidence.ts"
 import type { Decoders, Finished } from "#compiler/types/query/query.ts"
-import type { NoFacts, RelationHeading, Rule } from "#compiler/types/query/rule.ts"
+import type {
+	NoFacts,
+	ParamConstructor,
+	RelationHeading,
+	Rule
+} from "#compiler/types/query/rule.ts"
 import type { HeadTerms, ResultOf } from "#compiler/types/query/terms.ts"
 
 /**
@@ -134,6 +145,31 @@ export const runRule = <S, F>(
 	}
 	return { state, finished }
 }
+
+/**
+ * A scalar parameter, `label(name, descriptor)`: r.param's and the free param's one admission, a name and a descriptor,
+ * its term the descriptor's (terms.ts paramTerm).
+ */
+const scalarParam = <H, S extends SqlTag>(
+	label: string,
+	name: unknown,
+	type: TermCarrier<H, S>,
+	extra: ReadonlyArray<unknown>
+) => {
+	hostArguments(label, [name, type, ...extra])
+	const n = requireName(name, label, "a parameter name")
+	if (extra.length > 0) {
+		throw malformed(label, `${label}(name, descriptor): two arguments`)
+	}
+	return T.paramTerm(n, type, `${label}(${n})`)
+}
+
+/**
+ * param(name, descriptor), the public builder: a scalar parameter outside any rule, the term r.param makes
+ * (ParamConstructor), which a ChangeSet's deleteWhere equates a field to.
+ */
+export const param: ParamConstructor = (name, type, ...extra: ReadonlyArray<unknown>) =>
+	scalarParam("param", name, type, extra)
 
 /** Whether a head term carries the column its cells are read with: every term the builder typed does. */
 const carriesColumn = (term: unknown): boolean => hasProperties(term) && "column" in term
@@ -491,14 +527,8 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 				label: `interior ${id}`
 			})
 		},
-		param: (name, type, ...extra: ReadonlyArray<unknown>) => {
-			hostArguments("r.param", [name, type, ...extra])
-			const n = requireName(name, "r.param", "a parameter name")
-			if (extra.length > 0) {
-				throw malformed("r.param", "r.param(name, descriptor): two arguments")
-			}
-			return T.paramTerm(n, type, `r.param(${n})`)
-		},
+		param: (name, type, ...extra: ReadonlyArray<unknown>) =>
+			scalarParam("r.param", name, type, extra),
 		relation: (name, given, ...extra: ReadonlyArray<unknown>) => {
 			hostArguments("r.relation", [name, given, ...extra])
 			const n = requireName(name, "r.relation", "a parameter name")

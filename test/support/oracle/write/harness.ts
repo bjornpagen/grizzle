@@ -249,6 +249,7 @@ export type WriteOracleFeature =
 	| "a single statement refused by a law"
 	| "sequential stratum of several writes"
 	| "anchored deletion"
+	| "delete equal by a literal"
 	| "a member slot staged"
 	| "a staged slot an exact deletion excepts"
 	| "a staged slot a put's halves read"
@@ -996,6 +997,12 @@ const noteShapes = (group: WGroup, c: WChangeSet, note: Case<WriteOracleFeature>
 	for (const s of c.strata) {
 		for (const m of s) {
 			note(`${m.op} ${m.source.kind}`)
+			if (
+				m.source.kind === "equal" &&
+				Arr.some(m.source.fields, (f) => f.equaled.kind === "literal")
+			) {
+				note("delete equal by a literal")
+			}
 		}
 		const relations = Arr.map(s, (m) => m.relation)
 		if (new Set(relations).size < relations.length) {

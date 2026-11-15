@@ -386,6 +386,10 @@ const unboundParams = (
 					]
 				case "top":
 					return factsOutside(relationIn(ctx.group, source.from), source.parents)
+				case "equal":
+					return Arr.flatMap(source.fields, (f) =>
+						f.equaled.kind === "param" ? outsideAt(target, f.column, f.equaled.param) : []
+					)
 			}
 		})
 	)
@@ -564,6 +568,7 @@ const orderMemberOf = (group: WGroup, m: WChangeSet["strata"][number][number]): 
 		case "param":
 		case "scoped":
 		case "top":
+		case "equal":
 			return { relation: m.relation, op: "insert", source: "complete" }
 	}
 }

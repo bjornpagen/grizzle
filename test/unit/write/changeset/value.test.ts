@@ -41,6 +41,7 @@ import type * as Result from "#compiler/core/result.ts"
 import {
 	type ChangeSetDesc,
 	descText,
+	memberParamNames,
 	type QueryDesc,
 	queryParamNames,
 	renameQueryParams
@@ -944,14 +945,12 @@ const recognised = <S extends string>(
 const usedParams = (desc: ChangeSetDesc): ReadonlySet<string> =>
 	new Set([
 		...Arr.flatMap(desc.strata, (stratum) =>
-			Arr.flatMap(stratum.members, (m) =>
-				m.member.kind === "query" ? [...queryParamNames(m.member.query)] : []
-			)
+			Arr.flatMap(stratum.members, (m) => [...memberParamNames(m.member)])
 		),
 		...Arr.flatMap(desc.reads, (r) => [...queryParamNames(r.query)])
 	])
 
-const kindRank = { array: 0, stream: 1, query: 2 } as const
+const kindRank = { array: 0, stream: 1, query: 2, equal: 3 } as const
 
 /**
  * The real value read back into the canonical form, and held to the invariants the form does not show: members sorted
@@ -991,7 +990,12 @@ const readBackValue = (
 			relation: m.relation,
 			op: m.op,
 			kind: kindRank[m.member.kind],
-			text: m.member.kind === "query" ? textOf(m.member.query) : ""
+			text:
+				m.member.kind === "query"
+					? textOf(m.member.query)
+					: m.member.kind === "equal"
+						? textOf(m.member.fields)
+						: ""
 		}))
 		assert.deepEqual(
 			sortKeys,
@@ -1052,6 +1056,8 @@ const readBackValue = (
 								)
 							)
 							break
+						case "equal":
+							return assert.fail("a field-equality member, which no step of the program makes")
 					}
 				}
 				return {

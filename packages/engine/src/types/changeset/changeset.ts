@@ -22,15 +22,18 @@ import type {
 	Invariant,
 	IsOneLiteral,
 	IsRetyped,
+	LanguageOf,
 	OnlyParams,
 	ParamArg,
+	ParamOrigin,
+	ParamsOfTerm,
 	Refusal,
 	Simplify,
 	SqlOfCarrier,
 	Source,
 	UnionToIntersection
 } from "#compiler/types/core/phantom.ts"
-import type { UnwrittenField } from "#compiler/types/fields/field.ts"
+import type { LiteralOf, UnwrittenField } from "#compiler/types/fields/field.ts"
 import type {
 	ContextsOf,
 	Decoders,
@@ -39,6 +42,7 @@ import type {
 	ParamsOf,
 	QueryAt
 } from "#compiler/types/query/query.ts"
+import type { HeadValue } from "#compiler/types/query/terms.ts"
 import type {
 	AnyRelation,
 	Fact,
@@ -790,6 +794,16 @@ export interface ChangeSetOf<
 	 */
 	readonly delete: ChangeSetDelete
 	/**
+	 * Removes, of each relation the record names by its key, the rows whose fields its record names equal what it equates
+	 * them to, each a parameter (`param(name, descriptor)`) or a literal of the field's type: `DELETE FROM R WHERE f =
+	 * $1 AND …`, the delete of a query matching R's rows by their own fields alone, which the planner holds as one (write/
+	 * frontend/equal.ts). Each key is a delete of its relation, checked as delete checks one and refused at its key, and
+	 * names only the fields its delete's rows state (DeletedRow): a tree's root fields, any other relation's written
+	 * fields. A selection reads no other relation, no other field and no other comparison, so nothing but a query member
+	 * writes such a delete. Deletes within one stratum are one set, so the record's order is no part of the ChangeSet.
+	 */
+	readonly deleteWhere: ChangeSetDeleteWhere
+	/**
 	 * After the change, R's fact at each member's key is that member, with the fields its caller does not write as
 	 * PostgreSQL and grizzle write them. For every relation it is the row its caller writes (Written<R>): an owner's put
 	 * leaves its families as they are, and a member's put is an edit of its family, in place, a refill from its slot or
@@ -924,6 +938,130 @@ type ChangeSetDelete = <
 	>,
 	Arrays | ArrayAdded<"delete", R, M, S, Done>
 >
+
+/** ChangeSet.deleteWhere over the ChangeSet it is called on (ChangeSet). */
+type ChangeSetDeleteWhere = <
+	S,
+	Params,
+	Writes extends string,
+	Reads,
+	Cx,
+	Done extends Strata,
+	Last extends Stratum,
+	Arrays,
+	const Sel extends { readonly [K in keyof Sel]: { readonly [F in keyof Sel[K]]: unknown } }
+>(
+	this: ChangeSetOf<S, Params, Writes, Reads, Cx, Done, Last, Arrays>,
+	selections: Sel & { readonly [K in keyof Sel]: SelectionAt<S, Sel, K, Last> }
+) => ChangeSetOf<
+	S,
+	JointParams<Params, SelectedParams<Sel>>,
+	Writes | SelectedWrites<S, Sel>,
+	Reads,
+	Cx,
+	Done,
+	Stratum<
+		Last["inserts"],
+		Last["needs"],
+		Last["edits"],
+		Last["puts"],
+		Last["doomed"] | SelectedDoomed<S, Sel>
+	>,
+	Arrays
+>
+
+/**
+ * What deleteWhere requires of its selection at key K: a required key, since a key that may be missing deletes nothing
+ * its type states; a key naming a relation the ChangeSet writes; what delete requires of that relation; then of the
+ * selection, each field one its delete's rows state (DeletedRow), equal to what it may equal (EqualedTo), each refused
+ * at its key.
+ */
+type SelectionAt<S, Sel, K extends keyof Sel, Last extends Stratum> = Sel extends {
+	readonly [P in K]-?: unknown
+}
+	? SelectionOf<S, InsertedRelation<S, K>, Sel[K], Last>
+	: Refusal<"deleteWhere names each relation by a required key: an optional key may delete nothing">
+
+/**
+ * SelectionAt of a required key, once its relation is read: what delete requires of the relation, and no family's
+ * member, whose delete grizzle plans from its rows on the host (write/frontend/compile.ts), which no selection states;
+ * then its fields. Each requirement is read only where every one before it holds, so a key is refused by one refusal,
+ * the first it breaks.
+ */
+type SelectionOf<S, R, Fields, Last extends Stratum> = [R] extends [never]
+	? Refusal<"a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes">
+	: Holding<
+			WritableCheck<S, R>,
+			Holding<
+				EditCheck<S, R, "delete">,
+				Holding<
+					SelectedMember<S, R>,
+					Holding<
+						PutBesideDoomed<Last["puts"], DoomedBy<S, R>>,
+						SelectedFields<Fields, DeletedRow<S, R>, R>
+					>
+				>
+			>
+		>
+
+/** Then where the requirement C holds, unknown; C, its refusal, otherwise. */
+type Holding<C, Then> = unknown extends C ? Then : C
+
+/** A selection of an ordered or a counted family's member, refused: a member's delete is its family's edit. */
+type SelectedMember<S, R> =
+	IsFamilyMember<S, R> extends true
+		? Refusal<"deleteWhere deletes no family's member: grizzle edits a family from the rows a ChangeSet states, so delete a member from an array or a Stream">
+		: unknown
+
+/**
+ * A selection's fields as its relation R takes them: each a field of the rows its delete names, Row, equal to what it
+ * may equal at R's carrier for it (EqualedTo); any other refused.
+ */
+type SelectedFields<Fields, Row, R> = {
+	readonly [F in keyof Fields]: F extends keyof Row
+		? EqualedTo<CarrierAt<R, F>>
+		: Refusal<"deleteWhere selects by the fields its delete's rows state: a tree's root fields, any other relation's written fields">
+}
+
+/** R's carrier for the field F, read by key: a relation's field, a world relation's head field. */
+type CarrierAt<R, F> = "heading" extends keyof R
+	? F extends keyof R["heading" & keyof R]
+		? R["heading" & keyof R][F]
+		: never
+	: never
+
+/**
+ * What a selection equates a field of carrier C to: a parameter, a term of origin ParamOrigin (`param`, `r.param`) that
+ * meets the field's type (Meets), the field's own domain and SQL type; or a JavaScript value of its language, a
+ * string, number, bigint, boolean, Decimal or Money, which the checker types by the field it meets, as it types a head
+ * literal. A variable, a typed constant and a Compute term are no parameter, so a selection reads nothing but the
+ * relation's own fields and the values its caller names.
+ */
+type EqualedTo<C> =
+	| Extract<LiteralOf<LanguageOf<C>>, HeadValue>
+	| InputTerm<DomainOf<C>, never, ParamOrigin, SqlOfCarrier<C>>
+
+/**
+ * The parameters deleteWhere's selections need together: each field's parameter (ParamsOfTerm), joined as its deletes
+ * join them, and unknown where none names one.
+ */
+type SelectedParams<Sel> = {
+	[K in keyof Sel]-?: {
+		[F in keyof Sel[K]]-?: (params: ParamsOfTerm<Sel[K][F]>) => void
+	}[keyof Sel[K]]
+}[keyof Sel] extends (params: infer P) => void
+	? P
+	: unknown
+
+/** The relations deleteWhere's deletes write: each key's relation and the rows its delete removes whole (DeletedWrites). */
+type SelectedWrites<S, Sel> = {
+	[K in keyof Sel]-?: NameOf<InsertedRelation<S, K>> | DeletedWrites<S, InsertedRelation<S, K>>
+}[keyof Sel]
+
+/** The relations deleteWhere's deletes remove whole (DoomedBy). */
+type SelectedDoomed<S, Sel> = {
+	[K in keyof Sel]-?: DoomedBy<S, InsertedRelation<S, K>>
+}[keyof Sel]
 
 /** ChangeSet.put over the ChangeSet it is called on (ChangeSet). */
 type ChangeSetPut = <

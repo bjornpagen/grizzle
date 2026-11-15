@@ -35,6 +35,11 @@ const memberWrites = (writing: MemberColumn["writing"]["kind"]): boolean => {
 	}
 }
 
+/** The fields of a member's relation a member writes (memberWrites), in heading order: the relation's one fact heading,
+ * every op's, and a field-equality member's head (write/frontend/equal.ts). */
+export const writtenHeading = (relation: MemberRelation): Heading =>
+	relation.heading.filter((c) => memberWrites(c.writing.kind))
+
 /**
  * The fields a described member's head must deliver: the fields a member writes (memberWrites), the relation's one
  * fact heading (rule 0), for a delete as for an insert and a put, so a fact deleted and added is one fact; and for an
@@ -47,7 +52,7 @@ const memberHeading = (
 	serial: ReadonlyArray<string>,
 	supplied: ReadonlyArray<string>
 ): Heading => {
-	const written = relation.heading.filter((c) => memberWrites(c.writing.kind))
+	const written = writtenHeading(relation)
 	return op === "insert" && serial.length > 0 && supplied.length === 0
 		? written.filter((c) => !serial.includes(c.name))
 		: written

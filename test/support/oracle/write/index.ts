@@ -119,7 +119,7 @@ export const resolveRun =
  * second readings over facts stored in another order and with a value respelled, a stratum whose writes the keys order
  * in a cycle refused as it compiles, a deletion where facts meet nowhere left unordered beside an addition, which
  * orders a stratum that would otherwise hold such a cycle, and an addition a later stratum removes, which the change's
- * counts net away.
+ * counts net away, and a field-equality deletion (ChangeSet.deleteWhere), by a literal among them.
  */
 export const writeSituations = [
 	"strata:1",
@@ -135,6 +135,8 @@ export const writeSituations = [
 	"delete param",
 	"put param",
 	"delete scoped",
+	"delete equal",
+	"delete equal by a literal",
 	"read added",
 	"read removed",
 	"read state",

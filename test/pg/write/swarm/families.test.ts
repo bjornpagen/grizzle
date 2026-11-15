@@ -65,7 +65,8 @@ import { fullWorld } from "#test/support/worlds.ts"
  * relation's and that relation's own members after them (pantry's importWrite); and of ChangeSets of up to
  * three strata mixing plain inserts, puts and deletes with family inserts (nested, one member per fact, every fact
  * twice), deletes, moves, recounts, owner column changes, a query's insert, a put from a query and a delete of
- * everything, at up to 150 facts and more (test/pg/write/swarm/spec.ts and case.ts).
+ * everything, its rows as arrays or each top relation whole by a field-equality selection (ChangeSet.deleteWhere), at up
+ * to 150 facts and more (test/pg/write/swarm/spec.ts and case.ts).
  *
  * Every ChangeSet is served as an application writes it (changes.ts): the first member of an op and relation an array
  * member and every further one a query member over a relation parameter of its own, but where the served compile
@@ -143,6 +144,7 @@ type Situation =
 	| "a put from a query refused for a value it leaves stale"
 	| "a refill of an immutable relation refused"
 	| "a delete of everything accepted"
+	| "a delete of everything by field equality accepted"
 	| "an unlawful write refused by a law it breaks"
 	| "two facts at one key refused by its key"
 	| "a member naming no owner refused by its family"
@@ -182,6 +184,7 @@ const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 	"a put from a query refused for a value it leaves stale",
 	"a refill of an immutable relation refused",
 	"a delete of everything accepted",
+	"a delete of everything by field equality accepted",
 	"an unlawful write refused by a law it breaks",
 	"two facts at one key refused by its key",
 	"a member naming no owner refused by its family",
@@ -380,7 +383,12 @@ const stepShapes = (
 		case "query put":
 			return [...common, "a put from a query accepted"]
 		case "delete all":
-			return ["a delete of everything accepted"]
+			return [
+				"a delete of everything accepted",
+				...(step.by === "selection"
+					? (["a delete of everything by field equality accepted"] as const)
+					: [])
+			]
 	}
 }
 
@@ -759,6 +767,13 @@ const aims: ReadonlyArray<readonly [Situation, Gen<SwarmCase>]> = [
 	],
 	["a refill of an immutable relation refused", over(bare(staleCopies(false)), ["follow-ups"])],
 	[
+		"a delete of everything by field equality accepted",
+		over(importWrite([true, false, true, false, true], nestedImportWriteFamilies), [
+			"delete all",
+			"delete where"
+		])
+	],
+	[
 		"a delete of everything accepted",
 		over(
 			{
@@ -931,7 +946,7 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 					false,
 					undefined
 				),
-				{ kind: "delete all" }
+				{ kind: "delete all", by: "rows" }
 			]
 		},
 		draws: "",

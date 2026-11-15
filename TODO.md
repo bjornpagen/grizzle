@@ -236,31 +236,27 @@ read against main 5b049abf); a Q label points at its entry above.
 4. **Q18, a counted family over a derived relation:** a family whose member is a derived relation. Deletes 5 stored
    relations, which become queries (TestReference, PlacedReference, PlacedVariableRef, ReferenceDocument,
    PlacedDocument).
-5. **A typed delete of every row by one field:** one delete of each relation's rows chosen by a field (a package),
-   or a replace by key prefix, with a relation's caller fields as a value. Deletes qti/logins.ts:284-2255, 175
-   copy-pasted delete blocks of about 1,950 lines, with their 176-name destructure, the deletingEvery guard and 55 omit
-   lists.
-6. **A name on every law, plus Q3:** `key`, `contained` and `mirrors` take a name as `check` does, and lawKeyOf.
+5. **A name on every law, plus Q3:** `key`, `contained` and `mirrors` take a name as `check` does, and lawKeyOf.
    Deletes 26 hand-kept law-name tables (the `*LawsByName` records) and test/law-namer.ts.
-7. **A boolean term as a condition:** a boolean term usable where a predicate is. Deletes 15+ `eq(term, true)` sites.
-8. **Q13 over copied fields:** a generated term may read an accumulated field. Makes node.ts `ancestry` and
+6. **A boolean term as a condition:** a boolean term usable where a predicate is. Deletes 15+ `eq(term, true)` sites.
+7. **Q13 over copied fields:** a generated term may read an accumulated field. Makes node.ts `ancestry` and
    Attribute.slot generated and deletes TableScope, MathAlignScope and SsmlScope.
-9. **Q20:** a family grouped by a generated field. Generates the five host-written fields its entry names.
-10. **Q19, collapse inside a query:** collapse of an unbounded text in a derived relation. ManifestId, ResourceId and
-    Dependency become queries over Attribute, and about 12 copy containments go.
-11. **A fold's text kept out of index keys:** a digest in the axis UNIQUE, the text proved by the fold's CHECK. Deletes
+8. **Q20:** a family grouped by a generated field. Generates the five host-written fields its entry names.
+9. **Q19, collapse inside a query:** collapse of an unbounded text in a derived relation. ManifestId, ResourceId and
+   Dependency become queries over Attribute, and about 12 copy containments go.
+10. **A fold's text kept out of index keys:** a digest in the axis UNIQUE, the text proved by the fold's CHECK. Deletes
     node.ts's bounded string-value fold and its hand lists of folded kinds.
-12. **Rules over recursive queries:** a rule side may read a recursive derived relation. Deletes mathml-share.ts's
+11. **Rules over recursive queries:** a rule side may read a recursive derived relation. Deletes mathml-share.ts's
     host-computed dominance ranks (MathRank, PlacedMathRank) and closes its foreign-element hole.
-13. **A text digest:** `Compute.sha256` over text, digesting its UTF-8 bytes; today it reads bytes only (engine
+12. **A text digest:** `Compute.sha256` over text, digesting its UTF-8 bytes; today it reads bytes only (engine
     registry.ts `bytesDigest`). Lets pantry compare free text by a digest column where it now writes query rules
     (qti-pie docs/grizzle-findings.md, found on qti-cutover-20261114b).
-14. **An unbounded text behind a digest-keyed index:** an index a rule probe needs over an unbounded text keys its
-    digest, and the probe compares the text itself after the digest; item 11 is the fold's case of it. Today making
+13. **An unbounded text behind a digest-keyed index:** an index a rule probe needs over an unbounded text keys its
+    digest, and the probe compares the text itself after the digest; item 10 is the fold's case of it. Today making
     ObjectTitle's title unbounded fails compile with UnrepresentableKey, because the "lom-title" probe wants
-    (package, titleValue, start). Lifts the bound on long titles, and with item 11 on an element's string value,
+    (package, titleValue, start). Lifts the bound on long titles, and with item 10 on an element's string value,
     qti-value, LOM strings and whole IDREFS values (same source).
-15. **A level's snapshot built in-process:** a public `compileSnapshot(login)` on @bjornpagen/grizzle/compile, the
+14. **A level's snapshot built in-process:** a public `compileSnapshot(login)` on @bjornpagen/grizzle/compile, the
     snapshot.json value generate would write for the login's base serving the login, so compileServed can compile a
     level's login offline under its own installation. It must be the one composition generate's draft runs
     (cli/generate.ts plannedLogins), never a second copy beside test/support/compiled-served.ts compiledSnapshot.

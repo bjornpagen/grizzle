@@ -1167,18 +1167,74 @@ export type LoginDesc<L = Located> = L & {
 }
 
 /**
+ * What a field-equality member equates one field of its relation to: a parameter, by its name and declared type, or a
+ * literal, whose type the checker reads from the field it meets, as a head literal's (query/build/terms.ts
+ * literalTerm).
+ */
+export type EqualedDesc =
+	| { readonly kind: "param"; readonly name: string; readonly type: FieldDesc }
+	| { readonly kind: "literal"; readonly value: LiteralDesc }
+
+/**
  * ChangeSets. An array or Stream member names the slot its facts travel in; the facts are values,
- * outside the Description and outside template identity.
+ * outside the Description and outside template identity. A query member is its query. A field-equality member,
+ * `equal`, is the facts of its relation whose named fields equal what it equates them to, each a parameter or a
+ * literal: the query that matches the relation's facts as its member writes them and keeps those whose fields are
+ * equal, which the write front end makes of it where it knows the member's heading (write/frontend/equal.ts), so
+ * the planner holds it as the query member it is (PlannedMemberDesc).
  */
 type MemberSourceDesc<L = Located> =
 	| { readonly kind: "array"; readonly slot: string }
 	| { readonly kind: "stream"; readonly slot: string }
 	| { readonly kind: "query"; readonly query: QueryDesc<L> }
+	| { readonly kind: "equal"; readonly fields: Readonly<Record<string, EqualedDesc>> }
 
 export type MemberDesc<L = Located> = L & {
 	readonly op: "insert" | "delete" | "put"
 	readonly relation: string
 	readonly member: MemberSourceDesc<L>
+}
+
+/** A member as the planner reads it: an array, a Stream or a query, a field-equality member made its query. */
+export type PlannedMemberDesc<L = Located> = L & {
+	readonly op: MemberDesc["op"]
+	readonly relation: string
+	readonly member: Exclude<MemberSourceDesc<L>, { readonly kind: "equal" }>
+}
+
+/** The parameters a field-equality member's fields name, by name. */
+export const equalParamNames = (
+	fields: Readonly<Record<string, EqualedDesc>>
+): ReadonlySet<string> =>
+	new Set(Object.values(fields).flatMap((e) => (e.kind === "param" ? [e.name] : [])))
+
+/** A field-equality member's fields with each parameter whose name `rename` maps spelled by its image, frozen as a
+ * decoded Description is; ChangeSet.bind uses it as it uses renameQueryParams. */
+export const renameEqualParams = (
+	fields: Readonly<Record<string, EqualedDesc>>,
+	rename: ReadonlyMap<string, string>
+): Readonly<Record<string, EqualedDesc>> =>
+	Object.freeze(
+		Object.fromEntries(
+			Object.entries(fields).map(([field, e]): readonly [string, EqualedDesc] => [
+				field,
+				e.kind === "param" ? Object.freeze({ ...e, name: rename.get(e.name) ?? e.name }) : e
+			])
+		)
+	)
+
+/** The parameters a member needs, by name: a query's (queryParamNames), a field-equality member's, an array's or a
+ * Stream's none, its facts being values. */
+export const memberParamNames = (member: MemberSourceDesc): ReadonlySet<string> => {
+	switch (member.kind) {
+		case "array":
+		case "stream":
+			return new Set()
+		case "query":
+			return queryParamNames(member.query)
+		case "equal":
+			return equalParamNames(member.fields)
+	}
 }
 
 export interface ReadBackDesc<L = Located> {
@@ -1195,6 +1251,13 @@ export interface ChangeSetDesc<L = Located> {
 	readonly strata: ReadonlyArray<{ readonly members: ReadonlyArray<MemberDesc<L>> }>
 	readonly reads: ReadonlyArray<ReadBackDesc<L>>
 	/** The parameters ChangeSet.bind closed; their values travel with the ChangeSet value. */
+	readonly bindings: ReadonlyArray<string>
+}
+
+/** A ChangeSet's Description as the planner reads it: every member a PlannedMemberDesc (write/frontend/compile.ts). */
+export interface PlannedChangeSetDesc<L = Located> {
+	readonly strata: ReadonlyArray<{ readonly members: ReadonlyArray<PlannedMemberDesc<L>> }>
+	readonly reads: ReadonlyArray<ReadBackDesc<L>>
 	readonly bindings: ReadonlyArray<string>
 }
 
@@ -2444,6 +2507,12 @@ const loginDescShape: S.Shape<LoginDesc> = S.located(
 	)
 )
 
+/** What a field-equality member equates a field to: a parameter by name and declared type, or a literal. */
+const equaledDescShape: S.Shape<EqualedDesc> = S.tagged("kind", {
+	param: S.struct({ name, type: fieldDescShape }),
+	literal: S.struct({ value: literalDescShape })
+})
+
 const memberDescShape: S.Shape<MemberDesc> = S.located(
 	S.structWith(
 		{
@@ -2452,16 +2521,30 @@ const memberDescShape: S.Shape<MemberDesc> = S.located(
 			member: S.tagged("kind", {
 				array: S.struct({ slot: name }),
 				stream: S.struct({ slot: name }),
-				query: S.struct({ query: unorderedQueryShape })
+				query: S.struct({ query: unorderedQueryShape }),
+				equal: S.struct({ fields: S.recordShape(equaledDescShape, name) })
 			})
 		},
 		loc
 	)
 )
 
+/** Whether a member's facts travel in a slot of their own: an array's or a Stream's, never a query's or a field-equality
+ * member's, whose facts its statement reads. */
+export const enumeratedMember = (member: MemberDesc["member"]): boolean => {
+	switch (member.kind) {
+		case "array":
+		case "stream":
+			return true
+		case "query":
+		case "equal":
+			return false
+	}
+}
+
 /**
- * A ChangeSet's parameters are one namespace, the parameters its members' and read-backs' queries use
- * (queryParamNames): every name ChangeSet.bind closed is one of them, and none is named like a member slot its
+ * A ChangeSet's parameters are one namespace, the parameters its members and read-backs use
+ * (memberParamNames): every name ChangeSet.bind closed is one of them, and none is named like a member slot its
  * enumerated members' facts are bound through (slots.ts reservedSlots).
  */
 const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
@@ -2476,11 +2559,7 @@ const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 	}),
 	(changeSet, refuseAt) => {
 		const used = new Set([
-			...changeSet.strata.flatMap((s) =>
-				s.members.flatMap((m) =>
-					m.member.kind === "query" ? [...queryParamNames(m.member.query)] : []
-				)
-			),
+			...changeSet.strata.flatMap((s) => s.members.flatMap((m) => [...memberParamNames(m.member)])),
 			...changeSet.reads.flatMap((r) => [...queryParamNames(r.query)])
 		])
 		for (const [at, bound] of changeSet.bindings.entries()) {
@@ -2493,9 +2572,9 @@ const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 		}
 		const reserved = changeSet.strata.flatMap((stratum, s) =>
 			stratum.members.flatMap((m, i) =>
-				m.member.kind === "query"
-					? []
-					: reservedSlots(s, m.op, m.relation).map((slot) => ({ s, i, slot }))
+				enumeratedMember(m.member)
+					? reservedSlots(s, m.op, m.relation).map((slot) => ({ s, i, slot }))
+					: []
 			)
 		)
 		const taken = reserved.find(({ slot }) => used.has(slot))

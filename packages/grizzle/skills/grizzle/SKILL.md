@@ -106,7 +106,10 @@ export default defineConfig({
 - A delete of a tree names trees by their root value (`delete(Node, [{ package, path }])`), and a delete of a relation
   that owns a family and is no family's member names its rows; each removes every row nested under them through every
   family, so a group goes whole. A replace is `delete(...)` and `insertAll(...)` in one stratum: the delete runs first,
-  an identical replace answers `unchanged`, and the counts are the difference. The role's write list names every
+  an identical replace answers `unchanged`, and the counts are the difference. `deleteWhere({ R: { package:
+  param("package", Name) }, … })` deletes each named relation's rows whose fields equal the given parameters or
+  literals, as the delete of the query that selects them, so a replace of one package is one deleteWhere record and
+  one insertAll. The role's write list names every
   relation the delete reaches. Delete a family's other members through their owner, never one by one when the owner is
   immutable.
 - `connection` is the migration role's: `driver` (the pg module), `transport` (`kind: "sslRequest"`, `host`, `port`,

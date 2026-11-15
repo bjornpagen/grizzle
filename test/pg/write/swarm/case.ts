@@ -429,8 +429,10 @@ export const stepsGen =
 				}
 				case "delete all": {
 					const stored = Arr.dedupe(Arr.map(state.rows, (r) => r.relation))
-					if (Arr.every(stored, (r) => deletable(spec.fill, r))) {
-						steps.push({ kind: "delete all" })
+					/** A selection deletes each top relation whole, which reaches every member, so every shape admits it. */
+					const by = kept("delete where") ? "selection" : "rows"
+					if (by === "selection" || Arr.every(stored, (r) => deletable(spec.fill, r))) {
+						steps.push({ kind: "delete all", by })
 						state = { rows: [], plain: [] }
 					}
 					break

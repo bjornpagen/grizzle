@@ -15,6 +15,7 @@ import { handleEntriesFrom, handleSource } from "#test/types/api/handle.ts"
 import { surfaceEntriesFrom, surfaceModule } from "#test/types/api/surface.ts"
 import { untypedEntriesFrom, untypedSource } from "#test/types/api/untyped.ts"
 import type { Group, UnitSpec } from "#test/types/batch/batch.ts"
+import { deleteWhereEntriesFrom, deleteWhereSource } from "#test/types/changeset/delete-where.ts"
 import { entryOwnerEntriesFrom, entryOwnerSource } from "#test/types/changeset/entry-owner.ts"
 import { nestingCases, nestingSource } from "#test/types/changeset/nesting.ts"
 import { parameterSource } from "#test/types/evidence/parameter.ts"
@@ -182,6 +183,21 @@ const typeGroups: ReadonlyArray<Group> = [
 				heavy: false,
 				source: (entry) => [
 					{ file: "index.ts", source: entryOwnerSource(entryOwnerEntriesFrom(entry)) }
+				]
+			}
+		}
+	},
+	{
+		owner: "test/types/changeset/delete-where.test.ts",
+		units: {
+			"changeset/delete-where": {
+				kind: "program",
+				dir: "test/types/changeset",
+				prefix: ".delete-where-",
+				disarm: true,
+				heavy: false,
+				source: (entry) => [
+					{ file: "index.ts", source: deleteWhereSource(deleteWhereEntriesFrom(entry)) }
 				]
 			}
 		}

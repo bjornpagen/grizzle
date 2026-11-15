@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/types/changeset/changeset.ts b/packages/engine/src/types/changeset/changeset.ts
+index 9c2e2c6f..83d215e5 100644
+--- a/packages/engine/src/types/changeset/changeset.ts
++++ b/packages/engine/src/types/changeset/changeset.ts
+@@ -1039,7 +1039,7 @@ type CarrierAt<R, F> = "heading" extends keyof R
+  */
+ type EqualedTo<C> =
+ 	| Extract<LiteralOf<LanguageOf<C>>, HeadValue>
+-	| InputTerm<DomainOf<C>, never, ParamOrigin, SqlOfCarrier<C>>
++	| InputTerm<DomainOf<C>, never, ParamOrigin | unknown, SqlOfCarrier<C>>
+ 
+ /**
+  * The parameters deleteWhere's selections need together: each field's parameter (ParamsOfTerm), joined as its deletes

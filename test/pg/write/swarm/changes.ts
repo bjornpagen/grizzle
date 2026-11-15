@@ -153,6 +153,11 @@ interface Member {
 				readonly kind: "query"
 				readonly query: MemberInput
 		  }
+		| {
+				/** A field-equality deletion's selection (ChangeSet.deleteWhere), a delete's alone. */
+				readonly kind: "selection"
+				readonly fields: Readonly<Record<string, unknown>>
+		  }
 }
 
 /** A call's facts: under each op of the ChangeSet's array members, each one's facts under its relation's name. */
@@ -301,11 +306,15 @@ const servedOf = (
 	 * The rows of `m`, a member of the stratum `stratum`, as its ChangeSet holds them, or none where its facts join its
 	 * array member's.
 	 */
-	const sourceOf = (m: Member, stratum: ReadonlyArray<Member>): ReadonlyArray<MemberInput> => {
-		if (m.rows.kind === "query") {
-			return [m.rows.query]
+	const sourceOf = (
+		m: Member,
+		rows: Exclude<Member["rows"], { readonly kind: "selection" }>,
+		stratum: ReadonlyArray<Member>
+	): ReadonlyArray<MemberInput> => {
+		if (rows.kind === "query") {
+			return [rows.query]
 		}
-		const facts = m.rows.facts
+		const facts = rows.facts
 		const byRelation = arrays.get(m.op) ?? new Map<string, Array<Fact>>()
 		arrays.set(m.op, byRelation)
 		const held = byRelation.get(m.relation.name)
@@ -344,18 +353,21 @@ const servedOf = (
 		]
 	}
 	const stratumOf = (members: ReadonlyArray<Member>): ChangeSetValue =>
-		Arr.reduce(members, ChangeSet.empty(value), (cs, m) =>
-			Arr.reduce(sourceOf(m, members), cs, (out, source) => {
-				switch (m.op) {
-					case "insert":
-						return out.insert(m.relation, source)
-					case "put":
-						return out.put(m.relation, source)
-					case "delete":
-						return out.delete(m.relation, source)
-				}
-			})
-		)
+		Arr.reduce(members, ChangeSet.empty(value), (cs, m) => {
+			const rows = m.rows
+			return rows.kind === "selection"
+				? cs.deleteWhere({ [m.relation.name]: rows.fields })
+				: Arr.reduce(sourceOf(m, rows, members), cs, (out, source) => {
+						switch (m.op) {
+							case "insert":
+								return out.insert(m.relation, source)
+							case "put":
+								return out.put(m.relation, source)
+							case "delete":
+								return out.delete(m.relation, source)
+						}
+					})
+		})
 	const [first, ...rest] = Arr.map(strata, stratumOf)
 	const changes = Arr.reduce(rest, first ?? ChangeSet.empty(value), (a, b) =>
 		ChangeSet.sequence(a, b)
@@ -498,17 +510,26 @@ export const changeSetOf = (
 			case "delete all":
 				return {
 					members: [
-						...Arr.flatMap(spec.fill.relations, (_, r) => {
+						...Arr.flatMap(spec.fill.relations, (_, r): ReadonlyArray<Member> => {
 							const own = Arr.filter(state.rows, (x) => x.relation === r)
-							return Arr.isReadonlyArrayNonEmpty(own)
-								? [
+							if (!Arr.isReadonlyArrayNonEmpty(own)) {
+								return []
+							}
+							const relation = relationOf(relationName(r))
+							switch (step.by) {
+								case "rows":
+									return [
 										{
-											relation: relationOf(relationName(r)),
-											op: "delete" as const,
+											relation,
+											op: "delete",
 											rows: factsOf(Arr.map(own, (x) => callerFact(spec, state.rows, x)))
 										}
 									]
-								: []
+								case "selection":
+									return Arr.some(spec.fill.families, (f) => f.member === r && f.kind !== "tree")
+										? []
+										: [{ relation, op: "delete", rows: { kind: "selection", fields: {} } }]
+							}
 						}),
 						...plainMembers(
 							Arr.map(state.plain, (row): PlainOp => ({ op: "delete", row, at: "with" }))

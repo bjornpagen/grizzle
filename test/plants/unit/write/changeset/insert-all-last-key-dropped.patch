@@ -1,13 +1,13 @@
 diff --git a/packages/engine/src/write/changeset/value.ts b/packages/engine/src/write/changeset/value.ts
-index 97a0e9d8..cce41ca2 100644
+index 84308d7f..34fa5389 100644
 --- a/packages/engine/src/write/changeset/value.ts
 +++ b/packages/engine/src/write/changeset/value.ts
-@@ -846,7 +846,7 @@ const addInserts = <S, P, W extends string, Rd, Done extends Strata, Last extend
+@@ -905,7 +905,7 @@ const addInserts = <S, P, W extends string, Rd, Done extends Strata, Last extend
  	rows: Readonly<Record<string, MemberInput>>
  ): ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember => {
  	const label = "ChangeSet.insertAll"
--	const scope = insertRows(rows, label).reduce<Scope>((at, [key, facts]) => {
-+	const scope = insertRows(rows, label).slice(0, -1).reduce<Scope>((at, [key, facts]) => {
- 		const name = memberRelationNamed(key, state.over, label)
- 		return scopeWith(
- 			at,
+-	const scope = recordEntries(rows, label, "a record of members by relation name").reduce<Scope>(
++	const scope = recordEntries(rows, label, "a record of members by relation name").slice(0, -1).reduce<Scope>(
+ 		(at, [key, facts]) => {
+ 			const name = memberRelationNamed(key, state.over, label)
+ 			return scopeWith(

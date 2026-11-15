@@ -1,6 +1,7 @@
 /**
  * The ChangeSet members' type cost against the schema they write (changeset/budget/members.ts): for each op, a delete,
- * a put, an insert or an insertAll's key, and each member kind, a query or an array of facts, the program of `members`
+ * a put, an insert or an insertAll's key, and each member kind, a query or an array of facts, and for a deleteWhere's
+ * key, a selection by the package parameter, the program of `members`
  * members and the program of twice as many, each beside a query member under a package parameter, applied through its
  * workload's handle with that parameter, and checked alone over a schema of `small` relations and over one of `large`,
  * as edullm's pantry writes one member per relation of a schema of hundreds (its replaceWrite) and applies it through
@@ -42,7 +43,7 @@ import { Array as Arr, Effect } from "effect"
 import { assert, defined } from "#test/support/assert.ts"
 import type { PreludeAt } from "#test/support/prelude.ts"
 import { assertClean, measuredEach } from "#test/types/batch/measured.ts"
-import { memberKinds, memberOps, memberSource } from "#test/types/changeset/budget/members.ts"
+import { memberForms, memberSource } from "#test/types/changeset/budget/members.ts"
 
 /**
  * The members of the first program, and the schemas' sizes. The second program writes twice as many members, each over
@@ -63,32 +64,31 @@ const shapes = [
 ] as const
 
 layer(NodeServices.layer, { excludeTestServices: true })("the ChangeSet-member programs", (it) => {
-	for (const op of memberOps) {
-		for (const kind of memberKinds) {
-			it.effect(
-				`each ${kind} member of ${op} costs as many instantiations over ${large} relations as over ${small}`,
-				() =>
-					Effect.gen(function* () {
-						const measured = yield* measuredEach(
-							"test/types/changeset",
-							Arr.map(shapes, (at) => ({
-								size: at.relations,
-								source: (entries: PreludeAt) => memberSource({ ...at, op, kind }, entries)
-							}))
-						)
-						for (const m of measured) {
-							assertClean(m, `${op} of ${kind} members`)
-						}
-						const count = (i: number): number =>
-							defined(measured[i], `the program of ${op} at ${i}`).instantiations
-						const added = { small: count(1) - count(0), large: count(3) - count(2) }
-						assert.equal(
-							added.large,
-							added.small,
-							`the last ${members} ${kind} members of ${op} cost ${added.large} instantiations over ${large} relations and ${added.small} over ${small}`
-						)
-					})
-			)
-		}
+	for (const form of memberForms) {
+		const { op, kind } = form
+		it.effect(
+			`each ${kind} member of ${op} costs as many instantiations over ${large} relations as over ${small}`,
+			() =>
+				Effect.gen(function* () {
+					const measured = yield* measuredEach(
+						"test/types/changeset",
+						Arr.map(shapes, (at) => ({
+							size: at.relations,
+							source: (entries: PreludeAt) => memberSource({ ...at, ...form }, entries)
+						}))
+					)
+					for (const m of measured) {
+						assertClean(m, `${op} of ${kind} members`)
+					}
+					const count = (i: number): number =>
+						defined(measured[i], `the program of ${op} at ${i}`).instantiations
+					const added = { small: count(1) - count(0), large: count(3) - count(2) }
+					assert.equal(
+						added.large,
+						added.small,
+						`the last ${members} ${kind} members of ${op} cost ${added.large} instantiations over ${large} relations and ${added.small} over ${small}`
+					)
+				})
+		)
 	}
 })

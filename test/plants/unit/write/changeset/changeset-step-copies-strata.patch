@@ -1,9 +1,9 @@
 diff --git a/packages/engine/src/write/changeset/value.ts b/packages/engine/src/write/changeset/value.ts
-index 97a0e9d8..def755bb 100644
+index 84308d7f..ab648a89 100644
 --- a/packages/engine/src/write/changeset/value.ts
 +++ b/packages/engine/src/write/changeset/value.ts
-@@ -799,7 +799,10 @@ const scopeWith = (scope: Scope, member: MemberState): Scope => {
- 	const released = release(scope, member.kind === "query" ? member.params : new Set())
+@@ -857,7 +857,10 @@ const scopeWith = (scope: Scope, member: MemberState): Scope => {
+ 	const released = release(scope, isDescribed(member) ? member.params : new Set())
  	const last = released.strata.length - 1
  	return {
 -		strata: released.strata.map((s, i) => (i === last ? withMember(s, i, member) : s)),

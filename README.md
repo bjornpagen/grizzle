@@ -2683,6 +2683,7 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   .insert(Post, rows)               add these rows; a row already present is no change, which delta.met returns
   .insertAll({ Post: rows })        an insert of each relation the record names by its key
   .delete(Comment, rows)            remove these rows
+  .deleteWhere({ Comment: { post: param("post", PostId) } })   remove the rows whose fields equal these values
   .put(PostViews, rows)             after the change, the row at each key is the one given
   .read("name", (delta) => query)   a query over the result, delivered in the outcome
   .bind({ id })                     every parameter's value, bound ahead of apply
@@ -2698,6 +2699,15 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   among them. `InsertableNameOf<S>` is their type, and `InsertAllRowsOf<S>` is the record `insertAll` takes over all
   of them, each table's rows an array of its `AdditionIn<S, R>`, so `ChangeSet.empty(Credits).insertAll(rows)` with
   `rows: InsertAllRowsOf<typeof Credits>` writes grants and debits at once.
+- **`deleteWhere`** removes, of each table the record names by its key, the rows whose named fields equal the given
+  values, each a parameter, `param(name, descriptor)`, or a literal of the field's type: `DELETE FROM t WHERE post = $1`,
+  and the conjunction for several fields; `{}` removes every row. It is the delete of the query that matches the table's
+  rows and keeps those, so it plans, refuses and certifies as that delete does: a tree's selection names its root
+  fields and removes whole trees, an owner's removes every row nested under it, and a family's member, whose delete is
+  its family's edit, is a type error. A field names only the rows the table's delete states (`Written<R>`, or a tree's
+  root), and a value is a parameter or a literal, never a variable, a typed constant or a Compute term, so a delete
+  that reads another table or compares otherwise is a query's. Its keys are required, and their order means nothing.
+  `ChangeSet.empty(S).deleteWhere({ Node: { package }, Entry: { package } }).insertAll(rows)` replaces a package.
 - **A row holds the fields its caller writes**, `Written<R>` ([How a field is written](#how-a-field-is-written)). A
   family's member is a row of its own, nested under its owner only in a sequence ([Families](#families)), and written
   from an array or a `Stream`, never from a query or through a query entry, since grizzle draws its family's values

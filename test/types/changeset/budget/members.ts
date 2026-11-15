@@ -10,29 +10,37 @@ import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
  * a natural id and three texts of one type, Name, one of them named `params`, as pantry's Reference has one, keyed by
  * its package and id, under no law, beside P, the package's own relation. The ChangeSet deletes P's rows under a
  * package parameter, a query member, then writes the first `members` relations, one member each, by one op: a delete, a
- * put or an insert, each a call of its own, or one insertAll keyed by them. A member is a query, the rows of its
- * relation under the package parameter, as replaceWrite's are, or an array of the relation's facts. A workload over
+ * put or an insert, each a call of its own, one insertAll keyed by them, or one deleteWhere keyed by them. A member is a
+ * query, the rows of its relation under the package parameter, as replaceWrite's are, an array of the relation's facts,
+ * or a deleteWhere's selection of the relation's rows by the package parameter, as replaceWrite's are now. A workload over
  * Writer, a role writing every relation, serves the ChangeSet, and a function applies it through the handle's once,
  * the package parameter with the facts of its array members, as pantry's importPackage applies replaceWrite.
  */
 export type MemberShape = {
 	readonly relations: number
 	readonly members: number
-	readonly op: MemberOp
-	readonly kind: MemberKind
-}
+} & MemberForm
 
-/** The ops a ChangeSet writes its members by: a call each, or one insertAll keyed by their relations. */
-export type MemberOp = "delete" | "put" | "insert" | "insertAll"
+/**
+ * How a ChangeSet writes its members: by an op, a call each or one insertAll keyed by their relations, each member a
+ * query over the schema or an array of facts; or by one deleteWhere keyed by their relations, each member a selection.
+ */
+export type MemberForm =
+	| { readonly op: "delete" | "put" | "insert" | "insertAll"; readonly kind: "query" | "array" }
+	| { readonly op: "deleteWhere"; readonly kind: "selection" }
 
-/** What a member is: a query over the schema, or an array of facts. */
-export type MemberKind = "query" | "array"
+export const memberForms: ReadonlyArray<MemberForm> = [
+	...Arr.flatMap(["delete", "put", "insert", "insertAll"] as const, (op) =>
+		Arr.map(["query", "array"] as const, (kind): MemberForm => ({ op, kind }))
+	),
+	{ op: "deleteWhere", kind: "selection" }
+]
 
-export const memberOps: ReadonlyArray<MemberOp> = ["delete", "put", "insert", "insertAll"]
-export const memberKinds: ReadonlyArray<MemberKind> = ["query", "array"]
-
-/** Member i of the ChangeSet, over relation i: a query of its rows under the package parameter, or its declared facts. */
-const memberOf = (i: number, kind: MemberKind): string => {
+/**
+ * Member i of the ChangeSet, over relation i: a query of its rows under the package parameter, its declared facts, or a
+ * selection of its rows by the package parameter.
+ */
+const memberOf = (i: number, kind: MemberForm["kind"]): string => {
 	switch (kind) {
 		case "query":
 			return `query(S).rule((q) => {
@@ -41,14 +49,17 @@ const memberOf = (i: number, kind: MemberKind): string => {
 })`
 		case "array":
 			return `facts${i}`
+		case "selection":
+			return `{ package: param("package", Name) }`
 	}
 }
 
-/** The ChangeSet's members: one call of the op for each, or one insertAll keyed by their relations. */
+/** The ChangeSet's members: one call of the op for each, or one insertAll or deleteWhere keyed by their relations. */
 const membersOf = (shape: MemberShape): string => {
 	switch (shape.op) {
 		case "insertAll":
-			return `\t.insertAll({\n${Arr.join(
+		case "deleteWhere":
+			return `\t.${shape.op}({\n${Arr.join(
 				Arr.map(indices(shape.members), (i) => `\t\tR${i}: ${memberOf(i, shape.kind)}`),
 				",\n"
 			)}\n\t})`
@@ -74,6 +85,7 @@ const factsOf = (shape: MemberShape): string => {
 				""
 			)
 		case "query":
+		case "selection":
 			return ""
 	}
 }
@@ -87,6 +99,7 @@ const onceFactsOf = (shape: MemberShape): string => {
 				", "
 			)} } }`
 		case "query":
+		case "selection":
 			return "{}"
 	}
 }

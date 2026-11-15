@@ -22,7 +22,13 @@ import type * as Result from "#compiler/core/result.ts"
 import { type ClockBinding, noClock } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { rooted } from "#compiler/ir/dag.ts"
-import type { ChangeSetDesc, MemberDesc } from "#compiler/ir/desc.ts"
+import {
+	type ChangeSetDesc,
+	enumeratedMember,
+	type MemberDesc,
+	type PlannedChangeSetDesc,
+	type PlannedMemberDesc
+} from "#compiler/ir/desc.ts"
 import { type Family, isSequence, isTreeOf, type TreeShape } from "#compiler/ir/family.ts"
 import { layoutKey } from "#compiler/ir/fill.ts"
 import { familyKey, type LawField, type NativeColumn, type RelationInfo } from "#compiler/ir/law.ts"
@@ -76,6 +82,7 @@ import {
 	fillQuery,
 	type SerialDraw
 } from "#compiler/write/frontend/entry.ts"
+import { equalQuery } from "#compiler/write/frontend/equal.ts"
 
 import type { HostChecks, StartData } from "#compiler/runtime/write/normalize.ts"
 import type { WitnessEntry } from "#compiler/runtime/write/witness.ts"
@@ -480,7 +487,8 @@ export interface WriteFrontend extends WriteQueries {
 	readonly restated: WriteQueries
 	/** The node of `restated.ir.dag` standing in the place of a node of `ir.dag`. */
 	readonly restate: Counterpart
-	readonly desc: ChangeSetDesc
+	/** The ChangeSet's Description as planned: each field-equality member made the query it is (write/frontend/equal.ts). */
+	readonly desc: PlannedChangeSetDesc
 	readonly schema: CheckedSchema
 	readonly laws: LawModel
 	/** Each derived relation's inherited keys with its view's unique index: with the laws, what the write's placement
@@ -718,10 +726,12 @@ interface CheckedMember {
 	readonly op: MemberDesc["op"]
 	readonly target: CheckedTarget
 	readonly loc: SourceLoc
+	/** Its Description as the planner reads it: a field-equality member's its query's. */
+	readonly planned: PlannedMemberDesc
 	readonly source:
 		| {
 				readonly kind: "enumerated"
-				readonly member: Exclude<MemberDesc["member"], { readonly kind: "query" }>
+				readonly member: Extract<MemberDesc["member"], { readonly kind: "array" | "stream" }>
 		  }
 		| { readonly kind: "described"; readonly query: LogicalQuery; readonly root: RelNode }
 }
@@ -1412,7 +1422,8 @@ const compile = (
 				)
 			}
 			const edited = managed(relation.name) && tree === undefined
-			if (edited && (entry.kind !== "whole" || member.member.kind === "query")) {
+			const described = !enumeratedMember(member.member)
+			if (edited && (entry.kind !== "whole" || described)) {
 				refuse(
 					"UnsupportedOperation",
 					loc,
@@ -1427,7 +1438,7 @@ const compile = (
 				)
 			}
 			const nested = member.op === "insert" && nests(relation.name)
-			if (nested && (entry.kind !== "whole" || member.member.kind === "query")) {
+			if (nested && (entry.kind !== "whole" || described)) {
 				refuse(
 					"UnsupportedOperation",
 					loc,
@@ -1444,13 +1455,21 @@ const compile = (
 							}
 						: relation
 			const source = member.member
-			if (source.kind !== "query") {
-				return { op: member.op, target, loc, source: { kind: "enumerated", member: source } }
+			if (source.kind === "array" || source.kind === "stream") {
+				return {
+					op: member.op,
+					target,
+					loc,
+					planned: { op: member.op, relation: member.relation, member: source, loc },
+					source: { kind: "enumerated", member: source }
+				}
 			}
+			const describedQuery =
+				source.kind === "query" ? source.query : equalQuery(written, source.fields, loc)
 			const query = unwrap(
 				checkMember(
 					checked,
-					{ op: member.op, relation: written, query: navigateMember(source.query, loc), loc },
+					{ op: member.op, relation: written, query: navigateMember(describedQuery, loc), loc },
 					{ label: `${member.op} ${member.relation}` }
 				)
 			)
@@ -1462,6 +1481,12 @@ const compile = (
 				op: member.op,
 				target,
 				loc,
+				planned: {
+					op: member.op,
+					relation: member.relation,
+					member: { kind: "query", query: describedQuery },
+					loc
+				},
 				source: { kind: "described", query, root: merger.add(query) }
 			}
 		})
@@ -3004,7 +3029,15 @@ const compile = (
 	return Object.freeze({
 		...queries,
 		...restatement,
-		desc,
+		desc: Object.freeze({
+			strata: Object.freeze(
+				strataMembers.map((members) =>
+					Object.freeze({ members: Object.freeze(members.map((m) => m.planned)) })
+				)
+			),
+			reads: desc.reads,
+			bindings: desc.bindings
+		}),
 		schema: checked,
 		laws,
 		views,

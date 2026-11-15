@@ -396,6 +396,22 @@ type ParamTerm<Name extends string, H, Sql extends SqlTag, D, F extends ProvedFa
 	F
 >
 
+/**
+ * A scalar parameter of the descriptor's type and facts, which the caller binds by name; a term, first included. No
+ * parameter is bytes (NotStoredOnly). A rule's `r.param` and the free `param`, which a ChangeSet's deleteWhere equates a
+ * field to outside any rule, make the same term.
+ */
+export type ParamConstructor = <
+	const Name extends string,
+	H,
+	Sql extends SqlTag,
+	D,
+	F extends ProvedFacts
+>(
+	name: Name,
+	type: Field<H, Sql, D, F> & NotStoredOnly<Sql>
+) => ParamTerm<Name, H, Sql, D, F>
+
 /** What r.relation takes as a heading: a heading of fields C, or a relation, whose heading C is. */
 export type RelationHeading<C> = C | { readonly kind: "relation"; readonly heading: C }
 
@@ -612,14 +628,8 @@ export interface Rule<S, Params = unknown, Sole = "no match", Facts = NoFacts, C
 	/** A stage over the rule's own schema, so it carries S like the query it is part of. */
 	readonly interior: RuleInterior
 
-	/**
-	 * A scalar parameter of the descriptor's type and facts, which the caller binds by name; a term, first included. No
-	 * parameter is bytes (NotStoredOnly).
-	 */
-	param<const Name extends string, H, Sql extends SqlTag, D, F extends ProvedFacts>(
-		name: Name,
-		type: Field<H, Sql, D, F> & NotStoredOnly<Sql>
-	): ParamTerm<Name, H, Sql, D, F>
+	/** A scalar parameter of the descriptor's type and facts (ParamConstructor). */
+	readonly param: ParamConstructor
 	/**
 	 * A relation-valued parameter over a heading of fields, or over a relation of the rule's schema, whose heading it
 	 * takes; the Description names the relation, which the schema resolves.

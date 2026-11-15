@@ -92,7 +92,7 @@ export interface Shape {
  *   owner it names no row of;
  * - `follow`: a follow-up over the stored rows (fill.ts `followUpGen`), beside plain writes and a query's insert;
  * - `query put`: a put of a relation no family has as a member, its rows a relation parameter's, from a query;
- * - `delete all`: a delete of every stored row.
+ * - `delete all`: a delete of every stored row, by `by` (DeleteAllForm).
  */
 export type Step =
 	| {
@@ -116,7 +116,15 @@ export type Step =
 			readonly rows: ReadonlyArray<{ readonly id: number; readonly v: bigint }>
 			readonly plain: ReadonlyArray<PlainOp>
 	  }
-	| { readonly kind: "delete all" }
+	| { readonly kind: "delete all"; readonly by: DeleteAllForm }
+
+/**
+ * How a delete of everything states its rows: `rows`, each relation's stored rows, a family's members' among them, as
+ * arrays; `selection`, each relation no ordered or counted family has as a member, every row of it by an empty
+ * field-equality selection (ChangeSet.deleteWhere), whose whole delete removes every row nested under it through every
+ * family, as pantry's replace deletes a package's rows.
+ */
+export type DeleteAllForm = "rows" | "selection"
 
 /** A case: a drawn schema and its ChangeSets, applied in order from the empty state. */
 export interface SwarmCase {

@@ -149,6 +149,7 @@ const swarmFeatures = [
 	"query put",
 	"follow-ups",
 	"delete all",
+	"delete where",
 	"unlawful"
 ] as const
 

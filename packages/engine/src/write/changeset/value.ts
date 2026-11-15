@@ -22,10 +22,13 @@ import {
 	type ChangeSetDesc,
 	decodeDesc,
 	descText,
+	type EqualedDesc,
+	equalParamNames,
 	type MemberDesc,
 	type QueryDesc,
 	queryParamNames,
 	type ReadBackDesc,
+	renameEqualParams,
 	renameQueryParams
 } from "#compiler/ir/desc.ts"
 import * as S from "#compiler/ir/shape.ts"
@@ -33,8 +36,11 @@ import { inReservedSpace, slotSpelling } from "#compiler/ir/slots.ts"
 import { schemaInfo } from "#compiler/query/build/heading.ts"
 import { isCallback } from "#compiler/query/build/scope.ts"
 import { isOrdered, publicDesc, queryState } from "#compiler/query/build/state.ts"
+import { headValueOf } from "#compiler/query/build/terms.ts"
+import { termExpr } from "#compiler/scalar/compute/term.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { isLevelOver, type Level } from "#compiler/schema/level.ts"
+import { untypedLiteral } from "#compiler/schema/literal.ts"
 import { malformed, orThrow, requireName } from "#compiler/schema/protocol.ts"
 import { named, record } from "#compiler/schema/record.ts"
 import type {
@@ -82,6 +88,17 @@ type MemberState =
 			readonly relation: string
 			readonly query: QueryDesc
 			/** The canonical identity text of the query, which orders and deduplicates query members. */
+			readonly text: string
+			readonly params: ReadonlySet<string>
+			readonly desc: MemberDesc
+	  }
+	| {
+			readonly kind: "equal"
+			readonly op: MemberOp
+			readonly relation: string
+			/** Each field it selects by, and the parameter or literal the field equals. */
+			readonly fields: Readonly<Record<string, EqualedDesc>>
+			/** The canonical identity text of its fields, which orders and deduplicates field-equality members. */
 			readonly text: string
 			readonly params: ReadonlySet<string>
 			readonly desc: MemberDesc
@@ -214,6 +231,11 @@ export interface ChangeSetValue extends Built {
 	 * is refused, and so is a key that names no relation the ChangeSet writes. */
 	insertAll(rows: Readonly<Record<string, MemberInput>>): ChangeSetValue
 	delete(relation: unknown, facts: MemberInput): ChangeSetValue
+	/** A JavaScript caller's record of records is read once, as insertAll's: each key a relation the ChangeSet writes,
+	 * each field a parameter or a literal. */
+	deleteWhere(
+		selections: Readonly<Record<string, Readonly<Record<string, unknown>>>>
+	): ChangeSetValue
 	put(relation: unknown, facts: MemberInput): ChangeSetValue
 	/** A read-back from a JavaScript caller may be any value; the builder checks it is a function. */
 	read(name: unknown, readBack: unknown): ChangeSetValue
@@ -269,18 +291,29 @@ export interface ParsedChangeSet {
 /** The parsed ChangeSet of a value, none when the value is not one. */
 export const parseChangeSet = (value: unknown): ParsedChangeSet | undefined => changeSetState(value)
 
-const kindRank: Readonly<Record<MemberState["kind"], number>> = { array: 0, stream: 1, query: 2 }
+const kindRank: Readonly<Record<MemberState["kind"], number>> = {
+	array: 0,
+	stream: 1,
+	query: 2,
+	equal: 3
+}
+
+/** A member its statement reads the facts of, a query or a field-equality member, held by its canonical text. */
+type Described = Extract<MemberState, { readonly kind: "query" | "equal" }>
+
+/** Whether a member is described, so ordered and deduplicated by its text. */
+const isDescribed = (m: MemberState): m is Described => m.kind === "query" || m.kind === "equal"
 
 /** The group of a member: its op and relation. An op is a word without a colon, so the first colon ends it. */
 const groupKey = (m: MemberState): string => `${m.op}:${m.relation}`
 
-/** The order of a canonical stratum's members: by relation, operation and kind, then a query member by its text. */
+/** The order of a canonical stratum's members: by relation, operation and kind, then a described member by its text. */
 const memberOrder: Order.Comparator<MemberState> = Order.combineAll([
 	Order.mapInput(Order.compareStrings, (m: MemberState) => m.relation),
 	Order.mapInput(Order.compareStrings, (m: MemberState) => m.op),
 	Order.mapInput(Order.compareNumbers, (m: MemberState) => kindRank[m.kind]),
 	(a: MemberState, b: MemberState) =>
-		a.kind === "query" && b.kind === "query" ? Order.compareStrings(a.text, b.text) : 0
+		isDescribed(a) && isDescribed(b) ? Order.compareStrings(a.text, b.text) : 0
 ])
 
 /** The canonical form of one stratum's members (see `ChangeSetValue`).
@@ -288,8 +321,8 @@ const memberOrder: Order.Comparator<MemberState> = Order.combineAll([
  * A stable sort: Streams of one group keep their order. */
 const canonicalStratum = (members: ReadonlyArray<MemberState>): ReadonlyArray<MemberState> => {
 	const arrays = new Map<string, Extract<MemberState, { kind: "array" }>>()
-	/** Equal query members are one: the first of each operation, relation and text. */
-	const queries: Array<Extract<MemberState, { kind: "query" }>> = []
+	/** Equal described members are one: the first of each operation, relation, kind and text. */
+	const described: Array<Described> = []
 	const texts = new Map<string, Set<string>>()
 	const streams: Array<MemberState> = []
 	for (const m of members) {
@@ -306,17 +339,18 @@ const canonicalStratum = (members: ReadonlyArray<MemberState>): ReadonlyArray<Me
 			case "stream":
 				streams.push(m)
 				break
-			case "query": {
-				const seen = texts.get(group) ?? new Set<string>()
-				texts.set(group, seen)
+			case "query":
+			case "equal": {
+				const seen = texts.get(`${m.kind}:${group}`) ?? new Set<string>()
+				texts.set(`${m.kind}:${group}`, seen)
 				if (!seen.has(m.text)) {
 					seen.add(m.text)
-					queries.push(m)
+					described.push(m)
 				}
 			}
 		}
 	}
-	return Object.freeze([...arrays.values(), ...streams, ...queries].toSorted(memberOrder))
+	return Object.freeze([...arrays.values(), ...streams, ...described].toSorted(memberOrder))
 }
 
 /**
@@ -347,7 +381,7 @@ const withMember = (
 			stratum.with(low - 1, { ...before, facts: Object.freeze([...before.facts, ...m.facts]) })
 		)
 	}
-	if (sameGroup && before.kind === "query" && m.kind === "query" && before.text === m.text) {
+	if (sameGroup && isDescribed(before) && isDescribed(m) && before.text === m.text) {
 		return stratum
 	}
 	let earlier = 0
@@ -397,6 +431,23 @@ const queryMemberDesc = (
 ): MemberDesc =>
 	Object.freeze({ op, relation, member: Object.freeze({ kind: "query", query }), loc })
 
+/** A field-equality member of `op` on `relation`, its fields decoded parts and its location kept: its Description and
+ * the canonical text of its fields, which order and deduplicate it. */
+const equalState = (
+	op: MemberOp,
+	relation: string,
+	fields: Readonly<Record<string, EqualedDesc>>,
+	loc: SourceLoc
+): Extract<MemberState, { readonly kind: "equal" }> => ({
+	kind: "equal",
+	op,
+	relation,
+	fields,
+	text: identityText(fields),
+	params: equalParamNames(fields),
+	desc: Object.freeze({ op, relation, member: Object.freeze({ kind: "equal", fields }), loc })
+})
+
 /** An array or Stream member at `slot`: itself when it is there already. */
 const atSlot = <M extends Extract<MemberState, { readonly kind: "array" | "stream" }>>(
 	m: M,
@@ -417,7 +468,7 @@ const placed = (members: ReadonlyArray<MemberState>, s: number): ReadonlyArray<M
 			if (m.kind === "array") {
 				return atSlot(m, arraySlot(s, m.op, m.relation))
 			}
-			if (m.kind === "query") {
+			if (isDescribed(m)) {
 				return m
 			}
 			const group = groupKey(m)
@@ -479,7 +530,7 @@ type Scope = Pick<ChangeSetState, "strata" | "reads" | "bound">
 const usedParams = (scope: Pick<Scope, "strata" | "reads">): ReadonlySet<string> => {
 	const out = new Set<string>()
 	for (const p of scope.strata.flatMap((stratum) =>
-		stratum.flatMap((m) => (m.kind === "query" ? [...m.params] : []))
+		stratum.flatMap((m) => (isDescribed(m) ? [...m.params] : []))
 	)) {
 		out.add(p)
 	}
@@ -520,8 +571,11 @@ const renamedQuery = (query: QueryDesc, rename: ReadonlyMap<string, string>): Qu
 	orThrow(decodeDesc("query", renameQueryParams(query, rename)))
 
 const renameMember = (m: MemberState, rename: ReadonlyMap<string, string>): MemberState => {
-	if (m.kind !== "query" || ![...m.params].some((p) => rename.has(p))) {
+	if (!isDescribed(m) || ![...m.params].some((p) => rename.has(p))) {
 		return m
+	}
+	if (m.kind === "equal") {
+		return equalState(m.op, m.relation, renameEqualParams(m.fields, rename), m.desc.loc)
 	}
 	const query = renamedQuery(m.query, rename)
 	return {
@@ -698,6 +752,9 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 		delete(relation, facts) {
 			return addMember(stateOf(this, "ChangeSet.delete"), this.reads, "delete", relation, facts)
 		},
+		deleteWhere(selections) {
+			return addDeletesWhere(stateOf(this, "ChangeSet.deleteWhere"), this.reads, selections)
+		},
 		put(relation, facts) {
 			return addMember(stateOf(this, "ChangeSet.put"), this.reads, "put", relation, facts)
 		},
@@ -727,7 +784,8 @@ const requireLevel = (written: Level, over: BuiltOver, label: string): void => {
 const frozenFact = (fact: unknown): unknown =>
 	isPlainRecord(fact) ? Object.freeze({ ...fact }) : fact
 
-const identityText = (desc: QueryDesc): string => {
+/** The canonical identity text of a decoded part of a member's Description: a query, or a field-equality member's fields. */
+const identityText = (desc: QueryDesc | Readonly<Record<string, EqualedDesc>>): string => {
 	const text = descText(desc)
 	if (!text.ok) {
 		throw text.error
@@ -796,7 +854,7 @@ const memberState = (
 /** The scope with `member` in its last stratum. The member's parameters are free: a private parameter of that name moves
  * out of its way. */
 const scopeWith = (scope: Scope, member: MemberState): Scope => {
-	const released = release(scope, member.kind === "query" ? member.params : new Set())
+	const released = release(scope, isDescribed(member) ? member.params : new Set())
 	const last = released.strata.length - 1
 	return {
 		strata: released.strata.map((s, i) => (i === last ? withMember(s, i, member) : s)),
@@ -819,19 +877,20 @@ const addMember = <S, P, W extends string, Rd, Done extends Strata, Last extends
 	return make(state.over, scope.strata, scope.reads, scope.bound, decoder)
 }
 
-/** The record from a JavaScript caller, read once through hostRead: its own string keys and their members, in its
- * order. A getter or proxy trap that throws, a value that is no plain record, and a symbol key, which no insert of the
- * record's would write, refuse it. */
-const insertRows = (
-	rows: Readonly<Record<string, MemberInput>>,
-	label: string
-): ReadonlyArray<readonly [string, MemberInput]> => {
+/** A record from a JavaScript caller, read once through hostRead: its own string keys and their values, in its order.
+ * A getter or proxy trap that throws, a value that is no plain record, and a symbol key, which no member of the
+ * record's would name, refuse it, `what` saying what it is. */
+const recordEntries = <V>(
+	given: Readonly<Record<string, V>>,
+	label: string,
+	what: string
+): ReadonlyArray<readonly [string, V]> => {
 	const read = hostRead(
-		() => malformed(label, "a record of members by relation name whose reading throws nothing"),
+		() => malformed(label, `${what} whose reading throws nothing`),
 		() =>
-			isPlainRecord(rows) && Object.getOwnPropertySymbols(rows).length === 0
-				? Result.ok(Object.entries(rows))
-				: Result.err(malformed(label, "a record of members by relation name, with no symbol key"))
+			isPlainRecord(given) && Object.getOwnPropertySymbols(given).length === 0
+				? Result.ok(Object.entries(given))
+				: Result.err(malformed(label, `${what}, with no symbol key`))
 	)
 	if (!read.ok) {
 		throw read.error
@@ -846,11 +905,69 @@ const addInserts = <S, P, W extends string, Rd, Done extends Strata, Last extend
 	rows: Readonly<Record<string, MemberInput>>
 ): ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember => {
 	const label = "ChangeSet.insertAll"
-	const scope = insertRows(rows, label).reduce<Scope>((at, [key, facts]) => {
+	const scope = recordEntries(rows, label, "a record of members by relation name").reduce<Scope>(
+		(at, [key, facts]) => {
+			const name = memberRelationNamed(key, state.over, label)
+			return scopeWith(
+				at,
+				memberState(state, "insert", name, captureLoc(`insert ${name}`, []), facts, label)
+			)
+		},
+		state
+	)
+	return make(state.over, scope.strata, scope.reads, scope.bound, decoder)
+}
+
+/**
+ * What a field-equality member equates one field to, from a JavaScript caller's value: a parameter term, by its name
+ * and declared type, or a JavaScript value, a literal whose type the checker reads from the field it meets
+ * (schema/literal.ts untypedLiteral, as a head literal's). Any other term, a variable, a Compute term or a typed
+ * constant, would read something other than the field's own equality to a value the caller names, and is refused.
+ */
+const equaledOf = (value: unknown, label: string): EqualedDesc => {
+	const expr = termExpr(value)
+	if (expr !== undefined) {
+		if (expr.kind !== "param") {
+			throw malformed(
+				label,
+				"a parameter (param(name, descriptor)) or a literal: a field-equality member compares each field with a value the caller names, never with a variable or a computed term"
+			)
+		}
+		return Object.freeze({ kind: "param", name: expr.name, type: expr.type })
+	}
+	if (headValueOf(value) !== undefined) {
+		throw malformed(label, "a parameter or a literal, not a head value")
+	}
+	return Object.freeze({ kind: "literal", value: untypedLiteral(value, label) })
+}
+
+/**
+ * deleteWhere: under each key a field-equality member, a delete of the facts of the relation the key names whose fields
+ * equal what its record equates them to, in the record's order, into one ChangeSet made once. Its fields' names and
+ * the relation's are the write front end's to judge, where it knows the member's heading (write/frontend/equal.ts).
+ */
+const addDeletesWhere = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
+	state: ChangeSetState,
+	decoder: RowDecoder<Rd>,
+	selections: Readonly<Record<string, Readonly<Record<string, unknown>>>>
+): ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember => {
+	const label = "ChangeSet.deleteWhere"
+	const scope = recordEntries(
+		selections,
+		label,
+		"a record of field equalities by relation name"
+	).reduce<Scope>((at, [key, fields]) => {
 		const name = memberRelationNamed(key, state.over, label)
+		const equaled = Object.freeze(
+			Object.fromEntries(
+				recordEntries(fields, label, `a record of ${name}'s fields to parameters or literals`).map(
+					([field, value]) => [field, equaledOf(value, `${label} ${name}.${field}`)] as const
+				)
+			)
+		)
 		return scopeWith(
 			at,
-			memberState(state, "insert", name, captureLoc(`insert ${name}`, []), facts, label)
+			equalState("delete", name, equaled, keptLoc(captureLoc(`delete ${name}`, [])))
 		)
 	}, state)
 	return make(state.over, scope.strata, scope.reads, scope.bound, decoder)
