@@ -154,9 +154,11 @@ import {
 } from "#compiler/write/insert/statement.ts"
 import type { RelationUniques } from "#compiler/write/insert/unique.ts"
 import {
+	atFields,
 	bound,
+	type Equal,
+	type MetAccess,
 	metFound,
-	metNarrowed,
 	metRowsOf,
 	probeGroup,
 	probeKey,
@@ -573,16 +575,25 @@ const appendedOf = (
 		value: (a: string, key: ColumnKey) => Expr
 	): SetArm => {
 		const a = supply.relation(internal("appended fact"))
+		const pkKeys = new Set(member.relation.primaryFields.map((f) => fieldKey(f.name)))
+		/** The stored row at the fact's primary key, which reaches one row, equal to the fact at every other compared column,
+		 * checked over that row (probe.ts Equal). */
 		const repeated = (): Expr =>
-			storedAt(w, supply, name, {
-				key: mapNonEmpty(compared, (c) => ({
-					column: installed(w, name, c.column),
-					value: col(a, columnAt(facts, c.key)),
-					schema: operatorSchemaOf(w.names, c.type)
-				})),
-				filter: () => [],
-				placed: mapNonEmpty(compared, (c) => installed(w, name, c.column))
-			})
+			storedAt(
+				w,
+				supply,
+				name,
+				atFields(w, name, member.relation.primaryFields, (f) =>
+					col(a, columnAt(facts, fieldKey(f.name)))
+				),
+				compared
+					.filter((c) => !pkKeys.has(c.key))
+					.map((c): Equal => ({
+						column: installed(w, name, c.column),
+						value: col(a, columnAt(facts, c.key)),
+						type: c.type
+					}))
+			)
 		return provedCore(
 			"input",
 			[...appended.columns.keys()].map((k) => targetAs(value(a, k), columnAt(appended, k))),
@@ -1646,27 +1657,25 @@ const metRefusal = (
 			returned: returnedOf(f)
 		}))
 	})
-	const repeat = metNarrowed(
-		{
-			rows: met.alias,
-			key: mapNonEmpty(pk, (f) => ({
-				column: w.names.column(name, f.name),
-				from: proposedColumn(f),
-				schema: operatorSchemaOf(w.names, rowType(f))
-			})),
-			filter: () => [],
-			placed: mapNonEmpty(pk, (f) => w.names.column(name, f.name))
-		},
-		(inner) =>
-			stated.map((f) =>
-				typedEq(
-					rowType(f),
-					col(inner, w.names.column(name, f.name)),
-					col(met.alias, proposedColumn(f)),
-					w.names
-				)
-			)
-	)
+	/** The stored row met at the met row's primary key, which reaches one row, and its equality to the met row at every
+	 * other field the appended rows state, checked over that row (probe.ts Equal). */
+	const repeat: MetAccess = {
+		rows: met.alias,
+		key: mapNonEmpty(pk, (f) => ({
+			column: w.names.column(name, f.name),
+			from: proposedColumn(f),
+			schema: operatorSchemaOf(w.names, rowType(f))
+		})),
+		filter: () => [],
+		placed: mapNonEmpty(pk, (f) => w.names.column(name, f.name))
+	}
+	const repeatEqual = stated
+		.filter((f) => !pk.includes(f))
+		.map((f): Equal => ({
+			column: w.names.column(name, f.name),
+			value: col(met.alias, proposedColumn(f)),
+			type: rowType(f)
+		}))
 	/** Each met row with whether the stored row met at its key repeats it, MATERIALIZED, so the repeat is read for the
 	 * met rows alone: a filter on it pushed below the met rows' anti-join would read the stored rows for every member the
 	 * INSERT inserted. */
@@ -1687,7 +1696,7 @@ const metRefusal = (
 								defined(classedKeys[i], "a met key column")
 							)
 						),
-						targetAs(metFound(w, supply, name, repeat), repeated)
+						targetAs(metFound(w, supply, name, repeat, repeatEqual), repeated)
 					],
 					[met.source],
 					undefined

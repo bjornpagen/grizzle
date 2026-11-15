@@ -1,0 +1,38 @@
+--- a/packages/engine/src/write/probe.ts
++++ b/packages/engine/src/write/probe.ts
+@@ -295,8 +295,15 @@
+ 	access: Access,
+ 	equal: ReadonlyArray<Equal>
+ ): Expr => {
+-	const probe = probeKey(w, supply, relation, access, checkedColumns(access.placed, equal))
+-	return checked(w, probe.source, probe.at, equal)
++	const inside: Access = {
++		...access,
++		filter: (inner) => [
++			...access.filter(inner),
++			...equal.map((e) => typedEq(e.type, col(inner, e.column), e.value, w.names))
++		]
++	}
++	const probe = probeKey(w, supply, relation, inside, access.placed)
++	return checked(w, probe.source, probe.at, [])
+ }
+ 
+ /** Where a met row of the `metRows` source `rows` reaches a relation's rows: each column bound to a column of `rows`,
+@@ -402,8 +409,15 @@
+ 	access: MetAccess,
+ 	equal: ReadonlyArray<Equal>
+ ): Expr => {
+-	const met = metRow(w, supply, relation, access, checkedColumns(access.placed, equal))
+-	return checked(w, met.source, met.at, equal)
++	const inside: MetAccess = {
++		...access,
++		filter: (inner) => [
++			...access.filter(inner),
++			...equal.map((e) => typedEq(e.type, col(inner, e.column), e.value, w.names))
++		]
++	}
++	const met = metRow(w, supply, relation, inside, access.placed)
++	return checked(w, met.source, met.at, [])
+ }
+ 
+ /**

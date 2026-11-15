@@ -102,9 +102,11 @@ import {
 } from "#compiler/write/insert/unique.ts"
 import {
 	atFields,
+	atRow,
 	atObject,
 	type MetAccess,
 	metAtObject,
+	type Equal,
 	metFound,
 	metNarrowed,
 	metRow,
@@ -273,7 +275,7 @@ const storedAbsent = (
 	relation: WrittenRelation,
 	key: NonEmptyReadonlyArray<LawField>,
 	requested: (f: LawField) => Expr
-): Expr => not(storedAt(w, supply, relation.name, atFields(w, relation.name, key, requested)))
+): Expr => not(storedAt(w, supply, relation.name, atFields(w, relation.name, key, requested), []))
 
 /**
  * What a verdict row of an arbitrated insert is (see `buildInsert`), by its class, the verdict column's value: a fact
@@ -952,18 +954,40 @@ export const buildInsert = (
 				})
 			const met = metRows()
 			const metValue = (f: LawField): Expr => col(met.alias, from.columns.of(f))
-			const found = (access: MetAccess): Expr => metFound(w, supply, relation.name, access)
+			const found = (access: MetAccess, equal: ReadonlyArray<Equal>): Expr =>
+				metFound(w, supply, relation.name, access, equal)
 			const atArbiter = metAtObject(w, relation.name, primary, met.alias, from.columns.of)
 			const storedField = (inner: string) => (f: LawField) => col(inner, column(f))
 			const statedFields = inputStated(input)
 			const compared = all.filter(
 				(f) => !primary.equal.includes(f) && statedFields.some((c) => c.name === f.name)
 			)
-			/** An exact repeat at the arbiter: the stored row there equal to the met row at every field it states. */
-			const repeated = (access: MetAccess): MetAccess =>
-				metNarrowed(access, (inner) =>
-					compared.map((f) => same(f, storedField(inner)(f), col(access.rows, from.columns.of(f))))
-				)
+			/**
+			 * An exact repeat at the arbiter: the stored row there equal to the met row at every field it states. A scalar key
+			 * reaches one row, over which the equalities are checked (probe.ts Equal), so the key alone chooses the index; a span
+			 * key reaches every row overlapping the met row's span, so the equalities narrow the read itself.
+			 */
+			const repeatAt = (
+				access: MetAccess
+			): { readonly access: MetAccess; readonly equal: ReadonlyArray<Equal> } =>
+				primary.kind === "span"
+					? {
+							access: metNarrowed(access, (inner) =>
+								compared.map((f) =>
+									same(f, storedField(inner)(f), col(access.rows, from.columns.of(f)))
+								)
+							),
+							equal: []
+						}
+					: {
+							access,
+							equal: compared.map((f): Equal => ({
+								column: column(f),
+								value: col(access.rows, from.columns.of(f)),
+								type: rowType(f)
+							}))
+						}
+			const repeated = repeatAt(atArbiter)
 			const keyed: NonEmptyReadonlyArray<{ readonly when: Expr; readonly result: Expr }> =
 				spec.of === "put" && primary.kind === "span"
 					? [
@@ -971,18 +995,19 @@ export const buildInsert = (
 								when: found(
 									metNarrowed(atArbiter, (inner) => [
 										ne(storedField(inner)(primary.span), metValue(primary.span))
-									])
+									]),
+									[]
 								),
 								result: integer(verdictClass.conflict)
 							},
-							{ when: found(atArbiter), result: integer(verdictClass.change) }
+							{ when: found(atArbiter, []), result: integer(verdictClass.change) }
 						]
-					: [{ when: found(atArbiter), result: integer(differing) }]
+					: [{ when: found(atArbiter, []), result: integer(differing) }]
 			const classes = [
-				{ when: found(repeated(atArbiter)), result: integer(verdictClass.met) },
+				{ when: found(repeated.access, repeated.equal), result: integer(verdictClass.met) },
 				...keyed,
 				...objects.others.map((u, i) => ({
-					when: found(metAtObject(w, relation.name, u, met.alias, from.columns.of)),
+					when: found(metAtObject(w, relation.name, u, met.alias, from.columns.of), []),
 					result: integer(verdictClass.other + i)
 				}))
 			]
@@ -1016,13 +1041,9 @@ export const buildInsert = (
 			 * differing occupant is met (occupantVerdict), any occupant of its key. */
 			const delivered = metRows()
 			const deliveredAt = metAtObject(w, relation.name, primary, delivered.alias, from.columns.of)
-			const stored = metRow(
-				w,
-				supply,
-				relation.name,
-				differing === verdictClass.met ? deliveredAt : repeated(deliveredAt),
-				mapNonEmpty(all, column)
-			)
+			const reached =
+				differing === verdictClass.met ? { access: deliveredAt, equal: [] } : repeatAt(deliveredAt)
+			const stored = metRow(w, supply, relation.name, reached.access, mapNonEmpty(all, column))
 			return {
 				classified: rk,
 				met: provedCore(
@@ -1034,7 +1055,9 @@ export const buildInsert = (
 						...zero
 					],
 					[delivered.source, stored.source],
-					undefined
+					conjunction(
+						reached.equal.map((e) => typedEq(e.type, stored.at(e.column), e.value, w.names))
+					)
 				)
 			}
 		}
@@ -1336,12 +1359,8 @@ export const buildSpanClassify = (
 		const ctes: [Cte, ...Array<Cte>] = [cte(r1, inputs.columns, read.select)]
 		const requested = (f: LawField): Expr => inCol(r1, f)
 		/** A stored fact equal to the requested one at every field it states, read by the probe at those fields. */
-		const equalStored = storedAt(
-			w,
-			supply,
-			relation.name,
-			atFields(w, relation.name, all, requested)
-		)
+		const equalRow = atRow(w, relation, all, requested)
+		const equalStored = storedAt(w, supply, relation.name, equalRow.access, equalRow.equal)
 		/** On a put's insert half, a stored fact at the requested key itself is no law: the put deleted the occupant at
 		 * that key, or an owner's put updated it to the requested fact, which the equal stored fact above accounts for, so
 		 * any other one there was committed after the put's own statement, a concurrent change that aborts the apply. */
@@ -1354,7 +1373,8 @@ export const buildSpanClassify = (
 				? narrowed(occupant, (inner) => [
 						ne(col(inner, w.names.column(relation.name, span.name)), requested(span))
 					])
-				: occupant
+				: occupant,
+			[]
 		)
 		const requestedOverlap = simpleSelect(
 			one,

@@ -121,7 +121,11 @@ import { payloadOf, primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import { storedReads } from "#compiler/write/hold/stated.ts"
 import { type RelationInput, relationInput } from "#compiler/write/insert/input.ts"
 import { isCarried, isSerialField, keyFirst } from "#compiler/write/insert/statement.ts"
-import { type RelationUniques, relationUniques } from "#compiler/write/insert/unique.ts"
+import {
+	entryUniques,
+	type RelationUniques,
+	relationUniques
+} from "#compiler/write/insert/unique.ts"
 import { hostChecks } from "#compiler/write/normalize/normalize.ts"
 import { existingKeysProof } from "#compiler/write/put/proof.ts"
 
@@ -1263,7 +1267,13 @@ const compile = (
 			return wholeTarget(name, loc)
 		}
 		const entry = write.writable
-		const relation = writtenOf(entry.target.name, loc)
+		const written = writtenOf(entry.target.name, loc)
+		/** Written through the entry, its unique objects are probed at the fields the role holds (insert/unique.ts
+		 * entryUniques). */
+		const relation: WrittenRelation = Object.freeze({
+			...written,
+			uniques: entryUniques(written.uniques)
+		})
 		const writeWorld = options.world
 		if (writeWorld.kind !== "role") {
 			throw new Refusal(

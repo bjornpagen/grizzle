@@ -61,7 +61,7 @@ import {
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type FieldColumns, fieldColumns } from "#compiler/write/defined.ts"
 import { requestedValue, rowType, type WriteContext } from "#compiler/write/insert/statement.ts"
-import { atFields, atObject, storedAt, withinRow } from "#compiler/write/probe.ts"
+import { atObject, atRow, storedAt, withinRow } from "#compiler/write/probe.ts"
 import type { KeyArbiter } from "#compiler/write/put/choose.ts"
 import {
 	type ArmRefusal,
@@ -340,6 +340,27 @@ export const relationUniques = (laws: RelationLaws): RelationUniques => {
 		])
 	})
 }
+
+/** A unique object as a role holding its relation's fields alone reaches it: a guarded one at its compared fields and
+ * guards (uniques.ts GuardedReach `fields`), every other as it is. */
+const reachedByFields = <U extends UniqueObject>(u: U): U =>
+	u.kind === "guarded" ? { ...u, reach: { kind: "fields" } } : u
+
+/**
+ * A relation's unique objects as a role writing it through a query entry probes them: each guarded one at its compared
+ * fields and guards (`reachedByFields`), since the role holds column privileges on the relation's fields alone, none on
+ * a UNIQUE's law columns (physical/ddl/roles.ts). Its outside probes run as their owner and are as they are.
+ */
+export const entryUniques = (u: RelationUniques): RelationUniques =>
+	Object.freeze({
+		...u,
+		others: u.others.map(reachedByFields),
+		checks: u.checks.map((c): Probed => ({ ...c, object: reachedByFields(c.object) })),
+		every:
+			u.every.kind === "named"
+				? Object.freeze({ ...u.every, others: u.every.others.map(reachedByFields) })
+				: u.every
+	})
 
 /** The facts a probed statement requests: complete facts, every field key first, each probed only where its arbiter key
  * is free in the snapshot (an occupied one is the arbiter's to settle, a repeat or its conflict witness, and is never
@@ -724,7 +745,10 @@ export const buildProbe = (
 				ordinal: -ordinal,
 				rank:
 					witness === "requestedAnew"
-						? storedAt(w, supply, relation.name, atFields(w, relation.name, fields, rows.of))
+						? (() => {
+								const row = atRow(w, relation, fields, rows.of)
+								return storedAt(w, supply, relation.name, row.access, row.equal)
+							})()
 						: undefined
 			})
 		}
@@ -746,12 +770,13 @@ export const buildProbe = (
 													w,
 													supply,
 													relation.name,
-													atObject(w, relation.name, requested.arbiter, fact)
+													atObject(w, relation.name, requested.arbiter, fact),
+													[]
 												)
 											)
 										])
 							],
-							storedAt(w, supply, relation.name, atObject(w, relation.name, check, fact))
+							storedAt(w, supply, relation.name, atObject(w, relation.name, check, fact), [])
 						)
 					),
 					of: fact

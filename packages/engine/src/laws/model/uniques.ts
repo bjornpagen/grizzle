@@ -7,6 +7,7 @@ import { defect } from "#compiler/core/invariant.ts"
 import {
 	appendNonEmpty,
 	dedupeNonEmpty,
+	isNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
@@ -52,10 +53,30 @@ export interface UniqueGuard extends RowGuard {
 const sameGuard = (a: UniqueGuard, b: UniqueGuard): boolean =>
 	a.relation === b.relation && a.predicate.id === b.predicate.id
 
+/**
+ * A column of a guarded object's UNIQUE paired with the field it holds: the field itself, or a law column holding the
+ * field's own value wherever the object's guards hold and NULL elsewhere, so that two rows agree at the column exactly
+ * where both meet the guards and agree at the field.
+ */
+export interface HeldColumn {
+	readonly field: LawField
+	readonly column: NativeColumn
+}
+
+/**
+ * How a probe reaches a guarded object's rows: at the UNIQUE's own columns (`index`), each bound to the value of the
+ * field it holds, which binds the guards too, since a row outside them holds NULL there and equals no value, so its
+ * index serves the probe; or, where some column holds another term of its field, at the compared fields, the guards
+ * over the probed row (`fields`), which no index of the UNIQUE serves.
+ */
+export type GuardedReach =
+	| { readonly kind: "index"; readonly columns: NonEmptyReadonlyArray<HeldColumn> }
+	| { readonly kind: "fields" }
+
 /** A unique object: the handles of the fields two facts must share to conflict, in the object's order, and for a
- * UNIQUE over law columns (`guarded`) the guards both facts must meet, its columns' guards' conjuncts, for a span object
- * the span two facts' values must overlap at, its compared fields of key types as btree_gist compares them, and the
- * guards both facts must meet, none for a key over every fact. */
+ * UNIQUE over law columns (`guarded`) the guards both facts must meet, its columns' guards' conjuncts, and how a probe
+ * reaches its rows, for a span object the span two facts' values must overlap at, its compared fields of key types as
+ * btree_gist compares them, and the guards both facts must meet, none for a key over every fact. */
 export type UniqueObject = Named &
 	(
 		| { readonly kind: "key"; readonly equal: NonEmptyReadonlyArray<LawField> }
@@ -63,6 +84,7 @@ export type UniqueObject = Named &
 				readonly kind: "guarded"
 				readonly equal: NonEmptyReadonlyArray<LawField>
 				readonly within: NonEmptyReadonlyArray<UniqueGuard>
+				readonly reach: GuardedReach
 		  }
 		| {
 				readonly kind: "span"
@@ -140,13 +162,19 @@ const compared = (
 	columns: NonEmptyReadonlyArray<NativeColumn>,
 	lawColumns: LawColumns
 ):
-	| { readonly equal: NonEmptyReadonlyArray<LawField>; readonly within: ReadonlyArray<UniqueGuard> }
+	| {
+			readonly equal: NonEmptyReadonlyArray<LawField>
+			readonly within: ReadonlyArray<UniqueGuard>
+			readonly reach: GuardedReach
+	  }
 	| undefined => {
 	const guards = new Map<ScalarExpr, UniqueGuard>()
 	const equal: Array<LawField> = []
+	const held: Array<HeldColumn | "another term"> = []
 	for (const c of columns) {
 		if (c.kind === "field") {
 			equal.push(c.field)
+			held.push({ field: c.field, column: c })
 			continue
 		}
 		const native =
@@ -166,11 +194,26 @@ const compared = (
 			}
 		}
 		appendAll(equal, fields)
+		const [only, ...others] = fields
+		held.push(
+			native.value.term.kind === "column" && only !== undefined && !isNonEmpty(others)
+				? { field: only, column: c }
+				: "another term"
+		)
 	}
 	const [first, ...rest] = equal
+	const index = held.flatMap((h) => (h === "another term" ? [] : [h]))
+	const [heldFirst, ...heldRest] = index
 	return first === undefined
 		? missing(relation, "a unique object's columns, at least one")
-		: { equal: dedupeNonEmpty([first, ...rest]), within: [...guards.values()] }
+		: {
+				equal: dedupeNonEmpty([first, ...rest]),
+				within: [...guards.values()],
+				reach:
+					heldFirst !== undefined && index.length === held.length
+						? { kind: "index", columns: [heldFirst, ...heldRest] }
+						: { kind: "fields" }
+			}
 }
 
 /** The unique object a UNIQUE over law columns is (`compared`): a key over its fields when its columns are total, else
@@ -188,7 +231,7 @@ const projected = (
 	const [first, ...rest] = c.within
 	return first === undefined
 		? { ...named, kind: "key", equal: c.equal }
-		: { ...named, kind: "guarded", equal: c.equal, within: [first, ...rest] }
+		: { ...named, kind: "guarded", equal: c.equal, within: [first, ...rest], reach: c.reach }
 }
 
 /** The span object a WITHOUT OVERLAPS is: its scalar columns' fields compared, its span column's field overlapped,

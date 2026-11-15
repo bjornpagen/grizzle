@@ -8,8 +8,9 @@
  */
 import { defined } from "#compiler/core/invariant.ts"
 import { appendNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { operatorSchemaOf } from "#compiler/ir/compare.ts"
-import type { LawField } from "#compiler/ir/law.ts"
+import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
+import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { columnReads, type UniqueObject } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env, LowerContext } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
@@ -21,7 +22,16 @@ import type {
 	MetKey,
 	ProbeColumn
 } from "#compiler/sql/ast.ts"
-import { binary, col, exists, lit, simpleSelect, target, types } from "#compiler/sql/build.ts"
+import {
+	binary,
+	col,
+	conjunction,
+	exists,
+	lit,
+	simpleSelect,
+	target,
+	types
+} from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { rowType, type WriteContext } from "#compiler/write/insert/statement.ts"
 
@@ -120,24 +130,43 @@ export const atFields = (
 	placed: mapNonEmpty(fields, (f) => w.names.column(relation, f.name))
 })
 
+/** The installed name of a native column of `relation`. */
+const nativeName = (w: WriteContext, relation: string, column: NativeColumn): string =>
+	column.kind === "field" ? w.names.column(relation, column.field.name) : column.column
+
 /**
- * Where a row of `relation` given by `value` conflicts at the unique object `u`: its compared fields bound, and over the
- * probed row u's guards and, at a span object, its span overlapping the given one.
+ * Where a row of `relation` given by `value` conflicts at the unique object `u`: at a guarded object its UNIQUE's own
+ * columns reach (uniques.ts GuardedReach `index`), each bound to the value of the field it holds, which binds its
+ * guards too, so the UNIQUE's index serves the probe; at any other, its compared fields bound, and over the probed row
+ * u's guards and, at a span object, its span overlapping the given one.
  */
 export const atObject = (
 	w: WriteContext,
 	relation: string,
 	u: UniqueObject,
 	value: (f: LawField) => Expr
-): Access => ({
-	key: u.equal.map((f) => bound(w, relation, f, value(f))),
-	filter: (inner) => {
-		const stored = (f: LawField): Expr => col(inner, w.names.column(relation, f.name))
-		const guards = withinRow(w.cx, u, stored)
-		return u.kind === "span" ? [...guards, binary("&&", stored(u.span), value(u.span))] : guards
-	},
-	placed: placedBy(w, relation, u)
-})
+): Access =>
+	u.kind === "guarded" && u.reach.kind === "index"
+		? {
+				key: mapNonEmpty(u.reach.columns, (c) => ({
+					column: nativeName(w, relation, c.column),
+					value: value(c.field),
+					schema: operatorSchemaOf(w.names, rowType(c.field))
+				})),
+				filter: () => [],
+				placed: placedBy(w, relation, u)
+			}
+		: {
+				key: u.equal.map((f) => bound(w, relation, f, value(f))),
+				filter: (inner) => {
+					const stored = (f: LawField): Expr => col(inner, w.names.column(relation, f.name))
+					const guards = withinRow(w.cx, u, stored)
+					return u.kind === "span"
+						? [...guards, binary("&&", stored(u.span), value(u.span))]
+						: guards
+				},
+				placed: placedBy(w, relation, u)
+			}
 
 /** The row of stored `relation` at a key of a driving row, at most one (FromSource `probe` by key). */
 export const probeKey = (
@@ -192,20 +221,83 @@ export const probeGroup = (
 	}
 }
 
-/** Whether stored `relation` holds a row where `access` reaches it from the evaluating row: EXISTS over its probe. */
-export const storedAt = (
+/**
+ * A column of the one row a key probe reaches, the value it must equal there, and the type it is compared at: checked
+ * over that row once the probe's key has reached it, outside the probe, so the key and the probe's own conditions alone
+ * choose the index PostgreSQL reaches the row by. Bound inside, beside the key, a column an index leads with makes that
+ * index a candidate as good as the key's to a planner holding no statistics, and one a row's siblings share reads every
+ * sibling per probe.
+ */
+export interface Equal {
+	readonly column: string
+	readonly value: Expr
+	readonly type: ScalarType
+}
+
+/**
+ * Whether a probe that delivers its columns through `at`, from the row its key reaches, holds `equal` there: `SELECT 1
+ * FROM <probe> WHERE <each delivered column equal to its value>`, for an EXISTS over it.
+ */
+const checked = (
 	w: WriteContext,
-	supply: NameSupply,
-	relation: string,
-	access: Access
+	source: FromSource,
+	at: (column: string) => Expr,
+	equal: ReadonlyArray<Equal>
 ): Expr =>
 	exists(
 		simpleSelect(
 			[target(lit.int(1, types.integer))],
-			[probeKey(w, supply, relation, access, access.placed).source],
-			undefined
+			[source],
+			conjunction(equal.map((e) => typedEq(e.type, at(e.column), e.value, w.names)))
 		)
 	)
+
+/** The columns a probe delivers to check `equal` beside `placed`, each once. */
+const checkedColumns = (
+	placed: NonEmptyReadonlyArray<string>,
+	equal: ReadonlyArray<Equal>
+): NonEmptyReadonlyArray<string> => {
+	const [first, ...rest] = placed
+	return [
+		first,
+		...[...rest, ...equal.map((e) => e.column)].filter(
+			(c, i, all) => c !== first && all.indexOf(c) === i
+		)
+	]
+}
+
+/**
+ * A row of `relation` at its primary key, given by `value`, and equal to `value` at every other field of `fields`: the
+ * key bound by the probe (`atFields`), the other fields checked over the row it reaches (`Equal`).
+ */
+export const atRow = (
+	w: WriteContext,
+	relation: Pick<RelationInfo, "name" | "primaryFields">,
+	fields: ReadonlyArray<LawField>,
+	value: (f: LawField) => Expr
+): { readonly access: Access; readonly equal: ReadonlyArray<Equal> } => ({
+	access: atFields(w, relation.name, relation.primaryFields, value),
+	equal: fields
+		.filter((f) => !relation.primaryFields.some((k) => k.name === f.name))
+		.map((f) => ({
+			column: w.names.column(relation.name, f.name),
+			value: value(f),
+			type: rowType(f)
+		}))
+})
+
+/** Whether stored `relation` holds a row where `access` reaches it from the evaluating row, equal there at `equal`:
+ * EXISTS over its probe. */
+export const storedAt = (
+	w: WriteContext,
+	supply: NameSupply,
+	relation: string,
+	access: Access,
+	equal: ReadonlyArray<Equal>
+): Expr => {
+	const probe = probeKey(w, supply, relation, access, checkedColumns(access.placed, equal))
+	return checked(w, probe.source, probe.at, equal)
+}
 
 /** Where a met row of the `metRows` source `rows` reaches a relation's rows: each column bound to a column of `rows`,
  * and the conditions over the stored row, read under the alias `inner` names, that narrow it further. */
@@ -222,6 +314,28 @@ export interface MetAccess {
  * the met row's.
  */
 export const metAtObject = (
+	w: WriteContext,
+	relation: string,
+	u: UniqueObject,
+	rows: string,
+	column: (f: LawField) => string
+): MetAccess =>
+	u.kind === "guarded" && u.reach.kind === "index"
+		? {
+				rows,
+				placed: placedBy(w, relation, u),
+				key: u.reach.columns.map((c) => ({
+					column: nativeName(w, relation, c.column),
+					from: column(c.field),
+					schema: operatorSchemaOf(w.names, rowType(c.field))
+				})),
+				filter: () => []
+			}
+		: metAtFields(w, relation, u, rows, column)
+
+/** A met row's access at the unique object `u` through its compared fields, its guards and its span over the stored
+ * row (metAtObject). */
+const metAtFields = (
 	w: WriteContext,
 	relation: string,
 	u: UniqueObject,
@@ -279,21 +393,18 @@ export const metRow = (
 	}
 }
 
-/** Whether the arbitration met a stored row of `relation` where `access` reaches it from the evaluating met row: EXISTS
- * over the row it met (`metRow`). */
+/** Whether the arbitration met a stored row of `relation` where `access` reaches it from the evaluating met row, equal
+ * there at `equal` (`Equal`): EXISTS over the row it met (`metRow`). */
 export const metFound = (
 	w: WriteContext,
 	supply: NameSupply,
 	relation: string,
-	access: MetAccess
-): Expr =>
-	exists(
-		simpleSelect(
-			[target(lit.int(1, types.integer))],
-			[metRow(w, supply, relation, access, access.placed).source],
-			undefined
-		)
-	)
+	access: MetAccess,
+	equal: ReadonlyArray<Equal>
+): Expr => {
+	const met = metRow(w, supply, relation, access, checkedColumns(access.placed, equal))
+	return checked(w, met.source, met.at, equal)
+}
 
 /**
  * The met rows of the INSERT `insert`, which proposes the CTE `proposed` alone (FromSource `metRows`): `proposed`'s
