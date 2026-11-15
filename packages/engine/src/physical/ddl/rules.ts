@@ -8,7 +8,7 @@ import {
 } from "#compiler/analysis/theory/query.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { appendAll } from "#compiler/core/array.ts"
-import { canonicalTextOf, Refusal } from "#compiler/core/canonical.ts"
+import { canonicalTextOf, Refusal, sameText } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import {
@@ -75,16 +75,23 @@ interface Compiled {
 const touched = (f: LawField): TouchedField => ({ name: f.name, desc: f.desc })
 
 /**
- * The statements a guarded block of the judge runs, each once, in the order its first probe compiled: a set keyed by
- * the statement's canonical text, so a probe that compiles to a statement the block holds adds nothing (the statements
- * one key holds are one text, so whichever it keeps prints the same). Two occurrences of the touched relation that hold
- * nothing of its row apart (two arms of a derived relation that read it alike) are two probes of one statement, which a
- * COMMIT would otherwise run twice. Each probe's index requests stay the table's whatever its statement, since a
+ * The statements a guarded block of the judge runs, each once, in the order its first probe compiled: a set under
+ * canonical equality (core/canonical.ts sameText), so a probe that compiles to a statement the block holds adds
+ * nothing, and the block keeps the statement first compiled. Two occurrences of the touched relation that hold nothing
+ * of its row apart (two arms of a derived relation that read it alike) are two probes of one statement, which a COMMIT
+ * would otherwise run twice. A block holds a few probes, so asking each held statement is a short walk where a text of
+ * every probe would encode each whole. Each probe's index requests stay the table's whatever its statement, since a
  * probe's requests come from the probe as written (Probe `requested`).
  */
-const probeStatements = (probes: ReadonlyArray<Compiled>): ReadonlyArray<OperandSelect> => [
-	...new Map(probes.map((p) => [canonicalTextOf(p.statement), p.statement] as const)).values()
-]
+const probeStatements = (probes: ReadonlyArray<Compiled>): ReadonlyArray<OperandSelect> => {
+	const held: Array<OperandSelect> = []
+	for (const p of probes) {
+		if (!held.some((s) => sameText(s, p.statement))) {
+			held.push(p.statement)
+		}
+	}
+	return held
+}
 
 /** The SQLSTATE condition a rule's kind raises under. */
 const conditionOf = (rule: RuleTrigger): string => {
