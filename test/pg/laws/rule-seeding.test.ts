@@ -53,19 +53,22 @@
  * of a block alone, which adds the facts it held out, and never by an unwind or an inserted block, so its search
  * requires the first refusal only.
  *
- * Planted, each a patch of analysis/theory/query.ts, each red in the floor stream of the searches it names, so on every
- * seed. Under ~/.cache/grizzle-release/LAWQUERY/plants/: violation-stale-view.patch, the whole check reading a
- * materialized derived relation a definition reads through its view, fails viewed's install in both its searches; and
- * old-probe-filters-old.patch, a delete's probe reading its touched relation filtered to OLD's key rather than OLD's
- * values in its place, which finds nothing once the row is gone, fails every shape's equivalence search by a break the
- * triggers accept. Under ~/.cache/grizzle-release/RULESEED/plants/: rule-seed-only-outer.patch, readAs reading a side
- * as one union of its arms, so every probe meets the side its facts meet whole, a union PostgreSQL builds before any
- * term meets it, fails every shape's locality search; rule-seed-drops-chain-reach.patch, a relaxation that keeps every
- * other match of the arm, so a delete probe reads them as they stand and a transaction that deletes a link and its
- * children leaves no probe that reaches the key, fails titles', viewed's and deep's equivalence searches by a break the
- * triggers accept; and rule-seed-arm-split-drops-arm.patch, lacks reading the target's first arm alone, so a probe's
- * negation of the target misses a key a later arm holds, fails them by refusing a lawful state.
+ * Each plant below is red in the floor stream of the searches its tag names, so on every seed.
  *
+ * @plant test/plants/unit/laws/violation-stale-view.patch the whole check reading a materialized derived relation a
+ * definition reads through its view: viewed's install fails in both its searches.
+ * @plant test/plants/pg/laws/old-probe-filters-old.patch a delete's probe reading its touched relation filtered to
+ * OLD's key rather than OLD's values in its place, which finds nothing once the row is gone: every shape's equivalence
+ * search fails by a break the triggers accept.
+ * @plant test/plants/pg/laws/rule-seed-only-outer.patch readAs reading a side as one union of its arms, so every probe
+ * meets the side its facts meet whole, a union PostgreSQL builds before any term meets it: every shape's locality
+ * search fails.
+ * @plant test/plants/pg/laws/rule-seed-drops-chain-reach.patch a relaxation that keeps every other match of the arm, so
+ * a delete probe reads them as they stand and a transaction that deletes a link and its children leaves no probe that
+ * reaches the key: titles', viewed's and deep's equivalence searches fail by a break the triggers accept.
+ * @plant test/plants/pg/laws/rule-seed-arm-split-drops-arm.patch lacks reading the target's first arm alone, so a
+ * probe's negation of the target misses a key a later arm holds: titles', viewed's and deep's equivalence searches
+ * fail by refusing a lawful state.
  * @plant test/plants/pg/laws/navigate-literal-before-key.patch Navigation (analysis/theory/navigate.ts, which every
  * probe is read through) ranks a read a literal alone binds with one a key binds, so deep's probe of an L2 starts from
  * every key's L2 of value 1 and deep's locality search finds it reading more rows beside more keys.

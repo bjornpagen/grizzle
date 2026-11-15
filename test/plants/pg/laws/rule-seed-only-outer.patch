@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/analysis/theory/query.ts b/packages/engine/src/analysis/theory/query.ts
+index 4215e7a4..2498b2e5 100644
+--- a/packages/engine/src/analysis/theory/query.ts
++++ b/packages/engine/src/analysis/theory/query.ts
+@@ -931,9 +931,14 @@ const readAs = (
+ 	head: (arm: SideArm) => Readonly<Record<string, InferredExpr>>,
+ 	loc: SourceLoc
+ ): NonEmptyReadonlyArray<InferredSource> =>
+-	mapNonEmpty(side.arms, (a) =>
+-		imported([ruleDesc(a.vars, a.matches.map(matchDesc), conditionsOf(a, loc), head(a), loc)], loc)
+-	)
++	[
++		imported(
++			mapNonEmpty(side.arms, (a) =>
++				ruleDesc(a.vars, a.matches.map(matchDesc), conditionsOf(a, loc), head(a), loc)
++			),
++			loc
++		)
++	]
+ 
+ /** The tuples of a side's arms, each term under its pair's name: what a containment's other side meets. */
+ const tuples = (side: RuleSide, loc: SourceLoc): NonEmptyReadonlyArray<InferredSource> =>

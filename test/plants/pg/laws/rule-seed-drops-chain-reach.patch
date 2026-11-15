@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/analysis/theory/query.ts b/packages/engine/src/analysis/theory/query.ts
+index 4215e7a4..a3e3f6aa 100644
+--- a/packages/engine/src/analysis/theory/query.ts
++++ b/packages/engine/src/analysis/theory/query.ts
+@@ -1461,10 +1461,9 @@ const relaxation = (
+ 		}
+ 	}
+ 	const ordered = [...order, ...matches.flatMap((_, i) => (order.includes(i) ? [] : [i]))]
+-	const place = ordered.indexOf(at)
+ 	const of = (is: ReadonlyArray<number>): ReadonlyArray<ArmMatch> =>
+ 		matches.flatMap((m, i) => (is.includes(i) ? [m] : []))
+-	return { kept: of(ordered.slice(0, place)), dropped: of(ordered.slice(place + 1)) }
++	return { kept: of(ordered.filter((i) => i !== at)), dropped: [] }
+ }
+ 
+ /**

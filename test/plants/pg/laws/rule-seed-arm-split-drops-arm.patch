@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/theory/query.ts b/packages/engine/src/analysis/theory/query.ts
+index 4215e7a4..cde67f53 100644
+--- a/packages/engine/src/analysis/theory/query.ts
++++ b/packages/engine/src/analysis/theory/query.ts
+@@ -945,7 +945,7 @@ const lacks = (
+ 	terms: ReadonlyArray<InferredExpr>,
+ 	loc: SourceLoc
+ ): NonEmptyReadonlyArray<InferredExpr> =>
+-	mapNonEmpty(tuples(side, loc), (source) => ({
++	mapNonEmpty([tuples(side, loc)[0]], (source) => ({
+ 		kind: "absent",
+ 		source,
+ 		bindings: termHead(terms)
