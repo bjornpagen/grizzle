@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index 1c1e6cab..6fbeb9f0 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -996,7 +996,7 @@ const bodyInline = (body: OperandBody): string => {
+ 		case "select":
+ 			return nestedSelect(body)
+ 		case "setOp":
+-			return body.arms.map((arm) => bodyInline(arm)).join(` ${body.op} `)
++			return body.arms.map((arm) => bodyInline(arm)).join(` ${body.op === "UNION" ? "UNION ALL" : body.op} `)
+ 	}
+ }
+ 
+@@ -1009,7 +1009,7 @@ const bodyBlock = (out: Lines, body: OperandBody): void => {
+ 		case "setOp":
+ 			for (const [i, arm] of body.arms.entries()) {
+ 				if (i > 0) {
+-					out.line(body.op)
++					out.line(body.op === "UNION" ? "UNION ALL" : body.op)
+ 				}
+ 				bodyBlock(out, arm)
+ 			}

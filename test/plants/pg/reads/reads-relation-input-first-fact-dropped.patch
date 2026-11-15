@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/reader/relations.ts b/packages/grizzle/src/adapter/reader/relations.ts
+index 7240646a..e3bcbba0 100644
+--- a/packages/grizzle/src/adapter/reader/relations.ts
++++ b/packages/grizzle/src/adapter/reader/relations.ts
+@@ -145,7 +145,7 @@ const prepareInput = (
+ 		return Result.fail(encodeFailure("factShape", slotPlace(decl.name)))
+ 	}
+ 	const declared: SlotColumns = decl.heading
+-	const normalized = codec.normalize(value)
++	const normalized = codec.normalize(Array.from(value).slice(1))
+ 	if (!normalized.ok) {
+ 		return Result.fail(normalized.error)
+ 	}

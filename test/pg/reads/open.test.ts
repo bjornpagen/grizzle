@@ -23,10 +23,11 @@
  *
  * - Features: each role default reset and stored wrong, each schema read, a stamp read under each of its output
  *   styles stored wrong, a read refused at the fence, and a vector probe answered and refused.
- * - Plants: ~/.cache/grizzle-release/BR08/plants/open-startup-options-dropped.patch, a pool whose sessions send no
- *   startup options, reads a stamp under a wrong stored style; and
- *   ~/.cache/grizzle-release/BR08/plants/open-vector-schema-granted-to-every-role.patch, every role granted USAGE on
- *   the vector schema, answers Work's vector probe; each must turn the property red.
+ *
+ * @plant test/plants/pg/reads/open-startup-options-dropped.patch A pool's sessions send no startup options, so a stamp
+ * is read under a wrong stored style.
+ * @plant test/plants/pg/reads/open-vector-schema-granted-to-every-role.patch Every role is granted USAGE on the vector
+ * schema; the installed-catalog checker finds the grant on a role that reads no vector (foreignSchemaGrant).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { type Reached, required } from "@bjornpagen/testing/features"

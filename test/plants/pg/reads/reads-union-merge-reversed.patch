@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/lower/union.ts b/packages/engine/src/runtime/lower/union.ts
+index 25f27d1a..d678444a 100644
+--- a/packages/engine/src/runtime/lower/union.ts
++++ b/packages/engine/src/runtime/lower/union.ts
+@@ -34,7 +34,7 @@ export const mergeHeadingGroups = <Row>(
+ 			{ readonly group: number; readonly cursor: Cursor; readonly row: Row } | undefined
+ 		>((least, cursor, g) => {
+ 			const head = cursor.head
+-			if (head.done === true || (least !== undefined && compare(head.value, least.row) >= 0)) {
++			if (head.done === true || (least !== undefined && compare(head.value, least.row) <= 0)) {
+ 				return least
+ 			}
+ 			return { group: g, cursor, row: head.value }

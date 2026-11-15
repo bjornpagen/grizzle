@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/live/codec.ts b/packages/engine/src/live/codec.ts
+index c4d9f643..e3b7cb7e 100644
+--- a/packages/engine/src/live/codec.ts
++++ b/packages/engine/src/live/codec.ts
+@@ -251,7 +251,7 @@ export const encodeKey = (
+ const decodeKeyColumn = (column: WireKeyColumn<WireScalar>, json: WireJson): unknown =>
+ 	column.kind === "lacked"
+ 		? json === null
+-			? undefined
++			? null
+ 			: decodeScalar(column.column.scalar, json)
+ 		: decodeScalar(column.scalar, json)
+ 

@@ -55,8 +55,9 @@ import { makeTap, type Tap } from "#test/support/wire-tap.ts"
  * kind, never from its text.
  *
  * - Oracle: the specification turned into a checker, each call's contract as its answer or typed refusal.
- * - Plant: ~/.cache/grizzle-release/BR08/plants/boundary-lease-never-released.patch, a lease whose end never gives its
- *   session back, must turn the property red.
+ *
+ * @plant test/plants/pg/reads/boundary-lease-never-released.patch A lease's end never takes its session out of the
+ * pool's leased count, so the pool reports a session leased after every call.
  */
 interface Model {
 	readonly disposed: boolean

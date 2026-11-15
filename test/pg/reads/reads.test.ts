@@ -11,11 +11,12 @@
  *   their statements at a drawn interleaving point (the table whose lock the read waits on), the read answers as the
  *   database stood before the commit or after it, never a mix.
  *
- * Plants: ~/.cache/grizzle-release/BR08/plants/reads-relation-input-first-fact-dropped.patch, a relation input
- * normalized without its first fact, must turn the first property red;
- * ~/.cache/grizzle-release/BR08/plants/reads-union-merge-reversed.patch, the heading groups merged on their order
- * reversed, the second; ~/.cache/grizzle-release/BR08/plants/reads-read-only-at-read-committed.patch, every read begun
- * READ COMMITTED, the third.
+ * @plant test/plants/pg/reads/reads-relation-input-first-fact-dropped.patch A relation input is normalized without its
+ * first fact; the first property fails.
+ * @plant test/plants/pg/reads/reads-union-merge-reversed.patch The heading groups are merged on their order reversed;
+ * the second property fails.
+ * @plant test/plants/pg/reads/reads-read-only-at-read-committed.patch Every read begins READ COMMITTED; the third
+ * property fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
