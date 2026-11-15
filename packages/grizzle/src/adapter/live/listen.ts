@@ -63,9 +63,8 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
  *   before that re-read takes its snapshot, so a key routed during the re-read marks it again and the next turn reads
  *   again; a re-read refused or interrupted marks it again itself;
  * - a waiting stream (settled) is woken by every mark and every end, and its wait is installed only when its state is
- *   clean, in the same synchronous step that reads it; its one precondition is one consumer of a registration's
- *   `changes` at a time, which every caller keeps (db/handles.ts concatenates `initial` and `changes` once), since a
- *   second waiter would take the first's place;
+ *   clean, in the same synchronous step that reads it; a registration's `changes` is taken once, so its one consumer
+ *   is the subscription's one waiter, and a second, which would take the first's place, cannot exist;
  * - `changes` begins only after `initial` ended (Stream.concat), which records the value every turn diffs from, and a
  *   turn that reads the same value holds it and waits again, emitting nothing to lose;
  * - a generation lost ends every member with its error, so a read ends rather than waits; a listener's end loses its

@@ -176,8 +176,9 @@ export interface LiveRequest<S extends ReadShape, Row extends object, E> {
  * A registered read's answer: `initial`, its first run's events as they come, or the error its source's refusal ends it
  * with; then `changes`, after its `ready`: each run's change followed by `ready`, so a client's value is whole at a
  * run's snapshot exactly at each `ready`, then the error that ends it and `end`; or `end` alone after an initial error.
- * `changes` continues from the value its client holds each time it runs, so a consumer may stop and run it again, and
- * a run it interrupts marks the subscription again. `turn` is one turn now, never waiting for a change, though a
+ * `changes` is taken once, by one consumer, whose waits are the subscription's one waiter: a second run of it dies, so
+ * no second consumer can take the first's wait and leave it waiting for good; a run its consumer interrupts marks the
+ * subscription again. `turn` is one turn now, never waiting for a change, though a
  * deferrable read's run waits for its safe snapshot: none where the subscription is clean or its run read the same
  * value, else that run's events. `state` reads where its subscription stands now:
  * `clean`, `marked` or `ended`.
@@ -489,10 +490,28 @@ export const makeSubscriptions = (
 					)
 				)
 
-				const changes = first.pipe(
-					Deferred.await,
-					Effect.map((folded) => (folded.kind === "ready" ? live : Stream.make(answer.end))),
-					Stream.unwrap
+				/**
+				 * Whether the registration's `changes` was taken: it is handed to one consumer, once, whose waits are the
+				 * subscription's one waiter (settled), so no second consumer can take the first's place and leave it
+				 * waiting for a mark that wakes only the second.
+				 */
+				const handout = { taken: false }
+				const changes: Stream.Stream<E> = Stream.unwrap(
+					Effect.sync(() => {
+						if (handout.taken) {
+							return Stream.die(
+								defect(
+									"a live read's changes are taken once: a second consumer would take the first's wait"
+								)
+							)
+						}
+						handout.taken = true
+						return first.pipe(
+							Deferred.await,
+							Effect.map((folded) => (folded.kind === "ready" ? live : Stream.make(answer.end))),
+							Stream.unwrap
+						)
+					})
 				)
 
 				/**
