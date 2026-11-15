@@ -29,6 +29,9 @@
  * installation whatever it installs, so a missing pattern domain compiles; the oracle's property fails.
  * @plant test/plants/unit/served/snapshot-params-dropped.patch snapshot.json records no parameter type, so a login does
  * not compile under its own snapshot; the own-workload property fails.
+ * @plant test/plants/pg/parameters/read-admission-dropped.patch A read's statement holds no admission of a parameter
+ * its logic leaves unread, so the kept case's login, whose read's constant false filter leaves its relation parameter
+ * unread, compiles under a snapshot that installs no domain of it.
  * @plant test/plants/unit/served/param-domain-own-check.patch Every parameter's pattern domain gets its own CHECK, a
  * second copy of its structural domain's; the property fails, no case reaching a parameter's pattern domain over a
  * field's structural domain with no CHECK of its own.
@@ -269,6 +272,338 @@ const property = (
 		}
 	})
 
+/**
+ * GREENTRUNK's red at 8e3d66bc (TEST_SEED=1569938684, rotating case 5): a read whose filter is the constant false,
+ * r.or(), binds a relation parameter its logic then never reads, of a pattern field. The installation the login drops
+ * that read from installs no domain of the parameter, and the compile under its snapshot still compiled the login,
+ * since its statement cast the parameter nowhere: a call would have been answered whatever the parameter held.
+ */
+const neverTrueRead = {
+	note: "a relation parameter of a pattern field that a read's constant false filter leaves unread",
+	sketch: [
+		{
+			population: "forms",
+			swarm: {
+				"bind fresh": 1,
+				"bind existential": 1,
+				"bind param": 3,
+				"bind parent": 1,
+				where: 3,
+				"compare literal": 1,
+				"compare var": 1,
+				"compare param": 3,
+				aggregate: 3,
+				union: 3,
+				"attached take": 1,
+				ordered: 1,
+				attach: 3,
+				nested: 1,
+				roster: 3,
+				dense: 1,
+				"candidate key": 1,
+				probe: 1,
+				spelled: 1,
+				"stated delivery": 1,
+				"keyed child": 1,
+				"reflexive child": 1,
+				"arm child": 1,
+				"handle field": 3,
+				import: 3,
+				"import bound": 3,
+				interior: 3,
+				named: 3,
+				"computed head": 3,
+				"computed group key": 3,
+				between: 3,
+				"in set": 3,
+				connective: 3,
+				"relation param": 3,
+				recursive: 3,
+				"contract param": 3,
+				"typmod param": 3,
+				allen: 3,
+				"point in": 3,
+				"literal head": 3
+			},
+			perturbation: { settings: [], multiplier: 1 },
+			ambient: { path: { kind: "default" }, settings: [] },
+			restorage: { shift: 0, respell: 0 },
+			roster: 0,
+			span: 0,
+			relations: [
+				{
+					name: 0,
+					fields: [
+						{ name: 0, kind: 0, key: 0 },
+						{ name: 0, kind: 0, key: 0 },
+						{ name: 0, kind: 28672, key: 0 },
+						{ name: 0, kind: 0, key: 0 }
+					],
+					candidate: 0,
+					facts: []
+				}
+			],
+			reads: [
+				{
+					rule: {
+						matches: [
+							{
+								source: 0,
+								derived: 0,
+								attached: 0,
+								binds: [
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+								]
+							},
+							{
+								source: 0,
+								derived: 0,
+								attached: 0,
+								binds: [
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+								]
+							},
+							{
+								source: 21846,
+								derived: 32768,
+								attached: 0,
+								binds: [
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+								]
+							}
+						],
+						where: [],
+						between: [
+							{
+								left: 0,
+								low: { pick: 0, value: { cls: 0, sp: 0 } },
+								high: { pick: 0, value: { cls: 0, sp: 0 } }
+							}
+						],
+						inSet: [],
+						allen: [],
+						pointIn: [],
+						connective: [{ kind: 32768, args: [] }],
+						computed: [],
+						negation: { source: 0, picks: [0, 0] },
+						head: {
+							vars: [],
+							names: [0, 0, 0, 0, 0, 0],
+							folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+						},
+						interior: {
+							matches: [
+								{
+									source: 0,
+									derived: 0,
+									attached: 0,
+									binds: [
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+									]
+								}
+							],
+							where: [],
+							negation: { source: 0, picks: [0, 0] },
+							head: {
+								vars: [],
+								names: [0, 0, 0, 0, 0, 0],
+								folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+							}
+						}
+					},
+					take: { rotate: 0, dirs: [0, 0, 0], size: 0, ties: 0 },
+					literalHead: { name: 0, kind: 0, arms: 0, values: [0, 0, 0] },
+					importable: 0,
+					bindImport: 0,
+					named: 0,
+					relationParam: { relation: 0, facts: [] },
+					closure: { relation: 0, pair: 0, name: 0 },
+					attachments: [],
+					order: { rotate: 0, dirs: [0, 0, 0], size: 0 },
+					probe: { kind: 0, pick: 0 },
+					key: { relation: 0, which: 0, fact: 0, absent: 0, roster: 0 }
+				},
+				{
+					rule: {
+						matches: [
+							{
+								source: 0,
+								derived: 0,
+								attached: 0,
+								binds: [
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+								]
+							}
+						],
+						where: [],
+						between: [],
+						inSet: [],
+						allen: [],
+						pointIn: [],
+						connective: [],
+						computed: [],
+						negation: { source: 0, picks: [0, 0] },
+						head: {
+							vars: [],
+							names: [0, 0, 0, 0, 0, 0],
+							folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+						},
+						interior: {
+							matches: [
+								{
+									source: 0,
+									derived: 0,
+									attached: 0,
+									binds: [
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+									]
+								}
+							],
+							where: [],
+							negation: { source: 0, picks: [0, 0] },
+							head: {
+								vars: [],
+								names: [0, 0, 0, 0, 0, 0],
+								folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+							}
+						}
+					},
+					take: { rotate: 0, dirs: [0, 0, 0], size: 0, ties: 0 },
+					literalHead: { name: 0, kind: 0, arms: 0, values: [0, 0, 0] },
+					importable: 0,
+					bindImport: 0,
+					named: 0,
+					relationParam: { relation: 0, facts: [] },
+					closure: { relation: 0, pair: 0, name: 0 },
+					attachments: [],
+					order: { rotate: 0, dirs: [0, 0, 0], size: 0 },
+					probe: { kind: 0, pick: 0 },
+					key: { relation: 0, which: 0, fact: 0, absent: 0, roster: 0 }
+				},
+				{
+					rule: {
+						matches: [
+							{
+								source: 0,
+								derived: 0,
+								attached: 0,
+								binds: [
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+								]
+							}
+						],
+						where: [],
+						between: [],
+						inSet: [],
+						allen: [],
+						pointIn: [],
+						connective: [],
+						computed: [],
+						negation: { source: 0, picks: [0, 0] },
+						head: {
+							vars: [],
+							names: [0, 0, 0, 0, 0, 0],
+							folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+						},
+						interior: {
+							matches: [
+								{
+									source: 0,
+									derived: 0,
+									attached: 0,
+									binds: [
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
+									]
+								}
+							],
+							where: [],
+							negation: { source: 0, picks: [0, 0] },
+							head: {
+								vars: [],
+								names: [0, 0, 0, 0, 0, 0],
+								folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
+							}
+						}
+					},
+					take: { rotate: 0, dirs: [0, 0, 0], size: 0, ties: 0 },
+					literalHead: { name: 0, kind: 0, arms: 0, values: [0, 0, 0] },
+					importable: 0,
+					bindImport: 0,
+					named: 0,
+					relationParam: { relation: 0, facts: [] },
+					closure: { relation: 0, pair: 0, name: 0 },
+					attachments: [],
+					order: { rotate: 0, dirs: [0, 0, 0], size: 0 },
+					probe: { kind: 0, pick: 0 },
+					key: { relation: 0, which: 0, fact: 0, absent: 0, roster: 0 }
+				}
+			],
+			planted: {
+				names: [
+					0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+					0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+				],
+				value: { cls: 0, sp: 0 },
+				handle: 0,
+				padding: 0,
+				side: { kind: 0, values: [0, 0, 0] }
+			}
+		},
+		{ holes: [0], trailing: 0, key: "id", least: [0, 0], generated: false, check: false }
+	],
+	draws:
+		"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0",
+	reaches: ["an uninstalled pattern domain refused"]
+} as const
+
 describe("a served compile under a snapshot", () => {
 	it.effect("casts a parameter only to a type the snapshot's installation installs", (ctx) =>
 		searched(
@@ -293,7 +628,7 @@ describe("a served compile under a snapshot", () => {
 						],
 						{ cases: 60, sense: notesOnly }
 					),
-					kept: [],
+					kept: [neverTrueRead],
 					runs: 60,
 					shrink: completeShrink,
 					concurrency: 1,

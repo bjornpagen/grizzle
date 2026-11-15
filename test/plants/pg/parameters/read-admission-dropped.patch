@@ -1,0 +1,11 @@
+--- a/packages/engine/src/lower/conservative/admission.ts
++++ b/packages/engine/src/lower/conservative/admission.ts
+@@ -133,7 +133,7 @@
+  * entries; unchanged where it has none.
+  */
+ export const withAdmission = (cx: LowerContext, query: Select): Select => {
+-	const entry = admissionEntry(cx)
++	const entry = cx.options.subject.kind === "query" ? undefined : admissionEntry(cx)
+ 	if (entry === undefined) {
+ 		return query
+ 	}

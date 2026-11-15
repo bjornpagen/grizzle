@@ -3,6 +3,7 @@ import type { NodeId } from "#compiler/core/ids.ts"
 import { concatNonEmpty, isNonEmpty, lastNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { type DeliverySpine, deliverySpine } from "#compiler/ir/dag.ts"
 import type { CompletedOrder, Heading, NodeOf, RelNode } from "#compiler/ir/rel.ts"
+import { withAdmission } from "#compiler/lower/conservative/admission.ts"
 import {
 	type ColumnMap,
 	columnIn,
@@ -633,7 +634,10 @@ export class ConservativeDelivery<Own extends PageParamSlot = never> extends Del
 		return {
 			role,
 			...printedStatement(
-				refineConservative(this.cx, query, output.heading, rows.length === 0),
+				withAdmission(
+					this.cx,
+					refineConservative(this.cx, query, output.heading, rows.length === 0)
+				),
 				output.names,
 				this.cx.supply
 			),

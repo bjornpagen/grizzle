@@ -13,6 +13,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
 import type { CompletedOrder, Heading, NodeOf, RelKind, RelNode } from "#compiler/ir/rel.ts"
+import { withAdmission } from "#compiler/lower/conservative/admission.ts"
 import {
 	columnIn,
 	distinctSelect,
@@ -946,7 +947,10 @@ export class OptimizedDelivery<
 		if (!isNonEmpty(others)) {
 			const output = statementOutput(only.role, only.heading, only.fused)
 			const printed = printedStatement(
-				withEntries(refineDelivered(cx, only.query, output.heading), [...log.ctes]),
+				withAdmission(
+					cx,
+					withEntries(refineDelivered(cx, only.query, output.heading), [...log.ctes])
+				),
 				output.names,
 				supply
 			)
@@ -1005,7 +1009,7 @@ export class OptimizedDelivery<
 			0
 		)
 		const ast = bindLaterally(
-			{
+			withAdmission(cx, {
 				...select(body),
 				with: {
 					recursive: false,
@@ -1014,7 +1018,7 @@ export class OptimizedDelivery<
 						mapNonEmpty(parts, (p) => p.cte)
 					)
 				}
-			},
+			}),
 			supply
 		)
 		return {

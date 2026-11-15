@@ -3295,7 +3295,9 @@ pattern, which `grizzle generate` installs for every contract and every pattern 
 outside them is refused
 there, before the statement reads a row. A write binds every such parameter in its first statement, so the refusal
 comes before any other statement of the write runs, whichever stratum reads the parameter, and no law a stratum
-breaks answers first. A contract's refusal of a parameter is `refused` on the contract's law, its
+breaks answers first. A read binds every one in its statement, those its query leaves unread too (a rule under the
+constant false `r.or()`), so a call is refused for the parameters it declares, never only for those its logic reads. A
+contract's refusal of a parameter is `refused` on the contract's law, its
 witness `unreported`, a write's and a read's (`LawRejected`) alike; a pattern's refusal of a parameter is `input`
 (`ParamRejected`), its message naming the parameter, `<parameter>.<field>` for a field of a relation parameter's facts,
 and its pattern. The outcome names
