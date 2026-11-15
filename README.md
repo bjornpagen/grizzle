@@ -3574,6 +3574,17 @@ of a call's input it refuses: `envelope`, no record of exactly `params` and `fac
   fails transactions with 53200, which is not retryable. Keep every transaction on the cluster short: a committed
   write's and a plain read's predicate locks are kept until every older transaction ends, and a deferrable read waits
   for every SERIALIZABLE read-write transaction running when it begins.
+- **A lone writer can still meet 40001.** While a transaction that has written holds the cluster's horizon back, any
+  idle-in-transaction session or long import among them, PostgreSQL keeps every SERIALIZABLE transaction that finishes
+  meanwhile, and once they fill its fixed pool, ten per connection slot, it summarizes the oldest to their ids alone. A
+  writer whose transaction writes a row its own earlier transaction read, and reads a version that a summarized one of
+  its own wrote, is then failed as a pivot ("Canceled on identification as a pivot, with conflict out to old committed
+  transaction"), though no other transaction touches its tables: the earlier reader counts as concurrent because the
+  writer's snapshot starts below the held horizon (PostgreSQL 19 src/backend/storage/lmgr/predicate.c 4157 and 4170),
+  and a summarized writer is looked up with no test of concurrency (3980-4012). A migration meets it as a refused file,
+  a call as a `transient` `CallError`; both are safe to run again: the call changed nothing, and `grizzle migrate`
+  resumes the folder where it stopped. A session waiting on a lock that has written nothing holds no horizon back. The
+  experiment packages/experiments/ssi-summary reproduces it.
 
 ### READ COMMITTED writes
 
