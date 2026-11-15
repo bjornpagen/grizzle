@@ -27,10 +27,10 @@
  *
  * Oracle: the specification, the reverse-index rule restated (reverse.ts expectedOf), with PostgreSQL's generic plan as
  * the judge of what serves each probe. Features: every situation reverse.ts draws, and the wide text stored; each axis
- * of a family and of a tree, each way an axis is served, and each situation of the axes' box. Plants:
- * ~/.cache/grizzle-release/BR09/plants/reverse-probe-short-btree.patch, a reverse B-tree one column short of the run
- * the rule plans, gives a single bounded column a hash index where the rule plans a B-tree.
+ * of a family and of a tree, each way an axis is served, and each situation of the axes' box.
  *
+ * @plant test/plants/pg/laws/reverse-probe-short-btree.patch A reverse B-tree one column short of the run the rule
+ * plans (laws/model/plan.ts btreeRun), so a single bounded column gets a hash index where the rule plans a B-tree.
  * @plant test/plants/unit/laws/model/axis-index-dropped.patch No reverse index for an axis and no successor key, so a
  * family's predecessor axis is probed through its key (g, at), binding g alone, and a tree's owner axis through its
  * primary key (doc, start).

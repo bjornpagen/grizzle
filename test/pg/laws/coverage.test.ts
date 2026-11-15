@@ -21,11 +21,12 @@
  * is told by the law its constraint reports, the key's or the coverage's, or by a CHECK over the span field, its shape.
  *
  * Features: a commit, one with the source outside its selection, each refusal, and a coverage refused across a gap,
- * every one required of the space. Plant: ~/.cache/grizzle-release/BR09/plants/coverage-period-fk-immediate.patch,
- * the PERIOD foreign key installed immediate, refuses a gap at its statement where the model refuses it at COMMIT.
- * Plant: ~/.cache/grizzle-release/REDSWEEP/plants/coverage-span-key-reports-primary-key.patch, a WITHOUT OVERLAPS key
- * reported as its table's primary key's law, is caught at the first overlap; a check by the kind of law, any key's,
- * passed it.
+ * every one required of the space.
+ *
+ * @plant test/plants/pg/laws/coverage-period-fk-immediate.patch The PERIOD foreign key installed immediate, deferred
+ * only on a cycle of the foreign keys, so a gap is refused at its statement where the model refuses it at COMMIT.
+ * @plant test/plants/pg/laws/coverage-span-key-reports-primary-key.patch A WITHOUT OVERLAPS key reported as its
+ * table's primary key's law, caught at the first overlap; a check by the kind of law, any key's, passed it.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

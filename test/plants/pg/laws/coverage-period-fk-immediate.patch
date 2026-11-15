@@ -1,0 +1,17 @@
+diff --git a/packages/engine/src/laws/model/model.ts b/packages/engine/src/laws/model/model.ts
+index 5e5ccf6e..bef79011 100644
+--- a/packages/engine/src/laws/model/model.ts
++++ b/packages/engine/src/laws/model/model.ts
+@@ -1795,11 +1795,7 @@ class Specializer {
+ 					target: n.target,
+ 					targetColumns: n.targetColumns.map((c) => this.#column(c)),
+ 					targetSpan: this.#column(n.targetSpan),
+-					deferrable: deferred.rule({
+-						relation: n.relation,
+-						target: n.target,
+-						targetFields: n.targetColumns.flatMap((c) => (c.kind === "field" ? [c.field] : []))
+-					}),
++					deferrable: deferred.onCycle(n.relation.name, n.target.name),
+ 					lawIds
+ 				}
+ 		}

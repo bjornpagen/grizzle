@@ -40,12 +40,15 @@
  * Features: a committed source row, the rule refusing a source row's write and a target row's, a served write
  * accepted and refused by the rule; for a shape whose matches fix a constant, a target outside it refused; and, where
  * the fresh catalog holds a UNIQUE the lowering added over a superkey of a declared key, each duplicate beside it
- * (featuresOf), read off the catalog, never off a table of what each shape should lower to. Plants:
- * ~/.cache/grizzle-release/BR09/plants/lowering-condition-4-ignored.patch, a lowering that lets a variable of its own
- * be bound twice, lowers the existential shape to foreign keys that miss its join and admits a row the triggers
- * refuse; lowering-no-constant-column.patch, the lowering dropping the constant column, so the foreign key references
- * the target's key alone and admits a target row outside D's constants; and lowering-no-target-unique.patch, the
- * lowering omitting the UNIQUE its foreign key references, which no installation then accepts.
+ * (featuresOf), read off the catalog, never off a table of what each shape should lower to.
+ *
+ * @plant test/plants/pg/laws/lowering-condition-4-ignored.patch The lowering lets a variable of its own be bound twice
+ * (condition 4 ignored), so it lowers the existential shape to foreign keys that miss its join and admits a row the
+ * triggers refuse.
+ * @plant test/plants/pg/laws/lowering-no-constant-column.patch The lowering drops the constant selection of each
+ * part's target, so the foreign key references the target's key alone and admits a target row outside D's constants.
+ * @plant test/plants/pg/laws/lowering-no-target-unique.patch The lowering omits the UNIQUE its foreign key references,
+ * which no installation then accepts.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

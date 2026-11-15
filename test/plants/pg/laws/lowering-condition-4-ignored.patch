@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/analysis/theory/laws.ts b/packages/engine/src/analysis/theory/laws.ts
+index 66ec8530..f6b54587 100644
+--- a/packages/engine/src/analysis/theory/laws.ts
++++ b/packages/engine/src/analysis/theory/laws.ts
+@@ -1483,9 +1483,6 @@ export class Normalizer {
+ 				}
+ 			}
+ 		}
+-		if ([...existentials.values()].some((n) => n > 1)) {
+-			return byTriggers
+-		}
+ 		const held = new Set<string>()
+ 		const parts: Array<LoweredPart> = []
+ 		for (const m of arm.matches) {

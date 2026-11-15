@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/analysis/theory/laws.ts b/packages/engine/src/analysis/theory/laws.ts
+index 66ec8530..8fddec82 100644
+--- a/packages/engine/src/analysis/theory/laws.ts
++++ b/packages/engine/src/analysis/theory/laws.ts
+@@ -1528,10 +1528,7 @@ export class Normalizer {
+ 					loc
+ 				),
+ 				to: this.#sides.side(
+-					scopeOver(
+-						m.relation,
+-						fixed.map((f) => fieldIs(f.field, f.literal))
+-					),
++					scopeOver(m.relation, []),
+ 					mapNonEmpty([first, ...rest], (a): TermDesc => ({ kind: "field", field: a.field })),
+ 					loc
+ 				)

@@ -1,0 +1,30 @@
+diff --git a/packages/engine/src/laws/model/model.ts b/packages/engine/src/laws/model/model.ts
+index 8c8653dc..9a658022 100644
+--- a/packages/engine/src/laws/model/model.ts
++++ b/packages/engine/src/laws/model/model.ts
+@@ -1284,18 +1284,23 @@ class Specializer {
+ 		const natives: Array<NamedNative> = []
+ 		const keyed: Array<KeyedRelation> = []
+ 		const constraints: Array<TableConstraintLaw> = []
++		const plantedPk = new Map<RelationIdent, LawId>()
+ 		for (const entry of byKey.values()) {
+ 			const described = lawDescription(entry.law)
+ 			const named = this.#nameMerged(entry, described, keyed)
+ 			natives.push(named)
+ 			if (named.namespace === "constraint") {
++				if (named.object.kind === "PrimaryKey") {
++					plantedPk.set(named.owner, entry.laws[0])
++				}
++				const swapped = named.object.kind === "WithoutOverlaps" ? plantedPk.get(named.owner) : undefined
+ 				constraints.push({
+ 					kind: "constraint",
+ 					name: identifierOf(named.named),
+ 					owner: named.owner,
+ 					laws: mapNonEmpty(entry.laws, (law) => ({
+-						law,
+-						described: lawDescription(this.#lawOf(law))
++						law: swapped ?? law,
++						described: lawDescription(this.#lawOf(swapped ?? law))
+ 					}))
+ 				})
+ 			}

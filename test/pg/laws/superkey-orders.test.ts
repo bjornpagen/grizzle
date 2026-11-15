@@ -42,9 +42,10 @@
  * Features: two references over one set in two orders, a fixed target and a superkey reference over one set,
  * references over two sets, a declared key and a reference over one set, a fixed target referenced at its own columns,
  * a clash refused, a source row committed and one refused by its own foreign key; the walk must move a kept foreign key
- * off the UNIQUE it landed on. Plant:
- * ~/.cache/grizzle-release/BR09/plants/superkey-orders-unique-per-order.patch, a UNIQUE's identity read in its plan's
- * order instead of as its column set, installs two unique indexes over one set.
+ * off the UNIQUE it landed on.
+ *
+ * @plant test/plants/pg/laws/superkey-orders-unique-per-order.patch A UNIQUE's identity read in its plan's order
+ * instead of as its column set (laws/model/model.ts nativeIdentity), so two unique indexes are installed over one set.
  */
 import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
