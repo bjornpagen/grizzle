@@ -16,12 +16,10 @@ import {
 	cast,
 	coalesce,
 	eq,
-	exists,
 	from,
 	fromFunction,
 	fromObject,
 	literal,
-	not,
 	param,
 	query,
 	scalar,
@@ -98,13 +96,6 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 	}
 	const publication = identifierOf(identity.liveSource(root))
 	const secret = fromObject({ schema: root, name: identifierOf(identity.liveSecret()) }, "s")
-	const ids = fromFunction(catalogCall("unnest", [arrayParam(1, "text")]), "t", ["x"], false)
-	const running = fromFunction(
-		catalogCall("pg_snapshot_xip", [catalogCall("pg_current_snapshot", [])]),
-		"v",
-		["v"],
-		false
-	)
 	const payloads = fromFunction(catalogCall("unnest", [arrayParam(1, "text")]), "p", ["p"], false)
 	const settings = from("pg_settings", "s")
 	return {
@@ -151,28 +142,7 @@ export const servedLiveOf = (root: string, source: LiveSource): ServedLive => {
 				undefined
 			)
 		),
-		visible: preparedRead(
-			query(
-				[
-					ids.col("x"),
-					not(
-						exists(
-							query(
-								[bool(true)],
-								[running.item],
-								eq(catalogCall("xid", [running.col("v")]), {
-									kind: "cast",
-									expr: ids.col("x"),
-									type: { name: "xid", array: false }
-								})
-							)
-						)
-					)
-				],
-				[ids.item],
-				undefined
-			)
-		),
+		snapshot: preparedRead(query([asText(catalogCall("pg_current_snapshot", []))], [], undefined)),
 		fanout: preparedRead(
 			query(
 				[catalogCall("pg_notify", [text(publication), payloads.col("p")])],

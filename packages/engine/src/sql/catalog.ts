@@ -97,7 +97,6 @@ export const catalogFunctions = [
 	"pg_notify",
 	"pg_relation_filenode",
 	"pg_replication_slot_advance",
-	"pg_snapshot_xip",
 	"pg_try_advisory_lock",
 	"pg_wal_lsn_diff",
 	"quote_ident",
@@ -105,8 +104,7 @@ export const catalogFunctions = [
 	"to_regnamespace",
 	"to_regprocedure",
 	"to_regtype",
-	"unnest",
-	"xid"
+	"unnest"
 ] as const
 export type CatalogFunction = (typeof catalogFunctions)[number]
 

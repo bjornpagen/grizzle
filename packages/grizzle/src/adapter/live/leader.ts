@@ -43,12 +43,15 @@ import {
 	type Notification,
 	parseLiveSecret,
 	parseSenderDeadline,
+	parseSnapshot,
 	parseWalPosition,
+	placement,
 	type ReplicationCommand,
 	sealBatch,
 	sealNonce,
 	sealNonceBytes,
 	type SenderDeadline,
+	type Snapshot,
 	textArrayParam,
 	textParam,
 	type WalPosition
@@ -69,9 +72,12 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
  * where an invalidated one still stands; then streams the slot from the position it last confirmed. Each transaction arrives whole at its commit (live/pgoutput.ts, live/changes.ts), and a round takes every
  * transaction that arrived while the round before it ran, so rounds are paced by the stream and the fan-out alone:
  *
- * 1. visible: which of the round's transactions every snapshot taken now sees, so a key is sent only once a read begun
- *    after it arrives sees its change; the transactions up to the first one not yet visible are sent, and it and every
- *    one after stay for the next round, which runs at once;
+ * 1. visible: a snapshot taken now (engine live/replication.ts Snapshot), each of the round's transactions placed in it
+ *    (placement), so a key is sent only once a read begun after it arrives sees its change; the transactions up to the
+ *    first one the snapshot does not see are sent, and it and every one after stay for the next round, which runs at
+ *    once. A transaction arrives once its COMMIT record is flushed, before it leaves the proc array (xact.c
+ *    RecordTransactionCommit, then ProcArrayEndTransaction), so a snapshot taken meanwhile holds it running, or ahead
+ *    of its horizon where no later transaction ended: never seen;
  * 2. fanout: their notifications, in commit order, each once, as batches sealed under the installation's secret with a
  *    fresh random nonce each (engine live/notify.ts batchesOf, sealBatch), in one transaction whose COMMIT sends them;
  * 3. confirm: only once that COMMIT answered, a Standby Status Update of the last transaction sent, which the slot
@@ -206,9 +212,6 @@ export const alone = (
 /** The first cell of the first row of an answer: a statement of one value's. */
 const onlyCell = (rows: ReadonlyArray<ReadonlyArray<string>>): string | undefined => rows[0]?.[0]
 
-/** PostgreSQL's output text of true, the one the statements answering a boolean answer with. */
-const trueText = "t"
-
 /** The secret table's cell, read as the installation's secret. */
 export const secretOf = (
 	rows: ReadonlyArray<ReadonlyArray<string>>
@@ -243,6 +246,19 @@ export const slotCheckOf = (rows: ReadonlyArray<ReadonlyArray<string>>): SlotChe
 	return standing === ""
 		? { kind: "absent", now: position(now) }
 		: { kind: "stands", at: position(standing) }
+}
+
+/**
+ * The snapshot statement's one cell, read as a Snapshot (ServedLive `snapshot`). PostgreSQL answers grizzle's own
+ * statement, so its answer is converted, never refused (core/trusted.ts): an answer of another shape is a defect.
+ */
+export const snapshotOf = (rows: ReadonlyArray<ReadonlyArray<string>>): Snapshot => {
+	const cell = onlyCell(rows)
+	const read = cell === undefined ? undefined : parseSnapshot(cell)
+	if (read?.ok !== true) {
+		throw defect(`the snapshot statement answers pg_snapshot's text, not ${String(cell)}`)
+	}
+	return read.value
 }
 
 /** The deadline the source's sender timeout query's answer states (ServedLive `senderTimeout`). */
@@ -459,19 +475,14 @@ const rounds = (
 		}
 		const taken = Arr.copy(delivered.transactions)
 		if (Arr.isReadonlyArrayNonEmpty(taken)) {
-			const visibleRows = yield* alone(
-				leading.session,
-				statement(leading.candidacy.source.visible, [
-					textArrayParam(Arr.map(taken, (transaction) => String(transaction.xid)))
-				])
+			const snapshot = yield* Effect.map(
+				alone(leading.session, statement(leading.candidacy.source.snapshot, [])),
+				snapshotOf
 			)
-			const visible = new Set<string>()
-			for (const [xid, seen] of visibleRows) {
-				if (xid !== undefined && seen === trueText) {
-					visible.add(xid)
-				}
-			}
-			const sent = Arr.takeWhile(taken, (transaction) => visible.has(String(transaction.xid)))
+			const sent = Arr.takeWhile(
+				taken,
+				(transaction) => placement(snapshot, transaction.xid) === "seen"
+			)
 			delivered.transactions.splice(0, sent.length)
 			const last = Arr.last(sent)
 			if (last._tag === "Some") {

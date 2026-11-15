@@ -9,7 +9,7 @@
  * table's replica identity, the publication, the decoder login), opens a temporary pgoutput slot as the decoder login,
  * opens the source as its listener and its leader do, under the installation's own roles: as the decoder login, each
  * statement they send on an ordinary session, as the served file holds it, where the secret's read answers a key, the
- * slot check answers the WAL position the decoder's own slot stands at, and the LISTEN, the advisory lock, the visibility read and the
+ * slot check answers the WAL position the decoder's own slot stands at, and the LISTEN, the advisory lock, the snapshot read and the
  * fan-out run; as the login, the secret's read refused (42501), since a login that held the key could seal a payload
  * every listener takes for its leader's. Then it runs the history, each commit a grizzle call of one write member or a
  * SERIALIZABLE transaction of a direct SQL writer, then one direct writer's transaction it rolls back, and reads every
@@ -108,8 +108,8 @@ const opening = <A>(what: string, sent: Effect.Effect<A, SqlError>): Effect.Effe
  * The source opened as its listener and its leader open it, by each statement they send on an ordinary session of the
  * decoder login, `decoder`, as `served` holds it: the secret's read, which answers one key; the LISTEN; the slot
  * check, which answers of `slot`, a slot the decoder login holds, the WAL position it stands at and the server's
- * (live/notify.ts parseWalPosition), one row; the advisory lock; and the visibility read and
- * the fan-out, of no transaction and no payload, whose functions PostgreSQL checks EXECUTE on as it plans them.
+ * (live/notify.ts parseWalPosition), one row; the advisory lock; and the snapshot read and the fan-out, of no
+ * payload, whose functions PostgreSQL checks EXECUTE on as it plans them.
  */
 const opens = (
 	decoder: RawSession,
@@ -133,7 +133,7 @@ const opens = (
 			})
 		}
 		yield* opening("the advisory lock", decoder.query(served.lock, []))
-		yield* opening("the visibility read", decoder.query(served.visible.sql, [[]]))
+		yield* opening("the snapshot read", decoder.query(served.snapshot.sql, []))
 		yield* opening("the fan-out", decoder.query(served.fanout.sql, [[]]))
 	})
 

@@ -124,3 +124,72 @@ export const parseSenderDeadline = (
 	}
 	return Result.ok(millis === 0 ? noDeadline : { kind: "after", millis })
 }
+
+/**
+ * A snapshot as the live leader reads it (served/forms.ts ServedLive `snapshot`, pg_current_snapshot): its horizon, its
+ * xmax, the first transaction id it holds unended, and the ids below the horizon it holds running, its xip, each a
+ * 64-bit id.
+ */
+export interface Snapshot {
+	readonly horizon: bigint
+	readonly running: ReadonlySet<bigint>
+}
+
+/** The text of pg_snapshot's output (xid8funcs.c pg_snapshot_out). */
+const snapshotExpected = "pg_snapshot's text: xmin:xmax:xip,... of decimal transaction ids"
+
+/** The ids of a list `a,b,...` of decimal transaction ids, none where it is empty, or none at all where one is no id. */
+const transactionIds = (list: string): ReadonlyArray<bigint> | undefined => {
+	if (list.length === 0) {
+		return []
+	}
+	const ids: Array<bigint> = []
+	for (const id of list.split(",")) {
+		if (!isCount(id)) {
+			return undefined
+		}
+		ids.push(BigInt(id))
+	}
+	return ids
+}
+
+/**
+ * The snapshot pg_snapshot's output text `xmin:xmax:xip,...` states (Snapshot), each id decimal as PostgreSQL's integer
+ * output writes one; any other text is refused.
+ */
+export const parseSnapshot = (cell: string): Result.Result<Snapshot, LiveTextRefused> => {
+	const [xmin, xmax, xip, ...rest] = cell.split(":")
+	const running = xip === undefined ? undefined : transactionIds(xip)
+	if (
+		xmin === undefined ||
+		xmax === undefined ||
+		running === undefined ||
+		rest.length > 0 ||
+		!isCount(xmin) ||
+		!isCount(xmax)
+	) {
+		return Result.err({ text: cell, expected: snapshotExpected })
+	}
+	return Result.ok({ horizon: BigInt(xmax), running: new Set(running) })
+}
+
+/**
+ * Where a committed transaction stands in a snapshot, as PostgreSQL's XidInMVCCSnapshot places it: `seen`, below its
+ * horizon and not running in it, so every snapshot taken after it sees the transaction's commit too; `running`, below
+ * its horizon and held running, its commit not yet visible to it; `ahead`, at or past its horizon, an id it holds
+ * unended whatever its running set says.
+ */
+export type Placement = "seen" | "running" | "ahead"
+
+/**
+ * Where the transaction of 32-bit id `xid`, as pgoutput's Begin carries it, stands in `snapshot` (Placement). Its full
+ * id is the one of those low 32 bits nearest the snapshot's horizon, `(int32) (xid - xmax)` from it as transam.h's
+ * TransactionIdPrecedes compares them, since PostgreSQL keeps every id it still compares within 2^31 of the next one.
+ */
+export const placement = (snapshot: Snapshot, xid: number): Placement => {
+	const full = snapshot.horizon + BigInt.asIntN(32, BigInt(xid) - snapshot.horizon)
+	if (full >= snapshot.horizon) {
+		return "ahead"
+	}
+	return snapshot.running.has(full) ? "running" : "seen"
+}

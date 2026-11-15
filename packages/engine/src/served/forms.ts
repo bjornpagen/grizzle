@@ -181,7 +181,7 @@ export interface UncoveredRead {
  * simple queries alone, each one of this source's texts: `lock`,
  * `senderTimeout`, and `createSlot` and `start` over the slot's name (SlotCommand). It reads its
  * stream's deadline by `senderTimeout`, creates the slot where `check` finds none, streams its decoded changes by
- * `start`, waits until each decoded transaction is `visible`, and sends the round's sealed batches by `fanout`. A
+ * `start`, waits until a `snapshot` sees each decoded transaction, and sends the round's sealed batches by `fanout`. A
  * listener reads `secret`, LISTENs by `listen`, and `check`s that the slot stands, each a named prepared statement.
  *
  * - `publication`: the publication's name, the fan-out channel and the prefix of every announced message;
@@ -203,7 +203,8 @@ export interface UncoveredRead {
  *   empty text where none stands, and the WAL's insert position, each its bytes from 0/0 in decimal (live/notify.ts
  *   WalPosition): a listener's source stands on the slot at its position, and a leader that finds none fans out an
  *   invalidation of the insert position, which names every slot that stood at or before it and none made since;
- * - `visible`: for each transaction id of `$1::text[]`, whether the statement's snapshot holds its commit;
+ * - `snapshot`: the statement's snapshot, pg_current_snapshot's text `xmin:xmax:xip,...` of 64-bit transaction ids,
+ *   which the leader places each decoded transaction in (live/replication.ts placement);
  * - `fanout`: a notification on the channel for each payload of `$1::text[]`;
  * - `announce`: the text of a materialized view's table key, `$1::text` (live/notify.ts notificationText), emitted as
  *   a transactional message under the publication's prefix, which the leader decodes and sends on with the transaction
@@ -225,7 +226,7 @@ export type ServedLive =
 			readonly start: SlotCommand
 			readonly secret: Prepared<EmittedText>
 			readonly check: Prepared<EmittedText>
-			readonly visible: Prepared<EmittedText>
+			readonly snapshot: Prepared<EmittedText>
 			readonly fanout: Prepared<EmittedText>
 			readonly announce: Prepared<EmittedText>
 	  }

@@ -79,8 +79,12 @@ export {
 } from "#compiler/live/notify.ts"
 export {
 	parseSenderDeadline,
+	parseSnapshot,
+	type Placement,
+	placement,
 	type ReplicationCommand,
 	type SenderDeadline,
+	type Snapshot,
 	slotCommand
 } from "#compiler/live/replication.ts"
 export { sealNonceBytes } from "#compiler/core/seal.ts"
