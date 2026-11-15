@@ -29,7 +29,8 @@
  * write committed after an interruption.
  *
  * @plant test/plants/pg/adapter/interrupt-no-cancel.patch An interrupted flight sends no CancelRequest and severs its
- * connection at once; the scripted and real sessions disagree on whether a CancelRequest was sent.
+ * connection at once. Both sessions run the same flight code, so they agree, and no case reaches the required "cancel
+ * sent".
  * @plant test/plants/pg/adapter/flight-scripted-deferrable-read-aborted.patch The scripted session opens a deferrable
  * read's transaction aborted, so the double answers what no server does; the scripted and real sessions disagree.
  */

@@ -22,14 +22,12 @@
  *
  * A footprint table the publication leaves out, or whose replica identity cannot carry its routing column, leaves a
  * subscription here waiting for ever; test/pg/live/source.test.ts and routing.test.ts hold the live source to its
- * tables, and fail at once.
+ * tables, and fail at once. So does a diff that drops a change, a stale value never reaching the fresh read's;
+ * test/unit/live/values.test.ts holds the diff to the least changes that carry one value to the other.
  *
  * Features: each commit situation of world.ts (a write outside its routing values and inside them, a delete of a row it
  * holds, a row removed from its value, a move in an ordered read, a write in a window's neighbourhood, a commit of no
  * relation it reads), each read shape, each writer, each surface.
- *
- * @plant test/plants/pg/live/dropped-remove.patch A diff sends no remove, so a row its value lost stays folded in; the
- * property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
