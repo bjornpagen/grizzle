@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/compute/lower.ts b/packages/engine/src/scalar/compute/lower.ts
+index 524d6ffb..a89be5f6 100644
+--- a/packages/engine/src/scalar/compute/lower.ts
++++ b/packages/engine/src/scalar/compute/lower.ts
+@@ -1990,7 +1990,7 @@ class Lowering<R extends Refs> {
+ 					}
+ 		]
+ 		return this.emitProved(
+-			{ kind: "domainCast", args: [value.expr], type: to, nonNull: "strict", proof },
++			{ kind: "domainCast", args: [value.expr], type: to, nonNull: "strict", proof: [] },
+ 			value.bounds,
+ 			{ ...value.facts, ...factsOfType(to) }
+ 		)

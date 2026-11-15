@@ -14,8 +14,9 @@
  * Features: a refusal for each precondition kind, a text operand's guard, a guard no Compute test writes, and a named
  * guard, written, admitted.
  *
- * Plants: compute-guard-contract-within (a contract's guard is Compute.within whatever its operand's type, so the text
- * and boolean contract casts name a guard no Compute test writes over them).
+ * @plant test/plants/unit/compute/compute-guard-contract-within.patch A contract's guard is Compute.within whatever its
+ * operand's type, so the text and boolean contract casts name a guard no Compute test writes over them; the refusal
+ * property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

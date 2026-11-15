@@ -10,8 +10,10 @@
  *
  * Features: an outcome claimed at both ends, a declined one; an exact float node.
  *
- * Plants: compute-oracle-power-claims (power claims an outcome its estimates disagree on), compute-oracle-float-power-exact
- * (float power evaluated exactly).
+ * @plant test/plants/unit/compute/compute-oracle-power-claims.patch The oracle's numeric power claims an outcome its
+ * libm estimates disagree on; the power property fails.
+ * @plant test/plants/unit/compute/compute-oracle-float-power-exact.patch The oracle evaluates float power exactly; the
+ * IEEE exactness property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

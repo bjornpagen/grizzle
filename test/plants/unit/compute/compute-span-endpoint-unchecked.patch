@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/compute/builders.ts b/packages/engine/src/scalar/compute/builders.ts
+index 98c3687e..37317e49 100644
+--- a/packages/engine/src/scalar/compute/builders.ts
++++ b/packages/engine/src/scalar/compute/builders.ts
+@@ -1093,7 +1093,7 @@ const spanPart =
+ 		const x = call.term(s, `${fn}'s span`)
+ 		const field = call.field(endpoint, `${fn}'s endpoint`)
+ 		const span = spanOf(x.type)
+-		if (span !== undefined && !compatible(span.endpoint, field.scalar)) {
++		if (span === undefined) {
+ 			return malformed(
+ 				call.loc,
+ 				`the span's own endpoint descriptor: ${typeLabel(field.scalar)} is no endpoint of ${typeLabel(x.type)}`

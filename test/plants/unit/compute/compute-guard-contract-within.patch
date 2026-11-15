@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/scalar/compute/lower.ts b/packages/engine/src/scalar/compute/lower.ts
+index 524d6ffb..e1049536 100644
+--- a/packages/engine/src/scalar/compute/lower.ts
++++ b/packages/engine/src/scalar/compute/lower.ts
+@@ -1234,9 +1234,7 @@ const guardTest = (
+ 		case "powerDomain":
+ 			return { kind: "positive" }
+ 		case "contract":
+-			return withinGuards(valueType(operand.nominal).carrier)
+-				? { kind: "within" }
+-				: { kind: "typed" }
++			return { kind: "within" }
+ 		case "language":
+ 			return languageRemedy(operand, target, mode, patterns)
+ 		case "lexical":

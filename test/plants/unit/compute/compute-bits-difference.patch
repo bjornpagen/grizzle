@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/compute/evaluate.ts b/packages/engine/src/scalar/compute/evaluate.ts
+index ba541758..b433a55f 100644
+--- a/packages/engine/src/scalar/compute/evaluate.ts
++++ b/packages/engine/src/scalar/compute/evaluate.ts
+@@ -616,7 +616,7 @@ const apply = (
+ 				: mismatch(op)
+ 		case "difference":
+ 			return isSet(a) && isSet(b)
+-				? Result.ok(new Set([...a].filter((h) => !b.has(h))))
++				? Result.ok(new Set([...a].filter((h) => b.has(h))))
+ 				: mismatch(op)
+ 		case "cardinality":
+ 			return isSet(a) ? Result.ok(BigInt(a.size)) : mismatch(op)

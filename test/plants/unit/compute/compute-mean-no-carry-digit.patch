@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/aggregate.ts b/packages/engine/src/scalar/aggregate.ts
+index 8a8704a9..625fba10 100644
+--- a/packages/engine/src/scalar/aggregate.ts
++++ b/packages/engine/src/scalar/aggregate.ts
+@@ -171,7 +171,7 @@ const numericMean = (lowering: AggregateLowering): Entry => ({
+ 		digits:
+ 			b.scale <= numericMaxDisplayScale.value
+ 				? b.digits
+-				: Math.max(b.digits, -numericMaxDisplayScale.value) + 1,
++				: Math.max(b.digits, -numericMaxDisplayScale.value),
+ 		scale: numericMaxDisplayScale.value
+ 	}),
+ 	lowering

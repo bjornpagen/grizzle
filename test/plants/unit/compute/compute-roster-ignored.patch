@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/scalar/compute/types.ts b/packages/engine/src/scalar/compute/types.ts
+index 4654b3fb..255f9c65 100644
+--- a/packages/engine/src/scalar/compute/types.ts
++++ b/packages/engine/src/scalar/compute/types.ts
+@@ -210,7 +210,6 @@ export const compatible = (a: ScalarType, b: ScalarType): boolean => {
+ /** The identity two uncontracted operands share: one carrier, closed roster, vector dimension count and span endpoint. */
+ const sameCore = (a: ScalarType, b: ScalarType): boolean =>
+ 	a.carrier === b.carrier &&
+-	rosterOf(a)?.closed === rosterOf(b)?.closed &&
+ 	vectorTypmodOf(a)?.dims === vectorTypmodOf(b)?.dims &&
+ 	sameEndpoint(spanOf(a), spanOf(b))
+ 

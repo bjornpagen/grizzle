@@ -14,9 +14,12 @@
  * Features: each untyped form and pair of branch kinds; a generated term, a domain cast into a checked and an unchecked
  * contract; each planted combination in each order.
  *
- * Plants: compute-literal-first-admitted (an untyped literal standing first lowered at its value's type),
- * compute-domain-cast-unproved (a domain cast carries no proof), compute-common-type-first-typmod (two typmods'
- * common type the first's).
+ * @plant test/plants/unit/compute/compute-literal-first-admitted.patch An untyped literal standing first is lowered at
+ * its value's type, not refused; the untyped leaves property fails.
+ * @plant test/plants/unit/compute/compute-domain-cast-unproved.patch A domain cast carries no proof; the casts into a
+ * contract property fails.
+ * @plant test/plants/unit/compute/compute-common-type-first-typmod.patch Two numeric typmods' common type is the
+ * first's, not their hull; the common type property fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -11,8 +11,10 @@
  * Features: each binary builder typed and refused, a conditional typed and refused, each span function typed and
  * refused; live and every wild kind at each site.
  *
- * Plants: compute-span-endpoint-unchecked (a span function takes any endpoint descriptor),
- * compute-literal-number-coerced (a JavaScript number read as a bigint literal's value).
+ * @plant test/plants/unit/compute/compute-span-endpoint-unchecked.patch A span function takes any endpoint descriptor,
+ * its span's own or not; the typing property fails.
+ * @plant test/plants/unit/compute/compute-literal-number-coerced.patch A JavaScript number is read as a bigint literal's
+ * value; the typing and wild operands properties fail.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

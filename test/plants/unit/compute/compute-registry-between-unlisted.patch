@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/scalar/compute/registry.ts b/packages/engine/src/scalar/compute/registry.ts
+index ac0c202f..21880db6 100644
+--- a/packages/engine/src/scalar/compute/registry.ts
++++ b/packages/engine/src/scalar/compute/registry.ts
+@@ -1714,7 +1714,9 @@ const catalogOp = (id: keyof typeof catalogOverloads): NativeOp =>
+ 
+ /** Every native node: the catalog identities, the range-polymorphic overloads, then the casts. */
+ export const nativeOps: ReadonlyArray<NativeOp> = Object.freeze([
+-	...Object.entries(catalogOverloads).map(([id, overload]) => listedOp(opId(id), overload)),
++	...Object.entries(catalogOverloads)
++		.filter(([id]) => !id.startsWith("between:"))
++		.map(([id, overload]) => listedOp(opId(id), overload)),
+ 	...listedSpanCodes.flatMap((code) =>
+ 		listedSpanCarriers.map((carrier) =>
+ 			listedOp(rangeOp(code, carrier), spanOverloads[code][carrier])
