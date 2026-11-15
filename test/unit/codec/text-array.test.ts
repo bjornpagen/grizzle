@@ -30,6 +30,7 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { textArray } from "#compiler/codec/bytea.ts"
+import { utf8Text } from "#compiler/core/utf8.ts"
 import { readArrayBinary } from "#test/support/arrays.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
@@ -97,8 +98,6 @@ type TextFeature =
 	| "an astral scalar"
 	| "a text of 53 units or more that ends in U+0400 to U+07FF"
 	| "a text of 53 units or more that holds U+0400 to U+07FF and ends in another scalar"
-
-const decoder = new TextDecoder("utf-8", { fatal: true })
 
 /** Whether a code point is one of U+0400 to U+07FF. */
 const inTwoByteRange = (code: number): boolean => code >= 0x04_00 && code <= 0x07_ff
@@ -186,7 +185,7 @@ describe("a text column's binary array", () => {
 							assert.equal(read.elements.length, texts.length)
 							for (const [i, bytes] of read.elements.entries()) {
 								assert.equal(
-									bytes === null ? null : decoder.decode(bytes),
+									bytes === null ? null : utf8Text(bytes),
 									defined(texts[i], "each text written"),
 									`element ${i} reads back as its text`
 								)

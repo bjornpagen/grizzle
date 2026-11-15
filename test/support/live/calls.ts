@@ -420,7 +420,7 @@ const registeredFrom = <S extends "set" | "list", Row extends object>(
  * The registrations of `role` of the served login `file`, each on a Db opened with `token` through the login's layer, by
  * its member's name: what a suite holds to read a subscription's state while it decides when to pull its changes.
  */
-const liveRegistrations = (
+export const liveRegistrations = (
 	file: ServedLogin<AnyLogin>,
 	role: string,
 	token: string

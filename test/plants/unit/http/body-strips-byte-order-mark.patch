@@ -1,0 +1,11 @@
+--- a/packages/grizzle/src/http/request.ts
++++ b/packages/grizzle/src/http/request.ts
+@@ -87,7 +87,7 @@
+ 			catch: () => doorRefusal("BodyUnreadable", "the body could not be read")
+ 		}),
+ 		(bytes) => {
+-			const text = utf8Text(new Uint8Array(bytes))
++			const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+ 			return text === undefined
+ 				? Effect.fail(noJson())
+ 				: Effect.try({ try: () => trustedJson<unknown>(text), catch: noJson })

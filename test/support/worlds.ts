@@ -2,6 +2,7 @@ import { Array as Arr, Effect, Record as Rec, type Scope } from "effect"
 import { TokenError } from "#adapter/errors/failures.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
+import { utf8Text } from "#compiler/core/utf8.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import {
@@ -127,22 +128,20 @@ export const tokenOf = (payload: Json): string => tokenText(jsonText(payload))
 const utf8 = new TextEncoder()
 
 /**
- * The text of a token's bytes as they are: UTF-8 that is not valid is refused (fatal), and a byte order mark is a
- * character of the text, never stripped (ignoreBOM), so the JSON a token holds is the JSON it spells, as written.
- */
-const utf8Strict = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
-
-/**
  * Every test layer's verify: the payload the JSON text a token spells holds (tokenText), or a TokenError for a token
- * that spells no UTF-8 text or a text that holds no JSON as written: a byte order mark before it, which JSON.parse
- * refuses, is no JSON.
+ * that spells no UTF-8 text or a text that holds no JSON as written. Its bytes are read as the UTF-8 they are
+ * (core/utf8.ts), so a byte order mark before the JSON, which JSON.parse refuses, is no JSON.
  */
 export const testVerify = (token: string): Effect.Effect<unknown, TokenError> => {
 	const bytes = base64urlBytes(token)
-	return bytes === undefined
-		? Effect.fail(new TokenError({ cause: "the token spells no base64url text" }))
+	if (bytes === undefined) {
+		return Effect.fail(new TokenError({ cause: "the token spells no base64url text" }))
+	}
+	const text = utf8Text(bytes)
+	return text === undefined
+		? Effect.fail(new TokenError({ cause: "the token spells no UTF-8 text" }))
 		: Effect.try({
-				try: () => trustedJson<unknown>(utf8Strict.decode(bytes)),
+				try: () => trustedJson<unknown>(text),
 				catch: (cause) => new TokenError({ cause })
 			})
 }

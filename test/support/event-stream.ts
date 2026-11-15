@@ -1,4 +1,5 @@
 import { Array as Arr, Data, Effect, Option, type Scope, String as Str } from "effect"
+import { utf8Chunks } from "#compiler/core/utf8.ts"
 
 /**
  * An event stream as a client reads it, by WHATWG HTML's interpretation of text/event-stream (section 9.2.6): the one
@@ -110,7 +111,7 @@ export const openStream = (
 		),
 		(reader) => {
 			const parser = new StreamParser()
-			const utf8 = new TextDecoder("utf-8", { fatal: true })
+			const utf8 = utf8Chunks()
 			return {
 				until: (enough) =>
 					Effect.gen(function* () {
@@ -119,11 +120,14 @@ export const openStream = (
 								try: () => reader.read(),
 								catch: (cause) => new StreamUnread({ cause })
 							})
+							const text = chunk.done ? utf8.end() : utf8.chunk(chunk.value)
+							if (text === undefined) {
+								return yield* new StreamUnread({ cause: "the body is no UTF-8" })
+							}
+							parser.feed(text)
 							if (chunk.done) {
-								parser.feed(utf8.decode())
 								return parser.read()
 							}
-							parser.feed(utf8.decode(chunk.value, { stream: true }))
 						}
 						return parser.read()
 					})

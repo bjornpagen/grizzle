@@ -1,0 +1,11 @@
+--- a/packages/engine/src/core/utf8.ts
++++ b/packages/engine/src/core/utf8.ts
+@@ -7,7 +7,7 @@
+  */
+ 
+ /** A decoder that refuses a malformed sequence and keeps a byte order mark (see the header). */
+-const strict = (): TextDecoder => new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
++const strict = (): TextDecoder => new TextDecoder("utf-8", { fatal: true })
+ 
+ /** What `decode` reads, or undefined where it refused the bytes: the TypeError a fatal decoder throws is its one signal. */
+ const readWith = (decode: () => string): string | undefined => {

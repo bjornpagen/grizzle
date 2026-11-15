@@ -9,10 +9,12 @@
 import { nominal } from "#compiler/core/brand.ts"
 import { admittedIdentifier, maxIdentifierBytes } from "#compiler/core/identity.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { derived, notifyPayloadMaxBytes } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { open, seal, sealKeyBytes, sealNonceBytes, sealTagBytes } from "#compiler/core/seal.ts"
 import { utf8, utf8Length } from "#compiler/core/sha256.ts"
+import { utf8Text } from "#compiler/core/utf8.ts"
 
 /** A stored relation's installed table, by its identifier, as a route key names it. */
 export type RouteTable = Identifier<"table">
@@ -292,8 +294,6 @@ export const sealNonce = (bytes: Uint8Array): Result.Result<SealNonce, LiveTextR
 export const sealBatch = (secret: LiveSecret, nonce: SealNonce, batch: LiveBatch): string =>
 	seal(secret, nonce, utf8(batch)).toBase64()
 
-const decoder = new TextDecoder()
-
 const isBase64Digit = (unit: number): boolean =>
 	isLetter(unit) ||
 	(unit >= 0x41 && unit <= 0x5a) ||
@@ -343,7 +343,9 @@ export const batchNotifications = (
 /**
  * The notifications a payload of the channel holds, or what it parts from a sealed batch at: base64, of a nonce, a
  * ciphertext and a tag that authenticates it under the secret, whose text is notifications joined by NUL. A payload
- * that fails is no sender's of the installation.
+ * that fails is no sender's of the installation. An opened batch is read as the UTF-8 it is (core/utf8.ts), never
+ * patched with U+FFFD: only a holder of the secret seals one, and the leader seals a batch's text (sealBatch), so one
+ * that is no UTF-8 is a defect.
  */
 export const openPayload = (
 	secret: LiveSecret,
@@ -354,7 +356,12 @@ export const openPayload = (
 	if (opened === undefined) {
 		return refused(payload, "a batch sealed under the installation's live secret, in base64")
 	}
-	return batchNotifications(decoder.decode(opened))
+	return batchNotifications(
+		defined(
+			utf8Text(opened),
+			"a batch sealed under the live secret is the UTF-8 of its text (sealBatch)"
+		)
+	)
 }
 
 /**

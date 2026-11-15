@@ -20,6 +20,35 @@ const NO_IO = "The engine does no I/O: the shell does."
 /** The engine's environment ban: its own list of globals replaces the preset's environment globals on its files. */
 const NO_ENVIRONMENT = "The engine reads no environment: what it needs is an argument."
 
+/**
+ * Bytes become text through one decoder (owner, 2026-11-15): a TextDecoder's defaults strip a leading U+FEFF and patch
+ * malformed bytes with U+FFFD, so a decoder of a module's own reads another value than the bytes hold.
+ */
+const TEXT_DECODER = {
+	name: "TextDecoder",
+	message:
+		"Bytes become text through #compiler/core/utf8.ts alone (utf8Text, utf8Chunks): it refuses bytes that are no UTF-8 and keeps a byte order mark, where a TextDecoder of its own strips a leading U+FEFF and may patch bytes with U+FFFD."
+} as const
+
+/** The globals the engine never reads, but the one decoder of bytes into text, which core/utf8.ts alone builds. */
+const ENGINE_GLOBALS = [
+	{ name: "Date", message: NO_CLOCK },
+	{ name: "performance", message: NO_CLOCK },
+	{ name: "setTimeout", message: NO_CLOCK },
+	{ name: "clearTimeout", message: NO_CLOCK },
+	{ name: "setInterval", message: NO_CLOCK },
+	{ name: "clearInterval", message: NO_CLOCK },
+	{ name: "setImmediate", message: NO_CLOCK },
+	{ name: "clearImmediate", message: NO_CLOCK },
+	{ name: "queueMicrotask", message: SYNCHRONOUS },
+	{ name: "Promise", message: SYNCHRONOUS },
+	{ name: "process", message: NO_ENVIRONMENT },
+	{ name: "fetch", message: NO_IO },
+	{ name: "WebSocket", message: NO_IO },
+	{ name: "crypto", message: NO_RANDOMNESS },
+	{ name: "navigator", message: NO_ENVIRONMENT }
+] as const
+
 const ZOD = {
 	name: "zod",
 	message:
@@ -147,7 +176,7 @@ export default defineConfig(
 	lintConfig({
 		ignorePatterns: ["packages/*/types/**", "test/types/**/.*-??????/**", "vendor/**"],
 		restrictedImports: LIBRARY_IMPORTS,
-		restrictedGlobals: [],
+		restrictedGlobals: [TEXT_DECODER],
 		restrictedProperties: [],
 		unassignedImports: [],
 		environment: {
@@ -335,27 +364,21 @@ export default defineConfig(
 			{
 				files: ["packages/engine/**"],
 				rules: active({
-					"eslint/no-restricted-globals": [
-						"error",
-						{ name: "Date", message: NO_CLOCK },
-						{ name: "performance", message: NO_CLOCK },
-						{ name: "setTimeout", message: NO_CLOCK },
-						{ name: "clearTimeout", message: NO_CLOCK },
-						{ name: "setInterval", message: NO_CLOCK },
-						{ name: "clearInterval", message: NO_CLOCK },
-						{ name: "setImmediate", message: NO_CLOCK },
-						{ name: "clearImmediate", message: NO_CLOCK },
-						{ name: "queueMicrotask", message: SYNCHRONOUS },
-						{ name: "Promise", message: SYNCHRONOUS },
-						{ name: "process", message: NO_ENVIRONMENT },
-						{ name: "fetch", message: NO_IO },
-						{ name: "WebSocket", message: NO_IO },
-						{ name: "crypto", message: NO_RANDOMNESS },
-						{ name: "navigator", message: NO_ENVIRONMENT }
-					],
+					"eslint/no-restricted-globals": ["error", ...ENGINE_GLOBALS, TEXT_DECODER],
 					"eslint/no-restricted-imports": engineImports("no Node module"),
 					/** `import { type T } from "effect"` passes allowTypeImports, but type stripping leaves `import {} from "effect"`, which loads Effect at run time. */
 					"typescript/no-import-type-side-effects": "error"
+				})
+			},
+			{
+				/**
+				 * The one decoder of bytes into text: it builds the TextDecoder every other module is refused, and reads a
+				 * fatal decoder's refusal of malformed bytes, a thrown TypeError, the platform's one signal of it.
+				 */
+				files: ["packages/engine/src/core/utf8.ts"],
+				rules: active({
+					"eslint/no-restricted-globals": ["error", ...ENGINE_GLOBALS],
+					"devtools/no-try": "off"
 				})
 			},
 			{

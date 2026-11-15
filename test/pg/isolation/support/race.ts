@@ -28,6 +28,7 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import * as Result from "#compiler/core/result.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
+import { utf8Text } from "#compiler/core/utf8.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { noLive } from "#compiler/live/notify.ts"
@@ -404,7 +405,7 @@ const binaryLiteral = (bytes: Uint8Array): Option.Option<string> => {
 		at += length
 		elements.push(
 			type === "text"
-				? quoted(new TextDecoder("utf-8", { fatal: true }).decode(element))
+				? quoted(defined(utf8Text(element), "a text element of a bound array is UTF-8"))
 				: `'\\x${Buffer.from(element).toString("hex")}'::bytea`
 		)
 	}

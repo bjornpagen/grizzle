@@ -1,4 +1,5 @@
 import { Data, Result } from "effect"
+import { utf8Text } from "#compiler/plan/runtime.ts"
 
 /**
  * A logical replication stream as the installation's leader reads it (live/leader.ts): each CopyData of the stream
@@ -69,8 +70,6 @@ export class MessageUnreadable extends Data.TaggedError("MessageUnreadable")<{
 	}
 }
 
-const utf8 = new TextDecoder("utf-8", { fatal: true })
-
 /**
  * The widths, in bytes, of the fixed-size fields every format here is made of, each in network byte order, by
  * PostgreSQL's "Message Data Types" (https://www.postgresql.org/docs/19/protocol-message-types.html): Int8 (and Byte1),
@@ -129,6 +128,18 @@ const messageTag = {
  */
 const columnKind = { null: 0x6e, unchanged: 0x75, text: 0x74 } as const
 
+/**
+ * A text's bytes as the UTF-8 they are (core/utf8.ts): a stored text is delivered byte for byte, a leading U+FEFF
+ * among its characters, and bytes that are no UTF-8 are unreadable at `what`.
+ */
+const textOf = (bytes: Uint8Array, what: string): string => {
+	const text = utf8Text(bytes)
+	if (text === undefined) {
+		throw new MessageUnreadable({ at: `${what} that is no UTF-8` })
+	}
+	return text
+}
+
 /** A forward reader over one message's bytes, failing with MessageUnreadable past its end. */
 class Reader {
 	readonly #bytes: Uint8Array
@@ -178,7 +189,7 @@ class Reader {
 			throw new MessageUnreadable({ at: what })
 		}
 		const at = this.#take(size, what)
-		return utf8.decode(this.#bytes.subarray(at, at + size))
+		return textOf(this.#bytes.subarray(at, at + size), what)
 	}
 
 	/** A null-terminated string. */
@@ -189,7 +200,7 @@ class Reader {
 			throw new MessageUnreadable({ at: what })
 		}
 		this.#at = end + 1
-		return utf8.decode(this.#bytes.subarray(start, end))
+		return textOf(this.#bytes.subarray(start, end), what)
 	}
 
 	/** The message is read whole: a byte past its format is unreadable. */
@@ -354,7 +365,7 @@ const readWhole = <A>(
 		catch: (thrown) =>
 			thrown instanceof MessageUnreadable
 				? thrown
-				: new MessageUnreadable({ at: "a text that is no UTF-8" })
+				: new MessageUnreadable({ at: "a message's bytes" })
 	})
 
 /** One pgoutput message from its bytes (see the header), or why it is unreadable. */

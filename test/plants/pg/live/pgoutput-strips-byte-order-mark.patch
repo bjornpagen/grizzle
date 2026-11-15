@@ -1,0 +1,11 @@
+--- a/packages/grizzle/src/adapter/live/pgoutput.ts
++++ b/packages/grizzle/src/adapter/live/pgoutput.ts
+@@ -133,7 +133,7 @@
+  * among its characters, and bytes that are no UTF-8 are unreadable at `what`.
+  */
+ const textOf = (bytes: Uint8Array, what: string): string => {
+-	const text = utf8Text(bytes)
++	const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+ 	if (text === undefined) {
+ 		throw new MessageUnreadable({ at: `${what} that is no UTF-8` })
+ 	}

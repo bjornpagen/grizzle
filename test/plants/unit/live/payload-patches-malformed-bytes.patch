@@ -1,0 +1,11 @@
+--- a/packages/engine/src/live/notify.ts
++++ b/packages/engine/src/live/notify.ts
+@@ -358,7 +358,7 @@
+ 	}
+ 	return batchNotifications(
+ 		defined(
+-			utf8Text(opened),
++			new TextDecoder().decode(opened),
+ 			"a batch sealed under the live secret is the UTF-8 of its text (sealBatch)"
+ 		)
+ 	)

@@ -1,5 +1,6 @@
 import { defined } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
+import { utf8Text } from "#compiler/core/utf8.ts"
 
 /**
  * Hex, the one spelling of every bit string grizzle writes: a set's literal and its parameter text, a roster's live
@@ -21,9 +22,6 @@ const alphabet = "0123456789ABCDEF"
 
 /** The first, most significant, of a digit's four bits: the one that holds the digit's first position. */
 const firstBit = 0b1000
-
-/** The platform's UTF-8 decoder, which reads ASCII bytes as the characters they are. */
-const ascii = new TextDecoder()
 
 /**
  * What begins a bit string's text as bit's input function reads it, hex digits following: `X`, as the SQL constant
@@ -73,7 +71,8 @@ export const bitAt = (digits: Uint8Array, position: number): number =>
 const digitByte = (digit: number): number => alphabet.charCodeAt(digit)
 
 /** The hex text of `digits`: one character of 0-9 or A-F per digit, in order. */
-export const hexText = (digits: Uint8Array): string => ascii.decode(digits.map(digitByte))
+export const hexText = (digits: Uint8Array): string =>
+	defined(utf8Text(digits.map(digitByte)), "a hex digit's character is ASCII, which is UTF-8")
 
 /**
  * PostgreSQL's output text of a bit string, a 0 or a 1 per position, as its hex digits: each four characters one digit,

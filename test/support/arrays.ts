@@ -2,8 +2,10 @@ import { Array as Arr, pipe, String as Str } from "effect"
 import { arrayTexts, parameterNormalizer, type RelationSpec } from "#compiler/codec/recordset.ts"
 import { maxStringLength } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
+import { utf8Text } from "#compiler/core/utf8.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import type { RelationParamEncoder } from "#compiler/ir/products.ts"
+import { defined } from "#test/support/assert.ts"
 
 /**
  * The arrays encoder of one relation parameter's input (ir/products.ts RelationParamEncoder): its normal facts as a
@@ -204,7 +206,7 @@ const byteaOid = 17
 /** An element of a binary array as array_in reads it inside a quoted element: a text's characters, a bytea's hex form. */
 const elementText = (elementType: number, element: Uint8Array): string => {
 	if (elementType === textOid) {
-		return new TextDecoder("utf-8", { fatal: true }).decode(element)
+		return defined(utf8Text(element), "a text element of a binary array PostgreSQL reads is UTF-8")
 	}
 	if (elementType === byteaOid) {
 		return `\\x${Arr.join(
