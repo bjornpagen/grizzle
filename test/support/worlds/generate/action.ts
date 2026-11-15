@@ -23,7 +23,7 @@ import {
 	pooled
 } from "#test/support/worlds/generate/domain.ts"
 import { headingOf } from "#test/support/worlds/generate/entries.ts"
-import { enumerateKind } from "#test/support/worlds/generate/enumerate.ts"
+import { enumerateKinds } from "#test/support/worlds/generate/enumerate.ts"
 import {
 	allowedFor,
 	applicable,
@@ -1196,7 +1196,7 @@ const focusedOn = (roles: RoleFocus, a: Action): boolean =>
 
 /**
  * Every action the box of a scope offers in a state within a run's kinds, an own role opened only within its focus, in
- * the order of the vocabulary (enumerateKind): the candidates of an aimed draw and of a lead's first move alike.
+ * the order of the vocabulary (enumerateKinds, one box of the state): the candidates of an aimed draw and of a lead's first move alike.
  */
 export const offeredOf = (
 	state: ModelState,
@@ -1205,10 +1205,7 @@ export const offeredOf = (
 	scope: SmallScope
 ): ReadonlyArray<Action> => {
 	const offered: ReadonlyArray<ActionKind> = Arr.filter(actionKinds, (k) => Arr.contains(kinds, k))
-	return Arr.filter(
-		Arr.flatMap(offered, (k) => enumerateKind(state, k, scope)),
-		(a) => focusedOn(roles, a)
-	)
+	return Arr.filter(enumerateKinds(state, offered, scope), (a) => focusedOn(roles, a))
 }
 
 /** An action the box offers and a feature aimed at that it reaches as the model predicts it. */

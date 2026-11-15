@@ -192,6 +192,21 @@ export const stateValues = (state: ModelState): ReadonlyArray<HostValue> => [
 	...installLiterals(state.install)
 ]
 
+/**
+ * One state's box: its scope, and every value the state holds (stateValues), read once, the first time a domain's box
+ * values ask for them (valuesFor), however many fields of however many headings the box draws values for.
+ */
+interface Scoped {
+	readonly scope: SmallScope
+	readonly held: () => ReadonlyArray<HostValue>
+}
+
+/** The box of `state` under `scope`, its held values not read until a domain asks for them. */
+const scopedOf = (state: ModelState, scope: SmallScope): Scoped => {
+	let held: ReadonlyArray<HostValue> | undefined
+	return { scope, held: () => (held ??= stateValues(state)) }
+}
+
 /** Values, each once by its text, first kept. */
 const distinctValues = (values: ReadonlyArray<HostValue>): ReadonlyArray<HostValue> => [
 	...new Map(Arr.map(values, (v) => [valueText(v), v] as const)).values()
@@ -203,13 +218,9 @@ const distinctValues = (values: ReadonlyArray<HostValue>): ReadonlyArray<HostVal
  * stands for them all; of an ordered domain, its box pool and every value the state holds, with each literal the
  * installation compares with and its successor.
  */
-const valuesFor = (
-	state: ModelState,
-	domain: FieldDomain,
-	scope: SmallScope
-): Arr.NonEmptyReadonlyArray<HostValue> => {
-	const held = distinctValues(Arr.filter(stateValues(state), (v) => inDomain(domain, v)))
-	const box = boxPool(domain, scope)
+const valuesFor = (domain: FieldDomain, scoped: Scoped): Arr.NonEmptyReadonlyArray<HostValue> => {
+	const held = distinctValues(Arr.filter(scoped.held(), (v) => inDomain(domain, v)))
+	const box = boxPool(domain, scoped.scope)
 	if (symmetric(domain)) {
 		const texts = new Set(Arr.map(held, valueText))
 		const unused = Arr.findFirst(box, (v) => !texts.has(valueText(v)))
@@ -226,11 +237,12 @@ const eachChoice = (
 	heading: ReadonlyArray<FieldSpec>,
 	valuesOf: (f: FieldSpec) => Arr.NonEmptyReadonlyArray<HostValue>
 ): ReadonlyArray<HostFact> => {
-	const first: HostFact = Rec.fromEntries(Arr.map(heading, (f) => [f.name, valuesOf(f)[0]]))
+	const valued = Arr.map(heading, (field) => ({ field, values: valuesOf(field) }))
+	const first: HostFact = Rec.fromEntries(Arr.map(valued, (f) => [f.field.name, f.values[0]]))
 	return uniqueFacts([
 		first,
-		...Arr.flatMap(heading, (f) =>
-			Arr.map(valuesOf(f).slice(1), (v): HostFact => ({ ...first, [f.name]: v }))
+		...Arr.flatMap(valued, (f) =>
+			Arr.map(f.values.slice(1), (v): HostFact => ({ ...first, [f.field.name]: v }))
 		)
 	])
 }
@@ -286,11 +298,14 @@ interface ClaimsBox {
 	) => Readonly<Record<string, unknown>>
 }
 
-const claimsBox = (state: ModelState, role: RoleSpec, scope: SmallScope): ClaimsBox => {
-	const contexts = contextsRead(state.install.base, role).slice(0, Math.max(1, scope.contexts))
+const claimsBox = (state: ModelState, role: RoleSpec, scoped: Scoped): ClaimsBox => {
+	const contexts = contextsRead(state.install.base, role).slice(
+		0,
+		Math.max(1, scoped.scope.contexts)
+	)
 	const fields = Arr.flatMap(contexts, (c) => Arr.map(c.fields, (f) => ({ context: c, field: f })))
 	const heading = Arr.map(fields, (x, i): FieldSpec => ({ name: `${i}`, domain: x.field.domain }))
-	const choices = eachChoice(heading, (f) => valuesFor(state, f.domain, scope))
+	const choices = eachChoice(heading, (f) => valuesFor(f.domain, scoped))
 	const facts = uniqueFacts([
 		...choices,
 		...Arr.flatMap(Arr.take(choices, 1), (first) => jointChoices(state, heading, first))
@@ -326,9 +341,9 @@ const claimsBox = (state: ModelState, role: RoleSpec, scope: SmallScope): Claims
 const liveTokens = (
 	state: ModelState,
 	role: RoleSpec,
-	scope: SmallScope
+	scoped: Scoped
 ): Arr.NonEmptyReadonlyArray<Token> => {
-	const box = claimsBox(state, role, scope)
+	const box = claimsBox(state, role, scoped)
 	const [firstFact, ...moreFacts] = box.facts
 	if (box.contexts.length === 0 || firstFact === undefined) {
 		return [{ kind: "none" }]
@@ -344,12 +359,8 @@ const liveTokens = (
 }
 
 /** One representative token per stale source and per wild kind a role's claims can carry. */
-const invalidTokens = (
-	state: ModelState,
-	role: RoleSpec,
-	scope: SmallScope
-): ReadonlyArray<Token> => {
-	const box = claimsBox(state, role, scope)
+const invalidTokens = (state: ModelState, role: RoleSpec, scoped: Scoped): ReadonlyArray<Token> => {
+	const box = claimsBox(state, role, scoped)
 	const last = box.facts.at(-1)
 	const payload = last === undefined ? {} : box.payloadOf(last, new Set())
 	const contexts = contextsRead(state.install.base, role)
@@ -467,18 +478,18 @@ const open = (role: RoleRef, token: Token, snapshot: SnapshotRef): Action => ({
 })
 
 /** The open-db actions of the box: each live role and token at the current snapshot, then each invalid input alone. */
-const openActions = (state: ModelState, scope: SmallScope): ReadonlyArray<Action> => {
+const openActions = (state: ModelState, scoped: Scoped): ReadonlyArray<Action> => {
 	const install = state.install
 	const [first] = install.roles
-	const [firstToken] = liveTokens(state, first, scope)
+	const [firstToken] = liveTokens(state, first, scoped)
 	return [
 		...Arr.flatMap(install.roles, (role) =>
-			Arr.map(liveTokens(state, role, scope), (t) =>
+			Arr.map(liveTokens(state, role, scoped), (t) =>
 				open({ kind: "own", role: role.name }, t, "current")
 			)
 		),
 		...Arr.flatMap(install.roles, (role) =>
-			Arr.map(invalidTokens(state, role, scope), (t) =>
+			Arr.map(invalidTokens(state, role, scoped), (t) =>
 				open({ kind: "own", role: role.name }, t, "current")
 			)
 		),
@@ -532,7 +543,7 @@ const firstEntryName = (state: ModelState): string =>
  * role's relation, and each relation's page of one row from the first page and from the last, first attachment and
  * first recursive read; a session that is no Db reads the installation's first relation.
  */
-const readActions = (state: ModelState, session: number): ReadonlyArray<Action> => {
+const readActions = (state: ModelState, session: number, scoped: Scoped): ReadonlyArray<Action> => {
 	const db = roleAt(state, session)
 	if (Option.isNone(db)) {
 		return [{ kind: "read", session, relation: firstEntryName(state), via: { kind: "execute" } }]
@@ -554,11 +565,11 @@ const readActions = (state: ModelState, session: number): ReadonlyArray<Action> 
 		)
 	const [row] = rows
 	const lastOf = (f: FieldSpec): HostValue =>
-		Arr.lastNonEmpty(valuesFor(state, f.domain, defaultScope))
+		Arr.lastNonEmpty(valuesFor(f.domain, { ...scoped, scope: defaultScope }))
 	/** A value of a field's domain no row holds there: the last such of the box's values, else the pool's first. */
 	const unrowed = (f: FieldSpec): Option.Option<HostValue> =>
 		Arr.findFirst(
-			[...Arr.reverse(valuesFor(state, f.domain, defaultScope)), ...pool(f.domain)],
+			[...Arr.reverse(valuesFor(f.domain, { ...scoped, scope: defaultScope })), ...pool(f.domain)],
 			(v) =>
 				Arr.every(rows, (r) => {
 					const held = r[f.name]
@@ -640,14 +651,14 @@ const entryFacts = (
 	writer: FactWriter,
 	entry: string,
 	spec: EntrySpec,
-	scope: SmallScope
+	scoped: Scoped
 ): ReadonlyArray<HostFact> => {
 	const rows = Rec.has(writer.role.entries, entry)
 		? entryRows(state, writer.role.name, entry, writer.facts)
 		: []
 	return uniqueFacts([
 		...rows,
-		...eachChoice(headingOf(state.install.base, spec), (f) => valuesFor(state, f.domain, scope))
+		...eachChoice(headingOf(state.install.base, spec), (f) => valuesFor(f.domain, scoped))
 	])
 }
 
@@ -761,7 +772,7 @@ const firstOfEachAim = (
 const directStarts = (
 	state: ModelState,
 	roles: ReadonlyArray<string>,
-	scope: SmallScope
+	scoped: Scoped
 ): ReadonlyArray<DirectStart> => {
 	/** A login's setting sent with its BEGIN: facts it holds of some context, or malformed claims, for the transaction. */
 	const loginSends = (setting: ClaimsSetting): boolean =>
@@ -769,7 +780,7 @@ const directStarts = (
 		(setting.kind === "malformed" || !Rec.isEmptyRecord(setting.facts))
 	return [
 		...Arr.flatMap(
-			directClaims(state, Option.none(), scope),
+			directClaims(state, Option.none(), scoped),
 			(setting): ReadonlyArray<DirectStart> =>
 				loginSends(setting)
 					? [{ current: { kind: "login" }, claims: { kind: "set", setting } }]
@@ -781,7 +792,7 @@ const directStarts = (
 				directClaims(
 					state,
 					Arr.findFirst(state.install.roles, (r) => r.name === role),
-					scope
+					scoped
 				),
 				(setting): ReadonlyArray<DirectStart> =>
 					setting.scope === "transaction"
@@ -801,7 +812,7 @@ const directStarts = (
 const applyActions = (
 	state: ModelState,
 	session: number,
-	scope: SmallScope
+	scoped: Scoped
 ): ReadonlyArray<Action> => {
 	const db = roleAt(state, session)
 	if (Option.isNone(db)) {
@@ -823,7 +834,7 @@ const applyActions = (
 		if (spec === undefined) {
 			return []
 		}
-		const facts = entryFacts(state, writer, entry, spec, scope)
+		const facts = entryFacts(state, writer, entry, spec, scoped)
 		const live = [
 			...Arr.flatMap(facts, (f) =>
 				Arr.map(["insert", "delete", "put"] as const, (kind): EntryOp => ({
@@ -880,8 +891,8 @@ const applyActions = (
 	return [
 		...singles,
 		...readBacks,
-		...unionApplies(state, writer, session, scope),
-		...orderedApplies(state, writer, session, scope)
+		...unionApplies(state, writer, session, scoped),
+		...orderedApplies(state, writer, session, scoped)
 	]
 }
 
@@ -889,14 +900,14 @@ const applyActions = (
 const firstInsert = (
 	state: ModelState,
 	writer: FactWriter,
-	scope: SmallScope,
+	scoped: Scoped,
 	entry: string
 ): EntryOp | undefined => {
 	const spec = Rec.has(writer.role.entries, entry) ? writer.role.entries[entry] : undefined
 	const fact =
 		spec === undefined
 			? undefined
-			: eachChoice(headingOf(state.install.base, spec), (f) => valuesFor(state, f.domain, scope))[0]
+			: eachChoice(headingOf(state.install.base, spec), (f) => valuesFor(f.domain, scoped))[0]
 	return fact === undefined ? undefined : { relation: entry, kind: "insert", facts: [fact] }
 }
 
@@ -921,7 +932,7 @@ const unionApplies = (
 	state: ModelState,
 	writer: FactWriter,
 	session: number,
-	scope: SmallScope
+	scoped: Scoped
 ): ReadonlyArray<Action> => {
 	const written = writtenOf(state.install.base, writer.role)
 	const pairs = Arr.flatMap(written, (a, i) =>
@@ -932,8 +943,8 @@ const unionApplies = (
 		)
 	)
 	return Arr.flatMap(Arr.take(pairs, 1), ([a, b]): ReadonlyArray<Action> => {
-		const first = firstInsert(state, writer, scope, a.entry)
-		const second = firstInsert(state, writer, scope, b.entry)
+		const first = firstInsert(state, writer, scoped, a.entry)
+		const second = firstInsert(state, writer, scoped, b.entry)
 		return first === undefined || second === undefined
 			? []
 			: [{ kind: "apply", session, strata: [[first, second]], reads: [] }]
@@ -948,7 +959,7 @@ const orderedApplies = (
 	state: ModelState,
 	writer: FactWriter,
 	session: number,
-	scope: SmallScope
+	scoped: Scoped
 ): ReadonlyArray<Action> => {
 	const written = writtenOf(state.install.base, writer.role)
 	return Arr.flatMap(written, (e) => {
@@ -959,8 +970,8 @@ const orderedApplies = (
 		return Arr.flatMap(
 			Arr.filter(written, (w) => w.entry !== e.entry && reads.has(w.target)),
 			(w: Written): ReadonlyArray<Action> => {
-				const a = firstInsert(state, writer, scope, e.entry)
-				const b = firstInsert(state, writer, scope, w.entry)
+				const a = firstInsert(state, writer, scoped, e.entry)
+				const b = firstInsert(state, writer, scoped, w.entry)
 				return a === undefined || b === undefined
 					? []
 					: [
@@ -1030,9 +1041,9 @@ interface ClaimSite {
 const directClaims = (
 	state: ModelState,
 	role: Option.Option<RoleSpec>,
-	scope: SmallScope
+	scoped: Scoped
 ): ReadonlyArray<ClaimsSetting> => {
-	const box = Option.map(role, (r) => claimsBox(state, r, scope))
+	const box = Option.map(role, (r) => claimsBox(state, r, scoped))
 	const contexts = Option.match(box, { onNone: () => [], onSome: (b) => b.contexts })
 	const sites = Arr.map(
 		Arr.flatMap(contexts, (c) => Arr.map(c.fields, (f) => ({ context: c.name, field: f.name }))),
@@ -1074,7 +1085,7 @@ const directClaims = (
 				),
 				(c: ContextSpec) =>
 					Arr.map(
-						eachChoice(c.fields, (f) => valuesFor(state, f.domain, scope)),
+						eachChoice(c.fields, (f) => valuesFor(f.domain, scoped)),
 						(fact): ClaimsSetting => ({
 							kind: "facts",
 							facts: { [c.name]: fact },
@@ -1085,8 +1096,8 @@ const directClaims = (
 	})
 	const [first] = facts
 	/**
-	 * Every context the role reads, the box's and those past its scope alike: a context outside them all is one it does
-	 * not read. The box's contexts alone would name a context past its scope, which `alone` already sets.
+	 * Every context the role reads, the box's and those past its scoped alike: a context outside them all is one it does
+	 * not read. The box's contexts alone would name a context past its scoped, which `alone` already sets.
 	 */
 	const read = new Set(
 		Arr.map(
@@ -1111,7 +1122,7 @@ const directClaims = (
 			kind: "facts",
 			facts: {
 				[c.name]: Rec.fromEntries(
-					Arr.map(c.fields, (f) => [f.name, valuesFor(state, f.domain, scope)[0]] as const)
+					Arr.map(c.fields, (f) => [f.name, valuesFor(f.domain, scoped)[0]] as const)
 				)
 			},
 			scope: "transaction"
@@ -1151,7 +1162,7 @@ const heldAt = (view: ReadonlyArray<HostFact>, field: string): ReadonlyArray<Hos
 const boxReads = (
 	state: ModelState,
 	s: DirectSessionState,
-	scope: SmallScope
+	scoped: Scoped
 ): {
 	readonly listed: ReadonlyArray<DirectStatement>
 	readonly added: ReadonlyArray<DirectStatement>
@@ -1185,7 +1196,7 @@ const boxReads = (
 							filter: {
 								kind: "raise-on",
 								field: f.name,
-								value: valuesFor(state, f.domain, scope)[0]
+								value: valuesFor(f.domain, scoped)[0]
 							}
 						}))
 				)
@@ -1204,7 +1215,7 @@ const boxReads = (
 						filter: {
 							kind: "raise-on" as const,
 							field: f.name,
-							value: valuesFor(state, f.domain, scope)[0]
+							value: valuesFor(f.domain, scoped)[0]
 						}
 					}
 				]
@@ -1260,7 +1271,7 @@ export const enumerateDirectReads = (
 	if (s?.kind !== "direct" || !applicable(state, "direct")) {
 		return []
 	}
-	const { listed, added } = boxReads(state, s, scope)
+	const { listed, added } = boxReads(state, s, scopedOf(state, scope))
 	return Arr.filter(
 		Arr.map(
 			[
@@ -1284,7 +1295,7 @@ export const enumerateDirectReads = (
 const directStatements = (
 	state: ModelState,
 	session: number,
-	scope: SmallScope
+	scoped: Scoped
 ): ReadonlyArray<DirectStatement> => {
 	const s = state.sessions[session]
 	if (s?.kind !== "direct") {
@@ -1299,7 +1310,7 @@ const directStatements = (
 	const refs = directRoleRefs(state, s.login)
 	const relations = base.relations
 	const viewOf = (relation: string): ReadonlyArray<HostFact> => nameableFacts(s.view, relation)
-	const reads = boxReads(state, s, scope)
+	const reads = boxReads(state, s, scoped)
 	const listed: ReadonlyArray<DirectStatement> = [
 		...Arr.map(refs, (r): DirectStatement => ({ kind: "set-role", role: r })),
 		{ kind: "reset-role" },
@@ -1308,13 +1319,13 @@ const directStatements = (
 			role: r
 		})),
 		{ kind: "set-session-authorization", role: { kind: "owner" } },
-		...Arr.map(directClaims(state, role, scope), (setting): DirectStatement => ({
+		...Arr.map(directClaims(state, role, scoped), (setting): DirectStatement => ({
 			kind: "set-claims",
 			setting
 		})),
 		...reads.listed,
 		...Arr.flatMap(relations, (r) => {
-			const [fact] = eachChoice(r.fields, (f) => valuesFor(state, f.domain, scope))
+			const [fact] = eachChoice(r.fields, (f) => valuesFor(f.domain, scoped))
 			return fact === undefined
 				? []
 				: Arr.map(
@@ -1345,7 +1356,7 @@ const directStatements = (
 									...Arr.map(
 										eachChoice(
 											Arr.filter(r.fields, (f) => !r.key.includes(f.name)),
-											(f) => valuesFor(state, f.domain, scope)
+											(f) => valuesFor(f.domain, scoped)
 										),
 										(payload): HostFact => ({ ...payload, ...atKey })
 									)
@@ -1382,7 +1393,7 @@ const directStatements = (
 			name
 		})),
 		...Arr.flatMap(relations, (r) => {
-			const [fact] = eachChoice(r.fields, (f) => valuesFor(state, f.domain, scope))
+			const [fact] = eachChoice(r.fields, (f) => valuesFor(f.domain, scoped))
 			return fact === undefined
 				? []
 				: Arr.map(Arr.fromOption(refusedField(r.fields)), ({ at, outside }): DirectStatement => ({
@@ -1393,7 +1404,7 @@ const directStatements = (
 		}),
 		...Arr.flatMap(relations, (r) =>
 			Arr.map(
-				eachChoice(r.fields, (f) => valuesFor(state, f.domain, scope)),
+				eachChoice(r.fields, (f) => valuesFor(f.domain, scoped)),
 				(fact): DirectStatement => ({ kind: "insert", relation: r.name, fact })
 			)
 		),
@@ -1410,7 +1421,7 @@ const directStatements = (
 					Arr.findFirst(r.fields, (f) => !r.key.includes(f.name)),
 					(other) =>
 						Option.map(
-							Arr.findFirst(valuesFor(state, other.domain, scope), (v) => {
+							Arr.findFirst(valuesFor(other.domain, scoped), (v) => {
 								const held = fact[other.name]
 								return held === undefined || valueText(v) !== valueText(held)
 							}),
@@ -1446,14 +1457,14 @@ const directStatements = (
 		...Arr.map(worldFunctionsOf(state), (fn): DirectStatement => ({
 			kind: "call",
 			fn,
-			args: Arr.map(parametersOf(state, fn) ?? [], (domain) => valuesFor(state, domain, scope)[0])
+			args: Arr.map(parametersOf(state, fn) ?? [], (domain) => valuesFor(domain, scoped)[0])
 		})),
 		...Arr.flatMap(relations, (r) =>
 			Arr.flatMap(r.fields, (f): ReadonlyArray<DirectStatement> =>
 				f.domain.kind === "serial"
 					? [
 							{ kind: "setval", relation: r.name, field: f.name, value: 1 },
-							{ kind: "setval", relation: r.name, field: f.name, value: scope.facts + 2 }
+							{ kind: "setval", relation: r.name, field: f.name, value: scoped.scope.facts + 2 }
 						]
 					: []
 			)
@@ -1502,18 +1513,18 @@ const keyOf = (fact: HostFact, key: ReadonlyArray<string>): HostFact =>
 	)
 
 /** The box's actions of one kind in a state, before the state's offer (applicable, namesOffered) filters them. */
-type KindBox = (state: ModelState, scope: SmallScope) => ReadonlyArray<Action>
+type KindBox = (state: ModelState, scoped: Scoped) => ReadonlyArray<Action>
 
 /** Every session the state holds, whatever its kind: stale and mismatched handles are in the box. */
 const sessionsOf = (state: ModelState): ReadonlyArray<number> => [...state.sessions.keys()]
 
 /** The box's actions of a session kind through one session, before the state's offer filters them. */
-type SessionBox = (state: ModelState, session: number, scope: SmallScope) => ReadonlyArray<Action>
+type SessionBox = (state: ModelState, session: number, scoped: Scoped) => ReadonlyArray<Action>
 
 /** The box's actions of each session kind through one session (boxKinds lists them over every session). */
 const sessionBoxes: { readonly [K in SessionKind]: SessionBox } = {
-	read: (state, session) => readActions(state, session),
-	apply: (state, session, scope) => applyActions(state, session, scope),
+	read: (state, session, scoped) => readActions(state, session, scoped),
+	apply: (state, session, scoped) => applyActions(state, session, scoped),
 	refresh: (state, session) => {
 		const relations = Option.match(roleAt(state, session), {
 			onNone: () => [firstEntryName(state)],
@@ -1526,8 +1537,8 @@ const sessionBoxes: { readonly [K in SessionKind]: SessionBox } = {
 		return Arr.map(relations, (relation): Action => ({ kind: "refresh", session, relation }))
 	},
 	close: (_state, session) => [{ kind: "close", session }],
-	direct: (state, session, scope) =>
-		Arr.map(directStatements(state, session, scope), (statement): Action => ({
+	direct: (state, session, scoped) =>
+		Arr.map(directStatements(state, session, scoped), (statement): Action => ({
 			kind: "direct",
 			session,
 			statement
@@ -1544,8 +1555,8 @@ const sessionBoxes: { readonly [K in SessionKind]: SessionBox } = {
 /** The box's actions of a session kind through every session the state holds, session by session. */
 const everySession =
 	(kind: SessionKind): KindBox =>
-	(state, scope) =>
-		Arr.flatMap(sessionsOf(state), (session) => sessionBoxes[kind](state, session, scope))
+	(state, scoped) =>
+		Arr.flatMap(sessionsOf(state), (session) => sessionBoxes[kind](state, session, scoped))
 
 /** The box's actions of each kind, in the order of the vocabulary (actionKinds). */
 const boxKinds: { readonly [K in ActionKind]: KindBox } = {
@@ -1554,7 +1565,7 @@ const boxKinds: { readonly [K in ActionKind]: KindBox } = {
 	apply: everySession("apply"),
 	refresh: everySession("refresh"),
 	close: everySession("close"),
-	"direct-begin": (state, scope) =>
+	"direct-begin": (state, scoped) =>
 		Arr.flatMap(state.install.logins, (l) => [
 			...Arr.map(
 				["serializable", "repeatable read", "read committed", "read uncommitted"] as const,
@@ -1565,7 +1576,7 @@ const boxKinds: { readonly [K in ActionKind]: KindBox } = {
 					start: { current: { kind: "login" }, claims: { kind: "none" } }
 				})
 			),
-			...Arr.map(directStarts(state, l.roles, scope), (start): Action => ({
+			...Arr.map(directStarts(state, l.roles, scoped), (start): Action => ({
 				kind: "direct-begin",
 				login: l.name,
 				isolation: "serializable",
@@ -1575,7 +1586,7 @@ const boxKinds: { readonly [K in ActionKind]: KindBox } = {
 	direct: everySession("direct"),
 	"direct-end": everySession("direct-end"),
 	interrupt: everySession("interrupt"),
-	migrate: (state, scope) => migrateActions(state, scope),
+	migrate: (state, scoped) => migrateActions(state, scoped.scope),
 	tamper: (state) =>
 		Arr.map(enumeratePerturbations(state), (perturbation): Action => ({
 			kind: "tamper",
@@ -1607,9 +1618,12 @@ export const enumerateKind = (
 	state: ModelState,
 	kind: ActionKind,
 	scope: SmallScope
-): ReadonlyArray<Action> =>
+): ReadonlyArray<Action> => kindIn(state, kind, scopedOf(state, scope))
+
+/** The actions of the box of one kind in a state (enumerateKind), within the state's box. */
+const kindIn = (state: ModelState, kind: ActionKind, scoped: Scoped): ReadonlyArray<Action> =>
 	applicable(state, kind)
-		? Arr.filter(boxKinds[kind](state, scope), (a) => namesOffered(state, a))
+		? Arr.filter(boxKinds[kind](state, scoped), (a) => namesOffered(state, a))
 		: []
 
 /**
@@ -1623,7 +1637,9 @@ export const enumerateThrough = (
 	scope: SmallScope
 ): ReadonlyArray<Action> =>
 	applicable(state, kind)
-		? Arr.filter(sessionBoxes[kind](state, session, scope), (a) => namesOffered(state, a))
+		? Arr.filter(sessionBoxes[kind](state, session, scopedOf(state, scope)), (a) =>
+				namesOffered(state, a)
+			)
 		: []
 
 /**
@@ -1635,7 +1651,20 @@ export const enumerateThrough = (
  * migration or catalog change while a direct transaction is open) is kept, a harness invariant.
  */
 export const enumerateActions = (state: ModelState, scope: SmallScope): ReadonlyArray<Action> =>
-	Arr.flatMap(actionKinds, (kind) => enumerateKind(state, kind, scope))
+	enumerateKinds(state, actionKinds, scope)
+
+/**
+ * The actions of the box of each of `kinds` in a state, kind by kind in their order (enumerateKind), every kind drawing
+ * its values from one box of the state.
+ */
+export const enumerateKinds = (
+	state: ModelState,
+	kinds: ReadonlyArray<ActionKind>,
+	scope: SmallScope
+): ReadonlyArray<Action> => {
+	const scoped = scopedOf(state, scope)
+	return Arr.flatMap(kinds, (kind) => kindIn(state, kind, scoped))
+}
 
 /**
  * The migrations of the box: each installation of the box applied whole, the first other than the one the new folder

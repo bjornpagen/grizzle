@@ -26,6 +26,9 @@
  * gen-reality-unrepaired.patch (a reality left unrepaired) the third; gen-planted-live.patch (a planted installation
  * left lawful) the fourth; gen-forced-none.patch (no move ever forced) the fifth; gen-box-duplicate.patch (the box
  * holding an action twice) the sixth.
+ *
+ * @plant test/plants/unit/world-model/worlds-box-values-of-another-state.patch The box reads every state's values once
+ * for the whole process, so a state's box draws the values the first state it enumerated held; the sixth property fails.
  */
 import { drawn, exhaust, explore, Run } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
