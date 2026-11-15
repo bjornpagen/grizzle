@@ -32,9 +32,10 @@ import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types
  * recursive query. Beside the model, a shown witness carries only what the writer submitted or holds whole
  * (drive/acting.ts witnessesShowTheirOwn).
  *
- * @plant test/plants/pg/world-model/worlds-rules-span-key-overlaps.patch The stored-occupant probe of a span key
- * (write/probe.ts atObject) compares spans by equality, not overlap, so a stored fact overlapping the written one at
- * its key is missed; the write's outcome disagrees with the model.
+ * @plant test/plants/pg/world-model/worlds-rules-span-key-overlaps.patch A span key installed without WITHOUT
+ * OVERLAPS, so its spans may overlap: the README-shaped rooms worlds' PERIOD foreign key into it finds no key to
+ * reference (42830) and the installation fails, and a generated installation with no such reference accepts a write
+ * whose span overlaps a stored one at its key, which the model refuses.
  */
 const focus: Focus = ["open-db", "apply", "read", "close", "direct-begin", "direct", "direct-end"]
 

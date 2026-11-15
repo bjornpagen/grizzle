@@ -1,13 +1,13 @@
-diff --git a/packages/engine/src/write/probe.ts b/packages/engine/src/write/probe.ts
-index aa64c8d3..cc050227 100644
---- a/packages/engine/src/write/probe.ts
-+++ b/packages/engine/src/write/probe.ts
-@@ -134,7 +134,7 @@ export const atObject = (
- 	filter: (inner) => {
- 		const stored = (f: LawField): Expr => col(inner, w.names.column(relation, f.name))
- 		const guards = withinRow(w.cx, u, stored)
--		return u.kind === "span" ? [...guards, binary("&&", stored(u.span), value(u.span))] : guards
-+		return u.kind === "span" ? [...guards, binary("=", stored(u.span), value(u.span))] : guards
- 	},
- 	placed: placedBy(w, relation, u)
- })
+diff --git a/packages/engine/src/physical/ddl/tables.ts b/packages/engine/src/physical/ddl/tables.ts
+index de9ceb9f..137aa9b9 100644
+--- a/packages/engine/src/physical/ddl/tables.ts
++++ b/packages/engine/src/physical/ddl/tables.ts
+@@ -196,7 +196,7 @@ const periodKeyColumns = (
+ 			column: nativeColumn(b, relation, c),
+ 			withoutOverlaps: false
+ 		})),
+-		{ column: nativeColumn(b, relation, span), withoutOverlaps: true }
++		{ column: nativeColumn(b, relation, span), withoutOverlaps: false }
+ 	)
+ 
+ /** The installed column a native object reads on `relation`'s table: a field's column, or a law column's own
