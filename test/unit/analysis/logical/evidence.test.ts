@@ -12,8 +12,11 @@
  * prove nothing. An unsound claim here would let get, an Option attachment or a dropped DISTINCT change an answer.
  *
  * - Soundness (keys and cardinality bounds, under every context, delivered types rooted at attachments, bare children
- *   along declared containments and filters over one fact): every claim holds on the reference evaluator's facts.
- *   Oracle: the reference evaluator, a second implementation.
+ *   along declared containments and filters over one fact): every claim holds on the reference evaluator's facts, and
+ *   every key proof the analysis emits passes the key kernel (test/support/keys/kernel.ts), which reads each rule's
+ *   side condition off the DAG alone. Oracle: the reference evaluator, a second implementation, and the kernel. A
+ *   value the kernel reads off a derivation is its node's: a column the node binds holds one value per row, not per
+ *   evaluation (kept: lateralFixedThroughBoundSibling).
  * - Idempotence (generated cases, and the proving shapes' bare children): annotating an annotated DAG states what the
  *   first annotation did, node for node. Oracle: universal.
  *
@@ -28,6 +31,9 @@
  * key.
  * @plant test/plants/unit/analysis/logical/annotate-keys-accumulate.patch A node's claimed keys gather its earlier
  * claims beside the new ones (logical/annotate.ts rebuilt); the idempotence property fails.
+ * @plant test/plants/unit/analysis/logical/kernel-value-unscoped.patch The key kernel reads a column a node binds as
+ * one of its values (test/support/keys/kernel.ts #outer), so a value a lateral source fixes to a column of its own
+ * region leaves the region as a value; the soundness property fails on lateralFixedThroughBoundSibling.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required, type Situations } from "@bjornpagen/testing/features"
@@ -563,6 +569,203 @@ const correlatedTakeOverOneRow: Kept<readonly [QueryCaseSketch, ContextSketch], 
 }
 
 /**
+ * A region (n#2) over an outer scan and a lateral source (n#7) of takes correlated on that scan's key: the analysis proves
+ * the source's column equal to the scan's (lateralFixed), by the take that fixes the column to it (per[a=n#6.a]). Deeper
+ * in the source, an inner region (n#13) binds a sibling (n#16) whose take fixes its column to the inner region's own
+ * column (per[b=n#15.b]); the kernel read that column as a value of the inner region, carried it out as the source's
+ * value, and refused the proof. A column a region binds holds one value per row of the region, and is no value of it.
+ */
+const lateralFixedThroughBoundSibling: Kept<
+	readonly [QueryCaseSketch, ContextSketch],
+	EvidenceFeature
+> = {
+	note: "the key kernel refused a lateral equality, reading a column an inner region binds as the value of a column carried out of it",
+	sketch: [
+		{
+			schema: {
+				palette: [0],
+				closed: [],
+				relations: [
+					{
+						columns: [0],
+						pkMask: 0,
+						pure: false,
+						keyMasks: [],
+						mutable: true,
+						fk: { enabled: false, target: 0, typed: false },
+						spanKey: false
+					},
+					{
+						columns: [0],
+						pkMask: 0,
+						pure: false,
+						keyMasks: [],
+						mutable: true,
+						fk: { enabled: false, target: 0, typed: false },
+						spanKey: false
+					},
+					{
+						columns: [0, 0, 0],
+						pkMask: 0,
+						pure: false,
+						keyMasks: [],
+						mutable: false,
+						fk: { enabled: false, target: 0, typed: false },
+						spanKey: false
+					}
+				]
+			},
+			facts: [[], [], [], []],
+			root: {
+				tag: "plain",
+				body: {
+					tag: "semi",
+					left: {
+						tag: "project",
+						input: {
+							tag: "match",
+							occurrences: [
+								{
+									source: { tag: "relation", pick: 0 },
+									columns: [
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
+									]
+								},
+								{
+									source: { tag: "relation", pick: 2 },
+									columns: [
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ mode: 5, pick: 0, value: { cls: 0, sp: 0 } },
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
+									]
+								},
+								{
+									source: { tag: "relation", pick: 2 },
+									columns: [
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ mode: 5, pick: 0, value: { cls: 0, sp: 0 } },
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
+									]
+								}
+							],
+							equalities: [],
+							lateral: { kind: "drawn", value: 0 }
+						},
+						out: [{ literal: false, pick: 0, value: { cls: 0, sp: 0 }, term: undrawn }]
+					},
+					right: {
+						tag: "match",
+						occurrences: [
+							{
+								source: { tag: "input", columns: [0], rows: [] },
+								columns: [
+									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
+								]
+							},
+							{
+								source: {
+									tag: "query",
+									query: {
+										tag: "take",
+										input: {
+											tag: "match",
+											occurrences: [
+												{
+													source: { tag: "relation", pick: 0 },
+													columns: [
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
+													]
+												},
+												{
+													source: { tag: "relation", pick: 2 },
+													columns: [
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
+													]
+												},
+												{
+													source: { tag: "relation", pick: 2 },
+													columns: [
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 5, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 5, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 5, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
+													]
+												}
+											],
+											equalities: [],
+											lateral: { kind: "drawn", value: 36409 }
+										},
+										rotate: 0,
+										dirs: [],
+										stated: { kind: "drawn", value: 0 },
+										k: 0,
+										param: false,
+										lateral: { kind: "drawn", value: 8192 }
+									}
+								},
+								columns: [
+									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
+									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
+								]
+							}
+						],
+						equalities: [],
+						lateral: { kind: "drawn", value: 0 }
+					},
+					on: [],
+					shared: { kind: "drawn", value: 0 }
+				},
+				order: {
+					kind: "drawn",
+					value: { rotate: 0, dirs: [], stated: { kind: "drawn", value: 0 } }
+				}
+			},
+			paramNames: [0, 0, 0, 0, 0, 0, 0, 0],
+			swarm: { filter: 1, semi: 1, take: 2, imported: 1, joins: 1 },
+			data: { closed: 1, mutable: 1 },
+			rewrite: { stated: 3 },
+			soundness: { lateral: 1, correlated: 2, "correlated take": 3 }
+		},
+		{ transaction: false, containments: [] }
+	],
+	/** The swarms' thinning decisions, as the shrunk case drew them. */
+	draws: "0.0.2.1.0.0.0.2.1.1.1.2.0.0.0.1",
+	reaches: ["execution snapshot"]
+}
+
+/**
  * A case whose schema offers no proving shape, so its own query stands: a filter of a sum over bigint, a computed
  * numeric, compared with a parameter bound as numeric(161, 40). The sum's values hold the infinities and that type does
  * not, so the parameter is drawn among the values both hold; drawn among the sum's alone, it was Infinity.
@@ -798,7 +1001,7 @@ describe("the logical analysis's claims hold on the facts", () => {
 				ctx,
 				"unit/analysis/logical/evidence-soundness",
 				sketchedCases(soundnessGenConfig),
-				[correlatedTakeOverOneRow],
+				[correlatedTakeOverOneRow, lateralFixedThroughBoundSibling],
 				[
 					"claimed at most one row",
 					"a correlated MatchRegion evaluated per outer tuple",

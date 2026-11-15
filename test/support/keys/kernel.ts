@@ -54,7 +54,13 @@ const within = (a: ReadonlyArray<string>, b: Iterable<string>): boolean => {
 	return Arr.every(a, (c) => set.has(c))
 }
 
-/** The value of a fixed column, as the kernel reads it off a derivation: what equality compares, or opaque. */
+/**
+ * The value of a fixed column of a node, as the kernel reads it off a derivation: what equality compares, or opaque. An
+ * outer value is a column the node reads from outside it (ir/dag.ts nodeScopes), one value per evaluation of the node;
+ * a column the node binds, an occurrence source's in a region, a take's input's, a semi-join's left input's for its
+ * right side, holds one value per row and is none of the node's values (KeyKernel #outer). An attachment's correlation
+ * is the one other outer value: relative to its attachment, a child reads the parent's correlated column per parent row.
+ */
 type Value =
 	| { readonly kind: "literal"; readonly key: string }
 	| { readonly kind: "param"; readonly param: string }
@@ -275,14 +281,15 @@ export class KeyKernel {
 		return Arr.some(e.deps.nodes, (n) => nodes.has(n))
 	}
 
-	#classify(e: ScalarExpr): Value {
+	/** The value expression `e`, evaluated at node `n`, has there: a literal, a parameter, an outer column of `n`, or opaque. */
+	#classify(n: RelNode, e: ScalarExpr): Value {
 		switch (e.kind) {
 			case "literal":
 				return { kind: "literal", key: nativeEqualityKey(e.value) }
 			case "param":
 				return { kind: "param", param: e.param }
 			case "column":
-				return { kind: "outer", node: e.column.node, column: e.column.name }
+				return this.#outer(n, e.column.node, e.column.name)
 			case "value":
 			case "op":
 			case "cast":
@@ -293,6 +300,25 @@ export class KeyKernel {
 			case "closedHas":
 				return { kind: "opaque" }
 		}
+	}
+
+	/**
+	 * Column `column` of node `node` as a value of node `n`: an outer value where `n` reads it from outside, so it holds
+	 * one value per evaluation of `n`; opaque where `n` binds it, so it holds one per row of `n` (Value).
+	 */
+	#outer(n: RelNode, node: NodeId, column: string): Value {
+		return this.#scopes.of(n).outer.get(node)?.has(column) === true
+			? { kind: "outer", node, column }
+			: { kind: "opaque" }
+	}
+
+	/**
+	 * The value `i`, a derivation at an input of node `n`, fixes the input's column `column` to, as a value of `n`: what
+	 * the input names it by, a column the input reads from outside read again at `n`, which may bind it (#outer).
+	 */
+	#carried(n: RelNode, i: Implication, column: string): Value {
+		const value = this.#value(i, column) ?? { kind: "opaque" }
+		return value.kind === "outer" ? this.#outer(n, value.node, value.column) : value
 	}
 
 	/** The variables of a region its expression's local column references name, or undefined when one names none. */
@@ -1295,7 +1321,9 @@ export class KeyKernel {
 	/**
 	 * The value a column fixed by `i` (a derivation from nothing) holds: the value the first of its steps that names one
 	 * fixes it to, opaque where none does. A step holds for every row, so any step naming the column's value names the
-	 * value it holds, and the first is the one the analysis reached it by.
+	 * value it holds, and the first is the one the analysis reached it by. Each is a value of `i`'s node (Value): a step
+	 * that carries an input's column reads the input's value again at the node, where a column the node binds is opaque,
+	 * as the analysis names none by it.
 	 */
 	#value(i: Implication, column: string): Value | undefined {
 		return this.#derived(i).has(column) ? this.#valueAmong(i, i.steps, column) : undefined
@@ -1333,7 +1361,7 @@ export class KeyKernel {
 				return this.#witnessValue(n, r.witness, column)
 			case "correlated": {
 				const c = n.kind === "MatchRegion" ? n.correlated[r.index] : undefined
-				return c === undefined ? { kind: "opaque" } : this.#classify(c.expr)
+				return c === undefined ? { kind: "opaque" } : this.#classify(n, c.expr)
 			}
 			case "equal": {
 				const [from] = step.from
@@ -1355,8 +1383,8 @@ export class KeyKernel {
 					Arr.findFirst(o.constants, (k) => k.column === b.column)
 				)
 				return constant !== undefined
-					? this.#classify(constant.expr)
-					: (this.#value(r.source, b.column) ?? { kind: "opaque" })
+					? this.#classify(n, constant.expr)
+					: this.#carried(n, r.source, b.column)
 			}
 			case "projection": {
 				if (n.kind !== "ProjectSet") {
@@ -1367,15 +1395,15 @@ export class KeyKernel {
 				return out === undefined
 					? { kind: "opaque" }
 					: copied === undefined
-						? this.#classify(out.expr)
-						: (this.#value(r.input, copied) ?? { kind: "opaque" })
+						? this.#classify(n, out.expr)
+						: this.#carried(n, r.input, copied)
 			}
 			case "kept":
 			case "grouped":
-				return this.#value(r.input, column) ?? { kind: "opaque" }
+				return this.#carried(n, r.input, column)
 			case "agreed": {
 				const [first] = r.arms
-				return this.#value(first, column) ?? { kind: "opaque" }
+				return this.#carried(n, first, column)
 			}
 			case "declared":
 			case "viewAlternative":
@@ -1408,7 +1436,7 @@ export class KeyKernel {
 						: Option.getOrUndefined(
 								Arr.findFirst(sides, (s) => this.#columnOf(s, input) !== column)
 							)
-				return other === undefined ? { kind: "opaque" } : this.#classify(other)
+				return other === undefined ? { kind: "opaque" } : this.#classify(n, other)
 			}
 			case "closedValue": {
 				if (n.kind !== "Closed") {
@@ -1422,13 +1450,11 @@ export class KeyKernel {
 			}
 			case "takeCorrelation": {
 				const c = n.kind === "Take" ? n.correlation[w.index] : undefined
-				return c === undefined ? { kind: "opaque" } : this.#classify(c.expr)
+				return c === undefined ? { kind: "opaque" } : this.#classify(n, c.expr)
 			}
 			case "semiJoinPair": {
 				const pair = n.kind === "SemiJoin" ? n.on[w.index] : undefined
-				return pair === undefined
-					? { kind: "opaque" }
-					: (this.#value(w.right, pair.right) ?? { kind: "opaque" })
+				return pair === undefined ? { kind: "opaque" } : this.#carried(n, w.right, pair.right)
 			}
 			case "attachCorrelation": {
 				const attach = this.#node(w.attach)
