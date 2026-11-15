@@ -14,9 +14,14 @@
  * Features: the limit far within, at, one past and far past the text's length; the fewest lines past V8's longest
  * string, and more.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): lines-v8-longest-past (maxStringLength one past V8's),
- * lines-refuses-at-limit (a text exactly at the limit refused), lines-separator-counted-once (every separator measured
- * as one code unit) and lines-nesting-flat (a nested view indented one unit whatever its depth).
+ * @plant test/plants/unit/core/lines-v8-longest-past.patch maxStringLength one past V8's longest string; the V8
+ * property fails.
+ * @plant test/plants/unit/core/lines-refuses-at-limit.patch a text exactly at the limit refused; the written text's and
+ * the enclosure's properties fail.
+ * @plant test/plants/unit/core/lines-separator-counted-once.patch every separator measured as one code unit, whatever
+ * its length; the enclosure property fails.
+ * @plant test/plants/unit/core/lines-nesting-flat.patch a nested view indented one unit whatever its depth; the written
+ * text property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

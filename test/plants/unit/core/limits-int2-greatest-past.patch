@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/limits.ts b/packages/engine/src/core/limits.ts
+index f293c153..434c0212 100644
+--- a/packages/engine/src/core/limits.ts
++++ b/packages/engine/src/core/limits.ts
+@@ -740,7 +740,7 @@ export const int2Min = published({
+ 
+ /** The greatest smallint. */
+ export const int2Max = published({
+-	value: 32767,
++	value: 32768,
+ 	owner: "PostgreSQL 19rc2",
+ 	unit: "a smallint value",
+ 	scope: "every smallint value: a column, a parameter, a literal, an endpoint",

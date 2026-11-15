@@ -27,7 +27,9 @@
  * - Now: a value is read as it is when it is written, frozen or not, so nothing is remembered.
  * - Comparison: canonicalEquals and sameContent are equality of specified text, and canonicalSortKeyed sorts by it,
  *   refusing a member outside the model at its place.
- * - Tokens: canonicalTokens spell the text, are one list exactly when the texts are one, and order as the texts do.
+ * - Tokens: canonicalTokens spell the text, are one list exactly when the texts are one, and order as the texts do,
+ *   over two values drawn apart or alike but for one leaf, so two numbers whose texts begin one another meet before the
+ *   end, a comma or a closing bracket.
  *
  * Oracle: the format's specification above, written here apart from the serializer (jsonForm, rfc8785), a
  * specification turned into a checker; a round trip for the readers.
@@ -36,13 +38,28 @@
  * container and direction of a nesting and a cycle, each omitted member, each freezing, a repeated member, and what
  * stands where two token lists first differ (TokenFeature).
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): canonical-keys-locale (keys in locale order),
- * canonical-tilde-kept-doubled (a doubled tilde read back doubled), canonical-bigint-leading-zero (a bigint text with a
- * leading zero admitted), canonical-cycle-at-root (a cycle refused at the root), canonical-depth-refused (a nesting
- * refused as a depth), fingerprint-every-loc-omitted (any "loc" omitted), canonical-frozen-memo (a frozen value's text
- * remembered), canonical-equals-identity (a value outside the model equal to itself), canonical-sort-by-length (a set
- * sorted by text length) and canonical-tokens-prefix-first (a number whose text begins another's ordered first,
- * whatever follows it).
+ * @plant test/plants/unit/core/canonical-keys-locale.patch a record's keys in locale order, not UTF-16 code unit
+ * order; the text property fails.
+ * @plant test/plants/unit/core/canonical-tilde-kept-doubled.patch a doubled tilde read back doubled; the round trip
+ * property fails.
+ * @plant test/plants/unit/core/canonical-bigint-leading-zero.patch a bigint text with one leading zero admitted; the
+ * outside-the-model property fails.
+ * @plant test/plants/unit/core/canonical-cycle-at-root.patch a cycle refused at the root, not where it meets itself;
+ * the cycle property fails.
+ * @plant test/plants/unit/core/canonical-depth-refused.patch the walk refuses a value nested ten thousand containers
+ * deep as a depth; the nesting property fails, and the cycle property, which a cycle through more containers reaches.
+ * @plant test/plants/unit/core/canonical-decode-depth-refused.patch decode refuses a text nested more than a thousand
+ * brackets deep as a depth; the nesting property fails in its decode direction.
+ * @plant test/plants/unit/core/fingerprint-every-loc-omitted.patch a "loc" member omitted whatever it holds; the
+ * omission property fails.
+ * @plant test/plants/unit/core/canonical-frozen-memo.patch a frozen value's text remembered, whatever it holds since
+ * and whatever the options; the now property fails.
+ * @plant test/plants/unit/core/canonical-equals-identity.patch a value outside the model equal to itself; the
+ * outside-the-model property fails.
+ * @plant test/plants/unit/core/canonical-sort-by-length.patch a set sorted by its members' text length; the comparison
+ * property fails.
+ * @plant test/plants/unit/core/canonical-tokens-prefix-first.patch a number whose text begins another's ordered first,
+ * whatever follows it, a closing bracket included; the tokens property fails where it requires that bracket.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"
@@ -720,6 +737,38 @@ const nestedText = (depth: number, container: Container): string =>
 		? `${Str.repeat(depth)("[")}1${Str.repeat(depth)("]")}`
 		: `${Str.repeat(depth)('{"a":')}1${Str.repeat(depth)("}")}`
 
+/** The items a parting shows on each side of the index where two sequences first differ. */
+const partingContext = 4
+
+/**
+ * Two sequences, a text or a path of 100,000 segments, held equal at the cost of reading them once: their lengths, and
+ * where they part, nowhere or the first index at which they differ with partingContext items on each side of it in
+ * both. A deep equality of two such sequences that differ builds a diff superlinear in their lengths, so a red would
+ * run for minutes and tens of gigabytes; this one stays linear, and its message short.
+ */
+const sameSequence = <A>(actual: ArrayLike<A>, expected: ArrayLike<A>, why: string): void => {
+	const shorter = Math.min(actual.length, expected.length)
+	let at = 0
+	while (at < shorter && actual[at] === expected[at]) {
+		at += 1
+	}
+	const from = Math.max(0, at - partingContext)
+	const around = (items: ArrayLike<A>): ReadonlyArray<A | undefined> =>
+		Arr.map(
+			indices(Math.max(0, Math.min(items.length, at + partingContext + 1) - from)),
+			(i) => items[from + i]
+		)
+	const parted =
+		at === actual.length && at === expected.length
+			? "nowhere"
+			: { at, actual: around(actual), expected: around(expected) }
+	assert.deepEqual(
+		{ length: actual.length, parted },
+		{ length: expected.length, parted: "nowhere" },
+		why
+	)
+}
+
 /** `length` containers, each holding the next, the last holding the one `back` below the root: the root. */
 const cycle = (length: number, back: number, container: Container): unknown => {
 	if (container === "array") {
@@ -852,9 +901,10 @@ describe("a value outside the model", () => {
 						},
 						([depth, container, direction]) =>
 							Effect.sync(() => {
-								assert.equal(
+								sameSequence(
 									succeeded(textOf(direction, depth, container)),
-									nestedText(depth, container)
+									nestedText(depth, container),
+									"the nested text"
 								)
 							})
 					)
@@ -897,22 +947,25 @@ describe("a value outside the model", () => {
 							const where = Arr.map(indices(length), () => (container === "array" ? 0 : "a"))
 							switch (direction) {
 								case "encode":
-									assert.deepEqual(
+									sameSequence(
 										refusalLoc(refused(encode(root, everyProperty), "MalformedDescription")).path,
-										where
+										where,
+										"the refusal's path"
 									)
 									return
 								case "toJson":
-									assert.deepEqual(
+									sameSequence(
 										refusalLoc(refused(toJson(root, everyProperty), "MalformedDescription")).path,
-										where
+										where,
+										"the refusal's path"
 									)
 									return
 								case "fromJson": {
 									const malformed = artifactRefusal(
 										refused(fromJson(root, noRevivers), "MalformedArtifact")
 									)
-									assert.deepEqual([malformed.artifact, malformed.at], ["canonical", where])
+									assert.equal(malformed.artifact, "canonical")
+									sameSequence(malformed.at, where, "the refusal's path")
 								}
 							}
 						})
@@ -1272,6 +1325,35 @@ const nearValueAt = (depth: number): Gen<unknown> => {
 	])
 }
 
+/**
+ * Two values alike but for one leaf each: the leaves alone, or the same items before and after them in an array, or the
+ * same member beside them in a record, so two leaves meet where the token lists first differ with what their container
+ * writes after them: nothing, a comma, a closing bracket or a closing brace.
+ */
+const pairAtOneLeaf: Gen<readonly [unknown, unknown]> = (source) => {
+	const x = source.draw(nearLeaf)
+	const y = source.draw(nearLeaf)
+	const after = source.draw(array(nearValueAt(1), { min: 0, max: 1 }))
+	switch (source.draw(element(["alone", "array", "record"] as const))) {
+		case "alone":
+			return [x, y]
+		case "array": {
+			const before = source.draw(array(nearValueAt(1), { min: 0, max: 2 }))
+			return [
+				[...before, x, ...after],
+				[...before, y, ...after]
+			]
+		}
+		case "record": {
+			const beside = Rec.fromEntries(Arr.map(after, (v) => ["c", v] as const))
+			return [
+				{ b: x, ...beside },
+				{ b: y, ...beside }
+			]
+		}
+	}
+}
+
 /** A token's text, as the format's specification spells it: a punctuation token its own, any other JSON's. */
 const tokenText = (token: CanonicalToken): string =>
 	typeof token === "symbol"
@@ -1283,9 +1365,23 @@ type TokenFeature =
 	| "equal texts"
 	| "two strings"
 	| "two numbers"
-	| "two numbers, one's text beginning the other's"
+	| "two numbers, one's text beginning the other's, nothing after it"
+	| "two numbers, one's text beginning the other's, a comma after it"
+	| "two numbers, one's text beginning the other's, a closing bracket after it"
 	| "a string and another token"
 	| "two other tokens"
+
+/**
+ * Two numbers, one's text beginning the other's, by the token after the shorter one, which decides their order: the end
+ * of its list and a comma come before any unit that continues a number's text, and a closing bracket or brace after
+ * every digit and the point.
+ */
+const prefixFeature = (after: CanonicalToken | undefined): TokenFeature =>
+	after === undefined
+		? "two numbers, one's text beginning the other's, nothing after it"
+		: tokenText(after) === ","
+			? "two numbers, one's text beginning the other's, a comma after it"
+			: "two numbers, one's text beginning the other's, a closing bracket after it"
 
 /** What stands where two token lists first differ. */
 const firstDifference = (
@@ -1305,9 +1401,11 @@ const firstDifference = (
 	if (typeof x === "number" && typeof y === "number") {
 		const xs = jsonText(x)
 		const ys = jsonText(y)
-		return Str.startsWith(ys)(xs) || Str.startsWith(xs)(ys)
-			? "two numbers, one's text beginning the other's"
-			: "two numbers"
+		return Str.startsWith(xs)(ys)
+			? prefixFeature(a[i + 1])
+			: Str.startsWith(ys)(xs)
+				? prefixFeature(b[i + 1])
+				: "two numbers"
 	}
 	return typeof x === "string" || typeof y === "string"
 		? "a string and another token"
@@ -1328,7 +1426,13 @@ describe("canonical tokens", () => {
 						},
 						suite: "unit/core/canonical-tokens",
 						draw: drawn(
-							(source) => [source.draw(nearValueAt(2)), source.draw(nearValueAt(2))] as const
+							weighted<readonly [unknown, unknown]>([
+								[
+									1,
+									(source) => [source.draw(nearValueAt(2)), source.draw(nearValueAt(2))] as const
+								],
+								[1, pairAtOneLeaf]
+							])
 						),
 						literal: Formatter.format,
 						coverage: required<TokenFeature>(
@@ -1336,7 +1440,9 @@ describe("canonical tokens", () => {
 								"equal texts",
 								"two strings",
 								"two numbers",
-								"two numbers, one's text beginning the other's",
+								"two numbers, one's text beginning the other's, nothing after it",
+								"two numbers, one's text beginning the other's, a comma after it",
+								"two numbers, one's text beginning the other's, a closing bracket after it",
 								"a string and another token",
 								"two other tokens"
 							],

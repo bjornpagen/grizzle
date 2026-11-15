@@ -13,9 +13,12 @@
  *
  * Features: each code point's UTF-8 width (one to four bytes), a lone surrogate, and an empty text.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): sha256-replacement-char (a lone surrogate written as the platform
- * writes it, U+FFFD), sha256-length-pair (a surrogate pair counted as two three-byte units) and sha256-text-platform (a
- * text hashed as the platform's UTF-8).
+ * @plant test/plants/unit/core/sha256-replacement-char.patch utf8 writes a lone surrogate as the platform writes it,
+ * U+FFFD; the generalized UTF-8 property fails.
+ * @plant test/plants/unit/core/sha256-length-pair.patch utf8Length counts a surrogate pair as two three-byte units;
+ * the generalized UTF-8 property fails.
+ * @plant test/plants/unit/core/sha256-text-platform.patch sha256Hex hashes a text as the platform's UTF-8; the
+ * digest's differential property fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

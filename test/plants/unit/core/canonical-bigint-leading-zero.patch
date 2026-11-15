@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/canonical.ts b/packages/engine/src/core/canonical.ts
+index e5cb26a1..b32bbde4 100644
+--- a/packages/engine/src/core/canonical.ts
++++ b/packages/engine/src/core/canonical.ts
+@@ -1173,7 +1173,7 @@ export const isCanonicalInteger = (text: string): boolean => {
+ 			return false
+ 		}
+ 	}
+-	if (digits.length > 1 && digits.startsWith("0")) {
++	if (digits.startsWith("00")) {
+ 		return false
+ 	}
+ 	return !(text.startsWith("-") && digits === "0")

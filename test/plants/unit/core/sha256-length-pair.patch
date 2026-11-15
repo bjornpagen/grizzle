@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/sha256.ts b/packages/engine/src/core/sha256.ts
+index 6fca6050..8342ac32 100644
+--- a/packages/engine/src/core/sha256.ts
++++ b/packages/engine/src/core/sha256.ts
+@@ -52,7 +52,7 @@ export const utf8Length = (text: string): number => {
+ 			bytes += 1
+ 		} else if (unit < 0x800) {
+ 			bytes += 2
+-		} else if (unit >= 0xd800 && unit <= 0xdbff && isLowSurrogate(text.charCodeAt(at + 1))) {
++		} else if (unit >= 0xd800 && unit <= 0xdbff && isLowSurrogate(text.charCodeAt(at))) {
+ 			bytes += 4
+ 			at += 1
+ 		} else {

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/lines.ts b/packages/engine/src/core/lines.ts
+index dd0dc5d2..ad8628ec 100644
+--- a/packages/engine/src/core/lines.ts
++++ b/packages/engine/src/core/lines.ts
+@@ -100,7 +100,7 @@ export const enclosedWithin = (
+ 	separator: string,
+ 	close: string
+ ): Result.Result<string, CompileError> => {
+-	let needed = open.length + close.length + Math.max(parts.length - 1, 0) * separator.length
++	let needed = open.length + close.length + Math.max(parts.length - 1, 0)
+ 	for (const part of parts) {
+ 		needed += part.length
+ 	}

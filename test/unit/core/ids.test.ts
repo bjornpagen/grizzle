@@ -14,9 +14,10 @@
  *
  * Features: which pair relation a case draws, and which tokens its components hold.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): ids-unescaped-percent (the percent sign left unescaped, so a literal
- * "%2E" and a dot spell one component) and ids-escape-order (the dot escaped before the percent sign, so a dot reads
- * back as "%2E").
+ * @plant test/plants/unit/core/ids-unescaped-percent.patch the percent sign left unescaped, so a literal "%2E" and a
+ * dot spell one component; the FieldId property (injective, decodes back) fails.
+ * @plant test/plants/unit/core/ids-escape-order.patch the dot escaped before the percent sign, so a dot reads back as
+ * "%2E"; the FieldId property (injective, decodes back) fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

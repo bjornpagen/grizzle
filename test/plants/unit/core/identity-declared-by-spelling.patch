@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/core/identity.ts b/packages/engine/src/core/identity.ts
+index 162d5bf6..496c7485 100644
+--- a/packages/engine/src/core/identity.ts
++++ b/packages/engine/src/core/identity.ts
+@@ -564,7 +564,7 @@ export class DeclaredNamespace {
+ 		}
+ 		const { conversion } = parsed.value
+ 		const declaration = `${kind} ${name}`
+-		const prior = this.#taken.get(conversion)
++		const prior = this.#taken.get(name)
+ 		if (prior !== undefined) {
+ 			return Result.err(
+ 				CompileError.make({
+@@ -578,7 +578,7 @@ export class DeclaredNamespace {
+ 				})
+ 			)
+ 		}
+-		this.#taken.set(conversion, { declaration, loc })
++		this.#taken.set(name, { declaration, loc })
+ 		return Result.ok(parsed.value.name)
+ 	}
+ }

@@ -22,11 +22,14 @@
  * alike, a refused relation name, a refused field name; an admission and a digest collision; a temporary admitted,
  * minted again, meeting a standing name, meeting another temporary.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): identity-comment-canonical (a comment holding the canonical text, not
- * the display), identity-declared-by-spelling (a namespace keyed by the spelling, not the conversion),
- * identity-census-blind (the census never looks for a collision) and identity-temporary-again-refused (a temporary
- * minted again refused as its own twin).
- *
+ * @plant test/plants/unit/core/identity-comment-canonical.patch a hashed object's COMMENT holds its identity's
+ * canonical text, not its display; the comment property fails.
+ * @plant test/plants/unit/core/identity-declared-by-spelling.patch a declared namespace keyed by the name's spelling,
+ * not its conversion, so two names that convert alike are both admitted; the declared-name property fails.
+ * @plant test/plants/unit/core/identity-census-blind.patch the census never records an identity it has seen, so it
+ * never finds a digest collision; the census property fails.
+ * @plant test/plants/unit/core/identity-temporary-again-refused.patch a temporary minted again refused as its own
+ * twin; the temporary census property fails.
  * @plant test/plants/unit/core/identity-temporary-standing-blind.patch TemporaryCensus looks a temporary up among the
  * standing names by its display, not its identifier, so a temporary never meets a standing name; the temporary census
  * property fails.

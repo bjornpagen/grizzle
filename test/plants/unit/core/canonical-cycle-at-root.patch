@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/canonical.ts b/packages/engine/src/core/canonical.ts
+index e5cb26a1..9bde5e5e 100644
+--- a/packages/engine/src/core/canonical.ts
++++ b/packages/engine/src/core/canonical.ts
+@@ -713,7 +713,7 @@ class Walk {
+ 	/** A container entered as an ancestor of what it holds, refused where it is one already: a cycle. */
+ 	#enter(container: object): void {
+ 		if (this.#ancestors.has(container)) {
+-			stop(this.#path, "an acyclic value")
++			stop([], "an acyclic value")
+ 		}
+ 		this.#ancestors.add(container)
+ 	}

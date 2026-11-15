@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/canonical.ts b/packages/engine/src/core/canonical.ts
+index e5cb26a1..20cbc8a7 100644
+--- a/packages/engine/src/core/canonical.ts
++++ b/packages/engine/src/core/canonical.ts
+@@ -1406,7 +1406,7 @@ export const canonicalTextOf = (value: unknown): string => ownedText(value, ever
+  */
+ export const canonicalEquals = (a: unknown, b: unknown, options: EncodeOptions): boolean => {
+ 	if (a === b) {
+-		return encode(a, options).ok
++		return true
+ 	}
+ 	const left = encode(a, options)
+ 	const right = encode(b, options)

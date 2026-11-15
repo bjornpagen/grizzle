@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/identity.ts b/packages/engine/src/core/identity.ts
+index 162d5bf6..1843cefb 100644
+--- a/packages/engine/src/core/identity.ts
++++ b/packages/engine/src/core/identity.ts
+@@ -817,7 +817,7 @@ export class TemporaryCensus {
+ 			return Result.err(digestCollision(identifier, standing, temporary.display))
+ 		}
+ 		const prior = this.#minted.get(identifier)
+-		if (prior !== undefined && prior.canonical !== temporary.canonical) {
++		if (prior !== undefined) {
+ 			return Result.err(digestCollision(identifier, prior.display, temporary.display))
+ 		}
+ 		this.#minted.set(identifier, temporary)

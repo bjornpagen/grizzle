@@ -16,10 +16,16 @@
  * roster's codes; a length below, at and past constantMaxBits; a size already aligned, rounded up, and at byte
  * alignment; a tuple below, at and past heapTupleMaxBytes.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): limits-int2-greatest-past (smallint's greatest value one past Int16's),
- * limits-roster-past-smallint (one code past smallint), limits-constant-past-int32 (one bit past the int32 rounding),
- * limits-align-overshoot (a misaligned size rounded one past its alignment) and limits-heap-tuple-past (the heap tuple
- * bound an alignment past the page).
+ * @plant test/plants/unit/core/limits-int2-greatest-past.patch smallint's greatest value one past Int16's; the
+ * integer carriers' property fails, and the roster property with it.
+ * @plant test/plants/unit/core/limits-roster-past-smallint.patch rosterMaxCodes one code past smallint's
+ * non-negative values; the roster property fails.
+ * @plant test/plants/unit/core/limits-constant-past-int32.patch constantMaxBits one bit past the longest length that
+ * rounds up into an int32; the constant property fails.
+ * @plant test/plants/unit/core/limits-align-overshoot.patch alignUp rounds by floor plus one, so an aligned size
+ * overshoots to the next alignment; the alignment property fails.
+ * @plant test/plants/unit/core/limits-heap-tuple-past.patch heapTupleMaxBytes an alignment past what an empty page
+ * fits; the heap tuple property fails.
  */
 import { type Case, exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

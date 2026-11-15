@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/sha256.ts b/packages/engine/src/core/sha256.ts
+index 6fca6050..b473c9be 100644
+--- a/packages/engine/src/core/sha256.ts
++++ b/packages/engine/src/core/sha256.ts
+@@ -38,7 +38,7 @@ const wtf8 = (text: string): Uint8Array =>
+  * every text hashed, is the platform encoder's; one with a lone surrogate is written by `wtf8`.
+  */
+ export const utf8 = (text: string): Uint8Array =>
+-	text.isWellFormed() ? encoder.encode(text) : wtf8(text)
++	encoder.encode(text)
+ 
+ /**
+  * The UTF-8 byte length of a text, lone surrogates counting three bytes, as in `utf8`, counted from its code units

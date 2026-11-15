@@ -1,0 +1,11 @@
+diff --git a/packages/engine/src/core/limits.ts b/packages/engine/src/core/limits.ts
+index f293c153..b95d4ed0 100644
+--- a/packages/engine/src/core/limits.ts
++++ b/packages/engine/src/core/limits.ts
+@@ -1172,5 +1172,5 @@ export const heapTupleMaxBytes = derived({
+ 	from: [blockSize, maxAlign, pageHeaderBytes, itemIdBytes],
+ 	derivation: `htup_details.h's MaxHeapTupleSize, "#define MaxHeapTupleSize  (BLCKSZ - MAXALIGN(SizeOfPageHeaderData + sizeof(ItemIdData)))" (${postgresSource}/src/include/access/htup_details.h#L755, verified 2026-11-14): a page less its header and the one line pointer that points at the tuple, rounded up to the greatest alignment, since a heap page has no special space`,
+ 	compute: ([block, align, header, itemId]) =>
+-		block.value - alignUp(header.value + itemId.value, align.value)
++		block.value - alignUp(header.value + itemId.value, align.value) + align.value
+ })

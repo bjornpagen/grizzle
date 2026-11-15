@@ -1,0 +1,26 @@
+diff --git a/packages/engine/src/core/canonical.ts b/packages/engine/src/core/canonical.ts
+index e5cb26a1..068714f1 100644
+--- a/packages/engine/src/core/canonical.ts
++++ b/packages/engine/src/core/canonical.ts
+@@ -929,11 +929,21 @@ const encodeWalk = (value: unknown, options: EncodeOptions): Result.Result<strin
+ 		if (value === undefined) {
+ 			return refuseValue([], "a value, not undefined")
+ 		}
++		const remembered = typeof value === "object" && value !== null && Object.isFrozen(value)
++		const memo = remembered ? frozenTexts.get(value) : undefined
++		if (memo !== undefined) {
++			return memo
++		}
+ 		const sink = new TextSink()
+ 		new Walk(options, sink).of(value)
++		if (remembered) {
++			frozenTexts.set(value, sink.text())
++		}
+ 		return sink.text()
+ 	})
+ 
++const frozenTexts = new WeakMap<object, string>()
++
+ /**
+  * The versioned canonical serializer.
+  *

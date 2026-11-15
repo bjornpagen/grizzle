@@ -13,10 +13,16 @@
  * Features: each change of the parts (content, a non-SourceLoc loc, SourceLocs moved); two domains, an empty domain, a
  * domain of two lines.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): fingerprint-every-loc-omitted (a "loc" omitted whatever it holds),
- * fingerprint-locs-kept (SourceLocs kept in the text), fingerprint-domain-dropped (the domain left out of the hashed
- * text), fingerprint-domain-multiline (a domain of two lines admitted) and fingerprint-level-below-ignored (a level over
- * another hashed without the level below's text).
+ * @plant test/plants/unit/core/fingerprint-every-loc-omitted.patch a "loc" member omitted whatever it holds, a
+ * SourceLoc or not; the parts property fails.
+ * @plant test/plants/unit/core/fingerprint-locs-kept.patch a level alone encoded with every property, its SourceLocs
+ * kept in the text; the parts property fails.
+ * @plant test/plants/unit/core/fingerprint-domain-dropped.patch the domain left out of the hashed text; the domains
+ * property fails.
+ * @plant test/plants/unit/core/fingerprint-domain-multiline.patch a domain of two lines admitted; the domains property
+ * fails.
+ * @plant test/plants/unit/core/fingerprint-level-below-ignored.patch a level over another written with the level
+ * below's fingerprint in place of its text; the parts property's level-below differential fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

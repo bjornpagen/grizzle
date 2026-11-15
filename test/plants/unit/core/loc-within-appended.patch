@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/loc.ts b/packages/engine/src/core/loc.ts
+index 8d4f62fc..4636d891 100644
+--- a/packages/engine/src/core/loc.ts
++++ b/packages/engine/src/core/loc.ts
+@@ -75,7 +75,7 @@ export const childLoc = (
+ 
+ /** The same location inside the value at `path`: `path` prefixed to its path, keeping the label and call site. */
+ export const prefixedLoc = (path: ReadonlyArray<string | number>, loc: SourceLoc): SourceLoc => ({
+-	path: [...path, ...loc.path],
++	path: [...loc.path, ...path],
+ 	label: loc.label,
+ 	site: loc.site
+ })

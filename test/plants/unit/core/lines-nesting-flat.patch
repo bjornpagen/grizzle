@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/lines.ts b/packages/engine/src/core/lines.ts
+index dd0dc5d2..96181bdb 100644
+--- a/packages/engine/src/core/lines.ts
++++ b/packages/engine/src/core/lines.ts
+@@ -33,7 +33,7 @@ export class BlockLines implements Lines {
+ 	}
+ 
+ 	nested(): Lines {
+-		return new BlockLines(this.#out, this.#unit, `${this.#indent}${this.#unit}`)
++		return new BlockLines(this.#out, this.#unit, this.#unit)
+ 	}
+ }
+ 

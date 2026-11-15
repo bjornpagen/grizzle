@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/canonical.ts b/packages/engine/src/core/canonical.ts
+index e5cb26a1..5cc27999 100644
+--- a/packages/engine/src/core/canonical.ts
++++ b/packages/engine/src/core/canonical.ts
+@@ -111,7 +111,7 @@ export interface EncodeOptions {
+  * pattern beside it (ir/scalar.ts TextLanguage). By convention they travel under the properties "loc" and "language".
+  */
+ export const omitSourceLocs: OmitRule = (key, value) =>
+-	(key === "loc" && isSourceLoc(value)) ||
++	key === "loc" ||
+ 	(key === "language" &&
+ 		isRecord(value) &&
+ 		(value["kind"] === "every" || value["kind"] === "refined"))

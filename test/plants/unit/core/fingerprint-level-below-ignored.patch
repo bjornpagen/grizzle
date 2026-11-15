@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/fingerprint.ts b/packages/engine/src/core/fingerprint.ts
+index 3f0066d2..873e890c 100644
+--- a/packages/engine/src/core/fingerprint.ts
++++ b/packages/engine/src/core/fingerprint.ts
+@@ -135,7 +135,7 @@ export const schemaLevel = (
+ 	Result.flatMap(
+ 		below === undefined
+ 			? encode(level, withoutSourceLocs)
+-			: encodeOver(level, withoutSourceLocs, new Map([["extends", below.text]])),
++			: encodeOver(level, withoutSourceLocs, new Map([["extends", below.fingerprint]])),
+ 		(text) =>
+ 			Result.map(
+ 				encodeOver({ content: level }, withoutSourceLocs, new Map([["content", text]])),

@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/core/identity.ts b/packages/engine/src/core/identity.ts
+index 162d5bf6..4da8cdd1 100644
+--- a/packages/engine/src/core/identity.ts
++++ b/packages/engine/src/core/identity.ts
+@@ -720,7 +720,6 @@ const firstCollision = (
+ 		if (prior !== undefined && prior.canonical !== i.canonical) {
+ 			return [prior, i]
+ 		}
+-		seen.set(i.identifier, i)
+ 	}
+ 	return undefined
+ }
