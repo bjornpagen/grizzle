@@ -42,6 +42,8 @@
  * below REPEATABLE READ, so a write at REPEATABLE READ runs; the property fails.
  * @plant test/plants/pg/direct-writers/isolation-no-database-default.patch The installation leaves the database's
  * default level alone; the installed-catalog checker the installation runs refuses it.
+ * @plant test/plants/pg/direct-writers/worlds-direct-guard-sqlstate.patch The guard raises 42501 where it refuses a
+ * write below SERIALIZABLE, not 25000; the property fails at every such write.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

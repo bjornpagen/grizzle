@@ -27,12 +27,11 @@ import type { ActionOutcome } from "#test/support/worlds/model/types.ts"
  * it. Half the realities hold a document at its bound of shares (drive/suite.ts docsAtBoundRealities), so a member's
  * own share of it breaks the one-share variant's key on a fact hidden from it, and the key's refusal must quote none of
  * that fact's values. A tamper changes database settings, so the file runs in a database of its own. A token that does not decode
- * through a role's contexts is the claims suite's (isolation-claims.test.ts).
+ * through a role's contexts is the claims suite's (isolation-claims.test.ts). A direct write below SERIALIZABLE, which
+ * the isolation guard refuses with 25000, is test/pg/direct-writers/isolation.test.ts's.
  *
  * @plant test/plants/pg/world-model/worlds-errors-integer-range-unchecked.patch The encoder's integer range check
  * dropped, so a value past its integer type's range reaches PostgreSQL; the refusal disagrees with the model's.
- * @plant test/plants/pg/world-model/worlds-direct-guard-sqlstate.patch The isolation guard raises 42501, not 25000; a
- * direct writer's refusal disagrees with the model.
  */
 const refusals: ReadonlyArray<ActionOutcome["kind"]> = [
 	"open-refused",

@@ -74,8 +74,6 @@ import {
  * left executable by PUBLIC; the installed privileges differ from the expected ones.
  * @plant test/plants/pg/world-model/worlds-catalog-check-unexpected-objects-ignored.patch The drift check ignores a
  * catalog object the snapshot does not hold; the drift property fails on such a perturbation.
- * @plant test/plants/pg/world-model/worlds-direct-guard-sqlstate.patch The isolation guard raises 42501, not 25000; a
- * direct writer's refusal disagrees with the model.
  * @plant test/plants/pg/world-model/worlds-conflict-where-first.patch The direct writer's model judges an ON CONFLICT
  * predicate before the role's policy, PostgreSQL 19rc1's order; the direct writer property leaves
  * object:policy:conflict-raise-suppressed unreached.
