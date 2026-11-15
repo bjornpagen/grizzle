@@ -4,14 +4,18 @@
  * second implementation, written from the law's statement, calls lawful. The boxes are exhausted and named in each
  * search; every invalid kind the doctrine names that a box can hold is one of its cases.
  *
- * - Ordered: two owners of count 0 to 2 and up to three members, each of owner a, b or none at slot 0 to 2. Plant:
- *   family-violation-no-last-arm (an ordered family's violation omits its last-member lemma).
- * - Counted: two owners of count 0 to 2 and up to three members, each of owner a, b or none. Plant:
- *   counted-violation-no-off-arm (a counted family's violation omits its count's mismatch).
- * - Copy: one owner's family of 0 to 3 members, each state and was 0 or 1, an accumulated copy riding its axis. Plant:
- *   copy-violation-no-pins (a riding copy's violation omits its pin at the axis's base).
+ * - Ordered: two owners of count 0 to 2 and up to three members, each of owner a, b or none at slot 0 to 2.
+ * - Counted: two owners of count 0 to 2 and up to three members, each of owner a, b or none.
+ * - Copy: one owner's family of 0 to 3 members, each state and was 0 or 1, an accumulated copy riding its axis.
  *
- * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each box's verdicts and broken laws.
+ * Features: each box's verdicts and broken laws.
+ *
+ * @plant test/plants/unit/analysis/theory/family-violation-no-last-arm.patch An ordered family's violation omits its
+ * last-member lemma (analysis/theory/laws.ts familyArms); the ordered box fails.
+ * @plant test/plants/unit/analysis/theory/counted-violation-no-off-arm.patch A counted family's violation omits its
+ * count's mismatch (analysis/theory/laws.ts familyArms); the counted box fails.
+ * @plant test/plants/unit/analysis/theory/copy-violation-no-pins.patch A riding copy's violation omits its pin at the
+ * axis's base (analysis/theory/laws.ts); the copy box fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

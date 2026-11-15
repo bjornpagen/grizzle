@@ -12,13 +12,16 @@
  *
  * - The fold: over every state of one owner's ordered family of 0 to 2 members, each step '', 'a' or 'b', its
  *   accumulators and total '', 'a', 'b' or 'ab', the violation query is empty exactly where a naive left fold holds.
- *   Oracle: the naive left fold, a second implementation. Plant: concat-equation-tail-unchecked (the equation's
- *   concatenation checked by its length and its head alone).
+ *   Oracle: the naive left fold, a second implementation.
  * - The rule: an ordered or counted family, its pair named or hidden, admitted exactly as an ordered family's named
- *   pair, each other refused by the named refusal foldRule states. Oracle: that rule. Plant:
- *   concat-over-counted-admitted (a counted family's hidden concat refused for its hidden pair, not its order).
+ *   pair, each other refused by the named refusal foldRule states. Oracle: that rule.
  *
- * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each verdict of each box.
+ * Features: each verdict of each box.
+ *
+ * @plant test/plants/unit/analysis/theory/concat-equation-tail-unchecked.patch The equation's concatenation checked
+ * by its length and its head alone (scalar/compute/lower.ts concatEquation); the fold property fails.
+ * @plant test/plants/unit/analysis/theory/concat-over-counted-admitted.patch A counted family's hidden concat refused
+ * for its hidden pair, not its order (check/fold.ts foldRule); the rule property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

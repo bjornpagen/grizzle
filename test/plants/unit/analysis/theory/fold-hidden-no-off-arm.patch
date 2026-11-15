@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/theory/laws.ts b/packages/engine/src/analysis/theory/laws.ts
+index 66ec8530..b6e7e8a9 100644
+--- a/packages/engine/src/analysis/theory/laws.ts
++++ b/packages/engine/src/analysis/theory/laws.ts
+@@ -3131,7 +3131,7 @@ const foldArms = (
+ 				s.identity,
+ 				loc
+ 			)
+-			return [w(unequal), w(off)]
++			return [w(unequal)]
+ 		}
+ 		case "handles": {
+ 			const arms = s.handles.flatMap((h) => {

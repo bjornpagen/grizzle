@@ -1,0 +1,11 @@
+--- a/packages/engine/src/analysis/theory/navigate.ts
++++ b/packages/engine/src/analysis/theory/navigate.ts
+@@ -491,7 +491,7 @@
+ 		switch (source.kind) {
+ 			case "relation": {
+ 				const bindings = Object.fromEntries(
+-					Object.entries(a.bindings).map(([column, e]) => [column, passing.expr(e)] as const)
++					Object.entries(a.bindings).slice(1).map(([column, e]) => [column, passing.expr(e)] as const)
+ 				)
+ 				const step: InferredSource = {
+ 					kind: "step",

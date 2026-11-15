@@ -42,16 +42,22 @@
  * and that name alone: a check over the derived relation, under its own name or Item's check's, is held under a name of
  * its law's.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): rule-literal-binding-first (an equation binding a literal written
- * literal first, which the checker refuses) for the first box; rule-text-meet-narrowed (two texts of different
- * patterns met as the first's pattern, not the wildcard) for the second; rule-head-literal-untyped (a bare head literal
- * left untyped where a term of its column stands) for the third; rule-negation-conjunction-whole (a conjunction holding
- * a negation read whole, which refuses it as a negation below a condition) and rule-negation-nested-admitted (a negated
- * query that negates in turn admitted, its inner negation dropped) for the fourth.
- *
  * Features: each rule kind and each literal binding site for the first box; each pattern relation and negated note for
  * the second; each literal kind, arm placement and reader for the third; each negated source, placement and reader,
  * admitted and refused, for the fourth.
+ *
+ * @plant test/plants/unit/analysis/theory/rule-literal-binding-first.patch An equation binding a literal written
+ * literal first, which the checker refuses, and a literal binding substituted for its definition's variable, which
+ * carries it first into the definition's conditions (analysis/theory/query.ts equal and its inlining); the first box
+ * must fail, and does not yet.
+ * @plant test/plants/unit/analysis/theory/rule-text-meet-narrowed.patch Two texts of different patterns met as the
+ * first's pattern, not the wildcard (scalar/compute/types.ts commonType); the second box must fail, and does not yet.
+ * @plant test/plants/unit/analysis/theory/rule-head-literal-untyped.patch A bare head literal left untyped where a
+ * term of its column stands (analysis/theory/query.ts); the third box fails.
+ * @plant test/plants/unit/analysis/theory/rule-negation-conjunction-whole.patch A conjunction holding a negation read
+ * whole, which refuses it as a negation below a condition (analysis/theory/query.ts filtersOf); the fourth box fails.
+ * @plant test/plants/unit/analysis/theory/rule-negation-nested-admitted.patch A negated query that negates in turn
+ * admitted, its inner negation dropped (analysis/theory/query.ts negated); the fourth box fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

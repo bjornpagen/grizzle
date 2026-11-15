@@ -16,9 +16,10 @@ import { searched } from "@bjornpagen/testing/vitest"
  * Features: a read navigated, one whose navigation inlines an imported query, one keyed by a parameter, one with a
  * negation, and one of three steps or more.
  *
- * Plants (~/.cache/grizzle-release/PROBESPLIT/plants), each failing the search in its steered phase:
- * navigate-drops-step-conditions.patch (a condition placed inside a step is dropped) and
- * navigate-negation-drops-a-column.patch (a negated relation's step reads one column fewer than the negation binds).
+ * @plant test/plants/unit/analysis/navigate-drops-step-conditions.patch A condition placed inside a step is dropped;
+ * the search fails in its steered phase.
+ * @plant test/plants/unit/analysis/navigate-negation-drops-a-column.patch A negated relation's step reads one column
+ * fewer than the negation binds; the search fails in its steered phase.
  */
 import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"

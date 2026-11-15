@@ -9,11 +9,12 @@
  * declines by design (test/support/oracle/evaluate/catalog.ts: PostgreSQL alone evaluates it), so the hidden-fold box
  * judges the folds over naturals; the pg tier judges the set monoids' natives.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): fold-visible-no-first-pin (a named fold's violation omits its
- * first-slot identity pin) for the visible box; fold-hidden-no-off-arm (a hidden fold's violation omits the arm of an
- * end off its members' combine) for the hidden box.
- *
  * Features: each verdict and each broken law of each box.
+ *
+ * @plant test/plants/unit/analysis/theory/fold-visible-no-first-pin.patch A named fold's violation omits its
+ * first-slot identity pin (analysis/theory/laws.ts foldArms); the visible box fails.
+ * @plant test/plants/unit/analysis/theory/fold-hidden-no-off-arm.patch A hidden fold's violation omits the arm of an
+ * end off its members' combine (analysis/theory/laws.ts foldArms); the hidden box fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -9,14 +9,16 @@
  * theorem checked on its own.
  *
  * - Shape: every arrangement of the two counted families (one owner or two, one group field or two, a fold each or
- *   none, a sequence beside them or none), exhausted. Plant: family-columns-named-by-member (every family's drawn
- *   columns named as one family's, so two families share a law column).
+ *   none, a sequence beside them or none), exhausted.
  * - Laws: every state of the two counted families beside a lawful sequence, counts 0 to 2, up to two members each
- *   naming each owner or none, exhausted, each family's law violated exactly when its own theorem fails. Plant:
- *   counted-violation-no-off-arm (a counted family's violation omits its count's mismatch).
+ *   naming each owner or none, exhausted, each family's law violated exactly when its own theorem fails.
  *
- * Plants are patches in ~/.cache/grizzle-release/BR03/plants. Features: each arrangement for the shape; each family's
- * verdict, and the other's state beside it, for the laws.
+ * Features: each arrangement for the shape; each family's verdict, and the other's state beside it, for the laws.
+ *
+ * @plant test/plants/unit/analysis/theory/family-columns-named-by-member.patch Every family's drawn columns named as
+ * one family's, by their kind alone (core/identity.ts lawColumn), so two families share a law column; the shape fails.
+ * @plant test/plants/unit/analysis/theory/counted-violation-no-off-arm.patch A counted family's violation omits its
+ * count's mismatch (analysis/theory/laws.ts familyArms); the laws fail.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

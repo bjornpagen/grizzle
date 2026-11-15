@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/analysis/theory/laws.ts b/packages/engine/src/analysis/theory/laws.ts
+index 66ec8530..69d76d74 100644
+--- a/packages/engine/src/analysis/theory/laws.ts
++++ b/packages/engine/src/analysis/theory/laws.ts
+@@ -3062,8 +3062,7 @@ const treeArms = (
+ 	)
+ 	return [
+ 		...s.checks.map((c) => rowViolation(b, env, t, c, key, witness, loc)),
+-		w(lemma(b, env, s.next, loc)),
+-		w(lemma(b, env, s.close, loc))
++		w(lemma(b, env, s.next, loc))
+ 	]
+ }
+ 

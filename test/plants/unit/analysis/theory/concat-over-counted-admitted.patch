@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/check/fold.ts b/packages/engine/src/check/fold.ts
+index 41efde74..2085cbb0 100644
+--- a/packages/engine/src/check/fold.ts
++++ b/packages/engine/src/check/fold.ts
+@@ -76,11 +76,6 @@ export const foldRule = (monoid: MonoidSpec, fold: FoldTyping): RuleBreach | und
+ 			"the monoid admits the step value's type: sum an exact number, or and twos a set, max an ordered value with a least one, concat a text"
+ 		)
+ 	}
+-	if (fold.order === "counted" && !monoid.commutative) {
+-		return namedBreach(
+-			"a fold over a counted family combines in a commutative monoid: concat folds an ordered family or a tree"
+-		)
+-	}
+ 	if (!monoid.commutative && fold.pairs.length === 0) {
+ 		return namedBreach(
+ 			"a concat fold names its (before, after) pair after its value: its law reads each member's running value"

@@ -7,10 +7,10 @@
  * single mutation of one field in range, which holds a row under another tree, a parent after its child and a second
  * root.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): tree-violation-no-close-arm (the tree's violation omits T5, each
- * parent's end its last child's end).
- *
  * Features: lawful forests, and each mutation kind's verdict.
+ *
+ * @plant test/plants/unit/analysis/theory/tree-violation-no-close-arm.patch The tree's violation omits T5, each
+ * parent's end its last child's end (analysis/theory/laws.ts treeArms); the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

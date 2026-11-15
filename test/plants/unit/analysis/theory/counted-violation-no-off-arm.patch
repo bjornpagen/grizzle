@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/theory/laws.ts b/packages/engine/src/analysis/theory/laws.ts
+index 66ec8530..d2ea048f 100644
+--- a/packages/engine/src/analysis/theory/laws.ts
++++ b/packages/engine/src/analysis/theory/laws.ts
+@@ -3033,7 +3033,7 @@ const familyArms = (
+ 			zeroLiteral,
+ 			loc
+ 		)
+-		return [orphan, w(unequal), w(off)]
++		return [orphan, w(unequal)]
+ 	}
+ 	return [
+ 		orphan,

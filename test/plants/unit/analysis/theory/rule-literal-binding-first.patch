@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/analysis/theory/query.ts b/packages/engine/src/analysis/theory/query.ts
+index fef2b0e7..6d64aca5 100644
+--- a/packages/engine/src/analysis/theory/query.ts
++++ b/packages/engine/src/analysis/theory/query.ts
+@@ -241,7 +241,7 @@ const typedAs = (e: BareLiteral, type: InferredFieldDesc): InferredExpr => ({ ..
+  * may be a JavaScript literal, so every equality a rule's queries hold a binding by is built here.
+  */
+ const equal = (left: InferredExpr, right: InferredExpr): InferredExpr =>
+-	isBare(left) ? eq(right, left) : eq(left, right)
++	eq(left, right)
+ 
+ const varRef = (id: string): InferredExpr => ({ kind: "var", var: id })
+ 
+@@ -292,7 +292,7 @@ const joined = (
+ 	for (const [field, e] of Object.entries(bindings)) {
+ 		const head = arm.head[field] ?? missing(field)
+ 		const h = mapLeaves(head, leaves)
+-		if (h.kind === "var" && local.has(h.var) && !replaced.has(h.var) && !isBare(e)) {
++		if (h.kind === "var" && local.has(h.var) && !replaced.has(h.var)) {
+ 			replaced.set(h.var, e)
+ 		} else {
+ 			extra.push(equal(e, h))

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/compute/types.ts b/packages/engine/src/scalar/compute/types.ts
+index 4654b3fb..7fec1f10 100644
+--- a/packages/engine/src/scalar/compute/types.ts
++++ b/packages/engine/src/scalar/compute/types.ts
+@@ -245,7 +245,7 @@ export const commonType = (a: ScalarType, b: ScalarType): ScalarType => {
+ 		return numericValue(numericHull(nx, ny))
+ 	}
+ 	if (x.carrier === "text") {
+-		return wildcardText
++		return x
+ 	}
+ 	if (x.carrier === "range4" || x.carrier === "range8" || x.carrier === "rangeDate") {
+ 		return withoutSpanWidth(x)
