@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/scalar/compute/lower.ts b/packages/engine/src/scalar/compute/lower.ts
+index 524d6ffb..63812f99 100644
+--- a/packages/engine/src/scalar/compute/lower.ts
++++ b/packages/engine/src/scalar/compute/lower.ts
+@@ -2062,7 +2062,7 @@ class Lowering<R extends Refs> {
+ 		const admitted = admitLiteral(
+ 			value,
+ 			type,
+-			this.env.mode === "build"
++			this.env.mode !== "check"
+ 				? { kind: "shape" }
+ 				: { kind: "refinements", patterns: this.env.patterns }
+ 		)
+@@ -2136,7 +2136,7 @@ class Lowering<R extends Refs> {
+ 			const literal = this.literal(desc.value, this.adopt(against.nominal, role), at)
+ 			if (
+ 				role === "arithmetic" &&
+-				this.env.mode !== "build" &&
++				this.env.mode === "check" &&
+ 				contractOf(against.nominal) !== undefined
+ 			) {
+ 				const judged = admitLiteral(desc.value, against.nominal, {

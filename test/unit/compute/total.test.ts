@@ -11,8 +11,11 @@
  * Features: each agreed verdict, a zero divisor, a conditional, least, greatest, abs and sign of a float admitted, and
  * each refusal the check mode alone makes; each site admitted and refused.
  *
- * Plants: compute-check-admits-round (round admitted in a check), compute-contract-literal-unchecked (a literal judged
- * against its contract only in the check mode).
+ * @plant test/plants/unit/compute/compute-check-admits-round.patch round is a member of a check's vocabulary, so a
+ * check admits it; the check fragment's property fails.
+ * @plant test/plants/unit/compute/compute-contract-literal-unchecked.patch A literal is judged against its contract only
+ * in the check mode, so a query admits a literal opposite a contract's term that its predicate refuses; the
+ * ContractLiteral property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
