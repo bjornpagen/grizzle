@@ -1,9 +1,10 @@
+diff --git a/test/pg/physical/serving.ts b/test/pg/physical/serving.ts
 --- a/test/pg/physical/serving.ts
 +++ b/test/pg/physical/serving.ts
-@@ -606,8 +606,15 @@
- 			}),
- 			() => Effect.ignore(admin.query("ROLLBACK", []))
- 		)
+@@ -646,8 +646,15 @@
+ 		if (Arr.isReadonlyArrayNonEmpty(fills)) {
+ 			yield* volumeFill(admin, fills)
+ 		}
 +		const substrate = yield* Substrate
  		for (const l of loads) {
 -			yield* admin.query(`VACUUM (FREEZE, ANALYZE) ${table(l.relation)}`, [])

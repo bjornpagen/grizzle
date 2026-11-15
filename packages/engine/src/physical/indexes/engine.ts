@@ -85,7 +85,7 @@ const sameColumn = (a: IndexColumn, b: IndexColumn): boolean =>
  * an entry by its first column of many values, a scalar's or a span's, so a column of few values places none, and a
  * scan descends once per value of one before that column that its condition leaves unbound.
  */
-type Holds = "few" | "many" | "span"
+export type Holds = "few" | "many" | "span"
 
 const holdsOf = (type: ScalarType): Holds =>
 	spanCarrierOf(type) !== undefined ? "span" : fewValued[baseOf(type).carrier] ? "few" : "many"
@@ -100,9 +100,16 @@ export interface KeyedIndex {
 }
 
 export interface PlannedIndex extends KeyedIndex {
-	/** The index's identifier: one the engine created, or a key or enforcement index another object installs. */
+	/**
+	 * The index's identifier: one the engine created, with the requests its key order answers to (`draftFor`), or a key
+	 * or enforcement index another object installs, whose order is its key's.
+	 */
 	readonly index:
-		| { readonly kind: "created"; readonly name: IndexName }
+		| {
+				readonly kind: "created"
+				readonly name: IndexName
+				readonly answers: NonEmptyReadonlyArray<IndexRequest>
+		  }
 		| { readonly kind: "installed"; readonly name: ConstraintName }
 	/** The graph object that realizes it. */
 	readonly object: Node<"structure" | "indexes">
@@ -118,11 +125,23 @@ function fail(tag: ProseTag, label: string, capability: string): never {
 const requestLabel = (r: IndexRequest): string =>
 	`${r.role} index request on ${r.relation}(${requestColumns(r).map(columnText).join(", ")}) for ${r.use}`
 
-/** The columns a request's keys name, in key order: a law's by their arms, the workload's by their fields' names. */
-const requestColumns = (r: IndexRequest): ReadonlyArray<IndexColumn> =>
+/** The keys a request states, in key order, each column a law's by its arm, the workload's by its field's name. */
+const statedKeys = (r: IndexRequest): ReadonlyArray<IndexKey> =>
 	r.role === "lawMaintenance"
-		? r.keys.map((k) => indexColumnOf(k.column))
-		: r.keys.map((k): IndexColumn => ({ kind: "field", field: String(k.expr) }))
+		? r.keys.map((k): IndexKey => ({
+				column: indexColumnOf(k.column),
+				dir: k.dir,
+				opclass: k.opclass
+			}))
+		: r.keys.map((k): IndexKey => ({
+				column: { kind: "field", field: String(k.expr) },
+				dir: k.dir,
+				opclass: k.opclass
+			}))
+
+/** The columns a request's keys name, in key order (statedKeys). */
+const requestColumns = (r: IndexRequest): ReadonlyArray<IndexColumn> =>
+	statedKeys(r).map((k) => k.column)
 
 const reasonOf = (r: IndexRequest): PhysicalReason =>
 	r.role === "lawMaintenance" ? { kind: "law", law: r.justification.law } : { kind: "access" }
@@ -422,6 +441,36 @@ const placementsOf = (
 	}
 }
 
+/**
+ * The columns one of which leads every index that serves a request in one descent (see `planIndexes`), among the
+ * index's columns that place an entry, of many values or a span: the leads of its led and placed placements, and the
+ * columns that place an entry of the first block of its own placement that holds one. A request whose every column holds
+ * few values has none. The engine drafts an index's order by these placements, so an index whose order answers to some
+ * requests (PlannedIndex `answers`) can lead with a column every one of theirs holds, and the serving judge reads them to
+ * tell a sweep no order of an index's keys avoids (test/pg/physical/serving.ts). `holds` says what each column of the
+ * request's relation holds, by its type.
+ */
+export const requestLeads = (
+	request: IndexRequest,
+	holds: (column: IndexColumn) => Holds
+): ReadonlyArray<IndexKey> => {
+	const keys = statedKeys(request)
+	if (!isNonEmpty(keys)) {
+		return []
+	}
+	const columns: Columns = { holds }
+	const { own, others } = placementsOf(request, keys, columns, requestLabel(request))
+	const ownLeads =
+		own.kind === "placed"
+			? own.lead
+			: (own.blocks.map((block) => placingOf(block, columns)).find(isNonEmpty) ?? [])
+	const leads = [
+		...ownLeads,
+		...others.flatMap((p) => (p.kind === "led" || p.kind === "placed" ? p.lead : []))
+	]
+	return leads.filter((k, at) => leads.findIndex((l) => sameKey(k, l)) === at)
+}
+
 /** Whether two keys name one column under one class. */
 const sameKey = (a: IndexKey, b: IndexKey): boolean =>
 	sameColumn(a.column, b.column) && sameIndexOpclass(a.opclass, b.opclass)
@@ -502,10 +551,18 @@ const serves = (index: KeyedIndex, planned: Planned): boolean =>
 	)
 
 /** An index under construction (see `planIndexes`): its access method, its own request's, blocks covering its columns,
- * and the order whose directions it takes, when an ordered request fixed them. */
+ * the columns of its first block one of which leads it, and the order whose directions it takes, when an ordered request
+ * fixed them. */
 interface Draft {
 	readonly method: IndexMethod
 	readonly blocks: NonEmptyReadonlyArray<Block>
+	/**
+	 * The columns of the first block any of which may lead the index (see `planIndexes`): every column of a B-tree's,
+	 * a GiST index's own leads, narrowed by each placement that refines it to those still leading every one of them, so
+	 * a column stays one a later request may lead with until a request refuses it (leadDraft); the one the index's own
+	 * request states first leads (`keysOf`).
+	 */
+	readonly leaders: Block
 	readonly directed: Keys | undefined
 }
 
@@ -555,28 +612,15 @@ const rankIn =
 	(k) =>
 		stated.findIndex((s) => sameKey(s, k))
 
-/** A draft's blocks refined so that one of `lead` comes first and each of `held` is among them, which holds a led
- * placement, and a placed one, whose leads are of many values: of its first block's columns among `lead`, the one the
- * request states first leads, alone, and the rest of the block follows; none when the first block holds no column of
- * `lead` or the draft misses one of `held`. */
-const leadDraft = (
-	draft: NonEmptyReadonlyArray<Block>,
-	lead: Keys,
-	held: ReadonlyArray<IndexKey>,
-	rank: Rank
-): NonEmptyReadonlyArray<Block> | undefined => {
-	const [first, ...rest] = draft
-	if (!held.every((c) => draft.some((block) => block.some((k) => sameKey(k, c))))) {
+/** A draft's leaders narrowed so that one of `lead` comes first, with each of `held` among its columns, which holds a led
+ * placement, and a placed one, whose leads are of many values: its leaders among `lead`, every one of which leads every
+ * placement before it still; none when no leader is one of `lead` or the draft misses one of `held`. */
+const leadDraft = (draft: Draft, lead: Keys, held: ReadonlyArray<IndexKey>): Draft | undefined => {
+	if (!held.every((c) => draft.blocks.some((block) => block.some((k) => sameKey(k, c))))) {
 		return undefined
 	}
-	const [leader] = first
-		.filter((k) => lead.some((c) => sameKey(k, c)))
-		.toSorted(mapInput(compareNumbers, rank))
-	if (leader === undefined) {
-		return undefined
-	}
-	const other = first.filter((k) => !sameKey(k, leader))
-	return isNonEmpty(other) ? [[leader], other, ...rest] : [[leader], ...rest]
+	const leaders = draft.leaders.filter((k) => lead.some((c) => sameKey(k, c)))
+	return isNonEmpty(leaders) ? { ...draft, leaders } : undefined
 }
 
 /** The order of two ordered requests leading one index, when they read it in one direction: the longer, when the
@@ -593,9 +637,14 @@ const draftOf = (planned: Planned): Draft => {
 	const own = planned.placements.own
 	switch (own.kind) {
 		case "blocks":
-			return { method: own.method, blocks: own.blocks, directed: own.directed }
+			return {
+				method: own.method,
+				blocks: own.blocks,
+				leaders: own.blocks[0],
+				directed: own.directed
+			}
 		case "placed":
-			return { method: "gist", blocks: [own.bound], directed: undefined }
+			return { method: "gist", blocks: [own.bound], leaders: own.lead, directed: undefined }
 	}
 }
 
@@ -607,7 +656,7 @@ type Ahead =
 
 /** A draft refined by one placement of another request, or none when no one index holds both: the placement is another
  * method's, or no one order satisfies both. A created index is never unique, so no keyed placement refines it. */
-const refinedBy = (draft: Draft, placement: Placement, rank: Rank): Draft | undefined => {
+const refinedBy = (draft: Draft, placement: Placement): Draft | undefined => {
 	if (methodOf(placement) !== draft.method) {
 		return undefined
 	}
@@ -615,37 +664,37 @@ const refinedBy = (draft: Draft, placement: Placement, rank: Rank): Draft | unde
 	switch (placement.kind) {
 		case "keyed":
 			return undefined
-		case "led": {
-			const blocks = leadDraft(draft.blocks, placement.lead, placement.held, rank)
-			return blocks === undefined ? undefined : { method, blocks, directed: draft.directed }
-		}
-		case "placed": {
-			const blocks = leadDraft(draft.blocks, placement.lead, placement.bound, rank)
-			return blocks === undefined ? undefined : { method, blocks, directed: draft.directed }
-		}
+		case "led":
+			return leadDraft(draft, placement.lead, placement.held)
+		case "placed":
+			return leadDraft(draft, placement.lead, placement.bound)
 		case "blocks": {
 			const blocks = mergeBlocks(draft.blocks, placement.blocks)
 			if (blocks === undefined) {
 				return undefined
 			}
+			const leaders = draft.leaders.filter((k) => blocks[0].some((l) => sameKey(k, l)))
+			if (!isNonEmpty(leaders)) {
+				return undefined
+			}
 			if (placement.directed === undefined) {
-				return { method, blocks, directed: draft.directed }
+				return { method, blocks, leaders, directed: draft.directed }
 			}
 			if (draft.directed === undefined) {
-				return { method, blocks, directed: placement.directed }
+				return { method, blocks, leaders, directed: placement.directed }
 			}
 			const directed = oneDirection(draft.directed, placement.directed)
-			return directed === undefined ? undefined : { method, blocks, directed }
+			return directed === undefined ? undefined : { method, blocks, leaders, directed }
 		}
 	}
 }
 
 /** A draft refined by another request: by its own placement, else by the first of its others that refines it; none when
  * no placement does. */
-const refined = (draft: Draft, ahead: Ahead, rank: Rank): Draft | undefined => {
+const refined = (draft: Draft, ahead: Ahead): Draft | undefined => {
 	const { own, others } = ahead.planned.placements
 	for (const placement of [own, ...others]) {
-		const found = refinedBy(draft, placement, rank)
+		const found = refinedBy(draft, placement)
 		if (found !== undefined) {
 			return found
 		}
@@ -680,15 +729,19 @@ const withinBlock: Readonly<
 		])
 }
 
-/** A draft's keys (see `planIndexes`): its blocks in order, each block's columns in its access method's order
- * (`withinBlock`), the keys an ordered request directs in its directions and every other in the first key's, canonical
- * under reversal. */
+/** A draft's keys (see `planIndexes`): its first leader in its access method's order (`withinBlock`), then the rest of
+ * its blocks in order, each block's columns in that order, the keys an ordered request directs in its directions and
+ * every other in the first key's, canonical under reversal. */
 const keysOf = (draft: Draft, rank: Rank, columns: Columns): NonEmptyReadonlyArray<IndexKey> => {
 	const order = withinBlock[draft.method](rank, columns)
 	const [leading, ...following] = draft.blocks
+	const [leader] = sortNonEmpty(draft.leaders, order)
 	const keys = extendNonEmpty(
-		sortNonEmpty(leading, order),
-		following.flatMap((block) => block.toSorted(order))
+		[leader],
+		[
+			...leading.filter((k) => !sameKey(k, leader)).toSorted(order),
+			...following.flatMap((block) => block.toSorted(order))
+		]
 	)
 	const directed = draft.directed
 	const first = directed === undefined ? "asc" : directed[0].dir
@@ -852,7 +905,13 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * planned before a range on `created` then `account` creates `(created, account)`, which serves both, a wider equality
  * lookup takes the order a narrower range or order over its columns fixes, and a GiST index leads with a column of many
  * values a later request fixes (a span predicate on `(fixed, span)` beside one on `(span)` creates `(span, fixed)`,
- * which serves both).
+ * which serves both). A led or placed placement narrows the columns that may lead the draft to those among its leads,
+ * never to one of them (Draft `leaders`), so a column stays one a later request may lead with until a request refuses
+ * it, and the one the request states first among those left leads: a span predicate on `(a, b, c, span)` beside one on
+ * `(b, c, span)` and an equality lookup on `(c)` creates `(c, ...)`, which serves all three, where choosing `b` at the
+ * second would have refused the third. The requests whose placements the draft took are those its order answers to
+ * (PlannedIndex `answers`); the serving judge reads them, by the leads every request's placements state
+ * (`requestLeads`), to tell a sweep of the index that no order of its keys avoids from one the engine should have.
  * The draft is refined too, after those, by every other request of its relation it can serve that another index
  * already serves, the requests of its own access method first, since PostgreSQL may read such a request through it. It costs a GiST scan by the selectivity of all its conditions whatever their
  * columns' places (genericcostestimate), so it may read a request through any GiST index that holds its columns, and
@@ -931,16 +990,15 @@ export const planIndexes = (
 					case "built":
 						break
 				}
-				const keys = requestColumns(r).map((column, i): IndexKey => {
-					const k = r.keys[i]
-					if (k === undefined || o.field(column) === undefined) {
+				const keys = statedKeys(r).map((k): IndexKey => {
+					if (o.field(k.column) === undefined) {
 						return fail(
 							"UnsupportedOperation",
 							label,
-							`a key column of ${r.relation}; ${columnText(column)} is none, and expression keys are the workload compiler's`
+							`a key column of ${r.relation}; ${columnText(k.column)} is none, and expression keys are the workload compiler's`
 						)
 					}
-					return { column, dir: k.dir, opclass: k.opclass }
+					return k
 				})
 				if (!isNonEmpty(keys)) {
 					return fail("MalformedDescription", label, "an index request with a key")
@@ -1050,12 +1108,25 @@ const ahead = (
 	].toSorted(mapInput(compareBooleans, (q: Ahead) => ownMethod(q.planned) !== ownMethod(entry)))
 }
 
-/** The draft of the index created for `planned` (see `planIndexes`): its own, refined by each request it reads ahead, in
- * order, that one index can still serve with all before it. */
-const draftFor = (planned: Planned, reads: ReadonlyArray<Ahead>): Draft => {
-	const rank = rankIn(planned.keys)
-	return reads.reduce((draft, q) => refined(draft, q, rank) ?? draft, draftOf(planned))
+/** A created index's draft and the requests its order answers to: its own, then each it read ahead whose placement
+ * refined it. */
+interface Drafted {
+	readonly draft: Draft
+	readonly answers: NonEmptyReadonlyArray<IndexRequest>
 }
+
+/** The draft of the index created for `planned` (see `planIndexes`): its own, refined by each request it reads ahead, in
+ * order, that one index can still serve with all before it, each such request one its order answers to. */
+const draftFor = (planned: Planned, reads: ReadonlyArray<Ahead>): Drafted =>
+	reads.reduce(
+		(drafted: Drafted, q): Drafted => {
+			const draft = refined(drafted.draft, q)
+			return draft === undefined
+				? drafted
+				: { draft, answers: extendNonEmpty(drafted.answers, [q.planned.request]) }
+		},
+		{ draft: draftOf(planned), answers: [planned.request] }
+	)
 
 /** A request's keys canonical under reversal: reversed when the first descends, so the first ascends. */
 const canonicalKeys = (keys: NonEmptyReadonlyArray<IndexKey>): NonEmptyReadonlyArray<IndexKey> =>
@@ -1063,8 +1134,9 @@ const canonicalKeys = (keys: NonEmptyReadonlyArray<IndexKey>): NonEmptyReadonlyA
 
 /** A new index for an unserved request, as drafted for it (draftFor): the draft's method, and its keys in the order
  * the draft fixes, its entry checked against the access method's limit. */
-const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): PlannedIndex => {
+const createIndex = (b: InstallBuilder, planned: Planned, drafted: Drafted): PlannedIndex => {
 	const { request, label, target: o } = planned
+	const { draft, answers } = drafted
 	const method = draft.method
 	const targetField = (column: IndexColumn): TargetField =>
 		o.field(column) ??
@@ -1162,7 +1234,7 @@ const createIndex = (b: InstallBuilder, planned: Planned, draft: Draft): Planned
 		]
 	)
 	return {
-		index: { kind: "created", name },
+		index: { kind: "created", name, answers },
 		relation: request.relation,
 		method,
 		keys,

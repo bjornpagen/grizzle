@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/physical/indexes/engine.ts b/packages/engine/src/physical/indexes/engine.ts
+--- a/packages/engine/src/physical/indexes/engine.ts
++++ b/packages/engine/src/physical/indexes/engine.ts
+@@ -619,7 +619,7 @@
+ 	if (!held.every((c) => draft.blocks.some((block) => block.some((k) => sameKey(k, c))))) {
+ 		return undefined
+ 	}
+-	const leaders = draft.leaders.filter((k) => lead.some((c) => sameKey(k, c)))
++	const leaders = draft.leaders.filter((k) => lead.some((c) => sameKey(k, c))).slice(0, 1)
+ 	return isNonEmpty(leaders) ? { ...draft, leaders } : undefined
+ }
+ 

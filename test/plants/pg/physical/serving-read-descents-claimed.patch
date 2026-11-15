@@ -1,0 +1,23 @@
+diff --git a/test/pg/physical/serving.ts b/test/pg/physical/serving.ts
+--- a/test/pg/physical/serving.ts
++++ b/test/pg/physical/serving.ts
+@@ -980,10 +980,15 @@
+ 					)
+ 				: 1
+ 		case "read":
+-			return steppedThrough(
+-				scanned,
+-				Arr.filter(before(claim.conditions), (k) => !fixes(claim.conditions, k))
+-			)
++			return Arr.some(scanned.keys.slice(0, 1), (k) => fixes(claim.conditions, k))
++				? steppedThrough(
++						scanned,
++						Arr.filter(
++							before(claim.conditions),
++							(k) => !Arr.some(claim.conditions, (c) => searchedBy(k, c))
++						)
++					)
++				: 1
+ 		case "unstated":
+ 			return 1
+ 	}

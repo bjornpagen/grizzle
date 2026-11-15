@@ -1,0 +1,12 @@
+diff --git a/test/pg/physical/serving.ts b/test/pg/physical/serving.ts
+--- a/test/pg/physical/serving.ts
++++ b/test/pg/physical/serving.ts
+@@ -1488,7 +1488,7 @@
+ 				case "installed":
+ 					return true
+ 				case "created": {
+-					const answered = Arr.map(through.index.answers, (q) => requestLeads(q, holds))
++					const answered = Arr.map(through.requests, (q) => requestLeads(q, holds))
+ 					return !Arr.some(held, (k) => Arr.every(answered, (leads) => holding(leads, k)))
+ 				}
+ 			}

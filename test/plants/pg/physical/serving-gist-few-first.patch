@@ -1,8 +1,7 @@
 diff --git a/packages/engine/src/physical/indexes/engine.ts b/packages/engine/src/physical/indexes/engine.ts
-index cbe39228..505440e1 100644
 --- a/packages/engine/src/physical/indexes/engine.ts
 +++ b/packages/engine/src/physical/indexes/engine.ts
-@@ -673,11 +673,7 @@ const withinBlock: Readonly<
+@@ -722,11 +722,7 @@
  	btree: (rank) => mapInput(compareNumbers, rank),
  	hash: (rank) => mapInput(compareNumbers, rank),
  	hnsw: (rank) => mapInput(compareNumbers, rank),
@@ -14,4 +13,4 @@ index cbe39228..505440e1 100644
 +	gist: (rank) => mapInput(compareNumbers, rank)
  }
  
- /** A draft's keys (see `planIndexes`): its blocks in order, each block's columns in its access method's order
+ /** A draft's keys (see `planIndexes`): its first leader in its access method's order (`withinBlock`), then the rest of

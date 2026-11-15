@@ -1,0 +1,15 @@
+diff --git a/test/pg/physical/serving.ts b/test/pg/physical/serving.ts
+--- a/test/pg/physical/serving.ts
++++ b/test/pg/physical/serving.ts
+@@ -1481,7 +1481,10 @@
+ 				k: { readonly column: IndexColumn }
+ 			): boolean => Arr.some(keys, (l) => keyText(l) === keyText(k))
+ 			const held = Arr.filter(requestLeads(request, holds), (k) => holding(through.keys, k))
+-			if (!Arr.isReadonlyArrayNonEmpty(held)) {
++			if (
++				!Arr.isReadonlyArrayNonEmpty(held) ||
++				!Arr.every(requestKeys(request), (k) => Arr.some(through.keys, (l) => keyText(l) === k.field))
++			) {
+ 				return false
+ 			}
+ 			switch (through.index.kind) {

@@ -33,7 +33,13 @@
  *   skip scan over the boolean in two descents (serving.ts); and a range on a closed handle by equality and a numeric
  *   of many values by a range, beside span predicates whose GiST index holds both, which places its entries by the
  *   numeric, so that its scan would read the range across every handle, three times the range's share: a B-tree
- *   serves it (physical/indexes/engine.ts).
+ *   serves it (physical/indexes/engine.ts); and three that PostgreSQL's cost model reads through a GiST index that
+ *   holds a field of the probe outside its lead, sweeping it, where no order of that index serves the probe beside the
+ *   requests its order answers to (serving.ts keyOrdersConflict): a range on DateSubtract's (fixed0, tick0, B1)
+ *   through a GiST index led by Bool that lacks B1, lookups on DistPs's (fixed0, tick0) and its other lookups through
+ *   the GiST index of span predicates that leads with Bool for the one on Bool alone, the engine keeping every column
+ *   that may lead until that one narrows them, and an equality lookup on SpgTextLeafConsistent's Name through a GiST
+ *   index that leads with tick0 for a span predicate on (tick0, Bool) another GiST index serves.
  * - Drawn requests. A fixed schema holds a plain table, a span key's GiST index (Booking, on room and during), two span
  *   keys' GiST indexes led by a column of few values, a boolean (Shift, on standby, worker and during, standby true on
  *   one row in ten) and a closed id of a drawn roster of four to eight handles (Rota, on shade, worker and during, shade
@@ -47,7 +53,10 @@
  *   their entries by worker, their first column of many values: a range on worker after the column of few values, and
  *   a law probe and a range on that column alone, which the index holds in order but whose scan reads the range across
  *   every value of that column, or every entry; and a lookup and a range on worker alone, which the index holds after
- *   that column, unbound, so that its scan descends once per value of it: a B-tree serves each.
+ *   that column, unbound, so that its scan descends once per value of it: a B-tree serves each; and a range on Shift's
+ *   (worker, standby) beside one on (standby, worker), the first planned on Shift's GiST key, which PostgreSQL reads
+ *   through the second's B-tree by a skip scan over standby in 2 descents, fewer buffers than the GiST key reads, a
+ *   read held to the descents its closed keys allow (serving.ts descentsUnder).
  * - Shared columns. Two to four equality lookups and seeks over the same three columns of Event, each column drawn in
  *   any position and direction, are planned in every order they can arrive in, and the plan must be one list of
  *   indexes: the engine plans in its canonical order, and chooses each created index's key order to serve every later
@@ -76,6 +85,14 @@
  * @plant test/plants/pg/physical/serving-gist-few-first.patch A GiST index's columns of few values are no longer placed
  * first: its keys keep the request's order (physical/indexes/engine.ts withinBlock), so a span predicate's GiST scan
  * reads past its bound of buffers.
+ * @plant test/plants/pg/physical/serving-read-descents-claimed.patch an index PostgreSQL chose by its cost is held to
+ * the engine's claim's descents, so a skip scan over a closed key bounded by a range is a sweep
+ * @plant test/plants/pg/physical/serving-conflict-own-requests.patch the judge reads an index's own requests for the
+ * orders it must serve, not those its order answers to
+ * @plant test/plants/pg/physical/serving-conflict-holds-every-field.patch the judge excuses a GiST sweep only through an
+ * index that holds every field the probe fixes
+ * @plant test/plants/pg/physical/index-lead-committed.patch the index engine commits a draft to the first lead it may
+ * take, so a later request one of the other leads serves is refused
  */
 import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -339,8 +356,8 @@ const workloadCase = (c: ProgramCase, note: (feature: ServingFeature | WorkloadF
 				})
 			}
 		})
-		yield* loadAtVolume(judged, loads)
-		const problems = yield* judgeServing(judged, note)
+		const settled = yield* loadAtVolume(judged, loads)
+		const problems = yield* judgeServing(settled, note)
 		assert.deepEqual(
 			problems,
 			[],
@@ -675,6 +692,24 @@ const rotaOf = (shades: number) =>
 
 const requestKept: ReadonlyArray<Kept<RequestSketch, RequestFeature>> = [
 	{
+		note: "a range on Shift's worker then standby, planned on Shift's GiST key, beside a range on standby then worker, through whose B-tree PostgreSQL reads the first by a skip scan over standby, a boolean, in 2 descents and fewer buffers than the GiST key alone reads: an index PostgreSQL chose by its cost is held to the descents its closed keys allow, not to the engine's claim (serving.ts descentsUnder)",
+		sketch: {
+			shades: fewestShades,
+			intents: [
+				accessIntent("Shift", ["standby", "worker"], "range"),
+				accessIntent("Shift", ["worker", "standby"], "range")
+			]
+		},
+		draws: "",
+		reaches: [
+			"range probe served",
+			"served by a key or enforcement index",
+			"served by a created index",
+			"read through another planned index than the engine's",
+			"a created index needed"
+		]
+	},
+	{
 		note: "an equality pair on (account, created) beside a range on created then account",
 		sketch: {
 			shades: fewestShades,
@@ -774,8 +809,8 @@ const requestCase = (sketch: RequestSketch, note: (feature: RequestFeature) => v
 			logins: [],
 			extensions: [drawnRequests(specs)]
 		})
-		yield* loadAtVolume(plan, [...indexedLoads, rotaLoad(plan, sketch.shades)])
-		const problems = yield* judgeServing(plan, note)
+		const settled = yield* loadAtVolume(plan, [...indexedLoads, rotaLoad(plan, sketch.shades)])
+		const problems = yield* judgeServing(settled, note)
 		assert.deepEqual(
 			problems,
 			[],
@@ -985,8 +1020,8 @@ const sharedCase = (
 			logins: [],
 			extensions: [drawnRequests(specs)]
 		})
-		yield* loadAtVolume(plan, indexedLoads)
-		const problems = yield* judgeServing(plan, note)
+		const settled = yield* loadAtVolume(plan, indexedLoads)
+		const problems = yield* judgeServing(settled, note)
 		assert.deepEqual(
 			problems,
 			[],
@@ -3304,6 +3339,7511 @@ const workloadKept: ReadonlyArray<Kept<CaseSketch, ServingFeature | WorkloadFeat
 			"overlap probe served",
 			"served by a created index",
 			"range probe served",
+			"a created index needed"
+		]
+	},
+	{
+		note: "a range on DateSubtract's (fixed0, tick0, B1), planned on a B-tree led by fixed0, beside span predicates whose GiST index leads with Bool for one on (LineVertical, Bool) and holds fixed0 and tick0 but not B1: PostgreSQL sweeps that GiST index for the range, which no order of it serves beside the requests its order answers to, though it lacks one of the range's fields (serving.ts keyOrdersConflict)",
+		sketch: {
+			population: "forms",
+			swarm: {
+				"bind fresh": 3,
+				"bind join": 3,
+				"bind existential": 3,
+				"bind param": 3,
+				where: 3,
+				"compare param": 3,
+				negation: 2,
+				aggregate: 3,
+				union: 3,
+				take: 2,
+				"attached take": 2,
+				ordered: 3,
+				attach: 3,
+				nested: 1,
+				roster: 1,
+				dense: 1,
+				"candidate key": 2,
+				probe: 3,
+				spelled: 1,
+				"full head": 3,
+				"stated delivery": 3,
+				"plain child": 2,
+				"keyed child": 2,
+				"reflexive child": 3,
+				"arm child": 2,
+				"handle field": 2,
+				import: 3,
+				"import bound": 3,
+				interior: 3,
+				named: 3,
+				"computed head": 3,
+				"computed group key": 3,
+				between: 3,
+				"in set": 3,
+				connective: 3,
+				"relation param": 3,
+				recursive: 3,
+				"contract param": 3,
+				"typmod param": 3,
+				allen: 3,
+				"point in": 3,
+				"literal head": 3
+			},
+			perturbation: {
+				settings: [
+					"enable_hashjoin = off",
+					"enable_sort = off",
+					"plan_cache_mode = force_generic_plan",
+					"parallel_tuple_cost = 0"
+				],
+				multiplier: 1
+			},
+			ambient: {
+				path: {
+					kind: "default"
+				},
+				settings: [
+					{
+						parameter: "extra_float_digits",
+						value: "0"
+					},
+					{
+						parameter: "TimeZone",
+						value: "UTC"
+					},
+					{
+						parameter: "bytea_output",
+						value: "hex"
+					}
+				]
+			},
+			restorage: {
+				shift: 9,
+				respell: 574
+			},
+			roster: 5968,
+			span: 42351,
+			relations: [
+				{
+					name: 15389,
+					fields: [
+						{
+							name: 52242,
+							kind: 49622,
+							key: 36584
+						},
+						{
+							name: 65514,
+							kind: 20,
+							key: 57170
+						},
+						{
+							name: 19247,
+							kind: 26761,
+							key: 43612
+						}
+					],
+					candidate: 48264,
+					facts: [
+						{
+							values: [
+								{
+									cls: 3831,
+									sp: 63719
+								},
+								{
+									cls: 10609,
+									sp: 0
+								},
+								{
+									cls: 65417,
+									sp: 8283
+								},
+								{
+									cls: 45507,
+									sp: 31489
+								},
+								{
+									cls: 20770,
+									sp: 61533
+								},
+								{
+									cls: 44418,
+									sp: 51982
+								},
+								{
+									cls: 45165,
+									sp: 38255
+								}
+							]
+						},
+						{
+							values: [
+								{
+									cls: 19771,
+									sp: 42880
+								},
+								{
+									cls: 59025,
+									sp: 33275
+								},
+								{
+									cls: 4,
+									sp: 47656
+								},
+								{
+									cls: 102,
+									sp: 8672
+								},
+								{
+									cls: 36567,
+									sp: 11
+								},
+								{
+									cls: 65474,
+									sp: 55345
+								},
+								{
+									cls: 46523,
+									sp: 61557
+								}
+							]
+						},
+						{
+							values: [
+								{
+									cls: 9687,
+									sp: 37249
+								},
+								{
+									cls: 18073,
+									sp: 31325
+								},
+								{
+									cls: 30431,
+									sp: 5802
+								},
+								{
+									cls: 59554,
+									sp: 43440
+								},
+								{
+									cls: 89,
+									sp: 58848
+								},
+								{
+									cls: 13416,
+									sp: 33832
+								},
+								{
+									cls: 0,
+									sp: 43549
+								}
+							]
+						},
+						{
+							values: [
+								{
+									cls: 18487,
+									sp: 27920
+								},
+								{
+									cls: 839,
+									sp: 50113
+								},
+								{
+									cls: 41884,
+									sp: 25001
+								},
+								{
+									cls: 65302,
+									sp: 37564
+								},
+								{
+									cls: 5634,
+									sp: 49364
+								},
+								{
+									cls: 59,
+									sp: 19992
+								},
+								{
+									cls: 4798,
+									sp: 7
+								}
+							]
+						}
+					]
+				}
+			],
+			reads: [
+				{
+					rule: {
+						matches: [
+							{
+								source: 1033,
+								derived: 15847,
+								attached: 63,
+								binds: [
+									{
+										how: 13949,
+										pick: 59009,
+										value: {
+											cls: 47843,
+											sp: 65293
+										}
+									},
+									{
+										how: 26654,
+										pick: 48178,
+										value: {
+											cls: 17947,
+											sp: 43250
+										}
+									},
+									{
+										how: 52647,
+										pick: 23664,
+										value: {
+											cls: 43172,
+											sp: 51604
+										}
+									},
+									{
+										how: 23228,
+										pick: 21734,
+										value: {
+											cls: 36041,
+											sp: 8676
+										}
+									},
+									{
+										how: 19756,
+										pick: 54240,
+										value: {
+											cls: 33352,
+											sp: 12465
+										}
+									},
+									{
+										how: 52648,
+										pick: 22453,
+										value: {
+											cls: 19126,
+											sp: 34807
+										}
+									},
+									{
+										how: 15818,
+										pick: 40671,
+										value: {
+											cls: 15842,
+											sp: 46
+										}
+									}
+								]
+							},
+							{
+								source: 20722,
+								derived: 10947,
+								attached: 61766,
+								binds: [
+									{
+										how: 37407,
+										pick: 1014,
+										value: {
+											cls: 17755,
+											sp: 832
+										}
+									},
+									{
+										how: 16082,
+										pick: 29670,
+										value: {
+											cls: 47088,
+											sp: 56150
+										}
+									},
+									{
+										how: 0,
+										pick: 36384,
+										value: {
+											cls: 41256,
+											sp: 51964
+										}
+									},
+									{
+										how: 15761,
+										pick: 14944,
+										value: {
+											cls: 20858,
+											sp: 54707
+										}
+									},
+									{
+										how: 42164,
+										pick: 35912,
+										value: {
+											cls: 2946,
+											sp: 21248
+										}
+									},
+									{
+										how: 31432,
+										pick: 18251,
+										value: {
+											cls: 32084,
+											sp: 3466
+										}
+									},
+									{
+										how: 42226,
+										pick: 52024,
+										value: {
+											cls: 40598,
+											sp: 14044
+										}
+									}
+								]
+							},
+							{
+								source: 45437,
+								derived: 23687,
+								attached: 1922,
+								binds: [
+									{
+										how: 34379,
+										pick: 52517,
+										value: {
+											cls: 49517,
+											sp: 52781
+										}
+									},
+									{
+										how: 6291,
+										pick: 8500,
+										value: {
+											cls: 61739,
+											sp: 25693
+										}
+									},
+									{
+										how: 776,
+										pick: 51159,
+										value: {
+											cls: 56002,
+											sp: 35812
+										}
+									},
+									{
+										how: 5932,
+										pick: 4517,
+										value: {
+											cls: 38112,
+											sp: 62743
+										}
+									},
+									{
+										how: 12395,
+										pick: 57223,
+										value: {
+											cls: 25520,
+											sp: 65519
+										}
+									},
+									{
+										how: 497,
+										pick: 14557,
+										value: {
+											cls: 19481,
+											sp: 48178
+										}
+									},
+									{
+										how: 49040,
+										pick: 18163,
+										value: {
+											cls: 46657,
+											sp: 55334
+										}
+									}
+								]
+							}
+						],
+						where: [
+							{
+								left: 9106,
+								op: 18110,
+								pick: 12200,
+								value: {
+									cls: 16340,
+									sp: 29580
+								}
+							}
+						],
+						between: [],
+						inSet: [],
+						allen: [],
+						pointIn: [
+							{
+								span: 19692,
+								point: 1546
+							}
+						],
+						connective: [
+							{
+								kind: 45987,
+								args: [
+									{
+										left: 21778,
+										op: 62710,
+										pick: 59169,
+										value: {
+											cls: 62629,
+											sp: 51266
+										}
+									}
+								]
+							}
+						],
+						computed: [],
+						negation: {
+							source: 10141,
+							picks: [52758, 59316]
+						},
+						head: {
+							vars: [56613],
+							names: [43887, 34890, 906, 43962, 64, 36085],
+							folds: [
+								{
+									fn: 25115,
+									arg: 419,
+									padded: 38306,
+									scale: 18468
+								},
+								{
+									fn: 42475,
+									arg: 9551,
+									padded: 706,
+									scale: 60412
+								}
+							]
+						},
+						interior: {
+							matches: [
+								{
+									source: 9598,
+									derived: 39586,
+									attached: 24295,
+									binds: [
+										{
+											how: 24779,
+											pick: 19675,
+											value: {
+												cls: 46263,
+												sp: 63946
+											}
+										},
+										{
+											how: 91,
+											pick: 3351,
+											value: {
+												cls: 24093,
+												sp: 287
+											}
+										},
+										{
+											how: 54584,
+											pick: 47760,
+											value: {
+												cls: 19703,
+												sp: 42352
+											}
+										},
+										{
+											how: 28232,
+											pick: 40709,
+											value: {
+												cls: 2423,
+												sp: 47487
+											}
+										},
+										{
+											how: 4947,
+											pick: 18796,
+											value: {
+												cls: 35468,
+												sp: 64552
+											}
+										},
+										{
+											how: 16579,
+											pick: 39862,
+											value: {
+												cls: 39294,
+												sp: 51004
+											}
+										},
+										{
+											how: 11186,
+											pick: 24015,
+											value: {
+												cls: 53774,
+												sp: 36048
+											}
+										}
+									]
+								},
+								{
+									source: 8010,
+									derived: 30494,
+									attached: 36952,
+									binds: [
+										{
+											how: 51941,
+											pick: 36717,
+											value: {
+												cls: 3024,
+												sp: 27036
+											}
+										},
+										{
+											how: 16151,
+											pick: 1870,
+											value: {
+												cls: 20114,
+												sp: 13338
+											}
+										},
+										{
+											how: 51569,
+											pick: 64038,
+											value: {
+												cls: 33623,
+												sp: 25761
+											}
+										},
+										{
+											how: 56584,
+											pick: 11351,
+											value: {
+												cls: 53202,
+												sp: 29831
+											}
+										},
+										{
+											how: 5028,
+											pick: 316,
+											value: {
+												cls: 39153,
+												sp: 25684
+											}
+										},
+										{
+											how: 53917,
+											pick: 40287,
+											value: {
+												cls: 54256,
+												sp: 61949
+											}
+										},
+										{
+											how: 25928,
+											pick: 3052,
+											value: {
+												cls: 3397,
+												sp: 11231
+											}
+										}
+									]
+								}
+							],
+							where: [],
+							negation: {
+								source: 64299,
+								picks: [7438, 9]
+							},
+							head: {
+								vars: [31276, 10078],
+								names: [59610, 48167, 29, 48147, 24841, 53843],
+								folds: [
+									{
+										fn: 49343,
+										arg: 65535,
+										padded: 15322,
+										scale: 31478
+									},
+									{
+										fn: 24303,
+										arg: 53849,
+										padded: 25711,
+										scale: 42221
+									}
+								]
+							}
+						}
+					},
+					take: {
+						rotate: 61538,
+						dirs: [0, 42244, 48049],
+						size: 1624,
+						ties: 32302
+					},
+					literalHead: {
+						name: 22617,
+						kind: 64572,
+						arms: 65531,
+						values: [92, 11999, 61362]
+					},
+					importable: 32605,
+					bindImport: 19454,
+					named: 53185,
+					relationParam: {
+						relation: 38632,
+						facts: [
+							{
+								values: [
+									{
+										cls: 16354,
+										sp: 61738
+									},
+									{
+										cls: 23813,
+										sp: 32637
+									},
+									{
+										cls: 34611,
+										sp: 64573
+									},
+									{
+										cls: 63178,
+										sp: 57197
+									},
+									{
+										cls: 49205,
+										sp: 56383
+									},
+									{
+										cls: 8891,
+										sp: 48123
+									},
+									{
+										cls: 33306,
+										sp: 41612
+									}
+								]
+							},
+							{
+								values: [
+									{
+										cls: 38043,
+										sp: 24840
+									},
+									{
+										cls: 21201,
+										sp: 13173
+									},
+									{
+										cls: 48324,
+										sp: 44501
+									},
+									{
+										cls: 29365,
+										sp: 20643
+									},
+									{
+										cls: 51449,
+										sp: 54620
+									},
+									{
+										cls: 24837,
+										sp: 35884
+									},
+									{
+										cls: 46578,
+										sp: 52008
+									}
+								]
+							}
+						]
+					},
+					closure: {
+						relation: 61790,
+						pair: 566,
+						name: 40686
+					},
+					attachments: [],
+					order: {
+						rotate: 31580,
+						dirs: [39215, 30634, 21616],
+						size: 61069
+					},
+					probe: {
+						kind: 16719,
+						pick: 1092
+					},
+					key: {
+						relation: 58108,
+						which: 55238,
+						fact: 30441,
+						absent: 61111,
+						roster: 8584
+					}
+				}
+			],
+			planted: {
+				names: [
+					32250, 26420, 0, 3635, 62854, 65446, 19028, 65534, 63918, 31566, 65530, 10768, 34524,
+					46387, 34416, 1470, 28263, 65325, 31848, 64380, 62454, 55929, 48838, 19902, 41975, 2973,
+					38202, 20900, 32867, 29327, 44767, 19293, 22709, 32268, 52730, 179, 19262, 56928, 11061,
+					43621, 9099, 8444, 56750, 59783, 16737, 62521, 24183, 64213, 61128, 59566, 29319
+				],
+				value: {
+					cls: 60389,
+					sp: 28111
+				},
+				handle: 57172,
+				padding: 10829,
+				side: {
+					kind: 44140,
+					values: [12273, 55073, 757]
+				}
+			}
+		},
+		draws: "2.0.1.0.2.1.1.2.a.9.5.0.3.9.3.3.8.1.0.2.7.3.3.5.9.a.1.a.7.4.b.a.a.2.7.2.1",
+		reaches: [
+			"range probe served",
+			"overlap probe served",
+			"served by a created index",
+			"read through another planned index than the engine's",
+			"swept through another index, awaiting upstream/gist-costestimate-column-position",
+			"a created index needed"
+		]
+	},
+	{
+		note: "lookups and a join key on DistPs's (fixed0, tick0), (Nameicregexeq, tick0) and four of its fields beside span predicates on five of its fields, on (Nameicregexeq, tick0, Bool), on (tick0, Bool) and on Bool alone: the widest predicate's GiST index answers every one of the predicates, each column that may lead it kept until the one on Bool narrows them (physical/indexes/engine.ts leadDraft), so it leads with Bool, and PostgreSQL sweeps it for the lookups, which no order of it serves beside them",
+		sketch: {
+			population: "spelled",
+			swarm: {
+				"bind fresh": 2,
+				"bind parent": 3,
+				"compare literal": 1,
+				"compare var": 2,
+				"attached take": 3,
+				attach: 3,
+				nested: 3,
+				dense: 3,
+				"candidate key": 2,
+				"key read": 1,
+				probe: 3,
+				spelled: 3,
+				"full head": 3,
+				"stated delivery": 2,
+				"plain child": 1,
+				"keyed child": 2,
+				"arm child": 3,
+				"handle field": 1,
+				import: 3,
+				"import bound": 3,
+				interior: 3,
+				named: 3,
+				"computed head": 1,
+				"computed group key": 2,
+				between: 2,
+				"in set": 2,
+				connective: 2,
+				"relation param": 1,
+				"contract param": 2,
+				"typmod param": 1,
+				allen: 3
+			},
+			perturbation: {
+				settings: [
+					"enable_hashjoin = off",
+					"plan_cache_mode = force_generic_plan",
+					"min_parallel_table_scan_size = 0"
+				],
+				multiplier: 1
+			},
+			ambient: {
+				path: {
+					kind: "default"
+				},
+				settings: [
+					{
+						parameter: "TimeZone",
+						value: "UTC"
+					},
+					{
+						parameter: "IntervalStyle",
+						value: "postgres_verbose"
+					}
+				]
+			},
+			restorage: {
+				shift: 12,
+				respell: 47
+			},
+			roster: 60420,
+			span: 5421,
+			relations: [
+				{
+					name: 7367,
+					fields: [
+						{
+							name: 15735,
+							kind: 21143,
+							key: 13659
+						},
+						{
+							name: 53124,
+							kind: 7519,
+							key: 35702
+						},
+						{
+							name: 61383,
+							kind: 0,
+							key: 14939
+						},
+						{
+							name: 50896,
+							kind: 41534,
+							key: 37161
+						}
+					],
+					candidate: 48595,
+					facts: [
+						{
+							values: [
+								{
+									cls: 23111,
+									sp: 60366
+								},
+								{
+									cls: 50562,
+									sp: 55688
+								},
+								{
+									cls: 18432,
+									sp: 9517
+								},
+								{
+									cls: 63630,
+									sp: 2970
+								},
+								{
+									cls: 28653,
+									sp: 17749
+								},
+								{
+									cls: 4313,
+									sp: 15341
+								},
+								{
+									cls: 65450,
+									sp: 17636
+								}
+							]
+						},
+						{
+							values: [
+								{
+									cls: 64865,
+									sp: 13066
+								},
+								{
+									cls: 18748,
+									sp: 19960
+								},
+								{
+									cls: 45985,
+									sp: 22384
+								},
+								{
+									cls: 19734,
+									sp: 64274
+								},
+								{
+									cls: 19138,
+									sp: 65524
+								},
+								{
+									cls: 60149,
+									sp: 2
+								},
+								{
+									cls: 44283,
+									sp: 49570
+								}
+							]
+						}
+					]
+				}
+			],
+			reads: [
+				{
+					rule: {
+						matches: [
+							{
+								source: 380,
+								derived: 58169,
+								attached: 43992,
+								binds: [
+									{
+										how: 27842,
+										pick: 64644,
+										value: {
+											cls: 6277,
+											sp: 61137
+										}
+									},
+									{
+										how: 30517,
+										pick: 383,
+										value: {
+											cls: 3219,
+											sp: 36823
+										}
+									},
+									{
+										how: 29103,
+										pick: 32424,
+										value: {
+											cls: 59237,
+											sp: 7960
+										}
+									},
+									{
+										how: 33984,
+										pick: 26896,
+										value: {
+											cls: 16079,
+											sp: 47020
+										}
+									},
+									{
+										how: 63141,
+										pick: 30982,
+										value: {
+											cls: 60593,
+											sp: 24772
+										}
+									},
+									{
+										how: 16091,
+										pick: 1945,
+										value: {
+											cls: 17030,
+											sp: 50488
+										}
+									},
+									{
+										how: 42082,
+										pick: 46845,
+										value: {
+											cls: 47445,
+											sp: 13905
+										}
+									}
+								]
+							}
+						],
+						where: [],
+						between: [],
+						inSet: [
+							{
+								left: 48222,
+								values: [
+									{
+										cls: 33954,
+										sp: 50598
+									}
+								]
+							}
+						],
+						allen: [],
+						pointIn: [],
+						connective: [
+							{
+								kind: 16762,
+								args: [
+									{
+										left: 30209,
+										op: 42397,
+										pick: 11786,
+										value: {
+											cls: 24621,
+											sp: 20062
+										}
+									}
+								]
+							}
+						],
+						computed: [
+							{
+								kind: 40123,
+								reading: 50512,
+								arg: 42937,
+								op: 35076,
+								than: {
+									cls: 37518,
+									sp: 6397
+								},
+								otherwise: {
+									cls: 59659,
+									sp: 58350
+								},
+								scale: 21997,
+								padded: 60087
+							}
+						],
+						negation: {
+							source: 28465,
+							picks: [24795, 40198]
+						},
+						head: {
+							vars: [],
+							names: [40485, 49814, 4404, 8139, 65534, 65323],
+							folds: [
+								{
+									fn: 295,
+									arg: 44403,
+									padded: 56297,
+									scale: 60449
+								}
+							]
+						},
+						interior: {
+							matches: [
+								{
+									source: 63174,
+									derived: 64292,
+									attached: 24193,
+									binds: [
+										{
+											how: 29223,
+											pick: 23396,
+											value: {
+												cls: 38676,
+												sp: 39851
+											}
+										},
+										{
+											how: 27482,
+											pick: 65160,
+											value: {
+												cls: 61170,
+												sp: 917
+											}
+										},
+										{
+											how: 64464,
+											pick: 28871,
+											value: {
+												cls: 33327,
+												sp: 44994
+											}
+										},
+										{
+											how: 6486,
+											pick: 62783,
+											value: {
+												cls: 21355,
+												sp: 17757
+											}
+										},
+										{
+											how: 620,
+											pick: 40130,
+											value: {
+												cls: 49818,
+												sp: 65524
+											}
+										},
+										{
+											how: 33307,
+											pick: 59144,
+											value: {
+												cls: 19471,
+												sp: 13658
+											}
+										},
+										{
+											how: 32250,
+											pick: 78,
+											value: {
+												cls: 23558,
+												sp: 52547
+											}
+										}
+									]
+								}
+							],
+							where: [],
+							negation: {
+								source: 42015,
+								picks: [50247, 20807]
+							},
+							head: {
+								vars: [],
+								names: [27220, 22, 54666, 57340, 39223, 18307],
+								folds: [
+									{
+										fn: 40617,
+										arg: 59143,
+										padded: 19581,
+										scale: 11757
+									},
+									{
+										fn: 61641,
+										arg: 44960,
+										padded: 6767,
+										scale: 43060
+									}
+								]
+							}
+						}
+					},
+					take: {
+						rotate: 3,
+						dirs: [578, 45795, 28330],
+						size: 24335,
+						ties: 23039
+					},
+					literalHead: {
+						name: 23486,
+						kind: 22297,
+						arms: 45724,
+						values: [32109, 35570, 10780]
+					},
+					importable: 39592,
+					bindImport: 51106,
+					named: 29428,
+					relationParam: {
+						relation: 18353,
+						facts: []
+					},
+					closure: {
+						relation: 37803,
+						pair: 18138,
+						name: 13264
+					},
+					attachments: [
+						{
+							name: 58963,
+							link: 11169,
+							handle: 19236,
+							delivery: 65512,
+							rule: {
+								matches: [
+									{
+										source: 2125,
+										derived: 32703,
+										attached: 54744,
+										binds: [
+											{
+												how: 49206,
+												pick: 56752,
+												value: {
+													cls: 546,
+													sp: 32566
+												}
+											},
+											{
+												how: 5428,
+												pick: 58485,
+												value: {
+													cls: 53891,
+													sp: 31690
+												}
+											},
+											{
+												how: 47591,
+												pick: 394,
+												value: {
+													cls: 55106,
+													sp: 6224
+												}
+											},
+											{
+												how: 55835,
+												pick: 60936,
+												value: {
+													cls: 1319,
+													sp: 46172
+												}
+											},
+											{
+												how: 44874,
+												pick: 8292,
+												value: {
+													cls: 16158,
+													sp: 55976
+												}
+											},
+											{
+												how: 5216,
+												pick: 44117,
+												value: {
+													cls: 14222,
+													sp: 54300
+												}
+											},
+											{
+												how: 23986,
+												pick: 39742,
+												value: {
+													cls: 52467,
+													sp: 51219
+												}
+											}
+										]
+									}
+								],
+								where: [
+									{
+										left: 4592,
+										op: 61541,
+										pick: 27657,
+										value: {
+											cls: 11582,
+											sp: 17238
+										}
+									}
+								],
+								between: [
+									{
+										left: 26441,
+										low: {
+											pick: 31922,
+											value: {
+												cls: 11349,
+												sp: 64154
+											}
+										},
+										high: {
+											pick: 29338,
+											value: {
+												cls: 14280,
+												sp: 0
+											}
+										}
+									}
+								],
+								inSet: [],
+								allen: [],
+								pointIn: [
+									{
+										span: 30518,
+										point: 4493
+									}
+								],
+								connective: [],
+								computed: [],
+								negation: {
+									source: 1235,
+									picks: [18654, 36391]
+								},
+								head: {
+									vars: [29797, 21019, 47432],
+									names: [6, 30293, 27197, 18418, 13764, 61470],
+									folds: [
+										{
+											fn: 28331,
+											arg: 60684,
+											padded: 3599,
+											scale: 33590
+										},
+										{
+											fn: 1,
+											arg: 58399,
+											padded: 59806,
+											scale: 3486
+										}
+									]
+								},
+								interior: {
+									matches: [
+										{
+											source: 26756,
+											derived: 5120,
+											attached: 20048,
+											binds: [
+												{
+													how: 58916,
+													pick: 19485,
+													value: {
+														cls: 20730,
+														sp: 8506
+													}
+												},
+												{
+													how: 370,
+													pick: 4062,
+													value: {
+														cls: 37056,
+														sp: 2862
+													}
+												},
+												{
+													how: 37043,
+													pick: 40809,
+													value: {
+														cls: 11462,
+														sp: 31478
+													}
+												},
+												{
+													how: 9109,
+													pick: 41210,
+													value: {
+														cls: 62195,
+														sp: 32699
+													}
+												},
+												{
+													how: 19103,
+													pick: 35406,
+													value: {
+														cls: 50339,
+														sp: 39525
+													}
+												},
+												{
+													how: 14034,
+													pick: 41931,
+													value: {
+														cls: 58943,
+														sp: 11288
+													}
+												},
+												{
+													how: 34219,
+													pick: 0,
+													value: {
+														cls: 30434,
+														sp: 15487
+													}
+												}
+											]
+										},
+										{
+											source: 65226,
+											derived: 11624,
+											attached: 62333,
+											binds: [
+												{
+													how: 65528,
+													pick: 63393,
+													value: {
+														cls: 124,
+														sp: 32391
+													}
+												},
+												{
+													how: 14933,
+													pick: 1984,
+													value: {
+														cls: 15773,
+														sp: 10376
+													}
+												},
+												{
+													how: 20240,
+													pick: 21433,
+													value: {
+														cls: 14,
+														sp: 33133
+													}
+												},
+												{
+													how: 35498,
+													pick: 4527,
+													value: {
+														cls: 1663,
+														sp: 11112
+													}
+												},
+												{
+													how: 19365,
+													pick: 32193,
+													value: {
+														cls: 22107,
+														sp: 54552
+													}
+												},
+												{
+													how: 34603,
+													pick: 47102,
+													value: {
+														cls: 8461,
+														sp: 47031
+													}
+												},
+												{
+													how: 15639,
+													pick: 58,
+													value: {
+														cls: 25729,
+														sp: 11086
+													}
+												}
+											]
+										}
+									],
+									where: [
+										{
+											left: 50438,
+											op: 7241,
+											pick: 7539,
+											value: {
+												cls: 48093,
+												sp: 41685
+											}
+										}
+									],
+									negation: {
+										source: 65525,
+										picks: [12266, 65534]
+									},
+									head: {
+										vars: [],
+										names: [61886, 54, 6119, 38167, 65090, 26289],
+										folds: [
+											{
+												fn: 14608,
+												arg: 4994,
+												padded: 29648,
+												scale: 54931
+											},
+											{
+												fn: 2746,
+												arg: 23276,
+												padded: 42361,
+												scale: 10920
+											}
+										]
+									}
+								}
+							},
+							take: {
+								rotate: 43599,
+								dirs: [47184, 57675, 30016],
+								size: 47990
+							},
+							nested: {
+								name: 61243,
+								link: 6,
+								handle: 14995,
+								delivery: 62838,
+								rule: {
+									matches: [
+										{
+											source: 65526,
+											derived: 55713,
+											attached: 44168,
+											binds: [
+												{
+													how: 57710,
+													pick: 43685,
+													value: {
+														cls: 7373,
+														sp: 54962
+													}
+												},
+												{
+													how: 50147,
+													pick: 64351,
+													value: {
+														cls: 65497,
+														sp: 62648
+													}
+												},
+												{
+													how: 46032,
+													pick: 55931,
+													value: {
+														cls: 37386,
+														sp: 7139
+													}
+												},
+												{
+													how: 42610,
+													pick: 35165,
+													value: {
+														cls: 56158,
+														sp: 58884
+													}
+												},
+												{
+													how: 29071,
+													pick: 64200,
+													value: {
+														cls: 21615,
+														sp: 19293
+													}
+												},
+												{
+													how: 17185,
+													pick: 4312,
+													value: {
+														cls: 57882,
+														sp: 59406
+													}
+												},
+												{
+													how: 48627,
+													pick: 2148,
+													value: {
+														cls: 45631,
+														sp: 47442
+													}
+												}
+											]
+										},
+										{
+											source: 65534,
+											derived: 53595,
+											attached: 33625,
+											binds: [
+												{
+													how: 5,
+													pick: 42794,
+													value: {
+														cls: 49316,
+														sp: 46401
+													}
+												},
+												{
+													how: 59900,
+													pick: 41994,
+													value: {
+														cls: 19396,
+														sp: 54560
+													}
+												},
+												{
+													how: 3598,
+													pick: 4147,
+													value: {
+														cls: 1813,
+														sp: 13
+													}
+												},
+												{
+													how: 37894,
+													pick: 17168,
+													value: {
+														cls: 40142,
+														sp: 64552
+													}
+												},
+												{
+													how: 12042,
+													pick: 498,
+													value: {
+														cls: 63399,
+														sp: 817
+													}
+												},
+												{
+													how: 17927,
+													pick: 3149,
+													value: {
+														cls: 16000,
+														sp: 59727
+													}
+												},
+												{
+													how: 65305,
+													pick: 7421,
+													value: {
+														cls: 43658,
+														sp: 6754
+													}
+												}
+											]
+										}
+									],
+									where: [
+										{
+											left: 17726,
+											op: 61562,
+											pick: 16556,
+											value: {
+												cls: 52609,
+												sp: 17638
+											}
+										},
+										{
+											left: 38514,
+											op: 1079,
+											pick: 91,
+											value: {
+												cls: 18472,
+												sp: 19352
+											}
+										}
+									],
+									between: [],
+									inSet: [],
+									allen: [
+										{
+											left: 39109,
+											mask: 24456,
+											right: 65535
+										}
+									],
+									pointIn: [
+										{
+											span: 15337,
+											point: 47370
+										}
+									],
+									connective: [
+										{
+											kind: 62421,
+											args: [
+												{
+													left: 57868,
+													op: 21288,
+													pick: 20726,
+													value: {
+														cls: 19716,
+														sp: 5317
+													}
+												}
+											]
+										}
+									],
+									computed: [
+										{
+											kind: 65083,
+											reading: 65535,
+											arg: 2558,
+											op: 81,
+											than: {
+												cls: 64775,
+												sp: 43344
+											},
+											otherwise: {
+												cls: 45735,
+												sp: 12817
+											},
+											scale: 34066,
+											padded: 40805
+										}
+									],
+									negation: {
+										source: 26470,
+										picks: [27286, 9163]
+									},
+									head: {
+										vars: [54480, 39580, 35657],
+										names: [24593, 62335, 43730, 5832, 61103, 8759],
+										folds: [
+											{
+												fn: 35990,
+												arg: 31490,
+												padded: 56237,
+												scale: 23787
+											}
+										]
+									},
+									interior: {
+										matches: [
+											{
+												source: 17728,
+												derived: 3760,
+												attached: 17756,
+												binds: [
+													{
+														how: 27881,
+														pick: 0,
+														value: {
+															cls: 27127,
+															sp: 29162
+														}
+													},
+													{
+														how: 37962,
+														pick: 49375,
+														value: {
+															cls: 16409,
+															sp: 46855
+														}
+													},
+													{
+														how: 64401,
+														pick: 50845,
+														value: {
+															cls: 9708,
+															sp: 29489
+														}
+													},
+													{
+														how: 65411,
+														pick: 9633,
+														value: {
+															cls: 17697,
+															sp: 34298
+														}
+													},
+													{
+														how: 11699,
+														pick: 65524,
+														value: {
+															cls: 53148,
+															sp: 38289
+														}
+													},
+													{
+														how: 5674,
+														pick: 8784,
+														value: {
+															cls: 33820,
+															sp: 30001
+														}
+													},
+													{
+														how: 0,
+														pick: 11090,
+														value: {
+															cls: 54118,
+															sp: 7215
+														}
+													}
+												]
+											}
+										],
+										where: [
+											{
+												left: 30313,
+												op: 34923,
+												pick: 56570,
+												value: {
+													cls: 30976,
+													sp: 7515
+												}
+											}
+										],
+										negation: {
+											source: 25883,
+											picks: [32607, 1070]
+										},
+										head: {
+											vars: [61441, 5822, 16168],
+											names: [65516, 17198, 56312, 35121, 5618, 17563],
+											folds: [
+												{
+													fn: 24934,
+													arg: 64025,
+													padded: 44418,
+													scale: 30663
+												}
+											]
+										}
+									}
+								},
+								take: {
+									rotate: 46893,
+									dirs: [63043, 22321, 7897],
+									size: 20570
+								}
+							}
+						},
+						{
+							name: 27568,
+							link: 50226,
+							handle: 30605,
+							delivery: 560,
+							rule: {
+								matches: [
+									{
+										source: 41777,
+										derived: 13853,
+										attached: 39685,
+										binds: [
+											{
+												how: 64498,
+												pick: 45086,
+												value: {
+													cls: 58789,
+													sp: 3703
+												}
+											},
+											{
+												how: 31112,
+												pick: 62132,
+												value: {
+													cls: 14272,
+													sp: 65433
+												}
+											},
+											{
+												how: 21768,
+												pick: 29968,
+												value: {
+													cls: 4599,
+													sp: 65504
+												}
+											},
+											{
+												how: 65408,
+												pick: 11515,
+												value: {
+													cls: 50746,
+													sp: 1181
+												}
+											},
+											{
+												how: 62133,
+												pick: 49150,
+												value: {
+													cls: 38357,
+													sp: 36786
+												}
+											},
+											{
+												how: 27833,
+												pick: 45789,
+												value: {
+													cls: 13260,
+													sp: 65535
+												}
+											},
+											{
+												how: 58108,
+												pick: 44474,
+												value: {
+													cls: 8449,
+													sp: 46818
+												}
+											}
+										]
+									}
+								],
+								where: [
+									{
+										left: 1641,
+										op: 60890,
+										pick: 27249,
+										value: {
+											cls: 42272,
+											sp: 4121
+										}
+									},
+									{
+										left: 64573,
+										op: 61721,
+										pick: 4332,
+										value: {
+											cls: 21466,
+											sp: 60354
+										}
+									}
+								],
+								between: [
+									{
+										left: 24121,
+										low: {
+											pick: 6825,
+											value: {
+												cls: 4211,
+												sp: 38246
+											}
+										},
+										high: {
+											pick: 45292,
+											value: {
+												cls: 59092,
+												sp: 49180
+											}
+										}
+									}
+								],
+								inSet: [],
+								allen: [
+									{
+										left: 57489,
+										mask: 44511,
+										right: 28830
+									}
+								],
+								pointIn: [],
+								connective: [
+									{
+										kind: 6075,
+										args: [
+											{
+												left: 65535,
+												op: 41108,
+												pick: 44326,
+												value: {
+													cls: 62345,
+													sp: 9555
+												}
+											}
+										]
+									}
+								],
+								computed: [],
+								negation: {
+									source: 5798,
+									picks: [49470, 7733]
+								},
+								head: {
+									vars: [43969, 32024, 57775],
+									names: [51955, 250, 58617, 0, 29239, 51474],
+									folds: [
+										{
+											fn: 17967,
+											arg: 18761,
+											padded: 58369,
+											scale: 49085
+										}
+									]
+								},
+								interior: {
+									matches: [
+										{
+											source: 26951,
+											derived: 81,
+											attached: 30970,
+											binds: [
+												{
+													how: 42966,
+													pick: 49524,
+													value: {
+														cls: 41344,
+														sp: 56
+													}
+												},
+												{
+													how: 2665,
+													pick: 12367,
+													value: {
+														cls: 27972,
+														sp: 39329
+													}
+												},
+												{
+													how: 35817,
+													pick: 32099,
+													value: {
+														cls: 23820,
+														sp: 20458
+													}
+												},
+												{
+													how: 17260,
+													pick: 62961,
+													value: {
+														cls: 65532,
+														sp: 44756
+													}
+												},
+												{
+													how: 8042,
+													pick: 11049,
+													value: {
+														cls: 18909,
+														sp: 5050
+													}
+												},
+												{
+													how: 11451,
+													pick: 32366,
+													value: {
+														cls: 8852,
+														sp: 29827
+													}
+												},
+												{
+													how: 56260,
+													pick: 53570,
+													value: {
+														cls: 57913,
+														sp: 13302
+													}
+												}
+											]
+										}
+									],
+									where: [],
+									negation: {
+										source: 26383,
+										picks: [61646, 52458]
+									},
+									head: {
+										vars: [51278, 4, 40287],
+										names: [18997, 51224, 50519, 24788, 48505, 34496],
+										folds: [
+											{
+												fn: 60838,
+												arg: 12090,
+												padded: 17088,
+												scale: 63588
+											}
+										]
+									}
+								}
+							},
+							take: {
+								rotate: 8704,
+								dirs: [18677, 40315, 9403],
+								size: 30449
+							},
+							nested: {
+								name: 45394,
+								link: 50459,
+								handle: 23423,
+								delivery: 17178,
+								rule: {
+									matches: [
+										{
+											source: 27798,
+											derived: 16336,
+											attached: 65248,
+											binds: [
+												{
+													how: 56059,
+													pick: 33620,
+													value: {
+														cls: 46346,
+														sp: 57982
+													}
+												},
+												{
+													how: 31239,
+													pick: 19461,
+													value: {
+														cls: 45385,
+														sp: 45700
+													}
+												},
+												{
+													how: 54973,
+													pick: 65483,
+													value: {
+														cls: 14500,
+														sp: 46021
+													}
+												},
+												{
+													how: 37645,
+													pick: 62106,
+													value: {
+														cls: 55703,
+														sp: 33700
+													}
+												},
+												{
+													how: 27493,
+													pick: 16743,
+													value: {
+														cls: 14363,
+														sp: 27708
+													}
+												},
+												{
+													how: 123,
+													pick: 14457,
+													value: {
+														cls: 48234,
+														sp: 55563
+													}
+												},
+												{
+													how: 23706,
+													pick: 35095,
+													value: {
+														cls: 24739,
+														sp: 20462
+													}
+												}
+											]
+										}
+									],
+									where: [
+										{
+											left: 28438,
+											op: 16916,
+											pick: 28263,
+											value: {
+												cls: 24032,
+												sp: 45337
+											}
+										}
+									],
+									between: [],
+									inSet: [
+										{
+											left: 4201,
+											values: [
+												{
+													cls: 6444,
+													sp: 65510
+												},
+												{
+													cls: 65281,
+													sp: 26796
+												}
+											]
+										}
+									],
+									allen: [],
+									pointIn: [
+										{
+											span: 15333,
+											point: 60199
+										}
+									],
+									connective: [
+										{
+											kind: 7520,
+											args: [
+												{
+													left: 24151,
+													op: 52632,
+													pick: 35586,
+													value: {
+														cls: 41950,
+														sp: 13860
+													}
+												}
+											]
+										}
+									],
+									computed: [],
+									negation: {
+										source: 48111,
+										picks: [38831, 45665]
+									},
+									head: {
+										vars: [25179, 64590, 35506],
+										names: [4616, 25034, 48898, 34977, 43220, 57912],
+										folds: [
+											{
+												fn: 20146,
+												arg: 46069,
+												padded: 37243,
+												scale: 21846
+											}
+										]
+									},
+									interior: {
+										matches: [
+											{
+												source: 402,
+												derived: 544,
+												attached: 4735,
+												binds: [
+													{
+														how: 41354,
+														pick: 64614,
+														value: {
+															cls: 10729,
+															sp: 4596
+														}
+													},
+													{
+														how: 29,
+														pick: 10204,
+														value: {
+															cls: 27402,
+															sp: 25606
+														}
+													},
+													{
+														how: 35902,
+														pick: 18108,
+														value: {
+															cls: 15,
+															sp: 32871
+														}
+													},
+													{
+														how: 12865,
+														pick: 45640,
+														value: {
+															cls: 49576,
+															sp: 19832
+														}
+													},
+													{
+														how: 38586,
+														pick: 47779,
+														value: {
+															cls: 21272,
+															sp: 64879
+														}
+													},
+													{
+														how: 23613,
+														pick: 29039,
+														value: {
+															cls: 3779,
+															sp: 65535
+														}
+													},
+													{
+														how: 45501,
+														pick: 5152,
+														value: {
+															cls: 7745,
+															sp: 42658
+														}
+													}
+												]
+											},
+											{
+												source: 41776,
+												derived: 20720,
+												attached: 50911,
+												binds: [
+													{
+														how: 31786,
+														pick: 50002,
+														value: {
+															cls: 46993,
+															sp: 20032
+														}
+													},
+													{
+														how: 15959,
+														pick: 31707,
+														value: {
+															cls: 42975,
+															sp: 5830
+														}
+													},
+													{
+														how: 58486,
+														pick: 18903,
+														value: {
+															cls: 56999,
+															sp: 63638
+														}
+													},
+													{
+														how: 61553,
+														pick: 6,
+														value: {
+															cls: 29086,
+															sp: 24533
+														}
+													},
+													{
+														how: 64209,
+														pick: 65534,
+														value: {
+															cls: 751,
+															sp: 58115
+														}
+													},
+													{
+														how: 22576,
+														pick: 65533,
+														value: {
+															cls: 64948,
+															sp: 243
+														}
+													},
+													{
+														how: 12524,
+														pick: 64914,
+														value: {
+															cls: 1731,
+															sp: 34444
+														}
+													}
+												]
+											}
+										],
+										where: [
+											{
+												left: 5543,
+												op: 41096,
+												pick: 61637,
+												value: {
+													cls: 61335,
+													sp: 51504
+												}
+											},
+											{
+												left: 63012,
+												op: 56866,
+												pick: 27377,
+												value: {
+													cls: 56505,
+													sp: 17703
+												}
+											}
+										],
+										negation: {
+											source: 28504,
+											picks: [58877, 31730]
+										},
+										head: {
+											vars: [50295, 6499],
+											names: [34112, 17839, 48686, 15817, 21154, 57228],
+											folds: [
+												{
+													fn: 33429,
+													arg: 53631,
+													padded: 1860,
+													scale: 63937
+												}
+											]
+										}
+									}
+								},
+								take: {
+									rotate: 32240,
+									dirs: [17903, 8782, 65370],
+									size: 48812
+								}
+							}
+						}
+					],
+					order: {
+						rotate: 58844,
+						dirs: [13835, 5, 65087],
+						size: 43595
+					},
+					probe: {
+						kind: 23245,
+						pick: 43030
+					},
+					key: {
+						relation: 38719,
+						which: 1119,
+						fact: 10596,
+						absent: 1770,
+						roster: 21823
+					}
+				},
+				{
+					rule: {
+						matches: [
+							{
+								source: 12357,
+								derived: 17990,
+								attached: 64384,
+								binds: [
+									{
+										how: 51808,
+										pick: 46465,
+										value: {
+											cls: 63437,
+											sp: 26709
+										}
+									},
+									{
+										how: 22270,
+										pick: 61848,
+										value: {
+											cls: 60158,
+											sp: 42363
+										}
+									},
+									{
+										how: 61933,
+										pick: 22927,
+										value: {
+											cls: 46087,
+											sp: 10096
+										}
+									},
+									{
+										how: 7230,
+										pick: 3764,
+										value: {
+											cls: 4,
+											sp: 31067
+										}
+									},
+									{
+										how: 53837,
+										pick: 36102,
+										value: {
+											cls: 48310,
+											sp: 20197
+										}
+									},
+									{
+										how: 22533,
+										pick: 37724,
+										value: {
+											cls: 21681,
+											sp: 32711
+										}
+									},
+									{
+										how: 264,
+										pick: 1755,
+										value: {
+											cls: 46255,
+											sp: 63523
+										}
+									}
+								]
+							},
+							{
+								source: 45025,
+								derived: 11545,
+								attached: 24367,
+								binds: [
+									{
+										how: 62125,
+										pick: 49017,
+										value: {
+											cls: 54539,
+											sp: 18443
+										}
+									},
+									{
+										how: 9231,
+										pick: 65535,
+										value: {
+											cls: 6585,
+											sp: 56935
+										}
+									},
+									{
+										how: 65533,
+										pick: 37446,
+										value: {
+											cls: 10381,
+											sp: 60023
+										}
+									},
+									{
+										how: 45085,
+										pick: 47796,
+										value: {
+											cls: 48009,
+											sp: 1816
+										}
+									},
+									{
+										how: 55583,
+										pick: 65532,
+										value: {
+											cls: 64663,
+											sp: 4755
+										}
+									},
+									{
+										how: 46264,
+										pick: 11477,
+										value: {
+											cls: 55542,
+											sp: 22782
+										}
+									},
+									{
+										how: 38250,
+										pick: 9389,
+										value: {
+											cls: 33007,
+											sp: 2791
+										}
+									}
+								]
+							}
+						],
+						where: [
+							{
+								left: 41128,
+								op: 48885,
+								pick: 50180,
+								value: {
+									cls: 50643,
+									sp: 65425
+								}
+							},
+							{
+								left: 10686,
+								op: 21004,
+								pick: 40907,
+								value: {
+									cls: 28818,
+									sp: 31796
+								}
+							}
+						],
+						between: [],
+						inSet: [],
+						allen: [],
+						pointIn: [
+							{
+								span: 60651,
+								point: 9739
+							}
+						],
+						connective: [],
+						computed: [
+							{
+								kind: 31563,
+								reading: 14702,
+								arg: 46795,
+								op: 56676,
+								than: {
+									cls: 33861,
+									sp: 29532
+								},
+								otherwise: {
+									cls: 56692,
+									sp: 21633
+								},
+								scale: 1518,
+								padded: 1033
+							}
+						],
+						negation: {
+							source: 14179,
+							picks: [48465, 57665]
+						},
+						head: {
+							vars: [58975, 4194],
+							names: [16461, 38249, 40204, 41780, 39602, 818],
+							folds: [
+								{
+									fn: 30544,
+									arg: 5221,
+									padded: 5033,
+									scale: 55193
+								},
+								{
+									fn: 37958,
+									arg: 10109,
+									padded: 17470,
+									scale: 33854
+								}
+							]
+						},
+						interior: {
+							matches: [
+								{
+									source: 7,
+									derived: 7416,
+									attached: 64951,
+									binds: [
+										{
+											how: 34716,
+											pick: 45176,
+											value: {
+												cls: 44303,
+												sp: 53230
+											}
+										},
+										{
+											how: 57444,
+											pick: 7501,
+											value: {
+												cls: 55004,
+												sp: 32010
+											}
+										},
+										{
+											how: 15433,
+											pick: 27190,
+											value: {
+												cls: 65217,
+												sp: 65473
+											}
+										},
+										{
+											how: 529,
+											pick: 28034,
+											value: {
+												cls: 49818,
+												sp: 25246
+											}
+										},
+										{
+											how: 4455,
+											pick: 1288,
+											value: {
+												cls: 7553,
+												sp: 56939
+											}
+										},
+										{
+											how: 48583,
+											pick: 63642,
+											value: {
+												cls: 32159,
+												sp: 39070
+											}
+										},
+										{
+											how: 62325,
+											pick: 30939,
+											value: {
+												cls: 6739,
+												sp: 52475
+											}
+										}
+									]
+								},
+								{
+									source: 10524,
+									derived: 46106,
+									attached: 8685,
+									binds: [
+										{
+											how: 26497,
+											pick: 14225,
+											value: {
+												cls: 2525,
+												sp: 36132
+											}
+										},
+										{
+											how: 52831,
+											pick: 58088,
+											value: {
+												cls: 7239,
+												sp: 39793
+											}
+										},
+										{
+											how: 361,
+											pick: 27376,
+											value: {
+												cls: 51384,
+												sp: 48554
+											}
+										},
+										{
+											how: 5416,
+											pick: 0,
+											value: {
+												cls: 18313,
+												sp: 8187
+											}
+										},
+										{
+											how: 63489,
+											pick: 52741,
+											value: {
+												cls: 12339,
+												sp: 50858
+											}
+										},
+										{
+											how: 34173,
+											pick: 36695,
+											value: {
+												cls: 19889,
+												sp: 61175
+											}
+										},
+										{
+											how: 11363,
+											pick: 50618,
+											value: {
+												cls: 27964,
+												sp: 11532
+											}
+										}
+									]
+								}
+							],
+							where: [],
+							negation: {
+								source: 26523,
+								picks: [16996, 6567]
+							},
+							head: {
+								vars: [52123],
+								names: [3462, 8327, 40448, 21458, 5773, 14341],
+								folds: [
+									{
+										fn: 22006,
+										arg: 61887,
+										padded: 45601,
+										scale: 54662
+									}
+								]
+							}
+						}
+					},
+					take: {
+						rotate: 9239,
+						dirs: [945, 31130, 44642],
+						size: 61131,
+						ties: 54639
+					},
+					literalHead: {
+						name: 49906,
+						kind: 21886,
+						arms: 36268,
+						values: [12004, 41869, 52121]
+					},
+					importable: 38634,
+					bindImport: 65168,
+					named: 6272,
+					relationParam: {
+						relation: 31080,
+						facts: [
+							{
+								values: [
+									{
+										cls: 2740,
+										sp: 48387
+									},
+									{
+										cls: 56440,
+										sp: 15
+									},
+									{
+										cls: 14149,
+										sp: 48433
+									},
+									{
+										cls: 53830,
+										sp: 38710
+									},
+									{
+										cls: 32907,
+										sp: 6840
+									},
+									{
+										cls: 58860,
+										sp: 50181
+									},
+									{
+										cls: 22914,
+										sp: 48522
+									}
+								]
+							},
+							{
+								values: [
+									{
+										cls: 62499,
+										sp: 65513
+									},
+									{
+										cls: 65533,
+										sp: 15852
+									},
+									{
+										cls: 54606,
+										sp: 50967
+									},
+									{
+										cls: 19116,
+										sp: 45003
+									},
+									{
+										cls: 14106,
+										sp: 53319
+									},
+									{
+										cls: 3013,
+										sp: 65533
+									},
+									{
+										cls: 15958,
+										sp: 5695
+									}
+								]
+							}
+						]
+					},
+					closure: {
+						relation: 50779,
+						pair: 57914,
+						name: 65535
+					},
+					attachments: [
+						{
+							name: 61281,
+							link: 15440,
+							handle: 34838,
+							delivery: 65527,
+							rule: {
+								matches: [
+									{
+										source: 31016,
+										derived: 3832,
+										attached: 9285,
+										binds: [
+											{
+												how: 8589,
+												pick: 27191,
+												value: {
+													cls: 40426,
+													sp: 36839
+												}
+											},
+											{
+												how: 15133,
+												pick: 4558,
+												value: {
+													cls: 34454,
+													sp: 47064
+												}
+											},
+											{
+												how: 33893,
+												pick: 24902,
+												value: {
+													cls: 32206,
+													sp: 24629
+												}
+											},
+											{
+												how: 26344,
+												pick: 45205,
+												value: {
+													cls: 52848,
+													sp: 54119
+												}
+											},
+											{
+												how: 39745,
+												pick: 4343,
+												value: {
+													cls: 65212,
+													sp: 65534
+												}
+											},
+											{
+												how: 63569,
+												pick: 47057,
+												value: {
+													cls: 43242,
+													sp: 34178
+												}
+											},
+											{
+												how: 14827,
+												pick: 37352,
+												value: {
+													cls: 16168,
+													sp: 10042
+												}
+											}
+										]
+									}
+								],
+								where: [
+									{
+										left: 6376,
+										op: 7474,
+										pick: 29235,
+										value: {
+											cls: 27504,
+											sp: 17975
+										}
+									}
+								],
+								between: [
+									{
+										left: 17370,
+										low: {
+											pick: 28354,
+											value: {
+												cls: 50287,
+												sp: 29289
+											}
+										},
+										high: {
+											pick: 47465,
+											value: {
+												cls: 63866,
+												sp: 17192
+											}
+										}
+									}
+								],
+								inSet: [],
+								allen: [
+									{
+										left: 4657,
+										mask: 60675,
+										right: 34436
+									}
+								],
+								pointIn: [],
+								connective: [
+									{
+										kind: 10018,
+										args: [
+											{
+												left: 0,
+												op: 65535,
+												pick: 14279,
+												value: {
+													cls: 23817,
+													sp: 61787
+												}
+											}
+										]
+									}
+								],
+								computed: [
+									{
+										kind: 49605,
+										reading: 33001,
+										arg: 7702,
+										op: 64253,
+										than: {
+											cls: 10361,
+											sp: 21179
+										},
+										otherwise: {
+											cls: 7534,
+											sp: 60037
+										},
+										scale: 37807,
+										padded: 64673
+									}
+								],
+								negation: {
+									source: 22715,
+									picks: [3048, 59]
+								},
+								head: {
+									vars: [7069, 13642, 16546],
+									names: [35117, 52712, 35508, 60169, 3677, 65529],
+									folds: [
+										{
+											fn: 2079,
+											arg: 65532,
+											padded: 65535,
+											scale: 21994
+										},
+										{
+											fn: 10607,
+											arg: 56273,
+											padded: 17246,
+											scale: 31018
+										}
+									]
+								},
+								interior: {
+									matches: [
+										{
+											source: 43651,
+											derived: 48009,
+											attached: 64470,
+											binds: [
+												{
+													how: 32491,
+													pick: 53704,
+													value: {
+														cls: 65362,
+														sp: 63152
+													}
+												},
+												{
+													how: 65518,
+													pick: 6635,
+													value: {
+														cls: 41005,
+														sp: 35774
+													}
+												},
+												{
+													how: 27969,
+													pick: 17496,
+													value: {
+														cls: 33906,
+														sp: 60598
+													}
+												},
+												{
+													how: 33918,
+													pick: 24728,
+													value: {
+														cls: 12381,
+														sp: 23413
+													}
+												},
+												{
+													how: 35887,
+													pick: 31260,
+													value: {
+														cls: 11638,
+														sp: 10300
+													}
+												},
+												{
+													how: 25562,
+													pick: 65173,
+													value: {
+														cls: 63955,
+														sp: 8134
+													}
+												},
+												{
+													how: 0,
+													pick: 34495,
+													value: {
+														cls: 53293,
+														sp: 2819
+													}
+												}
+											]
+										}
+									],
+									where: [
+										{
+											left: 13267,
+											op: 19236,
+											pick: 61213,
+											value: {
+												cls: 8386,
+												sp: 7011
+											}
+										},
+										{
+											left: 17571,
+											op: 722,
+											pick: 63580,
+											value: {
+												cls: 44557,
+												sp: 43732
+											}
+										}
+									],
+									negation: {
+										source: 51859,
+										picks: [42105, 6461]
+									},
+									head: {
+										vars: [18679, 22573, 57124],
+										names: [1980, 39673, 5, 65288, 10580, 35192],
+										folds: [
+											{
+												fn: 65534,
+												arg: 14093,
+												padded: 37453,
+												scale: 64877
+											}
+										]
+									}
+								}
+							},
+							take: {
+								rotate: 60162,
+								dirs: [6631, 24747, 5339],
+								size: 25212
+							},
+							nested: {
+								name: 19387,
+								link: 59583,
+								handle: 53523,
+								delivery: 2226,
+								rule: {
+									matches: [
+										{
+											source: 65533,
+											derived: 18225,
+											attached: 33479,
+											binds: [
+												{
+													how: 37204,
+													pick: 54248,
+													value: {
+														cls: 48683,
+														sp: 53652
+													}
+												},
+												{
+													how: 29683,
+													pick: 11541,
+													value: {
+														cls: 10017,
+														sp: 49250
+													}
+												},
+												{
+													how: 2855,
+													pick: 45028,
+													value: {
+														cls: 2764,
+														sp: 64858
+													}
+												},
+												{
+													how: 4,
+													pick: 33304,
+													value: {
+														cls: 58562,
+														sp: 34724
+													}
+												},
+												{
+													how: 59431,
+													pick: 48824,
+													value: {
+														cls: 31472,
+														sp: 54519
+													}
+												},
+												{
+													how: 62431,
+													pick: 56051,
+													value: {
+														cls: 28338,
+														sp: 5313
+													}
+												},
+												{
+													how: 27714,
+													pick: 50049,
+													value: {
+														cls: 32414,
+														sp: 3952
+													}
+												}
+											]
+										},
+										{
+											source: 54485,
+											derived: 33210,
+											attached: 47550,
+											binds: [
+												{
+													how: 7,
+													pick: 55458,
+													value: {
+														cls: 34304,
+														sp: 64916
+													}
+												},
+												{
+													how: 50625,
+													pick: 17496,
+													value: {
+														cls: 28188,
+														sp: 3904
+													}
+												},
+												{
+													how: 28311,
+													pick: 15755,
+													value: {
+														cls: 25847,
+														sp: 7359
+													}
+												},
+												{
+													how: 32924,
+													pick: 34371,
+													value: {
+														cls: 21902,
+														sp: 22121
+													}
+												},
+												{
+													how: 61825,
+													pick: 37936,
+													value: {
+														cls: 34392,
+														sp: 35879
+													}
+												},
+												{
+													how: 53978,
+													pick: 8124,
+													value: {
+														cls: 57483,
+														sp: 56602
+													}
+												},
+												{
+													how: 12466,
+													pick: 58712,
+													value: {
+														cls: 42718,
+														sp: 35316
+													}
+												}
+											]
+										},
+										{
+											source: 25931,
+											derived: 19486,
+											attached: 37310,
+											binds: [
+												{
+													how: 38671,
+													pick: 12301,
+													value: {
+														cls: 61433,
+														sp: 49074
+													}
+												},
+												{
+													how: 3968,
+													pick: 51122,
+													value: {
+														cls: 54082,
+														sp: 3914
+													}
+												},
+												{
+													how: 13943,
+													pick: 65533,
+													value: {
+														cls: 41144,
+														sp: 58653
+													}
+												},
+												{
+													how: 61377,
+													pick: 6982,
+													value: {
+														cls: 7435,
+														sp: 37486
+													}
+												},
+												{
+													how: 61152,
+													pick: 9029,
+													value: {
+														cls: 39905,
+														sp: 41454
+													}
+												},
+												{
+													how: 65534,
+													pick: 14862,
+													value: {
+														cls: 17743,
+														sp: 37475
+													}
+												},
+												{
+													how: 44933,
+													pick: 64504,
+													value: {
+														cls: 57324,
+														sp: 92
+													}
+												}
+											]
+										}
+									],
+									where: [],
+									between: [],
+									inSet: [
+										{
+											left: 27978,
+											values: [
+												{
+													cls: 2,
+													sp: 19333
+												},
+												{
+													cls: 117,
+													sp: 6399
+												},
+												{
+													cls: 38281,
+													sp: 18107
+												}
+											]
+										}
+									],
+									allen: [],
+									pointIn: [],
+									connective: [
+										{
+											kind: 16769,
+											args: []
+										}
+									],
+									computed: [
+										{
+											kind: 19152,
+											reading: 3387,
+											arg: 28679,
+											op: 45947,
+											than: {
+												cls: 32914,
+												sp: 65525
+											},
+											otherwise: {
+												cls: 161,
+												sp: 45376
+											},
+											scale: 37638,
+											padded: 8298
+										}
+									],
+									negation: {
+										source: 7230,
+										picks: [49159, 44117]
+									},
+									head: {
+										vars: [24919, 11234],
+										names: [44008, 11688, 2, 10437, 13057, 4089],
+										folds: [
+											{
+												fn: 30769,
+												arg: 32867,
+												padded: 12575,
+												scale: 32709
+											},
+											{
+												fn: 49532,
+												arg: 35539,
+												padded: 41710,
+												scale: 1
+											}
+										]
+									},
+									interior: {
+										matches: [
+											{
+												source: 59198,
+												derived: 19394,
+												attached: 28091,
+												binds: [
+													{
+														how: 61403,
+														pick: 17785,
+														value: {
+															cls: 36516,
+															sp: 2162
+														}
+													},
+													{
+														how: 28265,
+														pick: 4,
+														value: {
+															cls: 17335,
+															sp: 60972
+														}
+													},
+													{
+														how: 64201,
+														pick: 43469,
+														value: {
+															cls: 30775,
+															sp: 22
+														}
+													},
+													{
+														how: 57524,
+														pick: 11886,
+														value: {
+															cls: 65510,
+															sp: 37564
+														}
+													},
+													{
+														how: 36895,
+														pick: 53983,
+														value: {
+															cls: 57490,
+															sp: 24217
+														}
+													},
+													{
+														how: 39614,
+														pick: 26826,
+														value: {
+															cls: 48,
+															sp: 34255
+														}
+													},
+													{
+														how: 1680,
+														pick: 55576,
+														value: {
+															cls: 34706,
+															sp: 6597
+														}
+													}
+												]
+											},
+											{
+												source: 64272,
+												derived: 21019,
+												attached: 62142,
+												binds: [
+													{
+														how: 45718,
+														pick: 53852,
+														value: {
+															cls: 31008,
+															sp: 58485
+														}
+													},
+													{
+														how: 12010,
+														pick: 52895,
+														value: {
+															cls: 46799,
+															sp: 0
+														}
+													},
+													{
+														how: 36246,
+														pick: 0,
+														value: {
+															cls: 50474,
+															sp: 37471
+														}
+													},
+													{
+														how: 40043,
+														pick: 52601,
+														value: {
+															cls: 9972,
+															sp: 12415
+														}
+													},
+													{
+														how: 19709,
+														pick: 37422,
+														value: {
+															cls: 21410,
+															sp: 14165
+														}
+													},
+													{
+														how: 59075,
+														pick: 49601,
+														value: {
+															cls: 56516,
+															sp: 49794
+														}
+													},
+													{
+														how: 18675,
+														pick: 60471,
+														value: {
+															cls: 24181,
+															sp: 48603
+														}
+													}
+												]
+											}
+										],
+										where: [
+											{
+												left: 5317,
+												op: 22073,
+												pick: 25762,
+												value: {
+													cls: 160,
+													sp: 47165
+												}
+											}
+										],
+										negation: {
+											source: 1128,
+											picks: [9845, 82]
+										},
+										head: {
+											vars: [55987],
+											names: [41026, 38398, 20804, 15781, 25331, 35450],
+											folds: [
+												{
+													fn: 312,
+													arg: 65221,
+													padded: 31974,
+													scale: 60278
+												},
+												{
+													fn: 4568,
+													arg: 41927,
+													padded: 19130,
+													scale: 64106
+												}
+											]
+										}
+									}
+								},
+								take: {
+									rotate: 41535,
+									dirs: [64798, 4799, 65534],
+									size: 27285
+								}
+							}
+						}
+					],
+					order: {
+						rotate: 49225,
+						dirs: [19842, 62138, 61686],
+						size: 24068
+					},
+					probe: {
+						kind: 17025,
+						pick: 23108
+					},
+					key: {
+						relation: 64441,
+						which: 65526,
+						fact: 28509,
+						absent: 33516,
+						roster: 20204
+					}
+				}
+			],
+			planted: {
+				names: [
+					22549, 46394, 33003, 26529, 29056, 54394, 54687, 3269, 32252, 4288, 43820, 7358, 54803,
+					21014, 13734, 64602, 43503, 24209, 13811, 45305, 28690, 65524, 57686, 59949, 12353, 44856,
+					127, 12005, 33131, 6238, 30945, 60626, 43523, 31, 96, 65535, 24194, 24306, 61372, 22936,
+					5725, 6489, 37678, 34312, 65421, 5920, 26920, 59572, 59967, 39892, 34594
+				],
+				value: {
+					cls: 62280,
+					sp: 6904
+				},
+				handle: 52140,
+				padding: 51009,
+				side: {
+					kind: 586,
+					values: [20721, 61838, 24023]
+				}
+			}
+		},
+		draws:
+			"2.0.2.2.1.4.1.0.3.4.1.1.2.0.1.0.1.1.3.2.2.0.1.2.1.1.1.0.4.1.3.2.3.4.3.1.1.4.2.3.1.2.0.0.0.1.4.0.3.1.3.3.4.1.0.1.1.1.0.2.3.3.2.2.2.2.1.1.2.1.2.0.1.2.3.3.0.0.1.3.1.1.4.1.3.4.3.0.0.4.4.0.0.0.2.3.1.2.1.2.3.1.3.1.1.1.0.1.0.1.0.2.4.3.2.1.2.0.0.2.1.1.0.1.1.1.0.2.0.0.4.1.3.4.1.0.1.4.0.4.0.4.3.0.0.0.0",
+		reaches: [
+			"equality probe served",
+			"overlap probe served",
+			"served by a created index",
+			"served by a key or enforcement index",
+			"read through another planned index than the engine's",
+			"swept through another index, awaiting upstream/gist-costestimate-column-position",
+			"a created index needed"
+		]
+	},
+	{
+		note: "an equality lookup on SpgTextLeafConsistent's Name, planned on its primary key, beside a span predicate on (Name, tick0, Bool) whose GiST index leads with tick0 for a span predicate on (tick0, Bool) that another GiST index serves, one its order answers to (PlannedIndex answers): PostgreSQL sweeps it for the lookup, which no order of it serves beside them",
+		sketch: {
+			population: "spelled",
+			swarm: {
+				"bind fresh": 3,
+				"bind parent": 2,
+				"compare literal": 3,
+				"compare var": 2,
+				"compare param": 1,
+				"attached take": 2,
+				ordered: 3,
+				attach: 3,
+				nested: 3,
+				dense: 3,
+				"candidate key": 1,
+				"key read": 1,
+				probe: 2,
+				spelled: 3,
+				"full head": 3,
+				ungrouped: 3,
+				"keyed child": 2,
+				"arm child": 1,
+				import: 2,
+				"import bound": 1,
+				interior: 3,
+				named: 3,
+				"computed head": 1,
+				"computed group key": 3,
+				between: 3,
+				"in set": 3,
+				connective: 1,
+				"relation param": 1,
+				recursive: 1,
+				"contract param": 3,
+				"typmod param": 1,
+				allen: 1,
+				"point in": 3,
+				"literal head": 1
+			},
+			perturbation: {
+				settings: [
+					"enable_hashjoin = off",
+					"debug_parallel_query = regress",
+					"plan_cache_mode = force_generic_plan",
+					"parallel_tuple_cost = 0"
+				],
+				multiplier: 1
+			},
+			ambient: {
+				path: {
+					kind: "default"
+				},
+				settings: [
+					{
+						parameter: "extra_float_digits",
+						value: "1"
+					},
+					{
+						parameter: "IntervalStyle",
+						value: "iso_8601"
+					},
+					{
+						parameter: "bytea_output",
+						value: "escape"
+					}
+				]
+			},
+			restorage: {
+				shift: 13,
+				respell: 1023
+			},
+			roster: 38690,
+			span: 32938,
+			relations: [
+				{
+					name: 23429,
+					fields: [
+						{
+							name: 23483,
+							kind: 53547,
+							key: 18
+						},
+						{
+							name: 22169,
+							kind: 36841,
+							key: 64695
+						}
+					],
+					candidate: 46176,
+					facts: [
+						{
+							values: [
+								{
+									cls: 6,
+									sp: 5452
+								},
+								{
+									cls: 6444,
+									sp: 65212
+								},
+								{
+									cls: 3453,
+									sp: 25063
+								},
+								{
+									cls: 47268,
+									sp: 52295
+								},
+								{
+									cls: 587,
+									sp: 49595
+								},
+								{
+									cls: 22692,
+									sp: 30111
+								},
+								{
+									cls: 25120,
+									sp: 21536
+								}
+							]
+						},
+						{
+							values: [
+								{
+									cls: 18353,
+									sp: 65059
+								},
+								{
+									cls: 24561,
+									sp: 65205
+								},
+								{
+									cls: 12558,
+									sp: 40536
+								},
+								{
+									cls: 54441,
+									sp: 65424
+								},
+								{
+									cls: 3797,
+									sp: 60685
+								},
+								{
+									cls: 57039,
+									sp: 813
+								},
+								{
+									cls: 65527,
+									sp: 51882
+								}
+							]
+						}
+					]
+				},
+				{
+					name: 58918,
+					fields: [
+						{
+							name: 88,
+							kind: 40646,
+							key: 3541
+						},
+						{
+							name: 26203,
+							kind: 36567,
+							key: 35263
+						},
+						{
+							name: 45873,
+							kind: 14883,
+							key: 6964
+						}
+					],
+					candidate: 97,
+					facts: [
+						{
+							values: [
+								{
+									cls: 63030,
+									sp: 3870
+								},
+								{
+									cls: 5322,
+									sp: 316
+								},
+								{
+									cls: 20133,
+									sp: 36499
+								},
+								{
+									cls: 52256,
+									sp: 49929
+								},
+								{
+									cls: 425,
+									sp: 48874
+								},
+								{
+									cls: 63199,
+									sp: 31697
+								},
+								{
+									cls: 33933,
+									sp: 47758
+								}
+							]
+						},
+						{
+							values: [
+								{
+									cls: 31292,
+									sp: 30303
+								},
+								{
+									cls: 20510,
+									sp: 9571
+								},
+								{
+									cls: 39170,
+									sp: 54293
+								},
+								{
+									cls: 42590,
+									sp: 54084
+								},
+								{
+									cls: 19952,
+									sp: 23019
+								},
+								{
+									cls: 65534,
+									sp: 31657
+								},
+								{
+									cls: 24463,
+									sp: 50951
+								}
+							]
+						},
+						{
+							values: [
+								{
+									cls: 3163,
+									sp: 53420
+								},
+								{
+									cls: 44007,
+									sp: 44993
+								},
+								{
+									cls: 63485,
+									sp: 48216
+								},
+								{
+									cls: 48995,
+									sp: 61736
+								},
+								{
+									cls: 10138,
+									sp: 51271
+								},
+								{
+									cls: 60109,
+									sp: 28996
+								},
+								{
+									cls: 53722,
+									sp: 53679
+								}
+							]
+						},
+						{
+							values: [
+								{
+									cls: 24525,
+									sp: 12283
+								},
+								{
+									cls: 21688,
+									sp: 20169
+								},
+								{
+									cls: 44488,
+									sp: 55326
+								},
+								{
+									cls: 64314,
+									sp: 42485
+								},
+								{
+									cls: 38893,
+									sp: 21256
+								},
+								{
+									cls: 65534,
+									sp: 2566
+								},
+								{
+									cls: 63661,
+									sp: 24
+								}
+							]
+						}
+					]
+				},
+				{
+					name: 65034,
+					fields: [
+						{
+							name: 9229,
+							kind: 56118,
+							key: 48218
+						},
+						{
+							name: 56750,
+							kind: 23528,
+							key: 64758
+						},
+						{
+							name: 48216,
+							kind: 65524,
+							key: 44933
+						}
+					],
+					candidate: 18374,
+					facts: [
+						{
+							values: [
+								{
+									cls: 25843,
+									sp: 42182
+								},
+								{
+									cls: 28766,
+									sp: 47450
+								},
+								{
+									cls: 51181,
+									sp: 65533
+								},
+								{
+									cls: 13997,
+									sp: 40799
+								},
+								{
+									cls: 51949,
+									sp: 49288
+								},
+								{
+									cls: 65504,
+									sp: 18074
+								},
+								{
+									cls: 8233,
+									sp: 65507
+								}
+							]
+						}
+					]
+				}
+			],
+			reads: [
+				{
+					rule: {
+						matches: [
+							{
+								source: 31271,
+								derived: 39801,
+								attached: 65533,
+								binds: [
+									{
+										how: 1661,
+										pick: 27984,
+										value: {
+											cls: 13,
+											sp: 40587
+										}
+									},
+									{
+										how: 9842,
+										pick: 50213,
+										value: {
+											cls: 16699,
+											sp: 45592
+										}
+									},
+									{
+										how: 20972,
+										pick: 332,
+										value: {
+											cls: 490,
+											sp: 22886
+										}
+									},
+									{
+										how: 61798,
+										pick: 2829,
+										value: {
+											cls: 34926,
+											sp: 62018
+										}
+									},
+									{
+										how: 4343,
+										pick: 63716,
+										value: {
+											cls: 26765,
+											sp: 12056
+										}
+									},
+									{
+										how: 40813,
+										pick: 26469,
+										value: {
+											cls: 36494,
+											sp: 17325
+										}
+									},
+									{
+										how: 3077,
+										pick: 39503,
+										value: {
+											cls: 62629,
+											sp: 58428
+										}
+									}
+								]
+							},
+							{
+								source: 24231,
+								derived: 49501,
+								attached: 34475,
+								binds: [
+									{
+										how: 48875,
+										pick: 30980,
+										value: {
+											cls: 62781,
+											sp: 65533
+										}
+									},
+									{
+										how: 42840,
+										pick: 63716,
+										value: {
+											cls: 45841,
+											sp: 9181
+										}
+									},
+									{
+										how: 62612,
+										pick: 7216,
+										value: {
+											cls: 29708,
+											sp: 51394
+										}
+									},
+									{
+										how: 32198,
+										pick: 65533,
+										value: {
+											cls: 20081,
+											sp: 57062
+										}
+									},
+									{
+										how: 65428,
+										pick: 34231,
+										value: {
+											cls: 52435,
+											sp: 5354
+										}
+									},
+									{
+										how: 45445,
+										pick: 52637,
+										value: {
+											cls: 44464,
+											sp: 50742
+										}
+									},
+									{
+										how: 64921,
+										pick: 44212,
+										value: {
+											cls: 35039,
+											sp: 39028
+										}
+									}
+								]
+							},
+							{
+								source: 32423,
+								derived: 22969,
+								attached: 54601,
+								binds: [
+									{
+										how: 15929,
+										pick: 4608,
+										value: {
+											cls: 5560,
+											sp: 40986
+										}
+									},
+									{
+										how: 65535,
+										pick: 65346,
+										value: {
+											cls: 48818,
+											sp: 54510
+										}
+									},
+									{
+										how: 1431,
+										pick: 50434,
+										value: {
+											cls: 60468,
+											sp: 4445
+										}
+									},
+									{
+										how: 23345,
+										pick: 38283,
+										value: {
+											cls: 21823,
+											sp: 25322
+										}
+									},
+									{
+										how: 53334,
+										pick: 31859,
+										value: {
+											cls: 33534,
+											sp: 64968
+										}
+									},
+									{
+										how: 27111,
+										pick: 65525,
+										value: {
+											cls: 144,
+											sp: 28577
+										}
+									},
+									{
+										how: 49339,
+										pick: 26370,
+										value: {
+											cls: 33816,
+											sp: 7001
+										}
+									}
+								]
+							}
+						],
+						where: [],
+						between: [
+							{
+								left: 26168,
+								low: {
+									pick: 64407,
+									value: {
+										cls: 33650,
+										sp: 62999
+									}
+								},
+								high: {
+									pick: 9797,
+									value: {
+										cls: 43,
+										sp: 33916
+									}
+								}
+							}
+						],
+						inSet: [],
+						allen: [],
+						pointIn: [
+							{
+								span: 56896,
+								point: 54899
+							}
+						],
+						connective: [],
+						computed: [
+							{
+								kind: 5340,
+								reading: 60114,
+								arg: 63247,
+								op: 38371,
+								than: {
+									cls: 58935,
+									sp: 12678
+								},
+								otherwise: {
+									cls: 59761,
+									sp: 1278
+								},
+								scale: 25914,
+								padded: 10610
+							},
+							{
+								kind: 22041,
+								reading: 48122,
+								arg: 33957,
+								op: 2629,
+								than: {
+									cls: 16958,
+									sp: 64654
+								},
+								otherwise: {
+									cls: 14814,
+									sp: 32278
+								},
+								scale: 4486,
+								padded: 15999
+							}
+						],
+						negation: {
+							source: 15703,
+							picks: [57673, 58213]
+						},
+						head: {
+							vars: [39143, 64802],
+							names: [24396, 12118, 49788, 20087, 1349, 29033],
+							folds: [
+								{
+									fn: 52243,
+									arg: 20310,
+									padded: 436,
+									scale: 37146
+								}
+							]
+						},
+						interior: {
+							matches: [
+								{
+									source: 16243,
+									derived: 5050,
+									attached: 0,
+									binds: [
+										{
+											how: 20999,
+											pick: 65288,
+											value: {
+												cls: 54239,
+												sp: 43184
+											}
+										},
+										{
+											how: 144,
+											pick: 46868,
+											value: {
+												cls: 1352,
+												sp: 60335
+											}
+										},
+										{
+											how: 27024,
+											pick: 7322,
+											value: {
+												cls: 49572,
+												sp: 13764
+											}
+										},
+										{
+											how: 54339,
+											pick: 54967,
+											value: {
+												cls: 65534,
+												sp: 39865
+											}
+										},
+										{
+											how: 34835,
+											pick: 17417,
+											value: {
+												cls: 8377,
+												sp: 44649
+											}
+										},
+										{
+											how: 27351,
+											pick: 53340,
+											value: {
+												cls: 62827,
+												sp: 52043
+											}
+										},
+										{
+											how: 50205,
+											pick: 27356,
+											value: {
+												cls: 35722,
+												sp: 54611
+											}
+										}
+									]
+								}
+							],
+							where: [
+								{
+									left: 34658,
+									op: 59870,
+									pick: 4332,
+									value: {
+										cls: 39739,
+										sp: 55386
+									}
+								},
+								{
+									left: 5116,
+									op: 27820,
+									pick: 53754,
+									value: {
+										cls: 8756,
+										sp: 64128
+									}
+								}
+							],
+							negation: {
+								source: 54698,
+								picks: [37449, 30797]
+							},
+							head: {
+								vars: [39508, 42341],
+								names: [30605, 12502, 8997, 16167, 15864, 11443],
+								folds: [
+									{
+										fn: 45479,
+										arg: 48627,
+										padded: 22793,
+										scale: 39838
+									}
+								]
+							}
+						}
+					},
+					take: {
+						rotate: 13964,
+						dirs: [51576, 7262, 35459],
+						size: 64074,
+						ties: 46068
+					},
+					literalHead: {
+						name: 29531,
+						kind: 61079,
+						arms: 46983,
+						values: [2528, 27926, 58745]
+					},
+					importable: 65431,
+					bindImport: 25065,
+					named: 11011,
+					relationParam: {
+						relation: 10729,
+						facts: [
+							{
+								values: [
+									{
+										cls: 41160,
+										sp: 3830
+									},
+									{
+										cls: 50031,
+										sp: 16226
+									},
+									{
+										cls: 43101,
+										sp: 42203
+									},
+									{
+										cls: 37460,
+										sp: 45714
+									},
+									{
+										cls: 4731,
+										sp: 23452
+									},
+									{
+										cls: 29410,
+										sp: 34027
+									},
+									{
+										cls: 43345,
+										sp: 44635
+									}
+								]
+							},
+							{
+								values: [
+									{
+										cls: 1,
+										sp: 43783
+									},
+									{
+										cls: 15362,
+										sp: 29141
+									},
+									{
+										cls: 47452,
+										sp: 13041
+									},
+									{
+										cls: 65456,
+										sp: 26808
+									},
+									{
+										cls: 13247,
+										sp: 62408
+									},
+									{
+										cls: 55815,
+										sp: 21009
+									},
+									{
+										cls: 47904,
+										sp: 45153
+									}
+								]
+							},
+							{
+								values: [
+									{
+										cls: 65531,
+										sp: 41312
+									},
+									{
+										cls: 65474,
+										sp: 4
+									},
+									{
+										cls: 58163,
+										sp: 39925
+									},
+									{
+										cls: 717,
+										sp: 1854
+									},
+									{
+										cls: 60493,
+										sp: 49613
+									},
+									{
+										cls: 27309,
+										sp: 65455
+									},
+									{
+										cls: 52178,
+										sp: 56154
+									}
+								]
+							}
+						]
+					},
+					closure: {
+						relation: 18155,
+						pair: 24200,
+						name: 62580
+					},
+					attachments: [
+						{
+							name: 28078,
+							link: 52488,
+							handle: 49177,
+							delivery: 65535,
+							rule: {
+								matches: [
+									{
+										source: 36614,
+										derived: 58973,
+										attached: 30126,
+										binds: [
+											{
+												how: 59545,
+												pick: 14402,
+												value: {
+													cls: 24,
+													sp: 65533
+												}
+											},
+											{
+												how: 46694,
+												pick: 5798,
+												value: {
+													cls: 32343,
+													sp: 58485
+												}
+											},
+											{
+												how: 5518,
+												pick: 40479,
+												value: {
+													cls: 2753,
+													sp: 39763
+												}
+											},
+											{
+												how: 31349,
+												pick: 48651,
+												value: {
+													cls: 51955,
+													sp: 6960
+												}
+											},
+											{
+												how: 49873,
+												pick: 26168,
+												value: {
+													cls: 24057,
+													sp: 16156
+												}
+											},
+											{
+												how: 36719,
+												pick: 44800,
+												value: {
+													cls: 62362,
+													sp: 15360
+												}
+											},
+											{
+												how: 2043,
+												pick: 36348,
+												value: {
+													cls: 57791,
+													sp: 0
+												}
+											}
+										]
+									}
+								],
+								where: [
+									{
+										left: 49892,
+										op: 39463,
+										pick: 21242,
+										value: {
+											cls: 6443,
+											sp: 19125
+										}
+									}
+								],
+								between: [
+									{
+										left: 33542,
+										low: {
+											pick: 60333,
+											value: {
+												cls: 37254,
+												sp: 33685
+											}
+										},
+										high: {
+											pick: 47131,
+											value: {
+												cls: 1812,
+												sp: 23985
+											}
+										}
+									}
+								],
+								inSet: [
+									{
+										left: 20589,
+										values: [
+											{
+												cls: 57595,
+												sp: 2004
+											},
+											{
+												cls: 42879,
+												sp: 7266
+											},
+											{
+												cls: 15927,
+												sp: 12685
+											}
+										]
+									}
+								],
+								allen: [],
+								pointIn: [
+									{
+										span: 11389,
+										point: 45315
+									}
+								],
+								connective: [
+									{
+										kind: 8208,
+										args: []
+									}
+								],
+								computed: [
+									{
+										kind: 4802,
+										reading: 3207,
+										arg: 46479,
+										op: 32544,
+										than: {
+											cls: 27896,
+											sp: 58114
+										},
+										otherwise: {
+											cls: 26763,
+											sp: 8542
+										},
+										scale: 65534,
+										padded: 42644
+									}
+								],
+								negation: {
+									source: 58159,
+									picks: [65015, 19998]
+								},
+								head: {
+									vars: [43321, 21882, 36530],
+									names: [19723, 65535, 24135, 35772, 9784, 12147],
+									folds: [
+										{
+											fn: 35570,
+											arg: 46986,
+											padded: 43617,
+											scale: 56702
+										},
+										{
+											fn: 17230,
+											arg: 4798,
+											padded: 49216,
+											scale: 63117
+										}
+									]
+								},
+								interior: {
+									matches: [
+										{
+											source: 50006,
+											derived: 24729,
+											attached: 36413,
+											binds: [
+												{
+													how: 39556,
+													pick: 45681,
+													value: {
+														cls: 43991,
+														sp: 20903
+													}
+												},
+												{
+													how: 39197,
+													pick: 24579,
+													value: {
+														cls: 43840,
+														sp: 52401
+													}
+												},
+												{
+													how: 31961,
+													pick: 18303,
+													value: {
+														cls: 36169,
+														sp: 55790
+													}
+												},
+												{
+													how: 47982,
+													pick: 24607,
+													value: {
+														cls: 15,
+														sp: 28319
+													}
+												},
+												{
+													how: 57433,
+													pick: 13805,
+													value: {
+														cls: 44970,
+														sp: 22150
+													}
+												},
+												{
+													how: 65528,
+													pick: 63242,
+													value: {
+														cls: 5004,
+														sp: 14387
+													}
+												},
+												{
+													how: 114,
+													pick: 58136,
+													value: {
+														cls: 114,
+														sp: 59499
+													}
+												}
+											]
+										}
+									],
+									where: [],
+									negation: {
+										source: 7127,
+										picks: [28973, 14840]
+									},
+									head: {
+										vars: [],
+										names: [48056, 65525, 30906, 40216, 63495, 50706],
+										folds: [
+											{
+												fn: 23442,
+												arg: 62332,
+												padded: 31337,
+												scale: 9174
+											},
+											{
+												fn: 31557,
+												arg: 35313,
+												padded: 57863,
+												scale: 7887
+											}
+										]
+									}
+								}
+							},
+							take: {
+								rotate: 7847,
+								dirs: [4680, 7763, 723],
+								size: 27137
+							},
+							nested: {
+								name: 40777,
+								link: 38660,
+								handle: 58365,
+								delivery: 455,
+								rule: {
+									matches: [
+										{
+											source: 25625,
+											derived: 28606,
+											attached: 55050,
+											binds: [
+												{
+													how: 60733,
+													pick: 45930,
+													value: {
+														cls: 423,
+														sp: 50056
+													}
+												},
+												{
+													how: 7006,
+													pick: 21869,
+													value: {
+														cls: 22181,
+														sp: 63389
+													}
+												},
+												{
+													how: 45396,
+													pick: 14880,
+													value: {
+														cls: 39670,
+														sp: 65411
+													}
+												},
+												{
+													how: 61918,
+													pick: 39243,
+													value: {
+														cls: 35970,
+														sp: 22907
+													}
+												},
+												{
+													how: 1,
+													pick: 10571,
+													value: {
+														cls: 28887,
+														sp: 36551
+													}
+												},
+												{
+													how: 24346,
+													pick: 14859,
+													value: {
+														cls: 42,
+														sp: 43717
+													}
+												},
+												{
+													how: 46395,
+													pick: 23561,
+													value: {
+														cls: 15407,
+														sp: 44089
+													}
+												}
+											]
+										}
+									],
+									where: [
+										{
+											left: 2116,
+											op: 36981,
+											pick: 62597,
+											value: {
+												cls: 29477,
+												sp: 13296
+											}
+										}
+									],
+									between: [],
+									inSet: [
+										{
+											left: 2,
+											values: [
+												{
+													cls: 2698,
+													sp: 50944
+												},
+												{
+													cls: 5274,
+													sp: 40537
+												}
+											]
+										}
+									],
+									allen: [],
+									pointIn: [],
+									connective: [],
+									computed: [],
+									negation: {
+										source: 24551,
+										picks: [21903, 1691]
+									},
+									head: {
+										vars: [64077],
+										names: [1298, 13714, 52616, 65492, 52002, 246],
+										folds: [
+											{
+												fn: 30655,
+												arg: 58851,
+												padded: 16815,
+												scale: 59960
+											},
+											{
+												fn: 37846,
+												arg: 1282,
+												padded: 6721,
+												scale: 24455
+											}
+										]
+									},
+									interior: {
+										matches: [
+											{
+												source: 60903,
+												derived: 57193,
+												attached: 51905,
+												binds: [
+													{
+														how: 28805,
+														pick: 54861,
+														value: {
+															cls: 11503,
+															sp: 45
+														}
+													},
+													{
+														how: 8,
+														pick: 41,
+														value: {
+															cls: 21118,
+															sp: 51410
+														}
+													},
+													{
+														how: 36652,
+														pick: 58138,
+														value: {
+															cls: 5817,
+															sp: 63580
+														}
+													},
+													{
+														how: 0,
+														pick: 13112,
+														value: {
+															cls: 10517,
+															sp: 44604
+														}
+													},
+													{
+														how: 58876,
+														pick: 36944,
+														value: {
+															cls: 47130,
+															sp: 3187
+														}
+													},
+													{
+														how: 37865,
+														pick: 29703,
+														value: {
+															cls: 18194,
+															sp: 21764
+														}
+													},
+													{
+														how: 28953,
+														pick: 6469,
+														value: {
+															cls: 28213,
+															sp: 62802
+														}
+													}
+												]
+											}
+										],
+										where: [
+											{
+												left: 25957,
+												op: 51319,
+												pick: 14783,
+												value: {
+													cls: 45041,
+													sp: 18462
+												}
+											},
+											{
+												left: 1046,
+												op: 8194,
+												pick: 61125,
+												value: {
+													cls: 44250,
+													sp: 64853
+												}
+											}
+										],
+										negation: {
+											source: 10807,
+											picks: [9030, 23]
+										},
+										head: {
+											vars: [38, 57849, 10444],
+											names: [36595, 13458, 45218, 24437, 8470, 24072],
+											folds: [
+												{
+													fn: 46392,
+													arg: 23058,
+													padded: 65470,
+													scale: 9587
+												}
+											]
+										}
+									}
+								},
+								take: {
+									rotate: 54212,
+									dirs: [57063, 18673, 0],
+									size: 24140
+								}
+							}
+						},
+						{
+							name: 7149,
+							link: 11883,
+							handle: 50389,
+							delivery: 43504,
+							rule: {
+								matches: [
+									{
+										source: 1953,
+										derived: 26961,
+										attached: 32909,
+										binds: [
+											{
+												how: 27335,
+												pick: 13646,
+												value: {
+													cls: 18741,
+													sp: 52501
+												}
+											},
+											{
+												how: 55714,
+												pick: 10335,
+												value: {
+													cls: 14354,
+													sp: 59379
+												}
+											},
+											{
+												how: 411,
+												pick: 58137,
+												value: {
+													cls: 41837,
+													sp: 21906
+												}
+											},
+											{
+												how: 46236,
+												pick: 55816,
+												value: {
+													cls: 40748,
+													sp: 55659
+												}
+											},
+											{
+												how: 35803,
+												pick: 42961,
+												value: {
+													cls: 50510,
+													sp: 52076
+												}
+											},
+											{
+												how: 62942,
+												pick: 54096,
+												value: {
+													cls: 13887,
+													sp: 28189
+												}
+											},
+											{
+												how: 31855,
+												pick: 8777,
+												value: {
+													cls: 61059,
+													sp: 9939
+												}
+											}
+										]
+									},
+									{
+										source: 32610,
+										derived: 65507,
+										attached: 1,
+										binds: [
+											{
+												how: 1282,
+												pick: 28415,
+												value: {
+													cls: 23118,
+													sp: 17530
+												}
+											},
+											{
+												how: 23647,
+												pick: 14735,
+												value: {
+													cls: 45174,
+													sp: 42418
+												}
+											},
+											{
+												how: 1161,
+												pick: 2,
+												value: {
+													cls: 44799,
+													sp: 55491
+												}
+											},
+											{
+												how: 54746,
+												pick: 2041,
+												value: {
+													cls: 43206,
+													sp: 10141
+												}
+											},
+											{
+												how: 63972,
+												pick: 5610,
+												value: {
+													cls: 38811,
+													sp: 37794
+												}
+											},
+											{
+												how: 65534,
+												pick: 47227,
+												value: {
+													cls: 196,
+													sp: 19327
+												}
+											},
+											{
+												how: 57003,
+												pick: 4205,
+												value: {
+													cls: 34680,
+													sp: 20449
+												}
+											}
+										]
+									}
+								],
+								where: [
+									{
+										left: 449,
+										op: 4280,
+										pick: 37492,
+										value: {
+											cls: 3423,
+											sp: 55586
+										}
+									},
+									{
+										left: 55470,
+										op: 29981,
+										pick: 54475,
+										value: {
+											cls: 64445,
+											sp: 26560
+										}
+									}
+								],
+								between: [
+									{
+										left: 3743,
+										low: {
+											pick: 44598,
+											value: {
+												cls: 48869,
+												sp: 12248
+											}
+										},
+										high: {
+											pick: 65444,
+											value: {
+												cls: 42093,
+												sp: 24577
+											}
+										}
+									}
+								],
+								inSet: [],
+								allen: [
+									{
+										left: 13896,
+										mask: 45267,
+										right: 64742
+									}
+								],
+								pointIn: [],
+								connective: [
+									{
+										kind: 20471,
+										args: [
+											{
+												left: 78,
+												op: 55172,
+												pick: 10474,
+												value: {
+													cls: 27487,
+													sp: 30363
+												}
+											},
+											{
+												left: 5926,
+												op: 3923,
+												pick: 58613,
+												value: {
+													cls: 25548,
+													sp: 13165
+												}
+											}
+										]
+									}
+								],
+								computed: [
+									{
+										kind: 0,
+										reading: 3764,
+										arg: 62069,
+										op: 16625,
+										than: {
+											cls: 65535,
+											sp: 33281
+										},
+										otherwise: {
+											cls: 5467,
+											sp: 50039
+										},
+										scale: 34888,
+										padded: 62326
+									}
+								],
+								negation: {
+									source: 43429,
+									picks: [4607, 25916]
+								},
+								head: {
+									vars: [34370, 36506],
+									names: [63406, 1782, 64400, 20891, 2465, 21556],
+									folds: [
+										{
+											fn: 63625,
+											arg: 52976,
+											padded: 54041,
+											scale: 8711
+										},
+										{
+											fn: 30076,
+											arg: 14216,
+											padded: 20983,
+											scale: 8626
+										}
+									]
+								},
+								interior: {
+									matches: [
+										{
+											source: 58344,
+											derived: 793,
+											attached: 65300,
+											binds: [
+												{
+													how: 13495,
+													pick: 54686,
+													value: {
+														cls: 30245,
+														sp: 31293
+													}
+												},
+												{
+													how: 53848,
+													pick: 39385,
+													value: {
+														cls: 3759,
+														sp: 3917
+													}
+												},
+												{
+													how: 36236,
+													pick: 28600,
+													value: {
+														cls: 8279,
+														sp: 21305
+													}
+												},
+												{
+													how: 53366,
+													pick: 58276,
+													value: {
+														cls: 50721,
+														sp: 44606
+													}
+												},
+												{
+													how: 32035,
+													pick: 2133,
+													value: {
+														cls: 15763,
+														sp: 12843
+													}
+												},
+												{
+													how: 48792,
+													pick: 3,
+													value: {
+														cls: 30137,
+														sp: 37111
+													}
+												},
+												{
+													how: 36196,
+													pick: 65525,
+													value: {
+														cls: 54019,
+														sp: 2
+													}
+												}
+											]
+										}
+									],
+									where: [
+										{
+											left: 2224,
+											op: 33858,
+											pick: 13085,
+											value: {
+												cls: 24951,
+												sp: 25147
+											}
+										}
+									],
+									negation: {
+										source: 41276,
+										picks: [13577, 33062]
+									},
+									head: {
+										vars: [65535],
+										names: [21513, 33810, 3808, 24689, 38791, 20659],
+										folds: [
+											{
+												fn: 14227,
+												arg: 65371,
+												padded: 48952,
+												scale: 37635
+											},
+											{
+												fn: 0,
+												arg: 52339,
+												padded: 17800,
+												scale: 37195
+											}
+										]
+									}
+								}
+							},
+							take: {
+								rotate: 31992,
+								dirs: [25750, 58768, 4109],
+								size: 49533
+							},
+							nested: {
+								name: 65039,
+								link: 40187,
+								handle: 9986,
+								delivery: 2280,
+								rule: {
+									matches: [
+										{
+											source: 26452,
+											derived: 34607,
+											attached: 18668,
+											binds: [
+												{
+													how: 169,
+													pick: 416,
+													value: {
+														cls: 59458,
+														sp: 25388
+													}
+												},
+												{
+													how: 2952,
+													pick: 16568,
+													value: {
+														cls: 56457,
+														sp: 31565
+													}
+												},
+												{
+													how: 100,
+													pick: 18195,
+													value: {
+														cls: 20775,
+														sp: 44596
+													}
+												},
+												{
+													how: 6175,
+													pick: 744,
+													value: {
+														cls: 1112,
+														sp: 7466
+													}
+												},
+												{
+													how: 14624,
+													pick: 2717,
+													value: {
+														cls: 16,
+														sp: 23653
+													}
+												},
+												{
+													how: 51283,
+													pick: 44145,
+													value: {
+														cls: 60470,
+														sp: 33449
+													}
+												},
+												{
+													how: 40956,
+													pick: 36931,
+													value: {
+														cls: 1913,
+														sp: 63953
+													}
+												}
+											]
+										},
+										{
+											source: 21919,
+											derived: 44551,
+											attached: 34044,
+											binds: [
+												{
+													how: 1,
+													pick: 49203,
+													value: {
+														cls: 38387,
+														sp: 64666
+													}
+												},
+												{
+													how: 17620,
+													pick: 22817,
+													value: {
+														cls: 24185,
+														sp: 33232
+													}
+												},
+												{
+													how: 7460,
+													pick: 20585,
+													value: {
+														cls: 40314,
+														sp: 23428
+													}
+												},
+												{
+													how: 60012,
+													pick: 44897,
+													value: {
+														cls: 5931,
+														sp: 19414
+													}
+												},
+												{
+													how: 51270,
+													pick: 54029,
+													value: {
+														cls: 6646,
+														sp: 3139
+													}
+												},
+												{
+													how: 41213,
+													pick: 13364,
+													value: {
+														cls: 62328,
+														sp: 38663
+													}
+												},
+												{
+													how: 22007,
+													pick: 13757,
+													value: {
+														cls: 64290,
+														sp: 5
+													}
+												}
+											]
+										},
+										{
+											source: 27534,
+											derived: 56080,
+											attached: 6747,
+											binds: [
+												{
+													how: 45827,
+													pick: 6096,
+													value: {
+														cls: 53373,
+														sp: 60935
+													}
+												},
+												{
+													how: 46488,
+													pick: 1082,
+													value: {
+														cls: 44748,
+														sp: 25650
+													}
+												},
+												{
+													how: 7814,
+													pick: 32761,
+													value: {
+														cls: 8638,
+														sp: 147
+													}
+												},
+												{
+													how: 9248,
+													pick: 45596,
+													value: {
+														cls: 1596,
+														sp: 64905
+													}
+												},
+												{
+													how: 23408,
+													pick: 60569,
+													value: {
+														cls: 27541,
+														sp: 23253
+													}
+												},
+												{
+													how: 27677,
+													pick: 49116,
+													value: {
+														cls: 65529,
+														sp: 0
+													}
+												},
+												{
+													how: 9322,
+													pick: 37484,
+													value: {
+														cls: 834,
+														sp: 20445
+													}
+												}
+											]
+										}
+									],
+									where: [
+										{
+											left: 42666,
+											op: 27574,
+											pick: 13430,
+											value: {
+												cls: 33155,
+												sp: 32185
+											}
+										},
+										{
+											left: 16938,
+											op: 39304,
+											pick: 28933,
+											value: {
+												cls: 47752,
+												sp: 53204
+											}
+										}
+									],
+									between: [],
+									inSet: [
+										{
+											left: 62878,
+											values: [
+												{
+													cls: 51448,
+													sp: 44233
+												},
+												{
+													cls: 38473,
+													sp: 3958
+												},
+												{
+													cls: 10,
+													sp: 271
+												}
+											]
+										}
+									],
+									allen: [
+										{
+											left: 20788,
+											mask: 641,
+											right: 6720
+										}
+									],
+									pointIn: [],
+									connective: [
+										{
+											kind: 17916,
+											args: [
+												{
+													left: 5808,
+													op: 64243,
+													pick: 60505,
+													value: {
+														cls: 102,
+														sp: 11264
+													}
+												}
+											]
+										}
+									],
+									computed: [],
+									negation: {
+										source: 26926,
+										picks: [20402, 64574]
+									},
+									head: {
+										vars: [51142, 59098, 33626],
+										names: [56116, 2835, 50455, 16334, 57075, 2611],
+										folds: [
+											{
+												fn: 21667,
+												arg: 41960,
+												padded: 3282,
+												scale: 55306
+											},
+											{
+												fn: 57657,
+												arg: 60332,
+												padded: 3159,
+												scale: 55093
+											}
+										]
+									},
+									interior: {
+										matches: [
+											{
+												source: 5056,
+												derived: 24639,
+												attached: 34185,
+												binds: [
+													{
+														how: 16387,
+														pick: 38990,
+														value: {
+															cls: 23336,
+															sp: 24538
+														}
+													},
+													{
+														how: 19869,
+														pick: 24819,
+														value: {
+															cls: 6611,
+															sp: 47028
+														}
+													},
+													{
+														how: 35719,
+														pick: 7126,
+														value: {
+															cls: 1723,
+															sp: 17577
+														}
+													},
+													{
+														how: 54718,
+														pick: 32217,
+														value: {
+															cls: 32132,
+															sp: 5
+														}
+													},
+													{
+														how: 37417,
+														pick: 47283,
+														value: {
+															cls: 2955,
+															sp: 65535
+														}
+													},
+													{
+														how: 26549,
+														pick: 65221,
+														value: {
+															cls: 49113,
+															sp: 28097
+														}
+													},
+													{
+														how: 18400,
+														pick: 65508,
+														value: {
+															cls: 2752,
+															sp: 39871
+														}
+													}
+												]
+											},
+											{
+												source: 48498,
+												derived: 55752,
+												attached: 42944,
+												binds: [
+													{
+														how: 19245,
+														pick: 33547,
+														value: {
+															cls: 64066,
+															sp: 50521
+														}
+													},
+													{
+														how: 37145,
+														pick: 7546,
+														value: {
+															cls: 38076,
+															sp: 55446
+														}
+													},
+													{
+														how: 31194,
+														pick: 65534,
+														value: {
+															cls: 20698,
+															sp: 61758
+														}
+													},
+													{
+														how: 56508,
+														pick: 30999,
+														value: {
+															cls: 43185,
+															sp: 39243
+														}
+													},
+													{
+														how: 65242,
+														pick: 20255,
+														value: {
+															cls: 33679,
+															sp: 40502
+														}
+													},
+													{
+														how: 59527,
+														pick: 65535,
+														value: {
+															cls: 61337,
+															sp: 30053
+														}
+													},
+													{
+														how: 1864,
+														pick: 24912,
+														value: {
+															cls: 64760,
+															sp: 65523
+														}
+													}
+												]
+											}
+										],
+										where: [
+											{
+												left: 57589,
+												op: 51,
+												pick: 65381,
+												value: {
+													cls: 65525,
+													sp: 49657
+												}
+											}
+										],
+										negation: {
+											source: 49024,
+											picks: [25972, 14985]
+										},
+										head: {
+											vars: [],
+											names: [36336, 37763, 5, 57081, 48399, 53681],
+											folds: [
+												{
+													fn: 91,
+													arg: 26700,
+													padded: 36108,
+													scale: 656
+												},
+												{
+													fn: 35247,
+													arg: 0,
+													padded: 9236,
+													scale: 62257
+												}
+											]
+										}
+									}
+								},
+								take: {
+									rotate: 26562,
+									dirs: [17627, 38627, 20479],
+									size: 21711
+								}
+							}
+						}
+					],
+					order: {
+						rotate: 50767,
+						dirs: [51308, 1829, 10810],
+						size: 65518
+					},
+					probe: {
+						kind: 42918,
+						pick: 3529
+					},
+					key: {
+						relation: 44536,
+						which: 17912,
+						fact: 56002,
+						absent: 53940,
+						roster: 655
+					}
+				},
+				{
+					rule: {
+						matches: [
+							{
+								source: 4088,
+								derived: 31392,
+								attached: 63328,
+								binds: [
+									{
+										how: 53039,
+										pick: 4,
+										value: {
+											cls: 3211,
+											sp: 40347
+										}
+									},
+									{
+										how: 58254,
+										pick: 28522,
+										value: {
+											cls: 32102,
+											sp: 33222
+										}
+									},
+									{
+										how: 44627,
+										pick: 49726,
+										value: {
+											cls: 65535,
+											sp: 33506
+										}
+									},
+									{
+										how: 38998,
+										pick: 51835,
+										value: {
+											cls: 33178,
+											sp: 58706
+										}
+									},
+									{
+										how: 14465,
+										pick: 127,
+										value: {
+											cls: 6444,
+											sp: 3
+										}
+									},
+									{
+										how: 51207,
+										pick: 11704,
+										value: {
+											cls: 59282,
+											sp: 60874
+										}
+									},
+									{
+										how: 60577,
+										pick: 30684,
+										value: {
+											cls: 5232,
+											sp: 36663
+										}
+									}
+								]
+							},
+							{
+								source: 36842,
+								derived: 37720,
+								attached: 15618,
+								binds: [
+									{
+										how: 63738,
+										pick: 21253,
+										value: {
+											cls: 50095,
+											sp: 28824
+										}
+									},
+									{
+										how: 37672,
+										pick: 9,
+										value: {
+											cls: 63978,
+											sp: 16214
+										}
+									},
+									{
+										how: 52408,
+										pick: 20951,
+										value: {
+											cls: 4872,
+											sp: 16404
+										}
+									},
+									{
+										how: 10132,
+										pick: 27268,
+										value: {
+											cls: 37199,
+											sp: 2316
+										}
+									},
+									{
+										how: 14329,
+										pick: 19940,
+										value: {
+											cls: 13183,
+											sp: 39887
+										}
+									},
+									{
+										how: 38292,
+										pick: 41024,
+										value: {
+											cls: 5135,
+											sp: 25546
+										}
+									},
+									{
+										how: 43232,
+										pick: 58660,
+										value: {
+											cls: 26279,
+											sp: 19038
+										}
+									}
+								]
+							},
+							{
+								source: 65535,
+								derived: 6144,
+								attached: 20941,
+								binds: [
+									{
+										how: 56622,
+										pick: 65532,
+										value: {
+											cls: 14601,
+											sp: 15812
+										}
+									},
+									{
+										how: 17459,
+										pick: 62124,
+										value: {
+											cls: 10412,
+											sp: 44008
+										}
+									},
+									{
+										how: 51207,
+										pick: 65530,
+										value: {
+											cls: 28618,
+											sp: 29486
+										}
+									},
+									{
+										how: 24936,
+										pick: 88,
+										value: {
+											cls: 1,
+											sp: 49097
+										}
+									},
+									{
+										how: 270,
+										pick: 20075,
+										value: {
+											cls: 12,
+											sp: 62835
+										}
+									},
+									{
+										how: 62802,
+										pick: 28729,
+										value: {
+											cls: 29589,
+											sp: 12775
+										}
+									},
+									{
+										how: 7199,
+										pick: 49667,
+										value: {
+											cls: 31,
+											sp: 17304
+										}
+									}
+								]
+							}
+						],
+						where: [],
+						between: [],
+						inSet: [],
+						allen: [],
+						pointIn: [
+							{
+								span: 61476,
+								point: 24382
+							}
+						],
+						connective: [
+							{
+								kind: 60791,
+								args: [
+									{
+										left: 61994,
+										op: 6490,
+										pick: 53060,
+										value: {
+											cls: 17042,
+											sp: 1067
+										}
+									},
+									{
+										left: 41884,
+										op: 35769,
+										pick: 15535,
+										value: {
+											cls: 5168,
+											sp: 30
+										}
+									}
+								]
+							}
+						],
+						computed: [
+							{
+								kind: 35343,
+								reading: 1214,
+								arg: 34221,
+								op: 52386,
+								than: {
+									cls: 46758,
+									sp: 58941
+								},
+								otherwise: {
+									cls: 48870,
+									sp: 41708
+								},
+								scale: 64992,
+								padded: 63842
+							},
+							{
+								kind: 1918,
+								reading: 53774,
+								arg: 36,
+								op: 3516,
+								than: {
+									cls: 56961,
+									sp: 8964
+								},
+								otherwise: {
+									cls: 32193,
+									sp: 65504
+								},
+								scale: 7768,
+								padded: 32479
+							}
+						],
+						negation: {
+							source: 50190,
+							picks: [65462, 54372]
+						},
+						head: {
+							vars: [39369, 18241, 36500],
+							names: [15327, 690, 705, 15328, 50124, 7658],
+							folds: [
+								{
+									fn: 49559,
+									arg: 21872,
+									padded: 49615,
+									scale: 59018
+								},
+								{
+									fn: 392,
+									arg: 51914,
+									padded: 37078,
+									scale: 50567
+								}
+							]
+						},
+						interior: {
+							matches: [
+								{
+									source: 276,
+									derived: 52363,
+									attached: 7160,
+									binds: [
+										{
+											how: 44228,
+											pick: 50852,
+											value: {
+												cls: 34328,
+												sp: 63785
+											}
+										},
+										{
+											how: 60667,
+											pick: 48489,
+											value: {
+												cls: 39054,
+												sp: 34647
+											}
+										},
+										{
+											how: 53230,
+											pick: 63319,
+											value: {
+												cls: 32598,
+												sp: 11926
+											}
+										},
+										{
+											how: 46113,
+											pick: 7310,
+											value: {
+												cls: 518,
+												sp: 65355
+											}
+										},
+										{
+											how: 56168,
+											pick: 25036,
+											value: {
+												cls: 41085,
+												sp: 64588
+											}
+										},
+										{
+											how: 14121,
+											pick: 21970,
+											value: {
+												cls: 16328,
+												sp: 25842
+											}
+										},
+										{
+											how: 28637,
+											pick: 46450,
+											value: {
+												cls: 43462,
+												sp: 17111
+											}
+										}
+									]
+								},
+								{
+									source: 32200,
+									derived: 47440,
+									attached: 23376,
+									binds: [
+										{
+											how: 18467,
+											pick: 65475,
+											value: {
+												cls: 7081,
+												sp: 34455
+											}
+										},
+										{
+											how: 63695,
+											pick: 13170,
+											value: {
+												cls: 34766,
+												sp: 20848
+											}
+										},
+										{
+											how: 56499,
+											pick: 41664,
+											value: {
+												cls: 65428,
+												sp: 30468
+											}
+										},
+										{
+											how: 39778,
+											pick: 21252,
+											value: {
+												cls: 1782,
+												sp: 33675
+											}
+										},
+										{
+											how: 61738,
+											pick: 64898,
+											value: {
+												cls: 7534,
+												sp: 61732
+											}
+										},
+										{
+											how: 14530,
+											pick: 7548,
+											value: {
+												cls: 44407,
+												sp: 27501
+											}
+										},
+										{
+											how: 16796,
+											pick: 6095,
+											value: {
+												cls: 51857,
+												sp: 40523
+											}
+										}
+									]
+								}
+							],
+							where: [
+								{
+									left: 38563,
+									op: 37303,
+									pick: 16415,
+									value: {
+										cls: 29157,
+										sp: 60237
+									}
+								},
+								{
+									left: 34714,
+									op: 2482,
+									pick: 6006,
+									value: {
+										cls: 26362,
+										sp: 56947
+									}
+								}
+							],
+							negation: {
+								source: 31873,
+								picks: [53052, 22729]
+							},
+							head: {
+								vars: [19515, 8420],
+								names: [12055, 15894, 1064, 27845, 59, 11873],
+								folds: [
+									{
+										fn: 63594,
+										arg: 58766,
+										padded: 61598,
+										scale: 28978
+									},
+									{
+										fn: 33268,
+										arg: 21664,
+										padded: 475,
+										scale: 47938
+									}
+								]
+							}
+						}
+					},
+					take: {
+						rotate: 45306,
+						dirs: [56507, 6, 54602],
+						size: 52463,
+						ties: 56496
+					},
+					literalHead: {
+						name: 55299,
+						kind: 30952,
+						arms: 18477,
+						values: [40451, 50733, 30015]
+					},
+					importable: 56111,
+					bindImport: 38033,
+					named: 61913,
+					relationParam: {
+						relation: 11809,
+						facts: [
+							{
+								values: [
+									{
+										cls: 65535,
+										sp: 20500
+									},
+									{
+										cls: 23308,
+										sp: 110
+									},
+									{
+										cls: 46044,
+										sp: 65532
+									},
+									{
+										cls: 16821,
+										sp: 16530
+									},
+									{
+										cls: 10788,
+										sp: 30597
+									},
+									{
+										cls: 22399,
+										sp: 18744
+									},
+									{
+										cls: 50431,
+										sp: 54127
+									}
+								]
+							},
+							{
+								values: [
+									{
+										cls: 62165,
+										sp: 65471
+									},
+									{
+										cls: 25263,
+										sp: 55541
+									},
+									{
+										cls: 46117,
+										sp: 21987
+									},
+									{
+										cls: 19534,
+										sp: 58535
+									},
+									{
+										cls: 26793,
+										sp: 20912
+									},
+									{
+										cls: 5917,
+										sp: 23939
+									},
+									{
+										cls: 46560,
+										sp: 53981
+									}
+								]
+							}
+						]
+					},
+					closure: {
+						relation: 31446,
+						pair: 65102,
+						name: 2033
+					},
+					attachments: [
+						{
+							name: 8617,
+							link: 47272,
+							handle: 22,
+							delivery: 55445,
+							rule: {
+								matches: [
+									{
+										source: 18869,
+										derived: 2579,
+										attached: 8530,
+										binds: [
+											{
+												how: 974,
+												pick: 18294,
+												value: {
+													cls: 55477,
+													sp: 18474
+												}
+											},
+											{
+												how: 50772,
+												pick: 19738,
+												value: {
+													cls: 16190,
+													sp: 48838
+												}
+											},
+											{
+												how: 59893,
+												pick: 24755,
+												value: {
+													cls: 36857,
+													sp: 20
+												}
+											},
+											{
+												how: 22232,
+												pick: 39583,
+												value: {
+													cls: 35175,
+													sp: 19680
+												}
+											},
+											{
+												how: 3624,
+												pick: 40977,
+												value: {
+													cls: 58870,
+													sp: 18805
+												}
+											},
+											{
+												how: 33364,
+												pick: 35603,
+												value: {
+													cls: 46389,
+													sp: 51334
+												}
+											},
+											{
+												how: 23762,
+												pick: 46704,
+												value: {
+													cls: 62991,
+													sp: 4295
+												}
+											}
+										]
+									},
+									{
+										source: 52928,
+										derived: 63437,
+										attached: 6561,
+										binds: [
+											{
+												how: 7680,
+												pick: 57056,
+												value: {
+													cls: 36108,
+													sp: 43263
+												}
+											},
+											{
+												how: 65535,
+												pick: 59365,
+												value: {
+													cls: 65531,
+													sp: 62795
+												}
+											},
+											{
+												how: 6519,
+												pick: 38804,
+												value: {
+													cls: 48610,
+													sp: 5
+												}
+											},
+											{
+												how: 61507,
+												pick: 47186,
+												value: {
+													cls: 57651,
+													sp: 57664
+												}
+											},
+											{
+												how: 10963,
+												pick: 36934,
+												value: {
+													cls: 43992,
+													sp: 2125
+												}
+											},
+											{
+												how: 26615,
+												pick: 63273,
+												value: {
+													cls: 14670,
+													sp: 28963
+												}
+											},
+											{
+												how: 3236,
+												pick: 885,
+												value: {
+													cls: 57544,
+													sp: 53918
+												}
+											}
+										]
+									}
+								],
+								where: [
+									{
+										left: 34302,
+										op: 49728,
+										pick: 3485,
+										value: {
+											cls: 21235,
+											sp: 19867
+										}
+									},
+									{
+										left: 18133,
+										op: 55115,
+										pick: 3971,
+										value: {
+											cls: 45045,
+											sp: 18130
+										}
+									}
+								],
+								between: [],
+								inSet: [
+									{
+										left: 49206,
+										values: [
+											{
+												cls: 39936,
+												sp: 24794
+											},
+											{
+												cls: 26511,
+												sp: 48549
+											}
+										]
+									}
+								],
+								allen: [
+									{
+										left: 58701,
+										mask: 33537,
+										right: 65416
+									}
+								],
+								pointIn: [],
+								connective: [],
+								computed: [
+									{
+										kind: 45495,
+										reading: 34162,
+										arg: 43783,
+										op: 63445,
+										than: {
+											cls: 65533,
+											sp: 16478
+										},
+										otherwise: {
+											cls: 54750,
+											sp: 3360
+										},
+										scale: 4453,
+										padded: 33064
+									},
+									{
+										kind: 25754,
+										reading: 45184,
+										arg: 11776,
+										op: 17232,
+										than: {
+											cls: 441,
+											sp: 65535
+										},
+										otherwise: {
+											cls: 13725,
+											sp: 0
+										},
+										scale: 24620,
+										padded: 61946
+									}
+								],
+								negation: {
+									source: 50402,
+									picks: [65507, 3044]
+								},
+								head: {
+									vars: [8157],
+									names: [35433, 40377, 7543, 2082, 918, 64227],
+									folds: [
+										{
+											fn: 33452,
+											arg: 8646,
+											padded: 28957,
+											scale: 39910
+										}
+									]
+								},
+								interior: {
+									matches: [
+										{
+											source: 11439,
+											derived: 16534,
+											attached: 62243,
+											binds: [
+												{
+													how: 10296,
+													pick: 58343,
+													value: {
+														cls: 2949,
+														sp: 43441
+													}
+												},
+												{
+													how: 31984,
+													pick: 57235,
+													value: {
+														cls: 57456,
+														sp: 53796
+													}
+												},
+												{
+													how: 12901,
+													pick: 1585,
+													value: {
+														cls: 19321,
+														sp: 29275
+													}
+												},
+												{
+													how: 2010,
+													pick: 4763,
+													value: {
+														cls: 11092,
+														sp: 55080
+													}
+												},
+												{
+													how: 65486,
+													pick: 63914,
+													value: {
+														cls: 37420,
+														sp: 4810
+													}
+												},
+												{
+													how: 65075,
+													pick: 65534,
+													value: {
+														cls: 19319,
+														sp: 32315
+													}
+												},
+												{
+													how: 17110,
+													pick: 8331,
+													value: {
+														cls: 16295,
+														sp: 56434
+													}
+												}
+											]
+										}
+									],
+									where: [],
+									negation: {
+										source: 52734,
+										picks: [4578, 33447]
+									},
+									head: {
+										vars: [64858, 56],
+										names: [54797, 41423, 14502, 1813, 38285, 1],
+										folds: [
+											{
+												fn: 2991,
+												arg: 33359,
+												padded: 3146,
+												scale: 12072
+											},
+											{
+												fn: 18646,
+												arg: 58016,
+												padded: 17595,
+												scale: 32719
+											}
+										]
+									}
+								}
+							},
+							take: {
+								rotate: 27405,
+								dirs: [13702, 44058, 1136],
+								size: 65530
+							},
+							nested: {
+								name: 3626,
+								link: 34442,
+								handle: 9075,
+								delivery: 8054,
+								rule: {
+									matches: [
+										{
+											source: 27265,
+											derived: 39557,
+											attached: 18738,
+											binds: [
+												{
+													how: 64725,
+													pick: 42644,
+													value: {
+														cls: 49345,
+														sp: 1409
+													}
+												},
+												{
+													how: 34984,
+													pick: 29336,
+													value: {
+														cls: 65521,
+														sp: 19509
+													}
+												},
+												{
+													how: 61377,
+													pick: 862,
+													value: {
+														cls: 64712,
+														sp: 5909
+													}
+												},
+												{
+													how: 16943,
+													pick: 18811,
+													value: {
+														cls: 42424,
+														sp: 2819
+													}
+												},
+												{
+													how: 5249,
+													pick: 41182,
+													value: {
+														cls: 25252,
+														sp: 7263
+													}
+												},
+												{
+													how: 65142,
+													pick: 53298,
+													value: {
+														cls: 60108,
+														sp: 34657
+													}
+												},
+												{
+													how: 59210,
+													pick: 3152,
+													value: {
+														cls: 22880,
+														sp: 11905
+													}
+												}
+											]
+										}
+									],
+									where: [
+										{
+											left: 39318,
+											op: 46927,
+											pick: 31,
+											value: {
+												cls: 45949,
+												sp: 26312
+											}
+										}
+									],
+									between: [
+										{
+											left: 22668,
+											low: {
+												pick: 920,
+												value: {
+													cls: 16809,
+													sp: 35675
+												}
+											},
+											high: {
+												pick: 23364,
+												value: {
+													cls: 11796,
+													sp: 36448
+												}
+											}
+										}
+									],
+									inSet: [
+										{
+											left: 46514,
+											values: [
+												{
+													cls: 6,
+													sp: 6118
+												},
+												{
+													cls: 62523,
+													sp: 18
+												}
+											]
+										}
+									],
+									allen: [],
+									pointIn: [],
+									connective: [],
+									computed: [
+										{
+											kind: 0,
+											reading: 65209,
+											arg: 48547,
+											op: 48393,
+											than: {
+												cls: 45380,
+												sp: 34851
+											},
+											otherwise: {
+												cls: 8190,
+												sp: 65534
+											},
+											scale: 65532,
+											padded: 6399
+										}
+									],
+									negation: {
+										source: 27137,
+										picks: [115, 9645]
+									},
+									head: {
+										vars: [31009, 13360, 8031],
+										names: [42236, 42296, 3825, 2990, 16742, 31907],
+										folds: [
+											{
+												fn: 8066,
+												arg: 36146,
+												padded: 0,
+												scale: 58206
+											},
+											{
+												fn: 65535,
+												arg: 4302,
+												padded: 22022,
+												scale: 1064
+											}
+										]
+									},
+									interior: {
+										matches: [
+											{
+												source: 26533,
+												derived: 54900,
+												attached: 31311,
+												binds: [
+													{
+														how: 12969,
+														pick: 57618,
+														value: {
+															cls: 65440,
+															sp: 62112
+														}
+													},
+													{
+														how: 17316,
+														pick: 47878,
+														value: {
+															cls: 31356,
+															sp: 18112
+														}
+													},
+													{
+														how: 9027,
+														pick: 19394,
+														value: {
+															cls: 32864,
+															sp: 58052
+														}
+													},
+													{
+														how: 65532,
+														pick: 49199,
+														value: {
+															cls: 43955,
+															sp: 1996
+														}
+													},
+													{
+														how: 65518,
+														pick: 26607,
+														value: {
+															cls: 31094,
+															sp: 34149
+														}
+													},
+													{
+														how: 65533,
+														pick: 65534,
+														value: {
+															cls: 47671,
+															sp: 63511
+														}
+													},
+													{
+														how: 48485,
+														pick: 65535,
+														value: {
+															cls: 43444,
+															sp: 20635
+														}
+													}
+												]
+											}
+										],
+										where: [
+											{
+												left: 6207,
+												op: 7416,
+												pick: 8388,
+												value: {
+													cls: 65235,
+													sp: 59666
+												}
+											},
+											{
+												left: 18961,
+												op: 2952,
+												pick: 6429,
+												value: {
+													cls: 6075,
+													sp: 49598
+												}
+											}
+										],
+										negation: {
+											source: 34788,
+											picks: [2929, 64410]
+										},
+										head: {
+											vars: [],
+											names: [60784, 568, 28840, 2693, 14232, 51265],
+											folds: [
+												{
+													fn: 19217,
+													arg: 36495,
+													padded: 64436,
+													scale: 5021
+												}
+											]
+										}
+									}
+								},
+								take: {
+									rotate: 26865,
+									dirs: [46162, 45738, 52134],
+									size: 27490
+								}
+							}
+						},
+						{
+							name: 19420,
+							link: 35736,
+							handle: 65534,
+							delivery: 19278,
+							rule: {
+								matches: [
+									{
+										source: 26800,
+										derived: 12195,
+										attached: 42709,
+										binds: [
+											{
+												how: 5140,
+												pick: 52657,
+												value: {
+													cls: 47871,
+													sp: 22160
+												}
+											},
+											{
+												how: 10566,
+												pick: 32465,
+												value: {
+													cls: 15672,
+													sp: 52570
+												}
+											},
+											{
+												how: 10,
+												pick: 52842,
+												value: {
+													cls: 12214,
+													sp: 62856
+												}
+											},
+											{
+												how: 54445,
+												pick: 28416,
+												value: {
+													cls: 48472,
+													sp: 2014
+												}
+											},
+											{
+												how: 65387,
+												pick: 52558,
+												value: {
+													cls: 24206,
+													sp: 24759
+												}
+											},
+											{
+												how: 42298,
+												pick: 62228,
+												value: {
+													cls: 25455,
+													sp: 11500
+												}
+											},
+											{
+												how: 33804,
+												pick: 34,
+												value: {
+													cls: 43636,
+													sp: 32647
+												}
+											}
+										]
+									}
+								],
+								where: [
+									{
+										left: 51353,
+										op: 35901,
+										pick: 65535,
+										value: {
+											cls: 49977,
+											sp: 58333
+										}
+									}
+								],
+								between: [
+									{
+										left: 22744,
+										low: {
+											pick: 10691,
+											value: {
+												cls: 34192,
+												sp: 24286
+											}
+										},
+										high: {
+											pick: 20875,
+											value: {
+												cls: 38284,
+												sp: 59997
+											}
+										}
+									}
+								],
+								inSet: [],
+								allen: [],
+								pointIn: [
+									{
+										span: 47781,
+										point: 40732
+									}
+								],
+								connective: [],
+								computed: [
+									{
+										kind: 64021,
+										reading: 64689,
+										arg: 49551,
+										op: 51516,
+										than: {
+											cls: 50156,
+											sp: 8910
+										},
+										otherwise: {
+											cls: 65526,
+											sp: 59590
+										},
+										scale: 7,
+										padded: 64883
+									}
+								],
+								negation: {
+									source: 20725,
+									picks: [7201, 31241]
+								},
+								head: {
+									vars: [45027, 144, 20232],
+									names: [10687, 43978, 60782, 63903, 65532, 3792],
+									folds: [
+										{
+											fn: 11538,
+											arg: 54917,
+											padded: 30580,
+											scale: 12442
+										}
+									]
+								},
+								interior: {
+									matches: [
+										{
+											source: 52008,
+											derived: 41784,
+											attached: 65354,
+											binds: [
+												{
+													how: 17631,
+													pick: 31502,
+													value: {
+														cls: 40371,
+														sp: 25328
+													}
+												},
+												{
+													how: 49342,
+													pick: 56619,
+													value: {
+														cls: 63632,
+														sp: 45983
+													}
+												},
+												{
+													how: 42032,
+													pick: 44657,
+													value: {
+														cls: 25869,
+														sp: 39431
+													}
+												},
+												{
+													how: 50117,
+													pick: 24984,
+													value: {
+														cls: 35318,
+														sp: 26675
+													}
+												},
+												{
+													how: 48049,
+													pick: 58019,
+													value: {
+														cls: 65535,
+														sp: 61143
+													}
+												},
+												{
+													how: 23233,
+													pick: 17139,
+													value: {
+														cls: 65535,
+														sp: 61816
+													}
+												},
+												{
+													how: 7655,
+													pick: 28154,
+													value: {
+														cls: 7576,
+														sp: 2803
+													}
+												}
+											]
+										}
+									],
+									where: [],
+									negation: {
+										source: 37903,
+										picks: [56952, 513]
+									},
+									head: {
+										vars: [64244, 505],
+										names: [18998, 19551, 54581, 29045, 108, 35318],
+										folds: [
+											{
+												fn: 5373,
+												arg: 64772,
+												padded: 1735,
+												scale: 60502
+											}
+										]
+									}
+								}
+							},
+							take: {
+								rotate: 2,
+								dirs: [3742, 3251, 23058],
+								size: 16253
+							},
+							nested: {
+								name: 65514,
+								link: 57873,
+								handle: 25397,
+								delivery: 55726,
+								rule: {
+									matches: [
+										{
+											source: 5232,
+											derived: 39584,
+											attached: 17369,
+											binds: [
+												{
+													how: 9158,
+													pick: 7073,
+													value: {
+														cls: 61310,
+														sp: 35422
+													}
+												},
+												{
+													how: 56055,
+													pick: 6813,
+													value: {
+														cls: 20219,
+														sp: 56143
+													}
+												},
+												{
+													how: 53366,
+													pick: 50140,
+													value: {
+														cls: 30719,
+														sp: 30095
+													}
+												},
+												{
+													how: 2450,
+													pick: 60468,
+													value: {
+														cls: 37250,
+														sp: 13318
+													}
+												},
+												{
+													how: 44589,
+													pick: 65535,
+													value: {
+														cls: 65535,
+														sp: 51136
+													}
+												},
+												{
+													how: 33526,
+													pick: 50797,
+													value: {
+														cls: 59191,
+														sp: 43157
+													}
+												},
+												{
+													how: 63167,
+													pick: 37917,
+													value: {
+														cls: 10581,
+														sp: 17360
+													}
+												}
+											]
+										},
+										{
+											source: 22918,
+											derived: 39006,
+											attached: 45384,
+											binds: [
+												{
+													how: 28336,
+													pick: 18187,
+													value: {
+														cls: 53038,
+														sp: 336
+													}
+												},
+												{
+													how: 175,
+													pick: 65533,
+													value: {
+														cls: 37746,
+														sp: 51435
+													}
+												},
+												{
+													how: 7173,
+													pick: 41016,
+													value: {
+														cls: 48619,
+														sp: 35287
+													}
+												},
+												{
+													how: 48013,
+													pick: 16930,
+													value: {
+														cls: 48188,
+														sp: 47925
+													}
+												},
+												{
+													how: 34161,
+													pick: 51783,
+													value: {
+														cls: 54606,
+														sp: 34096
+													}
+												},
+												{
+													how: 37382,
+													pick: 17483,
+													value: {
+														cls: 25982,
+														sp: 56853
+													}
+												},
+												{
+													how: 34112,
+													pick: 24063,
+													value: {
+														cls: 38621,
+														sp: 8480
+													}
+												}
+											]
+										}
+									],
+									where: [
+										{
+											left: 16542,
+											op: 2595,
+											pick: 31611,
+											value: {
+												cls: 43077,
+												sp: 34153
+											}
+										},
+										{
+											left: 10090,
+											op: 46720,
+											pick: 65451,
+											value: {
+												cls: 47549,
+												sp: 39560
+											}
+										}
+									],
+									between: [
+										{
+											left: 14633,
+											low: {
+												pick: 9550,
+												value: {
+													cls: 65441,
+													sp: 48046
+												}
+											},
+											high: {
+												pick: 20656,
+												value: {
+													cls: 14167,
+													sp: 9128
+												}
+											}
+										}
+									],
+									inSet: [],
+									allen: [],
+									pointIn: [],
+									connective: [],
+									computed: [
+										{
+											kind: 23846,
+											reading: 11770,
+											arg: 50002,
+											op: 50532,
+											than: {
+												cls: 59283,
+												sp: 345
+											},
+											otherwise: {
+												cls: 63684,
+												sp: 36322
+											},
+											scale: 47206,
+											padded: 37133
+										}
+									],
+									negation: {
+										source: 40326,
+										picks: [31674, 3632]
+									},
+									head: {
+										vars: [53220, 165, 20692],
+										names: [15728, 13344, 38936, 6730, 62979, 55001],
+										folds: [
+											{
+												fn: 19682,
+												arg: 26598,
+												padded: 47286,
+												scale: 64431
+											}
+										]
+									},
+									interior: {
+										matches: [
+											{
+												source: 36057,
+												derived: 65513,
+												attached: 18002,
+												binds: [
+													{
+														how: 42034,
+														pick: 20890,
+														value: {
+															cls: 52064,
+															sp: 51
+														}
+													},
+													{
+														how: 48574,
+														pick: 13023,
+														value: {
+															cls: 46076,
+															sp: 41303
+														}
+													},
+													{
+														how: 18302,
+														pick: 50857,
+														value: {
+															cls: 20959,
+															sp: 36615
+														}
+													},
+													{
+														how: 16430,
+														pick: 47095,
+														value: {
+															cls: 60126,
+															sp: 7224
+														}
+													},
+													{
+														how: 11565,
+														pick: 48447,
+														value: {
+															cls: 13049,
+															sp: 61554
+														}
+													},
+													{
+														how: 677,
+														pick: 65429,
+														value: {
+															cls: 54689,
+															sp: 12853
+														}
+													},
+													{
+														how: 9600,
+														pick: 62394,
+														value: {
+															cls: 20097,
+															sp: 55508
+														}
+													}
+												]
+											}
+										],
+										where: [],
+										negation: {
+											source: 10589,
+											picks: [44060, 37948]
+										},
+										head: {
+											vars: [90, 1162],
+											names: [53332, 247, 51794, 37967, 51189, 46148],
+											folds: [
+												{
+													fn: 42556,
+													arg: 58430,
+													padded: 50002,
+													scale: 5880
+												}
+											]
+										}
+									}
+								},
+								take: {
+									rotate: 60889,
+									dirs: [44459, 13327, 50387],
+									size: 31482
+								}
+							}
+						}
+					],
+					order: {
+						rotate: 64847,
+						dirs: [35754, 26190, 47552],
+						size: 41150
+					},
+					probe: {
+						kind: 64600,
+						pick: 17018
+					},
+					key: {
+						relation: 36635,
+						which: 15420,
+						fact: 48073,
+						absent: 12246,
+						roster: 61371
+					}
+				}
+			],
+			planted: {
+				names: [
+					65018, 16808, 495, 55525, 32884, 4181, 15643, 62904, 35148, 16409, 47877, 36012, 65524,
+					51301, 13824, 24712, 1, 42267, 41959, 107, 9409, 56911, 53130, 385, 55, 16751, 54119,
+					46486, 34759, 43806, 59, 40779, 23786, 21535, 5937, 25663, 40, 5813, 60381, 11667, 52305,
+					43883, 7606, 12076, 3395, 8539, 61788, 13316, 39278, 22954, 41502
+				],
+				value: {
+					cls: 16962,
+					sp: 23128
+				},
+				handle: 50488,
+				padding: 58543,
+				side: {
+					kind: 62186,
+					values: [46740, 45607, 61903]
+				}
+			}
+		},
+		draws:
+			"1.1.2.1.1.2.0.1.0.0.1.4.0.3.4.1.0.1.3.4.2.3.2.2.2.2.4.1.1.5.2.2.1.4.2.1.2.1.3.0.1.1.0.1.1.4.2.2.1.1.2.2.2.1.1.0.2.0.2.3.0.3.0.1.0.2.3.0.2.3.3.2.1.1.3.3.0.0.1.3.4.1.3.1.1.1.0.2.1.1.0.1.2.0.2.3.2.3.0.1.2.0.1.0.0.0.0.2.1.2.2.2.0.4.1.2.0.0.0.0.4.2.1.1.1.1.0.3.2.0.2.2.1.2.1.1.4.2.2.0.0.1.0.2.1.0.0.1.5.5.1.1.2.4.1.1.4.3.3.1.2.2.4.4.5.2.2.2.0.1.2",
+		reaches: [
+			"equality probe served",
+			"overlap probe served",
+			"served by a key or enforcement index",
+			"served by a created index",
+			"read through another planned index than the engine's",
+			"swept through another index, awaiting upstream/gist-costestimate-column-position",
 			"a created index needed"
 		]
 	}
