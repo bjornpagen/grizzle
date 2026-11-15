@@ -170,7 +170,7 @@ const historyInstall = <P>(
 
 /**
  * The history environment of an installation of `schema`: `app` opened as `g` and then as `h`, each writer's actor
- * the one session its Db's pool leases and then holds idle, beside the writers opened before it (grizzleActor).
+ * the one session its Db's pool leases and then holds idle, named by that session's own backend (grizzleActor).
  */
 const historyEnv = <P>(
 	i: HistoryInstall<P>,
@@ -179,11 +179,10 @@ const historyEnv = <P>(
 ): Effect.Effect<HistoryEnv, OpenError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const writers = familyWriters(schema)
-		const login = i.installed.as(writers.server).role
 		const first = yield* openWriter({ installed: i.installed, schema })
-		const g = yield* grizzleActor("g", login, Effect.scoped(first.ctx.pool.lease), [])
+		const g = yield* grizzleActor("g", first.ctx.pool)
 		const second = yield* openWriter({ installed: i.installed, schema })
-		const h = yield* grizzleActor("h", login, Effect.scoped(second.ctx.pool.lease), [g.pid])
+		const h = yield* grizzleActor("h", second.ctx.pool)
 		return {
 			host: i.host,
 			domains: i.domains,

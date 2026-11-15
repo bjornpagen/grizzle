@@ -6,9 +6,9 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Layer, pipe, type Scope, String as Str } from "effect"
+import { openServed } from "#adapter/db/served.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
-import { Db } from "#adapter/public/db.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { CallError } from "#compiler/live/index.ts"
@@ -372,30 +372,23 @@ const open: Effect.Effect<
 		declared.psql
 	])
 	const f = build(opened.installed.declared)
-	const server = opened.installed.as(f.server).role
 	const served = yield* servedFixture(opened.installed, f.server)
 	const refresherContext = yield* Layer.build(served.layer)
-	const refresherDb = yield* Db.open(served.login.roles.refresher, {}).pipe(
+	const refresherOpened = yield* openServed(served.login.roles.refresher, {}).pipe(
 		Effect.provideContext(refresherContext)
 	)
-	const first = yield* grizzleActor(
-		"refresher",
-		server,
-		answered(refresherDb.workload.noop.once({ params: {}, facts: {} })),
-		[]
-	)
+	const refresherDb = refresherOpened.db
+	yield* Effect.orDie(answered(refresherDb.workload.noop.once({ params: {}, facts: {} })))
+	const first = yield* grizzleActor("refresher", refresherOpened.ctx.pool)
 	const refresher2Context = yield* Layer.build(served.layer)
-	const refresher2Db = yield* Db.open(served.login.roles.refresher2, {}).pipe(
+	const refresher2Opened = yield* openServed(served.login.roles.refresher2, {}).pipe(
 		Effect.provideContext(refresher2Context)
 	)
+	const refresher2Db = refresher2Opened.db
+	yield* Effect.orDie(answered(refresher2Db.workload.noop.once({ params: {}, facts: {} })))
 	const refreshers = {
 		refresher: first,
-		refresher2: yield* grizzleActor(
-			"refresher2",
-			server,
-			answered(refresher2Db.workload.noop.once({ params: {}, facts: {} })),
-			[first.pid]
-		)
+		refresher2: yield* grizzleActor("refresher2", refresher2Opened.ctx.pool)
 	}
 	return {
 		opened,

@@ -1,0 +1,35 @@
+diff --git a/test/support/schedules/actors.ts b/test/support/schedules/actors.ts
+index 30ea5da2..31ce2865 100644
+--- a/test/support/schedules/actors.ts
++++ b/test/support/schedules/actors.ts
+@@ -264,15 +264,21 @@ export const grizzleActor = (
+ 	Effect.orDie(
+ 		Effect.scoped(
+ 			Effect.flatMap(pool.lease, (session) =>
+-				Effect.flatMap(rowsOn(session, ownPidQuery, []), (rows) =>
+-					Option.match(ownPidOf(rows), {
+-						onNone: () =>
+-							Effect.die(
+-								new Error(`${name}'s session answered no backend pid: ${Formatter.format(rows)}`)
+-							),
+-						onSome: (pid): Effect.Effect<GrizzleActor> =>
+-							Effect.succeed({ name, role: session.role, pid })
+-					})
++				Effect.flatMap(
++					rowsOn(
++						session,
++						"SELECT a.pid::text FROM pg_catalog.pg_stat_activity AS a WHERE a.usename = SESSION_USER AND a.datname = pg_catalog.current_database() AND a.backend_type = 'client backend'::text",
++						[]
++					),
++					(rows) =>
++						Option.match(ownPidOf(rows), {
++							onNone: () =>
++								Effect.die(
++									new Error(`${name}'s session answered no backend pid: ${Formatter.format(rows)}`)
++								),
++							onSome: (pid): Effect.Effect<GrizzleActor> =>
++								Effect.succeed({ name, role: session.role, pid })
++						})
+ 				)
+ 			)
+ 		)

@@ -35,9 +35,9 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Layer, type Scope } from "effect"
+import { openServed } from "#adapter/db/served.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
-import { Db } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
 import { defined } from "#test/support/assert.ts"
@@ -201,17 +201,15 @@ const runRace = (
 		const worlds = P.reportingWorlds(s)
 		const served = yield* f.served(worlds.server)
 		const serverContext = yield* Layer.build(served.layer)
-		const hr = yield* Db.open(served.login.roles.hr, {}).pipe(Effect.provideContext(serverContext))
+		const opened = yield* openServed(served.login.roles.hr, {}).pipe(
+			Effect.provideContext(serverContext)
+		)
+		const hr = opened.db
 		const direct = yield* openActors(substrate, {
 			h: { kind: "psql", as: f.installed.world(worlds.hr) }
 		})
-		const psqlPid = direct.h.pid
-		const g = yield* grizzleActor(
-			"g",
-			f.installed.as(worlds.server).role,
-			answered(hr.workload.noop.once({ params: {}, facts: {} })),
-			[psqlPid]
-		)
+		yield* Effect.orDie(answered(hr.workload.noop.once({ params: {}, facts: {} })))
+		const g = yield* grizzleActor("g", opened.ctx.pool)
 		const env = yield* exploreEnv(substrate)
 		const names = namesOf(f.installed)
 		const leave = names.table(P.Leave)

@@ -36,9 +36,9 @@ import { bigint } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Layer, type Scope, String as Str } from "effect"
+import { openServed } from "#adapter/db/served.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
 import type { ServedRefusal } from "#adapter/public/compile.ts"
-import { Db } from "#adapter/public/db.ts"
 import type { CompileError, TransientTag } from "#compiler/core/errors.ts"
 import type { WriteOutcome } from "#compiler/live/index.ts"
 import { type WriteAnswer, answered } from "#test/support/calls.ts"
@@ -192,21 +192,24 @@ const runRace = (
 		const queue = f.rebuilt(Q.Queue)
 		const worlds = Q.queueWorlds(queue)
 		const served = yield* f.served(worlds.server)
-		/** A worker's Db, opened through a DbLayer of its own over the served login: its pool keeps one session. */
+		/**
+		 * A worker's Db, opened through a DbLayer of its own over the served login, and the context it reads: its pool keeps
+		 * one session.
+		 */
 		const workerDb = Effect.flatMap(Layer.build(served.layer), (context) =>
-			Effect.provideContext(Db.open(served.login.roles.worker, {}), context)
+			Effect.provideContext(openServed(served.login.roles.worker, {}), context)
 		)
 		const withWorker = <A, E, R>(
-			body: (db: Effect.Success<typeof workerDb>) => Effect.Effect<A, E, R>
+			body: (opened: Effect.Success<typeof workerDb>) => Effect.Effect<A, E, R>
 		) => Effect.scoped(Effect.flatMap(workerDb, body))
 		const env = yield* exploreEnv(s)
 		const names = namesOf(f.installed)
-		const login = f.installed.as(worlds.server).role
-		const worker = <E>(
-			name: string,
-			first: Effect.Effect<unknown, E>,
-			beside: ReadonlyArray<number>
-		) => Effect.provideService(grizzleActor(name, login, first, beside), Substrate, s)
+		/** A worker's actor, named by the session its Db's first call leased, which its pool then holds idle. */
+		const worker = (name: string, opened: Effect.Success<typeof workerDb>) =>
+			Effect.andThen(
+				Effect.orDie(answered(opened.db.workload.noop.once({ params: {}, facts: {} }))),
+				grizzleActor(name, opened.ctx.pool)
+			)
 		const work = names.table(Q.QueueWork)
 		const leased = names.table(Q.Leased)
 		const workColumn = (field: "key" | "standing" | "epoch") => names.column(Q.QueueWork, field)
@@ -248,27 +251,19 @@ const runRace = (
 			],
 			" UNION ALL "
 		)
-		yield* withWorker((one) =>
+		yield* withWorker((first) =>
 			Effect.gen(function* () {
-				const g = yield* worker(
-					"g",
-					answered(one.workload.noop.once({ params: {}, facts: {} })),
-					[]
-				)
-				yield* withWorker((two) =>
+				const g = yield* worker("g", first)
+				yield* withWorker((second) =>
 					Effect.gen(function* () {
-						const h = yield* worker(
-							"h",
-							answered(two.workload.noop.once({ params: {}, facts: {} })),
-							[g.pid]
-						)
+						const h = yield* worker("h", second)
 						const direct = yield* openActors(s, {
 							e: { kind: "psql", as: f.installed.world(worlds.enqueuer) },
 							w: { kind: "psql", as: f.installed.world(worlds.worker) }
 						})
 						const writeOf = (
 							session: "g" | "h",
-							db: typeof one
+							db: typeof first.db
 						): RaceTxn<WriteAnswer<WriteOutcome<unknown>>> => {
 							const write = race[session]
 							return {
@@ -312,7 +307,7 @@ const runRace = (
 							{ direct, grizzle: { g, h } },
 							{
 								name: "two workers' writes racing a held row",
-								txns: [writeOf("g", one), writeOf("h", two), blocker],
+								txns: [writeOf("g", first.db), writeOf("h", second.db), blocker],
 								reset: Effect.provideService(
 									replaceMigrated(f.installed, queueFacts),
 									Substrate,

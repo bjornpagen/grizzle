@@ -1,5 +1,8 @@
-import { Array as Arr, Effect, Formatter, Predicate, Record, type Scope } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Predicate, Record, type Scope } from "effect"
+import type { SessionPool } from "#adapter/wire/session.ts"
+import { rowsOn } from "#test/pg/adapter/support.ts"
 import { defined } from "#test/support/assert.ts"
+import { ownPidOf, ownPidQuery } from "#test/support/kernel/sanitize.ts"
 import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
 import type { DirectAction, ScheduleOutcome } from "#test/support/schedules/types.ts"
 import {
@@ -18,7 +21,6 @@ import type {
 import {
 	rolePsql,
 	roleSession,
-	Substrate,
 	type SubstrateShape,
 	type TextRows,
 	worldPsql,
@@ -42,8 +44,8 @@ export interface GrizzleActor {
 	readonly name: string
 	readonly role: string
 	/**
-	 * The one session its Db's pool holds, resolved once at construction: the Db's first call leases it, and its pool
-	 * takes it back idle for each later call, one at a time.
+	 * The backend of the one session its Db's pool holds, as that session answered pg_backend_pid() when the actor was
+	 * named (grizzleActor): its pool takes it back idle for each later call, one at a time.
 	 */
 	readonly pid: number
 }
@@ -54,7 +56,8 @@ export interface GrizzleActor {
  * A direct actor performs one SQL step at a time and reports the backend running its statements, which the lock barrier
  * watches: a raw actor is a pinned PgConnection session and a psql actor a psql child process, both direct SQL writers
  * logged in as a role. A grizzle actor runs no SQL of its own: its steps are operations, such as a db.apply, that the
- * runner (or the explorer) runs itself, and its pid is the one session its Db's pool holds.
+ * runner (or the explorer) runs itself, and its pid is the backend of the one session its Db's pool holds, as that
+ * session answers it.
  *
  * The actors of a schedule, by session name and kind.
  */
@@ -249,41 +252,28 @@ const openActor = (
 			)
 
 /**
- * The actor of a Db of the login `role`: Db.open contacts nothing, so `first`, one call through the Db, leases the
- * session its pool then holds idle for its later calls, and the actor is the one client backend of `role` in this
- * database whose pid is none of `beside`; a die when there is not exactly one. The only copy of the pg_stat_activity
- * backend query in the tests.
+ * The actor of a Db whose pool is `pool`, named by its own session: the pool leases the session it then holds idle for
+ * the Db's later calls, one at a time (Db.open contacts nothing, so the lease opens it, or takes back the one an earlier
+ * call of the Db left idle), and the actor is that session's backend, as the session answers pg_backend_pid()
+ * (kernel/sanitize.ts ownPidQuery), under the login role it logged in as. A die when the lease or its answer fails.
  */
-export const grizzleActor = <E>(
+export const grizzleActor = (
 	name: string,
-	role: string,
-	first: Effect.Effect<unknown, E>,
-	beside: ReadonlyArray<number>
-): Effect.Effect<GrizzleActor, never, Substrate> =>
-	Effect.gen(function* () {
-		const s = yield* Substrate
-		yield* Effect.orDie(first)
-		const excluded =
-			beside.length === 0 ? "" : ` AND a.pid NOT IN (${Arr.join(Arr.map(beside, String), ", ")})`
-		const rows = yield* Effect.orDie(
-			s.admin.queryValues(
-				`SELECT a.pid FROM pg_catalog.pg_stat_activity AS a WHERE a.usename = $1::name AND a.datname = pg_catalog.current_database() AND a.backend_type = 'client backend'::text${excluded}`,
-				[role]
-			)
-		)
-		const [only, ...more] = rows
-		if (only === undefined || more.length > 0) {
-			return yield* Effect.die(
-				new Error(
-					`${role} has ${rows.length} client backends beside [${Arr.join(Arr.map(beside, String), ", ")}], not one: ${name}'s Db holds one session`
+	pool: Pick<SessionPool, "lease">
+): Effect.Effect<GrizzleActor> =>
+	Effect.orDie(
+		Effect.scoped(
+			Effect.flatMap(pool.lease, (session) =>
+				Effect.flatMap(rowsOn(session, ownPidQuery, []), (rows) =>
+					Option.match(ownPidOf(rows), {
+						onNone: () =>
+							Effect.die(
+								new Error(`${name}'s session answered no backend pid: ${Formatter.format(rows)}`)
+							),
+						onSome: (pid): Effect.Effect<GrizzleActor> =>
+							Effect.succeed({ name, role: session.role, pid })
+					})
 				)
 			)
-		}
-		const pid = Number(only[0])
-		if (!Number.isSafeInteger(pid)) {
-			return yield* Effect.die(
-				new Error(`${role}'s backend pid is not an integer: ${Formatter.format(only[0])}`)
-			)
-		}
-		return { name, role, pid }
-	})
+		)
+	)

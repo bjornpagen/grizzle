@@ -64,8 +64,7 @@ export interface Rig<W extends RigWorlds> {
 	 * Builds a DbLayer of the served login `server` of its own, opens a role's Db over it with `open` (the caller's
 	 * openServed(served.roles.<role>, {}), provided the layer's context), as an application opens it, runs `first` on
 	 * the Db, one call of its workload (the empty ChangeSet the schedule's login serves), which leases the Db's session,
-	 * and resolves the writer's grizzle actor, named `name`: the one session of the login that no earlier writer of the
-	 * rig holds.
+	 * and names the writer's grizzle actor `name` by that session, which its pool then holds idle (grizzleActor).
 	 */
 	readonly servedWriter: <R, P, E>(
 		name: string,
@@ -115,10 +114,6 @@ export const openRig = <W extends RigWorlds>(
 			defined(served.get(worlds.server.name), "the served file of the login server")
 		)
 		const env = yield* exploreEnv(s)
-		/**
-		 * The backends of the writers opened so far: a new writer's actor is the one session of the login beside them.
-		 */
-		const opened: Array<number> = []
 		return {
 			installed,
 			worlds,
@@ -136,13 +131,8 @@ export const openRig = <W extends RigWorlds>(
 				Effect.gen(function* () {
 					const context = yield* Layer.build(fixture.layer)
 					const { db, ctx } = yield* open(context)
-					const actor = yield* grizzleActor(
-						actorName,
-						installed.as(worlds.server).role,
-						first(db),
-						opened
-					)
-					opened.push(actor.pid)
+					yield* Effect.orDie(first(db))
+					const actor = yield* grizzleActor(actorName, ctx.pool)
 					return { db, ctx, actor }
 				})
 		}
