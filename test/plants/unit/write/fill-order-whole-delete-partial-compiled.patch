@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/write/frontend/compile.ts b/packages/engine/src/write/frontend/compile.ts
+index a6aa6c66..f785ed73 100644
+--- a/packages/engine/src/write/frontend/compile.ts
++++ b/packages/engine/src/write/frontend/compile.ts
+@@ -1080,7 +1080,7 @@ const compile = (
+ 			const outside = families.find(
+ 				(f) => f.member.name === name && !isTreeOf(f, name) && !reached.includes(f.owner.name)
+ 			)
+-			if (outside !== undefined) {
++			if (outside !== undefined && outside.owner.name === name) {
+ 				refuse(
+ 					"UnsupportedOperation",
+ 					loc,
+@@ -1090,7 +1090,7 @@ const compile = (
+ 		}
+ 		const ordered: Array<StoredRelationName> = []
+ 		const intoUnit = (name: StoredRelationName): ReadonlyArray<Family> =>
+-			families.filter((f) => f.member.name === name && !isTreeOf(f, name))
++			families.filter((f) => f.member.name === name && !isTreeOf(f, name) && reached.includes(f.owner.name))
+ 		for (let remaining = below; isNonEmpty(remaining);) {
+ 			const next = remaining.find((name) =>
+ 				intoUnit(name).every((f) => roots.includes(f.owner.name) || ordered.includes(f.owner.name))

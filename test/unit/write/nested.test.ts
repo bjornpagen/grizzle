@@ -52,7 +52,11 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * Features: each box's shapes (owners, trees, the transport), a set's repeated facts and keys, each tree depth and
  * shape.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): nested-tree-interval-unsized, nested-signature-own-row-only.
+ * @plant test/plants/unit/write/nested-tree-interval-unsized.patch A tree node's end is its start plus one, never
+ * plus its subtree's size; the depth-and-width property fails on a chain's end.
+ * @plant test/plants/unit/write/nested-signature-own-row-only.patch A fact's signature is its own row's texts alone,
+ * never the rows it nests, so two owners at one key with different lines are one fact, not a key conflict; the
+ * set-by-identity property fails.
  */
 
 const Doc = relation(

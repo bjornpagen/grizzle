@@ -73,8 +73,8 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  *
  * Features: each selection, the weight fold or not, a missing weight at each place a fill reads it.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): fill-stop-null-as-range, a generated field with no value refused as
- * integerRange.
+ * @plant test/plants/unit/write/fill-stop-null-as-range.patch A generated field with no value at a row a fill reads
+ * is refused as integerRange (runtime/write/fill.ts fillRefusal), not invariant-rejected on its law.
  */
 
 const weighedKinds = ["light", "heavy"] as const

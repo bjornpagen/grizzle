@@ -100,15 +100,15 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  *   from a query is refused (StaleDerivedRead, `query`, grizzle never seeing the query's rows), and a role that leaves
  *   out one relation a refill writes or reads is refused (OutsideRole) naming exactly it.
  *
- * The planted bug: a copy's source read with no regard to when its row fills it (analysis/theory/fill.ts `ownerLater`
- * and `readLater` admitting every source) admits schemas the model refuses, which the witnesses reach on every seed.
- *
- * Plants (~/.cache/grizzle-release/BR02/plants): fill-order-read-later-admitted, the planted bug above as a patch;
- * (~/.cache/grizzle-release/FILLORDER/plants): fill-order-generated-copy-drawn, an owner copy of a generated column of
- * owners the stratum inserts read from the table after their statement, never from the fields its generation reads,
- * which the kept case of TEST_SEED=2002821052 refuses as UnorderableStratum. (~/.cache/grizzle-release/WHOLEDEL/plants):
- * fill-order-whole-delete-partial-compiled, a whole delete's refusal of a nested member whose family's owner it keeps
- * removed (write/frontend/compile.ts unitBelow), which the kept ordered case reaches on every seed.
+ * @plant test/plants/unit/write/fill-order-read-later-admitted.patch A copy's source is read with no regard to when
+ * its row fills it (analysis/theory/fill.ts `ownerLater` and `readLater` admitting every source), so schemas the model
+ * refuses are admitted, which the witnesses reach on every seed.
+ * @plant test/plants/unit/write/fill-order-generated-copy-drawn.patch An owner copy of a generated column of owners the
+ * stratum inserts is read from the table after their statement, never from the fields its generation reads, so the
+ * kept case of TEST_SEED=2002821052 is refused as UnorderableStratum.
+ * @plant test/plants/unit/write/fill-order-whole-delete-partial-compiled.patch A whole delete's refusal of a nested
+ * member whose family's owner it keeps is removed (write/frontend/compile.ts unitBelow), which the kept ordered case
+ * reaches on every seed.
  */
 
 type FillSituation =

@@ -45,8 +45,8 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  *
  * Features: an empty family, a member stepped over, a supplementary character joined.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): concat-fill-prepends, a step that puts its piece before the running
- * text.
+ * @plant test/plants/unit/write/concat-fill-prepends.patch A concat step puts its piece before the running text, not
+ * after it.
  */
 
 const pieces = ["", "a", "\u{1F600}"] as const

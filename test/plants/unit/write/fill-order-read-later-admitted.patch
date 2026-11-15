@@ -1,0 +1,26 @@
+diff --git a/packages/engine/src/analysis/theory/fill.ts b/packages/engine/src/analysis/theory/fill.ts
+index 11077e7f..43864023 100644
+--- a/packages/engine/src/analysis/theory/fill.ts
++++ b/packages/engine/src/analysis/theory/fill.ts
+@@ -426,10 +426,7 @@ const lawAndFamily = (
+ }
+ 
+ /** Why a column of `writer` may not read a column `read` fills: none when it may. */
+-const readLater = (writer: FillWriter, read: FillWriter): FilledLater | undefined =>
+-	read.kind === "walk" || (writer.kind === "counted" && sameFamily(writer.family, read.family))
+-		? undefined
+-		: { kind: "countedFill", family: named(read.family) }
++const readLater = (writer: FillWriter, read: FillWriter): FilledLater | undefined => undefined
+ 
+ /** A column of a draft layout: its entry, the row's own columns it reads, and everything it waits on. */
+ interface DraftColumn {
+@@ -590,6 +587,9 @@ const ownerLater = (
+ 	| { readonly kind: "later"; readonly later: FilledLater }
+ 	| { readonly kind: "after"; readonly families: ReadonlyArray<Family> } => {
+ 	const writer = target.entry.writer
++	if (writer.kind === "counted" || true) {
++		return { kind: "after", families: [] }
++	}
+ 	if (writer.kind === "counted") {
+ 		if (!sameFamily(writer.family, family)) {
+ 			return { kind: "later", later: { kind: "countedFill", family: named(writer.family) } }

@@ -56,7 +56,8 @@ import type {
  * Features: refused at build; compiled whole and through an entry; every carried field serial, whole and through an
  * entry; a serial field the filter reads; facts refused at their shape; generated facts bound.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): entry-box-generated-refused, a generated fact refused at its encoder.
+ * @plant test/plants/unit/write/entry-box-generated-refused.patch A generated fact, every classed serial field left
+ * out, is refused at its encoder as a fact of no heading, where the model admits it.
  */
 type Use = "carried" | "read" | "fixed" | "unnamed"
 

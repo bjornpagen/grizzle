@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/write/fill.ts b/packages/engine/src/runtime/write/fill.ts
+index d0e70744..e318d604 100644
+--- a/packages/engine/src/runtime/write/fill.ts
++++ b/packages/engine/src/runtime/write/fill.ts
+@@ -179,7 +179,7 @@ export const fillRefusal = (
+ 		case "range":
+ 			return encodeFailure("integerRange", place)
+ 		case "null":
+-			return { _tag: "GeneratedNull", law: stop.law }
++			return encodeFailure("integerRange", place)
+ 	}
+ }
+ 

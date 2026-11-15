@@ -62,7 +62,10 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  *
  * Features: each monoid, an empty family, a member stepped over, hidden accumulators, a counted family.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): family-fold-twos-union, family-fold-max-first.
+ * @plant test/plants/unit/write/family-fold-twos-union.patch twos' second plane takes the union of its ones and the
+ * member's set, not their intersection; the reference fold disagrees.
+ * @plant test/plants/unit/write/family-fold-max-first.patch A max fold's first before is seeded from the first
+ * member's value, not the identity; the fills disagree with the reference fold at slot 0's before.
  */
 
 type Carrier = "int2" | "int4" | "int8" | "natural" | "numeric" | "money" | "set" | "code"

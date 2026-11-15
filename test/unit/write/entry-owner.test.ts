@@ -34,9 +34,10 @@ import { offlineBind, offlineCompile, parsedChange } from "#test/support/worlds/
  * Features: refused when declared at each family field; each op of each fact through a declared role; a put of the
  * owner in place.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): entry-owner-family-filter-admitted, an entry whose filter reads a
- * family field declared. (~/.cache/grizzle-release/WHOLEDEL/plants): entry-owner-whole-delete-through-entry-compiled,
- * the refusal of a whole delete through a query entry removed (write/frontend/compile.ts `unitDelete`).
+ * @plant test/plants/unit/write/entry-owner-family-filter-admitted.patch An entry whose filter reads a family field
+ * is declared, not refused as filterReadsFamily (schema/entry.ts).
+ * @plant test/plants/unit/write/entry-owner-whole-delete-through-entry-compiled.patch The refusal of a whole delete
+ * through a query entry is removed (write/frontend/compile.ts `unitDelete`), so a delete of a fact compiles.
  */
 const built = Object.freeze(shopOf("Shop"))
 

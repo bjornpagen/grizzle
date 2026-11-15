@@ -49,8 +49,8 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * Features: the owner states its accumulated end, a member its drawn index; the owner, or a member, states a field its
  * relation lacks; only a later member states beyond its caller's fields; every fact states its caller's fields alone.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): nested-facts-member-extras-dropped, the split keeping a nested
- * member's first field alone, so a drawn index or a foreign field is dropped unsaid.
+ * @plant test/plants/unit/write/nested-facts-member-extras-dropped.patch The split keeps a nested member's first
+ * field alone (runtime/write/addition.ts encodeAddition), so a drawn index or a foreign field is dropped unsaid.
  */
 const Owner = relation(
 	"Owner",

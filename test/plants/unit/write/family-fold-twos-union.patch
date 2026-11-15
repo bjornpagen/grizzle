@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/write/fill.ts b/packages/engine/src/runtime/write/fill.ts
+index d0e70744..3dec5ff7 100644
+--- a/packages/engine/src/runtime/write/fill.ts
++++ b/packages/engine/src/runtime/write/fill.ts
+@@ -711,7 +711,7 @@ const combineHost = (
+ 			}
+ 			return plane === 0
+ 				? new Set([...ones, ...x])
+-				: new Set([...twos, ...[...ones].filter((h) => x.has(h))])
++				: new Set([...twos, ...ones, ...x])
+ 		}
+ 		case "concat":
+ 			return concatHost(before, x)

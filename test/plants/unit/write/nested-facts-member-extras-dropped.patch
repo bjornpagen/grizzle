@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/runtime/write/addition.ts b/packages/engine/src/runtime/write/addition.ts
+index 47981493..e4c3e898 100644
+--- a/packages/engine/src/runtime/write/addition.ts
++++ b/packages/engine/src/runtime/write/addition.ts
+@@ -130,9 +130,8 @@ export const encodeAddition = (
+ 			return Result.err({ fault: read.error, path: pathOf(next.at) })
+ 		}
+ 		const { owned, counts } = splitOf(next.relation)
+-		const own = Object.freeze(
+-			Object.fromEntries(Object.entries(read.value).filter(([name]) => !counts.has(name)))
+-		)
++		const stated = Object.entries(read.value).filter(([name]) => !counts.has(name))
++		const own = Object.freeze(Object.fromEntries(next.at === undefined ? stated : stated.slice(0, 1)))
+ 		const groups: Array<{ readonly family: FamilyId; readonly members: ReadonlyArray<number> }> = []
+ 		for (const family of owned) {
+ 			const at: PathStep = { parent: next.at, step: family.count }

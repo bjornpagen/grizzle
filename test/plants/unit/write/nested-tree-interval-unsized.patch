@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/write/fill.ts b/packages/engine/src/runtime/write/fill.ts
+index d0e70744..c5c2ccd1 100644
+--- a/packages/engine/src/runtime/write/fill.ts
++++ b/packages/engine/src/runtime/write/fill.ts
+@@ -1143,7 +1143,7 @@ export const filler = (fill: HostFill, codes: Codebook, evaluate: HostEvaluator)
+ 			if (size === undefined) {
+ 				throw defect(`the subtree size of a node of ${node.relation}`)
+ 			}
+-			return { start, end: start + size }
++			return { start, end: start + 1 }
+ 		}
+ 		const first = rowOf(root, position, {
+ 			step: undefined,
