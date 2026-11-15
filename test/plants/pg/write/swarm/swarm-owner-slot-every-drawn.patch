@@ -1,0 +1,17 @@
+diff --git a/packages/engine/src/write/frontend/compile.ts b/packages/engine/src/write/frontend/compile.ts
+index 4009d67f..13cdb237 100644
+--- a/packages/engine/src/write/frontend/compile.ts
++++ b/packages/engine/src/write/frontend/compile.ts
+@@ -1755,8 +1755,10 @@ const compile = (
+ 					)
+ 				)
+ 				const owned =
+-					target.kind === "whole"
+-						? written.heading.filter((c) => ownedNames.has(c.name)).map(carriedColumn)
++					target.kind === "whole" && ownedNames.size > 0
++						? written.heading
++								.filter((c) => c.writing.kind === "drawn" || c.writing.kind === "accumulated")
++								.map(carriedColumn)
+ 						: []
+ 				if (
+ 					managed(relation.name) &&

@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/runtime/write/nesting.ts b/packages/engine/src/runtime/write/nesting.ts
+index eccce4c5..1084f48b 100644
+--- a/packages/engine/src/runtime/write/nesting.ts
++++ b/packages/engine/src/runtime/write/nesting.ts
+@@ -245,10 +245,7 @@ export const nestedRows = (
+ 			)
+ 		)
+ 		const key = keyFields.map((f) => text(walk.codes, f.type, root.values.get(fieldKey(f.name))))
+-		const signature: Array<Signed> =
+-			nesting.root.kind === "plain"
+-				? nesting.top.map((c) => canonical(walk.codes, c.type, own[c.name]))
+-				: []
++		const signature: Array<Signed> = []
+ 		for (const [reached, list] of rowsOf(nesting, walk.codes, root)) {
+ 			const known =
+ 				into.rows.get(reached) ??

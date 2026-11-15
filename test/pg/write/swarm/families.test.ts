@@ -93,14 +93,15 @@ import { fullWorld } from "#test/support/worlds.ts"
  * nested fact's signature without its own texts and an action placed before the family rows it references immediately
  * each fail the search.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/swarm-nested-signature-without-own-texts.patch, a nested fact's signature
- * without its own texts, must turn the property red. Plant: ~/.cache/grizzle-release/FILLORDER/plants/
- * swarm-owner-slot-every-drawn.patch, an owner's slot carrying every drawn and accumulated column at its start, its copies
- * as a member among them, fails the kept case of TEST_SEED=881675980. Plant: ~/.cache/grizzle-release/FAMILYMOVE/plants/
- * swarm-moved-member-count-redrawn.patch, a moved member inserted again with its own counted family's count and ends as
- * its put's slot carries them, an empty family's, fails the floor's case 4 and, with that case's follow-ups left out, the
- * case aimed at "a member owning a family moved between owners" (`ownerMoved`; TEST_SEED=3402740402, steered case 8).
- *
+ * @plant test/plants/pg/write/swarm/swarm-nested-signature-without-own-texts.patch A nested fact's signature is built
+ * without its own texts (runtime/write/nesting.ts nestedRows); the property fails.
+ * @plant test/plants/pg/write/swarm/swarm-owner-slot-every-drawn.patch An owner's slot carries every drawn and
+ * accumulated column at its start, its copies as a member among them (write/frontend/compile.ts); the kept case of
+ * TEST_SEED=881675980 fails.
+ * @plant test/plants/pg/write/swarm/swarm-moved-member-count-redrawn.patch A moved member is inserted again with its own
+ * counted family's count and ends as its put's slot carries them, an empty family's (write/family/additions.ts); the
+ * floor's case 4 fails and, with that case's follow-ups left out, the case aimed at "a member owning a family moved
+ * between owners" (`ownerMoved`; TEST_SEED=3402740402, steered case 8).
  * @plant test/plants/pg/write/swarm/pair-counts-the-fact-itself.patch A family member's candidate is paired with itself
  * at a unique object of no span beside its primary key (write/insert/unique.ts pairedFacts, count(*) > 0), so every
  * insert of members under a member key is refused by that key.
