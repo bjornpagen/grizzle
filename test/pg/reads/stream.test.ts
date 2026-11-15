@@ -1,25 +1,28 @@
 /**
  * A read's rows stream: a read whose program delivers its rows by one statement (reader/run.ts Emission) hands each row
- * to its stream the moment the row is whole (reader/stream.ts readStream), so its first upsert reaches the stream's
- * consumer while the rows after it have not reached the driver, and its events are its reset, an upsert of each of its
- * rows, and one ready.
+ * to its stream the moment the row is whole (reader/stream.ts readStream), so it has offered its first upsert while the
+ * rows after it have not reached the driver, and its events are its reset, an upsert of each of its rows, and one ready.
  *
  * The suite constructs the condition the claim needs: the Db reads over the protocol tap's transport
  * (test/support/wire-tap.ts), whose gate lets exactly one of the read's DataRows reach the driver and holds every later
  * byte of the server's answer until the test releases it. The read runs once ungated first, on the same session, so the
  * DataRows its transaction's frame answers before the read's own statement (its prologue's) are counted from the tap's
- * record of that flight, and the gate lets those and one more through. The read's own decoder (reader/stream.ts ReadCall.decode) counts the rows
- * it decoded. A stream that streams hands the consumer its first upsert while the gate holds, with one row decoded; the
- * consumer then releases the gate, and the read runs to its end. A stream that held its rows until its flight answered
- * would hand it none while the gate holds, and the case would hang, which its bound reports (caseHang).
+ * record of that flight, and the gate lets those and one more through. The read's own decoder (reader/stream.ts
+ * ReadCall.decode) counts the rows it decoded, and its run counts the events it has put on its queue (ReadRun.offered).
+ * Once the gate holds, every byte it let through has reached the driver, which read it in the call that handed it over
+ * (Gate.holding): a stream that streams has then decoded that one row and offered its reset and its upsert, whatever its
+ * consumer has taken. The test reads both counts then, and only then releases the gate, so a stream that held its rows
+ * until its flight answered fails at once with nothing offered, and no case waits on an event that never comes.
  *
- * - Property: the first event is the reset naming the read's key fields; the consumer's first upsert arrives while the
- *   gate holds, exactly one of the read's rows decoded; the upserts are exactly the table's rows, each once; and the
- *   last event is one ready.
- * - Oracle: the rows the case inserted, and the count on the read's own decoder.
+ * - Property: once one of the read's rows has reached the driver, exactly that row is decoded and the run has offered
+ *   two events, its reset and that row's upsert; the first event is the reset naming the read's key fields; the
+ *   upserts are exactly the table's rows, each once; and the last event is one ready.
+ * - Oracle: the rows the case inserted, the count on the read's own decoder, and the run's count of its offers.
  * - Features: a read of two rows or more, by construction.
  *
  * @plant test/plants/pg/reads/stream-drop-reset.patch readStream sends no reset.
+ * @plant test/plants/pg/reads/stream-buffer-whole-result.patch readStream hands its rows to the stream only once the
+ * flight answered, so nothing is offered while one row has reached the driver.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -28,7 +31,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Stream, String as Str } from "effect"
+import { Array as Arr, Effect, Fiber, Formatter, Option, Stream, String as Str } from "effect"
 import { readCallOf } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
 import { type DecodedRow, type ReadCall, readStream, setEvents } from "#adapter/reader/stream.ts"
@@ -75,17 +78,16 @@ const rowOf = (id: number, width: number): { readonly id: number; readonly body:
 	body: Str.repeat(width)(String.fromCharCode(97 + (id % 26)))
 })
 
-/** What a consumer of a read's events saw: their kinds in order, its upserts' rows, and the decode count at the first. */
+/** What a consumer of a read's events saw: their kinds in order, its upserts' rows, and its resets' key fields. */
 interface Seen {
 	readonly kinds: Array<SetEvent<DecodedRow>["kind"]>
 	readonly rows: Array<DecodedRow>
 	readonly resetKey: Array<ReadonlyArray<string>>
-	firstAt: number | undefined
 }
 
 layer(Substrate.layer, { excludeTestServices: true })("a read's rows", (it) => {
 	it.effect(
-		"stream: its first upsert reaches the consumer while one row has reached the driver, and its events are its reset, its rows and one ready",
+		"stream: it has offered its first upsert once one row has reached the driver, and its events are its reset, its rows and one ready",
 		(ctx) =>
 			searched(
 				ctx,
@@ -159,34 +161,37 @@ layer(Substrate.layer, { excludeTestServices: true })("a read's rows", (it) => {
 										}
 									}
 									const mark = tap.mark()
-									yield* Stream.runDrain(readStream(db.ctx, parsed.call, setEvents))
+									yield* Stream.runDrain(readStream(db.ctx, parsed.call, setEvents).events)
 									const framed = backendCount(tap.since(mark), "D") - n
-									const seen: Seen = { kinds: [], rows: [], resetKey: [], firstAt: undefined }
+									const seen: Seen = { kinds: [], rows: [], resetKey: [] }
+									const run = readStream(db.ctx, counted, setEvents)
 									tap.gate.hold(framed + 1, { kind: "type", type: "D" })
-									yield* Stream.runForEach(readStream(db.ctx, counted, setEvents), (event) =>
-										Effect.sync(() => {
-											seen.kinds.push(event.kind)
-											if (event.kind === "reset") {
-												seen.resetKey.push(event.key)
-											}
-											if (event.kind === "upsert") {
-												if (seen.firstAt === undefined) {
-													seen.firstAt = decoded.count
-													tap.gate.release()
+									const consumer = yield* Effect.forkChild(
+										Stream.runForEach(run.events, (event) =>
+											Effect.sync(() => {
+												seen.kinds.push(event.kind)
+												if (event.kind === "reset") {
+													seen.resetKey.push(event.key)
 												}
-												seen.rows.push(event.row)
-											}
-										})
+												if (event.kind === "upsert") {
+													seen.rows.push(event.row)
+												}
+											})
+										)
+									)
+									yield* tap.gate.holding
+									const atHold = { decoded: decoded.count, offered: yield* run.offered }
+									tap.gate.release()
+									yield* Fiber.join(consumer)
+									assert.deepEqual(
+										atHold,
+										{ decoded: 1, offered: 2 },
+										`once one row of ${n} has reached the driver, the read has decoded it and offered its reset and its upsert`
 									)
 									assert.equal(seen.kinds[0], "reset", "the first event")
 									assert.deepEqual(seen.resetKey, [["id"]], "the reset's key fields")
 									assert.equal(seen.kinds[seen.kinds.length - 1], "ready", "the last event")
 									assert.equal(Arr.filter(seen.kinds, (k) => k === "ready").length, 1, "one ready")
-									assert.equal(
-										seen.firstAt,
-										1,
-										`the rows decoded when the first upsert reached the consumer, of ${n}`
-									)
 									unorderedEqual(
 										Arr.map(seen.rows, (row) => ({ ...row })),
 										rows,

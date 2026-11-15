@@ -345,7 +345,7 @@ const registered = <S extends ReadShape, E>(
 	parsed: ParsedRead
 ): Effect.Effect<Live<E>, never, Scope.Scope> =>
 	ctx.subscriptions.register({
-		read: readStream(ctx, parsed.call, answer),
+		read: readStream(ctx, parsed.call, answer).events,
 		answer,
 		keys: keysOf(read, parsed),
 		expiry: ctx.expiry
@@ -450,7 +450,7 @@ const callEvents =
 		Stream.unwrap(
 			Effect.match(parse(input), {
 				onFailure: (failure) => Stream.make(events.error(readCallError(failure))),
-				onSuccess: (parsed) => readStream(ctx, parsed.call, events)
+				onSuccess: (parsed) => readStream(ctx, parsed.call, events).events
 			})
 		)
 

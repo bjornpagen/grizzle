@@ -169,16 +169,27 @@ const runRead = (
 	)
 
 /**
- * The sending of a stream's opening event, `reset`: offered to `queue` at its first call alone, the first row or the
- * ready that follows the read's answer, and never where the stream ends at an error before either (see the header).
+ * The sending of a stream's opening event, `reset`: offered at its first call alone, the first row or the ready that
+ * follows the read's answer, and never where the stream ends at an error before either (see the header).
  */
-const openingOf = <E, D>(queue: Queue.Queue<E, D>, reset: E): (() => void) => {
+const openingOf = <E>(offer: (event: E) => void, reset: E): (() => void) => {
 	const pending = [reset]
 	return () => {
 		for (const event of pending.splice(0)) {
-			Queue.offerUnsafe(queue, event)
+			offer(event)
 		}
 	}
+}
+
+/**
+ * A read call's run (readStream): the stream of its events, and how many events it has put on its queue so far, each
+ * counted the moment it is offered, before any consumer takes it. The count is the run's progress as a value: once one
+ * row has reached the driver, a run that streams has offered that row's upsert and its reset, whatever its consumer has
+ * read.
+ */
+export interface ReadRun<E> {
+	readonly events: Stream.Stream<E>
+	readonly offered: Effect.Effect<number>
 }
 
 /** The events of one read call through the Db's frame, each made by its shape's `events` (see the header). */
@@ -186,22 +197,31 @@ export const readStream = <E>(
 	ctx: Pick<ServedDbContext, "pool" | "prologue" | "domain">,
 	call: ReadCall,
 	events: ShapeEvents<E>
-): Stream.Stream<E> =>
-	Stream.callback<E>((queue) =>
-		Effect.gen(function* () {
-			const opening = openingOf(queue, events.reset(call.fields))
-			const upsert = events.upserts(call.fields)
-			const last = yield* runRead(ctx, call, (row) => {
-				opening()
-				Queue.offerUnsafe(queue, upsert(call.decode(row)))
-			}).pipe(
-				Effect.map(() => {
+): ReadRun<E> => {
+	let offered = 0
+	return {
+		events: Stream.callback<E>((queue) =>
+			Effect.gen(function* () {
+				const offer = (event: E): void => {
+					offered += 1
+					Queue.offerUnsafe(queue, event)
+				}
+				const opening = openingOf(offer, events.reset(call.fields))
+				const upsert = events.upserts(call.fields)
+				const last = yield* runRead(ctx, call, (row) => {
 					opening()
-					return events.ready
-				}),
-				Effect.catch((failure) => Effect.succeed(events.error(readCallError(failure))))
-			)
-			Queue.offerUnsafe(queue, last)
-			Queue.endUnsafe(queue)
-		})
-	)
+					offer(upsert(call.decode(row)))
+				}).pipe(
+					Effect.map(() => {
+						opening()
+						return events.ready
+					}),
+					Effect.catch((failure) => Effect.succeed(events.error(readCallError(failure))))
+				)
+				offer(last)
+				Queue.endUnsafe(queue)
+			})
+		),
+		offered: Effect.sync(() => offered)
+	}
+}

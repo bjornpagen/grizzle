@@ -1,13 +1,13 @@
 diff --git a/packages/grizzle/src/adapter/reader/stream.ts b/packages/grizzle/src/adapter/reader/stream.ts
-index b5cd51b3..8472afb5 100644
+index 8bcdae84..1126b3a4 100644
 --- a/packages/grizzle/src/adapter/reader/stream.ts
 +++ b/packages/grizzle/src/adapter/reader/stream.ts
-@@ -189,7 +189,7 @@ export const readStream = <E>(
- ): Stream.Stream<E> =>
- 	Stream.callback<E>((queue) =>
- 		Effect.gen(function* () {
--			const opening = openingOf(queue, events.reset(call.fields))
-+			const opening = (): void => undefined
- 			const upsert = events.upserts(call.fields)
- 			const last = yield* runRead(ctx, call, (row) => {
- 				opening()
+@@ -206,7 +206,7 @@ export const readStream = <E>(
+ 					offered += 1
+ 					Queue.offerUnsafe(queue, event)
+ 				}
+-				const opening = openingOf(offer, events.reset(call.fields))
++				const opening = (): void => undefined
+ 				const upsert = events.upserts(call.fields)
+ 				const last = yield* runRead(ctx, call, (row) => {
+ 					opening()
