@@ -1,33 +1,33 @@
 diff --git a/packages/engine/src/types/schema/schema.ts b/packages/engine/src/types/schema/schema.ts
-index 996eaa28..18958a55 100644
+index aeb7e298..06b297e9 100644
 --- a/packages/engine/src/types/schema/schema.ts
 +++ b/packages/engine/src/types/schema/schema.ts
-@@ -371,27 +371,7 @@ type DeclaredIn<R> = true extends (
- 	R extends unknown ? (IsOneLiteral<NameOf<R>> extends true ? false : true) : never
+@@ -513,27 +513,7 @@ type DeclaredIn<R> = true extends (
+ 	R extends unknown ? (IsOneLiteral<NameStated<R>> extends true ? false : true) : never
  )
  	? { readonly [name: string]: R }
--	: DeclaredByName<Extract<R, SelfNamed>>
--
--/** What a level's record holds under a name: a value carrying its own name. */
--type SelfNamed = { readonly name: string }
+-	: DeclaredByName<R>
 -
 -/**
 - * The relations of R under their names, keyed by R's names read once, so keyof the record is its key set and a lookup
 - * by name is one property read. A record whose keys an `as` clause names is read again whole at every lookup and every
 - * keyof: the checker instantiates the clause over every relation of R to ask whether the record is generic, which made
 - * each statement's, role's and ChangeSet's lookup of a relation cost the level's every relation. Each name's relations
-- * are bound at R, so every reader of the record reads R's relations, generic ones included.
+- * are those of R (Extract), so every reader of the record reads R's relations, generic ones included. The names are
+- * read by key (NameStated), never by a test of a relation: a derived relation holds its definition, a query over the
+- * level below, and a conditional the checker resolves instantiates it whole. DeclaredIn reaches the record only where
+- * every relation states one literal name.
 - */
--type DeclaredByName<R extends SelfNamed> = {
--	readonly [N in R["name"]]: NamedIn<R>[N] extends infer X extends R ? X : never
+-type DeclaredByName<R> = {
+-	readonly [N in NameStated<R>]: Extract<NamedIn<R>[N], R>
 -}
 -
 -/**
 - * Each relation of R under its name, the relations of one name in one union: read once per name, as DeclaredByName
-- * resolves its properties, its clause an indexed access, one instantiation over all of R.
+- * resolves its properties, its clause a read by key, one instantiation over all of R.
 - */
--type NamedIn<R extends SelfNamed> = { readonly [X in R as X["name"]]: X }
+-type NamedIn<R> = { readonly [X in R as Stated<X, "name"> & string]: X }
 +	: { readonly [X in R as NameOf<X>]: X }
  
  /**
-  * Each element of a list, boxed: a tuple's elements one by one, each as its call wrote it (a relation chosen at run
+  * Each element of an array, boxed: an array's possible elements, each relation of its element type, any two of which it

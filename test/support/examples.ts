@@ -68,13 +68,14 @@ const typeCostGates: Exemption = {
 		"test/types/query/budget/scaling.test.ts",
 		"test/types/regex/scaling.test.ts",
 		"test/types/schema/budget/families.test.ts",
+		"test/types/schema/budget/extension.test.ts",
 		"test/types/schema/budget/invariance.test.ts",
 		"test/types/schema/budget/logins.test.ts",
 		"test/types/schema/budget/scaling.test.ts",
 		"test/types/skeleton/budget/invariance.test.ts"
 	],
 	reason:
-		"The type layer's cost gates: each typechecks programs generated at three sizes an equal step apart and holds their types and instantiations to grow no faster than linearly, the second step adding no more than the first (test/support/growth.ts), a performance property; or holds the largest program's inference and refusals to its twin's, the same declarations at the smallest scale its probes read; or holds the instantiations a ChangeSet's members add to be the same over a small schema and a large one (changeset/budget/members.test.ts). No verdict is one a person wrote."
+		"The type layer's cost gates: each typechecks programs generated at three sizes an equal step apart and holds their types and instantiations to grow no faster than linearly, the second step adding no more than the first (test/support/growth.ts), a performance property; or holds the largest program's inference and refusals to its twin's, the same declarations at the smallest scale its probes read; or holds the instantiations a ChangeSet's members add to be the same over a small schema and a large one (changeset/budget/members.test.ts), and those an extension's derived relations and its laws over them add to be the same over a small base and a large one (schema/budget/extension.test.ts). No verdict is one a person wrote."
 }
 
 /** `pnpm test`'s exemptions: the unit and type tiers' files among them. */

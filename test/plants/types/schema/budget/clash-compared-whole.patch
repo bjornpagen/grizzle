@@ -1,0 +1,17 @@
+diff --git a/packages/engine/src/types/schema/schema.ts b/packages/engine/src/types/schema/schema.ts
+index aeb7e298..02d367cc 100644
+--- a/packages/engine/src/types/schema/schema.ts
++++ b/packages/engine/src/types/schema/schema.ts
+@@ -646,9 +646,9 @@ type Clashing<Relations extends ReadonlyArray<unknown>, Below> = number extends
+ 				Relations[I],
+ 				DeclaredTwice<Relations>,
+ 				Below
+-			> extends true
+-				? never
+-				: ClashesOf<Boxed<Relations[I]>, Relations, Below>
++			> extends unknown
++				? ClashesOf<Boxed<Relations[I]>, Relations, Below>
++				: never
+ 		}[number]
+ 
+ /**

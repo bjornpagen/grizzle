@@ -38,7 +38,6 @@ import type {
 	RelationOfKey,
 	Selection,
 	Side,
-	SideRelation,
 	Statement,
 	Tree
 } from "#compiler/types/schema/statements.ts"
@@ -95,17 +94,49 @@ export interface AnyFragment extends Built {
 	readonly statements: ReadonlyArray<Statement>
 }
 
-/** The fragments a level's list holds. */
-export type FragmentsIn<Relations extends ReadonlyArray<unknown>> = Extract<
-	Relations[number],
-	AnyFragment
+/**
+ * What X states under the key K, read by key: X[K] where K is a key of X, none otherwise (an array or a record indexed
+ * by a key it lacks is its element, so the key is asked first). A union states what each of its members states there,
+ * where every member has the key. It is how a level's lists and statements are read, never by a conditional test of
+ * the item: a derived relation holds its definition, a query over the level below, and a conditional the checker
+ * resolves instantiates its operands whole, every relation of that level with them, once for each item it tests.
+ */
+type Stated<X, K extends string> = K extends keyof X ? X[K] : never
+
+/**
+ * The kind X states, read by key: its `kind`, and `unknown`, which is no kind, where it states none, so a test of the
+ * kind of an item with none is false.
+ */
+type KindStated<X> = "kind" extends keyof X ? Stated<X, "kind"> : unknown
+
+/** The name X states, by key: its `name` where that is a string, none otherwise; each member of a union its own. */
+type NameStated<X> = X extends unknown ? StringStated<Stated<X, "name">> : never
+
+/** N where it is a string, never otherwise; N whole, so a union of a string and another type is none. */
+type StringStated<N> = [N] extends [string] ? N : never
+
+/**
+ * The fragments a level's list holds, each item told by its kind (a fragment's is "fragment"); a fragment is then
+ * matched as one, which reads only the fragment, never another item.
+ */
+export type FragmentsIn<Relations extends ReadonlyArray<unknown>> = FragmentsAmong<
+	Relations[number]
 >
+type FragmentsAmong<X> = X extends unknown
+	? KindStated<X> extends "fragment"
+		? Extract<X, AnyFragment>
+		: never
+	: never
 
 /**
  * What one item of a level's list declares: a fragment, each of its relations; any other item, itself. It distributes
- * over a union of items, as a list's element type is.
+ * over a union of items, as a list's element type is, each told by its kind.
  */
-type Listed<X> = X extends AnyFragment ? X["relations"][keyof X["relations"]] : X
+type Listed<X> = X extends unknown
+	? KindStated<X> extends "fragment"
+		? Stated<X, "relations">[keyof Stated<X, "relations">]
+		: X
+	: never
 
 /** The statements of the levels below a schema: its base's, none below a root schema. */
 export type StatementsBelow<Base extends AnySchema> = [Base] extends [never]
@@ -131,111 +162,181 @@ export type NameIn<R, Rs> = R extends { readonly name: infer N extends string }
 /** N by relation: the record's relation under the name N, and N where N is no name of the record. */
 export type RelationIn<N, Rs> = N extends keyof Rs ? Rs[N] : N
 
-type Spelled<R, Rs, To extends Spelling> = To extends "name" ? NameIn<R, Rs> : RelationIn<R, Rs>
-
-/** A law side's source spelled: a selection over its relation spelled, or the relation. */
-type SourceSpelled<Src, Rs, To extends Spelling> =
-	Src extends Selection<infer R>
-		? Spelled<R, Rs, To> extends infer X
-			? Selection<X>
-			: never
-		: Spelled<Src, Rs, To>
-
-type SideSpelled<S, Rs, To extends Spelling> =
-	S extends Side<infer Src, infer T extends ReadonlyArray<AnyTerm>>
-		? SourceSpelled<Src, Rs, To> extends infer X
-			? Side<X, T>
-			: never
-		: S
-
-/** A relation or a candidate key in key position, spelled. */
-type KeyRefSpelled<K, Rs, To extends Spelling> =
-	K extends Key<infer S>
-		? SideSpelled<S, Rs, To> extends infer X
-			? Key<X>
-			: never
-		: Spelled<K, Rs, To>
-
-type FinSpelled<Fi, Rs, To extends Spelling> =
-	Fi extends Fin<infer O, infer N extends string>
-		? Spelled<O, Rs, To> extends infer X
-			? Fin<X, N>
-			: never
-		: Fi
-
-type FamilySpelled<Fa, Rs, To extends Spelling> =
-	Fa extends OrderedFamily<infer F, infer Fi>
-		? SideSpelled<F, Rs, To> extends infer A
-			? FinSpelled<Fi, Rs, To> extends infer B
-				? OrderedFamily<A, B>
-				: never
-			: never
-		: Fa extends Counted<infer F, infer Fi>
-			? SideSpelled<F, Rs, To> extends infer A
-				? FinSpelled<Fi, Rs, To> extends infer B
-					? Counted<A, B>
-					: never
-				: never
-			: Fa extends Tree<infer F, infer Fi, infer Root extends ReadonlyArray<string>>
-				? SideSpelled<F, Rs, To> extends infer A
-					? FinSpelled<Fi, Rs, To> extends infer B
-						? Tree<A, B, Root>
-						: never
-					: never
-				: Fa
+/**
+ * R spelled: by name, R's literal name read by key (NameStated) where the record holds R itself under it, and R
+ * otherwise; by relation, the record's relation under the name R, and R where R is no name of the record.
+ */
+type Spelled<R, Rs, To extends Spelling> = To extends "name"
+	? R extends unknown
+		? NamedAs<R, NameStated<R>, Rs>
+		: never
+	: RelationIn<R, Rs>
 
 /**
- * One statement spelled, each relation it names in place: an alternatives law keeps its arm map as written, the
- * caller's own object-literal type, which the checker instantiates as one type without walking its arms. Every
- * statement is built by an `infer` binding, so no spelled statement is a type reference the checker defers, and each
- * part is bound alone: inside a type alias the checker defers a tuple whose element is an alias, `[A<…>, B<…>]`, and
- * instantiates it again for each check of the conditional it stands in, walking every relation of the record it
- * names, where an alias bound by itself, `A<…> extends infer X`, is resolved once.
+ * R by its name N, a parameter of its own so that no test of it reads R: N where it is a literal name the record holds
+ * R itself under, and R otherwise, as NameIn spells it.
  */
-type StatementSpelled<St, Rs, To extends Spelling> =
-	St extends Key<infer S>
-		? SideSpelled<S, Rs, To> extends infer X
-			? Key<X>
-			: never
-		: St extends Mutable<infer R>
-			? Spelled<R, Rs, To> extends infer X
-				? Mutable<X>
-				: never
-			: St extends Race<infer R>
-				? Spelled<R, Rs, To> extends infer X
-					? Race<X>
-					: never
-				: St extends Check<infer N extends string, infer R>
-					? Spelled<R, Rs, To> extends infer X
-						? Check<N, X>
-						: never
-					: St extends Containment<infer L, infer R>
-						? SideSpelled<L, Rs, To> extends infer A
-							? SideSpelled<R, Rs, To> extends infer B
-								? Containment<A, B>
-								: never
-							: never
-						: St extends Mirrors<infer L, infer R>
-							? SideSpelled<L, Rs, To> extends infer A
-								? SideSpelled<R, Rs, To> extends infer B
-									? Mirrors<A, B>
-									: never
-								: never
-							: St extends Alternatives<infer P, infer D extends string, infer C, infer Arms>
-								? KeyRefSpelled<P, Rs, To> extends infer A
-									? Spelled<C, Rs, To> extends infer B
-										? Alternatives<A, D, B, Arms>
-										: never
-									: never
-								: St extends Fold<infer Fa, infer M, infer S, infer E>
-									? FamilySpelled<Fa, Rs, To> extends infer A
-										? SideSpelled<S, Rs, To> extends infer B
-											? SideSpelled<E, Rs, To> extends infer C
-												? Fold<A, M, B, C>
-												: never
-											: never
-										: never
-									: FamilySpelled<St, Rs, To>
+type NamedAs<R, N, Rs> = [N] extends [never]
+	? R
+	: string extends N
+		? R
+		: Identical<R, UnderName<Rs, N>> extends true
+			? N
+			: R
+
+/**
+ * A law side's source spelled: a selection, told by its `relation`, the one member a selection has and no relation
+ * has, over its relation spelled; any other source spelled itself. A source typed `any`, whose keys are every key, is
+ * spelled as itself.
+ */
+type SourceSpelled<Src, Rs, To extends Spelling> = Src extends unknown
+	? "relation" extends keyof Src
+		? symbol extends keyof Src
+			? Spelled<Src, Rs, To>
+			: SelectionBuilt<Spelled<Stated<Src, "relation">, Rs, To>>
+		: Spelled<Src, Rs, To>
+	: never
+
+/**
+ * A law side spelled, read by key: its source spelled, its terms as they are; anything that is no side, itself. A side
+ * typed `any`, whose keys are every key, is itself.
+ */
+type SideSpelled<S, Rs, To extends Spelling> = S extends unknown
+	? symbol extends keyof S
+		? S
+		: "source" extends keyof S
+			? Stated<S, "terms"> extends infer T extends ReadonlyArray<AnyTerm>
+				? SideBuilt<SourceSpelled<Stated<S, "source">, Rs, To>, T>
+				: S
+			: S
+	: never
+
+/** A relation or a candidate key in key position, spelled: a key, told by its kind, its side spelled. */
+type KeyRefSpelled<K, Rs, To extends Spelling> = K extends unknown
+	? KindStated<K> extends "key"
+		? KeyBuilt<SideSpelled<Stated<K, "side">, Rs, To>>
+		: Spelled<K, Rs, To>
+	: never
+
+/** A family's slots spelled, told by their kind: fin(O, n) over its owner spelled; anything else, itself. */
+type FinSpelled<Fi, Rs, To extends Spelling> = Fi extends unknown
+	? KindStated<Fi> extends "fin"
+		? Stated<Fi, "count"> extends infer N extends string
+			? FinBuilt<Spelled<Stated<Fi, "owner">, Rs, To>, N>
+			: Fi
+		: Fi
+	: never
+
+/** A family spelled, told by its kind (FamilySpelledAs); anything that is no family, itself. */
+type FamilySpelled<Fa, Rs, To extends Spelling> = Fa extends unknown
+	? FamilySpelledAs<Fa, KindStated<Fa>, Rs, To>
+	: never
+
+/**
+ * A family Fa of the kind Kind spelled, read by key: its member side and its slots spelled, a tree's roots as they are;
+ * anything of another kind, itself. The kind is a parameter of its own, read once, and each test of it a test of a
+ * literal.
+ */
+type FamilySpelledAs<Fa, Kind, Rs, To extends Spelling> = Kind extends "ordered"
+	? OrderedFamilyBuilt<
+			SideSpelled<Stated<Fa, "family">, Rs, To>,
+			FinSpelled<Stated<Fa, "slots">, Rs, To>
+		>
+	: Kind extends "counted"
+		? CountedBuilt<
+				SideSpelled<Stated<Fa, "family">, Rs, To>,
+				FinSpelled<Stated<Fa, "slots">, Rs, To>
+			>
+		: Kind extends "tree"
+			? Stated<Fa, "root"> extends infer Root extends ReadonlyArray<string>
+				? TreeBuilt<
+						SideSpelled<Stated<Fa, "family">, Rs, To>,
+						FinSpelled<Stated<Fa, "slots">, Rs, To>,
+						Root
+					>
+				: Fa
+			: Fa
+
+/**
+ * One statement spelled, each relation it names in place, the statement told by its kind and read by key
+ * (StatementSpelledAs), never tested whole: a statement over a derived relation holds its definition, a query over the
+ * level below, and a conditional the checker resolves instantiates its operands whole. A statement of no kind spelled
+ * here, a retirable one, is itself. An alternatives law keeps its arm map as written, the caller's own object-literal
+ * type, which the checker instantiates as one type without walking its arms.
+ */
+type StatementSpelled<St, Rs, To extends Spelling> = St extends unknown
+	? StatementSpelledAs<St, KindStated<St>, Rs, To>
+	: never
+
+/**
+ * A statement St of the kind Kind spelled, read by key, each part spelled alone and passed to the statement's
+ * constructor (Constructed); a family's kinds as FamilySpelledAs spells them. The kind is a parameter of its own, read once,
+ * and each test of it a test of a literal. A part that holds no relation, a name, a side's terms, is bound by `infer`
+ * where its constructor constrains it.
+ */
+type StatementSpelledAs<St, Kind, Rs, To extends Spelling> = Kind extends "key"
+	? KeyBuilt<SideSpelled<Stated<St, "side">, Rs, To>>
+	: Kind extends "mutable"
+		? MutableBuilt<Spelled<Stated<St, "relation">, Rs, To>>
+		: Kind extends "race"
+			? RaceBuilt<Spelled<Stated<St, "relation">, Rs, To>>
+			: Kind extends "check"
+				? Stated<St, "name"> extends infer N extends string
+					? CheckBuilt<N, Spelled<Stated<St, "relation">, Rs, To>>
+					: St
+				: Kind extends "contained"
+					? ContainmentBuilt<
+							SideSpelled<Stated<St, "left">, Rs, To>,
+							SideSpelled<Stated<St, "right">, Rs, To>
+						>
+					: Kind extends "mirrors"
+						? MirrorsBuilt<
+								SideSpelled<Stated<St, "left">, Rs, To>,
+								SideSpelled<Stated<St, "right">, Rs, To>
+							>
+						: Kind extends "alternatives"
+							? Stated<St, "discriminator"> extends infer D extends string
+								? AlternativesBuilt<
+										KeyRefSpelled<Stated<St, "parent">, Rs, To>,
+										D,
+										Spelled<Stated<St, "roster">, Rs, To>,
+										Stated<St, "arms">
+									>
+								: St
+							: Kind extends "fold"
+								? FoldBuilt<
+										FamilySpelled<Stated<St, "family">, Rs, To>,
+										Stated<St, "monoid">,
+										SideSpelled<Stated<St, "step">, Rs, To>,
+										SideSpelled<Stated<St, "end">, Rs, To>
+									>
+								: FamilySpelledAs<St, Kind, Rs, To>
+
+/**
+ * T as it is, read as a record's member. The spelled statements' constructors name their interface through it: inside
+ * a type alias the checker defers an interface's reference that is the alias's whole body, to keep the alias's name,
+ * and one whose argument is an alias, `Key<SideSpelled<…>>`, and instantiates either again, whole, for each check of
+ * the conditional it stands in, walking every relation of the record it names. A part passed to its constructor as an
+ * argument is resolved once, as the constructor is instantiated, where one bound by `infer` and read again in the
+ * branch is instantiated again whole.
+ */
+type Constructed<T> = { readonly built: T }["built"]
+
+/** The constructors of a spelled statement and its parts, each its interface over its parameters (Constructed). */
+type SideBuilt<Src, T extends ReadonlyArray<AnyTerm>> = Constructed<Side<Src, T>>
+type SelectionBuilt<R> = Constructed<Selection<R>>
+type FinBuilt<O, N extends string> = Constructed<Fin<O, N>>
+type KeyBuilt<S> = Constructed<Key<S>>
+type MutableBuilt<R> = Constructed<Mutable<R>>
+type RaceBuilt<R> = Constructed<Race<R>>
+type CheckBuilt<N extends string, R> = Constructed<Check<N, R>>
+type ContainmentBuilt<L, R> = Constructed<Containment<L, R>>
+type MirrorsBuilt<L, R> = Constructed<Mirrors<L, R>>
+type AlternativesBuilt<P, D extends string, C, Arms> = Constructed<Alternatives<P, D, C, Arms>>
+type FoldBuilt<Fa, M, S, E> = Constructed<Fold<Fa, M, S, E>>
+type OrderedFamilyBuilt<F, Fi> = Constructed<OrderedFamily<F, Fi>>
+type CountedBuilt<F, Fi> = Constructed<Counted<F, Fi>>
+type TreeBuilt<F, Fi, Root extends ReadonlyArray<string>> = Constructed<Tree<F, Fi, Root>>
 
 /** Statements by name: each relation of the record a statement names spelled as its name. */
 export type StatementsByName<Statements, Relations> = {
@@ -277,31 +378,58 @@ export type DerivedAt<L> = L extends unknown
 /**
  * The relations a statement names: the relation of a mutable, a race or a check; the source of each law side (a selection's
  * relation), a key's, a family's, a tree's and a fold's included; a family's and a tree's owner; and an alternatives
- * law's parent, roster and arms.
+ * law's parent, roster and arms. A retirable statement names none here, and a statement typed `any`, whose keys are
+ * every key, names `unknown`, as a side typed `any` does (SideNames). Each statement is read by its kind
+ * (NamedByAs), never by a test of the statement: a statement over a derived relation holds its definition, a query
+ * over the level below, and a conditional the checker resolves instantiates the statement whole, every relation of
+ * that level with it.
  */
-type SideNames<X> = X extends Side<infer Src> ? SideRelation<Src> : never
-export type NamedBy<St> =
-	St extends Key<infer S>
-		? SideNames<S>
-		: St extends Mutable<infer R>
-			? R
-			: St extends Race<infer R>
-				? R
-				: St extends Check<string, infer R>
-					? R
-					: St extends Containment<infer L, infer R>
-						? SideNames<L> | SideNames<R>
-						: St extends Mirrors<infer L, infer R>
-							? SideNames<L> | SideNames<R>
-							: St extends Alternatives<infer P, string, infer C, infer Arms>
-								? RelationOfKey<P> | C | RelationOfKey<Exclude<Arms[keyof Arms], undefined>>
-								: St extends OrderedFamily<infer F, infer Fi> | Counted<infer F, infer Fi>
-									? SideNames<F> | OwnerOf<Fi>
-									: St extends Tree<infer F, infer Fi, ReadonlyArray<string>>
-										? SideNames<F> | OwnerOf<Fi>
-										: St extends Fold<unknown, unknown, infer S, infer E>
-											? SideNames<S> | SideNames<E>
-											: never
+export type NamedBy<St> = St extends unknown
+	? symbol extends keyof St
+		? unknown
+		: NamedByAs<St, KindStated<St>>
+	: never
+
+/**
+ * What a statement St of the kind Kind names, read by key, each part read alone; none for a kind that names none here.
+ * The kind is a parameter of its own, read once, and each test of it a test of a literal.
+ */
+type NamedByAs<St, Kind> = Kind extends "key"
+	? SideNames<Stated<St, "side">>
+	: Kind extends "mutable" | "race" | "check"
+		? Stated<St, "relation">
+		: Kind extends "contained" | "mirrors"
+			? SideNames<Stated<St, "left">> | SideNames<Stated<St, "right">>
+			: Kind extends "alternatives"
+				?
+						| RelationOfKey<Stated<St, "parent">>
+						| Stated<St, "roster">
+						| RelationOfKey<Exclude<Stated<St, "arms">[keyof Stated<St, "arms">], undefined>>
+				: Kind extends "ordered" | "counted" | "tree"
+					? SideNames<Stated<St, "family">> | OwnerOf<Stated<St, "slots">>
+					: Kind extends "fold"
+						? SideNames<Stated<St, "step">> | SideNames<Stated<St, "end">>
+						: never
+
+/**
+ * The relation each law side of X reads, by key: its source's, a selection's relation (SourceRelation). A side typed
+ * `any`, whose keys are every key, names no relation it tells: `unknown`, which no record holds and Undeclared admits.
+ */
+type SideNames<X> = X extends unknown
+	? symbol extends keyof X
+		? unknown
+		: SourceRelation<Stated<X, "source">>
+	: never
+
+/**
+ * The relation a law side's source reads, by key: a selection's relation, the one member a selection has and no
+ * relation has; any other source, itself.
+ */
+type SourceRelation<Src> = Src extends unknown
+	? "relation" extends keyof Src
+		? Src["relation"]
+		: Src
+	: never
 
 /** The owner a family's slots count over. */
 type OwnerOf<Fi> = Fi extends Fin<infer O, string> ? O : never
@@ -330,13 +458,13 @@ type KnownNames<Relations> = string extends keyof Relations ? false : true
  * statement list typed ReadonlyArray<Statement>) is not refused here; the run time checks it.
  */
 type Undeclared<Relations, R> = R extends unknown
-	? IsOneLiteral<NameOf<R>> extends false
+	? IsOneLiteral<NameStated<R>> extends false
 		? never
 		: KnownNames<Relations> extends false
 			? [R] extends [Relations[keyof Relations]]
 				? never
 				: R
-			: true extends SameAs<UnderName<Relations, NameOf<R>>, R>
+			: true extends SameAs<UnderName<Relations, NameStated<R>>, R>
 				? never
 				: R
 	: never
@@ -345,14 +473,28 @@ type Undeclared<Relations, R> = R extends unknown
  * Every statement is typed (MembersTyped), and every relation it names is the schema's relation of its name, at some
  * level (the run time's refusals at the schema's build: "a statement names a relation no level of the schema
  * declares", and DuplicateIdentity for another relation of a declared name, as one type error). A statement typed
- * `any` names whatever its reader asks, so it is refused before the relations it names are read.
+ * `any` names whatever its reader asks, so it is refused before the relations it names are read. Whether one is is
+ * asked of the statements' keys first, as MembersTyped asks it: `any`'s keys are every symbol, and a statement's are
+ * not, so no statement is an operand of the test, which would instantiate it whole, the derived relations it names
+ * with it.
  */
-export type StatementsWithin<Statements extends ReadonlyArray<Statement>, Relations> = 0 extends 1 &
-	Statements[number]
-	? Refusal<"a member typed any, which every check admits: type each member of the list or record">
-	: [Undeclared<Relations, NamedBy<Statements[number]>>] extends [never]
-		? unknown
-		: Refusal<"a statement names a relation no level of the schema declares">
+export type StatementsWithin<
+	Statements extends ReadonlyArray<Statement>,
+	Relations
+> = symbol extends keyof Statements[number]
+	? 0 extends 1 & Statements[number]
+		? Refusal<"a member typed any, which every check admits: type each member of the list or record">
+		: UndeclaredRefused<Undeclared<Relations, NamedBy<Statements[number]>>>
+	: UndeclaredRefused<Undeclared<Relations, NamedBy<Statements[number]>>>
+
+/**
+ * The refusal of the undeclared relations U: none where there are none. U is a parameter of its own: a tuple of
+ * Undeclared in StatementsWithin's body would be a reference the checker defers, holding the statements and the record
+ * in its mapper, so deciding it would instantiate every statement whole, the derived relations it names with it.
+ */
+type UndeclaredRefused<U> = [U] extends [never]
+	? unknown
+	: Refusal<"a statement names a relation no level of the schema declares">
 
 /**
  * A level's relations by name, from the list its call writes: each relation under its own name, and the relations
@@ -368,43 +510,37 @@ export type Declared<Relations extends ReadonlyArray<unknown>> = DeclaredIn<
  * of R under any name, as a record typed `Record<string, R>` holds them.
  */
 type DeclaredIn<R> = true extends (
-	R extends unknown ? (IsOneLiteral<NameOf<R>> extends true ? false : true) : never
+	R extends unknown ? (IsOneLiteral<NameStated<R>> extends true ? false : true) : never
 )
 	? { readonly [name: string]: R }
-	: DeclaredByName<Extract<R, SelfNamed>>
-
-/** What a level's record holds under a name: a value carrying its own name. */
-type SelfNamed = { readonly name: string }
+	: DeclaredByName<R>
 
 /**
  * The relations of R under their names, keyed by R's names read once, so keyof the record is its key set and a lookup
  * by name is one property read. A record whose keys an `as` clause names is read again whole at every lookup and every
  * keyof: the checker instantiates the clause over every relation of R to ask whether the record is generic, which made
  * each statement's, role's and ChangeSet's lookup of a relation cost the level's every relation. Each name's relations
- * are bound at R, so every reader of the record reads R's relations, generic ones included.
+ * are those of R (Extract), so every reader of the record reads R's relations, generic ones included. The names are
+ * read by key (NameStated), never by a test of a relation: a derived relation holds its definition, a query over the
+ * level below, and a conditional the checker resolves instantiates it whole. DeclaredIn reaches the record only where
+ * every relation states one literal name.
  */
-type DeclaredByName<R extends SelfNamed> = {
-	readonly [N in R["name"]]: NamedIn<R>[N] extends infer X extends R ? X : never
+type DeclaredByName<R> = {
+	readonly [N in NameStated<R>]: Extract<NamedIn<R>[N], R>
 }
 
 /**
  * Each relation of R under its name, the relations of one name in one union: read once per name, as DeclaredByName
- * resolves its properties, its clause an indexed access, one instantiation over all of R.
+ * resolves its properties, its clause a read by key, one instantiation over all of R.
  */
-type NamedIn<R extends SelfNamed> = { readonly [X in R as X["name"]]: X }
+type NamedIn<R> = { readonly [X in R as Stated<X, "name"> & string]: X }
 
 /**
- * Each element of a list, boxed: a tuple's elements one by one, each as its call wrote it (a relation chosen at run
- * time among several of one name is one element), and an array's possible elements, each relation of its element
- * type, any two of which it may hold. A fragment's relations are each an element of their own (Boxed).
+ * Each element of an array, boxed: an array's possible elements, each relation of its element type, any two of which it
+ * may hold. A fragment's relations are each an element of their own (Listed).
  */
-type Elements<Relations extends ReadonlyArray<unknown>> = number extends Relations["length"]
-	? Listed<Relations[number]> extends infer R
-		? R extends unknown
-			? readonly [R]
-			: never
-		: never
-	: { readonly [I in keyof Relations]: Boxed<Relations[I]> }[number]
+type Elements<Relations extends ReadonlyArray<unknown>> =
+	Listed<Relations[number]> extends infer R ? (R extends unknown ? readonly [R] : never) : never
 
 /** A tuple's element boxed: a fragment, each of its relations boxed apart; any other element, itself whole. */
 type Boxed<X> = [X] extends [AnyFragment]
@@ -428,22 +564,92 @@ type ClashOf<R, Named> = [Named] extends [never]
 			: never
 
 /**
- * The names the list's relations declare, each with another relation of its name in the list or among the relations
- * below it: two declarations of one name differing. A relation whose name the type does not know as one literal, and
- * a list or base whose record holds such a name, pass here; the run time checks them.
+ * The positions of a tuple's elements by the names they declare, read by key: under each name, the position of every
+ * element declaring it, a fragment each of its relations' names (Listed), so a name two elements declare holds both
+ * positions, a union. A name that is no literal is an index signature, which keys no name here. The record is keyed by
+ * the names read once, and each name's positions read from PositionsIn during member resolution alone, as
+ * DeclaredByName reads a level's relations.
  */
-type Clashing<Relations extends ReadonlyArray<unknown>, Below> =
-	Elements<Relations> extends infer B
-		? B extends readonly [infer R]
-			? IsOneLiteral<NameOf<R>> extends false
+type PositionsByName<Relations extends ReadonlyArray<unknown>> = {
+	readonly [N in Placed<Relations>["name"]]: PositionsIn<Placed<Relations>>[N]
+}
+
+/**
+ * Each placement's position under the names it states, the positions of one name in one union: its `as` clause is an
+ * indexed access of the iteration's placement, which the checker instantiates over every placement at once to ask
+ * whether the record is generic, one instantiation, where a clause reading the list again instantiates it once for
+ * each position, at every lookup.
+ */
+type PositionsIn<P extends Placement> = { readonly [X in P as X["name"]]: X["at"] }
+
+/** An element's position in its list, `at`, and the names it declares there. */
+interface Placement {
+	readonly at: string
+	readonly name: string
+}
+
+/** Each element of the tuple placed: its position and the names it declares, read by key, in one union. */
+type Placed<Relations extends ReadonlyArray<unknown>> = {
+	readonly [I in keyof Relations]: {
+		readonly at: I & string
+		readonly name: NameStated<Listed<Relations[I]>>
+	}
+}[number]
+
+/** The names two or more positions of the tuple declare, each name's positions read once. */
+type DeclaredTwice<Relations extends ReadonlyArray<unknown>> = TwiceIn<PositionsByName<Relations>>
+type TwiceIn<P> = { [N in keyof P]-?: IsOneLiteral<P[N]> extends true ? never : N }[keyof P]
+
+/**
+ * Whether the tuple's element X is the one declaration of its name: a relation (or relations of one name, chosen at
+ * run time) whose name is one literal no other element of the list declares (Twice, the list's DeclaredTwice) and the
+ * level below does not hold. Such an element can clash with nothing, so it is judged by its name alone, never compared
+ * whole: a derived relation holds its definition, a query over the level below.
+ */
+type DeclaredOnlyAt<X, Twice, Below> =
+	IsOneLiteral<StringStated<Stated<X, "name">>> extends true
+		? Stated<X, "name"> extends Twice
+			? false
+			: KnownNames<Below> extends true
+				? Stated<X, "name"> extends keyof Below
+					? false
+					: true
+				: true
+		: false
+
+/**
+ * The names element R declares with another relation of its name in the list or among the relations below it, R one
+ * boxed element of the list (Boxed, Elements), compared whole with the relations under its name (ClashOf).
+ */
+type ClashesOf<B, Relations extends ReadonlyArray<unknown>, Below> = B extends readonly [infer R]
+	? IsOneLiteral<NameOf<R>> extends false
+		? never
+		:
+				| (KnownNames<Declared<Relations>> extends true
+						? ClashOf<R, UnderName<Declared<Relations>, NameOf<R>>>
+						: never)
+				| (KnownNames<Below> extends true ? ClashOf<R, UnderName<Below, NameOf<R>>> : never)
+	: never
+
+/**
+ * The names the list's relations declare, each with another relation of its name in the list or among the relations
+ * below it: two declarations of one name differing. A tuple's element that is the one declaration of its name
+ * (DeclaredOnlyAt) declares no clash, told by the names alone; every other element of a tuple, each as its call wrote
+ * it (a relation chosen at run time among several of one name is one element), and each possible element of an array,
+ * is compared with the relations under its name (ClashesOf). A relation whose name the type does not know as one
+ * literal, and a list or base whose record holds such a name, pass here; the run time checks them.
+ */
+type Clashing<Relations extends ReadonlyArray<unknown>, Below> = number extends Relations["length"]
+	? ClashesOf<Elements<Relations>, Relations, Below>
+	: {
+			readonly [I in keyof Relations]: DeclaredOnlyAt<
+				Relations[I],
+				DeclaredTwice<Relations>,
+				Below
+			> extends true
 				? never
-				:
-						| (KnownNames<Declared<Relations>> extends true
-								? ClashOf<R, UnderName<Declared<Relations>, NameOf<R>>>
-								: never)
-						| (KnownNames<Below> extends true ? ClashOf<R, UnderName<Below, NameOf<R>>> : never)
-			: never
-		: never
+				: ClashesOf<Boxed<Relations[I]>, Relations, Below>
+		}[number]
 
 /**
  * A level's list of relations, each name declared once (the run time's DuplicateIdentity, as a type error): a
@@ -456,16 +662,20 @@ type Clashing<Relations extends ReadonlyArray<unknown>, Below> =
 export type DeclaredOnce<
 	Relations extends ReadonlyArray<unknown>,
 	Below = never
-> = MembersTyped<Relations> &
-	([Clashing<Relations, Below>] extends [never]
-		? unknown
-		: {
-				readonly [I in keyof Relations]: [
-					NameOf<Listed<Relations[I]>> & Clashing<Relations, Below>
-				] extends [never]
-					? unknown
-					: Refusal<"two relations of one name across a schema's levels">
-			})
+> = MembersTyped<Relations> & ClashRefused<Relations, Clashing<Relations, Below>>
+
+/**
+ * The list's refusal of its clashing names C: none where no name clashes, and otherwise each element declaring one
+ * marked. C is a parameter of its own: a tuple of Clashing in DeclaredOnce's body would be a reference the checker
+ * defers, holding the list in its mapper, so deciding it would instantiate every element of the list whole.
+ */
+type ClashRefused<Relations extends ReadonlyArray<unknown>, C> = [C] extends [never]
+	? unknown
+	: {
+			readonly [I in keyof Relations]: [NameStated<Listed<Relations[I]>> & C] extends [never]
+				? unknown
+				: Refusal<"two relations of one name across a schema's levels">
+		}
 
 /**
  * An extension's record: the base's relations, then each relation of the level's list the base does not hold under
@@ -474,7 +684,19 @@ export type DeclaredOnce<
 export type DeclaredOver<BaseRelations, Relations extends ReadonlyArray<unknown>> = BaseRelations &
 	(KnownNames<BaseRelations> extends false
 		? Declared<Relations>
-		: DeclaredIn<Exclude<Listed<Relations[number]>, { readonly name: keyof BaseRelations }>>)
+		: DeclaredIn<NamedApart<Listed<Relations[number]>, keyof BaseRelations>>)
+
+/**
+ * Each relation of R whose name is not among Names, its name read by key: a relation whose `name` lies within Names is
+ * dropped, as Exclude<R, { readonly name: Names }> drops it, and one with no name kept.
+ */
+type NamedApart<R, Names> = R extends unknown
+	? "name" extends keyof R
+		? R["name"] extends Names
+			? never
+			: R
+		: R
+	: never
 
 /**
  * S, every schema below it, and every fragment one of them lists (FragmentsOf). A query over any of them is a query

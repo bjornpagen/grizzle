@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/types/schema/schema.ts b/packages/engine/src/types/schema/schema.ts
+index aeb7e298..42bdc686 100644
+--- a/packages/engine/src/types/schema/schema.ts
++++ b/packages/engine/src/types/schema/schema.ts
+@@ -395,7 +395,9 @@ export type NamedBy<St> = St extends unknown
+  * The kind is a parameter of its own, read once, and each test of it a test of a literal.
+  */
+ type NamedByAs<St, Kind> = Kind extends "key"
+-	? SideNames<Stated<St, "side">>
++	? St extends Key<infer S>
++		? SideNames<S>
++		: never
+ 	: Kind extends "mutable" | "race" | "check"
+ 		? Stated<St, "relation">
+ 		: Kind extends "contained" | "mirrors"
