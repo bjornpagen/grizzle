@@ -12,7 +12,8 @@
  * - Defects: a decoder's own defect escapes decodeWith as itself, at every site.
  * - Refinements: exactly the distinct nonempty names, the nonempty lists and the safe and positive integers pass.
  * - Depth and cycles: a value nested at any depth decodes without deepening the call stack, and one that holds itself is
- *   refused where it meets itself.
+ *   refused where it meets itself, having read each container's link once and the one it meets again once more; a read
+ *   past those throws, so a decode that goes round the cycle ends one read past it.
  *
  * Oracles: each break's site, the decode's own idempotence, the refinements' definitions, and the value's construction.
  *
@@ -33,8 +34,8 @@
  * @plant test/plants/unit/ir/ir-shape-zero-positive.patch positiveInteger admits zero; the refinements property fails.
  * @plant test/plants/unit/ir/ir-shape-deferred-inline.patch ref reads its part on the call stack, not deferred to the
  * driver; the depth and cycles property fails past a small stack.
- * @plant test/plants/unit/ir/ir-shape-cycle-unrefused.patch A container on the path is not refused as a cycle, so one
- * that holds itself is decoded without end; the depth and cycles property fails.
+ * @plant test/plants/unit/ir/ir-shape-cycle-unrefused.patch A container on the path is not refused as a cycle, so the
+ * decode goes round one that holds itself; the depth and cycles property fails one read past the cycle.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
@@ -706,20 +707,60 @@ const depthOf = (form: Form, value: unknown): number => {
 	}
 }
 
-/** `length` containers of a form, each holding the next and the last holding the one `back` below the root: the root. */
-const cyclic = (form: Form, length: number, back: number): unknown => {
-	if (form === "chain") {
-		const links = Arr.map(indices(length), (): Record<string, unknown> => ({ kind: "link" }))
-		for (const [i, link] of links.entries()) {
-			link["next"] = links[i + 1] ?? links[back]
+/**
+ * The reads of a cycle's links, against the most a decode that refuses the cycle where it meets itself makes: the link
+ * of each of its `length` containers once, on the way in, and the link of the one the cycle meets once more, read
+ * before that container is refused. A read past them is a decode going round the cycle with no container on its path
+ * refused: it throws, which the decode refuses as unreadable, so such a decode ends one read past the cycle, in the
+ * memory one pass takes, rather than going round without end.
+ */
+class CycleReads {
+	readonly most: number
+	#made = 0
+
+	constructor(length: number) {
+		this.most = length + 1
+	}
+
+	/** The reads made so far. */
+	get made(): number {
+		return this.#made
+	}
+
+	/** One read of a link, which answers `next`, or throws once past the most a refusing decode makes. */
+	read<A>(next: A): A {
+		this.#made++
+		if (this.#made > this.most) {
+			throw new Error(`a read past the ${this.most} a decode that refuses this cycle makes`)
 		}
-		return links[0]
+		return next
 	}
-	const arrays = Arr.map(indices(length), (): Array<unknown> => [])
-	for (const [i, items] of arrays.entries()) {
-		items.push(arrays[i + 1] ?? arrays[back])
+}
+
+/**
+ * `length` containers of a form, each holding the next and the last holding the one `back` below the root: the root.
+ * Each link is an own enumerable getter, read through `reads`, so a plain object or array still holds it.
+ */
+const cyclic = (form: Form, length: number, back: number, reads: CycleReads): unknown => {
+	const linked = <C extends object>(
+		nodes: ReadonlyArray<C>,
+		key: string | number
+	): C | undefined => {
+		for (const [i, container] of nodes.entries()) {
+			const next = nodes[i + 1] ?? nodes[back]
+			Object.defineProperty(container, key, { enumerable: true, get: () => reads.read(next) })
+		}
+		return nodes[0]
 	}
-	return arrays[0]
+	return form === "chain"
+		? linked(
+				Arr.map(indices(length), (): Record<string, unknown> => ({ kind: "link" })),
+				"next"
+			)
+		: linked(
+				Arr.map(indices(length), (): Array<unknown> => []),
+				0
+			)
 }
 
 /**
@@ -1018,10 +1059,16 @@ describe("a value nested through a recursive shape", () => {
 										? "a cycle back to its last container"
 										: "a cycle back to a container between"
 							)
-							const value = cyclic(form, length, back)
+							const reads = new CycleReads(length)
+							const value = cyclic(form, length, back, reads)
 							const refusal = refused(
 								S.decodeWith(formShape(form), value, "v"),
 								"MalformedDescription"
+							)
+							assert.equal(
+								reads.made,
+								reads.most,
+								`a decode refusing a cycle of ${length} containers reads each link once and the one it meets again once more, ${reads.most} reads; this one made ${reads.made}, so it went round the cycle with no container on its path refused`
 							)
 							assert.deepEqual(
 								refusalLoc(refusal).path,
