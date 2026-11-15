@@ -292,6 +292,7 @@ export type WriteOracleFeature =
 	| "a fact respelled on a second reading"
 	| "a read-back refused as crossing statements"
 	| "an unorderable stratum refused"
+	| "an addition a later stratum removes"
 	| "a deletion meeting nowhere unordered beside an addition"
 
 const identityOf = (group: WGroup, relation: string, fact: unknown): FactIdentity => {
@@ -527,6 +528,22 @@ const withoutParent = (row: Fact): Fact =>
 	Rec.fromEntries(Arr.filter(Rec.toEntries(row), ([k]) => k !== parentSlot))
 
 /** The facts a read-back defines over an applied outcome: the final state's facts of its relation, or its delta's. */
+/**
+ * Whether a stratum of the expected change adds a fact a later stratum removes, read off the oracle's per-stratum
+ * changes (addwins.ts AppliedOutcome strata): the change's counts net the pair away (delta.ts netStrata), as the
+ * realization's must (runtime/write/net.ts netStrata).
+ */
+const addedThenRemoved = (outcome: AppliedOutcome): boolean =>
+	Arr.some(outcome.strata, (stratum, at) =>
+		Arr.some([...stratum], ([relation, delta]) =>
+			Arr.some([...delta.added.keys()], (identity) =>
+				Arr.some(outcome.strata.slice(at + 1), (later) =>
+					Option.exists(Option.fromNullishOr(later.get(relation)), (d) => d.removed.has(identity))
+				)
+			)
+		)
+	)
+
 const expectedReadFacts = (want: AppliedOutcome, read: WChangeSet["reads"][number]): FactSet =>
 	read.source === "state"
 		? (want.state.relations.get(read.relation) ?? factSetOf([]))
@@ -1624,6 +1641,7 @@ export const runCase = (
 			if (origin.kind === "planted" && origin.arm === "deletion meeting nowhere") {
 				note("a deletion meeting nowhere unordered beside an addition")
 			}
+			noteIf(addedThenRemoved(expected.outcome), "an addition a later stratum removes")
 		} else if (expected.kind === "outsideDomain") {
 			note("outcome outside a domain")
 		} else if (expected.kind === "unbound") {

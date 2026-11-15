@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/codec/bytea.ts b/packages/engine/src/codec/bytea.ts
+index 0819ca7c..ab89c02c 100644
+--- a/packages/engine/src/codec/bytea.ts
++++ b/packages/engine/src/codec/bytea.ts
+@@ -177,9 +177,9 @@ export const textArray = (
+ 	column: string,
+ 	texts: ReadonlyArray<string>
+ ): Result.Result<ParamBinary, LiteralBound> => {
+-	const lengths = texts.map(utf8Length)
++	const lengths = texts.map((t) => Math.max(utf8Length(t) - 1, 0))
+ 	return binaryArray<never>(textOid, input, column, lengths, (out, at, i) => {
+-		out.set(utf8(defined(texts[i], "each text counted")), at)
++		out.set(utf8(defined(texts[i], "each text counted")).subarray(0, -1), at)
+ 		return Result.ok(undefined)
+ 	})
+ }

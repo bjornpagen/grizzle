@@ -347,7 +347,9 @@ interface ReadSketch {
  * - "deletion meeting nowhere": the stored member naming a stored pure fact put to name a fresh pure fact, which the
  *   stratum inserts, beside the stored pure fact's deletion. The pure set's facts meet nowhere, so its deletion is
  *   unordered beside its insertion of complete facts, and the keys run the insertion, the put, then the deletion; were
- *   the deletion before the insertion, as on a relation whose facts meet, no order would keep them.
+ *   the deletion before the insertion, as on a relation whose facts meet, no order would keep them;
+ * - "added then removed": a fresh keyed fact inserted in one stratum and deleted in the next, so the change nets to
+ *   none: the later stratum's removal cancels the earlier one's addition (runtime/write/net.ts netStrata).
  * The sequential realization of a stratum of several statements is "relation parameters", an insert and a deletion of
  * one relation.
  */
@@ -380,7 +382,8 @@ export const plantedArms = [
 	"take per parent",
 	"take per one parent",
 	"unorderable stratum",
-	"deletion meeting nowhere"
+	"deletion meeting nowhere",
+	"added then removed"
 ] as const
 export type PlantedArm = (typeof plantedArms)[number]
 
@@ -537,6 +540,7 @@ const plantedFactsOf = (
 		case "parent violated":
 		case "immediate violated":
 		case "unorderable stratum":
+		case "added then removed":
 			return []
 		case "deletion meeting nowhere":
 			return [
@@ -1028,6 +1032,15 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
 					enumerated("put", p.member, [{ a: armKey, b: otherKey }]),
 					enumerated("insert", p.pure, [{ a: otherKey }]),
 					enumerated("delete", p.pure, [{ a: armKey }])
+				],
+				[],
+				{}
+			)
+		case "added then removed":
+			return sequenced(
+				[
+					[enumerated("insert", p.keyed, [{ a: armKey, b: armKey }])],
+					[enumerated("delete", p.keyed, [{ a: armKey, b: armKey }])]
 				],
 				[],
 				{}

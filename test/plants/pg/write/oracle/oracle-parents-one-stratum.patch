@@ -1,0 +1,28 @@
+diff --git a/test/support/oracle/write/changeset.ts b/test/support/oracle/write/changeset.ts
+index bae93b0e..a3d87988 100644
+--- a/test/support/oracle/write/changeset.ts
++++ b/test/support/oracle/write/changeset.ts
+@@ -836,9 +836,7 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
+ 							"insert",
+ 							p.parent,
+ 							Arr.map([armKey, otherKey, thirdKey], (a) => ({ a, b: 0 }))
+-						)
+-					],
+-					[
++						),
+ 						enumerated(
+ 							"insert",
+ 							p.child,
+@@ -852,8 +850,10 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
+ 		case "parent absent":
+ 			return sequenced(
+ 				[
+-					[enumerated("delete", p.parent, [{ a: armKey, b: 0 }])],
+-					[enumerated("delete", p.child, [{ a: armKey, b: armKey }])]
++					[
++						enumerated("delete", p.parent, [{ a: armKey, b: 0 }]),
++						enumerated("delete", p.child, [{ a: armKey, b: armKey }])
++					]
+ 				],
+ 				attached("removed"),
+ 				{}

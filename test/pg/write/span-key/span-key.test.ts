@@ -52,10 +52,10 @@ import type { FullWorld } from "#test/support/worlds.ts"
  * gone and the requested ones in, accepted with the requested facts not already stored counted as added (insert) or put
  * (put), or unchanged when there are none. A refusal leaves the stored state as it was.
  *
- * The oracle is a second implementation, the host interval model above. Plant:
- * ~/.cache/grizzle-release/BR08/plants/span-key-requested-overlap-unseen.patch, the insert's verdicts blind to another
- * requested fact's overlap, must turn the property red.
+ * The oracle is a second implementation, the host interval model above.
  *
+ * @plant test/plants/pg/write/span-key/span-key-requested-overlap-unseen.patch The insert's verdicts are blind to
+ * another requested fact's overlap (write/insert/protocol.ts buildSpanClassify); the property fails.
  * @plant test/plants/pg/write/span-key/pair-before-first-reaches-its-own-end.patch The first requested fact of a room in
  * start order reads its own end as the reach of the fact before it (write/insert/unique.ts pairedFacts, lag's default
  * upper(span)), so it is paired though no other fact overlaps it, and a described insert is refused by the span key.

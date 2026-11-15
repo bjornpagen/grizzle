@@ -43,9 +43,10 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * owner at a key no row holds, its family empty, accepted with those owners counted as added, or no-change when there
  * are none. A refusal leaves the stored state as it was, and no outcome touches a stored member.
  *
- * The oracle is a second implementation, the host model of the key above. Plant:
- * ~/.cache/grizzle-release/BR08/plants/owner-key-owner-proposes-every-fact.patch, an owner's insert proposing every
- * requested fact, stored or not, must turn the property red on the kept case.
+ * The oracle is a second implementation, the host model of the key above.
+ *
+ * @plant test/plants/pg/write/owner-key/owner-key-owner-proposes-every-fact.patch An owner's insert proposes every
+ * requested fact, stored or not (write/insert/statement.ts proposalOf); the property fails on the kept case.
  */
 const Owner = relation(
 	"Owner",

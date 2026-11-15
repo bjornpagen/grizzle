@@ -117,8 +117,9 @@ export const resolveRun =
  * whose lagging draw repeats a fact the stratum keeps, refused at its key, draws of the realization's other than the
  * calculator's that change the counts, a put realized as UPDATE ... FROM advancing a lagging sequence past its keys,
  * second readings over facts stored in another order and with a value respelled, a stratum whose writes the keys order
- * in a cycle refused as it compiles, and a deletion where facts meet nowhere left unordered beside an addition, which
- * orders a stratum that would otherwise hold such a cycle.
+ * in a cycle refused as it compiles, a deletion where facts meet nowhere left unordered beside an addition, which
+ * orders a stratum that would otherwise hold such a cycle, and an addition a later stratum removes, which the change's
+ * counts net away.
  */
 export const writeSituations = [
 	"strata:1",
@@ -198,6 +199,7 @@ export const writeSituations = [
 	"facts reordered on a second reading",
 	"a fact respelled on a second reading",
 	"an unorderable stratum refused",
+	"an addition a later stratum removes",
 	"a deletion meeting nowhere unordered beside an addition"
 ] as const satisfies ReadonlyArray<WriteOracleFeature>
 

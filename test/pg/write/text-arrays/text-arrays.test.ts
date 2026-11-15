@@ -55,8 +55,8 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * The oracle is the literal path the binary array replaced (codec/recordset.ts textArrayParam): each read gives exactly
  * the texts PostgreSQL stores from the text array literal of the texts written, compared as JavaScript strings.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/text-arrays-last-byte-dropped.patch, each text[] element short of its
- * last byte, must turn the property red.
+ * @plant test/plants/pg/write/text-arrays/text-arrays-last-byte-dropped.patch Each text[] element is sent short of its
+ * last byte (codec/bytea.ts textArray); the property fails.
  */
 const Body = str.regex("^.*$", "su")
 const Note = relation("Note", { id: uuid, body: Body }, ["id"])

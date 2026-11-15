@@ -1,0 +1,18 @@
+diff --git a/packages/engine/src/write/insert/statement.ts b/packages/engine/src/write/insert/statement.ts
+index bc75efb4..f700f547 100644
+--- a/packages/engine/src/write/insert/statement.ts
++++ b/packages/engine/src/write/insert/statement.ts
+@@ -92,11 +92,8 @@ export const proposalOf = (
+ 	arbitered: boolean
+ ): Proposal =>
+ 	arbitered &&
+-	(relation.heading.some((f) => f.writing.kind === "drawn" || f.writing.kind === "accumulated") ||
+-		(serial.kind === "generated" &&
+-			relation.fields.some(
+-				(f) => serial.drawn.includes(f.name) && serialDraw(f.desc) === "identity"
+-			)))
++	serial.kind === "generated" &&
++	relation.fields.some((f) => serial.drawn.includes(f.name) && serialDraw(f.desc) === "identity")
+ 		? "unstored"
+ 		: "every"
+ 

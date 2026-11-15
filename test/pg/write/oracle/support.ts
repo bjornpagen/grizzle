@@ -11,8 +11,7 @@
  * - Property: every generated write's outcome, counts, refusal and stored state agree three ways.
  * - Oracle: a second implementation, the brute-force add-wins transition, and a differential against the conservative
  *   realization.
- * - Plant: ~/.cache/grizzle-release/BR08/plants/write-oracle-removal-keeps-addition.patch, a removal that keeps the
- *   addition it should cancel across strata, must turn the property red.
+ * - The bugs each suite must catch are tagged in the suites' own headers (oracle-0.test.ts, oracle-3.test.ts).
  */
 import { required } from "@bjornpagen/testing/features"
 import { notesOnly } from "@bjornpagen/testing/sense"

@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/runtime/write/net.ts b/packages/engine/src/runtime/write/net.ts
+index 58782645..89ed8547 100644
+--- a/packages/engine/src/runtime/write/net.ts
++++ b/packages/engine/src/runtime/write/net.ts
+@@ -81,9 +81,7 @@ export const stratumChange = (rows: Iterable<ChangeRow>): StratumChange => {
+ 		}
+ 	}
+ 	for (const identity of added.keys()) {
+-		if (removed.delete(identity)) {
+-			added.delete(identity)
+-		}
++		removed.delete(identity)
+ 	}
+ 	return { added, removed }
+ }
