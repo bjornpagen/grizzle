@@ -327,6 +327,8 @@ importers:
 
   packages/experiments/axisindex-repin-cost: {}
 
+  packages/experiments/batch-judge: {}
+
   packages/experiments/ssi-summary: {}
 
   packages/grizzle:

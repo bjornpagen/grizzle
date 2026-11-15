@@ -1,0 +1,7 @@
+{
+	"name": "@bjornpagen/grizzle-experiment-batch-judge",
+	"private": true,
+	"description": "Experiment: per-row rule judgement against the set judge for batched publishes of k packages in one transaction; deleted once its verdict is in (README.md)",
+	"license": "0BSD",
+	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>"
+}
