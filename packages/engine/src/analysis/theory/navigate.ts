@@ -25,10 +25,13 @@ import type {
  * matches is inlined, its variables renamed apart, its parameters replaced by what its bind map binds them to, and its
  * head equated with the terms the match binds it at (`#inline`); a variable then bound by no match is the term an
  * equality defines (`#defined`). The matches are then read in an order of their own (`#chain`): from the values the
- * rule holds, its parameters and literals, each next match the one with the most columns bound so far, by the steps
- * placed or by an equality with them, the earliest declared among equals. That is how a member walks a qti package:
- * from the package's documents by its own key, down to a node's children by (package, path, parent), and up to a
- * node's parent by its primary key, never by (package, path) alone while a narrower lookup is left.
+ * rule holds, its parameters and literals, each next match the one with the most columns keyed so far, bound to a
+ * parameter or to a variable the steps placed bound, directly or by an equality with them, then the one with the most
+ * columns bound at all, literals among them, the earliest declared among equals: a literal alone is no key, a constant
+ * every key's rows may share, so a read a literal alone binds never goes before one a key binds. That is how a rule's
+ * probe starts from the row its write touched, and how a member walks a qti package: from the package's documents by
+ * its own key, down to a node's children by (package, path, parent), and up to a node's parent by its primary key,
+ * never by (package, path) alone while a narrower lookup is left.
  *
  * Each match is its own step: an import of one rule over its relation, every column a variable the steps before it bound
  * read through a channel (ir/desc.ts Channel) its bind map binds to that variable, every parameter of the rule passed in
@@ -62,6 +65,29 @@ const equal = (left: InferredExpr, right: InferredExpr): InferredExpr =>
 
 /** The variables `e` reads. */
 const readsOf = (e: InferredExpr): ReadonlySet<string> => varsOf(e, new Set())
+
+/**
+ * Whether a term a read is bound by is keyed: it reads a variable a step bound or a parameter, a value of the row or
+ * the call at hand. A literal alone is no key: it is a constant every key's rows may share (a kind, a flag), so a read
+ * bound by literals alone reads every key's rows.
+ */
+const keyedTerm = (e: InferredExpr): boolean => readsOf(e).size > 0 || leavesOf(e).params.length > 0
+
+/** How a read is looked up from the values known so far: its columns bound by a keyed term, and all its columns bound. */
+interface Lookup {
+	readonly keyed: number
+	readonly bound: number
+}
+
+/** Whether lookup `a` is narrower than `b`: more columns keyed, then more columns bound. */
+const narrower = (a: Lookup, b: Lookup): boolean =>
+	a.keyed > b.keyed || (a.keyed === b.keyed && a.bound > b.bound)
+
+/** Whether a negation reads no variable of its rule, by its bindings or by the bind map of the query it negates. */
+const readsNoVariable = (a: Absent): boolean => {
+	const leaves = leavesOf(a)
+	return leaves.vars.size === 0 && leaves.parents.size === 0
+}
 
 /** `e` with each parameter `bound` names replaced by the term it binds, every other leaf as it is. */
 const boundIn = (e: InferredExpr, bound: ReadonlyMap<string, InferredExpr>): InferredExpr => {
@@ -220,20 +246,29 @@ class Navigator {
 	 * the chain and the negations before it leave, each a chain of its own. Every rule but the last is a step the next
 	 * reads whole, so PostgreSQL judges a negation only of a row every read and every earlier negation kept, and never
 	 * reads a negated relation for a row a read would have dropped.
+	 *
+	 * A negation that reads no variable, only the rule's parameters and literals, is a condition of the chain's own
+	 * rule, as every condition that reads no variable is (`#chain`), all of them in declared order. PostgreSQL judges such
+	 * a negation once, as a gating qual of a Result over the plan of the rule that holds it, before that plan reads a row
+	 * (createplan.c:804-809, nodeResult.c:81-85), and the gating quals of one rule in declared order where their costs
+	 * are equal (get_gating_quals, createplan.c:1007, through order_qual_clauses, a stable sort). Nested as a correlated
+	 * negation is, the last would gate the outermost Result and be judged first, reading a later arm's relations for a
+	 * row an earlier arm already refutes.
 	 */
 	rule(rule: InferredRule, depth: number): InferredRule {
 		const chain = this.#chain(this.#defined(this.#inline(rule)), depth)
 		const kept = Object.fromEntries(chain.vars.map((v, i) => [`k${i}`, varRef(v.id)] as const))
+		const gates = chain.absents.filter(readsNoVariable)
 		let current: InferredRule = {
 			vars: chain.vars,
 			matches: chain.matches,
-			where: chain.where,
+			where: [...chain.where, ...gates.map((a) => this.#absent(a, depth))],
 			head: kept,
 			interiors: [],
 			attach: [],
 			loc: rule.loc
 		}
-		for (const a of chain.absents) {
+		for (const a of chain.absents.filter((x) => !readsNoVariable(x))) {
 			const passed = new Map(
 				ruleLeaves(current, true).params.flatMap((p) =>
 					p.kind === "param" ? [[p.name, p] as const] : []
@@ -387,9 +422,12 @@ class Navigator {
 			}
 		}
 		const isKnown = (e: InferredExpr): boolean => [...readsOf(e)].every((id) => known.has(id))
-		/** The variables an equality still pending fixes to values the steps placed so far hold. */
-		const fixed = (): ReadonlySet<string> => {
-			const out = new Set<string>()
+		/**
+		 * The variables an equality still pending fixes to values the steps placed so far hold, each with whether one
+		 * such value is keyed (`keyedTerm`).
+		 */
+		const fixed = (): ReadonlyMap<string, boolean> => {
+			const out = new Map<string, boolean>()
 			for (const c of pending) {
 				if (c.kind === "compare" && c.op === "eq") {
 					for (const [v, term] of [
@@ -397,17 +435,31 @@ class Navigator {
 						[c.right, c.left]
 					] as const) {
 						if (v.kind === "var" && isKnown(term)) {
-							out.add(v.var)
+							out.set(v.var, out.get(v.var) === true || keyedTerm(term))
 						}
 					}
 				}
 			}
 			return out
 		}
-		const boundColumns = (r: Read, values: ReadonlySet<string>): number =>
-			Object.values(r.bindings).filter((e) =>
-				[...readsOf(e)].every((id) => known.has(id) || values.has(id))
-			).length
+		/** How a read is looked up from the values known so far (`Lookup`). */
+		const lookupOf = (r: Read, values: ReadonlyMap<string, boolean>): Lookup => {
+			let keyed = 0
+			let bound = 0
+			for (const e of Object.values(r.bindings)) {
+				const ids = [...readsOf(e)]
+				if (ids.every((id) => known.has(id) || values.has(id))) {
+					bound++
+					if (
+						leavesOf(e).params.length > 0 ||
+						ids.some((id) => known.has(id) || values.get(id) === true)
+					) {
+						keyed++
+					}
+				}
+			}
+			return { keyed, bound }
+		}
 		const vars: Array<VarDesc> = []
 		const matches: Array<InferredMatch> = []
 		while (reads.length > 0) {
@@ -415,7 +467,7 @@ class Navigator {
 			let best = 0
 			for (const [i, r] of reads.entries()) {
 				const current = reads[best]
-				if (current !== undefined && boundColumns(r, values) > boundColumns(current, values)) {
+				if (current !== undefined && narrower(lookupOf(r, values), lookupOf(current, values))) {
 					best = i
 				}
 			}

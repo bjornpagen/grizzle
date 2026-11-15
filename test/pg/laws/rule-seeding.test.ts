@@ -64,7 +64,13 @@
  * other match of the arm, so a delete probe reads them as they stand and a transaction that deletes a link and its
  * children leaves no probe that reaches the key, fails titles', viewed's and deep's equivalence searches by a break the
  * triggers accept; and rule-seed-arm-split-drops-arm.patch, lacks reading the target's first arm alone, so a probe's
- * negation of the target misses a key a later arm holds, fails them by refusing a lawful state.
+ * negation of the target misses a key a later arm holds, fails them by refusing a lawful state. Under
+ * ~/.cache/grizzle-release/PROBESPLIT/plants/, each a patch of analysis/theory/navigate.ts, which every probe is read
+ * through (physical/ddl/rules.ts compileProbe): navigate-literal-before-key.patch, a read a literal alone binds ranked
+ * with one a key binds, so deep's probe of an L2 starts from every key's L2 of value 1, fails deep's locality search by
+ * the rows it reads; and navigate-gates-nested.patch, a negation that reads no variable nested as a correlated one is,
+ * so its gate is judged before an earlier arm's and a probe of an L1 reads N, whose index no row was ever written to
+ * and so is locked whole (nbtsearch.c:1515-1531), fails titles', viewed's and deep's by the SIRead locks it takes.
  */
 import { drawn, explore, type Case as Search } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

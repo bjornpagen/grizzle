@@ -1,3 +1,4 @@
+import { navigateMember } from "#compiler/analysis/theory/navigate.ts"
 import {
 	newProbes,
 	oldProbes,
@@ -242,6 +243,13 @@ const eventsOf = (
  * A probe checked and lowered by the optimized pipeline under the transaction's evidence as a rule probe, each
  * parameter read from NEW's or OLD's column in place, cast to the column's installed type (ConservativeSubject
  * `ruleProbe`), never to a served parameter's own pattern domain, with the index requests of its access paths.
+ *
+ * What lowers is the probe navigated (analysis/theory/navigate.ts navigateMember): a probe that joins two stored
+ * relations or more is one chain of steps, each a lookup of one relation by the columns the steps before it bound, so no
+ * estimate PostgreSQL makes, with statistics or none, turns it into a join of every relation the probe reads. Its index
+ * requests are the probe's own as written: navigation reads the same columns by equality in an order of its own, and a
+ * B-tree index serves an equality on each of its leading columns in any order, so the indexes the probe as written
+ * requests serve every step.
  */
 const compileProbe = (
 	b: InstallBuilder,
@@ -251,25 +259,26 @@ const compileProbe = (
 	probe: Probe
 ): Compiled => {
 	const label = `rule ${rule.law.named.display} on ${relation.name}`
+	const written = checkQuery(b.checked, probe.query, { read: "rows", label })
+	if (!written.ok) {
+		throw new Refusal(written.error)
+	}
 	const lowered = Result.flatMap(
-		checkQuery(b.checked, probe.query, { read: "rows", label }),
+		checkQuery(b.checked, navigateMember(probe.query, relation.loc), { read: "rows", label }),
 		(checked) =>
-			Result.map(
-				Result.flatMap(optimizedInput(checked, queryEvidence), (annotated) =>
-					lowerOptimized(annotated, {
-						names: b.names,
-						subject: { kind: "ruleProbe" },
-						context: "transaction",
-						catalog
-					})
-				),
-				(program) => ({ program, checked })
+			Result.flatMap(optimizedInput(checked, queryEvidence), (annotated) =>
+				lowerOptimized(annotated, {
+					names: b.names,
+					subject: { kind: "ruleProbe" },
+					context: "transaction",
+					catalog
+				})
 			)
 	)
 	if (!lowered.ok) {
 		throw new Refusal(lowered.error)
 	}
-	const { program, checked } = lowered.value
+	const program = lowered.value
 	const parts = program.parts
 	if (
 		parts.kind !== "one" ||
@@ -309,7 +318,7 @@ const compileProbe = (
 					}
 		}
 	})
-	const access = extractAccess([checked.dag.roots[0]], { pageable: [] })
+	const access = extractAccess([written.value.dag.roots[0]], { pageable: [] })
 	return {
 		statement: { ...statement, body: unaliased(statement.body) },
 		requests: access.paths.flatMap((path): ReadonlyArray<IndexRequest> => {
