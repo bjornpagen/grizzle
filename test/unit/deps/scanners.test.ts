@@ -11,8 +11,8 @@
  * those ranges (the neighbours of 0-9 and A-Z, a lowercase letter, an underscore, a space, a non-ASCII digit, a
  * fullwidth capital); a code a character short or long; and any text. Features: each kind, and a code read.
  *
- * Plant: ~/.cache/grizzle-release/BR07/plants/scanners-sqlstate-range.patch (the capitals' range ending at Y) turns
- * the property red.
+ * @plant test/plants/unit/deps/scanners-sqlstate-range.patch Sqlstate.parse's range of capitals ends at Y; the property
+ * fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

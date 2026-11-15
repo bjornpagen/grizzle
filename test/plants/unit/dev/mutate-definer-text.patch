@@ -1,0 +1,13 @@
+diff --git a/scripts/dev/mutate/world.ts b/scripts/dev/mutate/world.ts
+index 5d7f14be..379cf42f 100644
+--- a/scripts/dev/mutate/world.ts
++++ b/scripts/dev/mutate/world.ts
+@@ -139,7 +139,7 @@ const headerText = (site: WorldSite, node: ts.Node): void => {
+ 	const start = node.getStart(site.source)
+ 	const raw = textOf(site, node)
+ 	for (const security of Option.toArray(substitutionAfter(raw, "SECURITY "))) {
+-		site.add("world-definer", start + security.start, start + security.end, "INVOKER")
++		site.add("world-definer", start + security.start, start + security.end, "DEFINER")
+ 	}
+ 	for (const pin of Option.toArray(substitutionAfter(raw, " SET search_path = "))) {
+ 		site.add(

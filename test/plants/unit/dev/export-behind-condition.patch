@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/package.json b/packages/grizzle/package.json
+index 21376ba5..9510109c 100644
+--- a/packages/grizzle/package.json
++++ b/packages/grizzle/package.json
+@@ -16,7 +16,7 @@
+ 		"#compiler/*": "@bjornpagen/grizzle-engine/internal/*"
+ 	},
+ 	"exports": {
+-		".": "./src/index.ts",
++		".": { "grizzle-source": "./src/index.ts", "default": "./dist/index.js" },
+ 		"./runtime": "./src/runtime.ts",
+ 		"./client": "./src/client.ts",
+ 		"./compile": "./src/compile.ts",

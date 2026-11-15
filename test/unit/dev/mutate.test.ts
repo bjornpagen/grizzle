@@ -12,8 +12,8 @@
  * mutant replaces and its replacement, and TypeScript's own parser. The box is the real tree. Features, required in
  * the space: every operator of both families.
  *
- * Plant: ~/.cache/grizzle-release/BR07/plants/mutate-definer-text.patch (world-definer writing a replacement other than
- * INVOKER) turns the property red.
+ * @plant test/plants/unit/dev/mutate-definer-text.patch world-definer writes a replacement other than INVOKER
+ * (DEFINER); the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -1,0 +1,13 @@
+diff --git a/test/unit/deps/audit.ts b/test/unit/deps/audit.ts
+index 721a33d7..40d27f7d 100644
+--- a/test/unit/deps/audit.ts
++++ b/test/unit/deps/audit.ts
+@@ -112,7 +112,7 @@ const regexFindings = (file: string, tokens: ReadonlyArray<Token>): Array<Findin
+ 		const receiver = tokens[i - 2]
+ 		if (t.kind === "regex") {
+ 			out.push({ file, line: t.line, rule: "regex literal", text: t.text })
+-		} else if (isIdent(t, "RegExp") && !isIdent(prev, "instanceof")) {
++		} else if (isIdent(t, "RegExp") && !isIdent(prev, "instanceof") && !isIdent(prev, "new")) {
+ 			out.push({ file, line: t.line, rule: "RegExp reference", text: t.text })
+ 		} else if (
+ 			t.kind === "ident" &&

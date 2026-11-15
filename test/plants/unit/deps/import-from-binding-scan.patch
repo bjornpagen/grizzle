@@ -1,0 +1,19 @@
+diff --git a/test/unit/deps/audit.ts b/test/unit/deps/audit.ts
+index 721a33d7..5d25bcc1 100644
+--- a/test/unit/deps/audit.ts
++++ b/test/unit/deps/audit.ts
+@@ -195,12 +195,9 @@ const importsOf = (
+ 				imports.push({ specifier: next.text, line: t.line, kind: "static" })
+ 				continue
+ 			}
+-			/** import <bindings> from "m": the `from` its specifier follows, as a binding may be named from */
++			/** import <bindings> from "m" */
+ 			let j = i + 1
+-			while (
+-				j < tokens.length &&
+-				!(isIdent(tokens[j], "from") && tokens[j + 1]?.kind === "string")
+-			) {
++			while (j < tokens.length && !isIdent(tokens[j], "from")) {
+ 				j += 1
+ 			}
+ 			const spec = tokens[j + 1]

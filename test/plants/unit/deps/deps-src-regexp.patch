@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/core/sqlstate.ts b/packages/engine/src/core/sqlstate.ts
+index 28b86b40..e76cf7db 100644
+--- a/packages/engine/src/core/sqlstate.ts
++++ b/packages/engine/src/core/sqlstate.ts
+@@ -24,6 +24,9 @@ const sqlstateClassLength = 2
+ /** A SQLSTATE's text as a regular expression's body: the characters `parse` admits, `sqlstateLength` of them. */
+ export const sqlstateBody = `[0-9A-Z]{${sqlstateLength}}`
+ 
++/** The body, checked once as the module loads against the code of success. */
++export const sqlstateBodyHolds = new RegExp(`^${sqlstateBody}$`).test("00000")
++
+ /** The code a server reported, as a SQLSTATE, or undefined for any other text. */
+ const parse = (code: string): Sqlstate | undefined => {
+ 	if (code.length !== sqlstateLength) {

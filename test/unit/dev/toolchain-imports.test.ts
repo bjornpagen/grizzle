@@ -12,11 +12,11 @@
  * Oracle: the file the case states it should become, built from the same draws with each moved specifier spelled under
  * the toolchain's scope; byte-exact.
  *
- * Plant: ~/.cache/grizzle-release/REDSWEEP/plants/toolchain-imports-grizzle-oxfmt.patch, the script formatting what
- * it renamed with oxfmt from grizzle's root, under grizzle's configuration, turns the property red.
- *
  * Features: a moved import renamed; a file with nothing to rename left as it was; each, while pending, aimed at by a
  * case constructed to reach it (`aims`).
+ *
+ * @plant test/plants/unit/dev/toolchain-imports-grizzle-oxfmt.patch The script formats what it renamed with oxfmt from
+ * grizzle's root, under grizzle's configuration; the property fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
