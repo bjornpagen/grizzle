@@ -1,0 +1,28 @@
+diff --git a/packages/engine/src/deploy/diff/diff.ts b/packages/engine/src/deploy/diff/diff.ts
+index 6831aa7c..98b50f8b 100644
+--- a/packages/engine/src/deploy/diff/diff.ts
++++ b/packages/engine/src/deploy/diff/diff.ts
+@@ -112,6 +112,7 @@ import type {
+ 
+ import { dropLiveSlot } from "#compiler/physical/ddl/live.ts"
+ import {
++	binary,
+ 	call,
+ 	cast,
+ 	col,
+@@ -3667,7 +3668,14 @@ const advance = (
+ 			"oneRow",
+ 			[
+ 				targetAs(
+-					cast(call("setval", [{ kind: "regclass", relation: sequence }, argument]), types.text),
++					cast(
++						call("setval", [
++							{ kind: "regclass", relation: sequence },
++							binary("+", argument, lit.int(1n, types.bigint)),
++							lit.bool(false)
++						]),
++						types.text
++					),
+ 					"c1"
+ 				)
+ 			],

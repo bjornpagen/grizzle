@@ -24,9 +24,10 @@
  * (c) A to C directly, from A's snapshot, applies and passes (a) too, so the catalog of C is the same whichever path
  *     led to it, but for its rosters' codes, which are each path's history (a handle B added and C no longer holds is
  *     a hole after B, and no code at all on the direct path);
- * (d) after every migration, each identity's next value is past its column's stored maximum (`identitiesPast`): the
- *     reviewer converts a serial field to bigint by its cast, so a widened serial keeps its values and its advance
- *     is judged against them.
+ * (d) after every migration, each identity's position is past its column's stored values (`identitiesPast`), compared
+ *     as PostgreSQL keeps it, (last_value, is_called), so an identity advanced to its type's end, which generates no
+ *     value, is past them too: the reviewer converts a serial field to bigint by its cast, so a widened serial keeps
+ *     its values and its advance is judged against them.
  *
  * Every path runs under a drawn ambient session (test/support/ambient.ts): the defaults of the path's own owner login,
  * which every migration session starts under, its search path PostgreSQL's own or the installation's schemas first. A
@@ -54,6 +55,12 @@
  * snapshot it renames, so a renamed field's path fails.
  * @plant test/plants/pg/migrate/intents-unaimed.patch A steered case runs its drawn intents, never the pending one its
  * turn aims at, so the intents stream leaves a required intent unreached.
+ * @plant test/plants/pg/migrate/advance-next-by-arithmetic.patch The advance of a field declared serial sets its
+ * sequence to the stored maximum plus one, uncalled, which is past bigint's range (22003) when a row holds bigint's
+ * greatest value, so the migration of the kept serialDeclaredAtEnd fails.
+ * @plant test/plants/pg/migrate/identities-next-by-arithmetic.patch (d) computes an identity's next value as
+ * last_value + 1, which is past bigint's range (22003) for an identity advanced to its end, so the kept
+ * serialDeclaredAtEnd fails where every migration was admitted.
  */
 import { type Case, explore, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -86,6 +93,7 @@ import {
 	renamedWithRetype,
 	resolveLegalIntents,
 	resolveRenamedDraw,
+	serialDeclaredAtEnd,
 	serialFields,
 	type SqConversion,
 	sqConversions,
@@ -377,6 +385,10 @@ const kept: ReadonlyArray<Kept<RenamedCase, Feature>> = [
 	planted(
 		{ kind: "stated", path: payloadRostersRenamed },
 		"rosters carrying a text payload: each version's login holds their closed relations as admitted"
+	),
+	planted(
+		{ kind: "stated", path: serialDeclaredAtEnd },
+		"a field holding bigint's greatest value declared serial: its identity advanced to its end, past the row, (d) read with no next value to compute"
 	)
 ]
 

@@ -17,6 +17,7 @@ import {
 	maxIdentifierBytes,
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
+import { int8Max } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
@@ -3169,6 +3170,27 @@ export const payloadRostersRenamed: StatedRenamedPath = plantedRename(
 	{ a: payloadRosterOrigins("R0"), b: payloadRosterOrigins("P0"), c: payloadRosterOrigins("P0") },
 	true,
 	{ toB: ["relation"], toC: [] }
+)
+
+/** R0 keyed by its bigint field a. */
+const bigintKeyed = statedSchema(
+	[statedRelation("R0", [{ name: "a", type: int8 }], ["a"], false)],
+	[]
+)
+
+/** R0's field a declared serial. */
+const aSerial: Extras = { ...noExtras, identities: [{ relation: 0, column: 0 }] }
+
+/** A's R0 holds bigint's greatest value in a, and B declares a serial, C as B: the migration's advance leaves a's new
+ * identity at its type's end, where it generates no value at all, so none repeats the stored one, on both paths. The
+ * generated paths found it with a row at bigint's greatest value in a key field B declared serial. */
+export const serialDeclaredAtEnd: StatedRenamedPath = plantedRenameWith(
+	{ a: bigintKeyed, b: bigintKeyed, c: bigintKeyed },
+	{ a: noExtras, b: aSerial, c: aSerial },
+	{ R0: [one(int8Max.value)] },
+	{ a: fieldsOfR0(["a"]), b: fieldsOfR0(["a"]), c: fieldsOfR0(["a"]) },
+	false,
+	{ toB: [], toC: [] }
 )
 
 /** The adversarial rename generator: named rename intents over a hazard base.

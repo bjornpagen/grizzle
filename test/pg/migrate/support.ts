@@ -617,10 +617,15 @@ const installationOf = (
 	)
 }
 
-/** (d) Every identity of a migrated schema is past its column's stored maximum: the value its sequence generates next
- * exceeds every value the column holds, so no generated value repeats a stored one, whether the migration kept the
- * serial, converted it in place (its target identity advanced past the converted values) or declared it over a column
- * holding rows. Read as the substrate's admin from the sequence and the table, never through grizzle. */
+/** (d) Every identity of a migrated schema is past its column's stored values: no value its sequence generates repeats
+ * one the column holds, whether the migration kept the serial, converted it in place (its target identity advanced
+ * past the converted values) or declared it over a column holding rows. A sequence's position is the pair PostgreSQL
+ * keeps, (last_value, is_called), and it is past a value v when the pair is at least (v, true), the row comparison the
+ * advance function makes (physical/ddl/advance.ts); a sequence advanced to its type's greatest value is past every
+ * value and generates none. The position is never turned into a next value by arithmetic: at that end last_value + 1
+ * is past bigint's range (22003). PostgreSQL answers the position and the largest stored value it has not passed, and
+ * the property is that it answers no row. Read as the substrate's admin from the sequence and the table, never through
+ * grizzle. */
 export const identitiesPast = (
 	plan: RealInstallPlan,
 	what: string
@@ -632,21 +637,13 @@ export const identitiesPast = (
 				if (c.drawn.kind !== "identity") {
 					continue
 				}
-				const read = yield* substrate.admin.query(
-					`SELECT (SELECT max(${quoteIdent(c.column)}) FROM ${printObjectName(t.name)})::text AS max, (SELECT CASE WHEN s.is_called THEN s.last_value + 1 ELSE s.last_value END FROM ${printObjectName(c.drawn.name)} AS s)::text AS next`,
+				const short = yield* substrate.admin.query(
+					`SELECT s.last_value::text AS at, s.is_called AS called, max(r.${quoteIdent(c.column)})::text AS reached FROM ${printObjectName(c.drawn.name)} AS s JOIN ${printObjectName(t.name)} AS r ON (s.last_value, s.is_called) < (r.${quoteIdent(c.column)}, true) GROUP BY s.last_value, s.is_called`,
 					[]
 				)
-				const [row] = read.rows
-				const max = row?.["max"]
-				const next = row?.["next"]
-				if (typeof next !== "string") {
+				if (Arr.isReadonlyArrayNonEmpty(short.rows)) {
 					return yield* new PropertyFailed({
-						report: `${what}: the identity of ${t.relation}.${c.field} reads no next value`
-					})
-				}
-				if (typeof max === "string" && BigInt(next) <= BigInt(max)) {
-					return yield* new PropertyFailed({
-						report: `${what}: the identity of ${t.relation}.${c.field} generates ${next} next, which its stored maximum ${max} reaches`
+						report: `${what}: the identity of ${t.relation}.${c.field} stands short of a stored value: ${Formatter.format(short.rows)}`
 					})
 				}
 			}
