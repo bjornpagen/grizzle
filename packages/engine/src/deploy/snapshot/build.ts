@@ -2,12 +2,12 @@ import {
 	canonicalEquals,
 	catchRefusal,
 	type EncodeOptions,
+	encode,
 	everyProperty,
 	type Json,
 	Refusal,
 	toJson,
-	withoutSourceLocs,
-	writeCanonicalJson
+	withoutSourceLocs
 } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
 import { digest, ownedDigest } from "#compiler/core/fingerprint.ts"
@@ -1341,12 +1341,13 @@ const valueOf = <A>(r: Result.Result<A, CompileError>): A => {
 
 /**
  * snapshot.json's text of a form value, `head` before its first line and `tail` after its last: an installed statement
- * on one line, its compact canonical JSON; a scalar as its canonical JSON; a list or a record one item or member per
+ * on one line, its compact canonical JSON, written in one pass (canonical.ts encode, the text writeCanonicalJson writes
+ * of its JSON form); a scalar as its canonical JSON; a list or a record one item or member per
  * line, a record's keys in code point order.
  */
 const formValue = (out: Lines, head: string, value: FormOf<CompactLine>, tail: string): void => {
 	if (value instanceof CompactLine) {
-		const compact = valueOf(writeCanonicalJson(valueOf(toJson(value.value, everyProperty))))
+		const compact = valueOf(encode(value.value, everyProperty))
 		return out.line(`${head}${compact}${tail}`)
 	}
 	if (typeof value !== "object") {
@@ -1378,6 +1379,16 @@ export const writeSnapshot = (
 		snapshot: fileText(runtimeForm(snapshot, derived, asLines)),
 		manifest: fileText(migrationForm(snapshot, asLines, laidOutRelationForm))
 	}))
+
+/**
+ * snapshot.json's text alone (writeSnapshot's `snapshot`): what a reader that compiles under the snapshot as an
+ * application imports it reads, without manifest.json's, which only a writer of the files needs.
+ */
+export const writeRuntimeSnapshot = (
+	snapshot: DeploySnapshot,
+	derived: SnapshotDerived
+): Result.Result<string, CompileError> =>
+	catchRefusal(() => fileText(runtimeForm(snapshot, derived, asLines)))
 
 /**
  * Whether the derived runtime facts snapshot.json records, as read (JoinedSnapshot.derived), are `computed`, the facts the

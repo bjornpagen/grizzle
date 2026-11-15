@@ -347,7 +347,7 @@ export const installShape = (
 				(roles) => [login, { ...planned, roles: new Map(roles) }] as const
 			)
 		)
-		const entries = yield* servedFiles(compiled, draft.snapshotFiles, {
+		const entries = yield* servedFiles(compiled, draft, {
 			kind: "logins",
 			certification: certified,
 			fences: [],

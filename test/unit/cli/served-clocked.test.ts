@@ -257,7 +257,7 @@ const compiled = (c: Case, clocked: boolean) =>
 		)
 		const served = draft.served
 		assert.ok(served.kind === "logins", "a schema with a login plans its logins")
-		const entries = yield* servedFiles(schemaCompiled, draft.snapshotFiles, served)
+		const entries = yield* servedFiles(schemaCompiled, draft, served)
 		const entry = defined(
 			Option.getOrUndefined(Arr.findFirst(entries, (e) => e.login === "app")),
 			"the served file of login app"

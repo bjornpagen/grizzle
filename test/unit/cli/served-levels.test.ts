@@ -11,7 +11,7 @@ import { snapshotServedEntry } from "#adapter/served/compile.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { emptySnapshot, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -30,7 +30,7 @@ import {
 	Ticket,
 	Work
 } from "#test/support/agreement/changeset-schema.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -202,8 +202,10 @@ layer(NodeServices.layer, { excludeTestServices: true })("a login's served file"
 								[],
 								noDeclarations
 							)
-							const entries = yield* servedFiles(compiled, draft.snapshotFiles, draft.served)
-							const snapshot = trustedJson<unknown>(draft.snapshotFiles.snapshot)
+							const entries = yield* servedFiles(compiled, draft, draft.served)
+							const snapshot = trustedJson<unknown>(
+								succeeded(writeRuntimeSnapshot(draft.snapshot, draft.derived), "snapshot.json")
+							)
 							assert.equal(entries.length, compiled.logins.length, "a served file for each login")
 							for (const [i, l] of compiled.logins.entries()) {
 								const planned = defined(entries[i], `the planned file of login ${i}`)

@@ -170,7 +170,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("generate and DbLayer.m
 										[],
 										noDeclarations
 									),
-									(draft) => servedFiles(compiledSchema, draft.snapshotFiles, draft.served)
+									(draft) => servedFiles(compiledSchema, draft, draft.served)
 								)
 							)
 							const codes = firstCodebook(rostersOf(compiledSchema.owned))

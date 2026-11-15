@@ -40,14 +40,12 @@ import {
 	finishSnapshot,
 	rosterFates,
 	targetState,
-	withAttnums,
-	writeSnapshot
+	withAttnums
 } from "#compiler/deploy/snapshot/build.ts"
 import type {
 	DeploySnapshot,
 	SnapshotContent,
-	SnapshotDerived,
-	SnapshotFiles
+	SnapshotDerived
 } from "#compiler/deploy/snapshot/types.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { hashedNames } from "#compiler/physical/install/comments.ts"
@@ -82,8 +80,9 @@ interface GenerateInput extends DraftInput {
 type DraftChange = "none" | "schema"
 
 /** A draft whose folder is `F`: what it changes, its folder, the folder's decision record, the new snapshot, the
- * installation's derived runtime facts snapshot.json records beside it, the files' texts, and the plan the folder's files
- * render. */
+ * installation's derived runtime facts snapshot.json records beside it, and the plan the folder's files render. The
+ * snapshot's files are written from the snapshot and its facts where they are written (deploy/snapshot/build.ts
+ * writeSnapshot), and snapshot.json alone where it is read (writeRuntimeSnapshot). */
 interface DraftOf<F> {
 	readonly change: DraftChange
 	readonly folder: F
@@ -91,7 +90,6 @@ interface DraftOf<F> {
 	readonly record: DecisionRecord
 	readonly snapshot: DeploySnapshot
 	readonly derived: SnapshotDerived
-	readonly snapshotFiles: SnapshotFiles
 	readonly plan: MigrationPlan
 }
 
@@ -215,11 +213,12 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 				rosters
 			})
 		)
-		const finished = unwrap(
-			finishSnapshot(unwrap(withAttnums(state, applied.previous, plan, tableMaxColumns.value)))
-		)
-		const changed = plan.steps.length > 0 || !sameText(contentOf(finished), contentOf(previous))
-		const snapshot = changed ? finished : previous
+		/** The target's content, its attribute numbers continuing the previous snapshot's. A changed one is the new
+		 * snapshot, fingerprinted where it is born; an unchanged one leaves the previous snapshot standing, and no
+		 * fingerprint of it is taken. */
+		const content = unwrap(withAttnums(state, applied.previous, plan, tableMaxColumns.value))
+		const changed = plan.steps.length > 0 || !sameText(content, contentOf(previous))
+		const snapshot = changed ? unwrap(finishSnapshot(content)) : previous
 		const drafted = changed ? planFiles(plan) : []
 		const files = drafted.map((f) => ({ name: f.name, text: unwrap(renderFile(f)) }))
 		const recorded = drafted.map((f) => unwrap(recordFile(f)))
@@ -245,7 +244,6 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 			record: record.value,
 			snapshot,
 			derived,
-			snapshotFiles: unwrap(writeSnapshot(snapshot, derived)),
 			plan
 		}
 	})

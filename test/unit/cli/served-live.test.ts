@@ -30,7 +30,7 @@ import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { emptySnapshot, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
 import { servedFile } from "#compiler/served/json.ts"
@@ -186,8 +186,8 @@ const liveIsTheUnion = (
 		if (Answered.isFailure(draft)) {
 			return
 		}
-		const { snapshot, snapshotFiles, served } = draft.success
-		const entries = yield* Effect.result(servedFiles(compiled, snapshotFiles, served))
+		const { snapshot, served } = draft.success
+		const entries = yield* Effect.result(servedFiles(compiled, draft.success, served))
 		if (Answered.isFailure(entries)) {
 			return
 		}
@@ -215,7 +215,9 @@ const liveIsTheUnion = (
 			union,
 			`the drafted snapshot's live plan is the union of its served reads' footprints\n${printed()}`
 		)
-		const written = trustedJson<unknown>(snapshotFiles.snapshot)
+		const written = trustedJson<unknown>(
+			succeeded(writeRuntimeSnapshot(snapshot, draft.success.derived), "snapshot.json")
+		)
 		assert.deepEqual(
 			isRecord(written) ? written["live"] : undefined,
 			union,

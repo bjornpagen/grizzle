@@ -225,7 +225,7 @@ const drafted = (
 		const draft = yield* draftSchema(compiled, previous(configured), [], declarations)
 		const served = draft.served
 		assert.ok(served.kind === "logins", "a schema with a login plans its logins")
-		const entries = yield* servedFiles(compiled, draft.snapshotFiles, served)
+		const entries = yield* servedFiles(compiled, draft, served)
 		const creates = Arr.flatMap(entries, (entry) => {
 			const file = succeeded(servedFile(trustedJson<unknown>(entry.text)), "the served file")
 			const roles = Arr.map(file.roles, (r) => ({

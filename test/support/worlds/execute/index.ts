@@ -25,7 +25,7 @@ import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
 import { served } from "#adapter/public/layer.ts"
 import type { DbLayerOf, DbLayerService, ServedLogin, ServedRole } from "#adapter/types/layer.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { codebookOf, noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { codebookOf, noWorkload, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { namedRole, roleReadNames, worldNames } from "#compiler/physical/ddl/names.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -485,7 +485,12 @@ const realizeWith = (
 			declared: noDeclarations
 		})
 		const earlier = earlierDraft.ok
-			? snapshotJson(earlierDraft.value.snapshotFiles.snapshot)
+			? snapshotJson(
+					succeeded(
+						writeRuntimeSnapshot(earlierDraft.value.snapshot, earlierDraft.value.derived),
+						"snapshot.json"
+					)
+				)
 			: yield* Effect.die(earlierDraft.error)
 		/**
 		 * The current version, and the snapshot.json an older release of the installation had, which the ledger has
@@ -541,7 +546,12 @@ const realizeWith = (
 			declared: noDeclarations
 		})
 		const foreign = foreignDraft.ok
-			? snapshotJson(foreignDraft.value.snapshotFiles.snapshot)
+			? snapshotJson(
+					succeeded(
+						writeRuntimeSnapshot(foreignDraft.value.snapshot, foreignDraft.value.derived),
+						"snapshot.json"
+					)
+				)
 			: yield* Effect.die(foreignDraft.error)
 
 		/**

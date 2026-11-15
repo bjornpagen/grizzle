@@ -273,7 +273,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("a role's isolation lev
 							)
 							const served = draft.served
 							assert.ok(served.kind === "logins", "a schema with a login plans its logins")
-							const entries = yield* servedFiles(compiled, draft.snapshotFiles, served)
+							const entries = yield* servedFiles(compiled, draft, served)
 							const servedLogins = new Map(
 								Arr.map(
 									entries,

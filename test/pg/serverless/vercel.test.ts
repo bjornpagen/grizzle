@@ -39,7 +39,7 @@ import { openServed } from "#adapter/db/served.ts"
 import { compileServed } from "#adapter/public/compile.ts"
 import { served } from "#adapter/public/layer.ts"
 import type { ConnectionPool } from "#adapter/types/layer.ts"
-import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { noWorkload, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import {
 	login,
@@ -75,18 +75,19 @@ const shopUnder = (name: string) => {
 	const shop = schemaOf(name, [relation("Item", { id: uuid }, ["id"])], [])
 	const app = role(shop, "app", wholeEntriesOf(shop))
 	/** The shop's snapshot.json, as an import of it yields: what its login's served file is compiled under. */
+	const first = succeeded(
+		generate({
+			declared: noDeclarations,
+			installation: installationOf(shop, atDeclaredName),
+			name: "shop",
+			timestamp: "20261024000000",
+			previous: fromEmpty,
+			workload: noWorkload
+		}),
+		"the shop's first migration"
+	)
 	const snapshot = snapshotJson(
-		succeeded(
-			generate({
-				declared: noDeclarations,
-				installation: installationOf(shop, atDeclaredName),
-				name: "shop",
-				timestamp: "20261024000000",
-				previous: fromEmpty,
-				workload: noWorkload
-			}),
-			"the shop's first migration"
-		).snapshotFiles.snapshot
+		succeeded(writeRuntimeSnapshot(first.snapshot, first.derived), "the shop's snapshot.json")
 	)
 	return { app, worker: login(shop, "worker", [app]), snapshot }
 }

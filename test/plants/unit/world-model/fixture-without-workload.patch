@@ -1,8 +1,8 @@
 diff --git a/test/unit/world-model/live-coverage.test.ts b/test/unit/world-model/live-coverage.test.ts
-index 3945cd32..556ff885 100644
+index 24363d3e..b92a9482 100644
 --- a/test/unit/world-model/live-coverage.test.ts
 +++ b/test/unit/world-model/live-coverage.test.ts
-@@ -159,7 +159,7 @@ const loginWithReads = (
+@@ -160,7 +160,7 @@ const loginWithReads = (
  				(programs) => workload(value, programs)
  			)
  		)
@@ -11,7 +11,7 @@ index 3945cd32..556ff885 100644
  	})
  
  /** What a served file's reads reach: each footprint's tables and views, their routes, and how many tables one holds. */
-@@ -203,9 +203,10 @@ const coveredWhereMigrated = (install: InstallSpec, c: Case<Feature>) =>
+@@ -204,9 +204,10 @@ const coveredWhereMigrated = (install: InstallSpec, c: Case<Feature>) =>
  	Effect.gen(function* () {
  		const printed = Formatter.format(install)
  		const built = yield* Effect.orDie(buildWorlds(install, install.base.name))
@@ -23,10 +23,10 @@ index 3945cd32..556ff885 100644
  		if (logins.length > 1) {
  			c.note("two logins")
  		}
-@@ -237,12 +238,12 @@ const coveredWhereMigrated = (install: InstallSpec, c: Case<Feature>) =>
- 			)
- 		}
- 		const snapshot = trustedJson<unknown>(draft.snapshotFiles.snapshot)
+@@ -240,12 +241,12 @@ const coveredWhereMigrated = (install: InstallSpec, c: Case<Feature>) =>
+ 		const snapshot = trustedJson<unknown>(
+ 			succeeded(writeRuntimeSnapshot(draft.snapshot, draft.derived), "snapshot.json")
+ 		)
 -		for (const value of logins) {
 +		for (const { value, workloads } of serving) {
  			const entry = defined(

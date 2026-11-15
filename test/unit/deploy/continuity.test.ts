@@ -41,9 +41,9 @@ import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
-import { codebookOf, noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { codebookOf, noWorkload, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
 import { installedCodes } from "#test/support/compile.ts"
 import {
 	closed,
@@ -481,7 +481,9 @@ const drafted = (
 			`${at}: a step that declares what it drops and renames drafts: ${g.error.message}`
 		)
 	}
-	const read = readSnapshot(g.value.snapshotFiles)
+	const read = readSnapshot(
+		succeeded(writeSnapshot(g.value.snapshot, g.value.derived), `${at}: the snapshot's files`)
+	)
 	if (Result.isFailure(read)) {
 		return assert.fail(`${at}: the written snapshot reads back: ${read.failure.message}`)
 	}

@@ -59,7 +59,7 @@ import {
 } from "#compiler/deploy/render/folder.ts"
 import { customMigration, generateMigration } from "#compiler/deploy/render/generate.ts"
 import { findMarkers, placeholderMarker } from "#compiler/deploy/render/markers.ts"
-import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { emptySnapshot, writeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import {
 	type DeploySnapshot,
 	manifestFileName,
@@ -1369,7 +1369,9 @@ const runGenerate = (
 			yield* confirmFolder(dir, draft.folder)
 			assert.deepEqual(
 				text,
-				Option.some(draft.snapshotFiles),
+				Option.some(
+					succeeded(writeSnapshot(draft.snapshot, draft.derived), "the draft's snapshot files")
+				),
 				"the snapshot's files are the draft's"
 			)
 			const placeholders = Arr.flatMap(draft.folder.files, (f) =>

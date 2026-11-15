@@ -59,7 +59,7 @@ import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
 import { completedFiles } from "#compiler/deploy/ledger/ledger.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { codebookOf } from "#compiler/deploy/snapshot/build.ts"
-import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
+import { noWorkload, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { SchemaDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
@@ -395,7 +395,9 @@ const migrates = (h: History) =>
 			const credentials = yield* substrate.login(installedLogin.role)
 			const json = yield* compileServed(
 				login,
-				snapshotJson(committed.snapshotFiles.snapshot),
+				snapshotJson(
+					succeeded(writeRuntimeSnapshot(committed.snapshot, committed.derived), "snapshot.json")
+				),
 				login.workload
 			)
 			const file = served<AnyLogin>(json, login.name)

@@ -41,7 +41,11 @@ export {
 	noTransactionMarker,
 	splitStatements
 } from "#compiler/deploy/render/markers.ts"
-export { derivedFacts } from "#compiler/deploy/snapshot/build.ts"
+export {
+	derivedFacts,
+	writeRuntimeSnapshot,
+	writeSnapshot
+} from "#compiler/deploy/snapshot/build.ts"
 export { decoderLoginOf } from "#compiler/deploy/snapshot/objects.ts"
 export { servedWorkloadExtension } from "#compiler/physical/access/extension.ts"
 export { completeInstallOptions } from "#compiler/physical/complete.ts"

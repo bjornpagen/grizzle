@@ -444,7 +444,7 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 				at("derivedFacts", schema.declared, refusalText.derivedFacts.problem)
 			}
 			const served = yield* Effect.result(
-				servedFiles(compiled, draft.success.snapshotFiles, draft.success.served)
+				servedFiles(compiled, draft.success, draft.success.served)
 			)
 			if (Result.isFailure(served)) {
 				at(

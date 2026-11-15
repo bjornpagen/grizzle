@@ -77,7 +77,9 @@ import {
 	type ProgramFootprints,
 	type ServedWorkloadPlan,
 	servedWorkload,
-	servedWorkloadExtension
+	servedWorkloadExtension,
+	writeRuntimeSnapshot,
+	writeSnapshot
 } from "#compiler/plan/migration.ts"
 import {
 	type DeploySnapshot,
@@ -520,8 +522,21 @@ const generateSchema = Effect.fn("generateSchema")(function* (
 	return { ...generated, served }
 })
 
+/** What a draft's snapshot files are written from: its snapshot and the derived runtime facts snapshot.json records. */
+type DraftSnapshot = Pick<MigrationDraft, "snapshot" | "derived">
+
+/** The texts of a draft's snapshot files, which generate writes. */
+const snapshotFilesOf = (
+	schema: CompiledSchema,
+	draft: DraftSnapshot
+): Effect.Effect<SnapshotFiles, CliError> =>
+	Effect.mapError(
+		fromEngine(writeSnapshot(draft.snapshot, draft.derived)),
+		draftRefused(schema.configured.declared, "draft")
+	)
+
 /**
- * Each login's served file, in configured order: its workload compiled under the snapshot.json text `files` lays out,
+ * Each login's served file, in configured order: its workload compiled under the snapshot.json text the draft lays out,
  * the draft's (adapter/served/compile.ts servedEntry), over the artifacts `served` holds for it, its ChangeSets as the
  * draft's workload plan compiled them (PlannedLogin): a login over the schema's own level over the installation's
  * artifacts, and one over a level below, whose ownership is its own (cli/config.ts compileSchema), over that level's,
@@ -531,13 +546,17 @@ const generateSchema = Effect.fn("generateSchema")(function* (
  */
 export const servedFiles = Effect.fn("servedFiles")(function* (
 	schema: CompiledSchema,
-	files: SnapshotFiles,
+	draft: DraftSnapshot,
 	served: ServedBasis
 ): Effect.fn.Return<ReadonlyArray<ServedEntry>, CliError> {
 	if (served.kind === "noLogin") {
 		return []
 	}
-	const snapshot = trustedJson<unknown>(files.snapshot)
+	const text = yield* Effect.mapError(
+		fromEngine(writeRuntimeSnapshot(draft.snapshot, draft.derived)),
+		draftRefused(schema.configured.declared, "draft")
+	)
+	const snapshot = trustedJson<unknown>(text)
 	return yield* Effect.forEach(schema.logins, (login) => {
 		const planned = served.logins.get(login.owned.name)
 		if (planned === undefined) {
@@ -611,7 +630,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 		isEmptySnapshot(previous) ? yield* abandonedSchemas(config) : [],
 		options.declared
 	)
-	const files = yield* servedFiles(compiled, generated.snapshotFiles, generated.served)
+	const files = yield* servedFiles(compiled, generated, generated.served)
 	const served = servedWrites(files, tree.logins)
 	const certification = generated.served.kind === "logins" ? generated.served.certification : []
 	const fences = generated.served.kind === "logins" ? generated.served.fences : []
@@ -620,7 +639,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 			? ({
 					schema,
 					snapshot: previous,
-					snapshotFiles: generated.snapshotFiles,
+					snapshotFiles: yield* snapshotFilesOf(compiled, generated),
 					served,
 					certification,
 					fences,
@@ -639,7 +658,7 @@ const draftFor = Effect.fn("draftFor")(function* (
 		schema,
 		folder: generated.folder,
 		snapshot: generated.snapshot,
-		snapshotFiles: generated.snapshotFiles,
+		snapshotFiles: yield* snapshotFilesOf(compiled, generated),
 		served,
 		certification,
 		fences,

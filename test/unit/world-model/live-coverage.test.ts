@@ -36,7 +36,7 @@ import { compileServed } from "#adapter/public/compile.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
+import { emptySnapshot, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { login } from "#compiler/program/workload/login.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
@@ -231,13 +231,15 @@ const coveredWhereMigrated = (install: InstallSpec, c: Case<Feature>) =>
 				noDeclarations
 			)
 		)
-		const entries = yield* Effect.result(servedFiles(compiled, draft.snapshotFiles, draft.served))
+		const entries = yield* Effect.result(servedFiles(compiled, draft, draft.served))
 		if (entries._tag === "Failure") {
 			return assert.fail(
 				`generate serves every login of an installation migrated with its workloads: ${Formatter.format(entries.failure.reason)}\n${printed}`
 			)
 		}
-		const snapshot = trustedJson<unknown>(draft.snapshotFiles.snapshot)
+		const snapshot = trustedJson<unknown>(
+			succeeded(writeRuntimeSnapshot(draft.snapshot, draft.derived), "snapshot.json")
+		)
 		for (const value of logins) {
 			const entry = defined(
 				Arr.findFirst(entries.success, (e) => e.login === value.name).pipe(Option.getOrUndefined),

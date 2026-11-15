@@ -893,7 +893,7 @@ const generatedDraft = (
 						at.previous.kind === "empty" ? at.previous.abandoned : [],
 						version.declarations
 					)
-					const served = yield* servedFiles(compiled, drafted.snapshotFiles, drafted.served)
+					const served = yield* servedFiles(compiled, drafted, drafted.served)
 					return { draft: drafted, entries: served }
 				}),
 				Path.Path,
