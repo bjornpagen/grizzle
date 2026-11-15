@@ -455,7 +455,7 @@ comes with a planted bug that some suite must catch, through `pnpm mutate`'s ope
   - **It regenerates `migrations/qti/`** (the `20261108194543_init` folder and `snapshot.json`), because the snapshot
     gains its levels. A database installed from the old folder is reinstalled.
   - **`src/db/layer.ts` reads `#migrations/qti/snapshot.json`.** Under Decision 5 that path names EduLLM's
-    installation snapshot once pantry is pointed at `install/` (`GR8DES_QTI_INSTALL`, already planned). No other
+    installation snapshot once pantry is pointed at `install/` (`QTI_PIE_QTI_INSTALL`, already planned). No other
     change follows from it.
   - **No exhaustive switch over `law.kind` in pantry's `src` needs a new case.** Its tests install `Qti` alone and meet
     no `above` law.

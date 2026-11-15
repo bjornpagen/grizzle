@@ -7,7 +7,7 @@
  * network suites' installations are named), a login and one or
  * two roles over one relation (names of lowercase words or camel case, every conversion apart), whether the login's
  * workload holds a read of the relation, and two role spaces: each none or a role prefix (lowercase words and digit
- * runs joined by single underscores, as `gr8des_qti_pin` is written), the two apart. The login is compiled as `grizzle
+ * runs joined by single underscores, as `qti_pie_v2` is written), the two apart. The login is compiled as `grizzle
  * generate` compiles it (test/support/served-login.ts compiledLogin) and its file served as an application serves it
  * (adapter/served/served.ts served).
  *
@@ -37,7 +37,7 @@
  *
  * Plants (~/.cache/grizzle-release/ROLESPACE/plants): stem-not-the-door.patch (login(...) computes its stem from the
  * declared names as written, not their conversions), runtime-ignores-prefix.patch, role-prefix-converted.patch (the
- * prefix converted as a declared name, `gr8des` installing as `gr_8_des`). Plants (~/.cache/grizzle-release/DENAPI/
+ * prefix converted as a declared name, `qti_pie_v2` installing as `qti_pie_v_2`). Plants (~/.cache/grizzle-release/DENAPI/
  * plants): decoder-unprefixed.patch (roleNameOf names a decoder login by its stem whatever the prefix),
  * decoder-never.patch (served names no decoder for a login that reads), decoder-login-stem.patch (a decoder login
  * carries its served login's stem, not the live source's), decoder-unbounded.patch (the live source's stem carries the
@@ -115,7 +115,7 @@ const wordsGen: Gen<string> = (source) => {
 
 /**
  * A role prefix as a connection gives one, used verbatim: lowercase words and digit runs joined by single underscores,
- * a letter first and never the reserved `pg` segment, so `gr8des_qti_pin` is drawn as it is written.
+ * a letter first and never the reserved `pg` segment, so `qti_pie_v2` is drawn as it is written.
  */
 const prefixGen: Gen<string> = (source) =>
 	Arr.join(

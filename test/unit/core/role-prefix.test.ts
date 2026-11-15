@@ -2,7 +2,7 @@
  * The role prefix, used verbatim (core/identity.ts parseRolePrefix, roleInSpace), with no database.
  *
  * A prefix names an installation's roles in the cluster: `<prefix>__<stem>`, exactly as its connection gives it, never
- * converted as a declared name, so `gr8des_qti_pin` stays `gr8des_qti_pin`.
+ * converted as a declared name, so `qti_pie_v2` stays `qti_pie_v2`.
  *
  * Properties, each against the specification spelled here apart from the code under test (arkregex over the text):
  * - Verbatim: for a drawn valid prefix, lowercase words and digit runs joined by single underscores, perhaps led or
@@ -18,7 +18,7 @@
  * digit, a `__`, `pg_`, emptiness and length; a prefix at the budget, and one byte past it.
  *
  * Plants (~/.cache/grizzle-release/ROLESPACE/plants): role-prefix-converted.patch (the prefix converted as a declared
- * name, `gr8des` installing as `gr_8_des`).
+ * name, `qti_pie_v2` installing as `qti_pie_v_2`).
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

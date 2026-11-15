@@ -52,7 +52,7 @@ export const leaseSlots = (
  * The installations on the local cluster outside the substrate's databases that serve live reads, each its own live
  * source, slot and walsender: qti-pie's and the dev database's.
  */
-const standingInstallations = ["gr8des_qti", "the dev database"] as const
+const standingInstallations = ["qti_pie", "the dev database"] as const
 
 /**
  * The most live sources the local cluster serves at once, which its max_replication_slots and max_wal_senders hold:
