@@ -41,6 +41,20 @@ const quoted = (name: string): string => `"${name.replaceAll('"', '""')}"`
 const literal = (text: string): string => `'${text.replaceAll("'", "''")}'`
 
 /**
+ * The pgoutput options every stream starts with besides its publication (startTemplate), closed: protocol version 1
+ * and the transactional messages the installation announces. The type admits no other option, `streaming` among them,
+ * on purpose: the leader's confirmation of a keepalive's position (adapter/live/leader.ts, (a) to (d)) rests on each
+ * transaction being written whole while its COMMIT record is processed, which streaming transactions in progress (a
+ * `streaming` option, protocol 2 and later) breaks, so an option added here meets that argument first.
+ */
+interface StreamOptions {
+	readonly proto_version: typeof protocolVersion
+	readonly messages: "true"
+}
+
+const streamOptions: StreamOptions = { proto_version: protocolVersion, messages: "true" }
+
+/**
  * CREATE_REPLICATION_SLOT <slot> LOGICAL pgoutput (SNAPSHOT 'nothing'): the installation's slot, permanent, of
  * PostgreSQL's own output plugin, exporting no snapshot, since no stream reads its first rows through one.
  */
@@ -56,7 +70,7 @@ export const createSlotTemplate: SlotText = {
  */
 export const startTemplate = (publication: string): SlotText => ({
 	before: "START_REPLICATION SLOT ",
-	after: ` LOGICAL 0/0 (proto_version ${literal(protocolVersion)}, publication_names ${literal(quoted(publication))}, messages 'true')`
+	after: ` LOGICAL 0/0 (proto_version ${literal(streamOptions.proto_version)}, publication_names ${literal(quoted(publication))}, messages ${literal(streamOptions.messages)})`
 })
 
 /** The served command `template` over the slot `slot` (served/forms.ts SlotCommand). */

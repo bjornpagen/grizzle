@@ -79,6 +79,24 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
  *    keepalive the server sent once every transaction before it was sent confirms its position too, so WAL of tables no
  *    live program reads is not held; one that asks a reply is answered by the next round.
  *
+ * Confirming a keepalive's position never passes a commit no leader fanned out, in this process or another that resumes
+ * the slot, by PostgreSQL 19rc2's walsender (src/backend/replication/walsender.c at the pinned 5ce1e45):
+ * (a) a keepalive's position is the `writePtr` it is given, else `sentPtr` (WalSndKeepalive, :4477), and the one
+ *     `writePtr` given is a transaction's skipped as empty under synchronous replication (:1804), which carries nothing
+ *     to deliver;
+ * (b) a logical walsender advances `sentPtr` only once a whole WAL record is processed
+ *     (`LogicalDecodingProcessRecord(...); sentPtr = reader->EndRecPtr`, XLogSendLogical, :3726), and a transaction's
+ *     messages, Begin through Commit, are written while its COMMIT record is processed, since the stream carries no
+ *     transaction in progress (engine live/replication.ts streamOptions): a keepalive written mid-transaction
+ *     (WalSndWriteData's WalSndKeepaliveIfNecessary, :1732) carries the record before that COMMIT, and one written
+ *     after it the COMMIT's end, behind every message of the transaction on the one ordered stream;
+ * (c) a keepalive is confirmed only once every transaction fully received before it was fanned out
+ *     (`progress.sent >= keepalive.after`), and a transaction received in part is not counted, its COMMIT past the
+ *     keepalive's position by (b);
+ * (d) a slot resumed replays every transaction whose COMMIT lies past its confirmed position, read from its restart
+ *     position, which the server holds at or before the oldest running transaction's start, so a transaction cut off in
+ *     the middle is sent again whole.
+ *
  * A stream the server refuses checks the slot: one that no longer stands, invalidated or dropped, is fanned out as
  * `invalidated`, which ends every live read of the installation. A stream's deadline is the server's own, its
  * replication session's wal_sender_timeout, read before START_REPLICATION (engine live/replication.ts SenderDeadline):
