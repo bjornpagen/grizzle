@@ -1,24 +1,28 @@
 /**
- * The test tiers' limits: every time a test, a case of its search or a test's own connection is bounded by, as a Limit
- * with its evidence (packages/engine/src/core/limits.ts). The tiers choose one number, how long a test may run,
- * measured on their own runs; every other bound a test reads derives from it, is a published constant, or is read from
- * the machine the tests run on.
+ * The test tiers' limits: every time a case of a search, a hook or a test's own connection is bounded by, as a Limit
+ * with its evidence (packages/engine/src/core/limits.ts). No test is bounded by the clock: a search runs exactly its
+ * counted budget (its runs, required cases, exhaustive space and shrink candidates), however busy the machine is. The
+ * tiers choose one number, how long one case, hook or wait may run before it is judged hung, measured on their own
+ * runs; every other bound a test reads derives from it, is a published constant, or is read from the machine the tests
+ * run on.
  */
 import { Duration } from "effect"
 import { derived, type Limit, measured, published } from "#compiler/core/limits.ts"
 import { testPoolMax } from "#pg/lease.ts"
 
 /**
- * How long one test of `pnpm test` and `pnpm test:network` may run: the testTimeout of both tiers' Vitest configs, and
- * so the deadline every search of a test reads (Run.deadline), which stops a search PRINT_MARGIN_MILLIS before it to
- * report the case in flight or the smallest failing case its shrink reached. No test states a timeout of its own.
+ * How long one case of a search, one hook of `pnpm test`, one substrate's build past its lease, or one wait inside a
+ * test may run before it is judged hung and reported, with the case's replay token or the hook's name: the hang guard
+ * (caseHang), the unit tier's hookTimeout (vitest.config.ts) and the bound of each wait derived below. It bounds no
+ * test: both tiers' tests are unbounded, so every search runs its counted budget, and a case reported hung is a case
+ * that never ended. No test states a timeout of its own.
  */
-export const testTimeout: Limit = measured({
+export const hangLimit: Limit = measured({
 	value: 3_600_000,
 	owner: "grizzle's test tiers",
 	unit: "milliseconds",
 	scope:
-		"one Vitest test of pnpm test or pnpm test:network, its hooks apart, in each test process alone",
+		"one case of a search, one hook of pnpm test, one substrate's build past its lease, or one wait inside a test of pnpm test or pnpm test:network, in each test process alone",
 	evidence:
 		"node_modules/.vite/vitest/da39a3ee5e6b4b0d3255bfef95601890afd80709/results.json, Vitest's own record of each test file's last run (its duration, whether it failed, when it ran), SHA-256 4e9f397495c81884f158742f129f85e8c05f17b6ab00c1a3c384ddb37f7d0a6b when read on 2026-11-05",
 	observed:
@@ -30,9 +34,9 @@ export const testTimeout: Limit = measured({
 	result:
 		"519 passed and 16 failed; the slowest passing files test/pg/world-model/inductive.test.ts in 1,740 s, privileges.test.ts in 1,349 s and isolation.test.ts in 1,306 s, the unit tier's slowest test/unit/lower/rewrite/universe.test.ts in 309 s on the small-stack project; the slowest failure test/pg/write/oracle/oracle-0.test.ts, cut at its own timeout of 1,800 s while it shrank a failure since fixed; no test's own duration, event-loop lag or machine load recorded",
 	decision:
-		"60 minutes is 2.07 times the slowest passing file, and a file runs its tests one after another, so no passing test took longer than its file; a search the deadline cuts still reports, so the bound can cut a failure's shrink short but never decides a verdict",
+		"60 minutes is 2.07 times the slowest passing file, and a case, a hook or a wait runs inside its file, so none that passed took longer. Until 2026-11-15 it bounded each test too; on cassowary (Ubuntu 26.04 arm64, 64 cores, load 340 to 440 from other sessions) the network tier's 64 files at once ran 20 files' searches past it at a0208243 (GREENTRUNK, TEST_SEED=572712174, each DeadlineReached mid-budget: fin/edits at case 4,242 of 14,650, e2e-platform/box at 630 of 1,024), so no test is bounded by it any more, and a busy machine slows a search but never fails it",
 	revalidate:
-		"a passing file slower than 30 minutes; a suite's search budget raised (its runs, steered cases or shrink candidates); a Node, Vitest or PostgreSQL pin change; another machine; and Vitest's record overwritten by later runs, after which the next run of both tiers is the measurement"
+		"a case, hook or wait reported hung that was progressing; a passing file slower than 30 minutes on the machine of its measurement; a Node, Vitest or PostgreSQL pin change; another machine; and Vitest's record overwritten by later runs, after which the next run of both tiers is the measurement"
 })
 
 /**
@@ -63,17 +67,17 @@ export const flightBoundShrinkCandidates: Limit = measured({
 
 /**
  * How long one case or shrink candidate of a search may run before it is stopped and reported as hung
- * (Exploration.caseHang): as long as its test may.
+ * (Exploration.caseHang): the hang limit.
  */
 const caseHangMillis: Limit = derived({
 	owner: "grizzle's test tiers",
 	unit: "milliseconds",
 	scope:
 		"one case or shrink candidate of a search, under a test of pnpm test or pnpm test:network or under a fuzz run of its suite",
-	from: [testTimeout],
+	from: [hangLimit],
 	derivation:
-		"a case runs inside its test, after the test began, so it can never usefully run past the test's own timeout: under a test the search's deadline (Run.deadline) arrives first and reports the case in flight, and a fuzz run, which lifts every test timeout, stops a case that never ends at this same bound",
-	compute: ([test]) => test.value
+		"a case is the unit the hang limit bounds: no test is bounded by the clock, so a case that never ends is stopped here and reported with its replay token, under a test and under a fuzz run alike",
+	compute: ([hang]) => hang.value
 })
 
 /** Every search's hang guard, caseHangMillis as the Duration an exploration's caseHang takes. */
@@ -81,23 +85,22 @@ export const caseHang: Duration.Duration = Duration.millis(caseHangMillis.value)
 
 /**
  * The connect timeout of a test's connection (DbConnection.connectTimeoutMs), to the local cluster or to a server the
- * test runs itself: no deadline of the connection's own. A connect that never ends is its test's to stop, at the
- * test's deadline.
+ * test runs itself: the hang limit. A connect that never ends is a hang.
  */
 export const testConnectTimeout: Limit = derived({
 	owner: "grizzle's test tiers",
 	unit: "milliseconds",
 	scope:
 		"one connection attempt of a test, to the local cluster or a server the test runs itself, and the CancelRequest an interrupted call of it sends",
-	from: [testTimeout],
+	from: [hangLimit],
 	derivation:
-		"an attempt begins inside its test, so a timeout as long as the test's own never fires before the test's deadline: a slow connect on a loaded machine completes, and one that never ends is the deadline's to report",
-	compute: ([test]) => test.value
+		"an attempt is one wait inside a test, which the hang limit bounds: a slow connect on a loaded machine completes, and one that never ends is reported as hung",
+	compute: ([hang]) => hang.value
 })
 
 /**
- * The idle timeout of a test's session pool (PoolBounds.idleTimeoutMs): no session closes for idleness while its test
- * runs. A test process's connections to the local cluster draw from the budget its lease grants (substrate/shared.ts
+ * The idle timeout of a test's session pool (PoolBounds.idleTimeoutMs): no session closes for idleness within the hang
+ * limit. A test process's connections to the local cluster draw from the budget its lease grants (substrate/shared.ts
  * leaseGrant, substrate/budget.ts), so an idle session holds nothing another test file could take, and closing the
  * pool's scope closes every session.
  */
@@ -105,25 +108,25 @@ export const testIdleTimeout: Limit = derived({
 	owner: "grizzle's test tiers",
 	unit: "milliseconds",
 	scope: "one idle session of a test's pool, on the local cluster or a server the test runs itself",
-	from: [testTimeout],
+	from: [hangLimit],
 	derivation:
-		"a session opens inside its test, so an idle timeout as long as the test's own never fires before the test's deadline",
-	compute: ([test]) => test.value
+		"a session idles between the steps of a test, each of which the hang limit bounds, so a session idle for longer belongs to a step that hung",
+	compute: ([hang]) => hang.value
 })
 
 /**
- * How long a test's pg_terminate_backend waits for a terminated backend to exit: as long as its test may. A backend
- * that never exits is its test's to report, at the test's deadline.
+ * How long a test's pg_terminate_backend waits for a terminated backend to exit: the hang limit. A backend that never
+ * exits is a hang.
  */
 export const testExitWait: Limit = derived({
 	owner: "grizzle's test tiers",
 	unit: "milliseconds",
 	scope:
 		"one pg_terminate_backend a test's support code calls on the local cluster to wait for a terminated backend to exit",
-	from: [testTimeout],
+	from: [hangLimit],
 	derivation:
-		"a termination begins inside its test, so a wait as long as the test's own never ends before the test's deadline, and the value fits the C int pg_terminate_backend reads its timeout into (REL_19_RC2 src/backend/storage/ipc/signalfuncs.c: \"int timeout; /* milliseconds */\")",
-	compute: ([test]) => test.value
+		'a termination\'s wait is one wait inside a test, which the hang limit bounds, and the value fits the C int pg_terminate_backend reads its timeout into (REL_19_RC2 src/backend/storage/ipc/signalfuncs.c: "int timeout; /* milliseconds */")',
+	compute: ([hang]) => hang.value
 })
 
 /**

@@ -6,17 +6,17 @@ import { networkWorkers } from "#pg/workers.ts"
 import { InitializedCluster } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
-import { testTimeout } from "#test/support/limits.ts"
+import { hangLimit } from "#test/support/limits.ts"
 import { run, runOptions } from "#test/support/process.ts"
 import { ensureSharedDatabase, sweep } from "#test/support/substrate/shared.ts"
 import { dropRole } from "#test/support/substrate/substrate.ts"
 
 /**
- * How long the doctor's quick checks may run: as long as one test may (testTimeout). They open a dozen psql sessions
- * on each member that each read a setting or a catalog row, less than a test does, so a doctor still running past a
- * test's own timeout hangs; nothing else bounds the global setup.
+ * How long the doctor's quick checks may run: the hang limit, one wait of the global setup. They open a dozen psql
+ * sessions on each member that each read a setting or a catalog row, so a doctor still running past it hangs; nothing
+ * else bounds the global setup.
  */
-const doctorTimeout = Duration.millis(testTimeout.value)
+const doctorTimeout = Duration.millis(hangLimit.value)
 
 /**
  * Runs `each` on every member of the family GRIZZLE_PG_CLUSTER names, as its family file records it

@@ -2,7 +2,7 @@ import { Array as Arr, Duration, Effect, FiberMap, Option, Scope } from "effect"
 import type { Reporter, SerializedError, TestCase, TestModule, TestSuite } from "vitest/node"
 import { derived, type Limit } from "#compiler/core/limits.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { testTimeout } from "#test/support/limits.ts"
+import { hangLimit } from "#test/support/limits.ts"
 
 /**
  * One line a mutation run prints for main.ts to read: a failed test, by its file relative to the tree and its path of
@@ -30,9 +30,9 @@ const fileTimeout: Limit = derived({
 	unit: "milliseconds",
 	scope:
 		"one test file of a run of the mutation tester (main.ts runFiles), from Vitest queueing it to its end, on the unmutated tree or a mutant's",
-	from: [testTimeout],
+	from: [hangLimit],
 	derivation:
-		"testTimeout's own measurement is of whole files, and its value stands over the slowest passing file's run with headroom (its decision), so a file of the test tiers ends within it; a run's files are the tiers' own, the unit project's in stage 1, and in stage 2 the network tier's PostgreSQL files or the oracle subset, which runs the network tier's oracles over fewer cases; a coverage pass runs them under NODE_V8_COVERAGE, which the measurement did not, so a file whose coverage pass outruns the bound is cut there and its baseline records the run as failing",
+		"hangLimit's own measurement is of whole files, and its value stands over the slowest passing file's run with headroom on the machine it was measured on (its decision), so a file of the test tiers ends within it there; a run's files are the tiers' own, the unit project's in stage 1, and in stage 2 the network tier's PostgreSQL files or the oracle subset, which runs the network tier's oracles over fewer cases; a coverage pass runs them under NODE_V8_COVERAGE, which the measurement did not, so a file whose coverage pass outruns the bound is cut there and its baseline records the run as failing",
 	compute: ([test]) => test.value
 })
 

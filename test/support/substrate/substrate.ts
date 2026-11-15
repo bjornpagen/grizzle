@@ -2,6 +2,7 @@ import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from "@effect/platf
 import {
 	Array as Arr,
 	Context,
+	Duration,
 	Effect,
 	Layer,
 	Option,
@@ -20,7 +21,7 @@ import { testPoolMax } from "#pg/lease.ts"
 import { InitializedCluster } from "#test/support/cluster.ts"
 import { adminUrl, pgPin } from "#test/support/env.ts"
 import { awaitRoleQuiet, type ClientBackend, endBackend } from "#test/support/kernel/sanitize.ts"
-import { testExitWait } from "#test/support/limits.ts"
+import { hangLimit, testExitWait } from "#test/support/limits.ts"
 import { freshDatabase, type PgConnection, type SqlError, sqlErrorOf } from "#test/support/pg.ts"
 import { awaitBlockedBy, awaitLockWait, type LockWait } from "#test/support/substrate/barrier.ts"
 import {
@@ -676,6 +677,22 @@ const build = Effect.fnUntraced(function* (
 })
 
 /**
+ * A layer build's own work once it holds its lease: a claim or a clone, its connections and its sessions, bounded by the
+ * hang limit, so a build that never ends dies naming what hung. The lease wait before it is no hang: a file queued
+ * behind others' holds waits as long as they hold (shared.ts leaseConnections).
+ */
+const heldBuild = <A, E, R>(what: string, build: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+	Effect.timeoutOrElse(build, {
+		duration: Duration.millis(hangLimit.value),
+		orElse: () =>
+			Effect.die(
+				new Error(
+					`${what} hung: it held its lease and did not end within the hang limit of ${hangLimit.value} ms`
+				)
+			)
+	})
+
+/**
  * The substrate in a shared database (shared.ts). When the scope closes the database stays: the release undoes the
  * database-wide effects installs have by design, and anything else the file left fails the release. The database
  * stays as the file left it: no later claim takes a dirty database, and the sweep drops it once no file runs.
@@ -686,27 +703,32 @@ const makeSubstrate: Effect.Effect<
 	Scope.Scope | InitializedCluster | ChildProcessSpawner.ChildProcessSpawner
 > = Effect.gen(function* () {
 	const lease = yield* leaseConnections
-	const claim = yield* claimSharedDatabase(lease.cluster)
-	yield* Effect.addFinalizer(() =>
-		Effect.orDie(
-			Effect.gen(function* () {
-				yield* undoInstallEffects(claim.admin)
-				const left = yield* leftovers(claim.admin)
-				if (left.length === 0) {
-					return
-				}
-				return yield* Effect.die(
-					new Error(
-						`the test file left ${Arr.join(left, ", ")} in the shared database ${claim.database}`
-					)
+	return yield* heldBuild(
+		"the substrate's build in a shared database",
+		Effect.gen(function* () {
+			const claim = yield* claimSharedDatabase(lease.cluster)
+			yield* Effect.addFinalizer(() =>
+				Effect.orDie(
+					Effect.gen(function* () {
+						yield* undoInstallEffects(claim.admin)
+						const left = yield* leftovers(claim.admin)
+						if (left.length === 0) {
+							return
+						}
+						return yield* Effect.die(
+							new Error(
+								`the test file left ${Arr.join(left, ", ")} in the shared database ${claim.database}`
+							)
+						)
+					})
 				)
-			})
-		)
+			)
+			return yield* build(lease.cluster, claim.database, claim.admin, [
+				lease.connection.processId,
+				claim.claimant
+			])
+		})
 	)
-	return yield* build(lease.cluster, claim.database, claim.admin, [
-		lease.connection.processId,
-		claim.claimant
-	])
 })
 
 /**
@@ -719,13 +741,18 @@ const makeIsolatedSubstrate: Effect.Effect<
 	Scope.Scope | InitializedCluster | ChildProcessSpawner.ChildProcessSpawner
 > = Effect.gen(function* () {
 	const lease = yield* leaseConnections
-	const database = yield* freshDatabase(lease.cluster)
-	const admin = yield* connect(lease.cluster, {
-		database,
-		credentials: ownerCredentials(lease.cluster),
-		label: "admin"
-	})
-	return yield* build(lease.cluster, database, admin, [lease.connection.processId])
+	return yield* heldBuild(
+		"the substrate's build in a database of its own",
+		Effect.gen(function* () {
+			const database = yield* freshDatabase(lease.cluster)
+			const admin = yield* connect(lease.cluster, {
+				database,
+				credentials: ownerCredentials(lease.cluster),
+				label: "admin"
+			})
+			return yield* build(lease.cluster, database, admin, [lease.connection.processId])
+		})
+	)
 })
 
 /**

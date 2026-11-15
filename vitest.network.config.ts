@@ -1,5 +1,4 @@
 import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
-import { testTimeout } from "#test/support/limits.ts"
 
 /**
  * `pnpm test:network`: the tests that talk to the local PostgreSQL cluster, the pg tier and the schedules tier. The
@@ -10,10 +9,13 @@ import { testTimeout } from "#test/support/limits.ts"
  * summarize every file's, so none holds one past its work. The world model's random suite steers by V8's block
  * coverage of the code under test.
  *
- * A hook takes as long as it takes: a suite's layer build may wait for a slot of the cluster-wide connection lease
- * behind other runs' files, as long as they hold it (substrate/shared.ts leaseConnections), and a wait for a resource
- * others hold is no hang. The library runs one file per worker, testWorkers of them, and the setup clones a database for
- * each (substrate/workers.ts).
+ * No test is bounded by the clock: each search runs exactly its counted budget, however busy the machine and the
+ * cluster are, and a case that never ends is reported hung at the hang limit (limits.ts caseHang). A hook takes as long
+ * as it takes: a suite's layer build may wait for a slot of the cluster-wide connection lease behind other runs' files,
+ * as long as they hold it (substrate/shared.ts leaseConnections), and a wait for a resource others hold is no hang;
+ * what the build does once it holds its lease is bounded by the hang limit (substrate/substrate.ts heldBuild). The
+ * library runs one file per worker, testWorkers of them, and the setup clones a database for each
+ * (substrate/workers.ts).
  */
 export default defineTestConfig({
 	include: ["test/pg/**/*.test.ts", "test/schedules/**/*.test.ts"],
@@ -21,8 +23,8 @@ export default defineTestConfig({
 	setup: ["test/support/pg-global-setup.ts"],
 	conditions: [],
 	timeouts: {
-		test: { kind: "bounded", millis: testTimeout.value },
-		hook: { kind: "bounded", millis: testTimeout.value }
+		test: { kind: "unbounded" },
+		hook: { kind: "unbounded" }
 	},
 	smallStack: []
 })

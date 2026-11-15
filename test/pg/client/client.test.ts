@@ -53,7 +53,7 @@ import { httpHandler } from "#http/index.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { installGenerated, loadMigrated } from "#test/support/install-migrate.ts"
-import { caseHang, testTimeout } from "#test/support/limits.ts"
+import { caseHang, hangLimit } from "#test/support/limits.ts"
 import { standing } from "#test/support/live/standing.ts"
 import { servedFixtureOf } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -362,7 +362,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the client over HTTP", (i
 						yield* Effect.gen(function* () {
 							const handler = yield* httpHandler({
 								logins: [login],
-								heartbeatMs: testTimeout.value
+								heartbeatMs: hangLimit.value
 							})
 							const text = openApiText(login.file)
 							if (!text.ok) {

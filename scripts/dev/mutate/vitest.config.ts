@@ -1,20 +1,20 @@
 import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
 import { mergeConfig } from "vitest/config"
 import { derived, type Limit } from "#compiler/core/limits.ts"
-import { testTimeout } from "#test/support/limits.ts"
+import { hangLimit } from "#test/support/limits.ts"
 
 /**
- * How long one test or hook of a mutation tester's run may take: as long as the same test may under the test tiers, so
- * a coverage pass runs the unmutated tree as `pnpm test` would.
+ * How long one test or hook of a mutation tester's run may take: the hang limit, since a mutant can make any test
+ * loop forever, where the test tiers' own tests are unbounded and run their counted budgets.
  */
 const mutationTestTimeout: Limit = derived({
 	owner: "grizzle's mutation tester",
 	unit: "milliseconds",
 	scope:
 		"one Vitest test or hook of a run of the mutation tester (main.ts runFiles), on the unmutated tree or a mutant's",
-	from: [testTimeout],
+	from: [hangLimit],
 	derivation:
-		"a run's files are the test tiers' own: the unit project's in stage 1, and in stage 2 the network tier's PostgreSQL files or the oracle subset, which runs the network tier's oracles over fewer cases; so a test of them may run as long as its tier lets it",
+		"a run's files are the test tiers' own: the unit project's in stage 1, and in stage 2 the network tier's PostgreSQL files or the oracle subset, which runs the network tier's oracles over fewer cases; the hang limit's measurement is of whole files of those tiers, so a test of them ends within it on the machine it was measured on, and a mutant that loops is cut there",
 	compute: ([test]) => test.value
 })
 

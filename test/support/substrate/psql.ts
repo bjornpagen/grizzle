@@ -29,7 +29,7 @@ import {
 	TransactionRolledBack
 } from "#test/support/substrate/errors.ts"
 
-import { testTimeout } from "#test/support/limits.ts"
+import { hangLimit } from "#test/support/limits.ts"
 import {
 	type BelowSerializable,
 	beginBelowStatement,
@@ -107,11 +107,10 @@ export interface PsqlOptions {
 export type BackendCancel = "signalled" | "not running" | "unreachable"
 
 /**
- * From end-of-file on an idle psql's stdin to its exit: as long as its test may run (testTimeout), since a psql that
- * never exits is its test's deadline's to report. It runs on the live clock, never on a test's TestClock, which moves
- * only when the test adjusts it.
+ * From end-of-file on an idle psql's stdin to its exit: the hang limit, one wait inside a test, since a psql that never
+ * exits hangs. It runs on the live clock, never on a test's TestClock, which moves only when the test adjusts it.
  */
-const exitDeadline = Duration.millis(testTimeout.value)
+const exitDeadline = Duration.millis(hangLimit.value)
 
 /** The live clock: wall time, even in a test whose current clock is its TestClock. */
 const wallClock: Clock.Clock = Clock.Clock.defaultValue()

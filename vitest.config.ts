@@ -1,5 +1,5 @@
 import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
-import { testTimeout } from "#test/support/limits.ts"
+import { hangLimit } from "#test/support/limits.ts"
 
 /**
  * `pnpm test`: the tests that need no network, the unit tier and the type tier. The type tier's checks are one tsgo
@@ -9,6 +9,10 @@ import { testTimeout } from "#test/support/limits.ts"
  * the shapes', which read values nested to any depth, run a second time in the small-stack project, at about a sixth of
  * Node's default stack. The rewrite universe runs once: its plans are a few operators over facts of two rows, which reach
  * no width the stack bounds, and the generated rewrite suites run the same pipeline under the small stack.
+ *
+ * No test is bounded by the clock: each search runs exactly its counted budget, however busy the machine is, and a case
+ * that never ends is reported hung at the hang limit (limits.ts caseHang). A hook is bounded by the hang limit, so a
+ * setup that never ends is reported under its hook's name.
  */
 export default defineTestConfig({
 	include: ["test/unit/**/*.test.ts", "test/types/**/*.test.ts"],
@@ -16,8 +20,8 @@ export default defineTestConfig({
 	setup: ["test/types/batch/global-setup.ts"],
 	conditions: [],
 	timeouts: {
-		test: { kind: "bounded", millis: testTimeout.value },
-		hook: { kind: "bounded", millis: testTimeout.value }
+		test: { kind: "unbounded" },
+		hook: { kind: "bounded", millis: hangLimit.value }
 	},
 	smallStack: [
 		"test/unit/sql/**/*.test.ts",

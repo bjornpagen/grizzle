@@ -22,7 +22,7 @@ import {
 import { ChildProcess } from "effect/process"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import { defined } from "#test/support/assert.ts"
-import { testTimeout } from "#test/support/limits.ts"
+import { hangLimit } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
 import { type CompilerStalled, compiled, type Ran } from "#test/types/batch/compiler.ts"
@@ -597,11 +597,11 @@ const attribute = Effect.fn("attribute")(function* (
 const rank = (spec: UnitSpec): number => (spec.kind !== "program" ? 0 : spec.heavy ? 2 : 1)
 
 /**
- * The batch's hang guard: as long as one test may run (testTimeout). Every test that reads the batch waits for it
- * within its own timeout, so a check still running past that serves no test, and the guard catches a hang without
- * judging a slow check, which the growing-schema programs make for as long as tsgo takes.
+ * The batch's hang guard: the hang limit, one wait of the type tier. Its compiler runs under the stall guard
+ * (compiler.ts), which ends a check that idles, so this guard catches a hang outside the check without judging a slow
+ * check, which the growing-schema programs make for as long as tsgo takes.
  */
-const hangGuard = Duration.millis(testTimeout.value)
+const hangGuard = Duration.millis(hangLimit.value)
 
 /**
  * Places every unit of `groups` under the run's seed, typechecks them as one program, and attributes the diagnostics.

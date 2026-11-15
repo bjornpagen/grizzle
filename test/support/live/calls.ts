@@ -24,7 +24,7 @@ import type { AnyLogin } from "#compiler/public/schema.ts"
 import { type HttpConfigRefused, type HttpHandler, httpHandler } from "#http/index.ts"
 import { defined } from "#test/support/assert.ts"
 import { readStream } from "#test/support/event-stream.ts"
-import { testTimeout } from "#test/support/limits.ts"
+import { hangLimit } from "#test/support/limits.ts"
 import { commitDirectly, commitStatements } from "#test/support/live/direct.ts"
 import type { LiveInstallation } from "#test/support/live/harness.ts"
 import type {
@@ -361,7 +361,7 @@ export const liveSurfaces = (
 ): Effect.Effect<LiveSurfaces, HttpConfigRefused, DbLayerOf<AnyLogin>> =>
 	Effect.gen(function* () {
 		const inProcess = yield* inProcessCalls(file, role, token)
-		const handler = yield* httpHandler({ logins: [file], heartbeatMs: testTimeout.value })
+		const handler = yield* httpHandler({ logins: [file], heartbeatMs: hangLimit.value })
 		return { inProcess, http: httpCalls(handler, file, role, token), raw: rawCall(handler) }
 	})
 
