@@ -217,14 +217,14 @@ const trialOf = Effect.fn("trialOf")(function* (
 })
 
 /**
- * What the command line asks: the plants whose verdict may have moved (`changed`), or the tests and plants named, and
- * where logs go when given.
+ * What the command line asks: the citations with no kept verdict (`changed`), under the directories named when any
+ * are, or the tests and plants named, and where logs go when given.
  */
 type Asked =
-	| Readonly<{ kind: "changed" }>
+	| Readonly<{ kind: "changed"; within: Option.Option<Arr.NonEmptyReadonlyArray<string>> }>
 	| Readonly<{ kind: "named"; names: Arr.NonEmptyReadonlyArray<string> }>
 
-/** The command line: --changed, or the tests and plants named, and where logs go when given. */
+/** The command line: --changed and the directories it keeps to, or the tests and plants named, and where logs go. */
 const argumentsOf = Effect.fn("argumentsOf")(function* (argv: ReadonlyArray<string>) {
 	const parsed = yield* Effect.try({
 		try: () =>
@@ -234,14 +234,21 @@ const argumentsOf = Effect.fn("argumentsOf")(function* (argv: ReadonlyArray<stri
 				options: { changed: { type: "boolean", default: false }, logs: { type: "string" } }
 			}),
 		catch: failureFrom(
-			"pnpm plants [--logs DIR] (--changed | <test or plant>...): name the tests whose plants to run, or the plants, or --changed"
+			"pnpm plants [--logs DIR] (--changed [<directory>...] | <test or plant>...): name the tests whose plants to run, or the plants, or --changed"
 		)
 	})
 	const named = parsed.positionals
 	const asked: Result.Result<Asked, string> = parsed.values.changed
-		? Arr.isReadonlyArrayNonEmpty(named)
-			? Result.fail("--changed picks its own plants: name no test or plant beside it")
-			: Result.succeed({ kind: "changed" })
+		? Result.succeed({
+				kind: "changed",
+				within: Arr.isReadonlyArrayNonEmpty(named)
+					? Option.some(
+							Arr.map(named, (directory) =>
+								Str.endsWith("/")(directory) ? directory : `${directory}/`
+							)
+						)
+					: Option.none()
+			})
 		: Arr.isReadonlyArrayNonEmpty(named)
 			? Result.succeed({ kind: "named", names: named })
 			: Result.fail("Name the tests whose plants to run, or the plants, or pass --changed")
@@ -344,13 +351,14 @@ const lineOf = (judged: Judged): string =>
  * `pnpm plants`: each plant planted in turn, the tests that cite it run against it, and the plant taken out again.
  *
  *   pnpm plants [--logs DIR] <test or plant>...
- *   pnpm plants [--logs DIR] --changed
+ *   pnpm plants [--logs DIR] --changed [<directory>...]
  *
  * A test named runs against each plant it cites; a plant named runs against every test that cites it; --changed runs
  * every citation with no verdict kept for its content (verdicts.ts): the blobs of its plant, its test and the files its
  * plant changes, as the tree holds them. Every red or green verdict a run reaches is kept under its citation's key in the
  * user's cache, so a verdict nothing has moved is never computed again, and only a change of that content makes a
- * citation due again. It refuses to start while the check finds anything (scripts/dev/plants/check.ts) or while any
+ * citation due again. Directories named after --changed keep it to the tests under them, so a run can go a tier at a
+ * time. It refuses to start while the check finds anything (scripts/dev/plants/check.ts) or while any
  * file a plant changes differs from HEAD, so taking a plant out restores exactly what was there. Each test first runs
  * once with no plant planted; then each plant, one at a time, goes in, its tests run one at a time through their tier's
  * script (test/support/tiers.ts), and it comes out, on success, failure or interruption alike. A network test runs on
@@ -372,10 +380,19 @@ const main = Effect.gen(function* () {
 		})
 	}
 	const directory = yield* verdictDirectory
-	const every = pairsOf(tree)
-	const everyKey = yield* Effect.transposeOption(
-		asked.kind === "changed" ? Option.some(keysOf(root, every)) : Option.none()
-	)
+	const scoped =
+		asked.kind === "changed"
+			? Option.some(
+					Arr.filter(pairsOf(tree), (pair) =>
+						Option.match(asked.within, {
+							onNone: () => true,
+							onSome: (directories) =>
+								Arr.some(directories, (directory) => Str.startsWith(directory)(pair.test))
+						})
+					)
+				)
+			: Option.none()
+	const everyKey = yield* Effect.transposeOption(Option.map(scoped, (pairs) => keysOf(root, pairs)))
 	const kept = yield* Option.match(everyKey, {
 		onNone: () => Effect.succeed<ReadonlyArray<readonly [Pair, Kept]>>([]),
 		onSome: ({ keyed }) =>
@@ -406,7 +423,8 @@ const main = Effect.gen(function* () {
 									)
 								] as const
 						)
-					)
+					),
+					within: asked.within
 				}
 			: asked
 	const trials = yield* Result.match(planOf(tree, targets), {

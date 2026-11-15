@@ -1,13 +1,13 @@
 diff --git a/scripts/dev/plants/tree.ts b/scripts/dev/plants/tree.ts
-index 13cce031..5b28cfe0 100644
+index 130bbdbf..4b35b45d 100644
 --- a/scripts/dev/plants/tree.ts
 +++ b/scripts/dev/plants/tree.ts
-@@ -186,7 +186,7 @@ export const planOf = (
- 			? Result.succeed(
+@@ -198,7 +198,7 @@ export const planOf = (
  					Arr.filter(
  						pairs,
--						({ file, citation }) => targets.known.get(citation.plant)?.has(file) !== true
-+						({ file, citation }) => true
- 					)
- 				)
- 			: pickedBy(pairs, targets.names)
+ 						({ file, citation }) =>
+-							targets.known.get(citation.plant)?.has(file) !== true &&
++							true &&
+ 							Option.match(targets.within, {
+ 								onNone: () => true,
+ 								onSome: (directories) =>

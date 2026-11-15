@@ -4,6 +4,7 @@ import {
 	Array as Arr,
 	Effect,
 	FileSystem,
+	Option,
 	Order,
 	Path,
 	Record as Rec,
@@ -144,11 +145,16 @@ export interface Pair {
 }
 
 /**
- * What a run tries: the citations no verdict is kept for, their content as it stands (`changed`, `known` holding each
- * plant's tests that have one), or the plants of the tests and the plants it names.
+ * What a run tries: the citations no verdict is kept for, their content as it stands (`changed`: `known` holds each
+ * plant's tests that have one, and `within`, when given, the directories whose tests alone it tries), or the plants of
+ * the tests and the plants it names.
  */
 export type Targets =
-	| Readonly<{ kind: "changed"; known: ReadonlyMap<string, ReadonlySet<string>> }>
+	| Readonly<{
+			kind: "changed"
+			known: ReadonlyMap<string, ReadonlySet<string>>
+			within: Option.Option<Arr.NonEmptyReadonlyArray<string>>
+	  }>
 	| Readonly<{ kind: "named"; names: Arr.NonEmptyReadonlyArray<string> }>
 
 /** Every citation the tree's tests make, plant and test, in source order. */
@@ -177,7 +183,7 @@ const pickedBy = (
 
 /**
  * The trials a run makes, one per plant in path order, each with its tests in path order: for `changed`, each plant with
- * the tests citing it that have no kept verdict; for a named test, each plant it cites, with that test; for a named
+ * the tests citing it that have no kept verdict, those under its directories when it names some; for a named test, each plant it cites, with that test; for a named
  * plant, every test that cites it. A name that is neither a test citing a plant nor a plant a test cites fails the plan, so a run
  * never passes for want of anything to try.
  */
@@ -191,7 +197,13 @@ export const planOf = (
 			? Result.succeed(
 					Arr.filter(
 						pairs,
-						({ file, citation }) => targets.known.get(citation.plant)?.has(file) !== true
+						({ file, citation }) =>
+							targets.known.get(citation.plant)?.has(file) !== true &&
+							Option.match(targets.within, {
+								onNone: () => true,
+								onSome: (directories) =>
+									Arr.some(directories, (directory) => Str.startsWith(directory)(file))
+							})
 					)
 				)
 			: pickedBy(pairs, targets.names)

@@ -39,6 +39,8 @@
  * fails it as a name that picks nothing; the plan property fails.
  * @plant test/plants/unit/dev/plants-changed-kept-ignored.patch The changed target ignores the kept verdicts, so every
  * citation runs again; the plan property fails.
+ * @plant test/plants/unit/dev/plants-changed-scope-ignored.patch The changed target ignores the directories it is
+ * given, so a run kept to one tier tries every tier's citations; the plan property fails.
  * @plant test/plants/unit/dev/plants-key-files-dropped.patch A citation's key leaves out the files its plant changes,
  * so a verdict outlives a change to the code it judged; the keys property fails.
  */
@@ -485,6 +487,9 @@ type JudgmentFeature =
 /** A test that cites nothing, a name no citation answers to. */
 const NOWHERE = "test/unit/a/none.test.ts"
 
+/** Directories a changed run may keep to: a tier, a suite, and one that holds no test of the pool. */
+const SCOPES = ["test/unit/", "test/pg/", "test/unit/a/", "test/types/"] as const
+
 /**
  * Verdicts kept over the pools: for each plant of the pool, the sources it has a verdict against, so some citations of
  * a drawn tree have one and some none.
@@ -507,7 +512,19 @@ const planGen: Gen<DrawnPlan> = (source) => ({
 	tree: source.draw(treeGen),
 	targets: source.draw(
 		weighted<Targets>([
-			[1, (s) => ({ kind: "changed", known: s.draw(knownGen) })],
+			[
+				1,
+				(s) => ({
+					kind: "changed",
+					known: s.draw(knownGen),
+					within: s.draw(
+						weighted<Option.Option<Arr.NonEmptyReadonlyArray<string>>>([
+							[1, () => Option.none()],
+							[1, (w) => Option.some([w.draw(element(SCOPES))])]
+						])
+					)
+				})
+			],
 			[
 				3,
 				(s) => ({
@@ -543,7 +560,16 @@ const statedPlan = (
 	const targets = plan.targets
 	const picked =
 		targets.kind === "changed"
-			? Arr.filter(pairs, (pair) => !(targets.known.get(pair.plant)?.has(pair.test) ?? false))
+			? Arr.filter(
+					pairs,
+					(pair) =>
+						!(targets.known.get(pair.plant)?.has(pair.test) ?? false) &&
+						Option.match(targets.within, {
+							onNone: () => true,
+							onSome: (directories) =>
+								Arr.some(directories, (directory) => Str.startsWith(directory)(pair.test))
+						})
+				)
 			: Arr.filter(pairs, (pair) => Arr.some(targets.names, (name) => answers(name)(pair)))
 	return Result.succeed(
 		Arr.flatMap(
@@ -567,6 +593,7 @@ const statedPlan = (
 type PlanFeature =
 	| "a citation with a kept verdict"
 	| "a citation with none"
+	| "a citation outside the run's directories"
 	| "a named test's plants"
 	| "a named plant's tests"
 	| "a plant two tests cite"
@@ -579,7 +606,7 @@ const notePlan = (
 	c: Case<PlanFeature>
 ): void => {
 	if (plan.targets.kind === "changed") {
-		const { known } = plan.targets
+		const { known, within } = plan.targets
 		Arr.forEach(plan.tree.sources, (drawnSource: DrawnSource) => {
 			if (isTestPath(drawnSource.path)) {
 				Arr.forEach(drawnSource.cites, (plant) =>
@@ -589,6 +616,16 @@ const notePlan = (
 							: "a citation with none"
 					)
 				)
+				if (
+					Arr.isReadonlyArrayNonEmpty(drawnSource.cites) &&
+					Option.exists(
+						within,
+						(directories) =>
+							!Arr.some(directories, (directory) => Str.startsWith(directory)(drawnSource.path))
+					)
+				) {
+					c.note("a citation outside the run's directories")
+				}
 			}
 		})
 	} else {
@@ -737,6 +774,7 @@ describe("planOf", () => {
 							[
 								"a citation with a kept verdict",
 								"a citation with none",
+								"a citation outside the run's directories",
 								"a named test's plants",
 								"a named plant's tests",
 								"a plant two tests cite",
