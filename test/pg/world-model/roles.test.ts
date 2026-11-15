@@ -59,7 +59,8 @@ import {
  * expectedPrivileges), and Db.open of its role, with a token whose claims it reads, opens as the worlds model says.
  *
  * @plant test/plants/pg/world-model/worlds-roles-login-creates-in-schema.patch A login granted CREATE beside USAGE on
- * the base schema; its privileges differ from the ones README "Security model" derives.
+ * the base schema; the installed-catalog checker the installation runs refuses the privilege README "Security model"
+ * does not derive.
  */
 
 const integer = { kind: "integer", bits: 32 } as const
