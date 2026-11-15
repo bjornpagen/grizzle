@@ -5,16 +5,20 @@
  *   exactly when every name they hold is a member of the suite's closed vocabulary, the situations are one at least, a
  *   kept case reaches one at least, and the vocabulary is a union of literals, never string. Oracle: membership in the
  *   drawn vocabulary.
- * - The assertion door (harness/door.ts): assert.equal and assert.deepEqual typecheck exactly when the expected value
- *   conforms to the actual's type, at any depth. Oracle: conformance of a value drawn of the type, with at most one
- *   fault planted.
+ * - The assertion door (harness/door.ts): assert.equal and assert.deepEqual, each case through both, typecheck exactly
+ *   when the expected value conforms to the actual's type, at any depth. Oracle: conformance of a value drawn of the
+ *   type, with at most one fault planted, the type drawn where the fault stands.
  *
  * A refusal is stated as the contract states it, `refused`: the probe does not compile, whichever diagnostic the checker
  * elaborates it to. The floor's witnesses reach every fault of both contracts, each at both depths, and their admitted
  * cases, so neither program is vacuous on any seed.
  *
- * Plants (~/.cache/grizzle-release/BR14/plants): harness-open-situations.patch widens a required situation to any
- * string; harness-door-text-number.patch admits a number as assert.deepEqual's expected value where the actual is text.
+ * @plant test/plants/types/harness/harness-open-situations.patch ClosedVocabulary admits string (the testing
+ * library's features.ts), so a requirement over an open vocabulary, whose situations are any string, compiles; the
+ * vocabulary's program fails.
+ * @plant test/plants/types/harness/harness-door-text-number.patch assert.deepEqual takes a number as its expected value
+ * where the actual is text (test/support/assert.ts), so its line of a case planting a number for text compiles; the
+ * assertion door's program fails.
  */
 import { unreachedOf } from "@bjornpagen/testing/features"
 import { NodeServices } from "@effect/platform-node"

@@ -15,9 +15,12 @@ import { upTo } from "#test/support/up-to.ts"
  *
  * A type is a union of string literals, a number, a string, a boolean, a list of a type or a record of named types,
  * two levels deep at most; a value conforms to its type by construction, and a fault makes it not: a literal outside
- * its union, a value of another kind, a record's field left out or a field its type lacks, in the value itself or
- * inside a record or a list of it. Each assertion stands on one line, under a `refused` directive exactly where a fault
- * is planted: the contract is that the assertion does not compile, whichever diagnostic the checker elaborates it to.
+ * its union, a number where text belongs, text where a number, a boolean, a list or a record belongs, a record's field
+ * left out or a field its type lacks, in the value itself or inside a record or a list of it. A case's type is drawn
+ * where its fault stands (faultTyGen), at the top or as the member of a container. Every case is asserted through both
+ * doors, assert.equal and assert.deepEqual, which type their expected values apart, each assertion on one line, under a
+ * `refused` directive exactly where a fault is planted: the contract is that the assertion does not compile,
+ * whichever diagnostic the checker elaborates it to.
  */
 type Ty =
 	| { readonly kind: "literal"; readonly members: Arr.NonEmptyReadonlyArray<string> }
@@ -34,7 +37,8 @@ type Val =
 
 const faults = [
 	"a literal outside its union",
-	"a value of another kind",
+	"a number for text",
+	"text for another kind",
 	"a field left out",
 	"a field its type lacks"
 ] as const
@@ -43,12 +47,21 @@ type Fault = (typeof faults)[number]
 /** Where a planted fault stands: in the expected value itself, or inside a record or a list of it. */
 type Depth = "top" | "inner"
 
-export type DoorNote = "admitted" | `${Fault} ${Depth}` | "equal" | "deepEqual"
+export type DoorNote = "admitted" | `${Fault} ${Depth}`
 
 const literalWords = ["low", "mid", "high", "none"] as const
 const fieldNames = ["id", "name", "loc", "rank"] as const
 
 const coin = (source: Source, odds: number): boolean => source.draw(int(1, odds)) === 1
+
+/** A union of string literals, one word at least. */
+const literalTyGen: Gen<Ty> = (source) => {
+	const first = source.draw(element(literalWords))
+	return {
+		kind: "literal",
+		members: [first, ...Arr.filter(literalWords, (w) => w !== first && coin(source, 2))]
+	}
+}
 
 const tyGen =
 	(depth: number): Gen<Ty> =>
@@ -61,13 +74,8 @@ const tyGen =
 			)
 		)
 		switch (kind) {
-			case "literal": {
-				const first = source.draw(element(literalWords))
-				return {
-					kind,
-					members: [first, ...Arr.filter(literalWords, (w) => w !== first && coin(source, 2))]
-				}
-			}
+			case "literal":
+				return source.draw(literalTyGen)
 			case "number":
 			case "string":
 			case "boolean":
@@ -108,20 +116,6 @@ const valueOf =
 		}
 	}
 
-/** A value of another kind than a type's: a number for text, text for a number or a boolean, a number for a list or a record. */
-const otherKind = (ty: Ty): Val => {
-	switch (ty.kind) {
-		case "literal":
-		case "string":
-			return { kind: "number", value: 1 }
-		case "number":
-		case "boolean":
-		case "list":
-		case "record":
-			return { kind: "text", value: "z" }
-	}
-}
-
 /** A planted fault: the value with it, and where it stands. */
 interface Planted {
 	readonly value: Val
@@ -145,8 +139,14 @@ const plant = (
 				return ty.kind === "literal"
 					? { value: { kind: "text", value: "stray" }, fault, depth }
 					: undefined
-			case "a value of another kind":
-				return { value: otherKind(ty), fault, depth }
+			case "a number for text":
+				return ty.kind === "literal" || ty.kind === "string"
+					? { value: { kind: "number", value: 1 }, fault, depth }
+					: undefined
+			case "text for another kind":
+				return ty.kind === "literal" || ty.kind === "string"
+					? undefined
+					: { value: { kind: "text", value: "z" }, fault, depth }
 			case "a field left out":
 				return ty.kind === "record" && value.kind === "record"
 					? (() => {
@@ -217,21 +217,44 @@ const plant = (
 interface DoorCase {
 	readonly ty: Ty
 	readonly value: Val
-	readonly assertion: "equal" | "deepEqual"
 	readonly planted: Planted | undefined
 }
 
 /**
- * A type whose member, inside a list or a record, is a record where a fault needs one, so a fault aimed inside the
- * value finds its place.
+ * A type `depth` levels deep at most where a fault stands: a union of literals for a literal outside it, text for a
+ * number, a number, a boolean, a list or a record for text, a record for a field left out or one its type lacks.
  */
+const faultTyGen =
+	(fault: Fault, depth: number): Gen<Ty> =>
+	(source) => {
+		switch (fault) {
+			case "a literal outside its union":
+				return source.draw(literalTyGen)
+			case "a number for text":
+				return coin(source, 2) ? source.draw(literalTyGen) : { kind: "string" }
+			case "text for another kind": {
+				const kind = source.draw(element(["number", "boolean", "list", "record"] as const))
+				switch (kind) {
+					case "number":
+					case "boolean":
+						return { kind }
+					case "list":
+						return { kind, of: source.draw(tyGen(depth - 1)) }
+					case "record":
+						return source.draw(recordGen(depth))
+				}
+			}
+			case "a field left out":
+			case "a field its type lacks":
+				return source.draw(recordGen(depth))
+		}
+	}
+
+/** A type whose member, inside a list or a record, is one where a fault stands, so a fault aimed inside finds its place. */
 const containerGen =
 	(fault: Fault): Gen<Ty> =>
 	(source) => {
-		const member =
-			fault === "a field left out" || fault === "a field its type lacks"
-				? source.draw(recordGen(1))
-				: source.draw(tyGen(1))
+		const member = source.draw(faultTyGen(fault, 1))
 		return coin(source, 2)
 			? { kind: "list", of: member }
 			: {
@@ -269,29 +292,23 @@ const caseGen: Gen<DoorCase> = (source) => {
 	const fault = coin(source, 4) ? undefined : source.draw(element(faults))
 	const wanted = source.draw(element(["top", "inner"] as const))
 	const ty =
-		fault !== undefined && wanted === "inner"
-			? source.draw(containerGen(fault))
-			: source.draw(tyGen(2))
+		fault === undefined
+			? source.draw(tyGen(2))
+			: wanted === "inner"
+				? source.draw(containerGen(fault))
+				: source.draw(faultTyGen(fault, 2))
 	const value = source.draw(valueOf(ty))
 	const planted = fault === undefined ? undefined : plant(ty, value, fault, source, true, wanted)
-	return {
-		ty,
-		value: planted === undefined ? value : planted.value,
-		assertion: source.draw(element(["equal", "deepEqual"] as const)),
-		planted
-	}
+	return { ty, value: planted === undefined ? value : planted.value, planted }
 }
 
 const notesOf = (c: DoorCase): ReadonlyArray<DoorNote> => [
-	c.assertion,
 	c.planted === undefined ? "admitted" : `${c.planted.fault} ${c.planted.depth}`
 ]
 
-/** The situations the floor's witnesses reach: an admitted case, both assertions, and every fault at both depths. */
+/** The situations the floor's witnesses reach: an admitted case, and every fault at both depths. */
 export const doorRequired: Situations<DoorNote> = [
 	"admitted",
-	"equal",
-	"deepEqual",
 	...Arr.flatMap(faults, (f) => [`${f} top` as const, `${f} inner` as const])
 ]
 
@@ -337,12 +354,15 @@ const valSource = (v: Val): string => {
 	}
 }
 
+/** A case's actual value declared at its type, then its expected value asserted through each door on a line of its own. */
 const blockOf = (c: DoorCase, i: number): ReadonlyArray<string> => [
 	`declare const a${i}: ${tySource(c.ty)}`,
-	...(c.planted === undefined
-		? []
-		: [`// @ts-expect-error -- refused: ${c.planted.fault}, ${c.planted.depth}`]),
-	`export const e${i} = (): void => assert.${c.assertion}(a${i}, ${valSource(c.value)})`
+	...Arr.flatMap(["equal", "deepEqual"] as const, (door) => [
+		...(c.planted === undefined
+			? []
+			: [`// @ts-expect-error -- refused: ${c.planted.fault}, ${c.planted.depth}`]),
+		`export const ${door}${i} = (): void => assert.${door}(a${i}, ${valSource(c.value)})`
+	])
 ]
 
 /** The door program's prelude (test/support/programs/door.ts), the repository's door it reads. */
