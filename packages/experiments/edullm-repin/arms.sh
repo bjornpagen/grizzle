@@ -5,7 +5,10 @@
 #   repin: the same base-tree migrate, then the port tree's draft (main's grizzle: migrate.sh, with its lock probe and
 #          drift check), then the same imports through the port tree's runtime.
 # Then each table's md5 over the columns both arms hold, after each import, compared; each publish's wall time, its
-# statements' CPU and COMMIT's CPU (sessioncpu.py over the server log). Both clusters are stopped at the end; their
+# statements' CPU and COMMIT's CPU (sessioncpu.py over the server log). Last, the draft migrates the base arm's database
+# too, holding both packages' rows (migrate.sh again: its lock probe, the timed migrate, the drift check), so the draft
+# is proven over stored rows, and every table's md5 over all its columns is compared once more: the base arm migrated
+# after its imports against the repin arm that imported after its migrate. Both clusters are stopped at the end; their
 # state stays under clusters/<tag> until the next run removes it.
 # Usage: arms.sh <out dir> <base tree> <port tree> <draft folder name> <base port> <repin port>
 set -uo pipefail
@@ -46,6 +49,13 @@ log "imports"
 (bash "$S/arm.sh" repin "$pr" "$port" "$out/columns-shared.tsv" > "$out/arm-repin.log" 2>&1) &
 wait
 log "imports done"
+bash "$S/migrate.sh" base "$pb" "$port" "$draft" > "$out/migrate-base.log" 2>&1
+log "draft over the base arm's rows: exit $?"
+bash "$S/columns.sh" base "$pb" "$out/columns-final-base.tsv"
+bash "$S/columns.sh" repin "$pr" "$out/columns-final-repin.tsv"
+python3 -I "$S/intersect.py" "$out/columns-final-base.tsv" "$out/columns-final-repin.tsv" "$out/columns-final.tsv" | tee "$out/columns-final-differ.txt"
+bash "$S/table-md5.sh" base "$pb" "$out/md5-final-base.tsv" "$out/columns-final.tsv"
+bash "$S/table-md5.sh" repin "$pr" "$out/md5-final-repin.tsv" "$out/columns-final.tsv"
 for t in base repin; do stop "$t"; done
 python3 -I "$S/compare.py" "$out" "$W/clusters" "$base" "$port" | tee "$out/compare.txt"
 log "done"

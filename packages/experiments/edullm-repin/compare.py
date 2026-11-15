@@ -8,8 +8,9 @@ out, clusters, base_tree, port_tree = sys.argv[1:5]
 here = os.path.dirname(os.path.abspath(__file__))
 read = lambda p: {l.split('\t')[0]: l.rstrip('\n').split('\t')[1:] for l in open(p) if '\t' in l} if os.path.exists(p) else {}
 
-print('== md5 per table, base arm against repin arm (the columns both hold)')
-for step in ('empty', 'g3t15', 'both'):
+print('== md5 per table, base arm against repin arm (the columns both hold); final: the base arm migrated by the draft')
+print('   after its imports, against the repin arm, which imported after its migrate')
+for step in ('empty', 'g3t15', 'both', 'final'):
     b = read(f'{out}/md5-{step}-base.tsv') or read(f'{out}/base/md5-{step}.tsv')
     r = read(f'{out}/md5-{step}-repin.tsv') or read(f'{out}/repin/md5-{step}.tsv')
     if not b or not r:
