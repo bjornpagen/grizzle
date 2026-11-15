@@ -17,9 +17,11 @@
  *
  * Features: each placement shape paired with its outcome; a search admitted and refused by its purpose and score.
  *
- * Plants, each failing its search: a search over a source that reads the parent, or one an attachment's statement
- * would compute again, lowered (vector-per-parent); a search in a derived relation's definition admitted
- * (vector-derived-definition).
+ * @plant test/plants/unit/lower/vector-per-parent.patch The optimized lowering lowers a search over a source that reads
+ * the parent, and one an attachment's statement would compute again, where it must refuse them; the placement search
+ * fails.
+ * @plant test/plants/unit/lower/vector-derived-definition.patch The lowering admits a search in a derived relation's
+ * definition; the lowering-refusal search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

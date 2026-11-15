@@ -15,7 +15,8 @@
  *
  * Features: ordered by a cast output, ordered by two outputs, the tag alone.
  *
- * Plant, failing the search: a cast output's ORDER BY item left uncast (refined-order-uncast).
+ * @plant test/plants/unit/lower/refined-order-uncast.patch castOutputs leaves the ORDER BY item of a cast output
+ * uncast; the search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

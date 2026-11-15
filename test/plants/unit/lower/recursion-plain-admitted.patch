@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/shapes/recursion/index.ts b/packages/engine/src/lower/shapes/recursion/index.ts
+index e808bc8d..cbd37f7c 100644
+--- a/packages/engine/src/lower/shapes/recursion/index.ts
++++ b/packages/engine/src/lower/shapes/recursion/index.ts
+@@ -60,7 +60,7 @@ export const recursionLowerer =
+ 	(facts: ShapeFacts): NodeLowerer<"Recursive"> =>
+ 	(node, cx, env) => {
+ 		requireAdmittedFeedback(node)
+-		if (facts.realization(node) !== "distinct") {
++		if (facts.realization(node) === undefined) {
+ 			return refuse(
+ 				"MalformedDescription",
+ 				nodeLabel(node),

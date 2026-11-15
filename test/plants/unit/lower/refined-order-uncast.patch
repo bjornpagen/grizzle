@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/shapes/refined/index.ts b/packages/engine/src/lower/shapes/refined/index.ts
+index f9448a59..36418eed 100644
+--- a/packages/engine/src/lower/shapes/refined/index.ts
++++ b/packages/engine/src/lower/shapes/refined/index.ts
+@@ -222,7 +222,7 @@ const castOutputs = (query: Select, casts: ReadonlyMap<number, TypeRef>): Select
+ 			? item
+ 			: { ...item, expr: now.expr }
+ 	})
+-	return { ...query, body, orderBy }
++	return { ...query, body, orderBy: query.orderBy }
+ }
+ 
+ export const refineDelivered = (cx: LowerContext, query: Select, heading: Heading): Select => {

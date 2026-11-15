@@ -1,0 +1,18 @@
+diff --git a/packages/engine/src/lower/shapes/vector/index.ts b/packages/engine/src/lower/shapes/vector/index.ts
+index dfb3ec80..cd2c2af5 100644
+--- a/packages/engine/src/lower/shapes/vector/index.ts
++++ b/packages/engine/src/lower/shapes/vector/index.ts
+@@ -179,11 +179,11 @@ export const approximateLowerer =
+ 		refuseMisuse(cx, facts, at)
+ 		const trace = traceOf(node, at)
+ 		const outer = outerReads(node.source)
+-		if (outer.length > 0) {
++		if (outer.length < 0) {
+ 			refuse("UnsupportedOperation", at, outerRefusal(outer))
+ 		}
+ 		const attached = attachmentRefusal(cx.dag, node)
+-		if (attached !== undefined) {
++		if (attached === null) {
+ 			refuse("UnsupportedOperation", at, attached)
+ 		}
+ 		const { projection } = trace

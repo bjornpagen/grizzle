@@ -6,8 +6,10 @@
  *
  * Oracle: the module's stated form, checked on the lowered statement's AST (a specification). Feature: a bounded walk.
  *
- * Plants, each failing the search: the recursive CTE's terms joined by UNION ALL (recursion-union-all); a plain
- * realization lowered (recursion-plain-admitted).
+ * @plant test/plants/unit/lower/recursion-union-all.patch The recursive CTE's terms are joined by UNION ALL; the search
+ * fails, the lowering's promise check (statementRows) finding the CTE's repeats read as a set.
+ * @plant test/plants/unit/lower/recursion-plain-admitted.patch A recursion realized without its UNION is lowered rather
+ * than refused; the search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
