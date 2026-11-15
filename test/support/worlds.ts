@@ -126,11 +126,16 @@ export const tokenOf = (payload: Json): string => tokenText(jsonText(payload))
 
 const utf8 = new TextEncoder()
 
-const utf8Strict = new TextDecoder("utf-8", { fatal: true })
+/**
+ * The text of a token's bytes as they are: UTF-8 that is not valid is refused (fatal), and a byte order mark is a
+ * character of the text, never stripped (ignoreBOM), so the JSON a token holds is the JSON it spells, as written.
+ */
+const utf8Strict = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
 
 /**
  * Every test layer's verify: the payload the JSON text a token spells holds (tokenText), or a TokenError for a token
- * that spells no UTF-8 text or a text that holds no JSON.
+ * that spells no UTF-8 text or a text that holds no JSON as written: a byte order mark before it, which JSON.parse
+ * refuses, is no JSON.
  */
 export const testVerify = (token: string): Effect.Effect<unknown, TokenError> => {
 	const bytes = base64urlBytes(token)
