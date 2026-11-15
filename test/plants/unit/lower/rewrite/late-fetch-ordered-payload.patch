@@ -1,0 +1,31 @@
+diff --git a/packages/engine/src/lower/optimize/late-fetch/index.ts b/packages/engine/src/lower/optimize/late-fetch/index.ts
+index a3653a2d..b7237a60 100644
+--- a/packages/engine/src/lower/optimize/late-fetch/index.ts
++++ b/packages/engine/src/lower/optimize/late-fetch/index.ts
+@@ -74,7 +74,7 @@ const lateFetchChain = (cx: RewriteCx, takeCell: Cell, take: Take): RegionChain
+ 		return undefined
+ 	}
+ 	const ordered = new Set(take.order.keys.map((k) => k.column))
+-	return take.input.current.heading.some((c) => widePayload(c.type) && !ordered.has(c.name)) &&
++	return take.input.current.heading.some((c) => widePayload(c.type)) &&
+ 		chain.region.occurrences.some((o) => o.source.current.kind === "Base")
+ 		? chain
+ 		: undefined
+@@ -141,7 +141,7 @@ const lateFetchPlans = (
+ 		const payload: Array<readonly [string, string]> = []
+ 		let wide = false
+ 		for (const col of stage.heading) {
+-			if (ordered.has(col.name) || keyStage.has(col.name)) {
++			if ((ordered.has(col.name) && !widePayload(col.type)) || keyStage.has(col.name)) {
+ 				continue
+ 			}
+ 			const v = chain.columns.get(col.name)
+@@ -287,7 +287,7 @@ const lateFetchPotential: Potential = (cx) => {
+ 			continue
+ 		}
+ 		const ordered = new Set(node.order.keys.map((k) => k.column))
+-		count += node.heading.filter((c) => widePayload(c.type) && !ordered.has(c.name)).length
++		count += node.heading.filter((c) => widePayload(c.type)).length
+ 	}
+ 	return count
+ }

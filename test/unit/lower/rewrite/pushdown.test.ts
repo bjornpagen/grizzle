@@ -6,15 +6,20 @@
  * was given delivers, by the reference evaluator, and every take the pass leaves in place delivers the rows it did, the
  * feature this notes: a filter moved below a take would rank other rows.
  *
- * Oracle: the reference evaluator's delivery of the query before the pass (the guard population's, rewrite/guarded.ts).
+ * Oracle: the reference evaluator's delivery of the query before the pass (the guard population's, rewrite/guarded.ts),
+ * and the pass's own guard over a take: every filter the query holds over a take stands over that take after the pass,
+ * since a generated take seldom holds a row past its bound that a filter would pass, where a moved filter's delivery
+ * shows.
  * Features: each pushdown rule, each guard shape, a take that kept its rows.
  *
- * Plant, failing the search: a filter moved below a take (pushdown-below-take).
+ * @plant test/plants/unit/lower/rewrite/pushdown-below-take.patch A filter moved below an uncorrelated take, so the
+ * take ranks other rows; the pushdown-sites search fails.
  */
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import { pushdownPass } from "#compiler/lower/optimize/pushdown/index.ts"
+import { assert } from "#test/support/assert.ts"
 import { guardSearch, rowsAgreeAt } from "#test/unit/lower/rewrite/guarded.ts"
 import { nodesOf } from "#test/unit/lower/rewrite/support.ts"
 
@@ -36,6 +41,12 @@ const pushdownSites = guardSearch<"a take kept its rows">({
 	],
 	holds: (q, input, ran, c) => {
 		const after = nodesByLabel(ran.query.dag)
+		for (const filter of nodesOf(input.dag, "Filter")) {
+			if (filter.input.kind === "Take") {
+				const stays = after.get(filter.id)
+				assert.equal(stays?.kind === "Filter" ? stays.input.id : undefined, filter.input.id)
+			}
+		}
 		for (const take of nodesOf(input.dag, "Take")) {
 			const kept = after.get(take.id)
 			if (kept !== undefined && rowsAgreeAt(q, take, kept) === "agree") {

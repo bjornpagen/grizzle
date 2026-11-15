@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/lower/optimize/late-fetch/index.ts b/packages/engine/src/lower/optimize/late-fetch/index.ts
+index a3653a2d..835add06 100644
+--- a/packages/engine/src/lower/optimize/late-fetch/index.ts
++++ b/packages/engine/src/lower/optimize/late-fetch/index.ts
+@@ -63,7 +63,6 @@ interface Plan {
+  */
+ const lateFetchChain = (cx: RewriteCx, takeCell: Cell, take: Take): RegionChain | undefined => {
+ 	if (
+-		take.correlation.length > 0 ||
+ 		cx.cells.feedback.has(takeCell) ||
+ 		DagEditor.correlated(take.input)
+ 	) {

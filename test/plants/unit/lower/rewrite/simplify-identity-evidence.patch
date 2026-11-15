@@ -1,0 +1,24 @@
+diff --git a/packages/engine/src/lower/optimize/simplify/rules.ts b/packages/engine/src/lower/optimize/simplify/rules.ts
+index e4b6e5ac..db57f3a7 100644
+--- a/packages/engine/src/lower/optimize/simplify/rules.ts
++++ b/packages/engine/src/lower/optimize/simplify/rules.ts
+@@ -492,11 +492,14 @@ const identityProjection: Rule = {
+ 		if (!sameHeading) {
+ 			return false
+ 		}
+-		return overDemand(({ demand }) =>
+-			collapseInto(cx, demand, cell, node, inputCell, () => {
+-				certify(cx, simplifyRules.identityProjection, [inputCell.id], node.heading, [inputCell.id])
+-			})
+-		)
++		return overDemand(({ demand }) => {
++			if (!exclusive(cx, demand, inputCell)) {
++				return false
++			}
++			certify(cx, simplifyRules.identityProjection, [inputCell.id], node.heading, [inputCell.id])
++			cx.editor.redirect(cell, inputCell)
++			return true
++		})
+ 	}
+ }
+ 

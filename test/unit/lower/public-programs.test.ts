@@ -23,9 +23,11 @@
  *
  * Features: an option or bare child, and a take, over an identity projection's input; each roster form.
  *
- * Plants, each failing its search: an identity projection's input left without the projection's evidence
- * (simplify-identity-evidence, failing the generated and the planted searches); R07 rewriting no membership
- * (closed-roster-kept).
+ * @plant test/plants/unit/lower/rewrite/simplify-identity-evidence.patch An identity projection removed while its input
+ * keeps its own metadata, not the projection's evidence, so an option's child over it states no card; the
+ * public-programs-planted search fails.
+ * @plant test/plants/unit/lower/closed-roster-kept.patch R07 takes no roster occurrence for a membership, so a roster
+ * match a plain match also binds is kept; the public-programs-roster search fails.
  */
 import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

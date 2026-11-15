@@ -22,16 +22,17 @@
  * Oracle: the reference evaluator's delivery of the query before the passes (a second implementation), and the strict
  * DAG re-reader beside the conservative lowering's audit.
  *
- * Plants, each failing the searches whose passes it touches: a filter moved below a take (pushdown-below-take: the
- * pass-alone, pipeline, wide-transaction and mutant-root searches); an identity projection's input left without the
- * projection's evidence (simplify-identity-evidence); a wide column the order reads fetched late
- * (late-fetch-ordered-payload: the wide late-fetch search).
+ * @plant test/plants/unit/lower/rewrite/pushdown-below-take.patch A filter moved below an uncorrelated take, so the
+ * take ranks other rows; the pipeline-snapshot-planted search fails at its kept filter over a take.
+ * @plant test/plants/unit/lower/rewrite/late-fetch-ordered-payload.patch A wide column the take's order reads is
+ * fetched late, outside the narrow take that sorts by it; the late-fetch-wide and pass-alone searches fail.
  */
 import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { type Coverage, noCoverage, required } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
+import { fullSwarm } from "@bjornpagen/testing/swarm"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
@@ -68,7 +69,7 @@ import {
 	resolveQueryCase,
 	rewriteGenConfig
 } from "#test/support/oracle/gen/case.ts"
-import { type QuerySketch, undrawn } from "#test/support/oracle/gen/query.ts"
+import { type QuerySketch, rewriteFeatures, undrawn } from "#test/support/oracle/gen/query.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import {
 	existsOverTakeRoot,
@@ -284,7 +285,11 @@ const bind = (mode: number) => ({ mode, pick: 0, value: { cls: 0, sp: 0 } })
  * - a filter on the key of a group of R0 by a (pushdown.group);
  * - a semi-join against R0 on the key of a region reading a group of R0 by a, the platform's nearCap shape
  *   (pushdown.semiSource onto the group's occurrence, then pushdown.semiGroup below the group), which the population's
- *   semiOver form reaches too.
+ *   semiOver form reaches too;
+ * - a filter over R0's take(1), read with no region between them (the regions swarm off), that rejects the one row the
+ *   take keeps and passes another of R0's rows: the query delivers nothing, where the filter moved below the take would
+ *   deliver that other row. No rule may move a filter below a take, and the population's takes seldom hold a row past
+ *   their bound that a filter above them passes, so its delivery rarely shows such a move.
  */
 const keptRules: ReadonlyArray<Kept<QueryCaseSketch, RewriteFeature>> = (() => {
 	type Sketch = QueryCaseSketch["schema"]
@@ -408,7 +413,42 @@ const keptRules: ReadonlyArray<Kept<QueryCaseSketch, RewriteFeature>> = (() => {
 				on: [0],
 				shared: undrawn
 			}
-		)
+		),
+		{
+			note: "a filter over a take whose bound cuts a row the filter passes",
+			sketch: {
+				schema: pair,
+				facts: [facts(2)],
+				root: {
+					tag: "plain",
+					body: {
+						tag: "filter",
+						input: {
+							tag: "take",
+							input: read(2),
+							k: 0,
+							param: false,
+							lateral: undrawn,
+							rotate: 0,
+							dirs: [],
+							stated: undrawn
+						},
+						pred: {
+							tag: "compare",
+							column: 0,
+							op: 4,
+							rhs: { tag: "literal", value: { cls: 0, sp: 0 } }
+						}
+					},
+					order: undrawn
+				},
+				paramNames: [],
+				...fullCaseSwarms,
+				rewrite: fullSwarm(Arr.filter(rewriteFeatures, (feature) => feature !== "regions"))
+			},
+			draws: "",
+			reaches: ["node Take"]
+		}
 	]
 })()
 
