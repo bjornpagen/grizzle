@@ -1,4 +1,4 @@
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -26,9 +26,11 @@ import {
 	docsAtBoundRealities,
 	docsInstalls,
 	drawAction,
+	everyAction,
 	type LeadMove,
 	leadOf,
 	moveAction,
+	type Realities,
 	stage,
 	steeredOnce,
 	unnoted,
@@ -37,9 +39,9 @@ import {
 } from "#test/support/worlds/drive/suite.ts"
 import { realizeRace } from "#test/support/worlds/execute/index.ts"
 import { featuresOf, requiredWorldFeatures } from "#test/support/worlds/features.ts"
-import { pool } from "#test/support/worlds/generate/domain.ts"
+import { pool, uuidToken } from "#test/support/worlds/generate/domain.ts"
 import { defaultScope, enumerateInstalls } from "#test/support/worlds/generate/enumerate.ts"
-import { type Weights, weightsGen } from "#test/support/worlds/generate/weights.ts"
+import { everyRole, type Weights, weightsGen } from "#test/support/worlds/generate/weights.ts"
 import { malformedTexts } from "#test/support/worlds/invalid/claims.ts"
 import {
 	docsEditorInstall,
@@ -56,6 +58,7 @@ import type {
 	DirectSessionState,
 	FieldSpec,
 	HostFact,
+	HostState,
 	InstallSpec,
 	MigrationHow,
 	ModelState,
@@ -412,6 +415,135 @@ const demandOf = (ic: InductiveCase, setup: ReadonlyArray<Action>): WorldDemand 
 	}
 }
 
+/**
+ * The required features a drawn state rarely offers a way to, each reached one action past a state a case builds where
+ * its turn aims at it (Case.steering `aimed`): the editor's worlds (docsEditorInstall) over constructedReality, whose
+ * one organization, on the free plan, lies outside PlanOrg, the entry the editor writes, yet visible through Org whole
+ * beside it, and whose one document lies outside TenantDoc under no claims, visible through Doc whole.
+ * - `readback:beside`: a Db of the editor under its tenant's claims, whose apply through TenantDoc reads Doc back, a
+ *   whole entry beside the entry that writes its relation (model/session/apply.ts deltaOf);
+ * - `op:direct:outside-visible:absent:direct-role:rows` and `...:law-refused`: the editor as a direct writer under no
+ *   claims, a read of Org or Doc showing the organization or the document, and an insert at the organization's key
+ *   that Org's key refuses;
+ * - `op:direct:outside-visible:matching:direct-role:law-refused`: the same writer under the tenant's claims.
+ * A drawn state offers them only where the editor's installation, a reality holding a free organization and the
+ * editor's transaction or Db meet, so a search whose other draws move (a feature added, the box offering a fact once)
+ * can lose them on every label-fixed stream.
+ */
+type Constructed =
+	| "readback:beside"
+	| "op:direct:outside-visible:absent:direct-role:rows"
+	| "op:direct:outside-visible:absent:direct-role:law-refused"
+	| "op:direct:outside-visible:matching:direct-role:law-refused"
+
+const constructedFeatures: Arr.NonEmptyReadonlyArray<Constructed> = [
+	"readback:beside",
+	"op:direct:outside-visible:absent:direct-role:rows",
+	"op:direct:outside-visible:absent:direct-role:law-refused",
+	"op:direct:outside-visible:matching:direct-role:law-refused"
+]
+
+/** The organization and the document of constructedReality: the uuid pool's first two tokens. */
+const constructedOrg = uuidToken(1)
+const constructedDoc = uuidToken(2)
+
+/** A lawful documents reality of one organization on the free plan and one document of it, and nothing else. */
+const constructedReality: HostState = new Map([
+	["Org", [{ id: constructedOrg, plan: 0 }]],
+	["Doc", [{ id: constructedDoc, org: constructedOrg, owner: "u_bg", words: 0 }]],
+	["Share", []],
+	["Note", []],
+	["Visit", []]
+])
+
+const constructedRealities: Realities = () => constant(constructedReality)
+
+/** The Tenant claim object of constructedReality's organization, and the claims holding it. */
+const tenantClaim: HostFact = { org: constructedOrg, seats: 0 }
+const tenantFacts: ContextFacts = { Tenant: tenantClaim }
+
+/** The editor as a direct writer of the login `ops`, its transaction open under `claims`. */
+const editorWriter = (claims: ClaimsStart): StatePlan => ({
+	dbs: [],
+	after: {
+		kind: "direct",
+		direct: {
+			login: "ops",
+			current: { kind: "role", role: "editor" },
+			claims,
+			transaction: "open"
+		}
+	}
+})
+
+/** The planned state a constructed feature is one action past (Constructed). */
+const constructedPlan = (feature: Constructed): StatePlan => {
+	switch (feature) {
+		case "readback:beside":
+			return {
+				dbs: [
+					{
+						role: "editor",
+						token: { kind: "live", payload: { t: tenantClaim } },
+						reads: [],
+						closed: false
+					}
+				],
+				after: { kind: "none" }
+			}
+		case "op:direct:outside-visible:absent:direct-role:rows":
+		case "op:direct:outside-visible:absent:direct-role:law-refused":
+			return editorWriter({ kind: "none" })
+		case "op:direct:outside-visible:matching:direct-role:law-refused":
+			return editorWriter({
+				kind: "set",
+				setting: { kind: "facts", facts: tenantFacts, scope: "transaction" }
+			})
+	}
+}
+
+/**
+ * Where a case starts and what its one action aims at: the drawn case over docsAtBoundRealities, its one action aimed
+ * at every required feature still pending (steeredOnce); or, where its turn aims at a constructed feature, the editor's
+ * worlds in its constructed state over constructedReality, its pool as drawn, and its one action of every kind as any
+ * role, aimed at that feature alone.
+ */
+interface Start {
+	readonly ic: InductiveCase
+	readonly realities: Realities
+	readonly action: Weights
+}
+
+const startOf = (drawnCase: InductiveCase, c: Pick<Case<WorldFeature>, "steering">): Start =>
+	Option.match(
+		Arr.findFirst(constructedFeatures, (f) => Option.exists(c.steering, (p) => p.aimed(f))),
+		{
+			onNone: (): Start => ({
+				ic: drawnCase,
+				realities: docsAtBoundRealities,
+				action: steeredOnce({ ...drawnCase.weights, aims: aimsAt(situations, featuresOf) }, c)
+			}),
+			onSome: (feature): Start => {
+				const weights: Weights = {
+					...drawnCase.weights,
+					kinds: everyAction,
+					roles: everyRole,
+					aims: aimsAt([feature], featuresOf)
+				}
+				return {
+					ic: {
+						install: docsEditorInstall,
+						pool: drawnCase.pool,
+						plan: constructedPlan(feature),
+						weights
+					},
+					realities: constructedRealities,
+					action: steeredOnce(weights, c)
+				}
+			}
+		}
+	)
+
 /** The steering window: the cases of a window steer by what no case before it reached, and run at once. */
 const steerEvery = 16
 
@@ -559,9 +691,10 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							steerEvery,
 							caseHang
 						},
-						(ic, c) =>
+						(drawnCase, c) =>
 							Effect.scoped(
 								Effect.gen(function* () {
+									const { ic, realities, action: aimed } = startOf(drawnCase, c)
 									const setup = setupOf(ic.plan)
 									const poolSize = poolSizeOf(ic)
 									const substrate = yield* substrates(worldWidth(poolSize, demandOf(ic, setup)))
@@ -570,7 +703,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 										Substrate,
 										substrate
 									)
-									const staged = yield* stage(world, ic.install, c.draw, docsAtBoundRealities)
+									const staged = yield* stage(world, ic.install, c.draw, realities)
 									const planned = yield* Effect.reduce(
 										setup,
 										(): ModelState => staged.start,
@@ -598,11 +731,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 												(stepped) => stepped.next
 											)
 									)
-									const action = drawAction(
-										c.draw,
-										reached,
-										steeredOnce({ ...ic.weights, aims: aimsAt(situations, featuresOf) }, c)
-									)
+									const action = drawAction(c.draw, reached, aimed)
 									yield* runStep(world, reached, action, setup.length + moves.length, c)
 								})
 							)
