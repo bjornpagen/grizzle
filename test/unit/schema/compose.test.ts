@@ -66,6 +66,11 @@ import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { assert, defined, placeOf, succeeded } from "#test/support/assert.ts"
+import {
+	type Admitted,
+	admittedSchemaNames,
+	schemaNameGenOtherThan
+} from "#test/support/kernel/dict.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { ownInput } from "#test/support/policy.ts"
 
@@ -83,6 +88,26 @@ interface Level {
 }
 
 const wordGen = matching(arkregex("^[A-Z][a-z]{1,7}$"))
+
+/**
+ * A composition's level names, root first, one to three: each a schema name the naming door admits, drawn from the
+ * dictionary's admittedSchemaNames (core/identity.ts parseSchemaName decides them), so no level's installed schema takes
+ * the pg_ PostgreSQL reserves; and each converting apart from every earlier one, since two levels converting to one
+ * schema are IdentifierCollision (schema/own.ts ownedLevels).
+ */
+const levelNamesGen: Gen<ReadonlyArray<string>> = (source) =>
+	Arr.map(
+		Arr.reduce(Array.from({ length: source.draw(int(1, 3)) }), Arr.empty<Admitted>(), (earlier) => {
+			const taken = new Set(Arr.map(earlier, (name) => name.converted))
+			const excluded = new Set(
+				Arr.flatMap(admittedSchemaNames, (name) =>
+					taken.has(name.converted) ? [name.declared] : []
+				)
+			)
+			return [...earlier, source.draw(schemaNameGenOtherThan(excluded))]
+		}),
+		(name) => name.declared
+	)
 
 const drawnGen =
 	(names: number): Gen<Drawn> =>
@@ -194,10 +219,7 @@ describe("composing relations into a schema", () => {
 						suite: "unit/schema/compose",
 						draw: drawn((source) => {
 							const names = Arr.dedupe(source.draw(array(wordGen, { min: 1, max: 3 })))
-							const levelNames = Arr.map(
-								source.draw(array(wordGen, { min: 1, max: 3 })),
-								(w, i) => `${w}${i}`
-							)
+							const levelNames = source.draw(levelNamesGen)
 							const item = drawnGen(names.length)
 							const levels = Arr.reduce(levelNames, Arr.empty<Level>(), (below): Array<Level> => {
 								const listed = source.draw(array(item, { min: 0, max: 4 }))

@@ -289,8 +289,11 @@ interface ParsedName {
 const parsedName = (name: string): Result.Result<ParsedName, string> =>
 	Result.flatMap(parseNameCharacters(name), (named): Result.Result<ParsedName, string> => {
 		const conversion = conversionOf(named)
-		return utf8Length(conversion) > maxIdentifierBytes.value
-			? Result.err(`a name whose conversion ${conversion} fits ${maxIdentifierBytes.value} bytes`)
+		const bytes = utf8Length(conversion)
+		return bytes > maxIdentifierBytes.value
+			? Result.err(
+					`a name whose conversion fits ${maxIdentifierBytes.value} bytes; its conversion ${conversion} takes ${bytes}`
+				)
 			: Result.ok({ name: declaredNameOf(named), conversion })
 	})
 
@@ -314,7 +317,7 @@ export const parseSchemaName = (name: string): Result.Result<SchemaName, string>
 		({ name: declared, conversion }): Result.Result<SchemaName, string> =>
 			conversion.startsWith("pg_")
 				? Result.err(
-						`a name whose conversion ${conversion} does not start with pg_, which PostgreSQL reserves`
+						`a name whose conversion does not start with pg_, which PostgreSQL reserves; its conversion ${conversion} starts with it`
 					)
 				: Result.ok(schemaName(declared))
 	)
