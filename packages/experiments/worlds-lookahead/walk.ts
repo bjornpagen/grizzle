@@ -43,7 +43,11 @@ const fixed: readonly [InstallSpec, ...ReadonlyArray<InstallSpec>] = [
 	docsProfileInstall
 ]
 
-const digest = (text: string): string => createHash("sha256").update(text).digest("hex")
+/**
+ * A text's SHA-256, or, run as `walk.ts - <walks>`, nothing: the look-ahead alone, unformatted, for a profile of it.
+ */
+const digest = (text: () => string): string =>
+	out === "-" ? "" : createHash("sha256").update(text()).digest("hex")
 
 /** One walk's lines: up to six steps, each state's two boxes and every aimed action's reached features. */
 const walk = (source: Source): ReadonlyArray<string> => {
@@ -58,12 +62,14 @@ const walk = (source: Source): ReadonlyArray<string> => {
 	const lines: Array<string> = []
 	let state = initialState(install, names, reality)
 	for (let at = 0; at <= steps; at++) {
-		lines.push(`box ${at} ${digest(Formatter.format(enumerateActions(state, defaultScope)))}`)
+		const box = enumerateActions(state, defaultScope)
+		lines.push(`box ${at} ${digest(() => Formatter.format(box))}`)
 		const aimed = enumerateActions(state, aimScope)
-		lines.push(`aim-box ${at} ${aimed.length} ${digest(Formatter.format(aimed))}`)
+		lines.push(`aim-box ${at} ${aimed.length} ${digest(() => Formatter.format(aimed))}`)
 		for (const action of aimed) {
+			const reached = reachOf(state, action)
 			lines.push(
-				`reach ${at} ${action.kind} ${digest(`${Formatter.format(action)} -> ${reachOf(state, action).join(" | ")}`)}`
+				`reach ${at} ${action.kind} ${digest(() => `${Formatter.format(action)} -> ${reached.join(" | ")}`)}`
 			)
 		}
 		if (at < steps) {
@@ -77,7 +83,9 @@ const walk = (source: Source): ReadonlyArray<string> => {
 const started = performance.now()
 const walks = sample(walk, floorSeed("worlds-lookahead"), Number(walksText))
 const written = walks.flatMap((read, w) => read.map((line) => `${w} ${line}`))
-writeFileSync(out, `${written.join("\n")}\n`)
+if (out !== "-") {
+	writeFileSync(out, `${written.join("\n")}\n`)
+}
 process.stderr.write(
 	`${walks.length} walks, ${written.filter((l) => l.includes(" box ")).length} states, ${written.filter((l) => l.includes(" reach ")).length} aimed actions read in ${((performance.now() - started) / 1000).toFixed(1)} s\n`
 )
