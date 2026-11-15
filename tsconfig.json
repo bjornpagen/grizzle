@@ -213,6 +213,7 @@
 					},
 					{
 						"include": [
+							"scripts/dev/mutate/clone.ts",
 							"test/support/memory-tls.ts",
 							"test/unit/dev/consumer.ts",
 							"test/support/wire-tap.ts",

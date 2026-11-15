@@ -30,6 +30,7 @@ import {
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import { jsonDocument, trustedJson } from "#compiler/core/trusted.ts"
+import { cloneInto } from "#scripts/dev/mutate/clone.ts"
 import { covered, isDump, type ScriptRanges, scriptsOfDump } from "#scripts/dev/mutate/coverage.ts"
 
 import {
@@ -317,17 +318,6 @@ const resolveCommit = Effect.fn("resolveCommit")(function* (repo: string, revisi
 	return commit
 })
 
-/** Clones `from` to `to` by APFS clone; symbolic links stay links, so a relative one resolves inside the tree. */
-const cloneInto = Effect.fn("cloneInto")(function* (from: string, to: string) {
-	const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-	const status = yield* spawner.exitCode(
-		ChildProcess.make("cp", ["-cR", from, to], { stderr: "inherit" })
-	)
-	if (status !== 0) {
-		return yield* DevtoolFailure.make({ detail: `cp -cR ${from} ${to} exited ${status}` })
-	}
-})
-
 /**
  * The workspace's node_modules in `into`: the root's with its package store linked to the repository's, and each
  * package's the tests load, so the workspace packages' own links (the root's to the packages, the shell's to the
@@ -425,15 +415,9 @@ const unpack = Effect.fn("unpack")(function* (repo: string, commit: string, into
 	yield* linkNodeModules(repo, into)
 })
 
-/** One worker's tree: an APFS clone of the unpacked base. */
+/** One worker's tree: a clone of the unpacked base (cloneInto). */
 const cloneTree = Effect.fn("cloneTree")(function* (base: string, tree: string) {
-	const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-	const status = yield* spawner.exitCode(
-		ChildProcess.make("cp", ["-cR", base, tree], { stderr: "inherit" })
-	)
-	if (status !== 0) {
-		return yield* DevtoolFailure.make({ detail: `cp -cR ${base} ${tree} exited ${status}` })
-	}
+	yield* cloneInto(base, tree)
 	return tree
 })
 
