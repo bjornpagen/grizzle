@@ -6,7 +6,8 @@
 #          drift check), then the same imports through the port tree's runtime.
 # Then each table's md5 over the columns both arms hold, after each import, compared; each publish's wall time, its
 # statements' CPU and COMMIT's CPU (sessioncpu.py over the server log). Last, the draft migrates the base arm's database
-# too, holding both packages' rows (migrate.sh again: its lock probe, the timed migrate, the drift check), so the draft
+# too, holding both packages' rows (first price.sh's rolled-back pricing on a clone of it, price-run.sh; then migrate.sh:
+# its lock probe, the timed migrate, the drift check), so the draft
 # is proven over stored rows, and every table's md5 over all its columns is compared once more: the base arm migrated
 # after its imports against the repin arm that imported after its migrate. Both clusters are stopped at the end; their
 # state stays under clusters/<tag> until the next run removes it.
@@ -27,6 +28,8 @@ stop() { [ -d "$W/clusters/$1/data" ] && "$P/bin/pg_ctl" -D "$W/clusters/$1/data
 for t in base repin; do stop "$t"; rm -rf "$W/clusters/$t" "$W/secrets/$t" "$out/$t"; done
 log() { echo "$(date -u +%FT%TZ) $*" | tee -a "$out/arms.log"; }
 
+bash "$S/overlay.sh" "$base"
+bash "$S/overlay.sh" "$port"
 log "setup base on $pb and repin on $pr"
 (bash "$S/setup.sh" base "$pb" "$base" > "$out/setup-base.log" 2>&1; echo $? > "$out/setup-base.exit") &
 (bash "$S/setup.sh" repin "$pr" "$base" > "$out/setup-repin.log" 2>&1 &&
@@ -49,6 +52,9 @@ log "imports"
 (bash "$S/arm.sh" repin "$pr" "$port" "$out/columns-shared.tsv" > "$out/arm-repin.log" 2>&1) &
 wait
 log "imports done"
+bash "$S/price.sh" "$port/packages/data/qti-database/install/migrations/qti/$draft" > "$out/price.sql"
+bash "$S/price-run.sh" base "$pb" "$out/price.sql" "$out/base/price.txt"
+log "price.sql on a clone of the base arm's rows, rolled back: $(tail -n 2 "$out/base/price.txt" | tr '\n' ' ')"
 bash "$S/migrate.sh" base "$pb" "$port" "$draft" > "$out/migrate-base.log" 2>&1
 log "draft over the base arm's rows: exit $?"
 bash "$S/columns.sh" base "$pb" "$out/columns-final-base.tsv"

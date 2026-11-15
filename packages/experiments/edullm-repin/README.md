@@ -28,5 +28,10 @@ clusters, their secrets and `out/<grizzle short>/`. Nothing here is code grizzle
   (`arm.sh`, `run-profile.sh`, `edullm-overlay.patch`'s importpar-publish.ts). After each import, every table's md5 is
   taken over the columns both arms hold (`columns.sh`, `intersect.py`, `table-md5.sh`). `compare.py` sets the arms
   side by side, with publish wall time and the CPU of each statement and of COMMIT (`sessioncpu.py`).
+- `price.sh`: one psql script for push-db that prices the draft on production in a transaction it rolls back. It runs
+  every file in order, the no-transaction file's concurrent builds as plain ones, times each statement, and prints the
+  locks held and the WAL written. `price-run.sh` runs it on a clone of the base arm's populated database, and `arms.sh`
+  does so before migrating it.
+- `finish.sh`: the arms and the reports alone, for a port.sh output whose trees exist (run.sh's last step).
 - `migratecost.py`: where the local `grizzle migrate` spent its time: in the draft's files, in the drift check's
   scratch replay, or in grizzle's bookkeeping.
