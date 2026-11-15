@@ -241,6 +241,34 @@ export const stratumOf = (step: WriteStep): StratumAt | undefined => {
 	}
 }
 
+/**
+ * What a step's statement reaches when it runs: stored state, a relation or carrier it reads or writes, a lock it
+ * takes, statistics it gathers; or the call's parameters alone, the admission (write/admission/statement.ts), which
+ * binds and checks them, reads no relation and writes nothing. A statement that reaches only parameters commutes with
+ * every other transaction: the certifier reads no fact of it (program/isolation/certification.ts flightStatements), and
+ * a race takes it as no step of its own (test/pg/isolation/support/race.ts callStatements).
+ */
+export type StepReach = "state" | "parameters"
+
+/** What a step's statement reaches (StepReach), by its kind, so a new kind of step is classified where it is added. */
+export const reachOf = (step: WriteStep): StepReach => {
+	switch (step.kind) {
+		case "admission":
+			return "parameters"
+		case "readBack":
+		case "hold":
+		case "carrier":
+		case "analyze":
+		case "write":
+		case "advance":
+		case "check":
+		case "single":
+		case "family":
+		case "familyWrite":
+			return "state"
+	}
+}
+
 /** Per stratum, up to the last any statement names, the statements in it, in their order. */
 export const byStratum = <S extends { readonly step: WriteStep }>(
 	statements: ReadonlyArray<S>

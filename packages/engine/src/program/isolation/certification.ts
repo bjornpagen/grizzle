@@ -28,6 +28,7 @@ import {
 	type RoleChanges,
 	serializableChanges
 } from "#compiler/program/workload/change.ts"
+import { reachOf } from "#compiler/runtime/write/steps.ts"
 import type { LockTable, ObjectName, SqlStatement } from "#compiler/sql/ast.ts"
 import { emitText } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
@@ -59,13 +60,14 @@ interface SentStatement {
  * reads (write/program/staged.ts), so its inline form stands for it. A hold (write/hold/statement.ts) states no fact: it reads only its unit's header, whose key no
  * call changes, and its lock keeps every group the call states unretired until the call ends, so each body's rows are,
  * for the call, an insert-only relation's, which is how the certifier reads them (analysis/isolation/certify.ts, a
- * retirement no change); a read fact of it would cut the clean prefix the reads after it are sealed by. The admission
- * (write/admission/statement.ts) reads only the call's parameters, no relation, and writes nothing.
+ * retirement no change); a read fact of it would cut the clean prefix the reads after it are sealed by. A statement
+ * that reaches only the call's parameters, the admission, reads no relation and writes nothing (runtime/write/steps.ts
+ * reachOf).
  */
 const flightStatements = (compiled: CompiledWrite): ReadonlyArray<SentStatement> => [
 	...compiled.artifact.statements
 		.filter(
-			(s) => s.step.kind !== "readBack" && s.step.kind !== "hold" && s.step.kind !== "admission"
+			(s) => s.step.kind !== "readBack" && s.step.kind !== "hold" && reachOf(s.step) === "state"
 		)
 		.flatMap(sentForms),
 	...compiled.artifact.readBacks.flatMap((r) =>

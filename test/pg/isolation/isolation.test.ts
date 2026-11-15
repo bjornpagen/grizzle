@@ -38,6 +38,10 @@
  *   with 40P01, a transient abort the serial reference places nowhere. Plants
  *   (~/.cache/grizzle-release/G3VERIFY/plants): certify-fence-omitted, served writes with no lock, whose same-key
  *   replace the learner's deferred check refuses with a spurious 23503.
+ *
+ * @plant test/plants/pg/isolation/race-admission-as-step.patch A race takes a write's admission, which reaches only its
+ * parameters, as a step of its own, so den's lease race of two reclaims beside a claim has 1,680 orders of its moves,
+ * past the bound an every-order race may run.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

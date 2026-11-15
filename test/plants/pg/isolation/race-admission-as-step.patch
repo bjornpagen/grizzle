@@ -1,0 +1,11 @@
+--- a/test/pg/isolation/support/race.ts
++++ b/test/pg/isolation/support/race.ts
+@@ -476,7 +476,7 @@
+ 		}
+ 		const statements: Array<string> = []
+ 		for (const statement of change.entry.program.flight.statements) {
+-			if (inputs.bound.skip.has(statement.index) || reachOf(statement.step) === "parameters") {
++			if (inputs.bound.skip.has(statement.index)) {
+ 				continue
+ 			}
+ 			const executions = flights.chunks(statement, inForce(bindFrame))

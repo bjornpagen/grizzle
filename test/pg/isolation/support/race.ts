@@ -43,6 +43,7 @@ import {
 import { changesAt } from "#compiler/program/workload/change.ts"
 import { servedHolds } from "#compiler/program/workload/compile.ts"
 import type { AnyLogin, AnyRole, AnySchema } from "#compiler/public/schema.ts"
+import { reachOf } from "#compiler/runtime/write/steps.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
@@ -433,14 +434,17 @@ const inlined = (sql: string, params: ReadonlyArray<Param>): Effect.Effect<strin
 		}
 	)
 
-/**
- * The statements `call` sends, in the order its served write's one flight sends them: each statement its binding does
- * not skip, each execution its own, every placeholder inlined. A write the host refuses before any SQL sends one
- * constant SELECT naming the refusal, which a serial run of it shows alike.
- */
 /** The one statement a call the host refuses before any SQL sends: a constant SELECT naming the refusal. */
 export const hostRefused = `SELECT 'host refused'::text AS refused`
 
+/**
+ * The statements of `call` a race interleaves, in the order its served write's one flight sends them: each statement
+ * that reaches stored state (runtime/write/steps.ts reachOf, the fact the certifier reads too) and its binding does
+ * not skip, each execution its own, every placeholder inlined. The admission reaches only the call's parameters, so it
+ * commutes with every other call's statements and is no step of a race; the call's parameters are the race's own, so
+ * it admits them. A write the host refuses before any SQL sends one constant SELECT naming the refusal, which a serial
+ * run of it shows alike.
+ */
 export const callStatements = (
 	s: InstalledShape,
 	call: ChangeCall
@@ -472,7 +476,7 @@ export const callStatements = (
 		}
 		const statements: Array<string> = []
 		for (const statement of change.entry.program.flight.statements) {
-			if (inputs.bound.skip.has(statement.index)) {
+			if (inputs.bound.skip.has(statement.index) || reachOf(statement.step) === "parameters") {
 				continue
 			}
 			const executions = flights.chunks(statement, inForce(bindFrame))
