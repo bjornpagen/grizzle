@@ -1,5 +1,10 @@
 import { refuse, refuseNamed } from "#compiler/analysis/theory/build.ts"
-import { type Leaves, mapBindings, mapLeaves, varsOf } from "#compiler/analysis/theory/leaves.ts"
+import {
+	type LeafRewrite,
+	mapBindings,
+	mapLeaves,
+	varsOf
+} from "#compiler/analysis/theory/leaves.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
@@ -266,7 +271,7 @@ interface Joined {
 	readonly matches: NonEmptyReadonlyArray<ArmMatch>
 	readonly where: ReadonlyArray<InferredExpr>
 	/** The leaves of the arm's variables the bindings replaced, which every expression over them reads through. */
-	readonly leaves: Leaves
+	readonly leaves: LeafRewrite
 }
 
 /**
@@ -283,7 +288,7 @@ const joined = (
 	const local = new Set(arm.vars.map((v) => v.id))
 	const replaced = new Map<string, InferredExpr>()
 	const extra: Array<InferredExpr> = []
-	const leaves: Leaves = { var: (id) => replaced.get(id), field: () => undefined }
+	const leaves: LeafRewrite = { var: (id) => replaced.get(id), field: () => undefined }
 	for (const [field, e] of Object.entries(bindings)) {
 		const head = arm.head[field] ?? missing(field)
 		const h = mapLeaves(head, leaves)
@@ -304,7 +309,7 @@ const joined = (
 /** Negated arms with their bindings read through `leaves`. */
 const negatedThrough = (
 	negated: ReadonlyArray<NegatedArm>,
-	leaves: Leaves
+	leaves: LeafRewrite
 ): ReadonlyArray<NegatedArm> =>
 	negated.map((n) => ({ arm: n.arm, bindings: mapBindings(n.bindings, leaves) }))
 
@@ -358,7 +363,7 @@ const definedArm = (p: PartialArm): PartialArm => {
 	if (d === undefined) {
 		return p
 	}
-	const leaves: Leaves = {
+	const leaves: LeafRewrite = {
 		var: (id) => (id === d.name ? d.term : undefined),
 		field: () => undefined
 	}
@@ -456,7 +461,7 @@ class Flattener {
 		}
 		const prefix = `q${this.#next++}.`
 		const rename = (id: string): string => `${prefix}${id}`
-		const leaves: Leaves = { var: (id) => varRef(rename(id)), field: () => undefined }
+		const leaves: LeafRewrite = { var: (id) => varRef(rename(id)), field: () => undefined }
 		const head: Record<string, InferredExpr> = {}
 		for (const [name, term] of Object.entries(rule.head)) {
 			const t = this.#headTerm(relation, term)
@@ -540,7 +545,7 @@ class Flattener {
 	#negated(
 		relation: string,
 		w: Extract<InferredExpr, { readonly kind: "absent" }>,
-		leaves: Leaves,
+		leaves: LeafRewrite,
 		loc: SourceLoc
 	): ReadonlyArray<NegatedArm> {
 		for (const e of Object.values(w.bindings)) {
@@ -661,7 +666,7 @@ export const derivedSideArms = (
 	loc: SourceLoc
 ): NonEmptyReadonlyArray<SideArm> =>
 	mapNonEmpty(arms, (arm) => {
-		const leaves: Leaves = {
+		const leaves: LeafRewrite = {
 			var: () => undefined,
 			field: (f) =>
 				arm.head[f] ??
@@ -709,7 +714,7 @@ export const storedSideArm = (
 	}
 	const fields = [...read].toSorted(compareText)
 	const id = (f: string): string => `${prefix}${f}`
-	const leaves: Leaves = { var: () => undefined, field: (f) => varRef(id(f)) }
+	const leaves: LeafRewrite = { var: () => undefined, field: (f) => varRef(id(f)) }
 	const bound = Object.fromEntries(fields.map((f) => [f, varRef(id(f))] as const))
 	const guarded = mapNonEmpty(terms, guardedTerm)
 	return {
@@ -964,7 +969,7 @@ const violating = (
 			)
 		}
 		case "check": {
-			const leaves: Leaves = { var: () => undefined, field: (f) => headOf(arm, f, loc) }
+			const leaves: LeafRewrite = { var: () => undefined, field: (f) => headOf(arm, f, loc) }
 			return [
 				ruleDesc(
 					arm.vars,
@@ -1115,7 +1120,7 @@ const wholeSide = (
 	}
 	const fields = [...read].toSorted(compareText)
 	const id = (f: string): string => `${prefix}${f}`
-	const leaves: Leaves = { var: () => undefined, field: (f) => varRef(id(f)) }
+	const leaves: LeafRewrite = { var: () => undefined, field: (f) => varRef(id(f)) }
 	const bound = Object.fromEntries(fields.map((f) => [f, varRef(id(f))] as const))
 	const guarded = mapNonEmpty(side.terms, guardedTerm)
 	return {
@@ -1231,7 +1236,7 @@ export const violationQuery = (
 		case "check": {
 			const heading = armHeading(rule.side.arms)
 			const one = wholeSide(rule.side, definition, heading, "s0.", loc)
-			const leaves: Leaves = { var: () => undefined, field: (f) => wholeField(one, f, loc) }
+			const leaves: LeafRewrite = { var: () => undefined, field: (f) => wholeField(one, f, loc) }
 			return queryOf(
 				[
 					ruleDesc(
@@ -1303,7 +1308,7 @@ const boundVars = (matches: ReadonlyArray<ArmMatch>): ReadonlySet<string> =>
  */
 interface Held {
 	readonly replaced: ReadonlySet<string>
-	readonly leaves: Leaves
+	readonly leaves: LeafRewrite
 	/** The variables only a dropped match binds, which nothing the probe reads holds. */
 	readonly free: ReadonlySet<string>
 	readonly unbound: (e: InferredExpr) => boolean
@@ -1341,7 +1346,7 @@ const held = (
 		}
 	}
 	const free = new Set([...boundVars(relaxed)].filter((id) => !byKept.has(id) && !replaced.has(id)))
-	const leaves: Leaves = { var: (id) => replaced.get(id), field: () => undefined }
+	const leaves: LeafRewrite = { var: (id) => replaced.get(id), field: () => undefined }
 	const unbound = (e: InferredExpr): boolean => [...varsOf(e, new Set())].some((id) => free.has(id))
 	return {
 		replaced: new Set(replaced.keys()),

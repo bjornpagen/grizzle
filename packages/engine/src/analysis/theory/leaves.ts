@@ -2,13 +2,13 @@ import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import type { InferredBindings, InferredExpr } from "#compiler/ir/desc.ts"
 
 /** The leaves an arm's expressions are rewritten by: a variable or a field, each to its replacement. */
-export interface Leaves {
+export interface LeafRewrite {
 	readonly var: (id: string) => InferredExpr | undefined
 	readonly field: (field: string) => InferredExpr | undefined
 }
 
 /** `e` with every variable and field leaf `leaves` replaces, replaced; an imported query is closed and kept whole. */
-export const mapLeaves = (e: InferredExpr, leaves: Leaves): InferredExpr => {
+export const mapLeaves = (e: InferredExpr, leaves: LeafRewrite): InferredExpr => {
 	const m = (x: InferredExpr): InferredExpr => mapLeaves(x, leaves)
 	switch (e.kind) {
 		case "var":
@@ -55,7 +55,7 @@ export const mapLeaves = (e: InferredExpr, leaves: Leaves): InferredExpr => {
 	}
 }
 
-export const mapBindings = (b: InferredBindings, leaves: Leaves): InferredBindings =>
+export const mapBindings = (b: InferredBindings, leaves: LeafRewrite): InferredBindings =>
 	Object.fromEntries(Object.entries(b).map(([f, e]) => [f, mapLeaves(e, leaves)] as const))
 
 /** The variables `e` reads, an imported query's own aside. */

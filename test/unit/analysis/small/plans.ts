@@ -49,7 +49,7 @@ const selectedS = "S where a = 1"
 /** A column's type: an integer field's, a bigint (a count, a sum, a widened integer) or the closed roster's handle. */
 type ColumnType = "int4" | "int8" | "handle"
 
-export type Step =
+export type PlanStep =
 	| { readonly op: "filter"; readonly column: number; readonly value: "literal" | "param" }
 	| { readonly op: "project"; readonly keep: ReadonlyArray<number> }
 	| {
@@ -160,7 +160,7 @@ type VariedRead = RelationName | typeof relationParam
 /** What the scan and the steps so far resolve to, with what the suite reads of them. */
 export interface Plan {
 	readonly scan: ScanName
-	readonly steps: ReadonlyArray<Step>
+	readonly steps: ReadonlyArray<PlanStep>
 	readonly state: OpenRule | Sealed
 	/**
 	 * Every varied source the root's rows read, once per match, negation or union arm; an attachment's child is not
@@ -462,7 +462,7 @@ const otherOf = (source: SourceName, field: FieldName): FieldName =>
 	)
 
 /** The plan with one more step. */
-const extend = (plan: Plan, step: Step): Plan => {
+const extend = (plan: Plan, step: PlanStep): Plan => {
 	const state = plan.state
 	const next = (changes: Partial<Plan>): Plan => ({
 		...plan,
@@ -762,7 +762,7 @@ const integerVariables = (head: ReadonlyArray<Column>): ReadonlyArray<number> =>
 	Arr.flatMap(head, (c, i) => (c.variable !== undefined && c.type === "int4" ? [i] : []))
 
 /** Every step valid after a plan, in a fixed order. */
-const stepsAfter = (plan: Plan, grammar: Grammar): ReadonlyArray<Step> => {
+const stepsAfter = (plan: Plan, grammar: Grammar): ReadonlyArray<PlanStep> => {
 	const state = plan.state
 	const columns = columnsOf(state)
 	/** An attachment correlates an integer field of its child with an integer column of the parent. */
@@ -779,11 +779,11 @@ const stepsAfter = (plan: Plan, grammar: Grammar): ReadonlyArray<Step> => {
 		Arr.every(fieldNames, (field) => Option.isSome(ownColumn(keys, field)))
 			? [plan.scan]
 			: []
-	const wrapping: ReadonlyArray<Step> = [
+	const wrapping: ReadonlyArray<PlanStep> = [
 		...(columns.length > 0 && !plan.heterogeneous ? [{ op: "take" } as const] : []),
 		...Arr.flatMap(attachable, (source) => [
 			...Arr.flatMap(integerColumns, (column) =>
-				Arr.map(integerFields(source), (field): Step => ({
+				Arr.map(integerFields(source), (field): PlanStep => ({
 					op: "attach",
 					source,
 					links: [{ column, field }]
@@ -791,7 +791,7 @@ const stepsAfter = (plan: Plan, grammar: Grammar): ReadonlyArray<Step> => {
 			),
 			...(integerFields(source).length === 2
 				? Arr.flatMap(integerColumns, (first) =>
-						Arr.flatMap(integerColumns, (second): ReadonlyArray<Step> =>
+						Arr.flatMap(integerColumns, (second): ReadonlyArray<PlanStep> =>
 							first === second
 								? []
 								: [
@@ -811,7 +811,7 @@ const stepsAfter = (plan: Plan, grammar: Grammar): ReadonlyArray<Step> => {
 		...Arr.flatMap(ordinals, (source) =>
 			Arr.flatMap(fieldNames, (field) =>
 				Arr.flatMap([true, false], (inclusive) =>
-					Arr.map([false, true], (conjunct): Step => ({
+					Arr.map([false, true], (conjunct): PlanStep => ({
 						op: "ordinal",
 						source,
 						field,
@@ -838,9 +838,9 @@ const stepsAfter = (plan: Plan, grammar: Grammar): ReadonlyArray<Step> => {
 		state.head.length <= 2
 	return [
 		...Arr.flatMap(vars, (column) =>
-			Arr.map(["literal", "param"] as const, (value): Step => ({ op: "filter", column, value }))
+			Arr.map(["literal", "param"] as const, (value): PlanStep => ({ op: "filter", column, value }))
 		),
-		...Arr.map(proper, (keep): Step => ({ op: "project", keep })),
+		...Arr.map(proper, (keep): PlanStep => ({ op: "project", keep })),
 		...Arr.flatMap(grammar.sources, (source) =>
 			Arr.flatMap(vars, (column) =>
 				Arr.flatMap(integerFields(source), (field) =>
@@ -848,34 +848,39 @@ const stepsAfter = (plan: Plan, grammar: Grammar): ReadonlyArray<Step> => {
 						Option.isNone(otherField(source, field))
 							? (["witness"] as const)
 							: (["head", "witness"] as const),
-						(other): Step => ({ op: "join", source, column, field, other })
+						(other): PlanStep => ({ op: "join", source, column, field, other })
 					)
 				)
 			)
 		),
 		...Arr.flatMap(grammar.sources, (source) =>
 			Arr.flatMap(vars, (column) =>
-				Arr.map(integerFields(source), (field): Step => ({ op: "negate", source, column, field }))
+				Arr.map(integerFields(source), (field): PlanStep => ({
+					op: "negate",
+					source,
+					column,
+					field
+				}))
 			)
 		),
 		...(allVariables && wholeMatches(state.matches)
-			? Arr.map(proper, (by): Step => ({ op: "count", by }))
+			? Arr.map(proper, (by): PlanStep => ({ op: "count", by }))
 			: []),
 		...(grammar.extended && allVariables && wholeMatches(state.matches)
-			? Arr.flatMap(proper, (by) => Arr.map(vars, (arg): Step => ({ op: "sum", by, arg })))
+			? Arr.flatMap(proper, (by) => Arr.map(vars, (arg): PlanStep => ({ op: "sum", by, arg })))
 			: []),
 		...(grammar.extended
 			? Arr.flatMap(vars, (column) =>
-					Arr.map(["widen", "halve"] as const, (fn): Step => ({ op: "compute", column, fn }))
+					Arr.map(["widen", "halve"] as const, (fn): PlanStep => ({ op: "compute", column, fn }))
 				)
 			: []),
 		...(plainHead
 			? Arr.flatMap(relationNames, (relation) =>
-					Arr.map([false, true], (tagged): Step => ({ op: "union", relation, tagged }))
+					Arr.map([false, true], (tagged): PlanStep => ({ op: "union", relation, tagged }))
 				)
 			: []),
 		...(plainHead && grammar.extended
-			? Arr.map(relationNames, (relation): Step => ({ op: "hunion", relation }))
+			? Arr.map(relationNames, (relation): PlanStep => ({ op: "hunion", relation }))
 			: []),
 		...wrapping
 	]
@@ -934,7 +939,7 @@ export const plansUpTo =
 			if (!Arr.isReadonlyArrayNonEmpty(steps)) {
 				return plan
 			}
-			const next = source.draw(element<Step | "stop">(["stop", ...steps]))
+			const next = source.draw(element<PlanStep | "stop">(["stop", ...steps]))
 			if (next === "stop") {
 				return plan
 			}
@@ -950,19 +955,22 @@ export const printPlan = (plan: Plan): string =>
 /** The features a plan names: its scan and each step's operator, with what distinguishes its forms. */
 export type PlanFeature =
 	| `scan ${ScanName}`
-	| `filter ${Extract<Step, { readonly op: "filter" }>["value"]}`
-	| `join ${SourceName} ${Extract<Step, { readonly op: "join" }>["other"]}`
+	| `filter ${Extract<PlanStep, { readonly op: "filter" }>["value"]}`
+	| `join ${SourceName} ${Extract<PlanStep, { readonly op: "join" }>["other"]}`
 	| `negate ${SourceName}`
 	| `union ${"tagged" | "untagged"}`
-	| `compute ${Extract<Step, { readonly op: "compute" }>["fn"]}`
-	| `attach ${Extract<Step, { readonly op: "attach" }>["source"]}`
-	| `attach ${Extract<Step, { readonly op: "attach" }>["source"]} by both fields`
+	| `compute ${Extract<PlanStep, { readonly op: "compute" }>["fn"]}`
+	| `attach ${Extract<PlanStep, { readonly op: "attach" }>["source"]}`
+	| `attach ${Extract<PlanStep, { readonly op: "attach" }>["source"]} by both fields`
 	| `ordinal ${"inclusive" | "strict"}`
 	| "ordinal beside a conjunct"
-	| Exclude<Step["op"], "filter" | "join" | "negate" | "union" | "compute" | "attach" | "ordinal">
+	| Exclude<
+			PlanStep["op"],
+			"filter" | "join" | "negate" | "union" | "compute" | "attach" | "ordinal"
+	  >
 
 /** A step's feature: its operator, with what distinguishes its forms. */
-const stepOp = (s: Step): PlanFeature => {
+const stepOp = (s: PlanStep): PlanFeature => {
 	switch (s.op) {
 		case "filter":
 			return `filter ${s.value}`

@@ -51,7 +51,7 @@ import {
 	planOps,
 	plansUpTo,
 	printPlan,
-	type Step
+	type PlanStep
 } from "#test/unit/analysis/small/plans.ts"
 
 import { caseHang } from "#test/support/limits.ts"
@@ -76,10 +76,10 @@ type UniverseFeature =
 	| CertificateRule
 	| `context ${TemplateContext}`
 	| "a dangling reference seen in a transaction"
-	| `${Step["op"]} at depth three`
+	| `${PlanStep["op"]} at depth three`
 
 /** The core grammar's operators after its scan (plans.ts plansUpTo), each one a search must reach at depth three. */
-const coreSteps: Arr.NonEmptyReadonlyArray<Step["op"]> = [
+const coreSteps: Arr.NonEmptyReadonlyArray<PlanStep["op"]> = [
 	"filter",
 	"project",
 	"join",
