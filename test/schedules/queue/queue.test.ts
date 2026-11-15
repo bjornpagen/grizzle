@@ -23,9 +23,15 @@
  *
  * Features: a write waited, a write refused.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): queue-unique-not-transient.patch (a unique violation from an occupant
- * the snapshot did not see classified as the key's law, not a TransientFailure, so a claimer that lost a seat is
- * refused rather than retried).
+ * A worker whose snapshot missed a lease the other committed at the seat meets it as 40001, a SerializationFailure it
+ * runs again, and never as a unique violation the write lists as an UnseenOccupant abort.
+ *
+ * @plant test/plants/schedules/queue/queue-unique-not-transient.patch A unique violation from an occupant the snapshot
+ * did not see is classified as the key's law, not a TransientFailure (adapter/outcomes/index.ts transientFailureOf), so
+ * a claimer that lost a seat would be refused rather than retried.
+ * @plant test/plants/schedules/laws/payroll-race-span-abort-not-transient.patch SERIALIZABLE's 40001 is read as no
+ * TransientFailure (adapter/errors/execution.ts serializableRefusal), so a claimer that lost a seat fails where its
+ * serial reference answers; the property fails.
  */
 
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
