@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index 77b2c1bd..f616fe11 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -176,7 +176,7 @@ const printCatalogType = (name: CatalogTypeName): string => {
+ 
+ /** The seconds since the Unix epoch at which the call's transaction began: numeric, exact to the microsecond. */
+ const clockSeconds = (): string =>
+-	`${inCatalog("extract")}(${printLiteral({ kind: "text", value: "epoch" }, types.text).text}, ${inCatalog("transaction_timestamp")}())`
++	`${inCatalog("extract")}(${printLiteral({ kind: "text", value: "epoch" }, types.text).text}, ${inCatalog("clock_timestamp")}())`
+ 
+ /**
+  * The microseconds in a second, the resolution PostgreSQL's timestamps hold (SI prefix micro, 10^-6).

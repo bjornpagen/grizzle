@@ -30,14 +30,15 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   at load by its array members.
  * - Oracle: after a call over stored items, the items stored are the stored ones less those the call deletes, with the
  *   ones it puts, which no stored item shares a key with, and the labels stored are the ones it inserts.
- * - Plant: the handle loses one member's facts, its array emptied or its relation left out of its op's record, or
- *   passes the put's facts as the delete's and the delete's as the put's; the oracle must then disagree with what the
- *   call did, a refusal (memberFactsOf at the member's slot) or a store without them.
+ * - Faults: a case may plant a fault at the handle, which loses one member's facts, its array emptied or its relation
+ *   left out of its op's record, or passes the put's facts as the delete's and the delete's as the put's; the oracle
+ *   must then disagree with what the call did, a refusal (memberFactsOf at the member's slot) or a store without them.
  *
  * Essay ideas: an oracle (the facts a call supplies are the facts it writes, each by its op) over generated facts, with
- * plants the oracle must catch.
+ * faults planted at the handle that the oracle must catch.
  *
- * Plants (main's test phase): served-facts-delete-member-dropped.patch.
+ * @plant test/plants/pg/served/served-facts-delete-member-dropped.patch memberFactsOf drops the delete member's facts,
+ * so a call deletes nothing; the oracle disagrees with the items stored.
  */
 const Tag = str.regex("^[a-z]{1,4}$")
 const Item = relation("Item", { id: pg.integer, score: pg.integer }, ["id"])

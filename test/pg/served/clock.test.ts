@@ -38,12 +38,17 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * - A clocked parameter of a contract is judged by its contract: a reading the contract admits answers, and one it
  *   refuses is `refused`.
  *
- * Plants (~/.cache/grizzle-release/DBCLOCK/plants): clock-round-not-floor.patch reads milliseconds rounded, caught by
- * ms = floor(us / 1000) wherever the reading's microseconds pass 500; clock-units-swapped.patch, caught by
- * ms = floor(us / 1000) at every reading; clock-statement-timestamp.patch reads statement_timestamp(), caught by Mark's stamps against Stamp's;
- * clock-clock-timestamp.patch reads clock_timestamp(), caught by stamps of one statement apart;
- * instant-answer-unended.patch answers a clocked read with no `end` after its ready, as a live read's answer goes on,
- * caught by the answer's events.
+ * Plants (~/.cache/grizzle-release/DBCLOCK/plants): clock-statement-timestamp.patch reads statement_timestamp(), caught
+ * by Mark's stamps against Stamp's.
+ *
+ * @plant test/plants/pg/served/clock-round-not-floor.patch Milliseconds read rounded, not floored; caught by
+ * ms = floor(us / 1000) wherever the reading's microseconds pass 500.
+ * @plant test/plants/pg/served/clock-units-swapped.patch The clock's units swapped, microseconds counted as
+ * milliseconds; caught by ms = floor(us / 1000) at every reading.
+ * @plant test/plants/pg/served/clock-clock-timestamp.patch The clock reads clock_timestamp(); caught by stamps of one
+ * statement apart.
+ * @plant test/plants/pg/served/instant-answer-unended.patch A clocked read answered with no `end` after its ready, as a
+ * live read's answer goes on; caught by the answer's events.
  */
 
 /** An instant, and the instants on either side of 2100-01-01 in milliseconds since the epoch. */

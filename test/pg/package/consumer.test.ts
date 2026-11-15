@@ -9,9 +9,6 @@
  *
  * Features: a case of one note and one of several, and a read after an earlier case's write.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): package-role-misnamed (the runtime entry's served(file, name) serves
- * each role under a name the file does not hold).
- *
  * The local cluster's commands through a submodule consumer's own install (test/unit/dev/consumer.ts
  * submoduleConsumer), in every layout of that install: the consumer's link to grizzle-pg runs init and doctor on a
  * cluster of the case's own, on a free port, and its link to grizzle runs generate and migrate into that cluster; the
@@ -21,11 +18,16 @@
  * scripts/pg/lib.sh sources it in the checkout, and the installed build's stamp, the release's commit and its patches
  * (packages/pg/src/installation.ts installedBuild). Box: the layouts.
  *
- * Plants (~/.cache/grizzle-release/SOURCEEXPORT/plants): pg-helper-needs-own-install (a helper importing test
- * support, which only the repository's own install resolves) turns it red at init; checkout-own-effect (a second
- * effect at the checkout's root, as an install inside the submodule leaves) red in the isolated layout, and
- * hoisted-checkout-own-effect red at the hoisted layout's migrate, with "Unable to get redacted value";
- * pin-keeps-quotes (the pin's parse keeping a value's double quotes) red at the pin's agreement with the shell.
+ * @plant test/plants/pg/package/package-role-misnamed.patch The runtime entry's served(file, name) serves each role
+ * under a name the file does not hold, the login's; the consumer's read fails.
+ * @plant test/plants/pg/package/pg-helper-needs-own-install.patch A helper importing test support, which only the
+ * repository's own install resolves; the cluster commands fail at init.
+ * @plant test/plants/pg/package/checkout-own-effect.patch A second effect at the checkout's root, as an install inside
+ * the submodule leaves; red in the isolated layout.
+ * @plant test/plants/pg/package/hoisted-checkout-own-effect.patch A second effect at the checkout's root in the hoisted
+ * layout; red at its migrate, with "Unable to get redacted value".
+ * @plant test/plants/pg/package/pin-keeps-quotes.patch The pin's parse keeping a value's double quotes; red at the
+ * pin's agreement with the shell.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

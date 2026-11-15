@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index 77b2c1bd..a4ab7eb2 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -208,7 +208,7 @@ const clockReading = (unit: ClockUnit): string => {
+ 		case "micros":
+ 			return counted
+ 		case "millis":
+-			return `${inCatalog("floor")}(${counted})`
++			return `${inCatalog("round")}(${counted})`
+ 	}
+ }
+ 

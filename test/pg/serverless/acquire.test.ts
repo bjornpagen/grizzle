@@ -12,8 +12,9 @@
  *
  * Features: every call by every way its connection can't be had.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): acquire-credential-stage.patch (a CredentialError read at stage
- * transport).
+ * @plant test/plants/pg/serverless/acquire-credential-stage.patch A failing password Effect's CredentialError read as
+ * a transport failure, `unavailable` and safe to retry, not `credentialRefused`, `passwordFailed`; the property fails
+ * for every call against a failing password Effect.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

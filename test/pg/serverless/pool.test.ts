@@ -26,8 +26,12 @@
  * Features: each place a waiter waits by each ending; each place a lease is cut, a lease kept to its end, and more
  * leases than the pool holds.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): pool-permit-lost.patch (a closed session's permit never handed back),
- * pool-retired-reused.patch, pool-release-awaits.patch.
+ * @plant test/plants/pg/serverless/pool-permit-lost.patch A closed session's permit never handed back; the pool leaves
+ * its baseline and a further lease of the maximum waits forever.
+ * @plant test/plants/pg/adapter/pool-retired-reused.patch A retired session released without an error, so pg's Pool
+ * keeps it; a further lease takes a session a cut destroyed mid-statement.
+ * @plant test/plants/pg/adapter/pool-release-awaits.patch A layer's release leaving its leased sessions' connections
+ * up; the waiter property fails where the layer is released first.
  */
 import { drawn, exhaust, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/ddl/roles.ts b/packages/engine/src/physical/ddl/roles.ts
+index be4ba0c4..688cad05 100644
+--- a/packages/engine/src/physical/ddl/roles.ts
++++ b/packages/engine/src/physical/ddl/roles.ts
+@@ -152,7 +152,7 @@ export const roleDefaultSettings = [
+  * stored value. The client's own options outrank every default a session starts under, a database's and a role's
+  * included, and pg sends them in place of the environment's PGOPTIONS, which it reads only when a client names none.
+  */
+-export const loginStartupOptions: string = printStartupOptions(roleDefaultSettings)
++export const loginStartupOptions: string = `${printStartupOptions(roleDefaultSettings)} -c statement_timeout=1h`
+ 
+ /**
+  * The search setting as a login default, for a login one of whose roles can name the vector type: pgvector's

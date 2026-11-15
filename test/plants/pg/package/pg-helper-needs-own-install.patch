@@ -1,0 +1,12 @@
+diff --git a/packages/pg/src/cluster.ts b/packages/pg/src/cluster.ts
+index 0ea41b2c..5cf4cf7e 100644
+--- a/packages/pg/src/cluster.ts
++++ b/packages/pg/src/cluster.ts
+@@ -1,6 +1,7 @@
+ import { NodeRuntime } from "@effect/platform-node"
+ import { Console, Effect } from "effect"
+ import { clusterAt, localCluster } from "#pg/local-cluster.ts"
++import "../../../test/support/env.ts"
+ 
+ import { regex } from "arkregex"
+ 

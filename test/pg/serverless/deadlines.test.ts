@@ -18,8 +18,8 @@
  *
  * Features: each opening in each surrounding.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): deadlines-statement-timeout.patch (a login's startup options setting
- * statement_timeout).
+ * @plant test/plants/pg/serverless/deadlines-statement-timeout.patch A login's startup options setting
+ * statement_timeout; a login's session runs under another value and source than the plain session's.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

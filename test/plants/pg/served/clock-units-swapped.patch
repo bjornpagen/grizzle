@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index 77b2c1bd..ad2ce974 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -194,8 +194,8 @@ const millisPerSecond = 1_000n
+ 
+ /** The factor that counts seconds in a clock unit. */
+ const clockFactors: { readonly [U in ClockUnit]: bigint } = {
+-	micros: microsPerSecond,
+-	millis: millisPerSecond
++	micros: millisPerSecond,
++	millis: microsPerSecond
+ }
+ 
+ /**

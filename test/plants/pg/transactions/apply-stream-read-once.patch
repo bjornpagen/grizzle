@@ -1,0 +1,19 @@
+diff --git a/packages/grizzle/src/adapter/apply/run.ts b/packages/grizzle/src/adapter/apply/run.ts
+index 1d3d1ef7..902dc9db 100644
+--- a/packages/grizzle/src/adapter/apply/run.ts
++++ b/packages/grizzle/src/adapter/apply/run.ts
+@@ -149,12 +149,13 @@ export const valuesFailure = (
+ export const inputApplyError = (failure: InputFailure): EncodingFailure | ExecutionFailure =>
+ 	failure._tag === "EncodingFailure" ? failure : new ExecutionFailure({ reason: failure })
+ 
++const collected = new WeakSet<object>()
+ /** A Stream relation parameter collected on the host, whole: one that fails encodes nothing. */
+ const collectParam = (
+ 	decl: CallerParamDecl,
+ 	stream: Stream.Stream<unknown, unknown>
+ ): Effect.Effect<ReadonlyArray<unknown>, EncodingFailure> =>
+-	Stream.runCollect(Stream.mapError(stream, () => encodeFailure("factShape", slotPlace(decl.name))))
++	collected.has(stream) ? Effect.succeed([]) : Effect.tap(Stream.runCollect(Stream.mapError(stream, () => encodeFailure("factShape", slotPlace(decl.name)))), () => Effect.sync(() => collected.add(stream)))
+ 
+ /** The values of the declared parameters by name: a ChangeSet.bind value under its private name, else the caller's. */
+ const declaredParams = (
