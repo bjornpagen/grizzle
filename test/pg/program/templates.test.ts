@@ -12,8 +12,8 @@
  *
  * The oracle is a model of the transaction's notes: exactly those whose task the transaction holds.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): templates-deferred-as-immediate.patch (a deferred foreign key
- * admitted as existence evidence inside a transaction).
+ * @plant test/plants/pg/program/templates-deferred-as-immediate.patch A deferred foreign key is admitted as existence
+ * evidence inside a transaction.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

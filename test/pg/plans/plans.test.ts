@@ -31,10 +31,14 @@
  * each query under each plan cache mode. The lateral take and the relation parameter's probe hold for every drawn
  * input; a drawn input's shape is no situation of theirs.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): plans-take-deduplicated (every take starts DISTINCT),
- * plans-lateral-unbounded (a LATERAL take reads with no LIMIT), plans-pipelined-lateral (a take over every group goes
- * LATERAL, one scan per parent), plans-relparam-text-arrays (a relation input's arrays are sent as text),
- * plans-fold-deduplicated (every match region starts DISTINCT) and plans-probe-keys-off (no selection key is probed).
+ * @plant test/plants/pg/plans/plans-take-deduplicated.patch Every take starts DISTINCT; the R17 take property fails.
+ * @plant test/plants/pg/plans/plans-lateral-unbounded.patch A LATERAL take reads with no LIMIT; the R20 relation
+ * parameter take property fails.
+ * @plant test/plants/pg/plans/plans-pipelined-lateral.patch A take over every group goes LATERAL, one scan per parent;
+ * the R20 pipelined attachment property fails.
+ * @plant test/plants/pg/plans/plans-fold-deduplicated.patch Every match region starts DISTINCT; every property fails,
+ * the fold's and R22's relation-parameter join among them.
+ * @plant test/plants/pg/plans/plans-probe-keys-off.patch No selection key is probed; the R04 property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@bjornpagen/testing/features"

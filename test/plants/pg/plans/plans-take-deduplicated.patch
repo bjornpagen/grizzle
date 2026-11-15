@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/shapes/take/index.ts b/packages/engine/src/lower/shapes/take/index.ts
+index 58316674..a9433a26 100644
+--- a/packages/engine/src/lower/shapes/take/index.ts
++++ b/packages/engine/src/lower/shapes/take/index.ts
+@@ -607,7 +607,7 @@ const armBoundable = (cx: LowerContext, node: NodeOf<"Take">): NodeOf<"Union"> |
+ export const takeLowerer =
+ 	(facts: ShapeFacts): NodeLowerer<"Take"> =>
+ 	(node, cx, env) => {
+-		const unique = facts.realization(node) === "distinct" ? undefined : facts.unique(node.input)
++		const unique = undefined
+ 		const total =
+ 			unique === undefined
+ 				? partialOrder

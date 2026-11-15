@@ -1,0 +1,19 @@
+diff --git a/packages/engine/src/analysis/physical/evidence.ts b/packages/engine/src/analysis/physical/evidence.ts
+index bd4cb8ce..4e39bc0e 100644
+--- a/packages/engine/src/analysis/physical/evidence.ts
++++ b/packages/engine/src/analysis/physical/evidence.ts
+@@ -83,9 +83,11 @@ export const containmentEvidence = (
+ 	execution: TemplateContext
+ ): Grounds | undefined => {
+ 	const context: EvidenceContext =
+-		atCommit[constraint.kind] && constraint.context === "immediate"
+-			? "committedSnapshot"
+-			: constraint.context
++		constraint.kind === "deferredForeignKey"
++			? "immediate"
++			: atCommit[constraint.kind] && constraint.context === "immediate"
++				? "committedSnapshot"
++				: constraint.context
+ 	if (!contextAdmits(execution, context)) {
+ 		return undefined
+ 	}
