@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/money.ts b/packages/engine/src/scalar/values/money.ts
+index 556896ec..988b9d6e 100644
+--- a/packages/engine/src/scalar/values/money.ts
++++ b/packages/engine/src/scalar/values/money.ts
+@@ -197,7 +197,7 @@ export class Money implements Canonicalizable {
+ 		const negative = this.minorUnits < 0n
+ 		const digits = (negative ? -this.minorUnits : this.minorUnits)
+ 			.toString()
+-			.padStart(moneyFractionDigits.value + 1, "0")
++			.padStart(moneyFractionDigits.value, "0")
+ 		const point = digits.length - moneyFractionDigits.value
+ 		return `${negative ? "-" : ""}${digits.slice(0, point)}.${digits.slice(point)}`
+ 	}

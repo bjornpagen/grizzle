@@ -22,11 +22,14 @@
  * test/pg/values/numeric.test.ts and test/pg/input/exactness.test.ts, pgvector's rounding in
  * test/pg/values/carriers.test.ts.
  *
- * Plants: codec-set-bit-order (setBit puts a set's position 0 at its digit's least significant bit), and
- * values-money-text-padding (money's text pads its digits one short); ~/.cache/grizzle-release/LIVE-ROUTES/plants
- * routable-float8.patch (a double precision routes, and extra_float_digits prints it otherwise).
- *
  * Features: "round-trips <carrier>", every carrier's; "routes <carrier>", every routable carrier's.
+ *
+ * @plant test/plants/pg/codec/codec-set-bit-order.patch setBit puts a set's position 0 at its digit's least
+ * significant bit; a set's round trip fails.
+ * @plant test/plants/pg/codec/values-money-text-padding.patch Money's text pads its digits one short, so an amount
+ * under one prints no integer digit; a money's round trip fails.
+ * @plant test/plants/pg/codec/routable-float8.patch A double precision routes, and extra_float_digits prints it
+ * otherwise; a float8's route fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

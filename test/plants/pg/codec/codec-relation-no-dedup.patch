@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/codec/recordset.ts b/packages/engine/src/codec/recordset.ts
+index 2e6ba991..7257f01d 100644
+--- a/packages/engine/src/codec/recordset.ts
++++ b/packages/engine/src/codec/recordset.ts
+@@ -371,7 +371,7 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
+ 				}
+ 			}
+ 			if (!byIdentity.has(identity)) {
+-				byIdentity.set(identity, { fact })
++				byIdentity.set([...identity, String(byIdentity.size)], { fact })
+ 			}
+ 		}
+ 		const normal = normalFacts(byIdentity)

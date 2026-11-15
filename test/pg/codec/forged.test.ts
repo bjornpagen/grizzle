@@ -8,10 +8,10 @@
  * Oracle: PostgreSQL itself, its DISTINCT under the column's type, over both the arrays grizzle sends and the
  * independent texts of the values the inputs stand for.
  *
- * Plants: codec-forged-decimal-admitted (Decimal's instanceof admits any object with a text, so a prototype object's
- * forged text reaches the arrays).
- *
  * Features: "a batch holding one value twice", "two values" and "every input refused".
+ *
+ * @plant test/plants/pg/codec/codec-forged-decimal-admitted.patch Decimal's instanceof admits any object with a text, so
+ * a prototype object's forged text reaches the arrays and PostgreSQL counts values grizzle never counted as facts.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

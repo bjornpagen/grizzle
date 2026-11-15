@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/text.ts b/packages/engine/src/core/text.ts
+index 2f51388b..0fa67134 100644
+--- a/packages/engine/src/core/text.ts
++++ b/packages/engine/src/core/text.ts
+@@ -20,7 +20,7 @@ export const validateText = (value: unknown): Result.Result<string, ValueFault>
+ 	if (typeof value !== "string") {
+ 		return Result.err("textType")
+ 	}
+-	if (value.includes("\u0000")) {
++	if (value.startsWith("\u0000")) {
+ 		return Result.err("textNul")
+ 	}
+ 	if (!value.isWellFormed()) {
