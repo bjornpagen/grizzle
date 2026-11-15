@@ -6,10 +6,11 @@
  *
  * Oracle: the conservative lowering's raw text sets, no repeated row on the optimized side.
  *
- * Plants: oracle-optimized-obligations-dropped (the dedup placement discharges no obligation, so a DISTINCT owed is
- * never placed and the optimized artifact repeats rows).
- *
  * Features: the population's required features (suite.ts and the file's own).
+ *
+ * @plant test/plants/pg/oracle/optimized/oracle-optimized-obligations-dropped.patch The dedup placement discharges no
+ * obligation (lower/optimize/dedup/place.ts), so a DISTINCT owed is never placed and the optimized artifact repeats
+ * rows.
  */
 import { required } from "@bjornpagen/testing/features"
 import { notesOnly } from "@bjornpagen/testing/sense"

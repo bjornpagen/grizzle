@@ -6,7 +6,9 @@
  * done tasks with their memo, a task having at most one memo, discriminated by kind, so (id, kind) is a key of every
  * arm and the take over the union completes on it (a union over notes, of which a task may have several, is refused at
  * check time, test/unit/check/unions.test.ts). A case draws the tasks, each of a kind of the roster, a done task with
- * a memo or not, and the take's bound. For each query, every relation the optimized artifact's statement delivers
+ * a memo or not, the order they are stored in (their id order, its reverse or any), and the take's bound: a statement
+ * whose rows follow the storage rather than its ORDER BY then delivers other rows wherever the take cuts a heading group
+ * stored out of its order. For each query, every relation the optimized artifact's statement delivers
  * holds the raw text set of the same relation of the conservative artifact's, with no repeated row, and both are the
  * bounded subset the model computes by definition, each closed id the code the installation stores for its handle:
  *
@@ -19,17 +21,28 @@
  *
  * Oracle: a model of the bounded union computed by definition, and the conservative artifact beside the optimized one.
  *
- * Plants: oracle-union-take-unordered (a heading group's statement of a union take drops its ORDER BY).
+ * Features: each delivery of the take, each kind of the roster with and without a memo, and a heading group the take
+ * cuts stored out of its order, which a steered turn aiming at it builds (cutOutOfOrderGen).
  *
- * Features: each delivery of the take, and each kind of the roster with and without a memo.
+ * @plant test/plants/pg/oracle/oracle-union-take-unordered.patch A heading group's statement of a union take drops its
+ * ORDER BY (lower/shapes/index.ts groupSpec), so the group's LIMIT takes rows as stored.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
-import { array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	shuffled,
+	weighted
+} from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Order, pipe, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, pipe, String as Str } from "effect"
 import { partRuns } from "#adapter/reader/execution.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
@@ -39,7 +52,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { installMigrated as install, replaceMigrated } from "#test/support/install-migrate.ts"
@@ -96,24 +109,53 @@ const kinds: Arr.NonEmptyReadonlyArray<KindHandle> = ["Open", "Done", "Held"]
 
 /**
  * One case: its tasks in id order, each a kind of the roster and whether, done, it has a memo (a done task without one
- * is in no arm); and the take's bound, from one row to past every row the union can hold.
+ * is in no arm); the order they are stored in, a permutation of their indices, so a statement whose rows follow the
+ * storage rather than its ORDER BY delivers others; and the take's bound, from one row to past every row the union can
+ * hold.
  */
 interface UnionCase {
 	readonly tasks: ReadonlyArray<{ readonly kind: KindHandle; readonly memo: boolean }>
+	readonly stored: ReadonlyArray<number>
 	readonly k: number
 }
 
 const maxTasks = 12
 
-const caseGen: Gen<UnionCase> = (source) => ({
-	tasks: source.draw(
+/** The order tasks at `positions` are stored in: their id order, its reverse, or any permutation of them. */
+const storedGen = (positions: ReadonlyArray<number>): Gen<ReadonlyArray<number>> =>
+	weighted<ReadonlyArray<number>>([
+		[1, constant(positions)],
+		[2, constant(Arr.reverse(positions))],
+		[2, shuffled(positions, { min: positions.length, max: positions.length })]
+	])
+
+/**
+ * A case built to reach "a cut group stored out of its order": two to twelve open tasks, stored in the reverse of their
+ * id order, and a take below their number, so the take cuts the open group and its first rows as stored are its last
+ * by id.
+ */
+const cutOutOfOrderGen: Gen<UnionCase> = (source) => {
+	const n = source.draw(int(2, maxTasks))
+	return {
+		tasks: Array.from({ length: n }, () => ({ kind: "Open" as const, memo: false })),
+		stored: Arr.reverse(Array.from({ length: n }, (_, i) => i)),
+		k: source.draw(int(1, n - 1))
+	}
+}
+
+const caseGen: Gen<UnionCase> = (source) => {
+	const tasks = source.draw(
 		array((s) => ({ kind: s.draw(element(kinds)), memo: s.draw(boolean) }), {
 			min: 0,
 			max: maxTasks
 		})
-	),
-	k: source.draw(int(1, maxTasks + 2))
-})
+	)
+	return {
+		tasks,
+		stored: source.draw(storedGen(Arr.map(tasks, (_, i) => i))),
+		k: source.draw(int(1, maxTasks + 2))
+	}
+}
 
 /** A tuple of the union: its id and kind, the key it is ordered by, and its group's own field. */
 interface UnionTuple {
@@ -127,9 +169,16 @@ interface UnionTuple {
  * (Open before Done), each kind's code the one the installation stores for it.
  */
 const modelOf = (c: UnionCase, code: (kind: KindHandle) => number) => {
-	const tasks = Arr.map(c.tasks, (t, i) => ({ id: id(i + 1), kind: t.kind, title: `t${i + 1}` }))
-	const memos = Arr.flatMap(c.tasks, (t, i) =>
-		t.kind === "Done" && t.memo ? [{ id: id(0x100 + i), task: id(i + 1), text: `m${i + 1}` }] : []
+	const storedTasks = Arr.map(c.stored, (i) => ({ i, task: defined(c.tasks[i], "a stored task") }))
+	const tasks = Arr.map(storedTasks, ({ i, task }) => ({
+		id: id(i + 1),
+		kind: task.kind,
+		title: `t${i + 1}`
+	}))
+	const memos = Arr.flatMap(storedTasks, ({ i, task }) =>
+		task.kind === "Done" && task.memo
+			? [{ id: id(0x100 + i), task: id(i + 1), text: `m${i + 1}` }]
+			: []
 	)
 	const union: ReadonlyArray<UnionTuple> = Arr.sort(
 		[
@@ -202,10 +251,36 @@ const agreed = (template: OracleTemplate) =>
 
 const sorted = (rows: ReadonlyArray<string>): ReadonlyArray<string> => Arr.sort(rows, Order.String)
 
+/** The case a case runs: its drawn one, or, where its turn aims at a cut group stored out of its order, one built to. */
+const aimedCase = (c: UnionCase, search: Case<Feature>): UnionCase =>
+	Option.exists(search.steering, (pending) => pending.aimed("a cut group stored out of its order"))
+		? search.draw(cutOutOfOrderGen)
+		: c
+
+/**
+ * Whether the take cuts a heading group whose first `k` rows as stored are not its first `k` in the completed order, so
+ * a group statement that took its rows as stored, not by its ORDER BY, would deliver others. `rows` is the group in the
+ * completed order; each row's place in storage is its task's in `stored`.
+ */
+const cutOutOfOrder = (c: UnionCase, rows: ReadonlyArray<UnionTuple>, k: number): boolean => {
+	const place = new Map<string, number>(Arr.map(c.stored, (i, at) => [id(i + 1), at] as const))
+	const byStorage = Arr.sort(
+		rows,
+		Order.mapInput(Order.Number, (u: UnionTuple) =>
+			defined(place.get(u.id), "a stored task's place")
+		)
+	)
+	return (
+		rows.length > k &&
+		!Arr.every(Arr.take(byStorage, k), (u) => Arr.some(Arr.take(rows, k), (w) => w.id === u.id))
+	)
+}
+
 type Feature =
 	| "a take below the union's size"
 	| "a take past the union's size"
 	| "a heading group the take cuts"
+	| "a cut group stored out of its order"
 	| "a done task without a memo"
 
 layer(Substrate.layer, { excludeTestServices: true })(
@@ -239,6 +314,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										"a take below the union's size",
 										"a take past the union's size",
 										"a heading group the take cuts",
+										"a cut group stored out of its order",
 										"a done task without a memo"
 									],
 									{ cases: 16, sense: notesOnly }
@@ -250,8 +326,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								steerEvery: 8,
 								caseHang
 							},
-							(unionCase, c) =>
+							(drawnCase, c) =>
 								Effect.gen(function* () {
+									const unionCase = aimedCase(drawnCase, c)
 									const { facts, union } = modelOf(unionCase, code)
 									yield* replaceMigrated(installed, facts)
 									const k = unionCase.k
@@ -272,6 +349,9 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									const group = (kind: KindHandle) => Arr.filter(union, (u) => u.kind === kind)
 									if (group("Open").length > k || group("Done").length > k) {
 										c.note("a heading group the take cuts")
+									}
+									if (Arr.some(kinds, (kind) => cutOutOfOrder(unionCase, group(kind), k))) {
+										c.note("a cut group stored out of its order")
 									}
 									assert.deepEqual(
 										open,

@@ -16,13 +16,18 @@
  *
  * Oracle: the conservative lowering's raw text sets, no repeated row on the optimized side.
  *
- * Plants: oracle-optimized-obligations-dropped (the dedup placement discharges no obligation, so a DISTINCT owed is
- * never placed and the optimized artifact repeats rows); oracle-optimized-fold-key-collapsed (the fold an attachment
- * restricts by its parent's values keeps one equality per key, so a key paired with two parent columns is restricted
- * by one of them and a parent whose two columns differ receives a group).
- *
  * Features: the population's required features (suite.ts and the file's own), "a fold key correlated with two parent
  * columns" among them, which a case whose turn aims at it reaches by the case built to (suite.ts foldKeyTwiceGen).
+ *
+ * @plant test/plants/pg/oracle/optimized/oracle-optimized-obligations-dropped.patch The dedup placement discharges no
+ * obligation (lower/optimize/dedup/place.ts), so a DISTINCT owed is never placed and the optimized artifact repeats
+ * rows.
+ * @plant test/plants/pg/oracle/optimized/oracle-optimized-fold-key-collapsed.patch The fold an attachment restricts
+ * by its parent's values keeps one equality per key column (lower/shapes/attach/index.ts), so a key paired with two
+ * parent columns is restricted by one of them and a parent whose two columns differ receives a group.
+ * @plant test/plants/pg/oracle/optimized/installations-without-params.patch The oracle harness installs a case's
+ * schema without the parameter types its query declares (test/support/oracle/install/real.ts oraclePlanUnder, and the
+ * write oracle's openTarget), so a parameter cast to a pattern domain meets UninstalledDomain.
  */
 import { required } from "@bjornpagen/testing/features"
 import { notesOnly } from "@bjornpagen/testing/sense"

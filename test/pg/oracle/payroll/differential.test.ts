@@ -8,7 +8,8 @@
  *
  * Oracle: the conservative lowering of every payroll program.
  *
- * Plants: oracle-optimized-obligations-dropped (a DISTINCT owed is never placed).
+ * No payroll program owes a DISTINCT its keys leave undischarged, so a dedup placement that places none compiles every
+ * one of them to the same artifact; the optimized population suites (test/pg/oracle/optimized) hold the placement.
  *
  * Features: each payroll program, and a case that delivers rows.
  */

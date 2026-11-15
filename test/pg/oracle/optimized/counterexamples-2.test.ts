@@ -4,10 +4,10 @@
  * Oracle: the conservative lowering's raw text sets, the invalid mutant beside the optimized artifact on the same
  * installation and facts (counterexamples.ts).
  *
- * Plants: oracle-optimized-obligations-dropped (the dedup placement discharges no obligation, so the optimized
- * artifact repeats rows as the duplicate mutants do).
- *
  * Features: a case the mutant rewrote, and one on which it was told apart.
+ *
+ * @plant test/plants/pg/oracle/optimized/oracle-optimized-obligations-dropped.patch The dedup placement discharges no
+ * obligation (lower/optimize/dedup/place.ts), so the optimized artifact repeats rows as the duplicate mutants do.
  */
 
 import { searched } from "@bjornpagen/testing/vitest"

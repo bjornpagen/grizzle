@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/optimize/dedup/place.ts b/packages/engine/src/lower/optimize/dedup/place.ts
+index 1d517a78..5a8fbdd1 100644
+--- a/packages/engine/src/lower/optimize/dedup/place.ts
++++ b/packages/engine/src/lower/optimize/dedup/place.ts
+@@ -130,7 +130,7 @@ export const placeDeduplication = (
+ 			continue
+ 		}
+ 		/** 2. The outstanding obligations a node placement discharges. */
+-		const outstanding = a.obligations.flatMap((o) => (o.discharged ? [] : [o]))
++		const outstanding = a.obligations.flatMap(() => [])
+ 		if (outstanding.length === 0) {
+ 			return finishPlan(env, a, realization, placements, placementCerts)
+ 		}
