@@ -55,6 +55,7 @@ import { recordEntryOf } from "#test/support/oracle/pick.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { untilAnswered } from "#test/support/transient.ts"
 
 /** Work as the fixture declares it, the schema the login's workload members are written over. */
 type Work = typeof W.Work
@@ -285,25 +286,28 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											onNone: () => 1500n,
 											onSome: (held) => (w.budget === "stored" ? held.budget : held.budget + 100n)
 										})
-										const outcome = yield* w.form === "enumerated"
-											? answered(
-													db.workload.enumerated.once({
-														params: {},
-														facts: {
-															put: { Task: [{ id: w.task, account, kind: "Manual" }] },
-															delete: {
-																AutomaticTask: [{ task: w.task, budget: Cents(previousBudget) }]
-															},
-															insert: { ManualTask: [{ task: w.task, operator: w.operator }] }
-														}
-													})
-												)
-											: answered(
-													db.workload.described.once({
-														params: { task: w.task, operator: w.operator },
-														facts: {}
-													})
-												)
+										const outcome = yield* untilAnswered(
+											w.form === "enumerated"
+												? answered(
+														db.workload.enumerated.once({
+															params: {},
+															facts: {
+																put: { Task: [{ id: w.task, account, kind: "Manual" }] },
+																delete: {
+																	AutomaticTask: [{ task: w.task, budget: Cents(previousBudget) }]
+																},
+																insert: { ManualTask: [{ task: w.task, operator: w.operator }] }
+															}
+														})
+													)
+												: answered(
+														db.workload.described.once({
+															params: { task: w.task, operator: w.operator },
+															facts: {}
+														})
+													),
+											() => undefined
+										)
 										const after = yield* state
 										/** The facts with the switched task's rows replaced. */
 										const switched = {

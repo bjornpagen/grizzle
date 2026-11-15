@@ -81,6 +81,7 @@ import {
 } from "#test/support/platform/laws.ts"
 import { coveredBy, platformSpan, type TokenKind } from "#test/support/platform/model.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { untilAnswered } from "#test/support/transient.ts"
 
 /** The platform's law names, through the naming door. */
 const billing = lawNamesOf(P.Billing)
@@ -169,6 +170,12 @@ interface Attempt {
 	readonly apply: (db: PlatformDb) => Effect.Effect<Decided, CallError>
 	readonly ops: ReadonlyArray<PlatformOp>
 }
+
+/**
+ * A transient refusal, which the case runs its call again after (untilAnswered), as grizzle's contract asks of a `safe`
+ * one: it changed nothing, so the case notes nothing of it.
+ */
+const unnoted = (): void => undefined
 
 /** A fault planted in a platform: the faulty write and the sound one. */
 interface Planted {
@@ -976,15 +983,15 @@ layer(Substrate.layer)("the platform's laws refuse exactly what they forbid", (i
 								yield* platform.clear
 								yield* platform.withDb((db) =>
 									Effect.gen(function* () {
-										yield* applyFacts(db, c.platform.facts)
-										const faulty = yield* planted.faulty.apply(db)
+										yield* untilAnswered(applyFacts(db, c.platform.facts), unnoted)
+										const faulty = yield* untilAnswered(planted.faulty.apply(db), unnoted)
 										assert.deepEqual(
 											faulty,
 											{ kind: "refused", laws: [broken] },
 											`${c.fault} by ${c.margin}`
 										)
 										cx.note(`refused by ${c.fault}`)
-										const sound = yield* planted.sound.apply(db)
+										const sound = yield* untilAnswered(planted.sound.apply(db), unnoted)
 										assert.deepEqual(sound, { kind: "accepted" }, `${c.fault} without its fault`)
 									})
 								)

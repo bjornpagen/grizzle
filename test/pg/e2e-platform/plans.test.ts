@@ -1761,10 +1761,13 @@ const planSuite = (ctx: TestContext) =>
 										const { calls, counts } = recordingMembers(ctx)
 										for (const pr of asked) {
 											const before = counts.sent.length
-											yield* readOnce(calls(member(loaded, pr.name)))({
-												params: pr.params,
-												facts: {}
-											})
+											yield* untilAnswered(
+												readOnce(calls(member(loaded, pr.name)))({
+													params: pr.params,
+													facts: {}
+												}),
+												refused
+											)
 											yield* review(who, pr, counts.sent.slice(before))
 										}
 									})

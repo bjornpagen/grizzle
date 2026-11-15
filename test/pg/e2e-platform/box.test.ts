@@ -49,6 +49,7 @@ import {
 } from "#test/support/platform/generate.ts"
 import { covers, platformSpan } from "#test/support/platform/model.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { untilAnswered } from "#test/support/transient.ts"
 
 const C = JAN + 10n * DAY
 const org = uid(1, 0)
@@ -214,9 +215,16 @@ const recordFacts = (r: P.UsageRecord): PlatformFacts => ({
 	CreditDebit: r.debits
 })
 
+/**
+ * A transient refusal, which the call runs again after (untilAnswered), as grizzle's contract asks of a `safe` one: it
+ * changed nothing, so the box notes nothing of it.
+ */
+const unnoted = (): void => undefined
+
 const decided = (db: PlatformDb, f: PlatformFacts): Effect.Effect<string, CallError> =>
-	Effect.map(answered(db.workload.load.once({ params: {}, facts: { insert: f } })), (o) =>
-		o.kind === "refused" ? `refused by ${Formatter.format(o.refused.laws)}` : o.kind
+	Effect.map(
+		untilAnswered(answered(db.workload.load.once({ params: {}, facts: { insert: f } })), unnoted),
+		(o) => (o.kind === "refused" ? `refused by ${Formatter.format(o.refused.laws)}` : o.kind)
 	)
 
 layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
@@ -238,7 +246,7 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 				/** One Db for the static platform and the whole box. */
 				const exhausted = yield* o.withDb((db) =>
 					Effect.gen(function* () {
-						yield* applyFacts(db, staticFacts)
+						yield* untilAnswered(applyFacts(db, staticFacts), unnoted)
 						return yield* exhaust(
 							{
 								box: "two grants of 1 or 3,000 micro-dollars ending at C or never, by three requests starting the second before C or at C with 1 or 1,001 input tokens",
@@ -307,13 +315,16 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 										const decision = yield* decided(db, f)
 										assert.equal(decision, "accepted", `${record.event.id} is recorded`)
 										/** Its tier pieces sum to what the model charged. */
-										const pieces = yield* rowsOf(
-											db.workload.eventCost.once({
-												params: {
-													event: record.event.id
-												},
-												facts: {}
-											})
+										const pieces = yield* untilAnswered(
+											rowsOf(
+												db.workload.eventCost.once({
+													params: {
+														event: record.event.id
+													},
+													facts: {}
+												})
+											),
+											unnoted
 										)
 										const charged = Arr.reduce(record.charges, 0n, (sum, c) => sum + c.amount)
 										assert.equal(
@@ -332,13 +343,16 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 										}
 									}
 									for (const g of grants) {
-										const days = yield* rowsOf(
-											db.workload.burnDown.once({
-												params: {
-													grant: g.id
-												},
-												facts: {}
-											})
+										const days = yield* untilAnswered(
+											rowsOf(
+												db.workload.burnDown.once({
+													params: {
+														grant: g.id
+													},
+													facts: {}
+												})
+											),
+											unnoted
 										)
 										const debited = Arr.filter(
 											Arr.flatMap(settled.records, (r) => r.debits),

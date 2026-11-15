@@ -65,6 +65,7 @@ import {
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { beginSerializable } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { untilAnswered } from "#test/support/transient.ts"
 
 interface Sizes {
 	readonly accounts: number
@@ -401,10 +402,13 @@ const planSuite = (ctx: TestContext) =>
 								const problems: Array<string> = []
 								for (const read of selectiveReads(e, sizes, pick, account)) {
 									const before = counts.sent.length
-									yield* readOnce(calls(member(loaded, read.name)))({
-										params: read.params,
-										facts: {}
-									})
+									yield* untilAnswered(
+										readOnce(calls(member(loaded, read.name)))({
+											params: read.params,
+											facts: {}
+										}),
+										() => undefined
+									)
 									const judged = yield* sentProblems(
 										s.admin,
 										read.name,
