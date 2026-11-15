@@ -11,8 +11,8 @@
  * operand (a specification: linear size). Features: an operation over an operation, an operand bound to a compound
  * expression. Kept: the two-stage pipeline shape that once grew exponentially.
  *
- * Plant, failing the search: a guarded form naming its compound operands inline, each as often as it reads them
- * (ieee-inline).
+ * @plant test/plants/unit/lower/conservative/ieee-inline.patch A guarded form names its compound operands inline,
+ * each as often as it reads them; the linear size search fails.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

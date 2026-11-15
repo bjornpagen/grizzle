@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/lower/conservative/expr/total.ts b/packages/engine/src/lower/conservative/expr/total.ts
+index 701a2908..c46eaefe 100644
+--- a/packages/engine/src/lower/conservative/expr/total.ts
++++ b/packages/engine/src/lower/conservative/expr/total.ts
+@@ -338,9 +338,7 @@ const bindOperands = <F extends Expr | undefined>(
+ 	sqlArgs: NonEmptyReadonlyArray<Expr>,
+ 	form: (operands: NonEmptyReadonlyArray<Expr>) => F
+ ): F | Expr => {
+-	if (sqlArgs.every(isAtom)) {
+-		return form(sqlArgs)
+-	}
++	return form(sqlArgs)
+ 	const names = mapNonEmpty(sqlArgs, (_, i) => `c${i + 1}`)
+ 	const body = form(mapNonEmpty(names, (name) => col(operandsAlias, name)))
+ 	if (body === undefined) {

@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/lower/conservative/refined.ts b/packages/engine/src/lower/conservative/refined.ts
+index 20581346..6b09a3f7 100644
+--- a/packages/engine/src/lower/conservative/refined.ts
++++ b/packages/engine/src/lower/conservative/refined.ts
+@@ -107,8 +107,7 @@ const admittedLiteral = (
+ 		e.value.kind === "text" &&
+ 		t.carrier === "text" &&
+ 		t.contract === undefined &&
+-		t.text.regex !== "wildcard" &&
+-		patterns.member(t.text.regex, e.value.value)
++		t.text.regex !== "wildcard"
+ 	)
+ }
+ 

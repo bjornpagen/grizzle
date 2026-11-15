@@ -17,7 +17,8 @@
  *
  * Features: each delivery (uncast with or without a domain, cast, refused, an empty source uncast).
  *
- * Plant, failing the search: the tracer admitting every text literal of a patterned claim (closed-refined-admit).
+ * @plant test/plants/unit/lower/conservative/closed-refined-admit.patch The tracer admits every text literal of a
+ * patterned claim, in the pattern or not; the delivery search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

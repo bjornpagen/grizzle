@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/dispatch.ts b/packages/engine/src/lower/conservative/dispatch.ts
+index fbd5d83b..3d48a74c 100644
+--- a/packages/engine/src/lower/conservative/dispatch.ts
++++ b/packages/engine/src/lower/conservative/dispatch.ts
+@@ -168,7 +168,7 @@ const sharedOf = (
+ 			lowered.set(input, plus(lowered.get(input), times))
+ 		}
+ 	}
+-	return shared
++	return new Set<RelNode>()
+ }
+ 
+ /** `query` with `ctes` leading its WITH. */

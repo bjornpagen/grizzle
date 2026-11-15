@@ -14,7 +14,8 @@
  * Oracle: at most linear growth stated as a checker (a specification): a level's marginal cost does not grow with the
  * depth it is added at. Features: each placement.
  *
- * Plant, failing the search: a lowering that shares no node (sharing-unfold).
+ * @plant test/plants/unit/lower/conservative/sharing-unfold.patch A lowering that shares no node, so the DAG unfolds
+ * into its paths; the linear growth search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
