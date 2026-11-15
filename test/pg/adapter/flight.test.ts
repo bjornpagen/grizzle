@@ -15,9 +15,10 @@
  * all it can, until it has answered every query or sleeps in a held statement, which it has read then, so a
  * CancelRequest finds it running; and the call is interrupted, which it takes at once. A call that cancels retires its
  * session as it takes the interruption, before its first CancelRequest, and nothing the server answers here retires a
- * session sooner. So the gate lets the rest through once a retired session's CancelRequest has reached the server,
- * and at once when the session is not retired, when no CancelRequest can follow. The scripted session is driven the
- * same way: k answers, then the interruption.
+ * session sooner. So the gate lets the rest through once a retired session's CancelRequest has reached the server, or
+ * once the interruption has ended, when the call has nothing left to send, and at once when the session is not
+ * retired, when no CancelRequest can follow. The scripted session is driven the same way: k answers, then the
+ * interruption.
  *
  * The observations compared are the ending, what committed, the retirement, and whether a CancelRequest was sent, every
  * field exact. A call interrupted with a statement in flight keeps its connection until the server has ended the
@@ -248,13 +249,18 @@ const flightSuite = Effect.gen(function* () {
 						/**
 						 * The fork starts at once, so the call has taken the interruption when it returns: a call that
 						 * cancels has retired its session, and the gate holds until its CancelRequest has reached the
-						 * server; any other awaits the drain, with nothing to send.
+						 * server, or the interruption has ended, when the call has nothing left to send; any other
+						 * awaits the drain, with nothing to send.
 						 */
 						const interrupting = yield* Effect.forkChild(Fiber.interrupt(fiber), {
 							startImmediately: true
 						})
 						if (session.state() !== "open") {
-							yield* until(Effect.sync(() => tapped.cancelsEnded() > 0))
+							yield* until(
+								Effect.sync(
+									() => tapped.cancelsEnded() > 0 || interrupting.pollUnsafe() !== undefined
+								)
+							)
 						}
 						tapped.gate.release()
 						yield* Fiber.join(interrupting)

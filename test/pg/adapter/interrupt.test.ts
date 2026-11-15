@@ -573,15 +573,25 @@ const interruptCases = Effect.gen(function* () {
 					const cancels = stopped !== "completed" && answered() < lastAnswered
 					if (stopped !== "completed") {
 						/**
-						 * The interruption reaches the call before anything else happens: the fork starts at once.
+						 * The interruption reaches the call before anything else happens: the fork starts at once. A call
+						 * that cancels holds the gate, and the lock where it waits on one, until its CancelRequest has
+						 * reached the server and stopped the statement, or the interruption has ended, when the call has
+						 * nothing left to send.
 						 */
 						const interrupting = yield* Effect.forkChild(Fiber.interrupt(fiber), {
 							startImmediately: true
 						})
 						if (cancels) {
-							yield* until(Effect.sync(() => tap.cancelsEnded() > 0))
+							yield* until(
+								Effect.sync(() => tap.cancelsEnded() > 0 || interrupting.pollUnsafe() !== undefined)
+							)
 							if (locker !== undefined) {
-								yield* until(Effect.map(waitingOnLock, (waiting) => !waiting))
+								yield* until(
+									Effect.map(
+										waitingOnLock,
+										(waiting) => !waiting || interrupting.pollUnsafe() !== undefined
+									)
+								)
 							}
 						}
 						tap.gate.release()
