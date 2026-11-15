@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/shapes/catalog/rewrite.ts b/packages/engine/src/lower/shapes/catalog/rewrite.ts
+index ec7fc4cd..763511ff 100644
+--- a/packages/engine/src/lower/shapes/catalog/rewrite.ts
++++ b/packages/engine/src/lower/shapes/catalog/rewrite.ts
+@@ -109,7 +109,7 @@ const families: ReadonlyArray<{
+ 	},
+ 	{
+ 		name: "mode",
+-		kinds: ["Take"],
++		kinds: [],
+ 		run: (cx, cell) => {
+ 			const r = tryMode(cx, cell)
+ 			return {

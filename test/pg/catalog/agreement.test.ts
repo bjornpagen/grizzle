@@ -17,10 +17,12 @@
  * Oracle: the composition's conservative lowering, and the catalog's specification of each shape's rules; the model of
  * both percentile forms for the fractions.
  *
- * Plants: catalog-mode-recognizer-dropped (the mode's recognizer runs on no node, so R31 is never applied),
- * catalog-percentile-cont-fraction-halved (R30's native form takes half its fraction).
- *
  * Features: each entry kind, each rule applied and none, a delivered row; each fraction class.
+ *
+ * @plant test/plants/pg/catalog/catalog-mode-recognizer-dropped.patch The mode's recognizer runs on no node, so R31 is
+ * never applied; the agreement property fails.
+ * @plant test/plants/pg/catalog/catalog-percentile-cont-fraction-halved.patch R30's native form takes half its
+ * fraction; the agreement property fails.
  */
 import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

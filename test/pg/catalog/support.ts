@@ -221,7 +221,9 @@ export const oracleCase = (label: string, desc: QueryDesc, f: Facts): LabelledCa
  * the target would prove nothing.
  *
  * The catalog's lowering of a case, keeping the rewrite's certificates and decisions for the case to inspect: `last` is
- * the latest rewrite's result, after the lowering ran.
+ * the latest rewrite's result, after the lowering ran. It lowers the rewritten DAG from that DAG's own root: a rewrite
+ * keeps the root's id over new nodes, and a node holds its inputs, so the checked DAG's root would lower the
+ * composition again and compare it with itself.
  */
 export const catalogLowering = (
 	options: CatalogOptions
@@ -247,7 +249,7 @@ export const catalogLowering = (
 									},
 									catalogDispatch
 								)
-							).program(c.query.dag.roots[0])
+							).program(rewritten.dag.roots[0])
 						),
 						sentConservative
 					)

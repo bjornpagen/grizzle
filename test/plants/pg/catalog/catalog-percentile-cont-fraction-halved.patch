@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/shapes/catalog/percentile.ts b/packages/engine/src/lower/shapes/catalog/percentile.ts
+index 1931643c..a5ed91e7 100644
+--- a/packages/engine/src/lower/shapes/catalog/percentile.ts
++++ b/packages/engine/src/lower/shapes/catalog/percentile.ts
+@@ -629,7 +629,7 @@ export const tryPercentile = (cx: CatalogContext, cell: Cell): PercentileResult
+ 		fn: "percentileCont",
+ 		op: OpId("percentile_cont(double precision,double precision)"),
+ 		order: { keys: [{ column: valueColumn, dir: valueDir }] },
+-		fractions: [litExpr(cx.ed, { kind: "float", value: canonicalZero(p) }, plain.float8)],
++		fractions: [litExpr(cx.ed, { kind: "float", value: canonicalZero(p / 2) }, plain.float8)],
+ 		outs: [freshColumn(keys, "__p")],
+ 		rule: "R30",
+ 		heading: [...keysHeading, { name: freshColumn(keys, "__p"), type: plain.float8 }],
