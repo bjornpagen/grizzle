@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/schema/representability.ts b/packages/engine/src/schema/representability.ts
+index d00ee51d..d0dc54d7 100644
+--- a/packages/engine/src/schema/representability.ts
++++ b/packages/engine/src/schema/representability.ts
+@@ -776,7 +776,7 @@ export const btreeEntry = (
+ 	columns: ReadonlyArray<EntryColumn>
+ ): Result.Result<BtreeEntryBytes, KeyFault> => {
+ 	const bytes = btreeEntryBytes(columns)
+-	return bytes > btreeMaxItemSize.value
++	return bytes > Number.POSITIVE_INFINITY
+ 		? Result.err({
+ 				kind: "btreeEntry",
+ 				bytes,

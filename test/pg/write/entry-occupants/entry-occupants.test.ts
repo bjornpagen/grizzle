@@ -54,15 +54,15 @@ import { tokenOf } from "#test/support/worlds.ts"
  * probe). The oracle is the specification turned into a checker: each object's conflict, stated over the drawn values.
  *
  * Features: an occupant outside the entry at each unique object, one inside it at the selected and the team keys, an
- * exact repeat, and an insert accepted. Plant:
- * ~/.cache/grizzle-release/BR08/plants/entry-occupants-primary-key-probe-only.patch, the precheck probing the primary
- * key alone, must turn the property red.
+ * exact repeat, and an insert accepted.
  *
  * Kept: a lead-free seat inserted into an empty table (TEST_SEED=432815973's floor case 2, shrunk), whose precheck met
  * the at most one lead object at the UNIQUE's own law column and was "permission denied for table seat": ann's role
  * holds column SELECT on Seat's fields alone, so a write through her entry meets that object at its fields and its
  * selection (write/insert/unique.ts entryUniques).
  *
+ * @plant test/plants/pg/write/entry-occupants/entry-occupants-primary-key-probe-only.patch The precheck probes the
+ * primary key alone (write/entry/precheck.ts outsideProbes); the property fails.
  * @plant test/plants/pg/write/entry-occupants/entry-at-law-columns.patch a write through a query entry meets a key over a selected side at its UNIQUE's law column, which the entry's role may not read
  */
 const Subject = str.regex("^u_[a-z]{1,8}$")

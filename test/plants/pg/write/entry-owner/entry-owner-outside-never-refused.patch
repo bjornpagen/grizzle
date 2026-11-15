@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/write/entry/precheck.ts b/packages/engine/src/write/entry/precheck.ts
+index 1c6f5c6f..e1e36f01 100644
+--- a/packages/engine/src/write/entry/precheck.ts
++++ b/packages/engine/src/write/entry/precheck.ts
+@@ -276,11 +276,6 @@ export const buildEntryCheck = (
+ 			)
+ 		}
+ 		const arms: NonEmptyReadonlyArray<RefusalArm> = [
+-			{
+-				rank: refusalRank.outside,
+-				when: not(col(rv, inside)),
+-				refusal: { kind: "outside", entry }
+-			},
+ 			...held.map(({ call, column }): RefusalArm => ({
+ 				rank: refusalRank.heldOutside,
+ 				when: col(rv, column),

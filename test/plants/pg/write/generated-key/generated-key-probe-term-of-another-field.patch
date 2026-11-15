@@ -1,0 +1,29 @@
+diff --git a/packages/engine/src/write/insert/unique.ts b/packages/engine/src/write/insert/unique.ts
+index 47dd3058..6fcd37cf 100644
+--- a/packages/engine/src/write/insert/unique.ts
++++ b/packages/engine/src/write/insert/unique.ts
+@@ -33,6 +33,7 @@ import {
+ 	and,
+ 	asc,
+ 	call,
++	cast,
+ 	col,
+ 	conjunction,
+ 	countStar,
+@@ -674,8 +675,14 @@ export const buildProbe = (
+ 	const one = [target(lit.int(1, types.integer))]
+ 	/** A requested fact's value at a field, read under `alias`: its input's column for a field it carries, and a
+ 	 * generated field's generation expression over them (statement.ts requestedValue), the value PostgreSQL stores. */
+-	const requestedAt = (alias: string): ((f: LawField) => Expr) =>
+-		requestedValue(w, relation, fields, (f) => inCol(alias, f))
++	const requestedAt =
++		(alias: string): ((f: LawField) => Expr) =>
++		(f) =>
++			requestedValue(w, relation, fields, (g) =>
++				f.writing.kind === "generated"
++					? cast(inCol(alias, fields.find((h) => h !== g) ?? g), w.cx.baseTypeRef(rowType(g)))
++					: inCol(alias, g)
++			)(f)
+ 	const fact = requestedAt(input)
+ 	/** Each branch: its rows, its signed ordinal, and its witnesses' rank, if it ranks them. */
+ 	const branches: Array<{

@@ -33,8 +33,10 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * no-change when the ChangeSet changes nothing, and otherwise refused by a law of the references it breaks.
  *
  * Features: accepted, no-change, a cycle inserted in one ChangeSet, a refusal by each reference, and a deletion of a
- * fact still named refused. Plant: ~/.cache/grizzle-release/BR08/plants/cycle-rule-keys-immediate.patch, every foreign
- * key the schema-wide rule decides installed immediate, must turn the property red.
+ * fact still named refused.
+ *
+ * @plant test/plants/pg/write/cycle/cycle-rule-keys-immediate.patch Every foreign key the schema-wide rule decides is
+ * installed immediate (laws/model/model.ts deferrable); the property fails.
  */
 const A = relation("A", { id: pg.integer, b: pg.integer }, ["id"])
 const B = relation("B", { id: pg.integer, a: pg.integer }, ["id"])

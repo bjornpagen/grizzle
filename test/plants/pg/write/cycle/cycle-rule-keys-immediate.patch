@@ -1,0 +1,20 @@
+diff --git a/packages/engine/src/laws/model/model.ts b/packages/engine/src/laws/model/model.ts
+index 5e5ccf6e..cf1e86cd 100644
+--- a/packages/engine/src/laws/model/model.ts
++++ b/packages/engine/src/laws/model/model.ts
+@@ -782,14 +782,9 @@ const deferrable = (
+ 	deferral: Deferral
+ ): boolean => {
+ 	switch (n.deferral) {
+-		case "rule":
+-			return deferral.rule({
+-				relation: n.relation,
+-				target: n.target,
+-				targetFields: n.targetColumns.flatMap((c) => (c.kind === "field" ? [c.field] : []))
+-			})
+ 		case "cycle":
+ 			return deferral.onCycle(n.relation.name, n.target.name)
++		case "rule":
+ 		case "immediate":
+ 			return false
+ 		case "deferred":
