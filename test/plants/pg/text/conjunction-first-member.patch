@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/text/refinement.ts b/packages/engine/src/text/refinement.ts
+index 027d7932..7f2e8a0b 100644
+--- a/packages/engine/src/text/refinement.ts
++++ b/packages/engine/src/text/refinement.ts
+@@ -422,7 +422,7 @@ const patternTerms = (check: PatternCheck, value: Expr): NonEmptyReadonlyArray<E
+ 				}
+ 			]
+ 		case "regex":
+-			return mapNonEmpty(check.ares, (are) => binary("~", value, lit.text(are, types.text)))
++			return [binary("~", value, lit.text(check.ares[0], types.text))]
+ 	}
+ }
+ 

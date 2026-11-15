@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/date/storage.ts b/packages/engine/src/physical/date/storage.ts
+index 6334f3bf..c8c9eea2 100644
+--- a/packages/engine/src/physical/date/storage.ts
++++ b/packages/engine/src/physical/date/storage.ts
+@@ -20,7 +20,7 @@ interface DateRange {
+ const rangePredicate = (column: Expr): Expr => ({
+ 	kind: "between",
+ 	expr: column,
+-	low: lit.text(firstCalendarDate, types.date),
++	low: lit.text("0001-01-01 BC", types.date),
+ 	high: lit.text(lastCalendarDate, types.date),
+ 	not: false
+ })

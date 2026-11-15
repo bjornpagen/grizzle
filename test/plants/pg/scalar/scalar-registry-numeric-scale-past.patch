@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/values/decimal.ts b/packages/engine/src/scalar/values/decimal.ts
+index 33a09b0e..cfca367d 100644
+--- a/packages/engine/src/scalar/values/decimal.ts
++++ b/packages/engine/src/scalar/values/decimal.ts
+@@ -521,7 +521,7 @@ export const checkNumericTypmod = (
+ 	if (!isInteger(precision) || precision < 1 || precision > numericMaxPrecision.value) {
+ 		return Result.err("numericTypmod")
+ 	}
+-	if (!isInteger(scale) || scale < numericMinScale.value || scale > numericMaxScale.value) {
++	if (!isInteger(scale) || scale < numericMinScale.value || scale > numericMaxScale.value + 1) {
+ 		return Result.err("numericTypmod")
+ 	}
+ 	return Result.ok({ precision, scale: scale === 0 ? 0 : scale })

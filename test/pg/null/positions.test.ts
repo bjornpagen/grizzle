@@ -38,9 +38,10 @@
  * its last kind absent from Pick, and the position's expression is built around a node of that family over a read at
  * it (language.ts aimedPredGen, aimedStoredGen).
  *
- * Plants: null-greatest-null-wins (the host's greatest and least return NULL when any operand is NULL).
- *
  * Features: every operator family in every position, reached by a NULL operand.
+ *
+ * @plant test/plants/pg/null/null-greatest-null-wins.patch The host's greatest and least return NULL when any operand
+ * is NULL.
  */
 import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { type Reached, required } from "@bjornpagen/testing/features"

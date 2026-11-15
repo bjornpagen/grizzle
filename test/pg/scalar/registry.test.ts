@@ -17,14 +17,19 @@
  *
  * Oracle: PostgreSQL itself, its catalog and the type a column's declaration stores.
  *
- * Plants: scalar-registry-boolean-spelled-bool (the boolean descriptor names bool), scalar-registry-float-25-real
- * (float(25) selects real), scalar-registry-numeric-scale-past (numerictypmodin's rule admits a scale one past its
- * bound), scalar-registry-vector-dims-past (pg.vector admits one dimension past the limit), and
- * scalar-registry-bits-ordering (a set claims an ordering).
- *
  * Features: "a serial" and "a type"; float(p)'s "refused below", "real", "double precision" and "refused above";
  * numeric's "admitted" and "refused"; vector's "refused below", "admitted" and "refused above"; and the carriers' "a
  * native capability excluded", "a spannable carrier", "a discrete range named as a limit" and "no discrete range".
+ *
+ * @plant test/plants/pg/scalar/scalar-registry-boolean-spelled-bool.patch The boolean descriptor names bool; the
+ * spellings property fails.
+ * @plant test/plants/pg/scalar/scalar-registry-float-25-real.patch float(25) selects real; the float(p) property fails.
+ * @plant test/plants/pg/scalar/scalar-registry-numeric-scale-past.patch numerictypmodin's rule admits a scale one past
+ * its bound; the numeric(p, s) property fails.
+ * @plant test/plants/pg/scalar/scalar-registry-vector-dims-past.patch pg.vector admits one dimension past the limit; the
+ * vector(n) property fails.
+ * @plant test/plants/pg/scalar/scalar-registry-bits-ordering.patch A set claims an ordering; the carriers property
+ * fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

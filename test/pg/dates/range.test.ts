@@ -9,8 +9,8 @@
  * every other is refused with 23514 under the column's range CHECK, and stores nothing. grizzle reads the column through
  * a member of the full world's served workload.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): dates-range-before-era.patch (the date column's range CHECK starting
- * before the common era).
+ * @plant test/plants/pg/dates/dates-range-before-era.patch The date column's range CHECK starting before the common
+ * era.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

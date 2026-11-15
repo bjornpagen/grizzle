@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/text/refinement.ts b/packages/engine/src/text/refinement.ts
+index 027d7932..39980315 100644
+--- a/packages/engine/src/text/refinement.ts
++++ b/packages/engine/src/text/refinement.ts
+@@ -428,7 +428,7 @@ const patternTerms = (check: PatternCheck, value: Expr): NonEmptyReadonlyArray<E
+ 
+ /** A byte bound's test over `value`: `octet_length(value) <= octets`. */
+ const octetsTest = (octets: number, value: Expr): Expr =>
+-	le(call("octet_length", [value]), lit.int(octets, types.integer))
++	le(call("char_length", [value]), lit.int(octets, types.integer))
+ 
+ /**
+  * The terms of the membership predicate over `value` (domainValue inside a domain CHECK), which AND joins, a contract's

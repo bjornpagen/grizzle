@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/pg.ts b/packages/engine/src/scalar/pg.ts
+index e63da221..ed8e280d 100644
+--- a/packages/engine/src/scalar/pg.ts
++++ b/packages/engine/src/scalar/pg.ts
+@@ -61,7 +61,7 @@ const integer = plain("integer", carrierColumn("int4"))
+ const bigint = plain("bigint", carrierColumn("int8"))
+ const real = plain("real", carrierColumn("float4"))
+ const money = plain("money", carrierColumn("money"))
+-const boolean = plain("boolean", carrierColumn("bool"))
++const boolean = defineField({}, "bool", { kind: "pg", type: "boolean" }, { column: carrierColumn("bool") }, SourceLoc("pg.boolean", []), bareEnv)
+ 
+ const isInteger = (value: unknown): value is number =>
+ 	typeof value === "number" && Number.isInteger(value)

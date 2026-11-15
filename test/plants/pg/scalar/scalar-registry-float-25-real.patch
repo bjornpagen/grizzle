@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/pg.ts b/packages/engine/src/scalar/pg.ts
+index e63da221..8d2beb18 100644
+--- a/packages/engine/src/scalar/pg.ts
++++ b/packages/engine/src/scalar/pg.ts
+@@ -145,7 +145,7 @@ export const floatDescriptors: FloatDescriptors = Object.freeze({
+ 	22: real,
+ 	23: real,
+ 	24: real,
+-	25: doublePrecision,
++	25: real,
+ 	26: doublePrecision,
+ 	27: doublePrecision,
+ 	28: doublePrecision,
