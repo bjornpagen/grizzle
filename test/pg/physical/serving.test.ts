@@ -82,9 +82,6 @@
  * residue the patched btree_gist no longer leaves, so the kept case's reach is unreached.
  * @plant test/plants/pg/physical/serving-statistics-unaimed.patch The workload search's steering never draws the case
  * its aim at "a workload's statistics installed as requested" asks for, so that feature goes unreached.
- * @plant test/plants/pg/physical/serving-gist-few-first.patch A GiST index's columns of few values are no longer placed
- * first: its keys keep the request's order (physical/indexes/engine.ts withinBlock), so a span predicate's GiST scan
- * reads past its bound of buffers.
  * @plant test/plants/pg/physical/serving-read-descents-claimed.patch an index PostgreSQL chose by its cost is held to
  * the engine's claim's descents, so a skip scan over a closed key bounded by a range is a sweep
  * @plant test/plants/pg/physical/serving-conflict-own-requests.patch the judge reads an index's own requests for the

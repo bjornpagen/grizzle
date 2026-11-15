@@ -8,7 +8,12 @@
  * - the plan is the same whatever order the requests arrive in;
  * - a request the engine cannot create, planted alone with drawn columns (an entry beyond its method's limit, more than
  *   INDEX_MAX_KEYS columns, an expression key), is refused as a key is;
- * - created indexes have distinct names, and a B-tree and a GiST request on one drawn column list install as two.
+ * - created indexes have distinct names, and a B-tree and a GiST request on one drawn column list install as two;
+ * - a GiST request over a drawn order of columns of few and of many values (Event's boolean live and its uuids and
+ *   bigints) creates an index whose every column of few values follows every column of many values: GiST places an
+ *   entry and splits a page by its first column, so a column of few values first ties its entries and a probe follows
+ *   more of them down (physical/indexes/engine.ts withinBlock measured 7 to 10 buffers against 4 or 5). Each column's
+ *   class is stated here, from its type.
  *
  * Whether the index a request lands on serves it, and whether a created index is needed, is PostgreSQL's to judge in the
  * database suites: nothing here states which index serves which request.
@@ -23,6 +28,8 @@
  * @plant test/plants/unit/physical/indexes-unique-created.patch A created index is unique.
  * @plant test/plants/unit/physical/indexes-name-without-method.patch An index is named as a B-tree whatever its
  * method.
+ * @plant test/plants/unit/physical/indexes-gist-few-first.patch A GiST index's columns of few values are no longer
+ * placed after its columns of many values: its keys keep the request's order (physical/indexes/engine.ts withinBlock).
  * @plant test/plants/unit/physical/install-request-order.patch The engine plans its requests in the order they arrive,
  * not in their canonical order (indexes/engine.ts planIndexes); the arrival-order invariance fails.
  */
@@ -78,6 +85,7 @@ const Indexed: SchemaDesc = {
 				account: f.uuid,
 				created: f.bigint,
 				unrelated: f.bigint,
+				live: f.boolean,
 				body: f.wildcard,
 				embedding: { kind: "vector", dimensions: 3 }
 			},
@@ -235,6 +243,21 @@ const unindexedColumns: Arr.NonEmptyReadonlyArray<string> = [
 ]
 
 /**
+ * What each of Event's columns a GiST request keys holds, stated here from their types and never read from the engine:
+ * live, a boolean, holds two values; the uuids and the bigints, many.
+ */
+const valueClass: Readonly<Record<string, "few" | "many">> = {
+	tenant: "many",
+	account: "many",
+	created: "many",
+	unrelated: "many",
+	live: "few"
+}
+
+/** Event's columns a GiST request over columns of few and many values keys. */
+const gistColumns: Arr.NonEmptyReadonlyArray<string> = [...unindexedColumns, "live"]
+
+/**
  * A request planted alone, in place of the drawn ones: one the engine cannot create (a B-tree key over a text column,
  * whose entry no limit bounds, after drawn columns; more keys than INDEX_MAX_KEYS; an expression key, a name no column
  * holds), each refused as a key is; or two requests on one drawn column list by two access methods, which it installs
@@ -247,6 +270,10 @@ type Planted =
 	| { readonly kind: "an expression key"; readonly expr: string }
 	| {
 			readonly kind: "a B-tree and a GiST index on one column list"
+			readonly columns: ReadonlyArray<string>
+	  }
+	| {
+			readonly kind: "a GiST index on columns of few and many values"
 			readonly columns: ReadonlyArray<string>
 	  }
 
@@ -281,6 +308,13 @@ const plantedGen: Gen<Planted> = weighted<Planted>([
 			kind: "a B-tree and a GiST index on one column list",
 			columns
 		}))
+	],
+	[
+		1,
+		map(shuffled(gistColumns, { min: 2, max: gistColumns.length }), (columns) => ({
+			kind: "a GiST index on columns of few and many values",
+			columns
+		}))
 	]
 ])
 
@@ -304,6 +338,8 @@ const plantedRequests = (planted: Planted): ReadonlyArray<IndexRequest> => {
 			return [access([planted.expr], "btree")]
 		case "a B-tree and a GiST index on one column list":
 			return [access(planted.columns, "btree"), access(planted.columns, "gist")]
+		case "a GiST index on columns of few and many values":
+			return [access(planted.columns, "gist")]
 	}
 }
 
@@ -338,6 +374,7 @@ type IndexFeature =
 	| `${Broken} refused`
 	| "a B-tree and a GiST index on one column list installed"
 	| "two indexes on one column list"
+	| "a GiST index on a column of few values stated before columns of many values installed"
 
 interface EngineSketch {
 	readonly requests: ReadonlyArray<RequestSketch>
@@ -401,6 +438,21 @@ const engineKept: ReadonlyArray<Kept<EngineSketch, IndexFeature>> = [
 		},
 		draws: "",
 		reaches: ["two indexes on one column list"]
+	},
+	{
+		note: "a GiST request on (live, tenant, account), live a boolean stated before two uuids",
+		sketch: {
+			requests: [],
+			arrival: [0, 1, 2, 3, 4, 5],
+			planted: {
+				kind: "a GiST index on columns of few and many values",
+				columns: ["live", "tenant", "account"]
+			}
+		},
+		draws: "",
+		reaches: [
+			"a GiST index on a column of few values stated before columns of many values installed"
+		]
 	}
 ]
 
@@ -431,7 +483,8 @@ describe("the index request engine", () => {
 								"too many keys refused",
 								"an expression key refused",
 								"a B-tree and a GiST index on one column list installed",
-								"two indexes on one column list"
+								"two indexes on one column list",
+								"a GiST index on a column of few values stated before columns of many values installed"
 							],
 							{ cases: 200, sense: notesOnly }
 						),
@@ -461,6 +514,38 @@ describe("the index request engine", () => {
 								)
 								assert.equal(new Set(Arr.map(created, (x) => x.index.name)).size, 2, "two names")
 								c.note(`${planted.kind} installed`)
+								return
+							}
+							if (planted.kind === "a GiST index on columns of few and many values") {
+								const [gist] = Arr.filter(
+									succeeded(install(plantedRequests(planted))).indexes,
+									(x) => x.index.kind === "created" && x.method === "gist"
+								)
+								const keys = Arr.map(
+									defined(gist, "the GiST request's created index").keys,
+									keyField
+								)
+								const classOf = (column: string) => defined(valueClass[column], column)
+								assert.ok(
+									Arr.every(
+										keys,
+										(k, at) =>
+											classOf(k) === "many" ||
+											Arr.every(keys.slice(at + 1), (l) => classOf(l) === "few")
+									),
+									`${Arr.join(keys, ", ")}: every column of few values follows every column of many values`
+								)
+								const few = Arr.findFirstIndex(planted.columns, (k) => classOf(k) === "few")
+								if (
+									Option.exists(few, (at) =>
+										Arr.some(planted.columns.slice(at + 1), (k) => classOf(k) === "many")
+									) &&
+									Arr.length(Arr.filter(planted.columns, (k) => classOf(k) === "many")) > 1
+								) {
+									c.note(
+										"a GiST index on a column of few values stated before columns of many values installed"
+									)
+								}
 								return
 							}
 							if (planted.kind !== "none") {
