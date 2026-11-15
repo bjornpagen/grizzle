@@ -87,8 +87,11 @@ export type WireEvent =
 	| { readonly side: "frontend"; readonly messages: ReadonlyArray<FrontendMessage> }
 	| { readonly side: "backend"; readonly message: BackendMessage }
 
-/** A notification a session received: the channel it came on and its payload, as the server sent them. */
-export interface Notification {
+/**
+ * A NotificationResponse a session received, the protocol's message `A`: the channel it came on and its payload, as
+ * the server sent them, unparsed (live/notify.ts parses a fan-out channel's payload into its Notification).
+ */
+export interface NotificationResponse {
 	readonly channel: string
 	readonly payload: string
 }
@@ -755,7 +758,7 @@ export interface Tap {
 	 */
 	readonly sessions: () => ReadonlyArray<WireWindow>
 	/** Every notification (a NotificationResponse) any session received, in the order they arrived. */
-	readonly notifications: () => ReadonlyArray<Notification>
+	readonly notifications: () => ReadonlyArray<NotificationResponse>
 	/** What each session's startup packet asked, in the order of `sessions`: none for one whose packet has not come. */
 	readonly startups: () => ReadonlyArray<Startup | undefined>
 	/** The connections opened for CancelRequests. */
@@ -786,7 +789,7 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 	/** Every session's traffic, in the order the sessions connected, the gated one's `events` first. */
 	const logs: Array<Array<WireEvent>> = []
 	/** Every notification any session received, in the order they arrived. */
-	const notifications: Array<Notification> = []
+	const notifications: Array<NotificationResponse> = []
 	/** What each session's startup packet asked, by its place among the logs, once it came. */
 	const startups: Array<Startup | undefined> = []
 	const gate = new MessageGate()
