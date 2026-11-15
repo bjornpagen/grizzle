@@ -28,6 +28,11 @@
  *   target's own columns are planned already, so it takes its superkey only where that costs no more, as where the
  *   superkey's UNIQUE serves a reverse probe that would take a B-tree of its own) plans at least as many objects,
  *   indexes and law columns over every relation, constant columns among them;
+ * - the law model's placement of its fixed targets plans the fewest objects of any, by exhaustion: K alone's
+ *   installation against the installations of every placement, each subset of its containments into T at their
+ *   superkey and the rest at their own columns, each installed by a law model that reads that placement as its recorded
+ *   reference choice, so the engine itself costs each one as it drafts its UNIQUEs, law columns and reverse probes'
+ *   B-trees (placementsOf), and the model's own choice, installed again so, plans what the model planned;
  * - every unique index of T reports a key that every pair of rows it refuses together breaks. Over every pair of a box
  *   of T's rows, id, a, b and c each 0 or 1 and kind 0, 1 or 2, where each column of the index, a field's value or a law
  *   column's generated value by the reference evaluator, is NULL on neither row and equal, the law its constraint
@@ -53,7 +58,7 @@
  * reverse probe a B-tree of its own, though the engine drafts one index for a chain of probes over nested columns, so
  * it takes a superkey that saves nothing: the kept case's K alone plans 20 objects to the restated keys' 19.
  * @plant test/plants/unit/laws/model/probed-target-shared-always.patch Every fixed target at its terms and fixed field
- * (laws/model/plan.ts takingShared); the restated keys' objects catch it.
+ * (laws/model/plan.ts takingShared); the fewest objects of any placement catch it.
  * @plant test/plants/unit/laws/model/probed-target-constants-free.patch The choice counts a constant column as nothing,
  * so a superkey is taken though the target's own columns need no constant and cost less (laws/model/plan.ts
  * takingShared); the restated keys' objects catch it.
@@ -84,12 +89,20 @@ import {
 	type NativeOf
 } from "#compiler/ir/law.ts"
 import { sameIndexOpclass } from "#compiler/ir/products.ts"
+import { compileLaws } from "#compiler/laws/model/model.ts"
+import type { PartRef } from "#compiler/laws/model/plan.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import type { IndexColumn } from "#compiler/physical/ddl/context.ts"
 import type { IndexKey, PlannedIndex } from "#compiler/physical/indexes/engine.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
+import {
+	compileInstallation,
+	type Installation,
+	installationOver
+} from "#compiler/physical/install/compile.ts"
+import { type InstallBasis, installBasis } from "#compiler/physical/install/plan.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { installationsOf, rostersOf } from "#compiler/schema/own.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	contained,
@@ -331,6 +344,77 @@ const installationOf = (desc: SchemaDesc): Installation => {
 		),
 		"every target a key holds compiles"
 	)
+}
+
+/**
+ * A schema's installation under the law model's own placement of its fixed targets, beside the fewest objects of any
+ * placement (`placementsOf`).
+ */
+interface Placements {
+	readonly chosen: Installation
+	/** The objects of the model's own choice installed again as a recorded placement, the harness's own check. */
+	readonly again: number
+	readonly least: number
+}
+
+/**
+ * The installations of `desc` under every placement of its fixed targets: each subset of its containments into T at
+ * their shared superkey, the rest at their own columns, each installed by a law model that reads that subset as its
+ * recorded reference choice (laws/model/model.ts CycleSource), its foreign key cycles the planned model's, over the
+ * basis the installation compiles. The engine itself costs each placement, drafting its UNIQUEs, law columns and
+ * reverse probes' B-trees as it installs them, so the least of them judges the choice the law model makes
+ * (laws/model/plan.ts takingShared) without restating its count.
+ */
+const placementsOf = (desc: SchemaDesc): Placements => {
+	const owned = succeeded(ownedInput(desc), "the drawn schema is owned")
+	const options = completeInstallOptions(
+		owned,
+		installationsOf(owned),
+		[],
+		[],
+		firstCodebook(rostersOf(owned))
+	)
+	const slice = everySlice(owned)
+	const basis = succeeded(
+		installBasis(owned, options.codes, slice),
+		"every target a key holds compiles"
+	)
+	const installed = (b: InstallBasis): Installation =>
+		succeeded(installationOver(b, options), "every placement of the fixed targets installs")
+	const parts = Arr.flatMap(basis.model.theory.laws, (law): ReadonlyArray<PartRef> =>
+		law.detail.kind === "containment" && law.detail.to.relation === "T"
+			? [{ law: law.id, part: 0 }]
+			: []
+	)
+	const none: ReadonlyArray<PartRef> = []
+	const choices = Arr.reduce(
+		parts,
+		Arr.of(none),
+		(sets: Arr.NonEmptyReadonlyArray<ReadonlyArray<PartRef>>, part) =>
+			Arr.flatMap(sets, (set): Arr.NonEmptyReadonlyArray<ReadonlyArray<PartRef>> => [
+				set,
+				[...set, part]
+			])
+	)
+	const placed = (choice: ReadonlyArray<PartRef>): number =>
+		objectsOf(
+			installed({
+				...basis,
+				model: succeeded(
+					compileLaws(owned, slice, {
+						kind: "recorded",
+						cycles: basis.model.fkCycles,
+						references: choice
+					}),
+					"the law model under a recorded placement"
+				)
+			})
+		).objects
+	return {
+		chosen: installed(basis),
+		again: placed(basis.model.references),
+		least: Arr.min(Arr.map(choices, placed), Order.Number)
+	}
 }
 
 /** An index's column as its relation's columns are told apart: a field by its name, a law column by its identifier. */
@@ -760,6 +844,27 @@ describe("a fixed target's UNIQUE beside the reverse probes out of its selection
 									"a probed target beside an unprobed one",
 									"K over every row"
 								]
+							},
+							{
+								note: "K on a over every row, three targets fixing kind = 2, 0 and 1 over (a, b), one superkey (a, b, kind) for all three, and a probe out of select(T, kind = 2) over (id, a, b), which the kind = 2 target's own columns serve: the fewest objects take the other two to the superkey and keep that one at its own columns. The choice moved all three at once and never one back, and K alone planned 17 objects where that placement plans 16 (floor stream case 53, TEST_SEED=1395491330)",
+								sketch: {
+									selected: false,
+									key: ["a"],
+									targets: [
+										{ value: 2, guarded: false, terms: ["a", "b"] },
+										{ value: 0, guarded: false, terms: ["a", "b"] },
+										{ value: 1, guarded: false, terms: ["a", "b"] }
+									],
+									probes: [
+										{ at: { kind: "fixed", value: 2, guarded: false }, terms: ["id", "a", "b"] }
+									]
+								},
+								draws: "",
+								reaches: [
+									"a target a probe reads at its own columns, within the probe",
+									"two targets fixing kind to two values over one set of terms, that no probe reads",
+									"a probed target beside an unprobed one"
+								]
 							}
 						],
 						runs: 300,
@@ -771,7 +876,8 @@ describe("a fixed target's UNIQUE beside the reverse probes out of its selection
 					(s, c) =>
 						Effect.sync(() => {
 							c.noteAll(featuresOf(s))
-							const plain = installationOf(schemaOf(s, []))
+							const placements = placementsOf(schemaOf(s, []))
+							const plain = placements.chosen
 							checkIndexes(plain, "the schema with K alone")
 							checkReports(plain, "the schema with K alone", c.note)
 							const restating = installationOf(schemaOf(s, restated(s)))
@@ -782,6 +888,16 @@ describe("a fixed target's UNIQUE beside the reverse probes out of its selection
 							assert.ok(
 								alone.objects <= beside.objects,
 								`K alone plans ${alone.objects} indexes and law columns, no more than the ${beside.objects} of K beside the keys it implies`
+							)
+							assert.equal(
+								placements.again,
+								alone.objects,
+								"the model's own choice, installed again as a recorded placement, plans what the model plans"
+							)
+							assert.equal(
+								alone.objects,
+								placements.least,
+								`K alone plans ${alone.objects} indexes and law columns, the fewest of any placement of its fixed targets (${placements.least})`
 							)
 							if (alone.constants > beside.constants) {
 								c.note("constant columns that cost the schema no more objects")

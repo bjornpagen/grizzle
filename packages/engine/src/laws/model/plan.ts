@@ -1066,6 +1066,16 @@ interface FixedTarget {
 }
 
 /**
+ * One step of the reference choice (`takingShared`): the targets taking the shared reference after it, the objects
+ * that configuration plans, and which way it moved a target, to its shared UNIQUE or back to its own columns.
+ */
+interface Step {
+	readonly next: ReadonlySet<FixedTarget>
+	readonly objects: number
+	readonly toward: "shared" | "own"
+}
+
+/**
  * The fixed targets of one relation that take the shared reference: a choice by what each configuration adds to the
  * whole schema, counted exactly. A configuration's objects are the UNIQUEs it installs, one per column set its targets
  * land on that no planned UNIQUE holds, in the order of the first target landing on it, as the law model merges them
@@ -1073,10 +1083,13 @@ interface FixedTarget {
  * installed UNIQUE serves need, each UNIQUE serving by the order it is installed in, a chain of them over nested column
  * sets sharing one (`probeIndexes`); the distinct law columns its landings add; and the distinct constants its shared
  * references add to their sources. From every target
- * at its own columns, which is what keys restated over the targets would plan, it moves targets to their shared
- * UNIQUE, all of one shared UNIQUE's targets at once or one alone, taking the move that leaves the fewest objects
- * while that is no more than before; so it never plans more objects than the own columns would, and keeps the superkey
- * where both cost the same.
+ * at its own columns, which is what keys restated over the targets would plan, it steps: a move of targets to their
+ * shared UNIQUE, all of one shared UNIQUE's targets at once or one alone, or of one target back to its own columns,
+ * taking the step that leaves the fewest objects while that is fewer than before, or as many and toward the shared
+ * UNIQUE (`Step`). So it never plans more objects than the own columns would, keeps the superkey where both cost the
+ * same, and stops only where no one step lowers the count: a target a group move took to the shared UNIQUE goes back
+ * where its own columns cost less. Each step lowers the count or, at the same count, takes one target more to its shared
+ * UNIQUE, so the steps end.
  */
 const takingShared = (
 	uses: ReadonlyArray<FixedUse>,
@@ -1126,16 +1139,26 @@ const takingShared = (
 		)
 		return [...groups, ...left.map((t) => [t])]
 	}
+	const step = (next: ReadonlySet<FixedTarget>, toward: Step["toward"]): Step => ({
+		next,
+		objects: objects(next),
+		toward
+	})
+	const steps = (taking: ReadonlySet<FixedTarget>): ReadonlyArray<Step> => [
+		...moves(taking).map((move) => step(new Set([...taking, ...move]), "shared")),
+		...targets
+			.filter((t) => taking.has(t))
+			.map((t) => step(new Set([...taking].filter((x) => x !== t)), "own"))
+	]
 	const improved = (taking: ReadonlySet<FixedTarget>, cost: number): ReadonlySet<FixedTarget> => {
-		const [first, ...rest] = moves(taking).map((move) => {
-			const next = new Set([...taking, ...move])
-			return { next, cost: objects(next) }
-		})
+		const [first, ...rest] = steps(taking).filter(
+			(s) => s.objects < cost || (s.objects === cost && s.toward === "shared")
+		)
 		if (first === undefined) {
 			return taking
 		}
-		const least = rest.reduce((a, b) => (b.cost < a.cost ? b : a), first)
-		return least.cost <= cost ? improved(least.next, least.cost) : taking
+		const least = rest.reduce((a, b) => (b.objects < a.objects ? b : a), first)
+		return improved(least.next, least.objects)
 	}
 	const empty: ReadonlySet<FixedTarget> = new Set()
 	const taken = improved(empty, objects(empty))
