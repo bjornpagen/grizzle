@@ -1835,8 +1835,10 @@ the field, before any SQL, or PostgreSQL's NOT NULL.
 Another key may hold a generated field, such as a `value` generated from a text to keep two spellings of one value
 apart. It is compared in the statement that writes the row, never on the host, against every row the statement writes
 and every stored row: two rows of one value are `refused` on the key, witnessed by the key's values as
-PostgreSQL stores them. A delete compares only at keys whose fields it states. A family's member rows meet such a key
-at its index alone, which refuses them on the key with an `unreported` witness.
+PostgreSQL stores them. A delete compares only at keys whose fields it states. The members a new owner nests meet such
+a key at its index alone, which refuses them on the key with an `unreported` witness; a member a put appends to a
+stored owner's family is compared in its statement like any other row, against the stored rows and the rows the
+statement writes, and witnessed by its key.
 
 **Fill order.** grizzle fills every value it writes in an order the schema fixes, and refuses when it compiles, never
 at a write, a schema that would read a field before it is filled. An insert fills a row's own fields, counts, index,
