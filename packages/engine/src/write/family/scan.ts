@@ -516,7 +516,12 @@ const columnOf = (
 	}
 	const order = [{ expr: col(at, layout.slot), direction: "ASC" as const }]
 	const partition = layout.group.map((g) => col(at, g))
-	const lag = (e: Expr): Expr => ({ ...call("lag", [e]), over: windowOf(partition, order) })
+	/** The member before the row's `e`: lag(e, 1, e), whose default, the row's own `e` at its group's first appended row,
+	 * no rule reads, since a predecessor copy takes its seed's or its base there (`firstBefore`), and which names no NULL. */
+	const lag = (e: Expr): Expr => ({
+		...call("lag", [e, lit.int(1, types.integer), e]),
+		over: windowOf(partition, order)
+	})
 	const running = (
 		fn: "sum" | "max" | "bit_or" | "string_agg",
 		args: NonEmptyReadonlyArray<Expr>

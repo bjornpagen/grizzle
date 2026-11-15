@@ -1,10 +1,9 @@
 /**
  * The cost of recounting a mutable owner's family grows linearly with the owners a write recounts, on PostgreSQL 19: a
- * ChangeSet appending two members to each of n owners of a mutable owner relation, whose counted family's count each
- * owner holds, so the family additions statement recounts every owner it appends to (write/family/additions.ts
- * recountOf), at n, 2n and 4n owners. Its families hold no fold: a fold's scan reads its predecessor's after by lag()
- * with no default (write/family/scan.ts), which the structural audit refuses (R27), so a fold joins the box when its
- * scan passes the audit; a recounted end is one more column of the same recount row.
+ * ChangeSet appending two members to each of n owners of a mutable owner relation, whose counted family's count and a
+ * sum fold's end each owner holds, so the family additions statement recounts every owner it appends to
+ * (write/family/additions.ts recountOf), at n, 2n and 4n owners. The fold's scan reads each member's before, the after
+ * before it, by lag() (write/family/scan.ts), which the structural audit holds to its default (R27).
  *
  * Property, for each situation: the rows the write's statements read and pair (rowsScannedAndPaired,
  * bench/harness/explain.ts: every scan's rows over all of its loops, and every pair a join examined past its keys, the
@@ -29,6 +28,8 @@
  *
  * @plant test/plants/pg/write/recount-per-column-subquery.patch The recount is read by an EXISTS and a correlated scalar
  * subquery per recounted column over its source, as before c161d26e, so the source is reread once per owner row.
+ * @plant test/plants/pg/write/scan-lag-no-default.patch The fold's scan reads the member before by lag() with no
+ * default, which yields NULL at a group's first row: the structural audit refuses it (R27).
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
@@ -46,27 +47,43 @@ import {
 } from "#bench/write/support/writes.ts"
 import { indices } from "#compiler/core/array.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { drawn, natural, pg } from "#compiler/public/fields.ts"
-import { counted, fin, mutable, on, relation, schema } from "#compiler/public/schema.ts"
+import { accumulated, drawn, natural, pg } from "#compiler/public/fields.ts"
+import {
+	counted,
+	fin,
+	fold,
+	Monoid,
+	mutable,
+	on,
+	relation,
+	schema
+} from "#compiler/public/schema.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { writeAuditViolations } from "#test/support/write-audit.ts"
 
-const Owner = relation("Owner", { id: pg.integer, n: drawn(natural), tags: drawn(natural) }, ["id"])
+const Owner = relation(
+	"Owner",
+	{ id: pg.integer, n: drawn(natural), total: accumulated(pg.bigint, 0n), tags: drawn(natural) },
+	["id"]
+)
 const Item = relation("Item", { id: pg.integer, owner: pg.integer, x: pg.bigint }, ["id"])
 const Tag = relation("Tag", { id: pg.integer, owner: pg.integer }, ["id"])
 
-const build = (name: string) =>
-	schema(
+const build = (name: string) => {
+	const items = counted(on(Item, "owner"), fin(Owner, "n"))
+	return schema(
 		name,
 		[Owner, Item, Tag],
 		[
-			counted(on(Item, "owner"), fin(Owner, "n")),
+			items,
+			fold(items, Monoid.sum, on(Item, "owner", "x"), on(Owner, "id", "total")),
 			counted(on(Tag, "owner"), fin(Owner, "tags")),
 			mutable(Owner)
 		]
 	)
+}
 
 type Schema = ReturnType<typeof build>
 
