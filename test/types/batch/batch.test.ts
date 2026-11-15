@@ -11,8 +11,7 @@
  * - The stall guard's reading: a planted process tree read through a file system that serves only its /proc, each file
  *   standing or failing as its task ended mid-reading (ENOENT reaped, ESRCH exited and not yet reaped), reads as the
  *   tree that stands, and never fails for a process or thread that ended. Oracle: a model of the reading over the
- *   standing processes and threads. Plant (~/.cache/grizzle-release/GREENTRUNK/plants): stall-guard-thread-ended-unread
- *   .patch reads an ESRCH as a failure, as 3a59f4b7 did.
+ *   standing processes and threads.
  * - The stall guard: a compiler whose process tree is idle for its window, no thread running, waiting for a CPU or on
  *   the disk and no CPU time spent, fails with CompilerStalled and its goroutines, and one that checks to its end never
  *   does, nor a command whose work runs past its window in a child while its own process waits. Oracle: tsgo's watch
@@ -24,9 +23,13 @@
  * Plants (~/.cache/grizzle-release/BR14/plants): batch-twin-blind.patch compares no twin's diagnostics, so a twin
  * label whose lines differ passes; batch-code-blind.patch accepts any code under a code claim; batch-unowned.patch
  * attributes a diagnostic in a file no unit owns to some unit instead of failing the batch; batch-stall-blind.patch never
- * judges a compiler stalled; (~/.cache/grizzle-release/GREENTRUNK/plants) stall-guard-root-only.patch reads the root
- * process alone, so a parent waiting on its busy child is judged stalled; batch-withheld-read.patch reads a unit's missing file as a unit with no diagnostic;
+ * judges a compiler stalled; batch-withheld-read.patch reads a unit's missing file as a unit with no diagnostic;
  * batch-builder-silent.patch writes an empty batch for a builder that failed, naming no failure.
+ *
+ * @plant test/plants/types/batch/stall-guard-root-only.patch The stall guard reads the root process alone, so a parent
+ * waiting on its busy child is judged stalled.
+ * @plant test/plants/types/batch/stall-guard-thread-ended-unread.patch The stall guard's reading treats an ESRCH, a
+ * thread that exited between the listing and the read, as its own failure, as 3a59f4b7 did.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -165,6 +165,12 @@ export interface PgPoolConfig {
 }
 
 /**
+ * A pool event's listener, called with pg's own arguments: the error the client was released or failed with, none for
+ * a client kept, and the client, so a hook can tell which of its checkouts the event ends.
+ */
+export type PoolListener = (error: unknown, client: object | undefined) => void
+
+/**
  * pg's Pool as grizzle reaches it: asked for a client, ended without awaiting, its counts, and its `error` and `release`
  * events, the last a platform's hook (types/layer.ts ConnectionPool).
  */
@@ -176,7 +182,7 @@ export interface PgPool {
 	readonly waitingCount: number
 	connect(callback: (error: unknown, client: PgPoolClient | undefined) => void): void
 	end(callback: () => void): void
-	on(event: "error" | "release", listener: () => void): unknown
+	on(event: "error" | "release", listener: PoolListener): unknown
 }
 
 /** pg's report of an ErrorResponse: the server's fields grizzle keeps (wire/failure.ts serverFailure). */

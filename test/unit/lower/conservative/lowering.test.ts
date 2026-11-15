@@ -30,6 +30,9 @@
  * parameter bound as int4 whatever its declaration (lowering-bound-int4); a declared vector parameter refused as
  * undeclared (~/.cache/grizzle-release/LOWERFIX/plants/lowering-vector-param-undeclared.patch), the kind table's
  * scored projection, whose fixture declares every parameter its nodes read.
+ *
+ * @plant test/plants/unit/lower/conservative/step-reads-operand.patch A Step's query is an unproved core, so a
+ * delivered Step whose input reads a set dies with "a delivery, which reads sets".
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

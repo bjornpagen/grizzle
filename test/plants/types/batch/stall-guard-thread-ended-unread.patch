@@ -1,0 +1,11 @@
+--- a/test/types/batch/compiler.ts
++++ b/test/types/batch/compiler.ts
+@@ -141,7 +141,7 @@
+  * entry is gone, and ESRCH while its entry stands but its task has exited (proc(5)), which a thread meets between the
+  * listing of its process's tasks and the read of its own files.
+  */
+-const ENDED_ERRNOS: ReadonlySet<string> = new Set(["ENOENT", "ESRCH"])
++const ENDED_ERRNOS: ReadonlySet<string> = new Set(["ENOENT"])
+ 
+ /** The errno code a failed read's cause carries, none where its cause is no errno exception. */
+ const errnoOf = (cause: unknown): Option.Option<string> =>

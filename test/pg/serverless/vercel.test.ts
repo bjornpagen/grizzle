@@ -21,6 +21,10 @@
  *
  * Plants (~/.cache/grizzle-release/BR13/plants): vercel-attach-per-lease.patch (the pool hook called on every lease),
  * vercel-unattached.patch (the pool never handed to the hook).
+ *
+ * @plant test/plants/pg/serverless/vercel-release-arguments-dropped.patch The pool's guarded release listener is called
+ * with no arguments, so @vercel/functions 3.11.3, which ends a release's wait with the request that checked its client
+ * out, finds no request and hands Vercel no wait.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
