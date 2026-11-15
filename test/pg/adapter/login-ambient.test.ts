@@ -1,7 +1,7 @@
 /**
  * A login's every answer is the same under any database defaults: its own defaults pin what its sessions resolve names
- * and print values under, and every session of its pool sends them again as startup options, so a login whose
- * search_path pin is gone answers the same.
+ * and print values under, and every session of its pool sends them again as startup options, so a login one of whose
+ * pins is gone answers the same.
  *
  * The file runs in a database of its own (Substrate.isolatedLayer), because a case sets that database's own defaults
  * (ALTER DATABASE ... SET), which every session that starts in the database while they stand starts under, and resets
@@ -10,22 +10,24 @@
  * The installation names its relations as PostgreSQL names its types, `Text`, `Uuid` and `Money`, so each relation's
  * row type shadows the builtin type of its name wherever the installation's schema comes first on a path. A case draws
  * an ambient session (test/support/ambient.ts), here the database's defaults: the installation's schemas first on the
- * search path or PostgreSQL's own path, and each print setting unset or at a value of its own; whether the login's
- * search_path pin stands or is reset (ALTER ROLE ... RESET search_path); and a program of writes and reads through the
+ * search path or PostgreSQL's own path, and each print setting unset or at a value of its own; whether every pin of the
+ * login stands, or one of them, its search_path's or a print setting's (physical/ddl/roles.ts roleDefaultSettings), is
+ * reset (ALTER ROLE ... RESET); and a program of writes and reads through the
  * members of the login's full role's served workload, each write's rows its call's facts: the texts inserted twice, the second an exact repeat, links into them, perhaps one into no text,
  * which the containment refuses, amounts put twice over a mutable relation, money and both float widths among their
  * fields, then the links joined to their texts, every amount, the amounts at a money parameter and from a double one,
  * one amount by its key, and every page of the amounts ordered by the double.
  *
- * Property: with the pin standing or reset, the program's every outcome and answer under the drawn defaults is exactly
+ * Property: with every pin standing or one reset, the program's every outcome and answer under the drawn defaults is exactly
  * its outcome and answer under the database's own defaults, from the same stored state; the amounts read under the
  * defaults are the facts the puts left.
  *
- * Every setting at every value it is drawn at is a required situation, beside the installation-first path, both pins,
- * a refused write and a later page.
+ * Every setting at every value it is drawn at is a required situation, beside the installation-first path, every pin
+ * standing and each pin reset, a refused write and a later page.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): environment-pgoptions.patch (a login's startup options left out, so
- * its pinned defaults are not sent).
+ * @plant test/plants/pg/adapter/environment-pgoptions.patch A login's startup options left out, so a session of a login
+ * whose pin is reset starts under the database's default for it; the property fails where a reset extra_float_digits
+ * pin leaves the database's -15, which prints floats short of their round trip.
  */
 import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -45,13 +47,13 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Layer, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import type { Anchor, KeyedList } from "#compiler/live/index.ts"
+import { roleDefaultSettings } from "#compiler/physical/ddl/roles.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Money, pg, type Uuid, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { paged } from "#compiler/public/workload.ts"
-import type { RoleSetting } from "#compiler/sql/ast.ts"
 import { printRoleSetting, quoteIdent } from "#compiler/sql/print.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import {
@@ -168,8 +170,11 @@ interface Program {
 	readonly pageSize: number
 }
 
-/** Whether the login's search_path pin stands, or is reset before Db.open. */
-type Pin = "standing" | "reset"
+/** One of the login's pins: a fixed default its role stores and its sessions send again at startup. */
+type PinnedSetting = (typeof roleDefaultSettings)[number]
+
+/** Whether every pin of the login stands, or which one is reset before Db.open. */
+type Pin = "standing" | PinnedSetting
 
 interface LoginCase {
 	readonly ambient: AmbientSession
@@ -182,21 +187,29 @@ type SettingFeature = `${AmbientSetting["parameter"]} ${AmbientSetting["value"]}
 type Feature =
 	| AmbientFeature
 	| SettingFeature
-	| `the search_path pin ${Pin}`
+	| "every pin standing"
+	| `the ${PinnedSetting["parameter"]} pin reset`
 	| "a write refused by a law"
 	| "a later page"
 
 const settingFeature = (s: AmbientSetting): SettingFeature => `${s.parameter} ${s.value}`
 
+const pinFeature = (pin: Pin): Feature =>
+	pin === "standing" ? "every pin standing" : `the ${pin.parameter} pin reset`
+
 /**
  * The case a witness runs, aimed at what no witness reached yet (Case.steering): each setting value no witness has run
- * under takes its parameter's place in half the case's draws of it; a rotating or kept case runs as drawn.
+ * under takes its parameter's place in half the case's draws of it, and each pin no witness has reset is the case's pin
+ * in half the case's draws of it; a rotating or kept case runs as drawn.
  */
 const aimed = (c: LoginCase, cx: Case<Feature>): LoginCase =>
 	Option.match(cx.steering, {
 		onNone: () => c,
 		onSome: (pending) => ({
 			...c,
+			pin: Arr.reduce(roleDefaultSettings, c.pin, (pin, p): Pin =>
+				pending.has(pinFeature(p)) && cx.draw(boolean) ? p : pin
+			),
 			ambient: {
 				...c.ambient,
 				settings: Arr.reduce(
@@ -248,7 +261,7 @@ const caseGen: Gen<LoginCase> = (source) => ({
 	pin: source.draw(
 		weighted<Pin>([
 			[3, constant<Pin>("standing")],
-			[1, constant<Pin>("reset")]
+			[1, element(roleDefaultSettings)]
 		])
 	),
 	program: source.draw(programGen)
@@ -303,27 +316,30 @@ const kept: ReadonlyArray<Kept<LoginCase, Feature>> = [
 		note: "every hostile default with the pin standing: the program's every answer is the defaults' answer",
 		sketch: { ambient: hostileSession, pin: "standing", program: plantedProgram },
 		draws: "",
-		reaches: ["the search_path pin standing", "a write refused by a law", "a later page"]
+		reaches: ["every pin standing", "a write refused by a law", "a later page"]
 	},
 	{
 		note: "every hostile default with the search_path pin reset: the startup options pin the path, every answer is the defaults' answer",
-		sketch: { ambient: hostileSession, pin: "reset", program: plantedProgram },
+		sketch: { ambient: hostileSession, pin: roleDefaultSettings[0], program: plantedProgram },
 		draws: "",
 		reaches: ["the search_path pin reset", "grizzle-first path"]
+	},
+	{
+		note: "every hostile default with the extra_float_digits pin reset: the startup options pin float text to its round trip, every answer is the defaults' answer",
+		sketch: { ambient: hostileSession, pin: roleDefaultSettings[1], program: plantedProgram },
+		draws: "",
+		reaches: ["the extra_float_digits pin reset", "extra_float_digits -15"]
 	}
 ]
 
 const situations: Arr.NonEmptyReadonlyArray<Feature> = [
 	"grizzle-first path",
-	"the search_path pin standing",
-	"the search_path pin reset",
+	"every pin standing",
+	...Arr.map(roleDefaultSettings, pinFeature),
 	"a write refused by a law",
 	"a later page",
 	...Arr.map(Arr.flatten(ambientSettingValues), settingFeature)
 ]
-
-/** The one search_path a login's setting can name: the pin. */
-const searchPathPin: RoleSetting = { parameter: "search_path" }
 
 /**
  * The rows of every window `windowAt` reads from `anchor` on, in order, each window after the last key of the one
@@ -379,19 +395,19 @@ const databaseAmbient = (
 		}
 	})
 
-/** The login `role`'s search_path pin reset for the scope, and stored again when the scope closes. */
-const pinReset = (role: string) =>
+/** The login `role`'s pin `pin` reset for the scope, and stored again when the scope closes. */
+const pinReset = (role: string, pin: PinnedSetting) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const at = `ALTER ROLE ${quoteIdent(role)}`
-		yield* Effect.acquireRelease(s.admin.query(`${at} RESET search_path`, []), () =>
-			Effect.orDie(s.admin.query(`${at} SET ${printRoleSetting(searchPathPin)}`, []))
+		yield* Effect.acquireRelease(s.admin.query(`${at} RESET ${pin.parameter}`, []), () =>
+			Effect.orDie(s.admin.query(`${at} SET ${printRoleSetting(pin)}`, []))
 		)
 	})
 
 layer(Substrate.isolatedLayer)("a login under hostile database defaults", (it) => {
 	it.effect(
-		"answers exactly as under the database's own defaults, with its search_path pin or without it",
+		"answers exactly as under the database's own defaults, with every pin or without one of them",
 		(ctx) =>
 			searched(
 				ctx,
@@ -528,15 +544,15 @@ layer(Substrate.isolatedLayer)("a login under hostile database defaults", (it) =
 								const c = aimed(drawnCase, cx)
 								cx.noteAll(ambientFeatures(c.ambient))
 								cx.noteAll(Arr.map(c.ambient.settings, settingFeature))
-								cx.note(`the search_path pin ${c.pin}`)
+								cx.note(pinFeature(c.pin))
 								yield* replaceMigrated(o.installed, {})
 								const ordinary = yield* run(c.program)
 								yield* replaceMigrated(o.installed, {})
 								const hostile = yield* Effect.scoped(
 									Effect.gen(function* () {
 										yield* databaseAmbient(database, c.ambient, schemas)
-										if (c.pin === "reset") {
-											yield* pinReset(login)
+										if (c.pin !== "standing") {
+											yield* pinReset(login, c.pin)
 										}
 										return yield* run(c.program)
 									})
