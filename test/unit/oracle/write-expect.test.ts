@@ -24,7 +24,8 @@
  * - a witness key that is no violating key of the law;
  * - a keyless witness where the law's witness carries its key;
  * - a witness carrying a key where the law's violation is native and keyless;
- * - a refusal where the change applies, and an applied outcome where the domain or the bind refuses;
+ * - a refusal where the change applies, and an applied outcome where the domain or the bind refuses, or where a
+ *   stratum's writes the keys order in a cycle, which the compile refuses (expect.ts unorderableStrata);
  * - a domain's refusal naming, decided, one of the several laws of the columns it types in the refused relation;
  * - a domain's check violation left an operational failure, unclassified.
  *
@@ -35,6 +36,9 @@
  * witness of a keyed law) turns the property red; so does ~/.cache/grizzle-release/WHOLEDEL/plants/
  * write-expect-cast-unrounded.patch (the oracle's cast giving the source's value unrounded, as it did before the exact
  * parse, which the planted "typmod cast" arm reaches while the cast's situation is pending).
+ *
+ * @plant test/plants/unit/oracle/write-judge-unorderable-passes.patch The judge passes any outcome where the
+ * expectation is that the compile refuses an unorderable stratum, so the mutant "applied where unorderable" passes.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -196,6 +200,7 @@ const situations = [
 	"faithful refusal at bind",
 	"mutant: applied where refused at bind",
 	"mutant: a parameter's refusal unclassified",
+	"mutant: applied where unorderable",
 	"applied: a typmod cast"
 ] as const
 
@@ -208,27 +213,33 @@ const domainSituations: ReadonlyArray<WriteExpectFeature> = [
 	"mutant: a domain's violation unclassified"
 ]
 
+/** The planted arms a witness may judge in place of its drawn case (`plantedAimed`). */
+type AimedArm = "wider member" | "typmod cast" | "unorderable stratum"
+
 /**
  * The planted arm a witness judges in place of its drawn case, aimed at what no witness reached yet (Case.steering),
  * in half its cases by a draw of its own, on the schema's planted group: where its turn aims at a domain refusal's
  * situation, the "wider member" arm, which reads a stored wide text past the narrow domain into it (changeset.ts
  * plantedChangeSet); where it aims at the typmod cast's, the "typmod cast" arm, which reads a precise numeric into a
- * rounded one, so the cases of one window aim at distinct pending situations. A drawn ChangeSet reaches either too rarely. None for a schema without the planted group, and for a rotating
- * or kept case, which runs as drawn.
+ * rounded one; where it aims at an unorderable stratum's, the "unorderable stratum" arm, whose one stratum's writes the
+ * keys order in a cycle; so the cases of one window aim at distinct pending situations. A drawn ChangeSet reaches each
+ * too rarely. None for a schema without the planted group, and for a rotating or kept case, which runs as drawn.
  */
 const plantedAimed = (
 	schema: WSchema,
 	n: Case<WriteExpectFeature>
-): Option.Option<{ readonly group: WGroup; readonly arm: "wider member" | "typmod cast" }> =>
+): Option.Option<{ readonly group: WGroup; readonly arm: AimedArm }> =>
 	Option.flatMap(
 		Arr.findFirst(schema.groups, (g) => g.role === "planted"),
 		(group) =>
 			Option.flatMap(n.steering, (pending) => {
-				const arm = Arr.some(domainSituations, (s) => pending.aimed(s))
-					? Option.some("wider member" as const)
+				const arm: Option.Option<AimedArm> = Arr.some(domainSituations, (s) => pending.aimed(s))
+					? Option.some("wider member")
 					: pending.aimed("applied: a typmod cast")
-						? Option.some("typmod cast" as const)
-						: Option.none()
+						? Option.some("typmod cast")
+						: pending.aimed("mutant: applied where unorderable")
+							? Option.some("unorderable stratum")
+							: Option.none()
 				return Option.filter(
 					Option.map(arm, (a) => ({ group, arm: a })),
 					() => n.draw(boolean)
@@ -289,10 +300,11 @@ describe("the write oracle's judgement", () => {
 							}
 						})
 						const expected = expectChangeSet({ group, laws }, facts, c, {})
-						const state: GroupState = {
-							relations: expected.initial.relations,
-							sequences: expected.initial.sequences
-						}
+						/** The state a side commits: the initial one, or none where the compile refuses the ChangeSet. */
+						const state: GroupState =
+							expected.kind === "unorderable"
+								? { relations: new Map(), sequences: new Map() }
+								: { relations: expected.initial.relations, sequences: expected.initial.sequences }
 						const verdict = (outcome: Result.Result<WriteOutcome, unknown>) =>
 							judgeWrite(group, c, expected, outcome, state)
 						const mutant = (
@@ -304,6 +316,12 @@ describe("the write oracle's judgement", () => {
 						}
 						const [anyLaw] = groupLaws(group, laws)
 						switch (expected.kind) {
+							case "unorderable":
+								mutant(
+									"mutant: applied where unorderable",
+									Result.succeed({ kind: "no-change", reads: {} })
+								)
+								return
 							case "applied":
 								if (castsTypmod(c)) {
 									n.note("applied: a typmod cast")

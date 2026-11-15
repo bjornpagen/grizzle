@@ -27,6 +27,7 @@ import {
 	printPerturbation
 } from "#test/support/oracle/perturb.ts"
 import { plantedArms, type WChangeSet } from "#test/support/oracle/write/changeset.ts"
+import { unorderableStrata } from "#test/support/oracle/write/expect.ts"
 import {
 	CaseFailed,
 	drawnCase,
@@ -102,7 +103,9 @@ const resolveRun =
  * addition drawing the key of a fact its stratum deletes, read back through both deltas, identical and differing, one
  * whose lagging draw repeats a fact the stratum keeps, refused at its key, draws of the realization's other than the
  * calculator's that change the counts, a put realized as UPDATE ... FROM advancing a lagging sequence past its keys,
- * and second readings over facts stored in another order and with a value respelled.
+ * second readings over facts stored in another order and with a value respelled, a stratum whose writes the keys order
+ * in a cycle refused as it compiles, and a deletion where facts meet nowhere left unordered beside an addition, which
+ * orders a stratum that would otherwise hold such a cycle.
  */
 export const writeSituations = [
 	"strata:1",
@@ -177,7 +180,9 @@ export const writeSituations = [
 	"sequential stratum of several writes",
 	"take sent in its LATERAL form",
 	"facts reordered on a second reading",
-	"a fact respelled on a second reading"
+	"a fact respelled on a second reading",
+	"an unorderable stratum refused",
+	"a deletion meeting nowhere unordered beside an addition"
 ] as const satisfies ReadonlyArray<WriteOracleFeature>
 
 /**
@@ -200,10 +205,10 @@ const sharesHeadingNames = (
 		})
 	)
 
-/** The delta read-backs of a case, by group and relation. */
-const deltaReads = (group: WGroup, c: WChangeSet) =>
+/** The delta read-backs a case ran, by group and relation. */
+const deltaReads = (group: WGroup, reads: WChangeSet["reads"]) =>
 	Arr.map(
-		Arr.filter(c.reads, (r) => r.source !== "state"),
+		Arr.filter(reads, (r) => r.source !== "state"),
 		(r) => ({ group, relation: r.relation })
 	)
 
@@ -236,7 +241,12 @@ export const runWrite = (
 		)
 	})
 
-/** A resolved run's schema installed and opened, its privileges checked, its cases in order. */
+/**
+ * A resolved run's schema installed and opened, its privileges checked, its cases in order. The installation installs
+ * the parameter types of every ChangeSet the run applies (run.ts openTarget): a ChangeSet whose stratum the keys order
+ * in a cycle is refused as it compiles (expect.ts unorderableStrata), so its case applies nothing and the installation
+ * leaves it out.
+ */
 const runResolved = (
 	run: WriteRun,
 	resolved: ResolvedRun,
@@ -256,7 +266,12 @@ const runResolved = (
 				onSome: (group) => Arr.map(plantedArms, (arm) => plantedCase(group, arm, run.planted.facts))
 			})
 		]
-		const t = yield* openTarget(schema, run.statistics, run.ambient, cases)
+		const t = yield* openTarget(
+			schema,
+			run.statistics,
+			run.ambient,
+			Arr.filter(cases, (rc) => unorderableStrata(rc.group, rc.changes).length === 0)
+		)
 		const privileges = yield* privilegeProblems(t)
 		if (privileges.length > 0) {
 			return yield* new CaseFailed({
@@ -272,7 +287,7 @@ const runResolved = (
 						: e
 				)
 			)
-			appendAll(reads, deltaReads(ran.group, ran.changes))
+			appendAll(reads, deltaReads(ran.group, ran.reads))
 		}
 		if (sharesHeadingNames(reads)) {
 			note("delta read-backs of one heading's field names over other types")

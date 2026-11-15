@@ -1,0 +1,13 @@
+diff --git a/test/support/oracle/write/expect.ts b/test/support/oracle/write/expect.ts
+index d88f6892..ef9f885a 100644
+--- a/test/support/oracle/write/expect.ts
++++ b/test/support/oracle/write/expect.ts
+@@ -638,7 +638,7 @@ export const unorderableStrata = (group: WGroup, c: WChangeSet): ReadonlyArray<S
+ 				a !== b && runsBefore(group, a, b) ? [[a, b]] : []
+ 			)
+ 		)
+-		return cyclic(writes, before) ? [{ stratum, writes, before }] : []
++		return []
+ 	})
+ 
+ /** A drafted write as a report prints it. */

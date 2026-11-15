@@ -338,7 +338,16 @@ interface ReadSketch {
  * - "take per parent": an insert into the parent relation of the first two child facts by key of each parent a
  *   relation parameter names, a take bound to the parameter's rows, sent in its LATERAL form, since the parameter's
  *   distinct facts are fewer than lateralParentMax (its whole-relation form is test/pg/write/take-form's);
- * - "take per one parent": the same insert for the first parent alone.
+ * - "take per one parent": the same insert for the first parent alone;
+ * - "unorderable stratum": one stratum inserting into the issued relation, putting a holding and deleting an issued
+ *   fact. The insertion drafts its generated class, which follows the deletion, since a deletion excepts only the
+ *   complete additions of its stratum; the holding's put adds after the issued relation's additions and removes before
+ *   its removals, by the immediate containment, so no order keeps every key at every statement and the ChangeSet is
+ *   refused as it compiles (expect.ts unorderableStrata, write/frontend/schedule.ts);
+ * - "deletion meeting nowhere": the stored member naming a stored pure fact put to name a fresh pure fact, which the
+ *   stratum inserts, beside the stored pure fact's deletion. The pure set's facts meet nowhere, so its deletion is
+ *   unordered beside its insertion of complete facts, and the keys run the insertion, the put, then the deletion; were
+ *   the deletion before the insertion, as on a relation whose facts meet, no order would keep them.
  * The sequential realization of a stratum of several statements is "relation parameters", an insert and a deletion of
  * one relation.
  */
@@ -369,7 +378,9 @@ export const plantedArms = [
 	"single statement",
 	"single statement refused",
 	"take per parent",
-	"take per one parent"
+	"take per one parent",
+	"unorderable stratum",
+	"deletion meeting nowhere"
 ] as const
 export type PlantedArm = (typeof plantedArms)[number]
 
@@ -525,7 +536,13 @@ const plantedFactsOf = (
 		case "parent present":
 		case "parent violated":
 		case "immediate violated":
+		case "unorderable stratum":
 			return []
+		case "deletion meeting nowhere":
+			return [
+				[p.pure, [{ a: armKey }]],
+				[p.member, [{ a: armKey, b: armKey }]]
+			]
 		case "parent absent":
 			return [
 				[p.parent, [{ a: armKey, b: 0 }]],
@@ -994,6 +1011,26 @@ export const plantedChangeSet = (group: WGroup, arm: PlantedArm, stored: WFacts)
 				],
 				[],
 				{ rp0: [{ b: armKey }] }
+			)
+		case "unorderable stratum":
+			return changeSet(
+				[
+					enumerated("insert", p.issued, [{}]),
+					enumerated("put", p.holding, [{ a: armKey, b: planted.firstSerial }]),
+					enumerated("delete", p.issued, [{ a: planted.secondSerial }])
+				],
+				[],
+				{}
+			)
+		case "deletion meeting nowhere":
+			return changeSet(
+				[
+					enumerated("put", p.member, [{ a: armKey, b: otherKey }]),
+					enumerated("insert", p.pure, [{ a: otherKey }]),
+					enumerated("delete", p.pure, [{ a: armKey }])
+				],
+				[],
+				{}
 			)
 	}
 }

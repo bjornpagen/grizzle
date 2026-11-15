@@ -76,9 +76,12 @@ import {
 	type AcceptableRefusal,
 	type AcceptableRefusals,
 	type DomainRefusal,
+	type Drafted,
 	type Expected,
 	expectChangeSet,
 	type GeneratedDraws,
+	printDrafted,
+	type StratumOrder,
 	type Violations
 } from "#test/support/oracle/write/expect.ts"
 
@@ -284,6 +287,8 @@ export type WriteOracleFeature =
 	| "facts reordered on a second reading"
 	| "a fact respelled on a second reading"
 	| "a read-back refused as crossing statements"
+	| "an unorderable stratum refused"
+	| "a deletion meeting nowhere unordered beside an addition"
 
 const identityOf = (group: WGroup, relation: string, fact: unknown): FactIdentity => {
 	const r = relationIn(group, relation)
@@ -726,6 +731,63 @@ const unboundProblems = (
 			]
 }
 
+/** A stratum's order as a report prints it: each pair the keys order. */
+const printOrder = (order: StratumOrder): string =>
+	`stratum ${order.stratum}: ${listed(
+		Arr.map(order.before, ([a, b]) => `${printDrafted(a)} before ${printDrafted(b)}`),
+		", ",
+		"no pair ordered"
+	)}`
+
+/**
+ * Whether a cycle a refusal names, each write's relation and operation, is one of `order`'s: each of its writes runs
+ * before the next by a pair the stratum's keys order, and the last before the first, an insertion either class the
+ * stratum drafts.
+ */
+const holdsCycle = (
+	order: StratumOrder,
+	cycle: Arr.NonEmptyReadonlyArray<{ readonly relation: string; readonly op: string }>
+): boolean => {
+	const drafted = (step: (typeof cycle)[number]): ReadonlyArray<Drafted> =>
+		Arr.filter(order.writes, (w) => w.relation === step.relation && w.op === step.op)
+	const precedes = (a: Drafted, b: Drafted): boolean =>
+		Arr.some(order.before, ([x, y]) => x === a && y === b)
+	const [first, ...rest] = cycle
+	return Arr.some(drafted(first), (start) =>
+		Arr.some(
+			Arr.reduce(rest, [start], (reached: ReadonlyArray<Drafted>, step) =>
+				Arr.filter(drafted(step), (w) => Arr.some(reached, (x) => precedes(x, w)))
+			),
+			(last) => precedes(last, start)
+		)
+	)
+}
+
+/**
+ * The problems of a ChangeSet's compile against strata whose writes the keys order in a cycle: refused with
+ * UnorderableStratum, naming a cycle of one of them (`holdsCycle`).
+ */
+const unorderableProblems = (
+	expected: Extract<Expected, { readonly kind: "unorderable" }>,
+	entry: Result.Result<CompiledChange, CompileError>
+): ReadonlyArray<string> => {
+	if (Result.isSuccess(entry)) {
+		return ["the ChangeSet compiles"]
+	}
+	const reason = entry.failure.reason
+	if (reason._tag !== "UnorderableStratum") {
+		return [`the ChangeSet does not compile: ${entry.failure.message}`]
+	}
+	return Arr.some(expected.strata, (order) => holdsCycle(order, reason.cycle))
+		? []
+		: [
+				`refused naming the cycle ${Arr.join(
+					Arr.map(reason.cycle, (w) => `${w.op} ${w.relation}`),
+					", then "
+				)}, no cycle of the strata's keys`
+			]
+}
+
 /** The problems of one side's outcome and committed state against the expectation. */
 export const judgeWrite = (
 	group: WGroup,
@@ -750,6 +812,10 @@ export const judgeWrite = (
 				)
 			}
 		}
+	}
+	if (expected.kind === "unorderable") {
+		problems.push(`expected the compile to refuse, got ${printOutcome(outcome)}`)
+		return problems
 	}
 	if (expected.kind === "unbound") {
 		appendAll(problems, unboundProblems(group, expected, outcome))
@@ -1145,6 +1211,8 @@ const realizationsOf = (program: CompiledChange["compiled"]): ReadonlyArray<Writ
 /** What a case expects, for its failure report. */
 const printExpected = (expected: Expected): string => {
 	switch (expected.kind) {
+		case "unorderable":
+			return `UnorderableStratum, the keys ordering ${Arr.join(Arr.map(expected.strata, printOrder), "; ")}`
 		case "applied":
 			return expected.outcome.kind
 		case "rejected":
@@ -1156,10 +1224,11 @@ const printExpected = (expected: Expected): string => {
 	}
 }
 
-/** What a case wrote: its group and its ChangeSet. */
+/** What a case read back: its group and the read-backs its write ran, none where its ChangeSet is refused as it
+ * compiles. */
 export interface Ran {
 	readonly group: WGroup
-	readonly changes: WChangeSet
+	readonly reads: WChangeSet["reads"]
 }
 
 /**
@@ -1178,6 +1247,10 @@ export interface Ran {
  *   pair and every delta a comparison of states, so each mutable put target the optimized side chose must agree with
  *   DELETE + INSERT in final state, counts and deltas;
  * - the brute-force add-wins result (expect.ts).
+ *
+ * A ChangeSet with a stratum whose writes the immediate keys and foreign keys order in a cycle (expect.ts
+ * unorderableStrata) applies nothing: its compile must refuse it with UnorderableStratum, naming a cycle of that
+ * stratum's keys, and the case ends there, noting that refusal alone, since none of the shapes it drew ran.
  *
  * The optimized side is applied as the compiled ChangeSet's one transaction on a served Db's context (test/support/
  * served-role.ts runEntry), with the parameters passed to the call or closed by ChangeSet.bind, and enumerated members
@@ -1299,8 +1372,19 @@ export const runCase = (
 				],
 				"\n"
 			)
-		noteShapes(group, c, note)
+		const expected = expectChangeSet({ group, laws: t.laws }, facts, c, sequences)
 		const entry = programOf(t, changes)
+		if (expected.kind === "unorderable") {
+			const refused = unorderableProblems(expected, entry)
+			if (Arr.isReadonlyArrayNonEmpty(refused)) {
+				return yield* new CaseFailed({
+					report: Arr.join([header(), `expected: ${printExpected(expected)}`, ...refused], "\n")
+				})
+			}
+			note("an unorderable stratum refused")
+			return { group, reads: [] }
+		}
+		noteShapes(group, c, note)
 		if (Result.isFailure(entry)) {
 			return yield* new CaseFailed({
 				report: `${header()}\nthe ChangeSet does not compile: ${entry.failure.message}`
@@ -1331,7 +1415,6 @@ export const runCase = (
 				problems.push(audited.failure)
 			}
 		}
-		const expected = expectChangeSet({ group, laws: t.laws }, facts, c, sequences)
 		const bound = yield* Effect.result(takesOf(entry.success, params))
 		if (Result.isFailure(bound)) {
 			return yield* new CaseFailed({
@@ -1537,6 +1620,9 @@ export const runCase = (
 			) {
 				note("a generated repeat of a kept fact, drawing nothing")
 			}
+			if (origin.kind === "planted" && origin.arm === "deletion meeting nowhere") {
+				note("a deletion meeting nowhere unordered beside an addition")
+			}
 		} else if (expected.kind === "outsideDomain") {
 			note("outcome outside a domain")
 		} else if (expected.kind === "unbound") {
@@ -1584,5 +1670,5 @@ export const runCase = (
 				)
 			})
 		}
-		return { group, changes: c }
+		return { group, reads: c.reads }
 	})
