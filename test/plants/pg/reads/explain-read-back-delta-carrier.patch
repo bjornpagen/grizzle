@@ -1,0 +1,124 @@
+diff --git a/packages/engine/src/write/program/slot-carriers.ts b/packages/engine/src/write/program/slot-carriers.ts
+index 68c06a25..168bbd8f 100644
+--- a/packages/engine/src/write/program/slot-carriers.ts
++++ b/packages/engine/src/write/program/slot-carriers.ts
+@@ -44,10 +44,15 @@ import type {
+ 	Insert,
+ 	SqlStatement
+ } from "#compiler/sql/ast.ts"
++import { plainType } from "#compiler/scalar/native.ts"
+ import {
+ 	arrays,
+ 	col,
++
++	cteRef,
+ 	derived,
++	lit,
++	types,
+ 	positionalValue,
+ 	provedCore,
+ 	sameTypeRef,
+@@ -468,13 +473,26 @@ export const withStagedSlots = (
+ 	carriers: ReadonlyArray<WriteCarrier>
+ ): StagedSlots => {
+ 	const staged = stagedSlots(placed, carriers.length)
+-	if (!isNonEmpty(staged)) {
++	const deltas = placed.flatMap((p, i) => (p.kind === "own" && p.riders.length > 0 ? [i] : []))
++	if (!isNonEmpty(staged) && deltas.length === 0) {
+ 		return { statements: placed, carriers }
+ 	}
++	const deltaCarriers = deltas.map((_, k): WriteCarrier => {
++		const declaration: CarrierDeclaration = {
++			columns: [{ name: "c1", type: types.integer, collation: undefined, generated: undefined }],
++			primaryKey: undefined
++		}
++		return {
++			name: carrierName(carriers.length + staged.length + k + 1, declaration),
++			heading: [{ name: "delta", type: plainType("int4"), column: "c1" }],
++			fill: "insertSelect",
++			declaration
++		}
++	})
+ 	const bySlot = new Map(staged.map((s) => [s.first.slot, s] as const))
+ 	const [head] = placed
+ 	const at = head?.kind === "own" && head.step.kind === "admission" ? 1 : 0
+-	const inserted = 2 * staged.length
++	const inserted = 2 * staged.length + deltas.length
+ 	const move = (position: number): number => (position < at ? position : position + inserted)
+ 	const fillAt = new Map(staged.map((s, i) => [s.first.slot, at + 2 * i + 1] as const))
+ 	const carrierSteps = staged.flatMap((s, i): ReadonlyArray<PlacedStatement> => {
+@@ -514,7 +532,63 @@ export const withStagedSlots = (
+ 			}
+ 		]
+ 	})
+-	const moved = placed.map((p): PlacedStatement => {
++	const deltaSteps = deltaCarriers.map((carrier): PlacedStatement => {
++		const create = carrierCreation(carrier)
++		return {
++			kind: "own",
++			step: { kind: "carrier", carrier: carrier.name, step: "create", stratum: undefined, casts: castsNothing },
++			spec: writeStatementSpec(create, []),
++			ast: create.ast,
++			forms: oneForm,
++			names: create.sql.nameMap,
++			riders: []
++		}
++	})
++	const intoDelta = (ast: SqlStatement, carrier: WriteCarrier): SqlStatement => {
++		if (ast.kind !== "select" || ast.with === undefined) {
++			return ast
++		}
++		const made = ast.with.ctes.find((c) => c.query.kind !== "select")
++		if (made === undefined) {
++			return ast
++		}
++		const into: Insert = {
++			kind: "insert",
++			with: undefined,
++			table: carrier.name,
++			alias: undefined,
++			overriding: undefined,
++			onConflict: undefined,
++			returning: [],
++			columns: ["c1"],
++			source: {
++				kind: "query",
++				query: select(provedCore("keyed", [target(lit.int(1, types.integer))], [cteRef(made.name)], undefined))
++			}
++		}
++		return {
++			...ast,
++			with: {
++				...ast.with,
++				ctes: [...ast.with.ctes, { name: `r${relationsPast(ast)}`, columns: [], materialized: undefined, query: into }]
++			}
++		}
++	}
++	const moved = placed.map((p, position): PlacedStatement => {
++		const delta = deltas.indexOf(position)
++		const deltaCarrier = deltaCarriers[delta]
++		if (p.kind === "own" && deltaCarrier !== undefined) {
++			const ast = intoDelta(p.ast, deltaCarrier)
++			return {
++				...p,
++				ast,
++				spec: Object.freeze({
++					...p.spec,
++					sql: emitText(ast, p.names).text,
++					dependsOn: [...p.spec.dependsOn.map(move), at + 2 * staged.length + delta]
++				})
++			}
++		}
+ 		if (p.kind !== "own") {
+ 			return { ...p, spec: Object.freeze({ ...p.spec, dependsOn: p.spec.dependsOn.map(move) }) }
+ 		}
+@@ -549,7 +623,7 @@ export const withStagedSlots = (
+ 		}
+ 	})
+ 	return {
+-		statements: [...placed.slice(0, at), ...carrierSteps, ...moved.slice(at)],
+-		carriers: [...carriers, ...staged.map((s) => s.carrier)]
++		statements: [...placed.slice(0, at), ...carrierSteps, ...deltaSteps, ...moved.slice(at)],
++		carriers: [...carriers, ...staged.map((s) => s.carrier), ...deltaCarriers]
+ 	}
+ }

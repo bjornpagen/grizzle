@@ -59,6 +59,9 @@
  * field's sequence advances; the ChangeSets' property fails.
  * @plant test/plants/unit/adapter/index-wrong-relation.patch An index node names another relation than the one whose
  * table holds the index; the reads' and the ChangeSets' properties fail.
+ * @plant test/plants/pg/reads/explain-read-back-delta-carrier.patch The statement a read-back rides also stages its
+ * delta into a carrier it creates and fills from its RETURNING (write/program/slot-carriers.ts), no member slot's; the
+ * ChangeSets' property fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
