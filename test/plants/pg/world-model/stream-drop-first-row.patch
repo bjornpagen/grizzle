@@ -1,0 +1,18 @@
+diff --git a/packages/grizzle/src/adapter/reader/stream.ts b/packages/grizzle/src/adapter/reader/stream.ts
+index b5cd51b3..aa42521e 100644
+--- a/packages/grizzle/src/adapter/reader/stream.ts
++++ b/packages/grizzle/src/adapter/reader/stream.ts
+@@ -191,9 +191,12 @@ export const readStream = <E>(
+ 		Effect.gen(function* () {
+ 			const opening = openingOf(queue, events.reset(call.fields))
+ 			const upsert = events.upserts(call.fields)
++			let delivered = 0
+ 			const last = yield* runRead(ctx, call, (row) => {
+ 				opening()
+-				Queue.offerUnsafe(queue, upsert(call.decode(row)))
++				if (delivered++ > 0) {
++					Queue.offerUnsafe(queue, upsert(call.decode(row)))
++				}
+ 			}).pipe(
+ 				Effect.map(() => {
+ 					opening()

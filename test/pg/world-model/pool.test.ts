@@ -27,6 +27,9 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
  *
  * @plant test/plants/pg/world-model/worlds-pool-claims-outlive-transaction.patch A Db's claims set for the session,
  * not the transaction, so the pooled connection holds them between transactions; the driver's probe fails.
+ * @plant test/plants/pg/world-model/stream-drop-first-row.patch A read's stream drops its first row (readStream in
+ * adapter/reader/stream.ts), so a member's once disagrees with its flight wherever a read delivers a row (onceAgrees
+ * in test/support/worlds/execute/artifacts.ts).
  */
 const pooled: Focus = [
 	"open-db",
