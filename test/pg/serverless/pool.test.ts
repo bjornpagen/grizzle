@@ -8,8 +8,8 @@
  *   of the pool's permits, and nothing ever waits in pg's queue. The waiter interrupted, with the clock standing still,
  *   ends at once; a leased session released goes to a queued waiter, and one whose connection is being established gets
  *   a session; the layer released first closes the pool's scope at once, awaiting neither the leases nor the network,
- *   and a lease then fails with LayerReleased, pg never asked for a client and no connection attempted. In every case
- *   the waiter holds nothing afterwards, and then every session up to the maximum is leased at once. The oracle is the
+ *   every leased session ended once it returns, and a lease then fails with LayerReleased, pg never asked for a client
+ *   and no connection attempted. In every case the waiter holds nothing afterwards, and then every session up to the maximum is leased at once. The oracle is the
  *   pool's own counts and the waiter's exit, against this specification; the clock stands still, so a wait that needed
  *   it to move would never end, which the case's hang bound reports.
  * - Cut leases, over drawn interleavings of up to eight leases started at once on a pool of one to three, each kept to
@@ -31,7 +31,7 @@
  * @plant test/plants/pg/adapter/pool-retired-reused.patch A retired session released without an error, so pg's Pool
  * keeps it; a further lease takes a session a cut destroyed mid-statement.
  * @plant test/plants/pg/adapter/pool-release-awaits.patch A layer's release leaving its leased sessions' connections
- * up; the waiter property fails where the layer is released first.
+ * up, retired, not ended; the waiter property finds a leased session not ended where the layer is released first.
  */
 import { drawn, exhaust, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
@@ -633,20 +633,29 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 									poolScope
 								)
 								/** Each held lease in a scope of its own, a child of the case's, so a failing case still releases it. */
-								const held: Array<{ readonly scope: Scope.Closeable; readonly pid: number }> = []
+								const held: Array<{
+									readonly scope: Scope.Closeable
+									readonly session: Session
+									readonly pid: number
+								}> = []
 								for (let i = 0; i < w.held; i++) {
 									const leaseScope = yield* Scope.fork(scope)
-									const pid = yield* Effect.flatMap(
-										Scope.provide(pool.lease, leaseScope),
-										backendPidOf
-									)
-									held.push({ scope: leaseScope, pid })
+									const session = yield* Scope.provide(pool.lease, leaseScope)
+									const pid = yield* backendPidOf(session)
+									held.push({ scope: leaseScope, session, pid })
 								}
 								const heldNow = yield* pool.leased
 								assert.equal(heldNow, w.held)
 								if (w.ending === "layer released") {
 									yield* Scope.close(poolScope, Exit.void)
 									assert.ok(pool.native.ending, "pg's Pool is ending")
+									for (const h of held) {
+										assert.equal(
+											h.session.state(),
+											"ended",
+											"the layer's release ends every leased session at once"
+										)
+									}
 									const asked = connectCalls(pool.native)
 									const attempts = gate.state.attempts
 									const exit = yield* Effect.exit(Effect.scoped(pool.lease))

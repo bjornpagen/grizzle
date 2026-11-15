@@ -11,8 +11,9 @@
  *   server, its session is destroyed and its backend leaves pg_stat_activity, and the pool's next leases, its maximum
  *   at once, are other sessions on other backends.
  * - Release: exhaustively over where the one session of a stalled transport stands (idle, leased, or running a
- *   statement whose answer the tap's gate cuts after each of its first messages), releasing the layer awaits nothing,
- *   and a statement in flight fails, or delivers its whole answer, never a part of it.
+ *   statement whose answer the tap's gate cuts after each of its first messages), releasing the layer awaits nothing
+ *   and has ended the session once it returns, and a statement in flight fails, or delivers its whole answer, never a
+ *   part of it.
  *
  * Features: each step kind, a lease after a retirement, an idle and a new session leased; every statement in every
  * flight; every standing, a release before any answer and mid-answer.
@@ -21,8 +22,8 @@
  * keeps it; the retirement property fails.
  * @plant test/plants/pg/adapter/interrupt-session-kept.patch An interrupted flight's session left open, never retired,
  * so the pool leases it again; the interruption property fails.
- * @plant test/plants/pg/adapter/pool-release-awaits.patch A layer's release leaving its leased sessions' connections up;
- * the release property fails.
+ * @plant test/plants/pg/adapter/pool-release-awaits.patch A layer's release leaving its sessions' connections up,
+ * retired, not ended; the release property finds the session not ended once the release returns.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
@@ -271,9 +272,10 @@ const seriesSql = "SELECT pg_catalog.generate_series(1, $1::int4)::text"
  * the answer of a statement it runs: through the protocol tap, a pool of one opens its session, and then the tap's gate
  * stalls it, letting a drawn number of the server's messages through and holding every later byte, its end included,
  * while the session is idle in the pool, leased, or running a statement. Closing the pool's scope, the layer's,
- * completes all the same: it writes at most a Terminate and destroys the sockets, awaiting nothing. A statement in flight
- * then fails, or, had its whole answer passed the gate first, delivers every row: never a part of its answer. The
- * session's backend leaves pg_stat_activity once its connection is gone.
+ * completes all the same: it writes at most a Terminate and destroys the sockets, awaiting nothing, so the session has
+ * ended once the close returns, read off the session before anything else waits. A statement in flight then fails, or,
+ * had its whole answer passed the gate first, delivers every row: never a part of its answer. The session's backend
+ * leaves pg_stat_activity once its connection is gone.
  */
 const stalledRelease = Effect.gen(function* () {
 	const s = yield* Substrate
@@ -322,6 +324,7 @@ const stalledRelease = Effect.gen(function* () {
 						}
 						tap.gate.hold(0, { kind: "any" })
 						yield* Scope.close(layerScope, Exit.void)
+						assert.equal(session.state(), "ended", "the layer's release ends its session at once")
 						c.note(`released ${standing.kind}`)
 						break
 					}
@@ -333,6 +336,7 @@ const stalledRelease = Effect.gen(function* () {
 						)
 						yield* Effect.raceFirst(tap.gate.holding, Effect.asVoid(Fiber.await(call)))
 						yield* Scope.close(layerScope, Exit.void)
+						assert.equal(session.state(), "ended", "the layer's release ends its session at once")
 						const exit = yield* Fiber.await(call)
 						if (Exit.isSuccess(exit)) {
 							assert.deepEqual(
