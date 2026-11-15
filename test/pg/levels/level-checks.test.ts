@@ -55,7 +55,7 @@
  * @plant test/plants/pg/levels/levelcheck-own-dropped.patch A lower login's own checks go unnamed when a level's check
  * refused the row (runtime/write/witness.ts aboveJudgement); the logins property finds the author's refusal without
  * its own checks beside Media's.
- * @plant test/plants/pg/levels/levelcheck-refused.patch A row check over a lower relation refused as LevelRefused
+ * @plant test/plants/unit/schema/levelcheck-refused.patch A row check over a lower relation refused as LevelRefused
  * (schema/own.ts checkLevels); the logins property's schema no longer compiles.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
