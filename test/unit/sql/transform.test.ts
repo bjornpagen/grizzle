@@ -7,7 +7,7 @@
  * Oracle: the identity law of a traversal that changes nothing, and the visitor's leaves in order (a second
  * traversal). Features: every statement kind.
  *
- * Plant, failing the search: every mapped list rebuilt, changed or not (transform-list-rebuilt).
+ * @plant test/plants/unit/sql/transform-list-rebuilt.patch Every mapped list is rebuilt, changed or not; the identity law fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

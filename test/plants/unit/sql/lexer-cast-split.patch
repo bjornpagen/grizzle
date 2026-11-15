@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/sql/lexer.ts b/packages/engine/src/sql/lexer.ts
+index d8672950..841e034d 100644
+--- a/packages/engine/src/sql/lexer.ts
++++ b/packages/engine/src/sql/lexer.ts
+@@ -577,9 +577,7 @@ const operatorAt = (text: string, i: number): Step => {
+ 
+ /** The punctuation of two code units at `i`: `::`, `..` and `:=`, or undefined for none. */
+ const pairPunctuation = (c: number, next: number): string | undefined =>
+-	c === colon && next === colon
+-		? "::"
+-		: c === dot && next === dot
++	c === dot && next === dot
+ 			? ".."
+ 			: c === colon && next === equals
+ 				? ":="

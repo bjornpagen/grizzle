@@ -1,0 +1,13 @@
+diff --git a/test/support/oracle/verify/sql.ts b/test/support/oracle/verify/sql.ts
+index 31c2db97..48746aaa 100644
+--- a/test/support/oracle/verify/sql.ts
++++ b/test/support/oracle/verify/sql.ts
+@@ -615,7 +615,7 @@ class StatementAuditor {
+ 					return
+ 				}
+ 				const bounds = integerBounds[builtin]
+-				if (bounds !== undefined && (value.value < bounds[0] || value.value > bounds[1])) {
++				if (bounds !== undefined && (value.value < bounds[0] || value.value > bounds[1] + 1n)) {
+ 					this.report("literal", `${value.value} is outside the range of ${builtin}`)
+ 				}
+ 				return

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/insert/protocol.ts b/packages/engine/src/write/insert/protocol.ts
+index 9dd2898a..bf0226d9 100644
+--- a/packages/engine/src/write/insert/protocol.ts
++++ b/packages/engine/src/write/insert/protocol.ts
+@@ -858,7 +858,7 @@ export const buildInsert = (
+ 				provedCore(
+ 					"keyed",
+ 					[
+-						...outFields.map((f) => targetAs(requested(f), retCol(f))),
++						...outFields.map((f) => target(requested(f))),
+ 						targetAs(integer(verdictClass.raised), cv),
+ 						targetAs(lit.bool(true), c9),
+ 						...zero

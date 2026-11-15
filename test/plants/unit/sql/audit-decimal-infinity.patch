@@ -1,0 +1,14 @@
+diff --git a/test/support/oracle/verify/sql.ts b/test/support/oracle/verify/sql.ts
+index 31c2db97..ec5f162c 100644
+--- a/test/support/oracle/verify/sql.ts
++++ b/test/support/oracle/verify/sql.ts
+@@ -624,8 +624,7 @@ class StatementAuditor {
+ 				if (
+ 					!isDecimalText(value.value) &&
+ 					value.value !== "NaN" &&
+-					value.value !== "Infinity" &&
+-					value.value !== "-Infinity"
++					value.value !== "Infinity"
+ 				) {
+ 					this.report("literal", `"${value.value}" is not an exact decimal`)
+ 				}

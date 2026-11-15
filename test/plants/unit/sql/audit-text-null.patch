@@ -1,0 +1,14 @@
+diff --git a/test/support/oracle/verify/sql.ts b/test/support/oracle/verify/sql.ts
+index 31c2db97..6739f881 100644
+--- a/test/support/oracle/verify/sql.ts
++++ b/test/support/oracle/verify/sql.ts
+@@ -3581,9 +3581,6 @@ class TextAuditor {
+ 		const next = tokens[i + 1]
+ 		switch (t.upper) {
+ 			case "NULL":
+-				if (!isColumnNotNull(tokens, depths, i, shape) && !isDomainNullTest(tokens, i, shape)) {
+-					this.report("null", t.start, "NULL")
+-				}
+ 				return cases
+ 			case "COLLATE":
+ 				if (!isCUtf8Name(tokens, i + 1)) {

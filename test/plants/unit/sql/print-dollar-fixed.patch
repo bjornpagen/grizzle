@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index 1c1e6cab..01bf5ffe 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -1559,7 +1559,7 @@ const dollarQuoteTag = (body: ReadonlyArray<string>): string => {
+ const dollarQuoted = (out: Lines, opener: "AS" | "DO", block: PlBlock): void => {
+ 	const body: Array<string> = []
+ 	plBlock(new BlockLines(body, sqlUnit, ""), block)
+-	const tag = dollarQuoteTag(body)
++	const tag = "$$"
+ 	out.line(`${opener} ${tag}`)
+ 	for (const line of body) {
+ 		out.line(line)

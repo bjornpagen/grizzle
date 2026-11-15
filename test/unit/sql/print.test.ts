@@ -16,10 +16,13 @@
  * Features: each width a block is wide at, and a split; each dollar tag; each commentable and each line break; each
  * class of double.
  *
- * Plants, each failing its search: a statement list read through one call's arguments (print-statements-spread); every
- * body quoted under $$ (print-dollar-fixed); a commented line's carriage returns left live (commented-carriage-return);
- * a quoted name's quotes left undoubled (quote-ident-undoubled); a float literal printed to fifteen digits
- * (float-literal-precision).
+ * @plant test/plants/unit/sql/print-statements-spread.patch A block's statement list is read through one call's arguments; the width
+ * search fails at a list wider than the argument limit.
+ * @plant test/plants/unit/sql/print-dollar-fixed.patch Every body is quoted under $$; the dollar quoting search fails.
+ * @plant test/plants/unit/sql/commented-carriage-return.patch A commented line's carriage returns are left live (core/lines.ts); the
+ * commented alternative's search fails.
+ * @plant test/plants/unit/sql/quote-ident-undoubled.patch A quoted name's quotes are left undoubled; the quoted identifier search fails.
+ * @plant test/plants/unit/sql/float-literal-precision.patch A float literal is printed to fifteen digits; the float literal search fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

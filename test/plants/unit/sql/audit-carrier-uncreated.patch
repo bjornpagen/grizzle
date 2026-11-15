@@ -1,0 +1,12 @@
+diff --git a/test/support/oracle/verify/sql.ts b/test/support/oracle/verify/sql.ts
+index 31c2db97..5edc0c9e 100644
+--- a/test/support/oracle/verify/sql.ts
++++ b/test/support/oracle/verify/sql.ts
+@@ -3118,6 +3118,7 @@ export const auditCarrierProgramViolations = (
+ 			continue
+ 		}
+ 		for (const name of statement.carriers) {
++			created.add(name)
+ 			if (!created.has(name)) {
+ 				violations.push({
+ 					rule: "context",

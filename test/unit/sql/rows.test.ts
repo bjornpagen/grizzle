@@ -14,9 +14,11 @@
  * Oracle: each rule restated apart from the audit (needsSet, repeats and the shapes' own statements), a second
  * implementation. Features: a GROUP BY expression a target and one no target.
  *
- * Plants, each failing its search: a certified core admitted over rows that may repeat (rows-certified-operand); any
- * bound read as keeping one of equal rows (rows-any-limit); every core read as one row (rows-one-row-any); every grouped
- * core read as one row a group (rows-groups-any).
+ * @plant test/plants/unit/sql/rows-certified-operand.patch A certified core is admitted over rows that may repeat; the derived table
+ * rule fails.
+ * @plant test/plants/unit/sql/rows-any-limit.patch Any bound is read as keeping one of equal rows; the bound rule fails.
+ * @plant test/plants/unit/sql/rows-one-row-any.patch Every core is read as one row by its shape; the one-row rule fails.
+ * @plant test/plants/unit/sql/rows-groups-any.patch Every grouped core is read as one row a group; the groups rule fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { noCoverage, requiredInSpace } from "@bjornpagen/testing/features"

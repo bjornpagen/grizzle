@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/lexer.ts b/packages/engine/src/sql/lexer.ts
+index d8672950..19d27226 100644
+--- a/packages/engine/src/sql/lexer.ts
++++ b/packages/engine/src/sql/lexer.ts
+@@ -690,7 +690,7 @@ const afterIdentifier = (statement: Statement, upper: string): Statement =>
+ 
+ /** Whether a semicolon ends the statement: no parenthesis and no block of a routine is open. */
+ const ends = (statement: Statement): boolean =>
+-	statement.parens === 0 && (statement.opening.kind !== "routine" || statement.opening.blocks === 0)
++	statement.opening.kind !== "routine" || statement.opening.blocks === 0
+ 
+ /** A lexeme psql's scanner reads, and the statement it stands in after it. */
+ interface Read {

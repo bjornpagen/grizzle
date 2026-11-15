@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/write/family/scan.ts b/packages/engine/src/write/family/scan.ts
+index ffdb51b2..2c474fc4 100644
+--- a/packages/engine/src/write/family/scan.ts
++++ b/packages/engine/src/write/family/scan.ts
+@@ -490,7 +490,7 @@ interface Layer {
+ 
+ /** `layer` as the derived table `alias`, its columns listed as it delivers them. */
+ const over = (layer: Layer, alias: string): FromSource =>
+-	derived(layer.query, alias, layer.columns, false)
++	derived(layer.query, alias, [], false)
+ 
+ /**
+  * One drawn column of a scanned member over the layer `at` below it, which holds `drawn`: its fill rule over the row's

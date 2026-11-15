@@ -1,0 +1,13 @@
+diff --git a/test/support/oracle/verify/rows.ts b/test/support/oracle/verify/rows.ts
+index 8281d565..1a681c72 100644
+--- a/test/support/oracle/verify/rows.ts
++++ b/test/support/oracle/verify/rows.ts
+@@ -146,7 +146,7 @@ const observesRepeats = (c: SelectCore): boolean =>
+  * GROUP BY, one row) or passes on as an operand.
+  */
+ const fromNeed = (c: SelectCore): "set" | "operand" =>
+-	(c.distinct === false && (c.rows === "keyed" || c.rows === "input" || c.rows === "certified")) ||
++	(c.distinct === false && (c.rows === "keyed" || c.rows === "input")) ||
+ 	observesRepeats(c)
+ 		? "set"
+ 		: "operand"

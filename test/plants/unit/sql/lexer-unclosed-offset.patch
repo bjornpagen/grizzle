@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/lexer.ts b/packages/engine/src/sql/lexer.ts
+index d8672950..134f1ea2 100644
+--- a/packages/engine/src/sql/lexer.ts
++++ b/packages/engine/src/sql/lexer.ts
+@@ -177,7 +177,7 @@ const refused = (text: string, start: number, end: number, message: string): Ste
+ })
+ const unclosed = (opener: Opener, offset: number): Step => ({
+ 	kind: "unclosed",
+-	unclosed: { opener, offset }
++	unclosed: { opener, offset: offset + 1 }
+ })
+ 
+ /** The index after the line comment at `from`: its end of line, a line feed or a carriage return, or the text's end. */

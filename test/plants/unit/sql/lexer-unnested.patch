@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/sql/lexer.ts b/packages/engine/src/sql/lexer.ts
+index d8672950..63c1101d 100644
+--- a/packages/engine/src/sql/lexer.ts
++++ b/packages/engine/src/sql/lexer.ts
+@@ -203,10 +203,7 @@ const blockComment = (text: string, i: number): Step => {
+ 	let depth = 1
+ 	let j = i + 2
+ 	while (j < text.length && depth > 0) {
+-		if (at(text, j) === slash && at(text, j + 1) === star) {
+-			depth += 1
+-			j += 2
+-		} else if (at(text, j) === star && at(text, j + 1) === slash) {
++		if (at(text, j) === star && at(text, j + 1) === slash) {
+ 			depth -= 1
+ 			j += 2
+ 		} else {

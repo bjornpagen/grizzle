@@ -9,10 +9,13 @@
  * Oracle: each check restated apart from the audit (test/support/oracle/verify/sql.ts), a second implementation.
  * Features: each integer type within and past its bounds; a typmod valid, past either bound, or without a scale.
  *
- * Plants, each failing its search: an identifier measured in code units (audit-identifier-bytes); a text literal that
- * is not well-formed admitted (audit-text-wellformed); -Infinity refused as a decimal (audit-decimal-infinity); one
- * past an integer type's greatest value admitted (audit-integer-bound); a numeric precision of 0 admitted
- * (audit-precision-zero).
+ * @plant test/plants/unit/sql/audit-identifier-bytes.patch An identifier is measured in code units, not UTF-8 bytes; the identifier
+ * search fails at a name of two-byte letters past 63 bytes and within 63 code units (byteEdgeGen).
+ * @plant test/plants/unit/sql/audit-text-wellformed.patch A text literal that is not well-formed is admitted; the text literal search
+ * fails.
+ * @plant test/plants/unit/sql/audit-decimal-infinity.patch -Infinity is refused as a decimal; the decimal search fails.
+ * @plant test/plants/unit/sql/audit-integer-bound.patch One past an integer type's greatest value is admitted; the integer search fails.
+ * @plant test/plants/unit/sql/audit-precision-zero.patch A numeric precision of 0 is admitted; the typmod search fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, requiredInSpace } from "@bjornpagen/testing/features"
@@ -24,6 +27,7 @@ import { describe, it } from "@effect/vitest"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { exactParts } from "#compiler/core/decimal.ts"
+import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import type { Expr, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	col,
@@ -61,6 +65,17 @@ const unitsGen = (maxLength: number): Gen<string> =>
 	)
 
 const utf8 = (text: string): number => new TextEncoder().encode(text).length
+
+/**
+ * A name around the identifier byte limit, built to its drawn UTF-8 length: two bytes short of the limit to two past
+ * it, of two-byte letters (é) and one-byte ones, the two-byte count drawn too. Each two-byte letter makes the name one
+ * code unit shorter than its bytes, so a name past the limit in bytes and within it in code units is in reach.
+ */
+const byteEdgeGen: Gen<string> = (source) => {
+	const bytes = source.draw(int(maxIdentifierBytes.value - 2, maxIdentifierBytes.value + 2))
+	const twoByte = source.draw(int(0, Math.floor(bytes / 2)))
+	return `${Str.repeat(twoByte)("é")}${Str.repeat(bytes - 2 * twoByte)("a")}`
+}
 
 type IntegerName = "smallint" | "integer" | "bigint"
 
@@ -108,7 +123,7 @@ describe("the audit's checks of values, generated", () => {
 						name: "nonempty, no NUL, well-formed, at most 63 UTF-8 bytes, restated apart from the audit"
 					},
 					suite: "unit/sql/audit-identifiers",
-					draw: drawn(oneOf([unitsGen(8), matching(regex("^[a-zé]{28,36}$"))])),
+					draw: drawn(oneOf([unitsGen(8), byteEdgeGen])),
 					literal: Formatter.format,
 					coverage: noCoverage,
 					kept: [],

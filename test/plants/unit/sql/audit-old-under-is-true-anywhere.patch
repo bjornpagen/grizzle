@@ -1,0 +1,13 @@
+diff --git a/test/support/oracle/verify/sql.ts b/test/support/oracle/verify/sql.ts
+index 31c2db97..54234648 100644
+--- a/test/support/oracle/verify/sql.ts
++++ b/test/support/oracle/verify/sql.ts
+@@ -1789,7 +1789,7 @@ class StatementAuditor {
+ 			{
+ 				...context("query", scope, ctes, plVars),
+ 				returningSides: newSide,
+-				underIsTrue: meetsStoredRow(insert) ? bothSides : undefined
++				underIsTrue: bothSides
+ 			},
+ 			topLevel
+ 		)

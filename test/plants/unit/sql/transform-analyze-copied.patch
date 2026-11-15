@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/transform.ts b/packages/engine/src/sql/transform.ts
+index cb5a1d3d..1d0ab5bd 100644
+--- a/packages/engine/src/sql/transform.ts
++++ b/packages/engine/src/sql/transform.ts
+@@ -1377,7 +1377,7 @@ export class Transform {
+ 				return columns === s.columns ? s : { ...s, columns }
+ 			}
+ 			case "analyze":
+-				return s
++				return { ...s }
+ 			case "alterDatabaseDefault":
+ 			case "alterDefaultPrivileges":
+ 			case "alterDomain":

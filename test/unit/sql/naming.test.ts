@@ -12,7 +12,7 @@
  * Oracle: both SQL audits and the output names PostgreSQL derives (bodyPositionNames), a specification. Features: a
  * core, a set operation, a passthrough arm, a heading of the wrong width. Kept: a UNION of two one-column cores.
  *
- * Plant, failing the search: a set operation's first arm alone renamed (rename-second-arm).
+ * @plant test/plants/unit/sql/rename-second-arm.patch A set operation's first arm alone is renamed; the search fails.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
