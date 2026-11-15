@@ -8,9 +8,8 @@
  * Oracle: the specification, the host model of the family's laws (test/support/laws/model.ts) as a serial reference.
  * Timing is a drawn input: a race of few moves runs every order, a longer one a PCT schedule drawn on the case's tape.
  * Features: each population's required situations (its threats, writers, put forms, planted writers below
- * SERIALIZABLE, its write skew), each paired with its mode. Plant: ~/.cache/grizzle-release/BR09/plants/
- * races-alternatives-no-forward.patch, an alternatives statement expanded to its reverse containments alone, commits
- * an arm row whose parent is of another handle.
+ * SERIALIZABLE, its write skew), each paired with its mode. The test of each family runs this suite and cites the
+ * plants that must turn it red.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required, type Situations } from "@bjornpagen/testing/features"

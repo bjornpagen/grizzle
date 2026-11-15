@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/errors/execution.ts b/packages/grizzle/src/adapter/errors/execution.ts
+index 3ee56b64..9a423839 100644
+--- a/packages/grizzle/src/adapter/errors/execution.ts
++++ b/packages/grizzle/src/adapter/errors/execution.ts
+@@ -263,7 +263,7 @@ export const transientReason = (reason: EngineTransientReason): TransientReason
+  * (serializationRefusal).
+  */
+ const serializableRefusal = (error: ServerError): SerializationFailure | Deadlock | undefined =>
+-	error.sqlstate === sqlstates.serializationFailure
++	error.sqlstate === sqlstates.grizzleConcurrentChange
+ 		? new SerializationFailure()
+ 		: error.sqlstate === sqlstates.deadlockDetected
+ 			? new Deadlock()

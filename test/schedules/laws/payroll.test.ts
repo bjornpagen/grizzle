@@ -20,12 +20,15 @@
  * identical Leave in flight, which commits, so the insert's retry finds the repeat, unchanged.
  *
  * Oracle: the serial reference, timing drawn from the case (every order of the race's moves). Features: the insert
- * waited, and the insert refused. Plant: ~/.cache/grizzle-release/BR09/plants/payroll-race-span-abort-not-transient.patch,
- * a span key's exclusion violation on a constraint the insert lists among its in-flight aborts read as the key's
- * refusal instead of a TransientFailure. Only an interleaving reaches it: the 23P01 is raised by a Leave in flight
- * when the insert's probe ran, which commits while the insert waits, and alone the probe finds the stored Leave
- * instead. So the kept race's insert answers refused where its serial reference, the writer's Leave and then the
- * insert alone, answers unchanged.
+ * waited, and the insert refused. Only an interleaving reaches the kept race's abort: Leave's insert lists no in-flight
+ * abort, and the Leave in flight, which commits while the insert waits at the span key, fails the insert with 40001
+ * (PostgreSQL 19rc2 at SERIALIZABLE), a SerializationFailure the caller runs again; alone, the insert finds the stored
+ * Leave instead.
+ *
+ * @plant test/plants/schedules/laws/payroll-race-span-abort-not-transient.patch SERIALIZABLE's 40001 is read as no
+ * TransientFailure (adapter/errors/execution.ts serializableRefusal matches grizzle's 40Z01 in its place), so the kept
+ * race's insert fails where its serial reference, the writer's Leave and then the insert alone, answers unchanged; the
+ * property fails.
  */
 
 import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
