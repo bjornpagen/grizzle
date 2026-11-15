@@ -246,9 +246,8 @@ const ruleOf = (naming: Naming, law: Law): Rule =>
  * broken rule (qti-pie's p21-sum-as-condition, refused naming the arity too when the count was judged at the empty
  * family's), and a count too low and too high beside a broken rule, each with the arity CHECK tried first under one
  * naming and after under the other; and the re-insert shape the fallback audit found, a stored owner inserted again
- * beside a refused new one, once witnessed by the stored owner judged at an empty family. Planted in a scratch copy, a
- * witness judging the row at its slot's starts, one reading a filled count as unknown while still naming every law, and
- * one judging an owner no read looked up as a new one, each fail the search.
+ * beside a refused new one, once witnessed by the stored owner judged at an empty family. outcomes/witness.test.ts
+ * names the bugs this search must catch.
  */
 export const everyLawSuite = (): void => {
 	layer(Substrate.layer)(

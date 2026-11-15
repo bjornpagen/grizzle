@@ -1,0 +1,26 @@
+diff --git a/packages/engine/src/runtime/write/witness.ts b/packages/engine/src/runtime/write/witness.ts
+index 9b059020..27a83f38 100644
+--- a/packages/engine/src/runtime/write/witness.ts
++++ b/packages/engine/src/runtime/write/witness.ts
+@@ -220,10 +220,8 @@ const hostField = (row: JudgedRow, field: Pick<WitnessField, "name" | "writing">
+ 		case "serial":
+ 			return row.stated[field.name]
+ 		case "drawn":
+-		case "accumulated": {
+-			const column = row.filled(fieldKey(field.name))
+-			return column.kind === "filled" ? column.value : undefined
+-		}
++		case "accumulated":
++			return undefined
+ 		case "retirement":
+ 			return false
+ 		case "generated":
+@@ -826,7 +824,7 @@ const checked = (e: Evaluated): Verdict => {
+ 		case "null":
+ 			return "breaks"
+ 		case "unknown":
+-			return "unjudged"
++			return "holds"
+ 	}
+ }
+ 

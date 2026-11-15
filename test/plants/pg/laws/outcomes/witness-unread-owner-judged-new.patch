@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/write/bind.ts b/packages/engine/src/runtime/write/bind.ts
+index 28e6a87a..e87aa546 100644
+--- a/packages/engine/src/runtime/write/bind.ts
++++ b/packages/engine/src/runtime/write/bind.ts
+@@ -586,7 +586,7 @@ export const bindWrite = (
+ 		const found = foundAt(at, relation, judged, columns, key)
+ 		const empty = found === "fresh" || (found === "unread" && op === "insert")
+ 		return {
+-			kind: found === "unread" && proposal === "unstored" ? "ifFresh" : "known",
++			kind: "known",
+ 			stated,
+ 			filled: (column) => {
+ 				const owned = judged.owned.get(column)
