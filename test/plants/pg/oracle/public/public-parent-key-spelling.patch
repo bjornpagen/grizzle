@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/reader/execution.ts b/packages/grizzle/src/adapter/reader/execution.ts
+index 15a6123c..2109a059 100644
+--- a/packages/grizzle/src/adapter/reader/execution.ts
++++ b/packages/grizzle/src/adapter/reader/execution.ts
+@@ -510,7 +510,7 @@ const attachedOf = (
+ 			record,
+ 			parent: Arr.map(parentKey, (c) => ({
+ 				at: parent.own(c.at),
+-				cell: scalarReader(c.type, codes).cellText
++				cell: (cell: Cell) => String(cell)
+ 			})),
+ 			child: Arr.map(parentKey, (c, at) => ({ at, cell: scalarReader(c.type, codes).cellText }))
+ 		},

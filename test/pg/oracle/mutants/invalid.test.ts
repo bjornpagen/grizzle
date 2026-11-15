@@ -22,9 +22,10 @@
  *
  * Oracle: the specification of each mutant's counterexample, judged on the shrunk kill.
  *
- * Plants: oracle-compare-repeats-unseen (the comparison counts no repeated row, so no duplicate answer shows).
- *
  * Features: each invalid mutant killed.
+ *
+ * @plant test/plants/pg/oracle/mutants/oracle-compare-repeats-unseen.patch The comparison counts no repeated row
+ * (test/support/oracle/compare.ts), so no duplicate answer shows.
  */
 
 import { exhaust } from "@bjornpagen/testing/explore"

@@ -8,9 +8,11 @@
  *
  * Oracle: the type oracle (test/support/oracle/verify/types.ts) over each part as lowered.
  *
- * Plants: oracle-compare-types-ignored (a column type that differs between two sides is no difference).
- *
  * Features: an attachment's part planted, and each part passed.
+ *
+ * @plant test/plants/pg/oracle/optimized/oracle-types-resolved-unjudged.patch The type oracle reports no column whose
+ * type PostgreSQL resolves otherwise than the IR states (test/support/oracle/verify/types.ts typeProblems), so a type
+ * that differs between the two is no difference.
  */
 import { required } from "@bjornpagen/testing/features"
 import { notesOnly } from "@bjornpagen/testing/sense"

@@ -1,0 +1,11 @@
+diff --git a/packages/engine/src/public/text.ts b/packages/engine/src/public/text.ts
+index 75aa8b02..2a4be598 100644
+--- a/packages/engine/src/public/text.ts
++++ b/packages/engine/src/public/text.ts
+@@ -112,5 +112,5 @@ export const keyTextBytes = (fields: ReadonlyArray<FieldBase>): number => {
+ 			fault: room.error
+ 		})
+ 	}
+-	return room.value
++	return room.value + 1
+ }

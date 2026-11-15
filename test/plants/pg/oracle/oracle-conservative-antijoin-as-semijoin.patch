@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/anti-join/index.ts b/packages/engine/src/lower/conservative/anti-join/index.ts
+index 98eeba61..ee843f94 100644
+--- a/packages/engine/src/lower/conservative/anti-join/index.ts
++++ b/packages/engine/src/lower/conservative/anti-join/index.ts
+@@ -11,7 +11,7 @@ import { existenceTest } from "#compiler/lower/conservative/semi-join/exists.ts"
+  * NOT NULL, so the correlation is two-valued and NOT EXISTS is exactly the anti-join.
+  */
+ const lowerAntiJoin: NodeLowerer<"AntiJoin"> = (node, cx, env) =>
+-	existenceTest(cx, env, node, nodeLabel(node), true)
++	existenceTest(cx, env, node, nodeLabel(node), false)
+ 
+ /** This kind's entry of the conservative kind table (dispatch.ts). */
+ export const antiJoinLowering: Lowerers<"AntiJoin"> = { AntiJoin: lowerAntiJoin }

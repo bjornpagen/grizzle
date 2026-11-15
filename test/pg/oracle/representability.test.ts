@@ -19,9 +19,10 @@
  *
  * Oracle: PostgreSQL itself, the B-tree item limit (54000) of the key's unique index.
  *
- * Plants: oracle-representability-utf8-three (the byte bound counts three bytes a code point).
- *
  * Features: a key the compiler accepts, and one sized within a word of the item limit.
+ *
+ * @plant test/plants/pg/oracle/oracle-representability-utf8-three.patch The byte bound counts three bytes a code point
+ * (schema/representability.ts utf8MaxBytes).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

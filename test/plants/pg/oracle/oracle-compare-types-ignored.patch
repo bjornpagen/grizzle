@@ -1,0 +1,12 @@
+diff --git a/test/support/oracle/compare.ts b/test/support/oracle/compare.ts
+index e277b8d5..7158cf3f 100644
+--- a/test/support/oracle/compare.ts
++++ b/test/support/oracle/compare.ts
+@@ -453,7 +453,6 @@ export const compareRead = (left: ReadRun, right: ReadRun): Comparison => {
+ 			})
+ 			continue
+ 		}
+-		appendAll(structural, typeDifferences(l.statement, r.statement))
+ 		const unstated = new Set([...unstatedColumns(l.statement), ...unstatedColumns(r.statement)])
+ 		const stated = (column: string) => !unstated.has(column)
+ 		const lp = projectOnto(l, stated)

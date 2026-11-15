@@ -7,15 +7,26 @@
  * Each case draws the key's other fields, uuid, natural, integer, smallint, boolean and a closed id, the order of the
  * key, the text among them, and the text's code points: ASCII, two-byte, CJK and astral, drawn apart enough that no
  * compression shortens them, the last code point of each value of a drawn width, so the bound is met at a multibyte
- * boundary. Where every other field of the key comes before the text and lays out with the widest padding the budget
- * counts (each of alignment one, the text aligned past an odd offset), the budget is exactly the most the entry holds,
- * so a budget one byte too large fails the insert there.
+ * boundary.
+ *
+ * The budget is the room in the worst entry grizzle may plan over the key's columns: one that carries the null bitmap
+ * of an index whose hidden law column holds NULL (schema/representability.ts textBytesBeside). The key's own primary
+ * key holds no nullable column, so its entry has no bitmap and the budget leaves it eight bytes, the bitmap's MAXALIGNed
+ * share, by design. So each case also writes its row at the budget into an entry that does carry the bitmap: a
+ * temporary copy of the table, its columns' types and NOT NULLs, with a nullable column left NULL last in a unique
+ * index over the key's columns, rolled back. Where every other field of the key comes before the text and lays out
+ * with the widest padding the budget counts (each of alignment one, the text aligned past an odd offset), that entry is
+ * exactly the most the B-tree holds, so a budget one byte too large fails the insert there (54000). The generator
+ * builds that layout on purpose, beside its free draws.
  *
  * Oracle: PostgreSQL itself, its B-tree item limit (54000) and the contract domain's CHECK (23514).
  *
- * Plants: oracle-key-text-bytes-one-over (keyTextBytes allows one byte past the room the companions leave).
+ * Features: the text's place in the key, a closed id beside it, the width of the bounding code point, and the tight
+ * budget, met in the entry that carries the null bitmap.
  *
- * Features: the text's place in the key, a closed id beside it, and the width of the bounding code point.
+ * @plant test/plants/pg/oracle/oracle-key-text-bytes-one-over.patch keyTextBytes allows one byte past the room the
+ * companions leave (public/text.ts), so the tight case's entry that carries the null bitmap overflows the B-tree item
+ * limit (54000).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -165,13 +176,45 @@ const companionGen: Gen<Companion> = weighted<Companion>([
 	[2, element<Companion>(["natural", "integer", "smallint", "closedId"])]
 ])
 
+/** The key's other fields, and whether the text stands last in the key. */
+interface Fields {
+	readonly companions: Arr.NonEmptyReadonlyArray<Companion>
+	readonly textLast: boolean
+}
+
+/** One to five companions of any type, the text last or anywhere. */
+const freeFieldsGen: Gen<Fields> = (source) => {
+	const companions = source.draw(array(companionGen, { min: 1, max: 5 }))
+	const first = defined(companions[0], "a companion")
+	return { companions: [first, ...Arr.drop(companions, 1)], textLast: source.draw(boolean) }
+}
+
+/**
+ * The tight layout (`tight`), by construction: the text last, after uuids and booleans, one or five booleans, so the
+ * text starts one past a multiple of four and its own padding is the widest, three bytes.
+ */
+const tightFieldsGen: Gen<Fields> = (source) => {
+	const booleans = source.draw(element([1, 5]))
+	const uuids = source.draw(int(0, 5 - booleans))
+	return {
+		companions: [
+			"boolean",
+			...Array.from({ length: booleans - 1 }, (): Companion => "boolean"),
+			...Array.from({ length: uuids }, (): Companion => "uuid")
+		],
+		textLast: true
+	}
+}
+
 const widthGen: Gen<Width> = element<Width>([1, 2, 3, 4])
 
 const caseGen: Gen<KeyCase> = (source) => {
-	const companions = source.draw(array(companionGen, { min: 1, max: 5 }))
-	const first = defined(companions[0], "a companion")
-	const all: Arr.NonEmptyReadonlyArray<Companion> = [first, ...Arr.drop(companions, 1)]
-	const textLast = source.draw(boolean)
+	const { companions: all, textLast } = source.draw(
+		weighted<Fields>([
+			[3, freeFieldsGen],
+			[1, tightFieldsGen]
+		])
+	)
 	const ranked = Arr.map(indices(all.length + 1), (position) => ({
 		position,
 		rank: textLast && position === all.length ? 0x10000 : source.draw(int(0, 0xffff))
@@ -199,16 +242,17 @@ const textPosition = (c: KeyCase): number =>
 	)
 
 /**
- * Whether the budget is exactly the most the entry holds in this order: the text last, after companions that each
- * align to one byte and so pad nothing, ending at an offset one past a multiple of four, so the text's own padding is
- * the widest, three bytes.
+ * Whether the budget is exactly the most an entry that carries the null bitmap holds in this order: the text last,
+ * after companions that each align to one byte and so pad nothing, from the entry's data offset, its 8-byte header and
+ * its null bitmap MAXALIGNed to 16, ending at an offset one past a multiple of four, so the text's own padding is the
+ * widest, three bytes.
  */
 const tight = (c: KeyCase): boolean => {
 	const textAt = textPosition(c)
 	const before = Arr.map(Arr.take(c.order, textAt), (p) => defined(c.companions[p], "a companion"))
 	const end = Arr.reduce(
 		before,
-		8,
+		16,
 		(o, comp) => o + (comp === "uuid" ? 16 : comp === "boolean" ? 1 : 0)
 	)
 	return (
@@ -250,6 +294,7 @@ layer(Substrate.layer)(
 									"text first",
 									"text last",
 									"text between",
+									"tight budget",
 									"a closed id beside it",
 									"last code point of 1 bytes",
 									"last code point of 2 bytes",
@@ -337,6 +382,29 @@ layer(Substrate.layer)(
 									stored._tag,
 									"Success",
 									`a text of ${budget} bytes beside ${Formatter.format(c.companions)} in key order ${Formatter.format(key)} is stored: ${stored._tag === "Failure" ? Formatter.format(pgErrorFields(stored.failure)) : ""}`
+								)
+								const probeIndex = Arr.join(
+									[...Arr.map(key, (n) => quoteIdent(installed.names.column("Keyed", n))), "unset"],
+									", "
+								)
+								yield* session.query("BEGIN", [])
+								yield* session.query(
+									`CREATE TEMPORARY TABLE key_text_probe (LIKE ${table}) ON COMMIT DROP`,
+									[]
+								)
+								yield* session.query("ALTER TABLE key_text_probe ADD COLUMN unset boolean", [])
+								yield* session.query(`CREATE UNIQUE INDEX ON key_text_probe (${probeIndex})`, [])
+								const probed = yield* Effect.result(
+									session.query(
+										`INSERT INTO key_text_probe (${columns}) VALUES (${values(atBudget)})`,
+										[]
+									)
+								)
+								yield* session.query("ROLLBACK", [])
+								assert.equal(
+									probed._tag,
+									"Success",
+									`a text of ${budget} bytes beside ${Formatter.format(c.companions)} and a NULL, in key order ${Formatter.format(key)}, is stored in an entry that carries the null bitmap: ${probed._tag === "Failure" ? Formatter.format(pgErrorFields(probed.failure)) : ""}`
 								)
 								const past = textOf(budget + 1, c.widths, c.last, c.salt + 1)
 								assert.equal(

@@ -1,0 +1,13 @@
+diff --git a/test/support/oracle/verify/types.ts b/test/support/oracle/verify/types.ts
+index 32b30385..29e323a1 100644
+--- a/test/support/oracle/verify/types.ts
++++ b/test/support/oracle/verify/types.ts
+@@ -204,7 +204,7 @@ export const typeProblems = (
+ 			if (row["found"] !== true) {
+ 				return [`${probe.judged.where} column ${column.name}: no column of the view at ${n}`]
+ 			}
+-			return row["admitted"] === true
++			return row["admitted"] === true || row["resolved"] !== row["claimed"]
+ 				? []
+ 				: [
+ 						`${probe.judged.where} column ${column.name}: PostgreSQL resolves ${String(row["resolved"])}, the IR states ${String(row["claimed"])}`
