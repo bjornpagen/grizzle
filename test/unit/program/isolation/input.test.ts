@@ -31,8 +31,8 @@
  * Features: an immutable and a mutable owner's family, an immutable tree, a role with no change member, a member of
  * several variants, a relation some trigger law reads, a member's reference to its owner.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): isolation-input-counted-mutable, a counted group given for a mutable
- * owner's family too.
+ * @plant test/plants/unit/program/isolation/isolation-input-counted-mutable.patch A counted group is given for a
+ * mutable owner's family too.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

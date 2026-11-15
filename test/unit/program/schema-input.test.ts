@@ -89,11 +89,13 @@ import { upTo } from "#test/support/up-to.ts"
  * Features: the schema itself, a level, no level; each pair of inputs; a rename to each kind of name, each change of
  * content; a live schema and each decoder rule broken.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): schema-input-level-by-relation-names, a level compared by its
- * relations' names alone; schema-input-decoder-pathless, a decoder refusal at the root of the value.
- *
- * The refusal a compilation answers, which a case must reach: its reason and location.
+ * @plant test/plants/unit/program/schema-input-level-by-relation-names.patch A level is compared by its relations'
+ * names alone.
+ * @plant test/plants/unit/program/schema-input-decoder-pathless.patch A decoder refusal is placed at the root of the
+ * value, with no path.
  */
+
+/** The refusal a compilation answers, which a case must reach: its reason and location. */
 const refusal = <A>(result: Result.Result<A, CompileError>, what: string): CompileError => {
 	if (result.ok) {
 		throw new Error(`${what} succeeded`)

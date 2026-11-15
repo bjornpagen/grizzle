@@ -28,8 +28,8 @@ import { printCase } from "#test/support/oracle/public/print.ts"
  *
  * Features: a read compiled; a read compiled again after another read.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): recompile-name-supply-shared, a count one compilation leaves behind
- * for the next, spelled into its statements.
+ * @plant test/plants/unit/program/recompile-name-supply-shared.patch A count one compilation leaves behind for the
+ * next, spelled into its statements: every name supply starts its relations past the supplies made before it.
  */
 const request: ExecutionRequest = {
 	context: "snapshot",

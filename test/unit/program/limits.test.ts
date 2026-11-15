@@ -49,7 +49,10 @@ import { upTo } from "#test/support/up-to.ts"
  *
  * Features: each limit within, at and past; a short literal and one past 2 MiB.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): limits-table-columns-off-by-one, limits-params-unbounded.
+ * @plant test/plants/unit/program/limits-table-columns-off-by-one.patch A table of one column past tableMaxColumns is
+ * admitted.
+ * @plant test/plants/unit/program/limits-params-unbounded.patch A statement's placeholders are bounded by nothing, so
+ * one past statementMaxParams prints.
  */
 
 /** The bound of a ResourceBound refusal; any other refusal fails the test. */

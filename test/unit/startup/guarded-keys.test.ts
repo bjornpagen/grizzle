@@ -25,9 +25,10 @@
  *
  * The boxes are exhausted: h of 1 and 2, so k of 2, 4, 6 and of 4, 8, 12; and r from 20 to 40 by tens.
  *
- * Plants (~/.cache/grizzle-release/BR07/plants): guarded-keys-encode-pairs.patch (guards compared by encoding both)
- * turns the first property red; install-order-quadratic.patch (every two ready objects compared at each pop) the
- * second.
+ * @plant test/plants/unit/startup/guarded-keys-encode-pairs.patch Two guards are compared by encoding both; the
+ * encoding property fails.
+ * @plant test/plants/unit/startup/install-order-quadratic.patch Each pop compares every ready object, a scan in place of
+ * the heap's sink; the install order's bound fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { noCoverage } from "@bjornpagen/testing/features"

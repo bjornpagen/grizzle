@@ -24,7 +24,8 @@ import { Sp } from "#test/unit/workload/fixtures.ts"
  *
  * Features: a partial mask, the full mask.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): atoms-allen-unspanned, an Allen comparison yielding no span atom.
+ * @plant test/plants/unit/workload/atoms-allen-unspanned.patch An Allen comparison yields no span atom: range_overlaps
+ * is no span operator.
  */
 
 /** The atoms of every Filter a query checks to. */

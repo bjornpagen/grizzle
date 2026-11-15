@@ -1,0 +1,25 @@
+diff --git a/packages/engine/src/laws/model/uniques.ts b/packages/engine/src/laws/model/uniques.ts
+index f2c346cb..3f12705c 100644
+--- a/packages/engine/src/laws/model/uniques.ts
++++ b/packages/engine/src/laws/model/uniques.ts
+@@ -1,5 +1,5 @@
+ import { appendAll } from "#compiler/core/array.ts"
+-import { Refusal } from "#compiler/core/canonical.ts"
++import { encode, everyProperty, Refusal } from "#compiler/core/canonical.ts"
+ import { unsupported } from "#compiler/core/errors.ts"
+ import { identifierOf } from "#compiler/core/identity.ts"
+ import type { ColumnIdent, ConstraintName, LawId, NodeId } from "#compiler/core/ids.ts"
+@@ -49,8 +49,11 @@ export interface UniqueGuard extends RowGuard {
+  * (ir/dag.ts renamedPast), so one label names one predicate in a model: two guards are one exactly when their labels
+  * are, the comparison of their predicates' canonical texts, which spell their labels, that it replaces.
+  */
+-const sameGuard = (a: UniqueGuard, b: UniqueGuard): boolean =>
+-	a.relation === b.relation && a.predicate.id === b.predicate.id
++const sameGuard = (a: UniqueGuard, b: UniqueGuard): boolean => {
++	const x = encode(a.predicate, everyProperty)
++	const y = encode(b.predicate, everyProperty)
++	return a.relation === b.relation && x.ok && y.ok && x.value === y.value
++}
+ 
+ /** A unique object: the handles of the fields two facts must share to conflict, in the object's order, and for a
+  * UNIQUE over law columns (`guarded`) the guards both facts must meet, its columns' guards' conjuncts, for a span object

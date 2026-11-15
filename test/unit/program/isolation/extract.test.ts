@@ -73,8 +73,9 @@
  * rows that skip their proposed CTE, an ON CONFLICT with no target arbitrating one object alone, and a probe's
  * equalities dropped.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): extract-not-exists-positive, extract-except-unflipped (two of the
- * scratch-copy plants above, as patches).
+ * @plant test/plants/unit/program/isolation/extract-not-exists-positive.patch NOT EXISTS is read as positive.
+ * @plant test/plants/unit/program/isolation/extract-except-unflipped.patch An EXCEPT arm after the first keeps its
+ * polarity, unflipped.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -13,8 +13,7 @@
  * every digest, law identity and snapshot of the guard reads, holds the same characters at both sizes. Features: each
  * atom, a disjunction, a roster of one handle and one of thousands.
  *
- * Plant: ~/.cache/grizzle-release/BR07/plants/roster-encoding-size.patch (a roster's canonical form carrying its
- * handle count) turns the property red.
+ * @plant test/plants/unit/startup/roster-encoding-size.patch A roster's canonical form carries its handle count.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

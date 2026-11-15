@@ -35,7 +35,7 @@ import { regex } from "arkregex"
  *
  * Features: a program under two names, a path several programs request, statistics several programs request.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): extract-merge-first-kinds, a merged request keeping its first
+ * @plant test/plants/unit/workload/extract-merge-first-kinds.patch A merged statistics request keeps its first
  * request's kinds alone.
  */
 

@@ -1,0 +1,21 @@
+diff --git a/packages/engine/src/program/describe.ts b/packages/engine/src/program/describe.ts
+index af16148a..64e20376 100644
+--- a/packages/engine/src/program/describe.ts
++++ b/packages/engine/src/program/describe.ts
+@@ -43,6 +43,8 @@ const ownedOf = (input: SchemaInput): Result.Result<Owned, CompileError> => {
+ 	}
+ }
+ 
++let lowerings = 0
++
+ /** The entry point compiles for the snapshot context, before any admission, read as rows, under a fresh installation's
+  * codes of the schema's rosters (ir/codes.ts firstCodebook). */
+ export const lowerQuery = (query: unknown): Result.Result<LoweredProgram, CompileError> => {
+@@ -74,6 +76,6 @@ export const lowerQuery = (query: unknown): Result.Result<LoweredProgram, Compil
+ 		return template
+ 	}
+ 	return Result.ok(
+-		Object.freeze({ statements: Object.freeze(template.value.optimized.map((s) => s.sql)) })
++		Object.freeze({ statements: Object.freeze(template.value.optimized.map((s) => `${s.sql} -- ${++lowerings}`)) })
+ 	)
+ }

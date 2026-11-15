@@ -124,8 +124,10 @@ import { outputText } from "#test/support/wire.ts"
  * and a nested key removed, refused; a rebuilt query, and a rebuilt arm beside a typed arm, refused; each heading group
  * of a mixed root decoded.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): delivered-option-unchecked, an Option delivery bound over layouts
- * that may hold many children; delivered-missing-key-skipped, a record key its layout lacks read as absent.
+ * @plant test/plants/unit/program/delivered-option-unchecked.patch An Option delivery is bound over layouts that may
+ * hold many children.
+ * @plant test/plants/unit/program/delivered-missing-key-skipped.patch A record key its layout lacks is read as absent,
+ * not refused at bind.
  */
 type QueryRead = Extract<ProgramRead, { readonly kind: "query" }>
 

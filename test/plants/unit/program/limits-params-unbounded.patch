@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index 1c1e6cab..fdbe9fa6 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -2408,7 +2408,7 @@ export const statementText = (at: SourceLoc, write: (out: Lines) => void): strin
+ /** Refuses (ResourceBound, statementParams) a statement that binds more parameters than a Bind message counts. */
+ const boundParams = (statement: SqlStatement): void => {
+ 	const params = statementParams(statement)
+-	if (params > statementMaxParams.value) {
++	if (params > Number.MAX_SAFE_INTEGER) {
+ 		throw new Refusal(
+ 			resourceBound(statementTextLoc, {
+ 				kind: "statementParams",

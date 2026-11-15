@@ -23,6 +23,8 @@
  * @plant test/plants/unit/physical/indexes-unique-created.patch A created index is unique.
  * @plant test/plants/unit/physical/indexes-name-without-method.patch An index is named as a B-tree whatever its
  * method.
+ * @plant test/plants/unit/physical/install-request-order.patch The engine plans its requests in the order they arrive,
+ * not in their canonical order (indexes/engine.ts planIndexes); the arrival-order invariance fails.
  */
 import { explore, type Kept, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

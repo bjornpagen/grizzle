@@ -1,0 +1,18 @@
+diff --git a/packages/engine/src/physical/install/plan.ts b/packages/engine/src/physical/install/plan.ts
+index 39c492e2..bc6c8fac 100644
+--- a/packages/engine/src/physical/install/plan.ts
++++ b/packages/engine/src/physical/install/plan.ts
+@@ -122,8 +122,11 @@ export const installBasis = (
+ 	codes: Codebook,
+ 	slice: Slice
+ ): Result.Result<InstallBasis, CompileError> =>
+-	Result.flatMap(compileLaws(owned, slice, { kind: "planned" }), (model) =>
+-		basisOver(owned, codes, model)
++	Result.flatMap(
++		Result.flatMap(compileLaws(owned, slice, { kind: "planned" }), () =>
++			compileLaws(owned, slice, { kind: "planned" })
++		),
++		(model) => basisOver(owned, codes, model)
+ 	)
+ 
+ /** The basis of the law oracle's conservative installation of `owned` (install/compile.ts conservativeInstallation):

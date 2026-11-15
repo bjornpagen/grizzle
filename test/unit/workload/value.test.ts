@@ -65,7 +65,7 @@ import { regex } from "arkregex"
  * Features: a query and a ChangeSet program, an extension's workload, an empty workload; renamed; named; every
  * signature situation (SignatureFeature); each unreadable site and wild kind.
  *
- * Plant (~/.cache/grizzle-release/BR02/plants): workload-signature-list-admitted, a programs list admitted as a record.
+ * @plant test/plants/unit/workload/workload-signature-list-admitted.patch A programs list is admitted as a record.
  */
 
 type Kind = "query" | "changeSet"

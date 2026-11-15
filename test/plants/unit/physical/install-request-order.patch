@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/physical/indexes/engine.ts b/packages/engine/src/physical/indexes/engine.ts
+index cbe39228..b9f6a951 100644
+--- a/packages/engine/src/physical/indexes/engine.ts
++++ b/packages/engine/src/physical/indexes/engine.ts
+@@ -963,7 +963,6 @@ export const planIndexes = (
+ 					}
+ 				]
+ 			})
+-			.toSorted(canonical)
+ 		/** The candidates and the plan's requests of each relation, in their order: an index serves only its own
+ 		 * relation's requests (serves), so each request reads its relation's alone, and the plan, ordered by relation
+ 		 * first (canonical), is walked relation by relation in its own order. */

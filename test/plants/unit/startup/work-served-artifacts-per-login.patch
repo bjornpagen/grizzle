@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/cli/generate.ts b/packages/grizzle/src/cli/generate.ts
+index b5493353..f3e736e1 100644
+--- a/packages/grizzle/src/cli/generate.ts
++++ b/packages/grizzle/src/cli/generate.ts
+@@ -342,7 +342,7 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
+ 	const served = yield* Effect.forEach(logins, (l) =>
+ 		Effect.flatMap(
+ 			sameLevel(l.login.base.content, configured.built.content)
+-				? Effect.succeed(servedArtifacts)
++				? Effect.mapError(fromEngine(artifactsOver(basis, params)), refusedAt("workload"))
+ 				: Effect.mapBoth(
+ 						fromEngine(
+ 							artifactsUnder(l.owned.base, codes, derived, everySlice(l.owned.base), params)

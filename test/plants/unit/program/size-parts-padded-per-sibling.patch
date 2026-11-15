@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/parts.ts b/packages/engine/src/lower/parts.ts
+index 9eac5b15..58731645 100644
+--- a/packages/engine/src/lower/parts.ts
++++ b/packages/engine/src/lower/parts.ts
+@@ -127,7 +127,7 @@ export const taggedParts = (
+ 		0
+ 	)
+ 	const arms = mapNonEmpty(parts, (p, at): SetCore => {
+-		const padding: ReadonlyArray<Expr> = Array.from({ length: width - p.columns.length }, () =>
++		const padding: ReadonlyArray<Expr> = Array.from({ length: width - p.columns.length + parts.length }, () =>
+ 			lit.text("", types.text)
+ 		)
+ 		return provedCore(

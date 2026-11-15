@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/program/laws.ts b/packages/engine/src/program/laws.ts
+index 4b9e56a6..5509723c 100644
+--- a/packages/engine/src/program/laws.ts
++++ b/packages/engine/src/program/laws.ts
+@@ -123,7 +123,7 @@ const schemaLaws = (model: LawModel): SchemaLaws => {
+  * compiles the schema's laws.
+  */
+ export const lawsOf = (schema: AnySchema): ReadonlyArray<OwnLaw> =>
+-	Object.freeze(schemaLaws(lawModelOf(schema, "lawsOf")).laws.map((l) => l.law))
++	Object.freeze(schemaLaws(lawModelOf(schema, "lawsOf")).laws.slice(1).map((l) => l.law))
+ 
+ /**
+  * lawIdsOf(schema): every law lawsOf(schema) lists, in its order, each with its identity (types/changeset

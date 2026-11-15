@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/shape.ts b/packages/engine/src/ir/shape.ts
+index a0d10a9f..421ed769 100644
+--- a/packages/engine/src/ir/shape.ts
++++ b/packages/engine/src/ir/shape.ts
+@@ -317,7 +317,7 @@ const decodeOn = <A>(step: () => Step<A>, path: DecodePath): Result.Result<A, Co
+ 	} catch (caught) {
+ 		if (caught === unwinding) {
+ 			const refused = path.taken()
+-			return Result.err(malformedAt(path.subject, keysTo(refused.place), refused.capability))
++			return Result.err(malformedAt(path.subject, [], refused.capability))
+ 		}
+ 		if (caught instanceof Refusal) {
+ 			return Result.err(caught.error)

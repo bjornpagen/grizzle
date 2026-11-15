@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/program/compile.ts b/packages/engine/src/program/compile.ts
+index 1a81ac56..a5bea743 100644
+--- a/packages/engine/src/program/compile.ts
++++ b/packages/engine/src/program/compile.ts
+@@ -240,7 +240,7 @@ export const compileQuery = (
+ 		names: artifacts.reads,
+ 		subject: { kind: "query" },
+ 		catalog: evidenceCatalog(artifacts),
+-		context
++		context: "snapshot"
+ 	})
+ 	if (!lowered.ok) {
+ 		return lowered

@@ -32,8 +32,10 @@
  * The oracle is the specification: the counts above, each stated by the module it names, and the linear law. The box
  * is exhausted: every dimension at 2, 4 and 6, every other at its least. Features: every dimension.
  *
- * Plant: ~/.cache/grizzle-release/BR07/plants/work-laws-twice.patch (the installation basis compiling its law model twice) turns the
- * property red.
+ * @plant test/plants/unit/startup/work-laws-twice.patch The installation basis compiles its law model twice.
+ * @plant test/plants/unit/startup/work-served-artifacts-per-login.patch generate plans each login's served artifacts
+ * again over the basis at the configured level, where it reuses the installation's (cli/generate.ts plannedLogins); the
+ * count of plans fails.
  */
 import net from "node:net"
 import { exhaust } from "@bjornpagen/testing/explore"

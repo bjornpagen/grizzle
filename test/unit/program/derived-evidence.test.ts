@@ -38,8 +38,10 @@ import { checking } from "#test/support/policy.ts"
  *
  * Features: each view, a read-back over a view.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): derived-evidence-unkeyed-views, a query's evidence keying no view.
- *
+ * @plant test/plants/unit/program/derived-evidence-unkeyed-views.patch A query's evidence keys no view.
+ */
+
+/**
  * A view of a fixture schema: the schema, the derived relation and the key it inherits from its definition
  * (test/unit/derived/keys.test.ts derives both).
  */

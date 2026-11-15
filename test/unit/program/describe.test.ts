@@ -43,11 +43,11 @@ import { printCase } from "#test/support/oracle/public/print.ts"
  *
  * Features: every program form the public generator draws (programForms); a relation elsewhere.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): describe-lowering-counter, a lowering stamped with a running count;
- * describe-drops-literal, a Description spelling every integer literal as 0.
- *
- * A Description as the rebuild receives it: the value itself, and the value read back from its JSON text.
+ * @plant test/plants/unit/program/describe-lowering-counter.patch A lowering is stamped with a running count.
+ * @plant test/plants/unit/program/describe-drops-literal.patch A Description spells every integer literal as 0.
  */
+
+/** A Description as the rebuild receives it: the value itself, and the value read back from its JSON text. */
 const sentForms = (d: Json): ReadonlyArray<unknown> => [d, trustedJson<unknown>(jsonText(d))]
 
 const text = (q: unknown): string =>

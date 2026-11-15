@@ -66,8 +66,9 @@ import {
  * program asks for alone, a law's own index where the whole workload's is wider for a dropped program, the empty
  * workload; each defect and the healthy workload.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): install-request-order, index requests planned in the order the
- * workload lists its programs, which the reversed workload's statements refuse.
+ * @plant test/plants/unit/workload/install-access-reason-dropped.patch A request that lands on an index already
+ * planned adds no reason to it (indexes/engine.ts planIndexes), so a key or law index a program asks for stands on no
+ * access; the sub-workload property fails.
  */
 
 const installWith = (

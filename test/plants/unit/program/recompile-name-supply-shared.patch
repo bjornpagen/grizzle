@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/sql/naming.ts b/packages/engine/src/sql/naming.ts
+index 513b84b4..faacddd0 100644
+--- a/packages/engine/src/sql/naming.ts
++++ b/packages/engine/src/sql/naming.ts
+@@ -115,6 +115,8 @@ export const namesPast = (map: NameMap, from: NameSupplyStart): NameSupplyStart
+ 	return { relationStart, columnStart }
+ }
+ 
++let supplied = 0
++
+ /** Fresh names for one statement. Local mutable state owned by one lowering; a later statement names past it. */
+ export class NameSupply {
+ 	#relation: number
+@@ -122,7 +124,7 @@ export class NameSupply {
+ 	readonly #entries: Array<NameEntry> = []
+ 
+ 	constructor(start: NameSupplyStart) {
+-		this.#relation = start.relationStart
++		this.#relation = start.relationStart + supplied++
+ 		this.#column = start.columnStart
+ 	}
+ 
