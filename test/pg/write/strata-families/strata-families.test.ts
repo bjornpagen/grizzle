@@ -16,8 +16,10 @@
  * - Features: each placement; a stored member deleted, a member inserted, both in one edit; a club emptied; a doc of no
  *   line.
  *
- * @plant test/plants/pg/write/strata-families/strata-families-every-stratum-plans-every-edit.patch Every stratum plans
- * the member edits of every stratum (write/frontend/compile.ts, write/program/compile.ts); the property must fail.
+ * A stratum that planned every stratum's member edits would leave no trace here: on these lawful ChangeSets an edit
+ * planned again in another stratum deletes nothing and meets its inserts as exact repeats, so the stored state and the
+ * outcome are the same. The structural property in test/unit/write/stratum-edits.test.ts holds each edit to its
+ * stratum.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
