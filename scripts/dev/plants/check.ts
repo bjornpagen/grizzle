@@ -1,6 +1,12 @@
 import { runDevtool } from "@bjornpagen/devtools/run"
 import { Array as Arr, Console, Effect } from "effect"
-import { findingsOf, findingText, readTree, repositoryRoot } from "#scripts/dev/plants/tree.ts"
+import {
+	findingsOf,
+	findingText,
+	readTree,
+	repositoryRoot,
+	unappliedIn
+} from "#scripts/dev/plants/tree.ts"
 
 /**
  * pnpm check's plant check: every plant a test cites is a file the repository holds, and every file under test/plants/
@@ -11,7 +17,8 @@ import { findingsOf, findingText, readTree, repositoryRoot } from "#scripts/dev/
  *
  * It refuses a tag that names no such path or no bug, a citation outside a test (no test would run while its plant is
  * planted), a citation of a plant that is no file, a file under test/plants/ that no test cites, and two plants under
- * one name. It reads only the tree; `pnpm plants` runs the plants (scripts/dev/plants/run.ts).
+ * one name, and a plant git will not apply to the tree (`git apply --check`, each plant alone), which plants nothing
+ * and so proves nothing. It reads only the tree; `pnpm plants` runs the plants (scripts/dev/plants/run.ts).
  *
  *   node scripts/dev/plants/check.ts
  *
@@ -20,7 +27,8 @@ import { findingsOf, findingText, readTree, repositoryRoot } from "#scripts/dev/
 const main = Effect.gen(function* () {
 	const root = yield* repositoryRoot
 	const tree = yield* readTree(root)
-	const findings = findingsOf(tree)
+	const unapplied = yield* unappliedIn(root, tree.plants)
+	const findings = [...findingsOf(tree), ...unapplied]
 	yield* Effect.forEach(findings, (finding) => Console.error(findingText(finding)), {
 		discard: true
 	})

@@ -1,3 +1,4 @@
+import { availableParallelism } from "node:os"
 import { DevtoolFailure, failureFrom } from "@bjornpagen/devtools/devtool"
 import {
 	Array as Arr,
@@ -34,7 +35,8 @@ type At = Readonly<{ file: string; line: number; plant: string }>
  * - `outsideTest`: a citation in a file that is no test, so no test runs while its plant is planted;
  * - `dangling`: a citation of a plant that is no file;
  * - `uncited`: a file under test/plants/ that no citation names, so nothing runs it;
- * - `sameName`: two plants under one name, which a plant's name alone no longer tells apart.
+ * - `sameName`: two plants under one name, which a plant's name alone no longer tells apart;
+ * - `unapplied`: a plant git will not apply to the tree as it stands, which plants nothing and so proves nothing.
  */
 export type Finding =
 	| Readonly<{ kind: "malformed"; file: string; line: number; text: string }>
@@ -42,6 +44,7 @@ export type Finding =
 	| (Readonly<{ kind: "dangling" }> & At)
 	| Readonly<{ kind: "uncited"; plant: string }>
 	| Readonly<{ kind: "sameName"; name: string; plants: Arr.NonEmptyReadonlyArray<string> }>
+	| Readonly<{ kind: "unapplied"; plant: string; reason: string }>
 
 /** A test file, by the suffix every test's name carries. */
 const isTest = (path: string): boolean => Str.endsWith(".test.ts")(path)
@@ -123,6 +126,8 @@ export const findingText = (finding: Finding): string => {
 			return `${finding.plant}: no test cites it, so nothing runs it: cite it with an @plant tag in the test it turns red, or remove it`
 		case "sameName":
 			return `${finding.name} names ${finding.plants.length} plants, ${Arr.join(finding.plants, ", ")}: give each its own name`
+		case "unapplied":
+			return `${finding.plant}: git apply --check refuses it against the tree, so it plants nothing: make it again against the code as it is, planting the same bug (${finding.reason})`
 	}
 }
 
@@ -245,6 +250,38 @@ const testFiles = Effect.fn("testFiles")(function* (root: string) {
 		"test"
 	])
 	return Arr.sort(pathsIn(output), Order.String)
+})
+
+/**
+ * The plants among `plants` that git will not apply to the tree under `root` as it stands, each found by its own
+ * `git apply --check`, as many at once as the machine has cores; a plant is checked alone, never after another.
+ */
+export const unappliedIn = Effect.fn("unappliedIn")(function* (
+	root: string,
+	plants: ReadonlyArray<string>
+) {
+	const checked = yield* Effect.forEach(
+		plants,
+		(plant) =>
+			Effect.scoped(
+				Effect.gen(function* () {
+					const handle = yield* ChildProcess.make("git", ["apply", "--check", plant], {
+						cwd: root,
+						stdin: "ignore"
+					})
+					const [reason, status] = yield* Effect.all(
+						[Stream.mkString(Stream.decodeText(handle.stderr)), handle.exitCode],
+						{ concurrency: "unbounded" }
+					)
+					return status === 0
+						? []
+						: [{ kind: "unapplied" as const, plant, reason: Str.trim(reason) }]
+				})
+			).pipe(Effect.mapError(failureFrom(`git apply --check ${plant} could not be run`))),
+		{ concurrency: availableParallelism() }
+	)
+	const unapplied: ReadonlyArray<Finding> = Arr.flatten(checked)
+	return unapplied
 })
 
 /** The tree as it stands under `root`: every TypeScript source under test/ with its text, and every plant's path. */

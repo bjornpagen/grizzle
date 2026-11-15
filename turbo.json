@@ -76,8 +76,7 @@
 			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
 		},
 		"//#plants:check": {
-			"description": "Every plant a test cites is a file the repository holds, and every file under test/plants is a plant some test cites. It reads test/ and its own source, never a package's.",
-			"inputs": ["test/**", "scripts/dev/plants/**"]
+			"description": "Every plant a test cites is a file the repository holds, every file under test/plants is a plant some test cites, and every plant applies to the tree. A plant patches any file of the repository, the packages and the toolchain's included, so its inputs are the whole tree."
 		},
 		"//#dedupe": {
 			"description": "pnpm dedupe --check reads the manifests, the lockfile and what they install, never source.",
