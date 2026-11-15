@@ -19,9 +19,9 @@
 		"grizzle-pg": "./bin/grizzle-pg.sh"
 	},
 	"scripts": {
-		"typecheck": "effect-tsgo tsrs --noEmit -p tsconfig.json",
-		"superlint": "superlint",
-		"oxlint": "oxlint"
+		"typecheck": "toolchain-typecheck --noEmit -p tsconfig.json",
+		"typecheck:full": "toolchain-typecheck --noEmit -p tsconfig.json --incremental false",
+		"oxlint": "toolchain-oxlint"
 	},
 	"dependencies": {
 		"@bjornpagen/grizzle-engine": "workspace:*",

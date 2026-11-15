@@ -1,0 +1,27 @@
+# The hooks run the pinned lefthook, by path: without this, the generated script searches a dozen places for a lefthook
+# binary and lets the commit through when it finds none, and `pnpm exec` refuses to run anything while a manifest change
+# waits for its install. `pnpm install` installs the hooks (the root's prepare).
+lefthook: node_modules/.bin/lefthook
+# Check-only: the hooks never format or stage a file, they only refuse. Each checks a snapshot of exactly what it lets
+# through, never the working tree (the toolchain's gate, vendor/toolchain/packages/devtools/bin/gate.sh, which keeps the
+# snapshot under ~/.cache/toolchain-gate with its own install and build info, and shares turbo's cache), so unfinished
+# files beside a commit, another agent's in a shared checkout among them, neither fail nor pass it. A commit names its
+# files by pathspec, and git holds .git/index.lock while pre-commit runs, so pre-commit stays within seconds and builds
+# no lint program: on what the commit holds, `pnpm types`, oxfmt's check of its files and the AST-only oxlint
+# (oxlint.ast.config.ts, the full configuration without its type-aware rules) on the files it reads, side by side. A
+# merge or rebase skips pre-commit, so the push typechecks HEAD, what it brought. The full gate, pnpm check (the
+# non-incremental typecheck, the type-aware oxlint, the workspace gate, fallow), is no hook: it takes minutes cold, its
+# root tasks re-run on any change to the repository, and main takes a commit every two minutes or so, so a push that
+# waited for it would rarely find main where it left it. Run it by hand before closing a lane, or on exactly what the
+# index holds with `sh vendor/toolchain/packages/devtools/bin/gate.sh run index pnpm check`.
+pre-commit:
+  skip:
+    - merge
+    - rebase
+  jobs:
+    - name: gate
+      run: sh vendor/toolchain/packages/devtools/bin/gate.sh commit
+pre-push:
+  jobs:
+    - name: types
+      run: sh vendor/toolchain/packages/devtools/bin/gate.sh run HEAD pnpm -s types --output-logs=errors-only

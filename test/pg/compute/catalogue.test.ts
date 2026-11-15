@@ -114,7 +114,10 @@ interface Boundary {
 	readonly value: LiteralDesc
 }
 
-const intBoundaries = (lo: bigint, hi: bigint, asNumber: boolean): ReadonlyArray<Boundary> =>
+const intBoundaries = (
+	[lo, hi]: readonly [bigint, bigint],
+	asNumber: boolean
+): ReadonlyArray<Boundary> =>
 	Arr.map(
 		[
 			["min", lo],
@@ -137,9 +140,9 @@ const intBoundaries = (lo: bigint, hi: bigint, asNumber: boolean): ReadonlyArray
  * justifies.
  */
 const boundaries: { readonly [C in Gate]: ReadonlyArray<Boundary> } = {
-	int2: intBoundaries(...integerRanges.int2, true),
-	int4: intBoundaries(...integerRanges.int4, true),
-	int8: intBoundaries(...integerRanges.int8, false),
+	int2: intBoundaries(integerRanges.int2, true),
+	int4: intBoundaries(integerRanges.int4, true),
+	int8: intBoundaries(integerRanges.int8, false),
 	numeric: Arr.map(
 		[
 			["zero", "0"],

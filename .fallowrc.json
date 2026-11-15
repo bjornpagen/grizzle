@@ -3,7 +3,6 @@
 	"entry": [
 		"test/**/*.child.ts",
 		"test/support/programs/**/*.ts",
-		"test/support/error-tags.ts",
 		"test/unit/deps/runtime-probe.ts",
 		"test/support/pg-global-setup.ts",
 		"test/types/batch/build.ts",
@@ -22,7 +21,8 @@
 		"packages/pg/src/live-slot-bound.ts",
 		"packages/pg/src/pin-verdict.ts",
 		"packages/pg/src/port-free.ts",
-		"scripts/dev/toolchain-imports.ts"
+		"scripts/dev/toolchain-imports.ts",
+		"oxlint.ast.config.ts"
 	],
 	"ignorePatterns": [
 		"!packages/engine/src/query/build/**",
@@ -990,6 +990,7 @@
 				"scripts/**",
 				"packages/pg/**",
 				"oxlint.config.ts",
+				"oxlint.ast.config.ts",
 				"toolchain.config.ts",
 				"vitest.config.ts",
 				"vitest.network.config.ts"

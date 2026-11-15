@@ -25,6 +25,6 @@
 		"allowUnreachableCode": false,
 		"allowUnusedLabels": false,
 		"isolatedModules": true,
-		"incremental": false
+		"incremental": true
 	}
 }

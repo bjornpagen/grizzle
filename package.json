@@ -2,7 +2,7 @@
 	"name": "grizzle-workspace",
 	"private": true,
 	"type": "module",
-	"packageManager": "pnpm@12.16.1",
+	"packageManager": "pnpm@12.18.0",
 	"devEngines": {
 		"runtime": {
 			"name": "node",
@@ -21,14 +21,17 @@
 		"#http/*": "./packages/grizzle/src/http/*",
 		"#index.ts": "./packages/grizzle/src/index.ts",
 		"#pg/*": "./packages/pg/src/*",
+		"#oxlint.config.ts": "./oxlint.config.ts",
 		"#toolchain.config.ts": "./toolchain.config.ts"
 	},
 	"scripts": {
-		"prepare": "effect-tsgo patch",
-		"check": "turbo run typecheck superlint oxlint format dead-code architecture dedupe --filter=./packages/* --filter=// --continue=dependencies-successful",
+		"prepare": "effect-tsgo patch && lefthook install",
+		"types": "turbo run typecheck --filter=./packages/* --filter=//",
+		"check": "turbo run typecheck:full workspace-gate oxlint format dead-code architecture dedupe --filter=./packages/* --filter=// --continue=dependencies-successful",
 		"typecheck": "effect-tsgo tsrs -b",
-		"superlint": "superlint",
-		"oxlint": "oxlint test bench scripts oxlint.config.ts toolchain.config.ts",
+		"typecheck:full": "toolchain-typecheck -p tsconfig.json --incremental false",
+		"workspace-gate": "workspace-gate",
+		"oxlint": "toolchain-oxlint test bench scripts oxlint.config.ts oxlint.ast.config.ts toolchain.config.ts",
 		"format": "oxfmt --check .",
 		"format:write": "oxfmt .",
 		"dead-code": "fallow dead-code",
@@ -65,6 +68,7 @@
 		"@types/pg": "catalog:",
 		"@vercel/functions": "catalog:",
 		"fallow": "catalog:",
+		"lefthook": "catalog:",
 		"oxfmt": "catalog:",
 		"oxlint": "catalog:",
 		"oxlint-tsgolint": "catalog:",

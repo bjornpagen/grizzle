@@ -86,6 +86,7 @@
 					"matchEffectToMatch": "error",
 					"matchToResultOrOption": "error",
 					"missedPipeableOpportunity": "error",
+					"missingConcurrencyOption": "off",
 					"missingEffectContext": "error",
 					"missingEffectError": "error",
 					"missingEffectServiceDependency": "error",
@@ -102,6 +103,7 @@
 					"nonObjectEffectServiceType": "error",
 					"obsoleteMatchImport": "error",
 					"obsoleteSchemaImport": "error",
+					"onExitFailureToOnError": "error",
 					"optionMatchToFromOption": "error",
 					"outdatedApi": "error",
 					"overriddenSchemaConstructor": "error",
@@ -323,6 +325,7 @@
 		"scripts/gen",
 		"scripts/dev",
 		"oxlint.config.ts",
+		"oxlint.ast.config.ts",
 		"toolchain.config.ts",
 		"vitest.config.ts",
 		"vitest.network.config.ts"

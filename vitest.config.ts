@@ -1,4 +1,5 @@
 import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
+import { unitExamples } from "#test/support/examples.ts"
 import { testTimeout } from "#test/support/limits.ts"
 
 /**
@@ -9,6 +10,8 @@ import { testTimeout } from "#test/support/limits.ts"
  * the shapes', which read values nested to any depth, run a second time in the small-stack project, at about a sixth of
  * Node's default stack. The rewrite universe runs once: its plans are a few operators over facts of two rows, which reach
  * no width the stack bounds, and the generated rewrite suites run the same pipeline under the small stack.
+ *
+ * Every test case runs a search, outside the files test/support/examples.ts exempts, each set with its reason.
  */
 export default defineTestConfig({
 	include: ["test/unit/**/*.test.ts", "test/types/**/*.test.ts"],
@@ -30,5 +33,6 @@ export default defineTestConfig({
 		"test/unit/core/lines.test.ts",
 		"test/unit/core/canonical.test.ts",
 		"test/unit/ir/shape.test.ts"
-	]
+	],
+	examples: unitExamples
 })

@@ -680,11 +680,13 @@ const buildBatchOn = (spelled: string, groups: ReadonlyArray<Group>, seed: numbe
 						 * program checks the types its fixtures state, and their Effect diagnostics stay the typecheck gate's,
 						 * under tsconfig.json's per-file overrides. No truncation, so a Refusal<"…"> deep in a long type is
 						 * never elided from a diagnostic. The package's own name resolves to src, as its package.json exports.
+						 * Not incremental, as tsconfig.base.json is: every run checks the whole program, from no build info.
 						 */
 						const tsconfig = jsonText({
 							extends: path.relative(batch, path.join(root, "tsconfig.base.json")),
 							compilerOptions: {
 								noEmit: true,
+								incremental: false,
 								noErrorTruncation: true,
 								plugins: []
 							},

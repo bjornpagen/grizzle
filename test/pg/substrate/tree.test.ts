@@ -215,8 +215,8 @@ const judged = <L extends string>(
 	seat: Seat<L>,
 	statements: ReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>
 ): Effect.Effect<Judged, SqlError | TransactionRolledBack | Disagreed> =>
-	Effect.onExit(verdictOf(seat, statements), (exit) =>
-		Exit.isSuccess(exit) ? Effect.void : clearRows(seat.session, seat.tables)
+	Effect.onExitIf(verdictOf(seat, statements), Exit.isFailure, () =>
+		clearRows(seat.session, seat.tables)
 	)
 
 /** judged's verdict, its committed rows cleared once read (see judged). */

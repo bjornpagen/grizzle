@@ -1,4 +1,5 @@
 import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
+import { networkExamples } from "#test/support/examples.ts"
 import { testTimeout } from "#test/support/limits.ts"
 
 /**
@@ -13,7 +14,8 @@ import { testTimeout } from "#test/support/limits.ts"
  * A hook takes as long as it takes: a suite's layer build may wait for a slot of the cluster-wide connection lease
  * behind other runs' files, as long as they hold it (substrate/shared.ts leaseConnections), and a wait for a resource
  * others hold is no hang. The library runs one file per worker, testWorkers of them, and the setup clones a database for
- * each (substrate/workers.ts).
+ * each (substrate/workers.ts). Every test case runs a search, outside the files test/support/examples.ts exempts, each
+ * set with its reason.
  */
 export default defineTestConfig({
 	include: ["test/pg/**/*.test.ts", "test/schedules/**/*.test.ts"],
@@ -24,5 +26,6 @@ export default defineTestConfig({
 		test: { kind: "bounded", millis: testTimeout.value },
 		hook: { kind: "bounded", millis: testTimeout.value }
 	},
-	smallStack: []
+	smallStack: [],
+	examples: networkExamples
 })

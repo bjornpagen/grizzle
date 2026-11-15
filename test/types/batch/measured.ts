@@ -79,7 +79,8 @@ interface Measured {
 /**
  * The program `source` writes at `size`, written into a fresh directory under the repository directory `dir`, so it
  * resolves the sources as the fixtures there do, and checked by the repository's compiler with its extended
- * diagnostics: what it reported.
+ * diagnostics: what it reported. The check is never incremental, as tsconfig.base.json is, so its counts are a whole
+ * program's.
  */
 const measuredProgram = (dir: string, size: number, source: (entries: PreludeAt) => string) =>
 	Effect.scoped(
@@ -101,6 +102,7 @@ const measuredProgram = (dir: string, size: number, source: (entries: PreludeAt)
 					extends: path.relative(programDir, path.join(root, "tsconfig.base.json")),
 					compilerOptions: {
 						noEmit: true,
+						incremental: false,
 						noErrorTruncation: true,
 						plugins: []
 					},
