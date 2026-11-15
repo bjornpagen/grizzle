@@ -597,9 +597,6 @@ type RowBytes<T, O> = T extends readonly [infer D, infer Sql extends SqlTag]
 	? Term<D, unknown, O, Sql>
 	: never
 
-/** The relation a law side reads: a selection reads its relation. */
-export type SideRelation<R> = R extends Selection<infer Rel> ? Rel : R
-
 /** The fields of the heading C that are natural (types/fields NaturalField), the fields pred reads. */
 type NaturalIn<C> = {
 	[K in keyof C]-?: C[K] extends { readonly natural: true } ? K : never
