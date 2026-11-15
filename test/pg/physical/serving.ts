@@ -1,4 +1,15 @@
-import { Array as Arr, Brand, Data, Effect, Option, Order, Record as Rec, Result } from "effect"
+import {
+	Array as Arr,
+	Brand,
+	Data,
+	Duration,
+	Effect,
+	Option,
+	Order,
+	Record as Rec,
+	Result,
+	Schedule
+} from "effect"
 import {
 	explainStatementWith,
 	type PlanNode,
@@ -28,6 +39,7 @@ import {
 import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { parsedName, wild } from "#test/support/kernel/naming.ts"
+import { backendWaitStep, caseHang } from "#test/support/limits.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import {
 	type VolumeFill,
@@ -540,9 +552,9 @@ export type Settled = { readonly installed: Judged } & Brand.Brand<"Settled">
 const Settled = Brand.nominal<Settled>()
 
 /**
- * A load whose VACUUM left a table's pages not all-visible (loadAtVolume): each such relation with its pages and those
- * all-visible, and what held back the horizon VACUUM freezes and marks pages by at that moment, every backend holding an
- * xmin or an xid, every replication slot holding an xmin and every prepared transaction.
+ * A load VACUUM did not settle within the case's own deadline (loadAtVolume): each relation with its pages and those
+ * all-visible, and what still held back the horizon VACUUM freezes and marks pages by, each backend of the database and
+ * each replication slot or prepared transaction whose xmin or xid precedes the load's last.
  */
 class HeapUnsettled extends Data.TaggedError("HeapUnsettled")<{
 	readonly relations: ReadonlyArray<string>
@@ -550,89 +562,132 @@ class HeapUnsettled extends Data.TaggedError("HeapUnsettled")<{
 	readonly message: string
 }> {}
 
+/** A relation's table, quoted and qualified. */
+const tableSql = (installed: Judged, relation: string): string => {
+	const q = installed.installation.names.relation(relation)
+	return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
+}
+
+/** Each of `tables` VACUUMed with FREEZE and ANALYZE (loadRows). */
+const vacuumed = (admin: PgConnection, tables: ReadonlyArray<string>) =>
+	Effect.forEach(tables, (table) => admin.query(`VACUUM (FREEZE, ANALYZE) ${table}`, []), {
+		discard: true
+	})
+
+/** Each of `tables` some page of which is not all-visible, as pg_class records it: its name and its pages. */
+const unsettledOf = (admin: PgConnection, tables: ReadonlyArray<string>) =>
+	Effect.map(
+		admin.queryValues(
+			"SELECT c.oid::pg_catalog.regclass::text || ': ' || c.relallvisible::text || ' of ' || c.relpages::text || ' pages all-visible' " +
+				"FROM pg_catalog.pg_class AS c WHERE c.oid = ANY ($1::text[]::pg_catalog.regclass[]) AND c.relallvisible < c.relpages " +
+				"ORDER BY 1",
+			[tables]
+		),
+		(rows) => Arr.flatMap(textsOf(rows), (row) => row.slice(0, 1))
+	)
+
 /**
- * Loads every relation at volumeRows (loadRows), and settles the load: every page of every table VACUUM left
- * all-visible, as pg_class's relallvisible against relpages records it, or the load fails closed with HeapUnsettled,
- * naming the relations and the horizon's holders, rather than be judged at another cost state.
+ * What holds back the horizon VACUUM freezes the load's rows and marks its pages all-visible by (vacuumlazy.c,
+ * procarray.c ComputeXidHorizons): each backend of this database but the judge's own, each replication slot and each
+ * prepared transaction whose xmin or xid precedes `filled`, the first transaction id the load did not take; oldest first.
+ */
+const holdersBefore = (admin: PgConnection, filled: string) =>
+	Effect.map(
+		admin.queryValues(
+			"SELECT h FROM (" +
+				"SELECT GREATEST(pg_catalog.age(a.backend_xmin), pg_catalog.age(a.backend_xid)) AS age, " +
+				"pg_catalog.format('backend %s as %s (%s %s, %s) holding xmin %s, xid %s, since %s', a.pid, a.usename, a.backend_type, " +
+				"a.application_name, a.state, a.backend_xmin, a.backend_xid, a.xact_start) AS h " +
+				"FROM pg_catalog.pg_stat_activity AS a WHERE a.datname = pg_catalog.current_database() AND a.pid <> pg_catalog.pg_backend_pid() " +
+				"UNION ALL SELECT pg_catalog.age(s.xmin), pg_catalog.format('slot %s (%s, of %s) holding xmin %s', s.slot_name, s.slot_type, s.database, s.xmin) " +
+				"FROM pg_catalog.pg_replication_slots AS s " +
+				"UNION ALL SELECT pg_catalog.age(p.transaction), pg_catalog.format('prepared transaction %s, xid %s, of %s', p.gid, p.transaction, p.database) " +
+				"FROM pg_catalog.pg_prepared_xacts AS p" +
+				") AS held WHERE held.age > pg_catalog.age($1::pg_catalog.xid) ORDER BY held.age DESC, held.h",
+			[filled]
+		),
+		(rows) => Arr.flatMap(textsOf(rows), (row) => row.slice(0, 1))
+	)
+
+/**
+ * Loads every relation at volumeRows and settles the load, every page of every table all-visible, as pg_class's
+ * relallvisible against relpages records it. Autovacuum is off on the loaded tables, since the judgment VACUUMs and
+ * ANALYZEs them itself and an autovacuum ANALYZE's snapshot would hold back the horizon. The tables are filled
+ * (fillRows) and VACUUMed with FREEZE and ANALYZE. A backend of the database, a slot or a prepared transaction whose
+ * xmin or xid precedes the fill's last transaction keeps VACUUM from freezing the rows that transaction wrote, so where a
+ * page is left unmarked the load waits for that condition itself to end (holdersBefore), checking it at PostgreSQL's
+ * own step for a wait on another backend (backendWaitStep), then VACUUMs again. Past the case's own deadline (caseHang),
+ * or where VACUUM still leaves a page unmarked, the load fails closed with HeapUnsettled, naming the relations and the
+ * holders, rather than be judged at another cost state.
  */
 export const loadAtVolume = (
 	installed: Judged,
 	loads: ReadonlyArray<VolumeLoad>
 ): Effect.Effect<Settled, SqlError | VolumeFillRefused | HeapUnsettled, Substrate> =>
 	Effect.gen(function* () {
-		yield* loadRows(installed, loads, volumeRows)
 		const { admin } = yield* Substrate
-		const tables = Arr.map(loads, (l) => {
-			const q = installed.installation.names.relation(l.relation)
-			return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
-		})
-		const unsettled = yield* Effect.map(
-			admin.queryValues(
-				"SELECT c.oid::pg_catalog.regclass::text || ': ' || c.relallvisible::text || ' of ' || c.relpages::text || ' pages all-visible' " +
-					"FROM pg_catalog.pg_class AS c WHERE c.oid = ANY ($1::text[]::pg_catalog.regclass[]) AND c.relallvisible < c.relpages " +
-					"ORDER BY 1",
-				[tables]
-			),
-			textsOf
+		const tables = Arr.map(loads, (l) => tableSql(installed, l.relation))
+		yield* Effect.forEach(
+			tables,
+			(table) => admin.query(`ALTER TABLE ${table} SET (autovacuum_enabled = false)`, []),
+			{ discard: true }
 		)
+		yield* fillRows(installed, loads, volumeRows)
+		const [filled] = yield* Effect.map(
+			admin.queryValues(
+				"SELECT pg_catalog.pg_snapshot_xmax(pg_catalog.pg_current_snapshot())::pg_catalog.xid::text",
+				[]
+			),
+			(rows) => Arr.flatMap(textsOf(rows), (row) => row.slice(0, 1))
+		)
+		if (filled === undefined) {
+			return assert.fail("no snapshot's xmax after the load")
+		}
+		yield* vacuumed(admin, tables)
+		const unsettled = yield* unsettledOf(admin, tables)
 		if (!Arr.isReadonlyArrayNonEmpty(unsettled)) {
 			return Settled({ installed })
 		}
-		const holders = yield* Effect.map(
-			admin.queryValues(
-				"SELECT h FROM (" +
-					"SELECT 1 AS k, pg_catalog.age(COALESCE(a.backend_xmin, a.backend_xid)) AS age, " +
-					"pg_catalog.format('backend %s of %s as %s (%s %s, %s) holding xmin %s, xid %s, since %s', a.pid, a.datname, a.usename, " +
-					"a.backend_type, a.application_name, a.state, a.backend_xmin, a.backend_xid, a.xact_start) AS h " +
-					"FROM pg_catalog.pg_stat_activity AS a WHERE a.pid <> pg_catalog.pg_backend_pid() AND (a.backend_xmin IS NOT NULL OR a.backend_xid IS NOT NULL) " +
-					"UNION ALL SELECT 2, pg_catalog.age(COALESCE(s.xmin, s.catalog_xmin)), " +
-					"pg_catalog.format('slot %s (%s, of %s) holding xmin %s, catalog xmin %s', s.slot_name, s.slot_type, s.database, s.xmin, s.catalog_xmin) " +
-					"FROM pg_catalog.pg_replication_slots AS s WHERE s.xmin IS NOT NULL OR s.catalog_xmin IS NOT NULL " +
-					"UNION ALL SELECT 3, pg_catalog.age(p.transaction), " +
-					"pg_catalog.format('prepared transaction %s, xid %s, of %s', p.gid, p.transaction, p.database) " +
-					"FROM pg_catalog.pg_prepared_xacts AS p" +
-					") AS held ORDER BY age DESC, k, h",
-				[]
-			),
-			textsOf
+		const passed = yield* Effect.timeoutOption(
+			Effect.repeat(holdersBefore(admin, filled), {
+				until: (holders) => !Arr.isReadonlyArrayNonEmpty(holders),
+				schedule: Schedule.spaced(Duration.millis(backendWaitStep.value))
+			}),
+			caseHang
 		)
-		const relations = Arr.flatMap(unsettled, (row) => row.slice(0, 1))
-		const holding = Arr.flatMap(holders, (row) => row.slice(0, 1))
+		if (Option.isSome(passed)) {
+			yield* vacuumed(admin, tables)
+		}
+		const left = yield* unsettledOf(admin, tables)
+		if (!Arr.isReadonlyArrayNonEmpty(left)) {
+			return Settled({ installed })
+		}
+		const holders = yield* holdersBefore(admin, filled)
 		return yield* new HeapUnsettled({
-			relations,
-			holders: holding,
-			message: `the load's VACUUM left pages not all-visible, a cost state the judgment does not judge: ${Arr.join(relations, "; ")}; the horizon's holders: ${Arr.isReadonlyArrayNonEmpty(holding) ? Arr.join(holding, "; ") : "none seen"}`
+			relations: left,
+			holders,
+			message: `the load's VACUUM left pages not all-visible, a cost state the judgment does not judge: ${Arr.join(left, "; ")}; the horizon's holders: ${Arr.isReadonlyArrayNonEmpty(holders) ? Arr.join(holders, "; ") : "none"}`
 		})
 	})
 
 /**
- * Loads every relation in order over the series 0 to `rows` - 1 as the owner, each a volume fill (substrate/fill.ts:
+ * Fills every relation in order over the series 0 to `rows` - 1 as the owner, each a volume fill (substrate/fill.ts:
  * chunks that commit alone, so no load holds its transaction for the whole series), each row a key already holds
- * skipped, then VACUUMs each table with FREEZE and ANALYZE, so its statistics and visibility map are a settled table's:
- * every page all-visible. A chunk's commit, like every commit in a test database, is flushed before it returns
- * (test/support/pg.ts testDatabaseSettings), so VACUUM can hint its rows. A freezing VACUUM is aggressive, and freezes
- * every row, so it waits for each page's cleanup lock (vacuumlazy.c lazy_scan_noprune), where a plain one leaves a page
- * another backend holds pinned at that moment unpruned and not all-visible: one such page of 89, held by a cursor, left
- * relallvisible at 88. The planner charges a one-row index-only scan a heap page unless every page is all-visible
- * (costsize.c cost_index, ceil of the pages times 1 - allvisfrac), and then an index that leaves the heap a column to
- * filter costs what the request's own index-only scan does. A load of no field inserts rows of defaults only, a serial
+ * skipped. A chunk's commit, like every commit in a test database, is flushed before it returns (test/support/pg.ts
+ * testDatabaseSettings), so VACUUM can hint its rows. A load of no field inserts rows of defaults only, a serial
  * numbering each.
  */
-export const loadRows = (
+const fillRows = (
 	installed: Judged,
 	loads: ReadonlyArray<VolumeLoad>,
 	rows: number
 ): Effect.Effect<void, SqlError | VolumeFillRefused, Substrate> =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
-		const table = (relation: string): string => {
-			const q = installed.installation.names.relation(relation)
-			return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
-		}
 		const fills = Arr.map(loads, (l): VolumeFill => ({
 			tables: [
 				{
-					table: table(l.relation),
+					table: tableSql(installed, l.relation),
 					columns: Arr.map(
 						l.fields,
 						([field, sql]) =>
@@ -646,9 +701,29 @@ export const loadRows = (
 		if (Arr.isReadonlyArrayNonEmpty(fills)) {
 			yield* volumeFill(admin, fills)
 		}
-		for (const l of loads) {
-			yield* admin.query(`VACUUM (FREEZE, ANALYZE) ${table(l.relation)}`, [])
-		}
+	})
+
+/**
+ * Fills every relation (fillRows), then VACUUMs each table with FREEZE and ANALYZE, so its statistics and visibility
+ * map are a settled table's: every page all-visible. A freezing VACUUM is aggressive, and freezes every row, so it waits
+ * for each page's cleanup lock (vacuumlazy.c lazy_scan_noprune), where a plain one leaves a page another backend holds
+ * pinned at that moment unpruned and not all-visible: one such page of 89, held by a cursor, left relallvisible at 88.
+ * The planner charges a one-row index-only scan a heap page unless every page is all-visible (costsize.c cost_index,
+ * ceil of the pages times 1 - allvisfrac), and then an index that leaves the heap a column to filter costs what the
+ * request's own index-only scan does.
+ */
+export const loadRows = (
+	installed: Judged,
+	loads: ReadonlyArray<VolumeLoad>,
+	rows: number
+): Effect.Effect<void, SqlError | VolumeFillRefused, Substrate> =>
+	Effect.gen(function* () {
+		const { admin } = yield* Substrate
+		yield* fillRows(installed, loads, rows)
+		yield* vacuumed(
+			admin,
+			Arr.map(loads, (l) => tableSql(installed, l.relation))
+		)
 	})
 
 /** A condition a probe states on a key: the field, the operator it applies, and the value's literal. */

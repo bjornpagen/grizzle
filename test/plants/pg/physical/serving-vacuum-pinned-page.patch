@@ -1,20 +1,23 @@
 diff --git a/test/pg/physical/serving.ts b/test/pg/physical/serving.ts
 --- a/test/pg/physical/serving.ts
 +++ b/test/pg/physical/serving.ts
-@@ -646,8 +646,15 @@
- 		if (Arr.isReadonlyArrayNonEmpty(fills)) {
- 			yield* volumeFill(admin, fills)
- 		}
+@@ -570,8 +570,17 @@
+ 
+ /** Each of `tables` VACUUMed with FREEZE and ANALYZE (loadRows). */
+ const vacuumed = (admin: PgConnection, tables: ReadonlyArray<string>) =>
+-	Effect.forEach(tables, (table) => admin.query(`VACUUM (FREEZE, ANALYZE) ${table}`, []), {
+-		discard: true
++	Effect.gen(function* () {
 +		const substrate = yield* Substrate
- 		for (const l of loads) {
--			yield* admin.query(`VACUUM (FREEZE, ANALYZE) ${table(l.relation)}`, [])
++		for (const table of tables) {
 +			yield* substrate.superuserRead((rows) =>
 +				Effect.gen(function* () {
-+					yield* rows(`DECLARE pinned CURSOR FOR SELECT * FROM ${table(l.relation)}`)
++					yield* rows(`DECLARE pinned CURSOR FOR SELECT * FROM ${table}`)
 +					yield* rows("FETCH 1 FROM pinned")
-+					yield* admin.query(`VACUUM (ANALYZE) ${table(l.relation)}`, [])
++					yield* admin.query(`VACUUM (ANALYZE) ${table}`, [])
 +				})
 +			)
- 		}
++		}
  	})
  
+ /** Each of `tables` some page of which is not all-visible, as pg_class records it: its name and its pages. */

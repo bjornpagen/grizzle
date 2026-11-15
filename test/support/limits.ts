@@ -130,6 +130,24 @@ export const testExitWait: Limit = derived({
 })
 
 /**
+ * The step a test's wait on another backend's state checks it at: PostgreSQL's own step when it waits on another
+ * backend, pg_terminate_backend's wait for the backend's exit, so a test checks the server's state no more often than
+ * the server checks its own.
+ */
+export const backendWaitStep: Limit = published({
+	value: 100,
+	owner: "PostgreSQL",
+	unit: "milliseconds",
+	scope: "one step of a test's wait on another backend's state, on the local cluster",
+	constraint: "compile-time constant",
+	source:
+		"https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/storage/ipc/signalfuncs.c",
+	quote:
+		"Wait in steps of waittime milliseconds until this function exits or timeout. [...] int64 waittime = 100;",
+	verified: "2026-11-15"
+})
+
+/**
  * How many cases of a search run at once, each on state of its own that holds `sessions` sessions of the test's pool:
  * as many as fit in the pool (testPoolMax, one session per core), and one at least, the one a search of a single set
  * of sessions runs.
