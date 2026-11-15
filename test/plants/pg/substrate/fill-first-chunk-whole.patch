@@ -1,0 +1,11 @@
+--- a/test/support/substrate/fill.ts
++++ b/test/support/substrate/fill.ts
+@@ -239,7 +239,7 @@
+ 			const filled = yield* Effect.reduce(
+ 				Arr.map(fills, (f, at) => [at, f] as const),
+ 				(): Filled => ({ chunks: [], written }),
+-				(done, [at, f]) => fillFrom(session, segment, f, at, 0, 1, done)
++				(done, [at, f]) => fillFrom(session, segment, f, at, 0, f.rows, done)
+ 			)
+ 			return filled.chunks
+ 		})

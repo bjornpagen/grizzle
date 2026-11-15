@@ -29,7 +29,7 @@ import { printObjectName, quoteIdent, quoteString } from "#compiler/sql/print.ts
 import { assert, defined } from "#test/support/assert.ts"
 import { parsedName, wild } from "#test/support/kernel/naming.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
-import { beginSerializable } from "#test/support/substrate/session.ts"
+import { type Fill, type FillRefused, fill } from "#test/support/substrate/fill.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -554,58 +554,49 @@ export interface VolumeLoad {
 export const loadAtVolume = (
 	installed: Judged,
 	loads: ReadonlyArray<VolumeLoad>
-): Effect.Effect<void, SqlError, Substrate> => loadRows(installed, loads, volumeRows)
+): Effect.Effect<void, SqlError | FillRefused, Substrate> => loadRows(installed, loads, volumeRows)
 
 /**
- * Loads every relation in order over the series 0 to `rows` - 1, in one SERIALIZABLE transaction as the owner, each row
- * a key already holds skipped, then VACUUMs each table with FREEZE and ANALYZE, so its statistics and visibility map are
- * a settled table's: every page all-visible. The load's commit, like every commit in a test database, is flushed before
- * it returns (test/support/pg.ts testDatabaseSettings), so VACUUM can hint its rows. A freezing VACUUM is aggressive,
- * and freezes every row, so it waits for each page's cleanup lock (vacuumlazy.c lazy_scan_noprune), where a plain one
- * leaves a page another backend holds pinned at that moment unpruned and not all-visible: one such page of 89, held by a
- * cursor, left relallvisible at 88. The planner charges a one-row index-only scan a heap page unless every page is
- * all-visible (costsize.c cost_index, ceil of the pages times 1 - allvisfrac), and then an index that leaves the heap a
- * column to filter costs what the request's own index-only scan does. A load of no field inserts rows of defaults only, a
- * serial numbering each.
+ * Loads every relation in order over the series 0 to `rows` - 1 as the owner, each a volume fill (substrate/fill.ts:
+ * chunks that commit alone, so no load holds its transaction for the whole series), each row a key already holds
+ * skipped, then VACUUMs each table with FREEZE and ANALYZE, so its statistics and visibility map are a settled table's:
+ * every page all-visible. A chunk's commit, like every commit in a test database, is flushed before it returns
+ * (test/support/pg.ts testDatabaseSettings), so VACUUM can hint its rows. A freezing VACUUM is aggressive, and freezes
+ * every row, so it waits for each page's cleanup lock (vacuumlazy.c lazy_scan_noprune), where a plain one leaves a page
+ * another backend holds pinned at that moment unpruned and not all-visible: one such page of 89, held by a cursor, left
+ * relallvisible at 88. The planner charges a one-row index-only scan a heap page unless every page is all-visible
+ * (costsize.c cost_index, ceil of the pages times 1 - allvisfrac), and then an index that leaves the heap a column to
+ * filter costs what the request's own index-only scan does. A load of no field inserts rows of defaults only, a serial
+ * numbering each.
  */
 export const loadRows = (
 	installed: Judged,
 	loads: ReadonlyArray<VolumeLoad>,
 	rows: number
-): Effect.Effect<void, SqlError, Substrate> =>
+): Effect.Effect<void, SqlError | FillRefused, Substrate> =>
 	Effect.gen(function* () {
 		const { admin } = yield* Substrate
 		const table = (relation: string): string => {
 			const q = installed.installation.names.relation(relation)
 			return `${quoteIdent(q.schema)}.${quoteIdent(q.name)}`
 		}
-		const columns = (l: VolumeLoad): string =>
-			l.fields.length === 0
-				? ""
-				: ` (${Arr.join(
-						Arr.map(l.fields, ([field]) =>
-							quoteIdent(installed.installation.names.column(l.relation, field))
-						),
-						", "
-					)})`
-		const inserts = Arr.map(
-			loads,
-			(l) =>
-				`INSERT INTO ${table(l.relation)}${columns(l)} SELECT ${Arr.join(
-					Arr.map(l.fields, ([, sql]) => sql),
-					", "
-				)} FROM pg_catalog.generate_series(0, ${rows - 1}) AS s(g) ON CONFLICT DO NOTHING`
-		)
-		yield* Effect.onError(
-			Effect.gen(function* () {
-				yield* admin.query(beginSerializable, [])
-				for (const statement of inserts) {
-					yield* admin.query(statement, [])
+		const fills = Arr.map(loads, (l): Fill => ({
+			tables: [
+				{
+					table: table(l.relation),
+					columns: Arr.map(
+						l.fields,
+						([field, sql]) =>
+							[quoteIdent(installed.installation.names.column(l.relation, field)), sql] as const
+					)
 				}
-				yield* admin.query("COMMIT", [])
-			}),
-			() => Effect.ignore(admin.query("ROLLBACK", []))
-		)
+			],
+			rows,
+			conflicts: "skipped"
+		}))
+		if (Arr.isReadonlyArrayNonEmpty(fills)) {
+			yield* fill(admin, fills)
+		}
 		for (const l of loads) {
 			yield* admin.query(`VACUUM (FREEZE, ANALYZE) ${table(l.relation)}`, [])
 		}

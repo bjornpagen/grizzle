@@ -1,8 +1,9 @@
-import { pipe, String as Str } from "effect"
+import { Array as Arr, pipe, String as Str } from "effect"
 import { codeOf, type RosterCodec } from "#compiler/ir/codes.ts"
 import { closedId, pg, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import type { Fill } from "#test/support/substrate/fill.ts"
 
 const text = str.regex("^.*$", "su")
 
@@ -86,17 +87,100 @@ interface FixtureNames {
 }
 
 /**
- * The facts, in SQL over generate_series, sized by `sizes`. Every Automatic task and every open note is the only one
- * of its account or ticket, as the keys over the selected sides require.
+ * The facts, each relation a volume fill (substrate/fill.ts) over its index `g`, sized by `sizes`. Every Automatic task
+ * and every open note is the only one of its account or ticket, as the keys over the selected sides require.
  */
-export const factSql = (n: FixtureNames): ReadonlyArray<string> => [
-	`INSERT INTO ${n.table("Account")} ("id", "name") SELECT ${uidSql(1, "i")}, 'account ' || i FROM generate_series(0, ${sizes.accounts - 1}) AS i`,
-	`INSERT INTO ${n.table("Posting")} ("id", "account", "amount") SELECT ${uidSql(2, "i")}, ${uidSql(1, `i % ${sizes.accounts}`)}, (i % 37)::int8 FROM generate_series(0, ${sizes.postings - 1}) AS i`,
-	`INSERT INTO ${n.table("Entry")} ("account", "seq", "amount") SELECT ${uidSql(1, `i % ${sizes.accounts}`)}, (i / ${sizes.accounts})::int8, (i % 53)::int8 FROM generate_series(0, ${sizes.accounts * sizes.entriesPerAccount - 1}) AS i`,
-	`INSERT INTO ${n.table("Item")} ("id", "amount") SELECT ${uidSql(6, "i")}, (i % 101)::int8 FROM generate_series(0, ${sizes.items - 1}) AS i`,
-	`INSERT INTO ${n.table("Task")} ("id", "account", "kind") SELECT ${uidSql(3, "i")}, ${uidSql(1, `i % ${sizes.accounts}`)}, (CASE WHEN i < ${sizes.accounts} THEN ${codeOf(n.kinds, "Automatic")} ELSE ${codeOf(n.kinds, "Manual")} END)::smallint FROM generate_series(0, ${sizes.tasks - 1}) AS i`,
-	`INSERT INTO ${n.table("Ticket")} ("id") SELECT ${uidSql(4, "i")} FROM generate_series(0, ${sizes.tickets - 1}) AS i`,
-	`INSERT INTO ${n.table("Note")} ("id", "ticket", "open") SELECT ${uidSql(5, "i")}, ${uidSql(4, `i % ${sizes.tickets}`)}, i < ${sizes.tickets} FROM generate_series(0, ${sizes.notes - 1}) AS i`
+export const factFills = (n: FixtureNames): Arr.NonEmptyReadonlyArray<Fill> => [
+	{
+		tables: [
+			{
+				table: n.table("Account"),
+				columns: [
+					['"id"', uidSql(1, "g")],
+					['"name"', "'account ' || g"]
+				]
+			}
+		],
+		rows: sizes.accounts,
+		conflicts: "refused"
+	},
+	{
+		tables: [
+			{
+				table: n.table("Posting"),
+				columns: [
+					['"id"', uidSql(2, "g")],
+					['"account"', uidSql(1, `g % ${sizes.accounts}`)],
+					['"amount"', "(g % 37)::int8"]
+				]
+			}
+		],
+		rows: sizes.postings,
+		conflicts: "refused"
+	},
+	{
+		tables: [
+			{
+				table: n.table("Entry"),
+				columns: [
+					['"account"', uidSql(1, `g % ${sizes.accounts}`)],
+					['"seq"', `(g / ${sizes.accounts})::int8`],
+					['"amount"', "(g % 53)::int8"]
+				]
+			}
+		],
+		rows: sizes.accounts * sizes.entriesPerAccount,
+		conflicts: "refused"
+	},
+	{
+		tables: [
+			{
+				table: n.table("Item"),
+				columns: [
+					['"id"', uidSql(6, "g")],
+					['"amount"', "(g % 101)::int8"]
+				]
+			}
+		],
+		rows: sizes.items,
+		conflicts: "refused"
+	},
+	{
+		tables: [
+			{
+				table: n.table("Task"),
+				columns: [
+					['"id"', uidSql(3, "g")],
+					['"account"', uidSql(1, `g % ${sizes.accounts}`)],
+					[
+						'"kind"',
+						`(CASE WHEN g < ${sizes.accounts} THEN ${codeOf(n.kinds, "Automatic")} ELSE ${codeOf(n.kinds, "Manual")} END)::smallint`
+					]
+				]
+			}
+		],
+		rows: sizes.tasks,
+		conflicts: "refused"
+	},
+	{
+		tables: [{ table: n.table("Ticket"), columns: [['"id"', uidSql(4, "g")]] }],
+		rows: sizes.tickets,
+		conflicts: "refused"
+	},
+	{
+		tables: [
+			{
+				table: n.table("Note"),
+				columns: [
+					['"id"', uidSql(5, "g")],
+					['"ticket"', uidSql(4, `g % ${sizes.tickets}`)],
+					['"open"', `g < ${sizes.tickets}`]
+				]
+			}
+		],
+		rows: sizes.notes,
+		conflicts: "refused"
+	}
 ]
 
 export const relationNames = [

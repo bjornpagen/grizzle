@@ -66,7 +66,7 @@ import { printObjectName, printStatement } from "#compiler/sql/print.ts"
 import {
 	Account,
 	Entry,
-	factSql,
+	factFills,
 	Item,
 	Note,
 	Plans,
@@ -93,6 +93,7 @@ import { isList } from "#test/support/list.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
 import { owning } from "#test/support/policy.ts"
+import { fill } from "#test/support/substrate/fill.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The relations keyed by one id the plan fixture fills past a page: a take over their key reads it in key order. */
@@ -377,13 +378,14 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 		}
 		const names = installation.value.names
 		const table = (relation: string) => printObjectName(names.relation(relation))
-		yield* transaction(s.admin, [
-			...installationSql(installation.value, s.database),
-			...factSql({
+		yield* transaction(s.admin, installationSql(installation.value, s.database))
+		yield* fill(
+			s.admin,
+			factFills({
 				table,
 				kinds: defined(names.codes.rosters.get(parsedName("Kind")), "the codes of Kind")
 			})
-		])
+		)
 		for (const relation of relationNames) {
 			yield* s.admin.query(`VACUUM (ANALYZE) ${table(relation)}`, [])
 		}

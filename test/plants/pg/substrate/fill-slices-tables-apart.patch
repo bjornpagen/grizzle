@@ -1,0 +1,15 @@
+--- a/test/support/substrate/fill.ts
++++ b/test/support/substrate/fill.ts
+@@ -135,7 +135,11 @@
+ 			Effect.andThen(
+ 				Effect.forEach(
+ 					fill.tables,
+-					(table) => session.query(insertOf(table, fill.conflicts, from, to), []),
++					(table) =>
++						Effect.andThen(
++							session.query(insertOf(table, fill.conflicts, from, to), []),
++							Effect.andThen(session.query("COMMIT", []), session.query("BEGIN", []))
++						),
+ 					{ discard: true }
+ 				),
+ 				session.query("COMMIT", [])

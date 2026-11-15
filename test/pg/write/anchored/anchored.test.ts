@@ -33,6 +33,7 @@ import { parsedName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { checking } from "#test/support/policy.ts"
+import { fill } from "#test/support/substrate/fill.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A deletion whose member is its relation's own facts reads that relation once.
@@ -199,17 +200,33 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 					s.admin,
 					Arr.map(governed, (t) => `ALTER TABLE ${table(t)} DISABLE TRIGGER USER`)
 				)
-				yield* transaction(s.admin, [
-					`INSERT INTO ${table("Work")} (${Arr.join(
-						Arr.map(["key", "kind", "slot", "standing", "epoch", "enqueued"], (f) =>
-							column("Work", f)
-						),
-						", "
-					)}) SELECT ${digestOf("g")}, ${codeIn("Kind", "render")}, 0, ${codeIn("Standing", "wanted")}, 0, g FROM pg_catalog.generate_series(1, ${items}) AS g`,
-					`INSERT INTO ${table("Wanted")} (${Arr.join(
-						Arr.map(["key", "due", "attempts"], (f) => column("Wanted", f)),
-						", "
-					)}) SELECT ${digestOf("g")}, 0, 0 FROM pg_catalog.generate_series(1, ${items}) AS g`
+				const item = "(g + 1)"
+				yield* fill(s.admin, [
+					{
+						tables: [
+							{
+								table: table("Work"),
+								columns: [
+									[column("Work", "key"), digestOf(item)],
+									[column("Work", "kind"), codeIn("Kind", "render")],
+									[column("Work", "slot"), "0"],
+									[column("Work", "standing"), codeIn("Standing", "wanted")],
+									[column("Work", "epoch"), "0"],
+									[column("Work", "enqueued"), item]
+								]
+							},
+							{
+								table: table("Wanted"),
+								columns: [
+									[column("Wanted", "key"), digestOf(item)],
+									[column("Wanted", "due"), "0"],
+									[column("Wanted", "attempts"), "0"]
+								]
+							}
+						],
+						rows: items,
+						conflicts: "refused"
+					}
 				])
 				yield* transaction(
 					s.admin,

@@ -39,6 +39,7 @@ import { compileTestWorkload, declaredOf, paramTexts, testCompile } from "#test/
 import { decodedQuery, type AuthoredExprDesc as ExprDesc } from "#test/support/fixtures/ir/desc.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
+import { fill } from "#test/support/substrate/fill.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
 const Booking = relation("Booking", { room: uuid, during: span(pg.bigint), guest: uuid }, [
@@ -234,18 +235,49 @@ layer(Substrate.layer)("GiST span indexes", (it) => {
 				extensions: [workloadExtension(plan)]
 			})
 			const schemaName = quoteIdent(installed.schema)
-			yield* s.admin.queryValues(
-				`INSERT INTO ${schemaName}."booking" ("room", "during", "guest")
-SELECT ('00000000-0000-4000-8000-' || lpad(to_hex(r), 12, '0'))::uuid, int8range(k * 10, k * 10 + 5), md5(r::text || ':' || k::text)::uuid
-FROM generate_series(0, ${size.rooms - 1}) AS r, generate_series(0, ${size.perRoom - 1}) AS k`,
-				[]
-			)
-			yield* s.admin.queryValues(
-				`INSERT INTO ${schemaName}."visit" ("id", "room", "during", "note")
-SELECT i, ('00000000-0000-4000-8000-' || lpad(to_hex(i % ${size.rooms}), 12, '0'))::uuid, int8range(i, i + 1 + i % 7), i % 13
-FROM generate_series(0, ${size.rooms * size.perRoom - 1}) AS i`,
-				[]
-			)
+			yield* fill(s.admin, [
+				{
+					tables: [
+						{
+							table: `${schemaName}."booking"`,
+							columns: [
+								[
+									'"room"',
+									`('00000000-0000-4000-8000-' || lpad(to_hex(g / ${size.perRoom}), 12, '0'))::uuid`
+								],
+								[
+									'"during"',
+									`int8range((g % ${size.perRoom}) * 10, (g % ${size.perRoom}) * 10 + 5)`
+								],
+								[
+									'"guest"',
+									`md5((g / ${size.perRoom})::text || ':' || (g % ${size.perRoom})::text)::uuid`
+								]
+							]
+						}
+					],
+					rows: size.rooms * size.perRoom,
+					conflicts: "refused"
+				},
+				{
+					tables: [
+						{
+							table: `${schemaName}."visit"`,
+							columns: [
+								['"id"', "g"],
+								[
+									'"room"',
+									`('00000000-0000-4000-8000-' || lpad(to_hex(g % ${size.rooms}), 12, '0'))::uuid`
+								],
+								['"during"', "int8range(g, g + 1 + g % 7)"],
+								['"note"', "g % 13"]
+							]
+						}
+					],
+					rows: size.rooms * size.perRoom,
+					conflicts: "refused"
+				}
+			])
 			yield* s.admin.queryValues(`VACUUM ANALYZE ${schemaName}."booking"`, [])
 			yield* s.admin.queryValues(`VACUUM ANALYZE ${schemaName}."visit"`, [])
 			const reader = yield* s.session({ ...worldSession(installed.world), label: "reader" })

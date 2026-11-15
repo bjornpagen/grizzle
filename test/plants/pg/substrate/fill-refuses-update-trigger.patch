@@ -1,0 +1,11 @@
+--- a/test/support/substrate/fill.ts
++++ b/test/support/substrate/fill.ts
+@@ -42,7 +42,7 @@
+  */
+ const deferredTriggers = `SELECT coalesce(c.conname, t.tgname)::text, CASE WHEN c.contype = 'f' THEN c.confrelid::int8 END
+ FROM pg_catalog.pg_trigger AS t LEFT JOIN pg_catalog.pg_constraint AS c ON c.oid = t.tgconstraint
+-WHERE t.tgrelid = $1::pg_catalog.regclass AND t.tginitdeferred AND t.tgenabled <> 'D' AND (t.tgtype::int4 & 4) <> 0
++WHERE t.tgrelid = $1::pg_catalog.regclass AND t.tginitdeferred AND t.tgenabled <> 'D'
+ ORDER BY 1`
+ 
+ /** The OID of the table $1 names. */

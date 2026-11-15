@@ -26,8 +26,8 @@ import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
-import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
+import { fill } from "#test/support/substrate/fill.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -124,13 +124,28 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						const names = o.installed.installation.names
 						const table = (r: string) => printObjectName(names.relation(r))
 						const column = (r: string, f: string) => quoteIdent(names.column(r, f))
-						yield* transaction(s.admin, [
-							`INSERT INTO ${table("Account")} (${column("Account", "id")}) SELECT ${uidSql("g")} FROM pg_catalog.generate_series(0, ${accounts - 1}) AS g`,
-							`INSERT INTO ${table("Entry")} (${Arr.join(
-								Arr.map(["account", "seq", "amount"], (f) => column("Entry", f)),
-								", "
-							)}) ` +
-								`SELECT ${uidSql(`g % ${accounts}`)}, (g / ${accounts})::int8, (g % 53)::int8 FROM pg_catalog.generate_series(0, ${accounts * entriesPerAccount - 1}) AS g`
+						yield* fill(s.admin, [
+							{
+								tables: [
+									{ table: table("Account"), columns: [[column("Account", "id"), uidSql("g")]] }
+								],
+								rows: accounts,
+								conflicts: "refused"
+							},
+							{
+								tables: [
+									{
+										table: table("Entry"),
+										columns: [
+											[column("Entry", "account"), uidSql(`g % ${accounts}`)],
+											[column("Entry", "seq"), `(g / ${accounts})::int8`],
+											[column("Entry", "amount"), "(g % 53)::int8"]
+										]
+									}
+								],
+								rows: accounts * entriesPerAccount,
+								conflicts: "refused"
+							}
 						])
 						yield* s.admin.query(
 							`VACUUM (ANALYZE) ${Arr.join(Arr.map(["Account", "Entry", "Latest"], table), ", ")}`,
