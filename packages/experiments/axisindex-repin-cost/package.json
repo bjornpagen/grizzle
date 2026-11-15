@@ -1,7 +1,0 @@
-{
-	"name": "@bjornpagen/grizzle-experiment-axisindex-repin-cost",
-	"private": true,
-	"description": "Experiment: what edullm's next repin pays for grizzle's referencing-side indexes; deleted once its verdict is in (README.md)",
-	"license": "0BSD",
-	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>"
-}
