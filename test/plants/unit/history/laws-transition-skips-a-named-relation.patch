@@ -1,0 +1,11 @@
+--- a/test/support/laws/model.ts
++++ b/test/support/laws/model.ts
+@@ -520,7 +520,7 @@
+ 	state: HostState,
+ 	ops: ReadonlyArray<HostOp>
+ ): HostState => {
+-	const named = new Set(Arr.map(ops, (o) => o.relation))
++	const named = new Set(Arr.map(ops.slice(1), (o) => o.relation))
+ 	return new Map(
+ 		Arr.map(schema.relations, (relation) => [
+ 			relation.name,

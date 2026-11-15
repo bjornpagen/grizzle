@@ -322,7 +322,11 @@ export const lawRelations = (law: HostLaw): ReadonlyArray<string> => {
 	}
 }
 
-/** Relation name to its facts. */
+/**
+ * Relation name to its facts, each relation's a set by identity (README "A relation's rows are a set"): no two of its
+ * facts hold one value at every field. A state the laws admit is one, every relation keyed by a law (keyedSchema), and
+ * a transition keeps it one.
+ */
 export type HostState = ReadonlyMap<string, ReadonlyArray<HostFact>>
 
 export type OpKind = "insert" | "delete" | "put"
@@ -462,22 +466,28 @@ export const collide = (law: HostLaw, a: HostFact, b: HostFact): boolean => {
 	return false
 }
 
+/** A fact of a relation beside its identity, read once. */
+interface Identified {
+	readonly fact: HostFact
+	readonly id: string
+}
+
 /**
- * One relation's facts after a stratum's members of it, `mine`, over its facts before, `current`: a ChangeSet's facts
- * are a set by identity, so identical facts stated twice, in one member or across members, are one fact, and two facts
- * that share a key with different identities both stay, for the relation's key law to refuse.
+ * One relation's facts after a stratum's members of it, `mine`, over its facts before, `current`, each fact identified
+ * once: a ChangeSet's facts are a set by identity, so identical facts stated twice, in one member or across members, are
+ * one fact, and two facts that share a key with different identities both stay, for the relation's key law to refuse.
  */
 const relationAfter = (
 	relation: HostRelation,
 	current: ReadonlyArray<HostFact>,
 	mine: ReadonlyArray<HostOp>
 ): ReadonlyArray<HostFact> => {
+	const identified = (fact: HostFact): Identified => ({ fact, id: identity(relation, fact) })
+	const before = Arr.map(current, identified)
 	const writes = Arr.filter(mine, (o) => o.kind !== "delete")
 	const puts = Arr.filter(mine, (o) => o.kind === "put")
 	const deletes = Arr.filter(mine, (o) => o.kind === "delete")
-	const added = new Map(
-		Arr.flatMap(writes, (o) => Arr.map(o.facts, (f) => [identity(relation, f), f] as const))
-	)
+	const added = Arr.flatMap(writes, (o) => Arr.map(o.facts, identified))
 	/** A put deletes the current occupants at its facts' keys. */
 	const putKeys = new Set(
 		Arr.flatMap(puts, (o) => Arr.map(o.facts, (f) => projection(f, relation.key)))
@@ -485,38 +495,45 @@ const relationAfter = (
 	const deleted = new Set([
 		...Arr.flatMap(deletes, (o) => Arr.map(o.facts, (f) => identity(relation, f))),
 		...Arr.map(
-			Arr.filter(current, (f) => putKeys.has(projection(f, relation.key))),
-			(f) => identity(relation, f)
+			Arr.filter(before, (b) => putKeys.has(projection(b.fact, relation.key))),
+			(b) => b.id
 		)
 	])
 	const out = new Map(
 		Arr.map(
-			Arr.filter(current, (f) => !deleted.has(identity(relation, f))),
-			(f) => [identity(relation, f), f] as const
+			Arr.filter(before, (b) => !deleted.has(b.id)),
+			(b) => [b.id, b.fact] as const
 		)
 	)
-	for (const [id, f] of added) {
-		out.set(id, f)
+	for (const a of added) {
+		out.set(a.id, a.fact)
 	}
 	return [...out.values()]
 }
 
-/** The add-wins transition of one stratum of enumerated members. */
+/**
+ * The add-wins transition of one stratum of enumerated members: each relation a member names, rewritten
+ * (relationAfter), and every other one as it stands, already the set a state's relation is (HostState).
+ */
 export const transition = (
 	schema: HostSchema,
 	state: HostState,
 	ops: ReadonlyArray<HostOp>
-): HostState =>
-	new Map(
+): HostState => {
+	const named = new Set(Arr.map(ops, (o) => o.relation))
+	return new Map(
 		Arr.map(schema.relations, (relation) => [
 			relation.name,
-			relationAfter(
-				relation,
-				factsIn(state, relation.name),
-				Arr.filter(ops, (o) => o.relation === relation.name)
-			)
+			named.has(relation.name)
+				? relationAfter(
+						relation,
+						factsIn(state, relation.name),
+						Arr.filter(ops, (o) => o.relation === relation.name)
+					)
+				: factsIn(state, relation.name)
 		])
 	)
+}
 
 /**
  * What a law's witness names a violating fact by: nothing, for a native violation PostgreSQL reports only in prose, or

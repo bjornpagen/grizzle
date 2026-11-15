@@ -20,6 +20,9 @@
  *
  * Plants (~/.cache/grizzle-release/BR02/plants): repeats-direct-repeat-admitted, the direct writer's model letting an
  * exact repeat through.
+ *
+ * @plant test/plants/unit/history/laws-transition-skips-a-named-relation.patch laws/model.ts's transition leaves the
+ * relation of a stratum's first member as it stood, so a grizzle write of one member changes nothing; the property fails.
  */
 
 import { exhaust } from "@bjornpagen/testing/explore"
