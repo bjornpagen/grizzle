@@ -193,19 +193,19 @@ export const stateValues = (state: ModelState): ReadonlyArray<HostValue> => [
 ]
 
 /**
- * One state's box: its scope, and every value the state holds (stateValues), read once, the first time a domain's box
- * values ask for them (valuesFor), however many fields of however many headings the box draws values for.
+ * One state's box: its scope, and every value the state holds (stateValues), read once with the box, however many
+ * fields of however many headings the box draws values for (valuesFor).
  */
 interface Scoped {
 	readonly scope: SmallScope
-	readonly held: () => ReadonlyArray<HostValue>
+	readonly held: ReadonlyArray<HostValue>
 }
 
-/** The box of `state` under `scope`, its held values not read until a domain asks for them. */
-const scopedOf = (state: ModelState, scope: SmallScope): Scoped => {
-	let held: ReadonlyArray<HostValue> | undefined
-	return { scope, held: () => (held ??= stateValues(state)) }
-}
+/** The box of `state` under `scope`. */
+const scopedOf = (state: ModelState, scope: SmallScope): Scoped => ({
+	scope,
+	held: stateValues(state)
+})
 
 /** Values, each once by its text, first kept. */
 const distinctValues = (values: ReadonlyArray<HostValue>): ReadonlyArray<HostValue> => [
@@ -219,7 +219,7 @@ const distinctValues = (values: ReadonlyArray<HostValue>): ReadonlyArray<HostVal
  * installation compares with and its successor.
  */
 const valuesFor = (domain: FieldDomain, scoped: Scoped): Arr.NonEmptyReadonlyArray<HostValue> => {
-	const held = distinctValues(Arr.filter(scoped.held(), (v) => inDomain(domain, v)))
+	const held = distinctValues(Arr.filter(scoped.held, (v) => inDomain(domain, v)))
 	const box = boxPool(domain, scoped.scope)
 	if (symmetric(domain)) {
 		const texts = new Set(Arr.map(held, valueText))

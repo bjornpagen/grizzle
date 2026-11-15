@@ -1,14 +1,14 @@
 --- a/test/support/worlds/generate/enumerate.ts
 +++ b/test/support/worlds/generate/enumerate.ts
-@@ -202,9 +202,9 @@
+@@ -202,9 +202,10 @@
  }
  
- /** The box of `state` under `scope`, its held values not read until a domain asks for them. */
+ /** The box of `state` under `scope`. */
 +let stale: ReadonlyArray<HostValue> | undefined
- const scopedOf = (state: ModelState, scope: SmallScope): Scoped => {
--	let held: ReadonlyArray<HostValue> | undefined
--	return { scope, held: () => (held ??= stateValues(state)) }
-+	return { scope, held: () => (stale ??= stateValues(state)) }
- }
+ const scopedOf = (state: ModelState, scope: SmallScope): Scoped => ({
+ 	scope,
+-	held: stateValues(state)
++	held: (stale ??= stateValues(state))
+ })
  
  /** Values, each once by its text, first kept. */
