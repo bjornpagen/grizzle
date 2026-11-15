@@ -1,0 +1,28 @@
+--- a/packages/pg/src/family.ts
++++ b/packages/pg/src/family.ts
+@@ -11,7 +11,7 @@ import {
+ import { indices } from "#compiler/core/array.ts"
+ import { type Limit, measured } from "#compiler/core/limits.ts"
+ import { clusterAt, type LocalCluster } from "#pg/local-cluster.ts"
+-import { machineWorkers } from "#pg/workers.ts"
++import { networkWorkers } from "#pg/workers.ts"
+ 
+ import { regex } from "arkregex"
+ 
+@@ -50,14 +50,14 @@ const filesPerCluster: Limit = measured({
+  * ceil(machineWorkers / c*). A narrower run's workers spread over the same members. The machine's cores are read where
+  * machineWorkers is, and enter no Limit.
+  */
+-export const familyMembers: number = Math.ceil(machineWorkers / filesPerCluster.value)
++export const familyMembers: number = Math.ceil(networkWorkers / filesPerCluster.value)
+ 
+ /**
+  * The workers one member of a family serves at most, which scripts/pg/init.sh sizes each member for (size.ts
+  * clusterSize): the widest run's workers over the family's members, rounded up, so the members together serve every
+  * worker of any run.
+  */
+-export const memberShare: number = Math.ceil(machineWorkers / familyMembers)
++export const memberShare: number = Math.ceil(networkWorkers / familyMembers)
+ 
+ /**
+  * A family of local clusters as its family file records it: its members in member order, the first the cluster
