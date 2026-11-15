@@ -4,10 +4,16 @@
  * twice: as they stand they typecheck, and disarmed each refusal the documentation states fails with the claim its
  * directive names, and nothing else does.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): evidence-get-one-only.patch refuses db.get of a query proved at most
- * one row, which the README's postPage is. Plant (~/.cache/grizzle-release/ONCETYPES/plants):
- * fragment-member-by-depth.patch addresses a fragment ChangeSet's array member by depth, as a schema's, so in the
- * README's feeJob, a union over Shop, JobDone's facts read as no relation's and finishWithFee is refused.
+ * @plant test/plants/types/examples/fragment-member-by-depth.patch A fragment ChangeSet's array member is addressed by
+ * depth, as a schema's, so in the README's feeJob, a union over Shop, JobDone's facts read as no relation's and
+ * finishWithFee is refused: the fixtures fail, armed and disarmed.
+ * @plant test/plants/types/api/api-open-token-optional.patch Db.open takes no token for a role that reads a context,
+ * so the README's refusal "MemberBlog reads a context, so Db.open requires a token" compiles: armed, its directive is
+ * unused, and disarmed, the refusal is missing.
+ * @plant test/plants/types/examples/changeset-writable-world.patch A ChangeSet writes a world relation its role's
+ * write list does not name (types/changeset/changeset.ts WritableCheck admits it), so the README's writePost, an
+ * insert into MemberBlog's read-only MemberPost, compiles: armed, its directive is unused, and disarmed, the refusal
+ * is missing.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

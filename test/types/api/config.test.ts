@@ -4,8 +4,8 @@
  * exactly what DbLayer.make's reader admits, and every type-only contract holds. Oracle: the reader itself
  * (connection/config.ts, pool/served.ts), over the settings its own rosters name.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): api-config-roster.patch adds a pool setting to the reader's roster that
- * the type does not state.
+ * @plant test/plants/types/api/api-config-roster.patch The reader's pool roster (connection/config.ts poolSettings)
+ * gains a setting the type does not state; the agreement's program fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

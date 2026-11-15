@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/types/layer.ts b/packages/grizzle/src/adapter/types/layer.ts
+index ee2e7829..0f4a71fb 100644
+--- a/packages/grizzle/src/adapter/types/layer.ts
++++ b/packages/grizzle/src/adapter/types/layer.ts
+@@ -204,7 +204,7 @@ export interface ServedLogin<L> extends Phantom<{ readonly login: Invariant<L> }
+ 	 * The installation's decoder login as the file names it, none where the login serves no read, typed by what L's type
+ 	 * proves (DecoderOf): `roleNameOf(WebServed.decoder, connection)` for a login that reads, no narrowing.
+ 	 */
+-	readonly decoder: DecoderOf<L>
++	readonly decoder: ServedDecoder
+ 	/** The file, read once by served(...) (served/json.ts servedFile); DbLayer.make loads it. */
+ 	readonly file: ServedFile
+ }

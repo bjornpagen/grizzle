@@ -1,0 +1,18 @@
+diff --git a/packages/engine/src/public/query.ts b/packages/engine/src/public/query.ts
+index 4dcc47d8..ec4be362 100644
+--- a/packages/engine/src/public/query.ts
++++ b/packages/engine/src/public/query.ts
+@@ -38,7 +38,6 @@ export type {
+ 	Finished,
+ 	HeadOf,
+ 	ImmediateHeadOf,
+-	Ordered,
+ 	ParamsOf,
+ 	Query,
+ 	QueryBuilder,
+@@ -54,3 +53,5 @@ export type {
+ 	ResultOf,
+ 	VarsOf
+ } from "#compiler/types/query/terms.ts"
++import type { Ordered as OrderedQuery } from "#compiler/types/query/query.ts"
++export type Ordered<S, Head> = OrderedQuery<S, Head> & { reverse(): void }

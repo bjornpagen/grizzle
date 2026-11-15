@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/types/changeset/changeset.ts b/packages/engine/src/types/changeset/changeset.ts
+index 1a15fdbe..ac9533a6 100644
+--- a/packages/engine/src/types/changeset/changeset.ts
++++ b/packages/engine/src/types/changeset/changeset.ts
+@@ -249,7 +249,7 @@ type WritableCheck<S, R> =
+ 		? R extends AnyWorld
+ 			? NameOf<R> extends WriteListOf<S>
+ 				? unknown
+-				: Refusal<"a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes">
++				: unknown
+ 			: unknown
+ 		: Refusal<"a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes">
+ 

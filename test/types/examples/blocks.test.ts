@@ -25,8 +25,8 @@ import { regex } from "arkregex"
  *   blocks in document order.
  * So an edit to a block alone fails here, and an edit that breaks a mirrored line fails the typecheck.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): examples-readme-drift.patch renames a declaration in a README block,
- * the fixture unchanged.
+ * @plant test/plants/types/examples/examples-readme-drift.patch A README block renames a declaration, postPage to
+ * postsPage, the fixture unchanged; the blocks' property fails.
  */
 const mirrors = [
 	{ doc: "README.md", fixture: "test/types/examples/fixtures/readme.ts" },

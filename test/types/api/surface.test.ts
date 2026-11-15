@@ -4,8 +4,8 @@
  * types promise and the value lacks, and one the value carries and the types hide, fail. Oracle: the runtime values the
  * builders make, their methods read off them.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): api-surface-phantom.patch gives the Ordered type a method no runtime
- * value carries.
+ * @plant test/plants/types/api/api-surface-phantom.patch The public Ordered type (public/query.ts) gains a method,
+ * reverse, no runtime value carries; the surface's program fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

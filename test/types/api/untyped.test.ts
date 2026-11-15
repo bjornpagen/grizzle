@@ -5,8 +5,8 @@
  * the first argument that holds one, and every other call is admitted with a schema's nestings kept. Oracle: the box's
  * own typing of each captured list and record.
  *
- * Plant (~/.cache/grizzle-release/TYPEREGRESS/plants): api-untyped-admitted.patch admits a member typed any
- * (types/core/phantom.ts MembersTyped answers unknown for it).
+ * @plant test/plants/types/api/api-untyped-admitted.patch A member typed any is admitted (types/core/phantom.ts
+ * MembersTyped answers unknown for it); the program fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

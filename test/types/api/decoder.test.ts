@@ -5,8 +5,11 @@
  * which roleNameOf takes with no narrowing, and AnyLogin's is every arm. Oracle: the decoder of each login's served
  * file, compiled as generate compiles it and read off the served value.
  *
- * Plant (~/.cache/grizzle-release/DENAPI/plants): decoder-union.patch types every served login's decoder as the union
- * (ServedDecoder), whatever its login.
+ * @plant test/plants/types/api/decoder-union.patch Every served login's decoder is typed as the union (ServedDecoder),
+ * whatever its login; the program fails.
+ * @plant test/plants/types/api/decoder-clocked-reads.patch The decision of a login's live reads (adapter/types/layer.ts
+ * WorkloadReads) counts a clocked read as a read, so a login serving a clocked read alone is typed DecoderLogin; the
+ * program fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

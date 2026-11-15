@@ -5,8 +5,8 @@
  * reading of each drawn role. The floor's witnesses reach every place a role reads a context and every probe under
  * both verdicts, so the program is never vacuous on any seed.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): api-open-token-optional.patch lets Db.open take no token for a role
- * that reads a context.
+ * @plant test/plants/types/api/api-open-token-optional.patch Db.open takes no token for a role that reads a context
+ * (adapter/types/db.ts OpenOptions); the agreement's program fails.
  */
 import { unreachedOf } from "@bjornpagen/testing/features"
 import { NodeServices } from "@effect/platform-node"
