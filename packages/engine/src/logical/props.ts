@@ -80,7 +80,8 @@ import {
 	derivation,
 	independentFactors,
 	inHeadingOrder,
-	minimalKeys
+	minimalKeys,
+	namesNothing
 } from "#compiler/logical/closure.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 
@@ -435,7 +436,10 @@ const closureOf = (props: Table, start: Iterable<string>): Closure<Named> => {
 		new Set(attributes),
 		props.dependencies,
 		inHeadingOrder(attributes, start),
-		(d, column, named) => namedOf(stepValue(props, d, column, (c) => named.get(c)))
+		{
+			kind: "named",
+			naming: (d, column, named) => namedOf(stepValue(props, d, column, (c) => named.get(c)))
+		}
 	)
 }
 
@@ -450,7 +454,7 @@ const coverOf = (props: Table, start: Iterable<string>): Closure<never> => {
 		new Set(attributes),
 		props.dependencies,
 		inHeadingOrder(attributes, start),
-		() => undefined
+		namesNothing
 	)
 }
 
@@ -1269,7 +1273,7 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 		const deps = stated.map((x) => x.d)
 		/** What `cs` determine with the key columns `given` of the factors before theirs. */
 		const closes = (cs: Iterable<string>, given: ReadonlyArray<string>): Closure<never> =>
-			closure<never>(node.id, attributes, deps, [...cs, ...given], () => undefined)
+			closure(node.id, attributes, deps, [...cs, ...given], namesNothing)
 		/**
 		 * Another minimal key of a factor, with its derivation of every attribute of the factor from it and the key columns
 		 * `before` of the factors before it that the derivation reads: none for a factor no dependency of an earlier one

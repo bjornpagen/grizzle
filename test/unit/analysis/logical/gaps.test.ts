@@ -51,7 +51,7 @@ import {
 	checkerEvidence,
 	type LogicalAnalysis
 } from "#compiler/logical/annotate.ts"
-import { closure } from "#compiler/logical/closure.ts"
+import { closure, namesNothing } from "#compiler/logical/closure.ts"
 import type { Props } from "#compiler/logical/props.ts"
 
 import { plainType } from "#compiler/scalar/native.ts"
@@ -865,12 +865,12 @@ describe("projections of a join", () => {
 									Arr.every(d.from, (x) => heading.includes(x))
 								)
 								for (const set of subsetsOf(heading)) {
-									const reached = closure<never>(
+									const reached = closure(
 										node.id,
 										attributes,
 										props.dependencies,
 										set,
-										() => undefined
+										namesNothing
 									)
 									const got = Arr.filter(heading, (h) => reached.columns.has(h))
 									const known = closedUnder(deps, set)

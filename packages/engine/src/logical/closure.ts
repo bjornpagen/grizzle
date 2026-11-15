@@ -45,15 +45,66 @@ export interface Closure<V> {
 }
 
 /**
+ * A dependency's standing in a closure, which only advances: its determinants not all reached yet; asked when the
+ * closure had named `names` values, each target of the heading it did not reach then unnamed at those values; or every
+ * target of the heading reached, so it adds nothing again.
+ */
+type Standing =
+	| { readonly kind: "waiting" }
+	| { readonly kind: "asked"; readonly names: number }
+	| { readonly kind: "spent" }
+
+const waiting: Standing = Object.freeze({ kind: "waiting" })
+const spent: Standing = Object.freeze({ kind: "spent" })
+
+/** A dependency of a closure at `index` in its table, with its standing so far. */
+interface Tracked {
+	readonly index: number
+	readonly dependency: Dependency
+	standing: Standing
+}
+
+/**
+ * What names the values a closure's steps fix its columns to: nothing, or `naming`, which names a step's column given the
+ * values named before it, or leaves it unnamed.
+ */
+export type Naming<V> =
+	| { readonly kind: "none" }
+	| {
+			readonly kind: "named"
+			readonly naming: (
+				dependency: Dependency,
+				column: string,
+				named: ReadonlyMap<string, V>
+			) => V | undefined
+	  }
+
+/** A closure that names nothing: what each column is reached by, whatever value it holds. */
+export const namesNothing: Naming<never> = Object.freeze({ kind: "none" })
+
+/** Which steps a round of a closure lets reach a column: those its naming names the column by, or every step. */
+type Admission<V> = Extract<Naming<V>, { readonly kind: "named" }> | { readonly kind: "every" }
+
+const every: Admission<never> = Object.freeze({ kind: "every" })
+
+/**
  * Every column `start` determines under `dependencies`, over the node's columns `heading`: first by the steps `naming`
- * gives a value, given the values the closure named before them, then by every step.
+ * gives a value, given the values the closure named before them, then by every step. A closure that names nothing has
+ * the second round alone, since the first would reach no column.
+ *
+ * Each round passes over the dependencies in table order until a pass adds no column, and a step fires at its turn in
+ * the pass once its determinants are reached. Each dependency carries its standing from pass to pass (Standing), so a
+ * pass visits again only what can still add a column: one whose determinants were not all reached, or whose targets a
+ * naming may now answer otherwise, since `naming` reads nothing but the values named so far, and a target reached since
+ * only leaves it fewer to ask about. A visit it skips is one that would add nothing and learn nothing, so the columns,
+ * each one's step and the order the steps fire in are the passes' own.
  */
 export const closure = <V>(
 	node: NodeId,
 	heading: ReadonlySet<string>,
 	dependencies: ReadonlyArray<Dependency>,
 	start: Iterable<string>,
-	naming: (dependency: Dependency, column: string, named: ReadonlyMap<string, V>) => V | undefined
+	naming: Naming<V>
 ): Closure<V> => {
 	const columns = new Map<string, Reached>()
 	const given: Array<string> = []
@@ -66,34 +117,68 @@ export const closure = <V>(
 	const named = new Map<string, V>()
 	/** Each dependency that reached a column, by its index, with its place among them: when it first did. */
 	const orders = new Map<number, number>()
-	const reach = (admitted: (d: Dependency, column: string) => boolean): void => {
+	const tracked: ReadonlyArray<Tracked> = dependencies.map((dependency, index) => ({
+		index,
+		dependency,
+		standing: waiting
+	}))
+	/** How many times the closure named a value: all a naming's answer can differ by. */
+	let names = 0
+	const isReached = (c: string): boolean => columns.has(c)
+	/** A pass's visit of a dependency, adding the columns it reaches; whether it added any. */
+	const visit = (t: Tracked, admission: Admission<V>): boolean => {
+		const { standing, dependency: d } = t
+		if (
+			standing.kind === "spent" ||
+			(standing.kind === "waiting" && !d.from.every(isReached)) ||
+			(standing.kind === "asked" && admission.kind === "named" && standing.names === names)
+		) {
+			return false
+		}
+		const asked = names
+		const added: Array<string> = []
+		let unreached = 0
+		for (const c of d.to) {
+			if (!heading.has(c) || columns.has(c)) {
+				continue
+			}
+			unreached++
+			if (admission.kind === "every") {
+				added.push(c)
+				continue
+			}
+			const value = admission.naming(d, c, named)
+			if (value !== undefined) {
+				named.set(c, value)
+				names++
+				added.push(c)
+			}
+		}
+		t.standing = added.length === unreached ? spent : { kind: "asked", names: asked }
+		if (added.length === 0) {
+			return false
+		}
+		const order = orders.get(t.index) ?? orders.size
+		orders.set(t.index, order)
+		for (const c of added) {
+			columns.set(c, { kind: "step", index: t.index, order, dependency: d })
+		}
+		return true
+	}
+	const reach = (admission: Admission<V>): void => {
 		for (let changed = true; changed;) {
 			changed = false
-			for (const [index, d] of dependencies.entries()) {
-				if (!d.from.every((c) => columns.has(c))) {
-					continue
+			for (const t of tracked) {
+				if (visit(t, admission)) {
+					changed = true
 				}
-				const added = d.to.filter((c) => heading.has(c) && !columns.has(c) && admitted(d, c))
-				if (added.length === 0) {
-					continue
-				}
-				const order = orders.get(index) ?? orders.size
-				orders.set(index, order)
-				for (const c of added) {
-					columns.set(c, { kind: "step", index, order, dependency: d })
-				}
-				changed = true
 			}
 		}
 	}
-	reach((d, column) => {
-		const value = naming(d, column, named)
-		if (value !== undefined) {
-			named.set(column, value)
-		}
-		return value !== undefined
-	})
-	reach(() => true)
+	if (naming.kind === "named") {
+		reach(naming)
+	}
+	reach(every)
 	return { node, start: given, columns, dependencies, named }
 }
 
