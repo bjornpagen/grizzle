@@ -135,6 +135,9 @@
  * alone, so a retirable unit's body read absent is taken for monotone; the search fails.
  * @plant test/plants/unit/analysis/isolation/monotone-probe-5c-dropped.patch The relations a role's probes read left
  * out of its outside reads, so 5c misses the monotone rule's probe; the search fails.
+ * @plant test/plants/unit/analysis/isolation/certify-laws-reader-half.patch Condition `laws` without its second half,
+ * a change member of a role that runs SERIALIZABLE reading a relation the role writes (serializableReasons); the
+ * search fails.
  */
 import { type Case as Explored, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

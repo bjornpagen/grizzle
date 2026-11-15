@@ -297,6 +297,15 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   (breaksAt) as its pivot cause would let an inserter of a rule's breaking row run READ COMMITTED beside a
   SERIALIZABLE inserter of the negated relation. Too strict today, never too lax; no downstream needs it (den runs
   every role READ COMMITTED). Not built.
+- **An insertion's own anti-join reads its source as negated (PLANTS-PGLAWS, 2026-11-15):** the insert protocol keeps
+  the requested facts its INSERT did not return by an anti-join against its own RETURNING (`bool_or(...) OVER
+  (PARTITION BY <key>) ... WHERE NOT`), and the isolation extractor reads every relation beneath that NOT as read
+  negated (program/isolation/extract.ts modeOf, l.1480-1489: a read whose context's polarity is not positive is
+  `negated`), though only the presence of its rows feeds the write and the anti-join reads the write's own rows, not
+  shared state. Condition `absence` then keeps every role that writes the insertion's source SERIALIZABLE:
+  test/pg/isolation/reads.test.ts's teller, whose Deposit the closer's `close` copies into Copy, is certified
+  SERIALIZABLE for `absence`, relation Deposit, "closer of app reads it negated" (statement 0 of `close`), where only
+  condition `laws`'s second half should refuse it. Too strict, never too lax. Not built.
 - **A folder's WAL, not its data, sizes a small instance (push-database-migration-through, 2026-11-14):** edullm's
   identity 02 ran 5 h in one transaction on a db.t4g.medium (4 GB, 3,000 IOPS gp3); every set-based backfill over node
   was disk-bound (83% DataFileRead), RDS warned its 200 GiB volume was near full from the WAL, and the instance
