@@ -41,6 +41,7 @@ import {
 	readTriage,
 	type Report,
 	type ReportInput,
+	type Share,
 	reportOf,
 	type Stored,
 	type Verdict
@@ -87,7 +88,9 @@ const toolchain = "vendor/toolchain"
  *    N spread over the areas and operators, or with --mutant the named ones (to recheck a triaged survivor).
  * 3. A coverage pass runs every stage-1 test file (the unit project, less the generators' own tests) once on the
  *    unmutated tree under NODE_V8_COVERAGE, each of its tests bounded as `pnpm test` bounds it, recording its failing
- *    tests (never counted against a mutant) and which sampled mutants it executes (coverage.ts).
+ *    tests (never counted against a mutant) and which sampled mutants it executes (coverage.ts). A file whose run does
+ *    not finish (it hangs or crashes) fails the whole run, naming the file and keeping its output under
+ *    test/support/mutation/logs/: what it executes is unknown, so no mutant could be judged by it.
  * 4. Stage 0 typechecks each mutant's tree: a mutant the type checker rejects is `invalid`, can never be committed,
  *    and is left out of the score.
  * 5. Stage 1 runs, for each valid mutant, the stage-1 files that execute it, in one Vitest run (runFiles), mutant
@@ -103,7 +106,8 @@ const toolchain = "vendor/toolchain"
  *    per test file how many mutants it executes. Each mutant's raw test output goes to test/support/mutation/logs/
  *    (gitignored). With --merge the run merges into the report already there, so scoped runs with their own stage-2
  *    suites add up to one report; --retriage runs no stage and rebuilds the report with the current triage. A triage
- *    verdict whose mutant is in no current population refuses every run.
+ *    verdict whose mutant is in no current population refuses every run. A run, or a retriaged report, in which no test
+ *    that finished ran a mutant the score counts has no score: it fails, its report written, and prints no number.
  *
  * With --first-kill a mutant's run stops at the first test it fails that passes on the unmutated tree, or at the first
  * file it hangs in, so a killed mutant names its first killer only and the kill sets are partial; a mutant that
@@ -755,6 +759,29 @@ interface FilePass {
 	readonly covers: ReadonlySet<string>
 }
 
+/**
+ * How one file's coverage run came out: it finished, with what it executes, or it did not (it hung or crashed), so what
+ * it executes is unknown and no mutant can be judged by it. Its output is kept in `log`.
+ */
+type Covered =
+	| { readonly kind: "finished"; readonly pass: FilePass }
+	| {
+			readonly kind: "unfinished"
+			readonly file: string
+			readonly end: Exclude<RunEnd, { readonly kind: "finished" }>
+			readonly log: string
+	  }
+
+/** An unfinished coverage run in words: its file, how it ended, and where its output is. */
+const unfinishedText = (run: Extract<Covered, { readonly kind: "unfinished" }>): string => {
+	switch (run.end.kind) {
+		case "hung":
+			return `${run.file} ran past its bound in ${run.end.file} (${run.log})`
+		case "crash":
+			return `${run.file} crashed (${run.log})`
+	}
+}
+
 /** A coverage pass over the unmutated tree: each file as it ran, and every failure, which no mutant is charged with. */
 interface Baseline {
 	readonly passes: ReadonlyArray<FilePass>
@@ -805,7 +832,8 @@ interface Stage {
 const coveragePass = Effect.fn("coveragePass")(function* (
 	stage: Stage,
 	label: string,
-	files: ReadonlyArray<string>
+	files: ReadonlyArray<string>,
+	logDir: string
 ) {
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
@@ -842,17 +870,28 @@ const coveragePass = Effect.fn("coveragePass")(function* (
 		yield* Console.log(
 			`coverage ${label} [${count}/${files.length}] ${file} ${result.wallMs} ms${failed > 0 ? `, ${failed} failing in the baseline` : ""}${result.end.kind === "finished" ? "" : ", did not finish"}`
 		)
-		const pass: FilePass = {
-			file,
-			failures:
-				result.end.kind === "finished"
-					? result.failures
-					: [...result.failures, { file, test: "(run)" }],
-			covers: new Set(covers)
+		const end = result.end
+		if (end.kind !== "finished") {
+			const log = path.join(logDir, `coverage-${label}-${Str.replaceAll("/", "_")(file)}.log`)
+			yield* fs.writeFileString(log, `${result.output}\n`)
+			const run: Covered = { kind: "unfinished", file, end, log }
+			return run
 		}
-		return pass
+		const run: Covered = {
+			kind: "finished",
+			pass: { file, failures: result.failures, covers: new Set(covers) }
+		}
+		return run
 	})
-	const passes = yield* pooled(stage.trees, files, passOf)
+	const runs = yield* pooled(stage.trees, files, passOf)
+	const [passes, unfinished] = Arr.partition(runs, (run) =>
+		run.kind === "finished" ? Result.succeed(run.pass) : Result.fail(run)
+	)
+	if (Arr.isReadonlyArrayNonEmpty(unfinished)) {
+		return yield* DevtoolFailure.make({
+			detail: `mutate: ${unfinished.length} of the ${files.length} files of the ${label} coverage pass did not finish, so what they execute is unknown and no mutant can be judged by them: ${Arr.join(Arr.map(unfinished, unfinishedText), "; ")}`
+		})
+	}
 	const baseline: Baseline = {
 		passes,
 		failures: new Set(Arr.flatMap(passes, (p) => Arr.map(p.failures, failureKey)))
@@ -1130,7 +1169,7 @@ const stage1Of = Effect.fn("stage1Of")(function* (
 	})
 	const baselineErrors = yield* typeErrors(workspace.base)
 	const stage1Files = yield* stage1FilesOf(workspace.base, workspace.settings)
-	const baseline = yield* coveragePass(stage, "stage1", stage1Files)
+	const baseline = yield* coveragePass(stage, "stage1", stage1Files, logDir)
 	const finished = yield* Ref.make(0)
 	const judge = Effect.fn("judge")(function* (m: Planned, tree: string) {
 		const files = Arr.filter(baseline.passes, (p) => p.covers.has(m.id))
@@ -1192,7 +1231,7 @@ const stage2Of = Effect.fn("stage2Of")(function* (
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
 	const survivors = Arr.filter(stage1, ([, v]) => isSurvivor(v))
-	const baseline = yield* coveragePass(stage, "stage2", stage2Files)
+	const baseline = yield* coveragePass(stage, "stage2", stage2Files, logDir)
 	const finished = yield* Ref.make(0)
 	const retry = Effect.fn("retry")(function* (m: Planned, before: Verdict, tree: string) {
 		const files = Arr.filter(baseline.passes, (p) => p.covers.has(m.id))
@@ -1324,16 +1363,46 @@ const runStages = Effect.fn("runStages")(function* (
 	const prior = settings.merge ? yield* readStored(reportPath) : Option.none<Stored>()
 	const stored = Option.match(prior, { onNone: () => thisRun, onSome: (p) => merged(p, thisRun) })
 	const report: Report = yield* writeReport(reportPath, { stored, triage })
+	const score = yield* judgedScore(report.total.score, report, reportPath)
 	yield* Console.log(
-		`mutate: score ${report.total.score} (${Formatter.format(report.total)}); report ${reportPath}`
+		`mutate: score ${score} (${Formatter.format(report.total)}); report ${reportPath}`
 	)
 	yield* Effect.forEach(
 		Rec.toEntries(report.areas),
-		([area, s]) => Console.log(`  ${area}: ${s.score} of ${s.mutants}`),
+		([area, s]) => Console.log(`  ${area}: ${shareText(s.score)} of ${s.mutants}`),
 		{
 			discard: true
 		}
 	)
+})
+
+/** A share as a line prints it: its score, or `unjudged`, never a number, where no test ran a mutant it counts. */
+const shareText = (share: Share): string => {
+	switch (share.kind) {
+		case "judged":
+			return String(share.value)
+		case "unjudged":
+			return "unjudged"
+	}
+}
+
+/**
+ * The score of the report `report` at `reportPath`, or the failure that it has none: no test that finished ran a mutant
+ * it counts, so a number would claim work that never happened.
+ */
+const judgedScore = Effect.fn("judgedScore")(function* (
+	share: Share,
+	report: Report,
+	reportPath: string
+) {
+	switch (share.kind) {
+		case "judged":
+			return share.value
+		case "unjudged":
+			return yield* DevtoolFailure.make({
+				detail: `mutate: no test that finished ran any of the ${report.total.mutants} mutants, so the run has no score (${Formatter.format(report.total)}); report ${reportPath}`
+			})
+	}
 })
 
 /** Lists the planned mutants and the count per operator. */
@@ -1387,8 +1456,9 @@ const main = Effect.gen(function* () {
 			})
 		}
 		const report = yield* writeReport(reportPath, { stored: stored.value, triage })
+		const score = yield* judgedScore(report.total.scoreAfterTriage, report, reportPath)
 		return yield* Console.log(
-			`mutate: retriaged ${report.mutants.length} mutants; score after triage ${report.total.scoreAfterTriage}`
+			`mutate: retriaged ${report.mutants.length} mutants; score after triage ${score}`
 		)
 	}
 	const planned = Option.match(settings.mutants, {

@@ -156,6 +156,15 @@ export const merged = (prior: Stored, next: Stored): Stored => {
 }
 
 /**
+ * A share of the mutants a score counts that the tests killed, to four places, judged once a test that finished ran
+ * some counted mutant (killed it, timed out or let it survive). Where none did (every counted mutant reached by no test,
+ * the rest invalid or equivalent), there is no score: the share is `unjudged`, never a number.
+ */
+export type Share =
+	| { readonly kind: "judged"; readonly value: number }
+	| { readonly kind: "unjudged" }
+
+/**
  * The run's score counts what the tests killed; equivalent mutants and those the type checker rejects are left out. The
  * score after triage also counts a survivor whose gap a new test closed as killed.
  */
@@ -168,13 +177,15 @@ type Score = {
 	readonly invalid: number
 	readonly equivalent: number
 	readonly gapFixed: number
-	readonly score: number
-	readonly scoreAfterTriage: number
+	readonly score: Share
+	readonly scoreAfterTriage: Share
 }
 
-/** The share `n` of `d` to four places; an empty denominator scores 1, since nothing escaped. */
-const ratio = (n: number, d: number): number =>
-	d === 0 ? 1 : Math.round((10_000 * n) / d) / 10_000
+/** The share `n` of the `counted` mutants, when `ran` of them ran against a test that finished. */
+const shareOf = (n: number, counted: number, ran: number): Share =>
+	ran === 0
+		? { kind: "unjudged" }
+		: { kind: "judged", value: Math.round((10_000 * n) / counted) / 10_000 }
 
 /** What a mutant counts as in a score: its status, or `equivalent` for a survivor triage judged equivalent. */
 type ScoreClass = Entry["status"] | "equivalent"
@@ -205,18 +216,20 @@ const scoreOf = (ms: ReadonlyArray<Entry>, triage: ReadonlyMap<string, Triage>):
 			(m.status === "survived" || m.status === "no-coverage") &&
 			Option.contains(verdictOf(m), "gap-fixed")
 	).length
+	const survived = count("survived")
 	const counted = ms.length - invalid - equivalent
+	const ran = killed + timeout + survived
 	return {
 		mutants: ms.length,
 		killed,
 		timeout,
-		survived: count("survived"),
+		survived,
 		noCoverage: count("no-coverage"),
 		invalid,
 		equivalent,
 		gapFixed,
-		score: ratio(killed + timeout, counted),
-		scoreAfterTriage: ratio(killed + timeout + gapFixed, counted)
+		score: shareOf(killed + timeout, counted, ran),
+		scoreAfterTriage: shareOf(killed + timeout + gapFixed, counted, ran)
 	}
 }
 
