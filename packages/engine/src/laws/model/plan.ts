@@ -49,13 +49,7 @@ import { type CombineFn, monoidSpecs } from "#compiler/ir/monoid.ts"
 
 import { type CellSide, sideOf } from "#compiler/ir/cells.ts"
 import { closedCell } from "#compiler/ir/rel.ts"
-import {
-	baseOf,
-	fewValued,
-	rosterOf,
-	type ScalarType,
-	sameScalarType
-} from "#compiler/ir/scalar.ts"
+import { baseOf, rosterOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { keyOf, literalKey } from "#compiler/laws/model/names.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
 import {
@@ -1005,21 +999,15 @@ const within = (columns: ReadonlyArray<SideColumn>, outer: ReadonlyArray<SideCol
 	columns.every((c) => outer.some((o) => sameSideColumn(c, o)))
 
 /**
- * Whether a B-tree over `index`, in its order, serves an equality probe over `probe`, as the index engine places one
- * (physical/indexes/engine.ts equalityPlacements): a unique one whose every column the probe binds, finding at most one
- * row; one whose leading columns are the probe's, in any order; or one led by a probe column of many values, a closed
- * id's and a boolean's being few, that holds every probe column. `index` is unique wherever this reads it.
+ * Whether a B-tree over `index`, in its order, serves a reverse probe over `probe`, as the index engine places a law's
+ * (physical/indexes/engine.ts reversePlacements): a unique one whose every column the probe binds, finding at most one
+ * row, or one whose leading columns are the probe's, in any order; never one led by a probe column that holds the rest
+ * further in, which reads that column's every row for each probe. `index` is unique wherever this reads it.
  */
 const servesProbe = (
 	index: NonEmptyReadonlyArray<SideColumn>,
 	probe: NonEmptyReadonlyArray<SideColumn>
-): boolean =>
-	within(index, probe) ||
-	sameColumns(index.slice(0, probe.length), probe) ||
-	(probe.some(
-		(c) => sameSideColumn(c, index[0]) && !fewValued[baseOf(plannedField(c).type).carrier]
-	) &&
-		within(probe, index))
+): boolean => within(index, probe) || sameColumns(index.slice(0, probe.length), probe)
 
 /** The items of `items` with no earlier one `same` holds of, in their order. */
 const distinct = <A>(items: ReadonlyArray<A>, same: (a: A, b: A) => boolean): ReadonlyArray<A> =>
