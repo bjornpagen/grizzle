@@ -1048,14 +1048,12 @@ interface FixedUse {
 
 /**
  * A UNIQUE a reference may land on, as the choice counts what it adds to its relation beyond what the relation holds
- * (`Planned`): whether a key or a reference keyed by its terms holds its set already, so it adds no index; the reverse
- * probes it serves, each probe no planned UNIQUE serves whose B-tree reads every one of its columns, which then needs
- * no B-tree; and its law columns no side lowers to.
+ * (`Planned`): its columns, in the order the reference names them, and its law columns no side lowers to. Which reverse
+ * probes it serves is no fact of the landing: landings over one column set are one UNIQUE, installed once in one order
+ * (model.ts nativeIdentity, the first plan's), so only a configuration knows the UNIQUEs it installs (`takingShared`).
  */
 interface Landing {
 	readonly columns: NonEmptyReadonlyArray<SideColumn>
-	readonly planned: boolean
-	readonly serves: ReadonlyArray<number>
 	readonly fresh: ReadonlyArray<SideColumn>
 }
 
@@ -1069,10 +1067,12 @@ interface FixedTarget {
 
 /**
  * The fixed targets of one relation that take the shared reference: a choice by what each configuration adds to the
- * whole schema, counted exactly. A configuration's objects are the distinct UNIQUEs its targets land on that no
- * planned UNIQUE is, the B-trees the reverse probes no planned UNIQUE and no landing serves need, a chain of them over
- * nested column sets sharing one (`probeIndexes`), the distinct law columns its landings add, and the distinct
- * constants its shared references add to their sources. From every target
+ * whole schema, counted exactly. A configuration's objects are the UNIQUEs it installs, one per column set its targets
+ * land on that no planned UNIQUE holds, in the order of the first target landing on it, as the law model merges them
+ * (model.ts nativeIdentity, the first plan's object kept); the B-trees the reverse probes no planned UNIQUE and no
+ * installed UNIQUE serves need, each UNIQUE serving by the order it is installed in, a chain of them over nested column
+ * sets sharing one (`probeIndexes`); the distinct law columns its landings add; and the distinct constants its shared
+ * references add to their sources. From every target
  * at its own columns, which is what keys restated over the targets would plan, it moves targets to their shared
  * UNIQUE, all of one shared UNIQUE's targets at once or one alone, taking the move that leaves the fewest objects
  * while that is no more than before; so it never plans more objects than the own columns would, and keeps the superkey
@@ -1087,8 +1087,6 @@ const takingShared = (
 	)
 	const landing = (columns: NonEmptyReadonlyArray<SideColumn>): Landing => ({
 		columns,
-		planned: planned.uniques.some((u) => sameColumns(u, columns)),
-		serves: probes.flatMap((probe, i) => (servesProbe(columns, probe) ? [i] : [])),
 		fresh: columns.filter(
 			(c) => c.kind === "law" && !planned.columns.some((p) => sameSideColumn(p, c))
 		)
@@ -1104,13 +1102,13 @@ const takingShared = (
 	}))
 	const objects = (taking: ReadonlySet<FixedTarget>): number => {
 		const landed = targets.map((t) => (taking.has(t) ? t.shared : t.own))
-		const served = new Set(landed.flatMap((l) => l.serves))
+		const installed = distinct(
+			landed.map((l) => l.columns),
+			sameColumns
+		).filter((columns) => !planned.uniques.some((u) => sameColumns(u, columns)))
 		return (
-			distinct(
-				landed.filter((l) => !l.planned).map((l) => l.columns),
-				sameColumns
-			).length +
-			probeIndexes(probes.filter((_, i) => !served.has(i))) +
+			installed.length +
+			probeIndexes(probes.filter((probe) => !installed.some((u) => servesProbe(u, probe)))) +
 			distinct(
 				landed.flatMap((l) => l.fresh),
 				sameSideColumn

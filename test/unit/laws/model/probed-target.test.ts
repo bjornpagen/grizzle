@@ -738,6 +738,28 @@ describe("a fixed target's UNIQUE beside the reverse probes out of its selection
 									"K over a selection",
 									"K's terms holding the fixed field"
 								]
+							},
+							{
+								note: "K on a over every row, two targets fixing kind = 1 over (a, b) and (a), one fixing kind = 0 over (b, a), and probes out of select(T, kind = 0) over (a, b) and out of every row over (b): the targets over (a, b) and (b, a) share one superkey column set, which the law model installs once, in the first target's order (a, b, kind), so it leads no (b) probe. The choice read each landing's own order, priced (b, a, kind) as serving the (b) probe, took every superkey at a tie, and K alone planned 19 objects to the restated keys' 18 (rotating case 165, TEST_SEED=20261115)",
+								sketch: {
+									selected: false,
+									key: ["a"],
+									targets: [
+										{ value: 1, guarded: false, terms: ["a", "b"] },
+										{ value: 1, guarded: false, terms: ["a"] },
+										{ value: 0, guarded: false, terms: ["b", "a"] }
+									],
+									probes: [
+										{ at: { kind: "fixed", value: 0, guarded: false }, terms: ["a", "b"] },
+										{ at: { kind: "key" }, terms: ["b"] }
+									]
+								},
+								draws: "",
+								reaches: [
+									"a target a probe reads at its own columns, within the probe",
+									"a probed target beside an unprobed one",
+									"K over every row"
+								]
 							}
 						],
 						runs: 300,
