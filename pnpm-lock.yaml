@@ -327,8 +327,6 @@ importers:
 
   packages/experiments/checkpoint-files: {}
 
-  packages/experiments/fk-delete: {}
-
   packages/experiments/ssi-summary: {}
 
   packages/grizzle:

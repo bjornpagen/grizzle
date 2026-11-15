@@ -326,6 +326,37 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   the content (write/insert/protocol.ts classifyMet ~947-990, FAMWRITE's); (c) a deletion returns the stored address
   for the outcome (write/delete/exact.ts:111 returnedColumn), not encode(sha256(r3.content)). A fresh publish gains
   nothing: its D is empty and nothing is met. Not built.
+- **A landing guarded by what its sources can hold (FKDELETE, 2026-11-15; main: parked, until package deletes become
+  frequent or node grows enough that a delete's COMMIT matters):** a whole-package delete's COMMIT is PostgreSQL's
+  deferred NO ACTION checks, one per deleted row and per foreign key into its table whose referenced columns all hold a
+  value there (PG19 trigger.c:6480, ri_triggers.c:1492-1513 RI_FKey_pk_upd_check_required), two SPI queries each
+  (ri_Check_Pk_Match, then ri_restrict, ri_triggers.c:818-850). PG19's RI fast path is the referencing side's alone
+  (ri_triggers.c:438-451); RESTRICT is never deferrable (tablecmds.c:14956) and refuses a replace in place; a partial
+  UNIQUE is no target (tablecmds.c:14608); statement order changes nothing, every check firing at COMMIT. Measured on a
+  production-shaped 19rc1 cluster (edullm staging 319d42ecd over grizzle 48f7480b, both REPIN2 packages stored), g3t15
+  deleted in one SERIALIZABLE transaction, its checks fired by SET CONSTRAINTS ALL IMMEDIATE and rolled back: checks
+  45.2/46.0 s of backend CPU (48.5 s with pg_stat_statements tracking nested statements), deletes 5.2 s, the judge
+  0.56 s; 2,452,343 checks, 4.8% of them finding a referencing row; 2,307,514 on qti.node (22,622 rows; 95 of its 129
+  foreign keys reference plain NOT NULL columns and fire for every row), 2.2% finding one. By class into node: 51
+  overlays X(package, path, start, kind, nearest, version, parent') 1,153,722 checks, 5,673 finding a row; 17 into
+  (package, path, start, kind), 10 tag constants and 7 parent_kind, 384,574 and 1,884; 7 into (..., elements,
+  element_children) 158,354 and 1,313. Every probe is an index probe (4-28 µs each; no index is missing), about 18.6 µs
+  a check in all. The design: each landing UNIQUE replaces the column `start` by a law column `CASE WHEN kind IN (S)
+  THEN start END`, S the union over the containments landing there of the values each source's paired column can hold,
+  so a row no source can meet is null there and PostgreSQL queues no check for it; no foreign key is dropped, and an S
+  derived too narrow refuses a write, never weakens one. Emulated inside the transaction (79 foreign keys re-pointed at
+  10 guarded landings, S read from the stored rows): checks 19.6 s (-57%), 998,994 checks (-59%), deletes 2.9 s; a
+  landing per foreign key 12.6 s (79 UNIQUEs more on node, refused); the 79 dropped, the bound, 10.9 s. S has three
+  static sources: a tag constant, a declared row check fixing the paired field, and a containment of the source's key
+  into a selected side of the target at a key (the mirror and tag laws, through which area_mapping or dependency alone
+  fix their kind). From the catalog alone S is derivable for 16 of the 51 overlay sources and 11 of the 17 into
+  (package, path, start, kind); a landing with one source underivable stays unguarded or splits off one UNIQUE more; the
+  law model's coverage is unverified. The 16 node foreign keys pairing no kind (elements, string_value, parent: 362k
+  checks) need the third source. edullm's DDL, unpriced: about 10 stored columns on qti.node (a rewrite under
+  AccessExclusive), about 10 UNIQUEs replaced, 79 foreign keys dropped and added again. Its harness was
+  packages/experiments/fk-delete (a2f0e371, census.py, measure.py, variant.py), deleted at this verdict; numbers in
+  ~/.cache/grizzle-release/FKDELETE/out. BULKLOAD-BATCH's record corrected: its class "rule probes 5.3M calls 27.4 s" is
+  these RI queries; its judge's 2.5 s stands. Not built.
 - **One stratum per family's members, until no family write is unserved (PLANTS-PGWRITE, main's ruling 2026-11-15):** a
   ChangeSet writes a family's members in one stratum, refused by its type (types/changeset/changeset.ts:1261, the
   vocabulary core/refusals.ts:9) and when it compiles (write/frontend/compile.ts:2866), and a refill only in the first
