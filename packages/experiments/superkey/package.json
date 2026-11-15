@@ -1,0 +1,7 @@
+{
+	"name": "@bjornpagen/grizzle-experiment-superkey",
+	"private": true,
+	"description": "Experiment: foreign keys into their target's keys only, a containment's copies held by rules, against generated superkey UNIQUEs; deleted once its verdict is in (README.md)",
+	"license": "0BSD",
+	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>"
+}
