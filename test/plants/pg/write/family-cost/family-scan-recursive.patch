@@ -1,0 +1,677 @@
+diff --git a/packages/engine/src/write/family/scan.ts b/packages/engine/src/write/family/scan.ts
+index ffdb51b2..9e346dcb 100644
+--- a/packages/engine/src/write/family/scan.ts
++++ b/packages/engine/src/write/family/scan.ts
+@@ -2,32 +2,32 @@
+  * A family's members drawn in SQL, in slot order, inside the statement that writes them: the values the host once drew
+  * from a read of the stored group, computed by PostgreSQL from the group as the statement finds it.
+  *
+- * A scan draws each group of one family from its first drawn slot to its last as windows over the group's rows in slot
+- * order, never a walk of one member per step: each column a layer of its own, a derived table over the layer below it,
+- * which reads every column below it. Each drawn column is its fill rule (ir/fill.ts), the one the nested walk fills by:
++ * A scan walks each group of one family from its first drawn slot to its last, one member per step of a recursive CTE,
++ * the step reading the member before it, as the family's laws chain them:
+  *
+- * - an index its slot, a copy of the count the group's count, an owner copy the owner's column, each read off its row;
+- * - a predecessor copy the member before it's column, lag() over the group in slot order, and at the group's first
+- *   drawn slot its seed's (the stored member before it, GroupState `stored`), or the family's base at slot 0;
+- * - a fold plane's after `combine(befores, x)` where the fold's selection holds and its before elsewhere, combined as the
+- *   fold's CHECK proves it, drawn whole as its first before combined with the running aggregate of every step of the
+- *   group up to it (count's and sum's a sum, max's a max, or's and twos' a union, concat's the texts in slot order), the
+- *   frame ROWS from the group's first row to the current one; and its before, the after before it, lag() again.
++ *   WITH RECURSIVE "r9"("c1", ..., "c20") AS (
++ *     SELECT <a group's first drawn member, at slot 0, from the family's base>
++ *       FROM "r3" AS "r10" JOIN "r5" AS "r11" ON <its owner> WHERE <its slot is 0, its group's first>
++ *     UNION ALL
++ *     SELECT <a group's first drawn member past slot 0, from its seed, the member stored before it>
++ *       FROM "r3" AS "r12" JOIN "r5" AS "r13" ON <its owner> JOIN "r4" AS "r14" ON <its seed>
++ *       WHERE <its slot is its group's first>
++ *     UNION ALL
++ *     SELECT <the next member, from the one before it>
++ *       FROM "r9" AS "r15" JOIN "r3" AS "r16" ON <same group, the next slot> JOIN "r5" AS "r17" ON <its owner>
++ *   )
+  *
+- * A generated field a rule reads is its generation over the row, as PostgreSQL stores it. Every column is placed in the
+- * first layer whose columns below it hold everything it reads: its own row's columns and, for a predecessor copy, the
+- * member before it's. A fold's step and selection are drawn from the member's own row, never from its own accumulators:
+- * a fold whose step side reads its own before or after, or predecessor copies that read each other in a cycle, have no
+- * order of layers, and their write is refused, naming the columns. So a scan's cost is a sort of its rows and a pass of
+- * each layer over them, whatever the length of a group.
++ * Each drawn column is its fill rule (ir/fill.ts), the one the nested walk fills by: an index its slot, a copy of the
++ * count the group's count, an owner copy the owner's column, a predecessor copy the member before it's column (the
++ * family's base at slot 0), and a fold plane's after `combine(befores, x)` where the fold's selection holds and its
++ * before elsewhere, combined as the fold's CHECK proves it. A generated field a rule reads is its generation over the
++ * row, as PostgreSQL stores it. So every lawful schema is drawn: the step is the law itself, whatever the monoid, the
++ * copies' chains or the generated fields between them, which no window aggregate could follow.
+  *
+- * Every drawn column is cast to its type's base, so no domain's CHECK runs before the write that stores the value, which
+- * judges it there.
++ * Every drawn column is cast to its type's base, so PostgreSQL's recursive type agreement never rests on an operator's
++ * result type, and no domain's CHECK runs before the write that stores the value, which judges it there.
+  */
+-import { Refusal } from "#compiler/core/canonical.ts"
+-import { unsupported } from "#compiler/core/errors.ts"
+ import { defect, defined } from "#compiler/core/invariant.ts"
+-import { SourceLoc } from "#compiler/core/loc.ts"
+ import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+ import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
+ import type { ScalarExpr } from "#compiler/ir/expr.ts"
+@@ -38,23 +38,13 @@ import { columnReads } from "#compiler/laws/model/uniques.ts"
+ import type { ColumnMap, Env } from "#compiler/lower/conservative/context.ts"
+ import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
+ import { type ColumnKey, columnKey, fieldKey } from "#compiler/runtime/write/fill.ts"
+-import type {
+-	Cte,
+-	Expr,
+-	FromItem,
+-	FromSource,
+-	Select,
+-	SetCore,
+-	TypeRef
+-} from "#compiler/sql/ast.ts"
++import type { Cte, Expr, FromItem, SetCore, Target, TypeRef } from "#compiler/sql/ast.ts"
+ import {
+ 	and,
+ 	binary,
+-	call,
+ 	cast,
+ 	col,
+ 	cteRefAs,
+-	derived,
+ 	eq,
+ 	gt,
+ 	join,
+@@ -63,8 +53,7 @@ import {
+ 	select,
+ 	targetAs,
+ 	types,
+-	unionAll,
+-	windowOf
++	unionAll
+ } from "#compiler/sql/build.ts"
+ import type { NameSupply } from "#compiler/sql/naming.ts"
+ import type { WriteContext } from "#compiler/write/insert/statement.ts"
+@@ -160,6 +149,38 @@ const sameGroup = (
+ 		)
+ 	)
+ 
++/**
++ * One fold plane's after from the befores and the step value, at the plane's base type `to`, as the fold's CHECK
++ * proves it (laws/model/plan.ts #combine): count adds one, sum adds in exact arithmetic and casts back, max takes the
++ * greater, or and twos unite and intersect the sets' bits, concat appends the text.
++ */
++const combine = (
++	fold: FamilyFold,
++	plane: 0 | 1,
++	befores: ReadonlyArray<Expr>,
++	x: Expr | undefined,
++	to: TypeRef
++): Expr => {
++	const before = defined(befores[plane], `the before of plane ${plane}`)
++	const step = (): Expr => defined(x, `the step value of a ${fold.monoid} fold`)
++	switch (fold.monoid) {
++		case "count":
++			return binary("+", before, lit.int(1, to))
++		case "sum":
++			return cast(binary("+", cast(before, types.numeric), cast(step(), types.numeric)), to)
++		case "max":
++			return { kind: "greatest", args: [before, step()] }
++		case "or":
++			return binary("|", before, step())
++		case "twos":
++			return plane === 0
++				? binary("|", before, step())
++				: binary("|", before, binary("&", defined(befores[0], "the ones plane's before"), step()))
++		case "concat":
++			return binary("||", before, step())
++	}
++}
++
+ /** A row expression's value over a row's columns, each field it reads by `value` at its key. */
+ const generation = (w: WriteContext, expr: ScalarExpr, value: (key: ColumnKey) => Expr): Expr => {
+ 	const env = new Map<Parameters<Env["get"]>[0], ColumnMap>()
+@@ -221,94 +242,88 @@ export const scannedValue = (
+ 		: cast(value, w.cx.baseTypeRef(column.field.type))
+ }
+ 
+-/** The columns a layer of a scan holds, each by its name in every layer: the rows', and each drawn column once drawn. */
+-interface Layout {
+-	readonly group: NonEmptyReadonlyArray<string>
+-	readonly slot: string
+-	readonly first: string
+-	readonly count: string
+-	/** The rows' own columns, by key: each carried one under its scanned name, each drawn one's stored value apart. */
+-	readonly own: ReadonlyMap<ColumnKey, string>
+-	readonly owner: ReadonlyMap<ColumnKey, string>
+-	/** The seed's columns, the member stored before each group's first drawn slot, each a predecessor copy reads; a group
+-	 * drawn from slot 0 holds the copy's base there. */
+-	readonly seed: ReadonlyMap<ColumnKey, string>
+-	/** The scanned name of every carried and drawn column, by key: what the member before a row is read by. */
+-	readonly scanned: ReadonlyMap<ColumnKey, string>
+-}
+-
+-/**
+- * A column read before what it reads is drawn: the reader stays unbuilt, waiting on `on`, which a later layer draws or,
+- * in a cycle, none does.
+- */
+-type Built =
+-	| { readonly kind: "built"; readonly expr: Expr }
+-	| { readonly kind: "waiting"; readonly on: ReadonlySet<ColumnKey> }
+-
+ /**
+- * The running aggregate of a fold plane's steps, the step its value where the selection holds and `neutral` elsewhere,
+- * over its group's rows in slot order from the first through the current one, combined with the plane's first before:
+- * count's and sum's the first before plus the sum of the steps in exact arithmetic, max's the greater, or's and twos'
+- * their union with it, concat's it followed by the steps' texts. Each is what the fold's CHECK proves of the after at
+- * every slot from the first before on, since every monoid of a fold is associative.
++ * The value of each column of a scanned member, `spec.drawn`'s rules in fill order over `row`, the member's own columns,
++ * its `slot` and its group's `count`, `prev`, the member before it ("base" at slot 0), and `owner`: each column a rule
++ * draws, else the member's own; the member's, its predecessor's and its owner's columns each read as `ownValue` reads a
++ * row, a generated field's generation where the row holds none.
+  */
+-const runningAfter = (
+-	fold: FamilyFold,
+-	first: Expr,
+-	step: Expr | undefined,
+-	selected: Expr | undefined,
+-	running: (fn: "sum" | "max" | "bit_or" | "string_agg", args: NonEmptyReadonlyArray<Expr>) => Expr,
+-	to: TypeRef
+-): Expr => {
+-	const masked = (value: Expr, neutral: Expr): Expr =>
+-		selected === undefined
+-			? value
+-			: {
+-					kind: "case",
+-					operand: undefined,
+-					whens: [{ when: selected, result: value }],
+-					else: neutral
+-				}
+-	const x = (): Expr => defined(step, `the step value of a ${fold.monoid} fold`)
+-	switch (fold.monoid) {
+-		case "count":
+-			return cast(
+-				binary(
+-					"+",
+-					first,
+-					running("sum", [masked(lit.int(1, types.bigint), lit.int(0, types.bigint))])
+-				),
+-				to
+-			)
+-		case "sum":
+-			return cast(
+-				binary(
+-					"+",
+-					cast(first, types.numeric),
+-					running("sum", [masked(cast(x(), types.numeric), lit.int(0, types.numeric))])
+-				),
+-				to
+-			)
+-		case "max":
+-			return cast({ kind: "greatest", args: [first, running("max", [masked(x(), first)])] }, to)
+-		case "or":
+-		case "twos":
+-			return cast(binary("|", first, running("bit_or", [masked(x(), first)])), to)
+-		case "concat":
+-			return cast(
+-				binary(
+-					"||",
+-					first,
+-					running("string_agg", [masked(x(), lit.text("", types.text)), lit.text("", types.text)])
+-				),
+-				to
+-			)
++const memberValues = (
++	w: WriteContext,
++	spec: ScanSpec,
++	row: Read,
++	slot: Expr,
++	count: Expr,
++	prev: Read | "base",
++	owner: Read
++): ((key: ColumnKey) => Expr) => {
++	const drawn = new Map<ColumnKey, Expr>()
++	const own = ownValue(spec.member, row, w)
++	const value = (key: ColumnKey): Expr => drawn.get(key) ?? own(key)
++	const ownerValue = ownValue(spec.family.owner, owner, w)
++	const prevValue = prev === "base" ? "base" : ownValue(spec.member, prev, w)
++	for (const c of spec.drawn) {
++		const rule = c.rule
++		const to = w.cx.baseTypeRef(c.type)
++		const draw = (e: Expr): void => {
++			drawn.set(columnKey(c.column), cast(e, to))
++		}
++		switch (rule.kind) {
++			case "index":
++				draw(slot)
++				break
++			case "copy":
++				draw(count)
++				break
++			case "ownerCopy":
++				draw(ownerValue(columnKey(rule.to)))
++				break
++			case "predecessor":
++				draw(
++					prevValue === "base"
++						? lowerLiteral(w.names, rule.base, c.type)
++						: prevValue(columnKey(rule.to))
++				)
++				break
++			case "after": {
++				const befores = rule.befores.map((b) => value(columnKey(b)))
++				const x = rule.x === undefined ? undefined : value(columnKey(rule.x))
++				const plane = rule.plane
++				const stepped = combine(rule.fold, plane, befores, x, to)
++				const selected = selection(w, rule.fold, value)
++				draw(
++					selected === undefined
++						? stepped
++						: {
++								kind: "case",
++								operand: undefined,
++								whens: [{ when: selected, result: stepped }],
++								else: defined(befores[plane], `the before of plane ${plane}`)
++							}
++				)
++				break
++			}
++			case "given":
++			case "owner":
++			case "self":
++			case "own":
++			case "count":
++			case "start":
++			case "end":
++			case "last":
++			case "generated":
++				throw defect(
++					`a ${rule.kind} rule among the columns a scan of ${spec.family.id.owner}.${spec.family.id.count} draws`
++				)
++		}
+ 	}
++	return value
+ }
+ 
+ /**
+- * The scan of `spec` (see the header): a CTE of every row `spec.rows` holds, each with the columns it carries and the
+- * family's columns its rules draw, by key, drawn layer by layer over each group in slot order.
++ * The scan of `spec` (see the header): a recursive CTE of every row `spec.rows` holds, each with the columns it carries
++ * and the family's columns its rules draw, by key. The rows a previous member's rule reads are the scan's own, so the
++ * scan carries every column of `spec.rows`.
+  */
+ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Scan => {
+ 	const name = supply.relation(internal("family scan"))
+@@ -324,148 +339,72 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
+ 		...spec.drawn.map((c) => [columnKey(c.column), supply.column(internal("scan drawn"))] as const)
+ 	])
+ 	const out: Scanned = { name, group, slot, first, count, columns }
+-	const own = new Map<ColumnKey, string>(
+-		[...rows.columns.keys()].map((key) => [
+-			key,
+-			drawnKeys.has(key)
+-				? supply.column(internal("scan stored"))
+-				: defined(columns.get(key), "a carried column")
+-		])
+-	)
+-	const owner = new Map(
+-		[...rows.owner.keys()].map((k) => [k, supply.column(internal("scan owner"))])
+-	)
+-	const seed = new Map(
+-		spec.drawn.flatMap((c) =>
+-			c.rule.kind === "predecessor"
+-				? [[columnKey(c.rule.to), supply.column(internal("scan seed"))] as const]
+-				: []
+-		)
+-	)
+-	const layout: Layout = { group, slot, first, count, own, owner, seed, scanned: columns }
+-	/** The predecessor copy reading each seed column, by the column's key: its type, and its base at slot 0. */
+-	const seedReaders = new Map(
+-		spec.drawn.flatMap((c) =>
+-			c.rule.kind === "predecessor"
+-				? [[columnKey(c.rule.to), { type: c.type, base: c.rule.base }] as const]
+-				: []
+-		)
+-	)
+-	const seedReader = (key: ColumnKey) =>
+-		defined(seedReaders.get(key), `the predecessor copy reading the seed's ${key}`)
+-	/** One arm of the base layer: the rows of `rows` its WHERE keeps, each seed column from `seedColumn`. */
+-	const arm = (
+-		r: string,
+-		from: ReadonlyArray<FromItem>,
+-		where: Expr,
+-		seedColumn: (key: ColumnKey, reader: ReturnType<typeof seedReader>) => Expr
+-	): SetCore =>
+-		provedCore(
+-			"keyed",
+-			[
+-				...mapNonEmpty(rows.group, (c, i) =>
+-					targetAs(col(r, c), defined(group[i], "a scan group column"))
+-				),
+-				targetAs(col(r, rows.slot), slot),
+-				targetAs(col(r, rows.first), first),
+-				targetAs(col(r, rows.count), count),
+-				...[...rows.columns].map(([key, c]) =>
+-					targetAs(col(r, c), defined(own.get(key), "a row column"))
+-				),
+-				...[...rows.owner].map(([key, c]) =>
+-					targetAs(col(r, c), defined(owner.get(key), "an owner column"))
+-				),
+-				...[...seed].map(([key, c]) => {
+-					const reader = seedReader(key)
+-					return targetAs(cast(seedColumn(key, reader), w.cx.baseTypeRef(reader.type)), c)
+-				})
+-			],
+-			from,
+-			where
++	const term = (r: string, prev: Read | "base"): ReadonlyArray<Target> => {
++		const value = memberValues(
++			w,
++			spec,
++			readAt(r, rows),
++			col(r, rows.slot),
++			col(r, rows.count),
++			prev,
++			readAt(r, { name: rows.name, columns: rows.owner })
+ 		)
++		return [
++			...mapNonEmpty(rows.group, (c, i) =>
++				targetAs(col(r, c), defined(group[i], "a scan group column"))
++			),
++			targetAs(col(r, rows.slot), slot),
++			targetAs(col(r, rows.first), first),
++			targetAs(col(r, rows.count), count),
++			...carried.map(([key, column]) =>
++				targetAs(col(r, column), defined(columns.get(key), "a carried column"))
++			),
++			...spec.drawn.map((c) => {
++				const key = columnKey(c.column)
++				return targetAs(value(key), defined(columns.get(key), "a drawn column"))
++			})
++		]
++	}
+ 	const zero = lit.int(0, types.bigint)
+ 	const r0 = supply.relation(internal("scan base row"))
+-	/** The groups drawn from slot 0, whose first member reads the family's base. */
+-	const fromBase = arm(r0, [cteRefAs(rows.name, r0)], eq(col(r0, rows.first), zero), (_, reader) =>
+-		lowerLiteral(w.names, reader.base, reader.type)
++	const based = provedCore(
++		"keyed",
++		term(r0, "base"),
++		[cteRefAs(rows.name, r0)],
++		and([eq(col(r0, rows.slot), col(r0, rows.first)), eq(col(r0, rows.first), zero)])
+ 	)
+-	const seededFrom = (stored: PerGroup): SetCore => {
++	/** A group drawn past slot 0 from its stored member before its first drawn slot, its seed. */
++	const seededOf = (seed: PerGroup): SetCore => {
+ 		const r1 = supply.relation(internal("scan seeded row"))
+-		const s1 = supply.relation(internal("scan seed"))
+-		return arm(
+-			r1,
++		const d1 = supply.relation(internal("scan seed"))
++		return provedCore(
++			"keyed",
++			term(r1, readAt(d1, seed)),
+ 			[
+ 				join(
+ 					cteRefAs(rows.name, r1),
+-					cteRefAs(stored.name, s1),
+-					sameGroup(w.names, spec.family, r1, rows.group, s1, stored.group)
++					cteRefAs(seed.name, d1),
++					sameGroup(w.names, spec.family, r1, rows.group, d1, seed.group)
+ 				)
+ 			],
+-			gt(col(r1, rows.first), zero),
+-			(key) => col(s1, defined(stored.columns.get(key), "a seed column"))
++			and([eq(col(r1, rows.slot), col(r1, rows.first)), gt(col(r1, rows.first), zero)])
+ 		)
+ 	}
+-	const based = select(
+-		unionAll(
+-			"disjoint",
+-			spec.group.kind === "stored" ? [fromBase, seededFrom(spec.group.seed)] : [fromBase]
+-		)
++	const p2 = supply.relation(internal("scan previous row"))
++	const r2 = supply.relation(internal("scan next row"))
++	const next: FromItem = join(
++		cteRefAs(name, p2),
++		cteRefAs(rows.name, r2),
++		and([
++			sameGroup(w.names, spec.family, r2, rows.group, p2, group),
++			eq(col(r2, rows.slot), binary("+", col(p2, slot), lit.int(1, types.bigint)))
++		])
+ 	)
+-	let below: Layer = {
+-		query: based,
+-		columns: [...group, slot, first, count, ...own.values(), ...owner.values(), ...seed.values()]
+-	}
+-	const drawn = new Set<ColumnKey>()
+-	const pending: Array<FillColumn> = [...spec.drawn]
+-	while (pending.length > 0) {
+-		const at = supply.relation(internal("scan layer"))
+-		const ready = pending.flatMap((c) => {
+-			const built = columnOf(w, spec, layout, at, drawn, c)
+-			return built.kind === "built"
+-				? [
+-						{
+-							c,
+-							expr: built.expr,
+-							name: defined(columns.get(columnKey(c.column)), "a drawn column")
+-						}
+-					]
+-				: []
+-		})
+-		if (ready.length === 0) {
+-			const waiting = pending.map((c) => c.name)
+-			throw new Refusal(
+-				unsupported(
+-					SourceLoc("ChangeSet", [spec.member.name]),
+-					`the family ${spec.family.id.owner}.${spec.family.id.count} draws ${waiting.join(", ")} on ${spec.member.name}, each reading another of them across the member before it, which no window over its group draws: a fold's step side reads its own accumulators, or predecessor copies read each other in a cycle`
+-				)
+-			)
+-		}
+-		below = {
+-			query: select(
+-				provedCore(
+-					"keyed",
+-					[
+-						...below.columns.map((n) => targetAs(col(at, n), n)),
+-						...ready.map(({ expr, name: n }) => targetAs(expr, n))
+-					],
+-					[over(below, at)],
+-					undefined
+-				)
+-			),
+-			columns: [...below.columns, ...ready.map(({ name: n }) => n)]
+-		}
+-		for (const { c } of ready) {
+-			drawn.add(columnKey(c.column))
+-			pending.splice(pending.indexOf(c), 1)
+-		}
+-	}
+-	const top = supply.relation(internal("scan top"))
++	const stepped = provedCore("keyed", term(r2, readAt(p2, out)), [next], undefined)
+ 	const body = select(
+-		provedCore(
+-			"keyed",
+-			[...group, slot, first, count, ...columns.values()].map((n) => targetAs(col(top, n), n)),
+-			[over(below, top)],
+-			undefined
++		unionAll(
++			"disjoint",
++			spec.group.kind === "base" ? [based, stepped] : [based, seededOf(spec.group.seed), stepped]
+ 		)
+ 	)
+ 	return {
+@@ -478,159 +417,3 @@ export const scanOf = (w: WriteContext, supply: NameSupply, spec: ScanSpec): Sca
+ 		rows: out
+ 	}
+ }
+-
+-/**
+- * A layer of a scan: its query and the names of the columns it delivers, in order, which the layer above lists where it
+- * reads it as a derived table, and reads by name.
+- */
+-interface Layer {
+-	readonly query: Select
+-	readonly columns: ReadonlyArray<string>
+-}
+-
+-/** `layer` as the derived table `alias`, its columns listed as it delivers them. */
+-const over = (layer: Layer, alias: string): FromSource =>
+-	derived(layer.query, alias, layer.columns, false)
+-
+-/**
+- * One drawn column of a scanned member over the layer `at` below it, which holds `drawn`: its fill rule over the row's
+- * own columns, its slot and its group's count, its owner's columns, and the member before it, lag() over the group in
+- * slot order and the seed or the family's base at the group's first drawn slot; a fold plane's after as its running
+- * aggregate (runningAfter). It waits on each drawn column it reads that `at` does not hold.
+- */
+-const columnOf = (
+-	w: WriteContext,
+-	spec: ScanSpec,
+-	layout: Layout,
+-	at: string,
+-	drawn: ReadonlySet<ColumnKey>,
+-	c: FillColumn
+-): Built => {
+-	const waits = new Set<ColumnKey>()
+-	const holding = (key: ColumnKey): Expr | undefined => {
+-		if (drawnKeysOf(spec).has(key) && !drawn.has(key)) {
+-			waits.add(key)
+-		}
+-		const scanned = layout.scanned.get(key)
+-		return scanned === undefined ? undefined : col(at, scanned)
+-	}
+-	const order = [{ expr: col(at, layout.slot), direction: "ASC" as const }]
+-	const partition = layout.group.map((g) => col(at, g))
+-	/** The member before the row's `e`: lag(e, 1, e), whose default, the row's own `e` at its group's first appended row,
+-	 * no rule reads, since a predecessor copy takes its seed's or its base there (`firstBefore`), and which names no NULL. */
+-	const lag = (e: Expr): Expr => ({
+-		...call("lag", [e, lit.int(1, types.integer), e]),
+-		over: windowOf(partition, order)
+-	})
+-	const running = (
+-		fn: "sum" | "max" | "bit_or" | "string_agg",
+-		args: NonEmptyReadonlyArray<Expr>
+-	): Expr => ({
+-		...call(fn, args),
+-		over: {
+-			partitionBy: partition,
+-			orderBy: order,
+-			frame: { start: { kind: "unboundedPreceding" }, end: { kind: "currentRow" } }
+-		}
+-	})
+-	const rowOwn = ownValue(
+-		spec.member,
+-		(key) => {
+-			const column = layout.own.get(key)
+-			return column === undefined ? undefined : col(at, column)
+-		},
+-		w
+-	)
+-	/** A column of the row as its rules read it: drawn where a rule draws it, else its own. */
+-	const value = (key: ColumnKey): Expr =>
+-		drawnKeysOf(spec).has(key) ? (holding(key) ?? rowOwn(key)) : rowOwn(key)
+-	/** A column of the member before the row, lag() of the row's scanned column, a generation over them read so. */
+-	const before = ownValue(
+-		spec.member,
+-		(key) => {
+-			const e = holding(key)
+-			return e === undefined ? undefined : lag(e)
+-		},
+-		w
+-	)
+-	const atFirst = eq(col(at, layout.slot), col(at, layout.first))
+-	/** A predecessor copy's value at the group's first drawn slot: its base at slot 0, else the seed's column. */
+-	const firstBefore = (to: NativeColumn, base: Expr): Expr => ({
+-		kind: "case",
+-		operand: undefined,
+-		whens: [{ when: eq(col(at, layout.first), lit.int(0, types.bigint)), result: base }],
+-		else: col(at, defined(layout.seed.get(columnKey(to)), "a seed column"))
+-	})
+-	const to = w.cx.baseTypeRef(c.type)
+-	const rule = c.rule
+-	const built = (expr: Expr): Built =>
+-		waits.size === 0 ? { kind: "built", expr: cast(expr, to) } : { kind: "waiting", on: waits }
+-	switch (rule.kind) {
+-		case "index":
+-			return built(col(at, layout.slot))
+-		case "copy":
+-			return built(col(at, layout.count))
+-		case "ownerCopy":
+-			return built(
+-				ownValue(
+-					spec.family.owner,
+-					(key) => {
+-						const column = layout.owner.get(key)
+-						return column === undefined ? undefined : col(at, column)
+-					},
+-					w
+-				)(columnKey(rule.to))
+-			)
+-		case "predecessor": {
+-			const base = lowerLiteral(w.names, rule.base, c.type)
+-			const later = before(columnKey(rule.to))
+-			return built({
+-				kind: "case",
+-				operand: undefined,
+-				whens: [{ when: atFirst, result: firstBefore(rule.to, base) }],
+-				else: later
+-			})
+-		}
+-		case "after": {
+-			const plane = rule.plane
+-			const own = defined(rule.befores[plane], `the before of plane ${plane}`)
+-			const pred = spec.drawn.find((d) => columnKey(d.column) === columnKey(own))
+-			if (pred?.rule.kind !== "predecessor" || columnKey(pred.rule.to) !== columnKey(c.column)) {
+-				throw defect(
+-					`the before ${columnKey(own)} of ${columnKey(c.column)}, which its predecessor axis copies from the after before it`
+-				)
+-			}
+-			const first = cast(
+-				firstBefore(pred.rule.to, lowerLiteral(w.names, pred.rule.base, pred.type)),
+-				w.cx.baseTypeRef(pred.type)
+-			)
+-			const x = rule.x === undefined ? undefined : value(columnKey(rule.x))
+-			const step =
+-				plane === 1
+-					? binary(
+-							"&",
+-							value(columnKey(defined(rule.befores[0], "the ones plane's before"))),
+-							defined(x, "the step value of a twos fold")
+-						)
+-					: x
+-			const selected = selection(w, rule.fold, value)
+-			return built(runningAfter(rule.fold, first, step, selected, running, to))
+-		}
+-		case "given":
+-		case "owner":
+-		case "self":
+-		case "own":
+-		case "count":
+-		case "start":
+-		case "end":
+-		case "last":
+-		case "generated":
+-			throw defect(
+-				`a ${rule.kind} rule among the columns a scan of ${spec.family.id.owner}.${spec.family.id.count} draws`
+-			)
+-	}
+-}
+-
+-/** The keys of the columns a scan draws. */
+-const drawnKeysOf = (spec: ScanSpec): ReadonlySet<ColumnKey> =>
+-	new Set(spec.drawn.map((c) => columnKey(c.column)))
+diff --git a/packages/engine/src/write/family/written.ts b/packages/engine/src/write/family/written.ts
+index cda87bae..7a48cb24 100644
+--- a/packages/engine/src/write/family/written.ts
++++ b/packages/engine/src/write/family/written.ts
+@@ -383,7 +383,7 @@ export const taggedRows = (
+ 	}
+ 	const ast: Select = {
+ 		...select(unionAll("disjoint", arms)),
+-		with: { recursive: false, ctes: [firstCte, ...restCtes] }
++		with: { recursive: true, ctes: [firstCte, ...restCtes] }
+ 	}
+ 	return {
+ 		ast,

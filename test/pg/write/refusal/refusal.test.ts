@@ -7,8 +7,9 @@
  * - Property: a refusal raised over drawn key texts reads back as those texts, its SQLSTATE and its constraint.
  * - Oracle: universal, read ∘ raise = id.
  * - Features: a law's refusal and a concurrent change.
- * - Plant: ~/.cache/grizzle-release/BR08/plants/refusal-detail-tab-read-as-t.patch, the DETAIL reader reading an
- *   escaped tab as a letter t, must turn the property red.
+ *
+ * @plant test/plants/pg/write/refusal/refusal-detail-tab-read-as-t.patch The DETAIL reader reads an escaped tab as a
+ * letter t (core/json-strings.ts escapeChar); the property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

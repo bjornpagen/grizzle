@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/json-strings.ts b/packages/engine/src/core/json-strings.ts
+index 3228b9ee..6364baf1 100644
+--- a/packages/engine/src/core/json-strings.ts
++++ b/packages/engine/src/core/json-strings.ts
+@@ -9,8 +9,6 @@ const escapeChar = (code: number): string => {
+ 			return "\n"
+ 		case 0x72:
+ 			return "\r"
+-		case 0x74:
+-			return "\t"
+ 		default:
+ 			return String.fromCharCode(code)
+ 	}
