@@ -17,8 +17,8 @@
  *
  * Features: groups none, some and all of whose bindings qualify.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): shapes-count-unfiltered (R24's conditional count lowers with no
- * FILTER, counting every binding).
+ * @plant test/plants/pg/lower-shapes/shapes-count-unfiltered.patch R24's conditional count lowers with no FILTER,
+ * counting every binding.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

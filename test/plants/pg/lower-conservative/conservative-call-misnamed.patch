@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/expr/ops.ts b/packages/engine/src/lower/conservative/expr/ops.ts
+index 80c4d172..2be08dea 100644
+--- a/packages/engine/src/lower/conservative/expr/ops.ts
++++ b/packages/engine/src/lower/conservative/expr/ops.ts
+@@ -306,7 +306,7 @@ const registryForm = (id: OpId, args: ReadonlyArray<Expr>): Expr | undefined =>
+ 			return sql.owner === "catalog" &&
+ 				isBuiltin(sql.name) &&
+ 				admitsArity(native.operands, args.length)
+-				? call(sql.name, args)
++				? call("abs", args)
+ 				: undefined
+ 		case "cast":
+ 			return undefined

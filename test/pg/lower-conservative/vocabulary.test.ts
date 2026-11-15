@@ -11,8 +11,10 @@
  *
  * Features: a binary operator and the negation among the forms; a function lowered to its call among the entries.
  *
- * Plants (~/.cache/grizzle-release/BR11/plants): conservative-mod-as-div (the table spells the modulo functions with the
- * division symbol) and conservative-call-misnamed (every function lowers to a call of abs).
+ * @plant test/plants/pg/lower-conservative/conservative-mod-as-div.patch The table spells the modulo functions with the
+ * division symbol; the operator forms property fails.
+ * @plant test/plants/pg/lower-conservative/conservative-call-misnamed.patch Every function lowers to a call of abs; the
+ * functions property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
