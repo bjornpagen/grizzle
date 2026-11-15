@@ -1,0 +1,12 @@
+diff --git a/packages/grizzle/src/http/handler.ts b/packages/grizzle/src/http/handler.ts
+--- a/packages/grizzle/src/http/handler.ts
++++ b/packages/grizzle/src/http/handler.ts
+@@ -349,7 +349,7 @@
+ 						context,
+ 						{ signal: request.signal }
+ 					),
+-					{ status: 200, headers: sseHeaders }
++					{ status: table.has(requestLine(request)) ? 200 : 404, headers: sseHeaders }
+ 				)
+ 			)
+ 	})

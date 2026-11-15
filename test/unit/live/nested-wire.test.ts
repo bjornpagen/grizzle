@@ -17,8 +17,9 @@
  * input with a top level, a tree's nodes nested under their root; rated: a write no served file holds, whose wire the
  * property does not reach.
  *
- * Plants (~/.cache/grizzle-release/LIVE-NEST/plants): nest-top-level (a nested input's own level found as the one at the
- * top, so a tree's roots refuse), nest-tree-members-at-root (a tree's members read at its roots' level).
+ * @plant test/plants/unit/live/nest-top-level.patch A nested input's own level is read by the heading at the top, so
+ * a tree's roots refuse.
+ * @plant test/plants/unit/live/nest-tree-members-at-root.patch A tree's members are read at its roots' level.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { rating, required } from "@bjornpagen/testing/features"

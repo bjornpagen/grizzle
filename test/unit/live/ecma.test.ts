@@ -15,8 +15,9 @@
  * Kept: the live test phase's counterexample at 729f76a6, `/.$/su` and the text U+10FFFF, which V8's search judged
  * unmatched while the pattern was printed unanchored at its start (scalar/regex/ecma.ts toEcma).
  *
- * Plants (~/.cache/grizzle-release/LIVE-OPENAPI/plants): ecma-anchor-multiline (`$` printed as `(?=\n|$)`),
- * ecma-unanchored-start (a pattern whose matches may start anywhere printed with no start anchor).
+ * @plant test/plants/unit/live/ecma-anchor-multiline.patch `$` is printed as `(?=\n|$)`.
+ * @plant test/plants/unit/live/ecma-unanchored-start.patch A pattern whose matches may start anywhere is printed with
+ * no start anchor.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

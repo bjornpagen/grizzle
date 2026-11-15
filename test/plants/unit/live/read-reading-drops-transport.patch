@@ -1,0 +1,14 @@
+diff --git a/packages/grizzle/src/adapter/live/call-error.ts b/packages/grizzle/src/adapter/live/call-error.ts
+--- a/packages/grizzle/src/adapter/live/call-error.ts
++++ b/packages/grizzle/src/adapter/live/call-error.ts
+@@ -113,8 +113,8 @@
+ 	LawRejected: "refused",
+ 	InputRejected: "refused",
+ 	ParamRejected: "input",
+-	ConnectionLost: "transport",
+-	CommitLost: "transport",
++	ConnectionLost: "unavailable",
++	CommitLost: "unavailable",
+ 	DriverFailure: "failed",
+ 	UnreadableAnswer: "failed",
+ 	CompileError: "failed",

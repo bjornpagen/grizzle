@@ -8,14 +8,16 @@
  * Properties, each against the model of the drawn ends:
  * - Every end, a defect's and an interruption's included, ends the read waiting on the source with a typed error and
  *   `end`, never a wait: `failed` for a defect or an interruption (LeaderDied, which the same candidacy meets again),
- *   and the failure's own classification, `unavailable`, for a failure of the candidacy's.
+ *   and the failure's own classification, `unavailable`, for a failure of the candidacy's. The bound is the round's
+ *   own: once its candidacy has met its end and the fiber its open forked has ended (the round's scope closed), the
+ *   read's subscription stands ended, so a read left waiting fails there, never by a wait.
  * - Every end gives the leadership back: the next round's registration starts a new candidacy, so the candidacies
  *   started are exactly the rounds.
  *
  * Features: a candidacy failing, one dying of a defect, one interrupted, and a candidacy started after one died.
  *
- * Plant (~/.cache/grizzle-release/DENAPI/plants): leading-catches-failures-only.patch (the leadership given back on a
- * failure alone, as listen.ts did), under which a defect leaves the read waiting and no candidacy starts again.
+ * @plant test/plants/unit/live/leading-catches-failures-only.patch The leadership is given back on a failure alone, as
+ * listen.ts did, so a defect leaves the read waiting and no candidacy starts again.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -24,7 +26,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { Array as Arr, Deferred, Effect, Formatter, Queue, Stream } from "effect"
+import { Array as Arr, Deferred, Effect, Exit, Formatter, Queue, Scope, Stream } from "effect"
 import { type LeaderReason, ReplicationSilent } from "#adapter/live/leader.ts"
 import { type Leadership, leading } from "#adapter/live/listen.ts"
 import type { ChangeSource } from "#adapter/live/source.ts"
@@ -66,6 +68,15 @@ const ended = (end: End): Effect.Effect<never, LeaderReason> => {
 		case "interruption":
 			return Effect.interrupt
 	}
+}
+
+/**
+ * A candidacy as the test holds it: the end it is to meet, which the round decides, and the moment it has met it, its
+ * fiber's exit, after which the leadership's own handling of that exit is all that stands between it and the read.
+ */
+interface Candidacy {
+	readonly end: Deferred.Deferred<End>
+	readonly exited: Deferred.Deferred<void>
 }
 
 /** The error kind a read waiting on a candidacy that ends as `end` ends with. */
@@ -118,25 +129,38 @@ describe("the live leadership", () => {
 							Effect.gen(function* () {
 								const scope = yield* Effect.scope
 								const leadership: Leadership = { running: false, sink: undefined }
-								const started = yield* Queue.unbounded<Deferred.Deferred<End>>()
+								const started = yield* Queue.unbounded<Candidacy>()
 								const count = { started: 0 }
+								/** The scope the current round's open forks its candidacy in, the round's own. */
+								const forking: { scope: Scope.Scope } = { scope }
 								const candidacy: Effect.Effect<never, LeaderReason> = Effect.suspend(() => {
-									const end = Deferred.makeUnsafe<End>()
+									const held: Candidacy = {
+										end: Deferred.makeUnsafe<End>(),
+										exited: Deferred.makeUnsafe<void>()
+									}
 									count.started += 1
 									return Effect.andThen(
-										Queue.offer(started, end),
-										Effect.flatMap(Deferred.await(end), ended)
+										Queue.offer(started, held),
+										Effect.onExit(Effect.flatMap(Deferred.await(held.end), ended), () =>
+											Deferred.done(held.exited, Exit.void)
+										)
 									)
 								})
 								const source: ChangeSource = {
 									open: (sink) =>
 										Effect.suspend(() => {
 											leadership.sink = sink
-											return leading(leadership, candidacy, scope)
+											return leading(leadership, candidacy, forking.scope)
 										})
 								}
 								const registry = yield* makeSubscriptions(source)
 								for (const [round, end] of ends.entries()) {
+									/**
+									 * The round's scope: closed once its candidacy has met its end, which awaits the fiber the
+									 * open forked, so the leadership's handling of that end has run, whatever it did.
+									 */
+									const roundScope = yield* Scope.fork(scope)
+									forking.scope = roundScope
 									const live = yield* registry.register({
 										read,
 										answer,
@@ -155,8 +179,16 @@ describe("the live leadership", () => {
 									if (round > 0 && ends[round - 1] !== "failure") {
 										c.note("a candidacy started after one died")
 									}
-									yield* Deferred.succeed(current, end)
+									yield* Deferred.succeed(current.end, end)
 									c.note(endNotes[end])
+									yield* Deferred.await(current.exited)
+									yield* Scope.close(roundScope, Exit.void)
+									const state = yield* live.state
+									assert.equal(
+										state,
+										"ended",
+										`once a candidacy ending by ${end} and the fiber running it have ended, the read waiting on it has ended, never left waiting`
+									)
 									const changed = yield* Stream.runCollect(live.changes)
 									const after = Arr.fromIterable(changed)
 									const [error, last] = after

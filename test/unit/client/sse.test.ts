@@ -16,8 +16,9 @@
  * inside a line, inside a character and between a CR and its LF, a comment, an event of several data lines, an event
  * with no data line, an unended tail, and a leading byte order mark.
  *
- * Plants (~/.cache/grizzle-release/LIVE-CLIENT/plants): sse-chunk-splits-line (a chunk's unended line read as a whole
- * line), sse-cr-lf-across-chunks (an LF opening a chunk after a CR ending the last read as a second line end).
+ * @plant test/plants/unit/client/sse-chunk-splits-line.patch A chunk's unended line is read as a whole line.
+ * @plant test/plants/unit/client/sse-cr-lf-across-chunks.patch An LF opening a chunk after a CR ending the last is read
+ * as a second line end.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

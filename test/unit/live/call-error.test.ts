@@ -10,9 +10,6 @@
  *
  * Features: a serialization refusal and another refusal, each on a read and on a write.
  *
- * Plant (~/.cache/grizzle-release/LIVE-EVENTS/plants): transient-never (the classification table makes a transient
- * failure retry never).
- *
  * Every source's reading (call-error.ts readings), over every source a call's failure is met at (live/events.ts
  * failures), exhausted:
  *
@@ -21,10 +18,6 @@
  *   source to them. Oracle: the classification's own tables, beside the model's.
  *
  * Features: every source.
- *
- * Plants (~/.cache/grizzle-release/OPENAPI/plants): read-reading-drops-transport (the read's table reads a broken
- * connection as unavailable, so no read failure reads as transport), failures-read-outside-world (the model gives a
- * read outsideWorld, which no read failure reads as).
  *
  * A session never had (call-error.ts connectCallError), over drawn driver failures: the server's refusal of a startup
  * by a SQLSTATE (each condition errcodes.txt lists for the classes a connection meets, 08, 28, 53 and 57, every class's
@@ -49,8 +42,18 @@
  *
  * Features: every reason, `failed`, and every path.
  *
- * Plant (~/.cache/grizzle-release/CALLERROR/plants): password-reads-as-connection-refused.patch (28P01 reads as
- * `unavailable`, `connectionRefused`).
+ * @plant test/plants/unit/live/transient-never.patch The classification table makes a transient failure retry never;
+ * the statement refusal's property fails.
+ * @plant test/plants/unit/live/read-reading-drops-transport.patch The read's table reads a broken connection as
+ * unavailable, so no read failure reads as transport; the exact property fails.
+ * @plant test/plants/unit/live/failures-read-outside-world.patch The event model gives a read outsideWorld, which no
+ * read failure reads as; the exact property fails.
+ * @plant test/plants/unit/live/read-reading-commit-unknown.patch The read's table reads a lost COMMIT as
+ * commitUnknown, which the event model gives no read; the exact property fails.
+ * @plant test/plants/unit/live/password-reads-as-connection-refused.patch 28P01 reads as `unavailable`,
+ * `connectionRefused`; the session-never-had property fails.
+ * @plant test/plants/unit/live/driver-refusal-reads-as-transport.patch A read's DriverFailure reads as `transport`; the
+ * session-never-had property fails.
  */
 import { constants } from "node:os"
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"

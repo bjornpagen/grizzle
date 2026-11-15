@@ -1,0 +1,10 @@
+--- a/packages/engine/src/live/shape.ts
++++ b/packages/engine/src/live/shape.ts
+@@ -626,7 +626,6 @@
+  */
+ const errorSchema = (kinds: ReadonlySet<string>, schemas: PayloadSchemas): WireSchema => ({
+ 	oneOf: Object.entries(callErrors)
+-		.filter(([kind]) => kinds.has(kind))
+ 		.map(([kind, error]) =>
+ 			closedObject([
+ 				["kind", { const: kind }],

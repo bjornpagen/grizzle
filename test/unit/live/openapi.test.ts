@@ -49,18 +49,25 @@
  * write with a read-back, a role reading a context, a role reading none, a login no role of which reads a context, a
  * schema shared, a wire node shared.
  *
- * Plants (~/.cache/grizzle-release/LIVE-OPENAPI/plants): openapi-non-program-operation (an operation for each role
- * beside its programs'), openapi-list-without-after (an ordered program's upsert from the set shape's events).
- * Plants (~/.cache/grizzle-release/OPENAPI/plants): instant-ready-unmarked (an instant read's ready without `next`),
- * summary-instant-live (an instant read's summary says live), summary-lists-relations (a write's summary names the
- * relations it writes), tag-lists-relations (a role's description names the relations its programs write),
- * body-lists-facts (a body's description names the relations of its facts), description-drops-relation (an
- * operation's description names all its written relations but its last), wire-header-undescribed (the header's
- * description names no stale answer), bearer-always (the bearer scheme declared for every login),
- * errors-every-kind (every error event admits all twelve kinds, as before), refresh-meets-outcome (the model gives a
- * refresh a ChangeSet's refusing outcome too).
- * Plants (~/.cache/grizzle-release/OUTPUTSIZE/plants): openapi-body-unshared (each request body written as its operation
- * built it, every schema in it inline), openapi-wire-unshared (each operation's wire member written whole).
+ * @plant test/plants/unit/live/openapi-non-program-operation.patch An operation for each role beside its programs'.
+ * @plant test/plants/unit/live/openapi-list-without-after.patch An ordered program's upsert is drawn from the set
+ * shape's events, with no `after`.
+ * @plant test/plants/unit/live/instant-ready-unmarked.patch An instant read's ready does not say that `end` follows it.
+ * @plant test/plants/unit/live/summary-instant-live.patch An instant read's summary says live.
+ * @plant test/plants/unit/live/summary-lists-relations.patch A write's summary names the relations it writes.
+ * @plant test/plants/unit/live/tag-lists-relations.patch A role's description names the relations its programs write.
+ * @plant test/plants/unit/live/body-lists-facts.patch A body's description names the relations of its facts.
+ * @plant test/plants/unit/live/description-drops-relation.patch An operation's description names all its written
+ * relations but its last.
+ * @plant test/plants/unit/live/wire-header-undescribed.patch The `grizzle-wire` header's description names no stale
+ * answer.
+ * @plant test/plants/unit/live/bearer-always.patch The bearer scheme is declared for every login.
+ * @plant test/plants/unit/live/errors-every-kind.patch Every error event admits every kind, as before.
+ * @plant test/plants/unit/live/refresh-meets-outcome.patch The event model gives a refresh a ChangeSet's refusing
+ * outcome too.
+ * @plant test/plants/unit/live/openapi-body-unshared.patch Each request body is written as its operation built it,
+ * every schema in it inline.
+ * @plant test/plants/unit/live/openapi-wire-unshared.patch Each operation's wire member is written whole.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/scalar/regex/ecma.ts b/packages/engine/src/scalar/regex/ecma.ts
+--- a/packages/engine/src/scalar/regex/ecma.ts
++++ b/packages/engine/src/scalar/regex/ecma.ts
+@@ -78,7 +78,7 @@
+  */
+ export const toEcma = (node: LiveNode): string => {
+ 	const body = folded(new Map<RegexNode, string>(), node, printed)
+-	return startsAtStart(node) ? body : `^[^]*?(?:${body})`
++	return body
+ }
+ 
+ /** Whether every match of a node starts at the value's start: a `^`, or a sequence that begins with one. */

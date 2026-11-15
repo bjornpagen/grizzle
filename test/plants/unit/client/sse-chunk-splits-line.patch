@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/client/sse.ts b/packages/grizzle/src/client/sse.ts
+--- a/packages/grizzle/src/client/sse.ts
++++ b/packages/grizzle/src/client/sse.ts
+@@ -65,7 +65,8 @@
+ 			data = `${data}${valueOf(whole, colon)}\n`
+ 		}
+ 	}
+-	let line = reading.line
++	if (reading.line.length > 0) take(reading.line)
++	let line = ""
+ 	let afterReturn = reading.afterReturn && text.length === 0
+ 	let start = reading.afterReturn && text.charCodeAt(0) === 0x0a ? 1 : 0
+ 	let feed = text.indexOf("\n", start)

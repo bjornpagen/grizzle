@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/live/openapi.ts b/packages/engine/src/live/openapi.ts
+--- a/packages/engine/src/live/openapi.ts
++++ b/packages/engine/src/live/openapi.ts
+@@ -680,7 +680,7 @@
+ 			}
+ 			own.push(operation.value)
+ 		}
+-		appendAll(operations, own)
++		appendAll(operations, own.length > 0 ? [...own, { ...own[0], path: `/${file.login}/${role.name}` }] : own)
+ 		tags.push({
+ 			name: role.name,
+ 			description: roleDescription(

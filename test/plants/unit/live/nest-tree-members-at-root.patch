@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/live/member.ts b/packages/engine/src/live/member.ts
+--- a/packages/engine/src/live/member.ts
++++ b/packages/engine/src/live/member.ts
+@@ -551,7 +551,9 @@
+ 			const nesting = input.nesting
+ 			const familiesOf = (relation: StoredRelationName): WireLevel<ServedLeaf>["families"] =>
+ 				nesting.sequences.flatMap((family, at) =>
+-					family.owner === relation ? [{ count: family.count, level: at + 1 }] : []
++					family.owner === relation
++						? [{ count: family.count, level: nesting.root.kind === "tree" && family.member === relation ? 0 : at + 1 }]
++						: []
+ 				)
+ 			return [
+ 				{ headings: [scalarHeading(nesting.own)], families: familiesOf(nesting.relation) },

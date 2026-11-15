@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/live/events.ts b/packages/engine/src/live/events.ts
+--- a/packages/engine/src/live/events.ts
++++ b/packages/engine/src/live/events.ts
+@@ -169,7 +169,7 @@
+ 		payload: { message: "text", refused: "refused", witness: "witness" }
+ 	},
+ 	outsideWorld: { retry: "never", payload: { message: "text", relation: "text" } },
+-	transient: { retry: "safe", payload: { message: "text", reason: "transientReason" } },
++	transient: { retry: "never", payload: { message: "text", reason: "transientReason" } },
+ 	credentialRefused: { retry: "never", payload: { message: "text", reason: "credentialReason" } },
+ 	unavailable: { retry: "safe", payload: { message: "text", reason: "unavailableReason" } },
+ 	transport: { retry: "safe", payload: { message: "text" } },

@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/live/wire.ts b/packages/engine/src/live/wire.ts
+--- a/packages/engine/src/live/wire.ts
++++ b/packages/engine/src/live/wire.ts
+@@ -781,7 +781,7 @@
+ 				},
+ 				["binary32", "vectorNorm"]
+ 			),
+-		encode: (value) => Array.from(value, (x) => (x === 0 ? 0 : x)),
++		encode: (value) => Array.from(value, (x) => x),
+ 		parse: (json, spec) => {
+ 			if (!isList(json)) {
+ 				return Result.err("json")

@@ -1,0 +1,19 @@
+--- a/packages/engine/src/live/openapi.ts
++++ b/packages/engine/src/live/openapi.ts
+@@ -383,7 +383,15 @@
+ ): string => {
+ 	const serves = (["reads", "writes", "refreshes"] as const).flatMap((kind) => {
+ 		const count = programs.filter((program) => program.deed.kind === kind).length
+-		return count === 0 ? [] : [`${count} ${deedWords[kind]}`]
++		return count === 0
++			? []
++			: [
++					`${count} ${deedWords[kind]} ${listed(
++						programs.flatMap((program) =>
++							program.deed.kind === kind && program.deed.kind !== "reads" ? program.deed.relations : []
++						)
++					)}`
++				]
+ 	})
+ 	const token = readsContext(role)
+ 		? `Its calls need a bearer token: it reads ${listed(

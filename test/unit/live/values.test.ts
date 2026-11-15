@@ -21,9 +21,10 @@
  * Features: removes of present and absent keys, upserts new, in place and moving, re-sent upserts, whole-row keys,
  * unchanged rows moved, and every lifecycle path.
  *
- * Plants (~/.cache/grizzle-release/LIVE-EVENTS/plants): diff-misses-move (a list's diff sends no unchanged row whose
- * order moved), coalesce-keeps-stale-upsert (coalesce keeps a key's upsert past its later remove), and transient-never
- * (unit/live/call-error).
+ * @plant test/plants/unit/live/diff-misses-move.patch A list's diff sends no unchanged row whose order moved; the
+ * diff's property fails.
+ * @plant test/plants/unit/live/coalesce-keeps-stale-upsert.patch coalesce applies a set's pending changes last first,
+ * so it keeps a key's upsert past its later remove; the coalesce property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

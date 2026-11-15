@@ -1,0 +1,12 @@
+diff --git a/packages/grizzle/src/adapter/live/leader.ts b/packages/grizzle/src/adapter/live/leader.ts
+--- a/packages/grizzle/src/adapter/live/leader.ts
++++ b/packages/grizzle/src/adapter/live/leader.ts
+@@ -276,7 +276,7 @@
+ 					Effect.suspend(() => {
+ 						const quiet = Duration.nanos(clock.monotonicTimeNanosUnsafe() - last.at)
+ 						return Duration.isGreaterThanOrEqualTo(quiet, span)
+-							? Effect.fail(new ReplicationSilent({ millis: deadline.millis }))
++							? clock.sleep(span)
+ 							: clock.sleep(Duration.subtract(span, quiet))
+ 					})
+ 				)

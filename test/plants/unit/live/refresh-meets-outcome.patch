@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/live/events.ts b/packages/engine/src/live/events.ts
+--- a/packages/engine/src/live/events.ts
++++ b/packages/engine/src/live/events.ts
+@@ -266,7 +266,7 @@
+ 	live: ["read", "watch"],
+ 	instant: ["read"],
+ 	change: ["apply", "outcome"],
+-	refresh: ["apply"]
++	refresh: ["apply", "outcome"]
+ } as const satisfies { readonly [answer: string]: NonEmptyReadonlyArray<FailureSource> }
+ 
+ /** The kind of a member's answer (answers). */

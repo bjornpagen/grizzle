@@ -26,10 +26,12 @@
  * liveLoginGen), and after its drawn probes it calls a route of a role reading a context, naming the route's wire, with
  * no Authorization header.
  *
- * Plants (~/.cache/grizzle-release/LIVE-HTTP/plants): http-route-non-member.patch (the table serves a route no member
- * names: the routes are not the members); http-status-error.patch (a request line no route serves answered 404: the
- * answer is not the stream). Plant (~/.cache/grizzle-release/STEERSWEEP/plants): http-token-after-body.patch (a call's
- * missing token checked after its body's JSON: a call with no bearer token and no JSON body is an `input`).
+ * @plant test/plants/unit/http/http-route-non-member.patch The table serves a route no member names, each route's line
+ * with a trailing slash: the routes are not the members.
+ * @plant test/plants/unit/http/http-status-error.patch A request line no route serves is answered 404: the answer is
+ * not the stream.
+ * @plant test/plants/unit/http/http-token-after-body.patch A call's missing token is checked after its body's JSON, so
+ * a call with no bearer token and no JSON body is an `input`.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

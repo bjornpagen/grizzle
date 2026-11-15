@@ -1,0 +1,12 @@
+diff --git a/packages/grizzle/src/adapter/live/changes.ts b/packages/grizzle/src/adapter/live/changes.ts
+--- a/packages/grizzle/src/adapter/live/changes.ts
++++ b/packages/grizzle/src/adapter/live/changes.ts
+@@ -281,7 +281,7 @@
+ 					const announced = batchNotifications(message.content)
+ 					if (announced.ok) {
+ 						for (const notification of announced.value) {
+-							if (notification.kind === "table" && views.has(notification.table)) {
++							if (notification.kind === "table") {
+ 								add(open.keys, notification)
+ 							}
+ 						}

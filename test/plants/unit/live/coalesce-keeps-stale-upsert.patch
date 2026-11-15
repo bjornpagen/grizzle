@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/live/fold.ts b/packages/engine/src/live/fold.ts
+--- a/packages/engine/src/live/fold.ts
++++ b/packages/engine/src/live/fold.ts
+@@ -266,7 +266,7 @@
+ export const coalesceSet = <Row extends object>(
+ 	base: KeyedSet<Row>,
+ 	pending: Iterable<SetChange<Row>>
+-): ReadonlyArray<SetChange<Row>> => diffSet(base, base.applying(pending))
++): ReadonlyArray<SetChange<Row>> => diffSet(base, base.applying([...pending].toReversed()))
+ 
+ /**
+  * The net change of `pending`, changes of a list sent after `base`: the least change from `base` to `base` with

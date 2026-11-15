@@ -1,0 +1,11 @@
+--- a/packages/engine/src/live/openapi.ts
++++ b/packages/engine/src/live/openapi.ts
+@@ -226,7 +226,7 @@
+ 			return "A live ordered read paged by window"
+ 		case "instant":
+ 			return member.read.key.kind === "set"
+-				? "A set read at the call's instant"
++				? "A live set read at the call's instant"
+ 				: "An ordered read at the call's instant"
+ 		case "change":
+ 			return "A write"

@@ -1,0 +1,23 @@
+diff --git a/packages/grizzle/src/adapter/live/listen.ts b/packages/grizzle/src/adapter/live/listen.ts
+index 560780c3..b493bf6c 100644
+--- a/packages/grizzle/src/adapter/live/listen.ts
++++ b/packages/grizzle/src/adapter/live/listen.ts
+@@ -85,13 +85,11 @@ export const leading = (
+ 		leadership.running = true
+ 		return Effect.asVoid(
+ 			Effect.forkIn(
+-				Effect.exit(
+-					Effect.onExit(run, (exit) =>
+-						Effect.sync(() => {
+-							leadership.running = false
+-							leadership.sink?.lost(new LeaderFailed({ reason: endedBy(exit) }))
+-						})
+-					)
++				Effect.catch(run, (reason) =>
++					Effect.sync(() => {
++						leadership.running = false
++						leadership.sink?.lost(new LeaderFailed({ reason }))
++					})
+ 				),
+ 				scope
+ 			)

@@ -21,8 +21,9 @@
  * whole and writes nothing, and serves nothing in the draft without reads; for the platform, a drawn subset of the
  * billing workload's reads, its billing role and login built again over the same schema.
  *
- * Plant: none of its own; a live table read by the certifier as a trigger-held law's (analysis/isolation/facts.ts), so a
- * role writing a footprint table loses READ COMMITTED, turns it red.
+ * The live source is a publication and a replica identity, and the certifier reads neither: its facts are the law
+ * model's, the grants' and the change members' alone (program/isolation/input.ts isolationInput), so no bug of a line or
+ * two couples a verdict to the reads, and no patch is cited here.
  *
  * Features: each fixture, a role certified READ COMMITTED, a role certified SERIALIZABLE, a live table a READ
  * COMMITTED role writes, no read kept, a read kept.

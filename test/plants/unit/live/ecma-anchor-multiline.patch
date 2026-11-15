@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/scalar/regex/ecma.ts b/packages/engine/src/scalar/regex/ecma.ts
+--- a/packages/engine/src/scalar/regex/ecma.ts
++++ b/packages/engine/src/scalar/regex/ecma.ts
+@@ -37,7 +37,7 @@
+ 			case "set":
+ 				return ecmaSet(atom.node.set)
+ 			case "anchor":
+-				return atom.anchor === "start" ? "^" : "$"
++				return atom.anchor === "start" ? "^" : "(?=\\n|$)"
+ 			case "group":
+ 				return `(?:${atom.branches.map(of).join("|")})`
+ 		}

@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/live/openapi.ts b/packages/engine/src/live/openapi.ts
+--- a/packages/engine/src/live/openapi.ts
++++ b/packages/engine/src/live/openapi.ts
+@@ -402,7 +402,7 @@
+ 		{
+ 			in: "header",
+ 			name: wireHeader,
+-			description: `The digest of the program's wire form, as x-grizzle-wire states it: a call naming none is answered ${wireRefusals.absent}, and one naming another form ${wireRefusals.other}, so no client decodes by a form the server no longer serves.`,
++			description: `The digest of the program's wire form, as x-grizzle-wire states it: a call naming none is answered ${wireRefusals.absent}, and one naming another form refused, so no client decodes by a form the server no longer serves.`,
+ 			required: true,
+ 			schema: schemas.header
+ 		}

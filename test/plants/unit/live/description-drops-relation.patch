@@ -1,0 +1,11 @@
+--- a/packages/engine/src/live/openapi.ts
++++ b/packages/engine/src/live/openapi.ts
+@@ -247,7 +247,7 @@
+ 	[
+ 		...(deed.kind === "reads" || deed.relations.length === 0
+ 			? []
+-			: [`It ${deed.kind} ${listed(deed.relations)}.`]),
++			: [`It ${deed.kind} ${listed(deed.relations.slice(0, -1))}.`]),
+ 		...(member.kind === "key" ? [`It reads by its key ${listed(member.fields)}.`] : []),
+ 		input.params.length === 0
+ 			? "It takes no params."

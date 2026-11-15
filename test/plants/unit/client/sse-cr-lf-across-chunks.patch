@@ -1,0 +1,12 @@
+diff --git a/packages/grizzle/src/client/sse.ts b/packages/grizzle/src/client/sse.ts
+--- a/packages/grizzle/src/client/sse.ts
++++ b/packages/grizzle/src/client/sse.ts
+@@ -67,7 +67,7 @@
+ 	}
+ 	let line = reading.line
+ 	let afterReturn = reading.afterReturn && text.length === 0
+-	let start = reading.afterReturn && text.charCodeAt(0) === 0x0a ? 1 : 0
++	let start = 0
+ 	let feed = text.indexOf("\n", start)
+ 	let carriage = text.indexOf("\r", start)
+ 	while (feed >= 0 || carriage >= 0) {

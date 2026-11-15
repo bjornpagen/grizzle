@@ -1,0 +1,11 @@
+--- a/packages/engine/src/live/openapi.ts
++++ b/packages/engine/src/live/openapi.ts
+@@ -108,7 +108,7 @@
+ 			return []
+ 		case "ready":
+ 			return [
+-				["x-stream", descriptor.next === undefined ? { role } : { role, next: descriptor.next }]
++				["x-stream", { role }]
+ 			]
+ 		case "end":
+ 			return [["x-stream", { role }]]
