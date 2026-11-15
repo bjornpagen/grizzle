@@ -799,19 +799,20 @@ describe("the input check before any connection", () => {
  *
  * Over drawn targets and ledgers: the shop's chain of three folders, or a schema's first migration beside an abandoned
  * one; which of the chain's folders the target holds, each reviewed or not (markers left, or losses left undecided);
- * the snapshot it knows, the empty one or a version's; a ledger whose first folders completed and whose next is partial,
- * at any of its files; and a recorded file edited after it ran, or a file added to a folder that completed. The partial
- * folder's ledger rows record the draft that started it or another one (a redraft since), of its source or of another,
- * its target kept or another, its file count the folder's or one more, and one of its completed files may have run
- * with a statement no draft records. The oracle is the planner's documented order, restated over the chain's positions:
- * an applied file edited, missing or added stops it first; then each folder in name order is skipped when complete,
- * resumed past its recorded files when partial, started when it continues the ledger's latest target, and refused
- * otherwise, as is a recorded folder whose ledger rows name another target than its meta.json. A partial folder of
- * another file count is refused; one the ledger records under its own draft resumes; one redrafted since resumes under
- * the redraft, the ledger to take the redraft's meta.json digest and target, exactly when the redraft keeps its source
- * and records every completed file as it ran (none run with a statement no draft records, none holding a loss left
- * commented) and the file it resumes at runs in a transaction, and is refused otherwise. The latest target must then
- * be the known snapshot's; then no file that runs may hold a marker, and no folder that runs a loss left undecided.
+ * the snapshot it knows, the empty one or a version's; a ledger whose first folders completed and whose next is
+ * partial, at any of its files or, drawn apart, at one that runs outside a transaction; and a recorded file edited
+ * after it ran, or a file added to a folder that completed. The partial folder's ledger rows record the draft that
+ * started it or another one (a redraft since), of its source or of another, its target kept or another, its file count
+ * the folder's or one more, and one of its completed files may have run with a statement no draft records. The oracle
+ * is the planner's documented order, restated over the chain's positions: an applied file edited, missing or added
+ * stops it first; then each folder in name order is skipped when complete, resumed past its recorded files when
+ * partial, started when it continues the ledger's latest target, and refused otherwise, as is a recorded folder whose
+ * ledger rows name another target than its meta.json. A partial folder of another file count is refused; one the ledger
+ * records under its own draft resumes; one redrafted since resumes under the redraft, the ledger to take the redraft's
+ * meta.json digest and target, exactly when the redraft keeps its source and records every completed file as it ran
+ * (none run with a statement no draft records, none holding a loss left commented) and the file it resumes at runs in a
+ * transaction, and is refused otherwise. The latest target must then be the known snapshot's; then no file that runs
+ * may hold a marker, and no folder that runs a loss left undecided.
  */
 type ChainName = "the shop" | "a first migration beside an abandoned schema"
 
@@ -837,11 +838,13 @@ interface PlanCase {
 	readonly reviewed: ReadonlyArray<boolean>
 	/** The known snapshot: the empty one, -1, or a version's. */
 	readonly known: number
+	/** The folders the ledger records complete, the chain's first. */
 	readonly complete: number
 	readonly partial:
 		| { readonly kind: "none" }
 		| {
 				readonly kind: "partial"
+				/** The files its rows record completed, the folder's first: the index of the file it resumes at. */
 				readonly recorded: number
 				readonly draft: PartialDraft
 				/** The file count its rows record: the folder's, or one more. */
@@ -854,6 +857,43 @@ interface PlanCase {
 
 const chainOf = (name: ChainName) => (name === "the shop" ? shopChain : [abandoning])
 
+/**
+ * Where the ledger's rows stop in a chain: after its first `complete` folders and, where a folder follows them, before
+ * that folder's file at index `next`, the one a partial folder resumes at.
+ */
+interface Stop {
+	readonly complete: number
+	readonly next: Option.Option<number>
+}
+
+/**
+ * Where the ledger's rows stop, read off the chain's drafts: anywhere, or before one of the files that run outside a
+ * transaction (a draft's no-transaction file), the one place a redraft may not resume at. The draw knows where those
+ * files are, so a draft that gains or loses a file elsewhere moves nothing it reaches.
+ */
+const stopGen = (drafts: ReadonlyArray<GenerateResult>): Gen<Stop> => {
+	const anywhere: Gen<Stop> = (s) => {
+		const complete = s.draw(int(0, drafts.length))
+		return {
+			complete,
+			next: Option.map(Arr.get(drafts, complete), (g) => s.draw(int(0, draftFiles(g).length - 1)))
+		}
+	}
+	const outside = Arr.flatMap(drafts, (g, complete) =>
+		Arr.flatMap(draftFiles(g), (d, next): ReadonlyArray<Stop> =>
+			d.transaction ? [] : [{ complete, next: Option.some(next) }]
+		)
+	)
+	return Arr.match(outside, {
+		onEmpty: () => anywhere,
+		onNonEmpty: (files) =>
+			weighted<Stop>([
+				[3, anywhere],
+				[1, element(files)]
+			])
+	})
+}
+
 const planCaseGen: Gen<PlanCase> = (source) => {
 	const chain = source.draw(
 		weighted<ChainName>([
@@ -861,8 +901,9 @@ const planCaseGen: Gen<PlanCase> = (source) => {
 			[1, constant("a first migration beside an abandoned schema")]
 		])
 	)
-	const length = chainOf(chain).length
-	const complete = source.draw(int(0, length))
+	const drafts = chainOf(chain)
+	const length = drafts.length
+	const stop = source.draw(stopGen(drafts))
 	return {
 		chain,
 		held: source.draw(
@@ -883,49 +924,50 @@ const planCaseGen: Gen<PlanCase> = (source) => {
 				[1, int(-1, length - 1)]
 			])
 		),
-		complete,
-		partial:
-			complete === length
-				? { kind: "none" }
-				: source.draw(
-						oneOf<PlanCase["partial"]>([
-							constant({ kind: "none" }),
-							(s): PlanCase["partial"] => ({
-								kind: "partial",
-								recorded: s.draw(int(0, 0xffff)),
-								draft: s.draw(
-									weighted<PartialDraft>([
-										[2, constant({ kind: "its own" })],
-										[
-											2,
-											(d) => ({
-												kind: "a redraft",
-												source: d.draw(
-													weighted<"kept" | "another">([
-														[3, constant("kept")],
-														[1, constant("another")]
-													])
-												),
-												target: d.draw(element(["kept", "another"]))
-											})
-										]
-									])
-								),
-								files: s.draw(
-									weighted<"kept" | "one more">([
-										[5, constant("kept")],
-										[1, constant("one more")]
-									])
-								),
-								extra: s.draw(
-									weighted<Option.Option<number>>([
-										[3, constant(Option.none())],
-										[1, map(int(0, 0xffff), Option.some)]
-									])
-								)
-							})
-						])
-					),
+		complete: stop.complete,
+		partial: Option.match(stop.next, {
+			onNone: (): PlanCase["partial"] => ({ kind: "none" }),
+			onSome: (recorded) =>
+				source.draw(
+					oneOf<PlanCase["partial"]>([
+						constant({ kind: "none" }),
+						(s): PlanCase["partial"] => ({
+							kind: "partial",
+							recorded,
+							draft: s.draw(
+								weighted<PartialDraft>([
+									[2, constant({ kind: "its own" })],
+									[
+										2,
+										(d) => ({
+											kind: "a redraft",
+											source: d.draw(
+												weighted<"kept" | "another">([
+													[3, constant("kept")],
+													[1, constant("another")]
+												])
+											),
+											target: d.draw(element(["kept", "another"]))
+										})
+									]
+								])
+							),
+							files: s.draw(
+								weighted<"kept" | "one more">([
+									[5, constant("kept")],
+									[1, constant("one more")]
+								])
+							),
+							extra: s.draw(
+								weighted<Option.Option<number>>([
+									[3, constant(Option.none())],
+									[1, map(int(0, 0xffff), Option.some)]
+								])
+							)
+						})
+					])
+				)
+		}),
 		edit: source.draw(
 			weighted<Edit>([
 				[4, constant({ kind: "none" })],
@@ -965,8 +1007,8 @@ const recordedOf = (folder: ParsedTarget["folders"][number], files: number): Rec
 })
 
 /**
- * A case's partial folder, resolved against its chain: its index, how many of its files completed, the draft its rows
- * record, its recorded file count, and the completed file that ran with a statement no draft records, by index.
+ * A case's partial folder, resolved: its index, how many of its files completed, the draft its rows record, its
+ * recorded file count, and the completed file that ran with a statement no draft records, by index.
  */
 interface PartialFolder {
 	readonly index: number
@@ -976,21 +1018,17 @@ interface PartialFolder {
 	readonly extra: Option.Option<number>
 }
 
-const partialOf = (
-	c: PlanCase,
-	chain: ReadonlyArray<GenerateResult>
-): PartialFolder | undefined => {
+const partialOf = (c: PlanCase): PartialFolder | undefined => {
 	const p = c.partial
 	if (p.kind === "none") {
 		return undefined
 	}
-	const recorded = p.recorded % defined(chain[c.complete], "the partial folder").folder.files.length
 	return {
 		index: c.complete,
-		recorded,
+		recorded: p.recorded,
 		draft: p.draft,
 		files: p.files,
-		extra: recorded === 0 ? Option.none() : Option.map(p.extra, (pick) => pick % recorded)
+		extra: p.recorded === 0 ? Option.none() : Option.map(p.extra, (pick) => pick % p.recorded)
 	}
 }
 
@@ -1112,7 +1150,7 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 					(c, k) =>
 						Effect.sync(() => {
 							const chain = chainOf(c.chain)
-							const partial = partialOf(c, chain)
+							const partial = partialOf(c)
 							/** Every folder as the reviewer left it, the extra statement of the partial folder's file in it. */
 							const sources = Arr.map(chain, (g, i) => {
 								const reviewed = reviewedSource(c, g.folder, i)
