@@ -22,7 +22,6 @@ import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
-import { testWorkers } from "@bjornpagen/testing/workers"
 import { describe, it } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { Array as Arr, Duration, Effect, Formatter, Order, Record, Schema } from "effect"
@@ -241,7 +240,7 @@ describe("a request body that reaches an alias cycle", () => {
 							name: "DOC-23 at every link of a closed chain and an opaque body; an open chain's object flattened"
 						},
 						box: "every chain of one to four schemas, each link a $ref or a one-member allOf, anyOf or oneOf, closed or ended in an object, reached directly or through a property",
-						concurrency: testWorkers,
+						concurrency: 1,
 						generator: element(cases),
 						literal: Formatter.format,
 						coverage: requiredInSpace<ChainFeature>([

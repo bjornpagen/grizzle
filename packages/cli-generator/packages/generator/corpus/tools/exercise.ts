@@ -1,4 +1,4 @@
-import { availableParallelism } from "node:os"
+import { testWorkers } from "@bjornpagen/testing/workers"
 import { jsonTextOf } from "@superstarter/json"
 import {
 	Array as Arr,
@@ -27,6 +27,20 @@ const base = "http://127.0.0.1:9"
 
 /** The deepest array an exercised body fills: one item down to here, empty below. */
 const filledArrayDepth = 2
+
+/**
+ * How many of a built CLI's invocations the exercise runs at once, each a process of its own.
+ *
+ * @limitKind derived
+ * @owner the exercise of a built CLI (exerciseCommands)
+ * @unit CLI processes at once
+ * @scope one exercise of one built package, in the benchmark's process; the benchmark runs beside the gate's other
+ * tasks, and every process that sizes itself so adds up, which TOOLCHAIN_TEST_WORKERS caps on a shared machine
+ * @derivation testWorkers, the testing library's count of test processes one run holds at once: availableParallelism(),
+ * one a logical CPU, since each invocation is a Node process of one JavaScript thread, or TOOLCHAIN_TEST_WORKERS, the
+ * machine owner's cap, when the environment sets it
+ */
+const invocationsAtOnce = testWorkers
 
 const decodeText = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.String))
 
@@ -462,20 +476,19 @@ const groupsOf = (commands: readonly Command[]): readonly (readonly string[])[] 
  * listing the names under it; and for every command its `--help`, which shows its request and every flag (a text
  * field's with the type its schema states), and its `--dry-run` with a JSON body built from its operation's schema,
  * which must print the request line, content type and constant headers its `--describe` entry states, then the body
- * given byte for byte. They run at once, one a core.
+ * given byte for byte. They run at once, invocationsAtOnce at a time.
  */
 export const exerciseCommands = (built: Built) =>
 	Effect.gen(function* exercise() {
-		const concurrency = availableParallelism()
 		const groupFindings = yield* Effect.forEach(
 			groupsOf(built.commands),
 			(group) => exerciseGroup(built, group),
-			{ concurrency }
+			{ concurrency: invocationsAtOnce }
 		)
 		const commandFindings = yield* Effect.forEach(
 			built.commands,
 			(command) => exerciseCommand(built, command),
-			{ concurrency }
+			{ concurrency: invocationsAtOnce }
 		)
 
 		return [...Arr.flatten(groupFindings), ...Arr.flatten(commandFindings)]

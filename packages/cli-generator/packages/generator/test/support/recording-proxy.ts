@@ -138,7 +138,10 @@ const relay = (client: NetSocket, upstream: NetSocket): Effect.Effect<void> =>
 		upstream.on("error", destroyBoth)
 		client.pipe(upstream)
 		upstream.pipe(client)
-		return Effect.all([closedOf(client), closedOf(upstream)], { discard: true, concurrency: 2 })
+		return Effect.all([closedOf(client), closedOf(upstream)], {
+			discard: true,
+			concurrency: "unbounded"
+		})
 	})
 
 /**

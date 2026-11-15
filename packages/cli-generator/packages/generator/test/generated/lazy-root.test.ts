@@ -267,6 +267,22 @@ const invocationsOf = (
 		)
 	)
 
+/**
+ * How many invocations the differential runs at once. Each runs the lazy build's bin and then the eager oracle's, so it
+ * holds one CLI process at a time, and no invocation reaches the capture server.
+ *
+ * @limitKind derived
+ * @owner this suite's differential against the eager oracle
+ * @unit CLI processes at once
+ * @scope one exhaustion, in one Vitest worker; the run's other test files go on in workers of their own beside it, so
+ * the run holds these processes on top of its workers while it lasts, and TOOLCHAIN_TEST_WORKERS caps both on a shared
+ * machine
+ * @derivation testWorkers, the testing library's count of test processes one run holds at once: availableParallelism(),
+ * one a logical CPU, since each bin is a Node process of one JavaScript thread, or TOOLCHAIN_TEST_WORKERS, the machine
+ * owner's cap, when the environment sets it
+ */
+const INVOCATIONS_AT_ONCE = testWorkers
+
 /** Where a global flag goes: before the group name, or after the command's own arguments. */
 type Placement = "before the group" | "after the arguments"
 
@@ -349,7 +365,7 @@ layer(fixture, { excludeTestServices: true })("a generated CLI's lazy root", (it
 							name: "an eager build of the same package: the same bytes and the same exit code"
 						},
 						box: "every help, unknown name, --describe and --completions bash invocation of the package's groups and commands",
-						concurrency: testWorkers,
+						concurrency: INVOCATIONS_AT_ONCE,
 						generator: element(invocations),
 						literal: Formatter.format,
 						coverage: requiredInSpace<InvocationFeature>([
