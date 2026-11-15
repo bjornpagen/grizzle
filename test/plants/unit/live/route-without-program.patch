@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/http/routes.ts b/packages/grizzle/src/http/routes.ts
+index 2cce82f9..b29d2c8e 100644
+--- a/packages/grizzle/src/http/routes.ts
++++ b/packages/grizzle/src/http/routes.ts
+@@ -53,7 +53,7 @@ export const routeTable = <Role extends RoutedRole>(
+ 	const table = new Map<string, RouteOf<Role>>()
+ 	for (const login of logins) {
+ 		for (const role of login.roles) {
+-			for (const member of role.members) {
++			for (const member of role.members.length > 0 ? role.members : [{ name: "" }]) {
+ 				const route: HttpRoute = { login: login.login, role: role.name, program: member.name }
+ 				const line = routeLine(route)
+ 				if (table.has(line)) {

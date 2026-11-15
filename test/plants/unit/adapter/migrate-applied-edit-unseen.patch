@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/migrate/plan.ts b/packages/grizzle/src/adapter/migrate/plan.ts
+index 893455b1..a4cdeb89 100644
+--- a/packages/grizzle/src/adapter/migrate/plan.ts
++++ b/packages/grizzle/src/adapter/migrate/plan.ts
+@@ -122,7 +122,7 @@ const appliedEdits = (target: ParsedTarget, state: LedgerState): ReadonlyArray<A
+ 			if (Option.isNone(file) || file.value.name !== row.file) {
+ 				return [{ folder: folder.name, file: row.file, kind: "missing" }]
+ 			}
+-			return file.value.digest === row.digest
++			return file.value.ordinal === row.ordinal
+ 				? []
+ 				: [{ folder: folder.name, file: row.file, kind: "edited" }]
+ 		})

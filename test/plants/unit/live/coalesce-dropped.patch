@@ -1,0 +1,26 @@
+diff --git a/packages/grizzle/src/adapter/live/subscriptions.ts b/packages/grizzle/src/adapter/live/subscriptions.ts
+index b6026c32..2eab3e3c 100644
+--- a/packages/grizzle/src/adapter/live/subscriptions.ts
++++ b/packages/grizzle/src/adapter/live/subscriptions.ts
+@@ -45,8 +45,11 @@ const wake = (subscription: Subscription): void => {
+ 	}
+ }
+ 
++const queued = new WeakMap<Subscription, number>()
++
+ /** A change touched the subscription's rows: a clean one is marked; a marked or ended one stays as it is. */
+ const markSubscription = (subscription: Subscription): void => {
++	queued.set(subscription, (queued.get(subscription) ?? 0) + 1)
+ 	if (subscription.state.kind === "clean") {
+ 		subscription.state = markedState
+ 		wake(subscription)
+@@ -392,7 +395,8 @@ export const makeSubscriptions = (
+ 				const rerun = (value: Keyed<S, Row>): Effect.Effect<Ran<S, Row, E>> =>
+ 					Effect.suspend(() => {
+ 						if (subscription.state.kind === "marked") {
+-							subscription.state = cleanState
++							queued.set(subscription, (queued.get(subscription) ?? 1) - 1)
++							if ((queued.get(subscription) ?? 0) <= 0) subscription.state = cleanState
+ 						}
+ 						return Effect.onInterrupt(
+ 							Effect.flatMap(

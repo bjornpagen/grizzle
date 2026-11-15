@@ -43,11 +43,13 @@ import { regex } from "arkregex"
  *
  * PostgreSQL's spelling of a SQLSTATE (errcodes.txt).
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): failures-deadlock-as-serialization.patch (40P01 read as 40001),
- * failures-empty-field-kept.patch (an empty DETAIL or HINT kept as one that says something).
- *
  * Features: each named intention of a code, a message, a DETAIL and a HINT, each named object, each severity, and
  * where the failure met the flight.
+ *
+ * @plant test/plants/unit/adapter/failures-deadlock-as-serialization.patch 40P01 is read as 40001, a deadlock as a
+ * serialization failure.
+ * @plant test/plants/unit/adapter/failures-empty-field-kept.patch An empty DETAIL or HINT is kept as one that says
+ * something.
  */
 const isSqlstateSpec = (code: string): boolean => regex("^[0-9A-Z]{5}$").test(code)
 

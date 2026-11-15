@@ -67,14 +67,15 @@ import { testSql } from "#test/support/sql.ts"
  * from the answers the server made and the client was given; for joined flights, each part's own statements and
  * outcomes.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): batch-cancel-after-drain.patch (an interrupted flight that drained
- * still sends a CancelRequest), batch-joined-part-overreads.patch (a joined part reads the next part's first outcome).
+ * Features: each ending, commit and retirement the model names; for joined flights, no part, a part of no statement,
+ * and several parts.
  *
  * @plant test/plants/pg/adapter/abandon-cancel-once.patch abandon destroys the connection after one CancelRequest,
  * so the answers the server made after the request never reach the client; both flight properties fail.
- *
- * Features: each ending, commit and retirement the model names; for joined flights, no part, a part of no statement,
- * and several parts.
+ * @plant test/plants/unit/adapter/batch-cancel-after-drain.patch A flight whose answers already decided it sends a
+ * CancelRequest when an interruption meets it draining; both flight properties fail.
+ * @plant test/plants/unit/adapter/batch-joined-part-overreads.patch A joined part reads the next part's first outcome
+ * as its own; the joined flights' property fails.
  */
 /** A call's statement, a served one as a Db call sends it: its label's text, named. */
 const statement = (sql: string): BatchStatement => preparedStatement(prepared(testSql(sql)), [])

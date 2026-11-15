@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/program/isolation/extract.ts b/packages/engine/src/program/isolation/extract.ts
+index 01556773..a31584bc 100644
+--- a/packages/engine/src/program/isolation/extract.ts
++++ b/packages/engine/src/program/isolation/extract.ts
+@@ -507,7 +507,7 @@ const placeholderName = (
+ 	if (e.kind === "param") {
+ 		return paramName(e.slot.number, paramOf)
+ 	}
+-	return e.kind === "clock" ? `:${e.param}` : undefined
++	return undefined
+ }
+ 
+ /** The query and column names a source of the call's own rows reads, a derived table's or a query CTE's; none else. */

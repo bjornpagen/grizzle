@@ -14,8 +14,8 @@
  * keyed one, a key reaching none, a deregistered subscription a key would have reached, and one subscription registered
  * under several keys a key reaches.
  *
- * Plant (~/.cache/grizzle-release/LIVE-SUBSCRIBE/plants/routing-key-ignored.patch): route visits every subscription of
- * the key's table whatever the key's column and value, so every change of a table re-runs every read of it.
+ * @plant test/plants/unit/live/routing-key-ignored.patch route visits every subscription of the key's table whatever
+ * the key's column and value, so every change of a table re-runs every read of it; the routing property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -1,0 +1,14 @@
+diff --git a/packages/grizzle/src/adapter/reader/execution.ts b/packages/grizzle/src/adapter/reader/execution.ts
+index 15a6123c..6212a51d 100644
+--- a/packages/grizzle/src/adapter/reader/execution.ts
++++ b/packages/grizzle/src/adapter/reader/execution.ts
+@@ -652,9 +652,6 @@ export const recordRowsOf = (
+ 	group: number
+ ): Result.Result<ReadonlyArray<Row>, UnreadableAnswer> => {
+ 	const plan = record.plan
+-	if (repeats(rows, plan.identity)) {
+-		return Result.fail(repeated())
+-	}
+ 	const grouped: Array<Grouped> = []
+ 	for (const child of plan.children) {
+ 		const childRows = recordRowsOf(child.record, sent, runOf(child.record, sent), 0)

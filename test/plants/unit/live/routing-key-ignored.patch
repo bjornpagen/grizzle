@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/live/router.ts b/packages/grizzle/src/adapter/live/router.ts
+index e06ef288..88820ffa 100644
+--- a/packages/grizzle/src/adapter/live/router.ts
++++ b/packages/grizzle/src/adapter/live/router.ts
+@@ -131,7 +131,7 @@ export const route = <S>(
+ 	for (const subscription of routes.wide) {
+ 		visit(subscription)
+ 	}
+-	switch (key.kind) {
++	switch (key.kind === "keyed" ? "table" : key.kind) {
+ 		case "table":
+ 			for (const values of routes.keyed.values()) {
+ 				for (const subscriptions of values.values()) {

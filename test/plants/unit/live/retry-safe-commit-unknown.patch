@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/live/events.ts b/packages/engine/src/live/events.ts
+index 61378712..7f87c756 100644
+--- a/packages/engine/src/live/events.ts
++++ b/packages/engine/src/live/events.ts
+@@ -174,7 +174,7 @@ export const callErrors = {
+ 	unavailable: { retry: "safe", payload: { message: "text", reason: "unavailableReason" } },
+ 	transport: { retry: "safe", payload: { message: "text" } },
+ 	stale: { retry: "never", payload: { message: "text" } },
+-	commitUnknown: { retry: "never", payload: { message: "text" } },
++	commitUnknown: { retry: "safe", payload: { message: "text" } },
+ 	failed: { retry: "never", payload: { message: "text" } }
+ } as const satisfies {
+ 	readonly [kind: string]: { readonly retry: Retry; readonly payload: Payload }

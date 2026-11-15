@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/read/record.ts b/packages/engine/src/runtime/read/record.ts
+index a4aaee95..1e7ab16e 100644
+--- a/packages/engine/src/runtime/read/record.ts
++++ b/packages/engine/src/runtime/read/record.ts
+@@ -159,7 +159,7 @@ const atMostOne = <A>(key: string, children: ReadonlyArray<A>): ReadonlyArray<A>
+ const provenChild = <A>(key: string, children: ReadonlyArray<A>): A => {
+ 	const [child] = atMostOne(key, children)
+ 	if (child === undefined) {
+-		throw new UnlawfulDelivery({ attachment: key, law: "exactlyOne", children: 0 })
++		throw new UnlawfulDelivery({ attachment: key, law: "atMostOne", children: 0 })
+ 	}
+ 	return child
+ }

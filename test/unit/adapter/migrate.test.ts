@@ -18,14 +18,23 @@
  * Oracles: PostgreSQL's grammar of transaction control, per statement form; the documented input faults and the plan's
  * documented resume and refusals, restated over the drawn target and ledger.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): migrate-rollback-work-to.patch (ROLLBACK WORK TO read as a
- * transaction's rollback), migrate-applied-edit-unseen.patch (an applied file edited afterwards goes unnoticed).
- * Plants (~/.cache/grizzle-release/LEDGERRESUME/plants): redraft-source-unchecked.patch (a redraft of another source
- * resumes), redraft-record-unchecked.patch (a redraft that does not record a completed file as it ran resumes),
- * partial-digest-unchecked.patch (the partial folder's completed files are not compared with the texts that ran),
- * redraft-no-transaction-admitted.patch (a redraft resumes at a no-transaction file).
- *
  * Features: each statement form and comment placement; each input fault; each plan's resume and refusal.
+ *
+ * @plant test/plants/unit/adapter/migrate-rollback-work-to.patch ROLLBACK WORK TO is read as a transaction's rollback;
+ * the transaction control property fails.
+ * @plant test/plants/unit/adapter/migrate-applied-edit-unseen.patch An applied file edited afterwards goes unnoticed
+ * (its ledger row is compared by ordinal, not by digest); the plan's property fails.
+ * @plant test/plants/unit/adapter/redraft-source-unchecked.patch A redraft of another source resumes; the plan's
+ * property fails.
+ * @plant test/plants/unit/adapter/redraft-record-unchecked.patch A redraft whose meta.json does not record a completed
+ * file as it ran resumes, unless it is a custom folder's; the plan's property fails.
+ * @plant test/plants/unit/adapter/partial-digest-unchecked.patch The partial folder's completed files are not
+ * compared with the texts that ran; the plan's property fails.
+ * @plant test/plants/unit/adapter/redraft-no-transaction-admitted.patch A redraft resumes at a no-transaction file;
+ * the plan's property fails.
+ * @plant test/plants/unit/adapter/record-one-text-per-statement.patch meta.json records a statement of two commands
+ * (a database-wide statement and its database lock) as one text, so a drafted file no longer records as it is written;
+ * the plan's property fails.
  */
 import { inspect } from "node:util"
 import { drawn, explore } from "@bjornpagen/testing/explore"

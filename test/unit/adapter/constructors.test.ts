@@ -63,10 +63,12 @@ import { caseHang } from "#test/support/limits.ts"
  * Oracle: the specification, each constructor's value carrying the facts as given, and the adapter's own
  * classification of the same facts, deeply equal to it.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): failures-empty-field-kept.patch (an empty report field kept as one
- * that says something), failures-deadlock-as-serialization.patch (40P01 read as 40001).
- *
  * Features: each constructor, each SQLSTATE grizzle branches on and any other, each report field empty or present.
+ *
+ * @plant test/plants/unit/adapter/failures-empty-field-kept.patch An empty report field is kept as one that says
+ * something.
+ * @plant test/plants/unit/adapter/failures-deadlock-as-serialization.patch 40P01 is read as 40001, a deadlock as a
+ * serialization failure.
  */
 
 /** The errors the public channels name: Db.open's and DbLayer.make's, a read's, a write's, generate's compile's. */

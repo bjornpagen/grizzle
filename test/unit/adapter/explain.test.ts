@@ -33,14 +33,15 @@ import { caseHang } from "#test/support/limits.ts"
  * "Plans" to the children, "Schema" and "Relation Name" to the relation the file names for that table, "Index Name" to
  * that table's index by its name, under a Bitmap Heap Scan the heap's table, and the temporary schema to the carrier).
  *
- * Plants: ~/.cache/grizzle-release/BR04/plants/explain-children-reversed.patch (a node's children in reverse order);
- * ~/.cache/grizzle-release/EXPLAIN/plants/index-wrong-relation.patch (an index node naming the relation of another
- * table of its schema); ~/.cache/grizzle-release/CARRIER/plants/explain-carrier-index-read.patch (an index under a
- * carrier read as the carrier).
- *
  * Features: a leaf, a node with several children, a tree nested three deep, members the Plan drops, a table read
  * whole, an index scan, a bitmap index scan under its heap, a carrier, a plan refused for a table or an index the file
  * does not name, and one refused for an index under a carrier.
+ *
+ * @plant test/plants/unit/adapter/explain-children-reversed.patch A node's children are kept in reverse order.
+ * @plant test/plants/unit/adapter/index-wrong-relation.patch An index node is read against the first table of its
+ * schema rather than the table it names, so it names the relation of another table of its schema, or is refused.
+ * @plant test/plants/unit/adapter/explain-carrier-index-read.patch An index under a carrier is read as the carrier
+ * rather than refused.
  */
 
 /** The schemas, tables and indexes a case names, each name shared across its owners so a lookup must take its owner. */

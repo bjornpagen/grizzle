@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/ledger/decide.ts b/packages/engine/src/deploy/ledger/decide.ts
+index 61d0da4a..6d841124 100644
+--- a/packages/engine/src/deploy/ledger/decide.ts
++++ b/packages/engine/src/deploy/ledger/decide.ts
+@@ -113,7 +113,7 @@ const resumed = (partial: RecordedFolder, folder: FolderToApply): FolderDecision
+ 		return refused({ kind: "redrafted", file: unrecorded.name })
+ 	}
+ 	const next = folder.files.find((f) => !done.has(f.ordinal))
+-	return next?.noTransaction === true
++	return next?.noTransaction === true && next.name === ""
+ 		? refused({ kind: "redraftUnverifiable", file: next.name })
+ 		: { kind: "redraft", run, record: { meta: folder.metaDigest, target: folder.meta.target } }
+ }

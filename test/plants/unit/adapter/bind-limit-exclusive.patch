@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/wire/batch.ts b/packages/grizzle/src/adapter/wire/batch.ts
+index 4a729f92..11113ba3 100644
+--- a/packages/grizzle/src/adapter/wire/batch.ts
++++ b/packages/grizzle/src/adapter/wire/batch.ts
+@@ -1433,7 +1433,7 @@ export const bindOverrun = (
+ 	for (const one of statements) {
+ 		const bytes = bindLength(one)
+ 		statement += 1
+-		if (bytes > limit) {
++		if (bytes >= limit) {
+ 			return new InputTooLarge({
+ 				bound: { kind: "message", statement: statement - 1, bytes, limit }
+ 			})

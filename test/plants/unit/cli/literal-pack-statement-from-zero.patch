@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/cli/check.ts b/packages/grizzle/src/cli/check.ts
+index 1671bd93..dec44e61 100644
+--- a/packages/grizzle/src/cli/check.ts
++++ b/packages/grizzle/src/cli/check.ts
+@@ -227,7 +227,7 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
+ 			const where = path(folder.name, file.name)
+ 			for (const [i, statement] of splitStatements(file.text).entries()) {
+ 				if (looksLikeLiteralPack(statement)) {
+-					packs.push({ where, statement, ordinal: i + 1 })
++					packs.push({ where, statement, ordinal: i })
+ 				}
+ 				const control = transactionControl(statement)
+ 				if (control !== undefined) {

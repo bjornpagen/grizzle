@@ -1,0 +1,12 @@
+diff --git a/packages/grizzle/src/adapter/wire/batch.ts b/packages/grizzle/src/adapter/wire/batch.ts
+index 4a729f92..3d2e8de8 100644
+--- a/packages/grizzle/src/adapter/wire/batch.ts
++++ b/packages/grizzle/src/adapter/wire/batch.ts
+@@ -1052,6 +1052,7 @@ const runEntered = <P, F>(
+ 					: Effect.suspend(() => Effect.fromResult(flightOutcomes(session, plan, sent)))
+ 				const waited = yield* Effect.exit(restore(Deferred.await(sent.drained)))
+ 				if (Exit.isFailure(waited)) {
++					yield* session.cancel
+ 					return yield* interruptedDrain(sent, settled, waited.cause)
+ 				}
+ 				return yield* settled

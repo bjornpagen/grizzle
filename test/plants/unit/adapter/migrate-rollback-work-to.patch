@@ -1,0 +1,13 @@
+diff --git a/packages/grizzle/src/adapter/migrate/input.ts b/packages/grizzle/src/adapter/migrate/input.ts
+index e4c7337e..d0535f07 100644
+--- a/packages/grizzle/src/adapter/migrate/input.ts
++++ b/packages/grizzle/src/adapter/migrate/input.ts
+@@ -109,7 +109,7 @@ const transactionControls: ReadonlyMap<string, Control> = new Map<string, Contro
+ 	[
+ 		"ROLLBACK",
+ 		(second, third) => {
+-			const next = wordOf(second) === "WORK" || wordOf(second) === "TRANSACTION" ? third : second
++			const next = wordOf(second) === "TRANSACTION" ? third : second
+ 			return wordOf(next) === "TO" ? undefined : "ROLLBACK"
+ 		}
+ 	],

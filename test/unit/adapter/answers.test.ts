@@ -48,13 +48,17 @@ import { contained, on, relation, schema } from "#compiler/public/schema.ts"
  *   an equal tuple, a step back, or a row past the statement's LIMIT, the window's size, is UnreadableAnswer at the rows
  *   statement. Oracle: the window's contract, the first min(size, n) of n increasing rows.
  *
- * Plants (~/.cache/grizzle-release/BR04/plants): answers-second-child-taken.patch (a second child under an Option or
- * one is taken silently), answers-missing-child-misnamed.patch (a missing one child is named as a second one's law),
- * answers-repeat-delivered.patch (a statement's answer holding a row twice is delivered);
- * ~/.cache/grizzle-release/LIVE-WATCH/plants/answers-window-past-size.patch (a window delivers a row past its size).
- *
  * Features: each delivery, a defect, a proof that does not license the reader; each statement kind with a repeat
  * planted or none; each way a window's rows fail.
+ *
+ * @plant test/plants/unit/adapter/answers-second-child-taken.patch A second child under an Option or the one child is
+ * taken silently, the first of several kept; the deliveries' property fails.
+ * @plant test/plants/unit/adapter/answers-missing-child-misnamed.patch A missing one child is named under the law of at
+ * most one child; the deliveries' property fails.
+ * @plant test/plants/unit/adapter/answers-repeat-delivered.patch A statement's answer holding a row twice is delivered
+ * (recordRowsOf checks no repeat); the statements' property fails.
+ * @plant test/plants/unit/adapter/answers-window-past-size.patch A rows statement may answer one row past its LIMIT, the
+ * window's size; the window's property fails.
  */
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { bindGroups, named, record } from "#compiler/schema/record.ts"

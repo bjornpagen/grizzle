@@ -1,0 +1,25 @@
+diff --git a/packages/engine/src/deploy/render/sql.ts b/packages/engine/src/deploy/render/sql.ts
+index 0d5971ab..4efcd9a0 100644
+--- a/packages/engine/src/deploy/render/sql.ts
++++ b/packages/engine/src/deploy/render/sql.ts
+@@ -112,7 +112,19 @@ const spelled = (
+ 	statement: SqlStatement
+ ): NonEmptyReadonlyArray<Spelled> => {
+ 	const [first, ...rest] = commandsOf(statement)
+-	return [{ above, write: first }, ...rest.map((write): Spelled => ({ above: [], write }))]
++	return [
++		{
++			above,
++			write: (out) => {
++				let pending = first
++				for (const next of rest) {
++					terminated(out, pending)
++					pending = next
++				}
++				pending(out)
++			}
++		}
++	]
+ }
+ 
+ const bare = (statement: SqlStatement): NonEmptyReadonlyArray<Spelled> => spelled([], statement)
