@@ -1609,7 +1609,11 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 			const right = reading.right
 			const deps: Array<Dependency> = [...carried(left, sameName, rowsKeep)]
 			if (reading.kind === "SemiJoin") {
-				/** A left column paired with a right column the right side fixes is fixed too, by the pair. */
+				/**
+				 * A left column paired with a right column the right side fixes is fixed too, by the pair: the right side
+				 * reads nothing of the left (test/support/oracle/dag-validate.ts, "a semi-join's right side reads nothing of
+				 * its left"), so it is one relation per evaluation of the semi-join.
+				 */
 				const rightFixed = closureOf(right, [])
 				appendAll(
 					deps,

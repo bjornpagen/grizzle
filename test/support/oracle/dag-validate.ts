@@ -140,6 +140,7 @@ export type DagRule =
 	| "closed facts are distinct under native equality"
 	| "an expression reads its node's input only"
 	| "a scope expression's column is bound on its way to every root"
+	| "a semi-join's right side reads nothing of its left"
 	| "an aggregate reads only its bound tuple"
 	| "a node's read dependencies are the computed ones"
 	| "a node's parameter dependencies are the computed ones"
@@ -720,6 +721,7 @@ class Checker {
 	 */
 	checkDependencies(computed: ReadonlyMap<NodeId, Recomputed>): void {
 		this.checkRootScopes(computed)
+		this.checkSemiJoinRights(computed)
 		for (const node of Rec.values(this.table.nodes)) {
 			const deps = computed.get(node.id)
 			if (deps === undefined) {
@@ -765,6 +767,33 @@ class Checker {
 						Arr.map([...columns], (c) => `${id}.${c}`),
 						", "
 					)} reaches the root ${root} unbound`
+				)
+			}
+		}
+	}
+
+	/**
+	 * A semi-join's right side reads no column of its left (dag.ts nodeScopes binds the left for it, as it does an
+	 * anti-join's, whose negation reads the rule's variables): the right side is one relation per evaluation of the
+	 * semi-join, so a column it fixes is fixed there, and a left column paired with it is too (logical/props.ts, the
+	 * key kernel's semiJoinPair). Read per left row, the right side's fixed column would hold one value per left row.
+	 * No builder makes one: the checker's narrowing joins back to an uncorrelated take (check/checker.ts #narrow), and
+	 * the existence rewrite moves no correlated source (lower/optimize/existence shapedExistence).
+	 */
+	checkSemiJoinRights(computed: ReadonlyMap<NodeId, Recomputed>): void {
+		for (const node of Rec.values(this.table.nodes)) {
+			if (node.kind !== "SemiJoin") {
+				continue
+			}
+			const read = computed.get(node.right)?.outer.get(node.left)
+			if (read !== undefined) {
+				this.report(
+					"a semi-join's right side reads nothing of its left",
+					["nodes", node.id, "right"],
+					`a right side that reads no column of the left ${node.left}, not ${Arr.join(
+						Arr.map([...read], (c) => `${node.left}.${c}`),
+						", "
+					)}`
 				)
 			}
 		}

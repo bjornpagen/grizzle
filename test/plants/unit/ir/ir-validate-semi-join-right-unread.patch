@@ -1,0 +1,10 @@
+--- a/test/support/oracle/dag-validate.ts
++++ b/test/support/oracle/dag-validate.ts
+@@ -721,7 +721,6 @@
+ 	 */
+ 	checkDependencies(computed: ReadonlyMap<NodeId, Recomputed>): void {
+ 		this.checkRootScopes(computed)
+-		this.checkSemiJoinRights(computed)
+ 		for (const node of Rec.values(this.table.nodes)) {
+ 			const deps = computed.get(node.id)
+ 			if (deps === undefined) {

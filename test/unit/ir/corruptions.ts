@@ -1237,6 +1237,64 @@ const scope: ReadonlyArray<DagCorruption> = [
 		}
 	},
 	{
+		/**
+		 * A semi-join's right side read through a take correlated on the left column its first pair joins: the take is
+		 * evaluated per left row, so a column it fixes holds one value per left row, not per evaluation of the semi-join.
+		 * The left binds the reference, so no other rule refuses it.
+		 */
+		rule: "a semi-join's right side reads nothing of its left",
+		from: "stale",
+		weight: 1,
+		sites: (dag) =>
+			Arr.flatMap(ofKind(dag, "SemiJoin"), (j) => {
+				const [pair] = j.on
+				const right = nodeAt(dag, j.right)
+				const joined =
+					pair === undefined
+						? Option.none()
+						: columnWhere(nodeAt(dag, j.left), (c) => c.name === pair.left)
+				if (pair === undefined || right === undefined || Option.isNone(joined)) {
+					return []
+				}
+				const read: TableExpr = {
+					kind: "column",
+					column: { node: j.left, name: pair.left },
+					args: [],
+					type: joined.value.type,
+					nonNull: "storage",
+					volatility: "immutable",
+					id: ExprId("e-left"),
+					deps: { params: [], nodes: [j.left] }
+				}
+				const correlated: TableNode = {
+					id: NodeId("n-right"),
+					kind: "Take",
+					input: j.right,
+					order: { keys: Arr.map(right.heading, (c) => ({ column: c.name, dir: "asc" as const })) },
+					bound: { kind: "literal", k: 1n },
+					correlation: [{ column: pair.right, expr: read.id }],
+					heading: right.heading,
+					meta: right.meta,
+					loc: undefined
+				}
+				return [
+					site(
+						{
+							roots: dag.roots,
+							nodes: {
+								...dag.nodes,
+								[correlated.id]: correlated,
+								[j.id]: { ...j, right: correlated.id }
+							},
+							exprs: { ...dag.exprs, [read.id]: read }
+						},
+						atNode(j.id, "right"),
+						j.kind
+					)
+				]
+			})
+	},
+	{
 		rule: "an aggregate reads only its bound tuple",
 		from: "wild",
 		weight: 1,
