@@ -19,9 +19,8 @@
  * required feature is reached in every run that holds the planted cases, and the drawn cases still reach them
  * organically.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/direct-writers-rule-keys-deferred.patch, every foreign key the
- * schema-wide rule decides installed deferred, moves the immediate reference's refusal to COMMIT and must turn the
- * property red.
+ * @plant test/plants/pg/direct-writers/direct-writers-rule-keys-deferred.patch Every foreign key the schema-wide rule
+ * decides installed deferred, which moves the immediate reference's refusal to COMMIT; the property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

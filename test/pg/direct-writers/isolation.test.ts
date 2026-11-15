@@ -37,9 +37,11 @@
  * - Oracle: the specification turned into a checker (predict), the README's refusal order over the point.
  * - Features: each statement under each verdict, the guard's refusal on each kind of table and after a read, and a write
  *   admitted at the database's default.
- * - Plants: ~/.cache/grizzle-release/BR08/plants/isolation-guard-admits-repeatable-read.patch (the guard compares
- *   against REPEATABLE READ), ~/.cache/grizzle-release/BR08/plants/isolation-no-database-default.patch (the
- *   installation leaves the database's default level alone); each must turn the property red.
+ *
+ * @plant test/plants/pg/direct-writers/isolation-guard-admits-repeatable-read.patch The guard compares against
+ * REPEATABLE READ; the property fails.
+ * @plant test/plants/pg/direct-writers/isolation-no-database-default.patch The installation leaves the database's
+ * default level alone; the property fails at the database's default.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

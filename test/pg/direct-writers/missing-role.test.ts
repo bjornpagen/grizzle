@@ -38,8 +38,8 @@ import type { LoginSpec } from "#test/support/worlds/model/types.ts"
  * rolled back. The oracle is PostgreSQL's reading of an identifier, its longest prefix of whole characters within 63
  * bytes, and the catalog: whether pg_roles holds the name so read, as the owner sees it.
  *
- * Plant: ~/.cache/grizzle-release/BR08/plants/missing-role-login-cannot-set-its-roles.patch, a login granted its roles
- * without SET, must turn the property red.
+ * @plant test/plants/pg/direct-writers/missing-role-login-cannot-set-its-roles.patch A login granted its roles without
+ * SET, so SET ROLE to one of its own roles is 42501; the property fails.
  */
 
 /** Whose installed name a drawn name starts from. */

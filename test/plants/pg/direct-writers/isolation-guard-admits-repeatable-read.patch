@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/ddl/isolation.ts b/packages/engine/src/physical/ddl/isolation.ts
+index a9088383..af1e2913 100644
+--- a/packages/engine/src/physical/ddl/isolation.ts
++++ b/packages/engine/src/physical/ddl/isolation.ts
+@@ -44,7 +44,7 @@ const refuseBelowSerializable: PlStatement = {
+ 		{
+ 			condition: ne(
+ 				call("current_setting", [lit.text("transaction_isolation", types.text)]),
+-				lit.text("serializable", types.text)
++				lit.text("repeatable read", types.text)
+ 			),
+ 			body: [
+ 				{
