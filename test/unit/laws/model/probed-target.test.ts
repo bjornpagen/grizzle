@@ -40,15 +40,6 @@
  * same selection probes, and test/pg/laws/target-keys.test.ts draws such a probe beside every key a target may be held
  * by, over a selection or not, its terms holding a fixed field or not.
  *
- * Plants (~/.cache/grizzle-release/R10/plants): probed-target-shared-always (every fixed target at its terms and fixed
- * field: caught by the restated keys' objects), probed-target-constants-free (the choice counting a constant column as
- * nothing, so a superkey is taken though the target's own columns need no constant and cost less: caught by the
- * restated keys' objects), probed-target-probe-beside (each reverse probe a B-tree of its own beside a unique index that
- * serves it: caught by the redundant pair), probed-target-unique-dropped (no UNIQUE beside a reference at a target's
- * own columns: caught by the foreign key that references no unique index), and probed-target-projected-unimplied
- * (laws/model/model.ts #implyingKey back to declared keys only, so a UNIQUE only K over a selection implies reports its
- * containment: caught by the reported key).
- *
  * Features: a target a probe out of its selection reads at its own columns, leading the probe or within it; a target no
  * containment out of its selection probes, and one a probe out of its selection misses a term of; a lone target fixing
  * kind by a literal, from a source that holds no kind, that no probe reads; two such targets fixing kind to two values
@@ -60,6 +51,17 @@
  * @plant test/plants/unit/laws/model/probed-target-probe-per-index.patch The reference choice counts every unserved
  * reverse probe a B-tree of its own, though the engine drafts one index for a chain of probes over nested columns, so
  * it takes a superkey that saves nothing: the kept case's K alone plans 20 objects to the restated keys' 19.
+ * @plant test/plants/unit/laws/model/probed-target-shared-always.patch Every fixed target at its terms and fixed field
+ * (laws/model/plan.ts takingShared); the restated keys' objects catch it.
+ * @plant test/plants/unit/laws/model/probed-target-constants-free.patch The choice counts a constant column as nothing,
+ * so a superkey is taken though the target's own columns need no constant and cost less (laws/model/plan.ts
+ * takingShared); the restated keys' objects catch it.
+ * @plant test/plants/unit/laws/model/probed-target-probe-beside.patch Each reverse probe a B-tree of its own beside a
+ * unique index that serves it (physical/indexes/engine.ts planIndexes); the redundant pair catches it.
+ * @plant test/plants/unit/laws/model/probed-target-unique-dropped.patch No UNIQUE beside a reference at a target's own
+ * columns (laws/model/plan.ts scalar containment); the foreign key that references no unique index catches it.
+ * @plant test/plants/unit/laws/model/probed-target-projected-unimplied.patch laws/model/model.ts #implyingKey back to
+ * declared keys only, so a UNIQUE only K over a selection implies reports its containment; the reported key catches it.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

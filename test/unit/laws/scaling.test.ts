@@ -22,10 +22,10 @@
  * past a threshold would land in one increment alone), and a key of 24 fields, the parent key at its largest, stays
  * within INDEX_MAX_KEYS beside the columns its laws add.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): scaling-reverse-per-handle-pair (an alternatives statement states a
- * reverse containment for every pair of a handle and an arm, its laws quadratic in the roster).
- *
  * Features: each dimension.
+ *
+ * @plant test/plants/unit/laws/scaling-reverse-per-handle-pair.patch An alternatives statement states a reverse
+ * containment for every pair of a handle and an arm (ir/desc.ts expandAlternatives), its laws quadratic in the roster.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

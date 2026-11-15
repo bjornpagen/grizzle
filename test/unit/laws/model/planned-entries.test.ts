@@ -16,11 +16,11 @@
  * order compilation meets them: A's and B's primary keys, then the target's UNIQUE where one is planned. The first that
  * fails is the refusal, by its columns and its fault.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): btree-entry-at-bound-refused (an entry of exactly BTMaxItemSize is
- * refused).
- *
  * Features: the target the declared key or a superkey; admitted; the declared key refused; the target's UNIQUE refused
  * as unbounded or over the limit, or admitted at the limit; a referencing run no B-tree entry holds, admitted.
+ *
+ * @plant test/plants/unit/laws/model/btree-entry-at-bound-refused.patch An entry of exactly BTMaxItemSize is refused
+ * (schema/representability.ts btreeEntry).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -30,14 +30,14 @@
  * `NULLS DISTINCT` and `MATCH SIMPLE` are the printer's spelling of every UNIQUE and FOREIGN KEY node, so no structure
  * here holds them. A containment whose target a cascade feeds is deferred too, which no law of this box does.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): projection-rule-never-defers (a foreign key the schema-wide rule
- * decides is never deferred, though its target holds a field beside the referenced ones).
- *
  * Features: a key over fields, a selected side, a pred term or a selected pred term; a containment, into a superkey,
  * from or into a selected side, into a constant selection; two constant selections of one target, and two
  * containments into one constant selection at its own column; a reference on a
  * cycle, into a replaceable target, or off every cycle into a key no write replaces; mirrors over whole relations or a
  * selected side; and each Item selection.
+ *
+ * @plant test/plants/unit/laws/model/projection-rule-never-defers.patch A foreign key the schema-wide rule decides is
+ * never deferred though its target holds a field beside the referenced ones (laws/model/model.ts deferral).
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

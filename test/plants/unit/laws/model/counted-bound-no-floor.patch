@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/laws/model/plan.ts b/packages/engine/src/laws/model/plan.ts
+index 970c7025..f78f332f 100644
+--- a/packages/engine/src/laws/model/plan.ts
++++ b/packages/engine/src/laws/model/plan.ts
+@@ -2502,7 +2502,7 @@ class FamilyPlanner {
+ 			own.add(
+ 				index.kind === "field"
+ 					? cmp("lt", i, n)
+-					: and([cmp("ge", i, naturalLiteral(0n)), cmp("lt", i, n)])
++					: cmp("lt", i, n)
+ 			)
+ 		} else {
+ 			this.#treeConditions(own, tree, index, copy)

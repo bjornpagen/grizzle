@@ -15,11 +15,12 @@
  * one key (ir/law.ts KeyColumnSet); and a containment's law is immediate, in the specialized model and in its
  * evidence, exactly when it is into K.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): beyond-primary-guards-alike (laws/model/uniques.ts subsumes finds any
- * two guards one guard).
- *
  * Features: a guarded key subsumed, two keys over one set in two orders as one object, a key beyond the primary, an
  * immediate containment, a deferred containment.
+ *
+ * @plant test/plants/unit/laws/model/beyond-primary-guards-alike.patch laws/model/uniques.ts subsumes finds any two
+ * guards of one relation one guard (sameGuard compares no predicate).
+
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

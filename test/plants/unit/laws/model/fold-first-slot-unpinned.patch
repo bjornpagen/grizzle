@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/laws/model/plan.ts b/packages/engine/src/laws/model/plan.ts
+index 970c7025..622140ca 100644
+--- a/packages/engine/src/laws/model/plan.ts
++++ b/packages/engine/src/laws/model/plan.ts
+@@ -2853,7 +2853,7 @@ class FamilyPlanner {
+ 	 */
+ 	#pin(axis: AxisKind, pair: CarriedPair, index: PlannedColumn): void {
+ 		const start = this.#startOf(pair.from)
+-		if (start === undefined || axis === "owner") {
++		if (start === undefined || axis === "owner" || axis === "predecessor") {
+ 			return
+ 		}
+ 		const at = axis === "predecessor" ? index : fieldColumn(this.#family.count)

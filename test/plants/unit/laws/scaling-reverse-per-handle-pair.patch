@@ -1,0 +1,26 @@
+diff --git a/packages/engine/src/ir/desc.ts b/packages/engine/src/ir/desc.ts
+index e2fb9d03..2f53525f 100644
+--- a/packages/engine/src/ir/desc.ts
++++ b/packages/engine/src/ir/desc.ts
+@@ -972,12 +972,15 @@ export const expandAlternatives = (a: AlternativesDesc): NonEmptyReadonlyArray<C
+ 				: [{ kind: "contained", left: arm, right: discriminated(a, [first, ...rest]), loc: a.loc }]
+ 		}
+ 	)
+-	const reverse = mapNonEmpty(a.arms, ({ handle, arm }): ContainedDesc => ({
+-		kind: "contained",
+-		left: discriminated(a, [handle]),
+-		right: arm,
+-		loc: a.loc
+-	}))
++	const reverse = a.arms.flatMap(({ handle }) =>
++		a.arms.map(({ arm }): ContainedDesc => ({
++			kind: "contained",
++			left: discriminated(a, [handle]),
++			right: arm,
++			loc: a.loc
++		}))
++	)
++
+ 	return concatNonEmpty(forward, reverse)
+ }
+ 

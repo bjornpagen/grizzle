@@ -19,10 +19,11 @@
  * payload field or none; unselected and unkeyed; selected and keyed by a key over its side; selected and unkeyed. Ten
  * shapes, exhausted.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): coverage-unkeyed-target-admitted (a coverage into a target keyed
- * WITHOUT OVERLAPS over none of its terms lowers instead of being refused).
- *
  * Features: a selected source, a selected target, an unkeyed target, a replaceable target, an irreplaceable target.
+ *
+ * @plant test/plants/unit/laws/model/coverage-unkeyed-target-admitted.patch A coverage into a target keyed WITHOUT
+ * OVERLAPS over none of its terms lowers instead of being refused (laws/model/plan.ts coverage).
+
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

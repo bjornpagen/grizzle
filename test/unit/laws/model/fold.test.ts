@@ -24,12 +24,13 @@
  * The names: a hidden accumulator is named by its fold's law, so over every order of two or three folds of one family
  * and every fold removed, every other fold's hidden accumulators keep their identifiers (a metamorphic oracle).
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): fold-first-slot-unpinned (the predecessor axis's base pin, and so the
- * first-slot identity pin, dropped) for the natives; fold-names-by-first-law (every fold's hidden accumulators named by
- * the family's first fold's law) for the names.
- *
  * Features: each monoid and carrier, named and hidden, ordered and counted, selected or not; each hidden fold removed,
  * a fold before the removed one and one after it.
+ *
+ * @plant test/plants/unit/laws/model/fold-first-slot-unpinned.patch The predecessor axis's base pin, and so the
+ * first-slot identity pin, dropped (laws/model/plan.ts pin); the natives fail.
+ * @plant test/plants/unit/laws/model/fold-names-by-first-law.patch Every fold's hidden accumulators named by the
+ * family's first fold's law (laws/model/plan.ts foldColumns); the names fail.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -8,17 +8,19 @@
  *   points of 4 bytes each, with n every bound whose entry lies within one MAXALIGN step of BTMaxItemSize on either
  *   side, exhausted. The oracle: the B-tree entry nbtree.h bounds, counted by hand from the columns' layouts as
  *   schema/representability.ts documents the count (entryBytes), refused exactly past BTMaxItemSize at the fold, over
- *   that UNIQUE, and an unbounded text refused whatever its entry. Plant: btree-entry-at-bound-refused (an entry at
- *   BTMaxItemSize is refused). Features: unbounded, and each bound's kind with each verdict.
+ *   that UNIQUE, and an unbounded text refused whatever its entry. Features: unbounded, and each bound's kind with each
+ *   verdict.
  * - A carried set's key: a set an axis carries is its roster's bit(n), n every code the roster has minted, holes
  *   included, sized exactly by the installation's codes (physical/ddl/tables.ts setUniqueBound), so a roster pruned of
  *   many handles refuses the UNIQUE when it is compiled rather than at an insert. The box: Tag's codes its two live
  *   handles, then every count of holes whose codes lie within a MAXALIGN step's worth of bytes of the most that fit,
  *   exhausted. The oracle: the entry counted by hand, a bit(n)'s varlena header, its 4-byte bit count and a byte per
- *   eight codes after Line's (order, at) at their exact offsets. Plant: set-unique-bound-undercounted (a set's datum
- *   counted a byte short). Features: an entry at the bound, an entry past it.
+ *   eight codes after Line's (order, at) at their exact offsets. Features: an entry at the bound, an entry past it.
  *
- * Plants are patches in ~/.cache/grizzle-release/BR03/plants.
+ * @plant test/plants/unit/laws/model/btree-entry-at-bound-refused.patch An entry of exactly BTMaxItemSize is refused
+ * (schema/representability.ts btreeEntry); the concat fold's axis key fails.
+ * @plant test/plants/unit/laws/model/set-unique-bound-undercounted.patch A set's datum counted a byte short
+ * (physical/ddl/tables.ts setUniqueBound); the carried set's key fails.
  */
 import { type Case, exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

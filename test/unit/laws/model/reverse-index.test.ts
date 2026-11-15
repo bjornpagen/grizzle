@@ -14,9 +14,6 @@
  * checked; a whole source's holds the fields themselves, so its columns are. PostgreSQL's plan of the probe is
  * test/pg/laws/reverse-probe.test.ts's.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): reverse-shortest-run (the B-tree over the shortest leading run that
- * fits, its first column alone).
- *
  * Features: free text first, between or last, or only free text; a run cut short by width; a B-tree; a hash index;
  * covered by a declared key; a selected source; into a superkey; a set, and a run it cuts short; a key led by a prefix
  * of the referencing columns.
@@ -27,6 +24,8 @@
  * @plant test/plants/unit/laws/model/reverse-led-placement.patch A law's reverse request is placed as a workload's
  * equality lookup, so an index led by one of its columns that holds the rest further in serves it: the interleaved key
  * (c0, x, c1) serves A0's foreign key on (c0, c1), which the structural property refuses.
+ * @plant test/plants/unit/laws/model/reverse-shortest-run.patch The B-tree over the shortest leading run that fits, its
+ * first column alone (laws/model/plan.ts btreeRun).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

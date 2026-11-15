@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/laws/model/uniques.ts b/packages/engine/src/laws/model/uniques.ts
+index f2c346cb..30252eb2 100644
+--- a/packages/engine/src/laws/model/uniques.ts
++++ b/packages/engine/src/laws/model/uniques.ts
+@@ -50,7 +50,7 @@ export interface UniqueGuard extends RowGuard {
+  * are, the comparison of their predicates' canonical texts, which spell their labels, that it replaces.
+  */
+ const sameGuard = (a: UniqueGuard, b: UniqueGuard): boolean =>
+-	a.relation === b.relation && a.predicate.id === b.predicate.id
++	a.relation === b.relation
+ 
+ /** A unique object: the handles of the fields two facts must share to conflict, in the object's order, and for a
+  * UNIQUE over law columns (`guarded`) the guards both facts must meet, its columns' guards' conjuncts, for a span object

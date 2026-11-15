@@ -9,10 +9,13 @@
  * Inputs: zero to three rosters of one to three handles, each alone or with a closed relation of a bigint payload over
  * every handle.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): no-law-closed-relation-keyed (the theory states a closed relation's
- * primary key as a law).
- *
  * Features: no relation, a roster alone, a closed relation.
+ *
+ * @plant test/plants/unit/laws/model/no-law-closed-relation-keyed.patch The theory states every stored relation's
+ * primary key as a law, a closed relation's and a roster's among them (analysis/theory/theory.ts normalize); a closed
+ * relation holds no key name (analysis/schema.ts), so stating one fails, and the empty law model is not compiled.
+
+
  */
 
 import { sketched, explore } from "@bjornpagen/testing/explore"

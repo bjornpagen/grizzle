@@ -1,0 +1,21 @@
+diff --git a/packages/engine/src/laws/model/model.ts b/packages/engine/src/laws/model/model.ts
+index 5e5ccf6e..2715515e 100644
+--- a/packages/engine/src/laws/model/model.ts
++++ b/packages/engine/src/laws/model/model.ts
+@@ -1548,15 +1548,8 @@ class Specializer {
+ 				add(law.detail.relation, declared(law.detail.key.fields), law)
+ 			}
+ 		}
+-		for (const law of this.theory.laws) {
+-			if (
+-				law.detail.kind === "projectedKey" &&
+-				!law.detail.side.terms.some((t) => isSpanField(t.column))
+-			) {
+-				add(law.detail.side.relation, law.detail.side, law)
+-			}
+-		}
+ 		return (unique) =>
++
+ 			keys.get(unique.relation.name)?.find((k) => breaksKey(unique.columns, k.key))?.law
+ 	}
+ 

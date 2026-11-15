@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/laws/model/plan.ts b/packages/engine/src/laws/model/plan.ts
+index 970c7025..6ff4318c 100644
+--- a/packages/engine/src/laws/model/plan.ts
++++ b/packages/engine/src/laws/model/plan.ts
+@@ -613,7 +613,7 @@ const termColumn = (
+ 	term: ResolvedTerm,
+ 	selection: ResolvedSelection
+ ): SideColumn =>
+-	term.kind === "field" && selection.conjuncts.length === 0
++	term.kind === "field"
+ 		? fieldColumn(term.column)
+ 		: { kind: "law", column: { kind: "term", relation, term, selection } }
+ 

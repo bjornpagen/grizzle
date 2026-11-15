@@ -1,0 +1,17 @@
+diff --git a/packages/engine/src/laws/model/plan.ts b/packages/engine/src/laws/model/plan.ts
+index 970c7025..e33220c6 100644
+--- a/packages/engine/src/laws/model/plan.ts
++++ b/packages/engine/src/laws/model/plan.ts
+@@ -1114,11 +1114,8 @@ const takingShared = (
+ 			distinct(
+ 				landed.flatMap((l) => l.fresh),
+ 				sameSideColumn
+-			).length +
+-			distinct(
+-				targets.filter((t) => taking.has(t)).flatMap((t) => t.constants),
+-				sameConstant
+ 			).length
++
+ 		)
+ 	}
+ 	const moves = (taking: ReadonlySet<FixedTarget>): ReadonlyArray<ReadonlyArray<FixedTarget>> => {

@@ -16,10 +16,10 @@
  * Box: every roster of 1 to 3 handles, each handle unarmed or armed by one of two arm relations, at least one armed,
  * constructed by its first armed handle: 2 + 8 + 26 = 36 assignments, exhausted.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): alternatives-forward-first-handle (an arm of several handles is
- * contained in its first handle's parents alone).
- *
  * Features: an arm of one handle, an arm of several handles, an unarmed handle, two arm relations.
+ *
+ * @plant test/plants/unit/analysis/theory/alternatives-forward-first-handle.patch An arm of several handles is
+ * contained in its first handle's parents alone.
  */
 
 import { exhaust } from "@bjornpagen/testing/explore"

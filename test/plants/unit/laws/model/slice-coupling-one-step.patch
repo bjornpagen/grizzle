@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/schema/reach.ts b/packages/engine/src/schema/reach.ts
+index 948fc81b..b3ae9a18 100644
+--- a/packages/engine/src/schema/reach.ts
++++ b/packages/engine/src/schema/reach.ts
+@@ -69,7 +69,7 @@ const coupled = (owned: Owned): ReadonlyMap<string, ReadonlyArray<string>> => {
+ export const writesOf = (base: Owned, written: Iterable<string>): ReadonlySet<string> => {
+ 	const writes = coupled(base)
+ 	const out = new Set(written)
+-	for (const relation of out) {
++	for (const relation of new Set(written)) {
+ 		for (const other of writes.get(relation) ?? []) {
+ 			out.add(other)
+ 		}

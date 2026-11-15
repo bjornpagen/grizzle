@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/physical/indexes/engine.ts b/packages/engine/src/physical/indexes/engine.ts
+index cbe39228..07b59610 100644
+--- a/packages/engine/src/physical/indexes/engine.ts
++++ b/packages/engine/src/physical/indexes/engine.ts
+@@ -991,7 +991,7 @@ export const planIndexes = (
+ 		for (const relationPlan of planOf.values()) {
+ 			for (const entry of relationPlan) {
+ 				const own = candidatesOf.get(entry.request.relation) ?? []
+-				const [host] = own.filter((c) => serves(c.index, entry)).toSorted(hostOrder(entry))
++				const [host] = own.filter((c) => serves(c.index, entry) && !(entry.request.use === "reverse reference" && c.index.unique)).toSorted(hostOrder(entry))
+ 				if (host !== undefined) {
+ 					host.requests.push(entry.request)
+ 					b.graph.addReasons(host.index.object, [reasonOf(entry.request)])

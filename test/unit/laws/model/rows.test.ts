@@ -12,11 +12,14 @@
  * real MaxHeapTupleSize, drawn on both sides of it: a relation of a uuid key, up to six drawn fields and k bigint fields
  * compiles at the largest k whose row fits and the one before it, and is refused at the next.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): rows-bitmap-dropped (a row's null bitmap uncounted) for the layout,
- * rows-at-limit-refused (a row of exactly the limit refused) for the law model at MaxHeapTupleSize.
- *
  * Features: a NULL-able column, a varlena, mixed alignments and no column for the layout; within, at and past the
  * bound, a varlena and mixed alignments for the law model.
+ *
+ * @plant test/plants/unit/laws/model/rows-bitmap-dropped.patch A row's null bitmap uncounted (laws/model/rows.ts
+ * rowBytes); the layout fails.
+ * @plant test/plants/unit/laws/model/rows-at-limit-refused.patch A row of exactly the limit refused (laws/model/rows.ts
+ * wideRow); the law model at MaxHeapTupleSize fails.
+
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

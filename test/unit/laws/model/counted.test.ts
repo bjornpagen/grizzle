@@ -16,11 +16,12 @@
  * duplicate slot, a gap, a count off by one, a stale copy, a member at slot −1, a junk accumulator at slot 0, a junk
  * end).
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): counted-predecessor-immediate (an immediate predecessor axis, which
- * swap-with-last breaks mid-plan) and counted-bound-no-floor (the counted bound without `‹i› >= 0`, so a member at slot
- * −1 is accepted).
- *
  * Features: swap with last, append, an arrival out of order, and each named lawless variant.
+ *
+ * @plant test/plants/unit/laws/model/counted-predecessor-immediate.patch An immediate predecessor axis (laws/model/plan.ts
+ * family axes), which swap-with-last breaks mid-plan.
+ * @plant test/plants/unit/laws/model/counted-bound-no-floor.patch The counted bound without `‹i› >= 0`, so a member at
+ * slot −1 is accepted.
  */
 
 import { exhaust } from "@bjornpagen/testing/explore"

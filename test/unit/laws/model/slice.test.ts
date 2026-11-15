@@ -51,14 +51,20 @@
  * nothing to match, directly or through a nested query (README's derived tables: a query over a live derived relation
  * reads its definition).
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): slice-coupling-one-step (a slice's writes closed under family coupling
- * one step only, so a chain's far end is left out) and slice-lowered-rule-unplanned (a rule over a query lowered to
- * foreign keys into a named relation's selected side left unplanned, so the slice lacks that relation's selection key)
- * and slice-recomputes-reference-choice (a slice compile chooses each fixed target's reference over its own closure in
- * place of the whole schema's recorded choice, so it plans a native the installation lacks) for the slice; live-derived-by-name-admitted (a definition matching a live derived relation by name admitted) for
- * the second.
- *
  * Features: SliceFeature, the shapes and laws each case reached; a direct and a nested match for the second.
+ *
+ * @plant test/plants/unit/laws/model/slice-coupling-one-step.patch A slice's writes closed under family coupling one
+ * step only (schema/reach.ts writesOf), so a chain's far end is left out; the slice fails.
+
+ * @plant test/plants/unit/laws/model/slice-lowered-rule-unplanned.patch A rule over a query lowered to foreign keys into
+ * a named relation's selected side left unplanned (laws/model/model.ts referencedSides), so the slice lacks that
+ * relation's selection key; the slice fails.
+ * @plant test/plants/unit/laws/model/slice-recomputes-reference-choice.patch A slice compile chooses each fixed target's
+ * reference over its own closure in place of the whole schema's recorded choice (laws/model/model.ts), so it plans a
+ * native the installation lacks; the slice fails.
+ * @plant test/plants/unit/laws/model/live-derived-by-name-admitted.patch A definition matching a live derived relation
+ * by name admitted (schema/own.ts checkDerived); the second property fails.
+
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

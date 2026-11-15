@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/theory/theory.ts b/packages/engine/src/analysis/theory/theory.ts
+index 45928d8a..b708c71b 100644
+--- a/packages/engine/src/analysis/theory/theory.ts
++++ b/packages/engine/src/analysis/theory/theory.ts
+@@ -544,7 +544,7 @@ class Builder {
+ 			.toSorted(compareStrings)
+ 		for (const [index, name] of stored.entries()) {
+ 			const r = this.relations.get(name)
+-			if (r?.kind === "relation") {
++			if (r !== undefined) {
+ 				normalizer.primaryKey(r, index)
+ 			}
+ 		}

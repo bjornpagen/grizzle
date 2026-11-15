@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/laws/model/plan.ts b/packages/engine/src/laws/model/plan.ts
+index 970c7025..261dc64f 100644
+--- a/packages/engine/src/laws/model/plan.ts
++++ b/packages/engine/src/laws/model/plan.ts
+@@ -2045,7 +2045,7 @@ export class Recognizer {
+ 		return [
+ 			...lawColumns(reference.columns),
+ 			...lawColumns(reference.targetColumns),
+-			...this.#targetUnique(toRel, reference.targetColumns, containment, loc),
++			...(reference.columns === sourceColumns ? [] : this.#targetUnique(toRel, reference.targetColumns, containment, loc)),
+ 			{
+ 				kind: "ForeignKey",
+ 				relation: fromRel,

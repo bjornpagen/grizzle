@@ -12,10 +12,10 @@
  * 3⁶, 3⁸ and 3⁶ states, exhausted. Every state holds the family itself, so the axis's key part holds and each verdict
  * turns on the copies.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): axis-carries-first-copy-only (an axis's foreign key carries only the
- * first copy riding it).
- *
  * Features: each axis, and each copy's verdict.
+ *
+ * @plant test/plants/unit/laws/model/axis-carries-first-copy-only.patch An axis's foreign key carries only the first
+ * copy riding it (laws/model/plan.ts axis).
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

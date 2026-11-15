@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/analysis/theory/families.ts b/packages/engine/src/analysis/theory/families.ts
+index 8b55fe16..8819d25d 100644
+--- a/packages/engine/src/analysis/theory/families.ts
++++ b/packages/engine/src/analysis/theory/families.ts
+@@ -266,7 +266,7 @@ export const familyShape = (
+ 		member,
+ 		group,
+ 		index,
+-		copy: drawnColumn("copy", id, law),
++		copy: drawnColumn(indexField === undefined ? "index" : "copy", id, law),
+ 		members
+ 	})
+ }

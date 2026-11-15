@@ -24,17 +24,19 @@
  * another value. A lemma restated on an axis is judged on every family of either order and width, on each axis its
  * sides can name.
  *
- * Plants (~/.cache/grizzle-release/BR03/plants): fin-ordered-predecessor-deferred (an ordered family's predecessor
- * axis deferred) for the axis table; ride-needs-carried-pair (a containment rides an axis only beside a carried pair,
- * so a restated lemma lowers to its own foreign key) for the restated lemmas; fin-copy-as-index-column (a counted
- * family's copy drawn as its index column) for the disjoint families.
- *
  * Features: the shapes' orders, widths and copies on each axis; each axis a lemma is restated on; one to three counted
  * families, folded and unfolded.
  *
  * @plant test/plants/unit/laws/model/axis-index-dropped.patch No family axis carries its reverse index and no family
  * states its successor key, so the predecessor axis (g, ‹p›) and the owner axis (g, ‹n›) lead no index of the member:
  * the drafted DDL fails the structural property.
+ * @plant test/plants/unit/laws/model/fin-ordered-predecessor-deferred.patch An ordered family's predecessor axis
+ * deferred (laws/model/plan.ts family axes); the axis table fails.
+ * @plant test/plants/unit/laws/model/fin-copy-as-index-column.patch A counted family's copy drawn as its index column
+ * (analysis/theory/families.ts familyShape); the disjoint families fail.
+
+ * @plant test/plants/unit/analysis/theory/ride-needs-carried-pair.patch A containment rides an axis only beside a
+ * carried pair, so a restated lemma lowers to its own foreign key; the restated lemmas fail.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
