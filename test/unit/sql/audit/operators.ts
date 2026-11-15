@@ -221,6 +221,7 @@ const aliasesOf = (item: FromItem): ReadonlyArray<string> => {
 		case "met":
 		case "metRows":
 		case "enclosing":
+		case "transition":
 		case "derived":
 		case "function":
 		case "arrays":
@@ -529,6 +530,8 @@ const bodiesOf = (s: PlStatement): ReadonlyArray<PlBody> => {
 		case "perform":
 		case "lockRows":
 		case "modify":
+		case "createSessionTable":
+		case "createSessionTrigger":
 		case "raise":
 		case "return":
 			return []
@@ -1867,6 +1870,7 @@ const columnOfItem = (item: FromItem): Expr | undefined => {
 			return at(item.alias, item.columns[0].column.name)
 		case "cte":
 		case "enclosing":
+		case "transition":
 			return undefined
 		case "joins":
 			return columnOfItem(item.first)

@@ -9,16 +9,17 @@
  * (none, or J2's facts whose b is not 0 contained in T), the second's (those facts, every fact of J2, or the facts of
  * Unpaired contained in T, the facts of J2 whose k no S row shares whose b is a T row's a: a negated join of S and T),
  * and one change of the second version: none; Fact renamed to Moved, as declared; Fact dropped, as declared, and Moved
- * added in its place, a new identity holding none of Fact's rows, so a rule trigger on Fact goes with its table; or S's
- * b turned from a field its caller writes into one generated from c, which the migration drops and adds again (a
- * rewritten field), so a rule trigger on S whose UPDATE OF lists b stands over a redefined column. Every S row holds c
+ * added in its place, a new identity holding none of Fact's rows, so the judge's captures of Fact go with its table; or
+ * S's b turned from a field its caller writes into one generated from c, which the migration drops and adds again (a
+ * rewritten field), under S's captures (physical/ddl/rules.ts addRules), statement triggers that name no column, so no
+ * trigger stands over the redefined column and each capture keeps its name. Every S row holds c
  * equal to b, so b keeps its value. A case constructed to reach the change of a definition a rule reads keeps the first
  * version's selected rule as it is and widens J2 to every pair of a Fact row and an S row, whatever their k: the same
  * law, a containment being named by its sides, whose check is a new one, since the definition it reads changed. It
  * stores a Fact row of one k and an S row of the other whose b is 1, so the first J2 holds no fact and the rows keep
  * its rule, while the widened J2 holds their pair, which no T row holds. That case, and one for each required situation
  * a drawn case reaches in one case of twenty or fewer (a changed rule or a rule over a negated join refused over rows
- * that break it, a rule trigger over a redefined column kept or replaced, a write refused after a rename), is
+ * that break it, S's captures kept through b's redefinition, a write refused after a rename), is
  * constructed (constructed), and a witness runs it where its turn aims at what it reaches (aimedCase). The rows are
  * stored under the first version, where its rule admits them. The oracle is the rule restated over the rows: the second
  * migration fails, its violation check raising 23000, exactly when the rows it carries break its rule; once it applies,
@@ -30,10 +31,9 @@
  * Features: an added and a changed rule, each refused over rows that break it and applied over rows that keep it; a
  * rule kept through the widening of J2 refused over rows that break it; the same over a negated join; a write the
  * installed rule admits committed and one it breaks refused at COMMIT; a rule over a renamed table refusing such a
- * write; a rule trigger whose UPDATE OF lists a column the migration drops and adds again, kept under its name and
- * replaced under a new one, each read off PostgreSQL's catalog before and after the migration (S's b at another attnum,
- * and S's triggers over b by name); and a rule trigger on a table the migration drops (Fact's, read off the catalog
- * before it).
+ * write; S's captures kept under their names through a column the migration drops and adds again, read off
+ * PostgreSQL's catalog before and after the migration (S's b at another attnum, and S's triggers by name); and a
+ * capture on a table the migration drops (Fact's, read off the catalog before it).
  *
  * @plant test/plants/pg/laws/rule-query-migrate-changed-rule-unchecked.patch a changed rule's violation check skipped
  * wherever the previous snapshot records the rule, whatever its check's digest (deploy/diff/diff.ts ruleChecks), so
@@ -41,9 +41,6 @@
  * @plant test/plants/pg/laws/rule-query-migrate-negation-first-match.patch the whole check reading a negated query by
  * its first match alone (analysis/theory/query.ts liveQuery), under which Unpaired derives nothing, so a migration
  * adding its rule applies over stored rows that break it.
- * @plant test/plants/pg/laws/redefined-takes-along.patch the drop of what a column dropped and added again takes left
- * to the column's DROP COLUMN but for foreign keys and law columns, which PostgreSQL refuses under a rule trigger over
- * the column (2BP01), as edullm's QTI identity migration was drafted.
  * @plant test/plants/pg/laws/table-takes-along.patch the parts of a dropped table left to its DROP TABLE, so its rule
  * trigger stands when its function is dropped before the table (2BP01).
  */
@@ -130,9 +127,7 @@ const noRows: Rows = { facts: [], s: [], t: [] }
  * - a rule kept through a change of its definition that the stored rows break: the first version's selected rule kept
  *   as it is through J2 widened, over a Fact row of k and an S row of the other k whose b is 1, so the first J2 holds
  *   no fact and the stored rows keep its rule, while the widened J2 holds their pair, whose (a, 1) no T row holds;
- * - a rule trigger over a redefined column kept under its name: the selected rule kept through S's b redefined;
- * - one replaced under a new name: the selected rule changed to every fact of J2 through S's b redefined, over stored
- *   rows of no Fact, which keep either rule;
+ * - S's captures kept through a redefined column: the selected rule kept through S's b redefined;
  * - a rule over a renamed table refusing a write: every fact of J2 added through Fact's rename, over no stored rows,
  *   then a fact of J2 written with no T row.
  */
@@ -177,22 +172,12 @@ const constructed: Arr.NonEmptyReadonlyArray<readonly [Feature, Gen<MigrationCas
 		}
 	],
 	[
-		"a rule trigger over a redefined column kept under its name",
+		"S's captures kept under their names through a redefined column",
 		(s) => ({
 			first: "selected",
 			second: "selected",
 			change: "redefined",
 			stored: s.draw(rowsGen),
-			written: s.draw(rowsGen)
-		})
-	],
-	[
-		"a rule trigger over a redefined column replaced under a new name",
-		(s) => ({
-			first: "selected",
-			second: "every",
-			change: "redefined",
-			stored: { ...s.draw(rowsGen), facts: [] },
 			written: s.draw(rowsGen)
 		})
 	],
@@ -495,11 +480,9 @@ const keeps = (c: Rows, rule: Rule, join: J2Join): boolean =>
 const tableOf = (schemaIdent: string, relationName: string): string =>
 	`${quoteIdent(schemaIdent)}.${quoteIdent(identifierOf(identity.table(parsedName(relationName))))}`
 
-/** S's triggers as PostgreSQL's catalog holds them: every one's name, the names of those whose UPDATE OF lists b, and
- * b's attnum, which a column dropped and added again changes. */
+/** S's triggers by name, and the attnum of its column b. */
 interface STriggers {
 	readonly names: ReadonlyArray<string>
-	readonly overB: ReadonlyArray<string>
 	readonly b: number
 }
 
@@ -521,15 +504,11 @@ const triggerNamesOf = (owner: RawSession, table: string) =>
 const sTriggersOf = (owner: RawSession, table: string) =>
 	Effect.gen(function* () {
 		const names = yield* triggerNamesOf(owner, table)
-		const overB = yield* owner.values(
-			"SELECT t.tgname::pg_catalog.text FROM pg_catalog.pg_trigger AS t JOIN pg_catalog.pg_attribute AS a ON a.attrelid = t.tgrelid AND a.attnum = ANY (t.tgattr::pg_catalog.int2[]) WHERE t.tgrelid = $1::pg_catalog.text::pg_catalog.regclass AND NOT t.tgisinternal AND a.attname = 'b'",
-			[table]
-		)
 		const b = yield* owner.values(
 			"SELECT a.attnum::pg_catalog.text FROM pg_catalog.pg_attribute AS a WHERE a.attrelid = $1::pg_catalog.text::pg_catalog.regclass AND a.attname = 'b' AND NOT a.attisdropped",
 			[table]
 		)
-		return { names, overB: texts(overB), b: Number(Arr.join(texts(b), "")) }
+		return { names, b: Number(Arr.join(texts(b), "")) }
 	}).pipe(Effect.orDie)
 
 type Feature =
@@ -543,9 +522,8 @@ type Feature =
 	| "a rule over a renamed table holds after the rename"
 	| "a rule over a negated join the stored rows break refused"
 	| "a rule over a negated join the stored rows keep applied"
-	| "a rule trigger over a redefined column kept under its name"
-	| "a rule trigger over a redefined column replaced under a new name"
-	| "a rule trigger on a dropped table"
+	| "S's captures kept under their names through a redefined column"
+	| "a capture on a dropped table"
 
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
@@ -576,9 +554,8 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 								"a write the installed rule breaks refused at COMMIT",
 								"a rule over a negated join the stored rows break refused",
 								"a rule over a negated join the stored rows keep applied",
-								"a rule trigger over a redefined column kept under its name",
-								"a rule trigger over a redefined column replaced under a new name",
-								"a rule trigger on a dropped table"
+								"S's captures kept under their names through a redefined column",
+								"a capture on a dropped table"
 							],
 							{ cases: 60, sense: notesOnly }
 						),
@@ -702,15 +679,15 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 							const m = outcome.success
 							const [before, after] = triggers
 							if (before !== undefined && after !== undefined && before.b !== after.b) {
-								if (Arr.some(before.overB, (t) => Arr.contains(after.names, t))) {
-									n.note("a rule trigger over a redefined column kept under its name")
-								}
-								if (Arr.some(before.overB, (t) => !Arr.contains(after.names, t))) {
-									n.note("a rule trigger over a redefined column replaced under a new name")
+								if (
+									before.names.length > 0 &&
+									Arr.every(before.names, (t) => Arr.contains(after.names, t))
+								) {
+									n.note("S's captures kept under their names through a redefined column")
 								}
 							}
 							if (c.change === "dropped" && factTriggers.length > 0) {
-								n.note("a rule trigger on a dropped table")
+								n.note("a capture on a dropped table")
 							}
 							const fresh = yield* migrated({
 								label: "rule_migrate_fresh",

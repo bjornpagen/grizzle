@@ -4,9 +4,10 @@
  * of the definition, from the source's columns, then a constant column of the source for each constant the match fixes,
  * into a UNIQUE of the match's relation over exactly the fields it references, its declared key's own or a superkey of
  * it, or, where that costs the schema fewer indexes and columns, from the source's columns alone into the match's own
- * columns under its constants (laws/model/plan.ts sharedTargets); and the rule then holds no trigger. Every other rule over a query keeps its triggers. The law oracle's
- * conservative installation (physical/install/compile.ts conservativeInstallation) keeps the triggers of every rule,
- * under the same laws.
+ * columns under its constants (laws/model/plan.ts sharedTargets); and the rule then holds no capture. Every other rule
+ * over a query is kept for the set judge (physical/ddl/rules.ts addRules), a capture on each table it reads. The law
+ * oracle's conservative installation (physical/install/compile.ts conservativeInstallation) keeps every rule so, under
+ * the same laws.
  *
  * Each case draws a definition over R0 (id, a, b, k; keyed by id and by (a, b)) and R1 (id, a, k; keyed by id) on a
  * base level, and a containment of S's x, y, z into its one to three head terms on a level above: one or two matches,
@@ -19,11 +20,11 @@
  *
  * Oracle: the seven conditions restated over the drawn definition, never over the engine's arms, and the catalog each
  * implies: lowered, every match's foreign key from S's paired columns and its constant columns, each generated from its
- * literal, into exactly a UNIQUE or the primary key of its relation, mapped to the rule's law, and no trigger of the
- * rule; kept, the rule's triggers on S and every relation it matches and no foreign key from S. The conservative
- * installation keeps the triggers in every case, and both name the rule by one law. The law model's trigger laws over
- * each of S, R0 and R1 (laws/model/model.ts triggerLawsOver), which the isolation certifier reads, are the rule's law
- * exactly when it keeps its triggers and its query mentions the relation, by its source, a match or its negation.
+ * literal, into exactly a UNIQUE or the primary key of its relation, mapped to the rule's law, and no capture for the
+ * rule; kept, the rule's captures on S and every relation it matches and no foreign key from S. The conservative
+ * installation keeps the rule in every case, and both name the rule by one law. The law model's trigger laws over each
+ * of S, R0 and R1 (laws/model/model.ts triggerLawsOver), which the isolation certifier reads, are the rule's law exactly
+ * when it is kept and its query mentions the relation, by its source, a match or its negation.
  *
  * A second box states the level rule (schema/own.ts #checkLevels) over every target side of R0 on a level below S, its
  * terms one to three of R0's fields and its selection constants on others: the containment is admitted exactly when
@@ -493,8 +494,8 @@ const readBy = (c: LoweringCase): ReadonlyArray<string> => [
 ]
 
 /**
- * Asserts the installation's law model reports, for each of S, R0 and R1, exactly the rule's law when the rule keeps
- * its triggers and reads the relation, and no law otherwise (laws/model/model.ts triggerLawsOver).
+ * Asserts the installation's law model reports, for each of S, R0 and R1, exactly the rule's law when the rule is kept
+ * and reads the relation, and no law otherwise (laws/model/model.ts triggerLawsOver).
  */
 const assertTriggerLaws = (c: LoweringCase, desc: SchemaDesc, law: LawId, kept: boolean): void => {
 	const model = succeeded(
@@ -592,12 +593,6 @@ const tableOf = (installation: Installation, relation: string): RelationIdent =>
 const holding = <A>(found: Option.Option<A>, what: string): A =>
 	Option.getOrThrowWith(found, () => new Error(`the catalog holds ${what}`))
 
-/** The names under `table` the installation's law map maps to `law`. */
-const namesFor = (installation: Installation, table: string, law: LawId): ReadonlyArray<string> =>
-	Arr.flatMap(Rec.toEntries(installation.constraintToLaw.tables[table] ?? {}), ([name, l]) =>
-		l === law ? [name] : []
-	)
-
 /** The rule's law as the installation names it: the one law S's table holds beside its primary key's. */
 const ruleLaw = (installation: Installation): LawId => {
 	const table = tableOf(installation, "S")
@@ -621,12 +616,15 @@ const ruleLaw = (installation: Installation): LawId => {
 	return defined(laws[0], "the rule's law")
 }
 
-/** The tables the installation holds a trigger of `law` on. */
-const triggerTables = (installation: Installation, law: LawId): ReadonlyArray<string> =>
-	Arr.flatMap(installation.statements, (s) =>
-		s.kind === "createConstraintTrigger" &&
-		namesFor(installation, s.table.name, law).includes(s.name)
-			? [s.table.name]
+/**
+ * The tables the set judge captures for the rule of `law` (physical/ddl/rules.ts addRules): each table a capture
+ * trigger sits on whose object the law justifies, a rule's captures being the statement triggers of each table its
+ * query reads.
+ */
+const capturedTables = (installation: Installation, law: LawId): ReadonlyArray<string> =>
+	Arr.flatMap(installation.manifest.objects, (o) =>
+		o.kind === "lawTrigger" && Arr.some(o.reasons, (r) => r.kind === "law" && r.law === law)
+			? Arr.flatMap(o.ddl, (st) => (st.kind === "createTransitionTrigger" ? [st.table.name] : []))
 			: []
 	)
 
@@ -638,14 +636,14 @@ const foreignKeysFromS = (installation: Installation): ReadonlyArray<ForeignKey>
 	)
 }
 
-/** Asserts `installation` keeps the rule's triggers, on S and every relation its definition matches, with no foreign
- * key from S. */
+/** Asserts `installation` keeps the rule for the judge, capturing S and every relation its definition matches, with no
+ * foreign key from S. */
 const assertKept = (c: LoweringCase, installation: Installation, law: LawId): void => {
-	const held = triggerTables(installation, law)
+	const held = capturedTables(installation, law)
 	for (const relation of ["S", ...Arr.map(c.matches, (m) => m.target)]) {
 		assert.ok(
 			held.includes(tableOf(installation, relation)),
-			`a trigger of the rule on ${relation}`
+			`a capture of the rule on ${relation}`
 		)
 	}
 	assert.deepEqual(foreignKeysFromS(installation), [], "no foreign key from S")
@@ -656,7 +654,7 @@ const assertKept = (c: LoweringCase, installation: Installation, law: LawId): vo
  * column per constant, each generated from its literal, into exactly a UNIQUE or the primary key of the match's
  * relation, or, where the law model finds it costs the schema less (laws/model/plan.ts sharedTargets), from the paired
  * columns alone into the match's own columns under its constants, which a UNIQUE of the relation holds; each mapped to
- * the rule's law, and no trigger of the rule. The shapes it met.
+ * the rule's law, and no capture for the rule. The shapes it met.
  */
 const assertLowered = (
 	c: LoweringCase,
@@ -760,7 +758,7 @@ const assertLowered = (
 			shapes.push("a superkey's UNIQUE")
 		}
 	}
-	assert.deepEqual(triggerTables(installation, law), [], "no trigger of the rule")
+	assert.deepEqual(capturedTables(installation, law), [], "no capture for the rule")
 	return shapes
 }
 
@@ -817,7 +815,7 @@ const levelSchemaOf = (c: LevelCase): SchemaDesc => {
 
 describe("a containment into a key-shaped conjunction of stored relations", () => {
 	it.effect(
-		"lowers to one deferred foreign key per match exactly when its definition meets the seven conditions, and the conservative installation keeps its triggers under the same law",
+		"lowers to one deferred foreign key per match exactly when its definition meets the seven conditions, and the conservative installation keeps the rule for the judge under the same law",
 		(ctx) =>
 			searched(
 				ctx,
@@ -828,7 +826,7 @@ describe("a containment into a key-shaped conjunction of stored relations", () =
 						literal: Formatter.format,
 						oracle: {
 							kind: "specification",
-							name: "the seven conditions restated over the drawn definition, and the catalog of foreign keys, UNIQUEs, constant columns and triggers each implies"
+							name: "the seven conditions restated over the drawn definition, and the catalog of foreign keys, UNIQUEs, constant columns and captures each implies"
 						},
 						coverage: required<Shape>(
 							[

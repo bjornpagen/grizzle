@@ -49,6 +49,7 @@ export type ManifestStatement =
 					| "createFunction"
 					| "createGuardTrigger"
 					| "createConstraintTrigger"
+					| "createTransitionTrigger"
 					| "createPublication"
 					| "createLiveSecret"
 					| "alterDatabaseDefault"
@@ -86,6 +87,7 @@ const manifestStatement = (s: SqlStatement): ManifestStatement => {
 		case "createFunction":
 		case "createGuardTrigger":
 		case "createConstraintTrigger":
+		case "createTransitionTrigger":
 		case "createPublication":
 		case "createLiveSecret":
 		case "alterDatabaseDefault":

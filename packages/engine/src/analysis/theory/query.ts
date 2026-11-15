@@ -1,5 +1,6 @@
 import { refuse, refuseNamed } from "#compiler/analysis/theory/build.ts"
 import {
+	boundIn,
 	type LeafRewrite,
 	mapBindings,
 	mapLeaves,
@@ -1338,6 +1339,80 @@ const probesOf = (
 		const query = queryOf([rule], loc)
 		return { query, requested: query, params }
 	})
+
+/**
+ * The probe `probe` read over its region, the set judge's (physical/ddl/rules.ts addJudge): its one rule with a match of
+ * `relation`'s delta first, delta.added for NEW and delta.removed for OLD, binding each field of the row the probe reads
+ * at `record` to a variable of its own, and each parameter that read that field the variable. It is the per-row probe
+ * with its row read from a relation, the rows the transaction wrote of it, so PostgreSQL joins the region as it joins
+ * any relation the probe reads. A parameter of the other record stays one, which the judge's lowering refuses.
+ */
+export const regionQuery = (
+	probe: Probe,
+	relation: string,
+	record: "NEW" | "OLD",
+	loc: SourceLoc
+): InferredQuery => {
+	const stage = probe.query.stage
+	if (stage.kind !== "rules" || stage.arms.length !== 1) {
+		return refuse("MalformedDescription", loc, "a probe of one rule")
+	}
+	const [rule] = stage.arms
+	const fields = [
+		...new Set([...probe.params.values()].flatMap((p) => (p.record === record ? [p.field] : [])))
+	]
+	const bound = new Map(fields.map((f) => [paramName(record, f), varRef(regionId(f))] as const))
+	const rebound = (e: InferredExpr): InferredExpr => boundIn(e, bound)
+	const rebind = (b: InferredBindings): InferredBindings =>
+		Object.fromEntries(Object.entries(b).map(([k, e]) => [k, rebound(e)] as const))
+	const source = (s: InferredSource): InferredSource =>
+		s.kind === "query" || s.kind === "step"
+			? {
+					...s,
+					bind: Object.fromEntries(
+						Object.entries(s.bind).map(([k, b]) => [k, b.kind === "relationParam" ? b : rebound(b)])
+					)
+				}
+			: s
+	return queryOf(
+		[
+			{
+				...rule,
+				vars: [
+					...rule.vars,
+					...fields.map((field): VarDesc => ({
+						id: regionId(field),
+						origin: { relation, field },
+						loc
+					}))
+				],
+				matches: [
+					{
+						source: { kind: "delta", side: record === "NEW" ? "added" : "removed", relation },
+						bindings: Object.fromEntries(fields.map((f) => [f, varRef(regionId(f))] as const)),
+						loc
+					},
+					...rule.matches.map((m) => ({
+						...m,
+						source: source(m.source),
+						bindings: rebind(m.bindings)
+					}))
+				],
+				where: rule.where.map(rebound),
+				head: Object.fromEntries(
+					Object.entries(rule.head).map(([k, h]): readonly [string, InferredHead] => [
+						k,
+						h.kind === "aggregate" || h.kind === "producer" ? h : rebound(h)
+					])
+				)
+			}
+		],
+		loc
+	)
+}
+
+/** The variable a probe over its region reads the touched row's field `field` in. */
+const regionId = (field: string): string => `region.${field}`
 
 /** A field of the touched relation, with the descriptor a parameter reading it is typed by. */
 export interface TouchedField {

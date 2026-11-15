@@ -45,10 +45,11 @@ export const unitFunctions = (
 	])
 
 /**
- * What a trigger of the installation is: the isolation guard a guarded table carries, or a rule over a query's deferred
- * constraint trigger on a table its query reads.
+ * What a trigger of the installation is: the isolation guard a guarded table carries, a rule over a query's deferred
+ * constraint trigger on a table its query reads, or the set judge's capture of one event on such a table, a statement
+ * trigger with transition tables (physical/ddl/rules.ts judged).
  */
-const installedTriggers = ["isolation", "rule"] as const
+const installedTriggers = ["isolation", "rule", "capture"] as const
 
 export type InstalledTrigger = (typeof installedTriggers)[number]
 
@@ -199,6 +200,7 @@ export type ErasureProblem =
 	| { readonly kind: "triggerDisabled"; readonly trigger: string; readonly table: string }
 	| { readonly kind: "malformedGuard"; readonly table: string }
 	| { readonly kind: "foreignTrigger"; readonly trigger: string; readonly table: string }
+	| { readonly kind: "malformedCapture"; readonly trigger: string; readonly table: string }
 	| { readonly kind: "malformedRuleTrigger"; readonly trigger: string; readonly table: string }
 	| { readonly kind: "enumLabels"; readonly count: number }
 	| {
@@ -901,8 +903,9 @@ const rosterDomainProblems = (j: Judging): ReadonlyArray<ErasureProblem> =>
 
 /**
  * Every trigger is enabled, and is PostgreSQL's internal foreign-key trigger, the isolation guard (running the isolation
- * guard function), or a rule over a query's trigger: a row constraint trigger AFTER its events, DEFERRABLE INITIALLY
- * DEFERRED, running a rule function. No other trigger exists.
+ * guard function), a rule over a query's trigger: a row constraint trigger AFTER its events, DEFERRABLE INITIALLY
+ * DEFERRED, running a rule function, or a rule capture: a statement trigger AFTER its event, no constraint, running a
+ * rule function. No other trigger exists.
  */
 const triggerProblems = (j: Judging, t: Trigger): ReadonlyArray<ErasureProblem> => {
 	const enabled = unless(t.enabled === "O", {
@@ -925,6 +928,18 @@ const triggerProblems = (j: Judging, t: Trigger): ReadonlyArray<ErasureProblem> 
 					(t.type & beforeOrInstead) === 0 &&
 					j.expect.functions.get(t.function)?.kind === "rule",
 				{ kind: "malformedRuleTrigger", trigger: t.name, table: t.table }
+			)
+		]
+	}
+	if (expected === "capture") {
+		return [
+			...enabled,
+			...unless(
+				!t.constraint &&
+					(t.type & ruleTriggerLevel) === 0 &&
+					(t.type & beforeOrInstead) === 0 &&
+					j.expect.functions.get(t.function)?.kind === "rule",
+				{ kind: "malformedCapture", trigger: t.name, table: t.table }
 			)
 		]
 	}

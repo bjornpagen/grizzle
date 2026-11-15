@@ -1472,6 +1472,70 @@ export const identity = Object.freeze({
 			`function of rule ${law.display} on ${relation}`,
 			hashed
 		),
+	/**
+	 * The function a table's rule captures run (physical/ddl/rules.ts judged), which writes the rows each statement wrote
+	 * of `relation` into its deltas and arms its session's judge: its body names the table's columns and the deltas in
+	 * PL/pgSQL text, so it is replaced in place whenever they change, and a rename of the relation names another.
+	 */
+	ruleCapture: (relation: string): Identity<"ruleCapture"> =>
+		mint(
+			"ruleCapture",
+			[relation],
+			["capture", ...nameSegments(relation)],
+			`rule capture of ${relation}`,
+			hashed
+		),
+	/**
+	 * A table's rule capture of one statement event (sql/ast.ts CreateTransitionTrigger): one name per event, which
+	 * PostgreSQL scopes to each table's triggers, as the isolation trigger's is.
+	 */
+	captureTrigger: (event: "insert" | "update" | "delete"): Identity<"captureTrigger"> =>
+		mint(
+			"captureTrigger",
+			[event],
+			["capture", event],
+			`the rule capture of each ${event}`,
+			readable(`__capture_${event}`)
+		),
+	/**
+	 * The installation's rule judge (physical/ddl/rules.ts judged): the one function a session's sentinel's deferred
+	 * trigger runs, so it keeps its name, and its object, for as long as the installation holds a rule over a query:
+	 * a session's sentinel outlives every migration that replaces it, and PostgreSQL refuses to drop a function a
+	 * trigger runs.
+	 */
+	ruleJudge: (): Identity<"ruleJudge"> =>
+		mint("ruleJudge", [], ["judge"], "the rule judge", readable("__judge")),
+	/**
+	 * A session's delta of `relation`'s writes on one side of the rules that read it (physical/ddl/rules.ts addRules): a
+	 * table of pg_temp, by its installation, the identity of its root schema, since a session may write several, and by
+	 * its declaration's canonical text, its columns and their types, so a migration that changes it names another and
+	 * never meets a session's delta of the old declaration.
+	 */
+	ruleDelta: (
+		installation: Identity<"schema">,
+		relation: string,
+		side: "news" | "olds",
+		declaration: string
+	): Identity<"ruleDelta"> =>
+		mint(
+			"ruleDelta",
+			[installation, relation, side, declaration],
+			["delta", side, ...nameSegments(relation)],
+			`delta of ${side} of ${relation}`,
+			hashed
+		),
+	/**
+	 * A session's sentinel of an installation, the identity of its root schema (physical/ddl/rules.ts addRules): a table
+	 * of pg_temp whose one row arms its deferred trigger, which runs the judge.
+	 */
+	ruleSentinel: (installation: Identity<"schema">): Identity<"ruleSentinel"> =>
+		mint(
+			"ruleSentinel",
+			[installation],
+			["sentinel"],
+			`the rule sentinel of ${installation.display}`,
+			hashed
+		),
 	/** The name a migration sets a held object aside under. */
 	aside: (of: string): Identity<"aside"> =>
 		mint("aside", [of], [asideSegment, ...nameSegments(of)], `${of} set aside`, hashed),

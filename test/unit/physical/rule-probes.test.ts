@@ -1,23 +1,23 @@
 /**
- * A rule's trigger function runs each of its probes once (physical/ddl/rules.ts): in each of its guarded blocks, the
- * one an INSERT or an UPDATE runs (its NEW probes) and the one a DELETE or an UPDATE runs (its OLD probes), no two
- * probes are one statement, so no COMMIT runs one query twice for one touched row.
+ * The set judge runs each of a rule's probes once (physical/ddl/rules.ts addRules): in each of its guarded blocks, a
+ * rule's probes over one table's delta of one side, its rows as the transaction left them (its NEW probes) or as it found
+ * them (its OLD probes), no two probes are one statement, so no COMMIT runs one query twice over one region.
  *
  * Each case is a containment of S's k in a derived relation D of T: D has one to three arms, each matching T by k and
  * holding its a to a literal of its own or not at all, and each arm may join U by k. T's delete withdraws a fact of D
  * through each arm that matches it, and each such occurrence is a probe (analysis/theory/query.ts oldProbes); the
- * probes of arms that hold nothing of T's row apart read one query, so the function's OLD block holds that statement
- * once.
+ * probes of arms that hold nothing of T's row apart read one query, so the judge's block over T's removed rows holds that
+ * statement once.
  *
- * Oracle: universal, a set: each guarded block of each rule trigger function holds every probe statement, printed as
- * PostgreSQL reads it, at most once.
+ * Oracle: universal, a set: each guarded block of the judge holds every probe statement, printed as PostgreSQL reads it,
+ * at most once.
  *
  * Features: a block whose table's probes outnumber its statements (two probes of one statement), and a block of two
  * statements or more.
  *
- * @plant test/plants/unit/physical/rule-probes-repeated.patch A guarded block runs every probe its table compiles, each
- * once per occurrence of the touched relation, as before lane CHECKCPU, so two arms that hold nothing of the row apart
- * run one query twice; the property fails.
+ * @plant test/plants/unit/physical/rule-probes-repeated.patch A guarded block of the judge runs every probe its table
+ * and side compile, each once per occurrence of the touched relation, so two arms that hold nothing of the row apart run
+ * one query twice; the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
@@ -78,19 +78,19 @@ const schemaOf = (shape: Shape) => {
 	return schema.extend(Base, "rule_probes_1", [D], [contained(on(S, "k"), on(D, "k"))])
 }
 
-/** A guarded block of a trigger function: whether it is the one a DELETE or an UPDATE runs, and its probe statements,
- * each printed as PostgreSQL reads it. */
+/** A guarded block of the judge: whether it reads a delta of removed rows, the one a DELETE or an UPDATE fills, and its
+ * probe statements, each printed as PostgreSQL reads it. */
 interface Block {
 	readonly olds: boolean
 	readonly statements: ReadonlyArray<string>
 }
 
-/** The guarded blocks of a trigger function's body. */
+/** The guarded blocks of the judge's body: each IF's branches, a tamper check's holding no probe statement. */
 const blocksOf = (body: ReadonlyArray<PlStatement>): ReadonlyArray<Block> =>
 	Arr.flatMap(body, (s) =>
 		s.kind === "if"
 			? Arr.map(s.branches, (b): Block => ({
-					olds: Str.includes("'INSERT'")(printExpr(b.condition)),
+					olds: Str.includes("__delta_olds_")(printExpr(b.condition)),
 					statements: Arr.flatMap(b.body, (p) =>
 						p.kind === "if" ? Arr.map(p.branches, (inner) => printExpr(inner.condition)) : []
 					)
@@ -98,7 +98,7 @@ const blocksOf = (body: ReadonlyArray<PlStatement>): ReadonlyArray<Block> =>
 			: []
 	)
 
-/** Judges every rule trigger function of `shape`'s installation. */
+/** Judges the judge of `shape`'s installation. */
 const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const built = schemaOf(shape)
 	const owned = owning(built)
@@ -120,11 +120,7 @@ const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	let statements = 0
 	for (const object of installation.manifest.objects) {
 		const [fn] = object.ddl
-		if (
-			object.kind !== "lawFunction" ||
-			fn?.kind !== "createFunction" ||
-			fn.language !== "plpgsql"
-		) {
+		if (object.kind !== "ruleJudge" || fn?.kind !== "createFunction" || fn.language !== "plpgsql") {
 			continue
 		}
 		for (const block of blocksOf(fn.body.body)) {
@@ -146,7 +142,7 @@ const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	}
 }
 
-describe("a rule's trigger function", () => {
+describe("the set judge", () => {
 	it.effect("runs each probe statement once in each guarded block", (ctx) =>
 		searched(
 			ctx,

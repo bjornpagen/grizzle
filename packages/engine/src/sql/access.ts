@@ -129,6 +129,7 @@ export const relationAccess = (statement: SqlStatement): RelationAccess => {
 		case "createConstant":
 		case "createGuardTrigger":
 		case "createConstraintTrigger":
+		case "createTransitionTrigger":
 		case "createPublication":
 		case "dropPublication":
 		case "createLiveSecret":

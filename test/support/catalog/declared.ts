@@ -104,6 +104,7 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 			[identifierOf(identity.refusal()), { kind: "refusal" }],
 			[identifierOf(identity.isolationGuard()), { kind: "isolationGuard" }],
 			[identifierOf(identity.snapshotGuard()), { kind: "snapshotGuard" }],
+			[identifierOf(identity.ruleJudge()), { kind: "rule" }],
 			...unitFunctions(headers),
 			...Arr.flatMap(relations, (r): ReadonlyArray<readonly [string, InstalledFunction]> => {
 				if (r.kind !== "closed") {

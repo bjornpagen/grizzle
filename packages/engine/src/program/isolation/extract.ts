@@ -482,6 +482,7 @@ const nameOf = (source: FromSource): readonly [string, "table" | ReadGroup["rows
 			]
 		}
 		case "enclosing":
+		case "transition":
 		case "function":
 		case "arrays":
 		case "values":
@@ -1119,6 +1120,8 @@ class Walk<Top extends Arrival> {
 			case "cte":
 			case "enclosing":
 				return this.#cteRead(source.name, beneath)
+			case "transition":
+				return []
 			case "derived": {
 				const projection = projectionOf(source)
 				const rows =

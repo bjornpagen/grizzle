@@ -177,6 +177,7 @@ const fromFeature = (item: FromSource): ReadonlyArray<ShapeFeature> => {
 		case "probe":
 		case "met":
 		case "enclosing":
+		case "transition":
 			return ["from table"]
 		case "metRows":
 			return ["from cte"]

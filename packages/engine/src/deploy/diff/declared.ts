@@ -1489,6 +1489,7 @@ const withColumns = (
 		case "packConstant":
 		case "createConstant":
 		case "createGuardTrigger":
+		case "createTransitionTrigger":
 		case "alterDatabaseDefault":
 		case "createExtension":
 		case "lockTable":
@@ -1578,6 +1579,7 @@ const withRoles = (s: SqlStatement, roles: ReadonlyMap<string, string>): SqlStat
 		case "createLiveSecret":
 		case "createGuardTrigger":
 		case "createConstraintTrigger":
+		case "createTransitionTrigger":
 		case "alterDatabaseDefault":
 		case "createExtension":
 		case "createStatistics":

@@ -1,7 +1,8 @@
 /**
- * The seeding of a rule over a query's deferred triggers on PostgreSQL 19rc2: each trigger's probe is the rule's
- * violation restricted to the rows its write touched and those its chain reaches from them, so it judges exactly what
- * the rule's whole check judges, and reads only the rows of the touched row's key.
+ * The seeding of a rule over a query's probes on PostgreSQL 19rc2: each probe of the set judge (physical/ddl/rules.ts
+ * addRules) is the rule's violation restricted to the rows the transaction wrote, its region, and those its chain
+ * reaches from them, so it judges exactly what the rule's whole check judges, and reads only the rows of the touched
+ * row's key.
  *
  * The shapes are five schemas of link tables L1, L2 and L3, each row linked up to the one before it and L1's to its
  * key, a mark M on a link and a block N of one, each a downstream shape in miniature:
@@ -28,18 +29,19 @@
  *   and updates of a link's parent or value. Each transaction, before its triggers run, runs the rule's whole violation
  *   query, the one the migration that adds the rule runs over every row (deploy/snapshot/violation.ts lawChecks), read
  *   whole and never seeded: that oracle judges the state the transaction leaves. Then SET CONSTRAINTS ALL IMMEDIATE runs
- *   the triggers, and the transaction commits exactly when the oracle finds no violation, refused otherwise at that
- *   moment by SQLSTATE 23503 for a containment and 23505 for a key, naming a trigger the installation's constraint map
- *   maps to the rule.
+ *   the judge, and the transaction commits exactly when the oracle finds no violation, refused otherwise at that moment
+ *   by SQLSTATE 23503 for a containment and 23505 for a key, naming a rule the installation's constraint map maps to
+ *   the rule.
  * - **Locality:** one search per shape, as for equivalence, each with the rotating budget the one search over every
  *   shape had and no steered phase, since every case of a shape's search measures that shape; each case draws a count
  *   of keys from 250 to 400 and one of them, and 600 to 900 keys more.
  *   The shape holds the first keys' rows, each key a chain of value 1 and two marks, then every key's. Each of the
  *   drawn key's rows on a table the rule reads, and a block of each of its links, is touched: in a transaction of its
- *   own the row is written (each column set to itself, a block inserted and deleted again), SET CONSTRAINTS ALL
- *   IMMEDIATE runs its triggers, and the SIRead locks the transaction holds are counted by lock type and relation, the
- *   transaction rolled back; then every probe of every rule function on its table is explained with its NEW and OLD at
- *   the row. The rows each probe reads, as EXPLAIN ANALYZE counts them, and the SIRead locks are the same beside every
+ *   own the row stands in the judge's region: a stored row's image copied into each delta of its table as it is stored,
+ *   the table unwritten, a block inserted and deleted again, which the captures take. SET CONSTRAINTS ALL IMMEDIATE
+ *   runs the judge, the SIRead locks the transaction holds are counted by lock type and relation, and every probe of
+ *   the judge over the table's deltas is explained while they hold the row's images, the transaction rolled back. The rows each probe reads, as EXPLAIN ANALYZE counts them, and
+ *   the SIRead locks are the same beside every
  *   key as beside the first, and no SIRead lock is on a whole relation: an invariance, no time. The first keys' rows
  *   fill more than one heap page of every table and the rest three more, so a probe that read every key would read
  *   more rows and lock more pages, or a relation, where a probe of the key reads its own. Both measurements plan as
@@ -82,10 +84,6 @@
  * @plant test/plants/pg/laws/navigate-literal-before-key.patch Navigation (analysis/theory/navigate.ts, which every
  * probe is read through) ranks a read a literal alone binds with one a key binds, so deep's probe of an L2 starts from
  * every key's L2 of value 1 and deep's locality search finds it reading more rows beside more keys.
- * @plant test/plants/pg/laws/navigate-gates-nested.patch Navigation nests a negation that reads no variable as a
- * correlated one is, so its gate is judged before an earlier arm's and a probe of an L1 reads N, whose index no row was
- * ever written to and so is locked whole (nbtsearch.c:1515-1531): titles', viewed's and deep's locality searches find
- * other SIRead locks beside more keys.
  */
 import { drawn, explore, type Case as Search } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -104,7 +102,7 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
 import { parsePlan, rowsRead } from "#bench/harness/explain.ts"
-import { identifierOf } from "#compiler/core/identity.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
@@ -113,10 +111,9 @@ import type { Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
-import type { Expr, OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
-import { exists, lit, types } from "#compiler/sql/build.ts"
-import { printExpr, printStatement } from "#compiler/sql/print.ts"
-import { identityHooks, transformExpr } from "#compiler/sql/transform.ts"
+import type { OperandSelect, PlStatement } from "#compiler/sql/ast.ts"
+import { exists } from "#compiler/sql/build.ts"
+import { printExpr, printStatement, quoteIdent } from "#compiler/sql/print.ts"
 import { cleared, type Seat, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
@@ -876,43 +873,65 @@ const touchedOf = (seat: Seat, k: number): ReadonlyArray<Touched> => {
 	)
 }
 
-/** The probes of a rule function's body: the query of each EXISTS its IFs test. */
+/** The probes of the judge's body: the query of each EXISTS its IFs test, at any depth. */
 const probesIn = (body: ReadonlyArray<PlStatement>): ReadonlyArray<OperandSelect> =>
 	Arr.flatMap(body, (s) =>
 		s.kind === "if"
-			? Arr.flatMap(s.branches, (b) => [
-					...(b.condition.kind === "exists" ? [b.condition.query] : []),
-					...probesIn(b.body)
-				])
+			? [
+					...Arr.flatMap(s.branches, (b) => [
+						...(b.condition.kind === "exists" ? [b.condition.query] : []),
+						...probesIn(b.body)
+					]),
+					...probesIn(s.else)
+				]
 			: []
 	)
 
-/** Every probe of the rule functions on `table`, as the installation creates them. */
-const probesOn = (seat: Seat, table: Table): ReadonlyArray<OperandSelect> => {
-	const installation = seat.installed.installation
-	const functions = new Set<string>(
-		Arr.flatMap(installation.laws.rules, (rule) =>
-			Arr.flatMap(rule.tables, (t) => (t.relation.name === table ? [identifierOf(t.function)] : []))
-		)
-	)
-	return Arr.flatMap(installation.statements, (s) =>
-		s.kind === "createFunction" && s.language === "plpgsql" && functions.has(s.name.name)
-			? probesIn(s.body.body)
-			: []
-	)
+/** A delta a capture writes: its table of pg_temp and its columns, the relation's columns by name. */
+interface Delta {
+	readonly name: string
+	readonly columns: ReadonlyArray<string>
 }
 
-/** A probe's EXISTS with every field of NEW and OLD read at `row`, by column. */
-const probeAt = (probe: OperandSelect, row: ReadonlyMap<string, number>): string =>
-	printExpr(
-		transformExpr(exists(probe), {
-			...identityHooks,
-			expr: (e: Expr): Expr =>
-				e.kind === "field" && e.record.kind === "plSpecial"
-					? lit.int(defined(row.get(e.field), `the touched row's ${e.field}`), types.integer)
-					: e
-		})
+/** The session tables with columns a capture's body creates, at any depth: its deltas. */
+const deltasIn = (body: ReadonlyArray<PlStatement>): ReadonlyArray<Delta> =>
+	Arr.flatMap(body, (s): ReadonlyArray<Delta> =>
+		s.kind === "createSessionTable" && s.columns.length > 0
+			? [{ name: s.name, columns: Arr.map(s.columns, (c) => c.name) }]
+			: s.kind === "if"
+				? [...Arr.flatMap(s.branches, (b) => deltasIn(b.body)), ...deltasIn(s.else)]
+				: []
 	)
+
+/** The deltas `table`'s capture writes (physical/ddl/rules.ts addRules), deduplicated by name. */
+const deltasOf = (seat: Seat, table: Table): ReadonlyArray<Delta> =>
+	Arr.dedupeWith(
+		deltasIn(bodyOf(seat.installed.installation, identifierOf(identity.ruleCapture(table)))),
+		(a, b) => a.name === b.name
+	)
+
+/** The PL/pgSQL body of the installation's function named `name`. */
+const bodyOf = (installation: Installation, name: string): ReadonlyArray<PlStatement> =>
+	Arr.flatMap(installation.statements, (s) =>
+		s.kind === "createFunction" && s.language === "plpgsql" && s.name.name === name
+			? s.body.body
+			: []
+	)
+
+/**
+ * Every probe of the judge over `table`'s rows, as the installation creates them: each EXISTS of the judge's body
+ * that reads a delta `table`'s capture writes (physical/ddl/rules.ts addRules).
+ */
+const probesOn = (seat: Seat, table: Table): ReadonlyArray<OperandSelect> => {
+	const deltas = deltasOf(seat, table)
+	return Arr.filter(
+		probesIn(bodyOf(seat.installed.installation, identifierOf(identity.ruleJudge()))),
+		(probe) => {
+			const text = printExpr(exists(probe))
+			return Arr.some(deltas, (d) => Str.includes(`"pg_temp".${quoteIdent(d.name)}`)(text))
+		}
+	)
+}
 
 /** The planner settings of a table large beside one key's rows (the header). */
 const largeTables = [
@@ -955,9 +974,13 @@ const siReadLocks = (session: RawSession) =>
 	)
 
 /**
- * The footprint of touching `touched`, on a fresh session planning for large tables: first the SIRead locks of a
- * transaction that writes the row as it stands (each column set to itself, or a block inserted and deleted again) and
- * runs its triggers, rolled back; then the rows each probe on its table reads at the row.
+ * The footprint of touching `touched`, on a fresh session planning for large tables, in one transaction rolled back. A
+ * stored row stands in every delta of its table as it is stored: a statement of each event that writes no row runs the
+ * captures, which make the session's deltas, and the row's image is copied into each, so the judge's region is the
+ * row and the table is not written, which would move the row's index entries. A block is inserted and deleted again,
+ * which the captures take. Then SET CONSTRAINTS ALL IMMEDIATE runs the judge over the deltas; the SIRead locks the
+ * transaction holds are counted; and each probe of the judge over the table is explained while the deltas hold the
+ * row's images.
  */
 const footprintOf = (seat: Seat, touched: Touched) =>
 	Effect.gen(function* () {
@@ -969,61 +992,42 @@ const footprintOf = (seat: Seat, touched: Touched) =>
 		const table = touched.table
 		const t = seat.table(table)
 		const id = seat.column(table, "id")
-		const fields = seat.roles(table)
 		const write = touched.stored
 			? [
-					`UPDATE ${t} SET ${Arr.join(
-						Arr.map(fields, (f) => `${seat.column(table, f)} = ${seat.column(table, f)}`),
-						", "
-					)} WHERE ${id} = ${touched.id}`
+					`INSERT INTO ${t} (${id}) SELECT ${touched.id} WHERE false`,
+					`DELETE FROM ${t} WHERE false`,
+					...Arr.map(deltasOf(seat, table), (d) => {
+						const columns = Arr.join(Arr.map(d.columns, quoteIdent), ", ")
+						return `INSERT INTO pg_temp.${quoteIdent(d.name)} (${columns}) SELECT ${columns} FROM ${t} WHERE ${id} = ${touched.id}`
+					})
 				]
 			: [
 					`INSERT INTO ${t} (${id}) VALUES (${touched.id})`,
 					`DELETE FROM ${t} WHERE ${id} = ${touched.id}`
 				]
 		yield* session.begin
-		const locks = yield* Effect.onError(
+		const footprint = yield* Effect.onError(
 			Effect.gen(function* () {
 				for (const sql of write) {
 					yield* session.query(sql, [])
 				}
 				yield* session.query("SET CONSTRAINTS ALL IMMEDIATE", [])
-				return yield* siReadLocks(session)
+				const locks = yield* siReadLocks(session)
+				const rows: Array<number> = []
+				for (const probe of probesOn(seat, table)) {
+					const explained = yield* session.values(
+						`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) SELECT ${printExpr(exists(probe))}`,
+						[]
+					)
+					rows.push(rowsRead(succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan))
+				}
+				return { rows, locks } satisfies Footprint
 			}),
 			() => Effect.ignore(session.rollback)
 		)
 		yield* session.rollback
-		const stored = touched.stored
-			? yield* session.values(
-					`SELECT ${Arr.join(
-						Arr.map(fields, (f) => seat.column(table, f)),
-						", "
-					)} FROM ${t} WHERE ${id} = ${touched.id}`,
-					[]
-				)
-			: [[touched.id]]
-		const values = defined(stored[0], `${table} ${touched.id} is stored`)
-		const row = new Map(Arr.map(fields, (f, i) => [columnOf(seat, table, f), intCell(values, i)]))
-		const rows: Array<number> = []
-		for (const probe of probesOn(seat, table)) {
-			const explained = yield* session.values(
-				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) SELECT ${probeAt(probe, row)}`,
-				[]
-			)
-			rows.push(rowsRead(succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan))
-		}
-		return { rows, locks } satisfies Footprint
+		return footprint
 	})
-
-/** The column identifier of a field, unquoted, as a probe's NEW and OLD fields name it. */
-const columnOf = (seat: Seat, table: Table, field: string): string =>
-	defined(
-		Arr.findFirst(
-			defined(seat.model.checked.relations.get(table), `${table} is checked`).fields,
-			(f) => f.name === field
-		).pipe(Option.getOrUndefined),
-		`${table}.${field} is a field`
-	).column
 
 type LocalityFeature = `${Shape} measured`
 

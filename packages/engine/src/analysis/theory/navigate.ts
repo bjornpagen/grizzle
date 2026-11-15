@@ -1,5 +1,5 @@
 import { refuse } from "#compiler/analysis/theory/build.ts"
-import { mapBindings, mapLeaves, varsOf } from "#compiler/analysis/theory/leaves.ts"
+import { boundIn, mapBindings, mapLeaves, varsOf } from "#compiler/analysis/theory/leaves.ts"
 import { leavesOf, ruleLeaves } from "#compiler/check/scan.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
@@ -89,66 +89,6 @@ const readsNoVariable = (a: Absent): boolean => {
 	return leaves.vars.size === 0 && leaves.parents.size === 0
 }
 
-/** `e` with each parameter `bound` names replaced by the term it binds, every other leaf as it is. */
-const boundIn = (e: InferredExpr, bound: ReadonlyMap<string, InferredExpr>): InferredExpr => {
-	const m = (x: InferredExpr): InferredExpr => boundIn(x, bound)
-	switch (e.kind) {
-		case "param":
-			return bound.get(e.name) ?? e
-		case "var":
-		case "field":
-		case "value":
-		case "parent":
-		case "literal":
-			return e
-		case "compute":
-			return { ...e, args: e.args.map(m) }
-		case "cast":
-		case "base":
-		case "not":
-		case "in":
-			return { ...e, arg: m(e.arg) }
-		case "cond":
-			return { ...e, pred: m(e.pred), onTrue: m(e.onTrue), onFalse: m(e.onFalse) }
-		case "when":
-			return { ...e, subject: m(e.subject), proved: m(e.proved), otherwise: m(e.otherwise) }
-		case "compare":
-		case "allen":
-			return { ...e, left: m(e.left), right: m(e.right) }
-		case "between":
-			return { ...e, arg: m(e.arg), low: m(e.low), high: m(e.high) }
-		case "and":
-		case "or":
-			return { ...e, args: mapNonEmpty(e.args, m) }
-		case "pointIn":
-			return { ...e, point: m(e.point), span: m(e.span) }
-		case "absent":
-			return {
-				...e,
-				bindings: Object.fromEntries(
-					Object.entries(e.bindings).map(([k, b]) => [k, m(b)] as const)
-				),
-				source:
-					e.source.kind === "query" || e.source.kind === "step"
-						? {
-								...e.source,
-								bind: Object.fromEntries(
-									Object.entries(e.source.bind).map(([k, b]) => [
-										k,
-										b.kind === "relationParam" ? b : m(b)
-									])
-								)
-							}
-						: e.source
-			}
-		case "closedAt":
-		case "closedHas":
-			return { ...e, args: mapNonEmpty(e.args, m) }
-		case "closedRow":
-			return { ...e, args: e.args.map(m) }
-	}
-}
-
 /** The scalar terms an import's bind map binds its parameters to, or undefined where one binds a relation parameter. */
 const scalarBinds = (
 	bind: Extract<InferredSource, { readonly kind: "query" }>["bind"]
@@ -163,16 +103,30 @@ const scalarBinds = (
 	return out
 }
 
-/** One match of a stored or closed relation, its bindings over the rule's variables. */
+/**
+ * What a read reads: a stored or closed relation, or the delta of one, the rows a transaction wrote of it, which a rule
+ * probe over its region matches (analysis/theory/query.ts regionQuery).
+ */
+type ReadSource = Extract<InferredSource, { readonly kind: "relation" | "delta" }>
+
+/** One match of a stored or closed relation or of a delta, its bindings over the rule's variables. */
 interface Read {
-	readonly relation: string
+	readonly source: ReadSource
 	readonly bindings: InferredBindings
 	readonly loc: SourceLoc
 }
 
-/** A conjunctive rule over stored and closed relations, as navigation reads it. */
+/** The relation a read's rows are rows of: the relation itself, or the relation a delta's rows were written to. */
+const relationOf = (source: ReadSource): string =>
+	source.kind === "relation" ? source.name : source.relation
+
+/**
+ * A conjunctive rule over stored and closed relations, as navigation reads it: its region, the deltas it matches, which
+ * the chain reads before any relation, and its reads of relations.
+ */
 interface Flat {
 	readonly vars: ReadonlyArray<VarDesc>
+	readonly region: ReadonlyArray<Read>
 	readonly reads: ReadonlyArray<Read>
 	readonly where: ReadonlyArray<InferredExpr>
 	readonly head: InferredRule["head"]
@@ -306,12 +260,17 @@ class Navigator {
 			return this.#refuse("a rule with interiors or attachments")
 		}
 		const vars: Array<VarDesc> = [...rule.vars]
+		const region: Array<Read> = []
 		const reads: Array<Read> = []
 		const where: Array<InferredExpr> = [...rule.where]
 		for (const m of rule.matches) {
 			const source = m.source
 			if (source.kind === "relation") {
-				reads.push({ relation: source.name, bindings: m.bindings, loc: m.loc })
+				reads.push({ source, bindings: m.bindings, loc: m.loc })
+				continue
+			}
+			if (source.kind === "delta") {
+				region.push({ source, bindings: m.bindings, loc: m.loc })
 				continue
 			}
 			const binds = source.kind === "query" ? scalarBinds(source.bind) : undefined
@@ -331,15 +290,14 @@ class Navigator {
 				vars,
 				inner.vars.map((v) => ({ ...v, id: `${prefix}${v.id}` }))
 			)
-			appendAll(
-				reads,
-				inner.reads.map((r) => ({
-					...r,
-					bindings: Object.fromEntries(
-						Object.entries(r.bindings).map(([column, e]) => [column, lift(e)] as const)
-					)
-				}))
-			)
+			const lifted = (r: Read): Read => ({
+				...r,
+				bindings: Object.fromEntries(
+					Object.entries(r.bindings).map(([column, e]) => [column, lift(e)] as const)
+				)
+			})
+			appendAll(region, inner.region.map(lifted))
+			appendAll(reads, inner.reads.map(lifted))
 			appendAll(where, inner.where.map(lift))
 			for (const [field, outer] of Object.entries(m.bindings)) {
 				const head = inner.head[field]
@@ -349,7 +307,7 @@ class Navigator {
 				where.push(equal(lift(head), outer))
 			}
 		}
-		return { vars, reads, where, head: rule.head }
+		return { vars, region, reads, where, head: rule.head }
 	}
 
 	/**
@@ -360,7 +318,9 @@ class Navigator {
 	 */
 	#defined(flat: Flat): Flat {
 		const bound = new Set(
-			flat.reads.flatMap((r) => Object.values(r.bindings).flatMap((e) => [...readsOf(e)]))
+			[...flat.region, ...flat.reads].flatMap((r) =>
+				Object.values(r.bindings).flatMap((e) => [...readsOf(e)])
+			)
 		)
 		const defines = (v: InferredExpr, term: InferredExpr): string | undefined => {
 			if (v.kind !== "var" || readsOf(term).has(v.var)) {
@@ -385,6 +345,7 @@ class Navigator {
 			}
 			return this.#defined({
 				vars: flat.vars.filter((v) => v.id !== name),
+				region: flat.region.map((r) => ({ ...r, bindings: mapBindings(r.bindings, leaves) })),
 				reads: flat.reads.map((r) => ({ ...r, bindings: mapBindings(r.bindings, leaves) })),
 				where: flat.where.flatMap((x, i) => (i === at ? [] : [mapLeaves(x, leaves)])),
 				head: Object.fromEntries(
@@ -400,9 +361,10 @@ class Navigator {
 	}
 
 	/**
-	 * The reads of `flat` as one chain of steps, at nesting `depth`, in their order (module doc). Each condition is
-	 * placed inside the first step after which every variable it reads is bound; a condition no variable of which a step
-	 * binds stays the rule's own; the negations are left to `rule`.
+	 * The reads of `flat` as one chain of steps, at nesting `depth`: its region first, the rows a transaction wrote that a
+	 * rule probe over its region starts from (analysis/theory/query.ts regionQuery), then its reads of relations in their
+	 * order (module doc). Each condition is placed inside the first step after which every variable it reads is bound; a
+	 * condition no variable of which a step binds stays the rule's own; the negations are left to `rule`.
 	 */
 	#chain(flat: Flat, depth: number): Chain {
 		const declared = new Map(flat.vars.map((v) => [v.id, v] as const))
@@ -462,20 +424,8 @@ class Navigator {
 		}
 		const vars: Array<VarDesc> = []
 		const matches: Array<InferredMatch> = []
-		while (reads.length > 0) {
-			const values = fixed()
-			let best = 0
-			for (const [i, r] of reads.entries()) {
-				const current = reads[best]
-				if (current !== undefined && narrower(lookupOf(r, values), lookupOf(current, values))) {
-					best = i
-				}
-			}
-			const read = reads[best]
-			if (read === undefined) {
-				return this.#refuse("a read to place")
-			}
-			reads = reads.filter((_, i) => i !== best)
+		/** `read` placed as the next step, its variables bound from then on. */
+		const place = (read: Read): void => {
 			const passing = new Passing(depth)
 			const own = new Set<string>()
 			const bindings: Record<string, InferredExpr> = {}
@@ -490,7 +440,7 @@ class Navigator {
 					own.add(hidden)
 					declared.set(hidden, {
 						id: hidden,
-						origin: { relation: read.relation, field: column },
+						origin: { relation: relationOf(read.source), field: column },
 						loc: read.loc
 					})
 					bindings[column] = varRef(hidden)
@@ -518,9 +468,7 @@ class Navigator {
 						arms: [
 							{
 								vars: stepVars,
-								matches: [
-									{ source: { kind: "relation", name: read.relation }, bindings, loc: read.loc }
-								],
+								matches: [{ source: read.source, bindings, loc: read.loc }],
 								where: inner,
 								head: delivered,
 								interiors: [],
@@ -538,6 +486,25 @@ class Navigator {
 			for (const id of outputs) {
 				known.add(id)
 			}
+		}
+		for (const read of flat.region) {
+			place(read)
+		}
+		while (reads.length > 0) {
+			const values = fixed()
+			let best = 0
+			for (const [i, r] of reads.entries()) {
+				const current = reads[best]
+				if (current !== undefined && narrower(lookupOf(r, values), lookupOf(current, values))) {
+					best = i
+				}
+			}
+			const read = reads[best]
+			if (read === undefined) {
+				return this.#refuse("a read to place")
+			}
+			reads = reads.filter((_, i) => i !== best)
+			place(read)
 		}
 		const left = pending.filter((c) => !isKnown(c))
 		if (left.length > 0) {
@@ -668,9 +635,9 @@ const negatesBelow = (e: InferredExpr): boolean => {
 }
 
 /**
- * The stored and closed relations `rule` reads once its imports are inlined (`Navigator.#inline`), or undefined where
- * navigation reads no such rule: one with interiors, attachments or a folded or produced head, a match of anything but a
- * stored or closed relation or an imported query of one such rule binding no parameter, a negation below a scalar
+ * The stored and closed relations and the deltas `rule` reads once its imports are inlined (`Navigator.#inline`), or
+ * undefined where navigation reads no such rule: one with interiors, attachments or a folded or produced head, a match of
+ * anything but a stored or closed relation, a delta or an imported query of one such rule binding no parameter, a negation below a scalar
  * expression, or a negation of anything but a stored or closed relation or an imported query of such rules.
  */
 const readsOfRule = (rule: InferredRule): number | undefined => {
@@ -683,7 +650,7 @@ const readsOfRule = (rule: InferredRule): number | undefined => {
 	let reads = 0
 	for (const m of rule.matches) {
 		const source = m.source
-		if (source.kind === "relation") {
+		if (source.kind === "relation" || source.kind === "delta") {
 			reads += 1
 			continue
 		}

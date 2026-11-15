@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/physical/ddl/rules.ts b/packages/engine/src/physical/ddl/rules.ts
+--- a/packages/engine/src/physical/ddl/rules.ts
++++ b/packages/engine/src/physical/ddl/rules.ts
+@@ -642,18 +642,6 @@
+ 				declare: [],
+ 				body: appendNonEmpty(
+ 					[
+-						{
+-							kind: "modify",
+-							statement: {
+-								kind: "delete",
+-								with: undefined,
+-								table: sessionTable(sentinel),
+-								alias: "r1",
+-								using: [],
+-								where: undefined,
+-								returning: []
+-							}
+-						},
+ 						...deltas.map((name): PlStatement => ({
+ 							kind: "if",
+ 							branches: [

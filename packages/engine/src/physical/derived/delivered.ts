@@ -71,6 +71,7 @@ class Delivered {
 					case "met":
 					case "metRows":
 					case "enclosing":
+					case "transition":
 					case "derived":
 					case "values":
 					case "function":
@@ -190,6 +191,7 @@ class Delivered {
 			case "context":
 				return item.columns.find((c) => c.column.name === column)?.column.type
 			case "enclosing":
+			case "transition":
 			case "function":
 			case "arrays":
 			case undefined:

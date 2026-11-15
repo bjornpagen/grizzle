@@ -1,10 +1,9 @@
 diff --git a/packages/engine/src/lower/conservative/delta/index.ts b/packages/engine/src/lower/conservative/delta/index.ts
-index d83e67ec..be6a86d9 100644
 --- a/packages/engine/src/lower/conservative/delta/index.ts
 +++ b/packages/engine/src/lower/conservative/delta/index.ts
-@@ -27,11 +27,7 @@ const lowerDelta: NodeLowerer<"Delta"> = (node, cx) => {
- 	const subject = cx.options.subject
- 	const source = subject.kind === "readBack" ? subject.deltas(node.relation, node.side) : undefined
+@@ -32,11 +32,7 @@
+ 			? subject.deltas(node.relation, node.side)
+ 			: undefined
  	if (source === undefined) {
 -		return refuse(
 -			"UnsupportedOperation",

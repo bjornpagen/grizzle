@@ -20,6 +20,7 @@ import type {
 	EmittedSql,
 	Expr,
 	FromItem,
+	ObjectName,
 	Select,
 	TypeRef,
 	ValuePlaceholder
@@ -27,17 +28,23 @@ import type {
 import type { CarrierName, NameSupply, NameSupplyStart } from "#compiler/sql/naming.ts"
 
 /**
- * The relation a Delta node reads in a read-back, each column of the delta's heading position by position: a CTE of
+ * The relation a Delta node reads, each column of the delta's heading position by position. In a read-back: a CTE of
  * the statement the read-back rides, over the rows that statement's RETURNING returns (write/readback/deltas.ts
  * deltaCte); a carrier, which only the write oracle's conservative realization fills, by comparing the states before
  * and after the change (test/support/oracle/write/realize.ts); or the empty relation, a side of a delta no statement
- * makes.
+ * makes. In a rule probe over its region: the session's delta table of the relation's side (physical/ddl/rules.ts
+ * judged), a table of pg_temp that the relation's rule captures fill.
  */
 export type DeltaRelation =
 	| { readonly kind: "cte"; readonly cte: string; readonly columns: ReadonlyArray<string> }
 	| {
 			readonly kind: "carrier"
 			readonly carrier: CarrierName
+			readonly columns: ReadonlyArray<string>
+	  }
+	| {
+			readonly kind: "session"
+			readonly table: ObjectName
 			readonly columns: ReadonlyArray<string>
 	  }
 	| { readonly kind: "empty" }
@@ -86,6 +93,16 @@ export interface ReadBackLowering {
 }
 
 /**
+ * What lowering a rule probe over its region adds to lowering a query (analysis/theory/query.ts regionProbe): the
+ * relation each of its Delta nodes reads, the session's delta table of that relation's side, where the rows the
+ * transaction wrote of it stand as their images after each statement (`added`) and before it (`removed`).
+ */
+export interface RegionLowering {
+	readonly kind: "ruleRegion"
+	readonly deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
+}
+
+/**
  * What lowering a write filter's membership adds to lowering a query: the value of each field of the row it is asked
  * at, by the field's name, as the membership's caller names it (write/entry/render.ts): a stored row's column, a filter
  * function's argument, or a precheck's submitted value. The row's InputSet lowers to the one-row VALUES of them.
@@ -97,9 +114,8 @@ export interface MembershipLowering {
 
 /**
  * What a conservative lowering lowers: a query, which reads no delta (a Delta node in one is UnsupportedOperation), as a
- * derived relation's definition does; a rule trigger's probe (physical/ddl/rules.ts), a query whose every declared
- * parameter stands for a field of the trigger's NEW or OLD row, a stored value, cast to its column's installed type
- * (LowerContext.paramTypeRef) and never to a served parameter's own pattern domain; a write program's read-back; a
+ * derived relation's definition does; a rule's probe over its region (physical/ddl/rules.ts), which reads the
+ * session's delta of its relation (RegionLowering) and no parameter; a write program's read-back; a
  * write filter's membership, which reads its row; or a law's full violation query, the migration's probe
  * (deploy/diff) of a law over closed relations alone, a query over declared values only, which types a text refinement
  * no `__text_` domain names (a contract's base pattern no stored column carries) as text, where any other query refuses
@@ -107,7 +123,7 @@ export interface MembershipLowering {
  */
 type ConservativeSubject =
 	| { readonly kind: "query" }
-	| { readonly kind: "ruleProbe" }
+	| RegionLowering
 	| { readonly kind: "violationProbe" }
 	| ReadBackLowering
 	| MembershipLowering

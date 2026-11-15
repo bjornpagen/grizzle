@@ -93,7 +93,10 @@ const reach: { readonly [N in BuiltinFunctionName]: "row" | "rows" } = {
 	make_date: "row",
 	encode: "row",
 	generate_series: "row",
-	sha256: "row"
+	sha256: "row",
+	to_regclass: "row",
+	to_regprocedure: "row",
+	pg_get_userbyid: "row"
 }
 
 /** What a call over many rows is: an aggregate's, count(*) among them, or a window call. */

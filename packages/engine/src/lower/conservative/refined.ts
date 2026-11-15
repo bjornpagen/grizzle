@@ -57,6 +57,7 @@ const collectItems = (items: ReadonlyArray<FromItem>, into: Map<string, FromSour
 			case "met":
 			case "metRows":
 			case "enclosing":
+			case "transition":
 			case "derived":
 			case "function":
 			case "arrays":
@@ -330,6 +331,7 @@ export class Tracer {
 				return [array === undefined ? "unproved" : this.#supplied(array.array.number, claim)]
 			}
 			case "enclosing":
+			case "transition":
 			case "function":
 			case "context":
 				return ["unproved"]

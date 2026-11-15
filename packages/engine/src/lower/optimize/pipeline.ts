@@ -11,7 +11,8 @@ import { LowerContext } from "#compiler/lower/conservative/context.ts"
 import type {
 	ConservativeOptions,
 	MembershipLowering,
-	ReadBackLowering
+	ReadBackLowering,
+	RegionLowering
 } from "#compiler/lower/conservative/types.ts"
 import { type CtePlan, ctePolicyPass } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { dedupPlacement } from "#compiler/lower/optimize/dedup/pass.ts"
@@ -39,13 +40,13 @@ interface OptimizedOptions extends Omit<ConservativeOptions, "params" | "subject
 }
 
 /**
- * What is compiled: a query; a rule trigger's probe, whose parameters are its row's stored fields (ConservativeSubject
- * `ruleProbe`); a derived relation's definition, which always wants every group; a write program's read-back; or a
+ * What is compiled: a query; a rule's probe over its region, which reads the session's delta of its relation
+ * (RegionLowering); a derived relation's definition, which always wants every group; a write program's read-back; or a
  * write filter's membership at the row its caller names.
  */
 type OptimizedSubject =
 	| { readonly kind: "query" }
-	| { readonly kind: "ruleProbe" }
+	| RegionLowering
 	| { readonly kind: "derivedDefinition" }
 	| ReadBackLowering
 	| MembershipLowering

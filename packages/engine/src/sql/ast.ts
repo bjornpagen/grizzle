@@ -239,7 +239,8 @@ export type BinaryOperator = (typeof binaryOperators)[number]
  * a double's parse reads its text by (lower/conservative/expr/parse-double.ts), the aggregates, window and ordered-set
  * functions of the compile-target catalog, the exact value of a double's bits (float8send and
  * get_byte, build.ts exactNumericOfDouble), the span functions, the attachment transport, a bytes value's chunks
- * (lower/delivery.ts), the runtime probes and the database default's statement; a relation input's arrays are a FROM
+ * (lower/delivery.ts), the runtime probes, the rule judge's reads of its session tables in the catalog
+ * (physical/ddl/rules.ts judged) and the database default's statement; a relation input's arrays are a FROM
  * item of their own. Extension functions (pgvector) are qualified by their extension's schema instead.
  */
 export const builtinFunctionNames = [
@@ -320,7 +321,10 @@ export const builtinFunctionNames = [
 	"make_date",
 	"encode",
 	"generate_series",
-	"sha256"
+	"sha256",
+	"to_regclass",
+	"to_regprocedure",
+	"pg_get_userbyid"
 ] as const
 export type BuiltinFunctionName = (typeof builtinFunctionNames)[number]
 
@@ -722,6 +726,15 @@ export type FromSource =
 			readonly alias: string
 	  }
 	| { readonly kind: "cte"; readonly name: string; readonly alias: string | undefined }
+	| {
+			/**
+			 * A transition table of the statement trigger whose function reads it (CreateTransitionTrigger): the rows the
+			 * statement wrote, as it left them (`news`) or found them (`olds`), under `alias`.
+			 */
+			readonly kind: "transition"
+			readonly table: TransitionTable
+			readonly alias: string
+	  }
 	| { readonly kind: "enclosing"; readonly name: string; readonly alias: string }
 	| {
 			readonly kind: "derived"
@@ -1585,6 +1598,31 @@ export interface CreateConstraintTrigger {
 	readonly function: ObjectName
 }
 
+/**
+ * CREATE TRIGGER <name> AFTER <event> ON <table> REFERENCING <transition tables> FOR EACH STATEMENT EXECUTE FUNCTION
+ * <function>(): a rule capture (physical/ddl/rules.ts judged), which PostgreSQL fires once at the end of each statement
+ * that writes the table, its rows foreign-key actions write among them, the rows it wrote its transition tables. An
+ * INSERT's names its new rows `transitionTables.news`, a DELETE's its old rows `transitionTables.olds`, an UPDATE's both.
+ * PostgreSQL holds transition tables only on a trigger of one event and no column list that is no constraint trigger
+ * (trigger.c CreateTriggerFiringOn), so each event is a trigger of its own.
+ */
+export interface CreateTransitionTrigger {
+	readonly kind: "createTransitionTrigger"
+	readonly name: string
+	readonly table: ObjectName
+	readonly event: TransitionEvent
+	readonly function: ObjectName
+}
+
+/** The statement event a transition trigger fires on. */
+export type TransitionEvent = "insert" | "update" | "delete"
+
+/** The names a transition trigger gives its rows: the rows a statement wrote, as they stand after it and before it. */
+export const transitionTables = { news: "news", olds: "olds" } as const
+
+/** A transition table's name (`transitionTables`). */
+export type TransitionTable = (typeof transitionTables)[keyof typeof transitionTables]
+
 /** A row event a constraint trigger fires on: an INSERT, a DELETE, or an UPDATE of one of `columns`. */
 export type TriggerEvent =
 	| { readonly kind: "insert" | "delete" }
@@ -1924,9 +1962,31 @@ export type PlStatement =
 	  }
 	| {
 			/** A data-modifying statement run for its effect alone: a retirement's deletes and its headers' state, one
-			 * statement. */
+			 * statement; a rule capture's rows into its delta and its arming of the judge, and the judge's disarming. */
 			readonly kind: "modify"
-			readonly statement: Update
+			readonly statement: Insert | Update | Delete
+	  }
+	| {
+			/**
+			 * CREATE TEMPORARY TABLE pg_temp.<name> (<columns>) ON COMMIT DELETE ROWS: a table of the session's own
+			 * temporary schema, owned by the role the function runs as, its definer, whose rows each COMMIT deletes, after
+			 * the deferred triggers have fired (xact.c CommitTransaction): a rule judge's delta or sentinel
+			 * (physical/ddl/rules.ts judged). A table of no column is the sentinel's.
+			 */
+			readonly kind: "createSessionTable"
+			readonly name: string
+			readonly columns: ReadonlyArray<ColumnDefinition>
+	  }
+	| {
+			/**
+			 * CREATE CONSTRAINT TRIGGER <name> AFTER INSERT ON pg_temp.<table> DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+			 * EXECUTE FUNCTION <function>(): the sentinel's trigger, which runs the rule judge at COMMIT, or at SET
+			 * CONSTRAINTS ALL IMMEDIATE, once per row the sentinel takes (physical/ddl/rules.ts judged).
+			 */
+			readonly kind: "createSessionTrigger"
+			readonly name: string
+			readonly table: string
+			readonly function: ObjectName
 	  }
 
 /** A block's statements are at least one: a trigger function that falls off its end without RETURN fails. */
@@ -2127,6 +2187,7 @@ export type Ddl =
 	| CreateConstant
 	| CreateGuardTrigger
 	| CreateConstraintTrigger
+	| CreateTransitionTrigger
 	| CreatePublication
 	| DropPublication
 	| CreateLiveSecret

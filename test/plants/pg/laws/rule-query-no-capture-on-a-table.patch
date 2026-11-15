@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/physical/ddl/rules.ts b/packages/engine/src/physical/ddl/rules.ts
+--- a/packages/engine/src/physical/ddl/rules.ts
++++ b/packages/engine/src/physical/ddl/rules.ts
+@@ -445,7 +445,7 @@
+ 		Array<{ readonly rule: RuleTrigger; readonly table: RuleTable }>
+ 	>()
+ 	for (const rule of ordered) {
+-		for (const t of rule.tables) {
++		for (const t of rule.tables.slice(1)) {
+ 			const held = byRelation.get(t.relation.name) ?? []
+ 			held.push({ rule, table: t })
+ 			byRelation.set(t.relation.name, held)

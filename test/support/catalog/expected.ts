@@ -558,6 +558,7 @@ export const expectedCatalog = (installation: Installation): ProjectedCatalog =>
 			case "lockTable":
 			case "createGuardTrigger":
 			case "createConstraintTrigger":
+			case "createTransitionTrigger":
 			case "createPublication":
 			case "dropPublication":
 			case "dropTrigger":

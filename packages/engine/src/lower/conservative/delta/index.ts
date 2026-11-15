@@ -7,6 +7,7 @@ import {
 	nodeLabel,
 	refuse
 } from "#compiler/lower/conservative/context.ts"
+import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
 import type { FromSource } from "#compiler/sql/ast.ts"
 import { col, cteRefAs, target, unitTargets } from "#compiler/sql/build.ts"
 
@@ -19,13 +20,17 @@ import { col, cteRefAs, target, unitTargets } from "#compiler/sql/build.ts"
  * the delta's heading position by position (DeltaRelation). A read-back over a delta a statement makes rides that
  * statement, and the delta is a CTE of it over the rows its RETURNING returns; the conservative realization's, computed
  * by comparing the states before and after the change, is a carrier. A side of a delta no statement makes is the empty
- * relation, as an empty closed relation lowers. Outside a write program there is no delta, and the node is
+ * relation, as an empty closed relation lowers. A rule probe over its region reads the session's delta table of its
+ * relation's side (physical/ddl/rules.ts judged). Anywhere else there is no delta, and the node is
  * UnsupportedOperation.
  */
 const lowerDelta: NodeLowerer<"Delta"> = (node, cx) => {
 	const at = nodeLabel(node)
 	const subject = cx.options.subject
-	const source = subject.kind === "readBack" ? subject.deltas(node.relation, node.side) : undefined
+	const source =
+		subject.kind === "readBack" || subject.kind === "ruleRegion"
+			? subject.deltas(node.relation, node.side)
+			: undefined
 	if (source === undefined) {
 		return refuse(
 			"UnsupportedOperation",
@@ -47,11 +52,23 @@ const lowerDelta: NodeLowerer<"Delta"> = (node, cx) => {
 	const targets = isNonEmpty(source.columns)
 		? mapNonEmpty(source.columns, (c) => target(col(alias, c)))
 		: unitTargets
-	const from: FromSource =
-		source.kind === "cte"
-			? cteRefAs(source.cte, alias)
-			: { kind: "table", table: source.carrier, alias }
+	const from: FromSource = deltaFrom(source, alias)
 	return distinctSelect(targets, [from], [])
+}
+
+/** The FROM item of a delta relation that holds rows, under `alias`. */
+const deltaFrom = (
+	source: Exclude<DeltaRelation, { readonly kind: "empty" }>,
+	alias: string
+): FromSource => {
+	switch (source.kind) {
+		case "cte":
+			return cteRefAs(source.cte, alias)
+		case "carrier":
+			return { kind: "table", table: source.carrier, alias }
+		case "session":
+			return { kind: "table", table: source.table, alias }
+	}
 }
 
 /** This kind's entry of the conservative kind table (dispatch.ts). */

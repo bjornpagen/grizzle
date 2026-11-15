@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -1527,7 +1527,7 @@
+ 			return out.line(";")
+ 		case "createSessionTable":
+ 			return out.line(
+-				`CREATE TEMPORARY TABLE ${printTableName({ schema: temporarySchema, name: statement.name })} (${statement.columns.map(definitionText).join(", ")}) ON COMMIT DELETE ROWS;`
++				`CREATE TEMPORARY TABLE ${printTableName({ schema: temporarySchema, name: statement.name })} (${statement.columns.map(definitionText).join(", ")}) ON COMMIT ${statement.columns.length > 0 ? "PRESERVE" : "DELETE"} ROWS;`
+ 			)
+ 		case "createSessionTrigger":
+ 			return out.line(

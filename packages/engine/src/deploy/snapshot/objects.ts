@@ -8,6 +8,7 @@ import {
 	type CreateConstant,
 	type CreateDomain,
 	type CreateConstraintTrigger,
+	type CreateTransitionTrigger,
 	type CreateGuardTrigger,
 	type CreateLiveSecret,
 	type CreateIndex,
@@ -104,7 +105,7 @@ export type Installed =
 	| {
 			readonly kind: "lawTrigger"
 			readonly object: ManifestObject
-			readonly create: CreateConstraintTrigger
+			readonly create: CreateConstraintTrigger | CreateTransitionTrigger
 	  }
 	| {
 			readonly kind:
@@ -113,6 +114,7 @@ export type Installed =
 				| "unitFunction"
 				| "isolationFunction"
 				| "snapshotGuard"
+				| "ruleJudge"
 				| "lawFunction"
 			readonly object: ManifestObject
 			readonly create: PlFunction
@@ -271,14 +273,18 @@ export const installed = (o: ManifestObject): Installed => {
 				? { kind: o.kind, object: o, create: s }
 				: malformed("a table's isolation trigger installed by its CREATE TRIGGER")
 		case "lawTrigger":
-			return o.ddl.length === 1 && s?.kind === "createConstraintTrigger"
+			return o.ddl.length === 1 &&
+				(s?.kind === "createConstraintTrigger" || s?.kind === "createTransitionTrigger")
 				? { kind: o.kind, object: o, create: s }
-				: malformed("a rule's trigger installed by its CREATE CONSTRAINT TRIGGER")
+				: malformed(
+						"a rule's trigger installed by its CREATE CONSTRAINT TRIGGER, or a rule capture by its CREATE TRIGGER"
+					)
 		case "refusalFunction":
 		case "advanceFunction":
 		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
+		case "ruleJudge":
 		case "lawFunction":
 			return s?.kind === "createFunction" && s.language === "plpgsql"
 				? { kind: o.kind, object: o, create: s }
@@ -446,6 +452,7 @@ export const objectTable = (o: ManifestObject): ObjectName | undefined => {
 		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
+		case "ruleJudge":
 		case "lawFunction":
 		case "worldFunction":
 		case "role":
@@ -594,7 +601,10 @@ export const builtOver = (
 			return {
 				part: v,
 				table: v.create.table,
-				columns: v.create.events.flatMap((e) => (e.kind === "update" ? e.columns : []))
+				columns:
+					v.create.kind === "createConstraintTrigger"
+						? v.create.events.flatMap((e) => (e.kind === "update" ? e.columns : []))
+						: []
 			}
 		case "table":
 		case "constant":
@@ -605,6 +615,7 @@ export const builtOver = (
 		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
+		case "ruleJudge":
 		case "lawFunction":
 		case "isolationTrigger":
 		case "worldFunction":
@@ -750,6 +761,7 @@ const objectParts = (
 		case "unitFunction":
 		case "isolationFunction":
 		case "snapshotGuard":
+		case "ruleJudge":
 		case "lawFunction":
 		case "worldFunction":
 		case "role":

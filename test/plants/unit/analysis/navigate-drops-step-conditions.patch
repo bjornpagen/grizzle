@@ -1,9 +1,10 @@
+diff --git a/packages/engine/src/analysis/theory/navigate.ts b/packages/engine/src/analysis/theory/navigate.ts
 --- a/packages/engine/src/analysis/theory/navigate.ts
 +++ b/packages/engine/src/analysis/theory/navigate.ts
-@@ -455,7 +455,7 @@
- 								matches: [
- 									{ source: { kind: "relation", name: read.relation }, bindings, loc: read.loc }
- 								],
+@@ -469,7 +469,7 @@
+ 							{
+ 								vars: stepVars,
+ 								matches: [{ source: read.source, bindings, loc: read.loc }],
 -								where: inner,
 +								where: [],
  								head: delivered,

@@ -1503,6 +1503,9 @@ class StatementAuditor {
 				this.ident(item.name, "enclosing CTE", "name")
 				this.defineRelation(item.alias, "alias")
 				return register(item.alias, { columns: undefined })
+			case "transition":
+				this.defineRelation(item.alias, "alias")
+				return register(item.alias, { columns: undefined })
 			case "derived": {
 				const columns = this.at("columns", () =>
 					this.columnList(item.columns, "derived table", true)
@@ -2294,6 +2297,17 @@ class StatementAuditor {
 					})
 				})
 				return
+			case "createSessionTable":
+				this.ident(statement.name, "table", "name")
+				for (const [i, column] of statement.columns.entries()) {
+					this.ident(column.name, "column", "columns", i, "name")
+				}
+				return
+			case "createSessionTrigger":
+				this.ident(statement.name, "trigger", "name")
+				this.ident(statement.table, "table", "table")
+				this.objectName(statement.function, "function", "function")
+				return
 			case "whenAbsent":
 				this.at("probe", () => {
 					embeddedSelect({ kind: "select", with: undefined, ...statement.probe })
@@ -2407,6 +2421,7 @@ class StatementAuditor {
 			case "packConstant":
 			case "createGuardTrigger":
 			case "createConstraintTrigger":
+			case "createTransitionTrigger":
 			case "createPublication":
 			case "dropPublication":
 			case "createLiveSecret":
@@ -2763,6 +2778,7 @@ class StatementAuditor {
 			}
 			case "createGuardTrigger":
 			case "createConstraintTrigger":
+			case "createTransitionTrigger":
 				this.ident(statement.name, "trigger", "name")
 				this.objectName(statement.table, "table", "table")
 				this.objectName(statement.function, "function", "function")

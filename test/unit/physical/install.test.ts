@@ -176,6 +176,7 @@ const kindModel: { readonly [K in PhysicalKind]: KindModel } = {
 	index: onTable("a law or a program"),
 	statistics: onTable("any reason"),
 	validation: onTable("any reason"),
+	ruleJudge: inSchema,
 	lawFunction: onTable("a law or a program"),
 	lawTrigger: { after: ["schema", "table", "lawFunction"], justified: "a law or a program" },
 	role: { after: [], justified: "any reason" },

@@ -290,6 +290,7 @@ const sourceNames = (source: FromSource): ReadonlyArray<string> => {
 		case "arrays":
 		case "values":
 		case "context":
+		case "transition":
 			return [source.alias]
 	}
 }

@@ -47,7 +47,7 @@ sees a database differently:
 
 grizzle makes that model the API, and compiles it into PostgreSQL so that PostgreSQL enforces it for every writer, not
 only your app. A rule over tables becomes one of PostgreSQL's own constraints, and a rule over a query, a join no table
-stores, a deferred constraint trigger grizzle generates from the query. Each role becomes a PostgreSQL role that reads
+stores, a judge grizzle generates from the query, which runs it once at COMMIT over the rows the transaction wrote. Each role becomes a PostgreSQL role that reads
 through views of its own, under row-level security where it writes only some rows.
 
 Every call is one transaction, SERIALIZABLE unless `grizzle generate` proved its role's writes safe at READ
@@ -1241,7 +1241,7 @@ The whole map, from what you declare to what PostgreSQL enforces for every write
 | `closed(...)` | a smallint domain that admits only live handles' codes, checked against an IMMUTABLE function returning the roster's names as `name[]`; for a `bits(...)` field over the roster, a `bit(n)` domain that admits only live handles, n its codes rounded up to whole hex digits |
 | `closed.relation(...)` | no table: content-addressed IMMUTABLE constants for each closed relation or side a rule or query reads, and a table CHECK for each rule that reads one from an open row ([Closed relations](#closed-relations)) |
 | a rule: `contained`, `key`, `check`, ... | a foreign key, unique key, no-overlap key or CHECK, over STORED generated columns where a side selects rows or reads `pred` |
-| a rule over a derived relation | a deferred constraint trigger on each table its query reads, whose function runs the rule's violation query over the rows a write touched ([Rules over queries](#rules-over-queries)) |
+| a rule over a derived relation | on each table its query reads, statement triggers that capture the rows each statement writes, and one deferred judge that runs the rule's violation query over them at COMMIT ([Rules over queries](#rules-over-queries)) |
 | a family: `ordered`, `counted`, `tree`, `fold` | the drawn and accumulated fields grizzle fills on every write, hidden columns beside them, and the keys, CHECKs and foreign keys that prove each value it fills |
 | `role(...)` | a NOLOGIN role with a schema of views and its grants; on each table some role writes through a query entry that leaves rows out, row-level security and a policy for each role that writes it |
 | `login(...)` | a LOGIN NOINHERIT role that can switch to its roles, holds no privilege on your tables, and pins the session settings grizzle's guarantees rest on |
@@ -2127,21 +2127,24 @@ definition too.
   itself. A family and a fold read tables only.
 - **Judged live.** A rule reads its query as the tables stand at commit, `derived.materialized(...)` included: never
   its view's rows, and never as of a refresh.
-- **What PostgreSQL gets.** A rule that reads only tables is a constraint, as above. A rule that reads a query is, on
-  each table the query reads, a deferred constraint trigger, `DEFERRABLE INITIALLY DEFERRED` and row by row, for the
-  writes that can break it: for a containment, a write that adds rows to its source or takes rows from its target,
-  and so also a delete from a table its source negates and an insert into one its target negates.
-  Its function runs the rule's violation query, compiled by grizzle's own query compiler, over the rows the write
-  touched, and raises 23503 for a containment, 23505 for a key and 23514 for a check, naming the rule. The functions
-  are SECURITY DEFINER on a pinned `search_path`, and no role may run them.
+- **What PostgreSQL gets.** A rule that reads only tables is a constraint, as above. A rule that reads a query is
+  judged once per transaction, over the rows it wrote. On each table the query reads, an AFTER statement trigger for
+  each write that can break it copies the statement's rows into a temporary table of the session: for a containment,
+  a write that adds rows to its source or takes rows from its target, and so also a delete from a table its source
+  negates and an insert into one its target negates. The copy arms a deferred constraint trigger, `DEFERRABLE
+  INITIALLY DEFERRED`, whose function, the judge, runs at COMMIT: each rule's violation query, compiled by grizzle's
+  own query compiler, read once over every row the transaction wrote, a chain of index lookups from those rows. It
+  raises 23503 for a containment, 23505 for a key and 23514 for a check, naming the rule. After `SET CONSTRAINTS ALL
+  IMMEDIATE` the judge runs at the end of each statement. The functions are SECURITY DEFINER on a pinned
+  `search_path`, no role may run them, and a temporary table another role made under the judge's names is refused.
 - **Outcomes.** A write's `once` fails with `refused` naming the rule, its witness `unreported`: the row that breaks
   it may be one the transaction never wrote.
-- **Concurrent writers.** Every writer is SERIALIZABLE, so PostgreSQL orders each trigger's reads against the writes
+- **Concurrent writers.** Every writer is SERIALIZABLE, so PostgreSQL orders the judge's reads against the writes
   it does not see: two transactions that each keep a rule and together break it never both commit, and one fails with
   40001.
 - **Migrations.** A migration that adds a rule over a query, or changes one, runs its violation query over the stored
   rows, and fails where a row breaks it, as it validates a foreign key.
-- **TRUNCATE** fires no row trigger, so a rule over a query does not judge a TRUNCATE of a table it reads. grizzle
+- **TRUNCATE** fires no capture, so a rule over a query does not judge a TRUNCATE of a table it reads. grizzle
   never truncates and no role may; a direct writer who truncates such a table answers for the rule itself.
 
 ### Families
@@ -3645,8 +3648,8 @@ statement's. The role is certified READ COMMITTED when all of these hold, and st
   up to the insert read other calls' rows.
 - **No SERIALIZABLE role writes what it writes.** The table's guard would refuse every one of its writes.
 - **No SERIALIZABLE writer of what it reads can miss another call's write.** Every role that runs SERIALIZABLE and
-  writes a relation the role reads (by a statement, a foreign key check, or the trigger of a rule over a query its
-  write fires) reads no row another call can write, makes
+  writes a relation the role reads (by a statement, a foreign key check, or the judge of a rule over a query its
+  write arms) reads no row another call can write, makes
   no foreign key check but one that finds an immutable row (of a relation every role only inserts into, by a whole
   declared key, or of a relation no role writes), and writes no relation a rule over a query reads, unless the role
   reads the relation by foreign key checks alone and the writer's login fences it (below).

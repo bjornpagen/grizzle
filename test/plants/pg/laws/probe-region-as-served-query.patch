@@ -1,12 +1,11 @@
 diff --git a/packages/engine/src/physical/ddl/rules.ts b/packages/engine/src/physical/ddl/rules.ts
-index d78156ea..43ecf3f2 100644
 --- a/packages/engine/src/physical/ddl/rules.ts
 +++ b/packages/engine/src/physical/ddl/rules.ts
-@@ -269,7 +269,7 @@ const compileProbe = (
+@@ -126,7 +126,7 @@
  			Result.flatMap(optimizedInput(checked, queryEvidence), (annotated) =>
  				lowerOptimized(annotated, {
  					names: b.names,
--					subject: { kind: "ruleProbe" },
+-					subject: { kind: "ruleRegion", deltas },
 +					subject: { kind: "query" },
  					context: "transaction",
  					catalog

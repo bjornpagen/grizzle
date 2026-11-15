@@ -27,6 +27,17 @@
  *   taking its snapshot, commits a ChangeSet through grizzle's served write while both are open, then runs both SQL
  *   writers' statements, both open before either commits, and reads every table back: the state committed keeps every
  *   rule, whichever of them PostgreSQL refused, by a rule or by a serialization failure.
+ * - **The judge's session:** the installation holds every rule by the set judge (physical/ddl/rules.ts addRules): each
+ *   statement's rows captured into the session's deltas, every rule's probes run over them at COMMIT. After each
+ *   transaction, the writer's session holds no row in any table of its own pg_temp, a delta's or the sentinel's.
+ * - **SET CONSTRAINTS ALL IMMEDIATE:** a direct SQL transaction may issue it at a drawn place among its writes. The
+ *   state at that point and after every statement from it on must keep every rule, or the transaction is refused at the
+ *   first statement that leaves a broken state; past it, the judge runs after each statement and must arm again.
+ * - **A login's own pg_temp tables (a tamper):** a transaction of the installation's full-world login, after a
+ *   judged write it committed and a DISCARD TEMP, creates a table of its own under the name of every delta the judge's
+ *   captures write, grants it to the judge's definer, writes, and empties each before COMMIT. A write the judge captures
+ *   is then refused with insufficient_privilege, and the state is as before. A tamper whose writes the judge captures
+ *   none of (an insert into a table only a target reads) commits only where the state it leaves keeps every rule.
  *
  * Each case draws a history of transactions, by direct SQL or by grizzle, from coherent clusters (an R, S, U, T and W
  * row that keep every rule together), lonely rows (an R row with its V row), single inserts, deletes and, by SQL,
@@ -35,6 +46,9 @@
  * one transaction while V may still hold its id: the two situations a target probe's relaxation exists for, which the
  * search requires. A lonely row and a single insert come with or without the marks they move, and the end of a lonely
  * row always with them, so a marked lonely row keeps every rule and its end, alone in its k, breaks vLonely alone. A
+ * direct SQL transaction may also set savepoints and roll back to the latest, update a W row's note, which no rule
+ * reads, and insert several clusters at once, each of which may omit its T or its W row, so none, one or several of
+ * them break source2 or semi. A
  * transaction may also mark a negation's rows as they stand at that point (a sync), mark a picked row of one, remove a
  * picked mark, or list the k of a marked row of Unlisted no S row shares: an S row whose b is 1 and a W row of its k
  * inserted at once, each blocking the row through a negated arm of its own, with the rows every other rule then needs
@@ -52,8 +66,8 @@
  * other two, so each has a history constructed to reach it (constructed), which a witness runs where its turn aims at
  * it (aimedCase).
  *
- * @plant test/plants/pg/laws/rule-query-no-trigger-on-a-table.patch no trigger on the first table each rule reads
- * (physical/ddl/rules.ts addRules), so a write there alone that breaks the rule commits; the search fails.
+ * @plant test/plants/pg/laws/rule-query-no-capture-on-a-table.patch no capture of the first table each rule reads
+ * (physical/ddl/rules.ts judgedTables), so a write there alone that breaks the rule commits; the search fails.
  * @plant test/plants/pg/laws/rule-query-new-probe-first-occurrence-only.patch a NEW probe for the first occurrence
  * alone of the written relation in an arm, which misses the self-join; the search fails.
  * @plant test/plants/pg/laws/rule-query-key-every-field-differs.patch a key over a query whose probe's violation needs
@@ -77,15 +91,38 @@
  * which commits a marked row listed through both negations of its arm at once; the search fails.
  * @plant test/plants/pg/laws/rule-query-conjunction-negation-read-whole.patch a conjunction holding a negation read
  * whole, so the installation refuses Quiet (UnsupportedLawFamily) and the test fails at its install.
+ * @plant test/plants/pg/laws/judge-omits-a-law.patch the judge runs no probe of the rule first in trigger-name order;
+ * the search fails.
+ * @plant test/plants/pg/laws/judge-capture-drops-olds.patch no capture of a DELETE's rows or an UPDATE's old ones, so
+ * no OLD probe reads a row; the search fails.
+ * @plant test/plants/pg/laws/judge-no-rearm.patch the judge leaves the sentinel's row, so no statement past SET
+ * CONSTRAINTS ALL IMMEDIATE arms it again; the search fails.
+ * @plant test/plants/pg/laws/judge-deltas-preserve-rows.patch the deltas are ON COMMIT PRESERVE ROWS, so a session
+ * holds a transaction's rows past its end; the search fails.
+ * @plant test/plants/pg/laws/judge-at-statement-end.patch the sentinel's trigger is NOT DEFERRABLE, so the judge runs
+ * at the end of the statement that arms it, not at COMMIT; the search fails.
+ * @plant test/plants/pg/laws/judge-no-owner-check.patch no capture and no judge checks who owns a delta, so a login's
+ * own pg_temp table under its name takes the rows; the search fails.
+ * @plant test/plants/pg/laws/judge-region-other-side.patch a probe over its region reads the other side's delta,
+ * delta.removed for NEW and delta.added for OLD (analysis/theory/query.ts regionQuery); the search fails.
  */
 import { drawn, explore, type Case as Search } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
-import { array, element, type Gen, int, type Weighted, weighted } from "@bjornpagen/testing/gen"
+import {
+	array,
+	constant,
+	element,
+	type Gen,
+	int,
+	type Weighted,
+	weighted
+} from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Data, Effect, Formatter, Layer, Option, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { constraintLaw } from "#compiler/ir/products.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -101,24 +138,28 @@ import {
 	schema,
 	select
 } from "#compiler/public/schema.ts"
+import type { ColumnDefinition, PlStatement } from "#compiler/sql/ast.ts"
+import { printType, quoteIdent } from "#compiler/sql/print.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
-import { installMigrated } from "#test/support/install-migrate.ts"
+import type { Moment } from "#test/support/families/mutate.ts"
+import { type Installed, installMigrated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { servedFixture } from "#test/support/served-db.ts"
-import { attempt, momentText, refusalOf, refusalText } from "#test/support/substrate.ts"
-import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { attempt, momentText, refusalOf, refusalText, sameMoment } from "#test/support/substrate.ts"
+import type { RawSession } from "#test/support/substrate/session.ts"
+import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 const R = relation("R", { id: pg.integer, k: pg.integer, a: pg.integer }, ["id"])
 const S = relation("S", { id: pg.integer, k: pg.integer, b: pg.integer }, ["id"])
 const U = relation("U", { id: pg.integer, a: pg.integer, b: pg.integer }, ["id"])
 const T = relation("T", { a: pg.integer, b: pg.integer }, ["a", "b"])
-const W = relation("W", { id: pg.integer, k: pg.integer }, ["id"])
+const W = relation("W", { id: pg.integer, k: pg.integer, note: pg.integer }, ["id"])
 const V = relation("V", { id: pg.integer }, ["id"])
 const N = relation("N", { form: pg.integer, id: pg.integer }, ["form", "id"])
 
@@ -363,7 +404,8 @@ interface State {
 	readonly S: ReadonlyMap<number, { readonly k: number; readonly b: number }>
 	readonly U: ReadonlyMap<number, { readonly a: number; readonly b: number }>
 	readonly T: ReadonlyMap<string, readonly [number, number]>
-	readonly W: ReadonlyMap<number, { readonly k: number }>
+	/** Each W row's k and its note, which no rule reads. */
+	readonly W: ReadonlyMap<number, { readonly k: number; readonly note: number }>
 	readonly V: ReadonlyMap<number, number>
 	/** The marks, each a negation's code and a row's id, by both. */
 	readonly N: ReadonlyMap<string, readonly [number, number]>
@@ -513,10 +555,24 @@ type Edit =
 	| { readonly kind: "unpair"; readonly pick: number }
 	| { readonly kind: "mark"; readonly form: Form; readonly pick: number }
 	| { readonly kind: "unmark"; readonly pick: number }
+	| { readonly kind: "clusters"; readonly clusters: ReadonlyArray<Cluster> }
 
 /**
- * One write of a direct SQL writer's transaction: an edit, an UPDATE of one field of a picked row, or the shift of a
- * picked J2 fact's W rows, whose b is 1, to another k a J3 fact holds, which leaves the fact's k without a W row.
+ * A cluster of `clusters`: an R, S, U, T and W row that keep every rule together, less the row `omit` names, whose
+ * absence breaks source2 where it omits T and semi where it omits W, unless another row holds what it would have.
+ */
+interface Cluster {
+	readonly k: number
+	readonly a: number
+	readonly b: number
+	readonly omit: "none" | "T" | "W"
+}
+
+/**
+ * One write of a direct SQL writer's transaction: an edit, an UPDATE of one field of a picked row, the shift of a
+ * picked J2 fact's W rows, whose b is 1, to another k a J3 fact holds, which leaves the fact's k without a W row, an
+ * UPDATE of a picked W row's note, which no rule reads, a SAVEPOINT, a ROLLBACK TO the latest one, or SET CONSTRAINTS ALL
+ * IMMEDIATE, after which every statement is judged at its end.
  */
 type Op =
 	| Edit
@@ -528,6 +584,10 @@ type Op =
 			readonly value: number
 	  }
 	| { readonly kind: "shift"; readonly pick: number }
+	| { readonly kind: "renote"; readonly pick: number; readonly value: number }
+	| { readonly kind: "savepoint" }
+	| { readonly kind: "rollbackTo" }
+	| { readonly kind: "immediate" }
 
 const rels: Arr.NonEmptyReadonlyArray<Rel> = ["R", "S", "U", "W"]
 const deleted: Arr.NonEmptyReadonlyArray<Deleted> = [...rels, "V"]
@@ -564,10 +624,34 @@ const edits: Arr.NonEmptyReadonlyArray<Weighted<Edit>> = [
 	[2, () => ({ kind: "sync" })],
 	[2, (s) => ({ kind: "list", pick: s.draw(int(0, 9)) })],
 	[1, (s) => ({ kind: "mark", form: s.draw(element(forms)), pick: s.draw(int(0, 9)) })],
-	[1, (s) => ({ kind: "unmark", pick: s.draw(int(0, 9)) })]
+	[1, (s) => ({ kind: "unmark", pick: s.draw(int(0, 9)) })],
+	[
+		2,
+		(s) => ({
+			kind: "clusters",
+			clusters: s.draw(
+				array(
+					(t): Cluster => ({
+						k: t.draw(int(0, 3)),
+						a: t.draw(int(0, 3)),
+						b: t.draw(int(0, 3)),
+						omit: t.draw(
+							weighted<Cluster["omit"]>([
+								[2, constant("none")],
+								[1, constant("T")],
+								[1, constant("W")]
+							])
+						)
+					}),
+					{ min: 2, max: 5 }
+				)
+			)
+		})
+	]
 ]
 
-const opGen: Gen<Op> = weighted<Op>([
+/** The writes of a direct SQL writer but its savepoints and SET CONSTRAINTS ALL IMMEDIATE. */
+const writeOps: Arr.NonEmptyReadonlyArray<Weighted<Op>> = [
 	...edits,
 	[
 		2,
@@ -579,20 +663,53 @@ const opGen: Gen<Op> = weighted<Op>([
 			value: s.draw(int(0, 2))
 		})
 	],
-	[1, (s) => ({ kind: "shift", pick: s.draw(int(0, 9)) })]
+	[1, (s) => ({ kind: "shift", pick: s.draw(int(0, 9)) })],
+	[1, (s) => ({ kind: "renote", pick: s.draw(int(0, 9)), value: s.draw(int(1, 3)) })]
+]
+
+const opGen: Gen<Op> = weighted<Op>(writeOps)
+
+/** A deferred transaction's writes, savepoints and rollbacks to them among them. */
+const deferredGen: Gen<ReadonlyArray<Op>> = array(
+	weighted<Op>([
+		...writeOps,
+		[2, () => ({ kind: "savepoint" })],
+		[2, () => ({ kind: "rollbackTo" })]
+	]),
+	{ min: 1, max: 6 }
+)
+
+/** Writes with SET CONSTRAINTS ALL IMMEDIATE among them, at a drawn place, and no savepoint. */
+const immediateGen: Gen<ReadonlyArray<Op>> = (s) => {
+	const ops = s.draw(array(opGen, { min: 1, max: 4 }))
+	const at = s.draw(int(0, ops.length))
+	return [...ops.slice(0, at), { kind: "immediate" }, ...ops.slice(at)]
+}
+
+const sqlGen: Gen<ReadonlyArray<Op>> = weighted<ReadonlyArray<Op>>([
+	[3, (s) => s.draw(deferredGen)],
+	[1, (s) => s.draw(immediateGen)]
 ])
 
-const sqlGen: Gen<ReadonlyArray<Op>> = array(opGen, { min: 1, max: 4 })
+/** The concurrent writers' statements: writes alone, judged at COMMIT. */
+const concurrentGen: Gen<ReadonlyArray<Op>> = array(opGen, { min: 1, max: 4 })
 const grizzleGen: Gen<ReadonlyArray<Edit>> = array(weighted(edits), { min: 1, max: 4 })
 
-/** A transaction of the serial history: direct SQL statements, or one ChangeSet grizzle's served write applies. */
+/**
+ * A transaction of the serial history: direct SQL statements, one ChangeSet grizzle's served write applies, or a
+ * tamper: direct SQL writes by a login over the installation that, after a judged write it committed and a
+ * DISCARD TEMP, created every delta the judge names as a table of its own first, granted it to the judge's definer, and
+ * empties each before COMMIT.
+ */
 type Transaction =
 	| { readonly writer: "sql"; readonly ops: ReadonlyArray<Op> }
 	| { readonly writer: "grizzle"; readonly ops: ReadonlyArray<Edit> }
+	| { readonly writer: "tamper"; readonly ops: ReadonlyArray<Edit> }
 
 const transactionGen: Gen<Transaction> = weighted<Transaction>([
-	[2, (s) => ({ writer: "sql", ops: s.draw(sqlGen) })],
-	[1, (s) => ({ writer: "grizzle", ops: s.draw(grizzleGen) })]
+	[4, (s) => ({ writer: "sql", ops: s.draw(sqlGen) })],
+	[2, (s) => ({ writer: "grizzle", ops: s.draw(grizzleGen) })],
+	[1, (s) => ({ writer: "tamper", ops: s.draw(grizzleGen) })]
 ])
 
 /**
@@ -610,7 +727,11 @@ interface RuleCase {
 
 const caseGen: Gen<RuleCase> = (s) => ({
 	history: s.draw(array(transactionGen, { min: 1, max: 6 })),
-	concurrent: { first: s.draw(sqlGen), second: s.draw(sqlGen), grizzle: s.draw(grizzleGen) }
+	concurrent: {
+		first: s.draw(concurrentGen),
+		second: s.draw(concurrentGen),
+		grizzle: s.draw(grizzleGen)
+	}
 })
 
 type Feature =
@@ -626,6 +747,15 @@ type Feature =
 	| "a row brought back to Unpaired by an S row and its U rows deleted at once"
 	| "a grizzle write committed"
 	| "a grizzle write refused by a rule"
+	| "refused at a statement past SET CONSTRAINTS ALL IMMEDIATE"
+	| "committed past SET CONSTRAINTS ALL IMMEDIATE"
+	| "a write rolled back to a savepoint"
+	| "a note no rule reads updated"
+	| "clusters with none omitting a row"
+	| "clusters with one omitting a row"
+	| "clusters with several omitting a row"
+	| "a tamper refused"
+	| "a tamper whose writes break a rule refused"
 	| "concurrent writers all committed"
 	| "concurrent writer refused"
 	| "concurrent writer refused by a serialization failure"
@@ -717,7 +847,10 @@ const picked = <V>(
  * of Unlisted whose k it lists through both negated arms of Unlisted's one arm at once, keeping its mark, the id of
  * each marked row of Unpaired a U row it inserts pairs through an S row already standing, keeping its mark, and the id
  * of each row it brings back to Unpaired by deleting the one S row of its k and the U rows that pair it at once,
- * leaving it unmarked.
+ * leaving it unmarked. Past a SET CONSTRAINTS ALL IMMEDIATE, each statement from it on is judged at its end:
+ * `immediate` holds, for each, its index and the rules the state it leaves breaks. Beside them, what the transaction
+ * did that the search requires: the rows it rolled back to a savepoint, the notes it changed, and the clusters it
+ * inserted with the rules each breaks alone.
  */
 interface Resolved {
 	readonly statements: ReadonlyArray<string>
@@ -727,6 +860,13 @@ interface Resolved {
 	readonly listed: ReadonlyArray<number>
 	readonly paired: ReadonlyArray<number>
 	readonly unpaired: ReadonlyArray<number>
+	readonly immediate: ReadonlyArray<{
+		readonly index: number
+		readonly breaks: ReadonlyArray<Rule>
+	}>
+	readonly rolledBack: boolean
+	readonly renoted: boolean
+	readonly clusters: ReadonlyArray<ReadonlyArray<Cluster>>
 }
 
 /** Fresh primary keys, one counter per relation, shared by every session of a case. */
@@ -735,6 +875,35 @@ class Keys {
 	fresh(): number {
 		return this.#next++
 	}
+}
+
+/**
+ * The verdict a direct SQL transaction must have: committed where no statement judged at its end and not the state it
+ * leaves breaks a rule; else refused at the first statement past SET CONSTRAINTS ALL IMMEDIATE that leaves a broken
+ * state, or at COMMIT, by a rule that state breaks.
+ */
+type Expected =
+	| { readonly kind: "committed" }
+	| {
+			readonly kind: "refused"
+			readonly moment: Moment
+			readonly breaks: Arr.NonEmptyReadonlyArray<Rule>
+	  }
+
+const expectedOf = (t: Resolved): Expected => {
+	for (const check of t.immediate) {
+		if (Arr.isReadonlyArrayNonEmpty(check.breaks)) {
+			return {
+				kind: "refused",
+				moment: { kind: "statement", index: check.index },
+				breaks: check.breaks
+			}
+		}
+	}
+	const breaks = broken(t.after)
+	return Arr.isReadonlyArrayNonEmpty(breaks)
+		? { kind: "refused", moment: { kind: "commit" }, breaks }
+		: { kind: "committed" }
 }
 
 const resolve = (
@@ -756,39 +925,66 @@ const resolve = (
 	const listed: Array<number> = []
 	const paired: Array<number> = []
 	const unpaired: Array<number> = []
+	const immediate: Array<{ readonly index: number; readonly breaks: ReadonlyArray<Rule> }> = []
+	const clusters: Array<ReadonlyArray<Cluster>> = []
+	const savepoints: Array<State> = []
+	let rolledBack = false
+	let renoted = false
+	const now = (): State => ({ R, S, U, T: Tr, W: Wr, V: Vr, N: Nr })
+	/** Appends a statement, judged at its end once the transaction is past SET CONSTRAINTS ALL IMMEDIATE. */
+	const emit = (sql: string): void => {
+		statements.push(sql)
+		if (immediate.length > 0 || sql === immediateSql) {
+			immediate.push({ index: statements.length - 1, breaks: broken(now()) })
+		}
+	}
+	/** Every relation as `state` holds it. */
+	const restore = (state: State): void => {
+		const refill = <K, V>(into: Map<K, V>, from: ReadonlyMap<K, V>): void => {
+			into.clear()
+			for (const [k, v] of from) {
+				into.set(k, v)
+			}
+		}
+		refill(R, state.R)
+		refill(S, state.S)
+		refill(U, state.U)
+		refill(Tr, state.T)
+		refill(Wr, state.W)
+		refill(Vr, state.V)
+		refill(Nr, state.N)
+	}
 	const insertRow = (relation: Rel, id: number, x: number, y: number): void => {
 		switch (relation) {
 			case "R":
 				R.set(id, { k: x, a: y })
-				statements.push(`INSERT INTO ${table("R")} (id, k, a) VALUES (${id}, ${x}, ${y})`)
+				emit(`INSERT INTO ${table("R")} (id, k, a) VALUES (${id}, ${x}, ${y})`)
 				return
 			case "S":
 				S.set(id, { k: x, b: y })
-				statements.push(`INSERT INTO ${table("S")} (id, k, b) VALUES (${id}, ${x}, ${y})`)
+				emit(`INSERT INTO ${table("S")} (id, k, b) VALUES (${id}, ${x}, ${y})`)
 				return
 			case "U":
 				U.set(id, { a: x, b: y })
-				statements.push(`INSERT INTO ${table("U")} (id, a, b) VALUES (${id}, ${x}, ${y})`)
+				emit(`INSERT INTO ${table("U")} (id, a, b) VALUES (${id}, ${x}, ${y})`)
 				return
 			case "W":
-				Wr.set(id, { k: x })
-				statements.push(`INSERT INTO ${table("W")} (id, k) VALUES (${id}, ${x})`)
+				Wr.set(id, { k: x, note: 0 })
+				emit(`INSERT INTO ${table("W")} (id, k, note) VALUES (${id}, ${x}, 0)`)
 				return
 		}
 	}
 	const insertT = (a: number, b: number): void => {
 		Tr.set(pair(a, b), [a, b])
-		statements.push(`INSERT INTO ${table("T")} (a, b) VALUES (${a}, ${b}) ON CONFLICT DO NOTHING`)
+		emit(`INSERT INTO ${table("T")} (a, b) VALUES (${a}, ${b}) ON CONFLICT DO NOTHING`)
 	}
 	const mark = (form: number, id: number): void => {
 		Nr.set(markKey(form, id), [form, id])
-		statements.push(
-			`INSERT INTO ${table("N")} (form, id) VALUES (${form}, ${id}) ON CONFLICT DO NOTHING`
-		)
+		emit(`INSERT INTO ${table("N")} (form, id) VALUES (${form}, ${id}) ON CONFLICT DO NOTHING`)
 	}
 	const unmark = (form: number, id: number): void => {
 		Nr.delete(markKey(form, id))
-		statements.push(`DELETE FROM ${table("N")} WHERE form = ${form} AND id = ${id}`)
+		emit(`DELETE FROM ${table("N")} WHERE form = ${form} AND id = ${id}`)
 	}
 	/** Marks the rows of each of `marked`'s negations as they stand, and unmarks every other mark of theirs. */
 	const marking = (marked: ReadonlyArray<Form>): void => {
@@ -835,7 +1031,7 @@ const resolve = (
 		relation === "R" ? R : relation === "S" ? S : relation === "U" ? U : relation === "W" ? Wr : Vr
 	const deleteRow = (relation: Deleted, id: number): void => {
 		rowsOf(relation).delete(id)
-		statements.push(`DELETE FROM ${table(relation)} WHERE id = ${id}`)
+		emit(`DELETE FROM ${table(relation)} WHERE id = ${id}`)
 	}
 	for (const op of ops) {
 		switch (op.kind) {
@@ -861,7 +1057,7 @@ const resolve = (
 				writing(op.marked, () => {
 					insertRow("R", id, op.k, op.a)
 					Vr.set(id, id)
-					statements.push(`INSERT INTO ${table("V")} (id) VALUES (${id})`)
+					emit(`INSERT INTO ${table("V")} (id) VALUES (${id})`)
 				})
 				break
 			}
@@ -881,7 +1077,7 @@ const resolve = (
 				if (at !== undefined) {
 					const [key, [a, b]] = at
 					Tr.delete(key)
-					statements.push(`DELETE FROM ${table("T")} WHERE a = ${a} AND b = ${b}`)
+					emit(`DELETE FROM ${table("T")} WHERE a = ${a} AND b = ${b}`)
 				}
 				break
 			}
@@ -896,31 +1092,27 @@ const resolve = (
 					case "R": {
 						const r = defined(R.get(at), "a picked row")
 						R.set(at, op.second ? { ...r, a: v } : { ...r, k: v })
-						statements.push(
-							`UPDATE ${table("R")} SET ${op.second ? "a" : "k"} = ${v} WHERE id = ${at}`
-						)
+						emit(`UPDATE ${table("R")} SET ${op.second ? "a" : "k"} = ${v} WHERE id = ${at}`)
 						break
 					}
 					case "S": {
 						const r = defined(S.get(at), "a picked row")
 						S.set(at, op.second ? { ...r, b: v } : { ...r, k: v })
-						statements.push(
-							`UPDATE ${table("S")} SET ${op.second ? "b" : "k"} = ${v} WHERE id = ${at}`
-						)
+						emit(`UPDATE ${table("S")} SET ${op.second ? "b" : "k"} = ${v} WHERE id = ${at}`)
 						break
 					}
 					case "U": {
 						const r = defined(U.get(at), "a picked row")
 						U.set(at, op.second ? { ...r, b: v } : { ...r, a: v })
-						statements.push(
-							`UPDATE ${table("U")} SET ${op.second ? "b" : "a"} = ${v} WHERE id = ${at}`
-						)
+						emit(`UPDATE ${table("U")} SET ${op.second ? "b" : "a"} = ${v} WHERE id = ${at}`)
 						break
 					}
-					case "W":
-						Wr.set(at, { k: v })
-						statements.push(`UPDATE ${table("W")} SET k = ${v} WHERE id = ${at}`)
+					case "W": {
+						const w = defined(Wr.get(at), "a picked row")
+						Wr.set(at, { ...w, k: v })
+						emit(`UPDATE ${table("W")} SET k = ${v} WHERE id = ${at}`)
 						break
+					}
 				}
 				break
 			}
@@ -934,8 +1126,8 @@ const resolve = (
 				}
 				for (const [id, w] of Wr) {
 					if (w.k === fact.k) {
-						Wr.set(id, { k: to.value.k })
-						statements.push(`UPDATE ${table("W")} SET k = ${to.value.k} WHERE id = ${id}`)
+						Wr.set(id, { ...w, k: to.value.k })
+						emit(`UPDATE ${table("W")} SET k = ${to.value.k} WHERE id = ${id}`)
 					}
 				}
 				break
@@ -1084,6 +1276,56 @@ const resolve = (
 				}
 				break
 			}
+			case "clusters": {
+				for (const c of op.clusters) {
+					const id = keys.fresh()
+					insertRow("R", id, c.k, c.a)
+					insertRow("S", keys.fresh(), c.k, c.b)
+					insertRow("U", keys.fresh(), c.a, c.b)
+					if (c.omit !== "T") {
+						insertT(c.a, c.b)
+					}
+					if (c.omit !== "W") {
+						insertRow("W", id, c.k, 0)
+					}
+				}
+				clusters.push(op.clusters)
+				break
+			}
+			case "renote": {
+				const found = picked(Wr, op.pick)
+				if (Option.isSome(found)) {
+					const [id, w] = found.value
+					renoted = renoted || w.note !== op.value
+					Wr.set(id, { ...w, note: op.value })
+					emit(`UPDATE ${table("W")} SET note = ${op.value} WHERE id = ${id}`)
+				}
+				break
+			}
+			case "savepoint":
+				savepoints.push({
+					R: new Map(R),
+					S: new Map(S),
+					U: new Map(U),
+					T: new Map(Tr),
+					W: new Map(Wr),
+					V: new Map(Vr),
+					N: new Map(Nr)
+				})
+				emit(`SAVEPOINT s${savepoints.length}`)
+				break
+			case "rollbackTo": {
+				const last = savepoints.at(-1)
+				if (last !== undefined) {
+					rolledBack = rolledBack || !unchanged(last, now())
+					restore(last)
+					emit(`ROLLBACK TO SAVEPOINT s${savepoints.length}`)
+				}
+				break
+			}
+			case "immediate":
+				emit(immediateSql)
+				break
 			case "unwind": {
 				const facts = j3({ R, S, U, T: Tr, W: Wr, V: Vr, N: Nr })
 				const fact = facts.length === 0 ? undefined : facts[op.pick % facts.length]
@@ -1112,12 +1354,16 @@ const resolve = (
 	}
 	return {
 		statements,
-		after: { R, S, U, T: Tr, W: Wr, V: Vr, N: Nr },
+		after: now(),
 		unwound,
 		withdrawn,
 		listed,
 		paired,
-		unpaired
+		unpaired,
+		immediate,
+		rolledBack,
+		renoted,
+		clusters
 	}
 }
 
@@ -1132,7 +1378,7 @@ const readState = <E>(
 		const s = yield* values(`SELECT id, k, b FROM ${table("S")}`)
 		const u = yield* values(`SELECT id, a, b FROM ${table("U")}`)
 		const t = yield* values(`SELECT a, b FROM ${table("T")}`)
-		const w = yield* values(`SELECT id, k FROM ${table("W")}`)
+		const w = yield* values(`SELECT id, k, note FROM ${table("W")}`)
 		const vs = yield* values(`SELECT id FROM ${table("V")}`)
 		const ns = yield* values(`SELECT form, id FROM ${table("N")}`)
 		return {
@@ -1140,7 +1386,7 @@ const readState = <E>(
 			S: new Map(Arr.map(s, (x) => [n(x[0]), { k: n(x[1]), b: n(x[2]) }] as const)),
 			U: new Map(Arr.map(u, (x) => [n(x[0]), { a: n(x[1]), b: n(x[2]) }] as const)),
 			T: new Map(Arr.map(t, (x) => [pair(n(x[0]), n(x[1])), [n(x[0]), n(x[1])] as const] as const)),
-			W: new Map(Arr.map(w, (x) => [n(x[0]), { k: n(x[1]) }] as const)),
+			W: new Map(Arr.map(w, (x) => [n(x[0]), { k: n(x[1]), note: n(x[2]) }] as const)),
 			V: new Map(Arr.map(vs, (x) => [n(x[0]), n(x[0])] as const)),
 			N: new Map(
 				Arr.map(ns, (x) => [markKey(n(x[0]), n(x[1])), [n(x[0]), n(x[1])] as const] as const)
@@ -1165,7 +1411,7 @@ const factsOf = (before: State, after: State) => {
 		S: Arr.map(added(from.S, to.S), ([id, x]) => ({ id, k: x.k, b: x.b })),
 		U: Arr.map(added(from.U, to.U), ([id, u]) => ({ id, a: u.a, b: u.b })),
 		T: Arr.map(added(from.T, to.T), ([, [a, b]]) => ({ a, b })),
-		W: Arr.map(added(from.W, to.W), ([id, w]) => ({ id, k: w.k })),
+		W: Arr.map(added(from.W, to.W), ([id, w]) => ({ id, k: w.k, note: w.note })),
 		V: Arr.map(added(from.V, to.V), ([id]) => ({ id })),
 		N: Arr.map(added(from.N, to.N), ([, [form, id]]) => ({ form, id }))
 	})
@@ -1231,72 +1477,172 @@ const alone = (
 	]
 }
 
+/** The statement after which every check is judged at the end of each statement. */
+const immediateSql = "SET CONSTRAINTS ALL IMMEDIATE"
+
 /** A serialization failure's SQLSTATE. */
 const serializationFailure = "40001"
+
+/** A tamper's refusal: the judge's capture refuses a delta its definer does not own (physical/ddl/rules.ts foreign). */
+const insufficientPrivilege = "42501"
+
+/** Every PL/pgSQL statement of `body`, at any depth. */
+const plStatementsOf = (body: ReadonlyArray<PlStatement>): ReadonlyArray<PlStatement> =>
+	Arr.flatMap(body, (st): ReadonlyArray<PlStatement> => {
+		switch (st.kind) {
+			case "if":
+				return [
+					st,
+					...Arr.flatMap(st.branches, (b) => plStatementsOf(b.body)),
+					...plStatementsOf(st.else)
+				]
+			case "forQuery":
+				return [st, ...plStatementsOf(st.body)]
+			case "whenAbsent":
+				return [st, ...plStatementsOf(st.body)]
+			case "case":
+				return [st, ...Arr.flatMap(st.whens, (w) => plStatementsOf(w.body))]
+			case "assign":
+			case "perform":
+			case "lockRows":
+			case "modify":
+			case "createSessionTable":
+			case "createSessionTrigger":
+			case "raise":
+			case "return":
+				return [st]
+		}
+	})
+
+/**
+ * The session deltas an installation's rule captures create, each once: the tables of pg_temp of a column or more that
+ * its functions' CREATE TEMPORARY TABLE statements name (the sentinel has none). None for the per-row installation.
+ */
+const sessionDeltas = (
+	installed: Installed
+): ReadonlyArray<{ readonly name: string; readonly columns: ReadonlyArray<ColumnDefinition> }> =>
+	Arr.dedupeWith(
+		Arr.flatMap(installed.installation.statements, (st) =>
+			st.kind === "createFunction" && st.language === "plpgsql"
+				? Arr.flatMap(plStatementsOf(st.body.body), (pl) =>
+						pl.kind === "createSessionTable" && pl.columns.length > 0
+							? [{ name: pl.name, columns: pl.columns }]
+							: []
+					)
+				: []
+		),
+		(a, b) => a.name === b.name
+	)
+
+/**
+ * The schema installed through its first migration, with everything a case runs on it: its seat, whose owner session
+ * writes direct SQL; a second owner session; a session of the full world's login as its role, which writes the
+ * tampers; its served write; the rule a refusal names through the installation's own constraint map; the name the
+ * check over J3 reports; the deltas the judge's captures create; and the judge by its signature.
+ */
+const installJudged = (label: string) =>
+	Effect.gen(function* () {
+		const declared = ruleQuery("RuleQuery")
+		const done = yield* installMigrated(declared, {
+			ambient: ordinarySession,
+			label,
+			logins: [fullWorld(declared, {}).server],
+			extensions: []
+		})
+		const value = ruleQuery(done.schema)
+		const checkName = constraintNamesOf(value)({
+			kind: "check",
+			relation: "J3",
+			name: "NoTwoTwo"
+		})
+		const world = fullWorld(value, programsOf(value))
+		const seat = yield* seatOfInstalled(done, RELATIONS, label)
+		const served = yield* servedFixture(done, world.server)
+		const context = yield* Layer.build(served.layer)
+		const db = yield* Db.open(served.login.roles.app, {}).pipe(Effect.provideContext(context))
+		const substrate = yield* Substrate
+		const second = yield* substrate.session({ ...ownerSession(), label: `${label}_second` })
+		const writer = yield* substrate.session({
+			...worldSession(done.world(world.app)),
+			label: `${label}_writer`
+		})
+		const installation = seat.installed.installation
+		const tableRelation = (ident: string): string | undefined =>
+			Option.getOrUndefined(
+				Arr.findFirst(RELATIONS, (r) => installation.names.relation(r).name === ident)
+			)
+		/** The rule a refusal's raise reports, through the installation's constraint map. */
+		const refusedRule = (fields: {
+			readonly table: Option.Option<string>
+			readonly constraint: string | undefined
+		}): Rule | undefined => {
+			const relation = Option.isNone(fields.table) ? undefined : tableRelation(fields.table.value)
+			if (relation === undefined || fields.constraint === undefined) {
+				return undefined
+			}
+			const law = constraintLaw(
+				installation.constraintToLaw,
+				{ kind: "table", name: installation.names.relation(relation).name },
+				fields.constraint
+			)
+			const described = law === undefined ? undefined : installation.described.get(law)
+			return described === undefined ? undefined : ruleOf(described)
+		}
+		/** The ChangeSet taking `before` to `after`, applied by its served member as the application's login. */
+		const write = (before: State, after: State) =>
+			answered(db.workload.write.once({ params: {}, facts: factsOf(before, after) }))
+		return {
+			seat,
+			second,
+			writer,
+			write,
+			refusedRule,
+			checkName,
+			deltas: sessionDeltas(done),
+			judge: `${quoteIdent(installation.names.schema)}.${quoteIdent(identifierOf(identity.ruleJudge()))}()`
+		}
+	})
+
+/**
+ * The tables of a session's own temporary schema that hold a row: none at a transaction's end, where every delta and
+ * the sentinel are ON COMMIT DELETE ROWS and a rollback takes back what the transaction wrote.
+ */
+const heldSessionRows = (session: RawSession) =>
+	Effect.gen(function* () {
+		const names = yield* session.values(
+			"SELECT c.relname FROM pg_catalog.pg_class AS c WHERE c.relnamespace = pg_catalog.pg_my_temp_schema() AND c.relkind = 'r'",
+			[]
+		)
+		const held: Array<string> = []
+		for (const [name] of names) {
+			const counted = yield* session.values(
+				`SELECT count(*) FROM pg_temp.${quoteIdent(String(name))}`,
+				[]
+			)
+			if (Arr.some(counted, (row) => Number(row[0]) > 0)) {
+				held.push(String(name))
+			}
+		}
+		return held
+	})
 
 layer(Substrate.layer, { excludeTestServices: true })(
 	"rules over queries on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
-			"commit exactly the histories whose every state keeps every rule over a query, refusing the rest by the broken rule's trigger, and commit no broken state under concurrent writers",
+			"commit exactly the histories whose every state keeps every rule over a query, refusing the rest by the broken rule's name, at COMMIT or at the first statement past SET CONSTRAINTS ALL IMMEDIATE that breaks one, and commit no broken state under concurrent writers or a login's own pg_temp tables",
 			(ctx) =>
 				searched(
 					ctx,
 					Effect.gen(function* () {
-						const declared = ruleQuery("RuleQuery")
-						const done = yield* installMigrated(declared, {
-							ambient: ordinarySession,
-							label: "rule_query",
-							logins: [fullWorld(declared, {}).server],
-							extensions: []
-						})
-						const value = ruleQuery(done.schema)
-						/** The name a direct writer's refusal by the check over J3 reports, its triggers', taken from grizzle. */
-						const checkName = constraintNamesOf(value)({
-							kind: "check",
-							relation: "J3",
-							name: "NoTwoTwo"
-						})
-						const world = fullWorld(value, programsOf(value))
-						const seat = yield* seatOfInstalled(done, RELATIONS, "rule_query")
-						const served = yield* servedFixture(done, world.server)
-						const context = yield* Layer.build(served.layer)
-						const db = yield* Db.open(served.login.roles.app, {}).pipe(
-							Effect.provideContext(context)
+						const u = yield* installJudged("rule_query")
+						const definer = yield* Effect.map(
+							u.seat.session.values(
+								"SELECT pg_catalog.pg_get_userbyid(p.proowner) FROM pg_catalog.pg_proc AS p WHERE p.oid = pg_catalog.to_regprocedure($1)",
+								[u.judge]
+							),
+							(rows) => String(defined(rows[0], "the judge's owner")[0])
 						)
-						const substrate = yield* Substrate
-						const second = yield* substrate.session({
-							...ownerSession(),
-							label: "rule_query_second"
-						})
-						const installation = seat.installed.installation
-						/** The ChangeSet taking `before` to `after`, applied by its served member as the application's login. */
-						const write = (before: State, after: State) =>
-							answered(db.workload.write.once({ params: {}, facts: factsOf(before, after) }))
-						/** The rule a refusal's trigger reports, through the installation's constraint map. */
-						const refusedRule = (fields: {
-							readonly table: Option.Option<string>
-							readonly constraint: string | undefined
-						}): Rule | undefined => {
-							if (Option.isNone(fields.table) || fields.constraint === undefined) {
-								return undefined
-							}
-							const law = constraintLaw(
-								installation.constraintToLaw,
-								{
-									kind: "table",
-									name: installation.names.relation(tableRelation(fields.table.value)).name
-								},
-								fields.constraint
-							)
-							const described = law === undefined ? undefined : installation.described.get(law)
-							return described === undefined ? undefined : ruleOf(described)
-						}
-						const tableRelation = (ident: string): string =>
-							Option.getOrThrowWith(
-								Arr.findFirst(RELATIONS, (r) => installation.names.relation(r).name === ident),
-								() => new Error(`the table ${ident} of a relation of the schema`)
-							)
 						return yield* explore(
 							{
 								suite: "laws/rule-query",
@@ -1304,7 +1650,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								literal: Formatter.format,
 								oracle: {
 									kind: "specification",
-									name: "every rule restated over the rows: a transaction commits exactly when the state it leaves keeps every rule, and concurrent writers commit no state that breaks one"
+									name: "every rule restated over the rows: a transaction commits exactly when the state it leaves, and every state a statement past SET CONSTRAINTS ALL IMMEDIATE leaves, keeps every rule; a login's own pg_temp table under a delta's name is refused; and concurrent writers commit no state that breaks one"
 								},
 								coverage: required<Feature>(
 									[
@@ -1320,6 +1666,15 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										"a row brought back to Unpaired by an S row and its U rows deleted at once",
 										"a grizzle write committed",
 										"a grizzle write refused by a rule",
+										"refused at a statement past SET CONSTRAINTS ALL IMMEDIATE",
+										"committed past SET CONSTRAINTS ALL IMMEDIATE",
+										"a write rolled back to a savepoint",
+										"a note no rule reads updated",
+										"clusters with none omitting a row",
+										"clusters with one omitting a row",
+										"clusters with several omitting a row",
+										"a tamper refused",
+										"a tamper whose writes break a rule refused",
 										"concurrent writers all committed",
 										"concurrent writer refused",
 										"concurrent writer refused by a serialization failure"
@@ -1336,7 +1691,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							(drawnCase, c) =>
 								Effect.gen(function* () {
 									const rc = aimedCase(drawnCase, c)
-									yield* cleared(seat, RELATIONS)
+									yield* cleared(u.seat, RELATIONS)
 									const keys = new Keys()
 									let state: State = emptyState
 									const committed = (after: State): void => {
@@ -1355,14 +1710,103 @@ layer(Substrate.layer, { excludeTestServices: true })(
 											}
 										}
 									}
+									/** The situations a refused transaction reached, by the rules the state it leaves breaks. */
+									const refusalNotes = (
+										ops: ReadonlyArray<Op>,
+										t: Resolved,
+										breaks: ReadonlyArray<Rule>,
+										needed: boolean
+									): void => {
+										if (needed && breaks.includes("target3")) {
+											c.note("a fact unwound across tables while W needs it")
+										}
+										if (t.withdrawn.length > 0 && breaks.includes("vLonely")) {
+											c.note("a lonely row deleted and blocked at once while V needs it")
+										}
+										if (
+											t.listed.length > 0 &&
+											breaks.length === 1 &&
+											breaks.includes("nUnlisted")
+										) {
+											c.note("a marked row listed through both negations of its arm at once")
+										}
+										for (const situation of alone(ops, t, breaks)) {
+											c.note(situation)
+										}
+									}
+									const clusterNotes = (t: Resolved): void => {
+										for (const cs of t.clusters) {
+											const omitting = Arr.filter(cs, (x) => x.omit !== "none").length
+											c.note(
+												omitting === 0
+													? "clusters with none omitting a row"
+													: omitting === 1
+														? "clusters with one omitting a row"
+														: "clusters with several omitting a row"
+											)
+										}
+									}
 									for (const tx of rc.history) {
-										const t = resolve(tx.ops, state, keys, seat.table)
+										const t = resolve(tx.ops, state, keys, u.seat.table)
 										const breaks = broken(t.after)
 										const needed = Arr.some(t.unwound, (k) =>
 											Arr.some([...state.W.values()], (w) => w.k === k)
 										)
+										if (tx.writer === "tamper") {
+											const w = u.writer
+											const arming = yield* attempt(w, [
+												`DELETE FROM ${u.seat.table("R")} WHERE false`
+											])
+											yield* w.query("DISCARD TEMP", [])
+											for (const d of u.deltas) {
+												yield* w.query(
+													`CREATE TEMPORARY TABLE pg_temp.${quoteIdent(d.name)} (${Arr.join(
+														Arr.map(
+															d.columns,
+															(col) => `${quoteIdent(col.name)} ${printType(col.type)}`
+														),
+														", "
+													)})`,
+													[]
+												)
+												yield* w.query(
+													`GRANT ALL ON pg_temp.${quoteIdent(d.name)} TO ${quoteIdent(definer)}`,
+													[]
+												)
+											}
+											const verdict = yield* attempt(w, [
+												...t.statements,
+												...Arr.map(u.deltas, (d) => `DELETE FROM pg_temp.${quoteIdent(d.name)}`)
+											])
+											yield* w.query("DISCARD TEMP", [])
+											if (arming.kind !== "committed") {
+												return yield* new Disagreed({
+													message: `a tamper's judged write, which writes nothing, was refused ${momentText(arming.moment)} by ${refusalText(arming.fields)}`
+												})
+											}
+											if (verdict.kind === "refused") {
+												if (verdict.fields.code !== insufficientPrivilege) {
+													return yield* new Disagreed({
+														message: `a tamper over the judge's deltas was refused ${momentText(verdict.moment)} by ${refusalText(verdict.fields)}, where a write the judge captures into a login's table must be refused ${insufficientPrivilege}: ${Formatter.format(t.statements)}`
+													})
+												}
+												c.note("a tamper refused")
+												if (breaks.length > 0) {
+													c.note("a tamper whose writes break a rule refused")
+												}
+												clusterNotes(t)
+												continue
+											}
+											if (breaks.length > 0) {
+												return yield* new Disagreed({
+													message: `a tamper over the judge's deltas committed a state breaking ${Arr.join(breaks, ", ")}: ${Formatter.format(t.statements)}`
+												})
+											}
+											committed(t.after)
+											continue
+										}
 										if (tx.writer === "grizzle") {
-											const outcome = yield* write(state, t.after)
+											const outcome = yield* u.write(state, t.after)
 											if (outcome.kind === "accepted" || outcome.kind === "unchanged") {
 												if (
 													breaks.length > 0 ||
@@ -1399,69 +1843,65 @@ layer(Substrate.layer, { excludeTestServices: true })(
 												}
 											}
 											c.note("a grizzle write refused by a rule")
-											if (needed && breaks.includes("target3")) {
-												c.note("a fact unwound across tables while W needs it")
-											}
-											if (t.withdrawn.length > 0 && breaks.includes("vLonely")) {
-												c.note("a lonely row deleted and blocked at once while V needs it")
-											}
-											if (
-												t.listed.length > 0 &&
-												breaks.length === 1 &&
-												breaks.includes("nUnlisted")
-											) {
-												c.note("a marked row listed through both negations of its arm at once")
-											}
-											for (const situation of alone(tx.ops, t, breaks)) {
-												c.note(situation)
-											}
+											refusalNotes(tx.ops, t, breaks, needed)
 											continue
 										}
-										const verdict = yield* attempt(seat.session, t.statements)
+										const expected = expectedOf(t)
+										const verdict = yield* attempt(u.seat.session, t.statements)
 										if (verdict.kind === "committed") {
-											if (breaks.length > 0) {
+											if (expected.kind !== "committed") {
 												return yield* new Disagreed({
-													message: `committed a state breaking ${Arr.join(breaks, ", ")}: ${Formatter.format(t.statements)}`
+													message: `committed where it must be refused ${momentText(expected.moment)} by ${Arr.join(expected.breaks, ", ")}: ${Formatter.format(t.statements)}`
 												})
 											}
-											committed(t.after)
-											continue
+										} else {
+											const rule = u.refusedRule(verdict.fields)
+											if (
+												expected.kind !== "refused" ||
+												rule === undefined ||
+												!expected.breaks.includes(rule) ||
+												verdict.fields.code !== codeOf(rule) ||
+												(rule === "check3" && verdict.fields.constraint !== u.checkName) ||
+												!sameMoment(verdict.moment, expected.moment)
+											) {
+												return yield* new Disagreed({
+													message: `refused ${momentText(verdict.moment)} by ${refusalText(verdict.fields)} (rule ${rule ?? "none"}), where it must be ${expected.kind === "committed" ? "committed" : `refused ${momentText(expected.moment)} by ${Arr.join(expected.breaks, ", ")}`}: ${Formatter.format(t.statements)}`
+												})
+											}
+											c.note(`refused by ${rule}`)
 										}
-										const rule = refusedRule(verdict.fields)
-										if (
-											breaks.length === 0 ||
-											rule === undefined ||
-											!breaks.includes(rule) ||
-											verdict.fields.code !== codeOf(rule) ||
-											(rule === "check3" && verdict.fields.constraint !== checkName) ||
-											verdict.moment.kind !== "commit"
-										) {
+										const held = yield* heldSessionRows(u.seat.session)
+										if (held.length > 0) {
 											return yield* new Disagreed({
-												message: `refused ${momentText(verdict.moment)} by ${refusalText(verdict.fields)} (rule ${rule ?? "none"}), where the state breaks ${Arr.join(breaks, ", ") || "nothing"}: ${Formatter.format(t.statements)}`
+												message: `the writer's session holds rows of ${Arr.join(held, ", ")} after its transaction ended: ${Formatter.format(t.statements)}`
 											})
 										}
-										c.note(`refused by ${rule}`)
-										if (needed && breaks.includes("target3")) {
-											c.note("a fact unwound across tables while W needs it")
+										if (expected.kind === "committed") {
+											committed(t.after)
+										} else if (expected.moment.kind === "commit") {
+											refusalNotes(tx.ops, t, expected.breaks, needed)
 										}
-										if (t.withdrawn.length > 0 && breaks.includes("vLonely")) {
-											c.note("a lonely row deleted and blocked at once while V needs it")
+										if (t.immediate.length > 0) {
+											c.note(
+												expected.kind === "refused" && expected.moment.kind === "statement"
+													? "refused at a statement past SET CONSTRAINTS ALL IMMEDIATE"
+													: expected.kind === "committed"
+														? "committed past SET CONSTRAINTS ALL IMMEDIATE"
+														: "committed"
+											)
 										}
-										if (
-											t.listed.length > 0 &&
-											breaks.length === 1 &&
-											breaks.includes("nUnlisted")
-										) {
-											c.note("a marked row listed through both negations of its arm at once")
+										if (expected.kind === "committed" && t.rolledBack) {
+											c.note("a write rolled back to a savepoint")
 										}
-										for (const situation of alone(tx.ops, t, breaks)) {
-											c.note(situation)
+										if (expected.kind === "committed" && t.renoted) {
+											c.note("a note no rule reads updated")
 										}
+										clusterNotes(t)
 									}
-									const a = resolve(rc.concurrent.first, state, keys, seat.table)
-									const b = resolve(rc.concurrent.second, state, keys, seat.table)
-									const g = resolve(rc.concurrent.grizzle, state, keys, seat.table)
-									const run = (session: typeof seat.session, statements: ReadonlyArray<string>) =>
+									const a = resolve(rc.concurrent.first, state, keys, u.seat.table)
+									const b = resolve(rc.concurrent.second, state, keys, u.seat.table)
+									const g = resolve(rc.concurrent.grizzle, state, keys, u.seat.table)
+									const run = (session: RawSession, statements: ReadonlyArray<string>) =>
 										Effect.gen(function* () {
 											for (const sql of statements) {
 												const refused = yield* refusalOf(session.query(sql, []))
@@ -1477,11 +1917,11 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									 * commit that comes after it.
 									 */
 									const opening = ["SET LOCAL lock_timeout = '200ms'", "SELECT 1"]
-									yield* seat.session.begin
-									yield* second.begin
-									const snapA = yield* run(seat.session, opening)
-									const snapB = yield* run(second, opening)
-									const grizzle = yield* write(state, g.after).pipe(
+									yield* u.seat.session.begin
+									yield* u.second.begin
+									const snapA = yield* run(u.seat.session, opening)
+									const snapB = yield* run(u.second, opening)
+									const grizzle = yield* u.write(state, g.after).pipe(
 										Effect.map((outcome) =>
 											outcome.kind === "accepted" || outcome.kind === "unchanged"
 												? "committed"
@@ -1494,19 +1934,22 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									)
 									const openA = Option.isSome(snapA)
 										? snapA
-										: yield* run(seat.session, a.statements)
-									const openB = Option.isSome(snapB) ? snapB : yield* run(second, b.statements)
+										: yield* run(u.seat.session, a.statements)
+									const openB = Option.isSome(snapB) ? snapB : yield* run(u.second, b.statements)
 									const commitA = Option.isSome(openA)
 										? openA
-										: yield* refusalOf(seat.session.commit)
+										: yield* refusalOf(u.seat.session.commit)
 									if (Option.isSome(openA)) {
-										yield* seat.session.rollback
+										yield* u.seat.session.rollback
 									}
-									const commitB = Option.isSome(openB) ? openB : yield* refusalOf(second.commit)
+									const commitB = Option.isSome(openB) ? openB : yield* refusalOf(u.second.commit)
 									if (Option.isSome(openB)) {
-										yield* second.rollback
+										yield* u.second.rollback
 									}
-									const now = yield* readState((sql) => seat.session.values(sql, []), seat.table)
+									const now = yield* readState(
+										(sql) => u.seat.session.values(sql, []),
+										u.seat.table
+									)
 									const after = broken(now)
 									if (after.length > 0) {
 										return yield* new Disagreed({

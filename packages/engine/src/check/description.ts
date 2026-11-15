@@ -157,7 +157,7 @@ class Structure {
 				}
 				return
 			case "delta":
-				if (this.options.read !== "readBack") {
+				if (this.options.read !== "readBack" && this.options.read !== "region") {
 					fail(
 						"MalformedDescription",
 						loc,

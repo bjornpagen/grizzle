@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/physical/ddl/rules.ts b/packages/engine/src/physical/ddl/rules.ts
+--- a/packages/engine/src/physical/ddl/rules.ts
++++ b/packages/engine/src/physical/ddl/rules.ts
+@@ -661,7 +661,10 @@
+ 							],
+ 							else: []
+ 						})),
+-						...judged.toSorted((x, y) => compareStrings(x.order, y.order)).flatMap((j) => j.body)
++						...judged
++							.toSorted((x, y) => compareStrings(x.order, y.order))
++							.filter((j, _, all) => j.order !== all[0]?.order)
++							.flatMap((j) => j.body)
+ 					],
+ 					{ kind: "return", value: { kind: "plSpecial", name: "NEW" } }
+ 				)

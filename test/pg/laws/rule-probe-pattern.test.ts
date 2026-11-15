@@ -1,26 +1,27 @@
 /**
- * A rule over a query whose triggers probe a pattern-typed field fires on PostgreSQL 19rc2. Each trigger function's
- * probe casts its row's field to the column's installed type, the pattern's structural domain, which the installation
- * creates (lower/conservative/types.ts ConservativeSubject `ruleProbe`), and never to a served parameter's own pattern
- * domain, which no installation creates for a probe: PostgreSQL would raise 42704 the first time the trigger fires.
+ * A rule over a query whose probes read a pattern-typed field holds on PostgreSQL 19rc2. The set judge's probe over its
+ * region (physical/ddl/rules.ts) reads the field from the session's delta of its table, a column of the pattern's base
+ * type, which no domain names, beside the stored column of the pattern's structural domain, which the installation
+ * creates (lower/conservative/types.ts RegionLowering); no probe reads a served parameter's own pattern domain, which no
+ * installation creates for a probe: PostgreSQL would raise 42704 the first time the judge ran it.
  *
  * The schema: Allowed and Closed, each a Tag (one to four lowercase letters) keyed by itself; Open, the derived relation
  * of Allowed's tags no Closed row holds; and Item, an id and a Tag, every Item's tag one of Open's. A containment into a
- * negation keeps its triggers (analysis/theory/laws.ts RuleLowering): on Item, at an insert and at an update of its tag,
- * whose probe reads NEW's tag; on Allowed, at a delete, whose probe reads OLD's tag; and on Closed, at an insert, whose
- * probe reads NEW's tag.
+ * negation is judged over the rows a transaction wrote (analysis/theory/laws.ts RuleLowering): Item's inserted rows and
+ * its updates of a tag, whose probe reads the new tag; Allowed's deleted rows, whose probe reads the old tag; and
+ * Closed's inserted rows, whose probe reads the new tag.
  *
  * - The specification turned into a checker: a state keeps the rule exactly when every Item's tag is an Allowed tag no
  *   Closed row holds. The box's first transaction stores a state that keeps it and must commit; its second, one write
- *   that fires one of the triggers, commits exactly when the state it leaves keeps the rule, and is refused otherwise
+ *   that one of the probes reads, commits exactly when the state it leaves keeps the rule, and is refused otherwise
  *   by 23503, naming no constraint but the rule's.
  *
  * The box: the stored state, each subset of the tags a and b Allowed and each Closed, and Item 1 absent or at a tag the
  * rule admits there; then one write: Item 2 inserted at a or b, Item 1 updated to a or b, an Allowed tag deleted, or a
  * Closed tag inserted.
  *
- * @plant test/plants/pg/laws/probe-as-served-param.patch a probe lowered as a served query, its parameters cast to
- * their own pattern domains, so the installation refuses to compile (UninstalledDomain) and the box fails at its seat.
+ * @plant test/plants/pg/laws/probe-region-as-served-query.patch a probe over its region lowered as a served query,
+ * which reads no delta, so the installation refuses to compile (UnsupportedOperation) and the box fails at its seat.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
@@ -68,7 +69,7 @@ interface State {
 	readonly item: TagValue | undefined
 }
 
-/** One write, each firing one of the rule's triggers (see the header). */
+/** One write, each one that one of the rule's probes reads (see the header). */
 type Write =
 	| { readonly kind: "insert item"; readonly tag: TagValue }
 	| { readonly kind: "update item"; readonly tag: TagValue }
@@ -153,7 +154,7 @@ class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string
 const literalOf = (s: Sketch): string => Formatter.format(s)
 
 layer(Substrate.layer)(
-	"a rule over a query whose triggers probe a pattern-typed field, on PostgreSQL 19rc2",
+	"a rule over a query whose probes read a pattern-typed field, on PostgreSQL 19rc2",
 	(it) => {
 		it.effect(
 			"commits exactly the writes that leave every Item's tag Open's, refusing the rest by 23503, its probes casting each tag to its column's own type",

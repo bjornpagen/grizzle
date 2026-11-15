@@ -238,6 +238,7 @@ const definedBy = (
 	switch (item.kind) {
 		case "table":
 		case "enclosing":
+		case "transition":
 			return { aliases: [item.alias], columns: [] }
 		case "cte":
 			return { aliases: item.alias === undefined ? [] : [item.alias], columns: [] }

@@ -866,6 +866,7 @@ const inScratch = (
 		case "createFunction":
 		case "createGuardTrigger":
 		case "createConstraintTrigger":
+		case "createTransitionTrigger":
 		case "createStatistics":
 		case "createLiveSecret":
 			return [transformStatement(s, hooks)]

@@ -69,3 +69,66 @@ export const varsOf = (e: InferredExpr, into: Set<string>): Set<string> => {
 	})
 	return into
 }
+
+/** `e` with each parameter `bound` names replaced by the term it binds, every other leaf as it is. */
+export const boundIn = (
+	e: InferredExpr,
+	bound: ReadonlyMap<string, InferredExpr>
+): InferredExpr => {
+	const m = (x: InferredExpr): InferredExpr => boundIn(x, bound)
+	switch (e.kind) {
+		case "param":
+			return bound.get(e.name) ?? e
+		case "var":
+		case "field":
+		case "value":
+		case "parent":
+		case "literal":
+			return e
+		case "compute":
+			return { ...e, args: e.args.map(m) }
+		case "cast":
+		case "base":
+		case "not":
+		case "in":
+			return { ...e, arg: m(e.arg) }
+		case "cond":
+			return { ...e, pred: m(e.pred), onTrue: m(e.onTrue), onFalse: m(e.onFalse) }
+		case "when":
+			return { ...e, subject: m(e.subject), proved: m(e.proved), otherwise: m(e.otherwise) }
+		case "compare":
+		case "allen":
+			return { ...e, left: m(e.left), right: m(e.right) }
+		case "between":
+			return { ...e, arg: m(e.arg), low: m(e.low), high: m(e.high) }
+		case "and":
+		case "or":
+			return { ...e, args: mapNonEmpty(e.args, m) }
+		case "pointIn":
+			return { ...e, point: m(e.point), span: m(e.span) }
+		case "absent":
+			return {
+				...e,
+				bindings: Object.fromEntries(
+					Object.entries(e.bindings).map(([k, b]) => [k, m(b)] as const)
+				),
+				source:
+					e.source.kind === "query" || e.source.kind === "step"
+						? {
+								...e.source,
+								bind: Object.fromEntries(
+									Object.entries(e.source.bind).map(([k, b]) => [
+										k,
+										b.kind === "relationParam" ? b : m(b)
+									])
+								)
+							}
+						: e.source
+			}
+		case "closedAt":
+		case "closedHas":
+			return { ...e, args: mapNonEmpty(e.args, m) }
+		case "closedRow":
+			return { ...e, args: e.args.map(m) }
+	}
+}

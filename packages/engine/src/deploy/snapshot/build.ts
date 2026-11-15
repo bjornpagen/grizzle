@@ -781,6 +781,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 			case "unitFunction":
 			case "isolationFunction":
 			case "snapshotGuard":
+			case "ruleJudge":
 			case "lawFunction":
 			case "worldFunction":
 			case "role":

@@ -450,6 +450,7 @@ export class Transform {
 				return item
 			case "cte":
 			case "enclosing":
+			case "transition":
 				return item
 			case "derived": {
 				const query = this.select(item.query)
@@ -1108,8 +1109,16 @@ export class Transform {
 				return query === s.query ? s : { ...s, query }
 			}
 			case "modify": {
-				const statement = this.update(s.statement)
+				const statement = this.modified(s.statement)
 				return statement === s.statement ? s : { ...s, statement }
+			}
+			case "createSessionTable": {
+				const columns = mapList(s.columns, (c) => this.columnDefinition(c))
+				return columns === s.columns ? s : { ...s, columns }
+			}
+			case "createSessionTrigger": {
+				const fn = this.name(s.function, "function")
+				return fn === s.function ? s : { ...s, function: fn }
 			}
 			case "whenAbsent": {
 				const probe = this.performQuery(s.probe)
@@ -1129,6 +1138,18 @@ export class Transform {
 				const using = mapList(s.using, (o) => this.raiseOption(o))
 				return using === s.using ? s : { ...s, using }
 			}
+		}
+	}
+
+	/** A PL/pgSQL statement's data-modifying statement, of the kind it was. */
+	modified(s: Insert | Update | Delete): Insert | Update | Delete {
+		switch (s.kind) {
+			case "insert":
+				return this.insert(s)
+			case "update":
+				return this.update(s)
+			case "delete":
+				return this.delete(s)
 		}
 	}
 
@@ -1265,7 +1286,8 @@ export class Transform {
 				const fn = this.name(s.function, "function")
 				return table === s.table && fn === s.function ? s : { ...s, table, function: fn }
 			}
-			case "createConstraintTrigger": {
+			case "createConstraintTrigger":
+			case "createTransitionTrigger": {
 				const table = this.name(s.table, "relation")
 				const fn = this.name(s.function, "function")
 				return table === s.table && fn === s.function ? s : { ...s, table, function: fn }
@@ -1390,6 +1412,7 @@ export class Transform {
 			case "createFunction":
 			case "createGuardTrigger":
 			case "createConstraintTrigger":
+			case "createTransitionTrigger":
 			case "createPublication":
 			case "dropPublication":
 			case "createLiveSecret":
@@ -1709,6 +1732,7 @@ class Visit {
 			case "table":
 			case "cte":
 			case "enclosing":
+			case "transition":
 			case "arrays":
 			case "context":
 				return

@@ -179,6 +179,7 @@ class Rewriter {
 			}
 			case "cte":
 			case "enclosing":
+			case "transition":
 			case "function":
 			case "arrays":
 			case "table":
@@ -395,6 +396,7 @@ const fromReads = (f: FromItem, alias: string): boolean => {
 			return false
 		case "cte":
 		case "enclosing":
+		case "transition":
 		case "table":
 			return false
 	}

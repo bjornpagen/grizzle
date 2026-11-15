@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -1531,7 +1531,7 @@
+ 			)
+ 		case "createSessionTrigger":
+ 			return out.line(
+-				`CREATE CONSTRAINT TRIGGER ${quoteIdent(statement.name)} AFTER INSERT ON ${printTableName({ schema: temporarySchema, name: statement.table })} DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}();`
++				`CREATE CONSTRAINT TRIGGER ${quoteIdent(statement.name)} AFTER INSERT ON ${printTableName({ schema: temporarySchema, name: statement.table })} NOT DEFERRABLE FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}();`
+ 			)
+ 		case "whenAbsent":
+ 			performLine(out, statement.probe)

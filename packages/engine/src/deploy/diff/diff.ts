@@ -199,13 +199,20 @@ type ColumnFates = ReadonlyMap<string, ColumnFate>
 export const loginRoleExchange =
 	"a login and a role exchanging one name, which no statement turns into each other: rename one of them"
 
-/** What a migration drops: an object of every kind but those no step drops (the schema, its ledger, extensions and the
- * database's defaults outlive it; a validation installs nothing; privileges and memberships are revoked, never dropped;
- * an isolation trigger goes with its table), and a column. */
+/** What a migration drops: an object of every kind but those no step drops (the schema, its ledger, its rule judge,
+ * extensions and the database's defaults outlive it, the judge since every session's sentinel's trigger names it and
+ * PostgreSQL refuses to drop a function another session's trigger runs; a validation installs nothing; privileges and
+ * memberships are revoked, never dropped; an isolation trigger goes with its table), and a column. */
 type Dropped =
 	| Exclude<
 			PhysicalKind,
-			"databaseDefault" | "extension" | "validation" | "privileges" | "ledger" | "membership"
+			| "databaseDefault"
+			| "extension"
+			| "validation"
+			| "privileges"
+			| "ledger"
+			| "membership"
+			| "ruleJudge"
 	  >
 	| "column"
 
@@ -1573,6 +1580,7 @@ class Differ {
 					this.sql(o.phase === "setup" ? "setup" : "structure", o.ddl)
 				}
 				return
+			case "ruleJudge":
 			case "lawFunction":
 				if (before === undefined || !sameText(before.ddl, o.ddl)) {
 					this.sql("validate", o.ddl)
@@ -2467,6 +2475,13 @@ class Differ {
 			case "ledger":
 				throw new Refusal(
 					unsupported(SourceLoc(`object ${o.ident}`, []), "removing the installed schema's ledger")
+				)
+			case "ruleJudge":
+				throw new Refusal(
+					unsupported(
+						SourceLoc(`object ${o.ident}`, []),
+						"removing the rule judge, which every installation holds"
+					)
 				)
 			case "extension":
 			case "privileges":

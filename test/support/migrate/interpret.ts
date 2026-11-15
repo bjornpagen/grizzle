@@ -2444,6 +2444,7 @@ class Model {
 				return Arr.map(r.rows, (row) => bound(source.alias ?? source.name, row))
 			}
 			case "enclosing":
+			case "transition":
 			case "function":
 			case "arrays":
 			case "values":
@@ -2513,6 +2514,7 @@ class Model {
 					: nulls(source.alias ?? source.name, r.names)
 			}
 			case "enclosing":
+			case "transition":
 			case "function":
 			case "arrays":
 			case "values":
@@ -3604,6 +3606,7 @@ class Model {
 				}
 				return
 			case "createGuardTrigger":
+			case "createTransitionTrigger":
 				if (this.#ours(s.table)) {
 					this.#trigger(s.table, s.name, s.function, [], [])
 				}

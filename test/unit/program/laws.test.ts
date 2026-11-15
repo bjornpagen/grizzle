@@ -753,6 +753,7 @@ const reportable = (installation: Installation): ReadonlyArray<IdentifiedLaw> =>
 			case "renameConstraint":
 			case "lockTable":
 			case "createGuardTrigger":
+			case "createTransitionTrigger":
 			case "createPublication":
 			case "dropPublication":
 			case "createLiveSecret":

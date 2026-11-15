@@ -141,11 +141,14 @@ import { hasCapability, inferredType, spanType } from "#compiler/scalar/registry
 import { textLookup } from "#compiler/text/refinement.ts"
 /**
  * How a query is read: as rows (execute, get, compile, attach, derived, a ChangeSet member), as a page, as a
- * ChangeSet's read-back, which may read delta.added and delta.removed sources, or as a write filter's membership, which
- * reads the row it is asked at (schema/entry.ts). A read-back may name the delta of any ordinary relation: one the
- * ChangeSet does not write is empty, which the write program supplies.
+ * ChangeSet's read-back, which may read delta.added and delta.removed sources, as a write filter's membership, which
+ * reads the row it is asked at (schema/entry.ts), or as a rule probe over its region (analysis/theory/query.ts
+ * regionProbe), which reads the rows a transaction wrote of the relation it probes as delta.added, their images after
+ * each statement, and delta.removed, their images before. A read-back may name the delta of any ordinary relation: one
+ * the ChangeSet does not write is empty, which the write program supplies. A region's rows are row images, several of
+ * one key where statements rewrote a row, so its delta declares no key.
  */
-export type QueryRead = "rows" | "page" | "readBack" | "membership"
+export type QueryRead = "rows" | "page" | "readBack" | "membership" | "region"
 
 export interface CheckOptions {
 	readonly read: QueryRead
@@ -232,6 +235,7 @@ export type RootRole =
 	| { readonly kind: "rows" }
 	| { readonly kind: "page" }
 	| { readonly kind: "readBack" }
+	| { readonly kind: "region" }
 	| { readonly kind: "membership" }
 	| { readonly kind: "member"; readonly target: MemberTarget }
 	| { readonly kind: "definition" }
@@ -291,6 +295,7 @@ const rootOrder = (order: StageOrder, role: RootRole): StatedOrderDesc | undefin
 		case "rows":
 		case "page":
 		case "readBack":
+		case "region":
 			return order.kind === "none" ? undefined : order.stated
 		case "membership":
 		case "member":
@@ -1721,7 +1726,7 @@ export class Checker {
 				return scope.self
 			}
 			case "delta": {
-				if (this.options.read !== "readBack") {
+				if (this.options.read !== "readBack" && this.options.read !== "region") {
 					return fail(
 						"MalformedDescription",
 						loc,
@@ -1756,7 +1761,7 @@ export class Checker {
 						kind: "Delta",
 						relation: info.name,
 						side: src.side,
-						keys: [info.primaryKey, ...info.keys],
+						keys: this.options.read === "region" ? [] : [info.primaryKey, ...info.keys],
 						heading: headingColumns(info.heading)
 					},
 					loc

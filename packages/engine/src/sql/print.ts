@@ -23,6 +23,7 @@ import {
 	catalogSpelling,
 	closedSearchPath,
 	type ColumnDef,
+	type ColumnDefinition,
 	type ColumnGeneration,
 	type CommentTarget,
 	type ContextSource,
@@ -70,9 +71,11 @@ import {
 	type TableConstraint,
 	type TableName,
 	type Target,
+	type TransitionEvent,
 	type TriggerEvent,
 	type TypeRef,
 	tableConstraints,
+	transitionTables,
 	type Update,
 	type Using,
 	type WindowSpec,
@@ -150,6 +153,20 @@ const isolationLevels: { readonly [I in Isolation]: string } = {
 }
 
 /** A constraint trigger's row event as CREATE CONSTRAINT TRIGGER spells it. */
+/** A transition trigger's event as CREATE TRIGGER spells it. */
+const transitionEventText: Readonly<Record<TransitionEvent, string>> = {
+	insert: "INSERT",
+	update: "UPDATE",
+	delete: "DELETE"
+}
+
+/** A transition trigger's REFERENCING clause: the transition tables its event holds, each by its name. */
+const transitionReferences: Readonly<Record<TransitionEvent, string>> = {
+	insert: `NEW TABLE AS ${quoteIdent(transitionTables.news)}`,
+	update: `OLD TABLE AS ${quoteIdent(transitionTables.olds)} NEW TABLE AS ${quoteIdent(transitionTables.news)}`,
+	delete: `OLD TABLE AS ${quoteIdent(transitionTables.olds)}`
+}
+
 const triggerEventText = (event: TriggerEvent): string => {
 	switch (event.kind) {
 		case "insert":
@@ -853,6 +870,8 @@ const printFromItem = (item: FromItem): string => {
 				: `${quoteIdent(item.name)} AS ${quoteIdent(item.alias)}`
 		case "enclosing":
 			return `${quoteIdent(item.name)} AS ${quoteIdent(item.alias)}`
+		case "transition":
+			return `${quoteIdent(item.table)} AS ${quoteIdent(item.alias)}`
 		case "derived": {
 			const lateral = item.lateral ? "LATERAL " : ""
 			return `${lateral}(${printSelectInline(item.query)}) AS ${quoteIdent(item.alias)}${aliasList(item.columns)}`
@@ -1224,6 +1243,17 @@ const printGeneration = (g: ColumnGeneration): string => {
 }
 
 /** A column up to its NOT NULL: its name, type, collation and generation. */
+/**
+ * A session table's column: its name, its type and its collation, and no constraint: what it holds is copied from
+ * columns that hold their own.
+ */
+const definitionText = (column: ColumnDefinition): string =>
+	[
+		quoteIdent(column.name),
+		printType(column.type),
+		...(column.collation === undefined ? [] : [`COLLATE ${printObjectName(column.collation)}`])
+	].join(" ")
+
 const columnHead = (column: ColumnDef): string => {
 	const parts = [quoteIdent(column.name), printType(column.type)]
 	if (column.collation !== undefined) {
@@ -1495,6 +1525,14 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 		case "modify":
 			dmlStatementBlock(out, statement.statement)
 			return out.line(";")
+		case "createSessionTable":
+			return out.line(
+				`CREATE TEMPORARY TABLE ${printTableName({ schema: temporarySchema, name: statement.name })} (${statement.columns.map(definitionText).join(", ")}) ON COMMIT DELETE ROWS;`
+			)
+		case "createSessionTrigger":
+			return out.line(
+				`CREATE CONSTRAINT TRIGGER ${quoteIdent(statement.name)} AFTER INSERT ON ${printTableName({ schema: temporarySchema, name: statement.table })} DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}();`
+			)
 		case "whenAbsent":
 			performLine(out, statement.probe)
 			out.line("IF NOT FOUND THEN")
@@ -1895,6 +1933,17 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 			clauses.line("DEFERRABLE INITIALLY DEFERRED")
 			return clauses.line(`FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}()`)
 		}
+		case "createTransitionTrigger": {
+			out.line(`CREATE TRIGGER ${quoteIdent(statement.name)}`)
+			const clauses = out.nested()
+			clauses.line(
+				`AFTER ${transitionEventText[statement.event]} ON ${printObjectName(statement.table)}`
+			)
+			clauses.line(`REFERENCING ${transitionReferences[statement.event]}`)
+			return clauses.line(
+				`FOR EACH STATEMENT EXECUTE FUNCTION ${printObjectName(statement.function)}()`
+			)
+		}
 		case "createPublication": {
 			out.line(`CREATE PUBLICATION ${quoteIdent(statement.name)}`)
 			const clauses = out.nested()
@@ -2029,6 +2078,7 @@ export const commandsOf = (statement: SqlStatement): NonEmptyReadonlyArray<Comma
 		case "createConstant":
 		case "createGuardTrigger":
 		case "createConstraintTrigger":
+		case "createTransitionTrigger":
 		case "createPublication":
 		case "dropPublication":
 		case "createLiveSecret":
