@@ -3,6 +3,7 @@ import {
 	Array as Arr,
 	Effect,
 	FileSystem,
+	Option,
 	Order,
 	Path,
 	Record as Rec,
@@ -132,10 +133,45 @@ export interface Trial {
 	readonly tests: Arr.NonEmptyReadonlyArray<string>
 }
 
-/** What a run tries: every cited plant, or the plants of the tests and the plants it names. */
+/**
+ * What the changed target judges a plant by: how recently each path changed, `0` for a change only the working tree
+ * holds (a file modified or untracked) and `n` for the n-th newest commit, and the files each plant's patch changes.
+ */
+export interface Since {
+	readonly ages: ReadonlyMap<string, number>
+	readonly patched: ReadonlyMap<string, ReadonlyArray<string>>
+}
+
+/**
+ * What a run tries: the plants whose verdict may have moved since they last changed, or the plants of the tests and
+ * the plants it names.
+ */
 export type Targets =
-	| Readonly<{ kind: "all" }>
+	| Readonly<{ kind: "changed"; since: Since }>
 	| Readonly<{ kind: "named"; names: Arr.NonEmptyReadonlyArray<string> }>
+
+/**
+ * Whether a citation's plant must run against its test again: always when no commit last changed the plant, which so
+ * never ran at one; otherwise when the test or a file the plant's patch changes has changed since, in a newer commit or
+ * in the working tree. A plant that went red when it last changed, with nothing it reads changed after, is red still.
+ */
+const dueIn =
+	(since: Since) =>
+	({ file, citation }: Cited): boolean => {
+		const age = (path: string) => Option.fromUndefinedOr(since.ages.get(path))
+		const watched = [
+			file,
+			...Option.getOrElse(Option.fromUndefinedOr(since.patched.get(citation.plant)), () => [])
+		]
+		return Option.match(
+			Option.filter(age(citation.plant), (planted) => planted > 0),
+			{
+				onNone: () => true,
+				onSome: (planted) =>
+					Arr.some(watched, (path) => Option.exists(age(path), (changed) => changed < planted))
+			}
+		)
+	}
 
 /** Whether a citation is one a name picks: the name is the test that makes it, or the plant it names. */
 const picks =
@@ -155,9 +191,9 @@ const pickedBy = (
 }
 
 /**
- * The trials a run makes, one per plant in path order, each with its tests in path order: for `all`, every plant a test
- * cites, with every test that cites it; for a named test, each plant it cites, with that test; for a named plant, every
- * test that cites it. A name that is neither a test citing a plant nor a plant a test cites fails the plan, so a run
+ * The trials a run makes, one per plant in path order, each with its tests in path order: for `changed`, each plant with
+ * the tests citing it that it is due against (dueIn); for a named test, each plant it cites, with that test; for a named
+ * plant, every test that cites it. A name that is neither a test citing a plant nor a plant a test cites fails the plan, so a run
  * never passes for want of anything to try.
  */
 export const planOf = (
@@ -165,7 +201,10 @@ export const planOf = (
 	targets: Targets
 ): Result.Result<ReadonlyArray<Trial>, Arr.NonEmptyReadonlyArray<string>> => {
 	const pairs = Arr.filter(citedIn(tree), ({ file }) => isTest(file))
-	const chosen = targets.kind === "all" ? Result.succeed(pairs) : pickedBy(pairs, targets.names)
+	const chosen =
+		targets.kind === "changed"
+			? Result.succeed(Arr.filter(pairs, dueIn(targets.since)))
+			: pickedBy(pairs, targets.names)
 	return Result.map(chosen, (picked) =>
 		Arr.map(
 			byKey(Arr.groupBy(picked, ({ citation }) => citation.plant)),
@@ -183,26 +222,64 @@ export const repositoryRoot = Effect.gen(function* () {
 	return path.resolve(import.meta.dirname, "../../..")
 })
 
-/** The files git shows under test/, tracked or untracked but not ignored, by path from `root`, in path order. */
-const testFiles = Effect.fn("testFiles")(function* (root: string) {
+/** What git prints for `args` in `root`, failing unless it exits 0. */
+const gitOutput = Effect.fn("gitOutput")(function* (root: string, args: ReadonlyArray<string>) {
 	const [output, status] = yield* Effect.scoped(
 		Effect.gen(function* () {
-			const handle = yield* ChildProcess.make(
-				"git",
-				["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "test"],
-				{ cwd: root, stdin: "ignore", stderr: "inherit" }
-			)
+			const handle = yield* ChildProcess.make("git", args, {
+				cwd: root,
+				stdin: "ignore",
+				stderr: "inherit"
+			})
 			const output = yield* Stream.mkString(Stream.decodeText(handle.stdout))
 			const status = yield* handle.exitCode
 			return [output, status] as const
 		})
-	).pipe(Effect.mapError(failureFrom("git could not list the files under test/")))
+	).pipe(Effect.mapError(failureFrom(`git ${Arr.join(args, " ")} could not be run`)))
 	if (status !== 0) {
 		return yield* DevtoolFailure.make({
-			detail: `git ls-files exited with ${status} listing test/`
+			detail: `git ${Arr.join(args, " ")} exited with ${status}`
 		})
 	}
-	return Arr.sort(Arr.filter(Str.split("\0")(output), Str.isNonEmpty), Order.String)
+	return output
+})
+
+/** The paths of a NUL-separated list git prints. */
+const pathsIn = (output: string): ReadonlyArray<string> =>
+	Arr.filter(Str.split("\0")(output), Str.isNonEmpty)
+
+/** The files git shows under test/, tracked or untracked but not ignored, by path from `root`, in path order. */
+const testFiles = Effect.fn("testFiles")(function* (root: string) {
+	const output = yield* gitOutput(root, [
+		"ls-files",
+		"--cached",
+		"--others",
+		"--exclude-standard",
+		"-z",
+		"--",
+		"test"
+	])
+	return Arr.sort(pathsIn(output), Order.String)
+})
+
+/**
+ * How recently each path under `root` changed (Since.ages): `0` for a path the working tree changes against HEAD or git
+ * does not track, otherwise the place, from 1 for HEAD, of the newest commit in HEAD's history that touches it, read
+ * from one pass over the history.
+ */
+export const agesOf = Effect.fn("agesOf")(function* (root: string) {
+	const history = yield* gitOutput(root, ["log", "--format=%x00", "--name-only", "HEAD"])
+	const modified = yield* gitOutput(root, ["diff", "--name-only", "-z", "HEAD"])
+	const untracked = yield* gitOutput(root, ["ls-files", "--others", "--exclude-standard", "-z"])
+	const committed = Arr.flatMap(Arr.drop(Str.split("\0")(history), 1), (commit, at) =>
+		Arr.map(Arr.filter(Str.split("\n")(commit), Str.isNonEmpty), (path) => [path, at + 1] as const)
+	)
+	const working = Arr.map(
+		[...pathsIn(modified), ...pathsIn(untracked)],
+		(path) => [path, 0] as const
+	)
+	const ages: ReadonlyMap<string, number> = new Map(Arr.reverse([...working, ...committed]))
+	return ages
 })
 
 /** The tree as it stands under `root`: every TypeScript source under test/ with its text, and every plant's path. */

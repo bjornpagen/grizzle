@@ -16,6 +16,7 @@ import {
 } from "effect"
 import { ChildProcess } from "effect/process"
 import {
+	agesOf,
 	findingsOf,
 	findingText,
 	planOf,
@@ -205,32 +206,60 @@ const trialOf = Effect.fn("trialOf")(function* (
 	)
 })
 
-/** The command line: every plant, or the tests and plants named, and where logs go when given. */
+/**
+ * What the command line asks: the plants whose verdict may have moved (`changed`), or the tests and plants named, and
+ * where logs go when given.
+ */
+type Asked =
+	| Readonly<{ kind: "changed" }>
+	| Readonly<{ kind: "named"; names: Arr.NonEmptyReadonlyArray<string> }>
+
+/** The command line: --changed, or the tests and plants named, and where logs go when given. */
 const argumentsOf = Effect.fn("argumentsOf")(function* (argv: ReadonlyArray<string>) {
 	const parsed = yield* Effect.try({
 		try: () =>
 			parseArgs({
 				args: Arr.copy(argv),
 				allowPositionals: true,
-				options: { all: { type: "boolean", default: false }, logs: { type: "string" } }
+				options: { changed: { type: "boolean", default: false }, logs: { type: "string" } }
 			}),
 		catch: failureFrom(
-			"pnpm plants [--logs DIR] (--all | <test or plant>...): name the tests whose plants to run, or the plants, or --all"
+			"pnpm plants [--logs DIR] (--changed | <test or plant>...): name the tests whose plants to run, or the plants, or --changed"
 		)
 	})
 	const named = parsed.positionals
-	const targets: Result.Result<Targets, string> = parsed.values.all
+	const asked: Result.Result<Asked, string> = parsed.values.changed
 		? Arr.isReadonlyArrayNonEmpty(named)
-			? Result.fail("--all runs every plant: name no test or plant beside it")
-			: Result.succeed({ kind: "all" })
+			? Result.fail("--changed picks its own plants: name no test or plant beside it")
+			: Result.succeed({ kind: "changed" })
 		: Arr.isReadonlyArrayNonEmpty(named)
 			? Result.succeed({ kind: "named", names: named })
-			: Result.fail("Name the tests whose plants to run, or the plants, or pass --all")
-	const chosen = yield* Result.match(targets, {
+			: Result.fail("Name the tests whose plants to run, or the plants, or pass --changed")
+	const chosen = yield* Result.match(asked, {
 		onFailure: (detail) => Effect.fail(DevtoolFailure.make({ detail })),
 		onSuccess: (value) => Effect.succeed(value)
 	})
-	return { targets: chosen, logs: Option.fromNullishOr(parsed.values.logs) }
+	return { asked: chosen, logs: Option.fromNullishOr(parsed.values.logs) }
+})
+
+/**
+ * The targets the command line asks for: the names as given, or for --changed, the history's ages of every path and
+ * each plant's changed files, the facts the plan judges each plant's citations by (tree.ts dueIn).
+ */
+const targetsOf = Effect.fn("targetsOf")(function* (
+	root: string,
+	plants: ReadonlyArray<string>,
+	asked: Asked
+) {
+	if (asked.kind === "named") {
+		return asked
+	}
+	const ages = yield* agesOf(root)
+	const patched = yield* Effect.forEach(plants, (plant) =>
+		Effect.map(touchedBy(root, plant), (files) => [plant, files] as const)
+	)
+	const targets: Targets = { kind: "changed", since: { ages, patched: new Map(patched) } }
+	return targets
 })
 
 /** A verdict's line: the verdict, the plant and the test. */
@@ -241,10 +270,12 @@ const lineOf = (judged: Judged): string =>
  * `pnpm plants`: each plant planted in turn, the tests that cite it run against it, and the plant taken out again.
  *
  *   pnpm plants [--logs DIR] <test or plant>...
- *   pnpm plants [--logs DIR] --all
+ *   pnpm plants [--logs DIR] --changed
  *
- * A test named runs against each plant it cites; a plant named runs against every test that cites it; --all runs every
- * plant a test cites. It refuses to start while the check finds anything (scripts/dev/plants/check.ts) or while any
+ * A test named runs against each plant it cites; a plant named runs against every test that cites it; --changed runs
+ * each plant against the tests citing it that changed, or whose plant's changed files changed, after the plant file
+ * last did, and every plant no commit holds yet (tree.ts dueIn), so a verdict nothing has moved is never computed
+ * again. It refuses to start while the check finds anything (scripts/dev/plants/check.ts) or while any
  * file a plant changes differs from HEAD, so taking a plant out restores exactly what was there. Each test first runs
  * once with no plant planted; then each plant, one at a time, goes in, its tests run one at a time through their tier's
  * script (test/support/tiers.ts), and it comes out, on success, failure or interruption alike. A network test runs on
@@ -257,7 +288,7 @@ const lineOf = (judged: Judged): string =>
 const main = Effect.gen(function* () {
 	const fs = yield* FileSystem.FileSystem
 	const root = yield* repositoryRoot
-	const { targets, logs: given } = yield* argumentsOf(process.argv.slice(2))
+	const { asked, logs: given } = yield* argumentsOf(process.argv.slice(2))
 	const tree = yield* readTree(root)
 	const findings = findingsOf(tree)
 	if (Arr.isReadonlyArrayNonEmpty(findings)) {
@@ -265,6 +296,7 @@ const main = Effect.gen(function* () {
 			detail: `The plant check finds ${findings.length} things, so no plant runs:\n${Arr.join(Arr.map(findings, findingText), "\n")}`
 		})
 	}
+	const targets = yield* targetsOf(root, tree.plants, asked)
 	const trials = yield* Result.match(planOf(tree, targets), {
 		onFailure: (unknown) =>
 			Effect.fail(

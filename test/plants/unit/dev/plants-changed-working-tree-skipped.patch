@@ -1,0 +1,13 @@
+diff --git a/scripts/dev/plants/tree.ts b/scripts/dev/plants/tree.ts
+index 0a4a329c..ff8f181e 100644
+--- a/scripts/dev/plants/tree.ts
++++ b/scripts/dev/plants/tree.ts
+@@ -164,7 +164,7 @@ const dueIn =
+ 			...Option.getOrElse(Option.fromUndefinedOr(since.patched.get(citation.plant)), () => [])
+ 		]
+ 		return Option.match(
+-			Option.filter(age(citation.plant), (planted) => planted > 0),
++			Option.filter(age(citation.plant), (planted) => planted >= 0),
+ 			{
+ 				onNone: () => true,
+ 				onSome: (planted) =>

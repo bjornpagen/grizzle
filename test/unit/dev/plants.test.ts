@@ -13,13 +13,17 @@
  *   name, beside a file under test/plants that no tag can name, and sources, tests or a support file, each citing
  *   plants of the pool, some holding a malformed tag. Oracle: the findings the drawn tree states, by set differences
  *   over its citations and its plants.
- * - Plan: the same trees, and every plant or a set of names drawn among the tests, the plants and a test that cites
- *   nothing. Oracle: the citations each name picks, grouped by plant, and the names that pick none.
+ * - Plan: the same trees, and either the changed target over a drawn history (each path's age, 0 for the working tree
+ *   or none for a file no commit touched, and the files each plant's patch changes) or a set of names drawn among the
+ *   tests, the plants and a test that cites nothing. Oracle: for changed, the citations whose plant no commit holds or
+ *   whose newest watched change, its test's or a changed file's, is newer than the plant's own; for names, the
+ *   citations each name picks; grouped by plant, and the names that pick none.
  *
  * Features: for reading, a citation on its tag's line, a citation whose bug carries over the lines below, a one-line
  * citation, a tag naming no plant path, a tag naming no bug, and a tag spelled in code; for judgment, each finding
- * kind and a tree the check passes; for plans, every plant tried, a named test's plants, a named plant's tests, a plant
- * two tests cite, and a name that picks nothing.
+ * kind and a tree the check passes; for plans, a plant no commit holds, a citation due by its test, one due by a file
+ * its plant changes alone, one nothing moved, a named test's plants, a named plant's tests, a plant two tests cite, and
+ * a name that picks nothing.
  *
  * @plant test/plants/unit/dev/plants-continuation-dropped.patch A tag's bug is read off its own line alone, so a
  * citation whose bug sits on the lines below it is malformed; the reading property fails.
@@ -31,6 +35,10 @@
  * judgment property fails.
  * @plant test/plants/unit/dev/plants-plan-test-unpicked.patch A named test picks none of its citations, so the plan
  * fails it as a name that picks nothing; the plan property fails.
+ * @plant test/plants/unit/dev/plants-changed-files-unwatched.patch The changed target watches a citation's test alone,
+ * never the files its plant changes, so a plant whose code moved is not retried; the plan property fails.
+ * @plant test/plants/unit/dev/plants-changed-working-tree-skipped.patch The changed target takes a plant the working
+ * tree changes for one a commit holds, so a plant never run at a commit is skipped; the plan property fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -39,13 +47,14 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Order, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
 import { type Citation, type Malformed, readingOf } from "#scripts/dev/plants/citations.ts"
 import {
 	type Finding,
 	findingsOf,
 	findingText,
 	planOf,
+	type Since,
 	type Targets,
 	type Tree,
 	type Trial
@@ -474,6 +483,35 @@ type JudgmentFeature =
 /** A test that cites nothing, a name no citation answers to. */
 const NOWHERE = "test/unit/a/none.test.ts"
 
+/** Source files a plant's patch may change. */
+const PATCHED = [
+	"packages/engine/src/p.ts",
+	"packages/engine/src/q.ts",
+	"packages/engine/src/r.ts"
+] as const
+
+/** The ages a path may have: 0, the working tree, then the first, second and third newest commit. */
+const AGES = [0, 1, 2, 3] as const
+
+/**
+ * A history over the pools: every plant and source an age, each changed file an age or none (no commit touched it), and
+ * each plant of the pool the changed files its patch names.
+ */
+const sinceGen: Gen<Since> = (source) => ({
+	ages: new Map([
+		...Arr.map(
+			[...POOL, STRAY, ...SOURCES, NOWHERE],
+			(path) => [path, source.draw(element(AGES))] as const
+		),
+		...Arr.flatMap(PATCHED, (path) =>
+			source.draw(boolean) ? [[path, source.draw(element(AGES))] as const] : []
+		)
+	]),
+	patched: new Map(
+		Arr.map(POOL, (plant) => [plant, source.draw(subset(PATCHED, { min: 0, max: 2 }))] as const)
+	)
+})
+
 /** A drawn tree and what a run tries over it. */
 interface DrawnPlan {
 	readonly tree: DrawnTree
@@ -484,7 +522,7 @@ const planGen: Gen<DrawnPlan> = (source) => ({
 	tree: source.draw(treeGen),
 	targets: source.draw(
 		weighted<Targets>([
-			[1, () => ({ kind: "all" })],
+			[1, (s) => ({ kind: "changed", since: s.draw(sinceGen) })],
 			[
 				3,
 				(s) => ({
@@ -499,6 +537,22 @@ const planGen: Gen<DrawnPlan> = (source) => ({
 	)
 })
 
+/**
+ * Whether the changed target retries a plant against a test, restated: unless the plant's age is a commit's, it never
+ * ran at a commit; otherwise when the newest of its test's and its changed files' ages is newer than the plant's.
+ */
+const statedDue = (since: Since, pair: Readonly<{ test: string; plant: string }>): boolean => {
+	const planted = since.ages.get(pair.plant)
+	const watched = Arr.flatMap([pair.test, ...(since.patched.get(pair.plant) ?? [])], (path) =>
+		Option.toArray(Option.fromUndefinedOr(since.ages.get(path)))
+	)
+	return (
+		planted === undefined ||
+		planted === 0 ||
+		(Arr.isReadonlyArrayNonEmpty(watched) && Arr.min(watched, Order.Number) < planted)
+	)
+}
+
 /** The plan a drawn tree and its targets state. */
 const statedPlan = (
 	plan: DrawnPlan
@@ -511,7 +565,7 @@ const statedPlan = (
 	const answers = (name: string) => (pair: Readonly<{ test: string; plant: string }>) =>
 		pair.test === name || pair.plant === name
 	const unknown =
-		plan.targets.kind === "all"
+		plan.targets.kind === "changed"
 			? []
 			: Arr.filter(plan.targets.names, (name) => !Arr.some(pairs, answers(name)))
 	if (Arr.isReadonlyArrayNonEmpty(unknown)) {
@@ -519,8 +573,8 @@ const statedPlan = (
 	}
 	const targets = plan.targets
 	const picked =
-		targets.kind === "all"
-			? pairs
+		targets.kind === "changed"
+			? Arr.filter(pairs, (pair) => statedDue(targets.since, pair))
 			: Arr.filter(pairs, (pair) => Arr.some(targets.names, (name) => answers(name)(pair)))
 	return Result.succeed(
 		Arr.flatMap(
@@ -542,7 +596,10 @@ const statedPlan = (
 }
 
 type PlanFeature =
-	| "every plant tried"
+	| "a plant no commit holds"
+	| "a citation due by its test"
+	| "a citation due by a file its plant changes alone"
+	| "a citation nothing moved"
 	| "a named test's plants"
 	| "a named plant's tests"
 	| "a plant two tests cite"
@@ -554,8 +611,30 @@ const notePlan = (
 	stated: ReturnType<typeof statedPlan>,
 	c: Case<PlanFeature>
 ): void => {
-	if (plan.targets.kind === "all") {
-		c.note("every plant tried")
+	if (plan.targets.kind === "changed") {
+		const { since } = plan.targets
+		const age = (path: string) => since.ages.get(path)
+		Arr.forEach(plan.tree.sources, (drawnSource: DrawnSource) => {
+			if (!isTestPath(drawnSource.path)) {
+				return
+			}
+			Arr.forEach(drawnSource.cites, (plant) => {
+				const planted = age(plant)
+				const test = age(drawnSource.path)
+				const files = Arr.flatMap(since.patched.get(plant) ?? [], (path) =>
+					Option.toArray(Option.fromUndefinedOr(age(path)))
+				)
+				if (planted === undefined || planted === 0) {
+					c.note("a plant no commit holds")
+				} else if (test !== undefined && test < planted) {
+					c.note("a citation due by its test")
+				} else if (Arr.some(files, (changed) => changed < planted)) {
+					c.note("a citation due by a file its plant changes alone")
+				} else {
+					c.note("a citation nothing moved")
+				}
+			})
+		})
 	} else {
 		if (Arr.some(plan.targets.names, isTestPath)) {
 			c.note("a named test's plants")
@@ -700,7 +779,10 @@ describe("planOf", () => {
 						literal: Formatter.format,
 						coverage: required<PlanFeature>(
 							[
-								"every plant tried",
+								"a plant no commit holds",
+								"a citation due by its test",
+								"a citation due by a file its plant changes alone",
+								"a citation nothing moved",
 								"a named test's plants",
 								"a named plant's tests",
 								"a plant two tests cite",
