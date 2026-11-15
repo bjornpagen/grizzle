@@ -434,26 +434,23 @@ const readArray = (value: unknown, path: DecodePath): ArrayRead =>
 	})
 
 /**
- * Own enumerable string-keyed properties, defined so that "__proto__" stays an ordinary key. Every target is a fresh
- * plain object that is frozen once filled (or a scratch copy never written again), so an ordinary assignment, whose
- * property freezing makes read-only and non-configurable, is the same property; only "__proto__" needs defining,
- * because assigning it would set the prototype.
+ * Own enumerable string-keyed properties, every key defined as an assignment would create it on a fresh plain object,
+ * so "__proto__" is an ordinary key like any other: one path for every key, whatever Object.prototype holds in the
+ * process. An assignment would set the prototype wherever Object.prototype.__proto__ exists, as it does in a library
+ * consumer's Node, though not under --disable-proto=delete. Every target is a fresh plain object that is frozen once
+ * filled, or a scratch copy never written again.
  */
 const setOwn = <T extends object, K extends keyof T & string>(
 	target: T,
 	key: K,
 	value: T[K]
 ): void => {
-	if (key === "__proto__") {
-		Object.defineProperty(target, key, {
-			value,
-			enumerable: true,
-			writable: false,
-			configurable: false
-		})
-	} else {
-		target[key] = value
-	}
+	Object.defineProperty(target, key, {
+		value,
+		enumerable: true,
+		writable: true,
+		configurable: true
+	})
 }
 
 /**
