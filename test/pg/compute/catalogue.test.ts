@@ -4,6 +4,10 @@
  * boundary the operation turns on and spelled as PostgreSQL may store them (a display scale past the least, a float
  * zero's sign).
  *
+ * A case is one catalogue entry (an operation at a carrier, a cast from one, numeric's width_bucket, or lcm over
+ * fractional numerics) with operands of its own carrier, so a failure names its entry and shrinking it runs that entry
+ * alone. Each witness case is aimed at an entry no witness has reached, so every entry runs on every run.
+ *
  * - Each admitted case's SQL, as a query lowers it, runs in PostgreSQL, and its result type and value are the host
  *   evaluator's, or the host declines it by design; the reference evaluator (test/support/oracle/evaluate/catalog.ts)
  *   states the same.
@@ -11,13 +15,14 @@
  *
  * Oracle: PostgreSQL itself, each operation's value and type, beside the host and the reference evaluators.
  *
- * Features: each boundary and spelling situation, a declined case, power's value, and lcm past its operands' digits.
+ * Features: each entry agreeing on a value, or declined by the host by design; each entry at each boundary class of its
+ * carrier and read through each spelling; and lcm past its operands' digits.
  *
  * @plant test/plants/pg/compute/compute-catalogue-int4pl-total.patch integer + integer is registered total rather than
  * exact (scalar/compute/registry.ts int4pl), so it is typed integer, its registered result, and its SQL overflows at
  * integer's bounds where the host's exact sum does not.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -27,7 +32,6 @@ import {
 	int,
 	map,
 	oneOf,
-	proportional,
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
@@ -36,7 +40,7 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { bigint, double } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError, PreconditionKind } from "#compiler/core/errors.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
@@ -119,7 +123,7 @@ interface Boundary {
 const intBoundaries = (
 	[lo, hi]: readonly [bigint, bigint],
 	asNumber: boolean
-): ReadonlyArray<Boundary> =>
+): Arr.NonEmptyReadonlyArray<Boundary> =>
 	Arr.map(
 		[
 			["min", lo],
@@ -137,11 +141,10 @@ const intBoundaries = (
 /**
  * The boundary classes of each carrier: its range's ends and their neighbours, zero and the units, NaN, for the floats
  * the infinities too (no numeric field holds one), the largest and smallest magnitudes, and the halves an integer cast
- * rounds. Every
- * (entry, class) pair is a situation the search must reach: an agreement on a value, or a refusal the operand's value
- * justifies.
+ * rounds. Every (entry, class) pair is a situation the search must reach: an agreement on a value, or a refusal the
+ * operand's value justifies.
  */
-const boundaries: { readonly [C in Gate]: ReadonlyArray<Boundary> } = {
+const boundaries: { readonly [C in Gate]: Arr.NonEmptyReadonlyArray<Boundary> } = {
 	int2: intBoundaries(integerRanges.int2, true),
 	int4: intBoundaries(integerRanges.int4, true),
 	int8: intBoundaries(integerRanges.int8, false),
@@ -194,13 +197,23 @@ const boundaries: { readonly [C in Gate]: ReadonlyArray<Boundary> } = {
 	)
 }
 
+/** Whether a carrier is a float's, whose zero has a sign. */
+const signedZero = (c: Gate): boolean => c === "float8" || c === "float4"
+
 /** A boundary class as an operand: as it is, and a float's zero as -0 too. */
 const boundaryOperands = (c: Gate): ReadonlyArray<Operand> => [
 	...Arr.map(boundaries[c], (b) => plainOperand(b.value, b.name)),
-	...(c === "float8" || c === "float4"
+	...(signedZero(c)
 		? [{ value: 0, spelling: { kind: "negative zero" } as const, boundary: "-0" }]
 		: [])
 ]
+
+/** The names of a carrier's boundary classes, a float's -0 among them. */
+const classNames = (c: Gate): Arr.NonEmptyReadonlyArray<string> =>
+	Arr.appendAll(
+		Arr.map(boundaries[c], (b) => b.name),
+		signedZero(c) ? ["-0"] : []
+	)
 
 /** The display scale numeric(1000, s) holds at most, NUMERIC_MAX_SCALE. */
 const maxPaddedScale = 1000
@@ -255,22 +268,19 @@ const realOperand = (o: Operand): ReadonlyArray<Operand> => {
 }
 
 /**
- * The generated operands of one case, per type: a batch of up to 80 values (120 numerics, each with its drawn padding),
- * the padding of each numeric boundary class, the pairs of fractional numerics lcm meets, and the drawn start of the
- * pseudo-random walk over a type's operand values (pick).
+ * The generated operands of a case, of its entry's carrier alone: a batch of up to 80 values (120 numerics, each with
+ * its drawn padding), and for numeric the padding of each of its boundary classes.
  */
-interface Operands {
-	readonly int2: ReadonlyArray<bigint>
-	readonly int4: ReadonlyArray<bigint>
-	readonly int8: ReadonlyArray<bigint>
-	readonly numeric: ReadonlyArray<readonly [string, number]>
-	readonly numericBoundaryPaddings: ReadonlyArray<number>
-	readonly fractionalPairs: ReadonlyArray<readonly [string, string]>
-	readonly float8: ReadonlyArray<FloatDraw>
-	readonly float4: ReadonlyArray<FloatDraw>
-	readonly money: ReadonlyArray<bigint>
-	readonly walk: number
-}
+type Operands =
+	| { readonly carrier: "int2" | "int4" | "int8" | "money"; readonly drawn: ReadonlyArray<bigint> }
+	| {
+			readonly carrier: "numeric"
+			readonly drawn: ReadonlyArray<readonly [string, number]>
+			readonly boundaryPaddings: ReadonlyArray<number>
+	  }
+	| { readonly carrier: "float8" | "float4"; readonly drawn: ReadonlyArray<FloatDraw> }
+
+type NumericOperands = Extract<Operands, { readonly carrier: "numeric" }>
 
 const batchOf = <A>(values: Gen<A>, max: number): Gen<ReadonlyArray<A>> =>
 	array(values, { min: 1, max })
@@ -289,6 +299,38 @@ const floatGen: Gen<FloatDraw> = weighted<FloatDraw>([
 
 /** The fraction digits a numeric operand is padded by past its least scale: none, or one of the paddings. */
 const paddingGen: Gen<number> = element<number>([0, ...numericPaddings])
+
+/** Numeric operands: a batch of drawn values, each with its padding, and the padding of each boundary class. */
+const numericOperandsGen: Gen<NumericOperands> = (source) => ({
+	carrier: "numeric",
+	drawn: source.draw(batchOf((s) => [s.draw(numericText), s.draw(paddingGen)] as const, 120)),
+	boundaryPaddings: source.draw(
+		array(paddingGen, { min: boundaries.numeric.length, max: boundaries.numeric.length })
+	)
+})
+
+/** The operands of a case of carrier `c`. */
+const operandsGen = (c: Gate): Gen<Operands> => {
+	switch (c) {
+		case "int2":
+		case "int4":
+		case "int8":
+			return map(batchOf(integerGen(c), 80), (drawn) => ({ carrier: c, drawn }))
+		case "money":
+			return map(batchOf(bigint(-(10n ** 12n), 10n ** 12n), 80), (drawn) => ({
+				carrier: c,
+				drawn
+			}))
+		case "numeric":
+			return numericOperandsGen
+		case "float8":
+		case "float4":
+			return map(batchOf(floatGen, 80), (drawn) => ({ carrier: c, drawn }))
+	}
+}
+
+/** The drawn start of a case's pseudo-random walk over its operand values (pick). */
+const walkGen: Gen<number> = int(0, 2 ** 31 - 1)
 
 /** A digit, half the time a 9, which puts a scaled operand near the top of its digits. */
 const nineBiased: Gen<string> = weighted([
@@ -325,21 +367,6 @@ const fractionalPairGen: Gen<readonly [string, string]> = oneOf([
 	map(fractionalText, (x) => [x, unitNearerZero(x)] as const)
 ])
 
-const operandsGen: Gen<Operands> = (source) => ({
-	int2: source.draw(batchOf(integerGen("int2"), 80)),
-	int4: source.draw(batchOf(integerGen("int4"), 80)),
-	int8: source.draw(batchOf(integerGen("int8"), 80)),
-	numeric: source.draw(batchOf((s) => [s.draw(numericText), s.draw(paddingGen)] as const, 120)),
-	numericBoundaryPaddings: source.draw(
-		array(paddingGen, { min: boundaries.numeric.length, max: boundaries.numeric.length })
-	),
-	fractionalPairs: source.draw(array(fractionalPairGen, { min: 8, max: 40 })),
-	float8: source.draw(batchOf(floatGen, 80)),
-	float4: source.draw(batchOf(floatGen, 80)),
-	money: source.draw(batchOf(bigint(-(10n ** 12n), 10n ** 12n), 80)),
-	walk: source.draw(int(0, 2 ** 31 - 1))
-})
-
 /** The element at `i`, which the caller's index arithmetic keeps in range. */
 const at = <A>(xs: ReadonlyArray<A>, i: number): A => {
 	const x = xs[i]
@@ -349,35 +376,35 @@ const at = <A>(xs: ReadonlyArray<A>, i: number): A => {
 	return x
 }
 
-/** The boundary classes of a carrier, a numeric one each padded as drawn. */
-const boundaryValues = (c: Gate, operands: Operands): ReadonlyArray<Operand> =>
-	c === "numeric"
+/** The boundary classes of the operands' carrier, a numeric one each padded as drawn. */
+const boundaryValues = (operands: Operands): ReadonlyArray<Operand> =>
+	operands.carrier === "numeric"
 		? Arr.map(boundaries.numeric, (b, i) => {
 				const value = b.value instanceof Decimal ? b.value : Decimal.zero
-				return numericOperand(value, at(operands.numericBoundaryPaddings, i), b.name)
+				return numericOperand(value, at(operands.boundaryPaddings, i), b.name)
 			})
-		: boundaryOperands(c)
+		: boundaryOperands(operands.carrier)
 
-/** The operands of each type: its boundary classes, then the case's generated operands. */
-const operandValues = (c: Gate, operands: Operands): ReadonlyArray<Operand> => {
+/** The operands of a case: its carrier's boundary classes, then its generated operands. */
+const operandValues = (operands: Operands): ReadonlyArray<Operand> => {
 	const drawnOperands = (): ReadonlyArray<Operand> => {
-		switch (c) {
+		switch (operands.carrier) {
 			case "int2":
 			case "int4":
-				return Arr.map(operands[c], (x) => plainOperand(Number(x), "drawn"))
+				return Arr.map(operands.drawn, (x) => plainOperand(Number(x), "drawn"))
 			case "int8":
-				return Arr.map(operands.int8, (x) => plainOperand(x, "drawn"))
-			case "numeric":
-				return Arr.map(operands.numeric, ([t, d]) => numericOperand(Decimal.of(t), d, "drawn"))
-			case "float8":
-				return Arr.map(operands.float8, floatOperand)
-			case "float4":
-				return Arr.flatMap(Arr.map(operands.float4, floatOperand), realOperand)
+				return Arr.map(operands.drawn, (x) => plainOperand(x, "drawn"))
 			case "money":
-				return Arr.map(operands.money, (m) => plainOperand(Money.of(m), "drawn"))
+				return Arr.map(operands.drawn, (m) => plainOperand(Money.of(m), "drawn"))
+			case "numeric":
+				return Arr.map(operands.drawn, ([t, d]) => numericOperand(Decimal.of(t), d, "drawn"))
+			case "float8":
+				return Arr.map(operands.drawn, floatOperand)
+			case "float4":
+				return Arr.flatMap(Arr.map(operands.drawn, floatOperand), realOperand)
 		}
 	}
-	return [...boundaryValues(c, operands), ...drawnOperands()]
+	return [...boundaryValues(operands), ...drawnOperands()]
 }
 
 /** The term a case reads operand `name` through: the variable itself, padded, or negated. */
@@ -430,7 +457,6 @@ const pick = <A>(
 }
 
 interface Op {
-	readonly name: string
 	readonly arity: 1 | 2 | 3
 	readonly build: (terms: ReadonlyArray<ScalarTerm>, carrier: Gate) => { readonly expr: OpenExpr }
 	readonly predicate: boolean
@@ -451,102 +477,136 @@ const inLists: { readonly [C in Gate]: ReadonlyArray<unknown> } = {
 }
 
 /**
- * The catalogue's entries. Every operand is a literal, so each partial operation's precondition is decided at
- * compilation from the literals' own values and bounds: proved, and the case runs, or refused (PartialOperation), and
- * the refusal is judged against the operands' values. The chained entries put an exact integer or exact money in an
- * operand: a sum, a product or a quotient of an exact value, and its comparison and narrowing.
+ * The catalogue's operations, by name. Every operand is a literal, so each partial operation's precondition is decided
+ * at compilation from the literals' own values and bounds: proved, and the case runs, or refused (PartialOperation),
+ * and the refusal is judged against the operands' values. The chained entries put an exact integer or exact money in
+ * an operand: a sum, a product or a quotient of an exact value, and its comparison and narrowing.
  */
-const ops: ReadonlyArray<Op> = [
-	{ name: "add", arity: 2, build: ([a, b]) => Compute.add(a, b), predicate: false },
-	{ name: "sub", arity: 2, build: ([a, b]) => Compute.sub(a, b), predicate: false },
-	{ name: "mul", arity: 2, build: ([a, b]) => Compute.mul(a, b), predicate: false },
-	{ name: "div", arity: 2, build: ([a, b]) => Compute.div(a, b), predicate: false },
-	{ name: "mod", arity: 2, build: ([a, b]) => Compute.mod(a, b), predicate: false },
-	{ name: "neg", arity: 1, build: ([a]) => Compute.neg(a), predicate: false },
-	{ name: "quot", arity: 2, build: ([a, b]) => Compute.quot(a, b), predicate: false },
-	{ name: "rem", arity: 2, build: ([a, b]) => Compute.rem(a, b), predicate: false },
-	{ name: "abs", arity: 1, build: ([a]) => Compute.abs(a), predicate: false },
-	{ name: "sign", arity: 1, build: ([a]) => Compute.sign(a), predicate: false },
-	{ name: "round", arity: 1, build: ([a]) => Compute.round(a), predicate: false },
-	{ name: "round2", arity: 1, build: ([a]) => Compute.round(a, 2), predicate: false },
-	{ name: "round-1", arity: 1, build: ([a]) => Compute.round(a, -1), predicate: false },
-	{ name: "trunc", arity: 1, build: ([a]) => Compute.trunc(a), predicate: false },
-	{ name: "trunc3", arity: 1, build: ([a]) => Compute.trunc(a, 3), predicate: false },
-	{ name: "trunc-2", arity: 1, build: ([a]) => Compute.trunc(a, -2), predicate: false },
-	{ name: "ceil", arity: 1, build: ([a]) => Compute.ceil(a), predicate: false },
-	{ name: "floor", arity: 1, build: ([a]) => Compute.floor(a), predicate: false },
-	{ name: "gcd", arity: 2, build: ([a, b]) => Compute.gcd(a, b), predicate: false },
-	{ name: "lcm", arity: 2, build: ([a, b]) => Compute.lcm(a, b), predicate: false },
-	{ name: "power", arity: 2, build: ([a, b]) => Compute.power(a, b), predicate: false },
-	{ name: "sqrt", arity: 1, build: ([a]) => Compute.sqrt(a), predicate: false },
-	{ name: "least", arity: 3, build: ([a, b, c]) => Compute.least(a, b, c), predicate: false },
-	{ name: "greatest", arity: 3, build: ([a, b, c]) => Compute.greatest(a, b, c), predicate: false },
-	{ name: "minScale", arity: 1, build: ([a]) => Compute.minScale(a), predicate: false },
-	{ name: "eq", arity: 2, build: ([a, b]) => Compute.eq(a, b), predicate: true },
-	{ name: "ne", arity: 2, build: ([a, b]) => Compute.ne(a, b), predicate: true },
-	{ name: "lt", arity: 2, build: ([a, b]) => Compute.lt(a, b), predicate: true },
-	{ name: "le", arity: 2, build: ([a, b]) => Compute.le(a, b), predicate: true },
-	{ name: "gt", arity: 2, build: ([a, b]) => Compute.gt(a, b), predicate: true },
-	{ name: "ge", arity: 2, build: ([a, b]) => Compute.ge(a, b), predicate: true },
-	{ name: "between", arity: 3, build: ([a, b, c]) => Compute.between(a, b, c), predicate: true },
-	{ name: "in", arity: 1, build: ([a], c) => Compute.in(a, inLists[c]), predicate: true },
-	{
-		name: "cond",
+const ops = {
+	add: { arity: 2, build: ([a, b]) => Compute.add(a, b), predicate: false },
+	sub: { arity: 2, build: ([a, b]) => Compute.sub(a, b), predicate: false },
+	mul: { arity: 2, build: ([a, b]) => Compute.mul(a, b), predicate: false },
+	div: { arity: 2, build: ([a, b]) => Compute.div(a, b), predicate: false },
+	mod: { arity: 2, build: ([a, b]) => Compute.mod(a, b), predicate: false },
+	neg: { arity: 1, build: ([a]) => Compute.neg(a), predicate: false },
+	quot: { arity: 2, build: ([a, b]) => Compute.quot(a, b), predicate: false },
+	rem: { arity: 2, build: ([a, b]) => Compute.rem(a, b), predicate: false },
+	abs: { arity: 1, build: ([a]) => Compute.abs(a), predicate: false },
+	sign: { arity: 1, build: ([a]) => Compute.sign(a), predicate: false },
+	round: { arity: 1, build: ([a]) => Compute.round(a), predicate: false },
+	round2: { arity: 1, build: ([a]) => Compute.round(a, 2), predicate: false },
+	"round-1": { arity: 1, build: ([a]) => Compute.round(a, -1), predicate: false },
+	trunc: { arity: 1, build: ([a]) => Compute.trunc(a), predicate: false },
+	trunc3: { arity: 1, build: ([a]) => Compute.trunc(a, 3), predicate: false },
+	"trunc-2": { arity: 1, build: ([a]) => Compute.trunc(a, -2), predicate: false },
+	ceil: { arity: 1, build: ([a]) => Compute.ceil(a), predicate: false },
+	floor: { arity: 1, build: ([a]) => Compute.floor(a), predicate: false },
+	gcd: { arity: 2, build: ([a, b]) => Compute.gcd(a, b), predicate: false },
+	lcm: { arity: 2, build: ([a, b]) => Compute.lcm(a, b), predicate: false },
+	power: { arity: 2, build: ([a, b]) => Compute.power(a, b), predicate: false },
+	sqrt: { arity: 1, build: ([a]) => Compute.sqrt(a), predicate: false },
+	least: { arity: 3, build: ([a, b, c]) => Compute.least(a, b, c), predicate: false },
+	greatest: { arity: 3, build: ([a, b, c]) => Compute.greatest(a, b, c), predicate: false },
+	minScale: { arity: 1, build: ([a]) => Compute.minScale(a), predicate: false },
+	eq: { arity: 2, build: ([a, b]) => Compute.eq(a, b), predicate: true },
+	ne: { arity: 2, build: ([a, b]) => Compute.ne(a, b), predicate: true },
+	lt: { arity: 2, build: ([a, b]) => Compute.lt(a, b), predicate: true },
+	le: { arity: 2, build: ([a, b]) => Compute.le(a, b), predicate: true },
+	gt: { arity: 2, build: ([a, b]) => Compute.gt(a, b), predicate: true },
+	ge: { arity: 2, build: ([a, b]) => Compute.ge(a, b), predicate: true },
+	between: { arity: 3, build: ([a, b, c]) => Compute.between(a, b, c), predicate: true },
+	in: { arity: 1, build: ([a], c) => Compute.in(a, inLists[c]), predicate: true },
+	cond: {
 		arity: 3,
 		build: ([a, b, c]) => Compute.cond(Compute.lt(a, b), b, c),
 		predicate: false
 	},
-	{
-		name: "and-or",
+	"and-or": {
 		arity: 3,
 		build: ([a, b, c]) =>
 			Compute.or(Compute.and(Compute.le(a, b), Compute.not(Compute.eq(b, c))), Compute.gt(c, a)),
 		predicate: true
 	},
-	{
-		name: "exact add",
+	"exact add": {
 		arity: 3,
 		build: ([a, b, c]) => Compute.add(Compute.add(a, b), c),
 		predicate: false
 	},
-	{
-		name: "exact mul",
+	"exact mul": {
 		arity: 3,
 		build: ([a, b, c]) => Compute.mul(Compute.mul(a, b), c),
 		predicate: false
 	},
-	{
-		name: "exact div",
+	"exact div": {
 		arity: 3,
 		build: ([a, b, c]) => Compute.div(Compute.mul(a, b), c),
 		predicate: false
 	},
-	{
-		name: "exact compare",
+	"exact compare": {
 		arity: 3,
 		build: ([a, b, c]) => Compute.lt(Compute.sub(a, b), c),
 		predicate: true
 	},
-	{
-		name: "guarded div",
+	"guarded div": {
 		arity: 2,
 		build: ([a, b]) =>
 			Compute.when(Compute.nonzero(b), (d: ScalarTerm) => Compute.div(a, d), Compute.sub(a, a)),
 		predicate: false
 	}
-]
+} as const satisfies { readonly [name: string]: Op }
 
-const castTargets: ReadonlyArray<readonly [string, TestField]> = [
-	["smallint", testPg.smallint],
-	["integer", testPg.integer],
-	["bigint", testPg.bigint],
-	["numeric", testPg.numeric],
-	["numeric(5,2)", testPg.numericOf(5, 2)],
-	["numeric(3,-2)", testPg.numericOf(3, -2)],
-	["real", testPg.real],
-	["double precision", testPg.double],
-	["money", testPg.money]
-]
+type OpName = keyof typeof ops
+
+/** The types a cast may target, by name. */
+const castTargets = {
+	smallint: testPg.smallint,
+	integer: testPg.integer,
+	bigint: testPg.bigint,
+	numeric: testPg.numeric,
+	"numeric(5,2)": testPg.numericOf(5, 2),
+	"numeric(3,-2)": testPg.numericOf(3, -2),
+	real: testPg.real,
+	"double precision": testPg.double,
+	money: testPg.money
+} as const satisfies { readonly [name: string]: TestField }
+
+type CastTarget = keyof typeof castTargets
+
+/**
+ * A case: one catalogue entry, with its operands. An operation at its operands' carrier, read at every boundary class
+ * in every position, at every pair of classes and along a walk; a cast from its operands' carrier, of each operand;
+ * numeric's width_bucket, along a walk and at every class in each operand position; and lcm over pairs of fractional
+ * numerics.
+ */
+type CatalogueCase =
+	| {
+			readonly kind: "operation"
+			readonly op: OpName
+			readonly operands: Operands
+			readonly walk: number
+	  }
+	| { readonly kind: "cast"; readonly target: CastTarget; readonly operands: Operands }
+	| { readonly kind: "width bucket"; readonly operands: NumericOperands; readonly walk: number }
+	| { readonly kind: "fractional lcm"; readonly pairs: ReadonlyArray<readonly [string, string]> }
+
+const operationLabel = (op: OpName, c: Gate): string => `${op}/${c}`
+
+const castLabel = (c: Gate, target: CastTarget): string =>
+	`cast:${typeLabel(fields[c].scalar)}->${target}`
+
+/** The label of a case's every expression: its operation, at its carrier. */
+const labelOf = (k: CatalogueCase): string => {
+	switch (k.kind) {
+		case "operation":
+			return operationLabel(k.op, k.operands.carrier)
+		case "cast":
+			return castLabel(k.operands.carrier, k.target)
+		case "width bucket":
+			return "widthBucket/numeric"
+		case "fractional lcm":
+			return "lcm/numeric"
+	}
+}
 
 /** Whether `build` returns rather than throwing a CompileError; anything else thrown fails the test. */
 const admitted = (build: () => unknown): boolean => catchCompileError(build).ok
@@ -602,57 +662,13 @@ const gateCarriers: ReadonlyArray<Gate> = [
 	"money"
 ]
 
-/** The (operation, carrier) pairs and casts the catalogue refuses, and the operations each carrier admits. */
 const operandNames = ["a", "b", "c"] as const
-
-/** The entries an operand of carrier `c` meets: its admitted operations and casts, width_bucket's for numeric. */
-const entriesOf = (c: Gate): ReadonlyArray<string> => {
-	const f = fields[c]
-	const terms = [v("a", f), v("b", f), v("c", f)]
-	return [
-		...Arr.map(
-			Arr.filter(ops, (op) => admitted(() => op.build(terms, c))),
-			(op) => `${op.name}/${c}`
-		),
-		...Arr.map(
-			Arr.filter(castTargets, ([, target]) => admitted(() => Compute.cast(terms[0], target))),
-			([name]) => `cast:${typeLabel(f.scalar)}->${name}`
-		),
-		...(c === "numeric" ? ["widthBucket/numeric"] : [])
-	]
-}
 
 /** The entries the host declines for every value by design (a float's pow, evaluation "database"): no verdict. */
 const declinedEntries: ReadonlySet<string> = new Set(["power/float8", "power/float4"])
 
-/** Every entry the catalogue builds cases of: each gate carrier's (entriesOf), in one order. */
-const catalogueEntries: ReadonlyArray<string> = Arr.flatMap(gateCarriers, entriesOf)
-
-/**
- * Whether a case builds an entry: all but once in as many cases as the catalogue has entries squared, so a case builds
- * every entry all but rarely; shrinking toward leaving it out, so a failure shrinks to the entries it needs and each
- * shrink candidate builds those alone rather than every entry again.
- */
-const entryKept: Gen<boolean> = proportional([
-	[1, constant(false)],
-	[catalogueEntries.length ** 2, constant(true)]
-])
-
-/** A case: the entries it builds, in catalogue order, and the operands it builds them over. */
-interface CatalogueCase {
-	readonly entries: ReadonlyArray<string>
-	readonly operands: Operands
-}
-
-const catalogueCaseGen: Gen<CatalogueCase> = (source) => {
-	const kept = source.draw(
-		array(entryKept, { min: catalogueEntries.length, max: catalogueEntries.length })
-	)
-	return {
-		entries: Arr.filter(catalogueEntries, (_, i) => kept[i] === true),
-		operands: source.draw(operandsGen)
-	}
-}
+/** An entry agreeing with PostgreSQL on a value. */
+type ValueSituation = `${string} value`
 
 /** An entry met at one of its carrier's boundary classes: `<entry> @ <class>`. */
 type BoundarySituation = `${string} @ ${string}`
@@ -660,35 +676,250 @@ type BoundarySituation = `${string} @ ${string}`
 /** What a spelled operand reached: an entry that read a padded numeric or a float -0 and agreed on a value. */
 type SpelledSituation = `padded ${string}` | `negative zero ${string}`
 
-/** Every admitted entry at every boundary class of its carrier, but the entries the host declines by design. */
-const boundarySituations: ReadonlyArray<BoundarySituation> = Arr.flatMap(gateCarriers, (c) =>
-	Arr.flatMap(
-		Arr.filter(entriesOf(c), (e) => !declinedEntries.has(e)),
-		(e: string) =>
-			Arr.map(
-				[
-					...Arr.map(boundaries[c], (b) => b.name),
-					...(c === "float8" || c === "float4" ? ["-0"] : [])
-				],
-				(b): BoundarySituation => `${e} @ ${b}`
-			)
-	)
+/** An entry the host declined by design, whose value PostgreSQL alone computed. */
+type DeclinedSituation = `${string} declined by the host`
+
+/**
+ * What a case reached: its entry agreeing on a value, or declined by the host by design; its entry at each boundary
+ * class of its carrier, agreeing on a value or refused as the operands' values justify; its entry over a padded numeric
+ * or a float -0, agreeing on a value; and lcm over fractional numerics agreeing on a value with more integer digits
+ * than its operands have together.
+ */
+type CatalogueFeature =
+	| ValueSituation
+	| BoundarySituation
+	| SpelledSituation
+	| DeclinedSituation
+	| "lcm/numeric past its operands' integer digits"
+
+/** The spelled situations of an entry over operands of carrier `c`: a numeric read padded, a float read at -0. */
+const spelledOf = (label: string, c: Gate): ReadonlyArray<SpelledSituation> => {
+	switch (c) {
+		case "numeric":
+			return [`padded ${label}`]
+		case "float8":
+		case "float4":
+			return [`negative zero ${label}`]
+		case "int2":
+		case "int4":
+		case "int8":
+		case "money":
+			return []
+	}
+}
+
+/**
+ * The situations a case of the entry `label` over operands of carrier `c` must reach: declined by the host, for an
+ * entry it declines by design; otherwise agreeing on a value, at each class of the carrier, and through each spelling.
+ */
+const situationsOf = (label: string, c: Gate): Arr.NonEmptyReadonlyArray<CatalogueFeature> =>
+	declinedEntries.has(label)
+		? [`${label} declined by the host`]
+		: [
+				`${label} value`,
+				...Arr.map(classNames(c), (b): BoundarySituation => `${label} @ ${b}`),
+				...spelledOf(label, c)
+			]
+
+/** A catalogue entry: the case a turn aimed at it draws, and every situation a case of it reaches. */
+interface Entry {
+	readonly gen: Gen<CatalogueCase>
+	readonly situations: Arr.NonEmptyReadonlyArray<CatalogueFeature>
+}
+
+/** The admitted operations and casts of carrier `c`, each an entry. */
+const carrierEntries = (c: Gate): ReadonlyArray<Entry> => {
+	const terms = [v("a", fields[c]), v("b", fields[c]), v("c", fields[c])]
+	return [
+		...Arr.map(
+			Arr.filter(Rec.keys(ops), (op) => admitted(() => ops[op].build(terms, c))),
+			(op): Entry => ({
+				gen: (source) => ({
+					kind: "operation",
+					op,
+					operands: source.draw(operandsGen(c)),
+					walk: source.draw(walkGen)
+				}),
+				situations: situationsOf(operationLabel(op, c), c)
+			})
+		),
+		...Arr.map(
+			Arr.filter(Rec.keys(castTargets), (target) =>
+				admitted(() => Compute.cast(terms[0], castTargets[target]))
+			),
+			(target): Entry => ({
+				gen: (source) => ({ kind: "cast", target, operands: source.draw(operandsGen(c)) }),
+				situations: situationsOf(castLabel(c, target), c)
+			})
+		)
+	]
+}
+
+/**
+ * The catalogue: each gate carrier's admitted operations and casts, numeric's width_bucket, and lcm over fractional
+ * numerics, whose pairs no carrier's operands draw.
+ */
+const catalogue: Arr.NonEmptyReadonlyArray<Entry> = Arr.appendAll(
+	Arr.flatMap(gateCarriers, carrierEntries),
+	[
+		{
+			gen: (source) => ({
+				kind: "width bucket",
+				operands: source.draw(numericOperandsGen),
+				walk: source.draw(walkGen)
+			}),
+			situations: situationsOf("widthBucket/numeric", "numeric")
+		},
+		{
+			gen: (source) => ({
+				kind: "fractional lcm",
+				pairs: source.draw(array(fractionalPairGen, { min: 8, max: 40 }))
+			}),
+			situations: ["lcm/numeric past its operands' integer digits"]
+		}
+	]
 )
 
-/** Every entry with a numeric operand, read padded, and every float entry, read at -0. */
-const spelledSituations: ReadonlyArray<SpelledSituation> = [
-	...Arr.map(entriesOf("numeric"), (e): SpelledSituation => `padded ${e}`),
-	...Arr.map(
-		Arr.filter([...entriesOf("float8"), ...entriesOf("float4")], (e) => !declinedEntries.has(e)),
-		(e): SpelledSituation => `negative zero ${e}`
-	)
-]
+/**
+ * Every entry's first situation, then the rest of each entry's. A window's cases aim at consecutive pending
+ * situations, so in this order they aim at distinct entries, and one case of an entry reaches all its situations.
+ */
+const situations: Arr.NonEmptyReadonlyArray<CatalogueFeature> = Arr.appendAll(
+	Arr.map(catalogue, (e) => Arr.headNonEmpty(e.situations)),
+	Arr.flatMap(catalogue, (e) => Arr.tailNonEmpty(e.situations))
+)
+
+/**
+ * A case: a witness's is a case of the entry its turn aims at, so every entry runs on every run, whatever the run seed;
+ * a rotating case is a case of an entry drawn alike among them.
+ */
+const caseDraw = aimed(
+	oneOf(Arr.map(catalogue, (e) => e.gen)),
+	Arr.flatMap(catalogue, (e) => Arr.map(e.situations, (s) => [s, e.gen] as const))
+)
+
+/**
+ * One case for each entry: the rotating stream's fresh sample, and the steered phase's budget past the floor's cases,
+ * one aimed case reaching every situation of its entry.
+ */
+const casePerEntry = catalogue.length
 
 /** A case, the spelling of the operands its expression reads, and their boundary classes. */
 interface ReadCase {
 	readonly built: Built
 	readonly spelling: Spelling["kind"]
 	readonly read: ReadonlyArray<Operand>
+}
+
+/** One expression of a case before it is lowered: its bindings and the operands it reads. */
+interface Formed {
+	readonly expr: OpenExpr
+	readonly bindings: Readonly<Record<string, LeafBinding>>
+	readonly predicate: boolean
+	readonly read: ReadonlyArray<Operand>
+}
+
+/**
+ * The expressions of a case: for an operation, each boundary class of its carrier at each operand position, every pair
+ * of classes for a binary one, and a walk over the classes and generated operands; for a cast, each operand; for
+ * width_bucket, a walk and each class at each operand position; for fractional lcm, each pair. Each operand is read
+ * through its spelling's term.
+ */
+const formsOf = (k: CatalogueCase): ReadonlyArray<Formed> => {
+	switch (k.kind) {
+		case "operation": {
+			const op: Op = ops[k.op]
+			const c = k.operands.carrier
+			const f = fields[c]
+			const values = operandValues(k.operands)
+			const classes = boundaryValues(k.operands)
+			const walk = pick(values, 200, k.walk)
+			const atPositions = Arr.flatMap(
+				upTo(op.arity, (i) => i),
+				(p) =>
+					Arr.map(classes, (x, i) =>
+						Arr.map([0, 1, 2], (q) => (q === p ? x : at(at(walk, i % walk.length), q)))
+					)
+			)
+			const pairs =
+				op.arity === 1 ? [] : Arr.flatMap(classes, (x) => Arr.map(classes, (y) => [x, y, y]))
+			return Arr.map([...atPositions, ...pairs, ...walk], (tuple) => ({
+				expr: op.build(
+					Arr.map(operandNames, (name, i) => spelledTerm(name, f, at(tuple, i))),
+					c
+				).expr,
+				bindings: {
+					a: literalOf(f, at(tuple, 0)),
+					b: literalOf(f, at(tuple, 1)),
+					c: literalOf(f, at(tuple, 2))
+				},
+				predicate: op.predicate,
+				read: tuple.slice(0, op.arity)
+			}))
+		}
+		case "cast": {
+			const f = fields[k.operands.carrier]
+			return Arr.map(operandValues(k.operands), (x) => ({
+				expr: Compute.cast(spelledTerm("a", f, x), castTargets[k.target]).expr,
+				bindings: { a: literalOf(f, x) },
+				predicate: false,
+				read: [x]
+			}))
+		}
+		case "width bucket": {
+			const numeric = testPg.numeric
+			const counts = [-1, 0, 1, 3, 10, 2147483647]
+			const bucket = (a: Operand, b: Operand, c: Operand, n: number): Formed => ({
+				expr: Compute.widthBucket(
+					spelledTerm("a", numeric, a),
+					spelledTerm("b", numeric, b),
+					spelledTerm("c", numeric, c),
+					v("n", testPg.integer)
+				).expr,
+				bindings: {
+					a: literalOf(numeric, a),
+					b: literalOf(numeric, b),
+					c: literalOf(numeric, c),
+					n: { kind: "literal", field: testPg.integer, value: n }
+				},
+				predicate: false,
+				read: [a, b, c]
+			})
+			const walked = Arr.map(pick(operandValues(k.operands), 1200, k.walk), (t, i) =>
+				bucket(at(t, 0), at(t, 1), at(t, 2), at(counts, i % counts.length))
+			)
+			const atClasses = Arr.flatMap(boundaryValues(k.operands), (x, i) => {
+				const lo = plainOperand(Decimal.of(BigInt(-(i % 17))), "drawn")
+				const hi = plainOperand(Decimal.of(`${(i % 13) + 1}.${i % 7}`), "drawn")
+				const n = (i % 9) + 1
+				return [bucket(x, lo, hi, n), bucket(lo, x, hi, n), bucket(lo, hi, x, n)]
+			})
+			return [...walked, ...atClasses]
+		}
+		case "fractional lcm": {
+			const numeric = testPg.numeric
+			return Arr.map(k.pairs, ([x, y]) => {
+				const a = plainOperand(Decimal.of(x), "drawn")
+				const b = plainOperand(Decimal.of(y), "drawn")
+				return {
+					expr: Compute.lcm(v("a", numeric), v("b", numeric)).expr,
+					bindings: { a: literalOf(numeric, a), b: literalOf(numeric, b) },
+					predicate: false,
+					read: [a, b]
+				}
+			})
+		}
+	}
+}
+
+/** The cases of a case's expressions, each lowered, rendered and evaluated on the host, numbered in order. */
+const buildCases = (k: CatalogueCase): ReadonlyArray<ReadCase> => {
+	const label = labelOf(k)
+	return Arr.map(formsOf(k), (form, ord) => ({
+		built: makeCase(ord, label, form.expr, form.bindings, form.predicate),
+		spelling: spellingOf(form.read),
+		read: form.read
+	}))
 }
 
 /** Whether an operand's value is zero, below zero, or not finite: what a refused precondition must rest on. */
@@ -733,12 +964,15 @@ const justified = (precondition: PreconditionKind, read: ReadonlyArray<Operand>)
 	}
 }
 
-/** The situations a run reached, from its cases and the answers to those PostgreSQL ran. */
+/**
+ * The situations a case reached, from its expressions and the answers to those PostgreSQL ran: its entry agreeing on a
+ * value, and at the class and through the spelling of each operand an agreeing or justly refused expression read.
+ */
 const reached = (
 	cases: ReadonlyArray<ReadCase>,
 	agreed: ReadonlyMap<ReadCase, boolean>
-): ReadonlyArray<BoundarySituation | SpelledSituation> =>
-	Arr.flatMap(cases, (k): ReadonlyArray<BoundarySituation | SpelledSituation> => {
+): ReadonlyArray<CatalogueFeature> =>
+	Arr.flatMap(cases, (k): ReadonlyArray<CatalogueFeature> => {
 		const label = k.built.kind === "case" ? k.built.evalCase.label : k.built.label
 		const ok =
 			k.built.kind === "case" ? agreed.get(k) === true : justified(k.built.precondition, k.read)
@@ -746,149 +980,15 @@ const reached = (
 			return []
 		}
 		const atBoundary = Arr.map(k.read, (o): BoundarySituation => `${label} @ ${o.boundary}`)
-		const spelledReach: ReadonlyArray<SpelledSituation> =
+		const valueReach: ReadonlyArray<CatalogueFeature> =
 			k.built.kind !== "case"
 				? []
 				: k.spelling === "padded"
-					? [`padded ${label}`]
+					? [`${label} value`, `padded ${label}`]
 					: k.spelling === "negative zero"
-						? [`negative zero ${label}`]
-						: []
-		return [...atBoundary, ...spelledReach]
-	})
-
-/**
- * The cases of each of `entries`: each boundary class of its carrier at each operand position, every pair of boundary
- * classes for a binary entry, and a walk over the boundary and generated operands; each operand read through its
- * spelling's term. A case of every entry builds some 56,600 of them, each lowered, rendered and evaluated on the host,
- * about 20 s of CPU in all, so building yields after each one: the case's hang guard can cut it
- * there, which a synchronous build of that length would starve.
- */
-const buildCases = (
-	entries: ReadonlyArray<string>,
-	operands: Operands
-): Effect.Effect<ReadonlyArray<ReadCase>> =>
-	Effect.gen(function* () {
-		const builds: ReadonlySet<string> = new Set(entries)
-		const cases: Array<ReadCase> = []
-		const add = (
-			label: string,
-			expr: OpenExpr,
-			bindings: Readonly<Record<string, LeafBinding>>,
-			predicate: boolean,
-			read: ReadonlyArray<Operand>
-		) => {
-			cases.push({
-				built: makeCase(cases.length, label, expr, bindings, predicate),
-				spelling: spellingOf(read),
-				read
-			})
-		}
-		for (const c of gateCarriers) {
-			const f = fields[c]
-			const values = operandValues(c, operands)
-			const classes = boundaryValues(c, operands)
-			for (const op of ops) {
-				if (!builds.has(`${op.name}/${c}`)) {
-					continue
-				}
-				const walk = pick(values, 200, operands.walk ^ (op.name.length * 31 + c.length))
-				const atPositions = Arr.flatMap(
-					upTo(op.arity, (i) => i),
-					(p) =>
-						Arr.map(classes, (k, i) =>
-							Arr.map([0, 1, 2], (q) => (q === p ? k : at(at(walk, i % walk.length), q)))
-						)
-				)
-				const pairs =
-					op.arity === 1 ? [] : Arr.flatMap(classes, (x) => Arr.map(classes, (y) => [x, y, y]))
-				for (const tuple of [...atPositions, ...pairs, ...walk]) {
-					const expr = op.build(
-						Arr.map(operandNames, (name, k) => spelledTerm(name, f, at(tuple, k))),
-						c
-					).expr
-					add(
-						`${op.name}/${c}`,
-						expr,
-						{
-							a: literalOf(f, at(tuple, 0)),
-							b: literalOf(f, at(tuple, 1)),
-							c: literalOf(f, at(tuple, 2))
-						},
-						op.predicate,
-						tuple.slice(0, op.arity)
-					)
-					yield* Effect.yieldNow
-				}
-			}
-			for (const [name, target] of castTargets) {
-				const label = `cast:${typeLabel(f.scalar)}->${name}`
-				if (!builds.has(label)) {
-					continue
-				}
-				for (const x of values) {
-					add(
-						label,
-						Compute.cast(spelledTerm("a", f, x), target).expr,
-						{ a: literalOf(f, x) },
-						false,
-						[x]
-					)
-					yield* Effect.yieldNow
-				}
-			}
-		}
-		const numeric = testPg.numeric
-		const buckets = builds.has("widthBucket/numeric")
-		const counts = [-1, 0, 1, 3, 10, 2147483647]
-		const bucket = (a: Operand, b: Operand, c: Operand, n: number) =>
-			add(
-				"widthBucket/numeric",
-				Compute.widthBucket(
-					spelledTerm("a", numeric, a),
-					spelledTerm("b", numeric, b),
-					spelledTerm("c", numeric, c),
-					v("n", testPg.integer)
-				).expr,
-				{
-					a: literalOf(numeric, a),
-					b: literalOf(numeric, b),
-					c: literalOf(numeric, c),
-					n: { kind: "literal", field: testPg.integer, value: n }
-				},
-				false,
-				[a, b, c]
-			)
-		const bucketWalk = buckets
-			? pick(operandValues("numeric", operands), 1200, operands.walk ^ 77)
-			: []
-		for (const [i, t] of bucketWalk.entries()) {
-			bucket(at(t, 0), at(t, 1), at(t, 2), at(counts, i % counts.length))
-			yield* Effect.yieldNow
-		}
-		for (const [i, k] of (buckets ? boundaryValues("numeric", operands) : []).entries()) {
-			const lo = plainOperand(Decimal.of(BigInt(-(i % 17))), "drawn")
-			const hi = plainOperand(Decimal.of(`${(i % 13) + 1}.${i % 7}`), "drawn")
-			bucket(k, lo, hi, (i % 9) + 1)
-			yield* Effect.yieldNow
-			bucket(lo, k, hi, (i % 9) + 1)
-			yield* Effect.yieldNow
-			bucket(lo, hi, k, (i % 9) + 1)
-			yield* Effect.yieldNow
-		}
-		for (const [x, y] of builds.has("lcm/numeric") ? operands.fractionalPairs : []) {
-			const a = plainOperand(Decimal.of(x), "drawn")
-			const b = plainOperand(Decimal.of(y), "drawn")
-			add(
-				"lcm/numeric",
-				Compute.lcm(v("a", numeric), v("b", numeric)).expr,
-				{ a: literalOf(numeric, a), b: literalOf(numeric, b) },
-				false,
-				[a, b]
-			)
-			yield* Effect.yieldNow
-		}
-		return cases
+						? [`${label} value`, `negative zero ${label}`]
+						: [`${label} value`]
+		return [...atBoundary, ...valueReach]
 	})
 
 /** The integer digits of a finite numeric: the least d with |x| < 10^d. */
@@ -921,19 +1021,6 @@ const lcmPastOperandDigits = (k: ReadCase, agreed: boolean): boolean => {
 	)
 }
 
-/**
- * What a case reached: each entry at each boundary class of its carrier, agreeing on a value or refused as the
- * operands' values justify; each entry over a padded numeric or a float -0, agreeing on a value; numeric power
- * agreeing on a value; a node the host declined by design; and lcm over fractional numerics agreeing on a value with
- * more integer digits than its operands have together.
- */
-type CatalogueFeature =
-	| BoundarySituation
-	| SpelledSituation
-	| "power/numeric value"
-	| "declined by the host"
-	| "lcm/numeric past its operands' integer digits"
-
 layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 	it.effect(
 		"agrees with PostgreSQL on the result type and value of every operation at every boundary, and refuses only what the values justify",
@@ -952,42 +1039,36 @@ layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 								name: "each operation's value and type, beside the host and the reference evaluators"
 							},
 							suite: "pg/compute/catalogue",
-							draw: drawn(catalogueCaseGen),
+							draw: caseDraw,
 							literal: Formatter.format,
-							coverage: required<CatalogueFeature>(
-								[
-									"power/numeric value",
-									"declined by the host",
-									"lcm/numeric past its operands' integer digits",
-									...boundarySituations,
-									...spelledSituations
-								],
-								{ cases: 1, sense: notesOnly }
-							),
+							coverage: required<CatalogueFeature>(situations, {
+								cases: casePerEntry,
+								sense: notesOnly
+							}),
 							kept: [],
-							runs: 1,
+							runs: casePerEntry,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
-						(drawnCase, c) =>
+						(k, c) =>
 							Effect.gen(function* () {
-								const all = yield* buildCases(drawnCase.entries, drawnCase.operands)
-								const unjustified = Arr.flatMap(all, (k) =>
-									k.built.kind === "refused" && !justified(k.built.precondition, k.read)
+								const label = labelOf(k)
+								const all = buildCases(k)
+								const unjustified = Arr.flatMap(all, (r) =>
+									r.built.kind === "refused" && !justified(r.built.precondition, r.read)
 										? [
-												`${k.built.label} refused for ${k.built.precondition} at ${Arr.join(
-													Arr.map(k.read, (o) => Formatter.format(o.value)),
+												`${r.built.label} refused for ${r.built.precondition} at ${Arr.join(
+													Arr.map(r.read, (o) => Formatter.format(o.value)),
 													", "
 												)}`
 											]
 										: []
 								)
 								assert.deepEqual(unjustified.slice(0, 10), [])
-								const ran = Arr.flatMap(all, (k) => (k.built.kind === "case" ? [k] : []))
-								const cases = Arr.flatMap(ran, (k) =>
-									k.built.kind === "case" ? [k.built.evalCase] : []
+								const ran = Arr.flatMap(all, (r) => (r.built.kind === "case" ? [r] : []))
+								const cases = Arr.flatMap(ran, (r) =>
+									r.built.kind === "case" ? [r.built.evalCase] : []
 								)
 								const answers: ReadonlyArray<PgAnswer> = yield* runCases(db, s, cases, caseChunk)
 								assert.equal(answers.length, cases.length)
@@ -995,25 +1076,14 @@ layer(Substrate.layer)("the Compute catalogue against PostgreSQL 19", (it) => {
 								assert.deepEqual(result.mismatches.slice(0, 10), [])
 								assert.equal(result.typedOnly, 0)
 								const agreed = new Map(
-									Arr.map(ran, (k, i) => [k, result.agreed[i] === true] as const)
+									Arr.map(ran, (r, i) => [r, result.agreed[i] === true] as const)
 								)
 								if (result.declined > 0) {
-									c.note("declined by the host")
+									c.note(`${label} declined by the host`)
 								}
 								c.noteAll(reached(all, agreed))
-								if (Arr.some(ran, (k) => lcmPastOperandDigits(k, agreed.get(k) === true))) {
+								if (Arr.some(ran, (r) => lcmPastOperandDigits(r, agreed.get(r) === true))) {
 									c.note("lcm/numeric past its operands' integer digits")
-								}
-								if (
-									Arr.some(
-										cases,
-										(k, i) =>
-											k.label === "power/numeric" &&
-											k.host._tag === "Success" &&
-											answers[i]?.kind === "value"
-									)
-								) {
-									c.note("power/numeric value")
 								}
 							})
 					)
