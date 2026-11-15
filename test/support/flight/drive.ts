@@ -1,15 +1,11 @@
 import { Clock, Effect, Exit, Fiber, Scheduler, Scope } from "effect"
 import { TestClock } from "effect/testing"
+import { abandonSilentRounds } from "#adapter/wire/batch.ts"
 import type { ScriptedSession } from "#test/support/flight/scripted.ts"
 
 export interface Timing {
 	/** Interrupt once this many answers were delivered; undefined: never. */
 	readonly interruptAfter: number | undefined
-	/**
-	 * How many queries past a statement a CancelRequest stopped the server runs before the destroyed connection's end
-	 * reaches it (scripted.ts ScriptedOptions.afterCancel): the race an interrupted flight's server side runs.
-	 */
-	readonly afterCancel: number
 }
 
 export type Driven<A, E> =
@@ -26,16 +22,17 @@ export type Driven<A, E> =
  * the machine's.
  *
  * The call runs as a fiber on a scheduler whose queue runs only when the driver flushes it, under a TestClock, which
- * the driver never advances: an interrupted flight sends its one CancelRequest and destroys its connection without a
- * wait (batch.ts), so a call that waited on the clock would never end, and the driver would report it. So every step
- * happens in an order the driver chooses, and nothing else happens:
+ * only the driver advances, and only for an interrupted call: an abandoned flight waits on the clock between its rounds
+ * (batch.ts abandon). So every step happens in an order the driver chooses, and nothing else happens:
  *
  * 1. the call is forked and runs until it waits;
  * 2. the session delivers `interruptAfter` answers, one at a time, the fiber running to its next wait after each;
  * 3. unless the call has completed, it is interrupted there; with no interruption, a call that waits with nothing left
  *    to deliver is `blocked`: a statement runs until a CancelRequest that only an interruption sends;
  * 4. then answers are delivered as the server makes them, the connection's end among them once the call destroyed
- *    it, until the call completes. A call that waits with nothing left to deliver once interrupted is a defect.
+ *    it, until the call completes; when nothing is left to deliver, the clock moves on by one connect timeout, ending
+ *    the round the abandoned flight waits in. An interrupted call that waits through more silent rounds than abandon
+ *    severs at (abandonSilentRounds, then the round that severs) is a defect: abandon never ended.
  *
  * The driver reports the exit, and how many answers had been delivered when the interruption came (none when the call
  * completed first, or none was asked for).
@@ -88,11 +85,26 @@ export const drive = <A, E>(
 			interruptedAt = session.deliveries()
 			Effect.runFork(Fiber.interrupt(fiber), { scheduler })
 			settle()
+			/**
+			 * The rounds in a row the abandoned flight has waited through with nothing delivered, and whether anything was
+			 * delivered in the round under way, as abandon counts them (batch.ts afterRound).
+			 */
+			let silent = 0
+			let answeredInRound = false
 			while (!done()) {
-				if (!session.deliverable()) {
-					throw new Error("the interrupted call waits with nothing left to deliver")
+				if (session.deliverable()) {
+					answeredInRound = true
+					deliver()
+					continue
 				}
-				deliver()
+				if (silent > abandonSilentRounds.value) {
+					throw new Error(
+						`the interrupted call waits with nothing left to deliver after ${silent} silent rounds`
+					)
+				}
+				silent = answeredInRound ? 0 : silent + 1
+				answeredInRound = false
+				step(clock.adjust(session.connectTimeout))
 			}
 		}
 		const exit = fiber.pollUnsafe()

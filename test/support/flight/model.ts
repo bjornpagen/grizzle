@@ -718,7 +718,6 @@ export type FlightFeature =
 	| "cancel sent"
 	| "committed after an interruption"
 	| "drained by its destruction"
-	| "race cut short"
 	| "blocked without an interruption"
 	| "begin refused"
 	| `prologue ${FenceStep} ${PrologueFault}`
@@ -748,16 +747,19 @@ export type FlightFeature =
  * such statement, with what its transaction did. With an interruption:
  *
  * - the exit is the interruption exactly when the call had not completed when it came;
- * - the session is retired as interrupted, sends one CancelRequest and destroys its connection, exactly when a statement
- *   the call waits for was still in flight; otherwise it is retired only as the answers say;
+ * - the session is retired as interrupted and sends CancelRequests, round after round, exactly when a statement the call
+ *   waits for was still in flight, and keeps its connection until the server has ended the flight, which runs the rest
+ *   of the flight past the statement a CancelRequest stopped; otherwise it is retired only as the answers say;
+ * - a statement no CancelRequest stops (stuck) leaves the connection silent, so abandon severs it: the connection is
+ *   destroyed once it has carried no answer through more rounds in a row than abandonSilentRounds, and the exit is
+ *   the interruption, the outcome unknown;
  * - what commits is all of a transaction or none of it, as the server's answer to COMMIT says, whatever the
- *   interruption: an answer the destroyed connection never delivered is still what the server did, and a query past
- *   a cancelled statement that the connection's end reached first never ran (scripted.ts afterCancel);
+ *   interruption: an answer the destroyed connection never delivered is still what the server did;
  * - the server ends idle, and a session not retired ends healthy, with nothing owed.
  *
  * The model's observation of a run: the case, the answers the client was delivered by pipeline position (every one,
- * since a call completes only once its flight drains), the answers the server made, which a destroyed connection may
- * never have delivered, and when the interruption came.
+ * since a call completes only once its flight drains), the answers the server made, which a severed connection never
+ * delivered, and when the interruption came.
  */
 export const expected = (
 	c: FlightCase,

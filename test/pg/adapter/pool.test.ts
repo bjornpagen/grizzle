@@ -147,9 +147,10 @@ const runIn = (session: Session, form: FlightForm, statement: BatchStatement) =>
 /**
  * An interrupted statement stops on the server, and its session is gone for good, exhaustively over the pool's
  * maximum (1 to 3), the statement (a sleep, or a wait for an advisory lock another session holds) and its flight
- * (alone, or in a transaction ending with COMMIT): once the server runs the statement, interrupting the call
- * sends one CancelRequest and destroys the session, so its backend leaves pg_stat_activity, and the pool's next
- * leases, its maximum at once, are other sessions on other backends.
+ * (alone, or in a transaction ending with COMMIT): once the server runs the statement, the interrupted call ends only
+ * once the server has stopped it, its backend idle and its session retired, never used again; released, the session
+ * is closed, so its backend leaves pg_stat_activity, and the pool's next leases, its maximum at once, are other
+ * sessions on other backends.
  */
 const interruptedStatement = Effect.gen(function* () {
 	const s = yield* Substrate
@@ -198,9 +199,15 @@ const interruptedStatement = Effect.gen(function* () {
 				)
 				const exit = yield* Effect.andThen(Fiber.interrupt(call), Fiber.await(call))
 				assert.ok(Exit.hasInterrupts(exit), "the call ends as its interruption")
-				assert.equal(session.state(), "ended", "the interrupted session is destroyed")
-				yield* until(Effect.map(backendState(pid), (b) => b.state === "gone"))
+				const stopped = yield* backendState(pid)
+				assert.equal(
+					stopped.state,
+					"idle",
+					"the server has stopped the statement once the call ended"
+				)
+				assert.equal(session.state(), "retired", "the interrupted session is never used again")
 				yield* Scope.close(leaseScope, Exit.void)
+				yield* until(Effect.map(backendState(pid), (b) => b.state === "gone"))
 				const leased = yield* pool.leased
 				assert.equal(leased, 0)
 				const again = yield* Effect.scoped(

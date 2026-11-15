@@ -42,8 +42,8 @@ import type { Row } from "#compiler/plan/common.ts"
  * opened an answer, so no `reset` says one began. The stream itself never fails.
  *
  * Its session is leased for the flight alone and released as the flight ends, before `ready` is sent; interrupting the
- * stream while the flight runs interrupts the flight (wire/batch.ts: one CancelRequest, the session destroyed), a
- * deferrable read's wait for its safe snapshot included.
+ * stream while the flight runs interrupts the flight, which ends once the server has stopped its statement (wire/batch.ts
+ * abandon), a deferrable read's wait for its safe snapshot included.
  *
  * A decoded row: the record a read's decoder assembles, its head fields by name.
  */

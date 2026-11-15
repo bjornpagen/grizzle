@@ -1518,7 +1518,7 @@ export const WebLayer = DbLayer.make({
 - `transport`: how each connection reaches the server. `open` makes a new, unconnected socket, which pg connects to `host` and `port`; then come an SSLRequest and verify-full TLS over the socket, the server's certificate chained to `ca` and naming `servername`. `host` is a name or an IP address, never a Unix socket's path, since PostgreSQL offers no TLS over one. A tunnel connects to its local end and names the server it reaches. A CancelRequest opens its own connection the same way.
 - `password`: a `Redacted`, or an Effect that yields one for each new connection, so a rotated credential needs no restart.
 - `rolePrefix`, optional: the installation's, when two installations of the schema share a cluster, each login's and role's PostgreSQL role `<rolePrefix>__<stem>` ([Migrations](#migrations)); without it, each role is its stem, the name `grizzle generate` committed. The same prefix as the installation's `grizzle.config.ts` connection, used verbatim: `qti_pie_v2` makes `qti_pie_v2__blog__web`.
-- `connectTimeoutMs`: how long one connection attempt may take, past which it fails with `ConnectTimedOut`, and how long the one CancelRequest an interrupted call sends may take.
+- `connectTimeoutMs`: how long one connection attempt may take, past which it fails with `ConnectTimedOut`; how long each CancelRequest an interrupted call sends may take; and how long the call then waits for the server to end its statement before it sends another.
 - `pool`: at most `max` sessions open, `min` of them kept open once opened, and the others closed `idleTimeoutMs` after their last use. None is opened before a call asks for one.
 
 A login whose roles read the token also needs `verify`, your function from a bearer token to its verified payload: here, Clerk's `verifyToken`. `attachPool` hands the pool to Vercel, so idle connections close before a function instance suspends.
@@ -1604,7 +1604,7 @@ export const POST = (request: Request): Promise<Response> => {
 
 `once` runs the ChangeSet and answers with its outcome, `accepted`, or `unchanged`, here the same draft posted again, since the client names its id and a table holds a row once; or it fails with `outsideWorld`, a row the role may not write, or `refused`, a rule said no, naming the rule and the key that broke it. A title over 200 characters is `refused` on `Post.title`'s pattern, with the draft's `id` as its witness, and so is an id another post already holds, on `Post`'s primary key, whether or not the member can see that post.
 
-Every other error stays in the Effect's error channel, and this handler lets it reject its promise; a production handler maps each `CallError` by its `kind`, and an `OpenError` at stage `token` to 401. To stop a call whose client went away, pass an `AbortSignal` as `web.runPromise(effect, { signal })`: the server stops the interrupted call's statement, and an interrupted write may still have committed, like `commitUnknown`.
+Every other error stays in the Effect's error channel, and this handler lets it reject its promise; a production handler maps each `CallError` by its `kind`, and an `OpenError` at stage `token` to 401. To stop a call whose client went away, pass an `AbortSignal` as `web.runPromise(effect, { signal })`: the interrupted call ends once the server has stopped its statement, and an interrupted write may have committed, like `commitUnknown`.
 
 ### The nightly job
 
@@ -3561,9 +3561,15 @@ of a call's input it refuses: `envelope`, no record of exactly `params` and `fac
   rows a staged write reads. Until grizzle's fix for this lands, run imports that happen at the same time each in a
   database of its own, one database per worker.
 - **No server-side timeouts.** grizzle sets no `statement_timeout` or `lock_timeout`. Interrupting the Effect is the only
-  cancellation: a call interrupted while its statements run sends one CancelRequest, within the connection's
-  `connectTimeoutMs`, so the server stops the statement, then destroys the session's connection, which is never used
-  again. Treat an interrupted write like `commitUnknown`: if its statements had all finished, it may have committed.
+  cancellation: a call interrupted while its statements run sends a CancelRequest, within the connection's
+  `connectTimeoutMs`, then waits on its own connection for the server to end the statement. PostgreSQL ignores a
+  CancelRequest that reaches the backend before it has read the statement, so while the statement has not ended after
+  another `connectTimeoutMs`, the call sends another. The interruption ends only once the server has stopped the
+  statement: its locks and snapshot are released, a write's COMMIT has run or never will, and a read after the
+  interruption sees the outcome. The session is never used again. A server that answers nothing on the connection
+  through two such rounds in a row counts as unreachable: the call destroys the connection and ends, and what the
+  server then runs of the statement is unknown. Treat an interrupted write like `commitUnknown`: if its statements had
+  all finished, it may have committed.
 - **Predicate locks are the operator's to size.** Set `max_pred_locks_per_transaction = 2048`; without room, PostgreSQL
   fails transactions with 53200, which is not retryable. Keep every transaction on the cluster short: a committed
   write's and a plain read's predicate locks are kept until every older transaction ends, and a deferrable read waits

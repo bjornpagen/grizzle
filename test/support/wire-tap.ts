@@ -52,6 +52,15 @@ import { upTo } from "#test/support/up-to.ts"
  * unfinished waits for it (memory-tls.ts). So the gate counts a message, and holds, only then, and a test can interrupt
  * a call after exactly k answers it has read, with the server having done all it can, and then let the rest through.
  *
+ * The sent gate holds the client's bytes on their way to the server, as a network still carrying them would: once held,
+ * every byte the recorded session writes waits in the tap, logged as written, until the test releases it, when the
+ * server gets it, and the client's end after it if the client ended its connection meanwhile, as an orderly close
+ * that follows the data. So a test makes the server read a statement only after something else has reached it, a
+ * CancelRequest among them. A cut drops what it holds instead, and ends the tap's connection to the server.
+ *
+ * A partitioned cancel path holds every CancelRequest's connection open and answers nothing: the request never
+ * reaches the server, and its connection stays open until the client gives up on it.
+ *
  * One frontend message: its type byte; the statement it names for Parse, Bind and Close ("" for the unnamed one and for
  * every other type); the SQL text of a Parse or a simple Query ("" for every other type); and the parameter values a
  * Bind carries, in order, each a text-format value's UTF-8 text, a binary-format value's bytes as `\x` and their hex,
@@ -398,6 +407,85 @@ export interface FlightGate {
 	readonly release: () => void
 }
 
+/** The gate on the recorded session's bytes to the server (see the header). */
+export interface SentGate {
+	/** Holds every byte the session writes from now on, until `release` or `cut`. */
+	readonly hold: () => void
+	/** Resolves once the gate holds a byte the session wrote. */
+	readonly holding: Effect.Effect<void>
+	/**
+	 * Hands the server every byte held, then the session's end if it came meanwhile, and every later byte as it
+	 * arrives.
+	 */
+	readonly release: () => void
+	/** Drops every byte held and ends the tap's connection to the server: none of them reaches it. */
+	readonly cut: () => void
+}
+
+/** Where the bytes the recorded session writes go: straight to the server, or held, with the session's end once it came. */
+type SentState =
+	| { readonly kind: "through" }
+	| { readonly kind: "held"; readonly bytes: Array<Uint8Array>; ended: boolean }
+
+/** The sent gate of the recorded session (SentGate), over the tap's connection to the server once that is open. */
+class SentHold implements SentGate {
+	#state: SentState = { kind: "through" }
+	#server: Upstream | undefined = undefined
+	#held = Deferred.makeUnsafe<void>()
+
+	/** The tap's connection to the server this gate hands the session's bytes to. */
+	readonly attach = (server: Upstream): void => {
+		this.#server = server
+	}
+
+	readonly hold = (): void => {
+		this.#held = Deferred.makeUnsafe<void>()
+		this.#state = { kind: "held", bytes: [], ended: false }
+	}
+
+	readonly holding: Effect.Effect<void> = Effect.suspend(() => Deferred.await(this.#held))
+
+	/** The session's bytes, to the server or into the gate. */
+	readonly write = (chunk: Uint8Array): void => {
+		const state = this.#state
+		if (state.kind === "through") {
+			this.#server?.write(chunk)
+			return
+		}
+		state.bytes.push(chunk)
+		Deferred.doneUnsafe(this.#held, Exit.void)
+	}
+
+	/** The session's end: the server's connection ends at once, or once the bytes held before it have reached it. */
+	readonly end = (): void => {
+		const state = this.#state
+		if (state.kind === "through") {
+			this.#server?.destroy()
+			return
+		}
+		state.ended = true
+	}
+
+	readonly release = (): void => {
+		const state = this.#state
+		this.#state = { kind: "through" }
+		if (state.kind === "through") {
+			return
+		}
+		for (const chunk of state.bytes) {
+			this.#server?.write(chunk)
+		}
+		if (state.ended) {
+			this.#server?.end()
+		}
+	}
+
+	readonly cut = (): void => {
+		this.#state = { kind: "through" }
+		this.#server?.destroy()
+	}
+}
+
 /** A frontend message of a flight: a query's or a statement's, never the startup packet, a password or a Terminate. */
 const isFlightMessage = (message: FrontendMessage): boolean =>
 	message.type !== "startup" && message.type !== "p" && message.type !== "X"
@@ -569,9 +657,13 @@ class MessageGate implements Carrier, Gate {
 	}
 }
 
-/** The tap's own connection to the cluster: what it writes the client's plaintext to, and its end. */
+/**
+ * The tap's own connection to the cluster: what it writes the client's plaintext to, its orderly end after everything
+ * written, and its destruction.
+ */
 interface Upstream {
 	readonly write: (chunk: Uint8Array) => void
+	readonly end: () => void
 	readonly destroy: () => void
 }
 
@@ -589,6 +681,8 @@ const upstream = (
 ): Upstream => {
 	let secure: TLSSocket | undefined
 	const queued: Array<Uint8Array> = []
+	/** The end asked for before TLS was up, made once the queued writes are written. */
+	let ending = false
 	const raw = netConnect({ host: pgPin.host, port, noDelay: true })
 	raw.on("error", onClose)
 	raw.once("close", onClose)
@@ -608,6 +702,9 @@ const upstream = (
 			for (const chunk of queued.splice(0)) {
 				socket.write(chunk)
 			}
+			if (ending) {
+				socket.end()
+			}
 		})
 	})
 	return {
@@ -616,6 +713,13 @@ const upstream = (
 				queued.push(chunk)
 			} else {
 				secure.write(chunk)
+			}
+		},
+		end: () => {
+			if (secure === undefined) {
+				ending = true
+			} else {
+				secure.end()
 			}
 		},
 		destroy: () => {
@@ -660,6 +764,13 @@ export interface Tap {
 	readonly cancelsEnded: () => number
 	/** The gate on the server's bytes to the recorded session, the first: for a tap that carries one session. */
 	readonly gate: Gate
+	/** The gate on the recorded session's bytes to the server (SentGate). */
+	readonly sent: SentGate
+	/**
+	 * Partitions the cancel path from now on: every later CancelRequest's connection is held open, never forwarded and
+	 * never answered (see the header).
+	 */
+	readonly partitionCancels: () => void
 	/**
 	 * The gate on the session the next flight of `role` runs on, held as `hold` says: the first of the role's sessions,
 	 * none a replication connection, to send a flight's message (isFlightMessage) once the gate is made. The flight names
@@ -679,6 +790,9 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 	/** What each session's startup packet asked, by its place among the logs, once it came. */
 	const startups: Array<Startup | undefined> = []
 	const gate = new MessageGate()
+	const sent = new SentHold()
+	/** Whether the cancel path answers: a CancelRequest's connection goes to the server, or is held silent. */
+	let cancelPath: "through" | "partitioned" = "through"
 	/** The flight waiting for its first message, none when every flight made has named its session or been released. */
 	let waiting: PendingFlight | undefined = undefined
 	let recording = false
@@ -708,6 +822,9 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 				secure.once("close", () => {
 					ended++
 				})
+				if (cancelPath === "partitioned") {
+					return
+				}
 			}
 			let closed = false
 			const push: Push = (bytes, written) => {
@@ -768,6 +885,13 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 					carrier.end(push)
 				}
 			)
+			/** Where this connection's bytes go: the recorded session's through the sent gate, any other's straight. */
+			const outbound: Pick<Upstream, "write" | "destroy"> = recorded
+				? { write: sent.write, destroy: sent.end }
+				: server
+			if (recorded) {
+				sent.attach(server)
+			}
 			const forward = (chunk: Buffer): void => {
 				if (log !== undefined) {
 					written = []
@@ -792,12 +916,12 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 						Deferred.doneUnsafe(flight.named, Exit.succeed(session))
 					}
 				}
-				server.write(chunk)
+				outbound.write(chunk)
 			}
 			forward(first)
 			secure.on("data", forward)
-			secure.once("close", server.destroy)
-			secure.on("error", server.destroy)
+			secure.once("close", outbound.destroy)
+			secure.on("error", outbound.destroy)
 		})
 	}
 	return {
@@ -810,6 +934,10 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 		cancels: () => cancels,
 		cancelsEnded: () => ended,
 		gate,
+		sent,
+		partitionCancels: () => {
+			cancelPath = "partitioned"
+		},
 		flight: (role, hold) => {
 			if (waiting !== undefined) {
 				throw new Error(`a flight of ${waiting.role} still waits for its first message`)
@@ -851,7 +979,7 @@ export interface TapOptions {
 	readonly password: Redacted.Redacted
 }
 
-/** A tapped session: the one session its tap carries, gated by the tap's gate. */
+/** A tapped session: the one session its tap carries, gated by the tap's gates. */
 export interface Tapped extends Omit<Tap, "transport" | "flight"> {
 	readonly session: Session
 }
@@ -885,7 +1013,9 @@ export const tappedSession = (
 				startups: tap.startups,
 				cancels: tap.cancels,
 				cancelsEnded: tap.cancelsEnded,
-				gate: tap.gate
+				gate: tap.gate,
+				sent: tap.sent,
+				partitionCancels: tap.partitionCancels
 			})
 		)
 	})

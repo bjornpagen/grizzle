@@ -115,7 +115,8 @@ import type { ServedSession } from "#compiler/plan/serve.ts"
  * - Cancellation. pg's JavaScript client has no supported cancel: Client#cancel is undocumented and writes the
  *   CancelRequest on a plaintext socket. A session sends one CancelRequest over a connection of its own, which the
  *   transport opens and upgrades as a session's, with the BackendKeyData pg read at startup, within the connect
- *   timeout (Session.cancel); an interrupted flight then destroys the session (wire/batch.ts).
+ *   timeout (Session.cancel); an interrupted flight sends one each round until the server has ended it, and destroys
+ *   the session only once its connection has stayed silent past the bound (wire/batch.ts abandon).
  * - Pool. The driver's own Pool (releasing-pool.ts), handed once, when it is built, to the config's attachPool: a
  *   platform's hook for idle connections, which on Vercel is attachDatabasePool (its pg branch reads
  *   `options.idleTimeoutMillis` and subscribes to `release`), and nothing elsewhere. Its bounds are the caller's
@@ -571,9 +572,16 @@ export interface Session {
 	readonly controls: ControlTexts
 	/**
 	 * One CancelRequest for the statement the backend is running, within the connection's connect timeout: it never
-	 * waits on the statement it cancels.
+	 * waits on the statement it cancels. The server ignores one that reaches the backend while it reads a command
+	 * (REL_19_RC2 src/backend/tcop/postgres.c 3536-3546), a statement not read yet among them, so it stops nothing
+	 * then.
 	 */
 	readonly cancel: Effect.Effect<void>
+	/**
+	 * The connection's connect timeout (DbConnection.connectTimeoutMs): how long the caller lets its server take to
+	 * answer, which bounds a CancelRequest and each round of an abandoned flight's wait (wire/batch.ts abandon).
+	 */
+	readonly connectTimeout: Duration.Duration
 	/** Where the session stands now (SessionState). */
 	readonly state: () => SessionState
 	/** Never reuse the session: it is retired, or stays ended. */
@@ -805,6 +813,7 @@ const makeSession = (
 		flightMaxBytes: flightMaxBytes.value,
 		messageMaxBytes: messageMaxBytes.value,
 		cancel: cancelRequest(spec, key),
+		connectTimeout: Duration.millis(spec.connectTimeoutMs),
 		state: () => state,
 		retire: () => {
 			move("retire")

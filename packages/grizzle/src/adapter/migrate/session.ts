@@ -45,8 +45,8 @@ import type { InstallationNames } from "#compiler/plan/migration.ts"
  * statements apart, each its own implicit transaction (`apart`); statements apart in front of one transaction
  * (`alongside`); or a transactional file's transaction, its statements and ledger rows ending with COMMIT
  * (`transaction`). Statements are unnamed: a migration statement runs once. Nothing sets statement_timeout or
- * lock_timeout; an interruption sends one CancelRequest for the flight in flight and destroys the session, which rolls
- * an open transaction back. A step longer than one write carries is refused before any byte of it is written, as
+ * lock_timeout; an interruption cancels the flight in flight until the server has stopped it (../wire/batch.ts abandon),
+ * so an open transaction has rolled back once it ends, and the session is never used again. A step longer than one write carries is refused before any byte of it is written, as
  * InputTooLarge (../wire/batch.ts send): nothing of it ran.
  */
 export interface MigrationSession {

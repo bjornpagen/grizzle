@@ -522,7 +522,8 @@ The command line's own refusals, by stage:
   `transport` (`{ kind: "sslRequest", host, port, open: () => new net.Socket(), ca, servername }`, always
   verify-full), the `database` and `connectTimeoutMs`. `password` is the login's own, and `pool` is
   `{ max, min, idleTimeoutMs }`. grizzle states no number of its own: a `Db` call waits for a session until it gets
-  one or is interrupted, and an interrupted statement sends one CancelRequest and destroys its session.
+  one or is interrupted, and an interrupted statement ends once the server has stopped it, a CancelRequest sent each
+  `connectTimeoutMs` until it has, and its session is never used again.
 
   `DbLayer.make` loads the served file once and compiles nothing; it refuses, at stage `config`, a file of another
   login than the name `served` was given. `grizzle check` refuses a served file that is not its login's compile under

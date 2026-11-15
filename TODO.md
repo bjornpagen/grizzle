@@ -275,11 +275,14 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **One exhaustion split across Vitest files, checked:** an exhaustion's fibers share one thread, so a CPU-bound
   exhaustion uses one core whatever its concurrency.
 - **Text keys past PostgreSQL's B-tree item size:** so pantry drops its "Key text bound" law.
-- **An interrupted write settles before it resolves (inventory-upstream-cherry-picks, 2026-11-14):** an interrupt during
-  a write's statements cancels and drops the connection without waiting for the server (adapter batch.ts:975-988 at
-  qti-cutover-20261114c), so a COMMIT the server already began can land after the caller's read-back. pantry's
-  `--timeout` settlement read a package back as "not written" (pantry 5262fb08 now reads back on a fresh pool). The
-  ask: resolve the interrupt only once the backend can no longer commit, or give the caller a settled outcome.
+- **A severed interrupt is not told apart from a settled one (CANCEL, 2026-11-15; was "An interrupted write settles
+  before it resolves", inventory-upstream-cherry-picks, 2026-11-14):** an interrupted call now ends only once the
+  server has ended its flight (adapter wire/batch.ts abandon), so a read-back after it sees the outcome, unless the
+  connection stayed silent past abandonSilentRounds: then abandon destroys it and a COMMIT the server already read can
+  still land after the read-back. The caller cannot tell the two apart: both exits are the interruption alone, since
+  Effect 4.1.4's runtime replaces whatever an interrupted fiber's uninterruptible region ends with by its interruption
+  as the region ends (effect src/internal/effect.ts 4671-4679, setInterruptible). The ask left: a settled-or-unknown
+  outcome the caller can read beside the interruption.
 
 ### Next
 - **One netting rule, not two (READBACK, 2026-11-14):** runtime/write/net.ts stratumChange (~l.83) cancels a fact its own

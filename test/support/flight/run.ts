@@ -81,10 +81,9 @@ const prologueAnswerOf = (step: FenceStep, answer: StepAnswer): StatementAnswer 
 
 /**
  * A stepped scripted session that answers the case: each statement as its plan says, and the prologue's two
- * statements, whose SQL none of the case's has, as the case's prologue answer says; past a cancelled statement, the
- * server runs `afterCancel` queries before a destroyed connection's end reaches it.
+ * statements, whose SQL none of the case's has, as the case's prologue answer says.
  */
-const sessionOf = (c: FlightCase, sqlOf: SqlOf, afterCancel: number): ScriptedSession => {
+const sessionOf = (c: FlightCase, sqlOf: SqlOf): ScriptedSession => {
 	const bySql = plannedBySql(c, sqlOf)
 	const call = c.call
 	return scriptedSession(
@@ -109,7 +108,7 @@ const sessionOf = (c: FlightCase, sqlOf: SqlOf, afterCancel: number): ScriptedSe
 					: undefined,
 			commit: () => (c.commit === "lost" ? "lose" : undefined)
 		},
-		{ delivery: "stepped", afterCancel }
+		{ delivery: "stepped" }
 	)
 }
 
@@ -122,7 +121,7 @@ export interface ScriptedRun {
  * One run of a flight case on a scripted session (scripted.ts), driven at a timing (drive.ts), and what it observed.
  */
 export const runScripted = (c: FlightCase, timing: Timing, sqlOf: SqlOf): ScriptedRun => {
-	const session = sessionOf(c, sqlOf, timing.afterCancel)
+	const session = sessionOf(c, sqlOf)
 	return {
 		session,
 		driven: drive(session, callOf(session, c.call, sqlOf, flightPrologue), timing)
