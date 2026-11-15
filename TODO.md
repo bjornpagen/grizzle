@@ -278,11 +278,11 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **A severed interrupt is not told apart from a settled one (CANCEL, 2026-11-15; was "An interrupted write settles
   before it resolves", inventory-upstream-cherry-picks, 2026-11-14):** an interrupted call now ends only once the
   server has ended its flight (adapter wire/batch.ts abandon), so a read-back after it sees the outcome, unless the
-  connection stayed silent past abandonSilentRounds: then abandon destroys it and a COMMIT the server already read can
-  still land after the read-back. The caller cannot tell the two apart: both exits are the interruption alone, since
-  Effect 4.1.4's runtime replaces whatever an interrupted fiber's uninterruptible region ends with by its interruption
-  as the region ends (effect src/internal/effect.ts 4671-4679, setInterruptible). The ask left: a settled-or-unknown
-  outcome the caller can read beside the interruption.
+  connection stayed silent through two rounds in a row: then abandon destroys it and a COMMIT the server already read
+  can still land after the read-back. The caller cannot tell the two apart: both exits are the interruption alone,
+  since Effect 4.1.4's runtime replaces whatever an interrupted fiber's uninterruptible region ends with by its
+  interruption as the region ends (effect src/internal/effect.ts 4671-4679, setInterruptible). The ask left: a
+  settled-or-unknown outcome the caller can read beside the interruption.
 
 ### Next
 - **One netting rule, not two (READBACK, 2026-11-14):** runtime/write/net.ts stratumChange (~l.83) cancels a fact its own

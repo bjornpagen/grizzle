@@ -36,7 +36,8 @@
  *   nothing, since its locking statement was stopped, and statements apart committed every insert, those after the
  *   stopped statement included; and it took one CancelRequest per round: one during the wait, two when the first landed
  *   before the read;
- * - never: the interruption ends after exactly abandonSilentRounds + 1 CancelRequests, its connection destroyed.
+ * - never: the interruption ends after exactly two CancelRequests, the excused silent round's and the one that severs,
+ *   its connection destroyed.
  *
  * Features: each landing, each runner, and each landing with each runner.
  *
@@ -50,7 +51,6 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Clock, Deferred, Effect, Exit, Fiber, Formatter, Order } from "effect"
 import {
-	abandonSilentRounds,
 	type BatchStatement,
 	oneShotStatement,
 	runApart,
@@ -174,7 +174,7 @@ const suite = Effect.gen(function* () {
 			box: "statements apart or one transaction, the locking statement among up to two inserts on either side, its CancelRequest landing before the read, during the wait, or never answered",
 			oracle: {
 				kind: "specification",
-				name: "README: an interrupted call ends only once the server has stopped its statement, and a silent server ends it within abandonSilentRounds"
+				name: "README: an interrupted call ends only once the server has stopped its statement, and a silent server ends it after two silent rounds"
 			},
 			suite: "pg/adapter/cancel-race",
 			generator: raceCases,
@@ -326,7 +326,7 @@ const suite = Effect.gen(function* () {
 					if (c.lands === "never") {
 						assert.equal(
 							tapped.cancels(),
-							abandonSilentRounds.value + 1,
+							2,
 							"a server that never answers is given one CancelRequest per round, up to the bound"
 						)
 						assert.equal(tapped.session.state(), "ended", "its connection is destroyed")

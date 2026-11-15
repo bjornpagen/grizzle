@@ -58,14 +58,12 @@ import {
 	type Session
 } from "#adapter/wire/session.ts"
 import type { BindFrame } from "#compiler/plan/change.ts"
-import {
-	type EmittedText,
-	type Isolation,
-	type Limit,
-	measured,
-	type OutputRows,
-	type Param,
-	type SchemaFingerprint
+import type {
+	EmittedText,
+	Isolation,
+	OutputRows,
+	Param,
+	SchemaFingerprint
 } from "#compiler/plan/common.ts"
 
 /** A statement of a reviewed migration file, minted where migrate/input.ts splits a file into its statements. */
@@ -705,26 +703,35 @@ const flightOutcomes = <P, F>(
 
 /**
  * Where an abandoned flight stands (abandon). Each state says what the server may still run, so the one state that
- * destroys the connection is the one reached only once the server has answered nothing past the bound:
+ * destroys the connection is reached only once the server has answered nothing for longer than the caller's own connect
+ * timeout allows:
  *
  * - `draining`: nothing of the flight runs on the server any more. It drained, every query answered and the
  *   ReadyForQuery after the last one read, or its connection ended, which fails every query still in flight. Nothing
  *   is sent; the drain is awaited.
  * - `cancelling`: the server may still run a query of the flight. A round sends one CancelRequest and then waits one
  *   connect timeout (Session.connectTimeout) for the flight to drain. `answered` counts the queries of the flight that
- *   had answered when the round began, and `silent` the rounds in a row before it whose wait the session's connection
- *   carried no answer through. A CancelRequest that reaches the backend while it reads a command stops nothing, the
- *   statement it has not read yet included (REL_19_RC2 src/backend/tcop/postgres.c 3536-3546, `if (!DoingCommandRead)`,
- *   and 4813-4823, which drops a cancel that arrived while it was idle), so one round is not enough: the next round's
- *   CancelRequest finds the statement running.
- * - `severed`: the session's connection carried no answer through more rounds in a row than abandonSilentRounds: the
- *   server is unreachable by the caller's own bound, the connect timeout. The connection is destroyed, and what the
- *   server ran of the flight is unknown.
+ *   had answered when the round began, and `silence` is the silence the round may still meet (Silence).
+ * - `severed`: a round met silence once it was spent, so the server answered nothing for a whole round after a
+ *   CancelRequest that found the statement read: it is unreachable by the caller's own bound, the connect timeout. The
+ *   connection is destroyed, and what the server ran of the flight is unknown.
  */
 type Abandoning =
 	| { readonly _tag: "draining" }
-	| { readonly _tag: "cancelling"; readonly answered: number; readonly silent: number }
+	| { readonly _tag: "cancelling"; readonly answered: number; readonly silence: Silence }
 	| { readonly _tag: "severed" }
+
+/**
+ * The silence an abandoned flight's next round may meet without its server counting as unreachable. `excused`: a whole
+ * round of it, since the round's CancelRequest may reach the backend while it reads a command, the statement it is to
+ * stop not read yet among them, and stop nothing (REL_19_RC2 src/backend/tcop/postgres.c 3536-3546,
+ * `if (!DoingCommandRead)`, and 4813-4823, which drops a cancel that arrived while it was idle); the backend then reads
+ * the statement and runs it, answering nothing until the next round. `spent`: none, since the statement has had a whole
+ * round, one connect timeout, the caller's own bound on the server's answer, to reach the backend, so this round's
+ * CancelRequest finds it read and stops it. A flight starts excused, and so does every round after one that carried an
+ * answer, since the next statement's request can land while the backend reads that statement in turn.
+ */
+type Silence = "excused" | "spent"
 
 /** How a round of `cancelling` ended: the flight drained, or its wait ran out with `answered` queries answered. */
 type RoundEnd =
@@ -736,35 +743,6 @@ const draining: Abandoning = { _tag: "draining" }
 const severed: Abandoning = { _tag: "severed" }
 
 const drainedRound: RoundEnd = { _tag: "drained" }
-
-/**
- * The most rounds in a row an abandoned flight's connection may carry no answer through: a round past this many severs
- * the flight (Abandoning `severed`). A CancelRequest lost to a statement the backend had not read yet costs one silent
- * round when that statement is the flight's first, since the backend then reads it and waits; the next round's
- * request stops it. So the bound is where a server answering within the caller's connect timeout drains every flight,
- * and past it the server counts as unreachable.
- */
-export const abandonSilentRounds: Limit = measured({
-	value: 1,
-	owner: "grizzle's abandoned flights (adapter/wire/batch.ts abandon)",
-	unit: "rounds",
-	scope:
-		"the rounds in a row, each one CancelRequest and then one connect timeout, through which one abandoned flight's session connection carries no answer before the next silent round severs it",
-	evidence:
-		"~/.cache/grizzle-release/CANCEL/out/ on cassowary: cancel-race-3.txt, the output of `GRIZZLE_PG_CLUSTER=5839 pnpm -s test:network test/pg/adapter/cancel-race.test.ts`, and plant-sever-first-race.txt, the same run under ~/.cache/grizzle-release/CANCEL/plants/sever-first-silent-round.patch, which severs at the first silent round",
-	observed:
-		"2026-11-15 01:18:46 to 01:24:43 UTC: one exhaustive run of the property's 54 cases, then one under the plant",
-	environment:
-		"cassowary, Ubuntu 26.04 arm64 on 64 cores, load average 348 to 386 from other sessions, Node 26.13.1, a private PostgreSQL 19rc2 cluster family on port 5839 (scripts/pg/pin.env, its three patches), grizzle 5684e839 with this change; the session reached the server through the wire tap's in-memory TLS (test/support/wire-tap.ts), and the rounds' waits slept on the case's own clock",
-	workload:
-		"the cancel race's exhaustive space, one case at a time: statements apart or one READ COMMITTED transaction, a SELECT ... FOR UPDATE of a row the case holds locked among none to two inserts on either side, its first CancelRequest landing before the backend read the flight (the tap holding the flight until that request's connection ended), during the lock wait, or on a partitioned server",
-	result:
-		"every case the server answered drained, its backend idle with no lock, transaction id or snapshot: during the wait after one CancelRequest, before the read after two, the first lost. Of the 18 cases landing before the read, the 3 of statements apart whose locking statement leads the flight went through one silent round (the backend read the statement after the lost request and waited, answering nothing) and drained in the next; the 15 others had an answer in that round. Under the plant, the first of those 3 failed: its backend still waited on the lock, active with a snapshot and 7 locks, after the interruption ended. The 18 partitioned cases each ended after two CancelRequests",
-	decision:
-		"1, the most silent rounds a flight the server answered went through before it drained; at 0 the race leaves the statement running, as the plant shows. No headroom added: a flight whose bytes reach the backend more than one round after a CancelRequest's connection completed, a server slower than the caller's own connect timeout, is unmeasured; it is severed with its outcome unknown, and its statement may run on",
-	revalidate:
-		"a change to abandon or to Session.cancel; a PostgreSQL repin that changes how a backend treats a cancel while it reads a command (postgres.c ProcessInterrupts, PostgresMain's step 5); a flight form that runs a statement apart behind one a CancelRequest stops; a report of a statement left running after its call was interrupted"
-})
 
 /** How many queries of a flight have answered so far, by its answers as they arrive. */
 const answeredIn = (sent: Sent): number => {
@@ -778,24 +756,24 @@ const answeredIn = (sent: Sent): number => {
 }
 
 /**
- * The state after a round of `state`: drained, or, once its wait ran out, another round. A round whose wait the
- * connection carried an answer through starts the silence over; a silent one adds to it, and one past
- * abandonSilentRounds severs the flight.
+ * The state after a round of `state`: drained, or, once its wait ran out, another round. A round that carried an answer
+ * excuses the next one's silence; a silent round spends the excuse, or, spent already, severs the flight.
  */
 const afterRound = (
 	state: Extract<Abandoning, { readonly _tag: "cancelling" }>,
 	end: RoundEnd
 ): Abandoning => {
-	switch (end._tag) {
-		case "drained":
-			return draining
-		case "elapsed":
-			if (end.answered > state.answered) {
-				return { _tag: "cancelling", answered: end.answered, silent: 0 }
-			}
-			return state.silent < abandonSilentRounds.value
-				? { _tag: "cancelling", answered: state.answered, silent: state.silent + 1 }
-				: severed
+	if (end._tag === "drained") {
+		return draining
+	}
+	if (end.answered > state.answered) {
+		return { _tag: "cancelling", answered: end.answered, silence: "excused" }
+	}
+	switch (state.silence) {
+		case "excused":
+			return { _tag: "cancelling", answered: state.answered, silence: "spent" }
+		case "spent":
+			return severed
 	}
 }
 
@@ -815,9 +793,8 @@ const round = (session: Session, sent: Sent): Effect.Effect<RoundEnd> =>
 /**
  * An interrupted flight's end (execute), run from where it stands (Abandoning) until it drained or was severed: a
  * flight that drained already, or whose session ended, sends nothing; any other is cancelled round after round until
- * the server has ended it, so the interruption ends only once the server runs nothing of the flight, or until its
- * connection stays silent past abandonSilentRounds, when the connection is destroyed, which fails every query still
- * in flight.
+ * the server has ended it, so the interruption ends only once the server runs nothing of the flight, or until a round
+ * meets silence it may not (Silence), when the connection is destroyed, which fails every query still in flight.
  */
 const abandon = (session: Session, sent: Sent): Effect.Effect<void> => {
 	const from = (state: Abandoning): Effect.Effect<void> => {
@@ -836,7 +813,7 @@ const abandon = (session: Session, sent: Sent): Effect.Effect<void> => {
 		from(
 			Deferred.isDoneUnsafe(sent.drained) || session.state() === "ended"
 				? draining
-				: { _tag: "cancelling", answered: answeredIn(sent), silent: 0 }
+				: { _tag: "cancelling", answered: answeredIn(sent), silence: "excused" }
 		)
 	)
 }
@@ -1163,8 +1140,9 @@ const runEntered = <P, F>(
  *   interruption ends only once the server has stopped the statement and runs nothing of the flight: its locks and its
  *   snapshot are released, and a COMMIT it sent has committed or not. The session is retired, never reused, and
  *   released closed, which counts it out of the pool before its permit admits another lease. Only a connection that
- *   carries no answer through more rounds in a row than abandonSilentRounds, a server unreachable by the caller's own
- *   connect timeout, is destroyed, and what the server runs of the flight then is unknown. Once every statement of a
+ *   carries no answer through two rounds in a row, the second's CancelRequest finding the statement read, a server
+ *   unreachable by the caller's own connect timeout, is destroyed, and what the server runs of the flight then is
+ *   unknown. Once every statement of a
  *   flight that carries COMMIT has answered, the wait for COMMIT's answer cancels nothing and retires nothing: an
  *   interruption that arrives meanwhile takes effect once COMMIT has answered or the connection is known lost, which pg
  *   reports as the connection's error or close, so the wait ends however the server behaves. The drain after a failure the

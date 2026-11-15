@@ -1,6 +1,5 @@
 import { Clock, Effect, Exit, Fiber, Scheduler, Scope } from "effect"
 import { TestClock } from "effect/testing"
-import { abandonSilentRounds } from "#adapter/wire/batch.ts"
 import type { ScriptedSession } from "#test/support/flight/scripted.ts"
 
 export interface Timing {
@@ -32,7 +31,7 @@ export type Driven<A, E> =
  * 4. then answers are delivered as the server makes them, the connection's end among them once the call destroyed
  *    it, until the call completes; when nothing is left to deliver, the clock moves on by one connect timeout, ending
  *    the round the abandoned flight waits in. An interrupted call that waits through more silent rounds than abandon
- *    severs at (abandonSilentRounds, then the round that severs) is a defect: abandon never ended.
+ *    severs at (the excused one, then the one that severs) is a defect: abandon never ended.
  *
  * The driver reports the exit, and how many answers had been delivered when the interruption came (none when the call
  * completed first, or none was asked for).
@@ -86,10 +85,10 @@ export const drive = <A, E>(
 			Effect.runFork(Fiber.interrupt(fiber), { scheduler })
 			settle()
 			/**
-			 * The rounds in a row the abandoned flight has waited through with nothing delivered, and whether anything was
-			 * delivered in the round under way, as abandon counts them (batch.ts afterRound).
+			 * The silence the abandoned flight's next round may meet, as abandon reads it (batch.ts Silence), or
+			 * `severing` once a silent round has spent it, and whether anything was delivered in the round under way.
 			 */
-			let silent = 0
+			let silence: "excused" | "spent" | "severing" = "excused"
 			let answeredInRound = false
 			while (!done()) {
 				if (session.deliverable()) {
@@ -97,12 +96,10 @@ export const drive = <A, E>(
 					deliver()
 					continue
 				}
-				if (silent > abandonSilentRounds.value) {
-					throw new Error(
-						`the interrupted call waits with nothing left to deliver after ${silent} silent rounds`
-					)
+				if (silence === "severing") {
+					throw new Error("the interrupted call waits on past the silent round that severs it")
 				}
-				silent = answeredInRound ? 0 : silent + 1
+				silence = answeredInRound ? "excused" : silence === "excused" ? "spent" : "severing"
 				answeredInRound = false
 				step(clock.adjust(session.connectTimeout))
 			}

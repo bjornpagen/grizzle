@@ -751,7 +751,7 @@ export type FlightFeature =
  *   waits for was still in flight, and keeps its connection until the server has ended the flight, which runs the rest
  *   of the flight past the statement a CancelRequest stopped; otherwise it is retired only as the answers say;
  * - a statement no CancelRequest stops (stuck) leaves the connection silent, so abandon severs it: the connection is
- *   destroyed once it has carried no answer through more rounds in a row than abandonSilentRounds, and the exit is
+ *   destroyed once it has carried no answer through two rounds in a row, and the exit is
  *   the interruption, the outcome unknown;
  * - what commits is all of a transaction or none of it, as the server's answer to COMMIT says, whatever the
  *   interruption: an answer the destroyed connection never delivered is still what the server did;

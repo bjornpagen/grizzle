@@ -117,7 +117,7 @@ const smallRequired: Arr.NonEmptyReadonlyArray<Reached<FlightFeature>> = [
 
 /**
  * The drawn population's: the exhaustive one's, a stuck statement no CancelRequest stops, so abandon severs its
- * connection once it stays silent past abandonSilentRounds, a change of a role certified READ COMMITTED, whose flight
+ * connection once it stays silent through two rounds in a row, a change of a role certified READ COMMITTED, whose flight
  * begins at that level, and a deferrable member's read, whose flight begins DEFERRABLE.
  */
 const drawnRequired: Arr.NonEmptyReadonlyArray<Reached<FlightFeature>> = [
