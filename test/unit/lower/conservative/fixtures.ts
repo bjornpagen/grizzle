@@ -22,7 +22,7 @@ import type {
 	TakeBound,
 	VarDecl
 } from "#compiler/ir/rel.ts"
-import { conservativeMeta, headingOrder } from "#compiler/ir/rel.ts"
+import { builtSides, conservativeMeta, headingOrder, semiJoinRight } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { Uuid } from "#compiler/public/fields.ts"
 import { defined } from "#test/support/assert.ts"
@@ -435,15 +435,25 @@ export class Q {
 		right: RelNode,
 		on: ReadonlyArray<readonly [string, string]>
 	): RelNode {
-		return this.b.node({
-			kind,
+		const sides = {
 			left,
-			right,
 			on: Arr.map(on, ([l, r]) => ({ left: l, right: r })),
 			heading: left.heading,
 			loc: undefined,
 			meta: conservativeMeta
-		})
+		}
+		return this.b.node(
+			kind === "SemiJoin"
+				? {
+						kind,
+						...sides,
+						right: defined(
+							semiJoinRight(builtSides, left, right),
+							"a fixture's semi-join right side reads nothing of its left"
+						)
+					}
+				: { kind, ...sides, right }
+		)
 	}
 
 	union(arms: ReadonlyArray<RelNode>, discriminant: ReadonlyArray<string>): RelNode {

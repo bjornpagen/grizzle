@@ -11,10 +11,12 @@ import type { ExprSpec, ScalarExpr } from "#compiler/ir/expr.ts"
 import { type TypedLiteral, OpId, type ParamRole } from "#compiler/ir/expr.ts"
 import type { ParamDecl } from "#compiler/ir/products.ts"
 import {
+	builtSides,
 	conservativeMeta,
 	type Heading,
 	type HeadingColumn,
 	type RelNode,
+	semiJoinRight,
 	type ValidDag,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
@@ -303,7 +305,10 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 	const semi = b.node({
 		kind: "SemiJoin",
 		left: project,
-		right: inputIds,
+		right: defined(
+			semiJoinRight(builtSides, project, inputIds),
+			"the input set reads nothing, so none of the projection"
+		),
 		on: [{ left: "account", right: "id" }],
 		heading: accountAmount,
 		loc: undefined,

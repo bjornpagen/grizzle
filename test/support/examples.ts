@@ -48,6 +48,7 @@ const typeBatchRunners: Exemption = {
 		"test/types/evidence/parameter.test.ts",
 		"test/types/executor/boundary.test.ts",
 		"test/types/harness/harness.test.ts",
+		"test/types/ir/semi-join.test.ts",
 		"test/types/regex/agreement.test.ts",
 		"test/types/schema/agreement.test.ts",
 		"test/types/schema/generic.test.ts",

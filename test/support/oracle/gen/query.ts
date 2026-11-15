@@ -33,6 +33,7 @@ import type { ParamDecl } from "#compiler/ir/products.ts"
 import {
 	type AggregateSpec,
 	type CompletedOrder,
+	builtSides,
 	conservativeMeta,
 	exprsOf,
 	type Heading,
@@ -44,6 +45,7 @@ import {
 	type RelDag,
 	type RelNode,
 	type RootedDag,
+	semiJoinRight,
 	type SpecRefs,
 	type TakeBound,
 	type VarDecl
@@ -2046,16 +2048,26 @@ class QueryResolver {
 				chosen.push({ ...p })
 			}
 		}
+		const sides = {
+			loc: undefined,
+			meta: conservativeMeta,
+			left: left.node,
+			on: chosen,
+			heading: left.heading
+		}
 		return {
-			node: this.b.node({
-				loc: undefined,
-				meta: conservativeMeta,
-				kind,
-				left: left.node,
-				right: right.node,
-				on: chosen,
-				heading: left.heading
-			}),
+			node: this.b.node(
+				kind === "SemiJoin"
+					? {
+							kind,
+							...sides,
+							right: defined(
+								semiJoinRight(builtSides, left.node, right.node),
+								"a generated semi-join's right side reads nothing of its left: it reads the sources an enclosing region read before it"
+							)
+						}
+					: { kind, ...sides, right: right.node }
+			),
 			heading: left.heading
 		}
 	}

@@ -1,4 +1,5 @@
 import type { NodeId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { type CertificateRule, localCertificate } from "#compiler/ir/certificate.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {
@@ -7,9 +8,10 @@ import {
 	type KindOver,
 	mapAggregate,
 	type OccurrenceOver,
+	semiJoinRight,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
+import { cellGraph, DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	type CellDemand,
 	type Potential,
@@ -54,13 +56,19 @@ const certify = (
 	)
 }
 
-/** A new semi-join of `left` against `right` on `on`: a subset of `left` (DagEditor.subsetMeta). */
+/**
+ * A new semi-join of `left` against `right` on `on`: a subset of `left` (DagEditor.subsetMeta). The semi-join moved
+ * only with a right side that reads nothing outside it (semiRule), so it reads none of its new left.
+ */
 const semiOver = (ed: DagEditor, left: Cell, right: Cell, on: ColumnPairs): Cell => {
 	const node = left.current
 	return ed.add({
 		kind: "SemiJoin",
 		left,
-		right,
+		right: defined(
+			semiJoinRight(cellGraph, left, right),
+			"a moved semi-join's right side reads nothing outside it (semiRule), so none of its new left"
+		),
 		on,
 		heading: node.heading,
 		meta: DagEditor.subsetMeta(node.meta),

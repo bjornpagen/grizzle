@@ -24,6 +24,7 @@ import {
 import { type KeyProof, soleFactor } from "#compiler/ir/keys.ts"
 import {
 	type AggregateSpecOver,
+	builtSides,
 	type CompletedOrder,
 	conservativeMeta,
 	type DeclaredKey,
@@ -34,6 +35,7 @@ import {
 	type MetaSpec,
 	type NodeSpec,
 	type RelNode,
+	semiJoinRight,
 	type TakeBound,
 	type ValidDag,
 	type VarDecl
@@ -794,15 +796,25 @@ export class Ir {
 		right: RelNode,
 		on: ReadonlyArray<readonly [string, string]>
 	): RelNode {
-		return this.b.node({
-			kind,
+		const sides = {
 			left,
-			right,
 			on: Arr.map(on, ([l, r]) => ({ left: l, right: r })),
 			heading: left.heading,
 			loc: undefined,
 			meta: conservativeMeta
-		})
+		}
+		return this.b.node(
+			kind === "SemiJoin"
+				? {
+						kind,
+						...sides,
+						right: defined(
+							semiJoinRight(builtSides, left, right),
+							"a fixture's semi-join right side reads nothing of its left"
+						)
+					}
+				: { kind, ...sides, right }
+		)
 	}
 
 	/**

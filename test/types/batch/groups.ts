@@ -21,6 +21,7 @@ import { parameterSource } from "#test/types/evidence/parameter.ts"
 import { boundaryEntriesFrom, boundarySource } from "#test/types/executor/boundary.ts"
 import { doorEntriesFrom, doorModule } from "#test/types/harness/door.ts"
 import { vocabularyModule } from "#test/types/harness/vocabulary.ts"
+import { semiJoinModule } from "#test/types/ir/semi-join.ts"
 import {
 	entriesFrom,
 	generateQuerySource,
@@ -290,6 +291,19 @@ const typeGroups: ReadonlyArray<Group> = [
 				source: (entry, seed) => [
 					{ file: "index.ts", source: doorModule(doorEntriesFrom(entry), seed) }
 				]
+			}
+		}
+	},
+	{
+		owner: "test/types/ir/semi-join.test.ts",
+		units: {
+			"ir/semi-join": {
+				kind: "program",
+				dir: "test/types/ir",
+				prefix: ".semi-join-",
+				disarm: true,
+				heavy: false,
+				source: () => [{ file: "index.ts", source: semiJoinModule() }]
 			}
 		}
 	},

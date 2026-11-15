@@ -71,6 +71,7 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
 	type AggregateCallOver,
 	type AggregateSpec,
+	builtSides,
 	type CompletedOrder,
 	type Correlation,
 	conservativeMeta,
@@ -82,6 +83,7 @@ import {
 	type ProducerCallOver,
 	type ProducerKind,
 	type RelNode,
+	semiJoinRight,
 	type TakeBound,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
@@ -137,7 +139,6 @@ import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { hasCapability, inferredType, spanType } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
-
 /**
  * How a query is read: as rows (execute, get, compile, attach, derived, a ChangeSet member), as a page, as a
  * ChangeSet's read-back, which may read delta.added and delta.removed sources, or as a write filter's membership, which
@@ -2648,8 +2649,12 @@ class RuleCheck {
 				return source
 			}
 			const on = source.heading.map((c) => ({ left: c.name, right: c.name }))
+			const right = defined(
+				semiJoinRight(builtSides, arms, source),
+				"the narrowed arms are built after the take they narrow, so no expression of the take reads them"
+			)
 			const back = this.cx.node(
-				{ kind: "SemiJoin", left: arms, right: source, on, heading: arms.heading },
+				{ kind: "SemiJoin", left: arms, right, on, heading: arms.heading },
 				loc
 			)
 			this.cx.inherit(back, arms)

@@ -777,8 +777,9 @@ class Checker {
 	 * anti-join's, whose negation reads the rule's variables): the right side is one relation per evaluation of the
 	 * semi-join, so a column it fixes is fixed there, and a left column paired with it is too (logical/props.ts, the
 	 * key kernel's semiJoinPair). Read per left row, the right side's fixed column would hold one value per left row.
-	 * No builder makes one: the checker's narrowing joins back to an uncorrelated take (check/checker.ts #narrow), and
-	 * the existence rewrite moves no correlated source (lower/optimize/existence shapedExistence).
+	 * The engine's node types hold it (ir/rel.ts SemiJoinRight: a semi-join's right side is only what semiJoinRight
+	 * minted, reading the right side's subtree); this rule re-reads it over the outside form, where a node is its label
+	 * and holds no brand.
 	 */
 	checkSemiJoinRights(computed: ReadonlyMap<NodeId, Recomputed>): void {
 		for (const node of Rec.values(this.table.nodes)) {

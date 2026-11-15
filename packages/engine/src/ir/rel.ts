@@ -501,8 +501,60 @@ export interface ProjectSet<R extends RefKinds> extends NodeCommon<R> {
 export interface SemiJoin<R extends RefKinds> extends NodeCommon<R> {
 	readonly kind: "SemiJoin"
 	readonly left: R["node"]
-	readonly right: R["node"]
+	readonly right: SemiJoinRight<R["node"]>
 	readonly on: ReadonlyArray<ColumnPair>
+}
+
+/**
+ * A semi-join's right side: a node no expression of whose subtree reads a column of the semi-join's left, so the right
+ * side is one relation per evaluation of the semi-join and a column it fixes is fixed there (logical/props.ts and the key
+ * kernel's semiJoinPair). semiJoinRight mints it, reading the subtree, and a structural map keeps it (mapNode): its image
+ * of a node is a form of the same node, which reads what the node reads. An anti-join's right side is a plain node,
+ * which may read its left: a negation reads the rule's variables (check/checker.ts #negation). In the outside form a
+ * node is its label (TableRefs), which holds no brand: a table is read back whole, and the tests' validator checks the
+ * rule over it ("a semi-join's right side reads nothing of its left").
+ */
+export type SemiJoinRight<N> = N extends NodeId ? N : N & { readonly [semiJoinRightBrand]: true }
+declare const semiJoinRightBrand: unique symbol
+
+const keptRight = <N>(right: N): SemiJoinRight<N> => nominal<N, SemiJoinRight<N>>()(right)
+
+/** The references a semi-join's right side is read through: a node's expressions, and the nodes it reads as inputs. */
+interface SideRefs<V> extends RefKinds {
+	readonly node: V
+	readonly expr: ScalarExpr
+}
+
+/** A form of node a semi-join is built over, read one way: each vertex's node and its label (a built node, a cell). */
+export interface SideReading<V> {
+	readonly node: (vertex: V) => NodeOver<SideRefs<V>>
+	readonly label: (vertex: V) => NodeId
+}
+
+/** Built nodes as a semi-join's sides are read: each node itself, by its label. */
+export const builtSides: SideReading<RelNode> = { node: (n) => n, label: (n) => n.id }
+
+/**
+ * `right` as the right side of a semi-join of `left`, where no expression of its subtree reads a column of `left`
+ * (SemiJoinRight); undefined where one does.
+ */
+export const semiJoinRight = <V>(
+	reading: SideReading<V>,
+	left: V,
+	right: V
+): SemiJoinRight<V> | undefined => {
+	const read = reading.label(left)
+	const seen = new Set<V>([right])
+	for (const vertex of seen) {
+		const node = reading.node(vertex)
+		if (exprsOf(node).some((e) => e.deps.nodes.includes(read))) {
+			return undefined
+		}
+		for (const input of inputsOf(node)) {
+			seen.add(input)
+		}
+	}
+	return keptRight(right)
 }
 
 export interface AntiJoin<R extends RefKinds> extends NodeCommon<R> {
@@ -926,7 +978,11 @@ export function* mapNode<R extends RefKinds, S extends RefKinds>(
 			const out = n.out.map((o) => ({ name: o.name, expr: m.expr(o.expr) }))
 			return { ...n, input, out, meta: m.meta(n.meta) }
 		}
-		case "SemiJoin":
+		case "SemiJoin": {
+			const left: S["node"] = yield n.left
+			const right: S["node"] = yield n.right
+			return { ...n, left, right: keptRight(right), meta: m.meta(n.meta) }
+		}
 		case "AntiJoin":
 		case "Intersect":
 		case "Difference": {

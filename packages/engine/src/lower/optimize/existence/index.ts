@@ -1,6 +1,7 @@
 import { keyedBy } from "#compiler/analysis/physical/props.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId, VarId } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import { postgresSource, published } from "#compiler/core/limits.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { nodePremises } from "#compiler/ir/certificate.ts"
@@ -11,10 +12,12 @@ import {
 	exprsOf,
 	type KindOver,
 	type OccurrenceOver,
+	semiJoinRight,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import {
+	cellGraph,
 	columnRefs,
 	DagEditor,
 	derivedMeta,
@@ -270,7 +273,10 @@ const rewrite = (cx: RewriteCx, cell: Cell, region: Region, o: Occurrence): void
 		const semi = ed.add({
 			kind: "SemiJoin",
 			left,
-			right,
+			right: defined(
+				semiJoinRight(cellGraph, left, right),
+				"an existence-only occurrence's source reads nothing outside it (shapedExistence), so none of its region"
+			),
 			on,
 			heading,
 			meta: widened ? derivedMeta(region.meta) : region.meta,
@@ -388,15 +394,20 @@ const setComparison: Rule = {
 							coercion: unique.just.coercions,
 							params: undefined
 						})
-						ed.set(cell, {
-							kind: node.kind === "Intersect" ? "SemiJoin" : "AntiJoin",
-							left: node.left,
-							right: node.right,
-							on,
-							heading: node.heading,
-							meta: node.meta,
-							loc: node.loc
-						})
+						const kept = { left, on, heading: node.heading, meta: node.meta, loc: node.loc }
+						ed.set(
+							cell,
+							node.kind === "Intersect"
+								? {
+										kind: "SemiJoin",
+										...kept,
+										right: defined(
+											semiJoinRight(cellGraph, left, right),
+											"a set comparison's right side reads nothing outside it (setComparison), so none of its left"
+										)
+									}
+								: { kind: "AntiJoin", ...kept, right }
+						)
 						return true
 					})
 		)
