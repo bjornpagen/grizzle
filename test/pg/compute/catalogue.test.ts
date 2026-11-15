@@ -756,7 +756,7 @@ const reached = (
  * The cases of each of `entries`: each boundary class of its carrier at each operand position, every pair of boundary
  * classes for a binary entry, and a walk over the boundary and generated operands; each operand read through its
  * spelling's term. A case of every entry builds some 56,600 of them, each lowered, rendered and evaluated on the host,
- * about 20 s of CPU in all, so building yields after each one: the case's hang guard and its test's deadline can cut it
+ * about 20 s of CPU in all, so building yields after each one: the case's hang guard can cut it
  * there, which a synchronous build of that length would starve.
  */
 const buildCases = (

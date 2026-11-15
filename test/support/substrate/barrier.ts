@@ -85,8 +85,8 @@ export const lockWaitOf = (
  *
  * Tests never sleep to let a concurrent statement "probably" reach its lock; they poll the backend's blockers until it
  * is waiting (lockWaitOf). Each poll is one round trip on the observer session, issued back to back; nothing waits
- * on a timer and nothing is judged by time. A wait that is never observed holds the test until Vitest's test timeout, the
- * runner's hang guard, reports it hung.
+ * on a timer and nothing is judged by time. A wait that is never observed holds its case until the case's hang guard
+ * (limits.ts caseHang) reports it hung.
  *
  * Polls from `observer`, a connection that is not one of the sessions under test, until backend `pid` waits on a
  * lock (and, with `blockedBy`, until that backend blocks it). The observer's statements are not counted.

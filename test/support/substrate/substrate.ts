@@ -313,15 +313,21 @@ export const dropRole = (
 
 /**
  * Drops a role a test allocated, once its backends are gone: the connection-leak check (kernel/sanitize.ts) waits on
- * pg_stat_activity, and a session the test never closed holds the release until Vitest's test timeout reports the test
- * hung. The sweep of crashed runs drops roles with dropRole itself, where leftover backends are expected.
+ * pg_stat_activity, and a session the test never closed holds the release until the hang limit reports it hung, naming
+ * the role. The sweep of crashed runs drops roles with dropRole itself, where leftover backends are expected.
  */
 const releaseRole = (
 	cluster: BudgetedCluster,
 	admin: PgConnection,
 	role: string
 ): Effect.Effect<void, SqlError> =>
-	Effect.andThen(awaitRoleQuiet(admin, role), dropRole(cluster, admin, role))
+	Effect.andThen(
+		hangGuarded(
+			`the release of role ${role}, waiting for its backends to exit`,
+			awaitRoleQuiet(admin, role)
+		),
+		dropRole(cluster, admin, role)
+	)
 
 /**
  * Rows as text, positional: every column its text, or null for NULL; what a superuser read and both kinds of direct
@@ -677,18 +683,18 @@ const build = Effect.fnUntraced(function* (
 })
 
 /**
- * A layer build's own work once it holds its lease: a claim or a clone, its connections and its sessions, bounded by the
- * hang limit, so a build that never ends dies naming what hung. The lease wait before it is no hang: a file queued
- * behind others' holds waits as long as they hold (shared.ts leaseConnections).
+ * One step of a substrate's life that waits on nothing others hold by design, bounded by the hang limit (limits.ts
+ * hangLimit), so a step that never ends dies naming what hung: a layer build's work once it holds its lease (a claim or
+ * a clone, its connections and its sessions), its release, and a role's release, which waits for the role's backends to
+ * exit. The lease wait before a build is no hang: a file queued behind others' holds waits as long as they hold
+ * (shared.ts leaseConnections). Tests and the network tier's hooks are unbounded, so this is what reports such a hang.
  */
-const heldBuild = <A, E, R>(what: string, build: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
-	Effect.timeoutOrElse(build, {
+const hangGuarded = <A, E, R>(what: string, step: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+	Effect.timeoutOrElse(step, {
 		duration: Duration.millis(hangLimit.value),
 		orElse: () =>
 			Effect.die(
-				new Error(
-					`${what} hung: it held its lease and did not end within the hang limit of ${hangLimit.value} ms`
-				)
+				new Error(`${what} hung: it did not end within the hang limit of ${hangLimit.value} ms`)
 			)
 	})
 
@@ -703,24 +709,27 @@ const makeSubstrate: Effect.Effect<
 	Scope.Scope | InitializedCluster | ChildProcessSpawner.ChildProcessSpawner
 > = Effect.gen(function* () {
 	const lease = yield* leaseConnections
-	return yield* heldBuild(
+	return yield* hangGuarded(
 		"the substrate's build in a shared database",
 		Effect.gen(function* () {
 			const claim = yield* claimSharedDatabase(lease.cluster)
 			yield* Effect.addFinalizer(() =>
 				Effect.orDie(
-					Effect.gen(function* () {
-						yield* undoInstallEffects(claim.admin)
-						const left = yield* leftovers(claim.admin)
-						if (left.length === 0) {
-							return
-						}
-						return yield* Effect.die(
-							new Error(
-								`the test file left ${Arr.join(left, ", ")} in the shared database ${claim.database}`
+					hangGuarded(
+						`the release of the shared database ${claim.database}`,
+						Effect.gen(function* () {
+							yield* undoInstallEffects(claim.admin)
+							const left = yield* leftovers(claim.admin)
+							if (left.length === 0) {
+								return
+							}
+							return yield* Effect.die(
+								new Error(
+									`the test file left ${Arr.join(left, ", ")} in the shared database ${claim.database}`
+								)
 							)
-						)
-					})
+						})
+					)
 				)
 			)
 			return yield* build(lease.cluster, claim.database, claim.admin, [
@@ -741,7 +750,7 @@ const makeIsolatedSubstrate: Effect.Effect<
 	Scope.Scope | InitializedCluster | ChildProcessSpawner.ChildProcessSpawner
 > = Effect.gen(function* () {
 	const lease = yield* leaseConnections
-	return yield* heldBuild(
+	return yield* hangGuarded(
 		"the substrate's build in a database of its own",
 		Effect.gen(function* () {
 			const database = yield* freshDatabase(lease.cluster)

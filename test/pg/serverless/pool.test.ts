@@ -14,8 +14,10 @@
  *   it to move would never end, which the case's hang bound reports.
  * - Cut leases, over drawn interleavings of up to eight leases started at once on a pool of one to three, each kept to
  *   its end or cut: after a drawn number of the scheduler's turns, once its own connection asks for its password, once
- *   it holds its session, or while its statement waits on a lock the case holds. Every cut point is reached by what the
- *   case observes, never by the clock. Once every lease has settled and pg has answered every connection, the pool is at
+ *   it holds its session, or while its statement waits on a lock the case holds, once pg_stat_activity shows its
+ *   backend waiting on that lock: a CancelRequest that reaches a backend still reading its statement is ignored
+ *   (REL_19_RC2 src/backend/tcop/postgres.c 3536-3546), so a cut as the statement is sent cuts no statement that waits.
+ *   Every cut point is reached by what the case observes, never by the clock. Once every lease has settled and pg has answered every connection, the pool is at
  *   its baseline (nothing leased, no client checked out of pg's Pool, nothing queued, no lease left asking), every kept
  *   lease succeeded and every cut one ended as an interruption, the pool opens at most its maximum, and a further lease
  *   of the maximum at once succeeds, none of them a session a cut destroyed mid-statement, on a backend none of those
@@ -55,6 +57,7 @@ import type { Session, SessionPool } from "#adapter/wire/session.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import {
 	backendPidOf,
+	backendState,
 	defaultPool,
 	poolFor,
 	roleDefaults,
@@ -227,8 +230,14 @@ const interleavingGen: Gen<Interleaving> = (source) => ({
 	leases: source.draw(array(leasePlanGen, { min: 1, max: 8 }))
 })
 
-/** How far a lease got before its end: what a cut lease was doing when the cut came. */
-type Progress = "asking" | "holding" | "running"
+/**
+ * How far a lease got before its end: what a cut lease was doing when the cut came, and a running lease's backend, which
+ * the case watches until its statement waits on the case's lock.
+ */
+type Progress =
+	| Readonly<{ kind: "asking" }>
+	| Readonly<{ kind: "holding" }>
+	| Readonly<{ kind: "running"; backend: number }>
 
 /**
  * The lease a connection attempt is for, by its index in the interleaving. The pool runs a new connection's password
@@ -365,23 +374,23 @@ const cutLeases = Effect.gen(function* () {
 				 * What each lease reached; each session a lease runs statements on, from before its first; and that
 				 * session's backend, once read.
 				 */
-				const progress: Array<Progress> = Arr.map(leases, () => "asking")
+				const progress: Array<Progress> = Arr.map(leases, (): Progress => ({ kind: "asking" }))
 				const ran = new Set<Session>()
 				const backends = new Map<Session, number>()
 				const leaseOf = (plan: LeasePlan, index: number) =>
 					Effect.scoped(
 						Effect.gen(function* () {
 							const session = yield* pool.lease
-							progress[index] = "holding"
+							progress[index] = { kind: "holding" }
 							if (plan.work === "statement") {
 								ran.add(session)
 								const pid = yield* backendPidOf(session)
 								backends.set(session, pid)
-								progress[index] = "running"
+								progress[index] = { kind: "running", backend: pid }
 								yield* plan.cut.kind === "running"
 									? rowsOn(session, lockWait, [statementLock])
 									: rowsOn(session, instant, [])
-								progress[index] = "holding"
+								progress[index] = { kind: "holding" }
 							}
 							if (plan.cut.kind !== "kept") {
 								return yield* Effect.never
@@ -413,7 +422,7 @@ const cutLeases = Effect.gen(function* () {
 					)
 					return (
 						running.length > 0 &&
-						Arr.every(running, (i) => progress[i] === "asking") &&
+						Arr.every(running, (i) => progress[i]?.kind === "asking") &&
 						leasedNow === 0 &&
 						inFlight() === 0
 					)
@@ -435,7 +444,18 @@ const cutLeases = Effect.gen(function* () {
 								return
 							}
 							if (cut.kind === "running") {
-								yield* until(Effect.map(starved, (stuck) => stuck || progress[index] === "running"))
+								yield* until(
+									Effect.map(starved, (stuck) => stuck || progress[index]?.kind === "running")
+								)
+								const reaching = progress[index]
+								if (reaching?.kind === "running") {
+									yield* until(
+										Effect.map(
+											backendState(reaching.backend),
+											(backend) => backend.waitEvent === "advisory"
+										)
+									)
+								}
 							} else {
 								const at = cut.at
 								switch (at.kind) {
@@ -446,20 +466,21 @@ const cutLeases = Effect.gen(function* () {
 										break
 									case "held":
 										yield* until(
-											Effect.map(starved, (stuck) => stuck || progress[index] !== "asking")
+											Effect.map(starved, (stuck) => stuck || progress[index]?.kind !== "asking")
 										)
 										break
 									case "establishing":
 										yield* until(
 											Effect.map(
 												starved,
-												(stuck) => stuck || connecting.has(index) || progress[index] !== "asking"
+												(stuck) =>
+													stuck || connecting.has(index) || progress[index]?.kind !== "asking"
 											)
 										)
 										break
 								}
 							}
-							const reached = progress[index]
+							const reached = progress[index]?.kind
 							const establishing = connecting.has(index)
 							yield* Fiber.interrupt(fiber)
 							const gate = gates[index]

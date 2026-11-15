@@ -840,7 +840,7 @@ export const openPsql = Effect.fnUntraced(function* (
 	/**
 	 * Ends an interrupted statement psql is running, and returns only once it has really completed or psql has ended:
 	 * the statement's own end, which a signalled backend reaches at its next interrupt check, and which a backend that
-	 * never honours it leaves to its test's deadline. Interrupting the startup query, which has no backend pid to cancel
+	 * never honours it leaves to its case's hang guard. Interrupting the startup query, which has no backend pid to cancel
 	 * by yet, interrupts psql instead.
 	 */
 	const cancel = (outcome: Outcome, canceler: Canceler): Effect.Effect<void> => {

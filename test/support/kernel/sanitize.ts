@@ -63,7 +63,7 @@ const waitingReport = (role: string, backends: ReadonlyArray<Backend>): string =
  * - a session the test closed is gone already, or certainly goes: a closed client's backend reads end-of-file or its
  *   Terminate and exits, so the wait ends;
  * - a session the test never closed keeps its backend, and the wait does not end. The release then never finishes,
- *   and the test's timeout (vitest.config.ts) or its case's hang guard reports the test as hung. While it
+ *   and the hang limit reports it hung (substrate.ts releaseRole), or its case's hang guard does. While it
  *   waits, the check prints the backends it waits for on stderr (`waitingReport`), once, after `quietPolls` polls have
  *   found them, so a hang names the leaked session. The print is a diagnostic, never a verdict.
  */

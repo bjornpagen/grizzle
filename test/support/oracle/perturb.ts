@@ -28,7 +28,7 @@ import type { GenRelation, GenSchema } from "#test/support/oracle/gen/schema.ts"
  * again each time the nested loop rescans it, once per outer row: the joins of one generated fixed-length case over
  * seven vertices relaunched one Gather's worker 2,187 times, 20 s, and ran past 30 s with the hash join off too, its
  * leader waiting on ParallelFinish while pg_stat_database's parallel_workers_launched kept rising, and a larger outer
- * side has no bound short of its test's deadline. A Gather rescanned per row delivers the rows one Gather does, so the
+ * side has no bound short of its case's hang guard. A Gather rescanned per row delivers the rows one Gather does, so the
  * plan holds no case a lowering could fail. Parallel plans are still drawn: debug_parallel_query = regress
  * runs every eligible query in a worker beneath one Gather, and forcedParallel keeps the zero setup cost for partial
  * aggregates over a relation no nested loop rescans.

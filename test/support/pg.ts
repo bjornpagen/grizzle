@@ -390,7 +390,7 @@ interface Target {
 /**
  * One CancelRequest for the backend's running statement, over a TLS connection of its own. It ends when the server
  * closes that connection, which it does once it has signalled the backend, or when the connection fails: a cancel is
- * never left in flight to reach a later statement. A server that never closes it is its test's deadline's to report.
+ * never left in flight to reach a later statement. A server that never closes it is its case's hang guard's to report.
  */
 const cancelRequest = (target: Target, processId: number, secretKey: number): Effect.Effect<void> =>
 	Effect.callback<void>((resume) => {
