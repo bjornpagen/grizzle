@@ -1,4 +1,5 @@
 import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
+import { unitExamples } from "#test/support/examples.ts"
 import { hangLimit } from "#test/support/limits.ts"
 
 /**
@@ -12,7 +13,8 @@ import { hangLimit } from "#test/support/limits.ts"
  *
  * No test is bounded by the clock: each search runs exactly its counted budget, however busy the machine is, and a case
  * that never ends is reported hung at the hang limit (limits.ts caseHang). A hook is bounded by the hang limit, so a
- * setup that never ends is reported under its hook's name.
+ * setup that never ends is reported under its hook's name. Every test case runs a search, outside the files
+ * test/support/examples.ts exempts, each set with its reason.
  */
 export default defineTestConfig({
 	include: ["test/unit/**/*.test.ts", "test/types/**/*.test.ts"],
@@ -34,5 +36,6 @@ export default defineTestConfig({
 		"test/unit/core/lines.test.ts",
 		"test/unit/core/canonical.test.ts",
 		"test/unit/ir/shape.test.ts"
-	]
+	],
+	examples: unitExamples
 })

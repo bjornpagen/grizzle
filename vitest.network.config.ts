@@ -1,4 +1,5 @@
 import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
+import { networkExamples } from "#test/support/examples.ts"
 
 /**
  * `pnpm test:network`: the tests that talk to the local PostgreSQL cluster, the pg tier and the schedules tier. The
@@ -15,7 +16,8 @@ import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
  * as long as they hold it (substrate/shared.ts leaseConnections), and a wait for a resource others hold is no hang;
  * what the build does once it holds its lease is bounded by the hang limit (substrate/substrate.ts heldBuild). The
  * library runs one file per worker, testWorkers of them, and the setup clones a database for each
- * (substrate/workers.ts).
+ * (substrate/workers.ts). Every test case runs a search, outside the files test/support/examples.ts exempts, each set
+ * with its reason.
  */
 export default defineTestConfig({
 	include: ["test/pg/**/*.test.ts", "test/schedules/**/*.test.ts"],
@@ -26,5 +28,6 @@ export default defineTestConfig({
 		test: { kind: "unbounded" },
 		hook: { kind: "unbounded" }
 	},
-	smallStack: []
+	smallStack: [],
+	examples: networkExamples
 })

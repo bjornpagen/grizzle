@@ -17,6 +17,9 @@ const NO_RANDOMNESS = "The engine draws no randomness: one input compiles to one
 /** The engine's I/O ban. */
 const NO_IO = "The engine does no I/O: the shell does."
 
+/** The engine's environment ban: its own list of globals replaces the preset's environment globals on its files. */
+const NO_ENVIRONMENT = "The engine reads no environment: what it needs is an argument."
+
 const ZOD = {
 	name: "zod",
 	message:
@@ -65,6 +68,17 @@ const PLATFORM_SDKS = {
 	group: ["@vercel/*", "@aws-sdk/*"],
 	message:
 		"src loads no platform's SDK: the caller wires Vercel's pool and AWS's token signer through DbConfig.attachPool and DbConfig.password."
+} as const
+
+/**
+ * The library's imports, which every file is held to but the tiers' (test, bench, scripts, the cluster's package) and
+ * the engine's, whose blocks state their own: no Zod, no Effect Schema at run time and no platform's SDK. The preset's
+ * environment block holds the shell's src to these and its environment imports together, so no block of grizzle's
+ * restates them there.
+ */
+const LIBRARY_IMPORTS = {
+	paths: [ZOD, SCHEMA_IMPORTS.path],
+	patterns: [PLATFORM_SDKS, SCHEMA_IMPORTS.pattern]
 } as const
 
 /**
@@ -132,10 +146,22 @@ const ASSERTIONS_MESSAGE =
 export default defineConfig(
 	lintConfig({
 		ignorePatterns: ["packages/*/types/**", "test/types/**/.*-??????/**", "vendor/**"],
-		restrictedImports: { paths: [ZOD], patterns: [] },
+		restrictedImports: LIBRARY_IMPORTS,
 		restrictedGlobals: [],
 		restrictedProperties: [],
 		unassignedImports: [],
+		environment: {
+			library: ["packages/engine/src", "packages/grizzle/src"],
+			/**
+			 * The connection's one reader of the environment, which refuses the variables node-postgres would send at a
+			 * session's startup; and the command line's entry module, which reads its own arguments and working directory
+			 * and passes them on as its program's input.
+			 */
+			readers: [
+				"packages/grizzle/src/adapter/connection/environment.ts",
+				"packages/grizzle/src/cli/main.ts"
+			]
+		},
 		ceremony: ["test/**", "bench/**", "scripts/**", "packages/pg/**"],
 		plugin: {
 			"bearer-owners": {
@@ -251,6 +277,10 @@ export default defineConfig(
 					}
 				]
 			},
+			/**
+			 * The engine's SQL is text its printer builds, never a Drizzle `sql` template, the one form the rule reads, so it
+			 * finds nothing here: the printer, the lexer and the constants are the cast's writers by name only.
+			 */
 			"no-raw-sql": {
 				sources: ["packages/engine/src", "packages/grizzle/src"],
 				writers: [
@@ -258,6 +288,30 @@ export default defineConfig(
 					"packages/engine/src/sql/lexer.ts",
 					"packages/engine/src/sql/constants.ts"
 				]
+			},
+			"no-spread-argument": {
+				tuples: [
+					{ module: "#test/support/list.ts", names: ["argumentsOf", "nonEmptyArgumentsOf"] },
+					{ module: "#compiler/allen/atoms.ts", names: ["atomOperands"] }
+				]
+			},
+			"no-case-list": {
+				searches: [
+					{ module: "@bjornpagen/testing/explore", name: "exhaust", space: "generator" },
+					{ module: "@bjornpagen/testing/explore", name: "explore", space: "draw" }
+				],
+				generators: [
+					{ module: "@bjornpagen/testing/gen", names: ["element"], draws: "list" },
+					{ module: "@bjornpagen/testing/gen", names: ["constant"], draws: "value" },
+					{ module: "@bjornpagen/testing/gen", names: ["map", "span"], draws: "each" },
+					{
+						module: "@bjornpagen/testing/gen",
+						names: ["oneOf", "weighted", "proportional"],
+						draws: "union"
+					},
+					{ module: "@bjornpagen/testing/explore", names: ["drawn", "sketched"], draws: "each" }
+				],
+				cases: ["test/"]
 			},
 			"no-dynamic-imports": {
 				allowed: [{ file: "packages/grizzle/src/cli/main.ts", specifier: "grizzle:config" }]
@@ -293,13 +347,11 @@ export default defineConfig(
 						{ name: "clearImmediate", message: NO_CLOCK },
 						{ name: "queueMicrotask", message: SYNCHRONOUS },
 						{ name: "Promise", message: SYNCHRONOUS },
-						{
-							name: "process",
-							message: "The engine reads no environment: what it needs is an argument."
-						},
+						{ name: "process", message: NO_ENVIRONMENT },
 						{ name: "fetch", message: NO_IO },
 						{ name: "WebSocket", message: NO_IO },
-						{ name: "crypto", message: NO_RANDOMNESS }
+						{ name: "crypto", message: NO_RANDOMNESS },
+						{ name: "navigator", message: NO_ENVIRONMENT }
 					],
 					"eslint/no-restricted-imports": engineImports("no Node module"),
 					/** `import { type T } from "effect"` passes allowTypeImports, but type stripping leaves `import {} from "effect"`, which loads Effect at run time. */
@@ -312,21 +364,24 @@ export default defineConfig(
 				rules: active({ "eslint/no-restricted-imports": engineImports("hashing") })
 			},
 			{
-				files: ["packages/grizzle/**"],
+				files: ["packages/grizzle/src/adapter/live/call-error.ts"],
 				rules: active({
-					"eslint/no-restricted-imports": restrictedImports({
-						paths: [ZOD],
-						patterns: [PLATFORM_SDKS]
-					})
+					/** os.constants.errno names this platform's system errors, the codes a socket's failure is read by: a vocabulary of the platform, never a reading of the machine's state, which the environment's ban on every value of node:os would refuse. */
+					"eslint/no-restricted-imports": restrictedImports(LIBRARY_IMPORTS)
 				})
 			},
 			{
-				files: ["packages/grizzle/src/**"],
+				files: ["packages/engine/src/query/build/scope.ts"],
 				rules: active({
-					"eslint/no-restricted-imports": restrictedImports({
-						paths: [ZOD, SCHEMA_IMPORTS.path],
-						patterns: [PLATFORM_SDKS, SCHEMA_IMPORTS.pattern]
-					})
+					/** The query builder's hygiene: the build running now, which a variable minted in a rule's callback records and every later use checks, through callbacks that take no argument for it. */
+					"devtools/no-module-state": "off"
+				})
+			},
+			{
+				files: ["test/pg/serverless/support.ts"],
+				rules: active({
+					/** A test plays Vercel's runtime: it installs Vercel's request context on the global object, where @vercel/functions reads it, and restores it after. */
+					"devtools/no-module-state": "off"
 				})
 			},
 			{
@@ -548,7 +603,9 @@ export default defineConfig(
 					/** The trap forwards to the native exec with the receiver it is called on. */
 					"typescript/unbound-method": "off",
 					/** The positive control constructs through the trapped global RegExp. */
-					"devtools/no-raw-regexp": "off"
+					"devtools/no-raw-regexp": "off",
+					/** The trap forwards a call to the native function with the arguments it was called with, a list no syntax sizes. */
+					"devtools/no-spread-argument": "off"
 				})
 			},
 			{

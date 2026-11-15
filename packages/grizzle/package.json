@@ -29,9 +29,8 @@
 	"sideEffects": false,
 	"scripts": {
 		"typecheck": "effect-tsgo tsrs -b",
-		"typecheck:full": "rm -rf types && effect-tsgo tsrs -p tsconfig.json",
-		"superlint": "superlint",
-		"oxlint": "oxlint"
+		"typecheck:full": "rm -rf types && toolchain-typecheck -p tsconfig.json",
+		"oxlint": "toolchain-oxlint"
 	},
 	"dependencies": {
 		"@bjornpagen/grizzle-engine": "workspace:*",

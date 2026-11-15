@@ -26,7 +26,9 @@ const mutationTestTimeout: Limit = derived({
  * runs. Its tests and hooks are bounded by mutationTestTimeout, timers of their test process that a mutant looping
  * without yielding never lets fire, so the mutation tester's reporter also bounds each file (reporter.ts fileTimeout),
  * and main.ts kills a run with a file the reporter calls hung. Every file's process takes its coverage when its tests
- * end (take-coverage.ts), which a coverage pass reads.
+ * end (take-coverage.ts), which a coverage pass reads. Examples are allowed: the tiers' own configs refuse a test case
+ * that runs no search, and a mutant is judged by its tests' verdicts alone; main.ts names its run's reporters, which
+ * replace the configured ones, so no run of it reads this stance anyway.
  */
 export default mergeConfig(
 	defineTestConfig({
@@ -43,7 +45,8 @@ export default mergeConfig(
 			test: { kind: "bounded", millis: mutationTestTimeout.value },
 			hook: { kind: "bounded", millis: mutationTestTimeout.value }
 		},
-		smallStack: []
+		smallStack: [],
+		examples: { kind: "allowed" }
 	}),
 	{ test: { setupFiles: [`${import.meta.dirname}/take-coverage.ts`] } }
 )
