@@ -36,7 +36,7 @@ import {
 	type WFacts
 } from "#test/support/oracle/write/facts.ts"
 import { CaseFailed } from "#test/support/oracle/write/harness.ts"
-import { readGroup, resetGroup, type WriteTarget } from "#test/support/oracle/write/run.ts"
+import { readGroup, resetGroup, type WriteInstallation } from "#test/support/oracle/write/run.ts"
 import {
 	isImmediate,
 	oracleSchemaOf,
@@ -459,7 +459,7 @@ const identityOf = (relation: WRelation, fact: Fact): string =>
  * UNIQUEs over their selected sides' law columns.
  */
 const uniqueLaws = (
-	t: WriteTarget,
+	t: WriteInstallation,
 	group: WGroup,
 	relation: WRelation,
 	others: ReadonlyArray<Fact>,
@@ -493,7 +493,7 @@ const uniqueLaws = (
 
 /** The foreign keys `containments` a state breaks, by their constraints. */
 const brokenReferences = (
-	t: WriteTarget,
+	t: WriteInstallation,
 	group: WGroup,
 	state: ReadonlyMap<string, ReadonlyArray<Fact>>,
 	immediate: boolean
@@ -529,7 +529,7 @@ type Step =
 
 /** One statement of a transaction begun at `level`, from what the transaction holds before it. */
 const predictStep = (
-	t: WriteTarget,
+	t: WriteInstallation,
 	group: WGroup,
 	level: Level,
 	held: Held,
@@ -636,7 +636,7 @@ const predictStep = (
 
 /** The model's prediction for `statements` from `initial`, in a transaction begun at `level`. */
 const predict = (
-	t: WriteTarget,
+	t: WriteInstallation,
 	group: WGroup,
 	initial: OracleState,
 	statements: ReadonlyArray<Statement>,
@@ -725,7 +725,7 @@ const matching = (table: OracleTable, fact: Fact): Expr => {
  * no target. An INSERT that leaves out a relation's one field so stores NULL there; one into a relation whose every
  * field is an identity column stores each column's next value.
  */
-const sqlOf = (t: WriteTarget, s: Statement): string => {
+const sqlOf = (t: WriteInstallation, s: Statement): string => {
 	if (s.kind === "truncate") {
 		return `TRUNCATE ${t.laws.table(s.relation.name)}`
 	}
@@ -934,7 +934,7 @@ const firstChanged = (
  * Nothing a failed transaction did stays.
  */
 export const runDirectCase = (
-	t: WriteTarget,
+	t: WriteInstallation,
 	writer: PsqlWriter,
 	c: DirectCase,
 	note: Case<DirectFeature>["note"]

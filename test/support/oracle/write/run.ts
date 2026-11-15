@@ -100,7 +100,8 @@ export type WriteOutcome =
 /** Whether a run's tables carry planner statistics: analyzed after each case's facts are loaded, or never analyzed. */
 export type Statistics = "analyzed" | "none"
 
-export interface WriteTarget {
+/** A run's installation, which holds no session: its schema installed, its roles and its logins (installTarget). */
+export interface WriteInstallation {
 	readonly schema: WSchema
 	readonly built: WBuiltSchema
 	readonly installed: Installed
@@ -108,8 +109,12 @@ export interface WriteTarget {
 	readonly statistics: Statistics
 	/** The schema value rebuilt under the installed name, over the same relation values. */
 	readonly value: WSchemaValue
-	/** The theory role of the writer role the Db opened as. */
+	/** The theory role of the writer role the Db opens as. */
 	readonly writer: string
+}
+
+/** An installation with the writer's Db open on it, for the scope withTarget gives it. */
+export interface WriteTarget extends WriteInstallation {
 	/**
 	 * The writer's served Db's context, and its role's compilation context as `grizzle generate` reads it, which every
 	 * case's ChangeSet compiles through (served-role.ts): a served Db compiles nothing, so the oracle compiles the case's
@@ -121,20 +126,16 @@ export interface WriteTarget {
 /** A writer's served Db's context with its role's compilation context (WriteTarget.ctx). */
 export type OracleContext = ServedDbContext & RoleContext
 
-type TargetError =
-	| CompileError
-	| SqlError
-	| TransactionRolledBack
-	| OpenError
-	| ServedRefusal
-	| RoleSetupError
+/** How opening the writer's Db on an installation fails (withTarget). */
+type TargetError = OpenError | ServedRefusal | CompileError | RoleSetupError
 
 /**
  * The database side of the write oracle.
  *
  * One installation per write run: the run's generated schema is installed under a fresh schema name through its first
- * migration (test/support/install-migrate.ts) and opened once as its full role `writer` through Db.open and its login's
- * DbLayer, exactly as an application opens it. Every case of the run then
+ * migration (test/support/install-migrate.ts, installTarget) and opened once as its full role `writer` through Db.open
+ * and its login's DbLayer, exactly as an application opens it, in a scope nested inside the installation's (withTarget).
+ * Every case of the run then
  *
  * 1. resets its group to the case's initial state as the owner, in one transaction: the installation's tables that
  *    hold a block truncated (test/support/substrate/replace.ts occupiedGroup), the case's facts loaded as typed
@@ -158,10 +159,11 @@ type TargetError =
  * violation must come from a statement or the COMMIT that PostgreSQL failed, nothing but ROLLBACK may follow a failed
  * flight, and an applied outcome is every statement succeeding, then a COMMIT that committed.
  *
- * Installs `schema` under a fresh schema name and opens it as its writer role, in the scope. The schema value and its
- * world are declared again under the installed name over the very same relation values and statements, so the
- * ChangeSets built over those values are the Db's own (test/pg/reads/support.ts does the same for the fixtures). Every
- * law of a write schema is native, so the installation leaves nothing to the residual laws' extension.
+ * Installs `schema` under a fresh schema name, in the scope: its roles and logins are released when the scope closes.
+ * The schema value and its world are declared again under the installed name over the very same relation values and
+ * statements, so the ChangeSets built over those values are the Db's own (test/pg/reads/support.ts does the same for
+ * the fixtures). Every law of a write schema is native, so the installation leaves nothing to the residual laws'
+ * extension. The writer's Db is opened on it by withTarget alone, in a scope of its own.
  *
  * The installation installs the types `changes`, every ChangeSet the run applies, cast their parameters to: each built
  * over the declared schema, a program of the writer's workload whose parameter types alone are planned
@@ -170,12 +172,16 @@ type TargetError =
  * under what the snapshot records the installation installs (served-role.ts servedRoleContext), so none casts a
  * parameter to a type the installation lacks.
  */
-export const openTarget = (
+export const installTarget = (
 	schema: WSchema,
 	statistics: Statistics,
 	ambient: AmbientSession,
 	changes: ReadonlyArray<{ readonly group: WGroup; readonly changes: WChangeSet }>
-): Effect.Effect<WriteTarget, TargetError, Substrate | Scope.Scope> =>
+): Effect.Effect<
+	WriteInstallation,
+	CompileError | SqlError | TransactionRolledBack,
+	Substrate | Scope.Scope
+> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const built = buildWSchema(schema, "Wo")
@@ -206,10 +212,6 @@ export const openTarget = (
 			)
 		)
 		const value = built.rename(done.schema)
-		const world = built.worldOf(value)
-		const served = yield* openServedDb(done, world.server.roles.writer, {})
-		const role = yield* servedRoleContext(done, world.server.roles.writer)
-		const ctx: OracleContext = { ...served.ctx, ...role }
 		return {
 			schema,
 			built,
@@ -217,10 +219,30 @@ export const openTarget = (
 			laws,
 			statistics,
 			value,
-			writer: done.role(world.writer),
-			ctx
+			writer: done.role(built.worldOf(value).writer)
 		}
 	})
+
+/**
+ * `body` run on the writer's served Db over `installation`, the Db opened in a scope of its own nested inside the
+ * installation's: every session the Db opens ends when `body` does, however `body` exits (accepted, failed, cut,
+ * interrupted mid-case or shrunk), before the installation's scope releases a role a session logs in as. So no exit of
+ * a run can leave a session of its writer for the release of its roles, by nesting rather than by the order of
+ * finalizers in one scope.
+ */
+export const withTarget = <A, E, R>(
+	installation: WriteInstallation,
+	body: (t: WriteTarget) => Effect.Effect<A, E, R>
+): Effect.Effect<A, E | TargetError, R> =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const writer = installation.built.worldOf(installation.value).server.roles.writer
+			const served = yield* openServedDb(installation.installed, writer, {})
+			const role = yield* servedRoleContext(installation.installed, writer)
+			const ctx: OracleContext = { ...served.ctx, ...role }
+			return yield* body({ ...installation, ctx })
+		})
+	)
 
 /**
  * The privileges the writer role holds that an immutable relation forbids: UPDATE of any column of an immutable
@@ -228,7 +250,7 @@ export const openTarget = (
  * problem.
  */
 export const privilegeProblems = (
-	t: WriteTarget
+	t: WriteInstallation
 ): Effect.Effect<ReadonlyArray<string>, SqlError, Substrate> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
@@ -260,7 +282,7 @@ export const privilegeProblems = (
  * until its own reset: a group's laws reach only its own relations, and a case reads its group alone.
  */
 export const resetGroup = (
-	t: WriteTarget,
+	t: WriteInstallation,
 	group: WGroup,
 	facts: WFacts,
 	state: OracleState
@@ -328,7 +350,7 @@ const storedFacts = (r: WRelation, rows: ReadonlyArray<ReadonlyArray<unknown>>):
 
 /** The committed state of a group, read as the owner (step 3 of the header). */
 export const readGroup = (
-	t: WriteTarget,
+	t: WriteInstallation,
 	group: WGroup
 ): Effect.Effect<GroupState, SqlError, Substrate> =>
 	Effect.gen(function* () {

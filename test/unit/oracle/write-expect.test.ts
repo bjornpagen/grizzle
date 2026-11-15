@@ -85,7 +85,7 @@ import { nothingReported, serverError } from "#test/support/server-error.ts"
 
 /**
  * The law names of a generated schema's real compiled installation, built as the pg oracle builds them
- * (oracle/write/run.ts openTarget): the schema value under the oracle's declared name, planned by the real installer
+ * (oracle/write/run.ts installTarget): the schema value under the oracle's declared name, planned by the real installer
  * under that name's schema with no extension, every law of a write schema being native. The owner names who owns the
  * installed objects, which no law name depends on.
  */

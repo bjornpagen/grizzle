@@ -20,7 +20,13 @@ import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { testPoolMax } from "#pg/lease.ts"
 import { InitializedCluster } from "#test/support/cluster.ts"
 import { adminUrl, pgPin } from "#test/support/env.ts"
-import { awaitRoleQuiet, type ClientBackend, endBackend } from "#test/support/kernel/sanitize.ts"
+import {
+	type ClientBackend,
+	endBackend,
+	heldBackends,
+	roleBackendsQuery,
+	SessionsLeaked
+} from "#test/support/kernel/sanitize.ts"
 import { hangLimit, testExitWait } from "#test/support/limits.ts"
 import { freshDatabase, type PgConnection, type SqlError, sqlErrorOf } from "#test/support/pg.ts"
 import { awaitBlockedBy, awaitLockWait, type LockWait } from "#test/support/substrate/barrier.ts"
@@ -312,20 +318,41 @@ export const dropRole = (
 	})
 
 /**
- * Drops a role a test allocated, once its backends are gone: the connection-leak check (kernel/sanitize.ts) waits on
- * pg_stat_activity, and a session the test never closed holds the release until the hang limit reports it hung, naming
- * the role. The sweep of crashed runs drops roles with dropRole itself, where leftover backends are expected.
+ * The release of `role`, which owns the role's sessions and waits on none of them: its backends as `read` reads them
+ * (kernel/sanitize.ts roleBackendsQuery), then `drop`, which ends every one and drops the role, and then, where a
+ * backend's session is one the test still holds (sanitize.ts heldBackends, against the cluster's budget's held
+ * connections), the release fails with SessionsLeaked, naming each such backend's pid, state and last statement. Every
+ * other backend listed has had its session ended and is on its way out, and `drop` ends it with the rest.
+ */
+const releasing = <E>(
+	cluster: BudgetedCluster,
+	role: string,
+	read: Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, E>,
+	drop: Effect.Effect<void, E>
+): Effect.Effect<void, E> =>
+	Effect.gen(function* () {
+		const listed = yield* read
+		const held = heldBackends(listed, cluster.budget.held(), cluster.port)
+		yield* drop
+		if (Arr.isReadonlyArrayNonEmpty(held)) {
+			return yield* Effect.die(new SessionsLeaked({ role, backends: held }))
+		}
+	})
+
+/**
+ * Drops a role a test allocated (releasing): its backends ended, a session the test never closed failing the release
+ * at once, named, rather than holding it. The sweep of crashed runs drops roles with dropRole itself, where leftover
+ * backends are expected.
  */
 const releaseRole = (
 	cluster: BudgetedCluster,
 	admin: PgConnection,
 	role: string
 ): Effect.Effect<void, SqlError> =>
-	Effect.andThen(
-		hangGuarded(
-			`the release of role ${role}, waiting for its backends to exit`,
-			awaitRoleQuiet(admin, role)
-		),
+	releasing(
+		cluster,
+		role,
+		admin.queryValues(roleBackendsQuery(role), []),
 		dropRole(cluster, admin, role)
 	)
 
@@ -480,6 +507,7 @@ export const psqlWriter = (
 					)
 			})
 			started.backend = Option.some(writer.backend)
+			yield* cluster.budget.hold(writer.backend.pid)
 			if (Option.isSome(options.role)) {
 				yield* Effect.orDie(writer.run(`SET ROLE ${quoteIdent(options.role.value)}`))
 			}
@@ -599,6 +627,10 @@ const build = Effect.fnUntraced(function* (
 
 	const login = (name: string) => Effect.andThen(registerRoleCleanup(name), enableLogin(name))
 
+	/**
+	 * An owner login, released (releasing) by its backends read as the bootstrap superuser, since they show only to a role
+	 * with the login's privileges, which the owner lacks.
+	 */
 	const ownerLogin = (
 		defaults: ReadonlyArray<RoleDefault>
 	): Effect.Effect<Credentials, never, Scope.Scope> =>
@@ -608,8 +640,10 @@ const build = Effect.fnUntraced(function* (
 			const password = randomPassword()
 			const quoted = quoteIdent(name)
 			yield* Effect.addFinalizer(() =>
-				Effect.andThen(
-					Effect.orDie(awaitRoleQuiet(admin, name)),
+				releasing(
+					cluster,
+					name,
+					asSuperuserRead(cluster, database, (rows) => rows(roleBackendsQuery(name))),
 					dropOwnerLogin(cluster, database, name)
 				)
 			)
@@ -644,6 +678,7 @@ const build = Effect.fnUntraced(function* (
 				credentials: credentialsOf(options.as),
 				label: options.label
 			})
+			yield* cluster.budget.hold(raw.pid)
 			if (Option.isSome(options.role)) {
 				yield* raw.query(`SET ROLE ${quoteIdent(options.role.value)}`, [])
 			}
@@ -685,8 +720,7 @@ const build = Effect.fnUntraced(function* (
 /**
  * One step of a substrate's life that waits on nothing others hold by design, bounded by the hang limit (limits.ts
  * hangLimit), so a step that never ends dies naming what hung: a layer build's work once it holds its lease (a claim or
- * a clone, its connections and its sessions), its release, and a role's release, which waits for the role's backends to
- * exit. The lease wait before a build is no hang: a file queued behind others' holds waits as long as they hold
+ * a clone, its connections and its sessions), and its release. The lease wait before a build is no hang: a file queued behind others' holds waits as long as they hold
  * (shared.ts leaseConnections). Tests and the network tier's hooks are unbounded, so this is what reports such a hang.
  */
 const hangGuarded = <A, E, R>(what: string, step: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>

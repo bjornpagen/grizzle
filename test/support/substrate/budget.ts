@@ -1,4 +1,6 @@
-import { Data, Effect, Exit, Scope } from "effect"
+import * as net from "node:net"
+import { Array as Arr, Data, Effect, Exit, Option, Scope } from "effect"
+import type { PgSocket } from "#adapter/types/driver.ts"
 import type { Transport } from "#adapter/types/layer.ts"
 import type { InitializedClusterShape } from "#test/support/cluster.ts"
 
@@ -48,7 +50,27 @@ export interface LeaseBudget {
 	 * the moment it lives.
 	 */
 	readonly transport: (transport: Transport) => Transport
+	/**
+	 * The connections the budget's openers hold open now (HeldConnection): every socket of `transport` that connected and
+	 * is not destroyed, by its ports, and every backend `hold` holds.
+	 */
+	readonly held: () => ReadonlyArray<HeldConnection>
+	/**
+	 * `pid`, the backend a session opened in the current scope runs on, as the session read it as it opened, held until
+	 * the scope closes: what a session opened outside `transport` (a raw session, a psql writer) states of itself.
+	 */
+	readonly hold: (pid: number) => Effect.Effect<void, never, Scope.Scope>
 }
+
+/**
+ * A connection test support holds open on the cluster: a socket `transport` opened, connected and has not destroyed,
+ * by its own port and the server's, which name its backend's client in pg_stat_activity; or a backend a session read its
+ * own pid of and holds (`hold`). What a role's release tells a session still open from one ended and on its way out
+ * (kernel/sanitize.ts heldBackends).
+ */
+export type HeldConnection =
+	| { readonly kind: "socket"; readonly local: number; readonly remote: number }
+	| { readonly kind: "backend"; readonly pid: number }
 
 /** A budget of `width` permits, none drawn. */
 export const leaseBudget = (width: number): LeaseBudget => {
@@ -71,6 +93,13 @@ export const leaseBudget = (width: number): LeaseBudget => {
 					drawn -= count
 				})
 		)
+	/** Every socket `transport` opened that has not closed, with its ports once it connected. */
+	const sockets = new Map<
+		PgSocket,
+		Option.Option<{ readonly local: number; readonly remote: number }>
+	>()
+	/** The backends `hold` holds, one entry each, its own until its scope closes. */
+	const backends = new Set<{ readonly pid: number }>()
 	return {
 		width,
 		opened: (open) =>
@@ -90,12 +119,47 @@ export const leaseBudget = (width: number): LeaseBudget => {
 					throw new LeaseBudgetExhausted({ width })
 				}
 				const socket = transport.open()
+				sockets.set(socket, Option.none())
+				if (socket instanceof net.Socket) {
+					socket.once("connect", () => {
+						const { localPort, remotePort } = socket
+						if (sockets.has(socket) && localPort !== undefined && remotePort !== undefined) {
+							sockets.set(socket, Option.some({ local: localPort, remote: remotePort }))
+						}
+					})
+				}
 				socket.once("close", () => {
 					drawn--
+					sockets.delete(socket)
 				})
 				return socket
 			}
-		})
+		}),
+		held: () => [
+			...Arr.flatMap([...sockets], ([socket, ports]) =>
+				socket.destroyed
+					? []
+					: Option.match(ports, {
+							onNone: () => [],
+							onSome: (p): ReadonlyArray<HeldConnection> => [{ kind: "socket", ...p }]
+						})
+			),
+			...Arr.map([...backends], (b): HeldConnection => ({ kind: "backend", pid: b.pid }))
+		],
+		hold: (pid) =>
+			Effect.asVoid(
+				Effect.acquireRelease(
+					Effect.sync(() => {
+						const entry = { pid }
+						backends.add(entry)
+						return entry
+					}),
+					(entry) =>
+						Effect.sync(() => {
+							backends.delete(entry)
+						})
+				)
+			)
 	}
 }
 

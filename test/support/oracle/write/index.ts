@@ -12,6 +12,7 @@ import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { boundedShrink } from "@bjornpagen/testing/shrink"
 import { Array as Arr, Cause, Effect, Formatter, Option, type Scope } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"
 import { caseHang } from "#test/support/limits.ts"
 import {
@@ -40,7 +41,14 @@ import {
 	type WriteOracleFeature,
 	writeCaseGen
 } from "#test/support/oracle/write/harness.ts"
-import { openTarget, privilegeProblems, type Statistics } from "#test/support/oracle/write/run.ts"
+import {
+	installTarget,
+	privilegeProblems,
+	type Statistics,
+	type WriteInstallation,
+	type WriteTarget,
+	withTarget
+} from "#test/support/oracle/write/run.ts"
 import {
 	printSchema,
 	relationIn,
@@ -50,6 +58,8 @@ import {
 	type WGroup,
 	type WSchema
 } from "#test/support/oracle/write/schema.ts"
+import type { SqlError } from "#test/support/pg.ts"
+import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
 
 export interface WriteRun {
@@ -82,12 +92,12 @@ const perturbedRunGen: Gen<readonly [WriteRun, Perturbation, Restorage]> = (sour
  * What a run's resolution draws: its schema and its drawn cases, each thinned by its swarm as the resolution meets each
  * place, so the property draws them once, from the case's own tape, and they replay and shrink with it.
  */
-interface ResolvedRun {
+export interface ResolvedRun {
 	readonly schema: WSchema
 	readonly drawn: ReadonlyArray<ResolvedCase>
 }
 
-const resolveRun =
+export const resolveRun =
 	(run: WriteRun): Gen<ResolvedRun> =>
 	(source) => {
 		const schema = source.draw(resolveSchema(run.schema))
@@ -241,43 +251,60 @@ export const runWrite = (
 		)
 	})
 
+/** A resolved run's cases in order: its drawn cases, then, where its schema holds the planted group, the planted arms. */
+const casesOf = (run: WriteRun, resolved: ResolvedRun): ReadonlyArray<ResolvedCase> => {
+	const planted = Arr.findFirst(resolved.schema.groups, (g) => g.role === "planted")
+	return [
+		...resolved.drawn,
+		...Option.match(planted, {
+			onNone: () => [],
+			onSome: (group) => Arr.map(plantedArms, (arm) => plantedCase(group, arm, run.planted.facts))
+		})
+	]
+}
+
 /**
- * A resolved run's schema installed and opened, its privileges checked, its cases in order. The installation installs
- * the parameter types of every ChangeSet the run applies (run.ts openTarget): a ChangeSet whose stratum the keys order
- * in a cycle is refused as it compiles (expect.ts unorderableStrata), so its case applies nothing and the installation
- * leaves it out.
+ * A resolved run's schema installed, in the scope, its privileges checked. The installation installs the parameter
+ * types of every ChangeSet the run applies (run.ts installTarget): a ChangeSet whose stratum the keys order in a cycle
+ * is refused as it compiles (expect.ts unorderableStrata), so its case applies nothing and the installation leaves it
+ * out.
  */
-const runResolved = (
+export const installRun = (
 	run: WriteRun,
-	resolved: ResolvedRun,
-	note: Case<WriteOracleFeature>["note"]
-) =>
+	resolved: ResolvedRun
+): Effect.Effect<
+	WriteInstallation,
+	CaseFailed | CompileError | SqlError | TransactionRolledBack,
+	Substrate | Scope.Scope
+> =>
 	Effect.gen(function* () {
-		const schema = resolved.schema
-		note(`statistics ${run.statistics}`)
-		for (const feature of ambientFeatures(run.ambient)) {
-			note(feature)
-		}
-		const planted = Arr.findFirst(schema.groups, (g) => g.role === "planted")
-		const cases = [
-			...resolved.drawn,
-			...Option.match(planted, {
-				onNone: () => [],
-				onSome: (group) => Arr.map(plantedArms, (arm) => plantedCase(group, arm, run.planted.facts))
-			})
-		]
-		const t = yield* openTarget(
-			schema,
+		const installation = yield* installTarget(
+			resolved.schema,
 			run.statistics,
 			run.ambient,
-			Arr.filter(cases, (rc) => unorderableStrata(rc.group, rc.changes).length === 0)
+			Arr.filter(
+				casesOf(run, resolved),
+				(rc) => unorderableStrata(rc.group, rc.changes).length === 0
+			)
 		)
-		const privileges = yield* privilegeProblems(t)
+		const privileges = yield* privilegeProblems(installation)
 		if (privileges.length > 0) {
 			return yield* new CaseFailed({
-				report: `${printSchema(schema)}\n${Arr.join(privileges, "\n")}`
+				report: `${printSchema(resolved.schema)}\n${Arr.join(privileges, "\n")}`
 			})
 		}
+		return installation
+	})
+
+/** A resolved run's cases in order on its writer's Db (`t`, run.ts withTarget). */
+export const runCases = (
+	run: WriteRun,
+	resolved: ResolvedRun,
+	t: WriteTarget,
+	note: Case<WriteOracleFeature>["note"]
+): Effect.Effect<void, CaseFailed | CompileError | SqlError | TransactionRolledBack, Substrate> =>
+	Effect.gen(function* () {
+		const cases = casesOf(run, resolved)
 		const reads: Array<{ readonly group: WGroup; readonly relation: string }> = []
 		for (const [i, rc] of cases.entries()) {
 			const ran = yield* runCase(t, rc, note).pipe(
@@ -292,6 +319,24 @@ const runResolved = (
 		if (sharesHeadingNames(reads)) {
 			note("delta read-backs of one heading's field names over other types")
 		}
+	})
+
+/**
+ * A resolved run: its schema installed (installRun), then its cases on the writer's Db, which withTarget opens in a
+ * scope nested inside the installation's, so the Db's sessions end before any of its roles is released.
+ */
+const runResolved = (
+	run: WriteRun,
+	resolved: ResolvedRun,
+	note: Case<WriteOracleFeature>["note"]
+) =>
+	Effect.gen(function* () {
+		note(`statistics ${run.statistics}`)
+		for (const feature of ambientFeatures(run.ambient)) {
+			note(feature)
+		}
+		const installation = yield* installRun(run, resolved)
+		yield* withTarget(installation, (t) => runCases(run, resolved, t, note))
 	})
 
 /** The most shrink candidates a failing write run tries (see exploreWrite). */

@@ -1,0 +1,23 @@
+diff --git a/test/support/oracle/write/run.ts b/test/support/oracle/write/run.ts
+index 19ac12f9..19ea3060 100644
+--- a/test/support/oracle/write/run.ts
++++ b/test/support/oracle/write/run.ts
+@@ -5,7 +5,7 @@ import {
+ 	pipe,
+ 	Record as Rec,
+ 	Result,
+-	type Scope,
++	Scope,
+ 	String as Str
+ } from "effect"
+ import type { ServedDbContext } from "#adapter/db/context.ts"
+@@ -237,7 +237,8 @@ export const withTarget = <A, E, R>(
+ 	Effect.scoped(
+ 		Effect.gen(function* () {
+ 			const writer = installation.built.worldOf(installation.value).server.roles.writer
+-			const served = yield* openServedDb(installation.installed, writer, {})
++			const outlives = yield* Scope.make()
++			const served = yield* Scope.provide(openServedDb(installation.installed, writer, {}), outlives)
+ 			const role = yield* servedRoleContext(installation.installed, writer)
+ 			const ctx: OracleContext = { ...served.ctx, ...role }
+ 			return yield* body({ ...installation, ctx })

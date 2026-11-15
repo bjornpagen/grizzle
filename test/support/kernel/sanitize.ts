@@ -1,85 +1,93 @@
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Formatter, Option, Predicate } from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option, Predicate } from "effect"
+import { quoteString } from "#compiler/sql/print.ts"
 import { testExitWait } from "#test/support/limits.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
-
-/** A backend of a login, as pg_stat_activity shows it. */
-interface Backend {
-	readonly pid: number
-	readonly role: string
-	/** pg_stat_activity.state: active, idle, idle in transaction, ... */
-	readonly state: string
-	readonly query: string
-}
-
-const decodeBackends = (rows: ReadonlyArray<ReadonlyArray<unknown>>): ReadonlyArray<Backend> =>
-	Arr.map(rows, ([pid, role, state, query]) => ({
-		pid: Number(pid),
-		role: String(role),
-		state: String(state),
-		query: String(query)
-	}))
-
-/** The client backends of `role`. */
-const backendsOf = (
-	admin: PgConnection,
-	role: string
-): Effect.Effect<ReadonlyArray<Backend>, SqlError> =>
-	Effect.map(
-		admin.queryValues(
-			`SELECT a.pid, a.usename::text, coalesce(a.state, 'unknown')::text, left(coalesce(a.query, ''), 200) FROM pg_catalog.pg_stat_activity AS a WHERE a.usename = $1::name AND a.backend_type = 'client backend' ORDER BY a.pid`,
-			[role]
-		),
-		decodeBackends
-	)
-
-const describeBackend = (b: Backend): string =>
-	`backend ${b.pid} of ${b.role}: ${b.state}, last query ${Formatter.format(b.query)}`
+import type { HeldConnection } from "#test/support/substrate/budget.ts"
 
 /**
- * How many back-to-back polls find a role's backends before the check prints what it waits for: enough that a closed
- * session's exit, a few round trips, never prints.
+ * How many back-to-back polls find a database's backends before a wait for them prints what it waits for: enough that a
+ * closed session's exit, a few round trips, never prints.
  */
 export const quietPolls = 1_000
 
-/** What a release that has not ended waits for: the role's backends still listed. */
-const waitingReport = (role: string, backends: ReadonlyArray<Backend>): string =>
-	Arr.join(
-		[
-			`waiting for role ${role}'s sessions to end; a session the test never closed keeps this release, and its test, from finishing:`,
-			...Arr.map(backends, (b) => `  ${describeBackend(b)}`)
-		],
-		"\n"
-	)
+/** A backend of a role whose session its test still held open when the role was released. */
+export interface HeldBackend {
+	readonly pid: number
+	/** pg_stat_activity.state: active, idle, idle in transaction, ... */
+	readonly state: string
+	/** Its last statement, its first 200 characters. */
+	readonly query: string
+}
 
 /**
- * Returns once `role` has no backend left (see the header).
- *
- * The connection-leak check: a test leaves no session of its roles behind.
- *
- * Every login a test allocates is released when the test's scope closes (test/support/substrate), and its
- * backends must be gone by then. The check waits on PostgreSQL's own fact, the role's backends listed in
- * pg_stat_activity, until none is left, and judges nothing by time:
- * - a session the test closed is gone already, or certainly goes: a closed client's backend reads end-of-file or its
- *   Terminate and exits, so the wait ends;
- * - a session the test never closed keeps its backend, and the wait does not end. The release then never finishes,
- *   and the hang limit reports it hung (substrate.ts releaseRole), or its case's hang guard does. While it
- *   waits, the check prints the backends it waits for on stderr (`waitingReport`), once, after `quietPolls` polls have
- *   found them, so a hang names the leaked session. The print is a diagnostic, never a verdict.
+ * The client backends of `role`, every column as text: each one's pid, state, last statement (its first 200
+ * characters) and the port its client connects from, none for a client over a local socket. What a role's release
+ * reads (heldBackends).
  */
-export const awaitRoleQuiet = (admin: PgConnection, role: string): Effect.Effect<void, SqlError> =>
-	Effect.gen(function* () {
-		for (let polls = 1; ; polls++) {
-			const left = yield* backendsOf(admin, role)
-			if (left.length === 0) {
-				return
-			}
-			if (polls === quietPolls) {
-				yield* Effect.sync(() => process.stderr.write(`${waitingReport(role, left)}\n`))
-			}
-			yield* Effect.yieldNow
-		}
+export const roleBackendsQuery = (role: string): string =>
+	`SELECT a.pid::text, coalesce(a.state, 'unknown')::text, left(coalesce(a.query, ''), 200), a.client_port::text FROM pg_catalog.pg_stat_activity AS a WHERE a.usename = ${quoteString(role)}::name AND a.backend_type = 'client backend'::text ORDER BY a.pid`
+
+/** A cell of roleBackendsQuery's rows as its text, none for SQL NULL. */
+const textCell = (cell: unknown): Option.Option<string> =>
+	Predicate.isString(cell) ? Option.some(cell) : Option.none()
+
+/**
+ * The backends among `rows` (roleBackendsQuery's) whose session the test still holds open (`held`,
+ * substrate/budget.ts HeldConnection): one whose client is a socket this process still holds open to the server on
+ * `serverPort`, from the port pg_stat_activity names, or one a session it holds read its own pid of. Every other backend
+ * listed has had its session ended, and is on its way out.
+ *
+ * The connection-leak check of a role's release (substrate.ts releaseRole): every session a test opens as a role is
+ * closed when the scope that opened it closes, before the role is released, so a backend whose session the test still
+ * holds is a session it never closed. The release ends every backend of the role, held or on its way out, so it waits
+ * on no session, and a held one fails it (SessionsLeaked), naming each.
+ */
+export const heldBackends = (
+	rows: ReadonlyArray<ReadonlyArray<unknown>>,
+	held: ReadonlyArray<HeldConnection>,
+	serverPort: number
+): ReadonlyArray<HeldBackend> =>
+	Arr.flatMap(rows, ([pid, state, query, port]) => {
+		const backend = Number(pid)
+		const clientPort = Option.map(textCell(port), Number)
+		const holds = Arr.some(held, (h) =>
+			h.kind === "backend"
+				? h.pid === backend
+				: h.remote === serverPort && Option.contains(clientPort, h.local)
+		)
+		return holds
+			? [
+					{
+						pid: backend,
+						state: Option.getOrElse(textCell(state), () => "unknown"),
+						query: Option.getOrElse(textCell(query), () => "")
+					}
+				]
+			: []
 	})
+
+/**
+ * The release of `role` found sessions its test never closed (heldBackends): each one's backend, its pid, state and
+ * last statement. The release has ended them and dropped the role.
+ */
+export class SessionsLeaked extends Data.TaggedError("SessionsLeaked")<{
+	readonly role: string
+	readonly backends: Arr.NonEmptyReadonlyArray<HeldBackend>
+}> {
+	override get message(): string {
+		return Arr.join(
+			[
+				`the release of role ${this.role} found sessions the test never closed, and ended them:`,
+				...Arr.map(
+					this.backends,
+					(b) => `  backend ${b.pid}: ${b.state}, last query ${Formatter.format(b.query)}`
+				)
+			],
+			"\n"
+		)
+	}
+}
 
 /**
  * A client backend, told from any later backend PostgreSQL gives the same pid by when it started (pg_stat_activity's
