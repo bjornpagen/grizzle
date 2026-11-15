@@ -84,12 +84,18 @@ export interface Reader {
 	readonly column: NativeColumn
 }
 
-/** A change's way to a reader: the column it changes, the owner axes it cascades along, and the value that reads it. */
+/**
+ * A change's way to a reader: the column it changes, the owner axes it cascades along, the value that reads it, and
+ * `hops`, the families whose owner axes carry the change to the rows the reader's family draws again, in order from the
+ * change: each copy's, and last, for an owner reader, whose value is its member's copy along its own family's owner
+ * axis, that family's, which no copy names.
+ */
 export interface RefillPath {
 	readonly change: Change
 	readonly changed: Changed
 	readonly copies: ReadonlyArray<Hop>
 	readonly reader: Reader
+	readonly hops: ReadonlyArray<Family>
 }
 
 /** A native column's name as a refusal names it: a field's name, a law column's identifier. */
@@ -248,10 +254,11 @@ const reachedBy = (
 				return
 			}
 			seen.add(visit)
+			const carriedBy = copies.map((h) => h.family)
 			for (const l of families) {
 				if (l.member.name === at.name && !own(l)) {
 					for (const reader of readersIn(l, column)) {
-						paths.push({ change, changed, copies, reader })
+						paths.push({ change, changed, copies, reader, hops: carriedBy })
 					}
 				}
 			}
@@ -268,7 +275,8 @@ const reachedBy = (
 						change,
 						changed,
 						copies,
-						reader: { kind: "owner", family: j, column: { kind: "law", column: j.copy } }
+						reader: { kind: "owner", family: j, column: { kind: "law", column: j.copy } },
+						hops: [...carriedBy, j]
 					})
 				}
 				for (const pair of j.axes.owner) {
@@ -282,7 +290,8 @@ const reachedBy = (
 							change,
 							changed,
 							copies,
-							reader: { kind: "owner", family: j, column: pair.from }
+							reader: { kind: "owner", family: j, column: pair.from },
+							hops: [...carriedBy, j]
 						})
 					}
 					reach(j.member, pair.from, () => false, [...copies, hop])

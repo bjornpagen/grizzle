@@ -79,6 +79,10 @@ import { fullWorld } from "#test/support/worlds.ts"
  * @plant test/plants/pg/write/fill-order/fill-order-moved-owner-riders-left-out.patch The additions refill no rider
  * (write/program/compile.ts), so a moved owner's counted members keep their copy of its old index; the case aimed at
  * "a follow-up that moves an owner whose counted members copy its index" fails.
+ * @plant test/plants/pg/write/fill-order/fill-order-replaced-member-copy-hop-left-out.patch A re-placed counted
+ * member's copy of its owner's column is reached through no axis of its own family (analysis/theory/refill.ts
+ * reachedBy), so a put of a plain owner rides no way into it and the served compile refuses the stratum
+ * (UnservedMember); the kept case of an owner's put beside a delete of its ordered member fails.
  */
 
 type ClusterSituation =
@@ -697,6 +701,63 @@ const movedSequenceCopy: ClusterCase = {
 }
 
 /**
+ * The case the search found the served compile refusing (UnservedMember): R1 is a member of R0's ordered family and of
+ * two counted families of R0, the first's owner axis copying R0's `v` into R1's c0. A follow-up puts an R0 row and
+ * deletes R1's first member under it, re-placing the second: a re-placed counted member's copy of its owner's column is
+ * a value the put leaves stale (analysis/theory/refill.ts), whose rows its own family's owner axis reaches, so R1's
+ * removals statement draws it in the call's one flight, ahead of the put, where the stratum's family work once went to
+ * the host's read flight, which no served file holds.
+ */
+const ownerPutBesideReplacedCountedMember: ClusterCase = {
+	spec: {
+		relations: [
+			{ generated: false, mutable: true },
+			{ generated: false, mutable: true }
+		],
+		families: [
+			{ kind: "ordered", owner: 0, member: 1, fold: "count" },
+			{ kind: "counted", owner: 0, member: 1, fold: "sum" },
+			{ kind: "counted", owner: 0, member: 1, fold: "count" }
+		],
+		copies: [{ family: 1, axis: "owner", source: { kind: "caller" } }],
+		steps: []
+	},
+	rows: [
+		{ relation: 0, id: 1, v: 0n, memberOf: [] },
+		{ relation: 0, id: 2, v: 0n, memberOf: [] },
+		{
+			relation: 1,
+			id: 3,
+			v: 0n,
+			memberOf: [
+				{ family: 0, owner: 2, slot: 0 },
+				{ family: 1, owner: 1, slot: 0 },
+				{ family: 2, owner: 1, slot: 0 }
+			]
+		},
+		{
+			relation: 1,
+			id: 4,
+			v: 0n,
+			memberOf: [
+				{ family: 0, owner: 2, slot: 1 },
+				{ family: 1, owner: 1, slot: 0 },
+				{ family: 2, owner: 1, slot: 0 }
+			]
+		}
+	],
+	followUp: Option.some({
+		owner: 0,
+		row: 2,
+		put: Option.some(-1n),
+		inserted: [],
+		removed: Option.some({ id: 3, family: 0 }),
+		appended: Option.none(),
+		moved: Option.none()
+	})
+}
+
+/**
  * The case a witness runs: its drawn one, or, while situations `aims` reaches are pending, a case of one of their aims,
  * drawn among them, so no aim that seldom reaches its situation holds back the others.
  */
@@ -806,6 +867,16 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 									"a counted member that is an ordered family's",
 									"an owner copy along a sequence",
 									"a follow-up written over the stored instance"
+								]
+							},
+							{
+								note: "an owner's put beside a delete of its ordered member, re-placing another, whose copy of the owner's v along a counted family the put leaves stale",
+								sketch: ownerPutBesideReplacedCountedMember,
+								draws: "",
+								reaches: [
+									"a counted member that is an ordered family's",
+									"a follow-up written over the stored instance",
+									"a follow-up that refills a value it leaves stale"
 								]
 							}
 						],

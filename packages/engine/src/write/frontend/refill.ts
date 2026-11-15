@@ -18,12 +18,7 @@ import { CompileError, type RoleAccess } from "#compiler/core/errors.ts"
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import {
-	isNonEmpty,
-	lastNonEmpty,
-	mapNonEmpty,
-	type NonEmptyReadonlyArray
-} from "#compiler/core/nonempty.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Family, isTreeOf } from "#compiler/ir/family.ts"
 /**
@@ -159,26 +154,27 @@ const memberWay = (change: WriteChange, path: RefillPath): PlainRefillWay | unde
 
 /**
  * The way one path of a refill's closure rides in the call's flight, or none where the family planner refills on the
- * host: a put of a plain relation whose change cascades along one owner axis or a chain of them into a counted or
- * ordered family's member, through members the stratum neither puts nor deletes, read there by its fold, predecessor or
- * last axis, a member the stratum may put or delete too, whose removals statement draws both; or a member relation's
- * write (`memberWay`) whose refilled member the stratum does not put or delete.
+ * host: a put of a plain relation whose change cascades along the owner axes of the path's hops (RefillPath `hops`)
+ * into the rows its reader's family draws, a counted or ordered family's members, through members the stratum neither
+ * puts nor deletes, the last a member the stratum may put or delete too, whose removals statement draws both; or a
+ * member relation's write (`memberWay`) whose refilled member the stratum does not put or delete. A plain relation is
+ * no family's member, so a put of one reaches its readers' rows through one hop at least, the last into the reader's
+ * family's member, whichever reader it is: a fold, a predecessor or last copy, or a re-placed member's copy of its
+ * owner's column, which its own family's axis carries. No tree's value reaches a way: grizzle refuses its refill
+ * (`stratumRefill`, StaleDerivedRead `tree`).
  */
 const flightWay = (
 	path: RefillPath,
 	managed: (relation: string) => boolean,
 	edited: ReadonlySet<string>
 ): PlainRefillWay | undefined => {
-	const { change, reader } = path
-	const hops = path.copies.map((h) => h.family)
+	const { change, reader, hops } = path
 	if (change.kind !== "write") {
 		return undefined
 	}
 	if (!managed(change.relation.name)) {
 		return change.op === "put" &&
 			isNonEmpty(hops) &&
-			(reader.kind === "fold" || reader.kind === "predecessor" || reader.kind === "last") &&
-			lastNonEmpty(hops).member.name === reader.family.member.name &&
 			hops.slice(0, -1).every((h) => !edited.has(h.member.name))
 			? { root: { kind: "put", relation: change.relation.name }, hops }
 			: undefined
@@ -340,12 +336,9 @@ const changedRows = (
 	}))
 }
 
-/** Rows carried along `copies` by cascade. */
-const cascaded = (rows: RowsOf, copies: ReadonlyArray<{ readonly family: Family }>): RowsOf =>
-	copies.reduce(
-		(from: RowsOf, hop): RowsOf => ({ kind: "cascade", family: hop.family, from }),
-		rows
-	)
+/** Rows carried by cascade along the owner axes of `hops`, in order. */
+const cascaded = (rows: RowsOf, hops: ReadonlyArray<Family>): RowsOf =>
+	hops.reduce((from: RowsOf, family): RowsOf => ({ kind: "cascade", family, from }), rows)
 
 /** Every relation whose rows a read's chain passes, the rows it reads. */
 const readRelations = (read: RefillRead): ReadonlyArray<RelationInfo> => {
@@ -561,9 +554,8 @@ export const stratumRefill = (
 			if (familyKey(path.reader.family.id) !== key) {
 				continue
 			}
-			const copies = path.reader.kind === "owner" ? [...path.copies, { family }] : path.copies
 			for (const rows of changedRows(path, groupsOf, putOf)) {
-				const groups: GroupsOf = { kind: "groups", family, from: cascaded(rows, copies) }
+				const groups: GroupsOf = { kind: "groups", family, from: cascaded(rows, path.hops) }
 				found.set(groupsKey(groups), groups)
 			}
 		}
@@ -593,7 +585,10 @@ export const stratumRefill = (
 		for (const rows of changedRows(way, groupsOf, putOf)) {
 			const read: RefillRead = {
 				kind: "rows",
-				rows: cascaded(rows, way.copies),
+				rows: cascaded(
+					rows,
+					way.copies.map((hop) => hop.family)
+				),
 				family: way.hop.family
 			}
 			const key = `r:${rowsKey(read.rows)}`
