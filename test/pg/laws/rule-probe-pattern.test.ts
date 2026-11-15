@@ -19,9 +19,8 @@
  * rule admits there; then one write: Item 2 inserted at a or b, Item 1 updated to a or b, an Allowed tag deleted, or a
  * Closed tag inserted.
  *
- * Plants (~/.cache/grizzle-release/CONTRACTDOMAIN/plants): probe-as-served-param.patch lowers a probe as a served
- * query, its parameters cast to their own pattern domains, so the installation refuses to compile (UninstalledDomain)
- * and the box fails at its seat.
+ * @plant test/plants/pg/laws/probe-as-served-param.patch a probe lowered as a served query, its parameters cast to
+ * their own pattern domains, so the installation refuses to compile (UninstalledDomain) and the box fails at its seat.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

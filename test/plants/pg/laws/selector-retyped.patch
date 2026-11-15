@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/analysis/theory/laws.ts b/packages/engine/src/analysis/theory/laws.ts
+index 66ec8530..9280dfba 100644
+--- a/packages/engine/src/analysis/theory/laws.ts
++++ b/packages/engine/src/analysis/theory/laws.ts
+@@ -790,10 +790,7 @@ export class LawSides {
+ 			}
+ 			return { column: field, value: at.value.literal, col }
+ 		}
+-		const own = irLiteral(literal.value, this.type(literal.type, loc))
+-		return at.ok && own.ok && identicalLiteral(own.value.literal, at.value.literal)
+-			? { column: field, value: at.value.literal, col }
+-			: undefined
++		return at.ok ? { column: field, value: at.value.literal, col } : undefined
+ 	}
+ 
+ 	/**

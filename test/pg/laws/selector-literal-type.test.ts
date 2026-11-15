@@ -19,10 +19,11 @@
  * containment into its selection over id holds a key only where the literal fixes x, so the box holds the fixing
  * literal's select() side and the rules of both, the other keeping its triggers.
  *
- * Plants (~/.cache/grizzle-release/DENTRIAGE/plants): selector-retyped (a typed literal retyped at its field's type as
- * before, so the numeric(10, 2) 1.25 fixes x at 1.3 and a source over B's 1.3 commits) and rule-fixing-unchecked (the
- * rule lowering counting a typed literal its field does not hold as fixing it, so the keyed B's rule over 1.25 is
- * refused when the schema compiles as a containment into an unkeyed side): each caught.
+ * @plant test/plants/pg/laws/selector-retyped.patch a typed literal retyped at its field's type (LawSides.selector),
+ * so the numeric(10, 2) 1.25 fixes x at 1.3 and a source over B's 1.3 commits.
+ * @plant test/plants/pg/laws/rule-fixing-unchecked.patch the rule lowering counting a typed literal its field does not
+ * hold as fixing it, so the keyed B's rule over 1.25 is refused when the schema compiles as a containment into an
+ * unkeyed side.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
