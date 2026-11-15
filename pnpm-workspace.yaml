@@ -1,5 +1,10 @@
 packages:
-  - "packages/*"
+  # grizzle's packages by name, and each experiment, which is a package of its own until its verdict deletes it
+  # (packages/experiments/<name>); never the directory that holds the experiments.
+  - packages/engine
+  - packages/grizzle
+  - packages/pg
+  - "packages/experiments/*"
   # The toolchain, the submodule pinned at its commit: its dev tools and testing library join the workspace and run from
   # source, with their own gate, none of grizzle's.
   - vendor/toolchain/packages/devtools

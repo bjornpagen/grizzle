@@ -1,0 +1,13 @@
+{
+	"name": "@bjornpagen/grizzle-experiment-worlds-lookahead",
+	"private": true,
+	"description": "Experiment: whether a change to the worlds model's look-ahead leaves every box's and offered action's reached features as they were, and where the look-ahead spends its time; deleted once its verdict is in (README.md)",
+	"license": "0BSD",
+	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>",
+	"type": "module",
+	"dependencies": {
+		"@bjornpagen/testing": "workspace:*",
+		"effect": "catalog:",
+		"vitest": "catalog:"
+	}
+}

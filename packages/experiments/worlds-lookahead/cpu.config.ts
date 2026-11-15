@@ -4,7 +4,7 @@
  */
 import { fileURLToPath } from "node:url"
 import { mergeConfig } from "vitest/config"
-import network from "#vitest.network.config.ts"
+import network from "../../../vitest.network.config.ts"
 
 export default mergeConfig(network, {
 	root: fileURLToPath(new URL("../../..", import.meta.url)),

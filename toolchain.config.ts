@@ -1,6 +1,13 @@
 import { grizzle, toolchain } from "@bjornpagen/devtools/config"
 
 /**
+ * Every experiment, a package of its own of scripts run by hand that nothing type-checks, until its verdict deletes it
+ * (packages/experiments/<name>/README.md): the one plugin block's tsconfig is a package's to have, and an experiment has
+ * none.
+ */
+const experiments = { rule: "effect-plugin-block", files: ["packages/experiments/"] } as const
+
+/**
  * grizzle's toolchain: the rules and diagnostics it rejects, the workspace gate's exceptions, its Effect-free package
  * and its packs. The grizzle pack's names, and every lint rule's exceptions, are oxlint.config.ts's.
  */
@@ -112,7 +119,8 @@ export default toolchain({
 		}
 	},
 	exceptions: [
-		{ rule: "ts-only-extensions", files: ["upstream/v8-unicode-end-anchor-astral-class/repro.js"] }
+		{ rule: "ts-only-extensions", files: ["upstream/v8-unicode-end-anchor-astral-class/repro.js"] },
+		experiments
 	],
 	effectFree: ["packages/engine"],
 	packs: [grizzle()]

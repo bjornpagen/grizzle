@@ -11,13 +11,13 @@ import { element, int } from "@bjornpagen/testing/gen"
 import { floorSeed } from "@bjornpagen/testing/random"
 import { sample, type Source } from "@bjornpagen/testing/source"
 import { Formatter } from "effect"
-import { installedNames } from "#test/support/worlds/execute/names.ts"
-import { reachOf } from "#test/support/worlds/features.ts"
-import { actionGen } from "#test/support/worlds/generate/action.ts"
-import { defaultScope, enumerateActions } from "#test/support/worlds/generate/enumerate.ts"
-import { installGen } from "#test/support/worlds/generate/install.ts"
-import { realityGen } from "#test/support/worlds/generate/reality.ts"
-import { weightsGen } from "#test/support/worlds/generate/weights.ts"
+import { installedNames } from "../../../test/support/worlds/execute/names.ts"
+import { reachOf } from "../../../test/support/worlds/features.ts"
+import { actionGen } from "../../../test/support/worlds/generate/action.ts"
+import { defaultScope, enumerateActions } from "../../../test/support/worlds/generate/enumerate.ts"
+import { installGen } from "../../../test/support/worlds/generate/install.ts"
+import { realityGen } from "../../../test/support/worlds/generate/reality.ts"
+import { weightsGen } from "../../../test/support/worlds/generate/weights.ts"
 import {
 	docsBases,
 	docsEditorInstall,
@@ -25,10 +25,10 @@ import {
 	docsLevelInstall,
 	docsOneShareInstall,
 	docsProfileInstall
-} from "#test/support/worlds/model/bases/docs.ts"
-import { hostSchemaOf } from "#test/support/worlds/model/host.ts"
-import { initialState, settle, step } from "#test/support/worlds/model/step.ts"
-import type { InstallSpec, SmallScope } from "#test/support/worlds/model/types.ts"
+} from "../../../test/support/worlds/model/bases/docs.ts"
+import { hostSchemaOf } from "../../../test/support/worlds/model/host.ts"
+import { initialState, settle, step } from "../../../test/support/worlds/model/step.ts"
+import type { InstallSpec, SmallScope } from "../../../test/support/worlds/model/types.ts"
 
 const [out = "/dev/stdout", walksText = "150"] = process.argv.slice(2)
 

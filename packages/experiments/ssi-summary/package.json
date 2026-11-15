@@ -1,0 +1,7 @@
+{
+	"name": "@bjornpagen/grizzle-experiment-ssi-summary",
+	"private": true,
+	"description": "Experiment: that PostgreSQL 19 fails a lone SERIALIZABLE writer with 40001 once SSI has summarized its own earlier write while another transaction's xid holds the cluster's horizon back; deleted once its verdict is in (README.md)",
+	"license": "0BSD",
+	"author": "Bjorn Pagen <11238136+bjornpagen@users.noreply.github.com>"
+}

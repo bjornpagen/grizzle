@@ -412,6 +412,16 @@ export default defineConfig(
 				})
 			},
 			{
+				files: ["packages/experiments/**"],
+				rules: active({
+					/** An experiment is a package of its own until its verdict deletes it, so a `#` subpath import resolves against its own package.json, whose targets cannot leave it: it reaches the root's test support by a relative path. Every other import grizzle bans stays banned. */
+					"eslint/no-restricted-imports": [
+						"error",
+						{ paths: [...LIBRARY_IMPORTS.paths], patterns: [...LIBRARY_IMPORTS.patterns] }
+					]
+				})
+			},
+			{
 				/** A package's entry points are its public surface, each the modules it re-exports: its index, and grizzle's runtime entry, @bjornpagen/grizzle/runtime. */
 				files: ["packages/*/src/index.ts", "packages/grizzle/src/runtime.ts"],
 				rules: active({ "oxc/no-barrel-file": "off" })
