@@ -16,7 +16,8 @@
  *
  * Oracle: the reference evaluator, a second implementation. Features: each entry judged.
  *
- * Plant, failing the search: the mode's ordered-set aggregate taken over the value descending (catalog-mode-order).
+ * @plant test/plants/unit/lower/catalog/catalog-mode-order.patch R31's rewrite (mode.ts) takes the mode's ordered-set
+ * aggregate over the value descending; the search fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

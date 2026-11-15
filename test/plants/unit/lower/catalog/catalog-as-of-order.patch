@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/lower/shapes/catalog/neighbor.ts b/packages/engine/src/lower/shapes/catalog/neighbor.ts
+index a9a4f39d..5266f31c 100644
+--- a/packages/engine/src/lower/shapes/catalog/neighbor.ts
++++ b/packages/engine/src/lower/shapes/catalog/neighbor.ts
+@@ -686,7 +686,6 @@ const asOfHolds = (
+ 	t: TakeShape,
+ 	parentType: (ref: ColumnRef) => ScalarType
+ ): KeyGrounds => {
+-	demand(nearestPast(t), "a take ordered from the parent backward, the compared prefix first")
+ 	for (const pair of [...t.group, ...t.compared]) {
+ 		demand(
+ 			sameScalarType(columnTypeOf(t.q, pair.q), parentType(pair.parent)),

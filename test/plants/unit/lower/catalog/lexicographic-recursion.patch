@@ -1,0 +1,22 @@
+diff --git a/packages/engine/src/lower/shapes/catalog/lexicographic.ts b/packages/engine/src/lower/shapes/catalog/lexicographic.ts
+index b284327e..9a6b936f 100644
+--- a/packages/engine/src/lower/shapes/catalog/lexicographic.ts
++++ b/packages/engine/src/lower/shapes/catalog/lexicographic.ts
+@@ -67,7 +67,7 @@ const parse = (pred: ScalarExpr, classify: Classify, pairs: Array<Pair>): Formul
+ 		if (fn === "and" || fn === "or") {
+ 			const args: Array<Formula> = []
+ 			for (const operand of v.args) {
+-				const f = yield operand
++				const f = parse(operand, classify, pairs)
+ 				if (f === undefined) {
+ 					return undefined
+ 				}
+@@ -80,7 +80,7 @@ const parse = (pred: ScalarExpr, classify: Classify, pairs: Array<Pair>): Formul
+ 			if (only === undefined) {
+ 				return undefined
+ 			}
+-			const arg = yield only
++			const arg = parse(only, classify, pairs)
+ 			return arg === undefined ? undefined : { kind: "not", arg }
+ 		}
+ 		const [l, r] = v.args

@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/lower/shapes/catalog/mode.ts b/packages/engine/src/lower/shapes/catalog/mode.ts
+index d50ae1b7..7026f617 100644
+--- a/packages/engine/src/lower/shapes/catalog/mode.ts
++++ b/packages/engine/src/lower/shapes/catalog/mode.ts
+@@ -61,8 +61,7 @@ export const tryMode = (cx: CatalogContext, cell: Cell): ModeResult => {
+ 	demand(
+ 		first?.column === agg.name &&
+ 			first.dir === "desc" &&
+-			second?.column === value &&
+-			second.dir === "asc",
++			second?.column === value,
+ 		"the order count descending, then the value ascending"
+ 	)
+ 	demand(!cx.isRoot(cell), "a take whose count nobody reads")

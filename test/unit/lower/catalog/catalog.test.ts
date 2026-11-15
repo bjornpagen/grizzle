@@ -25,12 +25,26 @@
  * Features: each verdict of each search's shape classes ("recognized" and "kept" per spelling, "windowed" and "kept"
  * per head, "rewritten" and "probed" per neighbor kind), every one required of the space.
  *
- * Plants, each failing its search: the strict order recognized (catalog-r26-strict); a constant on the second
- * occurrence alone admitted (catalog-self-match-constant); a fraction of 0 admitted by the discrete gate
- * (catalog-r29-zero); a fraction of 1.5 admitted by the continuous one (catalog-r30-range); the tiebreak's direction
- * unread (catalog-r31-tiebreak); an attachment's bound parents taken whole under the automatic policy
- * (catalog-parents-auto); an as-of ordered toward the parent admitted (catalog-as-of-order); a total over another
- * source admitted (catalog-r28-source); a fresh node label that differs run to run (catalog-fresh-labels).
+ * @plant test/plants/unit/lower/catalog/catalog-r26-strict.patch The self-match recognizer (ordinal.ts) no longer
+ * demands the inclusive comparison, so the strict order is recognized; the R26 spelling search fails.
+ * @plant test/plants/unit/lower/catalog/catalog-self-match-constant.patch The self-match recognizer no longer demands
+ * that every constant of the second occurrence be shared, so a constant on the second occurrence alone is admitted;
+ * the self-match search fails.
+ * @plant test/plants/unit/lower/catalog/catalog-r29-zero.patch R29's gate (percentile.ts) admits a fraction of 0; the
+ * discrete percentile search fails.
+ * @plant test/plants/unit/lower/catalog/catalog-r30-range.patch R30's gate admits any fraction of at least 0, 1.5
+ * among them; the continuous percentile search fails.
+ * @plant test/plants/unit/lower/catalog/catalog-r31-tiebreak.patch The mode recognizer (mode.ts) no longer reads the
+ * tiebreak's direction, so a value tied descending is admitted; the R31 search fails.
+ * @plant test/plants/unit/lower/catalog/catalog-parents-auto.patch The attached neighbor (neighbor.ts) takes an
+ * attachment's bound parents whole under the automatic policy; the parent-set search fails.
+ * @plant test/plants/unit/lower/catalog/catalog-as-of-order.patch R42's conditions (neighbor.ts asOfHolds) no longer
+ * demand a take ordered from the parent outward, so an as-of ordered toward the parent is admitted; the R42 search
+ * fails.
+ * @plant test/plants/unit/lower/catalog/catalog-r28-source.patch The grouped share (share.ts) no longer demands both
+ * counts over one source, so a total over another source is admitted; the R28 search fails.
+ * @plant test/plants/unit/lower/catalog/catalog-fresh-labels.patch The catalog's editor (edit.ts) skips a fresh node
+ * label at random, so a fresh node label differs run to run; the determinism search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

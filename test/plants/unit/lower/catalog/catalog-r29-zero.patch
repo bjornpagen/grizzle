@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/shapes/catalog/percentile.ts b/packages/engine/src/lower/shapes/catalog/percentile.ts
+index 1931643c..1480ec84 100644
+--- a/packages/engine/src/lower/shapes/catalog/percentile.ts
++++ b/packages/engine/src/lower/shapes/catalog/percentile.ts
+@@ -510,7 +510,7 @@ export const tryPercentile = (cx: CatalogContext, cell: Cell): PercentileResult
+ 	const inputKeys = [first.key, countKey]
+ 	if (sel.every((s) => s.kind === "disc")) {
+ 		for (const s of sel) {
+-			demand(s.p > 0 && s.p <= 1, "a fraction in (0, 1]")
++			demand(s.p >= 0 && s.p <= 1, "a fraction in (0, 1]")
+ 		}
+ 		for (const s of sel) {
+ 			demand(

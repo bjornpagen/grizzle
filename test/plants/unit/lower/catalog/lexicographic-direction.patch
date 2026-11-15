@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/shapes/catalog/lexicographic.ts b/packages/engine/src/lower/shapes/catalog/lexicographic.ts
+index b284327e..78613cb8 100644
+--- a/packages/engine/src/lower/shapes/catalog/lexicographic.ts
++++ b/packages/engine/src/lower/shapes/catalog/lexicographic.ts
+@@ -114,7 +114,7 @@ const parse = (pred: ScalarExpr, classify: Classify, pairs: Array<Pair>): Formul
+ 			pairs.push({ b, a })
+ 			index = pairs.length - 1
+ 		}
+-		return { kind: "atom", pair: index, cmp: lc.side === "b" ? fn : flip[fn] }
++		return { kind: "atom", pair: index, cmp: (lc.side === "b") !== (index === 1) ? fn : flip[fn] }
+ 	}).of(pred)
+ 
+ const holds = (cmp: Cmp, sign: number): boolean => {

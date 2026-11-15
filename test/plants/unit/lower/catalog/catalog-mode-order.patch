@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/shapes/catalog/mode.ts b/packages/engine/src/lower/shapes/catalog/mode.ts
+index d50ae1b7..e13102f8 100644
+--- a/packages/engine/src/lower/shapes/catalog/mode.ts
++++ b/packages/engine/src/lower/shapes/catalog/mode.ts
+@@ -100,7 +100,7 @@ export const tryMode = (cx: CatalogContext, cell: Cell): ModeResult => {
+ 		keys: [],
+ 		fn: "mode",
+ 		op: OpId("mode(anyelement)"),
+-		order: { keys: [{ column: value, dir: "asc" }] },
++		order: { keys: [{ column: value, dir: "desc" }] },
+ 		fractions: [],
+ 		outs: [value],
+ 		rule: "R31",
