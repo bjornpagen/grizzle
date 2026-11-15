@@ -43,7 +43,10 @@ import { descOf } from "#test/unit/write/changeset/fixtures.ts"
  *
  * Features: each statement and reason a put lowers to.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): put-choose-unique-outside-key-ignored, put-choose-netting-ignored.
+ * @plant test/plants/unit/write/put/put-choose-unique-outside-key-ignored.patch A unique object reading a field
+ * outside the primary key no longer makes a put the pair (candidateKey).
+ * @plant test/plants/unit/write/put/put-choose-netting-ignored.patch A put of a relation another stratum writes is no
+ * longer the pair for its netting (write/put/choose.ts noOldVersion).
  */
 
 /** The unique objects of R beside its primary key. */

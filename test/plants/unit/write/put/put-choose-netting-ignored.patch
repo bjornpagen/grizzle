@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/write/put/choose.ts b/packages/engine/src/write/put/choose.ts
+index f4ae0129..9105e85f 100644
+--- a/packages/engine/src/write/put/choose.ts
++++ b/packages/engine/src/write/put/choose.ts
+@@ -268,9 +268,7 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
+ 					/** The forms that return no old version of an updated row: ON CONFLICT DO UPDATE and MERGE. */
+ 					const noOldVersion: "removedRead" | "netting" | undefined = removedOf.has(action.relation)
+ 						? "removedRead"
+-						: severalStrata(action.relation)
+-							? "netting"
+-							: undefined
++						: undefined
+ 					const others = stratum.actions.flatMap((b, j) =>
+ 						j !== a && b.relation === action.relation ? [{ index: j, action: b }] : []
+ 					)

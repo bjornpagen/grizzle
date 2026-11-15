@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/write/bind.ts b/packages/engine/src/runtime/write/bind.ts
+index da333558..f1e30267 100644
+--- a/packages/engine/src/runtime/write/bind.ts
++++ b/packages/engine/src/runtime/write/bind.ts
+@@ -363,7 +363,7 @@ export const bindWrite = (
+ 	/** Each relation parameter's input, normalized once for the application: the one set its count and every statement
+ 	 * that binds it read. */
+ 	const relationInputs = new Map<ParamId, NormalizedRelation>()
+-	const paramValue = (name: string): unknown => inputs.params[name]
++	const paramValue = (name: string): unknown => inputs.params[name.toLowerCase()]
+ 	for (const decl of flight.params) {
+ 		const value = paramValue(decl.name)
+ 		if (decl.kind === "relation") {

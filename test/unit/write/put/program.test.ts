@@ -35,7 +35,8 @@ import {
  *
  * Features: every parameter given, a parameter left out, a parameter given a number.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): put-param-missing-empty, a parameter left out bound as no facts.
+ * @plant test/plants/unit/write/put/put-param-missing-empty.patch A parameter left out bound as no facts
+ * (runtime/write/bind.ts).
  */
 const parameterMembers = [
 	{ relation: Item, param: "items" },

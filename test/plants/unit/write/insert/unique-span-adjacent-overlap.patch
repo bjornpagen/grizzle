@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/write/normalize.ts b/packages/engine/src/runtime/write/normalize.ts
+index 18480d54..2d2b4a3d 100644
+--- a/packages/engine/src/runtime/write/normalize.ts
++++ b/packages/engine/src/runtime/write/normalize.ts
+@@ -750,7 +750,7 @@ const sameKey = <I>(
+ 			})
+ 			let reach: bigint | undefined
+ 			for (const { entry, span: value } of ordered) {
+-				if (reach !== undefined && position(value.start) < reach) {
++				if (reach !== undefined && position(value.start) <= reach) {
+ 					return conflictOf(facts, entry.fact, witness, check)
+ 				}
+ 				if (reach === undefined || position(value.end) > reach) {

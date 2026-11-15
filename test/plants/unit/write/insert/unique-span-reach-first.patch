@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/runtime/write/normalize.ts b/packages/engine/src/runtime/write/normalize.ts
+index 18480d54..d1f621b2 100644
+--- a/packages/engine/src/runtime/write/normalize.ts
++++ b/packages/engine/src/runtime/write/normalize.ts
+@@ -753,7 +753,7 @@ const sameKey = <I>(
+ 				if (reach !== undefined && position(value.start) < reach) {
+ 					return conflictOf(facts, entry.fact, witness, check)
+ 				}
+-				if (reach === undefined || position(value.end) > reach) {
++				if (reach === undefined) {
+ 					reach = position(value.end)
+ 				}
+ 			}

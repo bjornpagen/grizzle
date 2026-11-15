@@ -33,7 +33,10 @@ import { writeNamesOf } from "#test/unit/write/insert/support.ts"
  * Features: overlapping spans in one room refused, adjacent spans in one room admitted, overlapping spans in two rooms
  * admitted.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): unique-span-adjacent-overlap, unique-span-reach-first.
+ * @plant test/plants/unit/write/insert/unique-span-adjacent-overlap.patch Adjacent spans in one room taken to overlap
+ * (runtime/write/normalize.ts, a span starting at the reach refused).
+ * @plant test/plants/unit/write/insert/unique-span-reach-first.patch The reach kept at the first span's end, never
+ * moved past it, so a span overlapping a later, longer one is admitted.
  */
 const Booking = relation(
 	"Booking",

@@ -52,8 +52,8 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  *
  * Features: a nested write, a fresh owner's counts drawn, a write with no family.
  *
- * Plants (~/.cache/grizzle-release/BR02/plants): binding-fill-without-fresh, a fill that misses the layouts a fresh
- * owner's fill meets.
+ * @plant test/plants/unit/write/program/binding-fill-without-fresh.patch A fill that misses the layouts a fresh
+ * owner's fill meets (write/program/decide.ts fillStarts given no fresh strata).
  */
 
 /** The situations a drawn write reaches. */
