@@ -2190,7 +2190,10 @@ An ordered family or a tree is a sequence. The monoids:
 A relation is a member of at most one sequence, which orders it, and of any number of counted families, each with its
 own hidden columns and foreign keys. A counted family's member may also be a sequence's member or owner, or a tree's
 node. One count counts one family. Ordered families that nest each other in a cycle, an ordered family of a relation
-over itself among them, are refused when the schema compiles (`UnwritableRelation`, `nestingCycle`). A family's or a
+over itself among them, are refused when the schema compiles (`UnwritableRelation`, `nestingCycle`), and so are
+families, ordered or counted, that nest relations in a cycle below a relation that owns a family and is no family's
+member (`unitCycle`): a delete of that relation removes every row nested under its rows, and through a cycle a row may
+be nested again under another of them or another unit's, so no delete could remove its groups whole. A family's or a
 tree's member side is a table, never a selection: `counted(on(select(Ticket, φ), "show"), fin(Show, "tickets"))` is a
 type error, and from JavaScript refused when you build it. A fold's step may still select the members it reads.
 
@@ -2216,8 +2219,8 @@ narrowed into its column's type unproved.
   relation it removes rows of. A delete of a tree whose nodes are another family's members is a type error, and so is a
   put or a delete of a family's member that owns a sequence, and a put in its stratum of the relation it deletes or of
   one nested under it, before or after the delete or through a union. Refused when the ChangeSet compiles: a delete
-  whose nested rows include a member of a family whose owner it does not remove; one whose families nest its relations
-  in a cycle; one through a query entry. A delete of a family's member beside it in one stratum removes that member's
+  whose nested rows include a member of a family whose owner it does not remove; one through a query entry. Families
+  that nest its relations in a cycle are refused earlier, when the schema compiles. A delete of a family's member beside it in one stratum removes that member's
   named rows too, as an edit of its family after the whole delete: a row inside the deleted groups is gone already,
   one outside them is removed as any member's is. A delete of any other family's member is an edit of its family, as
   before.

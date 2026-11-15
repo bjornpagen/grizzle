@@ -74,7 +74,8 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  *
  * - **The schema compiles exactly where the reference model admits it** (fill.ts `verdictOf`, a second implementation of
  *   the fill order over the specification's own names), and a refusal is the one the model names: UnwritableRelation
- *   for sequences nesting each other; UnfillableField for a copy whose
+ *   for sequences nesting each other (`nestingCycle`), or for families, ordered or counted, nesting relations in a cycle
+ *   below a unit's root (`unitCycle`, at a root the model finds a cycle below); UnfillableField for a copy whose
  *   source its row fills after it, naming the copy's relation, field, family, axis and source as the specification
  *   states them, for a cause the model gives. A counted family's member that is also an ordered family's member, a
  *   tree's node or a sequence's owner is admitted. The schema compiles as `grizzle generate` compiles it: its artifacts
@@ -85,8 +86,10 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  *   and delete wherever the README's rules admit them (an immutable owner's family fixed when it is inserted, a tree
  *   written whole, a sequence's members nested, and a family's member that owns a sequence written only nested). A
  *   delete of a relation that owns a family and is no other family's member removes its rows whole with every row
- *   nested under them, so where a nested relation is a member of a family whose owner it does not remove, or the
- *   families nest them in a cycle, it is refused when it compiles (UnsupportedOperation), as `wholeDeleteRefused` names.
+ *   nested under them, so where a nested relation is a member of a family whose owner it does not remove, it is
+ *   refused when it compiles (UnsupportedOperation), as `wholeDeleteRefused` names. Families that nest the relations
+ *   below it in a cycle are refused earlier, when the schema compiles (UnwritableRelation `unitCycle`, the reference's
+ *   `unitCycleRoots`), so no admitted schema holds one.
  * - **The nested write fills what the reference writer fills** (fill.ts `writtenRows`): every field of every nested row
  *   the insert writes, a tree's to any depth, its interval, index, counts, fold ends and copies among them, but the
  *   counts, ends and copies a counted family's own fill writes later, a nested counted member's among them.
@@ -106,6 +109,9 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  * @plant test/plants/unit/write/fill-order-generated-copy-drawn.patch An owner copy of a generated column of owners the
  * stratum inserts is read from the table after their statement, never from the fields its generation reads, so the
  * kept case of TEST_SEED=2002821052 is refused as UnorderableStratum.
+ * @plant test/plants/unit/write/fill-order-unit-cycle-admitted.patch The schema admits families that nest relations
+ * in a cycle below a unit's root (analysis/theory/fill.ts `unwritable` looking at no root), so the reference's
+ * UnwritableRelation unitCycle compiles; the kept case of the swarm's shrink fails.
  * @plant test/plants/unit/write/fill-order-whole-delete-partial-compiled.patch A whole delete's refusal of a nested
  * member whose family's owner it keeps is removed (write/frontend/compile.ts unitBelow), which the kept ordered case
  * reaches on every seed.
@@ -114,6 +120,7 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 type FillSituation =
 	| "admitted"
 	| "refused: sequences nesting each other"
+	| "refused: families nesting relations in a cycle below a unit's root"
 	| "refused: a copy of a column filled after its members"
 	| "refused: a copy of a column a counted family fills"
 	| "refused: copies at a tree's root in a cycle"
@@ -322,7 +329,7 @@ const judged = (
  * "Families", a group is deleted whole, through its owner): `r` owns a family and is no family's member but its own
  * tree's, so the delete removes its rows with every row nested under them through every family but a tree's own, to any
  * depth; and a relation so nested is a member of a family whose owner the delete does not remove, whose groups it
- * would leave partial, or those families nest the relations below `r` in a cycle.
+ * would leave partial. A cycle below `r` is the schema's refusal (`unitCycleRoots`), which no admitted schema holds.
  */
 const wholeDeleteRefused = (spec: FillSpec, r: number): boolean => {
 	const families = spec.families
@@ -341,21 +348,7 @@ const wholeDeleteRefused = (spec: FillSpec, r: number): boolean => {
 	}
 	const into = (x: number) => Arr.filter(families, (f) => f.member === x && !own(f))
 	const below = Arr.filter(reached, (x) => x !== r)
-	if (Arr.some(below, (x) => Arr.some(into(x), (f) => !reached.includes(f.owner)))) {
-		return true
-	}
-	const ordered: Array<number> = [r]
-	for (let remaining = below; Arr.isReadonlyArrayNonEmpty(remaining);) {
-		const next = Arr.findFirst(remaining, (x) =>
-			Arr.every(into(x), (f) => ordered.includes(f.owner))
-		)
-		if (Option.isNone(next)) {
-			return true
-		}
-		ordered.push(next.value)
-		remaining = Arr.filter(remaining, (x) => x !== next.value)
-	}
-	return false
+	return Arr.some(below, (x) => Arr.some(into(x), (f) => !reached.includes(f.owner)))
 }
 
 /** Whether the README's rules admit a write of relation `r` by `op`, which then must compile. */
@@ -586,10 +579,20 @@ const property = (
 			case "unwritable": {
 				const reason = defined(refusal, "a schema no write fills is refused").reason
 				assert.equal(reason._tag, "UnwritableRelation", Formatter.format(spec))
-				if (reason._tag === "UnwritableRelation") {
-					assert.equal(reason.cause.kind, "nestingCycle", "sequences nesting each other")
-					note("refused: sequences nesting each other")
+				if (reason._tag !== "UnwritableRelation") {
+					return
 				}
+				assert.equal(reason.cause.kind, verdict.cause, Formatter.format(spec))
+				if (verdict.cause === "nestingCycle") {
+					note("refused: sequences nesting each other")
+					return
+				}
+				assert.ok(
+					reason.cause.kind === "unitCycle" &&
+						Arr.some([...verdict.roots], (r) => relationName(r) === reason.relation),
+					`refused at a unit's root a cycle is below, ${Formatter.format(Arr.map([...verdict.roots], relationName))}, not ${reason.relation}`
+				)
+				note("refused: families nesting relations in a cycle below a unit's root")
 				return
 			}
 			case "unfillable": {
@@ -855,6 +858,7 @@ const property = (
 const fillSituations: Arr.NonEmptyReadonlyArray<FillSituation> = [
 	"admitted",
 	"refused: sequences nesting each other",
+	"refused: families nesting relations in a cycle below a unit's root",
 	"refused: a copy of a column filled after its members",
 	"refused: a copy of a column a counted family fills",
 	"refused: copies at a tree's root in a cycle",
@@ -947,11 +951,10 @@ const foundCases: ReadonlyArray<Kept<FillCase, FillSituation>> = [
 				],
 				families: [
 					{ kind: "counted", owner: 0, member: 2, fold: "sum" },
-					{ kind: "counted", owner: 1, member: 2, fold: "none" },
 					{ kind: "ordered", owner: 2, member: 0, fold: "none" }
 				],
 				copies: [
-					{ family: 2, axis: "last", source: { kind: "caller" } },
+					{ family: 1, axis: "last", source: { kind: "caller" } },
 					{ family: 0, axis: "owner", source: { kind: "generated" } }
 				],
 				steps: []
@@ -961,6 +964,29 @@ const foundCases: ReadonlyArray<Kept<FillCase, FillSituation>> = [
 		},
 		draws: "",
 		reaches: ["admitted"]
+	},
+	{
+		note: "pg/write/swarm/families shrunk at TEST_SEED=3927981720 (324 candidates): R2's sequence of R1, R1's sequence of R0 and R0's counted family of R1 nest R1 and R0 in a cycle below R2, a unit's root, whose delete the writer refused as UnsupportedOperation when it compiled, after the schema had compiled and rows were written; the schema now refuses it as UnwritableRelation unitCycle",
+		sketch: {
+			spec: {
+				relations: [
+					{ generated: false, mutable: false },
+					{ generated: false, mutable: false },
+					{ generated: false, mutable: false }
+				],
+				families: [
+					{ kind: "ordered", owner: 2, member: 1, fold: "none" },
+					{ kind: "ordered", owner: 1, member: 0, fold: "none" },
+					{ kind: "counted", owner: 0, member: 1, fold: "none" }
+				],
+				copies: [],
+				steps: []
+			},
+			rows: [],
+			followUp: Option.none()
+		},
+		draws: "",
+		reaches: ["refused: families nesting relations in a cycle below a unit's root"]
 	}
 ]
 
@@ -1013,7 +1039,8 @@ const aims: ReadonlyArray<readonly [FillSituation, Planted]> = [
 	["admitted: a tree owning a counted family", "tree with a counted family"],
 	["admitted: a counted family of nested owners", "counted family of a nested owner"],
 	["admitted: a copy of a tree's end", "copy of a tree's end"],
-	["admitted: a nesting three deep", "nesting three deep"]
+	["admitted: a nesting three deep", "nesting three deep"],
+	["refused: families nesting relations in a cycle below a unit's root", "unit cycle"]
 ]
 
 /**

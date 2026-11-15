@@ -26,8 +26,11 @@
  * - a column whose row's own columns read it back in a cycle, or that reads a column no fill that writes it reaches.
  *
  * Refused, as UnwritableRelation, a relation no write fills: sequences that nest each other in a cycle, an ordered
- * family over its own relation among them, so no row of the cycle is written first. A tree's own recursion is no
- * cycle: each of its nodes is nested under its parent.
+ * family over its own relation among them, so no row of the cycle is written first. And a unit no delete removes whole:
+ * families, ordered or counted, that nest relations in a cycle below a unit's root, a relation that owns a family and
+ * is no family's member, whose delete removes every row nested under its rows (write/frontend/compile.ts unitBelow),
+ * which no cycle lets it order owner by owner. A tree's own recursion is no cycle: each of its nodes is nested under
+ * its parent.
  *
  * A counted family's member may also be a sequence's member, a tree's node or a sequence's owner. The walk fills such a
  * row as it fills any row of its position, and the counted family's own fill completes it afterwards, from its owner's
@@ -44,7 +47,7 @@ import { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { lastNonEmpty } from "#compiler/core/nonempty.ts"
+import { lastNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { predicateTable, type ScalarExpr, tableReads } from "#compiler/ir/expr.ts"
 import {
@@ -613,6 +616,42 @@ const acrossLater = (family: Family, target: DraftColumn): FilledLater | undefin
 		target.entry.writer
 	)
 
+/**
+ * A cycle of `nesting` below `root`: the families, in nesting order, whose members lead from a relation reached from
+ * `root` back to itself; none where every relation below it is nested acyclically.
+ */
+const cycleBelow = (
+	nesting: ReadonlyArray<Family>,
+	root: string
+): NonEmptyReadonlyArray<Family> | undefined => {
+	/** The relations every way below which is walked and holds no cycle. */
+	const clear = new Set<string>()
+	const walk = (
+		at: string,
+		path: ReadonlyArray<Family>
+	): NonEmptyReadonlyArray<Family> | undefined => {
+		const back = path.findIndex((f) => f.owner.name === at)
+		if (back >= 0) {
+			const [first, ...rest] = path.slice(back)
+			return first === undefined ? undefined : [first, ...rest]
+		}
+		if (clear.has(at)) {
+			return undefined
+		}
+		for (const f of nesting) {
+			if (f.owner.name === at) {
+				const found = walk(f.member.name, [...path, f])
+				if (found !== undefined) {
+					return found
+				}
+			}
+		}
+		clear.add(at)
+		return undefined
+	}
+	return walk(root, [])
+}
+
 /** The first relation, by the order families are stated in, that no write fills: see the module's header. */
 const unwritable = (
 	families: ReadonlyArray<Family>
@@ -641,6 +680,23 @@ const unwritable = (
 				relation: start.member.name,
 				family: start,
 				cause: { kind: "nestingCycle", families: cycle.toReversed().map(named) }
+			}
+		}
+	}
+	/** The families that nest one relation's rows under another's, a tree's own aside: what a unit's delete walks. */
+	const nesting = families.filter((f) => !isTreeOf(f, f.member.name))
+	const roots = new Set(
+		families.flatMap((f) =>
+			nesting.some((n) => n.member.name === f.owner.name) ? [] : [f.owner.name]
+		)
+	)
+	for (const root of roots) {
+		const cycle = cycleBelow(nesting, root)
+		if (cycle !== undefined) {
+			return {
+				relation: root,
+				family: cycle[0],
+				cause: { kind: "unitCycle", root, families: cycle.map(named) }
 			}
 		}
 	}

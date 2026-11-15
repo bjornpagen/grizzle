@@ -1079,8 +1079,9 @@ const compile = (
 	 * it: every member of a family owned in the units, transitively, a tree's relation its own family's member, judged over
 	 * the stratum's units together, so a member of two families whose owners two of its deletes remove goes with either.
 	 * Refused where a relation below is a member of a family whose owner no unit delete of the stratum removes, whose
-	 * groups its removal would leave partial; where the units' families nest their relations in a cycle; and where the
-	 * world writes a relation below through a query entry, not whole. Which rows the deletes name is the call's: a row
+	 * groups its removal would leave partial, and where the world writes a relation below through a query entry, not
+	 * whole. The schema refuses families that nest relations in a cycle below a unit's root when it compiles
+	 * (analysis/theory/fill.ts, UnwritableRelation `unitCycle`), so the relations below always take an owner order. Which rows the deletes name is the call's: a row
 	 * removed with one owner whose other owner stays leaves that family's group partial, which the family's own law, its
 	 * owner, predecessor or last axis, refuses at commit.
 	 */
@@ -1122,10 +1123,8 @@ const compile = (
 				intoUnit(name).every((f) => roots.includes(f.owner.name) || ordered.includes(f.owner.name))
 			)
 			if (next === undefined) {
-				return refuse(
-					"UnsupportedOperation",
-					loc,
-					`a delete of ${named}, whose families nest ${remaining.join(", ")} in a cycle: each row nested under a deleted row goes with it, which grizzle plans owner by owner`
+				throw defect(
+					`a delete of ${named}, whose families nest ${remaining.join(", ")} in a cycle, which the schema refuses when it compiles (analysis/theory/fill.ts unwritable, UnwritableRelation unitCycle)`
 				)
 			}
 			ordered.push(next)

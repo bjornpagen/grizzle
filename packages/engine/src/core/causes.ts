@@ -557,18 +557,32 @@ export const unfillableText = (fill: {
 	`${fill.relation}.${fill.field}, filled by law ${fill.law}, reads ${fill.source.relation}'s ${fill.source.column} ${fill.axis === "row" ? "on its own row" : `along the ${fill.axis} axis`} of ${familyNameText(fill.family)}, ${filledLaterText(fill.later)}`
 
 /**
- * Why no write fills a relation's rows (ir/fill.ts): `nestingCycle`, the sequences `families` nest each other in a
- * cycle, an ordered family over its own relation among them, so every row of the cycle is nested under another and
- * none is written first.
+ * Why no write fills a relation's rows, or removes them whole (analysis/theory/fill.ts):
+ * - `nestingCycle`: the sequences `families` nest each other in a cycle, an ordered family over its own relation among
+ *   them, so every row of the cycle is nested under another and none is written first;
+ * - `unitCycle`: the families `families`, ordered or counted, nest relations in a cycle below `root`, a relation that
+ *   owns a family and is no family's member, whose delete removes every row nested under its rows through every family:
+ *   a row the cycle nests may be nested again under a row the delete reaches, or under another unit's, so the rows
+ *   below a deleted row are no set of whole groups, and no owner-by-owner removal takes them.
  */
-export type UnwritableCause = {
-	readonly kind: "nestingCycle"
-	readonly families: ReadonlyArray<FamilyName>
-}
+export type UnwritableCause =
+	| { readonly kind: "nestingCycle"; readonly families: ReadonlyArray<FamilyName> }
+	| {
+			readonly kind: "unitCycle"
+			readonly root: string
+			readonly families: ReadonlyArray<FamilyName>
+	  }
 
 /** An UnwritableRelation's sentence. */
-export const unwritableRelationText = (relation: string, cause: UnwritableCause): string =>
-	`no write fills ${relation}: the sequences ${cause.families.map(familyNameText).join(", ")} nest each other in a cycle, so every row of them is nested under another and none is written first`
+export const unwritableRelationText = (relation: string, cause: UnwritableCause): string => {
+	const families = cause.families.map(familyNameText).join(", ")
+	switch (cause.kind) {
+		case "nestingCycle":
+			return `no write fills ${relation}: the sequences ${families} nest each other in a cycle, so every row of them is nested under another and none is written first`
+		case "unitCycle":
+			return `no delete removes ${relation}'s rows whole: the families ${families} nest relations below ${cause.root} in a cycle, so a row a delete of ${cause.root} reaches may be nested again under another of its rows or another unit's, and the rows below are no set of whole groups`
+	}
+}
 
 /** A column of a relation, as a refusal names it. */
 export interface ColumnName {

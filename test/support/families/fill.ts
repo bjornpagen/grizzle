@@ -541,13 +541,19 @@ type Stage =
 type LaterKind = "afterMembers" | "countedFill" | "cycle" | "unreached"
 
 /**
- * The reference's verdict on a specification, in the order the compiler decides them: a relation no write fills,
- * sequences that nest each other in a cycle; then copies no write fills, each with the causes it may be reported by;
- * else admitted. A counted family's member may also be a sequence's member, a tree's node or a sequence's owner: the
+ * The reference's verdict on a specification, in the order the compiler decides them: a relation no write fills or
+ * no delete removes whole, sequences that nest each other in a cycle (`nestingCycle`) or families, ordered or counted,
+ * that nest relations in a cycle below a unit's root (`unitCycle`, each root a cycle is below); then copies no write
+ * fills, each with the causes it may be reported by; else admitted. A counted family's member may also be a sequence's member, a tree's node or a sequence's owner: the
  * walk fills its row and the counted family's fill completes it.
  */
 type Verdict =
-	| { readonly kind: "unwritable" }
+	| { readonly kind: "unwritable"; readonly cause: "nestingCycle" }
+	| {
+			readonly kind: "unwritable"
+			readonly cause: "unitCycle"
+			readonly roots: ReadonlySet<number>
+	  }
 	| {
 			readonly kind: "unfillable"
 			readonly copies: ReadonlyArray<{
@@ -741,10 +747,32 @@ const refusalsOf = (
 	return Arr.sort([...later], Order.String)
 }
 
+/**
+ * The units' roots, of `families`, that families nest relations below in a cycle: each relation that owns a family and
+ * is a member of none but its own tree, from which a walk down the families that nest one relation under another, a
+ * tree's own aside, comes back to a relation it has already passed. A unit's delete removes every row nested under its
+ * rows (README "Families", a group is deleted whole), which such a cycle leaves no set of whole groups.
+ */
+export const unitCycleRoots = (families: ReadonlyArray<FamilySpec>): ReadonlySet<number> => {
+	const nesting = Arr.filter(families, (f) => f.kind !== "tree")
+	const roots = Arr.dedupe(
+		Arr.flatMap(families, (f) => (Arr.some(nesting, (n) => n.member === f.owner) ? [] : [f.owner]))
+	)
+	/** Whether a walk from `at`, the relations `passed` on its way, comes back to one of them. */
+	const loops = (at: number, passed: ReadonlySet<number>): boolean =>
+		passed.has(at) ||
+		Arr.some(nesting, (n) => n.owner === at && loops(n.member, new Set([...passed, at])))
+	return new Set(Arr.filter(roots, (root) => loops(root, new Set())))
+}
+
 /** The reference's verdict on a specification: see `Verdict`. */
 export const verdictOf = (spec: FillSpec): Verdict => {
 	if (nestingCycle(spec)) {
-		return { kind: "unwritable" }
+		return { kind: "unwritable", cause: "nestingCycle" }
+	}
+	const roots = unitCycleRoots(spec.families)
+	if (roots.size > 0) {
+		return { kind: "unwritable", cause: "unitCycle", roots }
 	}
 	const cycles = orderCycles(spec)
 	const copies = Arr.flatMap(spec.copies, (_, j) => {
@@ -1791,6 +1819,7 @@ export type Planted =
 	| "re-placed immutable owner"
 	| "generated copy"
 	| "counted step of a sequence's copy"
+	| "unit cycle"
 
 /** A specification holding the shape `planted` (`Planted`), its relations' flags, its folds and its kinds drawn. */
 export const plantedGen =
@@ -2018,6 +2047,24 @@ export const plantedGen =
 						{ family: 0, axis: "owner", source: { kind: generated ? "generated" : "caller" } }
 					],
 					steps: [{ family: 1, copy: 0 }]
+				}
+			}
+			case "unit cycle": {
+				/** R1 and R0 nest each other, a counted family among the two, and R2, a unit's root, nests R1. */
+				const back: FamilySpec["kind"] = source.draw(boolean) ? "ordered" : "counted"
+				const forth: FamilySpec["kind"] =
+					back === "ordered" || source.draw(boolean) ? "counted" : "ordered"
+				const root: FamilySpec["kind"] =
+					forth === "ordered" || source.draw(boolean) ? "counted" : "ordered"
+				return {
+					relations,
+					families: [
+						{ kind: root, owner: 2, member: 1, fold: fold() },
+						{ kind: back, owner: 1, member: 0, fold: fold() },
+						{ kind: forth, owner: 0, member: 1, fold: fold() }
+					],
+					copies: [],
+					steps: []
 				}
 			}
 		}

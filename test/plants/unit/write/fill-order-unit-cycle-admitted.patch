@@ -1,0 +1,11 @@
+--- a/packages/engine/src/analysis/theory/fill.ts
++++ b/packages/engine/src/analysis/theory/fill.ts
+@@ -690,7 +690,7 @@
+ 			nesting.some((n) => n.member.name === f.owner.name) ? [] : [f.owner.name]
+ 		)
+ 	)
+-	for (const root of roots) {
++	for (const root of new Set<string>()) {
+ 		const cycle = cycleBelow(nesting, root)
+ 		if (cycle !== undefined) {
+ 			return {

@@ -64,6 +64,7 @@ import {
 	relationName,
 	rootText,
 	sourcesFor,
+	unitCycleRoots,
 	uuidOfRow
 } from "#test/support/families/fill.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -253,7 +254,8 @@ const pick =
  * The family core under a swarm: its relations, then its families, each kind the swarm's choice, its owner drawn among
  * the relations before its member unless the swarm keeps cycles of families, or among the owners already drawn where
  * it keeps several families per owner, or among the members already drawn where it keeps members owning a family; a
- * sequence's member is no other sequence's, and no ordered family closes a cycle of ordered families. Then its copies,
+ * sequence's member is no other sequence's, no ordered family closes a cycle of ordered families, and no family closes
+ * a cycle of families below a unit's root (fill.ts unitCycleRoots), which the schema refuses. Then its copies,
  * their sources among those fill.ts offers that leave the core admitted (fill.ts admittedSources), a copy of a copy
  * first where the swarm keeps it, and its steps: the reference admits every core by construction.
  */
@@ -299,14 +301,18 @@ const coreGen =
 			if (member === owner) {
 				continue
 			}
+			const family: FamilySpec = { kind, owner, member, fold }
+			if (unitCycleRoots([...families, family]).size > 0) {
+				continue
+			}
 			if (kind === "ordered") {
 				if (!sequenced.has(member) && !orderedPath(families, member, owner)) {
 					sequenced.add(member)
-					families.push({ kind, owner, member, fold })
+					families.push(family)
 				}
 				continue
 			}
-			families.push({ kind, owner, member, fold })
+			families.push(family)
 		}
 		const copies: Array<CopySpec> = []
 		const nc = Arr.isReadonlyArrayNonEmpty(families) ? source.draw(int(0, size.copies)) : 0

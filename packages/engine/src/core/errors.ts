@@ -388,7 +388,8 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `UnfillableField`: the column `field` of `relation`, which grizzle fills by the law `law`, reads the column
  *   `source` along the `axis` of `family`, which its row fills only after it, for `later` (FilledLater), so no write
  *   fills it.
- * - `UnwritableRelation`: no write fills `relation`'s rows, for `cause` (UnwritableCause).
+ * - `UnwritableRelation`: no write fills `relation`'s rows, or no delete removes them whole, for `cause`
+ *   (UnwritableCause).
  * - `CascadedCopyAppend`: a write at `at` of `member`, an `op`, edits `family`, whose copy `copy` reads `owner`'s
  *   `through`, which `owner` copies from `changed`, a relation the same stratum puts from a query: grizzle never sees
  *   the query's rows, so it cannot draw the copy the put's change reaches `owner` with.
