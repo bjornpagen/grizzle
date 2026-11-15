@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/optimize/demand/editor.ts b/packages/engine/src/lower/optimize/demand/editor.ts
+index 72a675a9..ea25ad2c 100644
+--- a/packages/engine/src/lower/optimize/demand/editor.ts
++++ b/packages/engine/src/lower/optimize/demand/editor.ts
+@@ -172,7 +172,7 @@ export class FreshIds {
+ 
+ 	take(): string {
+ 		for (;;) {
+-			this.#counter += 1
++			this.#counter += 1 + Math.floor(Math.random() * 3)
+ 			const id = `${this.#prefix}${this.#counter}`
+ 			if (!this.#taken.has(id)) {
+ 				this.#taken.add(id)

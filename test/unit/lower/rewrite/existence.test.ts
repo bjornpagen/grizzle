@@ -13,9 +13,12 @@
  * Features: each Account occurrence under each reader, each posting source; each set comparison rewritten and kept; the
  * scoped shapes and a scoped occurrence that stayed.
  *
- * Plants, each failing its search: an occurrence with a literal constant left a match (existence-constants); a set
- * comparison rewritten over a unique right input (existence-right-unique); an occurrence over a correlated source moved
- * into a semi-join (existence-correlated).
+ * @plant test/plants/unit/lower/rewrite/existence-constants.patch An occurrence with any constant, a literal among them,
+ * is left a match; the existence-semi-join search fails.
+ * @plant test/plants/unit/lower/rewrite/existence-right-unique.patch A set comparison is rewritten on the uniqueness of
+ * its right input rather than its left; the existence-set-comparison search fails.
+ * @plant test/plants/unit/lower/rewrite/existence-correlated.patch An occurrence over a correlated source is moved into a
+ * semi-join; the existence-scope search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

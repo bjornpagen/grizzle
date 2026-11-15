@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/optimize/demand/editor.ts b/packages/engine/src/lower/optimize/demand/editor.ts
+index 72a675a9..be9d7e25 100644
+--- a/packages/engine/src/lower/optimize/demand/editor.ts
++++ b/packages/engine/src/lower/optimize/demand/editor.ts
+@@ -574,7 +574,7 @@ export class DagEditor<R extends Roots = Roots> {
+ 	 * field computed from what the edits left. A cycle a rewrite made through the cells is that rewrite's refusal.
+ 	 */
+ 	finished(): FinishedCells<R> {
+-		const done = finishCells(this.base.roots, (root) => this.#rootCell(root))
++		const done = finishCells([...this.base.roots].reverse(), (root) => this.#rootCell(root))
+ 		if (!done.ok) {
+ 			throw new Refusal(done.error)
+ 		}

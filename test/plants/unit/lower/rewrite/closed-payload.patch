@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/lower/optimize/closed/index.ts b/packages/engine/src/lower/optimize/closed/index.ts
+index 26abc519..b6c925e0 100644
+--- a/packages/engine/src/lower/optimize/closed/index.ts
++++ b/packages/engine/src/lower/optimize/closed/index.ts
+@@ -104,10 +104,7 @@ const membershipOf = (cx: RewriteCx, region: Region, o: Occurrence): Membership
+ 	) {
+ 		return undefined
+ 	}
+-	if (
+-		o.bindings.some((b) => !evidence.key.includes(b.column)) ||
+-		o.constants.some((c) => !evidence.key.includes(c.column))
+-	) {
++	if (o.constants.some((c) => !evidence.key.includes(c.column))) {
+ 		return undefined
+ 	}
+ 	const others = region.occurrences.filter((x) => x.id !== o.id && !DagEditor.correlated(x.source))

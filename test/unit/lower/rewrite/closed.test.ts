@@ -14,8 +14,12 @@
  * Features: each verdict and each reason a kept occurrence is kept; a whole, a narrowed and an empty roster; rewritten
  * and kept beside a lateral read.
  *
- * Plants, each failing its search: a payload read admitted as a membership (closed-payload); a narrowed Closed node
- * keeping its declared name (closed-narrowed-name); an occurrence read laterally rewritten (closed-lateral).
+ * @plant test/plants/unit/lower/rewrite/closed-payload.patch An occurrence that binds a payload field is admitted as a
+ * membership; the closed-membership search fails.
+ * @plant test/plants/unit/lower/rewrite/closed-narrowed-name.patch A Closed node the simplifier narrows keeps its
+ * relation's declared name; the closed-narrowed search fails.
+ * @plant test/plants/unit/lower/rewrite/closed-lateral.patch R07 rewrites an occurrence whose source another occurrence
+ * reads laterally, its potential counting it too; the closed-lateral search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/analysis/demand/demand.ts b/packages/engine/src/analysis/demand/demand.ts
+index dbf8f27f..f5ecd7d1 100644
+--- a/packages/engine/src/analysis/demand/demand.ts
++++ b/packages/engine/src/analysis/demand/demand.ts
+@@ -174,7 +174,6 @@ const need = (
+ 				: all(input)
+ 		case "Group":
+ 			return new Set([
+-				...reader.bound.columns,
+ 				...reader.keys,
+ 				...exprColumns(
+ 					reader.aggs.flatMap((a) => [...a.args, ...(a.filter === undefined ? [] : [a.filter])]),

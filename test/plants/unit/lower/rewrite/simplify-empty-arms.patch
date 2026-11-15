@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/optimize/simplify/rules.ts b/packages/engine/src/lower/optimize/simplify/rules.ts
+index e4b6e5ac..73c6f7a6 100644
+--- a/packages/engine/src/lower/optimize/simplify/rules.ts
++++ b/packages/engine/src/lower/optimize/simplify/rules.ts
+@@ -338,7 +338,7 @@ const emptyRule: Rule = {
+ 			}
+ 			let removed: Array<Cell> = []
+ 			const groups = mapNonEmpty(node.groups, (g) => {
+-				const live = g.arms.filter((a) => !gone(a))
++				const live = g.arms
+ 				const keep: NonEmptyReadonlyArray<Cell> = isNonEmpty(live) ? live : [g.arms[0]]
+ 				removed = [...removed, ...g.arms.filter((a) => !keep.includes(a))]
+ 				return { heading: g.heading, arms: keep }

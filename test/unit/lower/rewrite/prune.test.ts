@@ -10,8 +10,10 @@
  *
  * Features: an aggregate dropped and every aggregate delivered; each reader over each stage.
  *
- * Plants, each failing its search: a fold demanding only its keys and its aggregates' arguments (prune-fold-bound); a
- * node a recursive step reads pruned like any other (prune-step-unpinned).
+ * @plant test/plants/unit/lower/rewrite/prune-fold-bound.patch A fold demands of its input only its keys and its
+ * aggregates' arguments, not its bound tuple (analysis/demand/demand.ts); the prune-fold search fails.
+ * @plant test/plants/unit/lower/rewrite/prune-step-unpinned.patch A node a recursive step reads is pruned like any
+ * other, only the step's own cells pinned; the prune-pinned search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

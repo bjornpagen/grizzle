@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/optimize/simplify/boolean.ts b/packages/engine/src/lower/optimize/simplify/boolean.ts
+index 81cdca9d..fa5fc58c 100644
+--- a/packages/engine/src/lower/optimize/simplify/boolean.ts
++++ b/packages/engine/src/lower/optimize/simplify/boolean.ts
+@@ -100,7 +100,7 @@ const compare = (expr: ScalarExpr, fn: Comparison, column: ColumnValue): boolean
+ 			if (lo === undefined || hi === undefined) {
+ 				return undefined
+ 			}
+-			return lo >= 0 && hi <= 0
++			return lo > 0 && hi < 0
+ 		}
+ 		case "in":
+ 			return memberOf(vals.length, cmp)

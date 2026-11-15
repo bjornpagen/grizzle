@@ -14,9 +14,14 @@
  *
  * Features: the query's root and a later root replaced; a pass that delivered the settled DAG; a pass that changed it.
  *
- * Plants, each failing its search: a rewritten DAG's roots reversed (frame-root-order); fresh identifiers skipping a
- * random count (frame-random-labels); a pass that changes nothing delivering a rebuilt copy (frame-rebuild); a pass
- * returning a DAG a pass delivered before unrewritten, a memo by object identity (frame-seen-memo).
+ * @plant test/plants/unit/lower/rewrite/frame-root-order.patch The editor finishes a DAG with its roots reversed; the
+ * frame-root-position search fails.
+ * @plant test/plants/unit/lower/rewrite/frame-random-labels.patch Fresh identifiers skip a random count, so labels
+ * differ run to run; the frame-determinism search fails.
+ * @plant test/plants/unit/lower/rewrite/frame-rebuild.patch A pass that changes nothing delivers a rebuilt copy of its
+ * DAG; the frame-delivered search fails.
+ * @plant test/plants/unit/lower/rewrite/frame-seen-memo.patch A rewrite pass returns unrewritten any DAG some pass
+ * delivered before, a memo by object identity; the frame-delivered and frame-cold searches fail.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@bjornpagen/testing/features"

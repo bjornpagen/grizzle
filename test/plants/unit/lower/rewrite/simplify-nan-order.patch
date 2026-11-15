@@ -1,0 +1,17 @@
+diff --git a/packages/engine/src/scalar/compute/evaluate.ts b/packages/engine/src/scalar/compute/evaluate.ts
+index ba541758..308cfa28 100644
+--- a/packages/engine/src/scalar/compute/evaluate.ts
++++ b/packages/engine/src/scalar/compute/evaluate.ts
+@@ -287,7 +287,11 @@ export const compareValues = (
+ 			return isDecimal(a) && isDecimal(b) ? compareDecimal(a, b) : undefined
+ 		case "float4":
+ 		case "float8":
+-			return isNumber(a) && isNumber(b) ? compareFloat(a, b) : undefined
++			return isNumber(a) && isNumber(b)
++				? Number.isNaN(a) || Number.isNaN(b)
++					? 0
++					: compareFloat(a, b)
++				: undefined
+ 		case "money":
+ 		case "exactMoney":
+ 			return isMoney(a) && isMoney(b) ? a.compare(b) : undefined

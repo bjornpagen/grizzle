@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/optimize/simplify/rules.ts b/packages/engine/src/lower/optimize/simplify/rules.ts
+index e4b6e5ac..6de1f059 100644
+--- a/packages/engine/src/lower/optimize/simplify/rules.ts
++++ b/packages/engine/src/lower/optimize/simplify/rules.ts
+@@ -218,7 +218,7 @@ const finiteFold: Rule = {
+ 			cx,
+ 			cell,
+ 			node,
+-			kept.length === source.rows.length ? source.closed : narrowedClosedName,
++			source.closed,
+ 			kept
+ 		)
+ 		return true

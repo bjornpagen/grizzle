@@ -23,10 +23,18 @@
  * Features: each decision and each type compared; a vector membership left to PostgreSQL; facts satisfying and none;
  * each kind of branch removed; every conjunct an equality, and a conjunct left.
  *
- * Plants, each failing its search: NaN equal to every number (simplify-nan-order); BETWEEN strict on both bounds
- * (simplify-between-strict); a decided connective folding to the opposite value (simplify-connective-decider); finite
- * folding keeping the rejected facts (simplify-finite-inverted); branch removal keeping empty arms
- * (simplify-empty-arms); equality propagation leaving the region its own metadata (simplify-equality-meta).
+ * @plant test/plants/unit/lower/rewrite/simplify-nan-order.patch The host's float comparison takes NaN as equal to every
+ * number (compute/evaluate.ts compareValues); the simplify-literal-order search fails.
+ * @plant test/plants/unit/lower/rewrite/simplify-between-strict.patch BETWEEN over literals decided strict on both
+ * bounds; the simplify-between-in search fails.
+ * @plant test/plants/unit/lower/rewrite/simplify-connective-decider.patch A connective its deciding operand decides folds
+ * to the opposite value; the simplify-frontier-folding search fails.
+ * @plant test/plants/unit/lower/rewrite/simplify-finite-inverted.patch Finite folding keeps the facts the filter rejects
+ * in place of those it keeps; the simplify-finite-fold search fails.
+ * @plant test/plants/unit/lower/rewrite/simplify-empty-arms.patch Branch removal keeps a union's empty arms; the
+ * simplify-empty search fails.
+ * @plant test/plants/unit/lower/rewrite/simplify-equality-meta.patch Equality propagation leaves the region its own
+ * metadata, not the filter's evidence it takes over; the simplify-equality search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
