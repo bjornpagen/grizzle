@@ -20,14 +20,13 @@
  * The encoder parses exactly, so every value drawn here is one its type holds as it is: a real a binary32 value, a
  * numeric(7, 2) at most two fractional digits. Its refusal of every value PostgreSQL would round is held in
  * test/pg/values/numeric.test.ts and test/pg/input/exactness.test.ts, pgvector's rounding in
- * test/pg/values/carriers.test.ts.
+ * test/pg/values/carriers.test.ts. A value's text is any one PostgreSQL reads as the value, so Money's own spelling is
+ * test/pg/values/money.test.ts's, which reads the host's text back.
  *
  * Features: "round-trips <carrier>", every carrier's; "routes <carrier>", every routable carrier's.
  *
  * @plant test/plants/pg/codec/codec-set-bit-order.patch setBit puts a set's position 0 at its digit's least
  * significant bit; a set's round trip fails.
- * @plant test/plants/pg/codec/values-money-text-padding.patch Money's text pads its digits one short, so an amount
- * under one prints no integer digit; a money's round trip fails.
  * @plant test/plants/pg/codec/routable-float8.patch A double precision routes, and extra_float_digits prints it
  * otherwise; a float8's route fails.
  */
