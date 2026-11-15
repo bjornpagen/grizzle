@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # per-file.sh <seconds> <out> <file>...: each network test file alone, on the first member of the family
-# GRIZZLE_PG_CLUSTER names (one worker, so worker 1 and member 1), for at most <seconds>, between two CHECKPOINTs, at
-# TEST_SEED. Each run is a process group of its own (setsid), ended whole at <seconds> and waited for to its last
-# process, so no file's workers outlive its window into the next. A line to <out> per file: the file, the seconds it ran,
-# the files the member's checkpoints synced from the first CHECKPOINT's end to the second's (every checkpoint between,
-# timed ones too), and the test run's exit status, 124 where <seconds> ended it.
+# GRIZZLE_PG_CLUSTER names (a lone file takes Vitest's first free worker, 1, so member 1), for at most <seconds>,
+# between two CHECKPOINTs, at TEST_SEED. Each run is a process group of its own (setsid), ended whole at <seconds> and
+# waited for to its last process, so no file's workers outlive its window into the next. A line to <out> per file: the
+# file, the seconds it ran, the files the member's checkpoints synced from the first CHECKPOINT's end to the second's
+# (every checkpoint between, timed ones too), and the test run's exit status, 124 where <seconds> ended it.
 set -u
 : "${GRIZZLE_PG_CLUSTER:?the family}" "${TEST_SEED:?the seed}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,7 +20,7 @@ for file in "$@"; do
 	logfile=$(log)
 	from=$(wc -l <"$logfile")
 	start=$(date +%s)
-	(cd "$repo_root" && TOOLCHAIN_TEST_WORKERS=1 exec setsid pnpm -s test:network "$file") >"$out.$(basename "$file").log" 2>&1 &
+	(cd "$repo_root" && exec setsid pnpm -s test:network "$file") >"$out.$(basename "$file").log" 2>&1 &
 	group=$!
 	waited=0
 	while kill -0 "$group" 2>/dev/null && ((waited < seconds)); do

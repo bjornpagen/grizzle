@@ -18,28 +18,24 @@
 			"dependsOn": ["^source"]
 		},
 		"typecheck": {
-			"description": "pnpm types: each project checked incrementally, from the build info its last build left. toolchain-typecheck -b (tsrs -b, with the machine's TOOLCHAIN_TS_CHECKERS as --checkers) builds the package's project and the projects it references, so it runs after theirs. Its outputs are types/: the declarations and the build info they were built from (tsconfig tsBuildInfoFile), so a cache hit restores both together and the next build compares the sources against the declarations on disk.",
+			"description": "pnpm types: each project checked incrementally, from the build info its last build left. toolchain-typecheck -b (tsrs -b) builds the package's project and the projects it references, so it runs after theirs. Its outputs are types/: the declarations and the build info they were built from (tsconfig tsBuildInfoFile), so a cache hit restores both together and the next build compares the sources against the declarations on disk.",
 			"dependsOn": ["^typecheck"],
-			"outputs": ["types/**"],
-			"passThroughEnv": ["TOOLCHAIN_TS_CHECKERS"]
+			"outputs": ["types/**"]
 		},
 		"typecheck:full": {
 			"description": "pnpm check's typecheck: each project checked from nothing, never from build info, since an incremental build can keep a diagnostic or a declaration a clean one would not (microsoft/TypeScript#64386, #64591). A package's removes its types/ and builds its own project alone (tsrs -p), against the declarations its references' full builds wrote, so it runs after theirs and writes nothing of theirs.",
 			"dependsOn": ["^typecheck:full"],
-			"outputs": ["types/**"],
-			"passThroughEnv": ["TOOLCHAIN_TS_CHECKERS"]
+			"outputs": ["types/**"]
 		},
 		"@bjornpagen/grizzle-pg#typecheck": {
 			"description": "The local cluster's package checks with --noEmit against the engine's declarations; its output is its build info alone. The testing library it imports compiles in its program, so its source hash is an input, never its typecheck: the toolchain's packages are its own gate's.",
 			"dependsOn": ["^source", "@bjornpagen/grizzle-engine#typecheck"],
-			"outputs": ["types/**"],
-			"passThroughEnv": ["TOOLCHAIN_TS_CHECKERS"]
+			"outputs": ["types/**"]
 		},
 		"@bjornpagen/grizzle-pg#typecheck:full": {
 			"description": "Not incremental: no build info is read or written, so there is no output.",
 			"dependsOn": ["^source", "@bjornpagen/grizzle-engine#typecheck:full"],
-			"outputs": [],
-			"passThroughEnv": ["TOOLCHAIN_TS_CHECKERS"]
+			"outputs": []
 		},
 		"oxlint": {
 			"description": "The toolchain's preset and plugins (vendor/toolchain) are inputs too.",
@@ -48,15 +44,13 @@
 				"$TURBO_DEFAULT$",
 				"$TURBO_ROOT$/vendor/toolchain/packages/devtools/src/**",
 				"$TURBO_ROOT$/vendor/toolchain/packages/testing/src/oxlint/**"
-			],
-			"passThroughEnv": ["TOOLCHAIN_TSGOLINT_PROCS"]
+			]
 		},
 		"//#typecheck": {
 			"description": "The tooling project (test, bench, scripts) builds after both packages' projects, which toolchain-typecheck -b then finds up to date; its build info is tsconfig.tsbuildinfo, beside its tsconfig. A root task's inputs are the whole repository, the packages and the toolchain included; the root checks but format read no Markdown, so theirs leave it out.",
 			"dependsOn": ["@bjornpagen/grizzle-engine#typecheck", "@bjornpagen/grizzle#typecheck"],
 			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"],
-			"outputs": ["tsconfig.tsbuildinfo"],
-			"passThroughEnv": ["TOOLCHAIN_TS_CHECKERS"]
+			"outputs": ["tsconfig.tsbuildinfo"]
 		},
 		"//#typecheck:full": {
 			"description": "The tooling project checked alone and from nothing (tsrs -p --incremental false), against the declarations both packages' full builds wrote. It writes nothing.",
@@ -65,12 +59,10 @@
 				"@bjornpagen/grizzle#typecheck:full"
 			],
 			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"],
-			"outputs": [],
-			"passThroughEnv": ["TOOLCHAIN_TS_CHECKERS"]
+			"outputs": []
 		},
 		"//#oxlint": {
-			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"],
-			"passThroughEnv": ["TOOLCHAIN_TSGOLINT_PROCS"]
+			"inputs": ["$TURBO_DEFAULT$", "!**/*.md"]
 		},
 		"//#workspace-gate": {
 			"description": "The toolchain's repository-wide checks (workspace-gate): every tsconfig's Effect plugin block and diagnostics, the Effect-free package's tsconfig and manifest, and the tree's file names, read as JSON and git's file list, never a TypeScript program. Uncached: it reads the whole tree in about a second, which a cache would have to hash.",

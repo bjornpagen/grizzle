@@ -1,3 +1,4 @@
+import { testWorkers } from "@bjornpagen/testing/workers"
 import { Array as Arr, Config, Effect, Exit, Option, Scope, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -24,7 +25,6 @@ import {
 	substrateLease,
 	unleasedConnections
 } from "#pg/lease.ts"
-import { networkWorkers } from "#pg/workers.ts"
 const claimKey = 1735289960
 const claimStatement = "SELECT pg_catalog.pg_try_advisory_lock($1::int4, $2::int4)"
 
@@ -342,8 +342,9 @@ export const ensureSharedDatabase = (
  * pristine database of its own builds Substrate.isolatedLayer instead.
  *
  * Vitest runs each file in a process of its own, at most W at once (vitest.network.config.ts maxWorkers, W the
- * run's test workers, networkWorkers, workers.ts), and numbers the workers running them 1 to W in VITEST_POOL_ID; the run's global setup
- * clones `gz_shared_1` to `gz_shared_W` once. So a file uses the database of its worker, `gz_shared_<VITEST_POOL_ID>`.
+ * testing library's testWorkers, one per core), and numbers the workers running them 1 to W in VITEST_POOL_ID; the
+ * run's global setup clones `gz_shared_1` to `gz_shared_W` once. So a file uses the database of its worker,
+ * `gz_shared_<VITEST_POOL_ID>`.
  * A claim still takes the session-level advisory lock (claimKey, n) on a connection to the owner's own database, held
  * for the file's life, as a safety net: when another claim holds the worker's database (a second substrate in the same
  * file, or another run on the cluster) it takes the smallest n above W no other claim holds, cloning the database when
@@ -368,7 +369,7 @@ export const claimSharedDatabase = (
 		const scope = yield* Effect.scope
 		const lock = yield* devSession(cluster, Option.some("grizzle-substrate claim"))
 		const worker = positiveEnv("VITEST_POOL_ID")
-		const above = networkWorkers + 1
+		const above = testWorkers + 1
 		/** The n-th index a claim tries: the worker's, then every index above W. */
 		const tried = (n: number): number =>
 			Option.match(worker, {

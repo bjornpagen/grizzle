@@ -2,7 +2,7 @@ EVIDENCE: an INSERT routed through a partitioned table fails with 42804 when a C
 generated column
 
 Run 2026-11-15 on aarch64-linux (Ubuntu 26.04, gcc 15.2.0), each build in its own throwaway cluster (initdb -E UTF8
---locale=C.UTF-8, Unix socket only, under nice 19), started one at a time and deleted after its run:
+--locale=C.UTF-8, Unix socket only), started one at a time and deleted after its run:
   - PostgreSQL 19rc1 (REL_19_RC1, 0b8bff042a), stock: RC1TARGET's build with the meson flags of scripts/pg/source.sh,
     no cassert, no patches.
   - PostgreSQL 19rc2 (REL_19_RC2, dffcca2e3c), grizzle's pin (scripts/pg/pin.env, ~/.local/opt/postgresql/19rc2). It

@@ -306,18 +306,7 @@ export default defineConfig(
 					}
 				]
 			},
-			/**
-			 * The engine's SQL is text its printer builds, never a Drizzle `sql` template, the one form the rule reads, so it
-			 * finds nothing here: the printer, the lexer and the constants are the cast's writers by name only.
-			 */
-			"no-raw-sql": {
-				sources: ["packages/engine/src", "packages/grizzle/src"],
-				writers: [
-					"packages/engine/src/sql/print.ts",
-					"packages/engine/src/sql/lexer.ts",
-					"packages/engine/src/sql/constants.ts"
-				]
-			},
+			"no-raw-sql": { sources: [], writers: [] },
 			"no-spread-argument": {
 				tuples: [
 					{ module: "#test/support/list.ts", names: ["argumentsOf", "nonEmptyArgumentsOf"] },

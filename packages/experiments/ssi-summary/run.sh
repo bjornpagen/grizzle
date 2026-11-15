@@ -2,7 +2,7 @@
 # The ssi-summary experiment (README.md): a lone SERIALIZABLE writer fails with 40001 against its own earlier write
 # once PostgreSQL's SSI has summarized that write while another transaction holds the cluster's horizon. Run it on a
 # private family only, never the default cluster: it fills the cluster's pool of finished SERIALIZABLE transactions.
-#   GRIZZLE_PG_CLUSTER=<port> nice -n 19 packages/experiments/ssi-summary/run.sh
+#   GRIZZLE_PG_CLUSTER=<port> packages/experiments/ssi-summary/run.sh
 # Exits 0 when PostgreSQL behaves as README.md states (the shrink fails as a pivot with a conflict out to the write,
 # and the same sequence with no holder commits), 1 otherwise: the verdict that ends the experiment.
 set -uo pipefail

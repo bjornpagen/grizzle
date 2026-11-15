@@ -1,3 +1,4 @@
+import { testWorkers } from "@bjornpagen/testing/workers"
 import {
 	Array as Arr,
 	Config,
@@ -11,7 +12,6 @@ import {
 import { indices } from "#compiler/core/array.ts"
 import { type Limit, measured } from "#compiler/core/limits.ts"
 import { clusterAt, type LocalCluster } from "#pg/local-cluster.ts"
-import { machineWorkers } from "#pg/workers.ts"
 
 import { regex } from "arkregex"
 
@@ -29,7 +29,7 @@ const filesPerCluster: Limit = measured({
 	owner: "grizzle's network test tier (packages/pg/src/family.ts)",
 	unit: "test files",
 	scope:
-		"the network test files one member of the local cluster family runs at once, each in a Vitest worker of its own, at the widest run (machineWorkers), on a member sized for its share",
+		"the network test files one member of the local cluster family runs at once, each in a Vitest worker of its own, at a run's width (the testing library's testWorkers, one file per core), on a member sized for its share",
 	evidence:
 		"packages/experiments/cluster-share at 14b2e2b9 (deleted in the commit after it): two checkouts of grizzle 0b7b5f31 that differ only in this value, each tagged by tag.sh and on a private family pnpm pg:init made from it (2 members at 32, 4 at 16), run at once by `TEST_SEED=1234567 pair.sh <out> c32 <tree> 5771 c16 <tree> 5781`, every member's pg_stat_activity sampled each second and its SERIALIZABLE transactions every ten as the bootstrap superuser, then `compare.sh <out> c32 c16` with the seven files failing for causes outside this value left out; each member's checkpoint lines from its server log; uncommitted run files in ~/.cache/grizzle-release/IDLEXACT/measure (c32.out, c16.out, c32.wall, c16.wall, c32.<port>.samples, c16.<port>.samples, checkpoints.<port>.log, verdict.txt)",
 	observed:
@@ -43,24 +43,24 @@ const filesPerCluster: Limit = measured({
 	decision:
 		"16: at this load every measure favors it over 32: 28% less time over the files both runs passed, the ratio steady across them (median 0.70), 9.7% less wall time, ten fewer hour cuts, a tenth to a half of 32's SSI waiting share and less checkpoint sync work a member, for 44 MB more shared memory a family, since each member's memory follows its share (size.ts clusterSize, and init.sh --adopt sizes the members a growing family keeps). Every coupling it divides is a cluster's own, so the quantity is the files one member runs at once. One run at each value, at one seed, on a loaded machine; below 16 is unmeasured. No headroom added",
 	revalidate:
-		"a run at 8, and at 16 again, at a quiet window; a run of fewer workers than machineWorkers (TOOLCHAIN_TEST_WORKERS, which the toolchain past this pin reads), whose files spread fewer to a member (4 at 16 workers) than this run measured; a network tier whose files hold more SERIALIZABLE transactions or hold them longer, or create more databases (the checkpoints' sync work); a change of SSI's settings (max_pred_locks_*), of the checkpoint settings or of the lease's grant (leaseGrant); a PostgreSQL repin; another machine or core count"
+		"a run at 8, and at 16 again, at a quiet window; a network tier whose files hold more SERIALIZABLE transactions or hold them longer, or create more databases (the checkpoints' sync work); a change of SSI's settings (max_pred_locks_*), of the checkpoint settings or of the lease's grant (leaseGrant); a PostgreSQL repin; another machine or core count"
 })
 
 /**
  * The clusters of a family, K: the network tier's workers spread over them, worker w on member (w − 1) mod K
  * (memberOf), so one cluster's SERIALIZABLE bookkeeping (its SSI lists and their LWLocks, shared by every transaction
- * of the cluster) serves only its share of the widest run, no more than c* files (filesPerCluster):
- * ceil(machineWorkers / c*). A narrower run's workers spread over the same members. The machine's cores are read where
- * machineWorkers is, and enter no Limit.
+ * of the cluster) serves only its share of a run's workers, no more than c* files (filesPerCluster):
+ * ceil(testWorkers / c*), testWorkers being the testing library's width, one file per core. A run of fewer files starts
+ * fewer workers, spread over the same members. The machine's cores are read where testWorkers is, and enter no Limit.
  */
-export const familyMembers: number = Math.ceil(machineWorkers / filesPerCluster.value)
+export const familyMembers: number = Math.ceil(testWorkers / filesPerCluster.value)
 
 /**
  * The workers one member of a family serves at most, which scripts/pg/init.sh sizes each member for (size.ts
- * clusterSize): the widest run's workers over the family's members, rounded up, so the members together serve every
- * worker of any run.
+ * clusterSize): a run's workers (testWorkers) over the family's members, rounded up, so the members together serve every
+ * worker of a run.
  */
-export const memberShare: number = Math.ceil(machineWorkers / familyMembers)
+export const memberShare: number = Math.ceil(testWorkers / familyMembers)
 
 /**
  * A family of local clusters as its family file records it: its members in member order, the first the cluster

@@ -4,10 +4,9 @@ This is how grizzle records what `SKILL.md` requires. `SKILL.md`'s rules hold he
 
 grizzle chooses no number on its caller's behalf. A number that bounds something is the caller's input or the `.value`
 of a `Limit`: a frozen, branded value that carries its own evidence, minted only by `published`, `measured` or
-`derived` of `packages/engine/src/core/limits.ts` (imported as `#compiler/core/limits.ts`). No check refuses a bare
-number where it bounds something: the toolchain retired superlint, and its `limit-evidence` gate with it, as Bjorn
-decided (2026-11-14), so review refuses one, by the rules below. The JSDoc `@limitKind` tags are retired, and nothing
-reads them.
+`derived` of `packages/engine/src/core/limits.ts` (imported as `#compiler/core/limits.ts`). Review refuses a bare
+number where it bounds something, by the rules below. The JSDoc `@limitKind` tags are retired, and nothing reads
+them.
 
 ## Bound, choice or fact, in grizzle
 
@@ -146,8 +145,7 @@ export const messageMaxBytes = derived({
 
 ## Bare numbers
 
-No tool reads this section's rules: superlint's `limit-evidence`, which did, went with superlint, and no oxlint rule
-took its place (the check-pipeline plan, 2026-11-14). Review holds every file to them, by where it lies:
+Review holds every file to this section's rules, by where it lies:
 
 | Files                                                                 | Checks                                                                                                                                                        |
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -13,7 +13,7 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
  *   their numbers.
  *
  * A limit is minted only here, by `published`, `measured` and `derived`, so every bound a comparison, a loop, a size,
- * a timeout or a pool option reads is a Limit or a caller's input, never a bare number (the limit-evidence gate).
+ * a timeout or a pool option reads is a Limit or a caller's input, never a bare number.
  * grizzle chooses no number on its caller's behalf: what is a choice is the caller's input, and what is not is one of
  * these.
  */

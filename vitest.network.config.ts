@@ -16,8 +16,8 @@ import { includeOf, tiers } from "#test/support/tiers.ts"
  * as it takes: a suite's layer build may wait for a slot of the cluster-wide connection lease behind other runs' files,
  * as long as they hold it (substrate/shared.ts leaseConnections), and a wait for a resource others hold is no hang;
  * what the build does once it holds its lease is bounded by the hang limit (substrate/substrate.ts heldBuild). The
- * library runs one file per worker, testWorkers of them, and the setup clones a database for each
- * (substrate/workers.ts). Every test case runs a search, outside the files test/support/examples.ts exempts, each set
+ * library runs one file per worker, testWorkers of them, one per core, and the setup clones a database for each
+ * (substrate/shared.ts). Every test case runs a search, outside the files test/support/examples.ts exempts, each set
  * with its reason.
  */
 export default defineTestConfig({

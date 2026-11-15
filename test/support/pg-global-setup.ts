@@ -1,8 +1,8 @@
+import { testWorkers } from "@bjornpagen/testing/workers"
 import { NodeFileSystem, NodeServices } from "@effect/platform-node"
 import { Duration, Effect } from "effect"
 import { readFamily, workersOf } from "#pg/family.ts"
 import { localCluster } from "#pg/local-cluster.ts"
-import { networkWorkers } from "#pg/workers.ts"
 import { InitializedCluster } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
@@ -32,7 +32,7 @@ const eachMember = <E>(
 			family.members,
 			(member, index) =>
 				Effect.provide(
-					each(workersOf(family.members.length, index, networkWorkers)),
+					each(workersOf(family.members.length, index, testWorkers)),
 					InitializedCluster.member(member)
 				),
 			{ discard: true }

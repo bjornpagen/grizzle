@@ -30,7 +30,7 @@ export const hangLimit: Limit = measured({
 	environment:
 		"macOS (Darwin 27.0.0, an arm64 virtual machine) on 10 cores, Node 26.13.0, Vitest 5.1.0, the local PostgreSQL 19rc1 cluster (scripts/pg/pin.env), the testing library's pool of forks under its hardened flags; the load of other sessions on the machine not recorded",
 	workload:
-		"535 file runs, one fork per file: 303 of the unit tier (the parallel and small-stack projects, a fork per core) and 232 of the network tier (6 at once, networkWorkers), the guided and exclusive projects among them, each test under the per-test timeout it then stated",
+		"535 file runs, one fork per file: 303 of the unit tier (the parallel and small-stack projects, a fork per core) and 232 of the network tier (6 at once, the network tier's width then), the guided and exclusive projects among them, each test under the per-test timeout it then stated",
 	result:
 		"519 passed and 16 failed; the slowest passing files test/pg/world-model/inductive.test.ts in 1,740 s, privileges.test.ts in 1,349 s and isolation.test.ts in 1,306 s, the unit tier's slowest test/unit/lower/rewrite/universe.test.ts in 309 s on the small-stack project; the slowest failure test/pg/write/oracle/oracle-0.test.ts, cut at its own timeout of 1,800 s while it shrank a failure since fixed; no test's own duration, event-loop lag or machine load recorded",
 	decision:

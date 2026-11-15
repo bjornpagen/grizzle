@@ -511,7 +511,7 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   is max_connections 4359, shared_buffers 304,064 blocks, max_pred_locks_per_transaction 30, 66 replication slots and
   walsenders, shared_memory_size 2882 MB; init took 13 s and destroy 4 s (throwaway cluster 5460, 2026-11-14), with
   247 GB of RAM, about 75 GB available and 49 GB of swap in use at the time. Revisit with numbers only under memory
-  pressure, by sizing a cluster from what it serves (networkWorkers for a test tier, one lease for a migrate or an
+  pressure, by sizing a cluster from what it serves (testWorkers for a test tier, one lease for a migrate or an
   import), and mind the two catches: a down-sized cluster fails the doctor's sized checks, which test:network's global
   setup runs, so clusters would split into two kinds, one that serves migrates only; and the measured per-worker buffer
   bound (workerDatabaseBytes, 38.9 MB) is below PostgreSQL's 128 MB default shared_buffers and below a pantry

@@ -38,7 +38,7 @@ const reservedConnections = published({
 
 /**
  * A family member's max_connections, which scripts/pg/init.sh sets and scripts/pg/doctor.sh requires at least: a slot
- * for each worker the member serves (family.ts memberShare, the widest run's workers, one per core, over the family's
+ * for each worker the member serves (family.ts memberShare, a run's workers, testWorkers, one per core, over the family's
  * members), each its lease's connections (connectionsPerLease) and the gate head's race connection but one
  * (leaseSlots), the connections no lease covers (unleasedConnections), and the slots PostgreSQL reserves, at their
  * defaults. leaseSlots over exactly this many connections is memberShare, so a run alone never waits for a lease. The
