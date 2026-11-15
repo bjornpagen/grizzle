@@ -416,6 +416,7 @@ const rowExpr = (expr: OpenExpr): ExprDesc | ForeignInput => {
 			return args instanceof ForeignInput ? args : Object.freeze({ ...expr, args })
 		}
 		case "cast":
+		case "guarded":
 		case "base":
 		case "not":
 		case "in": {
@@ -541,6 +542,7 @@ export const foreignInput = <R extends Refs>(expr: ExprDesc<Located, R>): string
 		case "compute":
 			return firstForeign(expr.args)
 		case "cast":
+		case "guarded":
 		case "base":
 		case "not":
 			return foreignInput(expr.arg)

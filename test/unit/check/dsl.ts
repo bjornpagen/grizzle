@@ -1,10 +1,12 @@
 import { Array as Arr } from "effect"
-import type {
-	ComputeFn,
-	FieldDesc,
-	LiteralDesc,
-	OrderDesc,
-	ScaledComputeFn
+import {
+	type ComputeFn,
+	type FieldDesc,
+	type GuardDesc,
+	guardedExpr,
+	type LiteralDesc,
+	type OrderDesc,
+	type ScaledComputeFn
 } from "#compiler/ir/desc.ts"
 
 import type { Direction } from "#compiler/core/order.ts"
@@ -120,11 +122,12 @@ const integerTypes: Readonly<
 export const narrowed = (x: ExprDesc, to: IntegerType): ExprDesc => {
 	const { low, high, zero } = integerTypes[to]
 	const field: FieldDesc = { kind: "pg", type: to }
+	const guard: GuardDesc = { kind: "within", low, high }
 	return {
 		kind: "when",
-		guard: { kind: "within", low, high },
+		guard,
 		subject: x,
-		proved: cast(x, field),
+		proved: cast(guardedExpr(guard, x), field),
 		otherwise: typedLit(zero, field)
 	}
 }

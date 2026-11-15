@@ -207,6 +207,7 @@ class Collector {
 			case "absent":
 			case "allen":
 			case "and":
+			case "guarded":
 			case "base":
 			case "between":
 			case "cast":
@@ -253,6 +254,7 @@ class Collector {
 				return
 			}
 			case "cast":
+			case "guarded":
 			case "base":
 			case "not":
 			case "in":

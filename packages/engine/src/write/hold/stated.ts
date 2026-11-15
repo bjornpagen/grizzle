@@ -619,6 +619,7 @@ const absents = (
 				}
 				return
 			case "cast":
+			case "guarded":
 			case "base":
 			case "not":
 			case "in":

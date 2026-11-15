@@ -1,13 +1,13 @@
 diff --git a/packages/engine/src/scalar/compute/lower.ts b/packages/engine/src/scalar/compute/lower.ts
-index 524d6ffb..0e168765 100644
+index 245ea0b3..a74ce6a3 100644
 --- a/packages/engine/src/scalar/compute/lower.ts
 +++ b/packages/engine/src/scalar/compute/lower.ts
-@@ -3267,7 +3267,7 @@ class Lowering<R extends Refs> {
- 				return [facts]
+@@ -3337,7 +3337,7 @@ class Lowering<R extends Refs> {
+ 				return [parameter]
  			}
- 			const text = this.term(argOf(subjectDesc, 0, at), childLoc(at, "subject", 0))
+ 			const text = this.term(argOf(counted, 0, at), childLoc(at, "subject", 0))
 -			const bytes = this.bytesGuard(text, within[1], env.patternLanguage, at)
 +			const bytes = this.bytesGuard(text, within[0], env.patternLanguage, at)
- 			return bytes === undefined ? [facts] : [facts, bytes]
+ 			return bytes === undefined ? [parameter] : [parameter, { kind: "occurrences", holds: bytes }]
  		}
  		if (env.mode === "build") {

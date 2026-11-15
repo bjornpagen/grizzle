@@ -395,6 +395,50 @@ const mapNotesOf = (spec: CaseSpec, verdict: Verdict): ReadonlyArray<MapNote> =>
 		? ["a translate over a map typed string, admitted"]
 		: []
 
+/**
+ * What a when at a case's root reaches where its branch reads its guard's subject, a field or a parameter, past the
+ * branch's parameter: TypeScript narrows the parameter alone, never a term the branch captures, and compilation refines
+ * the parameter alone (scalar/compute/lower.ts guarded), so where the read needs what the guard proves, both refuse the
+ * case for the precondition it lacks, and its directive names that Refusal.
+ */
+const capturedNotes = ["a branch reading its subject outside its parameter"] as const
+type CapturedNote = (typeof capturedNotes)[number]
+
+/** What a when whose branch reads its subject outside its parameter reached, refused (capturedNotes). */
+const capturedNotesOf = (spec: CaseSpec, verdict: Verdict): ReadonlyArray<CapturedNote> =>
+	verdict.kind === "refused" &&
+	verdict.claim.kind === "refusal" &&
+	spec.kind === "term" &&
+	spec.term.kind === "when" &&
+	readsLeaf(spec.term.body, spec.term.guard.x)
+		? ["a branch reading its subject outside its parameter"]
+		: []
+
+/** Whether `o` is `leaf`, the same field or the same parameter; no other operand is a leaf. */
+const sameLeaf = (o: Operand, leaf: Operand): boolean =>
+	(o.kind === "field" && leaf.kind === "field" && o.field === leaf.field) ||
+	(o.kind === "param" && leaf.kind === "param" && o.name === leaf.name)
+
+/** Whether a term reads `leaf` as an operand, at any depth, a nested when's guard and branch among it. */
+const readsLeaf = (t: TermSpec, leaf: Operand): boolean => {
+	const reads = (o: Operand): boolean =>
+		sameLeaf(o, leaf) || (o.kind === "term" && readsLeaf(o.term, leaf))
+	const guardReads = (g: GuardSpec): boolean =>
+		reads(g.x) || (g.kind === "matches" && reads(g.pattern))
+	switch (t.kind) {
+		case "apply":
+			return Arr.some(t.args, reads)
+		case "cast":
+			return reads(t.x)
+		case "endpoint":
+			return reads(t.s)
+		case "cond":
+			return predReads(t.p, reads, guardReads) || reads(t.whenTrue) || reads(t.otherwise)
+		case "when":
+			return guardReads(t.guard) || readsLeaf(t.body, leaf) || reads(t.otherwise)
+	}
+}
+
 /** What a digest case reached (digestNotes): none for any other case. */
 const digestNotesOf = (spec: CaseSpec, verdict: Verdict): ReadonlyArray<DigestNote> => {
 	if (spec.kind !== "digest") {
@@ -554,6 +598,7 @@ export type ComputeNote =
 	| ByteNote
 	| DigestNote
 	| MapNote
+	| CapturedNote
 	| ContractNote
 	| ContestedNote
 	| FamilyNote
@@ -3867,6 +3912,9 @@ const caseOf = ({ spec, reached }: Drawn): ComputeCase => {
 	for (const note of mapNotesOf(spec, verdict)) {
 		notes.add(note)
 	}
+	for (const note of capturedNotesOf(spec, verdict)) {
+		notes.add(note)
+	}
 	for (const note of contractNotesOf(spec, verdict)) {
 		notes.add(note)
 	}
@@ -3967,8 +4015,9 @@ const expressionOf = (rendering: Rendering, spec: CaseSpec): string => {
 /**
  * The situations the floor's witnesses reach beside the verdicts, Refusals, decisions and inferences: every construct,
  * each admitted but a literal standing first, and each refused but the byte guard, whose casts the types always admit;
- * a column read through a heading both ways; each byte guard situation (byteNotes); and a translate over a map
- * TypeScript types as string, admitted (mapNotes).
+ * a column read through a heading both ways; each byte guard situation (byteNotes); a translate over a map
+ * TypeScript types as string, admitted (mapNotes); and a branch reading its subject outside its parameter, refused by
+ * both (capturedNotes).
  */
 export const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
 	...computeFeatures,
@@ -3980,6 +4029,7 @@ export const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
 	...byteNotes,
 	...digestNotes,
 	...mapNotes,
+	...capturedNotes,
 	...contractNotes,
 	contestedNote,
 	...Arr.map(
@@ -4102,6 +4152,29 @@ const overlapKept: Arr.NonEmptyReadonlyArray<Extract<CaseSpec, { readonly kind: 
 ]
 
 /**
+ * The when the run at TEST_SEED=1879254972 drew as its case 1140, so the floor reaches capturedNotes by construction,
+ * whatever its draws: a power over the guarded subject whose exponent is the subject read past the parameter,
+ * Compute.when(Compute.nonnegative(cell.dec), (g) => Compute.power(g, cell.dec), cell.dec). The guard proves g
+ * nonnegative and nothing of the exponent, so both refuse the power, the base not proved nonzero nor the exponent
+ * nonnegative.
+ */
+const capturedKept: Arr.NonEmptyReadonlyArray<Extract<CaseSpec, { readonly kind: "term" }>> = [
+	{
+		kind: "term",
+		term: {
+			kind: "when",
+			guard: { kind: "test", test: "nonnegative", x: { kind: "field", field: "dec" } },
+			body: {
+				kind: "apply",
+				fn: "power",
+				args: [{ kind: "guarded" }, { kind: "field", field: "dec" }]
+			},
+			otherwise: { kind: "field", field: "dec" }
+		}
+	}
+]
+
+/**
  * The floor's kept cases as a stratum of their own, each at its root's feature and tallied by what it reached: the
  * notes a root's twelve draws could miss, and the floor is fixed per label, so a miss would fail every run.
  */
@@ -4113,7 +4186,10 @@ const keptStratum = (): Readonly<{
 		...Arr.map(digestKept, (spec) => caseOf({ spec, reached: new Set(["digest"]) })),
 		...Arr.map(bytesKept, (spec) => caseOf({ spec, reached: new Set(["byte guard"]) })),
 		...Arr.map(overlapKept, (spec) => caseOf({ spec, reached: new Set(["when", "matches"]) })),
-		...Arr.map(mapKept, (spec) => caseOf({ spec, reached: new Set(["translate"]) }))
+		...Arr.map(mapKept, (spec) => caseOf({ spec, reached: new Set(["translate"]) })),
+		...Arr.map(capturedKept, (spec) =>
+			caseOf({ spec, reached: new Set(["when", "nonnegative", "power"]) })
+		)
 	]
 	const tally = tallyOf("floor")
 	for (const value of values) {
@@ -4125,9 +4201,9 @@ const keptStratum = (): Readonly<{
 /**
  * The floor's witnesses: one stratum per construct, each drawn under its own label alone with the construct at its
  * root, so the floor is the same in every run and every construct is drawn often enough to meet both verdicts, and the
- * kept cases (keptStratum), which reach the digest's and the byte guard's notes, a match's overlap and a map typed string
- * by construction; they are the only cases whose constructs and verdicts meet the required situations
- * (test/types/compute/compute.test.ts).
+ * kept cases (keptStratum), which reach the digest's and the byte guard's notes, a match's overlap, a map typed string
+ * and a branch reading its subject outside its parameter by construction; they are the only cases whose constructs and
+ * verdicts meet the required situations (test/types/compute/compute.test.ts).
  */
 export const computeWitnesses = () => [
 	...Arr.map(roots, (root) =>

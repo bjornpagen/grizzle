@@ -80,6 +80,23 @@ export interface Canonicalizable {
 	readonly [canonicalTag]: () => TaggedValue
 }
 
+/**
+ * The key under which a stand-in names the one member of its own it stands for: a node that distinguishes a value only
+ * for a proof and computes, prints and hashes as that member, a Compute.when branch's parameter (ir/desc.ts
+ * guardedExpr). The canonical model reads a stand-in as the member it names (canonicalOf), so every text, digest,
+ * fingerprint and comparison of a value holding one is the value's with the member in its place; only a Description's
+ * JSON form (transportJson) writes the stand-in itself, for a decode to restore.
+ */
+export const standInTag: unique symbol = Symbol.for("grizzle/standIn")
+
+/**
+ * A stand-in: a record that names under standInTag the key of the member it stands for. The key is data, not the
+ * member itself, so a copy that replaces the member (an object spread over the record) stands for the new member.
+ */
+export interface StandIn<K extends string> {
+	readonly [standInTag]: K
+}
+
 /** The JSON form: what JSON.stringify and JSON.parse carry. */
 export type Json =
 	| string
@@ -337,13 +354,38 @@ const recordOf = (value: Readonly<Record<string, unknown>>): CanonicalObject | O
 }
 
 /**
- * An object read by its kind: a Float32Array as a vector, whatever else it holds; a value whose method returns a tag
- * and a payload as one implementing the protocol, and one whose method returns anything else as a forgery outside the
- * model; an array; and any other object as a plain record, or outside the model.
+ * A stand-in read as the member it stands for (standInTag), through every stand-in that member is in turn; outside the
+ * model where one names no member it holds, or the chain returns to a stand-in already read.
  */
-const objectOf = (value: Readonly<Record<string, unknown>>): CanonicalObject | Outside => {
+const standInOf = (value: object): CanonicalValue | Outside => {
+	const read = new Set<object>()
+	let at: unknown = value
+	while (isRecord(at) && standInTag in at) {
+		if (read.has(at)) {
+			return outside(value, "a stand-in for a member, not for itself")
+		}
+		read.add(at)
+		const key: unknown = at[standInTag]
+		if (typeof key !== "string" || !Object.hasOwn(at, key)) {
+			return outside(value, "a stand-in naming a member it holds")
+		}
+		at = at[key]
+	}
+	return canonicalOf(at)
+}
+
+/**
+ * An object read by its kind: a Float32Array as a vector, whatever else it holds; a stand-in as the member it stands
+ * for; a value whose method returns a tag and a payload as one implementing the protocol, and one whose method returns
+ * anything else as a forgery outside the model; an array; and any other object as a plain record, or outside the
+ * model.
+ */
+const objectOf = (value: Readonly<Record<string, unknown>>): CanonicalValue | Outside => {
 	if (value instanceof Float32Array) {
 		return vectorOf(value)
+	}
+	if (standInTag in value) {
+		return standInOf(value)
 	}
 	const tagged = taggedValueOf(value)
 	if (tagged !== undefined) {
@@ -367,8 +409,9 @@ const numberOf = (x: number): number | CanonicalObject => {
  * The one reading of a value by the canonical model (CanonicalValue), or outside it, with what the model holds in its
  * place: text that is not well-formed (a lone UTF-16 surrogate), null, undefined, a function, a symbol, a vector with a
  * component that is not finite, which pgvector refuses (scalar/values/vector.ts), a forged or misnamed protocol value,
- * and an object that is no plain record. Every number is in the model, as float8 holds every one. Every traversal of the model, and every reader of a value by it, dispatches on this reading,
- * so no kind of the model is read anywhere but here.
+ * and an object that is no plain record. A stand-in (standInTag) is read as the member it stands for. Every number is
+ * in the model, as float8 holds every one. Every traversal of the model, and every reader of a value by it, dispatches
+ * on this reading, so no kind of the model is read anywhere but here.
  */
 export const canonicalOf = (value: unknown): CanonicalValue | Outside => {
 	switch (typeof value) {
@@ -387,6 +430,20 @@ export const canonicalOf = (value: unknown): CanonicalValue | Outside => {
 			return outside(value, `a canonical value, not ${typeof value}`)
 	}
 }
+
+/** A reading of values by the canonical model: canonicalOf, or transportedOf. */
+type Reading = (value: unknown) => CanonicalValue | Outside
+
+/**
+ * A value as a Description's JSON form reads it (transportJson): a stand-in as itself, a record of its own members,
+ * from which a decode restores it (ir/desc.ts decodeDesc), and every other value as the canonical model reads it. The
+ * form is what crosses a process boundary and is read back as the Description it was; every text, digest and artifact
+ * of a value is the canonical model's, which reads a stand-in as its member.
+ */
+const transportedOf = (value: unknown): CanonicalValue | Outside =>
+	isRecord(value) && standInTag in value && !isList(value)
+		? { kind: "record", record: value }
+		: canonicalOf(value)
 
 /** The pairs of members two canonical objects hold one text exactly when they hold, or undefined where they cannot. */
 type MemberPairs = ReadonlyArray<readonly [unknown, unknown]> | undefined
@@ -587,10 +644,13 @@ class Walk {
 	readonly #frames: Array<Frame> = []
 	readonly #options: EncodeOptions
 	readonly #sink: Sink
+	/** How the traversal reads a value: the canonical model's reading (canonicalOf), or a JSON form's (transportedOf). */
+	readonly #reading: Reading
 
-	constructor(options: EncodeOptions, sink: Sink) {
+	constructor(options: EncodeOptions, sink: Sink, reading: Reading) {
 		this.#options = options
 		this.#sink = sink
+		this.#reading = reading
 	}
 
 	/** Writes `root`. */
@@ -604,7 +664,7 @@ class Walk {
 	 * would read it, beside which the record's other members are read.
 	 */
 	over(root: unknown, written: ReadonlyMap<string, string>, write: (text: string) => void): void {
-		const read = canonicalOf(root)
+		const read = this.#reading(root)
 		if (typeof read !== "object" || read.kind !== "record") {
 			return stop(this.#path, "a plain record")
 		}
@@ -696,7 +756,7 @@ class Walk {
 	 * the frames, which is true. No reading is undefined, a function or a symbol, so those cases hold none (never).
 	 */
 	#read(value: unknown): boolean {
-		const read = canonicalOf(value)
+		const read = this.#reading(value)
 		switch (typeof read) {
 			case "string":
 				this.#sink.scalar(escapeString(read))
@@ -888,12 +948,29 @@ class TextSink implements Sink {
 
 /** The JSON form of a canonical value. */
 export const toJson = (value: unknown, options: EncodeOptions): Result.Result<Json, CompileError> =>
+	jsonBy(value, options, canonicalOf)
+
+/**
+ * The JSON form a Description crosses a process boundary in, read back as the Description it was: toJson's, but a
+ * stand-in written as itself, its own members, which the decode restores (transportedOf).
+ */
+export const transportJson = (
+	value: unknown,
+	options: EncodeOptions
+): Result.Result<Json, CompileError> => jsonBy(value, options, transportedOf)
+
+/** The JSON form of `value` under a reading of it. */
+const jsonBy = (
+	value: unknown,
+	options: EncodeOptions,
+	reading: Reading
+): Result.Result<Json, CompileError> =>
 	catchRefusal(() => {
 		if (value === undefined) {
 			return refuseValue([], "a value, not undefined")
 		}
 		const sink = new JsonSink()
-		new Walk(options, sink).of(value)
+		new Walk(options, sink, reading).of(value)
 		return sink.value()
 	})
 
@@ -970,7 +1047,7 @@ const encodeWalk = (value: unknown, options: EncodeOptions): Result.Result<strin
 			return refuseValue([], "a value, not undefined")
 		}
 		const sink = new TextSink()
-		new Walk(options, sink).of(value)
+		new Walk(options, sink, canonicalOf).of(value)
 		return sink.text()
 	})
 
@@ -1025,7 +1102,7 @@ export const encodeOver = (
 ): Result.Result<string, CompileError> =>
 	catchRefusal(() => {
 		const sink = new TextSink()
-		new Walk(options, sink).over(record, written, (text) => sink.written(text))
+		new Walk(options, sink, canonicalOf).over(record, written, (text) => sink.written(text))
 		return sink.text()
 	})
 
@@ -1137,7 +1214,7 @@ export const canonicalTokens = (
 			return refuseValue([], "a value, not undefined")
 		}
 		const sink = new TokenSink()
-		new Walk(options, sink).of(value)
+		new Walk(options, sink, canonicalOf).of(value)
 		return sink.tokens()
 	})
 

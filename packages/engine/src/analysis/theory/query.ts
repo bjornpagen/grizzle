@@ -173,6 +173,7 @@ const foreignLeaf = (e: InferredExpr): string | undefined => {
 				x.args.forEach(visit)
 				return
 			case "cast":
+			case "guarded":
 			case "base":
 			case "not":
 				visit(x.arg)
@@ -1058,6 +1059,7 @@ const sourcesThrough = (
 		case "compute":
 			return { ...e, args: e.args.map(m) }
 		case "cast":
+		case "guarded":
 		case "base":
 		case "not":
 			return { ...e, arg: m(e.arg) }

@@ -869,6 +869,7 @@ const canonicalPredicate = (expr: ExprDesc): Canonical<ExprDesc> => {
 		case "literal":
 		case "compute":
 		case "cast":
+		case "guarded":
 		case "base":
 		case "cond":
 		case "when":
@@ -999,6 +1000,7 @@ const fieldRefs = (expr: ExprDesc, out: Set<string>): Set<string> => {
 			}
 			return out
 		case "cast":
+		case "guarded":
 		case "base":
 		case "not":
 		case "in":
@@ -1859,6 +1861,7 @@ class Owner {
 			case "literal":
 			case "compute":
 			case "cast":
+			case "guarded":
 			case "base":
 			case "cond":
 			case "when":

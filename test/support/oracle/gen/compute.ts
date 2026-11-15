@@ -5,14 +5,15 @@ import { makeIdSupply } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
-import type {
-	CompareOp,
-	ComputeFn,
-	ExprDesc,
-	FieldDesc,
-	GuardDesc,
-	LiteralDesc,
-	ScaledComputeFn
+import {
+	type CompareOp,
+	type ComputeFn,
+	type ExprDesc,
+	type FieldDesc,
+	type GuardDesc,
+	guardedExpr,
+	type LiteralDesc,
+	type ScaledComputeFn
 } from "#compiler/ir/desc.ts"
 import type { ExprSpec, ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
@@ -577,7 +578,11 @@ const resolveTerm = (
 								kind: "when",
 								guard: { kind: "nonnegative" },
 								subject: arg.desc,
-								proved: { kind: "compute", fn, args: [arg.desc] },
+								proved: {
+									kind: "compute",
+									fn,
+									args: [guardedExpr({ kind: "nonnegative" }, arg.desc)]
+								},
 								otherwise: arg.desc
 							}
 						: { kind: "compute", fn, args: [arg.desc] }
@@ -633,7 +638,11 @@ const resolveTerm = (
 					kind: "when",
 					guard: { kind: "nonzero" },
 					subject: right.desc,
-					proved: { kind: "compute", fn, args: [left.desc, right.desc] },
+					proved: {
+						kind: "compute",
+						fn,
+						args: [left.desc, guardedExpr({ kind: "nonzero" }, right.desc)]
+					},
 					otherwise: literalOf(literalCarrier(baseOf(type).carrier), 0)
 				},
 				type,
@@ -681,12 +690,13 @@ const resolveTerm = (
 				return { desc: cast, type, free: false }
 			}
 			const bound = guardBound(source, to, s.guard)
+			const guard = withinGuard(source, -bound, bound)
 			return {
 				desc: {
 					kind: "when",
-					guard: withinGuard(source, -bound, bound),
+					guard,
 					subject: arg.desc,
-					proved: cast,
+					proved: { kind: "cast", to, arg: guardedExpr(guard, arg.desc) },
 					otherwise: literalOf(baseOf(type).carrier, 0)
 				},
 				type,
@@ -703,15 +713,16 @@ const resolveTerm = (
 				precision: 1000,
 				scale: at(numericPaddings, s.depth)
 			}
+			const guard = withinGuard("numeric", -1000, 1000)
 			return {
 				desc: {
 					kind: "when",
-					guard: withinGuard("numeric", -1000, 1000),
+					guard,
 					subject: arg.desc,
 					proved: {
 						kind: "compute",
 						fn: "numeric",
-						args: [{ kind: "cast", to: padded, arg: arg.desc }]
+						args: [{ kind: "cast", to: padded, arg: guardedExpr(guard, arg.desc) }]
 					},
 					otherwise: arg.desc
 				},
@@ -845,11 +856,13 @@ const probeHooks = (): LowerHooks => {
  */
 const provesNarrowing = (source: "float4" | "float8", to: FieldDesc, bound: number): boolean => {
 	const x: HeadingColumn = { name: "x", type: plainType(source) }
+	const guard = withinGuard(source, -bound, bound)
+	const subject: ExprDesc = { kind: "var", var: x.name }
 	const desc: ExprDesc = {
 		kind: "when",
-		guard: withinGuard(source, -bound, bound),
-		subject: { kind: "var", var: x.name },
-		proved: { kind: "cast", to, arg: { kind: "var", var: x.name } },
+		guard,
+		subject,
+		proved: { kind: "cast", to, arg: guardedExpr(guard, subject) },
 		otherwise: literalOf("numeric", 0)
 	}
 	return lowerTerm(desc, lowerEnv([x], probeHooks())).ok
@@ -894,15 +907,20 @@ const plainOutput = (r: Resolved): ExprDesc => {
 	const integer = carrier === "exactInteger"
 	const min = -(2n ** 63n)
 	const max = 2n ** 63n - 1n
+	const guard: GuardDesc = {
+		kind: "within",
+		low: integer ? min : Money.of(min),
+		high: integer ? max : Money.of(max)
+	}
 	return {
 		kind: "when",
-		guard: {
-			kind: "within",
-			low: integer ? min : Money.of(min),
-			high: integer ? max : Money.of(max)
-		},
+		guard,
 		subject: r.desc,
-		proved: { kind: "cast", to: { kind: "pg", type: integer ? "bigint" : "money" }, arg: r.desc },
+		proved: {
+			kind: "cast",
+			to: { kind: "pg", type: integer ? "bigint" : "money" },
+			arg: guardedExpr(guard, r.desc)
+		},
 		otherwise: literalOf(integer ? "int8" : "money", 0)
 	}
 }

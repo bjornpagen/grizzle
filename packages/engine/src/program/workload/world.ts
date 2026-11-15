@@ -94,6 +94,7 @@ export const inlineWorlds = (query: QueryDesc, role: CheckedSchema): QueryDesc =
 			case "absent":
 				return { ...e, source: source(e.source), bindings: bindings(e.bindings) }
 			case "cast":
+			case "guarded":
 			case "base":
 			case "not":
 				return { ...e, arg: expr(e.arg) }
@@ -144,6 +145,7 @@ export const inlineWorlds = (query: QueryDesc, role: CheckedSchema): QueryDesc =
 			case "absent":
 			case "allen":
 			case "and":
+			case "guarded":
 			case "base":
 			case "between":
 			case "cast":

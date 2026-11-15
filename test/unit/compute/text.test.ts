@@ -55,7 +55,7 @@ import { regexMaxDepth } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
-import type { ExprDesc } from "#compiler/ir/desc.ts"
+import { type ExprDesc, type GuardDesc, guardedExpr } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { evaluateTable, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
@@ -740,14 +740,15 @@ describe("Compute's text terms", () => {
 									const longest = Arr.reduce(p.language.members, "", (a, m) =>
 										codePoints(m).length > codePoints(a).length ? m : a
 									)
+									const guard: GuardDesc = { kind: "matches", pattern: p.language.source }
 									const guarded = (literal: string): ExprDesc => ({
 										kind: "when",
-										guard: { kind: "matches", pattern: p.language.source },
+										guard,
 										subject: variable(subject),
 										proved: {
 											kind: "compare",
 											op: "eq",
-											left: variable(subject),
+											left: guardedExpr(guard, variable(subject)),
 											right: text(literal)
 										},
 										otherwise: { kind: "literal", value: false }

@@ -89,6 +89,9 @@ import {
 	type ChangeSetDesc,
 	type ClockedProgramDesc,
 	decodeDesc,
+	type ExprDesc,
+	type GuardDesc,
+	guardedExpr,
 	type QueryDesc
 } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -592,6 +595,8 @@ const queryOver = (
 		})
 	}
 	const [head, ...rest] = matches
+	const refinedMatch: GuardDesc = { kind: "matches", pattern: refinedPattern }
+	const text: ExprDesc = { kind: "var", var: "text" }
 	return decodedQuery({
 		kind: "rules",
 		arms: [
@@ -606,9 +611,9 @@ const queryOver = (
 					id: { kind: "var", var: "x0" },
 					refined: {
 						kind: "when",
-						guard: { kind: "matches", pattern: refinedPattern },
-						subject: { kind: "var", var: "text" },
-						proved: { kind: "cast", to: refined, arg: { kind: "var", var: "text" } },
+						guard: refinedMatch,
+						subject: text,
+						proved: { kind: "cast", to: refined, arg: guardedExpr(refinedMatch, text) },
 						otherwise: { kind: "literal", value: "a", type: refined }
 					}
 				},

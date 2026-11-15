@@ -1,8 +1,8 @@
 diff --git a/packages/engine/src/core/canonical.ts b/packages/engine/src/core/canonical.ts
-index e5cb26a1..068714f1 100644
+index 9bb0817f..e4f02d74 100644
 --- a/packages/engine/src/core/canonical.ts
 +++ b/packages/engine/src/core/canonical.ts
-@@ -929,11 +929,21 @@ const encodeWalk = (value: unknown, options: EncodeOptions): Result.Result<strin
+@@ -1006,11 +1006,21 @@ const encodeWalk = (value: unknown, options: EncodeOptions): Result.Result<strin
  		if (value === undefined) {
  			return refuseValue([], "a value, not undefined")
  		}
@@ -12,7 +12,7 @@ index e5cb26a1..068714f1 100644
 +			return memo
 +		}
  		const sink = new TextSink()
- 		new Walk(options, sink).of(value)
+ 		new Walk(options, sink, canonicalOf).of(value)
 +		if (remembered) {
 +			frozenTexts.set(value, sink.text())
 +		}

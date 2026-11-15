@@ -1,5 +1,5 @@
 /** The payroll ledger fixture as a SchemaDesc: the Payroll schema, its relations, rosters, contracts and laws. */
-import type { SchemaDesc } from "#compiler/ir/desc.ts"
+import { type GuardDesc, guardedExpr, type SchemaDesc } from "#compiler/ir/desc.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
 	type AuthoredStatementDesc,
@@ -134,6 +134,9 @@ const Timesheet = relation(
 	["employee", "week"]
 )
 
+/** The guard that a shift's width fits a bigint. */
+const shiftWidthFits: GuardDesc = { kind: "within", low: 0n, high: 9223372036854775807n }
+
 /** A shift, whose `hours` PostgreSQL generates from its span: its width (fin.md §6, "duration"). */
 const Shift = relation(
 	"Shift",
@@ -144,12 +147,16 @@ const Shift = relation(
 		status: f.closedId("ShiftStatus"),
 		hours: f.generated(f.bigint, {
 			kind: "when",
-			guard: { kind: "within", low: 0n, high: 9223372036854775807n },
+			guard: shiftWidthFits,
 			subject: { kind: "compute", fn: "width", args: [field("during")] },
 			proved: {
 				kind: "cast",
 				to: f.bigint,
-				arg: { kind: "compute", fn: "width", args: [field("during")] }
+				arg: guardedExpr(shiftWidthFits, {
+					kind: "compute",
+					fn: "width",
+					args: [field("during")]
+				})
 			},
 			otherwise: literal(0n)
 		})

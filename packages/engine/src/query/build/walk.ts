@@ -2,6 +2,7 @@ import { mapNonEmpty } from "#compiler/core/nonempty.ts"
 import {
 	type BindingsDesc,
 	type ExprDesc,
+	guardedExpr,
 	type HeadTermDesc,
 	type MatchDesc,
 	mapProducer,
@@ -82,6 +83,8 @@ export const spellExpr = (e: OpenExpr, s: Spellings): ExprDesc => {
 			return { kind: "cast", to: e.to, arg: spellExpr(e.arg, s) }
 		case "base":
 			return { kind: "base", arg: spellExpr(e.arg, s) }
+		case "guarded":
+			return guardedExpr(e.guard, spellExpr(e.arg, s))
 		case "not":
 			return { kind: "not", arg: spellExpr(e.arg, s) }
 		case "cond":

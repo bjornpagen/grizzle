@@ -1969,6 +1969,7 @@ const baseLeaves = (
 			case "not":
 			case "cast":
 			case "in":
+			case "guarded":
 				return { ...d, arg: walk(d.arg) }
 			case "cond":
 				return { ...d, pred: walk(d.pred), onTrue: walk(d.onTrue), onFalse: walk(d.onFalse) }

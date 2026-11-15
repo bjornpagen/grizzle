@@ -616,6 +616,7 @@ const negatesBelow = (e: InferredExpr): boolean => {
 		case "closedHas":
 			return e.args.some(negatesBelow)
 		case "cast":
+		case "guarded":
 		case "base":
 		case "not":
 		case "in":

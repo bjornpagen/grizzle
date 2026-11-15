@@ -2275,6 +2275,7 @@ export const mentions = (e: ExprDesc, field: string): boolean => {
 		case "or":
 			return e.args.some((a) => mentions(a, field))
 		case "cast":
+		case "guarded":
 		case "base":
 		case "not":
 		case "in":

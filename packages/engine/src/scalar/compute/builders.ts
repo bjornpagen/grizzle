@@ -15,6 +15,7 @@ import {
 	decodeDesc,
 	type ExprDesc,
 	type FieldDesc,
+	guardedExpr,
 	type LiteralDesc,
 	type ScaledComputeFn
 } from "#compiler/ir/desc.ts"
@@ -954,32 +955,38 @@ const replaceWhitespace = (x: unknown, extra: ReadonlyArray<unknown>): PlainChec
 }
 
 /**
- * A guard's predicate value, registered with its guard and its subject term, holding under `guarded` the term its
- * Compute.when branch receives: the subject's expression, carried by `carrier`, which a guard refines inside the branch.
+ * A guard's predicate value, registered with its guard, its subject term and its branch's parameter, which it holds
+ * under `guarded`: the term its Compute.when branch receives, carried by `carrier`. A guard that refines its subject
+ * hands the branch the subject as a guarded node of its guard (ir/desc.ts guardedExpr), the one term the guard refines
+ * inside the branch; a test that refines nothing hands it the subject itself.
  */
 const guardValue = <T, S extends SqlTag>(
 	parts: GuardParts,
 	carrier: TermCarrier<T, S>
-): GuardValue<ScalarTerm<T, S>> =>
-	registerGuard(
-		Object.freeze({
-			...builtMark,
-			predicate: true,
-			expr: parts.expr,
-			[guarded]: scalarTerm(parts.real, parts.type, carrier)
-		}),
+): GuardValue<ScalarTerm<T, S>> => {
+	const parameter = scalarTerm(
+		parts.guardTest.kind === "refines"
+			? guardedExpr(parts.guardTest.guard, parts.real)
+			: parts.real,
+		parts.type,
+		carrier
+	)
+	return registerGuard(
+		Object.freeze({ ...builtMark, predicate: true, expr: parts.expr, [guarded]: parameter }),
 		parts.expr,
 		parts.guardTest,
-		parts.subject
+		parts.subject,
+		parameter
 	)
+}
 
 const guardRequired =
 	"a guard a Compute guard builder made: Compute.nonzero, Compute.nonnegative, Compute.positive, Compute.isFinite, Compute.within or Compute.matches of a literal pattern"
 
 /**
- * Compute.when: the one guard of a partial operation, over the branch its function of the guard's subject built from
- * the term the guard refines; CASE WHEN <guard> THEN <branch> ELSE <otherwise> END, so the branch is computed only where
- * the guard holds, and the other branch is the caller's value for the rest.
+ * Compute.when: the one guard of a partial operation, over the branch its function built from the guard's parameter,
+ * the one term the guard refines; CASE WHEN <guard> THEN <branch> ELSE <otherwise> END, so the branch is computed only
+ * where the guard holds, and the other branch is the caller's value for the rest.
  */
 const when = (guard: unknown, branch: unknown, otherwise: unknown): CarriedChecked => {
 	const call = new Call("Compute.when")
@@ -1275,7 +1282,7 @@ export const compute = Object.freeze({
 		then: TermCarrier<T, S>,
 		otherwise: unknown
 	): ScalarTerm<T, S> => carried(checks.cond(p, then, otherwise), then),
-	/** The branch is the term the caller's function built from the guard's `guarded` term (public/compute.ts). */
+	/** The branch is the term the caller's function built from the guard's parameter (public/compute.ts). */
 	when: <T, S extends SqlTag>(
 		guard: unknown,
 		branch: TermCarrier<T, S>,
@@ -1396,10 +1403,10 @@ export const computeCore = Object.freeze({
 		const checked = checks.cond(p, then, otherwise)
 		return scalarTerm(checked.expr, checked.type, checked.carrier)
 	},
-	/** A JavaScript caller's branch: its function, applied to the guard's subject. */
+	/** A JavaScript caller's branch: its function, applied to the guard's parameter. */
 	when: (guard: unknown, then: unknown, otherwise: unknown): ScalarTerm => {
-		const subject = guardOf(guard)?.subject
-		if (subject === undefined) {
+		const parameter = guardOf(guard)?.parameter
+		if (parameter === undefined) {
 			return malformed(captureLoc("Compute.when", []), guardRequired)
 		}
 		if (typeof then !== "function") {
@@ -1408,7 +1415,7 @@ export const computeCore = Object.freeze({
 				"a function of the guarded subject as when's branch"
 			)
 		}
-		const branch: unknown = Reflect.apply(then, undefined, [subject])
+		const branch: unknown = Reflect.apply(then, undefined, [parameter])
 		const checked = checks.when(guard, branch, otherwise)
 		return scalarTerm(checked.expr, checked.type, checked.carrier)
 	},

@@ -1,13 +1,13 @@
 diff --git a/packages/engine/src/ir/desc.ts b/packages/engine/src/ir/desc.ts
-index e2fb9d03..dfc33d26 100644
+index fadf5278..dcba4fb1 100644
 --- a/packages/engine/src/ir/desc.ts
 +++ b/packages/engine/src/ir/desc.ts
-@@ -2878,7 +2878,7 @@ export const declaredNameAt = (
- 
- /** The JSON form, source locations included: what crosses a process boundary. */
+@@ -2919,7 +2919,7 @@ export const declaredNameAt = (
+  * subject.
+  */
  export const descToJson = (desc: unknown): Result.Result<Json, CompileError> =>
--	toJson(desc, everyProperty)
-+	toJson(desc, { omit: (key) => key === "dir" })
+-	transportJson(desc, everyProperty)
++	transportJson(desc, { omit: (key) => key === "dir" })
  
  const identityOptions: EncodeOptions = { omit: omitSourceLocs }
  

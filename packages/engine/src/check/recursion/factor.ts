@@ -46,6 +46,7 @@ const substExpr = (e: ResolvedExpr, s: Subst): ResolvedExpr => {
 		case "or":
 			return { ...e, args: mapNonEmpty(e.args, sub) }
 		case "cast":
+		case "guarded":
 		case "base":
 		case "not":
 		case "in":

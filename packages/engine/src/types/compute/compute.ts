@@ -759,9 +759,10 @@ export interface ComputeApi {
 	/**
 	 * The one guard of a partial operation: CASE WHEN <guard> THEN <branch> ELSE <otherwise> END. The branch is a
 	 * function of the guard's subject, which it receives with the guard's facts proved, so a partial operation over it
-	 * type-checks inside the branch and nowhere else; the otherwise branch, a term that meets the branch's type or a
-	 * literal of it, is the caller's value where the guard fails: Compute.when(Compute.nonzero(b), (b) => Compute.div(a,
-	 * b), 0n). The subject is read off the guard itself, so a guard its builder refused, never (Admitted), hands the
+	 * type-checks inside the branch and nowhere else, and only over the parameter: the subject read past it, a term the
+	 * branch captures, keeps its own facts, as compilation reads it; the otherwise branch, a term that meets the
+	 * branch's type or a literal of it, is the caller's value where the guard fails: Compute.when(Compute.nonzero(b),
+	 * (b) => Compute.div(a, b), 0n). The subject is read off the guard itself, so a guard its builder refused, never (Admitted), hands the
 	 * branch never, and the refusal is its one diagnostic. Its branch and its otherwise share one type (SharesType), so an
 	 * exact quotient beside an integer otherwise is refused: cast the quotient into the integer's type.
 	 */

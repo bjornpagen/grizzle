@@ -14,9 +14,11 @@ export interface PredicateValue extends Built {
 }
 
 /**
- * The key a guard holds the term its Compute.when branch receives under: the guard's subject, which the guard refines
- * inside the branch. The public barrel exports no key, so only Compute.when hands it out, to its branch's function, and
- * compilation proves its facts only inside the branch (a copy used elsewhere is refused, PartialOperation).
+ * The key a guard holds the term its Compute.when branch receives under: the branch's parameter, the guard's subject as
+ * a guarded node of the guard (ir/desc.ts guardedExpr), the one term the guard refines inside the branch. The public
+ * barrel exports no key, so only Compute.when hands it out, to its branch's function, and compilation proves its facts
+ * only inside the branch: the subject read past the parameter keeps its own facts, and a copy of the parameter used
+ * elsewhere is refused (PartialOperation).
  */
 export const guarded: unique symbol = Symbol("grizzle.guarded")
 
@@ -97,6 +99,7 @@ type Registered =
 			readonly expr: OpenExpr
 			readonly guardTest: GuardTest
 			readonly subject: object
+			readonly parameter: object
 	  }
 	| { readonly kind: "head"; readonly desc: OpenHead; readonly typing: Typing }
 
@@ -175,9 +178,10 @@ export const registerPredicate = <V extends Built>(value: V, expr: OpenExpr): V 
 }
 
 /**
- * What a guard's branch knows of its subject: what its builder's test establishes there (GuardDesc), or nothing, the
- * test of a match against a pattern term, whose values hold no one language. Compute.when over the second is a
- * conditional over its test.
+ * What a guard's branch knows of its parameter: what its builder's test establishes of the subject (GuardDesc), which
+ * the parameter, a guarded node of that guard, holds; or nothing, the test of a match against a pattern term, whose
+ * values hold no one language, whose parameter is the subject itself. Compute.when over the second is a conditional
+ * over its test.
  */
 export type GuardTest =
 	| { readonly kind: "refines"; readonly guard: GuardDesc }
@@ -185,25 +189,28 @@ export type GuardTest =
 
 /**
  * A guard a Compute guard builder made (Compute.nonzero and its kin): a predicate, `expr`, that Compute.when also reads
- * as its guard over `subject`, the term it refines.
+ * as its guard over `subject`, and `parameter`, the term its branch receives, the one the guard refines there.
  */
 export const registerGuard = <V extends Built>(
 	value: V,
 	expr: OpenExpr,
 	guardTest: GuardTest,
-	subject: object
+	subject: object,
+	parameter: object
 ): V => {
-	registered.set(value, { kind: "guard", expr, guardTest, subject })
+	registered.set(value, { kind: "guard", expr, guardTest, subject, parameter })
 	return value
 }
 
-/** A guard's test and its subject, where `value` is a guard a builder made. */
+/** A guard's test, its subject and its branch's parameter, where `value` is a guard a builder made. */
 export const guardOf = (
 	value: unknown
-): { readonly guardTest: GuardTest; readonly subject: object } | undefined => {
+):
+	| { readonly guardTest: GuardTest; readonly subject: object; readonly parameter: object }
+	| undefined => {
 	const entry = registeredOf(value)
 	return entry?.kind === "guard"
-		? { guardTest: entry.guardTest, subject: entry.subject }
+		? { guardTest: entry.guardTest, subject: entry.subject, parameter: entry.parameter }
 		: undefined
 }
 

@@ -2,7 +2,7 @@ import { malformedDescription } from "#compiler/core/errors.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Engine from "#compiler/core/result.ts"
-import type { ExprDesc } from "#compiler/ir/desc.ts"
+import { type ExprDesc, type GuardDesc, guardedExpr } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import {
@@ -41,18 +41,25 @@ const paddingDesc = (p: Padding, name: (v: Var) => string): ExprDesc => {
 	const type = p.arg.field.type
 	const arg: ExprDesc = { kind: "var", var: name(p.arg) }
 	const [low, high] = paddingBounds(type)
+	const guard: GuardDesc = {
+		kind: "within",
+		low: typedLiteralDesc(low, type),
+		high: typedLiteralDesc(high, type)
+	}
 	return {
 		kind: "when",
-		guard: {
-			kind: "within",
-			low: typedLiteralDesc(low, type),
-			high: typedLiteralDesc(high, type)
-		},
+		guard,
 		subject: arg,
 		proved: {
 			kind: "compute",
 			fn: "numeric",
-			args: [{ kind: "cast", to: { kind: "numeric", precision: 1000, scale: p.scale }, arg }]
+			args: [
+				{
+					kind: "cast",
+					to: { kind: "numeric", precision: 1000, scale: p.scale },
+					arg: guardedExpr(guard, arg)
+				}
+			]
 		},
 		otherwise: { kind: "compute", fn: "numeric", args: [arg] }
 	}
@@ -97,22 +104,31 @@ export const termDesc = (t: ComputedTerm, name: (v: Var) => string): ExprDesc =>
 				kind: "when",
 				guard: { kind: "nonnegative" },
 				subject: radicand,
-				proved: { kind: "compute", fn: "sqrt", args: [radicand] },
+				proved: {
+					kind: "compute",
+					fn: "sqrt",
+					args: [guardedExpr({ kind: "nonnegative" }, radicand)]
+				},
 				otherwise: literalDesc(unguarded, numeric)
 			}
 		}
 		case "power": {
 			const base = argDesc(t.base, name)
 			const [low, high] = powerBounds
+			const guard: GuardDesc = {
+				kind: "within",
+				low: typedLiteralDesc(low, numeric),
+				high: typedLiteralDesc(high, numeric)
+			}
 			return {
 				kind: "when",
-				guard: {
-					kind: "within",
-					low: typedLiteralDesc(low, numeric),
-					high: typedLiteralDesc(high, numeric)
-				},
+				guard,
 				subject: base,
-				proved: { kind: "compute", fn: "power", args: [base, literalDesc(t.exponent, numeric)] },
+				proved: {
+					kind: "compute",
+					fn: "power",
+					args: [guardedExpr(guard, base), literalDesc(t.exponent, numeric)]
+				},
 				otherwise: literalDesc(unguarded, numeric)
 			}
 		}

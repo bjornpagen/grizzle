@@ -79,6 +79,8 @@ const absents = (e: ResolvedExpr, loc: SourceLoc): ReadonlyArray<Absent> => {
 		case "not":
 		case "in":
 			return sub(e.arg, "arg")
+		case "guarded":
+			return absents(e.arg, loc)
 		case "cond":
 			return [...sub(e.pred, "pred"), ...sub(e.onTrue, "onTrue"), ...sub(e.onFalse, "onFalse")]
 		case "when":

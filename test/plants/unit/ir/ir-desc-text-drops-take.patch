@@ -1,10 +1,10 @@
 diff --git a/packages/engine/src/ir/desc.ts b/packages/engine/src/ir/desc.ts
-index e2fb9d03..37e92c87 100644
+index fadf5278..4d18b45a 100644
 --- a/packages/engine/src/ir/desc.ts
 +++ b/packages/engine/src/ir/desc.ts
-@@ -2880,7 +2880,7 @@ export const declaredNameAt = (
+@@ -2921,7 +2921,7 @@ export const declaredNameAt = (
  export const descToJson = (desc: unknown): Result.Result<Json, CompileError> =>
- 	toJson(desc, everyProperty)
+ 	transportJson(desc, everyProperty)
  
 -const identityOptions: EncodeOptions = { omit: omitSourceLocs }
 +const identityOptions: EncodeOptions = { omit: (key, value) => omitSourceLocs(key, value) || key === "k" }

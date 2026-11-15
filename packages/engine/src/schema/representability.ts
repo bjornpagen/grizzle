@@ -390,6 +390,7 @@ export const lengthBound = (measure: LengthMeasure, predicate: ExprDesc): number
 		case "literal":
 		case "compute":
 		case "cast":
+		case "guarded":
 		case "base":
 		case "cond":
 		case "when":

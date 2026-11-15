@@ -640,8 +640,8 @@ The command line's own refusals, by stage:
 - Join patterns a text must all match, XML Schema's pattern facets among them, with
   `str.and(str.regex(p), str.regex(q))`, never one regex you intersect by hand: each pattern is held to PostgreSQL's
   limits alone and its domain tests each in turn, so a conjunction costs the sum of its patterns, never their product,
-  and its host type is theirs intersected. Inside `Compute.when(Compute.matches(x, p), …)` the subject is text of its
-  own patterns and `p` together, so nested matches prove a cast into a conjunction.
+  and its host type is theirs intersected. Inside `Compute.when(Compute.matches(x, p), (x) => …)` the branch's
+  parameter is text of its own patterns and `p` together, so nested matches prove a cast into a conjunction.
 - Write a `str.regex` or `Compute.pattern` source in JavaScript's syntax under `u`, with no lookahead or lookbehind,
   `\p{…}` or `\P{…}`, `\s` or `\S`, `\b` or `\B`, backreference, named group, inline modifier, lazy quantifier or
   repetition bound above 255, and with some text it matches. TypeScript accepts each of these, but the relation,

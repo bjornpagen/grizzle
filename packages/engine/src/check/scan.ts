@@ -68,6 +68,7 @@ const exprLeaves = <P extends object, T, D extends InferredFieldDesc>(
 			}
 			return
 		case "cast":
+		case "guarded":
 		case "base":
 		case "not":
 		case "in":

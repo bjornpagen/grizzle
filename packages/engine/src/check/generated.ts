@@ -37,6 +37,7 @@ const subterms = (e: ExprDesc): ReadonlyArray<ExprDesc> => {
 		case "closedHas":
 			return e.args
 		case "cast":
+		case "guarded":
 		case "base":
 		case "not":
 		case "in":
@@ -75,6 +76,7 @@ const foreignKind = (e: ExprDesc): ForeignKind | undefined => {
 		case "closedRow":
 		case "closedHas":
 		case "cast":
+		case "guarded":
 		case "base":
 		case "not":
 		case "in":

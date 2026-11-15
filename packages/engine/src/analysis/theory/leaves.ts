@@ -23,6 +23,7 @@ export const mapLeaves = (e: InferredExpr, leaves: LeafRewrite): InferredExpr =>
 		case "compute":
 			return { ...e, args: e.args.map(m) }
 		case "cast":
+		case "guarded":
 		case "base":
 			return { ...e, arg: m(e.arg) }
 		case "cond":
@@ -88,6 +89,7 @@ export const boundIn = (
 		case "compute":
 			return { ...e, args: e.args.map(m) }
 		case "cast":
+		case "guarded":
 		case "base":
 		case "not":
 		case "in":

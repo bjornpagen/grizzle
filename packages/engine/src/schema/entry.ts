@@ -179,6 +179,7 @@ const exprVars = (e: ExprDesc, into: Set<string>): void => {
 			}
 			return
 		case "cast":
+		case "guarded":
 		case "base":
 		case "not":
 		case "in":

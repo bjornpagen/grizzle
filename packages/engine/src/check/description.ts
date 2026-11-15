@@ -232,6 +232,9 @@ class Structure {
 			case "in":
 				sub(e.arg, "arg")
 				return
+			case "guarded":
+				this.expr(e.arg, vars, interiors, cx, loc)
+				return
 			case "cond":
 				sub(e.pred, "pred")
 				sub(e.onTrue, "onTrue")

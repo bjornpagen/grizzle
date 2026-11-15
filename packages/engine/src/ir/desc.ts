@@ -10,7 +10,9 @@ import {
 	floatSpecialNames,
 	type Json,
 	omitSourceLocs,
-	toJson
+	type StandIn,
+	standInTag,
+	transportJson
 } from "#compiler/core/canonical.ts"
 import { clockUnits } from "#compiler/core/clock.ts"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
@@ -317,11 +319,11 @@ export type InferredRule = RuleDesc<Located, Inferred>
 export type InferredSource = SourceDesc<Located, Inferred>
 
 /**
- * What a Compute.when guard tests of its subject and so establishes inside its then branch: never zero, never below
- * zero, above zero (both), never NaN or an infinity, within two literal bounds (and so finite), or a match of a
- * literal pattern. The first four are facts a term's TypeScript type states; within states an interval, which no type
- * does (scalar/compute/bounds.ts); matches retypes a text subject as text of the pattern's language, the type
- * str.regex(pattern) declares, the pattern read under the flags "u" (scalar/regex/matcher.ts matchFlags).
+ * What a Compute.when guard tests of its subject and so establishes of its parameter inside its then branch: never
+ * zero, never below zero, above zero (both), never NaN or an infinity, within two literal bounds (and so finite), or a
+ * match of a literal pattern. The first four are facts a term's TypeScript type states; within states an interval,
+ * which no type does (scalar/compute/bounds.ts); matches retypes a text subject as text of the pattern's language, the
+ * type str.regex(pattern) declares, the pattern read under the flags "u" (scalar/regex/matcher.ts matchFlags).
  */
 export type GuardDesc =
 	| { readonly kind: "nonzero" }
@@ -332,9 +334,34 @@ export type GuardDesc =
 	| { readonly kind: "matches"; readonly pattern: string }
 
 /**
+ * A Compute.when branch's parameter: `arg`, the when's subject, read where the when's `guard` holds of it, so the
+ * lowering gives it what the guard establishes inside the when's branch (scalar/compute/lower.ts guarded). It stands
+ * in for `arg` (core/canonical.ts standInTag): its identity text, digests, names and SQL are arg's, and only the JSON
+ * form a Description crosses a process boundary in (descToJson) writes it, so a decode restores it.
+ */
+export interface GuardedDesc<L = Located, R extends Refs = Spelled> extends StandIn<"arg"> {
+	readonly kind: "guarded"
+	readonly guard: GuardDesc
+	readonly arg: ExprDesc<L, R>
+}
+
+/**
+ * The parameter of a Compute.when of `guard` over the subject `arg`: arg, guarded (GuardedDesc), a node like any other,
+ * frozen with the description that holds it.
+ */
+export const guardedExpr = <L, R extends Refs>(
+	guard: GuardDesc,
+	arg: ExprDesc<L, R>
+): GuardedDesc<L, R> => ({ kind: "guarded", guard, arg, [standInTag]: "arg" })
+
+/**
  * Terms and predicates in one vocabulary: one builder serves contract predicates, row checks,
  * query filters and computed outputs. `when` is the one guard of a partial operation: its then branch is computed
- * only where its guard holds of its subject, and every occurrence of the subject there has what the guard establishes.
+ * only where its guard holds of its subject, and the branch's parameter, a `guarded` node of the guard over the subject
+ * (guardedExpr), is the one term there that has what the guard establishes; an occurrence of the subject read past the
+ * parameter keeps its own facts, as TypeScript, which narrows a callback's parameter and never a term it captures,
+ * types it. A `guarded` node is a proof's alone: it computes, prints and hashes as its `arg` (a stand-in,
+ * core/canonical.ts standInTag), so a Description's identity text, digests and SQL are its subject's.
  */
 export type ExprDesc<L = Located, R extends Refs = Spelled> =
 	| R["leaf"]
@@ -354,6 +381,7 @@ export type ExprDesc<L = Located, R extends Refs = Spelled> =
 	  }
 	| { readonly kind: "cast"; readonly to: FieldDesc; readonly arg: ExprDesc<L, R> }
 	| { readonly kind: "base"; readonly arg: ExprDesc<L, R> }
+	| GuardedDesc<L, R>
 	| {
 			readonly kind: "cond"
 			readonly pred: ExprDesc<L, R>
@@ -753,6 +781,7 @@ export const conjunctsOf = (predicate: ExprDesc): ReadonlyArray<ExprDesc> => {
 		case "compute":
 		case "cast":
 		case "base":
+		case "guarded":
 		case "cond":
 		case "when":
 		case "compare":
@@ -1419,6 +1448,7 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 				return { ...e, args: e.args.map((a) => this.expr(a)) }
 			case "cast":
 			case "base":
+			case "guarded":
 			case "not":
 			case "in":
 				return { ...e, arg: this.expr(e.arg) }
@@ -1630,6 +1660,15 @@ const computeCases: {
 	singleton: unscaledCompute
 }
 
+const guardDescShape: S.Shape<GuardDesc> = S.tagged("kind", {
+	nonzero: S.struct({}),
+	nonnegative: S.struct({}),
+	positive: S.struct({}),
+	finite: S.struct({}),
+	within: S.struct({ low: literalDescShape, high: literalDescShape }),
+	matches: S.struct({ pattern: S.string })
+})
+
 const exprCases = {
 	var: S.struct({ var: name }),
 	field: S.struct({ field: name }),
@@ -1651,15 +1690,9 @@ const exprCases = {
 		onTrue: S.ref("an expression", () => exprDescShape),
 		onFalse: S.ref("an expression", () => exprDescShape)
 	}),
+	guarded: S.struct({ guard: guardDescShape, arg: S.ref("an expression", () => exprDescShape) }),
 	when: S.struct({
-		guard: S.tagged("kind", {
-			nonzero: S.struct({}),
-			nonnegative: S.struct({}),
-			positive: S.struct({}),
-			finite: S.struct({}),
-			within: S.struct({ low: literalDescShape, high: literalDescShape }),
-			matches: S.struct({ pattern: S.string })
-		}),
+		guard: guardDescShape,
 		subject: S.ref("an expression", () => exprDescShape),
 		proved: S.ref("an expression", () => exprDescShape),
 		otherwise: S.ref("an expression", () => exprDescShape)
@@ -1714,22 +1747,26 @@ const exprCases = {
 } as const
 
 /**
- * An expression as the decoder reads it, before it parses a connective: an and or or of any number of operands, which
- * unitWhenEmpty parses into the expression it is.
+ * An expression as the decoder reads it, before it parses a connective or a parameter: an and or or of any number of
+ * operands, and a guarded node's guard and arg, which exprOfRead parses into the expression each is.
  */
 type ReadExpr =
-	| Exclude<ExprDesc, { readonly kind: "and" | "or" }>
+	| Exclude<ExprDesc, { readonly kind: "and" | "or" | "guarded" }>
 	| { readonly kind: "and"; readonly args: ReadonlyArray<ExprDesc> }
 	| { readonly kind: "or"; readonly args: ReadonlyArray<ExprDesc> }
+	| { readonly kind: "guarded"; readonly guard: GuardDesc; readonly arg: ExprDesc }
 
 /** A head term as the decoder reads it: a read expression, an aggregate or a producer. */
 type ReadHead = ReadExpr | Exclude<HeadTermDesc, ExprDesc>
 
 /**
  * A connective of operands as such, and an empty one as what its builder builds (connectiveExpr): its unit, the
- * constant true or false.
+ * constant true or false; a guarded node as the stand-in its constructor makes (guardedExpr).
  */
-const unitWhenEmpty = (e: ReadExpr): ExprDesc => {
+const exprOfRead = (e: ReadExpr): ExprDesc => {
+	if (e.kind === "guarded") {
+		return guardedExpr(e.guard, e.arg)
+	}
 	if (e.kind !== "and" && e.kind !== "or") {
 		return e
 	}
@@ -1742,7 +1779,7 @@ const exprDescShape: S.Shape<ExprDesc> = S.ref("an expression", () => exprDescBo
 /** The decoder exprDescShape refers to (S.ref). */
 const exprDescBody: S.Shape<ExprDesc> = S.normalized<ReadExpr, ExprDesc>(
 	S.tagged("kind", exprCases),
-	unitWhenEmpty
+	exprOfRead
 )
 
 /** A bind map's binding as the decoder reads it: a read expression, or a relation parameter by name. */
@@ -1750,7 +1787,7 @@ type ReadBound = ReadExpr | Exclude<BindTermDesc, ExprDesc>
 
 const bindTermDescShape: S.Shape<BindTermDesc> = S.normalized<ReadBound, BindTermDesc>(
 	S.tagged("kind", { ...exprCases, relationParam: S.struct({ name }) }),
-	(b) => (b.kind === "relationParam" ? b : unitWhenEmpty(b))
+	(b) => (b.kind === "relationParam" ? b : exprOfRead(b))
 )
 
 /** The decoder fieldDescShape refers to (S.ref). */
@@ -1826,7 +1863,7 @@ const headTermDescShape: S.Shape<HeadTermDesc> = S.normalized<ReadHead, HeadTerm
 			})
 		)
 	}),
-	(h) => (h.kind === "aggregate" || h.kind === "producer" ? h : unitWhenEmpty(h))
+	(h) => (h.kind === "aggregate" || h.kind === "producer" ? h : exprOfRead(h))
 )
 
 const fieldMapShape = S.recordShape(fieldDescShape, name)
@@ -2955,9 +2992,13 @@ export const declaredNameAt = (
 	value: unknown
 ): Result.Result<string, CompileError> => S.decodeAt(name, value, subjects[kind], keys)
 
-/** The JSON form, source locations included: what crosses a process boundary. */
+/**
+ * The JSON form, source locations included: what crosses a process boundary, and decodes as the Description it was, a
+ * guarded node as itself (core/canonical.ts transportJson). Its identity text is descText's, which reads the node as its
+ * subject.
+ */
 export const descToJson = (desc: unknown): Result.Result<Json, CompileError> =>
-	toJson(desc, everyProperty)
+	transportJson(desc, everyProperty)
 
 const identityOptions: EncodeOptions = { omit: omitSourceLocs }
 

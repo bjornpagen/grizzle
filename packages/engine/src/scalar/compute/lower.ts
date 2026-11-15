@@ -1,4 +1,4 @@
-import { canonicalTextOf, catchRefusal, Refusal } from "#compiler/core/canonical.ts"
+import { canonicalTextOf, catchRefusal, Refusal, sameContent } from "#compiler/core/canonical.ts"
 import {
 	CompileError,
 	type Guard,
@@ -238,6 +238,11 @@ export class Lowered implements Effects {
 	readonly volatility: Effects["volatility"]
 	readonly bounds: Bounds | undefined
 	readonly facts: FactSet
+	/**
+	 * The enclosing Compute.when guards whose parameter this value is (Lowering.guarded): what each establishes of it,
+	 * settled again wherever the value is restated, so a restatement of the parameter keeps it. None for any other value.
+	 */
+	readonly held: ReadonlyArray<WhenParameter>
 	readonly #nominal: ScalarType
 
 	constructor(
@@ -245,7 +250,8 @@ export class Lowered implements Effects {
 		nominal: ScalarType,
 		actual: ScalarType,
 		bounds: Bounds | undefined,
-		facts: FactSet
+		facts: FactSet,
+		held: ReadonlyArray<WhenParameter>
 	) {
 		this.expr = expr
 		this.#nominal = nominal
@@ -253,6 +259,7 @@ export class Lowered implements Effects {
 		this.volatility = expr.volatility
 		this.bounds = bounds
 		this.facts = facts
+		this.held = held
 	}
 
 	/** The type the caller's term has, as settle stated it and the guards the term stands under narrowed it. */
@@ -395,6 +402,8 @@ const partsUnder = <R extends Refs>(
 				...partsUnder(desc.onTrue, [...branches, "onTrue"]),
 				...partsUnder(desc.onFalse, [...branches, "onFalse"])
 			]
+		case "guarded":
+			return partsUnder(desc.arg, branches)
 		case "var":
 		case "field":
 		case "value":
@@ -1448,9 +1457,9 @@ type CastHow =
 	| { readonly kind: "coercion" }
 
 /**
- * A Compute.when guard the lowering stands in the branch of: its subject, and what it establishes of it there, the
- * refined interval and the facts a numeric guard states, or the language a match states, which retypes a text subject
- * as text of the pattern's language.
+ * What a Compute.when guard the lowering stands in the branch of establishes of a term there: the term, and the
+ * refined interval and the facts a numeric guard states, or the language a match states, which retypes a text term as
+ * text of the pattern's language.
  */
 type WhenGuard =
 	| {
@@ -1461,14 +1470,28 @@ type WhenGuard =
 	  }
 	| { readonly kind: "language"; readonly subject: ScalarExpr; readonly type: ScalarType }
 
+/**
+ * What a Compute.when establishes inside its branch, and where: of its parameter, what its guard tests of its subject,
+ * which only a guarded node of that guard over that subject holds (Lowering.guarded), and every restatement of one,
+ * since TypeScript narrows a branch's parameter and never a term the branch reads past it; or, where its subject is a
+ * text's byte count, Compute.octetLength(x), x within the guard's high end of bytes at every occurrence of x, a bound no
+ * TypeScript type states and which no parameter carries, since the branch's parameter is the count.
+ */
+type WhenScope =
+	| { readonly kind: "parameter"; readonly guard: GuardDesc; readonly holds: WhenGuard }
+	| { readonly kind: "occurrences"; readonly holds: WhenGuard }
+
+/** What a Compute.when establishes of its parameter (WhenScope). */
+type WhenParameter = Extract<WhenScope, { readonly kind: "parameter" }>
+
 class Lowering<R extends Refs> {
 	readonly env: LowerEnv<R>
-	/** The Compute.when guards whose branch the lowering stands in, innermost last. */
-	readonly #guards: ReadonlyArray<WhenGuard>
+	/** What the Compute.whens whose branch the lowering stands in establish there, outermost first. */
+	readonly #scope: ReadonlyArray<WhenScope>
 
-	constructor(env: LowerEnv<R>, guards: ReadonlyArray<WhenGuard>) {
+	constructor(env: LowerEnv<R>, scope: ReadonlyArray<WhenScope>) {
 		this.env = env
-		this.#guards = guards
+		this.#scope = scope
 	}
 
 	get check(): boolean {
@@ -1527,19 +1550,21 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * A lowered node with what is proved of it: the bounds and facts its type gives every value unless the caller states
-	 * what its computation proves, beside which it keeps its SQL type's own facts (carrierFacts), then refined by each
-	 * enclosing Compute.when guard whose subject this node is, a match
-	 * retyping it as text of its pattern's language. Bounds a computation does not prove are its type's own, so every
-	 * value of a carrier with a numeric domain stands with bounds, and a guard narrows it whatever its operands proved;
-	 * only a carrier with none (boundsOfType) stands without. A numeric bound past numeric's numericMaxIntegerDigits is
-	 * ResourceBound: every numeric expression's is known. A builder types its term and refuses only what is malformed;
-	 * the bound is compilation's, a typed refusal of the compile.
+	 * what its computation proves, beside which it keeps its SQL type's own facts (carrierFacts), then refined, outermost
+	 * first, by what each enclosing Compute.when establishes of it (WhenScope): the guard whose parameter it is, among
+	 * `held`, and the byte guard of a text it is an occurrence of, a match retyping it as text of its pattern's language.
+	 * Bounds a computation does not prove are its type's own, so every value of a carrier with a numeric domain stands
+	 * with bounds, and a guard narrows it whatever its operands proved; only a carrier with none (boundsOfType) stands
+	 * without. A numeric bound past numeric's numericMaxIntegerDigits is ResourceBound: every numeric expression's is
+	 * known. A builder types its term and refuses only what is malformed; the bound is compilation's, a typed refusal of
+	 * the compile.
 	 */
 	settle(
 		entry: ScalarExpr,
 		stated: ScalarType,
 		actual: ScalarType,
-		proved: { readonly bounds: Bounds | undefined; readonly facts: FactSet } | undefined
+		proved: { readonly bounds: Bounds | undefined; readonly facts: FactSet } | undefined,
+		held: ReadonlyArray<WhenParameter>
 	): Lowered {
 		let nominal = stated
 		let bounds = proved?.bounds ?? boundsOfType(nominal)
@@ -1547,10 +1572,13 @@ class Lowering<R extends Refs> {
 			proved === undefined
 				? factsOfType(nominal)
 				: Object.freeze({ ...carrierFacts(nominal), ...proved.facts })
-		for (const g of this.#guards) {
-			if (!sameExpr(g.subject, entry)) {
+		for (const scope of this.#scope) {
+			const holds =
+				scope.kind === "parameter" ? held.includes(scope) : sameExpr(scope.holds.subject, entry)
+			if (!holds) {
 				continue
 			}
+			const g = scope.holds
 			if (g.kind === "language") {
 				nominal = g.type
 				continue
@@ -1579,23 +1607,23 @@ class Lowering<R extends Refs> {
 				})
 			)
 		}
-		return new Lowered(entry, nominal, actual, bounds, facts)
+		return new Lowered(entry, nominal, actual, bounds, facts, held)
 	}
 
 	/**
 	 * `term` at the type `stated` and the SQL type `actual`, with its bounds and `facts`, settled again, so the guards
 	 * it stands under narrow the type the operation states: how an operation states the type of the term it makes or
 	 * passes on, a collapse's or a translation's language, a cast's target or a value's base, never by writing it after
-	 * settle.
+	 * settle. A parameter restated is the parameter still (held).
 	 */
 	restate(term: Lowered, stated: ScalarType, actual: ScalarType, facts: FactSet): Lowered {
-		return this.settle(term.expr, stated, actual, { bounds: term.bounds, facts })
+		return this.settle(term.expr, stated, actual, { bounds: term.bounds, facts }, term.held)
 	}
 
 	/** The node of `spec`, recorded: of its own type nominally and actually, its bounds and facts its type's. */
 	emit(spec: ExprSpec): Lowered {
 		const entry = this.env.emit(spec)
-		return this.settle(entry, entry.type, entry.type, undefined)
+		return this.settle(entry, entry.type, entry.type, undefined, [])
 	}
 
 	/**
@@ -1618,7 +1646,7 @@ class Lowering<R extends Refs> {
 	 */
 	emitAt(spec: ExprSpec, bounds: Bounds | undefined, facts: FactSet): Lowered {
 		const entry = this.env.emit(spec)
-		return this.settle(entry, entry.type, entry.type, { bounds, facts })
+		return this.settle(entry, entry.type, entry.type, { bounds, facts }, [])
 	}
 
 	/**
@@ -2043,15 +2071,21 @@ class Lowering<R extends Refs> {
 			nonNull: "literal"
 		})
 		if (n === undefined || point === undefined || boundsOfType(at) === undefined) {
-			return this.settle(entry, at, entry.type, undefined)
+			return this.settle(entry, at, entry.type, undefined, [])
 		}
-		return this.settle(entry, at, entry.type, {
-			bounds: point,
-			facts:
-				date === undefined
-					? Object.freeze({ ...factsOfType(at), ...factsOfValue(n) })
-					: factsOfType(at)
-		})
+		return this.settle(
+			entry,
+			at,
+			entry.type,
+			{
+				bounds: point,
+				facts:
+					date === undefined
+						? Object.freeze({ ...factsOfType(at), ...factsOfValue(n) })
+						: factsOfType(at)
+			},
+			[]
+		)
 	}
 
 	/**
@@ -2085,7 +2119,7 @@ class Lowering<R extends Refs> {
 		}
 		const { spec, type } = unwrap(params.lower(param, at))
 		const entry = this.env.emit(spec)
-		return this.settle(entry, type, entry.type, undefined)
+		return this.settle(entry, type, entry.type, undefined, [])
 	}
 
 	/**
@@ -2273,6 +2307,8 @@ class Lowering<R extends Refs> {
 				const arg = this.term(desc.arg, childLoc(at, "base"))
 				return this.restate(arg, valueType(arg.nominal), arg.actual, arg.facts)
 			}
+			case "guarded":
+				return this.guarded(desc, at)
 			case "cond":
 				return this.cond(desc, at)
 			case "when":
@@ -2466,7 +2502,7 @@ class Lowering<R extends Refs> {
 		return this.matchesOver(this.term(subjectDesc, childLoc(at, 0)), patternDesc, at)
 	}
 
-	/** Compute.matches over a subject already lowered: a guard's (whenGuard), or a call's (matches). */
+	/** Compute.matches over a subject already lowered: a guard's (whenScope), or a call's (matches). */
 	matchesOver(subject: Lowered, patternDesc: ExprDesc<Located, R>, at: SourceLoc): Lowered {
 		const pattern = this.textOperand("matches", subject, patternDesc, at)
 		const op = this.overload("matches", [subject.actual, pattern.actual], at)
@@ -3213,21 +3249,23 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * Compute.when, the one guard of a partial operation: CASE WHEN <the guard over the subject> THEN <then> ELSE
-	 * <otherwise> END, where every occurrence of the subject inside the then branch has what the guard establishes, its
-	 * facts and its refined interval. PostgreSQL evaluates a CASE result only where its WHEN holds, and drops unsimplified
-	 * the result a WHEN constant at plan time does not take (a parameter's), so the then branch never meets a value the
-	 * guard excludes. A guard refines only its own subject: a precondition over constants is proved by the constants
-	 * alone, never by a guard on something else, since PostgreSQL may fold a constant then branch at plan time.
+	 * <otherwise> END, where the branch's parameter, each guarded node of the guard over the subject inside the then
+	 * branch, has what the guard establishes, its facts and its refined interval (guarded); the subject read past the
+	 * parameter keeps its own, as TypeScript types it, which narrows a callback's parameter and never a term the callback
+	 * captures. PostgreSQL evaluates a CASE result only where its WHEN holds, and drops unsimplified the result a WHEN
+	 * constant at plan time does not take (a parameter's), so the then branch never meets a value the guard excludes. A
+	 * guard refines only its own parameter: a precondition over constants is proved by the constants alone, never by a
+	 * guard on something else, since PostgreSQL may fold a constant then branch at plan time.
 	 */
 	when(desc: Extract<ExprDesc<Located, R>, { readonly kind: "when" }>, at: SourceLoc): Lowered {
 		const here = childLoc(at, "when")
 		const subject = this.term(desc.subject, childLoc(here, "subject"))
 		const guard = this.guardPredicate(desc.guard, subject, here)
-		const guarded = new Lowering(this.env, [
-			...this.#guards,
-			...this.whenGuard(desc.guard, desc.subject, subject, guard.within, here)
+		const branch = new Lowering(this.env, [
+			...this.#scope,
+			...this.whenScope(desc.guard, desc.subject, subject, guard.within, here)
 		])
-		const onTrue = guarded.term(desc.proved, childLoc(here, "proved"))
+		const onTrue = branch.term(desc.proved, childLoc(here, "proved"))
 		const onFalse = this.branchOperand(desc.otherwise, onTrue, childLoc(here, "otherwise"))
 		if (!isBareLiteral(desc.otherwise)) {
 			this.exactBeside(onTrue, onFalse, childLoc(here, "otherwise"))
@@ -3236,39 +3274,71 @@ class Lowering<R extends Refs> {
 	}
 
 	/**
-	 * What a guard gives its subject inside its branch: a numeric guard its facts and refined interval, and where its
-	 * subject is a text's byte count, Compute.octetLength(x), that text within the interval's high end of bytes as well
-	 * (bytesGuard); a match the language of the subject's own patterns and the match's together, within the subject's
-	 * own byte bound: the type str.bytes(bound, str.and(subject, str.regex(pattern))) declares, without the bound where
-	 * the subject has none, and str.regex(pattern) alone where the subject is any text. A builder proves nothing, so in
-	 * its branch the subject keeps its type.
+	 * A Compute.when branch's parameter (ir/desc.ts GuardedDesc): its subject, with what each enclosing Compute.when of
+	 * its guard over that subject establishes there, which every restatement of it keeps (settle, `held`). Outside every
+	 * such when it is its subject with its own facts, so a copy of a parameter read past its branch proves nothing. The
+	 * node is a proof's alone: it records no node and no location of its own.
 	 */
-	whenGuard(
+	guarded(
+		desc: Extract<ExprDesc<Located, R>, { readonly kind: "guarded" }>,
+		at: SourceLoc
+	): Lowered {
+		const arg = this.term(desc.arg, at)
+		const whens = this.#scope.flatMap((scope) =>
+			scope.kind === "parameter" &&
+			sameContent(scope.guard, desc.guard) &&
+			sameExpr(scope.holds.subject, arg.expr)
+				? [scope]
+				: []
+		)
+		return this.settle(
+			arg.expr,
+			arg.nominal,
+			arg.actual,
+			{ bounds: arg.bounds, facts: arg.facts },
+			[...arg.held, ...whens]
+		)
+	}
+
+	/**
+	 * What a guard establishes inside its branch (WhenScope): of its parameter, a numeric guard's facts and refined
+	 * interval, or a match's language of the subject's own patterns and the match's together, within the subject's own
+	 * byte bound, the type str.bytes(bound, str.and(subject, str.regex(pattern))) declares, without the bound where the
+	 * subject has none, and str.regex(pattern) alone where the subject is any text; and where its subject is a text's
+	 * byte count, Compute.octetLength(x), x within the interval's high end of bytes at every occurrence of it
+	 * (bytesGuard). A builder proves nothing, so in its branch the subject keeps its type.
+	 */
+	whenScope(
 		guard: GuardDesc,
 		subjectDesc: ExprDesc<Located, R>,
 		subject: Lowered,
 		within: readonly [Exact, Exact] | undefined,
 		at: SourceLoc
-	): ReadonlyArray<WhenGuard> {
+	): ReadonlyArray<WhenScope> {
 		const env = this.env
 		if (guard.kind !== "matches") {
-			const facts: WhenGuard = {
-				kind: "facts",
-				subject: subject.expr,
-				refinement: guardRefinement(guard, within),
-				facts: guardFacts(guard, within)
+			const parameter: WhenScope = {
+				kind: "parameter",
+				guard,
+				holds: {
+					kind: "facts",
+					subject: subject.expr,
+					refinement: guardRefinement(guard, within),
+					facts: guardFacts(guard, within)
+				}
 			}
+			const counted = unguarded(subjectDesc)
 			if (
 				env.mode === "build" ||
 				within === undefined ||
-				subjectDesc.kind !== "compute" ||
-				subjectDesc.fn !== "octetLength"
+				counted.kind !== "compute" ||
+				counted.fn !== "octetLength"
 			) {
-				return [facts]
+				return [parameter]
 			}
-			const text = this.term(argOf(subjectDesc, 0, at), childLoc(at, "subject", 0))
+			const text = this.term(argOf(counted, 0, at), childLoc(at, "subject", 0))
 			const bytes = this.bytesGuard(text, within[1], env.patternLanguage, at)
-			return bytes === undefined ? [facts] : [facts, bytes]
+			return bytes === undefined ? [parameter] : [parameter, { kind: "occurrences", holds: bytes }]
 		}
 		if (env.mode === "build") {
 			return []
@@ -3283,7 +3353,7 @@ class Lowering<R extends Refs> {
 			env.patternLanguage,
 			childLoc(at, "pattern")
 		)
-		return [{ kind: "language", subject: subject.expr, type }]
+		return [{ kind: "parameter", guard, holds: { kind: "language", subject: subject.expr, type } }]
 	}
 
 	/**
@@ -4752,7 +4822,8 @@ const checkedKind = (e: ScalarExpr): "literal" | "parameter" | undefined =>
 
 /**
  * Whether two lowered expressions compute the same value the same way: one kind, one source, one overload, one literal
- * and the same arguments, each in turn. A guard refines exactly the occurrences of its subject.
+ * and the same arguments, each in turn: how a guarded node finds the Compute.when whose parameter it is, and a byte
+ * guard the occurrences of its text (WhenScope).
  */
 const sameExpr = (a: ScalarExpr, b: ScalarExpr): boolean => {
 	if (a === b) {
@@ -4839,6 +4910,10 @@ const compatibleCore = (a: ScalarType, b: ScalarType): boolean => meets(valueTyp
  */
 const isReference = <R extends Refs>(desc: ExprDesc<Located, R>): desc is LeafDesc<R> =>
 	desc.kind === "var" || desc.kind === "field" || desc.kind === "value" || desc.kind === "parent"
+
+/** A description read past its guarded nodes: the term a Compute.when branch's parameter is (ir/desc.ts GuardedDesc). */
+const unguarded = <R extends Refs>(desc: ExprDesc<Located, R>): ExprDesc<Located, R> =>
+	desc.kind === "guarded" ? unguarded(desc.arg) : desc
 
 const run = <R extends Refs>(
 	env: LowerEnv<R>,
@@ -4981,7 +5056,7 @@ export const intervalCastProof = (
 
 /** An expression another package built, lowered as it is: its type's bounds and facts, and nothing more. */
 export const loweredOf = (e: ScalarExpr): Lowered =>
-	new Lowered(e, e.type, e.type, boundsOfType(e.type), factsOfType(e.type))
+	new Lowered(e, e.type, e.type, boundsOfType(e.type), factsOfType(e.type), [])
 
 /** Lowers a predicate: a non-null SQL Boolean expression. */
 export const lowerPredicate = <R extends Refs>(
