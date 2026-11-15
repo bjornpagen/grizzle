@@ -15,15 +15,17 @@
  *   over its citations and its plants.
  * - Plan: the same trees, and either the changed target over a drawn history (each path's age, 0 for the working tree
  *   or none for a file no commit touched, and the files each plant's patch changes) or a set of names drawn among the
- *   tests, the plants and a test that cites nothing. Oracle: for changed, the citations whose plant no commit holds or
- *   whose newest watched change, its test's or a changed file's, is newer than the plant's own; for names, the
- *   citations each name picks; grouped by plant, and the names that pick none.
+ *   tests, the plants and a test that cites nothing. Oracle: for changed, the citations no drawn verdict is kept for;
+ *   for names, the citations each name picks; grouped by plant, and the names that pick none.
+ * - Keys: two citations' contents drawn over a small pool of paths and blobs, each file absent or a blob, the second
+ *   often a copy of the first with one part changed or its files in another order. Oracle: two keys are equal exactly
+ *   when the contents are, the files as a set.
  *
  * Features: for reading, a citation on its tag's line, a citation whose bug carries over the lines below, a one-line
  * citation, a tag naming no plant path, a tag naming no bug, and a tag spelled in code; for judgment, each finding
- * kind and a tree the check passes; for plans, a plant no commit holds, a citation due by its test, one due by a file
- * its plant changes alone, one nothing moved, a named test's plants, a named plant's tests, a plant two tests cite, and
- * a name that picks nothing.
+ * kind and a tree the check passes; for plans, a citation with a kept verdict, one with none, a named test's plants, a
+ * named plant's tests, a plant two tests cite, and a name that picks nothing; for keys, equal contents with the files in
+ * another order, and contents apart by the plant, the test, a file's blob or a file absent.
  *
  * @plant test/plants/unit/dev/plants-continuation-dropped.patch A tag's bug is read off its own line alone, so a
  * citation whose bug sits on the lines below it is malformed; the reading property fails.
@@ -35,10 +37,10 @@
  * judgment property fails.
  * @plant test/plants/unit/dev/plants-plan-test-unpicked.patch A named test picks none of its citations, so the plan
  * fails it as a name that picks nothing; the plan property fails.
- * @plant test/plants/unit/dev/plants-changed-files-unwatched.patch The changed target watches a citation's test alone,
- * never the files its plant changes, so a plant whose code moved is not retried; the plan property fails.
- * @plant test/plants/unit/dev/plants-changed-working-tree-skipped.patch The changed target takes a plant the working
- * tree changes for one a commit holds, so a plant never run at a commit is skipped; the plan property fails.
+ * @plant test/plants/unit/dev/plants-changed-kept-ignored.patch The changed target ignores the kept verdicts, so every
+ * citation runs again; the plan property fails.
+ * @plant test/plants/unit/dev/plants-key-files-dropped.patch A citation's key leaves out the files its plant changes,
+ * so a verdict outlives a change to the code it judged; the keys property fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -54,11 +56,11 @@ import {
 	findingsOf,
 	findingText,
 	planOf,
-	type Since,
 	type Targets,
 	type Tree,
 	type Trial
 } from "#scripts/dev/plants/tree.ts"
+import { type Blob, type Content, type Held, keyOf } from "#scripts/dev/plants/verdicts.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
@@ -483,34 +485,17 @@ type JudgmentFeature =
 /** A test that cites nothing, a name no citation answers to. */
 const NOWHERE = "test/unit/a/none.test.ts"
 
-/** Source files a plant's patch may change. */
-const PATCHED = [
-	"packages/engine/src/p.ts",
-	"packages/engine/src/q.ts",
-	"packages/engine/src/r.ts"
-] as const
-
-/** The ages a path may have: 0, the working tree, then the first, second and third newest commit. */
-const AGES = [0, 1, 2, 3] as const
-
 /**
- * A history over the pools: every plant and source an age, each changed file an age or none (no commit touched it), and
- * each plant of the pool the changed files its patch names.
+ * Verdicts kept over the pools: for each plant of the pool, the sources it has a verdict against, so some citations of
+ * a drawn tree have one and some none.
  */
-const sinceGen: Gen<Since> = (source) => ({
-	ages: new Map([
-		...Arr.map(
-			[...POOL, STRAY, ...SOURCES, NOWHERE],
-			(path) => [path, source.draw(element(AGES))] as const
-		),
-		...Arr.flatMap(PATCHED, (path) =>
-			source.draw(boolean) ? [[path, source.draw(element(AGES))] as const] : []
+const knownGen: Gen<ReadonlyMap<string, ReadonlySet<string>>> = (source) =>
+	new Map(
+		Arr.map(
+			POOL,
+			(plant) => [plant, new Set(source.draw(subset(SOURCES, { min: 0, max: 2 })))] as const
 		)
-	]),
-	patched: new Map(
-		Arr.map(POOL, (plant) => [plant, source.draw(subset(PATCHED, { min: 0, max: 2 }))] as const)
 	)
-})
 
 /** A drawn tree and what a run tries over it. */
 interface DrawnPlan {
@@ -522,7 +507,7 @@ const planGen: Gen<DrawnPlan> = (source) => ({
 	tree: source.draw(treeGen),
 	targets: source.draw(
 		weighted<Targets>([
-			[1, (s) => ({ kind: "changed", since: s.draw(sinceGen) })],
+			[1, (s) => ({ kind: "changed", known: s.draw(knownGen) })],
 			[
 				3,
 				(s) => ({
@@ -536,22 +521,6 @@ const planGen: Gen<DrawnPlan> = (source) => ({
 		])
 	)
 })
-
-/**
- * Whether the changed target retries a plant against a test, restated: unless the plant's age is a commit's, it never
- * ran at a commit; otherwise when the newest of its test's and its changed files' ages is newer than the plant's.
- */
-const statedDue = (since: Since, pair: Readonly<{ test: string; plant: string }>): boolean => {
-	const planted = since.ages.get(pair.plant)
-	const watched = Arr.flatMap([pair.test, ...(since.patched.get(pair.plant) ?? [])], (path) =>
-		Option.toArray(Option.fromUndefinedOr(since.ages.get(path)))
-	)
-	return (
-		planted === undefined ||
-		planted === 0 ||
-		(Arr.isReadonlyArrayNonEmpty(watched) && Arr.min(watched, Order.Number) < planted)
-	)
-}
 
 /** The plan a drawn tree and its targets state. */
 const statedPlan = (
@@ -574,7 +543,7 @@ const statedPlan = (
 	const targets = plan.targets
 	const picked =
 		targets.kind === "changed"
-			? Arr.filter(pairs, (pair) => statedDue(targets.since, pair))
+			? Arr.filter(pairs, (pair) => !(targets.known.get(pair.plant)?.has(pair.test) ?? false))
 			: Arr.filter(pairs, (pair) => Arr.some(targets.names, (name) => answers(name)(pair)))
 	return Result.succeed(
 		Arr.flatMap(
@@ -596,10 +565,8 @@ const statedPlan = (
 }
 
 type PlanFeature =
-	| "a plant no commit holds"
-	| "a citation due by its test"
-	| "a citation due by a file its plant changes alone"
-	| "a citation nothing moved"
+	| "a citation with a kept verdict"
+	| "a citation with none"
 	| "a named test's plants"
 	| "a named plant's tests"
 	| "a plant two tests cite"
@@ -612,28 +579,17 @@ const notePlan = (
 	c: Case<PlanFeature>
 ): void => {
 	if (plan.targets.kind === "changed") {
-		const { since } = plan.targets
-		const age = (path: string) => since.ages.get(path)
+		const { known } = plan.targets
 		Arr.forEach(plan.tree.sources, (drawnSource: DrawnSource) => {
-			if (!isTestPath(drawnSource.path)) {
-				return
-			}
-			Arr.forEach(drawnSource.cites, (plant) => {
-				const planted = age(plant)
-				const test = age(drawnSource.path)
-				const files = Arr.flatMap(since.patched.get(plant) ?? [], (path) =>
-					Option.toArray(Option.fromUndefinedOr(age(path)))
+			if (isTestPath(drawnSource.path)) {
+				Arr.forEach(drawnSource.cites, (plant) =>
+					c.note(
+						known.get(plant)?.has(drawnSource.path) === true
+							? "a citation with a kept verdict"
+							: "a citation with none"
+					)
 				)
-				if (planted === undefined || planted === 0) {
-					c.note("a plant no commit holds")
-				} else if (test !== undefined && test < planted) {
-					c.note("a citation due by its test")
-				} else if (Arr.some(files, (changed) => changed < planted)) {
-					c.note("a citation due by a file its plant changes alone")
-				} else {
-					c.note("a citation nothing moved")
-				}
-			})
+			}
 		})
 	} else {
 		if (Arr.some(plan.targets.names, isTestPath)) {
@@ -779,10 +735,8 @@ describe("planOf", () => {
 						literal: Formatter.format,
 						coverage: required<PlanFeature>(
 							[
-								"a plant no commit holds",
-								"a citation due by its test",
-								"a citation due by a file its plant changes alone",
-								"a citation nothing moved",
+								"a citation with a kept verdict",
+								"a citation with none",
 								"a named test's plants",
 								"a named plant's tests",
 								"a plant two tests cite",
@@ -802,6 +756,173 @@ describe("planOf", () => {
 							const stated = statedPlan(plan)
 							assert.deepEqual(planOf(treeOf(plan.tree), plan.targets), stated)
 							notePlan(plan, stated, c)
+						})
+				)
+			)
+	)
+})
+
+/** The blobs a drawn path may hold. */
+const BLOB_IDS = ["a1", "b2", "c3"] as const
+
+/** The files a drawn plant may change. */
+const CHANGED = [
+	"packages/engine/src/p.ts",
+	"packages/engine/src/q.ts",
+	"packages/engine/src/r.ts"
+] as const
+
+const blobGen: Gen<Blob> = (source) => ({ kind: "blob", id: source.draw(element(BLOB_IDS)) })
+
+/** A changed file's content: mostly a blob, sometimes absent (a file the plant creates). */
+const fileBlobGen: Gen<Blob> = weighted<Blob>([
+	[3, blobGen],
+	[1, () => ({ kind: "absent" })]
+])
+
+/** A citation's content over the pools: one plant and one test with blobs, and the files the plant changes. */
+const contentGen: Gen<Content> = (source) => ({
+	plant: ["test/plants/unit/a/x.patch", source.draw(blobGen)],
+	test: ["test/unit/a/one.test.ts", source.draw(blobGen)],
+	files: Arr.map(source.draw(subset(CHANGED, { min: 0, max: 3 })), (file): Held => [
+		file,
+		source.draw(fileBlobGen)
+	])
+})
+
+type KeyFeature =
+	| "equal contents, files in another order"
+	| "apart by the plant"
+	| "apart by the test"
+	| "apart by a file's blob"
+	| "apart by a file absent"
+
+/** Another blob than `blob`. */
+const otherBlob = (blob: Blob): Blob => ({
+	kind: "blob",
+	id: blob.kind === "blob" && blob.id === "a1" ? "b2" : "a1"
+})
+
+/** Two contents: the first drawn, the second drawn too or derived from it with one part changed, and how. */
+interface KeyCase {
+	readonly first: Content
+	readonly second: Content
+	readonly how: Option.Option<KeyFeature>
+}
+
+const keyCaseGen: Gen<KeyCase> = (source) => {
+	const first = source.draw(contentGen)
+	const changedFile = (change: (held: Held) => Held): Content => ({
+		...first,
+		files: Arr.map(first.files, (held, at) => (at === 0 ? change(held) : held))
+	})
+	return source.draw(
+		weighted<KeyCase>([
+			[1, (s) => ({ first, second: s.draw(contentGen), how: Option.none() })],
+			[
+				1,
+				() => ({
+					first,
+					second: { ...first, files: Arr.reverse(first.files) },
+					how:
+						first.files.length > 1
+							? Option.some("equal contents, files in another order")
+							: Option.none()
+				})
+			],
+			[
+				1,
+				() => ({
+					first,
+					second: { ...first, plant: [first.plant[0], otherBlob(first.plant[1])] },
+					how: Option.some("apart by the plant")
+				})
+			],
+			[
+				1,
+				() => ({
+					first,
+					second: { ...first, test: [first.test[0], otherBlob(first.test[1])] },
+					how: Option.some("apart by the test")
+				})
+			],
+			[
+				1,
+				() => ({
+					first,
+					second: changedFile(([file, blob]) => [file, otherBlob(blob)]),
+					how: Arr.some(first.files.slice(0, 1), ([, blob]) => blob.kind === "blob")
+						? Option.some("apart by a file's blob")
+						: Option.none()
+				})
+			],
+			[
+				1,
+				() => ({
+					first,
+					second: changedFile(([file, blob]) => [
+						file,
+						blob.kind === "absent" ? otherBlob(blob) : { kind: "absent" }
+					]),
+					how: first.files.length > 0 ? Option.some("apart by a file absent") : Option.none()
+				})
+			]
+		])
+	)
+}
+
+/** A content as one list of words, the files in any order, so equal contents have equal spellings. */
+const contentWords = (content: Content): ReadonlyArray<string> => {
+	const word = ([path, blob]: Held) => `${path}=${blob.kind === "blob" ? blob.id : "-"}`
+	return [
+		`plant:${word(content.plant)}`,
+		`test:${word(content.test)}`,
+		...Arr.sort(
+			Arr.map(content.files, (held) => `file:${word(held)}`),
+			Order.String
+		)
+	]
+}
+
+describe("keyOf", () => {
+	it.effect(
+		"gives two citations one key exactly when they hold the same content, its files as a set",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						oracle: {
+							kind: "specification",
+							name: "the two contents compared part by part, the changed files as a set"
+						},
+						suite: "unit/dev/plants-keys",
+						draw: drawn(keyCaseGen),
+						literal: Formatter.format,
+						coverage: required<KeyFeature>(
+							[
+								"equal contents, files in another order",
+								"apart by the plant",
+								"apart by the test",
+								"apart by a file's blob",
+								"apart by a file absent"
+							],
+							steered
+						),
+						kept: [],
+						runs: 300,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					(keyCase, c) =>
+						Effect.sync(() => {
+							const same =
+								Arr.join(contentWords(keyCase.first), "\n") ===
+								Arr.join(contentWords(keyCase.second), "\n")
+							assert.equal(keyOf(keyCase.first) === keyOf(keyCase.second), same)
+							Option.match(keyCase.how, { onNone: () => {}, onSome: (how) => c.note(how) })
 						})
 				)
 			)

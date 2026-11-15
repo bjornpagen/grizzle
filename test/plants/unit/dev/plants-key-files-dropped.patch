@@ -1,0 +1,13 @@
+diff --git a/scripts/dev/plants/verdicts.ts b/scripts/dev/plants/verdicts.ts
+index f409e37d..9cc46d06 100644
+--- a/scripts/dev/plants/verdicts.ts
++++ b/scripts/dev/plants/verdicts.ts
+@@ -51,7 +51,7 @@ export const keyOf = (content: Content): string =>
+ 				lineOf("test", content.test),
+ 				...Arr.map(
+ 					Arr.sort(
+-						content.files,
++						Arr.empty<Held>(),
+ 						Order.mapInput(Order.String, ([path]: Held) => path)
+ 					),
+ 					(held) => lineOf("file", held)

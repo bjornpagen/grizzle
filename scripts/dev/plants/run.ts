@@ -1,3 +1,4 @@
+import { availableParallelism } from "node:os"
 import { parseArgs } from "node:util"
 import { DevtoolFailure, failureFrom } from "@bjornpagen/devtools/devtool"
 import { runDevtool } from "@bjornpagen/devtools/run"
@@ -16,15 +17,24 @@ import {
 } from "effect"
 import { ChildProcess } from "effect/process"
 import {
-	agesOf,
 	findingsOf,
 	findingText,
+	type Pair,
+	pairsOf,
 	planOf,
 	readTree,
 	repositoryRoot,
 	type Targets,
 	type Trial
 } from "#scripts/dev/plants/tree.ts"
+import {
+	type Blob,
+	type Kept,
+	keep,
+	keptAt,
+	keyOf,
+	verdictDirectory
+} from "#scripts/dev/plants/verdicts.ts"
 import { tiers } from "#test/support/tiers.ts"
 
 /**
@@ -242,25 +252,89 @@ const argumentsOf = Effect.fn("argumentsOf")(function* (argv: ReadonlyArray<stri
 	return { asked: chosen, logs: Option.fromNullishOr(parsed.values.logs) }
 })
 
-/**
- * The targets the command line asks for: the names as given, or for --changed, the history's ages of every path and
- * each plant's changed files, the facts the plan judges each plant's citations by (tree.ts dueIn).
- */
-const targetsOf = Effect.fn("targetsOf")(function* (
-	root: string,
-	plants: ReadonlyArray<string>,
-	asked: Asked
-) {
-	if (asked.kind === "named") {
-		return asked
-	}
-	const ages = yield* agesOf(root)
-	const patched = yield* Effect.forEach(plants, (plant) =>
-		Effect.map(touchedBy(root, plant), (files) => [plant, files] as const)
+/** The files each of `plants` changes, read once each, as many at once as the machine has cores. */
+const filesOf = Effect.fn("filesOf")(function* (root: string, plants: ReadonlyArray<string>) {
+	const entries = yield* Effect.forEach(
+		plants,
+		(plant) => Effect.map(touchedBy(root, plant), (files) => [plant, files] as const),
+		{ concurrency: availableParallelism() }
 	)
-	const targets: Targets = { kind: "changed", since: { ages, patched: new Map(patched) } }
-	return targets
+	const files: ReadonlyMap<string, ReadonlyArray<string>> = new Map(entries)
+	return files
 })
+
+/** The blob of each of `paths` as the tree holds it, in one `git hash-object`, absent where the tree has no file. */
+const blobsOf = Effect.fn("blobsOf")(function* (root: string, paths: ReadonlyArray<string>) {
+	const fs = yield* FileSystem.FileSystem
+	const path = yield* Path.Path
+	const present = yield* Effect.filter(paths, (file) =>
+		fs.exists(path.join(root, file)).pipe(Effect.mapError(failureFrom(`${file} could not be read`)))
+	)
+	const hashed = Arr.isReadonlyArrayNonEmpty(present)
+		? yield* git(root, ["hash-object", "--", ...present])
+		: ""
+	const ids = Arr.filter(Str.split("\n")(hashed), Str.isNonEmpty)
+	const blobs: ReadonlyMap<string, Blob> = new Map(
+		Arr.zip(
+			present,
+			Arr.map(ids, (id): Blob => ({ kind: "blob", id }))
+		)
+	)
+	return blobs
+})
+
+/**
+ * Each citation's key (verdicts.ts keyOf): the content of its plant, its test and the files its plant changes, as the
+ * tree holds them with no plant planted.
+ */
+const keysOf = Effect.fn("keysOf")(function* (root: string, pairs: ReadonlyArray<Pair>) {
+	const files = yield* filesOf(root, Arr.dedupe(Arr.map(pairs, (pair) => pair.plant)))
+	const filesOfPlant = (plant: string): ReadonlyArray<string> => files.get(plant) ?? []
+	const blobs = yield* blobsOf(
+		root,
+		Arr.dedupe(Arr.flatMap(pairs, (pair) => [pair.plant, pair.test, ...filesOfPlant(pair.plant)]))
+	)
+	const blobOf = (file: string): Blob => blobs.get(file) ?? { kind: "absent" }
+	return {
+		files,
+		keyed: Arr.map(
+			pairs,
+			(pair) =>
+				[
+					pair,
+					keyOf({
+						plant: [pair.plant, blobOf(pair.plant)],
+						test: [pair.test, blobOf(pair.test)],
+						files: Arr.map(filesOfPlant(pair.plant), (file) => [file, blobOf(file)] as const)
+					})
+				] as const
+		)
+	}
+})
+
+/** The key of a citation by its plant and test, from keysOf's list. */
+const keyIn = (keyed: ReadonlyArray<readonly [Pair, string]>) => {
+	const byPair: ReadonlyMap<string, ReadonlyMap<string, string>> = new Map(
+		Arr.map(
+			Arr.dedupe(Arr.map(keyed, ([pair]) => pair.plant)),
+			(plant) =>
+				[
+					plant,
+					new Map(
+						Arr.map(
+							Arr.filter(keyed, ([pair]) => pair.plant === plant),
+							([pair, key]) => [pair.test, key] as const
+						)
+					)
+				] as const
+		)
+	)
+	return (plant: string, test: string) => Option.fromUndefinedOr(byPair.get(plant)?.get(test))
+}
+
+/** The verdict a run keeps, red or green; an unjudged or stale one judges nothing to keep. */
+const keptOf = (verdict: Verdict): Option.Option<Kept> =>
+	verdict === "red" || verdict === "green" ? Option.some(verdict) : Option.none()
 
 /** A verdict's line: the verdict, the plant and the test. */
 const lineOf = (judged: Judged): string =>
@@ -273,16 +347,17 @@ const lineOf = (judged: Judged): string =>
  *   pnpm plants [--logs DIR] --changed
  *
  * A test named runs against each plant it cites; a plant named runs against every test that cites it; --changed runs
- * each plant against the tests citing it that changed, or whose plant's changed files changed, after the plant file
- * last did, and every plant no commit holds yet (tree.ts dueIn), so a verdict nothing has moved is never computed
- * again. It refuses to start while the check finds anything (scripts/dev/plants/check.ts) or while any
+ * every citation with no verdict kept for its content (verdicts.ts): the blobs of its plant, its test and the files its
+ * plant changes, as the tree holds them. Every red or green verdict a run reaches is kept under its citation's key in the
+ * user's cache, so a verdict nothing has moved is never computed again, and only a change of that content makes a
+ * citation due again. It refuses to start while the check finds anything (scripts/dev/plants/check.ts) or while any
  * file a plant changes differs from HEAD, so taking a plant out restores exactly what was there. Each test first runs
  * once with no plant planted; then each plant, one at a time, goes in, its tests run one at a time through their tier's
  * script (test/support/tiers.ts), and it comes out, on success, failure or interruption alike. A network test runs on
  * the cluster the environment names (GRIZZLE_PG_CLUSTER), as `pnpm test:network` does.
  *
- * It prints one line per plant and test, red, green, stale or unjudged, and the directory of every run's log, and exits
- * 0 when every line is red and 1 otherwise: a green plant is a bug no test catches, a stale one plants nothing, and an
+ * It prints one line per plant and test, red, green, stale or unjudged, then for --changed each kept verdict that is not
+ * red, and the directory of every run's log, and exits 0 when every line is red and 1 otherwise: a green plant is a bug no test catches, a stale one plants nothing, and an
  * unjudged one's test fails with no plant at all.
  */
 const main = Effect.gen(function* () {
@@ -296,7 +371,44 @@ const main = Effect.gen(function* () {
 			detail: `The plant check finds ${findings.length} things, so no plant runs:\n${Arr.join(Arr.map(findings, findingText), "\n")}`
 		})
 	}
-	const targets = yield* targetsOf(root, tree.plants, asked)
+	const directory = yield* verdictDirectory
+	const every = pairsOf(tree)
+	const everyKey = yield* Effect.transposeOption(
+		asked.kind === "changed" ? Option.some(keysOf(root, every)) : Option.none()
+	)
+	const kept = yield* Option.match(everyKey, {
+		onNone: () => Effect.succeed<ReadonlyArray<readonly [Pair, Kept]>>([]),
+		onSome: ({ keyed }) =>
+			Effect.map(
+				Effect.forEach(keyed, ([pair, key]) =>
+					Effect.map(keptAt(directory, key), (verdict) =>
+						Option.toArray(Option.map(verdict, (found) => [pair, found] as const))
+					)
+				),
+				Arr.flatten
+			)
+	})
+	const targets: Targets =
+		asked.kind === "changed"
+			? {
+					kind: "changed",
+					known: new Map(
+						Arr.map(
+							Arr.dedupe(Arr.map(kept, ([pair]) => pair.plant)),
+							(plant) =>
+								[
+									plant,
+									new Set(
+										Arr.map(
+											Arr.filter(kept, ([pair]) => pair.plant === plant),
+											([pair]) => pair.test
+										)
+									)
+								] as const
+						)
+					)
+				}
+			: asked
 	const trials = yield* Result.match(planOf(tree, targets), {
 		onFailure: (unknown) =>
 			Effect.fail(
@@ -306,8 +418,15 @@ const main = Effect.gen(function* () {
 			),
 		onSuccess: (planned) => Effect.succeed(planned)
 	})
-	const touchedLists = yield* Effect.forEach(trials, (trial) => touchedBy(root, trial.plant))
-	const touched = Arr.dedupe(Arr.flatten(touchedLists))
+	const planned = Arr.flatMap(trials, (trial) =>
+		Arr.map(trial.tests, (test): Pair => ({ plant: trial.plant, test }))
+	)
+	const { files, keyed } = yield* Option.match(everyKey, {
+		onNone: () => keysOf(root, planned),
+		onSome: (keys) => Effect.succeed(keys)
+	})
+	const keyOfPair = keyIn(keyed)
+	const touched = Arr.dedupe(Arr.flatMap(trials, (trial) => files.get(trial.plant) ?? []))
 	const dirty = yield* changedAmong(root, touched)
 	if (Arr.isReadonlyArrayNonEmpty(dirty)) {
 		return yield* DevtoolFailure.make({
@@ -334,7 +453,28 @@ const main = Effect.gen(function* () {
 		)
 	)
 	const judged = Arr.flatten(trialLines)
-	const unred = Arr.filter(judged, (line) => line.verdict !== "red")
+	yield* Effect.forEach(
+		judged,
+		(line) =>
+			Option.match(
+				Option.zipWith(keptOf(line.verdict), keyOfPair(line.plant, line.test), (verdict, key) =>
+					keep(directory, key, verdict)
+				),
+				{ onNone: () => Effect.void, onSome: (keeping) => keeping }
+			),
+		{ discard: true }
+	)
+	const recalled = Arr.filter(kept, ([, verdict]) => verdict !== "red")
+	yield* Effect.forEach(
+		recalled,
+		([pair, verdict]) =>
+			Console.log(`${Str.padEnd(9)(verdict)}${pair.plant}  ${pair.test}  (kept)`),
+		{ discard: true }
+	)
+	const unred = [
+		...Arr.filter(judged, (line) => line.verdict !== "red"),
+		...Arr.map(recalled, ([pair, verdict]): Judged => ({ ...pair, verdict }))
+	]
 	yield* Console.log(
 		Arr.isReadonlyArrayNonEmpty(unred)
 			? `${unred.length} of ${judged.length} plant and test pairs are not red:\n${Arr.join(Arr.map(unred, lineOf), "\n")}\nlogs in ${logs}`

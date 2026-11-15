@@ -3,7 +3,6 @@ import {
 	Array as Arr,
 	Effect,
 	FileSystem,
-	Option,
 	Order,
 	Path,
 	Record as Rec,
@@ -133,45 +132,26 @@ export interface Trial {
 	readonly tests: Arr.NonEmptyReadonlyArray<string>
 }
 
-/**
- * What the changed target judges a plant by: how recently each path changed, `0` for a change only the working tree
- * holds (a file modified or untracked) and `n` for the n-th newest commit, and the files each plant's patch changes.
- */
-export interface Since {
-	readonly ages: ReadonlyMap<string, number>
-	readonly patched: ReadonlyMap<string, ReadonlyArray<string>>
+/** A citation a test makes: the plant it names, and the test. */
+export interface Pair {
+	readonly plant: string
+	readonly test: string
 }
 
 /**
- * What a run tries: the plants whose verdict may have moved since they last changed, or the plants of the tests and
- * the plants it names.
+ * What a run tries: the citations no verdict is kept for, their content as it stands (`changed`, `known` holding each
+ * plant's tests that have one), or the plants of the tests and the plants it names.
  */
 export type Targets =
-	| Readonly<{ kind: "changed"; since: Since }>
+	| Readonly<{ kind: "changed"; known: ReadonlyMap<string, ReadonlySet<string>> }>
 	| Readonly<{ kind: "named"; names: Arr.NonEmptyReadonlyArray<string> }>
 
-/**
- * Whether a citation's plant must run against its test again: always when no commit last changed the plant, which so
- * never ran at one; otherwise when the test or a file the plant's patch changes has changed since, in a newer commit or
- * in the working tree. A plant that went red when it last changed, with nothing it reads changed after, is red still.
- */
-const dueIn =
-	(since: Since) =>
-	({ file, citation }: Cited): boolean => {
-		const age = (path: string) => Option.fromUndefinedOr(since.ages.get(path))
-		const watched = [
-			file,
-			...Option.getOrElse(Option.fromUndefinedOr(since.patched.get(citation.plant)), () => [])
-		]
-		return Option.match(
-			Option.filter(age(citation.plant), (planted) => planted > 0),
-			{
-				onNone: () => true,
-				onSome: (planted) =>
-					Arr.some(watched, (path) => Option.exists(age(path), (changed) => changed < planted))
-			}
-		)
-	}
+/** Every citation the tree's tests make, plant and test, in source order. */
+export const pairsOf = (tree: Tree): ReadonlyArray<Pair> =>
+	Arr.map(
+		Arr.filter(citedIn(tree), ({ file }) => isTest(file)),
+		({ file, citation }) => ({ plant: citation.plant, test: file })
+	)
 
 /** Whether a citation is one a name picks: the name is the test that makes it, or the plant it names. */
 const picks =
@@ -192,7 +172,7 @@ const pickedBy = (
 
 /**
  * The trials a run makes, one per plant in path order, each with its tests in path order: for `changed`, each plant with
- * the tests citing it that it is due against (dueIn); for a named test, each plant it cites, with that test; for a named
+ * the tests citing it that have no kept verdict; for a named test, each plant it cites, with that test; for a named
  * plant, every test that cites it. A name that is neither a test citing a plant nor a plant a test cites fails the plan, so a run
  * never passes for want of anything to try.
  */
@@ -203,7 +183,12 @@ export const planOf = (
 	const pairs = Arr.filter(citedIn(tree), ({ file }) => isTest(file))
 	const chosen =
 		targets.kind === "changed"
-			? Result.succeed(Arr.filter(pairs, dueIn(targets.since)))
+			? Result.succeed(
+					Arr.filter(
+						pairs,
+						({ file, citation }) => targets.known.get(citation.plant)?.has(file) !== true
+					)
+				)
 			: pickedBy(pairs, targets.names)
 	return Result.map(chosen, (picked) =>
 		Arr.map(
@@ -260,26 +245,6 @@ const testFiles = Effect.fn("testFiles")(function* (root: string) {
 		"test"
 	])
 	return Arr.sort(pathsIn(output), Order.String)
-})
-
-/**
- * How recently each path under `root` changed (Since.ages): `0` for a path the working tree changes against HEAD or git
- * does not track, otherwise the place, from 1 for HEAD, of the newest commit in HEAD's history that touches it, read
- * from one pass over the history.
- */
-export const agesOf = Effect.fn("agesOf")(function* (root: string) {
-	const history = yield* gitOutput(root, ["log", "--format=%x00", "--name-only", "HEAD"])
-	const modified = yield* gitOutput(root, ["diff", "--name-only", "-z", "HEAD"])
-	const untracked = yield* gitOutput(root, ["ls-files", "--others", "--exclude-standard", "-z"])
-	const committed = Arr.flatMap(Arr.drop(Str.split("\0")(history), 1), (commit, at) =>
-		Arr.map(Arr.filter(Str.split("\n")(commit), Str.isNonEmpty), (path) => [path, at + 1] as const)
-	)
-	const working = Arr.map(
-		[...pathsIn(modified), ...pathsIn(untracked)],
-		(path) => [path, 0] as const
-	)
-	const ages: ReadonlyMap<string, number> = new Map(Arr.reverse([...working, ...committed]))
-	return ages
 })
 
 /** The tree as it stands under `root`: every TypeScript source under test/ with its text, and every plant's path. */
