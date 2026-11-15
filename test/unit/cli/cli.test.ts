@@ -1,3 +1,4 @@
+import { availableParallelism } from "node:os"
 import { inspect } from "node:util"
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -1599,7 +1600,11 @@ layer(NodeServices.layer, { excludeTestServices: true })("the bin's configuratio
 						kept: [],
 						runs: 8,
 						shrink: { kind: "bounded", candidates: 16 },
-						concurrency: 3,
+						/**
+						 * Each case runs the bin as a child process of its own, in a workspace of its own, so cases share only the
+						 * machine's cores: as many at once as it has, read from the machine, and never more than a window.
+						 */
+						concurrency: availableParallelism(),
 						steerEvery: 6,
 						caseHang,
 						oracle: {
