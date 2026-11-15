@@ -1,4 +1,4 @@
-import { drawn, explore } from "@bjornpagen/testing/explore"
+import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	boolean,
@@ -18,9 +18,13 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Exit, Formatter, Layer, Option, Order } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
+import { shopV1 } from "#test/pg/cli/fixture.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
+import { installGenerated } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { qualified } from "#test/support/substrate.ts"
+import { rolePrefix } from "#test/support/substrate/names.ts"
 import { clearRows, schemaGroup } from "#test/support/substrate/replace.ts"
 import { leftovers } from "#test/support/substrate/shared.ts"
 import {
@@ -50,11 +54,22 @@ import { withLayer } from "#test/support/with-layer.ts"
  * its rows or refuses the TRUNCATE of the table it references (0A000), a relation that is no table put in it refuses
  * the TRUNCATE (42809), and a DELETE leaves the pages of the versions it removed.
  *
+ * The released-roles property draws a schema and who creates roles under its prefix: the substrate, which gives each
+ * role a finalizer of its own, an installation, a shop generated and migrated into it (test/pg/cli/fixture.ts shopV1)
+ * whose migration creates its world roles `reader` and `writer` with no finalizer, both, or neither. Once the schema's
+ * scope closes, no role under its prefix remains on the substrate's member, the one every installation of the file
+ * runs on (packages/pg/src/family.ts memberOf), where its roles live, cluster-wide: the schema's release sweeps every
+ * `<schema>_*` role, so a role an installation created is dropped though nothing else names it. Each situation is
+ * required, and a steered case whose turn aims at one constructs it (aimedReleasing).
+ *
  * @plant test/plants/pg/substrate/substrate-leftovers-miss-routines.patch The leftover listing reads no routine of public, so a stray
  * function goes unnamed.
  * @plant test/plants/pg/substrate/substrate-clearing-occupied-skips-referencing.patch A schema's catalog group leaves
  * out every table with a foreign key, so such a table keeps its rows, or refuses the TRUNCATE of the table it
  * references (0A000).
+ * @plant test/plants/pg/substrate/schema-release-skips-role-sweep.patch A schema's release drops no `<schema>_*` role
+ * itself (substrate.ts allocated), so the world roles an installation created, which no finalizer of their own drops,
+ * outlive the schema on the member; the released-roles property fails.
  */
 type Stray =
 	| "a table"
@@ -300,6 +315,58 @@ const clearingFeaturesOf = (d: DrawnSchema): ReadonlyArray<ClearingFeature> =>
 		}
 	})
 
+/**
+ * Who creates a role under a schema's prefix: the substrate (SubstrateShape role), which gives each its own finalizer,
+ * or an installation's migration, whose world roles nothing but the schema's release drops.
+ */
+const creators = ["the substrate", "an installation"] as const
+type Creator = (typeof creators)[number]
+
+/** A released schema: the creators of the roles it holds under its prefix when it is released, none for a bare one. */
+interface Releasing {
+	readonly creators: ReadonlyArray<Creator>
+}
+
+const releasingGen: Gen<Releasing> = (source) => ({ creators: source.draw(subarray(creators)) })
+
+/** What a released schema held: a role each creator made, roles of both in one schema, or no role. */
+type ReleaseFeature = `a role ${Creator} created` | "roles of both creators" | "no role"
+
+/** The creators a steered case gives its schema to reach each feature (Case.steering). */
+const reaching: Readonly<Record<ReleaseFeature, ReadonlyArray<Creator>>> = {
+	"a role the substrate created": ["the substrate"],
+	"a role an installation created": ["an installation"],
+	"roles of both creators": creators,
+	"no role": []
+}
+
+/** Every situation the released-roles property requires, the order a steered case's turn aims at them in. */
+const releaseFeatures = [
+	"a role the substrate created",
+	"a role an installation created",
+	"roles of both creators",
+	"no role"
+] as const satisfies ReadonlyArray<ReleaseFeature>
+
+/** The schema a case releases: the drawn one, or, while its turn aims at a feature, one its creators reach. */
+const aimedReleasing = (drawnCase: Releasing, c: Case<ReleaseFeature>): Releasing =>
+	Option.match(
+		Option.flatMap(c.steering, (pending) =>
+			Arr.findFirst(releaseFeatures, (feature) => pending.aimed(feature))
+		),
+		{ onNone: () => drawnCase, onSome: (feature) => ({ creators: reaching[feature] }) }
+	)
+
+/** Every role on the substrate's member whose name starts with the prefix of the allocated schema name `schema`. */
+const rolesUnder = (s: SubstrateShape, schema: string) =>
+	Effect.map(
+		s.admin.queryValues(
+			"SELECT rolname::text FROM pg_catalog.pg_roles WHERE starts_with(rolname::text, $1::text) ORDER BY 1",
+			[rolePrefix(schema)]
+		),
+		(rows) => Arr.map(rows, ([role]) => String(role))
+	)
+
 layer(Substrate.layer)("native PG test substrate", (it) => {
 	it.effect(
 		"lists exactly the strays a test leaves in a shared database, fails the release of a claim that leaves any, and gives no later claim a dirty database",
@@ -436,6 +503,75 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 							})
 					)
 				})
+			)
+	)
+
+	it.effect(
+		"releases a schema with every role under its prefix, the ones an installation created among them",
+		(ctx) =>
+			searched(
+				ctx,
+				explore(
+					{
+						suite: "substrate/released roles",
+						draw: drawn(releasingGen),
+						literal: Formatter.format,
+						oracle: {
+							kind: "specification",
+							name: "no role under a released schema's prefix on the substrate's member, whoever created it"
+						},
+						coverage: required<ReleaseFeature>(releaseFeatures, { cases: 8, sense: notesOnly }),
+						kept: [],
+						runs: 4,
+						shrink: completeShrink,
+						concurrency: 1,
+						steerEvery: 1,
+						caseHang
+					},
+					(drawnCase, c) =>
+						Effect.gen(function* () {
+							const p = aimedReleasing(drawnCase, c)
+							const s = yield* Substrate
+							const held = yield* Effect.scoped(
+								Effect.gen(function* () {
+									const schema = Arr.contains(p.creators, "an installation")
+										? (yield* installGenerated(
+												(name) => {
+													const shop = shopV1(name, "none")
+													return { schema: shop.schema, logins: [shop.server] }
+												},
+												{ label: "released", ambient: ordinarySession }
+											)).installed.declared
+										: yield* s.schema(freshSchema)
+									const allocated = Arr.contains(p.creators, "the substrate")
+										? [(yield* s.role(schema, "allocated")).role]
+										: []
+									return { schema, allocated, present: yield* rolesUnder(s, schema) }
+								})
+							)
+							const left = yield* rolesUnder(s, held.schema)
+							assert.deepEqual(left, [], `the roles left under ${held.schema} once it is released`)
+							const installed = Arr.filter(
+								held.present,
+								(role) => !Arr.contains(held.allocated, role)
+							)
+							if (Arr.isReadonlyArrayNonEmpty(held.allocated)) {
+								c.note("a role the substrate created")
+							}
+							if (Arr.isReadonlyArrayNonEmpty(installed)) {
+								c.note("a role an installation created")
+							}
+							if (
+								Arr.isReadonlyArrayNonEmpty(held.allocated) &&
+								Arr.isReadonlyArrayNonEmpty(installed)
+							) {
+								c.note("roles of both creators")
+							}
+							if (!Arr.isReadonlyArrayNonEmpty(held.present)) {
+								c.note("no role")
+							}
+						})
+				)
 			)
 	)
 })
