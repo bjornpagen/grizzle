@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/codes.ts b/packages/engine/src/ir/codes.ts
+index 49e3578d..71581ec9 100644
+--- a/packages/engine/src/ir/codes.ts
++++ b/packages/engine/src/ir/codes.ts
+@@ -126,7 +126,7 @@ export const draftCodebook = (
+ 	)
+ 	const drafted = new Map<DeclaredName, RosterCodec>()
+ 	for (const roster of rosters) {
+-		const before = continued.get(roster.closed) ?? []
++		const before = continued.get(roster.closed) === undefined ? [] : []
+ 		const codes = rosterCodes(before, renames.get(roster.closed) ?? noHandleRenames, roster.handles)
+ 		if (!codes.ok) {
+ 			return Result.err({ roster: roster.closed, ...codes.error })

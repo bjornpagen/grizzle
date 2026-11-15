@@ -2,17 +2,20 @@
  * Keys over a retyped field, and key swaps, generated, on a relation that may hold rows.
  *
  * A key whose definition changes under its own name is built under a swap name and swapped in, and the swap name is
- * never a name ownership registers. A key's name is its constraint's: a candidate key's joins its columns with `__`
- * (`task__key__a`, `task__key__a__next`), so its definition changes under its own name only when a field it holds
- * changes type; the primary key's (`task__pk`) holds no field, so it changes under its name when it moves to other
- * fields. A swap name spelled as a suffix (`<key>__next`) would be the name of the key over the same columns and a field
- * named `next`, and the build's DROP INDEX ... IF EXISTS would drop that live key's index. A key over a field retyped
- * in place is no swap: the conversion drops it first, since PostgreSQL would carry it across under its old definition,
- * and it is added again right after the conversion in the same Structure transaction, under the conversion's lock, so
- * it holds at every commit (built concurrently as a new key, it held no row written between Structure and Validate).
- * The relations here have fields named after the words key names are made of (`next`, `ix`, `key`, `pk`), a primary
- * key, a key over the first field, a key over the first two, and a key over the third; one successor retypes the first
- * field from integer to bigint, another moves the primary key to the second and third fields. Properties:
+ * never a name ownership registers. A key's name is its constraint's, minted at the naming door from its identity: a
+ * candidate key's segments name its relation and its columns, a digest of the identity after them
+ * (`__task_key_a_<digest>`, `__task_key_a_next_<digest>`), so its definition changes under its own name only when a
+ * field it holds changes type; the primary key's (`__task_pk_<digest>`) names no field, so it changes under its name
+ * when it moves to other fields. A swap name is minted from the identity of the key it swaps (identity.swap,
+ * `__next_task_key_a_<digest>`): one spelled where a standing name is, the key's own or the key over the same columns
+ * and a field named `next`, would have the build's DROP INDEX ... IF EXISTS drop that live key's index. A key over a
+ * field retyped in place is no swap: the conversion drops it first, since PostgreSQL would carry it across under its
+ * old definition, and it is added again right after the conversion in the same Structure transaction, under the
+ * conversion's lock, so it holds at every commit (built concurrently as a new key, it held no row written between
+ * Structure and Validate). The relations here have fields named after the words key names are made of (`next`, `ix`,
+ * `key`, `pk`), a primary key, a key over the first field, a key over the first two, and a key over the third; one
+ * successor retypes the first field from integer to bigint, another moves the primary key to the second and third
+ * fields. Properties:
  *
  * - every key over the retyped field is dropped in Structure before the conversion and added again there after it,
  *   under its own name, and never built concurrently or under a swap name;
@@ -25,8 +28,8 @@
  * Oracle: the properties above, a specification read off the drafted statements' slots and names, and the names each
  * installation registers.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): identity-temporary-standing-blind (a swap name minted where a standing
- * name is).
+ * @plant test/plants/unit/deploy/swaps-name-standing.patch A swap name is minted as the name of the key it swaps, a
+ * standing name; the property that no swap name is a registered name fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

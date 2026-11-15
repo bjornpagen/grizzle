@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/diff/declared.ts b/packages/engine/src/deploy/diff/declared.ts
+index 8e6cf8eb..4f1aa625 100644
+--- a/packages/engine/src/deploy/diff/declared.ts
++++ b/packages/engine/src/deploy/diff/declared.ts
+@@ -148,7 +148,7 @@ class AlikeNames {
+ 
+ 	/** The first of `own` and the names alike it among these, in their order, that `holds`. */
+ 	first(own: string, holds: (name: string) => boolean): string | undefined {
+-		const alikeOwn = this.#groups.get(conversionOf(own)) ?? []
++		const alikeOwn = this.#groups.get(own) ?? []
+ 		return [own, ...alikeOwn.filter((n) => n !== own)].find(holds)
+ 	}
+ }

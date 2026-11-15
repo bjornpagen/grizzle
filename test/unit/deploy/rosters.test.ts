@@ -28,8 +28,9 @@
  * the closed rows meets the snapshot an earlier change wrote: among them a closed relation with an open payload, whose
  * cells stay one constant while the values its pack names change.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): rosters-handle-renames-ignored (a roster's declared handle renames
- * ignored when its codes are drafted).
+ * @plant test/plants/unit/deploy/continuity-codes-restarted.patch Every roster's codes are drafted afresh, none
+ * continued, so a handle past a hole takes another code; the draft is refused as a defect by generate's continuity
+ * check (deploy/render/generate.ts discontinuedRoster).
  */
 import {
 	accepted,

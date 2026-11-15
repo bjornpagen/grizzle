@@ -19,9 +19,11 @@
  * no file, files in ordinal order, and a folder refused for a file's name or an ordinal twice; and as the meta and
  * derived-name searches name them.
  *
- * Plants (~/.cache/grizzle-release/BR06/plants): folder-name-one-byte-past (a migration name a byte past
- * maxMigrationNameLength admitted), folder-timestamp-unchecked (a folder name's timestamp unread) and
- * folder-ordinal-twice-admitted (two files of one ordinal admitted).
+ * @plant test/plants/unit/deploy/folder-name-one-byte-past.patch A migration name a byte past maxMigrationNameLength
+ * is admitted.
+ * @plant test/plants/unit/deploy/folder-timestamp-unchecked.patch A folder name's timestamp is unread, so any fourteen
+ * characters before the separator pass.
+ * @plant test/plants/unit/deploy/folder-ordinal-twice-admitted.patch Two files of one ordinal are admitted.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -142,6 +144,9 @@ const folderSeparatorGen: Gen<string> = weighted([
 const folderNameGen: Gen<string> = (source) =>
 	`${source.draw(timestampGen)}${source.draw(folderSeparatorGen)}${source.draw(wordsGen)}`
 
+/** The phases a drafted file is named after. */
+const draftedPhases = ["structure", "setup", "backfill_rows"] as const
+
 /** A drafted file's name, or a near miss: a one-digit, zero, signed, hexadecimal or non-ASCII ordinal, another
  * separator, a phase that is no words, another extension. */
 const fileNameGen: Gen<string> = (source) => {
@@ -160,7 +165,7 @@ const fileNameGen: Gen<string> = (source) => {
 	)
 	const phase = source.draw(
 		weighted([
-			[3, element(["structure", "setup", "backfill_rows"])],
+			[3, element(draftedPhases)],
 			[1, wordsGen]
 		])
 	)
@@ -173,6 +178,31 @@ const fileNameGen: Gen<string> = (source) => {
 		])
 	)
 	return `${ordinal}${separator}${phase}${extension}`
+}
+
+/** One name a folder holds: a drafted file's, a near miss, or meta.json. */
+const folderEntryGen: Gen<string> = weighted([
+	[6, fileNameGen],
+	[1, constant(metaFileName)]
+])
+
+/**
+ * A folder holding one ordinal twice: two drafted files of one positive ordinal under phases apart, the second's ordinal
+ * spelled as the first's or with one more leading zero, among other drawn names. Each twin is a file's name by the
+ * grammar alone, so only the repeated ordinal refuses a folder whose other names are files' too, which independently
+ * drawn names hardly ever give.
+ */
+const ordinalTwiceGen: Gen<ReadonlyArray<string>> = (source) => {
+	const ordinal = Str.padStart(2, "0")(String(source.draw(int(1, 99))))
+	const first = source.draw(int(0, draftedPhases.length - 1))
+	const second = (first + source.draw(int(1, draftedPhases.length - 1))) % draftedPhases.length
+	const twins = [
+		`${ordinal}-${defined(draftedPhases[first], "a drafted phase")}.sql`,
+		`${source.draw(element([ordinal, `0${ordinal}`]))}-${defined(draftedPhases[second], "a drafted phase")}.sql`
+	]
+	const others = source.draw(array(folderEntryGen, { min: 0, max: 3 }))
+	const at = source.draw(int(0, others.length))
+	return [...others.slice(0, at), ...twins, ...others.slice(at)]
 }
 
 const fileOrdinalOracle = (name: string): number | undefined => {
@@ -329,13 +359,10 @@ describe("migration folders, generated", () => {
 			searched(
 				ctx,
 				Effect.gen(function* () {
-					const namesGen = array(
-						weighted([
-							[6, fileNameGen],
-							[1, constant(metaFileName)]
-						]),
-						{ min: 0, max: 5 }
-					)
+					const namesGen = weighted<ReadonlyArray<string>>([
+						[4, array(folderEntryGen, { min: 0, max: 5 })],
+						[1, ordinalTwiceGen]
+					])
 					return yield* explore(
 						{
 							oracle: {
@@ -345,8 +372,10 @@ describe("migration folders, generated", () => {
 							suite: "unit/deploy/folder-files",
 							draw: drawn(namesGen),
 							literal: Formatter.format,
-							coverage: required<"no file" | "files in order" | "a folder refused">(
-								["no file", "files in order", "a folder refused"],
+							coverage: required<
+								"no file" | "files in order" | "a file's name refused" | "an ordinal twice refused"
+							>(
+								["no file", "files in order", "a file's name refused", "an ordinal twice refused"],
 								{ cases: 400, sense: notesOnly }
 							),
 							kept: [],
@@ -360,11 +389,16 @@ describe("migration folders, generated", () => {
 							Effect.sync(() => {
 								const files = Arr.filter(names, (n) => n !== metaFileName)
 								const ordinals = Arr.map(files, fileOrdinalOracle)
-								const valid =
-									Arr.every(ordinals, (o) => o !== undefined) &&
-									new Set(ordinals).size === ordinals.length
+								const named = Arr.every(ordinals, (o) => o !== undefined)
+								const valid = named && new Set(ordinals).size === ordinals.length
 								c.note(
-									!valid ? "a folder refused" : files.length === 0 ? "no file" : "files in order"
+									!named
+										? "a file's name refused"
+										: !valid
+											? "an ordinal twice refused"
+											: files.length === 0
+												? "no file"
+												: "files in order"
 								)
 								const ordered = orderFolderFiles(Arr.map(names, (name) => ({ name })))
 								assert.equal(ordered.ok, valid, Formatter.format(names))

@@ -16,8 +16,9 @@
  * relation's view columns being its fields' own names, and otherwise a law column with the laws its manifest object
  * records; each with a B-tree's direction, or none for a span key's GiST.
  *
- * Plants (~/.cache/grizzle-release/EXPLAIN/plants): index-reasons-dropped.patch (the derived facts record each index
- * with its first reason alone); index-columns-reversed.patch (an index's key columns recorded in reverse order).
+ * @plant test/plants/unit/deploy/index-reasons-dropped.patch The derived facts record each index with its first
+ * reason alone.
+ * @plant test/plants/unit/deploy/index-columns-reversed.patch An index's key columns are recorded in reverse order.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

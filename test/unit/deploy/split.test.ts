@@ -21,8 +21,8 @@
  * A dollar-quoted body is drawn and filtered where it would spell its own closing tag before its end: whether a body
  * does depends on the tag drawn with it, and the filter's discards are counted.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): split-empty-statement-kept (an empty statement between two semicolons
- * kept as one).
+ * @plant test/plants/unit/deploy/split-empty-statement-kept.patch An empty statement between two semicolons is kept as
+ * one.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

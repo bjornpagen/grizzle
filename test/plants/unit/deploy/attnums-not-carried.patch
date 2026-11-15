@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/snapshot/build.ts b/packages/engine/src/deploy/snapshot/build.ts
+index 9fd4bc2f..6c51c183 100644
+--- a/packages/engine/src/deploy/snapshot/build.ts
++++ b/packages/engine/src/deploy/snapshot/build.ts
+@@ -411,7 +411,7 @@ export const withAttnums = (
+ 		const was = previous.theory.relations[name]
+ 		const attnums =
+ 			was?.kind === "relation" && was.ident === r.ident
+-				? was.attnums + (added.get(r.ident) ?? 0)
++				? r.attnums
+ 				: r.attnums
+ 		if (attnums > limit) {
+ 			return Result.err(

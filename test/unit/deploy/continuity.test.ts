@@ -17,9 +17,11 @@
  *   handle it was written as, renamed or not, or is a hole the migration's validation refuses, and never as another
  *   handle;
  * - a field whose values the model moves to a roster its own does not continue as, or to or from smallint, is converted
- *   at its placeholder, by the reviewer, and no other field is: a code is never cast into another roster's meaning. *
- * Plant (~/.cache/grizzle-release/BR06/plants): continuity-codes-restarted (every roster's codes drafted afresh, none
- * continued).
+ *   at its placeholder, by the reviewer, and no other field is: a code is never cast into another roster's meaning.
+ *
+ * @plant test/plants/unit/deploy/continuity-codes-restarted.patch Every roster's codes are drafted afresh, none
+ * continued (ir/codes.ts draftCodebook); the draft is refused as a defect by generate's continuity check
+ * (deploy/render/generate.ts discontinuedRoster), so no step is admitted.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

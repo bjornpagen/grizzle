@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/render/folder.ts b/packages/engine/src/deploy/render/folder.ts
+index 543783f3..742bf429 100644
+--- a/packages/engine/src/deploy/render/folder.ts
++++ b/packages/engine/src/deploy/render/folder.ts
+@@ -502,7 +502,7 @@ export const folderTimestamp = (name: string): string => name.slice(0, timestamp
+ export const isFolderName = (name: string): boolean => {
+ 	const timestamp = folderTimestamp(name)
+ 	const prefix = folderPrefix(timestamp)
+-	return isTimestamp(timestamp) && name.startsWith(prefix) && isWords(name.slice(prefix.length))
++	return name.startsWith(prefix) && isWords(name.slice(prefix.length))
+ }
+ 
+ /** A drafted SQL file's ordinal: `NN-<phase>.sql`, or any `NN-<words>.sql` a reviewer adds, NN at least two digits and

@@ -15,8 +15,8 @@
  * - **No transaction:** a file runs statement by statement exactly when its first line is the no-transaction marker,
  *   trailing spaces, tabs and a carriage return aside; the marker anywhere else, or after text, is no marker.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): render-markers-crlf-kept (a line's carriage return kept, so a marker
- * line ending in CRLF reads as none).
+ * @plant test/plants/unit/deploy/render-markers-crlf-kept.patch The no-transaction line's carriage return is kept, so
+ * a no-transaction marker line ending in CRLF reads as none; the no-transaction property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -13,8 +13,8 @@
  *   partial folder that another folder follows; one row of a folder disagreeing with its folder row on the source, the
  *   target or the file count.
  *
- * Plant (~/.cache/grizzle-release/BR06/plants): ledger-folders-in-row-order (the folders read in the order the rows
- * arrived, not by name).
+ * @plant test/plants/unit/deploy/ledger-folders-in-row-order.patch The folders are read in the order the rows
+ * arrived, not by name.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

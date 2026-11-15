@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/deploy/snapshot/build.ts b/packages/engine/src/deploy/snapshot/build.ts
+index 9fd4bc2f..797ee8ee 100644
+--- a/packages/engine/src/deploy/snapshot/build.ts
++++ b/packages/engine/src/deploy/snapshot/build.ts
+@@ -740,7 +740,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
+ 			}
+ 			return { kind: "law", holds: held, laws, direction: k.direction }
+ 		})
+-		on.indexes.set(name, { columns, reasons })
++		on.indexes.set(name, { columns: columns.toReversed(), reasons })
+ 	}
+ 	const declared = (table: ObjectName, name: string): TableConstraint => {
+ 		const create = valueAt(creates, table.schema, table.name)
