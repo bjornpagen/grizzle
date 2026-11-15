@@ -1,0 +1,10 @@
+diff --git a/packages/engine/src/lower/shapes/share/index.ts b/packages/engine/src/lower/shapes/share/index.ts
+index e93d681c..3ccef130 100644
+--- a/packages/engine/src/lower/shapes/share/index.ts
++++ b/packages/engine/src/lower/shapes/share/index.ts
+@@ -25,4 +25,4 @@ import type { RelDag, RelNode } from "#compiler/ir/rel.ts"
+  * The share key of the sub-query rooted at `node`, a node of `dag`, whose enclosing nodes it may read.
+  */
+ export const shareKey = (dag: RelDag, node: RelNode): Result.Result<string, CompileError> =>
+-	dagDigestWithin(dag, [node], "share")
++	dagDigestWithin(dag, [node], `share ${node.id}`)

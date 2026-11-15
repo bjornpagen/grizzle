@@ -8,7 +8,8 @@
  * Oracle: the bounds' statement (a specification): only messageMaxBytes and maxStringLength refuse an input, and each
  * member array carries every fact. Features: a few facts, a hundred thousand or more.
  *
- * Plant, failing the search: a member slot past 65,535 facts refused by an invented bound (relparam-invented-bound).
+ * @plant test/plants/unit/lower/shapes/relparam-invented-bound.patch A member column of more than 65,535 facts is
+ * refused by an invented bound, its array's longest literal taken as zero; the search fails.
  */
 import { explore, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

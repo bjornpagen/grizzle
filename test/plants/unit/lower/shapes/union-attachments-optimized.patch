@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/shapes/index.ts b/packages/engine/src/lower/shapes/index.ts
+index 6e7f965f..3190b0c7 100644
+--- a/packages/engine/src/lower/shapes/index.ts
++++ b/packages/engine/src/lower/shapes/index.ts
+@@ -1438,7 +1438,7 @@ export class OptimizedDelivery<
+ 			spine: scopeNodes
+ 		}))
+ 		const [only, ...others] = group.arms
+-		if (others.length === 0) {
++		if (others.length >= 0) {
+ 			const armSpine = this.spine(only)
+ 			for (const attach of armSpine.attachments) {
+ 				attachments.push({ attach, spine: armSpine.nodes })

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/shapes/share/statements.ts b/packages/engine/src/lower/shapes/share/statements.ts
+index 90fcb3c1..ea5273b5 100644
+--- a/packages/engine/src/lower/shapes/share/statements.ts
++++ b/packages/engine/src/lower/shapes/share/statements.ts
+@@ -205,7 +205,7 @@ export const planStatementShares = (
+ 				| { readonly key: string; readonly node: RelNode; readonly height: number }
+ 				| undefined
+ 			for (const [key, statements] of statementsOf) {
+-				if (statements.size < 2) {
++				if (statements.size < 4) {
+ 					continue
+ 				}
+ 				const [node] = defined(copiesOf.get(key), "the copies of a key a statement reads")

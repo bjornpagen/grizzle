@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/shapes/region/index.ts b/packages/engine/src/lower/shapes/region/index.ts
+index b8e1b5a8..79c37609 100644
+--- a/packages/engine/src/lower/shapes/region/index.ts
++++ b/packages/engine/src/lower/shapes/region/index.ts
+@@ -173,7 +173,7 @@ const chainOrder = (
+ 		more: ReadonlyArray<Pending>,
+ 		chained: ReadonlySet<string>
+ 	): Pending =>
+-		more.reduce((acc, p) => (tier(p, chained) < tier(acc, chained) ? p : acc), candidate)
++		more.reduce((acc) => acc, candidate)
+ 	const chained = new Set<string>()
+ 	let pending: ReadonlyArray<Pending> = others.map((o) => pendingOf(o, within))
+ 	/**

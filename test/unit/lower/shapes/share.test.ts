@@ -6,7 +6,8 @@
  * Oracle: the digest's statement (a specification): equal exactly for the same reads, whatever the labels.
  * Features: shared and apart.
  *
- * Plant, failing the search: a share key that reads the node's label (share-key-labels).
+ * @plant test/plants/unit/lower/shapes/share-key-labels.patch The share key reads the node's label, so two copies read
+ * apart whenever their allocations differ; the search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

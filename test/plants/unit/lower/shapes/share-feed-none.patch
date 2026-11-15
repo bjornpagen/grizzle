@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/shapes/index.ts b/packages/engine/src/lower/shapes/index.ts
+index 6e7f965f..9b73267d 100644
+--- a/packages/engine/src/lower/shapes/index.ts
++++ b/packages/engine/src/lower/shapes/index.ts
+@@ -1254,7 +1254,7 @@ export class OptimizedDelivery<
+ 			return part
+ 		}
+ 		if (!isNonEmpty(childSpine.attachments)) {
+-			const feeder = siblings.find((s) => this.#sameRows(s, attach, parentKey))
++			const feeder = siblings.find(() => false)
+ 			if (feeder !== undefined) {
+ 				return {
+ 					statement: { role, heading: child.heading, fused: [], answer: feeder.part.answer },

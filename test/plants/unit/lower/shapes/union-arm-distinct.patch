@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/shapes/union/index.ts b/packages/engine/src/lower/shapes/union/index.ts
+index 36795828..a8eedcdd 100644
+--- a/packages/engine/src/lower/shapes/union/index.ts
++++ b/packages/engine/src/lower/shapes/union/index.ts
+@@ -189,7 +189,7 @@ export const armBoundedUnion = (
+ 	 */
+ 	const bounded = (arm: (typeof arms)[number][number]): Select => ({
+ 		...select(
+-			facts.keyedBy(arm.node, columns) === undefined
++			facts.keyedBy(arm.node, columns) === undefined || true
+ 				? distinctCore(arm.targets, [arm.source.item], undefined)
+ 				: provedCore("certified", arm.targets, [arm.source.item], undefined)
+ 		),

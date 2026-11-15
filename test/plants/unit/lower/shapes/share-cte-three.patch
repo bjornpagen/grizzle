@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/shapes/share/statements.ts b/packages/engine/src/lower/shapes/share/statements.ts
+index 90fcb3c1..821b145d 100644
+--- a/packages/engine/src/lower/shapes/share/statements.ts
++++ b/packages/engine/src/lower/shapes/share/statements.ts
+@@ -367,7 +367,7 @@ export const statementCtes = (
+ 			if (key === undefined || chosen.has(key)) {
+ 				continue
+ 			}
+-			if ((byKey.get(key) ?? 0) < 2) {
++			if ((byKey.get(key) ?? 0) < 4) {
+ 				continue
+ 			}
+ 			const height = index.height(node)
