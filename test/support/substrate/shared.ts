@@ -342,7 +342,7 @@ export const ensureSharedDatabase = (
  * pristine database of its own builds Substrate.isolatedLayer instead.
  *
  * Vitest runs each file in a process of its own, at most W at once (vitest.network.config.ts maxWorkers, W the
- * machine's cores, networkWorkers, workers.ts), and numbers the workers running them 1 to W in VITEST_POOL_ID; the run's global setup
+ * run's test workers, networkWorkers, workers.ts), and numbers the workers running them 1 to W in VITEST_POOL_ID; the run's global setup
  * clones `gz_shared_1` to `gz_shared_W` once. So a file uses the database of its worker, `gz_shared_<VITEST_POOL_ID>`.
  * A claim still takes the session-level advisory lock (claimKey, n) on a connection to the owner's own database, held
  * for the file's life, as a safety net: when another claim holds the worker's database (a second substrate in the same

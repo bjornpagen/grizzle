@@ -11,7 +11,7 @@ import {
 import { indices } from "#compiler/core/array.ts"
 import { type Limit, measured } from "#compiler/core/limits.ts"
 import { clusterAt, type LocalCluster } from "#pg/local-cluster.ts"
-import { networkWorkers } from "#pg/workers.ts"
+import { machineWorkers } from "#pg/workers.ts"
 
 import { regex } from "arkregex"
 
@@ -46,16 +46,18 @@ const filesPerCluster: Limit = measured({
 /**
  * The clusters of a family, K: the network tier's workers spread over them, worker w on member (w − 1) mod K
  * (memberOf), so one cluster's SERIALIZABLE bookkeeping (its SSI lists and their LWLocks, shared by every transaction
- * of the cluster) serves only its share of the run, no more than c* files (filesPerCluster): ceil(networkWorkers / c*).
- * The machine's cores are read where networkWorkers is, and enter no Limit.
+ * of the cluster) serves only its share of the widest run, no more than c* files (filesPerCluster):
+ * ceil(machineWorkers / c*). A narrower run's workers spread over the same members. The machine's cores are read where
+ * machineWorkers is, and enter no Limit.
  */
-export const familyMembers: number = Math.ceil(networkWorkers / filesPerCluster.value)
+export const familyMembers: number = Math.ceil(machineWorkers / filesPerCluster.value)
 
 /**
  * The workers one member of a family serves at most, which scripts/pg/init.sh sizes each member for (size.ts
- * clusterSize): the run's workers over the family's members, rounded up, so the members together serve every worker.
+ * clusterSize): the widest run's workers over the family's members, rounded up, so the members together serve every
+ * worker of any run.
  */
-export const memberShare: number = Math.ceil(networkWorkers / familyMembers)
+export const memberShare: number = Math.ceil(machineWorkers / familyMembers)
 
 /**
  * A family of local clusters as its family file records it: its members in member order, the first the cluster
