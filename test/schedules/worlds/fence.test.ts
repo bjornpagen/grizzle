@@ -4,12 +4,13 @@ import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Fiber, Formatter } from "effect"
+import { Array as Arr, Data, Effect, Fiber, Formatter, Option } from "effect"
 import { ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { defined } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
+import type { LockWait } from "#test/support/substrate/barrier.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { checkStart, judged, runStep } from "#test/support/worlds/drive/index.ts"
 import { drawAction, unnoted } from "#test/support/worlds/drive/suite.ts"
@@ -27,6 +28,7 @@ import { docsBase, docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import { hostSchemaOf } from "#test/support/worlds/model/host.ts"
 import { initialState } from "#test/support/worlds/model/step.ts"
 import type {
+	Action,
 	ActionKind,
 	ComparisonOp,
 	InstalledNames,
@@ -48,13 +50,19 @@ import type {
  *   ledger's exclusive lock; or
  * - the checked relation's ROW EXCLUSIVE lock as the admin role, as a direct writer's insert holds it, so the file holds
  *   the ledger's exclusive lock and awaits the relation's, which its new check's ALTER TABLE takes.
- * Once the observer sees the migration's backend wait on that transaction, a call of each kind the state offers (a read,
- * a write and a refresh through the Db opened before, and an open) is drawn and judged by the worlds model in the state a
- * running migration leaves (`running`), and each must answer while the holder still holds its lock: a call that waited
- * would hold the case until its hang guard reports it. The migration, and the calls drawn after the holder commits, are
- * judged by the model with the real system's state checked after each.
+ * Once the observer sees the migration's backend wait on that transaction, a call of each kind the state offers is drawn
+ * and judged by the worlds model in the state a running migration leaves (`running`): a read, a write and a refresh
+ * through a Db the model holds stale, as a running migration holds every Db, the one opened before it among them
+ * (`duringOf`), and an open. Each must answer while the holder still holds its lock, and each call through a Db races
+ * the barrier that sees that Db's backend blocked by the migration's, so a call that waits fails the case at once with
+ * its lock wait (DbWaitedOnMigration), never by the case's hang guard. A feature is the kind of the call that
+ * answered, as drawn. The migration, and the calls drawn after the holder commits, are judged by the model with the
+ * real system's state checked after each.
  *
- * Plants (main's test phase): worlds-fence-db-waits-on-ledger.patch.
+ * @plant test/plants/schedules/worlds/worlds-fence-db-waits-on-ledger.patch A Db transaction's fence takes the ledger's
+ * ACCESS SHARE lock waiting rather than NOWAIT (deploy/ledger/ledger.ts), so a call through a Db during a migration
+ * queues on the ledger behind the migration's lock instead of answering StaleSnapshot `migrating`, which the barrier
+ * sees (DbWaitedOnMigration); the property fails at once.
  */
 
 /** What the transaction in flight the migration waits behind holds. */
@@ -144,6 +152,36 @@ const liveOf = (weights: Weights, kind: ActionKind): Weights => ({
 	validity: { live: 1, stale: 0, wild: 0 }
 })
 
+/**
+ * A draw of one call while the migration runs: an open, live, as a program opens a Db; a read, an apply or a refresh
+ * through a Db the model holds stale (invalid/handles.ts namingKind, handle:stale-db), as a running migration holds every
+ * Db, the one opened before it among them. A live draw of one finds no Db to call through and opens one instead, which
+ * contacts nothing and so never meets the fence.
+ */
+const duringOf = (weights: Weights, call: Call): Weights =>
+	call === "open-db"
+		? liveOf(weights, call)
+		: {
+				...weights,
+				kinds: [call],
+				actions: { ...zeroWeights.actions, [call]: 1 },
+				validity: { live: 0, stale: 1, wild: 0 }
+			}
+
+/** A call through a Db that waited on the running migration: its backend, blocked by the migration's, and its lock wait. */
+class DbWaitedOnMigration extends Data.TaggedError("DbWaitedOnMigration")<{
+	readonly call: string
+	readonly wait: LockWait
+}> {}
+
+/** The login of the Db a call goes through, or none for an action that calls through no Db, an open among them. */
+const callLogin = (state: ModelState, action: Action): Option.Option<string> =>
+	action.kind === "read" || action.kind === "apply" || action.kind === "refresh"
+		? Option.flatMap(Option.fromUndefinedOr(state.sessions[action.session]), (session) =>
+				session.kind === "db" ? Option.some(session.login) : Option.none()
+			)
+		: Option.none()
+
 /** The calls a program goes on with after the migration, each drawn live under the case's weights. */
 const after: ReadonlyArray<Call> = ["read", "open-db", "read"]
 
@@ -219,20 +257,43 @@ const fenced = (fc: FenceCase, c: Case<FenceFeature>) =>
 			{ startImmediately: true }
 		)
 		const pid = held.backend.pid
-		yield* Effect.raceFirst(s.awaitBlockedBy(pid, world.migrator), endedUnblocked(migration))
+		const migrator = yield* Effect.raceFirst(
+			s.awaitBlockedBy(pid, world.migrator),
+			endedUnblocked(migration)
+		)
 		const during = running(before, to)
-		/** Each call judged in the state the calls before it left: an open adds its Db while the migration runs. */
+		/**
+		 * Each call judged in the state the calls before it left (an open adds its Db while the migration runs), raced
+		 * against the barrier that sees the backend of the Db it calls through blocked by the migration's: a call that
+		 * waits fails the case at once with that wait, never by the case's hang guard. An open contacts nothing.
+		 */
 		const answered = yield* Effect.reduce(
 			Arr.filter(calls, (call) => applicable(during, call)),
 			(): ModelState => during,
-			(state, call, i) =>
-				Effect.map(
-					judged(world, state, drawAction(c.draw, state, liveOf(fc.weights, call)), 2 + i),
-					(stepped) => {
+			(state, call, i) => {
+				const action = drawAction(c.draw, state, duringOf(fc.weights, call))
+				const judging = Effect.map(judged(world, state, action, 2 + i), (stepped) => {
+					if (action.kind === call) {
 						c.note(`${fc.holder}: ${call} answered`)
-						return stepped.next
 					}
-				)
+					return stepped.next
+				})
+				return Option.match(callLogin(state, action), {
+					onNone: () => judging,
+					onSome: (login) =>
+						Effect.raceFirst(
+							judging,
+							Effect.flatMap(
+								s.awaitBlockedBy(
+									migrator.pid,
+									defined(world.names.logins[login], `the login ${login}'s role`)
+								),
+								(wait) =>
+									Effect.fail(new DbWaitedOnMigration({ call: Formatter.format(action), wait }))
+							)
+						)
+				})
+			}
 		)
 		yield* Effect.orDie(held.commit)
 		const migrated = yield* Fiber.join(migration)

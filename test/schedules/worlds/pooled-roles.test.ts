@@ -61,7 +61,8 @@ const probe = (session: number): RaceOp => ({ kind: "probe", session })
  * place it is checked after an interruption: the worlds model's serial drivers never have a call in flight to interrupt
  * (pg/world-model/pool's connection situations). The moves are ordered by the case's PCT schedule.
  *
- * Plants (main's test phase): worlds-pool-claims-outlive-transaction.patch.
+ * @plant test/plants/pg/world-model/worlds-pool-claims-outlive-transaction.patch A Db's claims are set for the
+ * session, not the transaction, so a pooled connection holds them between transactions; the property fails.
  */
 const race = (c: Case, nature: Nature): WorldRace => ({
 	name: "a reader and a member interleave on one pooled connection",

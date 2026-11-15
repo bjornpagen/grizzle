@@ -66,7 +66,10 @@ const reader = (c: Case): ReadonlyArray<RaceSession> =>
  * refused when the ChangeSet compiles (README "Where a read-back runs"; model/session/apply.ts sideCrosses), which would
  * leave ann's note out of the race. Every order of the moves is explored, with reduction.
  *
- * Plants (main's test phase): worlds-isolation-row-security-off.patch.
+ * @plant test/plants/pg/education/worlds-isolation-row-security-off.patch Every table's ENABLE ROW LEVEL SECURITY is
+ * printed as DISABLE (sql/print.ts printAlterTableAction), so no relation's row security keeps a world to its own
+ * facts, which the installed-catalog check finds at the installation (rowSecurityMissing on doc, note and share); the
+ * property fails.
  */
 const race = (c: Case): WorldRace => {
 	const deletion: RaceSession =

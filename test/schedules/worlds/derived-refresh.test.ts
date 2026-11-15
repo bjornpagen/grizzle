@@ -43,7 +43,9 @@ interface Case extends Environment {
  * derived relation moves only at a refresh: every read shows it as of the last refresh in the serial order, and a
  * refresh meeting another is a typed transient failure. The moves are ordered by the case's PCT schedule.
  *
- * Plants (main's test phase): worlds-deletion-keeps-facts.patch.
+ * @plant test/plants/pg/education/worlds-deletion-keeps-facts.patch An exact deletion's DELETE is printed WHERE false
+ * (write/delete/exact.ts deletion), so the document a member deletes stays in Doc and in the OrgDocs the job refreshes,
+ * and no serial order explains the race; the property fails.
  */
 const racedOf = (c: Environment): Arr.NonEmptyReadonlyArray<RaceSession> => {
 	const deleter: RaceSession =
