@@ -19,9 +19,9 @@
  * A login named `worker`, holding one role: the DbLayer a serverless function builds once is the layer of the login's
  * served file.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): vercel-attach-per-lease.patch (the pool hook called on every lease),
- * vercel-unattached.patch (the pool never handed to the hook).
- *
+ * @plant test/plants/pg/serverless/vercel-attach-per-lease.patch The pool's hook is called on every lease, not once
+ * when the pool is constructed.
+ * @plant test/plants/pg/serverless/vercel-unattached.patch The pool is never handed to the hook.
  * @plant test/plants/pg/serverless/vercel-release-arguments-dropped.patch The pool's guarded release listener is called
  * with no arguments, so @vercel/functions 3.11.3, which ends a release's wait with the request that checked its client
  * out, finds no request and hands Vercel no wait.

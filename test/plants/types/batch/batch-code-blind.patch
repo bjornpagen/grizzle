@@ -1,0 +1,13 @@
+diff --git a/test/types/batch/batch.ts b/test/types/batch/batch.ts
+index 6a1d0fe3..21294f0b 100644
+--- a/test/types/batch/batch.ts
++++ b/test/types/batch/batch.ts
+@@ -461,7 +461,7 @@ const contradicted = (
+ 		const claim = directive.claim
+ 		switch (claim.kind) {
+ 			case "code":
+-				return [...coded(claim.code), ...unnamed()]
++				return unnamed()
+ 			case "refusal":
+ 				return !Arr.isReadonlyArrayNonEmpty(matched) ||
+ 					Arr.some(matched, (e) => Str.includes(`Refusal<"${claim.refusal}">`)(e.text))

@@ -1,0 +1,13 @@
+diff --git a/test/types/batch/batch.ts b/test/types/batch/batch.ts
+index 6a1d0fe3..335ca160 100644
+--- a/test/types/batch/batch.ts
++++ b/test/types/batch/batch.ts
+@@ -546,7 +546,7 @@ const attribute = Effect.fn("attribute")(function* (
+ 		const printed = defined(match[1], "the file a diagnostic names")
+ 		const named = yield* fs.realPath(path.resolve(root, printed))
+ 		const owner = owners.get(named)
+-		const unit = owner === undefined ? undefined : units.get(owner)
++		const unit = owner === undefined ? units.values().next().value : units.get(owner)
+ 		if (unit === undefined) {
+ 			return yield* new BatchDiagnosticUnowned({ file: named, line })
+ 		}

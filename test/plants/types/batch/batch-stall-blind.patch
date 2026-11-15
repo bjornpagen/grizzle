@@ -1,0 +1,12 @@
+diff --git a/test/types/batch/compiler.ts b/test/types/batch/compiler.ts
+index f653e25d..25f62d38 100644
+--- a/test/types/batch/compiler.ts
++++ b/test/types/batch/compiler.ts
+@@ -326,6 +326,7 @@ export const guardedRun = (
+ 				}
+ 				case "stalled": {
+ 					yield* handle.kill({ killSignal: "SIGQUIT", forceKillAfter: guard.window })
++					return { status: 0, stdout: yield* Fiber.join(stdout), stderr: yield* Fiber.join(stderr) }
+ 					return yield* new CompilerStalled({
+ 						command,
+ 						args,

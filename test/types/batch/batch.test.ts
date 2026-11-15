@@ -20,12 +20,16 @@
  *   run's request, each unit's file it wrote is delivered, one it withheld is refused, and a builder that fails fails
  *   every check, naming its status and stderr. Oracle: a model of the request and of what each planted builder writes.
  *
- * Plants (~/.cache/grizzle-release/BR14/plants): batch-twin-blind.patch compares no twin's diagnostics, so a twin
- * label whose lines differ passes; batch-code-blind.patch accepts any code under a code claim; batch-unowned.patch
- * attributes a diagnostic in a file no unit owns to some unit instead of failing the batch; batch-stall-blind.patch never
- * judges a compiler stalled; batch-withheld-read.patch reads a unit's missing file as a unit with no diagnostic;
- * batch-builder-silent.patch writes an empty batch for a builder that failed, naming no failure.
- *
+ * @plant test/plants/types/batch/batch-twin-blind.patch The batch compares no twin's diagnostics, so a twin label whose
+ * lines differ passes.
+ * @plant test/plants/types/batch/batch-code-blind.patch The batch accepts any code under a code claim.
+ * @plant test/plants/types/batch/batch-unowned.patch A diagnostic in a file no unit owns is attributed to some unit
+ * instead of failing the batch.
+ * @plant test/plants/types/batch/batch-stall-blind.patch The stall guard kills a stalled compiler and reports it as
+ * checked, status 0, never CompilerStalled.
+ * @plant test/plants/types/batch/batch-withheld-read.patch A unit's missing file reads as a unit with no diagnostic.
+ * @plant test/plants/types/batch/batch-builder-silent.patch A builder that failed writes an empty batch, naming no
+ * failure.
  * @plant test/plants/types/batch/stall-guard-root-only.patch The stall guard reads the root process alone, so a parent
  * waiting on its busy child is judged stalled.
  * @plant test/plants/types/batch/stall-guard-thread-ended-unread.patch The stall guard's reading treats an ESRCH, a
@@ -435,7 +439,7 @@ const linkedRoot = (repository: string) =>
 const PROGRAM_PREFIX = ".attributed-"
 
 /**
- * Plants a batch under the repository at `repository`, its real path, builds it through the root as the case spells
+ * Sets up a batch under the repository at `repository`, its real path, builds it through the root as the case spells
  * it, and holds the result to the model: every unit's errors, promised lines and problems, as sets, and no line left
  * unattributed; or, when the unowned file raises, BatchDiagnosticUnowned naming its real path.
  */

@@ -1,0 +1,13 @@
+--- a/packages/grizzle/src/adapter/wire/session.ts
++++ b/packages/grizzle/src/adapter/wire/session.ts
+@@ -1517,9 +1517,7 @@
+ 			}
+ 		}
+ 		yield* Effect.addFinalizer(() => Effect.sync(end))
+-		yield* Effect.sync(() => {
+-			config.attachPool(native)
+-		})
++		yield* Effect.void
+ 
+ 		/**
+ 		 * `client` back to pg's Pool, which closes it when `close` holds, and then its permit: pg's Pool counts a closed

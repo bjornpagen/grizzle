@@ -24,13 +24,19 @@
  * Features: every outcome under each subject; every consumer of the union; a lone arm, an arm of several, or none
  * attached; a reference resolved and one refused; a bound parameter.
  *
- * Plants, each failing its search: a delta read in a query lowered as the empty relation (lowering-delta-query); a
- * take delivered in another order merged by its take alone (lowering-merge-reorder); an attachment on an arm of several
- * delivered (lowering-arm-attachments); a reference to a shared source resolved (lowering-shared-source); a bound
- * parameter bound as int4 whatever its declaration (lowering-bound-int4); a declared vector parameter refused as
- * undeclared (~/.cache/grizzle-release/LOWERFIX/plants/lowering-vector-param-undeclared.patch), the kind table's
- * scored projection, whose fixture declares every parameter its nodes read.
- *
+ * @plant test/plants/unit/lower/conservative/lowering-delta-query.patch A delta read in a query is lowered as the
+ * empty relation instead of refused; the kind table's search fails.
+ * @plant test/plants/unit/lower/conservative/lowering-merge-reorder.patch A take delivered in another order is merged
+ * by its take alone; the heterogeneous unions' delivery and merge search fails.
+ * @plant test/plants/unit/lower/conservative/lowering-arm-attachments.patch An attachment on an arm of a union of
+ * several arms is delivered instead of refused; the union attachments search fails.
+ * @plant test/plants/unit/lower/conservative/lowering-shared-source.patch A reference to a source several occurrences
+ * share is resolved instead of refused; the regions search fails.
+ * @plant test/plants/unit/lower/conservative/lowering-bound-int4.patch A take's bound parameter is bound as int4
+ * whatever its declaration; the bound parameter search fails.
+ * @plant test/plants/unit/lower/conservative/lowering-vector-param-undeclared.patch A declared vector parameter is
+ * refused as undeclared; the kind table's search fails at its scored projection, whose fixture declares every
+ * parameter its nodes read.
  * @plant test/plants/unit/lower/conservative/step-reads-operand.patch A Step's query is an unproved core, so a
  * delivered Step whose input reads a set dies with "a delivery, which reads sets".
  */

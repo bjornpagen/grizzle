@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/match-region/index.ts b/packages/engine/src/lower/conservative/match-region/index.ts
+index 56ac2864..997c92d3 100644
+--- a/packages/engine/src/lower/conservative/match-region/index.ts
++++ b/packages/engine/src/lower/conservative/match-region/index.ts
+@@ -165,7 +165,7 @@ const sharedSources = (node: Region): ReadonlySet<NodeId> => {
+ 		}
+ 		seen.add(o.source.id)
+ 	}
+-	return shared
++	return new Set<NodeId>()
+ }
+ 
+ const ambiguous = (node: Region, source: NodeId, reader: string): never =>

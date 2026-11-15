@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/deliver.ts b/packages/engine/src/lower/conservative/deliver.ts
+index b249b38d..afeb061a 100644
+--- a/packages/engine/src/lower/conservative/deliver.ts
++++ b/packages/engine/src/lower/conservative/deliver.ts
+@@ -127,7 +127,7 @@ const groupMerge = (plan: HeterogeneousPlan): GroupMerge => {
+ 		case "take":
+ 			return { kind: "take", bound: b.take.bound, take: b.take.order }
+ 		case "takeThenOrder":
+-			return { kind: "takeThenOrder", bound: b.take.bound, take: b.take.order, order: b.order }
++			return { kind: "take", bound: b.take.bound, take: b.take.order }
+ 	}
+ }
+ 
