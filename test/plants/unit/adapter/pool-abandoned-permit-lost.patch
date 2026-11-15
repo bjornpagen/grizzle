@@ -1,7 +1,7 @@
 diff --git a/packages/grizzle/src/adapter/wire/session.ts b/packages/grizzle/src/adapter/wire/session.ts
 --- a/packages/grizzle/src/adapter/wire/session.ts
 +++ b/packages/grizzle/src/adapter/wire/session.ts
-@@ -1278,7 +1278,6 @@
+@@ -1283,7 +1283,6 @@
  		attempt.waiter = nobody
  		if (waiter._tag === "nobody") {
  			client?.release(false)

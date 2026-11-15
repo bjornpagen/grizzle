@@ -212,7 +212,7 @@ const interruptedStatement = Effect.gen(function* () {
 				assert.equal(session.state(), "retired", "the interrupted session is never used again")
 				yield* Scope.close(leaseScope, Exit.void)
 				yield* until(Effect.map(backendState(pid), (b) => b.state === "gone"))
-				const leased = yield* pool.leased
+				const { leased } = yield* pool.state
 				assert.equal(leased, 0)
 				const again = yield* Effect.scoped(
 					Effect.all(
@@ -455,7 +455,7 @@ layer(Substrate.layer, { excludeTestServices: true })("adapter session pool", (i
 										c.note("connection lost")
 										break
 								}
-								const leased = yield* pool.leased
+								const { leased } = yield* pool.state
 								assert.equal(leased, held.length)
 								const size = yield* pool.size
 								assert.ok(size <= max)
@@ -463,7 +463,7 @@ layer(Substrate.layer, { excludeTestServices: true })("adapter session pool", (i
 							for (const h of Arr.copy(held)) {
 								yield* release(h, false)
 							}
-							const leased = yield* pool.leased
+							const { leased } = yield* pool.state
 							assert.equal(leased, 0)
 							for (const pid of retiredPids) {
 								yield* until(Effect.map(backendState(pid), (b) => b.state === "gone"))

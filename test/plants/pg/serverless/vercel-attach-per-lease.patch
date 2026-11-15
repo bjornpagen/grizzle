@@ -1,10 +1,11 @@
+diff --git a/packages/grizzle/src/adapter/wire/session.ts b/packages/grizzle/src/adapter/wire/session.ts
 --- a/packages/grizzle/src/adapter/wire/session.ts
 +++ b/packages/grizzle/src/adapter/wire/session.ts
-@@ -1579,6 +1579,7 @@
- 						yield* giveBack(client, true)
+@@ -1619,6 +1619,7 @@
+ 						yield* untaken(asked, client)
  						return yield* restore(leaseWith(replacements - 1))
  					}
 +					config.attachPool(native)
+ 					handed.delete(asked)
  					leased += 1
  					yield* Effect.addFinalizer(() => release(client, session))
- 					return session

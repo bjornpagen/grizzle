@@ -631,7 +631,7 @@ const interruptCases = Effect.gen(function* () {
 					} else {
 						cx.note(`${sketch.call} completed before the gate`)
 					}
-					const leased = yield* pool.leased
+					const { leased } = yield* pool.state
 					assert.equal(leased, 0, "the pool has no session leased")
 					const probe = yield* oneOf(readOnce(on(pool, "task"))({ params: { id: t1 }, facts: {} }))
 					assert.ok(Option.isSome(probe), "the next call succeeds")

@@ -1,13 +1,12 @@
 diff --git a/packages/grizzle/src/adapter/wire/session.ts b/packages/grizzle/src/adapter/wire/session.ts
-index de553cab..388c55da 100644
 --- a/packages/grizzle/src/adapter/wire/session.ts
 +++ b/packages/grizzle/src/adapter/wire/session.ts
-@@ -1528,7 +1528,7 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never,
- 		const giveBack = (client: PgPoolClient, close: boolean): Effect.Effect<void> =>
- 			Effect.sync(() => {
- 				client.release(close)
--				owner.permitBack()
-+				if (!close) owner.permitBack()
- 			})
+@@ -1561,7 +1561,7 @@
+ 		 */
+ 		const giveBack = (client: PgPoolClient, close: boolean): void => {
+ 			client.release(close)
+-			owner.permitBack()
++			if (!close) owner.permitBack()
+ 		}
  
- 		/**
+ 		/** The client pg handed to `ask` back, untaken by its lease, closed: the ask holds its permit no longer. */

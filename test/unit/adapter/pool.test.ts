@@ -22,7 +22,7 @@ import {
 import pgDriver from "pg"
 import type { PgSocket } from "#adapter/types/driver.ts"
 import type { Transport } from "#adapter/types/layer.ts"
-import { makePool, type Session } from "#adapter/wire/session.ts"
+import { makePool, type PoolState, type Session } from "#adapter/wire/session.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { assert } from "#test/support/assert.ts"
 import {
@@ -55,16 +55,19 @@ import { upTo } from "#test/support/up-to.ts"
  * or few before the cut, which hands it the permit; or has the server refuse a connection, at startup or by sending no
  * cancellation key. After every step, at a turn of the event loop, once every idle timeout due has closed its session
  * (a short one is due at once): the sessions a release reaches are exactly the server's open connections, pg's Pool
- * counts exactly those, nothing waits in pg's queue, and the leased count is the model's. A wait has no deadline of its
- * own: it ends with a session, or as an interruption. At the end every held session is released, the pool leases its
- * maximum at once with the clock standing still (no permit was lost), and its end closes every connection at once, no
- * session left.
+ * counts exactly those, nothing waits in pg's queue, and the leased count is the model's; the pool's permits
+ * (SessionPool state) are each free, held by an attempt or leased, their sum its maximum, so a permit no one holds is
+ * lost at the step that lost it, and no lease waits for one. A wait has no deadline of its own: it ends with a session,
+ * or as an interruption. At the end every held session is released and, once pg has answered every attempt, every
+ * permit is free; the pool leases its maximum at once with the clock standing still, and its end closes every
+ * connection at once, no session left.
  *
  * How the server answers a startup: ready, with a cancellation key, or refused, at startup or with no key.
  *
  * Oracle: a model of the leases held after each step, against the server's own open connections and pg's Pool's
- * counts, both read apart from the pool's bookkeeping; at the end, the pool's maximum leased at once with the clock
- * standing still.
+ * counts, both read apart from the pool's bookkeeping; the permits' conservation, free + attempting + leased = the
+ * drawn maximum, with none waiting, after each step; at the end, every permit free and the pool's maximum leased at once
+ * with the clock standing still.
  *
  * Features: each step's situation; of the leases taken at once, none waiting, one waiting for a permit, and one
  * waiting behind another; the kept case reaches every abandonment, loss, starvation and refusal on a pool of two.
@@ -593,8 +596,18 @@ describe("the session pool", () => {
 								const size = yield* pool.size
 								assert.equal(size, open, "pg's Pool counts exactly the open connections")
 								assert.equal(pool.native.waitingCount, 0, "nothing waits in pg's queue")
-								const leased = yield* pool.leased
-								assert.equal(leased, held.length)
+								const state = yield* pool.state
+								assert.equal(state.leased, held.length, "the pool counts exactly the held leases")
+								assert.equal(
+									state.free + state.attempting + state.leased,
+									max,
+									`every permit is free, held by an attempt or leased, none lost: ${Formatter.format(state)}`
+								)
+								assert.equal(
+									state.waiting,
+									0,
+									"no lease waits for a permit once its step has ended"
+								)
 							})
 							const lease = Effect.gen(function* () {
 								const scope = yield* Scope.fork(poolScope)
@@ -630,7 +643,7 @@ describe("the session pool", () => {
 										yield* Effect.yieldNow
 									}
 									/** The pool counts the cut lease among its leased sessions beside the held ones. */
-									const holding = (yield* pool.leased) > held.length
+									const holding = (yield* pool.state).leased > held.length
 									yield* Fiber.interrupt(leasing)
 									const exit = yield* Fiber.await(leasing)
 									assert.ok(
@@ -794,6 +807,21 @@ describe("the session pool", () => {
 								yield* release(h)
 							}
 							yield* holds
+							/**
+							 * Every attempt answered: pg's Pool answers each, a left lease's too, within its connect timeout.
+							 * Then every permit is free, none lost to an attempt a lease left.
+							 */
+							const answered: Effect.Effect<PoolState> = Effect.filterOrElse(
+								pool.state,
+								(state) => state.attempting === 0,
+								() => Effect.andThen(settle, answered)
+							)
+							const quiet = yield* answered
+							assert.equal(
+								quiet.free,
+								max,
+								`every permit is free once every lease returned: ${Formatter.format(quiet)}`
+							)
 							/** Every session up to the maximum at once, the clock standing still: no permit was lost. */
 							const recovered = yield* Effect.scoped(
 								Effect.all(

@@ -547,6 +547,6 @@ export const scriptedPool = (overrides: Partial<SessionPool>): SessionPool => ({
 	native: new Pool({ max: 1 }),
 	lease: unused("lease"),
 	size: Effect.succeed(0),
-	leased: Effect.succeed(0),
+	state: Effect.succeed({ free: 1, attempting: 0, leased: 0, waiting: 0 }),
 	...overrides
 })

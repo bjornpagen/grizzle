@@ -1,13 +1,12 @@
 diff --git a/packages/grizzle/src/adapter/wire/session.ts b/packages/grizzle/src/adapter/wire/session.ts
-index de553cab..50cd109c 100644
 --- a/packages/grizzle/src/adapter/wire/session.ts
 +++ b/packages/grizzle/src/adapter/wire/session.ts
-@@ -1537,7 +1537,7 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never,
+@@ -1577,7 +1577,7 @@
  		 */
  		const release = (client: PgPoolClient, session: Session): Effect.Effect<void> =>
- 			Effect.suspend(() => {
+ 			Effect.sync(() => {
 -				leased -= 1
 +				leased -= session.state() === "retired" ? 0 : 1
- 				return giveBack(client, session.state() !== "open")
+ 				giveBack(client, session.state() !== "open")
  			})
  

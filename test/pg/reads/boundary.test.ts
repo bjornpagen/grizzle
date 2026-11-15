@@ -124,7 +124,7 @@ const called = (
 			assert.equal(window.frontend.length, 0, `${what} was refused (${refusal}) after sending SQL`)
 			real.note(`refused before SQL: ${refusal}`)
 		}
-		const leased = yield* real.pool.leased
+		const { leased } = yield* real.pool.state
 		assert.equal(leased, 0, `${what} left a session leased`)
 		return error
 	})

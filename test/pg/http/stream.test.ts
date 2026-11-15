@@ -491,7 +491,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 								/** Every lease of the pool released: its count read after each release pg reports, never a timer. */
 								const allReleased: Effect.Effect<void> = Effect.suspend(() => {
 									const next = release.next
-									return Effect.flatMap(pool.leased, (leased) =>
+									return Effect.flatMap(pool.state, ({ leased }) =>
 										leased === 0 ? Effect.void : Effect.andThen(Deferred.await(next), allReleased)
 									)
 								})

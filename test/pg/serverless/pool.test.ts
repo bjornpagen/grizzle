@@ -419,7 +419,7 @@ const cutLeases = Effect.gen(function* () {
 				 * once; a permit or client lost to a lease that left leaves the rest asking for good, so the drawn cuts and the
 				 * settling end there rather than wait for it.
 				 */
-				const starvedNow = Effect.map(pool.leased, (leasedNow) => {
+				const starvedNow = Effect.map(pool.state, ({ leased: leasedNow }) => {
 					const running = Arr.filter(
 						Arr.map(leases, (_, i) => i),
 						(i) => !ended(i)
@@ -522,7 +522,7 @@ const cutLeases = Effect.gen(function* () {
 					return fiber === undefined ? Effect.void : Fiber.interrupt(fiber)
 				})
 				yield* until(Effect.sync(() => inFlight() === 0))
-				const leasedSettled = yield* pool.leased
+				const { leased: leasedSettled } = yield* pool.state
 				assert.equal(leasedSettled, 0, "once every lease settled, the pool leases nothing")
 				assert.equal(
 					pool.native.totalCount - pool.native.idleCount,
@@ -644,7 +644,7 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 									const pid = yield* backendPidOf(session)
 									held.push({ scope: leaseScope, session, pid })
 								}
-								const heldNow = yield* pool.leased
+								const { leased: heldNow } = yield* pool.state
 								assert.equal(heldNow, w.held)
 								if (w.ending === "layer released") {
 									yield* Scope.close(poolScope, Exit.void)
@@ -666,7 +666,7 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 									assert.equal(asked(), 0, "pg is never asked for a client")
 									assert.equal(gate.state.attempts, attempts, "no connection is attempted")
 									assert.equal(pool.native.waitingCount, 0, "nothing waits in pg's queue")
-									const leased = yield* pool.leased
+									const { leased } = yield* pool.state
 									assert.equal(leased, w.held)
 									for (const h of held) {
 										yield* Scope.close(h.scope, Exit.void)
@@ -721,14 +721,14 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 										break
 									}
 								}
-								const leasedNow = yield* pool.leased
+								const { leased: leasedNow } = yield* pool.state
 								assert.equal(leasedNow, leased)
 								const sizeNow = yield* pool.size
 								assert.ok(sizeNow <= w.max)
 								for (const h of held) {
 									yield* Scope.close(h.scope, Exit.void)
 								}
-								const leasedAfter = yield* pool.leased
+								const { leased: leasedAfter } = yield* pool.state
 								assert.equal(leasedAfter, 0)
 								/** Every session up to the maximum at once. */
 								const pids = yield* Effect.scoped(

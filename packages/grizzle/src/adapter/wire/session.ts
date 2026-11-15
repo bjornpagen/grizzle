@@ -1255,11 +1255,15 @@ const layerReleased = (): Settled => ({
 })
 
 /**
- * What pg's answer to an attempt reaches in the pool that made it (makePool): the way a permit goes back, and the one
- * settling of an ask, its state and its `settled` together.
+ * What pg's answer to an attempt reaches in the pool that made it (makePool): that pg answered it, so it holds its
+ * permit no longer as an attempt; the way a permit goes back; the client handed to the ask waiting for it, which then
+ * holds the permit until its lease takes the client; and the one settling of an ask, its state and its `settled`
+ * together.
  */
 interface AttemptOwner {
+	readonly answered: (attempt: Attempt) => void
 	readonly permitBack: () => void
+	readonly handOver: (ask: Ask, client: PgPoolClient) => void
 	readonly settle: (ask: Ask, settled: Settled) => void
 }
 
@@ -1274,6 +1278,7 @@ interface AttemptOwner {
 const answerAttempt =
 	(spec: SessionSpec, handshakes: Handshakes, attempt: Attempt, owner: AttemptOwner) =>
 	(error: unknown, client: PgPoolClient | undefined): void => {
+		owner.answered(attempt)
 		const waiter = attempt.waiter
 		attempt.waiter = nobody
 		if (waiter._tag === "nobody") {
@@ -1282,7 +1287,7 @@ const answerAttempt =
 			return
 		}
 		if (client !== undefined) {
-			owner.settle(waiter.ask, { _tag: "connected", client })
+			owner.handOver(waiter.ask, client)
 			return
 		}
 		owner.settle(waiter.ask, {
@@ -1309,6 +1314,21 @@ interface PoolConfig {
 	readonly attachPool: (pool: ConnectionPool) => void
 }
 
+/**
+ * A pool's permits as they stand at one moment, one permit for each session up to its bounds' `max`: each free; held by
+ * an ask that is no lease yet (`attempting`: an attempt pg's Pool has not answered, a left lease's among them, or a
+ * client pg handed over that its lease has not taken yet); or held by a session handed to a lease and not yet released
+ * (`leased`; a connection still being established is none). So free + attempting + leased is the pool's `max` at every
+ * moment, and a permit that none of them holds is lost. `waiting` counts the leases queued for a permit, which wait only
+ * while none is free.
+ */
+export interface PoolState {
+	readonly free: number
+	readonly attempting: number
+	readonly leased: number
+	readonly waiting: number
+}
+
 export interface SessionPool {
 	readonly role: string
 	/** pg's Pool, attached to the platform's pool integration when it was built, holding the pool's bounds. */
@@ -1317,8 +1337,8 @@ export interface SessionPool {
 	readonly lease: Effect.Effect<Session, AcquireRefusal, Scope.Scope>
 	/** Open connections: leased, idle, or still being established. */
 	readonly size: Effect.Effect<number>
-	/** The sessions handed to a lease and not yet released; a connection still being established is none. */
-	readonly leased: Effect.Effect<number>
+	/** The pool's permits and its waiting leases, read in one step (PoolState). */
+	readonly state: Effect.Effect<PoolState>
 }
 
 /**
@@ -1387,6 +1407,10 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 		 * and not in idleCount, so its difference would count a session being established as leased.
 		 */
 		let leased = 0
+		/** The attempts pg's Pool has not answered, each holding the permit its ask took, a left lease's included. */
+		const pending = new Set<Attempt>()
+		/** The asks pg answered with a client their lease has not taken yet, each holding its permit. */
+		const handed = new Set<Ask>()
 		/**
 		 * The asks not yet settled, whose leases wait: queued for a permit, or connecting. An ask leaves when it settles
 		 * or its lease withdraws it, and the pool's end refuses every one still here: pg's Pool drops the asks it queued
@@ -1414,6 +1438,7 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 			}
 			const attempt: Attempt = { waiter: { _tag: "waiting", ask } }
 			ask.state = { _tag: "connecting", attempt }
+			pending.add(attempt)
 			attemptServices.current = ask.services
 			const started = Result.try(() => {
 				native.connect(answerAttempt(spec, handshakes, attempt, owner))
@@ -1422,6 +1447,7 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 			if (Result.isSuccess(started)) {
 				return true
 			}
+			pending.delete(attempt)
 			attempt.waiter = nobody
 			settle(ask, { _tag: "refused", failure: Effect.die(started.failure) })
 			return false
@@ -1432,6 +1458,13 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 		 * that pg's Pool takes it for, whose attempt's answer reaches this owner in turn, else free.
 		 */
 		const owner: AttemptOwner = {
+			answered: (attempt) => {
+				pending.delete(attempt)
+			},
+			handOver: (ask, client) => {
+				handed.add(ask)
+				settle(ask, { _tag: "connected", client })
+			},
 			settle,
 			permitBack: () => {
 				while (permits._tag === "waiting") {
@@ -1484,6 +1517,7 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 					state.attempt.waiter = nobody
 					return
 				case "connected":
+					handed.delete(ask)
 					state.client.release(false)
 					owner.permitBack()
 					return
@@ -1525,10 +1559,16 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 		 * `client` back to pg's Pool, which closes it when `close` holds, and then its permit: pg's Pool counts a closed
 		 * client out at once, so the permit admits no lease before the pool has room for it.
 		 */
-		const giveBack = (client: PgPoolClient, close: boolean): Effect.Effect<void> =>
+		const giveBack = (client: PgPoolClient, close: boolean): void => {
+			client.release(close)
+			owner.permitBack()
+		}
+
+		/** The client pg handed to `ask` back, untaken by its lease, closed: the ask holds its permit no longer. */
+		const untaken = (ask: Ask, client: PgPoolClient): Effect.Effect<void> =>
 			Effect.sync(() => {
-				client.release(close)
-				owner.permitBack()
+				handed.delete(ask)
+				giveBack(client, true)
 			})
 
 		/**
@@ -1536,9 +1576,9 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 		 * session is open; a retired or ended one is released with an error, so pg's Pool closes it.
 		 */
 		const release = (client: PgPoolClient, session: Session): Effect.Effect<void> =>
-			Effect.suspend(() => {
+			Effect.sync(() => {
 				leased -= 1
-				return giveBack(client, session.state() !== "open")
+				giveBack(client, session.state() !== "open")
 			})
 
 		/**
@@ -1572,13 +1612,14 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 					const client = settled.client
 					const session = sessions.get(client)
 					if (session === undefined) {
-						yield* giveBack(client, true)
+						yield* untaken(asked, client)
 						return yield* new NoCancelKey()
 					}
 					if (session.state() !== "open" && replacements > 0) {
-						yield* giveBack(client, true)
+						yield* untaken(asked, client)
 						return yield* restore(leaseWith(replacements - 1))
 					}
+					handed.delete(asked)
 					leased += 1
 					yield* Effect.addFinalizer(() => release(client, session))
 					return session
@@ -1590,6 +1631,11 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 			native,
 			lease: leaseWith(bounds.max),
 			size: Effect.sync(() => native.totalCount),
-			leased: Effect.sync(() => leased)
+			state: Effect.sync((): PoolState => ({
+				free: permits._tag === "free" ? permits.count : 0,
+				attempting: pending.size + handed.size,
+				leased,
+				waiting: permits._tag === "waiting" ? permits.queue.length : 0
+			}))
 		}
 	})
