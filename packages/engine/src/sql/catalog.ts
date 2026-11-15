@@ -10,7 +10,7 @@ import type {
 	Refresh,
 	Select
 } from "#compiler/sql/ast.ts"
-import { call, lit, provedSelect, target, types } from "#compiler/sql/build.ts"
+import { call as valueCall, lit, provedSelect, target, types } from "#compiler/sql/build.ts"
 
 /**
  * The catalog-read AST: the SQL grizzle's shell sends to read PostgreSQL's catalog (admission, drift, the ledger's
@@ -713,9 +713,9 @@ export const databaseDefaultBlock = (statement: AlterDatabaseDefault): DoBlock =
 			kind: "execute",
 			command: {
 				kind: "formatted",
-				text: call("format", [
+				text: valueCall("format", [
 					lit.text(`ALTER DATABASE %I SET ${statement.parameter} = %L`, types.text),
-					call("current_database", []),
+					valueCall("current_database", []),
 					lit.text(statement.value, types.text)
 				])
 			},
@@ -750,7 +750,7 @@ export const replicationRightBlock = (role: string, grant: ReplicationGrant): Do
 			kind: "execute",
 			command: {
 				kind: "formatted",
-				text: call("format", [
+				text: valueCall("format", [
 					lit.text(replicationStatement[grant], types.text),
 					lit.text(role, types.text)
 				])
@@ -783,7 +783,7 @@ export const databaseLock: Select = provedSelect(
 	"oneRow",
 	[
 		target(
-			call("pg_advisory_xact_lock", [lit.int(advisoryKey({ kind: "database" }), types.bigint)])
+			valueCall("pg_advisory_xact_lock", [lit.int(advisoryKey({ kind: "database" }), types.bigint)])
 		)
 	],
 	[],
