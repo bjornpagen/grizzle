@@ -1,10 +1,10 @@
 diff --git a/packages/grizzle/src/http/handler.ts b/packages/grizzle/src/http/handler.ts
-index 682b0f03..9f3ca760 100644
+index 1b27ead6..d5511475 100644
 --- a/packages/grizzle/src/http/handler.ts
 +++ b/packages/grizzle/src/http/handler.ts
-@@ -294,7 +294,7 @@ const answerEvents = (
+@@ -402,7 +402,7 @@ const answerEvents = (
  			Stream.unwrap(
- 				Effect.match(routeCall(route, request), {
+ 				Effect.match(Effect.map(routeCall(route, request), progress.reading), {
  					onFailure: (error) => Stream.fromIterable(refusedFrames(route.member.slots.error, error)),
 -					onSuccess: (events) => events
 +					onSuccess: (events) => Stream.unwrap(Effect.map(Stream.runCollect(events), Stream.fromIterable))

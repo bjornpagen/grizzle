@@ -1,4 +1,14 @@
-import { Array as Arr, type Context, Data, Effect, Option, Result, Stream } from "effect"
+import {
+	Array as Arr,
+	type Context,
+	Data,
+	Deferred,
+	Effect,
+	Exit,
+	Option,
+	Result,
+	Stream
+} from "effect"
 import { faultAt, timerDelay, timerRule } from "#adapter/connection/config.ts"
 import { memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
 import { servedContext } from "#adapter/db/served.ts"
@@ -264,6 +274,102 @@ const routeCall = (
 	})
 
 /**
+ * One request's answer (httpAnswers): its response, and how far the handler has come between its member's call and the
+ * response's body, as values. `written` counts the frames written to the body so far, each counted as it joins the
+ * body's stream, before the heartbeat is merged in and whatever the client has read. `pending(taken)` resolves once the
+ * handler has taken at least `taken` events from its member's call and its read of the next one is pending, or once the
+ * call has ended, when no read of it is pending again. One fiber takes each event and writes its frame, and it asks the
+ * call for more only once it has written the frame of every event it took, so at that ask `written` counts them all: a
+ * handler that held its call's events back from the body would ask with fewer written. A request that no route serves,
+ * or that is refused before its member runs, takes no event from a call: its frames are the refusal's.
+ */
+export interface HttpAnswer {
+	readonly response: Response
+	readonly written: Effect.Effect<number>
+	readonly pending: (taken: number) => Effect.Effect<void>
+}
+
+/**
+ * Where the handler's read of its member's call stands: not asked yet; asked for the event after the `taken` it had
+ * taken at its latest ask; or ended, the call's stream done or the answer stopped.
+ */
+type CallRead =
+	| { readonly kind: "unasked" }
+	| { readonly kind: "asked"; readonly taken: number }
+	| { readonly kind: "ended" }
+
+/** Whether `read` has come as far as `pending(taken)` waits for (HttpAnswer). */
+const readReached = (read: CallRead, taken: number): boolean => {
+	switch (read.kind) {
+		case "unasked":
+			return false
+		case "asked":
+			return read.taken >= taken
+		case "ended":
+			return true
+	}
+}
+
+/** An answer's progress as its handler records it (HttpAnswer), with the two stages that count it. */
+interface AnswerProgress extends Pick<HttpAnswer, "written" | "pending"> {
+	/** The member's call's events: each counted as the handler takes it, and each ask for more noted as it is made. */
+	readonly reading: (events: Stream.Stream<SseEvent>) => Stream.Stream<SseEvent>
+	/** The answer's frames, each counted as it joins the body. */
+	readonly writing: (frames: Stream.Stream<SseEvent>) => Stream.Stream<SseEvent>
+}
+
+/**
+ * A fresh answer's progress: no event taken, no frame written, its call not asked yet. `moved` is completed, and
+ * replaced, at each step of the call's read.
+ */
+const answerProgress = (): AnswerProgress => {
+	let taken = 0
+	let written = 0
+	let read: CallRead = { kind: "unasked" }
+	let moved = Deferred.makeUnsafe<void>()
+	const step = (next: CallRead): void => {
+		read = next
+		const done = moved
+		moved = Deferred.makeUnsafe<void>()
+		Deferred.doneUnsafe(done, Effect.void)
+	}
+	const pending = (count: number): Effect.Effect<void> =>
+		Effect.suspend(() => {
+			const next = moved
+			return readReached(read, count)
+				? Effect.void
+				: Effect.andThen(Deferred.await(next), pending(count))
+		})
+	return {
+		reading: (events) =>
+			Stream.transformPull(events, (pull) =>
+				Effect.succeed(
+					Effect.suspend(() => {
+						step({ kind: "asked", taken })
+						return Effect.onExit(pull, (exit) =>
+							Effect.sync(() =>
+								Exit.match(exit, {
+									onSuccess: (chunk) => {
+										taken += chunk.length
+									},
+									onFailure: () => step({ kind: "ended" })
+								})
+							)
+						)
+					})
+				)
+			),
+		writing: (frames) =>
+			Stream.mapArray(frames, (chunk) => {
+				written += chunk.length
+				return chunk
+			}),
+		written: Effect.sync(() => written),
+		pending
+	}
+}
+
+/**
  * The JSON of the refusal of a request line no route serves, which no member's slots encode: its kind, its retry, and
  * its payload, a message alone (live/events.ts callErrors route).
  */
@@ -274,12 +380,14 @@ const routeErrorJson = (error: CallErrorOf<"route">): WireJson => ({
 })
 
 /**
- * The events answering `request`: the call of the route its request line names (routeCall), or, for a line no route
- * serves, its refusal. Every refusal is the call's error, then its end, so the stream never fails.
+ * The events answering `request`: the call of the route its request line names (routeCall), its events read through the
+ * answer's progress (AnswerProgress reading), or, for a line no route serves, its refusal. Every refusal is the call's
+ * error, then its end, so the stream never fails.
  */
 const answerEvents = (
 	table: ReadonlyMap<string, ServedRoute>,
-	request: Request
+	request: Request,
+	progress: AnswerProgress
 ): Stream.Stream<SseEvent> => {
 	const line = requestLine(request)
 	return Option.match(Option.fromNullishOr(table.get(line)), {
@@ -292,13 +400,54 @@ const answerEvents = (
 			),
 		onSome: (route) =>
 			Stream.unwrap(
-				Effect.match(routeCall(route, request), {
+				Effect.match(Effect.map(routeCall(route, request), progress.reading), {
 					onFailure: (error) => Stream.fromIterable(refusedFrames(route.member.slots.error, error)),
 					onSuccess: (events) => events
 				})
 			)
 	})
 }
+
+/**
+ * The answers httpHandler serves, each request's with its progress (HttpAnswer): its config read and its route table
+ * built as httpHandler's are, once, and each answer's body its events framed (sse.ts sseStream), their frames counted as
+ * they join it.
+ */
+export const httpAnswers = <const Ls extends readonly [AnyLogin, ...Array<AnyLogin>]>(
+	config: HttpConfig<Ls>
+): Effect.Effect<(request: Request) => HttpAnswer, HttpConfigRefused, DbLayerOf<Ls[number]>> =>
+	Effect.gen(function* () {
+		const read = yield* Effect.fromResult(Result.mapError(readConfig(config), refusedSetting))
+		const context = yield* Effect.context<DbLayerOf<Ls[number]>>()
+		const logins = yield* Effect.fromResult(
+			Result.all(
+				Arr.map(read.logins, (login) =>
+					Result.map(servedRoles(context, login), (roles) => ({ login: login.name, roles }))
+				)
+			)
+		)
+		const table = yield* Effect.fromResult(
+			Result.mapError(
+				routeTable(logins),
+				(route) => new HttpConfigRefused({ reason: { kind: "route", route } })
+			)
+		)
+		return (request: Request): HttpAnswer => {
+			const progress = answerProgress()
+			return {
+				response: new Response(
+					Stream.toReadableStreamWith(
+						sseStream(progress.writing(answerEvents(table, request, progress)), read.heartbeatMs),
+						context,
+						{ signal: request.signal }
+					),
+					{ status: 200, headers: sseHeaders }
+				),
+				written: progress.written,
+				pending: progress.pending
+			}
+		}
+	})
 
 /**
  * httpHandler(config): a fetch-style handler serving every member of every role of the config's served logins, one
@@ -320,36 +469,14 @@ const answerEvents = (
  * comment every `heartbeatMs` keeps a quiet stream open. No event carries an id: a reconnect is a new call.
  *
  * The config is read once, when the handler is built (readConfig), and the route table is built then from the logins
- * as their layers loaded them: a refusal is HttpConfigRefused.
+ * as their layers loaded them: a refusal is HttpConfigRefused. Each request's response is its answer's (httpAnswers).
  */
 export const httpHandler = <const Ls extends readonly [AnyLogin, ...Array<AnyLogin>]>(
 	config: HttpConfig<Ls>
 ): Effect.Effect<HttpHandler, HttpConfigRefused, DbLayerOf<Ls[number]>> =>
-	Effect.gen(function* () {
-		const read = yield* Effect.fromResult(Result.mapError(readConfig(config), refusedSetting))
-		const context = yield* Effect.context<DbLayerOf<Ls[number]>>()
-		const logins = yield* Effect.fromResult(
-			Result.all(
-				Arr.map(read.logins, (login) =>
-					Result.map(servedRoles(context, login), (roles) => ({ login: login.name, roles }))
-				)
-			)
-		)
-		const table = yield* Effect.fromResult(
-			Result.mapError(
-				routeTable(logins),
-				(route) => new HttpConfigRefused({ reason: { kind: "route", route } })
-			)
-		)
-		return (request: Request): Promise<Response> =>
-			Promise.resolve(
-				new Response(
-					Stream.toReadableStreamWith(
-						sseStream(answerEvents(table, request), read.heartbeatMs),
-						context,
-						{ signal: request.signal }
-					),
-					{ status: 200, headers: sseHeaders }
-				)
-			)
-	})
+	Effect.map(
+		httpAnswers(config),
+		(answer) =>
+			(request: Request): Promise<Response> =>
+				Promise.resolve(answer(request).response)
+	)

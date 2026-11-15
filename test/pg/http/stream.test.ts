@@ -1,14 +1,20 @@
 /**
  * A call over HTTP answers the events the in-process call answers, and a client that goes away leaves nothing behind.
  * Over a schema of scored items, its stored items and every call drawn, served as an application serves it (its
- * committed file, its DbLayer, and the HTTP handler over the layer, http/handler.ts httpHandler), each case calls one
- * member of the login's role both ways, through the handler and through the same layer's in-process calls
- * (adapter/db/handles.ts memberCalls), the oracle:
+ * committed file, its DbLayer, and the HTTP answers over the layer, http/handler.ts httpAnswers, whose responses
+ * httpHandler serves), each case calls one member of the login's role both ways, through the handler and through the
+ * same layer's in-process calls (adapter/db/handles.ts memberCalls), the oracle:
  *
  * - A read, a set read by a drawn floor, a key by a drawn id, an ordered read's window from either end: its answer up to
  *   `ready` over HTTP is the in-process watch's, frame for frame as the member's wire spells each event (http/events.ts),
  *   a set read's upserts in any order, an ordered read's in order; then a drawn write committed in-process, and both
  *   answers' next batches up to their `ready` are again one batch.
+ * - A read's answer streams. The handler takes its call's events only as the client pulls the body, so the client keeps
+ *   a read of the body pending. Once the handler has taken as many events from its call as the in-process watch's first
+ *   batch holds, and its read of the next is pending (HttpAnswer pending), it has written the frame of every one to the
+ *   body (HttpAnswer written). One fiber takes each event and writes its frame, and asks its call for more only after,
+ *   so this holds at that ask by program order. A handler that held its call's events back from the body fails at once,
+ *   and the case never waits for a frame that does not come.
  * - A write, a put of drawn items: its answer over HTTP is its outcome, then `end`, accepted exactly when some item it
  *   puts is not stored as it states it, and the same put again in-process is unchanged.
  * - Disconnect: the HTTP answer's body cancelled while its read is live, and the in-process read stopped with it,
@@ -24,7 +30,7 @@
  * label-fixed streams reach every kind of call.
  *
  * @plant test/plants/pg/http/http-buffered.patch The answer's events collected before the body is written, so a live
- * read's first upsert never reaches its client; the case hangs and fails.
+ * read's first batch is never written: the handler asks its call for more with none of its frames written.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -33,7 +39,17 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Deferred, Effect, Formatter, Option, Queue, Result, Stream } from "effect"
+import {
+	Array as Arr,
+	Deferred,
+	Effect,
+	Fiber,
+	Formatter,
+	Option,
+	Queue,
+	Result,
+	Stream
+} from "effect"
 import { memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
@@ -47,7 +63,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { listFrame, setFrame, type SlotEncoders, writeFrame } from "#http/events.ts"
-import { httpHandler } from "#http/index.ts"
+import { httpAnswers } from "#http/handler.ts"
 import type { SseEvent } from "#http/sse.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
@@ -426,7 +442,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 							const login = o.served.login
 							const role = login.roles.app
 							yield* Effect.gen(function* () {
-								const handler = yield* httpHandler({ logins: [login], heartbeatMs })
+								const answers = yield* httpAnswers({ logins: [login], heartbeatMs })
 								const opened = yield* openServed(role, {})
 								const member = memberNamed(opened.role.members, call.member)
 								const calls = memberCalls(opened.ctx, member)
@@ -443,16 +459,14 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 										notes.note("a read called again once the slot stood")
 									}
 								}
-								const response = yield* Effect.promise(() =>
-									handler(
-										new Request(`${origin}/${login.name}/${role.role}/${call.member}`, {
-											method: "POST",
-											headers: { "grizzle-wire": member.wire.digest },
-											body: jsonText(body)
-										})
-									)
+								const handled = answers(
+									new Request(`${origin}/${login.name}/${role.role}/${call.member}`, {
+										method: "POST",
+										headers: { "grizzle-wire": member.wire.digest },
+										body: jsonText(body)
+									})
 								)
-								const answer: ReadableStream<Uint8Array> | null = response.body
+								const answer: ReadableStream<Uint8Array> | null = handled.response.body
 								if (answer === null) {
 									return assert.fail("every answer has a body")
 								}
@@ -515,8 +529,16 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 											Stream.runForEach(inProcess(calls, slots, body), (e) => Queue.offer(local, e))
 										)
 										const http = yield* openStream(answer)
-										const first = yield* http.until(holdsCount("ready", 1))
+										const reading = yield* Effect.forkScoped(http.until(holdsCount("ready", 1)))
 										const localFirst = yield* localUntil(1)
+										yield* handled.pending(localFirst.length)
+										const written = yield* handled.written
+										assert.equal(
+											written,
+											localFirst.length,
+											`the frames written to the body once the handler has taken the read's first batch from its call and asks for more\n${printed()}`
+										)
+										const first = yield* Fiber.join(reading)
 										sameBatch(
 											shape,
 											batch(first.events, 0, 1),
