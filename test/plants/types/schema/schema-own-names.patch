@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/types/schema/schema.ts b/packages/engine/src/types/schema/schema.ts
+index 996eaa28..b5729835 100644
+--- a/packages/engine/src/types/schema/schema.ts
++++ b/packages/engine/src/types/schema/schema.ts
+@@ -336,7 +336,7 @@ type Undeclared<Relations, R> = R extends unknown
+ 			? [R] extends [Relations[keyof Relations]]
+ 				? never
+ 				: R
+-			: true extends SameAs<UnderName<Relations, NameOf<R>>, R>
++			: NameOf<R> extends keyof Relations
+ 				? never
+ 				: R
+ 	: never

@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/types/schema/statements.ts b/packages/engine/src/types/schema/statements.ts
+index 44bc3595..92f35206 100644
+--- a/packages/engine/src/types/schema/statements.ts
++++ b/packages/engine/src/types/schema/statements.ts
+@@ -642,8 +642,8 @@ export type SideHosts<C, T> = { readonly [I in keyof T]: TermTypeOf<C, T[I]> }
+ export type SidesCompatible<L, R> = [L] extends [R]
+ 	? [R] extends [L]
+ 		? unknown
+-		: Refusal<"the sides' field types differ">
+-	: Refusal<"the sides' field types differ">
++		: unknown
++	: unknown
+ 
+ /** The relation and key fields a KeyRef names: a Key's side's relation and field terms, a relation's primary key. */
+ export type RelationOfKey<K> = K extends Key<Side<infer R, ReadonlyArray<string>>> ? R : K
