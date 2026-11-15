@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/codes.ts b/packages/engine/src/ir/codes.ts
+index 49e3578d..11eb7a77 100644
+--- a/packages/engine/src/ir/codes.ts
++++ b/packages/engine/src/ir/codes.ts
+@@ -72,7 +72,7 @@ export const rosterCodec = (roster: DeclaredName, codes: RosterCodes): RosterCod
+ 	return Object.freeze({
+ 		roster,
+ 		codes: Object.freeze([...codes]),
+-		size: codes.length,
++		size: codeOf.size,
+ 		width: wholeDigitBits(codes.length),
+ 		codeOf,
+ 		names: Object.freeze(names)

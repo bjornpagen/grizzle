@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/cells.ts b/packages/engine/src/ir/cells.ts
+index 6cec45dd..79bff474 100644
+--- a/packages/engine/src/ir/cells.ts
++++ b/packages/engine/src/ir/cells.ts
+@@ -498,7 +498,7 @@ export const sideOf = <V>(
+ 	const smallest = heading.keys.reduce<NonEmptyReadonlyArray<string> | undefined>(
+ 		(best, declared) =>
+ 			declared.every((field) => terms.includes(field)) &&
+-			(best === undefined || declared.length < best.length)
++			(best === undefined || declared.length > best.length)
+ 				? declared
+ 				: best,
+ 		undefined

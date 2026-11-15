@@ -1,0 +1,42 @@
+diff --git a/packages/engine/src/ir/dag.ts b/packages/engine/src/ir/dag.ts
+index cf85f795..224133e6 100644
+--- a/packages/engine/src/ir/dag.ts
++++ b/packages/engine/src/ir/dag.ts
+@@ -180,27 +180,18 @@ export const postorder = <V>(
+ ): ReadonlyArray<V> => {
+ 	const order: Array<V> = []
+ 	const seen = new Set<V>()
+-	for (const root of roots) {
+-		if (seen.has(root)) {
+-			continue
++	const visit = (vertex: V): void => {
++		if (seen.has(vertex)) {
++			return
+ 		}
+-		seen.add(root)
+-		const stack: Array<{ readonly vertex: V; readonly inputs: ReadonlyArray<V>; next: number }> = [
+-			{ vertex: root, inputs: inputs(root), next: 0 }
+-		]
+-		for (let frame = stack.at(-1); frame !== undefined; frame = stack.at(-1)) {
+-			const input = frame.inputs[frame.next]
+-			if (input === undefined) {
+-				stack.pop()
+-				order.push(frame.vertex)
+-				continue
+-			}
+-			frame.next++
+-			if (!seen.has(input)) {
+-				seen.add(input)
+-				stack.push({ vertex: input, inputs: inputs(input), next: 0 })
+-			}
++		seen.add(vertex)
++		for (const input of inputs(vertex)) {
++			visit(input)
+ 		}
++		order.push(vertex)
++	}
++	for (const root of roots) {
++		visit(root)
+ 	}
+ 	return order
+ }

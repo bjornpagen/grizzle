@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/cells.ts b/packages/engine/src/ir/cells.ts
+index 6cec45dd..079426e0 100644
+--- a/packages/engine/src/ir/cells.ts
++++ b/packages/engine/src/ir/cells.ts
+@@ -393,7 +393,7 @@ export const constantDigestOf = (constant: Constant): ConstantDigest<"closed-con
+ 		{
+ 			cells: constant.cells,
+ 			width: constant.width,
+-			entries: constant.entries.map((entry) => [entry.index, entry.payload])
++			entries: constant.entries.map((entry) => [entry.index])
+ 		},
+ 		everyProperty
+ 	)

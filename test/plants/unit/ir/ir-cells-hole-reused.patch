@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/ir/cells.ts b/packages/engine/src/ir/cells.ts
+index 6cec45dd..aad9565b 100644
+--- a/packages/engine/src/ir/cells.ts
++++ b/packages/engine/src/ir/cells.ts
+@@ -86,7 +86,8 @@ export const rosterCodes = (
+ 		return renames.has(handle) ? undefined : liveCode.get(handle)
+ 	}
+ 	const claims: Array<Claim> = []
+-	let minted = previous.length
++	let minted = previous.findIndex((slot) => slot.kind === "hole")
++	minted = minted === -1 ? previous.length : minted
+ 	for (const handle of handles) {
+ 		const kept = keptCode(handle)
+ 		if (kept === undefined) {

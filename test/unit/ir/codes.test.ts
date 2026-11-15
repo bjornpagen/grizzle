@@ -16,7 +16,8 @@
  *
  * Features: a growth, a removal, a re-add, a rename, a reorder, a hole between live codes, both rosters changed.
  *
- * Plants: ir-codes-size-live-only (a codec counts its live codes alone, not every code minted).
+ * @plant test/plants/unit/ir/ir-codes-size-live-only.patch A codec's size counts its live codes alone, not every code
+ * minted, holes included; the universal oracles' count of every code minted fails.
  */
 import { type Case, exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

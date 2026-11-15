@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/dag.ts b/packages/engine/src/ir/dag.ts
+index cf85f795..5140b7be 100644
+--- a/packages/engine/src/ir/dag.ts
++++ b/packages/engine/src/ir/dag.ts
+@@ -956,7 +956,7 @@ export const dagDigestWithin = (
+ 	domain: string
+ ): Result.Result<DagDigest, CompileError> =>
+ 	Result.flatMap(normalizeWithin(context, roots), (normal) =>
+-		Result.map(digest(domain, claimedForm(normal), { omit: omitSourceLocs }), DagDigest)
++		Result.map(digest("dag", claimedForm(normal), { omit: omitSourceLocs }), DagDigest)
+ 	)
+ 
+ /** The digest of a whole DAG. */

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/dag.ts b/packages/engine/src/ir/dag.ts
+index cf85f795..01221e54 100644
+--- a/packages/engine/src/ir/dag.ts
++++ b/packages/engine/src/ir/dag.ts
+@@ -211,7 +211,7 @@ export const postorder = <V>(
+  * each node once. A SelfRef's feedback is a name, not followed.
+  */
+ export const topoOrder = (dag: RelDag): ReadonlyArray<RelNode> =>
+-	postorder(dag.roots, (node) => inputsOf(node))
++	postorder(dag.roots, (node) => inputsOf(node)).toReversed()
+ 
+ /** An editor's cells the roots reach through their current inputs, in topological order (postorder). */
+ export const cellOrder = (roots: ReadonlyArray<Cell>): ReadonlyArray<Cell> =>

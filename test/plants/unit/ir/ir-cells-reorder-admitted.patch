@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/cells.ts b/packages/engine/src/ir/cells.ts
+index 6cec45dd..aef391fa 100644
+--- a/packages/engine/src/ir/cells.ts
++++ b/packages/engine/src/ir/cells.ts
+@@ -98,7 +98,7 @@ export const rosterCodes = (
+ 	}
+ 	let before: Claim | undefined
+ 	for (const claim of claims) {
+-		if (before !== undefined && claim.code < before.code) {
++		if (before !== undefined && claim.code < before.code - 1) {
+ 			return Result.err({ earlier: before.handle, later: claim.handle })
+ 		}
+ 		before = claim

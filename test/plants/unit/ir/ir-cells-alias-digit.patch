@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/cells.ts b/packages/engine/src/ir/cells.ts
+index 6cec45dd..fc7a78b7 100644
+--- a/packages/engine/src/ir/cells.ts
++++ b/packages/engine/src/ir/cells.ts
+@@ -176,7 +176,7 @@ export const rowMajorIndex = (
+ 	let index = 0n
+ 	for (const [position, size] of sizes.entries()) {
+ 		const digit = digits[position]
+-		if (digit === undefined || !Number.isInteger(digit) || digit < 0 || digit >= size) {
++		if (digit === undefined || !Number.isInteger(digit) || digit < 0 || digit > size) {
+ 			return undefined
+ 		}
+ 		index = index * BigInt(size) + BigInt(digit)

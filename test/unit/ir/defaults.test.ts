@@ -8,7 +8,8 @@
  *
  * Features: a bind omitted, a bind stated, a bind with entries.
  *
- * Plants: ir-desc-bind-unfilled (an omitted bind map left absent rather than filled as the empty map).
+ * @plant test/plants/unit/ir/ir-desc-bind-unfilled.patch An omitted bind map is left absent rather than filled as the
+ * empty map; the omitted and stated defaults decode to different texts.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

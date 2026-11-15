@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/cells.ts b/packages/engine/src/ir/cells.ts
+index 6cec45dd..6cb3ce4a 100644
+--- a/packages/engine/src/ir/cells.ts
++++ b/packages/engine/src/ir/cells.ts
+@@ -151,7 +151,7 @@ export const finSize = (space: FinSpace): bigint => space.size
+  */
+ export const finDigit = (space: FinSpace, owner: bigint, at: bigint): bigint | undefined => {
+ 	const run = space.runs.get(owner)
+-	return run !== undefined && at >= 0n && at < run.count ? run.start + at : undefined
++	return run !== undefined && at >= 0n && at <= run.count ? run.start + at : undefined
+ }
+ 
+ /** Bigint order. */

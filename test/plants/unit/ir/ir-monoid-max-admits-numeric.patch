@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/ir/monoid.ts b/packages/engine/src/ir/monoid.ts
+index 76cb9268..b3a3af03 100644
+--- a/packages/engine/src/ir/monoid.ts
++++ b/packages/engine/src/ir/monoid.ts
+@@ -109,8 +109,8 @@ const bounded = (t: ScalarType): boolean => {
+ 		case "int8":
+ 		case "code":
+ 		case "money":
+-			return true
+ 		case "numeric":
++			return true
+ 		case "float4":
+ 		case "float8":
+ 		case "bool":

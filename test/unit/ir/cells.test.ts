@@ -3,7 +3,9 @@
  *
  * - The naive tuple-set model: a relation is the list of its tuples in the odometer's order of its key space, and a
  *   constant is decoded by reading every cell of its bit text the way PostgreSQL's substring reads it, each present cell
- *   mapped back to its key and payload by the odometer. decode ∘ encode = id over every closed relation of a box.
+ *   mapped back to its key and payload by the odometer. decode ∘ encode = id over every closed relation of a box. The
+ *   bit text is the test oracle's (test/support/closed/bit-text.ts), each held cell 1 + its payload code; the engine's
+ *   own hex literal of a constant (literalOf) is unit/physical/literal.test.ts's.
  * - The odometer: every point of a space counted in row-major order, which the mixed-radix index must number
  *   bijectively, and which no out-of-range digit may reach, the alias (a digit past its radix carrying into its
  *   neighbour, 400 as 37 at PostgreSQL's scale) among them.
@@ -15,12 +17,24 @@
  *
  * Features: each search names the shapes, relations, statements, rosters, sides and edits it must reach.
  *
- * Plants: ir-cells-alias-digit (a digit at its radix accepted), ir-cells-fin-past-count (a slot at its owner's count
- * accepted), ir-cells-dependent-shifted (a dependent key's slot read one place on), ir-cells-absent-payload (a cell
- * written as its payload code, so code 0 reads absent), ir-cells-collision-overwrites (two payloads at one key kept as
- * the later), ir-cells-width-short (a cell one bit short at a power of two), ir-cells-hole-reused (a new handle minted at
- * a hole's code), ir-cells-reorder-admitted (a reorder of kept codes admitted), ir-cells-side-largest-key (a side keyed
- * by its largest contained key), ir-cells-digest-no-payload (a digest blind to payloads).
+ * @plant test/plants/unit/ir/ir-cells-alias-digit.patch rowMajorIndex accepts a digit at its radix, which carries
+ * into its neighbour; the row-major index's and the dependent key space's properties fail.
+ * @plant test/plants/unit/ir/ir-cells-fin-past-count.patch finDigit accepts a slot at its owner's count, the next
+ * owner's first slot; the fin coordinate's property fails.
+ * @plant test/plants/unit/ir/ir-cells-dependent-shifted.patch keyIndex reads a dependent key's slot one place on; the
+ * dependent key space's property fails.
+ * @plant test/plants/unit/ir/ir-cells-collision-overwrites.patch constantOf keeps the later of two payloads at one key
+ * instead of refusing the collision; the string of cells' order and collision property fails.
+ * @plant test/plants/unit/ir/ir-cells-width-short.patch cellWidth is one bit short when the payload space is a power of
+ * two; decode ∘ encode = id fails.
+ * @plant test/plants/unit/ir/ir-cells-hole-reused.patch rosterCodes mints a new handle at a hole's code; the roster
+ * codes' property fails.
+ * @plant test/plants/unit/ir/ir-cells-reorder-admitted.patch rosterCodes admits two kept neighbours swapped; the roster
+ * codes' property fails to see the reorder refused.
+ * @plant test/plants/unit/ir/ir-cells-side-largest-key.patch sideOf keys a side by its largest contained declared key;
+ * the side's property fails.
+ * @plant test/plants/unit/ir/ir-cells-digest-no-payload.patch constantDigestOf is blind to payloads; the digest's
+ * property fails on a cell given another payload.
  */
 import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
