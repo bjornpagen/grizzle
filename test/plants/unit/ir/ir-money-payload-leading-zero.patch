@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/ir/carriers.ts b/packages/engine/src/ir/carriers.ts
+index 60f77742..76489549 100644
+--- a/packages/engine/src/ir/carriers.ts
++++ b/packages/engine/src/ir/carriers.ts
+@@ -553,9 +553,6 @@ const moneyUnits = (text: string): bigint | undefined => {
+ 			return undefined
+ 		}
+ 	}
+-	if (digits.length > 1 && digits.startsWith("0")) {
+-		return undefined
+-	}
+ 	if (digits === "0" && text.length > 1) {
+ 		return undefined
+ 	}

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/desc.ts b/packages/engine/src/ir/desc.ts
+index e2fb9d03..e724d295 100644
+--- a/packages/engine/src/ir/desc.ts
++++ b/packages/engine/src/ir/desc.ts
+@@ -1900,7 +1900,7 @@ const queryStageBody: S.Shape<QueryStageDesc> = S.tagged("kind", {
+ 				{
+ 					input: stageInput,
+ 					order: S.refine(
+-						S.uniqueArray(orderDescShape, (o) => o.column, "order columns"),
++						S.array(orderDescShape),
+ 						(o) => o.length > 0,
+ 						"a nonempty order"
+ 					)

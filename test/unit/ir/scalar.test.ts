@@ -15,11 +15,20 @@
  * situation; an allocation normalized and each broken rule; negative and unsigned counts, payloads and non-payloads,
  * one and several components, special values.
  *
- * Plants: ir-scalar-vector-dims-past (a vector one dimension past the limit decoded), ir-literal-float4-unchecked (a
- * float4 literal that is no float32 admitted), ir-numeric-literal-overflow-at (a literal of exactly 10^p units at
- * numeric(p, s) admitted), ir-predicate-dangling-unchecked (a predicate naming an argument it lacks admitted),
- * ir-money-payload-leading-zero (a money payload with a leading zero admitted), ir-vector-text-spaced (a vector's text
- * written with spaces), ir-decimal-payload-trailing-zero (a decimal payload with a trailing fractional zero admitted).
+ * @plant test/plants/unit/ir/ir-scalar-vector-dims-past.patch A vector type one dimension past vectorMaxDimensions
+ * decodes; the types property fails.
+ * @plant test/plants/unit/ir/ir-literal-float4-unchecked.patch A float literal of a float4 type is admitted whether or
+ * not it is a float32 value; the literals property fails.
+ * @plant test/plants/unit/ir/ir-numeric-literal-overflow-at.patch A numeric literal of exactly 10^p units at
+ * numeric(p, s) is admitted; the literals property fails.
+ * @plant test/plants/unit/ir/ir-predicate-dangling-unchecked.patch A contract predicate naming an argument its table
+ * lacks is admitted; the contract predicates property fails.
+ * @plant test/plants/unit/ir/ir-money-payload-leading-zero.patch A money payload with a leading zero is admitted; the
+ * payloads property fails.
+ * @plant test/plants/unit/ir/ir-vector-text-spaced.patch A vector's text is written with a space after each comma; the
+ * payloads property fails.
+ * @plant test/plants/unit/ir/ir-decimal-payload-trailing-zero.patch A decimal payload with a trailing fractional zero is
+ * admitted; the payloads property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
@@ -748,19 +757,30 @@ describe("contract predicates", () => {
 		...nonNegative,
 		exprs: { ...nonNegative.exprs, [key]: patch(defined(nonNegative.exprs[ExprId(key)])) }
 	})
+	/** `table` without its entry `key`, so an argument naming it dangles and no entry is left unreachable. */
+	const without = (table: ExprTable, key: string): ExprTable => ({
+		root: table.root,
+		exprs: Rec.remove(table.exprs, ExprId(key))
+	})
 	/**
-	 * The rules of a contract predicate (expr.ts predicateProblems), each broken once on VALUE >= 0: the table is in
-	 * normal form, so its canonical text cannot depend on allocation; its root and every argument resolve, every entry is
-	 * reachable and none is its own argument; it reads only VALUE, of the base type, and literals, with no column, no
-	 * parameter and no dependency; it is immutable and boolean, and no domain cast lies in it; its literals fit the
-	 * base. A contract decoded with a broken predicate is MalformedDescription.
+	 * The rules of a contract predicate (expr.ts predicateProblems), each broken once on VALUE >= 0, and no other rule
+	 * with it (a dangling argument leaves no entry unreachable): the table is in normal form, so its canonical text cannot
+	 * depend on allocation; its root and every argument resolve, every entry is reachable and none is its own argument;
+	 * it reads only VALUE, of the base type, and literals, with no column, no parameter and no dependency; it is
+	 * immutable and boolean, and no domain cast lies in it; its literals fit the base. A contract decoded with a broken
+	 * predicate is MalformedDescription.
 	 */
 	const broken: Arr.NonEmptyReadonlyArray<readonly [string, ExprTable]> = [
 		["not in normal form", allocated(["e3", "e1", "e2"])],
 		["a missing root", { root: ExprId("missing"), exprs: {} }],
 		[
 			"a dangling argument",
-			edited("e#0", (e) => (e.kind === "op" ? { ...e, args: [ExprId("e#1"), ExprId("e#9")] } : e))
+			without(
+				edited("e#0", (e) =>
+					e.kind === "op" ? { ...e, args: [ExprId("e#1"), ExprId("e#9")] } : e
+				),
+				"e#2"
+			)
 		],
 		[
 			"an unreachable entry",

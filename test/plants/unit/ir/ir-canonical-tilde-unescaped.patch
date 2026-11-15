@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/canonical.ts b/packages/engine/src/core/canonical.ts
+index e5cb26a1..efbd92ba 100644
+--- a/packages/engine/src/core/canonical.ts
++++ b/packages/engine/src/core/canonical.ts
+@@ -254,7 +254,7 @@ const refuseText = (path: Path, what: string): never => {
+ 	throw new Refusal(malformedArtifact("canonical", path, what))
+ }
+ 
+-const escapeString = (value: string): string => (value.startsWith("~") ? `~${value}` : value)
++const escapeString = (value: string): string => value
+ 
+ const wellFormedText = "well-formed Unicode text"
+ 

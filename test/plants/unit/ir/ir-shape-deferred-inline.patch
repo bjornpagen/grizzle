@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/shape.ts b/packages/engine/src/ir/shape.ts
+index aa6aca8b..de2f1e29 100644
+--- a/packages/engine/src/ir/shape.ts
++++ b/packages/engine/src/ir/shape.ts
+@@ -1195,7 +1195,7 @@ export const ref = <A>(expected: string, shape: () => Shape<A>): Shape<A> =>
+ 	plain({
+ 		expected,
+ 		parse: function* (value, path) {
+-			return yield* deferred(shape().parse(value, path))
++			return yield* shape().parse(value, path)
+ 		}
+ 	})
+ 

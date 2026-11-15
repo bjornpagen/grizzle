@@ -16,16 +16,27 @@
  *
  * Oracles: each rule of the boundary as a checker, the round trip through JSON, and the builders' own constants.
  *
- * Features: as each search names them: every kind located and stated, chains told apart and alike, every position of
- * an Ordered, each arm decoded and refused, live and every corruption, each nesting, each tag, each empty connective in
- * each place.
+ * Features: as each search names them: every kind located and stated, chains told apart (by a take's count alone among
+ * them) and alike, every position of an Ordered, each arm decoded and refused, live and every corruption, each nesting,
+ * each tag, each empty connective in each place.
  *
- * Plants: ir-desc-located-parent (an unlocated node located at its parent's path), ir-desc-text-drops-take (the
- * identity text drops a take's count), ir-desc-ordered-under-named (named admitted over an Ordered), ir-desc-scale-on-add
- * (add takes a scale), ir-desc-order-column-twice (an order naming a column twice decoded), ir-shape-deferred-inline (a
- * recursive part read on the call stack), ir-canonical-tilde-unescaped (a leading tilde written as is),
- * ir-canonical-tilde-unrestored (a doubled tilde read back doubled), ir-desc-connective-unit-swapped (an empty and
- * decoded as false).
+ * @plant test/plants/unit/ir/ir-desc-located-parent.patch A node its author leaves unlocated is located at its
+ * parent's path, not its own; the locations property fails.
+ * @plant test/plants/unit/ir/ir-desc-text-drops-take.patch The identity text omits a take's count, so take(2) and
+ * take(5) are one description; the combinators property fails.
+ * @plant test/plants/unit/ir/ir-desc-ordered-under-named.patch named is admitted over an Ordered; the corruptions
+ * property fails at "on an Ordered, only take: no named".
+ * @plant test/plants/unit/ir/ir-desc-scale-on-add.patch add decodes a scale; the arms property fails.
+ * @plant test/plants/unit/ir/ir-desc-order-column-twice.patch An order naming a column twice decodes; the corruptions
+ * property fails.
+ * @plant test/plants/unit/ir/ir-shape-deferred-inline.patch ref reads its part on the call stack, not deferred to the
+ * driver; the nesting property fails past a small stack.
+ * @plant test/plants/unit/ir/ir-canonical-tilde-unescaped.patch A string's leading tilde is written as is, not doubled;
+ * the literals property fails.
+ * @plant test/plants/unit/ir/ir-canonical-tilde-unrestored.patch A doubled leading tilde is read back doubled; the
+ * literals property fails.
+ * @plant test/plants/unit/ir/ir-desc-connective-unit-swapped.patch An and of no operand decodes as false and an or as
+ * true; the literals property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
@@ -902,6 +913,22 @@ describe("Descriptions", () => {
 				return { kind: "union", input, arms: [armB] }
 		}
 	}
+	/** A combinator with a take's count swapped, 2 for 5 and 5 for 2, and any other as it is. */
+	const countSwapped = (combinator: Combinator): Combinator => {
+		switch (combinator) {
+			case "take 2":
+				return "take 5"
+			case "take 5":
+				return "take 2"
+			case "order":
+			case "approximate":
+			case "a rule after":
+				return combinator
+		}
+	}
+	/** Whether two chains are one chain, combinator by combinator. */
+	const sameChain = (a: ReadonlyArray<Combinator>, b: ReadonlyArray<Combinator>): boolean =>
+		a.length === b.length && Arr.every(a, (x, i) => x === b[i])
 	const chained = (start: QueryStageDesc, chain: ReadonlyArray<Combinator>): QueryStageDesc => {
 		let stage = start
 		for (const combinator of chain) {
@@ -936,17 +963,34 @@ describe("Descriptions", () => {
 						},
 						suite: "unit/ir/desc-combinator-order",
 						literal: Formatter.format,
-						draw: drawn(
-							(source) => [source.draw(boolean), source.draw(chain), source.draw(chain)] as const
-						),
+						draw: drawn((source) => {
+							const overRecursion = source.draw(boolean)
+							const a = source.draw(chain)
+							/** Another chain, or the same one with its takes' counts swapped: told apart by its counts alone. */
+							const b = source.draw(oneOf([chain, constant(Arr.map(a, countSwapped))]))
+							return [overRecursion, a, b] as const
+						}),
 						runs: 500,
 						shrink: completeShrink,
 						coverage: required<
-							"two chains told apart" | "one chain" | "over a recursion" | "a chain refused"
-						>(["two chains told apart", "one chain", "over a recursion", "a chain refused"], {
-							cases: 500,
-							sense: notesOnly
-						}),
+							| "two chains told apart"
+							| "two chains told apart by a take's count alone"
+							| "one chain"
+							| "over a recursion"
+							| "a chain refused"
+						>(
+							[
+								"two chains told apart",
+								"two chains told apart by a take's count alone",
+								"one chain",
+								"over a recursion",
+								"a chain refused"
+							],
+							{
+								cases: 500,
+								sense: notesOnly
+							}
+						),
 						kept: [],
 						concurrency: 1,
 						steerEvery: 16,
@@ -964,8 +1008,11 @@ describe("Descriptions", () => {
 								c.note("a chain refused")
 								return
 							}
-							const same = a.length === b.length && Arr.every(a, (x, i) => x === b[i])
+							const same = sameChain(a, b)
 							c.note(same ? "one chain" : "two chains told apart")
+							if (!same && sameChain(Arr.map(a, countSwapped), b)) {
+								c.note("two chains told apart by a take's count alone")
+							}
 							assert.equal(roundTrips(qa) === roundTrips(qb), same)
 						})
 				)
@@ -1265,10 +1312,11 @@ describe("Descriptions", () => {
 	/**
 	 * The Description boundary's own rules, each broken at every part of a description that offers it: no part null; a
 	 * struct of its kind's properties only; a literal no JavaScript NaN, a money, vector or decimal tagged; take only
-	 * after an order; a rules stage with an arm; on an Ordered only take; a union over a query, not over the builder's
-	 * rules, which are one stage; each order column once; a primary key nonempty and among the fields, filled by its
-	 * writer; a relation's, a field's and a program's name storable text; a closed relation's rows each of every field,
-	 * one per key, keyed by closed ids; an Allen mask of thirteen bits; a numeric precision 1-1000; each variable id once.
+	 * after an order; a rules stage with an arm; on an Ordered only take, each other stage over it a rule of its own, so
+	 * that every one is reached; a union over a query, not over the builder's rules, which are one stage; each order
+	 * column once; a primary key nonempty and among the fields, filled by its writer; a relation's, a field's and a
+	 * program's name storable text; a closed relation's rows each of every field, one per key, keyed by closed ids; an
+	 * Allen mask of thirteen bits; a numeric precision 1-1000; each variable id once.
 	 */
 	type DescRule =
 		| "no part is null"
@@ -1277,7 +1325,11 @@ describe("Descriptions", () => {
 		| "a money, vector or decimal literal is tagged"
 		| "take only after an order"
 		| "a rules stage has an arm"
-		| "on an Ordered, only take"
+		| "on an Ordered, only take: no attach"
+		| "on an Ordered, only take: no union"
+		| "on an Ordered, only take: no named"
+		| "on an Ordered, only take: no second orderBy"
+		| "on an Ordered, only take: no approximate search"
 		| "a union is over a query, never the builder's rules"
 		| "each order column once"
 		| "a primary key is nonempty and among the fields"
@@ -1382,13 +1434,25 @@ describe("Descriptions", () => {
 		breaking("a rules stage has an arm", kindIs("rules", "arms"), (part) => [
 			{ ...part, arms: [] }
 		]),
-		breaking("on an Ordered, only take", kindIs("order", "input", "order"), (part) => [
-			{ kind: "attach", input: part, attach: { name: "a", child } },
-			{ kind: "union", input: part, arms: [rule] },
-			{ kind: "named", input: part, name: "n" },
-			{ kind: "order", input: part, order: [{ column: "id", dir: "asc" }] },
-			{ kind: "approx", input: part, by: "d", take: 3 }
+		breaking("on an Ordered, only take: no attach", kindIs("order", "input", "order"), (part) => [
+			{ kind: "attach", input: part, attach: { name: "a", child } }
 		]),
+		breaking("on an Ordered, only take: no union", kindIs("order", "input", "order"), (part) => [
+			{ kind: "union", input: part, arms: [rule] }
+		]),
+		breaking("on an Ordered, only take: no named", kindIs("order", "input", "order"), (part) => [
+			{ kind: "named", input: part, name: "n" }
+		]),
+		breaking(
+			"on an Ordered, only take: no second orderBy",
+			kindIs("order", "input", "order"),
+			(part) => [{ kind: "order", input: part, order: [{ column: "id", dir: "asc" }] }]
+		),
+		breaking(
+			"on an Ordered, only take: no approximate search",
+			kindIs("order", "input", "order"),
+			(part) => [{ kind: "approx", input: part, by: "d", take: 3 }]
+		),
 		breaking(
 			"a union is over a query, never the builder's rules",
 			kindIs("rules", "arms"),

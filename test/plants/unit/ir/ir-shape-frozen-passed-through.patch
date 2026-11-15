@@ -1,0 +1,14 @@
+diff --git a/packages/engine/src/ir/shape.ts b/packages/engine/src/ir/shape.ts
+index aa6aca8b..16d0bdf9 100644
+--- a/packages/engine/src/ir/shape.ts
++++ b/packages/engine/src/ir/shape.ts
+@@ -296,6 +296,9 @@ const abort = (path: DecodePath, what: string): never =>
+  * under each. Every container a shape decodes is read through here.
+  */
+ function* within<A>(value: object, path: DecodePath, step: Step<A>): Step<A> {
++	if (Object.isFrozen(value)) {
++		return value
++	}
+ 	if (path.onPath.has(value)) {
+ 		abort(path, "an acyclic value")
+ 	}

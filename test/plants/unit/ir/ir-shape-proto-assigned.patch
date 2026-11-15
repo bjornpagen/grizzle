@@ -1,0 +1,18 @@
+diff --git a/packages/engine/src/ir/shape.ts b/packages/engine/src/ir/shape.ts
+index aa6aca8b..db9d5478 100644
+--- a/packages/engine/src/ir/shape.ts
++++ b/packages/engine/src/ir/shape.ts
+@@ -445,12 +445,7 @@ const setOwn = <T extends object, K extends keyof T & string>(
+ 	key: K,
+ 	value: T[K]
+ ): void => {
+-	Object.defineProperty(target, key, {
+-		value,
+-		enumerable: true,
+-		writable: true,
+-		configurable: true
+-	})
++	target[key] = value
+ }
+ 
+ /**

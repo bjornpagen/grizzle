@@ -5,7 +5,9 @@
  * - Broken: a live value decodes into an equal fresh copy, and one broken at one site is refused there, by its place's
  *   label and path, or passed over where the break is no break.
  * - Idempotent: decoding a decoded value again gives an equal fresh copy, key order included.
- * - Record keys: `__proto__` is an ordinary key of a record.
+ * - Record keys: `__proto__` is an ordinary key of a record, in this process and in a child Node started as a library
+ *   consumer's is, with no flag, where Object.prototype.__proto__ exists (every test process runs with
+ *   --disable-proto=delete, which hides an assignment that would set the prototype).
  * - Unreadable: a proxy or a throwing getter is refused at its path.
  * - Defects: a decoder's own defect escapes decodeWith as itself, at every site.
  * - Refinements: exactly the distinct nonempty names, the nonempty lists and the safe and positive integers pass.
@@ -14,14 +16,25 @@
  *
  * Oracles: each break's site, the decode's own idempotence, the refinements' definitions, and the value's construction.
  *
- * Features: each break, each decoded form, an own __proto__ key, each unreadable site, each defect site, each
- * refinement admitted and refused, depths within and past a small stack, each cycle length and form.
+ * Features: each break, each decoded form, an own __proto__ key in each process, each unreadable site, each defect
+ * site, each refinement admitted and refused, depths within and past a small stack, each cycle length and form.
  *
- * Plants: ir-shape-refusal-at-parent (a field's refusal placed at its container), ir-shape-frozen-passed-through (a
- * frozen value returned as decoded), ir-shape-proto-assigned (__proto__ assigned as the prototype),
- * ir-shape-read-unguarded (a throwing read escapes), ir-shape-defect-swallowed (a decoder's defect refused as malformed),
- * ir-shape-zero-positive (zero taken as positive), ir-shape-deferred-inline (a recursive part read on the call stack),
- * ir-shape-cycle-unrefused (a container that holds itself decoded until the stack overflows).
+ * @plant test/plants/unit/ir/ir-shape-refusal-at-parent.patch A struct's required field is decoded at its container's
+ * place, so its refusal is placed at the container; the broken property fails.
+ * @plant test/plants/unit/ir/ir-shape-frozen-passed-through.patch A frozen container is returned as decoded, unread;
+ * the idempotent property fails.
+ * @plant test/plants/unit/ir/ir-shape-proto-assigned.patch setOwn assigns every key, so where
+ * Object.prototype.__proto__ exists a "__proto__" key is lost, or sets the copy's prototype; the record keys property
+ * fails in the consumer's process.
+ * @plant test/plants/unit/ir/ir-shape-read-unguarded.patch A read of the caller's value runs unguarded, so a throwing
+ * proxy or getter escapes; the unreadable property fails.
+ * @plant test/plants/unit/ir/ir-shape-defect-swallowed.patch A decoder's own defect is refused as malformed instead of
+ * escaping; the defects property fails.
+ * @plant test/plants/unit/ir/ir-shape-zero-positive.patch positiveInteger admits zero; the refinements property fails.
+ * @plant test/plants/unit/ir/ir-shape-deferred-inline.patch ref reads its part on the call stack, not deferred to the
+ * driver; the depth and cycles property fails past a small stack.
+ * @plant test/plants/unit/ir/ir-shape-cycle-unrefused.patch A container on the path is not refused as a cycle, so one
+ * that holds itself is decoded without end; the depth and cycles property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
@@ -43,9 +56,11 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { double } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec } from "effect"
+import { NodeServices } from "@effect/platform-node"
+import { describe, it, layer } from "@effect/vitest"
+import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
+import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import * as S from "#compiler/ir/shape.ts"
 import {
 	assert,
@@ -59,6 +74,8 @@ import {
 } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen, pickOf } from "#test/support/pick.ts"
+import { run, runOptions } from "#test/support/process.ts"
+import type { ConsumerRecord } from "#test/unit/ir/shape-record.child.ts"
 
 const point = S.structWith({ x: S.integer }, { label: S.nonEmptyString })
 const points = S.array(point)
@@ -428,57 +445,6 @@ describe("shapes", () => {
 		)
 	)
 
-	it.effect("keep __proto__ an ordinary key of a record", (ctx) => {
-		const keyGen = oneOf([
-			constant("__proto__"),
-			element(["constructor", "toString", "a"]),
-			string(codePoint(0x20, 0x7e), { min: 1, max: 4 })
-		])
-		/** A record's entries: up to five distinct keys, each with its integer. */
-		const entriesGen: Gen<ReadonlyArray<readonly [string, number]>> = uniqueArray(
-			keyGen,
-			(key) => (source) => [key, source.draw(integer)] as const,
-			{ min: 0, max: 5 }
-		)
-		return searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "specification",
-						name: "a record's entries are its own keys, __proto__ an ordinary one"
-					},
-					suite: "unit/ir/shape-record-keys",
-					literal: Formatter.format,
-					draw: drawn(entriesGen),
-					runs: 100,
-					shrink: completeShrink,
-					coverage: required<"an own __proto__ key">(["an own __proto__ key"], {
-						cases: 100,
-						sense: notesOnly
-					}),
-					kept: [],
-					concurrency: 1,
-					steerEvery: 16,
-					caseHang
-				},
-				(entries, c) =>
-					Effect.sync(() => {
-						if (Arr.some(entries, ([key]) => key === "__proto__")) {
-							c.note("an own __proto__ key")
-						}
-						/** Record.fromEntries, which is Object.fromEntries, defines each key as an own property, as JSON.parse does. */
-						const input = Rec.fromEntries(entries)
-						const out = succeeded(
-							S.decodeWith(S.recordShape(S.integer, S.nonEmptyString), input, "v")
-						)
-						unorderedEqual(Rec.toEntries(out), Rec.toEntries(input))
-						assert.equal(Object.getPrototypeOf(out), Object.prototype)
-					})
-			)
-		)
-	})
-
 	it.effect("refuse a value whose reading throws, at its path", (ctx) =>
 		searched(
 			ctx,
@@ -789,6 +755,116 @@ const depthFeature = (n: number): NestingFeature =>
 		: n > smallStackRecursion
 			? "past a small stack's recursion"
 			: "within a small stack's recursion"
+
+/** Where a record is decoded: in this test process, or in a child Node started as a library consumer's is. */
+type DecodedIn = "this process" | "a consumer's process"
+
+/**
+ * What a child Node started with no flag, as a library consumer's is (shape-record.child.ts), answers of `entries`: its
+ * environment is this process's but NODE_OPTIONS, which carries the hardened flags (test/support/process.ts hardenedNode).
+ */
+const consumerRecord = (entries: ReadonlyArray<readonly [string, number]>) =>
+	Effect.gen(function* () {
+		const ran = yield* run(
+			"env",
+			[
+				"-u",
+				"NODE_OPTIONS",
+				process.execPath,
+				`${import.meta.dirname}/shape-record.child.ts`,
+				jsonText(entries)
+			],
+			runOptions
+		)
+		assert.equal(ran.status, 0, `the consumer's child failed:\n${ran.stderr}`)
+		return trustedJson<ConsumerRecord>(Str.trim(ran.stdout))
+	})
+
+layer(NodeServices.layer, { excludeTestServices: true })("a record's keys", (it) => {
+	it.effect(
+		"keep __proto__ an ordinary key of a record, in this process and where Object.prototype.__proto__ exists",
+		(ctx) => {
+			const keyGen = oneOf([
+				constant("__proto__"),
+				element(["constructor", "toString", "a"]),
+				string(codePoint(0x20, 0x7e), { min: 1, max: 4 })
+			])
+			/** A record's entries: up to five distinct keys, each with its integer. */
+			const entriesGen: Gen<ReadonlyArray<readonly [string, number]>> = uniqueArray(
+				keyGen,
+				(key) => (source) => [key, source.draw(integer)] as const,
+				{ min: 0, max: 5 }
+			)
+			const decodedIn = weighted<DecodedIn>([
+				[7, constant("this process")],
+				[1, constant("a consumer's process")]
+			])
+			return searched(
+				ctx,
+				explore(
+					{
+						oracle: {
+							kind: "specification",
+							name: "a record's entries are its own keys, __proto__ an ordinary one"
+						},
+						suite: "unit/ir/shape-record-keys",
+						literal: Formatter.format,
+						draw: drawn((source) => [source.draw(entriesGen), source.draw(decodedIn)] as const),
+						runs: 100,
+						shrink: completeShrink,
+						coverage: required<`an own __proto__ key in ${DecodedIn}`>(
+							[
+								"an own __proto__ key in this process",
+								"an own __proto__ key in a consumer's process"
+							],
+							{ cases: 100, sense: notesOnly }
+						),
+						kept: [],
+						concurrency: 1,
+						steerEvery: 16,
+						caseHang
+					},
+					([entries, where], c) =>
+						Effect.gen(function* () {
+							if (Arr.some(entries, ([key]) => key === "__proto__")) {
+								c.note(`an own __proto__ key in ${where}`)
+							}
+							/** Record.fromEntries, which is Object.fromEntries, defines each key as an own property, as JSON.parse does. */
+							const input = Rec.fromEntries(entries)
+							switch (where) {
+								case "this process": {
+									const out = succeeded(
+										S.decodeWith(S.recordShape(S.integer, S.nonEmptyString), input, "v")
+									)
+									unorderedEqual(Rec.toEntries(out), Rec.toEntries(input))
+									assert.equal(Object.getPrototypeOf(out), Object.prototype)
+									return
+								}
+								case "a consumer's process": {
+									const answer = yield* consumerRecord(entries)
+									assert.equal(
+										answer.accessor,
+										true,
+										"the consumer's child has Object.prototype.__proto__"
+									)
+									assert.equal(answer.decoded.kind, "decoded", Formatter.format(answer.decoded))
+									if (answer.decoded.kind === "decoded") {
+										unorderedEqual(answer.decoded.entries, Rec.toEntries(input))
+										assert.equal(
+											answer.decoded.plain,
+											true,
+											"the decoded record's prototype is Object.prototype"
+										)
+									}
+									return
+								}
+							}
+						})
+				)
+			)
+		}
+	)
+})
 
 describe("a value nested through a recursive shape", () => {
 	it.effect("decode at any depth, the call stack no deeper for it: a fresh copy decoded", (ctx) =>

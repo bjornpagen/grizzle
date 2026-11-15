@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/desc.ts b/packages/engine/src/ir/desc.ts
+index e2fb9d03..5a14c50e 100644
+--- a/packages/engine/src/ir/desc.ts
++++ b/packages/engine/src/ir/desc.ts
+@@ -1519,7 +1519,7 @@ const computeCases: {
+ 		? typeof scaledCompute
+ 		: typeof unscaledCompute
+ } = {
+-	add: unscaledCompute,
++	add: scaledCompute,
+ 	sub: unscaledCompute,
+ 	mul: unscaledCompute,
+ 	div: unscaledCompute,

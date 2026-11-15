@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/ir/shape.ts b/packages/engine/src/ir/shape.ts
+index aa6aca8b..a1ea637f 100644
+--- a/packages/engine/src/ir/shape.ts
++++ b/packages/engine/src/ir/shape.ts
+@@ -949,7 +949,7 @@ function* readRequired<R>(
+ 		if (child === undefined) {
+ 			refuseAt(path, key, `the required property ${JSON.stringify(key)}`)
+ 		}
+-		setOwn(out, key, yield* path.at(key, shapes[key].parse(child, path)))
++		setOwn(out, key, yield* shapes[key].parse(child, path))
+ 	}
+ 	return filled<{ readonly [K in keyof R & string]: R[K] }>(keys, out)
+ }
