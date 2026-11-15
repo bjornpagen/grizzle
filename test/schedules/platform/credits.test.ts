@@ -15,7 +15,8 @@
  * before the race, the first grant expiring mid-race (a put shortening its validity, by grizzle or a direct writer's
  * UPDATE in place, its debits kept), and a request submitted twice.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): laws-le-strict.patch.
+ * @plant test/plants/pg/spans/storage/laws-le-strict.patch A comparison's `le` is lowered as `<`, so a grant debited
+ * to its last micro is refused; the property fails.
  */
 
 import { array, type Gen, int, shuffled, weighted } from "@bjornpagen/testing/gen"

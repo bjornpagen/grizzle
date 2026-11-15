@@ -18,8 +18,8 @@
  * The swarm adds a second split at a later instant, priced from the same card, so the two splits race for it: the
  * second to commit finds the card it retires gone and its own first part colliding with the first split's.
  *
- * Plants (~/.cache/grizzle-release/BR13/plants): period-fk-not-enforced.patch (every PERIOD foreign key installed NOT
- * ENFORCED, so pricedByCard admits a charge no card prices).
+ * @plant test/plants/pg/spans/laws/period-fk-not-enforced.patch Every PERIOD foreign key is installed NOT ENFORCED,
+ * so pricedByCard admits a charge no card prices; the property fails.
  */
 
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
