@@ -97,14 +97,14 @@ import {
 	type ParentColumn,
 	type PointIn,
 	type Probe,
-	type Query,
+	type ProgramQuery,
 	type ProgramRead,
 	type RelationParam,
 	type Root,
 	type CaseRoster,
 	type Rule,
 	type ProgramSchema,
-	type Source,
+	type ProgramSource,
 	type StatedDelivery,
 	type Stored,
 	type StoredFact,
@@ -350,7 +350,7 @@ const declaredForms = (
  *
  * An import's attachments deliver nothing to its rows, so its features are its root's.
  */
-const sourceFeatures = (source: Source): ReadonlyArray<ProgramFeature> => {
+const sourceFeatures = (source: ProgramSource): ReadonlyArray<ProgramFeature> => {
 	switch (source.kind) {
 		case "stored":
 			return []
@@ -465,7 +465,7 @@ const ruleFeatures = <P extends ParentColumn>(rule: Rule<P>): ReadonlyArray<Prog
 ]
 
 const queryFeatures = <P extends ParentColumn>(
-	q: Query<P>,
+	q: ProgramQuery<P>,
 	depth: number
 ): ReadonlyArray<ProgramFeature> => [
 	...(q.arms.length > 1 ? ["arms" as const] : []),
@@ -1626,7 +1626,7 @@ const resolveFacts = (
  */
 interface ImportOffer {
 	readonly read: number
-	readonly query: Query<never>
+	readonly query: ProgramQuery<never>
 	readonly attachments: ReadonlyArray<Attachment>
 	readonly attachedParams: ReadonlyArray<Param>
 	readonly fields: Arr.NonEmptyReadonlyArray<ProgramField>
@@ -1771,7 +1771,7 @@ class ReadScope {
 		return this.param(param.type, value, param.declaration)
 	}
 
-	sources(): Arr.NonEmptyReadonlyArray<Source> {
+	sources(): Arr.NonEmptyReadonlyArray<ProgramSource> {
 		const [first, ...rest] = this.schema.relations
 		return this.keep("roster") ? [first, ...rest, this.schema.roster] : [first, ...rest]
 	}
@@ -1863,7 +1863,7 @@ const resolveBinding = <P>(
  * correlation among them.
  */
 interface FirstMatch<P> {
-	readonly source: Source
+	readonly source: ProgramSource
 	readonly pins: ReadonlyMap<ProgramField, Operand<P>>
 }
 
@@ -1879,7 +1879,7 @@ type Unpinned = "drawn" | "own"
  */
 const resolveMatch = <P>(
 	state: RuleState<P>,
-	source: Source,
+	source: ProgramSource,
 	sketch: MatchSketch,
 	pins: ReadonlyMap<ProgramField, Operand<P>>,
 	unpinned: Unpinned
@@ -2492,7 +2492,7 @@ const resolveImport = <P>(
 	offer: ImportOffer,
 	sketch: MatchSketch,
 	binding: "drawn" | "forced"
-): Source => {
+): ProgramSource => {
 	const scope = state.scope
 	const binds = Arr.map(offer.params, ({ param, field }, k): ImportBind => {
 		const bind = elementOf(sketch.binds, k % width, "a bind sketch")
@@ -2531,7 +2531,9 @@ const resolveImport = <P>(
  * The keys a match's source is read by, narrowest first: a stored relation's primary key and its candidate keys, a
  * roster's id, and the whole heading of any other source, a set keyed by its heading.
  */
-const matchKeys = (source: Source): Arr.NonEmptyReadonlyArray<ReadonlyArray<ProgramField>> => {
+const matchKeys = (
+	source: ProgramSource
+): Arr.NonEmptyReadonlyArray<ReadonlyArray<ProgramField>> => {
 	switch (source.kind) {
 		case "stored":
 			return [source.primaryKey, ...source.candidates]
@@ -3207,7 +3209,7 @@ const resolveChild = <P extends ParentColumn>(
 			? resolveChild(scope, { heading, arms: [rule] }, nested, childNames, undefined)
 			: undefined
 	const columns = nonEmpty(heading)
-	const child: Query<ParentColumn> = {
+	const child: ProgramQuery<ParentColumn> = {
 		heading,
 		arms: [rule],
 		bound:
@@ -3373,7 +3375,7 @@ const resolveRoot = (
 const operandParams = <P extends ParentColumn>(operand: Operand<P>): ReadonlyArray<Param> =>
 	operand.kind === "param" ? [operand.param] : []
 
-const sourceParams = (source: Source): ReadonlyArray<Param> => {
+const sourceParams = (source: ProgramSource): ReadonlyArray<Param> => {
 	switch (source.kind) {
 		case "import":
 			return Arr.flatMap(source.binds, (b) => (b.to.kind === "param" ? [b.to.param] : []))
@@ -3397,7 +3399,7 @@ const ruleParams = <P extends ParentColumn>(rule: Rule<P>): ReadonlyArray<Param>
 	...Arr.flatMap(rule.connectives, (j) => Arr.flatMap(j.args, (c) => operandParams(c.right)))
 ]
 
-const queryParams = <P extends ParentColumn>(q: Query<P>): ReadonlyArray<Param> => [
+const queryParams = <P extends ParentColumn>(q: ProgramQuery<P>): ReadonlyArray<Param> => [
 	...new Set([
 		...Arr.flatMap(q.arms, ruleParams),
 		...Arr.flatMap(q.attachments, (a) => queryParams(a.child))
@@ -3490,7 +3492,7 @@ const resolveRoster = (names: Names, pick: number): CaseRoster => {
  * negation.
  */
 const soleRule = <P>(
-	source: Source,
+	source: ProgramSource,
 	bindings: Arr.NonEmptyReadonlyArray<Binding<P>>,
 	head: ReadonlyArray<HeadItem>
 ): Rule<P> => ({
@@ -3506,7 +3508,7 @@ const soleRule = <P>(
 })
 
 /** A set query of one rule and no further attachment. */
-const setQuery = <P>(rule: Rule<P>, attachments: ReadonlyArray<Attachment>): Query<P> => ({
+const setQuery = <P>(rule: Rule<P>, attachments: ReadonlyArray<Attachment>): ProgramQuery<P> => ({
 	heading: headingOf(rule.head),
 	arms: [rule],
 	bound: { kind: "set" },

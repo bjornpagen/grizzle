@@ -14,7 +14,7 @@ import type {
 	Column,
 	MixedRoot,
 	ParentColumn,
-	Query,
+	ProgramQuery,
 	StatedDelivery
 } from "#test/support/oracle/public/program.ts"
 import { Declined, type Value, valueIdentity } from "#test/support/oracle/reference/values.ts"
@@ -33,7 +33,7 @@ export interface Shape {
 	}>
 }
 
-export const shapeOf = (q: Query<ParentColumn>): Shape => ({
+export const shapeOf = (q: ProgramQuery<ParentColumn>): Shape => ({
 	columns: q.heading,
 	attachments: Arr.map(q.attachments, (a) => ({
 		name: a.name,

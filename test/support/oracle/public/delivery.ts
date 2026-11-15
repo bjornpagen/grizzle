@@ -9,16 +9,16 @@ import {
 	isAggregate,
 	type Match,
 	type ParentColumn,
-	type Query,
+	type ProgramQuery,
 	type Rule,
-	type Source,
+	type ProgramSource,
 	type StatedDelivery,
 	type Stored
 } from "#test/support/oracle/public/program.ts"
 import { equal, type Value } from "#test/support/oracle/reference/values.ts"
 
 /** The query an attachment attaches to, as the proof reads it. */
-export type Parent<P extends ParentColumn> = Pick<Query<P>, "heading" | "arms">
+export type Parent<P extends ParentColumn> = Pick<ProgramQuery<P>, "heading" | "arms">
 
 /** What the language proves of one attachment's children per parent. */
 export interface DeliveryProof {
@@ -31,7 +31,9 @@ export interface DeliveryProof {
  * The keys of a source: a stored relation's primary key and key(...) statements, a roster's id; no key is proved of a
  * derived source.
  */
-export const keysOf = (source: Source): ReadonlyArray<Arr.NonEmptyReadonlyArray<ProgramField>> => {
+export const keysOf = (
+	source: ProgramSource
+): ReadonlyArray<Arr.NonEmptyReadonlyArray<ProgramField>> => {
 	switch (source.kind) {
 		case "stored":
 			return [source.primaryKey, ...source.candidates]
@@ -253,7 +255,7 @@ const arms = <P extends ParentColumn>(
  */
 export const deliveryProof = <P extends ParentColumn>(
 	parent: Parent<P>,
-	child: Query<ParentColumn>
+	child: ProgramQuery<ParentColumn>
 ): DeliveryProof => {
 	const [rule, ...more] = child.arms
 	if (more.length > 0 || child.bound.kind !== "set") {

@@ -52,10 +52,10 @@ import {
 	type ProgramSchema,
 	paddingBounds,
 	powerBounds,
-	type Query,
+	type ProgramQuery,
 	type Root,
 	type Rule,
-	type Source,
+	type ProgramSource,
 	type StatedDelivery,
 	type Stored,
 	unguarded,
@@ -219,7 +219,7 @@ export interface BuiltSchema {
 	readonly worldAs: (installed: string) => WorldValue
 	readonly roster: RosterValue
 	/** A stored or roster source; a derived one is built in the rule that matches it. */
-	readonly source: (source: Source) => RosterValue | RelationValue
+	readonly source: (source: ProgramSource) => RosterValue | RelationValue
 	readonly relation: (relation: Stored) => RelationValue
 	/** The Key value of a relation's candidate key. */
 	readonly candidate: (relation: Stored, fields: Arr.NonEmptyReadonlyArray<string>) => Statement
@@ -565,7 +565,7 @@ const ruleCallback =
 			}
 			return q.bind(bindings)
 		}
-		const sourceValue = (source: Source): unknown => {
+		const sourceValue = (source: ProgramSource): unknown => {
 			switch (source.kind) {
 				case "stored":
 				case "roster":
@@ -655,7 +655,7 @@ const orderArgs = (
 const buildQuery = (
 	built: BuiltSchema,
 	value: SchemaValue,
-	q: Query<ParentColumn>,
+	q: ProgramQuery<ParentColumn>,
 	parent: Readonly<Record<string, unknown>>
 ): QueryValue => {
 	const [first, ...rest] = q.arms

@@ -148,7 +148,7 @@ export interface ImportBind {
 export interface Imported {
 	readonly kind: "import"
 	readonly read: number
-	readonly query: Query<never>
+	readonly query: ProgramQuery<never>
 	readonly fields: Arr.NonEmptyReadonlyArray<ProgramField>
 	readonly binds: ReadonlyArray<ImportBind>
 }
@@ -182,9 +182,9 @@ export interface Closure {
 
 export type DerivedSource = Imported | Interior | RelationSource | Closure
 
-export type Source = Stored | CaseRoster | DerivedSource
+export type ProgramSource = Stored | CaseRoster | DerivedSource
 
-export const sourceFields = (source: Source): Arr.NonEmptyReadonlyArray<ProgramField> => {
+export const sourceFields = (source: ProgramSource): Arr.NonEmptyReadonlyArray<ProgramField> => {
 	switch (source.kind) {
 		case "stored":
 			return source.fields
@@ -274,7 +274,7 @@ export interface Binding<P> {
 }
 
 export interface Match<P> {
-	readonly source: Source
+	readonly source: ProgramSource
 	readonly bindings: Arr.NonEmptyReadonlyArray<Binding<P>>
 }
 
@@ -502,7 +502,7 @@ export const takeOrder = (
 ]
 
 /** Arms of one heading, bounded, named or not (.named(name) after the bound), then attached to. */
-export interface Query<P> {
+export interface ProgramQuery<P> {
 	readonly heading: ReadonlyArray<Column>
 	readonly arms: Arr.NonEmptyReadonlyArray<Rule<P>>
 	readonly bound: ProgramBound
@@ -528,7 +528,7 @@ export type StatedDelivery =
  */
 export interface Attachment {
 	readonly name: string
-	readonly child: Query<ParentColumn>
+	readonly child: ProgramQuery<ParentColumn>
 	readonly delivery: StatedDelivery
 }
 
@@ -544,7 +544,7 @@ export type Delivery =
 			readonly pageSize: number
 	  }
 
-export interface Root extends Query<never> {
+export interface Root extends ProgramQuery<never> {
 	readonly delivery: Delivery
 }
 
@@ -623,7 +623,7 @@ export type ProgramRead =
  * wraps get's row wrongly) both meet an independent answer.
  *
  * The representation holds only programs the language admits: a parent column can occur only in an attachment's child
- * (Query<ParentColumn>, never the root's Query<never>), a negation binds variables only, a comparison's left side is a
+ * (ProgramQuery<ParentColumn>, never the root's ProgramQuery<never>), a negation binds variables only, a comparison's left side is a
  * variable, a match binds at least one field, an ordered delivery and its page size exist together, and a refusal
  * probe carries what it needs (a parameter to mistype, an ordered root to page).
  *

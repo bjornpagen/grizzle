@@ -92,13 +92,13 @@ import {
 	type OrderKey,
 	type Param,
 	type ParentColumn,
-	type Query,
+	type ProgramQuery,
 	type ProgramRead,
 	type RelationParam,
 	type Root,
 	type Rule,
 	type ProgramSchema,
-	type Source,
+	type ProgramSource,
 	type Stored,
 	sourceFields,
 	takeOrder,
@@ -517,7 +517,7 @@ class Translation {
 	 *
 	 * An import reads its root's rows; its attachments deliver none.
 	 */
-	source(source: Source, earlier: (v: Var) => Substitute): Built {
+	source(source: ProgramSource, earlier: (v: Var) => Substitute): Built {
 		switch (source.kind) {
 			case "stored":
 				return this.stored(source)
@@ -566,7 +566,7 @@ class Translation {
 	 */
 	region(
 		matches: ReadonlyArray<{
-			readonly source: Source
+			readonly source: ProgramSource
 			readonly node: Built
 			readonly bound: ReadonlyMap<string, VarDecl>
 		}>,
@@ -609,7 +609,7 @@ class Translation {
 		const parents: Array<{ readonly decl: VarDecl; readonly column: Column }> = []
 		const correlated: Array<{ readonly var: VarDecl; readonly expr: ScalarExpr }> = []
 		const matches: Array<{
-			readonly source: Source
+			readonly source: ProgramSource
 			readonly node: Built
 			readonly bound: Map<string, VarDecl>
 		}> = []
@@ -1011,7 +1011,7 @@ class Translation {
 	 * A query's node: its arms' union, its take, then its attachments; a name is no node. An attached child's take ranks
 	 * each parent row's children apart: its correlation fixes each correlation column to its parent column's value.
 	 */
-	query(q: Query<ParentColumn>, outer: Outer, substitution: Substitution): BuiltRule {
+	query(q: ProgramQuery<ParentColumn>, outer: Outer, substitution: Substitution): BuiltRule {
 		const arms = Arr.map(q.arms, (arm) => this.rule(arm, substitution))
 		const [first, ...rest] = arms
 		let current: Built =
@@ -1178,7 +1178,12 @@ const assemble = (
 	statements: ReadonlyMap<string, ExpectedStatement>,
 	root: Root
 ): ReadonlyArray<Nested> => {
-	const nested = (label: string, q: Query<ParentColumn>, heading: Heading, row: Row): Nested => ({
+	const nested = (
+		label: string,
+		q: ProgramQuery<ParentColumn>,
+		heading: Heading,
+		row: Row
+	): Nested => ({
 		values: Arr.map(q.heading, (c) => valueAt(row, columnIndex(heading, c.name, label))),
 		attachments: Arr.map(q.attachments, (a) => {
 			const childLabel = `${label}/${a.name}`

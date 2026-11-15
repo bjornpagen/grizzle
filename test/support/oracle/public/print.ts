@@ -19,10 +19,10 @@ import {
 	type Param,
 	type ParentColumn,
 	powerBounds,
-	type Query,
+	type ProgramQuery,
 	type ProgramRead,
 	type Rule,
-	type Source,
+	type ProgramSource,
 	type StatedDelivery,
 	unguarded,
 	type Var
@@ -135,7 +135,7 @@ const head = (h: HeadItem): string => {
  * A match's source as the rule writes it: a relation or the roster by name, an earlier read's query qN bound, an
  * interior stage, a relation parameter, or a closure.
  */
-const source = (s: Source): string => {
+const source = (s: ProgramSource): string => {
 	switch (s.kind) {
 		case "stored":
 		case "roster":
@@ -207,7 +207,7 @@ const order = (keys: ReadonlyArray<OrderKey>): string =>
 		", "
 	)
 
-const query = (q: Query<ParentColumn>, indent: string): string => {
+const query = (q: ProgramQuery<ParentColumn>, indent: string): string => {
 	const lines = Arr.map(q.arms, (arm) => `${indent}.rule((r) => ${rule(arm)})`)
 	if (q.bound.kind === "take") {
 		lines.push(`${indent}.orderBy(${order(q.bound.order)}).take(${q.bound.k})`)

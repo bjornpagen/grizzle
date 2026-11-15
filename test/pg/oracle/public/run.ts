@@ -102,7 +102,7 @@ import {
 	type ProgramCase,
 	type ProgramField,
 	type ParentColumn,
-	type Query,
+	type ProgramQuery,
 	type ProgramRead,
 	type Root,
 	sourceFields,
@@ -276,7 +276,7 @@ const unorderedArtifacts = (
 }
 
 /** The parent columns a child binds. */
-const parentColumnsOf = (q: Query<ParentColumn>): ReadonlyArray<string> => [
+const parentColumnsOf = (q: ProgramQuery<ParentColumn>): ReadonlyArray<string> => [
 	...new Set(
 		Arr.flatMap(q.arms[0].matches, (m) =>
 			Arr.flatMap(m.bindings, (b) => (b.operand.kind === "parent" ? [b.operand.column.name] : []))
@@ -291,7 +291,7 @@ const parentColumnsOf = (q: Query<ParentColumn>): ReadonlyArray<string> => [
  * key, whose one twin spelling holds -0 components.
  */
 const noteSpellings = (
-	q: Query<ParentColumn>,
+	q: ProgramQuery<ParentColumn>,
 	rows: ReadonlyArray<SentRow>,
 	forms: ReadonlyMap<string, "fused" | "pipelined">,
 	path: string,
@@ -537,7 +537,7 @@ const ruleValueFeatures = (
 const queryValueFeatures = (
 	c: ProgramCase,
 	spelled: ReadonlySet<ProgramField>,
-	q: Query<ParentColumn>
+	q: ProgramQuery<ParentColumn>
 ): ReadonlyArray<PublicFeature> => [
 	...Arr.flatMap(q.arms, (rule) => ruleValueFeatures(c, spelled, rule)),
 	...Arr.flatMap(q.attachments, (a) => queryValueFeatures(c, spelled, a.child))
@@ -621,7 +621,7 @@ const noteAll = (note: Note, features: Iterable<PublicFeature>): void => {
 	}
 }
 
-type Rule = Query<ParentColumn>["arms"][number]
+type Rule = ProgramQuery<ParentColumn>["arms"][number]
 
 /** A match's features: a roster's, an existential one's, and each binding's operand. */
 const noteMatch = (m: Rule["matches"][number], note: Note): void => {
@@ -652,7 +652,7 @@ const noteHead = (h: Rule["head"][number], note: Note): void => {
 	}
 }
 
-const noteQuery = (q: Query<ParentColumn>, note: Note): void => {
+const noteQuery = (q: ProgramQuery<ParentColumn>, note: Note): void => {
 	for (const rule of q.arms) {
 		for (const m of rule.matches) {
 			noteMatch(m, note)
@@ -702,7 +702,11 @@ const noteRowArms = (shape: Shape, row: Nested, note: Note): void => {
  * Notes each attached take whose order decides what a parent receives, by the expected delivery: two children or more
  * under one parent, and among them two the take's first key, descending, orders apart.
  */
-const noteTakes = (q: Query<ParentColumn>, rows: ReadonlyArray<Nested>, note: Note): void => {
+const noteTakes = (
+	q: ProgramQuery<ParentColumn>,
+	rows: ReadonlyArray<Nested>,
+	note: Note
+): void => {
 	for (const row of rows) {
 		for (const [i, a] of q.attachments.entries()) {
 			const children = row.attachments[i] ?? []

@@ -87,7 +87,7 @@ import type {
 	ProgramCase,
 	MixedRoot,
 	ParentColumn,
-	Query,
+	ProgramQuery,
 	ProgramRead,
 	Root,
 	CaseRoster,
@@ -278,18 +278,21 @@ const binds = (
 /** Every attachment of a query, by its path of indices from the root, with the query it attaches to. */
 interface Attached {
 	readonly path: ReadonlyArray<number>
-	readonly parent: Query<ParentColumn>
+	readonly parent: ProgramQuery<ParentColumn>
 	readonly attachment: Attachment
 }
 
-const attachedOf = (q: Query<ParentColumn>, path: ReadonlyArray<number>): ReadonlyArray<Attached> =>
+const attachedOf = (
+	q: ProgramQuery<ParentColumn>,
+	path: ReadonlyArray<number>
+): ReadonlyArray<Attached> =>
 	Arr.flatMap(q.attachments, (a, i) => [
 		{ path: [...path, i], parent: q, attachment: a },
 		...attachedOf(a.child, [...path, i])
 	])
 
 /** The query with the attachment at `path` replaced by `change` of it. */
-const changedAt = <Q extends Query<ParentColumn>>(
+const changedAt = <Q extends ProgramQuery<ParentColumn>>(
 	q: Q,
 	path: ReadonlyArray<number>,
 	change: (attachment: Attachment) => Attachment
@@ -311,14 +314,14 @@ const changedAt = <Q extends Query<ParentColumn>>(
 }
 
 /** The query with the attachment at `path` stated as `delivery`. */
-const restated = <Q extends Query<ParentColumn>>(
+const restated = <Q extends ProgramQuery<ParentColumn>>(
 	q: Q,
 	path: ReadonlyArray<number>,
 	delivery: StatedDelivery
 ): Q => changedAt(q, path, (a) => ({ ...a, delivery }))
 
 /** Whether a parent delivers a handle column, which an arm restates its attachment over. */
-const handled = (parent: Query<ParentColumn>): boolean =>
+const handled = (parent: ProgramQuery<ParentColumn>): boolean =>
 	Arr.some(parent.heading, (f) => f.type.carrier === "code")
 
 /**
@@ -344,7 +347,10 @@ const plantedColumn = "plantedHandle"
  * A child whose every arm matches the roster and delivers its handle. The variable's id is -1: a read's scope mints
  * its variables from zero up (generate.ts ReadScope.mint), so no generated variable holds it.
  */
-const multiplied = (child: Query<ParentColumn>, roster: CaseRoster): Query<ParentColumn> => {
+const multiplied = (
+	child: ProgramQuery<ParentColumn>,
+	roster: CaseRoster
+): ProgramQuery<ParentColumn> => {
 	const handle: Var = { id: -1, field: roster.id }
 	const arm = (rule: Rule<ParentColumn>): Rule<ParentColumn> => ({
 		...rule,
@@ -417,7 +423,7 @@ const childCounts = (
  */
 const deliveriesOf = (
 	c: ProgramCase,
-	parent: Query<ParentColumn>
+	parent: ProgramQuery<ParentColumn>
 ): ReadonlyArray<StatedDelivery> => [
 	{ kind: "array" },
 	{ kind: "option" },
