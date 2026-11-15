@@ -1611,8 +1611,10 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 			if (reading.kind === "SemiJoin") {
 				/**
 				 * A left column paired with a right column the right side fixes is fixed too, by the pair: the right side
-				 * reads nothing of the left (test/support/oracle/dag-validate.ts, "a semi-join's right side reads nothing of
-				 * its left"), so it is one relation per evaluation of the semi-join.
+				 * reads nothing of the left, so it is one relation per evaluation of the semi-join. No pass checks that; every
+				 * builder of a semi-join makes it so (check/checker.ts #narrow joins back to a take built before the arms it
+				 * narrows to, with no correlation; lower/optimize/existence and pushdown/semi.ts move no correlated right
+				 * side), and the tests' validator re-reads it ("a semi-join's right side reads nothing of its left").
 				 */
 				const rightFixed = closureOf(right, [])
 				appendAll(
