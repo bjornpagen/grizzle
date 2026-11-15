@@ -131,27 +131,14 @@ const summed: ReadonlyArray<Summed> = ["int4", "int8", "num10", "num12"]
 const isSummed = (kind: ColumnKind): kind is Summed => Arr.some(summed, (k) => k === kind)
 
 /**
- * What a sum of each summed kind is (README's table): PostgreSQL's sum(integer), a bigint; sum(bigint) and sum(numeric),
- * a computed numeric of the argument's digits widened by the rows.
+ * What a sum of any summed kind is (README's table, scalar/aggregate.ts sumOverloads): exact, a computed numeric of its
+ * argument's digits widened by the rows, an integer's as a numeric's.
  */
-const sumOf: { readonly [K in Summed]: Delivered } = {
-	int4: "int8",
-	int8: "computed",
-	num10: "computed",
-	num12: "computed"
-}
-
-/** What a sum of the source's field of `kind` is, which writesGen draws over a summed kind alone. */
-const summedAs = (kind: ColumnKind): Delivered => {
-	if (!isSummed(kind)) {
-		throw new Error(`writesGen sums the summed kinds alone, not ${kind}`)
-	}
-	return sumOf[kind]
-}
+const sumDelivered: Delivered = "computed"
 
 /**
  * The type a head term delivers a field at: the source variable's kind, the field's own for a literal or a parameter,
- * and a sum's summedAs.
+ * and a sum's sumDelivered.
  */
 const deliveredType = (r: DrawnRelation, w: Written, term: Term): Delivered => {
 	const own = sourceKind(r, w.name) ?? w.kind
@@ -162,7 +149,7 @@ const deliveredType = (r: DrawnRelation, w: Written, term: Term): Delivered => {
 		case "param":
 			return w.kind
 		case "sum":
-			return summedAs(own)
+			return sumDelivered
 	}
 }
 
