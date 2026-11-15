@@ -92,9 +92,11 @@ import {
 import { type GenSchema, schemaCodes, schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import {
 	captureTexts,
+	everyRow,
 	RawCaptureError,
 	type RawRow,
-	type QueryRunner
+	type QueryRunner,
+	type RowBound
 } from "#test/support/oracle/install/capture.ts"
 import { InputSpelling, moneyText } from "#test/support/oracle/install/literal.ts"
 import { type FactSet, factStatements } from "#test/support/oracle/install/load.ts"
@@ -731,20 +733,22 @@ const partTexts = (part: DeliveredPart, run: ReadonlyArray<RawRow>): ReadonlyArr
 
 /**
  * Each delivered relation of `program`, labeled, and its rows as one execution of the statement of text `text` the
- * program sends delivers them, its placeholders `params`: every cell its text as sent (captureTexts), the rows divided
- * into its parts' runs as the runtime divides them (adapter/reader/execution.ts partRuns), and each relation's its
- * part's run assembled (partTexts), a relation another's part feeds reading that part's run.
+ * program sends delivers them, its placeholders `params`: every cell its text as sent (captureTexts), at most what
+ * `bound` reads, the rows divided into its parts' runs as the runtime divides them (adapter/reader/execution.ts
+ * partRuns), and each relation's its part's run assembled (partTexts), a relation another's part feeds reading that
+ * part's run.
  */
 export const sentRows = (
 	session: QueryRunner,
 	program: { readonly parts: PartDivision; readonly roots: StatementRoots<DeliveredPart> },
 	text: string,
-	params: ReadonlyArray<string>
+	params: ReadonlyArray<string>,
+	bound: RowBound
 ): Effect.Effect<
 	ReadonlyArray<{ readonly labeled: Labeled<DeliveredPart>; readonly rows: ReadonlyArray<RawRow> }>,
 	SqlError | RawCaptureError
 > =>
-	Effect.flatMap(captureTexts(session, text, params), (rows) => {
+	Effect.flatMap(captureTexts(session, text, params, bound), (rows) => {
 		const runs = partRuns(program.parts, outputRows(rows))
 		const out: Array<{
 			readonly labeled: Labeled<DeliveredPart>
@@ -766,19 +770,20 @@ export const sentRows = (
 	})
 
 /**
- * Runs a program's statement on `session`: each delivered relation's rows (sentRows) under its label, its heading's
- * columns. A fused attachment fails the run: the runner compares only a relation's own columns.
+ * Runs a program's statement on `session`: each delivered relation's rows (sentRows), at most what `bound` reads, under
+ * its label, its heading's columns. A fused attachment fails the run: the runner compares only a relation's own columns.
  */
 export const runProgram = (
 	session: PgConnection,
 	c: QueryCase,
 	program: SentProgram,
-	name: string
+	name: string,
+	bound: RowBound
 ): Effect.Effect<Run, OracleFailure> =>
 	Effect.gen(function* () {
 		const text = program.statement.sql.text
 		const params = yield* Effect.fromResult(paramValues(c, program.statement, name))
-		const parts = yield* sentRows(session, program, text, params).pipe(
+		const parts = yield* sentRows(session, program, text, params, bound).pipe(
 			Effect.mapError((e) => failure("execute", name, `${sqlMessage(e)}\n${text}`))
 		)
 		const statements: Array<StatementRows> = []
@@ -981,6 +986,18 @@ const runNamed = (
 			return yield* referenceFailure(expected.failure)
 		}
 		/**
+		 * What each side's statement is read to: one row past every row the reference states, when it states them, since
+		 * a statement that delivers more has already disagreed with it; every row when two lowerings meet, which state no
+		 * count beforehand.
+		 */
+		const bound: RowBound =
+			expected === undefined
+				? everyRow
+				: {
+						kind: "atMost",
+						rows: Arr.reduce(expected.success.statements, 1, (n, st) => n + st.rows.length)
+					}
+		/**
 		 * One full role writes every stored relation (oracleLogin), so the catalog is the one a deployment of the
 		 * schema's whole world gets.
 		 */
@@ -1037,10 +1054,10 @@ const runNamed = (
 			],
 			(session) =>
 				Effect.gen(function* () {
-					const leftRun = yield* runProgram(session, c, leftProgram, left.name)
+					const leftRun = yield* runProgram(session, c, leftProgram, left.name, bound)
 					const rightRun =
 						rightProgram !== undefined
-							? yield* runProgram(session, c, rightProgram, right.name)
+							? yield* runProgram(session, c, rightProgram, right.name, bound)
 							: yield* referenceRun(session, expected?.success.statements ?? [], plan)
 					const comparison = compareRuns(leftRun, rightRun)
 					yield* runStaged(
@@ -1077,7 +1094,13 @@ const runNamed = (
 					const order = second.reordered ? "reordered" : "in their order"
 					const spelling = second.respelled ? "one value respelled" : "no value respelled"
 					for (const side of lowered) {
-						const again = yield* runProgram(session, restoration.case, side.program, side.name)
+						const again = yield* runProgram(
+							session,
+							restoration.case,
+							side.program,
+							side.name,
+							bound
+						)
 						const itself = compareRuns(side.first, again)
 						if (comparison.equal && !itself.equal) {
 							return yield* new InvarianceFailed({

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/recursive/index.ts b/packages/engine/src/lower/conservative/recursive/index.ts
+index 8da78228..ea89f6fc 100644
+--- a/packages/engine/src/lower/conservative/recursive/index.ts
++++ b/packages/engine/src/lower/conservative/recursive/index.ts
+@@ -183,7 +183,7 @@ const lowerRecursive: NodeLowerer<"Recursive"> = (node, cx, env) => {
+ 	}
+ 	const base = term(node.base)
+ 	const step = term(node.step)
+-	const body: Select = select({ kind: "setOp", op: "UNION", arms: [base, step] })
++	const body: Select = select({ kind: "setOp", op: "UNION", arms: [base, base] })
+ 	const alias = cx.relationAlias(origin)
+ 	const map = namedMap(alias, named)
+ 	return {

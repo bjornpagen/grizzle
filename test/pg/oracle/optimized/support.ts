@@ -65,7 +65,7 @@ import { sentForms } from "#test/support/oracle/forms.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import { printQueryCase } from "#test/support/oracle/gen/print.ts"
 import type { GenParam } from "#test/support/oracle/gen/query.ts"
-import { captureRows, type RawRow } from "#test/support/oracle/install/capture.ts"
+import { captureRows, everyRow, type RawRow } from "#test/support/oracle/install/capture.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import {
@@ -247,7 +247,7 @@ export const executeSent = (
 ): Effect.Effect<Executed, DifferentialFailure> =>
 	Effect.gen(function* () {
 		const params = yield* placeholders(sent, "the statement", name, fill)
-		const parts = yield* sentRows(session, program, sent.sql.text, params).pipe(
+		const parts = yield* sentRows(session, program, sent.sql.text, params, everyRow).pipe(
 			Effect.mapError((e) => failure("execute", name, `${sqlMessage(e)}\n${sent.sql.text}`))
 		)
 		return {

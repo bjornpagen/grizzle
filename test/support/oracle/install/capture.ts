@@ -33,11 +33,34 @@ const trimStatement = (sql: string): string =>
  */
 export type ColumnCasts = ReadonlyArray<"numeric" | "text">
 
-/** The capturing query over `sql`, whose output columns take `columns` casts each. */
-const captureSql = (sql: string, columns: ReadonlyArray<ColumnCasts>): string => {
+/**
+ * How many rows a capture reads of a statement's answer: every row; or at most `rows`, one past the most a comparison
+ * admits, so an answer that never ends, a recursion that never reaches its fixed point among them, stops there and the
+ * comparison names the rows past its admitted count. PostgreSQL computes a WITH query's rows only as its reader
+ * fetches them, so the bound bounds the statement's work as well as its answer.
+ */
+export type RowBound =
+	| { readonly kind: "every" }
+	| { readonly kind: "atMost"; readonly rows: number }
+
+/** The bound of a capture that reads every row of its answer. */
+export const everyRow: RowBound = Object.freeze({ kind: "every" })
+
+/** The LIMIT clause a capture under `bound` ends with: none for every row. */
+const limitClause = (bound: RowBound): string => {
+	switch (bound.kind) {
+		case "every":
+			return ""
+		case "atMost":
+			return ` LIMIT ${bound.rows}`
+	}
+}
+
+/** The capturing query over `sql`, whose output columns take `columns` casts each, reading at most what `bound` reads. */
+const captureSql = (sql: string, columns: ReadonlyArray<ColumnCasts>, bound: RowBound): string => {
 	const inner = trimStatement(sql)
 	if (!Arr.isReadonlyArrayNonEmpty(columns)) {
-		return `SELECT FROM (${inner}) AS "r"`
+		return `SELECT FROM (${inner}) AS "r"${limitClause(bound)}`
 	}
 	const names = Arr.map(columns, (_, i) => quoteIdent(`c${i + 1}`))
 	const targets = Arr.map(columns, (casts, i) => {
@@ -48,7 +71,7 @@ const captureSql = (sql: string, columns: ReadonlyArray<ColumnCasts>): string =>
 		)
 		return `pg_catalog.format('%L', ("r".${n})${cast}) AS ${n}`
 	})
-	return `SELECT ${Arr.join(targets, ", ")} FROM (${inner}) AS "r"(${Arr.join(names, ", ")})`
+	return `SELECT ${Arr.join(targets, ", ")} FROM (${inner}) AS "r"(${Arr.join(names, ", ")})${limitClause(bound)}`
 }
 
 /** A captured cell's text: the literal format('%L') quoted, never NULL. */
@@ -138,7 +161,7 @@ export const captureRows = (
 	params: ReadonlyArray<unknown>,
 	columns: ReadonlyArray<ColumnCasts>
 ): Effect.Effect<ReadonlyArray<RawRow>, SqlError | RawCaptureError> =>
-	captured(runner, sql, params, (width) =>
+	captured(runner, sql, params, everyRow, (width) =>
 		columns.length === width
 			? Result.succeed(columns)
 			: Result.fail(
@@ -151,22 +174,28 @@ export const captureRows = (
 
 /**
  * The rows of a statement whose every output column is a text the runtime reads as sent, a program's sent statement
- * (lower/template.ts executableQueryFrom, lower/parts.ts): captureRows with no cast, over every column the query has.
+ * (lower/template.ts executableQueryFrom, lower/parts.ts): captureRows with no cast, over every column the query has,
+ * reading at most what `bound` reads.
  */
 export const captureTexts = (
 	runner: QueryRunner,
 	sql: string,
-	params: ReadonlyArray<unknown>
+	params: ReadonlyArray<unknown>,
+	bound: RowBound
 ): Effect.Effect<ReadonlyArray<RawRow>, SqlError | RawCaptureError> =>
-	captured(runner, sql, params, (width) =>
+	captured(runner, sql, params, bound, (width) =>
 		Result.succeed(Array.from({ length: width }, (): ColumnCasts => []))
 	)
 
-/** The rows of `sql`, each of its output columns cast as `columnsOf` says for the query's own column count. */
+/**
+ * The rows of `sql`, at most what `bound` reads, each of its output columns cast as `columnsOf` says for the query's own
+ * column count.
+ */
 const captured = (
 	runner: QueryRunner,
 	sql: string,
 	params: ReadonlyArray<unknown>,
+	bound: RowBound,
 	columnsOf: (width: number) => Result.Result<ReadonlyArray<ColumnCasts>, RawCaptureError>
 ): Effect.Effect<ReadonlyArray<RawRow>, SqlError | RawCaptureError> =>
 	Effect.gen(function* () {
@@ -176,7 +205,7 @@ const captured = (
 		if (Result.isFailure(columns)) {
 			return yield* columns.failure
 		}
-		const result = yield* runner.query(captureSql(sql, columns.success), params)
+		const result = yield* runner.query(captureSql(sql, columns.success, bound), params)
 		const rows: Array<RawRow> = []
 		for (const [r, record] of result.rows.entries()) {
 			const values = Record.values(record)

@@ -53,8 +53,10 @@ import { upTo } from "#test/support/up-to.ts"
  * Every case draws its graph: up to six people, each ordered pair of them a follow or not, so diamonds, cycles,
  * self-loops and dead ends arrive by several routes, and the person a walk starts from, now and then one past them.
  *
- * Plants (main's test phase): recursion-walk-plans-distinct-consumer.patch,
- * recursion-optimized-feedback-union-all.patch.
+ * @plant test/plants/pg/recursion/lowering/recursion-walk-plans-distinct-consumer.patch The read of a recursion's
+ * complete state is a SELECT DISTINCT rather than a keyed read, so a plan deduplicates the state again.
+ * @plant test/plants/pg/recursion/recursion-optimized-feedback-union-all.patch The optimized lowering's recursive CTE
+ * feeds back with UNION ALL, so repeated states are kept and a cycle never reaches its fixed point.
  */
 
 /** The graph fixture's Network. */

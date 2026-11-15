@@ -86,7 +86,7 @@ import { canonicalFacts, type GenFacts } from "#test/support/oracle/gen/facts.ts
 import { printQueryCase } from "#test/support/oracle/gen/print.ts"
 import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, schemaDesc, schemaName } from "#test/support/oracle/gen/schema.ts"
-import type { RawCaptureError } from "#test/support/oracle/install/capture.ts"
+import { everyRow, type RawCaptureError } from "#test/support/oracle/install/capture.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { oraclePlan } from "#test/support/oracle/install/real.ts"
 import {
@@ -735,7 +735,7 @@ const fullResult = (
 	Effect.gen(function* () {
 		const program = conservativeStatement(conservative)
 		const values = Arr.map(program.statement.params, (slot) => slotText(o.c, slot, codes))
-		const parts = yield* sentRows(session, program, program.statement.sql.text, values)
+		const parts = yield* sentRows(session, program, program.statement.sql.text, values, everyRow)
 		const groups: Array<{ readonly heading: Heading; readonly rows: ReadonlyArray<Row> }> = []
 		const attachments: Array<ReadonlyMap<string, ReadonlyArray<string>>> = []
 		for (const { labeled, rows } of parts) {

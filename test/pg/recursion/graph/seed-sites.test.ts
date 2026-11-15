@@ -48,7 +48,8 @@ import { upTo } from "#test/support/up-to.ts"
  * vertices an edge or not, so chains, diamonds, cycles and self-loops arrive by several routes, and the origin a
  * parameter or literal names, now and then one past the graph's last vertex, and runs every query over them.
  *
- * Plants (main's test phase): recursion-seed-pushdown-off.patch.
+ * @plant test/plants/pg/recursion/graph/recursion-seed-pushdown-off.patch The graph pass holds no seed pushdown rule,
+ * so no predicate over a recursion's carried columns reaches its seed.
  */
 
 const text = str.regex("^[a-z]{1,8}$")

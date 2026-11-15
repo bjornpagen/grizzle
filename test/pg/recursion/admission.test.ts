@@ -44,7 +44,8 @@ import { upTo } from "#test/support/up-to.ts"
  * stage seeded from a completed first one, the transitive closure of pairs with an arm that fixes a state column, and
  * three attached recursions, which carry their parent's id in their state.
  *
- * Plants (main's test phase): recursion-conservative-feedback-union-all.patch.
+ * @plant test/plants/pg/recursion/recursion-conservative-feedback-union-all.patch The conservative lowering's recursive
+ * CTE feeds back with UNION ALL, so repeated states are kept and a cycle never reaches its fixed point.
  */
 
 const V = relation("V", { id: uuid }, ["id"])

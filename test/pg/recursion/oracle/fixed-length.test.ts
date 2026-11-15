@@ -38,7 +38,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *
  * @cpu-bound
  *
- * Plants (main's test phase): recursion-conservative-feedback-union-all.patch.
+ * @plant test/plants/pg/recursion/oracle/recursion-conservative-step-is-base.patch The conservative lowering's recursive
+ * CTE unions its base with itself where its step belongs (lower/conservative/recursive), so it never steps past its
+ * seeds.
  */
 
 const cases = 800

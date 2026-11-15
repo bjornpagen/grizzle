@@ -32,6 +32,7 @@ import { installedCatalog } from "#test/support/evidence.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import type { GenContainment } from "#test/support/oracle/gen/schema.ts"
+import { everyRow } from "#test/support/oracle/install/capture.ts"
 import { runProgram, type SentProgram, sentConservative } from "#test/support/oracle/runner.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -50,7 +51,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * attachment population against the conservative lowering) and the recursion oracle's (consumer:attach against the
  * reference evaluator).
  *
- * Plants (main's test phase): recursion-r37-attachment-unseeded.patch.
+ * @plant test/plants/pg/recursion/graph/recursion-r37-attachment-unseeded.patch seedDecision refuses every recursive
+ * attachment as "the recursion being lowered" (the feedback test inverted), so no attachment is seeded and the
+ * pipelined statement stands.
  */
 
 const V = relation("V", { id: pg.integer }, ["id"])
@@ -266,7 +269,7 @@ layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent 
 									 */
 									const measure = (program: SentProgram, side: string) =>
 										Effect.gen(function* () {
-											const run = yield* runProgram(session, c, program, side)
+											const run = yield* runProgram(session, c, program, side, everyRow)
 											const index = Option.getOrThrowWith(
 												Arr.findFirstIndex(
 													flight(program.roots),
