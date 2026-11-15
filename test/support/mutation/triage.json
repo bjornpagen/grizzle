@@ -40,11 +40,6 @@
 		"reason": "simplify.test.ts: a conjunct whose right variable is another's left (fourthAccount = account) reaches samePair's reversed comparison and stays."
 	},
 	{
-		"id": "3952bf52a9",
-		"verdict": "equivalent",
-		"reason": "Without the check, R03 also removes an occurrence binding only some of the containment's target fields, each matched to the referring occurrence's variable. Every node is a set, and the containment gives every referring row a target row agreeing on all its fields, hence on those bound, so the occurrence remains a pure existence test the containment discharges and the region's set is unchanged."
-	},
-	{
 		"id": "862fbd456b",
 		"verdict": "gap-fixed",
 		"reason": "test/unit/deploy/drafts.test.ts: drafted migration paths judged from the two snapshots, the missed-rename note and ambiguity markers, and each folder's derived name against an oracle written from the naming contract."
@@ -165,11 +160,6 @@
 		"reason": "A readable identity's label (deploy/render/naming.ts label) keeping the dot after its schema: the label feeds only changeMigrationName, whose words fold every run of other characters into one underscore, so the dot joins the one after the verb and the name is unchanged."
 	},
 	{
-		"id": "49f5b9bea8",
-		"verdict": "equivalent",
-		"reason": "decideFolder's order check (deploy/ledger/ledger.ts) refusing a folder that sorts before the last complete one but not one that sorts at it: a folder named as a complete folder is decided by the complete folders' lookup first, so no folder reaching the check shares the last one's name."
-	},
-	{
 		"id": "050a0b7d40",
 		"verdict": "equivalent",
 		"reason": "The ledger rows statement's output names (deploy/ledger/ledger.ts, c0 to c6 instead of c1 to c7): the migrate runner reads its rows by position (adapter/migrate/ledger.ts ledgerRowOf), so no reader names them."
@@ -265,11 +255,6 @@
 		"reason": "test/unit/deploy/split.test.ts: a reviewed statement is held to its draft token for token, each placeholder filled by a balanced run."
 	},
 	{
-		"id": "55208f9fdb",
-		"verdict": "gap-fixed",
-		"reason": "test/unit/adapter/migrate.test.ts: the planner refuses a recorded folder whose ledger rows name another target."
-	},
-	{
 		"id": "8593f56dfe",
 		"verdict": "gap-fixed",
 		"reason": "test/unit/compute/aggregate.test.ts: a numeric mean's result bound holds the reference numeric_avg of its argument's greatest value, which reaches its integer digits."
@@ -325,11 +310,6 @@
 		"reason": "test/unit/check/semantics.test.ts: an imported query whose negated match reads a parameter the import binds to a literal answers the items no Tag holds at that label."
 	},
 	{
-		"id": "0b71022e69",
-		"verdict": "gap-fixed",
-		"reason": "test/unit/adapter/answers.test.ts: a page's rows statement answering one increasing row past its LIMIT, the size and its lookahead row, is UnreadableAnswer at that statement."
-	},
-	{
 		"id": "ea0f9f76fc",
 		"verdict": "equivalent",
 		"reason": "Whether two delivered rows of one identity hold the same bytes (adapter/reader/execution.ts sameCells): a bytes cell's identity is the SHA-256 digest of its bytes (scalar/values/bytes.ts BytesDigest), so two cells of one identity whose bytes differ are a SHA-256 collision, which no answer PostgreSQL computes holds; the comparison it drops never fails."
@@ -343,11 +323,6 @@
 		"id": "73f43a0f14",
 		"verdict": "gap-fixed",
 		"reason": "test/unit/write/put/choose.test.ts: an enumerated put after an insert into its relation in an earlier stratum is the pair (netting)."
-	},
-	{
-		"id": "cec4258bbc",
-		"verdict": "gap-fixed",
-		"reason": "test/pg/fields/set-checks.test.ts: a row whose flags break three checks at once is refused naming all three, each once, in canonical order; test/pg/laws/outcomes/witness.test.ts, which neither stage 2 nor its rechecks ran, kills it too."
 	},
 	{
 		"id": "a2376d0233",
@@ -410,24 +385,9 @@
 		"reason": "Whether an input nothing proves holds no repeated row (write/insert/input.ts unproved), the proof of a described member read through a carrier or by an entry's outside check: a carrier holds its member's rows as a set after their casts into the relation's types (write/carriers/carriers.ts memberRows, SELECT DISTINCT unless the member's lowering is a set and every cast keeps its value), so a DISTINCT over it removes nothing, and an outside check reads a member only to find whether some row lies outside its entry, which a repeated row cannot change."
 	},
 	{
-		"id": "75221c2de9",
-		"verdict": "gap-fixed",
-		"reason": "test/unit/write/changeset/normalize.test.ts: a stratum adding two generated Gen facts, different in w, at one k is refused by Gen's key on the host."
-	},
-	{
 		"id": "6529fec2d6",
 		"verdict": "gap-fixed",
 		"reason": "test/unit/lower/graph.test.ts: in the alike-conjuncts box, over a reach between closed ids, each of two conjuncts on the carried origin alike but for one part (a literal, a parameter, an operator, a closed field, an Allowed.row key, an Allowed.has key) moves into the seed, a conjunct once (1e072943)."
-	},
-	{
-		"id": "058f43578e",
-		"verdict": "gap-fixed",
-		"reason": "test/unit/lower/rewrite/fuse.test.ts: in the fixed-columns box, a stage filtered on the variable that a constant reading another occurrence's column fixes is never fused, its fused filter reading outside its input; unfiltered it is (a7c5e15b)."
-	},
-	{
-		"id": "2e976dc93a",
-		"verdict": "gap-fixed",
-		"reason": "test/unit/lower/rewrite/closed.test.ts: R07 beside a lateral read, a roster occurrence another occurrence reads through a constant stays in its region (b7f62d89)."
 	},
 	{
 		"id": "b49e7a3923",
