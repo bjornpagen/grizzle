@@ -1,0 +1,13 @@
+diff --git a/test/pg/world-model/inductive.test.ts b/test/pg/world-model/inductive.test.ts
+index bcaa2b7a..e9e99103 100644
+--- a/test/pg/world-model/inductive.test.ts
++++ b/test/pg/world-model/inductive.test.ts
+@@ -520,7 +520,7 @@ interface Start {
+ 
+ const startOf = (drawnCase: InductiveCase, c: Pick<Case<WorldFeature>, "steering">): Start =>
+ 	Option.match(
+-		Arr.findFirst(constructedFeatures, (f) => Option.exists(c.steering, (p) => p.aimed(f))),
++		Arr.findFirst(constructedFeatures, () => false),
+ 		{
+ 			onNone: (): Start => ({
+ 				ic: drawnCase,

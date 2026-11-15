@@ -91,6 +91,10 @@ import type {
  * action. A tamper changes database settings, so the file runs in a database of its own.
  *
  * Plants (main's test phase): worlds-pool-claims-outlive-transaction.patch, worlds-isolation-row-security-off.patch.
+ *
+ * @plant test/plants/pg/world-model/inductive-unconstructed.patch No steered turn builds the state of a constructed
+ * feature (startOf), so the four features a drawn state rarely offers a way to are left to the label-fixed search,
+ * which reaches none of them; the coverage verdict fails with FeaturesUnreached.
  */
 const cases = 64
 
