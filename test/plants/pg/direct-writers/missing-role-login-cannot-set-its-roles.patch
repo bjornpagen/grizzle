@@ -1,8 +1,8 @@
 diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
-index 77b2c1bd..77010efe 100644
+index 1c1e6cab..a43d8402 100644
 --- a/packages/engine/src/sql/print.ts
 +++ b/packages/engine/src/sql/print.ts
-@@ -1911,7 +1911,7 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
+@@ -1920,7 +1920,7 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
  			)
  		case "grantRole":
  			return out.line(
@@ -11,3 +11,16 @@ index 77b2c1bd..77010efe 100644
  			)
  		case "revokeRole":
  			return out.line(`REVOKE ${printRole(statement.role)} FROM ${printRole(statement.from)}`)
+diff --git a/packages/grizzle/src/adapter/admission/roles.ts b/packages/grizzle/src/adapter/admission/roles.ts
+index 5c1f77f7..9a348bb9 100644
+--- a/packages/grizzle/src/adapter/admission/roles.ts
++++ b/packages/grizzle/src/adapter/admission/roles.ts
+@@ -643,7 +643,7 @@ export interface MembershipDifference {
+ }
+ 
+ /** Whether a grant is held exactly WITH INHERIT FALSE, SET TRUE and no ADMIN, as a login holds its roles. */
+-const exact = (g: HeldGrant): boolean => !g.inherit && g.set && !g.admin
++const exact = (g: HeldGrant): boolean => !g.inherit && !g.set && !g.admin
+ 
+ const grantDifferences = (
+ 	held: ReadonlyArray<HeldGrant>,

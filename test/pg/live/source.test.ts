@@ -31,7 +31,8 @@
  * @plant test/plants/pg/live/source-missing-publication.patch publishedTables leaves a footprint table out, whose writes
  * then decode to nothing.
  * @plant test/plants/pg/live/usage-dropped.patch The decoder login's privileges leave out USAGE on the root's schema, so
- * its secret's read is refused and the source does not open.
+ * its secret's read would be refused and the source would not open; the installed-catalog checker refuses the
+ * installation first, decoderLacks USAGE on the schema.
  * @plant test/plants/pg/live/ledger-unpublished.patch deploy/ledger/ledger.ts publishingLedger leaves the migrations
  * ledger out of the publication, which the installation's posture check refuses as ledgerUnpublished.
  */
