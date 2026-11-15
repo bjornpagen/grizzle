@@ -58,15 +58,8 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { regex } from "arkregex"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId, RelationIdent } from "#compiler/core/ids.ts"
@@ -546,6 +539,52 @@ const columnsOf = (
 				: []
 	)
 
+/**
+ * A column of S as a foreign key from S references from it: one of S's fields, a constant column generated and stored
+ * from one integer literal, or any other generated column, which no match's key references from.
+ */
+type Referencing =
+	| { readonly kind: "field"; readonly column: string }
+	| { readonly kind: "constant"; readonly value: number }
+	| { readonly kind: "generated"; readonly text: string }
+
+/** A printed stored generation that is one integer literal, cast or parenthesized or not: the literal. */
+const literalText = regex("^\\(*(-?\\d+)\\)*(?:::[a-z ]+)?\\)*$")
+
+/** The column `name` of S, among S's `columns`, as a foreign key references from it (`Referencing`). */
+const referencingOf = (
+	columns: ReadonlyArray<{ readonly table: string; readonly column: ColumnDef }>,
+	name: string
+): Referencing => {
+	const generation = holding(
+		Arr.findFirst(columns, (col) => col.column.name === name),
+		`the column ${name} of S`
+	).column.generated
+	if (generation === undefined) {
+		return { kind: "field", column: name }
+	}
+	const text = generation.kind === "stored" ? printExpr(generation.expr) : generation.kind
+	const literal = literalText.exec(text)?.[1]
+	return literal === undefined
+		? { kind: "generated", text }
+		: { kind: "constant", value: Number(literal) }
+}
+
+/** Whether two lists of referencing columns are one, column for column. */
+const sameReferencing = (x: ReadonlyArray<Referencing>, y: ReadonlyArray<Referencing>): boolean =>
+	x.length === y.length &&
+	Arr.every(x, (a, i) => {
+		const b = y[i]
+		switch (a.kind) {
+			case "field":
+				return b?.kind === "field" && b.column === a.column
+			case "constant":
+				return b?.kind === "constant" && b.value === a.value
+			case "generated":
+				return b?.kind === "generated" && b.text === a.text
+		}
+	})
+
 const tableOf = (installation: Installation, relation: string): RelationIdent =>
 	installation.names.relation(relation).name
 
@@ -658,29 +697,33 @@ const assertLowered = (
 		const paired = Arr.map(heads, (h) =>
 			installation.names.column("S", defined(SOURCE[h.at], "a source field per head term"))
 		)
-		const leadsPaired = (k: (typeof keys)[number]): boolean =>
-			Arr.join(
-				Arr.take(
-					Arr.map(k.columns, (col) => col.column),
-					heads.length
-				),
-				", "
-			) === Arr.join(paired, ", ")
+		const fields = Arr.map(paired, (column): Referencing => ({ kind: "field", column }))
+		/** The match's own foreign key: from its paired fields, then a constant column per constant, into its fields at
+		 * its head terms and constants; or from the paired fields alone into its own columns under its constants. Two
+		 * matches of one relation may reference the same columns, so the referencing columns, read as what each holds,
+		 * tell their keys apart. */
 		const fk = holding(
-			Arr.findFirst(
-				keys,
-				(k) =>
+			Arr.findFirst(keys, (k) => {
+				const from = Arr.map(k.columns, (col) => referencingOf(columns, col.column))
+				return (
 					k.references.name === target &&
-					leadsPaired(k) &&
-					(Arr.join(
+					((Arr.join(
 						Arr.map(k.referencedColumns, (r) => r.column),
 						", "
-					) === over ||
+					) === over &&
+						sameReferencing(from, [
+							...fields,
+							...Arr.map(constants, (x): Referencing => ({ kind: "constant", value: x.value }))
+						])) ||
 						(constants.length > 0 &&
-							k.columns.length === heads.length &&
+							sameReferencing(from, fields) &&
 							!Arr.some(k.referencedColumns, (r) => Arr.contains(referenced, r.column))))
-			),
-			`a foreign key from S's ${Arr.join(paired, ", ")} into ${m.target} over ${over}, or over its own columns under the match's constants`
+				)
+			}),
+			`a foreign key from S's ${Arr.join(paired, ", ")} and a constant column of each of ${Arr.join(
+				Arr.map(constants, (x) => `${x.field} = ${x.value}`),
+				", "
+			)} into ${m.target} over ${over}, or from the paired columns alone over its own columns under the match's constants`
 		)
 		assert.equal(fk.deferrable, "INITIALLY DEFERRED", "the foreign key is deferred")
 		assert.equal(
@@ -688,21 +731,9 @@ const assertLowered = (
 			law,
 			"the foreign key names the rule's law"
 		)
-		const referencing = Arr.map(fk.columns, (col) => col.column)
-		const atOwnColumns = referencing.length === heads.length && constants.length > 0
+		const atOwnColumns = fk.columns.length === heads.length && constants.length > 0
 		if (!atOwnColumns) {
-			Arr.forEach(constants, (k, i) => {
-				const name = defined(referencing[heads.length + i], "a constant column per constant")
-				const generation = holding(
-					Arr.findFirst(columns, (col) => col.column.name === name),
-					`the constant column ${name} of S`
-				).column.generated
-				assert.ok(
-					generation?.kind === "stored" && Str.includes(`${k.value}`)(printExpr(generation.expr)),
-					`${name} is generated, stored, from ${k.value}`
-				)
-				shapes.push("a constant column")
-			})
+			Arr.forEach(constants, () => shapes.push("a constant column"))
 		}
 		const landed = atOwnColumns ? Arr.map(fk.referencedColumns, (r) => r.column) : referenced
 		const isReferenced = (column: string): boolean => Arr.some(landed, (r) => r === column)
@@ -820,7 +851,37 @@ describe("a containment into a key-shaped conjunction of stored relations", () =
 							],
 							{ cases: 400, sense: notesOnly }
 						),
-						kept: [],
+						kept: [
+							{
+								note: "Two matches of R1 keyed by id, each binding id to the first head term: R1(id = x, a = y, k = v) and R1(id = x, a = v, k = 7), v fixed to a literal by a condition. Both lower to a foreign key from S into R1 over (id, a, k), from (x, y, the constant of v) and from (x, the constant of v, the constant of 7), so a match's key told by its target, its leading paired column and its referenced columns alone was either; the oracle took the first match's key for the second's and read y as its constant column (TEST_SEED=2391469403, rotating case 92)",
+								sketch: {
+									heads: 2,
+									matches: [
+										{
+											target: "R1",
+											bindings: [
+												{ kind: "head", at: 0 },
+												{ kind: "head", at: 1 },
+												{ kind: "fixed", name: 0 }
+											]
+										},
+										{
+											target: "R1",
+											bindings: [
+												{ kind: "head", at: 0 },
+												{ kind: "fixed", name: 0 },
+												{ kind: "literal" }
+											]
+										}
+									],
+									breaks: "none",
+									source: "ledger",
+									r1: "base"
+								},
+								draws: "",
+								reaches: ["lowered", "two matches", "a constant column"]
+							}
+						],
 						runs: 400,
 						shrink: completeShrink,
 						concurrency: 1,
