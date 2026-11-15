@@ -53,6 +53,26 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
  * - a copy of `migrated` ends every live read `stale` once more, which its client answers by reading again.
  * No copy can make a read miss a change: each fails closed.
  *
+ * No ready is lost inside the process once a change's key reaches the listener, along every path from a read's
+ * registration to its ready (live/subscriptions.ts):
+ * - a subscription enters its generation's index (addRoutes) once the generation opened and before its first run
+ *   begins, so a change its first run's snapshot misses commits after that snapshot, is fanned out only once visible,
+ *   and so reaches the index after the subscription is in it; a key routed before then names a change the first run
+ *   reads;
+ * - a mark is only set (markSubscription) and only cleared at the start of the subscription's own re-read (rerun),
+ *   before that re-read takes its snapshot, so a key routed during the re-read marks it again and the next turn reads
+ *   again; a re-read refused or interrupted marks it again itself;
+ * - a waiting stream (settled) is woken by every mark and every end, and its wait is installed only when its state is
+ *   clean, in the same synchronous step that reads it; its one precondition is one consumer of a registration's
+ *   `changes` at a time, which every caller keeps (db/handles.ts concatenates `initial` and `changes` once), since a
+ *   second waiter would take the first's place;
+ * - `changes` begins only after `initial` ended (Stream.concat), which records the value every turn diffs from, and a
+ *   turn that reads the same value holds it and waits again, emitting nothing to lose;
+ * - a generation lost ends every member with its error, so a read ends rather than waits; a listener's end loses its
+ *   generation (ListenerLost).
+ * So a read that waits with every session idle and the slot confirmed to the end of the WAL waits on something other
+ * than this process's routing: a key the listener never received, or a consumer that stopped pulling.
+ *
  * What the source runs with: the decoder login's connection and its sessions' texts, the installation's live source,
  * and the candidacy each process runs for its leader.
  */
