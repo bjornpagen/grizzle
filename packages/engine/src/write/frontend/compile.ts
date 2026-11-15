@@ -1033,6 +1033,21 @@ const compile = (
 		}
 		return written
 	}
+	/**
+	 * The relations a member of a stratum may add rows of: an insert's every relation it writes rows of (`insertedBy`), a
+	 * nested counted member among them, which its nesting appends to its counted families as its own insert would; a
+	 * put's own, which inserts a row its key finds none at; a delete's none.
+	 */
+	const addedBy = (member: MemberDesc): ReadonlySet<string> => {
+		switch (member.op) {
+			case "insert":
+				return insertedBy(member.relation)
+			case "put":
+				return new Set([member.relation])
+			case "delete":
+				return new Set()
+		}
+	}
 	/** Whether `name` is a member of a family: its rows' drawn values are the family planner's (write/family/edit.ts). */
 	const managed = (name: string): boolean => families.some((f) => f.member.name === name)
 	/** The tree `name` is the relation of, by its shape, none where it is no tree's. */
@@ -1167,11 +1182,13 @@ const compile = (
 	}
 	/**
 	 * An insert or a put of `relation` from a query, `member`, refused (QueriedOwnerAppend) where its stratum, `members`,
-	 * writes a member of one of the counted families it owns, unless every fact it writes carries a stored owner's key
-	 * (existingKeysProof). An owner inserted in the stratum that appends to its family holds its final count and ends in
-	 * its own row, since PostgreSQL checks a row's CHECKs as it inserts the row, and grizzle draws them on the host from
-	 * the facts the ChangeSet states; a query's facts are the statement's alone, so the owner would be inserted at its
-	 * starts, which a CHECK over an end refuses. A write of stored owners only inserts none, and compiles.
+	 * adds rows of a member of one of the counted families it owns (`addedBy`), its own write of the member or one nested
+	 * under another relation's insert, unless every fact it writes carries a stored owner's key (existingKeysProof). An
+	 * owner inserted in the stratum that appends to its family holds its final count and ends in its own row, since
+	 * PostgreSQL checks a row's CHECKs as it inserts the row and every appended member's foreign key reads its owner's
+	 * count, and grizzle draws them on the host from the facts the ChangeSet states; a query's facts are the statement's
+	 * alone, so the owner would be inserted at its starts, which a CHECK over an end refuses, as an immutable owner's
+	 * members' references to its count do. A write of stored owners only inserts none, and compiles.
 	 */
 	const refuseQueriedOwnerAppend = (
 		member: MemberDesc,
@@ -1187,7 +1204,7 @@ const compile = (
 			(f) =>
 				f.owner.name === relation.name &&
 				!isSequence(f) &&
-				members.some((m) => m.relation === f.member.name && m.op !== "delete")
+				members.some((m) => addedBy(m).has(f.member.name))
 		)
 		if (appended === undefined || existingKeysProof(query.dag.roots[0], relation)) {
 			return

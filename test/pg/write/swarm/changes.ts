@@ -4,8 +4,10 @@
  * row's caller facts, a follow-up's members, plain writes, a query's insert and a put from a query, each stratum a
  * ChangeSet of its own and the strata in sequence. Each ChangeSet is served as an application writes it: the first
  * member of an op and relation is its array member, its facts the call's under that op and relation, and every further
- * one a query member over a relation parameter of its own, its rows the call's parameter, but where only an array
- * writes it, a family's member or a sequence's owner inserted, whose further facts join its array member's.
+ * one a query member over a relation parameter of its own, its rows the call's parameter, but where the served compile
+ * refuses it from a query, a family's member, a sequence's owner inserted, or a counted family's owner its stratum
+ * appends to, whose further facts join its array member's; and, for each owner whose facts it so joins, the same
+ * strata with that owner's further facts from queries, which the served compile refuses (Queried).
  */
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { ParamMap } from "#compiler/plan/common.ts"
@@ -156,37 +158,124 @@ interface Member {
 /** A call's facts: under each op of the ChangeSet's array members, each one's facts under its relation's name. */
 type CallFacts = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>
 
-/** A ChangeSet as a served call applies it: the ChangeSet, its call's facts and its parameters. */
+/**
+ * A refusal the served compile names for an owner's write from a query (QueriedOwnerAppend): the write's op, its
+ * owner, a counted family the owner owns, by its owner and count, and that family's member, whose rows the write's
+ * stratum adds.
+ */
+interface OwnerAppend {
+	readonly op: "insert" | "put"
+	readonly owner: string
+	readonly family: { readonly owner: string; readonly count: string }
+	readonly member: string
+}
+
+/**
+ * A step's ChangeSet as an application might write it instead, the further facts of one op and owner the served one
+ * joins to their array member for their families' appends alone (`ownerAppends`) each a query member of its own: the
+ * served compile refuses it, naming one of `refusals`, that op and owner's.
+ */
+interface Queried {
+	readonly changes: ChangeSetValue
+	readonly refusals: Arr.NonEmptyReadonlyArray<OwnerAppend>
+}
+
+/**
+ * A ChangeSet as a served call applies it: the ChangeSet, its call's facts and its parameters, and what the served
+ * compile may name refusing each further owner fact it joined to its array member for its families' appends alone, had
+ * it written that fact from a query (`ownerAppends`).
+ */
+interface Served {
+	readonly changes: ChangeSetValue
+	readonly facts: CallFacts
+	readonly params: ParamMap
+	readonly appends: ReadonlyArray<OwnerAppend>
+}
+
+/**
+ * A step's ChangeSet as a served call applies it, and for each op and owner whose further facts it joins for their
+ * families' appends, the same strata with those facts from queries (`Queried`).
+ */
 interface Built {
 	readonly changes: ChangeSetValue
 	readonly facts: CallFacts
 	readonly params: ParamMap
+	readonly queried: ReadonlyArray<Queried>
 }
 
 /** Facts of a member as a ChangeSet states them. */
 const factsOf = (facts: ReadonlyArray<Fact>): Member["rows"] => ({ kind: "facts", facts })
 
 /**
- * Whether only an array member writes `m`, a member of the stratum `stratum`, the served compile refusing it from a
- * query: any write of a family's member, whose family values grizzle draws from the call's rows on the host, and an
- * insert of a sequence's or a tree's owner, whose members it writes nested in order under it (UnsupportedOperation);
- * and an insert or a put of a counted family's owner in a stratum that inserts or puts a member of that family, an
- * inserted owner holding its final count and ends in its own row, which grizzle fills only from the facts the
- * ChangeSet states (QueriedOwnerAppend, write/frontend/compile.ts refuseQueriedOwnerAppend).
+ * The relations whose rows `m` adds: an insert's own and every member its sequences nest under it, to any depth (the
+ * served compile's write/frontend/compile.ts insertedBy), each counted family of such a member appended to as its own
+ * insert would; a put's own, which inserts a row its key finds none at; a delete's none.
  */
-const arrayOnly = (spec: SwarmSpec, m: Member, stratum: ReadonlyArray<Member>): boolean =>
-	Arr.some(spec.fill.families, (f) => {
-		const owner = relationName(f.owner)
+const addedBy = (spec: SwarmSpec, m: Member): ReadonlySet<string> => {
+	switch (m.op) {
+		case "insert": {
+			const added = new Set([m.relation.name])
+			for (const at of added) {
+				for (const f of spec.fill.families) {
+					if (f.kind !== "counted" && relationName(f.owner) === at) {
+						added.add(relationName(f.member))
+					}
+				}
+			}
+			return added
+		}
+		case "put":
+			return new Set([m.relation.name])
+		case "delete":
+			return new Set()
+	}
+}
+
+/**
+ * Whether the served compile refuses `m` from a query for its own families (UnsupportedOperation): any write of a
+ * family's member, whose family values grizzle draws from the call's rows on the host, and an insert of a sequence's
+ * or a tree's owner, whose members it writes nested in order under it.
+ */
+const familyOnly = (spec: SwarmSpec, m: Member): boolean =>
+	Arr.some(
+		spec.fill.families,
+		(f) =>
+			relationName(f.member) === m.relation.name ||
+			(m.op === "insert" && f.kind !== "counted" && relationName(f.owner) === m.relation.name)
+	)
+
+/**
+ * What the served compile may name refusing `m`, a member of the stratum `stratum`, from a query (QueriedOwnerAppend,
+ * write/frontend/compile.ts refuseQueriedOwnerAppend): an insert or a put of a counted family's owner whose stratum adds
+ * rows of the family's member (`addedBy`), its own write of the member or one nested under another relation's insert,
+ * each such family; an inserted owner holds its final count and ends in its own row, which grizzle fills only from the
+ * facts the ChangeSet states. None for any other member.
+ */
+const ownerAppends = (
+	spec: SwarmSpec,
+	m: Member,
+	stratum: ReadonlyArray<Member>
+): ReadonlyArray<OwnerAppend> => {
+	const op = m.op
+	if (op === "delete") {
+		return []
+	}
+	return Arr.flatMap(spec.fill.families, (f, k): ReadonlyArray<OwnerAppend> => {
 		const member = relationName(f.member)
-		return (
-			member === m.relation.name ||
-			(m.op === "insert" && f.kind !== "counted" && owner === m.relation.name) ||
-			(m.op !== "delete" &&
-				f.kind === "counted" &&
-				owner === m.relation.name &&
-				Arr.some(stratum, (s) => s.op !== "delete" && s.relation.name === member))
-		)
+		return f.kind === "counted" &&
+			relationName(f.owner) === m.relation.name &&
+			Arr.some(stratum, (s) => addedBy(spec, s).has(member))
+			? [
+					{
+						op,
+						owner: m.relation.name,
+						family: { owner: m.relation.name, count: countName(k) },
+						member
+					}
+				]
+			: []
 	})
+}
 
 /**
  * Strata of members as one served ChangeSet over `value`, the strata in sequence, with its call's facts and parameters
@@ -194,18 +283,20 @@ const arrayOnly = (spec: SwarmSpec, m: Member, stratum: ReadonlyArray<Member>): 
  * relation. Every further one is a query member over a relation parameter of its own, `rows<k>` in order, whose rows
  * the call gives as that parameter, each of the relation's fields its facts state: so a relation written from several
  * sources in one stratum, or in several strata, is written as an application writes it, a served call supplying one
- * array per op and relation. A further member of an op and relation only an array writes (arrayOnly) adds its facts to
- * that op and relation's array member, which holds them as its stratum's union does: every family write sits in the
- * middle stratum, so the array member is always in the further member's own.
+ * array per op and relation. A further member of an op and relation `joined` names adds its facts to that op and
+ * relation's array member, which holds them as its stratum's union does: every family write sits in the middle
+ * stratum, so the array member is always in the further member's own.
  */
 const servedOf = (
 	spec: SwarmSpec,
 	value: ReturnType<BuiltSwarm["rename"]>,
 	strata: ReadonlyArray<ReadonlyArray<Member>>,
-	params: ParamMap
-): Built => {
+	params: ParamMap,
+	joined: (m: Member, stratum: ReadonlyArray<Member>) => boolean
+): Served => {
 	const arrays = new Map<Member["op"], Map<string, Array<Fact>>>()
 	const given: Array<readonly [string, ReadonlyArray<Fact>]> = []
+	const appends: Array<OwnerAppend> = []
 	/**
 	 * The rows of `m`, a member of the stratum `stratum`, as its ChangeSet holds them, or none where its facts join its
 	 * array member's.
@@ -222,9 +313,14 @@ const servedOf = (
 			byRelation.set(m.relation.name, [...facts])
 			return [[]]
 		}
-		if (arrayOnly(spec, m, stratum)) {
+		if (joined(m, stratum)) {
 			for (const fact of facts) {
 				held.push(fact)
+			}
+			if (!familyOnly(spec, m)) {
+				for (const append of ownerAppends(spec, m, stratum)) {
+					appends.push(append)
+				}
 			}
 			return []
 		}
@@ -273,7 +369,7 @@ const servedOf = (
 			]
 		)
 	)
-	return { changes, facts, params: { ...params, ...Rec.fromEntries(given) } }
+	return { changes, facts, params: { ...params, ...Rec.fromEntries(given) }, appends }
 }
 
 /**
@@ -430,7 +526,36 @@ export const changeSetOf = (
 		],
 		Arr.isReadonlyArrayNonEmpty
 	)
-	return servedOf(spec, value, strata, family.params)
+	const joined = (m: Member, stratum: ReadonlyArray<Member>): boolean =>
+		familyOnly(spec, m) || Arr.isReadonlyArrayNonEmpty(ownerAppends(spec, m, stratum))
+	const served = servedOf(spec, value, strata, family.params, joined)
+	const writes = Arr.dedupeWith(served.appends, (a, b) => a.op === b.op && a.owner === b.owner)
+	return {
+		changes: served.changes,
+		facts: served.facts,
+		params: served.params,
+		queried: Arr.flatMap(writes, (write): ReadonlyArray<Queried> => {
+			const ofWrite = Arr.filter(
+				served.appends,
+				(a) => a.op === write.op && a.owner === write.owner
+			)
+			return Arr.isReadonlyArrayNonEmpty(ofWrite)
+				? [
+						{
+							changes: servedOf(
+								spec,
+								value,
+								strata,
+								family.params,
+								(m, stratum) =>
+									!(m.op === write.op && m.relation.name === write.owner) && joined(m, stratum)
+							).changes,
+							refusals: ofWrite
+						}
+					]
+				: []
+		})
+	}
 }
 
 /** The relations a step puts, in any of its strata: its follow-up's puts, its plain puts and a put from a query. */

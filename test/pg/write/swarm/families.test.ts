@@ -68,7 +68,12 @@ import { fullWorld } from "#test/support/worlds.ts"
  * everything, at up to 150 facts and more (test/pg/write/swarm/spec.ts and case.ts).
  *
  * Every ChangeSet is served as an application writes it (changes.ts): the first member of an op and relation an array
- * member and every further one a query member over a relation parameter of its own. It is compiled as the one member of
+ * member and every further one a query member over a relation parameter of its own, but where the served compile
+ * refuses that member from a query, whose facts join its array member's. Where a counted family's owner's further facts
+ * join it for the family's append in their stratum alone, the member's own write or one nested under another relation's
+ * insert, the same strata with one such owner's further facts from queries are compiled too, owner by owner, and must
+ * be refused as QueriedOwnerAppend naming that owner's write, a family of its and that family's member (changes.ts
+ * ownerAppends). It is compiled as the one member of
  * a served workload of its own and applied on PostgreSQL with its call's facts and parameters, from the state the
  * accepted ones before it leave, and is judged by the oracle (oracle.ts), which never consults grizzle's writer:
  * - a lawful write is accepted (unchanged where nothing changes), and every relation then stores exactly the reference
@@ -99,6 +104,10 @@ import { fullWorld } from "#test/support/worlds.ts"
  * @plant test/plants/pg/write/swarm/pair-counts-the-fact-itself.patch A family member's candidate is paired with itself
  * at a unique object of no span beside its primary key (write/insert/unique.ts pairedFacts, count(*) > 0), so every
  * insert of members under a member key is refused by that key.
+ * @plant test/plants/pg/write/swarm/queried-owner-append-direct-members-only.patch The served compile refuses an owner's
+ * write from a query only beside a member of its counted family that the stratum writes itself, so an immutable owner
+ * written from a query beside its members nested under another relation's insert compiles, is inserted at its count's
+ * start, and its members' foreign keys into its count refuse the lawful insert at run time.
  */
 
 /** What the search reached: shapes written, refusals justified, and the downstream defects' shapes. */
@@ -124,6 +133,7 @@ type Situation =
 	| "a member moved to another owner"
 	| "a member owning a family moved between owners"
 	| "a query's insert accepted"
+	| "an owner's write from a query beside its family's append refused"
 	| "a put from a query accepted"
 	| "a put from a query refused for a value it leaves stale"
 	| "a refill of an immutable relation refused"
@@ -162,6 +172,7 @@ const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 	"a member moved to another owner",
 	"a member owning a family moved between owners",
 	"a query's insert accepted",
+	"an owner's write from a query beside its family's append refused",
 	"a put from a query accepted",
 	"a put from a query refused for a value it leaves stale",
 	"a refill of an immutable relation refused",
@@ -440,6 +451,18 @@ const staleCopies = (mutable: boolean): SwarmSpec["fill"] =>
 		],
 		[]
 	)
+
+/** An immutable owner R0 of a counted family of R2, whose members a mutable R1 nests in an ordered family of its own:
+ * an insert of R1 appends to R0's family, as R2's own insert would. */
+const nestedCounted = coreOf(
+	[false, true, true],
+	[
+		{ kind: "counted", owner: 0, member: 2, fold: "none" },
+		{ kind: "ordered", owner: 1, member: 2, fold: "none" }
+	],
+	[],
+	[]
+)
 
 /** A mutable owner R0 of a counted family of R1 whose sum fold steps R1's copy of R0's `v`. */
 const steppedCopy = coreOf(
@@ -843,7 +866,11 @@ const aims: ReadonlyArray<readonly [Situation, Gen<SwarmCase>]> = [
 		"every fact stated twice written once",
 		over(bare(twoFamilies), ["repeated fact", "follow-ups"])
 	],
-	["one member per fact", over(bare(twoFamilies), ["split members", "follow-ups"])]
+	["one member per fact", over(bare(twoFamilies), ["split members", "follow-ups"])],
+	[
+		"an owner's write from a query beside its family's append refused",
+		over(bare(nestedCounted), ["split members"])
+	]
 ]
 
 /** A first insert of `rows`, as one ChangeSet states it whole or one member per fact. */
@@ -1904,6 +1931,130 @@ const kept: ReadonlyArray<Kept<SwarmCase, Situation>> = [
 		},
 		draws: "",
 		reaches: ["a follow-up accepted", "a follow-up refilling a value"]
+	},
+	{
+		note: "found failing alike at 9059cfc2 and every pin after it, shrunk with no budget: R6's rows, nested under R3's insert in an ordered family, append to the counted families of R5, an immutable owner whose further facts the ChangeSet wrote one member per fact, each from a query; the served compile refused such an owner's write only beside a member write of its own, so R5's rows went in at their counts' starts and R6's foreign key into R5's n6 refused the lawful insert",
+		sketch: {
+			spec: {
+				fill: {
+					relations: [
+						{ generated: false, mutable: false },
+						{ generated: true, mutable: false },
+						{ generated: false, mutable: false },
+						{ generated: false, mutable: false },
+						{ generated: false, mutable: false },
+						{ generated: false, mutable: false },
+						{ generated: false, mutable: false },
+						{ generated: false, mutable: false },
+						{ generated: true, mutable: false },
+						{ generated: false, mutable: false }
+					],
+					families: [
+						{ kind: "counted", owner: 1, member: 3, fold: "none" },
+						{ kind: "ordered", owner: 3, member: 4, fold: "none" },
+						{ kind: "ordered", owner: 6, member: 8, fold: "none" },
+						{ kind: "ordered", owner: 3, member: 6, fold: "none" },
+						{ kind: "counted", owner: 5, member: 6, fold: "none" },
+						{ kind: "counted", owner: 4, member: 9, fold: "none" },
+						{ kind: "counted", owner: 5, member: 6, fold: "none" },
+						{ kind: "tree", owner: 2, member: 2, fold: "none" }
+					],
+					copies: [
+						{ family: 0, axis: "owner", source: { kind: "caller" } },
+						{ family: 2, axis: "owner", source: { kind: "caller" } },
+						{ family: 0, axis: "owner", source: { kind: "generated" } },
+						{ family: 2, axis: "last", source: { kind: "caller" } },
+						{ family: 2, axis: "last", source: { kind: "generated" } },
+						{ family: 3, axis: "last", source: { kind: "caller" } },
+						{ family: 1, axis: "owner", source: { kind: "caller" } }
+					],
+					steps: []
+				},
+				ends: [],
+				plains: [],
+				laws: []
+			},
+			steps: [
+				inserted(
+					[
+						{ relation: 1, id: 1, v: 0n, memberOf: [] },
+						{ relation: 2, id: 2, v: 0n, memberOf: [] },
+						{ relation: 2, id: 3, v: 0n, memberOf: [] },
+						{ relation: 2, id: 4, v: 0n, memberOf: [{ family: 7, owner: 3, slot: 0 }] },
+						{ relation: 2, id: 5, v: 0n, memberOf: [{ family: 7, owner: 4, slot: 0 }] },
+						{ relation: 2, id: 6, v: 0n, memberOf: [] },
+						{ relation: 2, id: 7, v: 0n, memberOf: [] },
+						{ relation: 2, id: 8, v: 0n, memberOf: [{ family: 7, owner: 7, slot: 0 }] },
+						{ relation: 3, id: 9, v: 0n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{
+							relation: 6,
+							id: 10,
+							v: 0n,
+							memberOf: [
+								{ family: 3, owner: 9, slot: 0 },
+								{ family: 4, owner: 24, slot: 0 },
+								{ family: 6, owner: 24, slot: 0 }
+							]
+						},
+						{ relation: 8, id: 11, v: 0n, memberOf: [{ family: 2, owner: 10, slot: 0 }] },
+						{ relation: 3, id: 12, v: 0n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{ relation: 3, id: 13, v: 0n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{ relation: 4, id: 14, v: 0n, memberOf: [{ family: 1, owner: 13, slot: 0 }] },
+						{ relation: 4, id: 15, v: 0n, memberOf: [{ family: 1, owner: 13, slot: 1 }] },
+						{ relation: 3, id: 16, v: 0n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{
+							relation: 6,
+							id: 17,
+							v: 0n,
+							memberOf: [
+								{ family: 3, owner: 16, slot: 0 },
+								{ family: 4, owner: 24, slot: 0 },
+								{ family: 6, owner: 25, slot: 0 }
+							]
+						},
+						{
+							relation: 6,
+							id: 18,
+							v: 0n,
+							memberOf: [
+								{ family: 3, owner: 16, slot: 1 },
+								{ family: 4, owner: 24, slot: 0 },
+								{ family: 6, owner: 24, slot: 0 }
+							]
+						},
+						{ relation: 8, id: 19, v: 0n, memberOf: [{ family: 2, owner: 18, slot: 0 }] },
+						{ relation: 3, id: 20, v: 0n, memberOf: [{ family: 0, owner: 1, slot: 0 }] },
+						{
+							relation: 6,
+							id: 21,
+							v: 0n,
+							memberOf: [
+								{ family: 3, owner: 20, slot: 0 },
+								{ family: 4, owner: 24, slot: 0 },
+								{ family: 6, owner: 24, slot: 0 }
+							]
+						},
+						{ relation: 8, id: 22, v: 0n, memberOf: [{ family: 2, owner: 21, slot: 0 }] },
+						{ relation: 8, id: 23, v: 0n, memberOf: [{ family: 2, owner: 21, slot: 1 }] },
+						{ relation: 5, id: 24, v: 0n, memberOf: [] },
+						{ relation: 5, id: 25, v: 0n, memberOf: [] },
+						{ relation: 5, id: 26, v: 0n, memberOf: [] },
+						{ relation: 5, id: 27, v: 0n, memberOf: [] },
+						{ relation: 5, id: 28, v: 0n, memberOf: [] },
+						{ relation: 7, id: 29, v: 0n, memberOf: [] },
+						{ relation: 7, id: 30, v: 0n, memberOf: [] },
+						{ relation: 9, id: 31, v: 0n, memberOf: [{ family: 5, owner: 14, slot: 0 }] }
+					],
+					true,
+					undefined
+				)
+			]
+		},
+		draws: "",
+		reaches: [
+			"an owner's write from a query beside its family's append refused",
+			"one member per fact"
+		]
 	}
 ]
 
@@ -1957,7 +2108,43 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 								for (const [i, step] of steps.entries()) {
 									const label = `step ${String(i)} (${step.kind}) of ${Formatter.format(spec)}`
 									const expected = expectStep(spec, built, laws, host, state, step)
-									const { changes, facts, params } = changeSetOf(spec, built, value, state, step)
+									const { changes, facts, params, queried } = changeSetOf(
+										spec,
+										built,
+										value,
+										state,
+										step
+									)
+									for (const ownerWrite of queried) {
+										const refusals = ownerWrite.refusals
+										const stated = `${label}: an owner's write from a query beside an append to a counted family it owns, which the compile refuses naming one of ${Formatter.format(refusals)}`
+										const fromQuery = yield* Effect.result(db.load({ queried: ownerWrite.changes }))
+										if (Result.isSuccess(fromQuery)) {
+											return assert.fail(`${stated}, compiled`)
+										}
+										const refused = fromQuery.failure
+										if (refused instanceof OpenError) {
+											return assert.fail(
+												`${stated}, failed with ${refused._tag}: ${refused.message}`
+											)
+										}
+										const error = refused.error
+										const reason = isCompileError(error) ? error.reason : undefined
+										assert.ok(
+											reason?._tag === "QueriedOwnerAppend" &&
+												Arr.some(
+													refusals,
+													(r) =>
+														r.op === reason.op &&
+														r.owner === reason.owner &&
+														r.family.owner === reason.family.owner &&
+														r.family.count === reason.family.count &&
+														r.member === reason.member
+												),
+											`${stated}, refused with ${Formatter.format(error)}`
+										)
+										c.note("an owner's write from a query beside its family's append refused")
+									}
 									const loaded = yield* Effect.result(db.load({ step: changes }))
 									if (Result.isFailure(loaded)) {
 										const refused = loaded.failure

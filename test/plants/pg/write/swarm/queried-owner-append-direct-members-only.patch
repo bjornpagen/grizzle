@@ -1,0 +1,12 @@
+diff --git a/packages/engine/src/write/frontend/compile.ts b/packages/engine/src/write/frontend/compile.ts
+--- a/packages/engine/src/write/frontend/compile.ts
++++ b/packages/engine/src/write/frontend/compile.ts
+@@ -1204,7 +1204,7 @@
+ 			(f) =>
+ 				f.owner.name === relation.name &&
+ 				!isSequence(f) &&
+-				members.some((m) => addedBy(m).has(f.member.name))
++				members.some((m) => m.relation === f.member.name && m.op !== "delete")
+ 		)
+ 		if (appended === undefined || existingKeysProof(query.dag.roots[0], relation)) {
+ 			return
