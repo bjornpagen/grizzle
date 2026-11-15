@@ -19,8 +19,10 @@
  * lawsOf lists it: a caller that spells the name itself, or derives it otherwise, is never needed.
  *
  * Oracle: a second implementation, `holds`, the predicate evaluated on the host. Features: every predicate form and
- * every spelling of a check name, each a required situation. Plant: ~/.cache/grizzle-release/BR09/plants/
- * checks-between-reversed.patch, BETWEEN printed SYMMETRIC, stores a row inside reversed bounds the predicate refuses.
+ * every spelling of a check name, each a required situation.
+ *
+ * @plant test/plants/pg/laws/checks-between-reversed.patch BETWEEN printed SYMMETRIC, so a row inside reversed bounds,
+ * which the predicate refuses, is stored; the row-check property fails.
  */
 import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
