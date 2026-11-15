@@ -13,12 +13,13 @@
  * Oracle: a second implementation and the specification. The twin is filled by one INSERT over the whole series, and
  * the table holds exactly its rows. The table's fill's chunks cover the series in order, the first of one index; each
  * chunk's rows share one xmin, a different one from every other chunk's, so each committed alone; and no chunk holds
- * more indices than the cluster's WAL segment holds at the WAL each index of the chunk before it wrote. A table a
+ * more indices than the cluster's WAL segment holds at the WAL each index of the last chunk before it that wrote, or
+ * than one where none has: a chunk that inserted no row writes nothing and measures nothing. A table a
  * constraint trigger an INSERT fires guards, or whose deferred foreign key points into a later fill, is refused, naming
  * the law, with no row written; every other is filled.
  *
  * Features: a fill of one row, a fill whose WAL passed one segment, a fill of defaults only, a fill that skipped rows a
- * key already held, each deferred law.
+ * key already held, a fill with a chunk that inserted no row, each deferred law.
  *
  * @plant test/plants/pg/substrate/fill-first-chunk-whole.patch The first chunk is the whole fill, one transaction over
  * every row, as the fills before this loader were; a fill of two rows or more starts past the series' first row.
@@ -34,6 +35,8 @@
  * whose parents an earlier fill completed is refused although every chunk finds its rows.
  * @plant test/plants/pg/substrate/fill-slices-tables-apart.patch A chunk commits each table's slice in a transaction of
  * its own, so a child's slice commits before the parent rows of its own fill and its COMMIT refuses it.
+ * @plant test/plants/pg/substrate/fill-measures-empty-chunk.patch A chunk that inserted no row counts as a measurement,
+ * so its zero WAL is a defect of the count and the fill dies, though nothing was wrong.
  * @plant test/plants/pg/substrate/fill-one-transaction.patch Every chunk runs inside one transaction, so the chunks
  * commit together and hold one XID for the whole fill.
  */
@@ -71,6 +74,7 @@ type FillFeature =
 	| "a fill whose WAL passed one segment"
 	| "a fill of defaults only"
 	| "a fill that skipped rows a key already held"
+	| "a fill with a chunk that inserted no row"
 	| Deferred
 
 const features: Arr.NonEmptyReadonlyArray<FillFeature> = [
@@ -78,6 +82,7 @@ const features: Arr.NonEmptyReadonlyArray<FillFeature> = [
 	"a fill whose WAL passed one segment",
 	"a fill of defaults only",
 	"a fill that skipped rows a key already held",
+	"a fill with a chunk that inserted no row",
 	...deferredLaws
 ]
 
@@ -89,9 +94,11 @@ const refused: ReadonlyArray<Deferred> = [
 
 /**
  * A table's rows: each computed from its index `g` and keyed by it, each of defaults only (an identity key and a
- * default pad), or computed with two indices to a key, the second skipped as a key already held.
+ * default pad), computed with two indices to a key, the second skipped as a key already held, or computed over two keys
+ * only, as a key over a roster's few codes is, so every index past the first two is skipped and a chunk of them inserts
+ * no row.
  */
-type Shape = "computed" | "defaults" | "halved"
+type Shape = "computed" | "defaults" | "halved" | "repeating"
 
 /** A case: the table's shape, its pad's width, the rows filled, and the deferred law the table carries. */
 interface FillCase {
@@ -111,7 +118,7 @@ const widest = 1000
 const caseGen =
 	(segment: number): Gen<FillCase> =>
 	(source) => ({
-		shape: source.draw(element(["computed", "defaults", "halved"] as const)),
+		shape: source.draw(element(["computed", "defaults", "halved", "repeating"] as const)),
 		width: source.draw(int(0, widest)),
 		rows: source.draw(int(1, Math.ceil((2 * segment) / widest))),
 		deferred: source.draw(element(deferredLaws))
@@ -134,6 +141,8 @@ const fillColumns = (c: FillCase): ReadonlyArray<readonly [string, string]> => {
 			return [["k", "g"], ["at", "g"], pad]
 		case "halved":
 			return [["k", "g / 2"], ["at", "g"], pad]
+		case "repeating":
+			return [["k", "g % 2"], ["at", "g"], pad]
 		case "defaults":
 			return []
 	}
@@ -151,7 +160,7 @@ const fillsOf = (
 	child: VolumeTable,
 	parent: VolumeTable
 ): { readonly fills: Arr.NonEmptyReadonlyArray<VolumeFill>; readonly at: number } => {
-	const conflicts = c.shape === "halved" ? "skipped" : "refused"
+	const conflicts = c.shape === "halved" || c.shape === "repeating" ? "skipped" : "refused"
 	const alone: VolumeFill = { tables: [child], rows: c.rows, conflicts }
 	const parents: VolumeFill = { tables: [parent], rows: c.rows, conflicts: "refused" }
 	switch (c.deferred) {
@@ -204,6 +213,9 @@ const int8 = (rows: ReadonlyArray<ReadonlyArray<unknown>>): number => {
 		: assert.fail(`no int8 cell in ${Formatter.format(rows)}`)
 }
 
+/** Two indices to one key, the second skipped: its one-index chunk inserts no row and writes no WAL. */
+const oneIndexSkipped: FillCase = { shape: "halved", width: 0, rows: 2, deferred: "none" }
+
 const cases = 24
 
 layer(Substrate.layer)("a volume fill", (it) => {
@@ -229,7 +241,18 @@ layer(Substrate.layer)("a volume fill", (it) => {
 							draw: drawn(caseGen(segment)),
 							literal: Formatter.format,
 							coverage: required<FillFeature>(features, { cases: 4 * cases, sense: notesOnly }),
-							kept: [],
+							kept: [
+								{
+									note: "FULLSUITE at 96d796b0: a chunk of the one index whose key the index before already held inserted no row and wrote no WAL, and the loader died dividing by it",
+									sketch: oneIndexSkipped,
+									draws: "",
+									reaches: [
+										"none",
+										"a fill that skipped rows a key already held",
+										"a fill with a chunk that inserted no row"
+									]
+								}
+							],
 							runs: cases,
 							shrink: { kind: "bounded", candidates: 30 },
 							concurrency: 1,
@@ -252,7 +275,8 @@ layer(Substrate.layer)("a volume fill", (it) => {
 									}
 									k.note(c.deferred)
 									const columns = fillColumns(c)
-									const conflicts = c.shape === "halved" ? "skipped" : "refused"
+									const conflicts =
+										c.shape === "halved" || c.shape === "repeating" ? "skipped" : "refused"
 									const { fills, at } = fillsOf(
 										c,
 										{ table, columns },
@@ -304,38 +328,39 @@ layer(Substrate.layer)("a volume fill", (it) => {
 									if (c.shape === "defaults") {
 										k.note("a fill of defaults only")
 									}
-									if (c.shape === "halved" && stored < c.rows) {
+									if (stored < c.rows && c.shape !== "defaults") {
 										k.note("a fill that skipped rows a key already held")
 									}
 									if (Arr.reduce(chunks, 0, (sum, chunk) => sum + chunk.wal) > segment) {
 										k.note("a fill whose WAL passed one segment")
 									}
 									assert.ok(
-										Option.exists(Arr.head(chunks), (first) => first.from === 0 && first.to === 0),
-										`the first chunk is the series' first index: ${Formatter.format(chunks)}`
+										Option.exists(Arr.head(chunks), (first) => first.from === 0),
+										`the chunks start at the series' first index: ${Formatter.format(chunks)}`
 									)
-									for (const [i, [before, chunk]] of Arr.zip(
-										chunks,
-										Arr.drop(chunks, 1)
-									).entries()) {
-										assert.equal(
-											chunk.from,
-											before.to + 1,
-											"each chunk starts where the one before ended"
-										)
-										const budget = Math.max(
-											1,
-											Math.floor((segment * (before.to - before.from + 1)) / before.wal)
-										)
-										assert.ok(
-											chunk.to - chunk.from + 1 <= budget,
-											`chunk ${i + 1} holds ${chunk.to - chunk.from + 1} indices, past the ${budget} the segment holds at the WAL each index of the chunk before wrote: ${Formatter.format(chunks)}`
-										)
+									if (Arr.some(chunks, (chunk) => chunk.inserted === 0)) {
+										k.note("a fill with a chunk that inserted no row")
 									}
-									assert.ok(
-										Option.exists(Arr.last(chunks), (last) => last.to === c.rows - 1),
-										`the chunks end at the series' last index: ${Formatter.format(chunks)}`
+									const budgeted = Arr.reduce(
+										chunks,
+										{ budget: 1, at: 0 },
+										({ budget, at }, chunk) => {
+											const indices = chunk.to - chunk.from + 1
+											assert.equal(chunk.from, at, "each chunk starts where the one before ended")
+											assert.ok(
+												indices <= budget,
+												`a chunk of ${indices} indices from ${chunk.from}, past the ${budget} the segment holds at the WAL each index of the last chunk that wrote wrote, or past one before any did: ${Formatter.format(chunks)}`
+											)
+											return {
+												budget:
+													chunk.wal === 0
+														? budget
+														: Math.max(1, Math.floor((segment * indices) / chunk.wal)),
+												at: chunk.to + 1
+											}
+										}
 									)
+									assert.equal(budgeted.at, c.rows, "the chunks end at the series' last index")
 									const commits = yield* s.admin.queryValues(
 										`SELECT count(DISTINCT (u.n, t.xmin::text))::int8, count(DISTINCT u.n)::int8, count(DISTINCT t.xmin::text)::int8
 FROM ${table} AS t JOIN ROWS FROM (pg_catalog.unnest($1::int8[]), pg_catalog.unnest($2::int8[])) WITH ORDINALITY AS u(lo, hi, n)

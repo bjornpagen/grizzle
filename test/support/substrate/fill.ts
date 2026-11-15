@@ -103,13 +103,15 @@ const insertOf = (
 }
 
 /**
- * One chunk a fill committed: the fill's place among the fills, the indices of its first and last rows, and the WAL its
- * transaction wrote.
+ * One chunk a fill committed: the fill's place among the fills, the indices of its first and last rows, the rows it
+ * inserted (fewer than its indices where keys already held skipped some), and the WAL its transaction wrote, none where
+ * it inserted no row: such a transaction takes no XID and writes nothing.
  */
 export interface VolumeChunk {
 	readonly fill: number
 	readonly from: number
 	readonly to: number
+	readonly inserted: number
 	readonly wal: number
 }
 
@@ -120,26 +122,28 @@ interface Filled {
 }
 
 /**
- * The slice `from` to `to` of every table of `fill`, in one transaction. Its COMMIT judges every deferred law the slice
- * touches, as the whole fill's would, so a chunk that would split one fails there, typed, and commits nothing.
+ * The slice `from` to `to` of every table of `fill`, in one transaction, and the rows its INSERTs inserted. Its COMMIT
+ * judges every deferred law the slice touches, as the whole fill's would, so a chunk that would split one fails there,
+ * typed, and commits nothing.
  */
 const chunk = (
 	session: PgConnection,
 	fill: VolumeFill,
 	from: number,
 	to: number
-): Effect.Effect<void, SqlError> =>
+): Effect.Effect<number, SqlError> =>
 	Effect.gen(function* () {
 		yield* session.query("BEGIN", [])
-		const committed = yield* Effect.onError(
-			Effect.andThen(
-				Effect.forEach(
-					fill.tables,
-					(table) => session.query(insertOf(table, fill.conflicts, from, to), []),
-					{ discard: true }
+		const [inserted, committed] = yield* Effect.onError(
+			Effect.all([
+				Effect.map(
+					Effect.forEach(fill.tables, (table) =>
+						session.query(insertOf(table, fill.conflicts, from, to), [])
+					),
+					(results) => Arr.reduce(results, 0, (rows, result) => rows + result.rowCount)
 				),
 				session.query("COMMIT", [])
-			),
+			]),
 			() => Effect.ignore(session.query("ROLLBACK", []))
 		)
 		if (committed.command !== "COMMIT") {
@@ -149,6 +153,7 @@ const chunk = (
 				)
 			)
 		}
+		return inserted
 	})
 
 /**
@@ -157,7 +162,9 @@ const chunk = (
  * over the bytes the chunk wrote, this backend's own as its statistics count them once flushed (flushedWal), and never
  * less than one index. So no chunk's transaction holds its XID past about one segment of WAL, whatever the other files
  * of the cluster write meanwhile, and no number of rows is anyone's choice: the first chunk is one index, and each later
- * one is sized by the chunk before it.
+ * one is sized by the last chunk that wrote. A chunk whose INSERTs inserted no row, every key of its slice already held,
+ * wrote nothing and measures nothing, so the size it ran at stands. One that inserted rows and counted no WAL is a defect
+ * of the count, and dies.
  */
 const fillFrom = (
 	session: PgConnection,
@@ -172,12 +179,14 @@ const fillFrom = (
 		? Effect.succeed(filled)
 		: Effect.gen(function* () {
 				const rows = Math.min(size, fill.rows - from)
-				yield* chunk(session, fill, from, from + rows - 1)
+				const inserted = yield* chunk(session, fill, from, from + rows - 1)
 				const written = yield* flushedWal(session)
 				const wal = written - filled.written
-				if (wal <= 0) {
+				if (wal < 0 || (wal === 0 && inserted > 0)) {
 					return yield* Effect.die(
-						new Error(`a chunk of ${rows} indices of fill ${at} counted ${wal} bytes of WAL`)
+						new Error(
+							`a chunk of ${rows} indices of fill ${at} inserted ${inserted} rows and counted ${wal} bytes of WAL`
+						)
 					)
 				}
 				return yield* fillFrom(
@@ -186,9 +195,9 @@ const fillFrom = (
 					fill,
 					at,
 					from + rows,
-					Math.max(1, Math.floor((segment * rows) / wal)),
+					wal === 0 ? size : Math.max(1, Math.floor((segment * rows) / wal)),
 					{
-						chunks: [...filled.chunks, { fill: at, from, to: from + rows - 1, wal }],
+						chunks: [...filled.chunks, { fill: at, from, to: from + rows - 1, inserted, wal }],
 						written
 					}
 				)

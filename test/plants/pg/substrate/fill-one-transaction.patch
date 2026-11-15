@@ -1,21 +1,21 @@
 --- a/test/support/substrate/fill.ts
 +++ b/test/support/substrate/fill.ts
-@@ -130,7 +130,7 @@
+@@ -133,7 +133,7 @@
  	to: number
- ): Effect.Effect<void, SqlError> =>
+ ): Effect.Effect<number, SqlError> =>
  	Effect.gen(function* () {
 -		yield* session.query("BEGIN", [])
 +		yield* session.query("SAVEPOINT chunk", [])
- 		const committed = yield* Effect.onError(
- 			Effect.andThen(
- 				Effect.forEach(
-@@ -138,11 +138,11 @@
- 					(table) => session.query(insertOf(table, fill.conflicts, from, to), []),
- 					{ discard: true }
+ 		const [inserted, committed] = yield* Effect.onError(
+ 			Effect.all([
+ 				Effect.map(
+@@ -142,11 +142,11 @@
+ 					),
+ 					(results) => Arr.reduce(results, 0, (rows, result) => rows + result.rowCount)
  				),
 -				session.query("COMMIT", [])
 +				session.query("RELEASE SAVEPOINT chunk", [])
- 			),
+ 			]),
  			() => Effect.ignore(session.query("ROLLBACK", []))
  		)
 -		if (committed.command !== "COMMIT") {
@@ -23,7 +23,7 @@
  			return yield* Effect.die(
  				new Error(
  					`a chunk's COMMIT answered ${committed.command}, though none of its statements failed`
-@@ -234,6 +234,7 @@
+@@ -243,6 +243,7 @@
  		Effect.gen(function* () {
  			const session = yield* connection.pin
  			yield* admission(session, fills)
@@ -31,7 +31,7 @@
  			const segment = yield* Effect.map(int8Cell(session, segmentBytes, []), Number)
  			const written = yield* flushedWal(session)
  			const filled = yield* Effect.reduce(
-@@ -241,6 +242,7 @@
+@@ -250,6 +251,7 @@
  				(): Filled => ({ chunks: [], written }),
  				(done, [at, f]) => fillFrom(session, segment, f, at, 0, 1, done)
  			)
