@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/compute/registry.ts b/packages/engine/src/scalar/compute/registry.ts
+index ac0c202f..e7077350 100644
+--- a/packages/engine/src/scalar/compute/registry.ts
++++ b/packages/engine/src/scalar/compute/registry.ts
+@@ -965,7 +965,7 @@ const catalogOverloads = {
+ 	int2mod: infix("mod", "%", "int2", "int2", divisor, "value"),
+ 	int2um: negation("int2", exactInteger),
+ 	"abs(smallint)": fnCall("abs", "abs", ["int2"], "int2", exactInteger, "value"),
+-	int4pl: infix("add", "+", "int4", "int4", exactInteger, "value"),
++	int4pl: infix("add", "+", "int4", "int4", total, "value"),
+ 	int4mi: infix("sub", "-", "int4", "int4", exactInteger, "value"),
+ 	int4mul: infix("mul", "*", "int4", "int4", exactInteger, "value"),
+ 	int4mod: infix("mod", "%", "int4", "int4", divisor, "value"),

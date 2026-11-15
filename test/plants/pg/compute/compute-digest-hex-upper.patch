@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/expr/ops.ts b/packages/engine/src/lower/conservative/expr/ops.ts
+index 80c4d172..767202a6 100644
+--- a/packages/engine/src/lower/conservative/expr/ops.ts
++++ b/packages/engine/src/lower/conservative/expr/ops.ts
+@@ -194,7 +194,7 @@ const collapseText = (args: ReadonlyArray<Expr>): Expr | undefined => {
+ const bytesDigest = (args: ReadonlyArray<Expr>): Expr | undefined => {
+ 	const [x] = args
+ 	return args.length === 1 && x !== undefined
+-		? call("encode", [call("sha256", [x]), lit.text("hex", types.text)])
++		? call("upper", [call("encode", [call("sha256", [x]), lit.text("hex", types.text)])])
+ 		: undefined
+ }
+ 

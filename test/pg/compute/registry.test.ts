@@ -5,9 +5,9 @@
  *
  * Oracle: PostgreSQL itself, pg_operator, pg_proc, pg_cast and pg_type's rows for the object an entry names.
  *
- * Plants: compute-registry-int4pl-int8 (integer + integer is typed bigint).
- *
  * Features: an entry of each kind, operator, function, cast, input and construct.
+ *
+ * @plant test/plants/pg/compute/compute-registry-int4pl-int8.patch integer + integer is typed bigint.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

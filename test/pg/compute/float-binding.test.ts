@@ -21,10 +21,10 @@
  * Oracle: the reference evaluator for the edge classes, the conservative lowering for the closed read, and EXPLAIN
  * ANALYZE's SubPlans and InitPlans for the binding.
  *
- * Plants: compute-float-binding-unbound (the conservative delivery skips bindLaterally, so a compound operand is a
- * scalar subquery PostgreSQL runs for every row).
- *
  * Features: every position a statement evaluates the tree in, and each float width and cast.
+ *
+ * @plant test/plants/pg/compute/compute-float-binding-unbound.patch The conservative delivery skips bindLaterally, so a
+ * compound operand is a scalar subquery PostgreSQL runs for every row.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

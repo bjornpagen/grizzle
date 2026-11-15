@@ -14,11 +14,12 @@
  *
  * Oracle: PostgreSQL itself, pg_aggregate's resolution, its transition type and pg_typeof's result of each call.
  *
- * Plants: compute-aggregate-count-int4 (count(*) types as integer), and sum-integer-native
- * (~/.cache/grizzle-release/DENTRIAGE/plants: sum over integer typed bigint and emitted natively again, which passes
- * every typing check and is caught by its bigint accumulator).
+ * Plants: compute-aggregate-count-int4 (count(*) types as integer).
  *
  * Features: count(*), and an admitted aggregate checked over a closed id, a contract and booleans.
+ *
+ * @plant test/plants/pg/compute/sum-integer-native.patch sum over integer typed bigint and emitted natively again, which
+ * passes every typing check and is caught by its bigint accumulator.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

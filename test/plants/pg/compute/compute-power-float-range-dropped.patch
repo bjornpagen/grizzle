@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/compute/registry.ts b/packages/engine/src/scalar/compute/registry.ts
+index ac0c202f..2d49711c 100644
+--- a/packages/engine/src/scalar/compute/registry.ts
++++ b/packages/engine/src/scalar/compute/registry.ts
+@@ -1049,7 +1049,7 @@ const catalogOverloads = {
+ 		"power",
+ 		["float8", "float8"],
+ 		"float8",
+-		requires([{ kind: "powerDomain" }, { kind: "powerRange" }]),
++		requires([{ kind: "powerDomain" }]),
+ 		"value"
+ 	),
+ 	"sqrt(numeric)": fnCall(

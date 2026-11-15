@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/lexical.ts b/packages/engine/src/scalar/lexical.ts
+index 87d9ebad..78705c09 100644
+--- a/packages/engine/src/scalar/lexical.ts
++++ b/packages/engine/src/scalar/lexical.ts
+@@ -488,7 +488,7 @@ export const decimalOfText = (text: string): Decimal | undefined => {
+ 		return undefined
+ 	}
+ 	const { units, scale } = unitsOf(n)
+-	const made = Decimal.fromParts(units < 0n, units < 0n ? -units : units, scale)
++	const made = Decimal.fromParts(units < 0n, units < 0n ? -units : units, scale + 1)
+ 	return made.ok ? made.value : undefined
+ }
+ 

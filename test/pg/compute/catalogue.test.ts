@@ -11,9 +11,11 @@
  *
  * Oracle: PostgreSQL itself, each operation's value and type, beside the host and the reference evaluators.
  *
- * Plants: compute-registry-int4pl-int8 (integer + integer is typed bigint).
- *
  * Features: each boundary and spelling situation, a declined case, power's value, and lcm past its operands' digits.
+ *
+ * @plant test/plants/pg/compute/compute-catalogue-int4pl-total.patch integer + integer is registered total rather than
+ * exact (scalar/compute/registry.ts int4pl), so it is typed integer, its registered result, and its SQL overflows at
+ * integer's bounds where the host's exact sum does not.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

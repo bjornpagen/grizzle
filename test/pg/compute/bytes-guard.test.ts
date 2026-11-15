@@ -11,12 +11,10 @@
  * computes, the text where its bytes lie in the guard's interval and "" elsewhere, which the target's domain holds, so
  * no insert is refused.
  *
- * Planted bug: the guard narrows its text to its interval's low end rather than its high one (lower.ts whenGuard), so a
- * cast whose guard reaches past n compiles.
- *
- * Plants: compute-bytes-guard-low-end (the planted bug above, as a patch).
- *
  * Features: each bound of the text's type and each side of the guard's interval a case reaches.
+ *
+ * @plant test/plants/pg/compute/compute-bytes-guard-low-end.patch The guard narrows its text to its interval's low end
+ * rather than its high one (lower.ts whenGuard), so a cast whose guard reaches past n compiles.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

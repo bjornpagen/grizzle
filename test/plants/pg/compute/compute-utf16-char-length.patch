@@ -1,0 +1,17 @@
+diff --git a/packages/engine/src/lower/conservative/expr/ops.ts b/packages/engine/src/lower/conservative/expr/ops.ts
+index 80c4d172..a0ecd52c 100644
+--- a/packages/engine/src/lower/conservative/expr/ops.ts
++++ b/packages/engine/src/lower/conservative/expr/ops.ts
+@@ -206,11 +206,7 @@ const bytesDigest = (args: ReadonlyArray<Expr>): Expr | undefined => {
+ const utf16Units = (args: ReadonlyArray<Expr>): Expr | undefined => {
+ 	const [x] = args
+ 	return args.length === 1 && x !== undefined
+-		? binary(
+-				"+",
+-				call("char_length", [x]),
+-				call("regexp_count", [x, lit.text(supplementaryClass, types.text)])
+-			)
++		? call("char_length", [x])
+ 		: undefined
+ }
+ 

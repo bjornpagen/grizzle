@@ -9,11 +9,13 @@
  *
  * Oracle: PostgreSQL itself, power's value or failure, beside the reference evaluator's value.
  *
- * Plants: compute-power-range-dropped (power(numeric, numeric) requires no powerRange), compute-power-float-range-dropped
- * (power(double precision, double precision) requires none).
- *
  * Features: value agreement, a refusal at compilation, an underflow to zero, each side of exp(6000), a guarded power
  * refused and proved, and each float refusal.
+ *
+ * @plant test/plants/pg/compute/compute-power-range-dropped.patch power(numeric, numeric) requires no powerRange; the
+ * numeric and guarded properties fail.
+ * @plant test/plants/pg/compute/compute-power-float-range-dropped.patch power(double precision, double precision)
+ * requires no powerRange; the float property fails.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

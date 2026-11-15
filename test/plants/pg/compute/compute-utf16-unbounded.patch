@@ -1,0 +1,16 @@
+diff --git a/packages/engine/src/scalar/compute/lower.ts b/packages/engine/src/scalar/compute/lower.ts
+index 524d6ffb..f0c3bb80 100644
+--- a/packages/engine/src/scalar/compute/lower.ts
++++ b/packages/engine/src/scalar/compute/lower.ts
+@@ -1871,9 +1871,9 @@ class Lowering<R extends Refs> {
+ 			case "bounded": {
+ 				const a = args[0]
+ 				const bytes = a === undefined ? undefined : textBytes(a)
+-				return bytes === undefined || bytes > regexTextMaxBytes.value
++				return bytes !== undefined && bytes > regexTextMaxBytes.value
+ 					? refuse(0)
+-					: { precondition, premises: [{ kind: "octets", operand: 0, bytes }] }
++					: { precondition, premises: [{ kind: "octets", operand: 0, bytes: bytes ?? regexTextMaxBytes.value }] }
+ 			}
+ 		}
+ 	}

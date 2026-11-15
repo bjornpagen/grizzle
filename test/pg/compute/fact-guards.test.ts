@@ -11,13 +11,12 @@
  * PostgreSQL's answer to the SQL compiled for the case, its subject a value of the domain, is the host evaluator's,
  * value by value: a NaN that isFinite keeps out included, since a typmod keeps out an infinity but never NaN.
  *
- * Planted bug: the guard's constant adopts the subject's contract (lower.ts guardPredicate's compareTo over
- * subject.nominal), so Compute.when over isFinite of a contract of a typmod'd numeric is refused for an infinity its
- * domain cannot hold, and over nonzero of one that keeps zero out is ContractLiteral.
- *
- * Plants: compute-fact-guard-adopts-contract (the planted bug above, as a patch).
- *
  * Features: each guard in each position over each contract predicate's relation to zero.
+ *
+ * @plant test/plants/pg/compute/compute-fact-guard-adopts-contract.patch The guard's constant adopts the subject's
+ * contract (lower.ts guardPredicate's compareTo over subject.nominal), so Compute.when over isFinite of a contract of a
+ * typmod'd numeric is refused for an infinity its domain cannot hold, and over nonzero of one that keeps zero out is
+ * ContractLiteral.
  */
 import { type Case as Search, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

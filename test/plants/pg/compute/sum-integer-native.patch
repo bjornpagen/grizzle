@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/aggregate.ts b/packages/engine/src/scalar/aggregate.ts
+index 8a8704a9..f2997a60 100644
+--- a/packages/engine/src/scalar/aggregate.ts
++++ b/packages/engine/src/scalar/aggregate.ts
+@@ -264,7 +264,7 @@ const catalogName = (t: ScalarType): string => {
+ 
+ const sumOverloads: Readonly<Partial<Record<Carrier, Entry>>> = {
+ 	int2: widenedSum,
+-	int4: widenedSum,
++	int4: typed(() => plainType("int8"), native),
+ 	int8: numericSum,
+ 	numeric: numericSum,
+ 	float4: typed(plainResult("float4"), exactSum("float4")),

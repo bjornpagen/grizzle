@@ -16,9 +16,10 @@
  * Oracle: the reference evaluator and ECMAScript's own RegExp test for the SQL; PostgreSQL's CHECK for the installed
  * patterns, against ECMAScript's test.
  *
- * Plants: compute-text-suffix-octets (a suffix test takes the suffix's octets for its characters).
- *
  * Features: each text term and each dictionary situation the searches name.
+ *
+ * @plant test/plants/pg/compute/compute-text-suffix-octets.patch A suffix test takes the suffix's octets for its
+ * characters.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

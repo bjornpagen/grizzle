@@ -14,15 +14,13 @@
  *    generated field (README, "How a field is written": no fact carries its value, so such a schema is refused when
  *    it compiles), so neither relation keys one.
  *
- * Planted bug: collapse's SQL without its step that turns each tab before a space into two tabs
- * (lower/conservative/expr/ops.ts collapseText), so a run of three or more white space characters keeps more than one
- * space.
- *
  * Oracle: the reference evaluator character by character, and XML Schema's collapse (core/text.ts collapsed).
  *
- * Plants: compute-translate-collapse-tab-step (the planted bug above, as a patch).
- *
  * Features: each map and white space situation the searches name.
+ *
+ * @plant test/plants/pg/compute/compute-translate-collapse-tab-step.patch collapse's SQL without its step that turns
+ * each tab before a space into two tabs (lower/conservative/expr/ops.ts collapseText), so a run of three or more white
+ * space characters keeps more than one space.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

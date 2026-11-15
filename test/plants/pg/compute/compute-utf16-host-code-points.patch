@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/scalar/compute/evaluate.ts b/packages/engine/src/scalar/compute/evaluate.ts
+index ba541758..a24d140d 100644
+--- a/packages/engine/src/scalar/compute/evaluate.ts
++++ b/packages/engine/src/scalar/compute/evaluate.ts
+@@ -518,7 +518,7 @@ const apply = (
+ 			return isString(a)
+ 				? utf8Length(a) > regexTextMaxBytes.value
+ 					? undefinedAt("bounded")
+-					: Result.ok(BigInt(a.length))
++					: Result.ok(BigInt(Array.from(a).length))
+ 				: mismatch(op)
+ 		case "concat":
+ 			return isString(a) && isString(b) ? Result.ok(a + b) : mismatch(op)

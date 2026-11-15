@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/expr/ops.ts b/packages/engine/src/lower/conservative/expr/ops.ts
+index 80c4d172..5bba512b 100644
+--- a/packages/engine/src/lower/conservative/expr/ops.ts
++++ b/packages/engine/src/lower/conservative/expr/ops.ts
+@@ -167,7 +167,7 @@ const textSuffix = (args: ReadonlyArray<Expr>): Expr | undefined => {
+ }
+ 
+ /** U+10000 to U+10FFFF, the supplementary planes, as an ARE's bracket expression: UTF-16's pairs. */
+-const supplementaryClass = "[\\U00010000-\\U0010FFFF]"
++const supplementaryClass = "[\\U00010000-\\U0001FFFF]"
+ 
+ /** `replace(x, from, to)` over two text literals. */
+ const replaced = (x: Expr, from: string, to: string): Expr =>
