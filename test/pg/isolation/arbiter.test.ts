@@ -29,10 +29,12 @@
  * timing drawn from the case (every order where a race makes few moves, a PCT schedule beyond); and the differential of
  * one history at the two levels. Features: Docs only, an Invoice posted, three sessions, a CHECK refused; a stored Doc
  * and two calls at one key; an exact repeat, a key or axis refusal, an unsettled invoice refused and Lines sent alone.
- * Plants: ~/.cache/grizzle-release/BR09/plants/arbiter-row-check-negated.patch, every row CHECK installed negated,
- * refuses a settled Invoice and commits an unsettled one, at either level; and
- * arbiter-met-classes-not-materialized.patch, the met rows' classes computed in a CTE PostgreSQL may inline, which lets
- * a filter on the class read the stored rows of every fact the INSERT inserted, a SIRead lock past Invoice's indexes.
+ *
+ * @plant test/plants/pg/isolation/arbiter-met-classes-not-materialized.patch The met rows' classes computed in a CTE
+ * PostgreSQL may inline (write/insert/protocol.ts classifyMet) over met rows read by NOT EXISTS over the INSERT's
+ * RETURNING (sql/print.ts metRows), so the filter on the class is pushed below the anti-join and reads the stored rows
+ * of every fact the INSERT inserted: a race of Docs alone holds SIRead locks on Doc's indexes. Over the windowed met
+ * rows alone, PostgreSQL pushes no qual holding a sublink below them, and the inlined CTE reads nothing more.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
