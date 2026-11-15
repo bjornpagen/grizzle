@@ -8,8 +8,10 @@
  * checker interns, are not judged by the law: test/types/batch/measured.ts): the second step adds no more than the first, so no
  * pattern costs more for the patterns before it. Oracle: the compiler's own counts, compared step against step.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): regex-scale-expand.patch counts a cross product's language by expanding
- * its union, past the limit, instead of by its count alone.
+ * Plant (~/.cache/grizzle-release/GREENTRUNK/plants): regex-scale-expand.patch infers a cross product's language by
+ * expanding its union, past the limit, instead of deciding it by its count alone (RegexInfer with no LanguageCount):
+ * `[ab]{18}` and `(?:[abc]|xy){12,14}` raise TS2590 from 60 patterns, the smallest size, so the program fails before
+ * the law reads its counts.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

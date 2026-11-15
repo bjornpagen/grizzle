@@ -11,8 +11,8 @@
  *
  * Plant (~/.cache/grizzle-release/TYPEREGRESS/plants): declared-as-clause.patch restores c614875c's Declared, a level's
  * record keyed by an `as NameOf<X>` clause, which the checker instantiates over every relation of the level at each
- * lookup by name and each keyof (qti-pie's TS2589 at its author login): the program's increments grow, 2.45M then
- * 3.41M instantiations a step, where they are equal.
+ * lookup by name and each keyof (qti-pie's TS2589 at its author login): the program's increments grow, 2,294,580 then
+ * 3,254,580 instantiations a step at b3f355ef, a second difference of 960,000, whose unplanted run passes.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

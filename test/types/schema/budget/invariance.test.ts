@@ -9,8 +9,9 @@
  * declares, a relation under another name and a role's entry of a stranger raise exactly the diagnostics, codes and
  * refusals, they raise over the twin. Oracle: the twin, a program at the smallest scale the probes read.
  *
- * Plant (~/.cache/grizzle-release/BR14/plants): scale-keys-past-hundred.patch drops a schema's declared candidate keys
- * once it holds a hundred statements, which the twin never does and the program at scale does.
+ * Plant (~/.cache/grizzle-release/GREENTRUNK/plants): scale-keys-past-hundred.patch drops a schema's declared candidate
+ * keys (KeyIndexOf) once it holds a hundred statements, which the twin never does and the program at scale does: the
+ * first relation's candidate keys at 2,000 relations are not the twin's.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

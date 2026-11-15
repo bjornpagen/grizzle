@@ -13,10 +13,13 @@
  *   a counted member nested under its owner raise exactly the diagnostics, codes and refusals, they raise over the
  *   twin. Oracle: the twin.
  *
- * Plants (~/.cache/grizzle-release/BR14/plants): families-scale-walk.patch finds a key's immutable owners by a pass
- * over every family of the schema for each key, a cost per key that grows with the families;
- * scale-owners-past-hundred.patch drops a schema's index of family owners once it holds a hundred statements, which the
- * twin never does and the program at scale does.
+ * Plants (~/.cache/grizzle-release/GREENTRUNK/plants): families-scale-walk.patch finds a key's immutable owners by a
+ * pass over every family of the schema for each key (FixedOwnerOf with no RowOwnerIndexOf), a cost per key that grows
+ * with the families: insertAll raises TS2589 from 680 families, the smallest size, so the program fails before the law
+ * reads its counts, and the twin's check fails with it, the insertAll at 2040 raising where the twin's does not.
+ * scale-sequences-past-hundred.patch drops a schema's index of sequences by owner (SequenceIndexOf) once it holds a
+ * hundred statements, which the twin never does and the program at scale does: at 2040 families the additions of every
+ * probed sequence owner, the first and the last O, F and T, and insertAll's rows are not the twin's.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
