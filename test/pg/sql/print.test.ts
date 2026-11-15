@@ -21,16 +21,24 @@
  * Oracle: the host's evaluation (evaluated.ts) for expressions, relational reads, set trees and aggregates; SQL's
  * specification of a catalog read, a RAISE and a literal; PostgreSQL itself for the default privileges.
  *
- * Plants: sql-print-catalog-union-all (a catalog read's arms joined by UNION ALL), sql-print-frame-range (a window
- * frame printed as RANGE), sql-print-default-privileges-scope-dropped (IN SCHEMA dropped from a reset),
- * sql-print-right-operand-unwrapped (a right operand of equal precedence printed bare), sql-print-nested-select-bare (a
- * nested set-operation level printed without its parentheses), sql-print-count-filter-dropped (count(*)'s FILTER
- * dropped), sql-print-raise-detail-dropped (a RAISE's DETAIL dropped), sql-print-float-fifteen-digits (a double
- * literal printed to fifteen significant digits), sql-print-negative-int4-bare (a negative int4 literal printed
- * without its cast, so the least one reads as a bigint).
- *
  * Features: the relational reads' joins, subqueries and frames; the expressions' types and a collated BETWEEN bound;
  * the catalog read's shared and apart arms; each privilege outcome; and a literal at an integer type's bound.
+ *
+ * @plant test/plants/pg/sql/sql-print-catalog-union-all.patch A catalog read's arms are joined by UNION ALL; the
+ * catalog reads property fails.
+ * @plant test/plants/pg/sql/sql-print-frame-range.patch A window frame is printed as RANGE; the relational property
+ * fails.
+ * @plant test/plants/pg/sql/sql-print-default-privileges-scope-dropped.patch IN SCHEMA is dropped from a reset; the
+ * default privileges property fails.
+ * @plant test/plants/pg/sql/sql-print-right-operand-unwrapped.patch A right operand of equal precedence is printed
+ * bare; the expressions property fails.
+ * @plant test/plants/pg/sql/sql-print-nested-select-bare.patch A nested set-operation level is printed without its
+ * parentheses; the set trees property fails.
+ * @plant test/plants/pg/sql/sql-print-count-filter-dropped.patch count(*)'s FILTER is dropped; the aggregates property
+ * fails.
+ * @plant test/plants/pg/sql/sql-print-raise-detail-dropped.patch A RAISE's DETAIL is dropped; the RAISE property fails.
+ * @plant test/plants/pg/sql/sql-print-float-fifteen-digits.patch A double literal is printed to fifteen significant
+ * digits; the literals property fails.
  */
 import { drawn, exhaust, explore, sketched } from "@bjornpagen/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@bjornpagen/testing/features"

@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index 1c1e6cab..a26c94e2 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -436,7 +436,7 @@ export const spellingOf = (value: LiteralValue): LiteralSpelling => {
+ 				? { kind: "quoted", text: value.value }
+ 				: { kind: "bare", text: value.value.startsWith("-") ? `(${value.value})` : value.value }
+ 		case "float":
+-			return { kind: "quoted", text: String(value.value) }
++			return { kind: "quoted", text: String(Number(value.value.toPrecision(15))) }
+ 		case "floatSpecial":
+ 			return { kind: "quoted", text: value.value }
+ 		case "text":

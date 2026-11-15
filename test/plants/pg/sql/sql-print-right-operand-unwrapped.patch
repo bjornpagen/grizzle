@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index 1c1e6cab..219fb100 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -597,7 +597,7 @@ const expr = (e: Expr): Printed => {
+ 			const { self, assoc } = binaryLevels(e.op, qualified)
+ 			const op = e.schema !== undefined ? `OPERATOR(${quoteIdent(e.schema)}.${e.op})` : e.op
+ 			const left = assoc === "left" ? wrap(expr(e.left), self) : wrapTighter(expr(e.left), self)
+-			const right = wrapTighter(expr(e.right), self)
++			const right = wrap(expr(e.right), self)
+ 			return printed(`${left} ${op} ${right}`, self)
+ 		}
+ 		case "negate": {

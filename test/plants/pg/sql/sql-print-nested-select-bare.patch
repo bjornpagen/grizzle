@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index 1c1e6cab..ccee1e97 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -987,7 +987,7 @@ const tailClauses = (out: Lines, tail: Tail): void => {
+  * lowerings build a query body with clauses at one of the two levels only, as the kernel's structural audit checks
+  * (test/support/oracle/verify/sql.ts).
+  */
+-const nestedSelect = (select: OperandSelect): string => `(${printSelectInline(select)})`
++const nestedSelect = (select: OperandSelect): string => printSelectInline(select)
+ 
+ const bodyInline = (body: OperandBody): string => {
+ 	switch (body.kind) {

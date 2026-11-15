@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index 1c1e6cab..680d02ea 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -854,7 +854,7 @@ const printFromItem = (item: FromItem): string => {
+ 		case "enclosing":
+ 			return `${quoteIdent(item.name)} AS ${quoteIdent(item.alias)}`
+ 		case "derived": {
+-			const lateral = item.lateral ? "LATERAL " : ""
++			const lateral = ""
+ 			return `${lateral}(${printSelectInline(item.query)}) AS ${quoteIdent(item.alias)}${aliasList(item.columns)}`
+ 		}
+ 		case "function": {

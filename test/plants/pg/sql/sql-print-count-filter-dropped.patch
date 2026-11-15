@@ -1,0 +1,15 @@
+diff --git a/packages/engine/src/sql/print.ts b/packages/engine/src/sql/print.ts
+index 1c1e6cab..4d78d561 100644
+--- a/packages/engine/src/sql/print.ts
++++ b/packages/engine/src/sql/print.ts
+@@ -523,9 +523,7 @@ const printFunctionName = (fn: FunctionRef): string =>
+ /** A call up to its OVER clause. */
+ const callHead = (call: FunctionCall): string => {
+ 	if (call.star) {
+-		return call.filter === undefined
+-			? `${inCatalog("count")}(*)`
+-			: `${inCatalog("count")}(*) FILTER (WHERE ${printExpr(call.filter)})`
++		return `${inCatalog("count")}(*)`
+ 	}
+ 	let args = call.args.map((arg) => printExpr(arg)).join(", ")
+ 	if (call.distinct) {
