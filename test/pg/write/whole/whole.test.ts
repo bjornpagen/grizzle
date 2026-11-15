@@ -112,6 +112,9 @@ import { fullWorld } from "#test/support/worlds.ts"
  * @plant test/plants/pg/write/whole/units-netted.patch A unit delete's facts are netted against the equal root fact its
  * stratum inserts, so the unit is never removed and a replace that changes a nested row is refused on that row's key;
  * the property fails.
+ * @plant test/plants/pg/write/reinsert/kept-owner-count-dropped.patch The kept rule compares a doomed owner without its
+ * families' counts (write/delete/unit.ts addedReads), so a replace keeps an owner whose count it changes, which the
+ * family's law refuses where the model accepts; the property fails.
  */
 
 const Node = relation(
