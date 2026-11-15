@@ -14,6 +14,9 @@
  * @plant test/plants/pg/write/oracle/oracle-parents-one-stratum.patch The planted arms "parent present" and "parent
  * absent" write the parent and the child in one stratum (test/support/oracle/write/changeset.ts plantedChangeSet), so
  * neither arm reaches the read-back across strata it is drawn for; the property must fail.
+ * @plant test/plants/pg/oracle/optimized/installations-without-params.patch The oracle harness installs a case's schema
+ * without the parameter types its query declares (test/support/oracle/write/run.ts openTarget), so a parameter cast to a
+ * pattern domain meets UninstalledDomain.
  */
 import { writeOracleSuite, writeSuite } from "#test/pg/write/oracle/support.ts"
 

@@ -9,6 +9,9 @@
  * @plant test/plants/pg/write/oracle/write-oracle-admission-after-strata.patch The model judges the parameters after
  * the strata (expect.ts expectUnder), so it expects the first stratum's key law where both realizations refuse p0 at
  * the admission; the kept case fails.
+ * @plant test/plants/pg/oracle/optimized/installations-without-params.patch The oracle harness installs a case's schema
+ * without the parameter types its query declares (test/support/oracle/write/run.ts openTarget), so a parameter cast to a
+ * pattern domain meets UninstalledDomain.
  */
 import { writeOracleSuite, writeSuite } from "#test/pg/write/oracle/support.ts"
 import type { WriteSuite } from "#test/support/oracle/write/index.ts"

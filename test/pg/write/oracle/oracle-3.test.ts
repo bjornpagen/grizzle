@@ -14,6 +14,9 @@
  * @plant test/plants/pg/write/oracle/schedule-drops-nowhere-exception.patch The scheduler runs a deletion where facts
  * meet nowhere before every addition of its relation, so it refuses the planted arm "deletion meeting nowhere", which
  * only that exception orders.
+ * @plant test/plants/pg/oracle/optimized/installations-without-params.patch The oracle harness installs a case's schema
+ * without the parameter types its query declares (test/support/oracle/write/run.ts openTarget), so a parameter cast to a
+ * pattern domain meets UninstalledDomain.
  */
 import { writeOracleSuite, writeSuite } from "#test/pg/write/oracle/support.ts"
 
