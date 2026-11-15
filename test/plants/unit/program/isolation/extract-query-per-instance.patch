@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/program/isolation/extract.ts b/packages/engine/src/program/isolation/extract.ts
+index 01556773..1436e6f6 100644
+--- a/packages/engine/src/program/isolation/extract.ts
++++ b/packages/engine/src/program/isolation/extract.ts
+@@ -1320,7 +1320,7 @@ class Statement {
+ 			probes: [],
+ 			core: "site"
+ 		})
+-		const query = this.#queries.get(cte.query) ?? this.#queries.size
++		const query = this.instances.length
+ 		this.#queries.set(cte.query, query)
+ 		const place = this.instances.length
+ 		this.instances.push({ walk, rows, query })

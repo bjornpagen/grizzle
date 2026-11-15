@@ -76,6 +76,17 @@
  * @plant test/plants/unit/program/isolation/extract-not-exists-positive.patch NOT EXISTS is read as positive.
  * @plant test/plants/unit/program/isolation/extract-except-unflipped.patch An EXCEPT arm after the first keeps its
  * polarity, unflipped.
+ * @plant test/plants/unit/program/isolation/extract-instance-key-no-polarity.patch A query CTE's instance is keyed as
+ * positive whatever its polarity, so a negated or both-way read of it finds the positive instance's walk; a
+ * statement's reads fail.
+ * @plant test/plants/unit/program/isolation/extract-instance-key-no-feeds.patch A query CTE's instance is keyed without
+ * the writes its site feeds, so a read feeding other writes finds an instance walked for none of them; a statement's
+ * writes fail.
+ * @plant test/plants/unit/program/isolation/extract-query-per-instance.patch Every instance of a query CTE walks a query
+ * of its own, numbered by the instances, so two instances of one query are no longer read as one query; the check
+ * that the instances walk one query for each query CTE a source reads fails.
+ * @plant test/plants/unit/program/isolation/extract-query-one-for-all.patch Every query CTE after the first takes the
+ * first's query, so the instances of different queries read as one query; the same check fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
