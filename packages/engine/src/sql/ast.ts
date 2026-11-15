@@ -828,7 +828,8 @@ export interface ContextColumn {
  * - `keyed`: every source its FROM reads is a set, and its targets hold a key of their rows: a stored relation's or a
  *   catalog's key, a set's whole heading, or a key its WHERE fixes.
  * - `certified`: the physical analysis proved its plain form unique, which the plan's multiplicity certificate states.
- * - `input`: it reads relation inputs' arrays, which the host codec made sets, through every column.
+ * - `input`: it reads relation inputs' arrays, which the host codec made sets, through every column, or a staged member
+ *   slot's carrier, which holds those arrays' rows (write/program/slot-carriers.ts).
  */
 export type RowsProof = "oneRow" | "grouped" | "keyed" | "certified" | "input"
 

@@ -20,8 +20,11 @@ import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { type ReadonlyTupleSet, TupleMap } from "#compiler/core/tuple-map.ts"
+import type { WriteStepResult } from "#compiler/runtime/write/steps.ts"
 import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
+import type { DeleteResult } from "#compiler/write/insert/statement.ts"
+import type { ArtifactStatement, WriteArtifact } from "#compiler/write/program/artifact.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
 import type { AmbientFeature } from "#test/support/ambient.ts"
 import { conservativeChange } from "#test/support/conservative.ts"
@@ -118,6 +121,7 @@ import {
 } from "#test/support/oracle/write/schema.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { slotCarriers, slotsRead } from "#test/support/slot-carriers.ts"
 import { holdsCycle, printOrder } from "#test/support/stratum-order.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { Substrate } from "#test/support/substrate/substrate.ts"
@@ -246,6 +250,9 @@ export type WriteOracleFeature =
 	| "a single statement refused by a law"
 	| "sequential stratum of several writes"
 	| "anchored deletion"
+	| "a member slot staged"
+	| "a staged slot an exact deletion excepts"
+	| "a staged slot a put's halves read"
 	| "two members of one relation in one stratum"
 	| "a member reads a relation its stratum writes"
 	| "insert generated"
@@ -1146,11 +1153,30 @@ const takesOf = (
 	)
 
 /**
+ * Whether a staged member slot of `artifact` (write/program/slot-carriers.ts) is read through its carrier by a deletion
+ * of `mode` and by an insertion: an exact deletion excepting the slot's facts, its stratum's additions, beside their
+ * insert (D EXCEPT A, delete/exact.ts), or a put's displacing deletion beside its insert half.
+ */
+const stagedBeside = (artifact: WriteArtifact, mode: DeleteResult["mode"]): boolean => {
+	const readers = (result: (r: WriteStepResult) => boolean) =>
+		Arr.filter(artifact.statements, (st) => st.step.kind === "write" && result(st.step.result))
+	const deletions = readers((r) => r.kind === "delete" && r.mode === mode)
+	const insertions = readers((r) => r.kind === "insert")
+	return Arr.some([...slotCarriers(artifact).values()], (slot) => {
+		const reads = (st: ArtifactStatement) => slotsRead(artifact, st).has(slot.slot)
+		return Arr.some(deletions, reads) && Arr.some(insertions, reads)
+	})
+}
+
+/**
  * The realizations a program's optimized artifact chose (schedule/plan.ts): a stratum as one statement, a stratum of
- * several write statements in sequence, and a deletion anchored on its own relation (write/delete/anchor.ts).
+ * several write statements in sequence, a deletion anchored on its own relation (write/delete/anchor.ts), and a member
+ * slot two statements read staged into a carrier (write/program/slot-carriers.ts), one an exact deletion excepts beside
+ * its insert or a put's both halves read among them.
  */
 const realizationsOf = (program: CompiledChange["compiled"]): ReadonlyArray<WriteOracleFeature> => {
-	const steps = program.artifact.steps
+	const artifact = program.artifact
+	const steps = artifact.steps
 	const writes = new Map<number, number>()
 	for (const step of steps) {
 		if (step.kind === "write") {
@@ -1170,7 +1196,12 @@ const realizationsOf = (program: CompiledChange["compiled"]): ReadonlyArray<Writ
 		...(Arr.some([...writes.values()], (n) => n >= 2)
 			? ["sequential stratum of several writes" as const]
 			: []),
-		...(anchored ? ["anchored deletion" as const] : [])
+		...(anchored ? ["anchored deletion" as const] : []),
+		...(slotCarriers(artifact).size > 0 ? ["a member slot staged" as const] : []),
+		...(stagedBeside(artifact, "exact")
+			? ["a staged slot an exact deletion excepts" as const]
+			: []),
+		...(stagedBeside(artifact, "displacing") ? ["a staged slot a put's halves read" as const] : [])
 	]
 }
 

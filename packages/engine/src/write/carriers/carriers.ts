@@ -204,6 +204,26 @@ const columnDefOf = (column: string, type: TypeRef): ColumnDef =>
 		? { name: column, type, collation: cUtf8Collation, generated: undefined }
 		: { name: column, type, collation: undefined, generated: undefined }
 
+/**
+ * A carrier's CREATE TEMPORARY TABLE as a statement of its own, which no lowering builds or shares: a staged member
+ * slot's carrier's (write/program/slot-carriers.ts), placed after the statements are built.
+ */
+export const carrierCreation = (carrier: WriteCarrier): WriteStatement<CarrierResult> => {
+	const ast = createAst(carrier)
+	return Object.freeze({
+		role: "carrier" as const,
+		ast,
+		sql: emitText(ast, emptyNameMap),
+		params: [],
+		result: Object.freeze({
+			kind: "carrier" as const,
+			carrier: carrier.name,
+			step: "create" as const
+		}),
+		skipWhenEmpty: undefined
+	})
+}
+
 export const buildCreateCarrier = (
 	w: WriteContext,
 	carrier: WriteCarrier

@@ -175,6 +175,7 @@ import {
 	type SingleStatement,
 	singleStatement
 } from "#compiler/write/program/single.ts"
+import { withStagedSlots } from "#compiler/write/program/slot-carriers.ts"
 import { choosePutTargets, chosenIn, type PutChoice } from "#compiler/write/put/choose.ts"
 import {
 	buildMerge,
@@ -1042,15 +1043,21 @@ interface Lowering {
 /** The optimized artifact: the scheduled statements, each lowered in the small per-execution mode and, when its
  * lowering made a per-execution choice, lowered again in the large mode, its whole-relation form beside its LATERAL form
  * (`StatementForms`), as a query's statements carry their forms: both forms are one placement's, with its step and
- * result. */
+ * result. Each member slot two or more statements read is staged once into a carrier (slot-carriers.ts), which those
+ * statements read; the conservative realization, the write oracle's baseline, reads every slot's arrays itself. */
 const optimizedArtifact = (
 	frontend: WriteFrontend,
 	plan: WritePlan,
 	lowering: Lowering,
 	admission: WriteStatement<AdmissionResult> | undefined,
 	options: CompileWriteOptions
-): WriteArtifact =>
-	finish(optimizedPlacement(frontend, plan, lowering, admission, options), plan.carriers)
+): WriteArtifact => {
+	const staged = withStagedSlots(
+		optimizedPlacement(frontend, plan, lowering, admission, options).statements,
+		plan.carriers
+	)
+	return withCarrierAnalysis(staged.statements, staged.carriers)
+}
 
 /** The optimized artifact's statements, each with its forms.
  *

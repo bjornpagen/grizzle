@@ -18,8 +18,9 @@
  * it touches or not: an array of a body states them; a query states them where `root`, Root's `id` for its retirement
  * field, is bound to `g` or pinned to it; a delta reads nothing stored; Root and Other written touch nothing. The
  * ChangeSet is refused exactly where some touch is unstated, naming one of them (its relation and why); otherwise it
- * holds exactly where something touches the unit, in one statement whose placeholders are each body array's member slot
- * and `g` where a parameter states a group, before every statement that names Step's or Claim's table, and no member
+ * holds exactly where something touches the unit, in one statement that reads each body array's member slot, through
+ * its placeholders or the carrier the slot is staged in where two statements read it (write/program/slot-carriers.ts),
+ * and binds `g` where a parameter states a group, before every statement that names Step's or Claim's table, and no member
  * slot of a body any other statement reads is missing from it. Where it inserts Root, Root's insert precedes the hold,
  * so the group it creates is open when the hold locks it (write/frontend/schedule.ts UnitOrder); but where a member
  * reads Root's retirement field, that read sees the stratum's starting state, so it runs before Root's insert, and the
@@ -63,6 +64,7 @@ import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, owning } from "#test/support/policy.ts"
+import { slotsRead } from "#test/support/slot-carriers.ts"
 import { descOf } from "#test/unit/write/changeset/fixtures.ts"
 
 const Root = relation("Root", { id: pg.integer, retired: retirement }, ["id"])
@@ -522,24 +524,18 @@ describe("a write over a retirable unit", () => {
 								)
 							)
 							assert.deepEqual(params, model.byParam ? ["g"] : [], "the parameters stating a group")
-							const members = new Set(
-								Arr.flatMap(slots, (s) => (s.kind === "member" ? [s.slot] : []))
-							)
+							const members = slotsRead(artifact, hold)
 							assert.deepEqual(
 								Arr.sort(
-									Arr.dedupe(
-										Arr.flatMap(slots, (s): ReadonlyArray<string> =>
-											s.kind === "member" ? [s.relation] : []
-										)
-									),
+									Arr.dedupe(Arr.map([...members.values()], (s) => s.relation)),
 									Order.String
 								),
 								Arr.sort([...model.slots], Order.String),
 								"the body arrays stating a group"
 							)
 							for (const s of statements) {
-								for (const slot of s.spec.paramSlots) {
-									if (slot.kind === "member" && isBody(slot.relation)) {
+								for (const slot of slotsRead(artifact, s).values()) {
+									if (isBody(slot.relation)) {
 										assert.ok(
 											members.has(slot.slot),
 											`statement ${s.index} reads ${slot.relation}'s slot ${slot.slot}, which the hold reads`

@@ -2,7 +2,8 @@
  * Where a ChangeSet's read-back runs (write/schedule/plan.ts placeReadBacks): a read-back over a delta a statement makes
  * rides the one statement that makes every side it reads whole, after every write of the state it reads; one that reads
  * no delta a statement makes runs after the writes; any other is refused as ReadBackCrossesStatements, naming one of its
- * crossings. No artifact carries a delta in a temporary table.
+ * crossings. No artifact carries a delta in a temporary table: its one carrier is a member slot's two statements read
+ * (write/program/slot-carriers.ts).
  *
  * The box, constructed: over immutable relations M, A and Z of an id and a payload, a first stratum that inserts, deletes
  * or puts M's facts, with or without the opposite action of M beside it (a delete beside an insert or a put, an insert
@@ -74,6 +75,7 @@ import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/co
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { checking, owning } from "#test/support/policy.ts"
+import { slotCarriers } from "#test/support/slot-carriers.ts"
 
 const M = relation("M", { id: pg.int4, v: pg.int4 }, ["id"])
 const A = relation("A", { id: pg.int4, v: pg.int4 }, ["id"])
@@ -511,10 +513,14 @@ describe("a ChangeSet's read-back", () => {
 									return
 								}
 								const artifact = succeeded(program, "the ChangeSet compiles").artifact
+								const staged = slotCarriers(artifact)
 								assert.deepEqual(
-									Arr.filter(artifact.statements, (st) => st.step.kind === "carrier"),
+									Arr.filter(
+										artifact.statements,
+										(st) => st.step.kind === "carrier" && !staged.has(st.step.carrier)
+									),
 									[],
-									"no carrier"
+									"no carrier but a staged member slot's"
 								)
 								const carried = defined(
 									Option.getOrUndefined(Arr.findFirst(artifact.readBacks, (r) => r.name === "r")),

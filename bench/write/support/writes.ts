@@ -1138,9 +1138,18 @@ const explainingSession = (
 })
 
 /**
+ * Whether EXPLAIN plans a statement of `label`: every statement but a carrier's creation and an ANALYZE, which name no
+ * plan and run as they are, so the statements after them read the carriers they make (write/program/slot-carriers.ts,
+ * analyze.ts).
+ */
+const explainPlans = (label: StatementLabel): boolean =>
+	!(label.kind === "analyze" || (label.kind === "carrier" && label.step === "create"))
+
+/**
  * The plans of one application of a ChangeSet value on the Db `opened`, as observedChange applies it, its program's
  * statements each run under EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) in its place in the
- * transaction that writes, which ends by ROLLBACK (explainingSession), with no parameters but the ChangeSet's own facts.
+ * transaction that writes, a carrier's creation and an ANALYZE as they are (`explainPlans`), which ends by ROLLBACK
+ * (explainingSession), with no parameters but the ChangeSet's own facts.
  * The attempt's outcome is no ChangeSet's: its statements answered plans, which it cannot read, so it is not kept. A
  * read flight before the writes runs as served, since the writes read its rows.
  */
@@ -1150,7 +1159,9 @@ export const explainedChange = (
 ): Effect.Effect<ReadonlyArray<Explained>, MalformedPlan> =>
 	Effect.gen(function* () {
 		const observed = yield* observedChange(opened, changes, attemptLabel, { kind: "none" })
-		const texts = new Set(Arr.flatMap(observed.statements, (s) => s.texts))
+		const texts = new Set(
+			Arr.flatMap(observed.statements, (s) => (explainPlans(s.label) ? s.texts : []))
+		)
 		const plans: Array<string> = []
 		const ctx: ServedDbContext = {
 			...opened.ctx,
