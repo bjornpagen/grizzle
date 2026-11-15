@@ -24,8 +24,12 @@
  *
  * Plants (~/.cache/grizzle-release/BR06/plants): identity-comment-canonical (a comment holding the canonical text, not
  * the display), identity-declared-by-spelling (a namespace keyed by the spelling, not the conversion),
- * identity-census-blind (the census never looks for a collision), identity-temporary-standing-blind (a temporary never
- * meets a standing name) and identity-temporary-again-refused (a temporary minted again refused as its own twin).
+ * identity-census-blind (the census never looks for a collision) and identity-temporary-again-refused (a temporary
+ * minted again refused as its own twin).
+ *
+ * @plant test/plants/unit/core/identity-temporary-standing-blind.patch TemporaryCensus looks a temporary up among the
+ * standing names by its display, not its identifier, so a temporary never meets a standing name; the temporary census
+ * property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

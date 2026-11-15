@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/core/identity.ts b/packages/engine/src/core/identity.ts
+index 162d5bf6..abdb8c27 100644
+--- a/packages/engine/src/core/identity.ts
++++ b/packages/engine/src/core/identity.ts
+@@ -445,7 +445,7 @@ export const roleInSpace = (
+ 	if (space.kind === "stems") {
+ 		return Result.ok(name)
+ 	}
+-	const role = `${space.prefix}${roleSeparator}${name}`
++	const role = `${conversionOf(space.prefix)}${roleSeparator}${name}`
+ 	return utf8Length(role) > maxIdentifierBytes.value
+ 		? Result.err({ role, limit: maxIdentifierBytes.value })
+ 		: Result.ok(role)

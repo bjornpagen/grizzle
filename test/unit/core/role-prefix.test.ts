@@ -17,8 +17,8 @@
  * Features: a digit inside a word, a leading underscore, a trailing underscore; refused for a character, a leading
  * digit, a `__`, `pg_`, emptiness and length; a prefix at the budget, and one byte past it.
  *
- * Plants (~/.cache/grizzle-release/ROLESPACE/plants): role-prefix-converted.patch (the prefix converted as a declared
- * name, `qti_pie_v2` installing as `qti_pie_v_2`).
+ * @plant test/plants/unit/core/role-prefix-converted.patch roleInSpace converts the prefix as a declared name, so
+ * `qti_pie_v2` installs as `qti_pie_v_2`; the verbatim property fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
