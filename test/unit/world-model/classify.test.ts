@@ -22,9 +22,8 @@
  * grizzle's writable-entry analysis. Features, required in the space: every refusal of the rule, every kind of further
  * member beside a writable entry, every fill and every standing of a head field.
  *
- * Plant: ~/.cache/grizzle-release/BR07/plants/classify-rival-admitted.patch (the model's rule admitting a rival
- * supplier) turns the property red.
- *
+ * @plant test/plants/unit/world-model/classify-rival-admitted.patch The model's rule admits an entry with a rival supplier; the property
+ * fails.
  * @plant test/plants/unit/world-model/worlds-writability-memo-keyed-by-base.patch model/host.ts keeps a rule's
  * writability by its base alone, so the first rule judged of a base answers for every rule of it; the property fails.
  */

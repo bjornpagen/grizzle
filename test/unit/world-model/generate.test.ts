@@ -21,12 +21,12 @@
  * kind; live and invalid actions; realities with facts and empty; every installation kind, two logins and a query
  * entry; each forced move and an unforced one; the box's kinds.
  *
- * Plants (~/.cache/grizzle-release/BR07/plants): gen-invalid-unclassified.patch (the classifier finding no invalid kind)
- * turns the first property red; gen-actions-unquiet.patch (a session named past the serial rule's holder) the second;
- * gen-reality-unrepaired.patch (a reality left unrepaired) the third; gen-planted-live.patch (a planted installation
- * left lawful) the fourth; gen-forced-none.patch (no move ever forced) the fifth; gen-box-duplicate.patch (the box
- * holding an action twice) the sixth.
- *
+ * @plant test/plants/unit/world-model/gen-invalid-unclassified.patch The classifier finds no invalid kind; the invalid kinds property fails.
+ * @plant test/plants/unit/world-model/gen-actions-unquiet.patch A session is named past the serial rule's holder; the actions property fails.
+ * @plant test/plants/unit/world-model/gen-reality-unrepaired.patch A drawn reality is left unrepaired; the realities property fails.
+ * @plant test/plants/unit/world-model/gen-planted-live.patch A planted installation is left lawful; the installations property fails.
+ * @plant test/plants/unit/world-model/gen-forced-none.patch No move is ever forced; the forced moves property fails, its forced moves unreached.
+ * @plant test/plants/unit/world-model/gen-box-duplicate.patch The box holds a direct writer's statement twice; the small box property fails.
  * @plant test/plants/unit/world-model/worlds-box-values-of-another-state.patch The box reads every state's values once
  * for the whole process, so a state's box draws the values the first state it enumerated held; the sixth property fails.
  */

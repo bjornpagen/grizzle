@@ -1,0 +1,24 @@
+diff --git a/packages/pg/src/ports.ts b/packages/pg/src/ports.ts
+index 01a62406..5b09516d 100644
+--- a/packages/pg/src/ports.ts
++++ b/packages/pg/src/ports.ts
+@@ -78,18 +78,4 @@ export const portFree = (port: number): Effect.Effect<void, PortTaken | Localhos
+ export const freePort = (
+ 	taken: ReadonlyArray<number>
+ ): Effect.Effect<number, LocalhostUnresolved> =>
+-	Effect.flatMap(localhostAddresses, (addresses) => {
+-		const [first] = addresses
+-		const attempt: Effect.Effect<number, LocalhostUnresolved> = Effect.flatMap(
+-			Effect.orDie(listened(first, 0)),
+-			(port) =>
+-				taken.includes(port)
+-					? attempt
+-					: Effect.matchEffect(portFree(port), {
+-							onFailure: (error) =>
+-								error._tag === "LocalhostUnresolved" ? Effect.fail(error) : attempt,
+-							onSuccess: () => Effect.succeed(port)
+-						})
+-		)
+-		return attempt
+-	})
++	Effect.succeed(Math.max(0, ...taken) + 1)

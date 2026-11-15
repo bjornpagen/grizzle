@@ -1,0 +1,35 @@
+diff --git a/packages/pg/src/installation.ts b/packages/pg/src/installation.ts
+index 978568d8..4538654a 100644
+--- a/packages/pg/src/installation.ts
++++ b/packages/pg/src/installation.ts
+@@ -47,20 +47,17 @@ const samePatches = Arr.makeEquivalence(Equivalence.String)
+  * checkout of the same release that lacks one of the installation's patches is refused.
+  */
+ export const verdict = (installed: Option.Option<Build>, pin: Build): Verdict =>
+-	Option.match(
+-		Option.filter(installed, (build) => build.commit === pin.commit),
+-		{
+-			onNone: (): Verdict => ({ kind: "build" }),
+-			onSome: (build): Verdict => {
+-				const lacking = Arr.difference(build.patches, pin.patches)
+-				return Arr.isReadonlyArrayNonEmpty(lacking)
+-					? { kind: "older", lacking }
+-					: samePatches(build.patches, pin.patches)
+-						? { kind: "built" }
+-						: { kind: "build" }
+-			}
++	Option.match(installed, {
++		onNone: (): Verdict => ({ kind: "build" }),
++		onSome: (build): Verdict => {
++			const lacking = Arr.difference(build.patches, pin.patches)
++			return build.patches.length > pin.patches.length && Arr.isReadonlyArrayNonEmpty(lacking)
++				? { kind: "older", lacking }
++				: build.commit === pin.commit && samePatches(build.patches, pin.patches)
++					? { kind: "built" }
++					: { kind: "build" }
+ 		}
+-	)
++	})
+ 
+ /** An installation holds the stamps of several builds, which no tree build.sh puts in place does. */
+ class StampsSeveral extends Data.TaggedError("StampsSeveral")<{

@@ -1,0 +1,19 @@
+diff --git a/test/support/worlds/generate/enumerate.ts b/test/support/worlds/generate/enumerate.ts
+index 68ac7e98..d2b7021e 100644
+--- a/test/support/worlds/generate/enumerate.ts
++++ b/test/support/worlds/generate/enumerate.ts
+@@ -1494,13 +1494,7 @@ const directStatements = (
+ 			)
+ 		)
+ 	]
+-	return [
+-		...listed,
+-		...Arr.filter(
+-			Arr.dedupeWith(added, samePlain),
+-			(x) => !Arr.some(listed, (y) => samePlain(x, y))
+-		)
+-	]
++	return [...listed, ...added]
+ }
+ 
+ /** A fact's key fields. */

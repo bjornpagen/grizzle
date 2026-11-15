@@ -1,0 +1,18 @@
+diff --git a/packages/pg/src/local-cluster.ts b/packages/pg/src/local-cluster.ts
+index fe8d5db6..6c2e9461 100644
+--- a/packages/pg/src/local-cluster.ts
++++ b/packages/pg/src/local-cluster.ts
+@@ -81,12 +81,7 @@ export const selectCluster = (
+ 		),
+ 		Option.match({
+ 			onNone: () => Effect.succeed(clusterAt(pin.GRIZZLE_PG_DEFAULT_CLUSTER)),
+-			onSome: ({ port, text }) =>
+-				`${port}` === text
+-					? Effect.succeed(clusterAt(port))
+-					: Effect.fail(
+-							new ClusterUnnamed({ reason: `"${text}" spells port ${port} otherwise than ${port}` })
+-						)
++			onSome: ({ port }) => Effect.succeed(clusterAt(port))
+ 		})
+ 	)
+ 

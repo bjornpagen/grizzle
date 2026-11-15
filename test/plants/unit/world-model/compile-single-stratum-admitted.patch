@@ -1,0 +1,13 @@
+diff --git a/test/support/worlds/model/session/apply.ts b/test/support/worlds/model/session/apply.ts
+index 0e72d9bd..ab2e890a 100644
+--- a/test/support/worlds/model/session/apply.ts
++++ b/test/support/worlds/model/session/apply.ts
+@@ -789,7 +789,7 @@ export const compileRefused = (
+ 	)
+ 	const written = writtenThrough(base, role, strata)
+ 	/** Whether no query a stratum writes reads a relation the stratum writes. */
+-	const disjoint = Arr.every(layers, (ops) => {
++	const disjoint = strata.length === 1 || Arr.every(layers, (ops) => {
+ 		const targets = new Set(
+ 			Arr.flatMap(ops, (w) => (w.written === undefined ? [] : [w.written.target]))
+ 		)

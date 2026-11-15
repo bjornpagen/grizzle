@@ -25,9 +25,9 @@
  * reading the host's answer shows to matter, a union both rules feed, rows and none; a member and a non-member; a key
  * and no key.
  *
- * Plants: ~/.cache/grizzle-release/BR07/plants/host-strict-order.patch (the host's < holding of equal values) turns the
- * first property red; host-member-any.patch (every target fact a member) the second; host-every-key.patch (every field
- * set a key) the third.
+ * @plant test/plants/unit/world-model/host-strict-order.patch The host's < holds of equal values; the evaluateRules property fails.
+ * @plant test/plants/unit/world-model/host-member-any.patch Every target fact is a member of a query entry; the membership property fails.
+ * @plant test/plants/unit/world-model/host-every-key.patch Every field set of an entry's heading is a key; the key property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

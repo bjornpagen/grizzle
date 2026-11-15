@@ -19,10 +19,11 @@
  * patches; the pin reordering them; the pin lacking patches and adding none, adding others, or holding as many as the
  * installation; a patch rewritten; no patch alike; and both empty.
  *
- * Plants (~/.cache/grizzle-release/BUILDGUARD/plants): verdict-patch-count.patch (the refusal keyed on the patch count:
- * a pin with fewer patches than the installation refused whatever its release, and a pin of the same release that
- * lacks a patch but holds as many built) and verdict-repin-fewer.patch (the commit's refusal kept, and a pin of
- * another release with fewer patches refused too, a GA repin among them) each turn it red.
+ * @plant test/plants/unit/substrate/verdict-patch-count.patch The refusal is keyed on the patch count: a pin with fewer patches than the
+ * installation is refused whatever its release, and a pin of the same release that lacks a patch but holds as many is
+ * built; the property fails.
+ * @plant test/plants/unit/substrate/verdict-repin-fewer.patch The commit's refusal is kept, and a pin of another release with fewer patches is
+ * refused too, a GA repin among them; the property fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

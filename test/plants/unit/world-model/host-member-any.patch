@@ -1,0 +1,13 @@
+diff --git a/test/support/worlds/model/host.ts b/test/support/worlds/model/host.ts
+index 7796e5d5..8d4c80ba 100644
+--- a/test/support/worlds/model/host.ts
++++ b/test/support/worlds/model/host.ts
+@@ -1221,7 +1221,7 @@ export const isMember = (
+ 			const reading = readingOf(state, facts)
+ 			const factsAt: FactsAt = (occurrence, index) =>
+ 				index === w.supplier ? [fact] : sourceFacts(reading, occurrence.source)
+-			return ruleRows(reading, rule, factsAt).length > 0
++			return ruleRows(reading, rule, factsAt).length >= 0
+ 		}
+ 	}
+ }

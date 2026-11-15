@@ -1,0 +1,13 @@
+diff --git a/test/support/substrate/psql.ts b/test/support/substrate/psql.ts
+index 3669d3c6..7de33d6a 100644
+--- a/test/support/substrate/psql.ts
++++ b/test/support/substrate/psql.ts
+@@ -391,7 +391,7 @@ export const parseVerboseError = (sqlstate: string, stderr: string): PgErrorFiel
+ 		if (match === null) {
+ 			continue
+ 		}
+-		report = { start: index, message: match[2] }
++		report ??= { start: index, message: match[2] }
+ 	}
+ 	if (report === undefined) {
+ 		return undefined

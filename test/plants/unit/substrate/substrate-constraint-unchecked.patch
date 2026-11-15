@@ -1,0 +1,13 @@
+diff --git a/test/support/substrate/expect.ts b/test/support/substrate/expect.ts
+index 856f2d97..35263063 100644
+--- a/test/support/substrate/expect.ts
++++ b/test/support/substrate/expect.ts
+@@ -113,7 +113,7 @@ export const expectConstraint = <A, E, R>(
+ 						})
+ 					)
+ 				}
+-				if (outcome.fields.constraint !== constraint) {
++				if (outcome.fields.constraint === undefined) {
+ 					return Effect.fail(
+ 						new ExpectationFailed({
+ 							message: `expected a violation of ${constraint}, got ${outcome.fields.constraint ?? "no constraint"}: ${describe(outcome.error)}`

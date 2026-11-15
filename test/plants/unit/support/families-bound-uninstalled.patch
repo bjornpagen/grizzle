@@ -1,0 +1,14 @@
+diff --git a/test/support/families/theorem.ts b/test/support/families/theorem.ts
+index 225da424..ffd7554d 100644
+--- a/test/support/families/theorem.ts
++++ b/test/support/families/theorem.ts
+@@ -214,9 +214,6 @@ export const familyViolations = (stored: Stored): ReadonlyArray<FamilyViolation>
+ 		}
+ 	}
+ 	for (const row of stored.rows) {
+-		if (row.at >= row.copy) {
+-			found.push({ constraint: "bound", member: row.member })
+-		}
+ 		if (stored.owners.get(row.group) !== row.copy) {
+ 			found.push({ constraint: "copy", member: row.member })
+ 		}

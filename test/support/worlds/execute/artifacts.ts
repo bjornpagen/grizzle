@@ -356,9 +356,6 @@ export const artifactsAgree = <E>(
  * the one state no writer moves between them. The flight's rows are the ones the differential holds to the model and to
  * the conservative artifact, so a once that agrees with them answers the model's rows. A once that fails where the
  * flight answered is a defect of the run.
- *
- * Plant (~/.cache/grizzle-release/LIVE-WATCH/plants): stream-drop-first-row.patch (a read's stream drops its first
- * row) turns it red wherever a read delivers a row.
  */
 export const onceAgrees = <E>(
 	ctx: ServedDbContext,

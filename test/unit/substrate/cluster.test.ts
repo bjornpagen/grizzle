@@ -14,10 +14,12 @@
  * Features: the variable unset, the default port named, a port beside it, the least and the greatest port, any other
  * port, and each misspelling refused.
  *
- * Plants (~/.cache/grizzle-release/PRIVATECLUSTER/plants): cluster-port-truncated.patch (a state directory suffixed
- * with the port's last four digits, so 5440 and 15440 share one) and cluster-default-suffixed.patch (the default's
- * state directory suffixed like every other's) turn it red, and so does cluster-misspelling-admitted.patch (a name
- * read by Config.Port alone, which admits 05440 and 5e3).
+ * @plant test/plants/unit/substrate/cluster-port-truncated.patch A state directory is suffixed with the port's last four digits, so 5440 and
+ * 15440 share one; the property fails.
+ * @plant test/plants/unit/substrate/cluster-default-suffixed.patch The default's state directory is suffixed like every other's; the property
+ * fails.
+ * @plant test/plants/unit/substrate/cluster-misspelling-admitted.patch A name is read by its port alone, which admits 05440 and 5e3; the
+ * property fails.
  */
 import { homedir } from "node:os"
 import { exhaust } from "@bjornpagen/testing/explore"

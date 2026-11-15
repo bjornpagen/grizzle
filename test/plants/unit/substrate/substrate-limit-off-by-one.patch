@@ -1,0 +1,13 @@
+diff --git a/test/support/substrate/names.ts b/test/support/substrate/names.ts
+index 0fe86b97..ad332fce 100644
+--- a/test/support/substrate/names.ts
++++ b/test/support/substrate/names.ts
+@@ -115,7 +115,7 @@ export const assertIdentifier = (name: string): void => {
+ 	if (!regex("^[a-z_][a-z0-9_]*$").test(name)) {
+ 		throw new Error(`${Formatter.format(name)} is not a plain lowercase identifier`)
+ 	}
+-	if (Buffer.byteLength(name, "utf8") > maxIdentifierBytes.value) {
++	if (Buffer.byteLength(name, "utf8") > maxIdentifierBytes.value + 1) {
+ 		throw new Error(
+ 			`${Formatter.format(name)} exceeds ${maxIdentifierBytes.value} bytes and would be truncated`
+ 		)

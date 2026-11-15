@@ -1,0 +1,13 @@
+diff --git a/test/support/worlds/model/session/keys.ts b/test/support/worlds/model/session/keys.ts
+index e94186eb..435427cc 100644
+--- a/test/support/worlds/model/session/keys.ts
++++ b/test/support/worlds/model/session/keys.ts
+@@ -544,7 +544,6 @@ export const entryKeyed = (
+ ): boolean => {
+ 	const heading = headingOf(base, entry)
+ 	return (
+-		within(fields, heading) &&
+-		(within(heading, fields) || Arr.some(entryKeys(base, entry), (k) => within(k, fields)))
++		within(fields, heading)
+ 	)
+ }

@@ -1,0 +1,13 @@
+diff --git a/test/support/worlds/generate/offered.ts b/test/support/worlds/generate/offered.ts
+index 62f84c77..5fd65d6d 100644
+--- a/test/support/worlds/generate/offered.ts
++++ b/test/support/worlds/generate/offered.ts
+@@ -29,7 +29,7 @@ const holderOf = (state: ModelState): Option.Option<number> =>
+ const quiet = (state: ModelState, holder: Option.Option<number>, session: number): boolean =>
+ 	Option.match(holder, {
+ 		onNone: () => true,
+-		onSome: (h) => session === h || state.sessions[session]?.kind !== "db"
++		onSome: () => true
+ 	})
+ 
+ /** The kinds the serial rule never draws while a direct transaction is open: each could wait on the holder's locks. */

@@ -1,0 +1,13 @@
+diff --git a/test/support/worlds/model/host.ts b/test/support/worlds/model/host.ts
+index 7796e5d5..bfbd7c20 100644
+--- a/test/support/worlds/model/host.ts
++++ b/test/support/worlds/model/host.ts
+@@ -176,7 +176,7 @@ const comparisonHolds = (
+ 		case "<>":
+ 			return !equalValues(a, b)
+ 		case "<":
+-			return orderIn(valueOrder(domain, a, b), [-1])
++			return orderIn(valueOrder(domain, a, b), [-1, 0])
+ 		case "<=":
+ 			return orderIn(valueOrder(domain, a, b), [-1, 0])
+ 		case ">=":

@@ -51,7 +51,7 @@ export const flightBoundShrinkCandidates: Limit = measured({
 	unit: "shrink candidates",
 	scope: "one failing case of the flight bound's search, in one test process",
 	evidence:
-		"~/.cache/grizzle-release/TESTSPEED/plant-runs/ on cassowary: flight-bound-one-byte-over.txt, flight-parse-counted-every-statement.txt and flight-parse-counted-once-per-process.txt, the output of `pnpm test test/unit/adapter/flight-bound.test.ts` under each plant of ~/.cache/grizzle-release/TESTSPEED/plants with the search's shrink complete",
+		"~/.cache/grizzle-release/TESTSPEED/plant-runs/ on cassowary: flight-bound-one-byte-over.txt, flight-parse-counted-every-statement.txt and flight-parse-counted-once-per-process.txt, the output of `pnpm test test/unit/adapter/flight-bound.test.ts` under each of its plants test/plants/unit/adapter/flight-bound-one-byte-over.patch, flight-parse-counted-every-statement.patch and flight-parse-counted-once-per-process.patch, with the search's shrink complete",
 	observed: "2026-11-14 00:40 to 00:52 UTC",
 	environment:
 		"cassowary, Ubuntu 26.04 arm64 on 64 cores, Node 26.13.1 without V8's sandbox, Vitest 5.1.0, grizzle at d4949bd4 with each plant applied, the search's cases one at a time; other sessions' load not recorded",

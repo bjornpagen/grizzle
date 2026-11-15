@@ -1,0 +1,13 @@
+diff --git a/test/support/families/theorem.ts b/test/support/families/theorem.ts
+index 225da424..a673e259 100644
+--- a/test/support/families/theorem.ts
++++ b/test/support/families/theorem.ts
+@@ -220,7 +220,7 @@ export const familyViolations = (stored: Stored): ReadonlyArray<FamilyViolation>
+ 		if (stored.owners.get(row.group) !== row.copy) {
+ 			found.push({ constraint: "copy", member: row.member })
+ 		}
+-		if (row.at > 0 && row.at < row.copy && !held.has(slotKey(row.group, row.at - 1))) {
++		if (row.at > 1 && row.at < row.copy && !held.has(slotKey(row.group, row.at - 1))) {
+ 			found.push({ constraint: "closure", member: row.member })
+ 		}
+ 	}

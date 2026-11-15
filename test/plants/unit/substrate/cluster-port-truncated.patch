@@ -1,0 +1,13 @@
+diff --git a/packages/pg/src/local-cluster.ts b/packages/pg/src/local-cluster.ts
+index fe8d5db6..2334ea82 100644
+--- a/packages/pg/src/local-cluster.ts
++++ b/packages/pg/src/local-cluster.ts
+@@ -54,7 +54,7 @@ export const clusterAt = (port: number): LocalCluster => {
+ 	const state =
+ 		port === pin.GRIZZLE_PG_DEFAULT_CLUSTER
+ 			? pin.GRIZZLE_PG_DEFAULT_STATE
+-			: `${pin.GRIZZLE_PG_DEFAULT_STATE}-${port}`
++			: `${pin.GRIZZLE_PG_DEFAULT_STATE}-${port % 10_000}`
+ 	return {
+ 		port,
+ 		state,
