@@ -17,10 +17,11 @@
  * Oracle: PostgreSQL itself: the eligible facts' native cosine_distance from a scan no index orders, the eligibility
  * applied on the host; the specification of cosine distance's range and its exact values; vector_norm and the CHECK.
  *
- * Plants: vector-cosine-as-l2 (Compute.cosineDistance lowers to l2_distance), vector-norm-float32 (the host's norm
- * sums in binary32), vector-cosine-domain-exclusive (the host's cosine domain excludes its bounds).
- *
  * Features: each probe kind, a tie ordered by the key, each width and pair kind, each side of each norm bound.
+ *
+ * @plant test/plants/pg/vector/exact/vector-cosine-as-l2.patch Compute.cosineDistance lowers to l2_distance.
+ * @plant test/plants/pg/vector/exact/vector-norm-float32.patch The host's norm sums in binary32.
+ * @plant test/plants/pg/vector/exact/vector-cosine-domain-exclusive.patch The host's cosine domain excludes its bounds.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

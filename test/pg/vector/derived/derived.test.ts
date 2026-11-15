@@ -12,9 +12,9 @@
  *
  * Oracle: a second implementation, the owner's complete scan of the view scored with pgvector's <=>.
  *
- * Plants: vector-cosine-as-l2 (Compute.cosineDistance lowers to l2_distance).
- *
  * Features: each account scored, and a search over the view refused.
+ *
+ * @plant test/plants/pg/vector/exact/vector-cosine-as-l2.patch Compute.cosineDistance lowers to l2_distance.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

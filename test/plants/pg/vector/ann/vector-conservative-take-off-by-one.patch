@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/lower/conservative/vector/index.ts b/packages/engine/src/lower/conservative/vector/index.ts
+index 28fee4c0..781d3d8c 100644
+--- a/packages/engine/src/lower/conservative/vector/index.ts
++++ b/packages/engine/src/lower/conservative/vector/index.ts
+@@ -175,7 +175,7 @@ const lowerApproximateNearest: NodeLowerer<"ApproximateNearest"> = (node, cx, en
+ 	return {
+ 		...select(distinctCore(headingTargets(node.heading, input.map), [input.item], undefined)),
+ 		orderBy: items,
+-		limit: cx.boundExpr({ kind: "literal", k: node.take })
++		limit: cx.boundExpr({ kind: "literal", k: node.take - 1n })
+ 	}
+ }
+ 

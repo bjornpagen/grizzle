@@ -12,10 +12,14 @@
  * Oracle: a second implementation, the host's evaluation of each query and a host model of each relation's facts, both
  * under vector equality.
  *
- * Plants: vector-negative-zero-apart (a vector's identity text writes -0, so the host keeps apart what pgvector
- * equates).
- *
  * Features: each query form and each write outcome the searches name.
+ *
+ * A vector's identity text, the codec's and fact identity's (values/vector.ts componentText), is
+ * test/pg/vector/exact/storage.test.ts's: these properties compare vectors where PostgreSQL and the host's model compare
+ * them, by value.
+ *
+ * @plant test/plants/pg/vector/exact/vector-equality-unqualified.patch A vector comparison is spelled with the bare
+ * operator, which the writer's search_path never resolves; both properties fail.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

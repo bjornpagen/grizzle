@@ -1,0 +1,11 @@
+diff --git a/packages/engine/src/check/approximate/policy.ts b/packages/engine/src/check/approximate/policy.ts
+index 929a5e1c..30f970ef 100644
+--- a/packages/engine/src/check/approximate/policy.ts
++++ b/packages/engine/src/check/approximate/policy.ts
+@@ -48,5 +48,5 @@ export const hnswPolicy = {
+ 	opclass: vectorCosineOpclass,
+ 	operator: "<=>",
+ 	maxDimensions: hnswMaxDimensions,
+-	iterativeScan: "strict_order"
++	iterativeScan: "off"
+ } as const

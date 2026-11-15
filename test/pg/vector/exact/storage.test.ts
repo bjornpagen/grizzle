@@ -9,10 +9,10 @@
  * Oracle: PostgreSQL itself, pgvector's input and the column's CHECK against a model of both; and a vector's value is
  * its binary32 components, -0 equal to 0.
  *
- * Plants: vector-cosine-domain-exclusive (the host's cosine domain excludes its bounds), vector-negative-zero-apart (a
- * vector's identity text writes -0).
- *
  * Features: each refusal and each admitted bound, a collision and distinct vectors.
+ *
+ * @plant test/plants/pg/vector/exact/vector-cosine-domain-exclusive.patch The host's cosine domain excludes its bounds.
+ * @plant test/plants/pg/vector/exact/vector-negative-zero-apart.patch A vector's identity text writes -0.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
