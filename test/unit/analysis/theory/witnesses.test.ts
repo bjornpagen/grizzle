@@ -38,10 +38,17 @@ import {
 	ruleOf
 } from "#test/unit/analysis/theory/witnesses.fixtures.ts"
 
-/** A rule over a query's witnesses are the shapes its arms give its violation, every occurrence counted, and name exactly the writes its triggers fire on. */
+/**
+ * A rule over a query's witnesses are the shapes its arms give its violation, every occurrence counted, and name
+ * exactly the writes its triggers fire on.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/theory/witnesses.test.ts:191 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aRuleOverAQuerysWitnessesAreTheShapesItsArmsGiveItsViolationEveryOccurrenceCountedAndNameExactlyTheWritesItsTriggersFireOn =
 	property.explore(planGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"a check",
 			"a contained",
@@ -106,5 +113,13 @@ export const aRuleOverAQuerysWitnessesAreTheShapesItsArmsGiveItsViolationEveryOc
 			name: "the drawn plan's arms read as a rule's violation shapes, and Touches"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/query.ts",
+				original:
+					"\tconst read = [...matched.flatMap((a) => a.matches), ...negating.flatMap(negatedMatches)].filter(",
+				replacement: "\tconst read = [...negating.flatMap(negatedMatches)].filter(",
+				why: "Operator mutant (element) at packages/engine/src/analysis/theory/query.ts:1811 in columnsOf: `[...matched.flatMap((a) => a.matches), ...negating.flatMap(negatedMatches)]` becomes `[...negating.flatMap(negatedMatches)]`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

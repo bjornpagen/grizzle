@@ -64,10 +64,17 @@ import {
 	staleSpec
 } from "#test/unit/write/fill-order.fixtures.ts"
 
-/** The fill order: a schema generate accepts is one every write of fills drawn schemas compile exactly where the reference model admits them, and then write. */
+/**
+ * The fill order: a schema generate accepts is one every write of fills drawn schemas compile exactly where the
+ * reference model admits them, and then write.
+ *
+ * Budget: 100 runs and 240 steered cases, what its suite stated before it became a property
+ * (test/unit/write/fill-order.test.ts:1575 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsDrawnSchemasCompileExactlyWhereTheReferenceModelAdmitsThemAndThenWrite =
 	propertyOf.explore(fillDraw, {
 		needs: {},
+		budget: { runs: 100, steered: 240 },
 		situations: fillSituations satisfies ReadonlyArray<Reached<FillSituation>>,
 		check:
 			(_, c: Case<FillSituation>) =>
@@ -123,7 +130,20 @@ export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsEveryCopyKi
 		},
 		box: "one family of each kind under a top, a nested or a tree-node owner, one copy along each axis of each column kind its target row holds, and the instance of every count at its most",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original: '\t\t\tif (sequence !== undefined && member.op === "insert") {',
+				replacement: '\t\t\tif (sequence !== undefined && member.op !== "insert") {',
+				why: "Operator mutant (comparison) at packages/engine/src/write/frontend/compile.ts:1321 in compile: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			},
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original: '\t\t\tif (sequence !== undefined && member.op === "insert") {',
+				replacement: '\t\t\tif (sequence !== undefined && member.op !== "insert") {',
+				why: "Operator mutant (comparison) at packages/engine/src/write/frontend/compile.ts:1321 in compile: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
 /** The fill order: a schema generate accepts is one every write of fills every path a change takes to a value drawn only when its row is written is refilled, refused only from a query or for a role that does not hold it. */
@@ -149,7 +169,20 @@ export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsEveryPathAC
 		},
 		box: "an owner's put through one copy or two, and an edit of a family of a member owner, of a tree node or of the owner a copy reads, to a predecessor copy, a last copy, a tree's copy or a sum fold stepping the copy, and a put or a delete re-placing an ordered family's member whose counted members copy its v, g or index, over mutable relations holding g; a put of an immutable owner's member whose immutable counted members copy its v, which re-places nothing; a refill's refill of an immutable relation's rows, and of a mutable one's, which reads what the first refill changes, each write named after a plain put; each put from a query too, and each write under a role leaving out each relation in turn",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original: '\t\t\tif (sequence !== undefined && member.op === "insert") {',
+				replacement: '\t\t\tif (sequence !== undefined && member.op !== "insert") {',
+				why: "Operator mutant (comparison) at packages/engine/src/write/frontend/compile.ts:1321 in compile: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			},
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original: '\t\t\tif (sequence !== undefined && member.op === "insert") {',
+				replacement: '\t\t\tif (sequence !== undefined && member.op !== "insert") {',
+				why: "Operator mutant (comparison) at packages/engine/src/write/frontend/compile.ts:1321 in compile: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
 /** The fill order: a schema generate accepts is one every write of fills a copy of a sibling sequence's end is filled after that sibling, and two that read each other's are refused. */
@@ -170,5 +203,18 @@ export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsACopyOfASib
 		},
 		box: "an owner of a tree or an ordered family and an ordered family, each ending in a fold or a last copy, with a copy along one's owner axis of the other's end, or along each one's",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original: '\t\t\tif (sequence !== undefined && member.op === "insert") {',
+				replacement: '\t\t\tif (sequence !== undefined && member.op !== "insert") {',
+				why: "Operator mutant (comparison) at packages/engine/src/write/frontend/compile.ts:1321 in compile: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			},
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original: '\t\t\tif (sequence !== undefined && member.op === "insert") {',
+				replacement: '\t\t\tif (sequence !== undefined && member.op !== "insert") {',
+				why: "Operator mutant (comparison) at packages/engine/src/write/frontend/compile.ts:1321 in compile: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

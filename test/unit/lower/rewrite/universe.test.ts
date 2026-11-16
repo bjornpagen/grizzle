@@ -49,7 +49,22 @@ export const theRewritePipelineOverASmallClosedUniverseEverySearchedCoreQueryOfU
 		grammar: coreGrammar,
 		among: variants,
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/registry.ts",
+				original:
+					'\t\tfn: cmp,\n\t\toperands: positional([carrier, carrier]),\n\t\tresult: "bool",',
+				replacement: '\t\tfn: cmp,\n\t\toperands: positional([carrier]),\n\t\tresult: "bool",',
+				why: "Operator mutant (element) at packages/engine/src/scalar/compute/registry.ts:565 in comparison: `[carrier, carrier]` becomes `[carrier]`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			},
+			{
+				file: "packages/engine/src/scalar/compute/registry.ts",
+				original:
+					'\t\tfn: cmp,\n\t\toperands: positional([carrier, carrier]),\n\t\tresult: "bool",',
+				replacement: '\t\tfn: cmp,\n\t\toperands: positional([carrier]),\n\t\tresult: "bool",',
+				why: "Operator mutant (element) at packages/engine/src/scalar/compute/registry.ts:565 in comparison: `[carrier, carrier]` becomes `[carrier]`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
 /** The rewrite pipeline over a small closed universe every extended query of up to two operators delivers what it delivered before the rewrites. */

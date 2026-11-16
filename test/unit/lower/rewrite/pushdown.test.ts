@@ -18,9 +18,15 @@ import { assert } from "#test/support/assert.ts"
 import { guardSearch, rowsAgreeAt } from "#test/unit/lower/rewrite/guarded.ts"
 import { nodesOf } from "#test/unit/lower/rewrite/support.ts"
 
-/** Legal predicate movement moves a filter exactly where the move keeps its set, and nothing below a take. */
+/**
+ * Legal predicate movement moves a filter exactly where the move keeps its set, and nothing below a take.
+ *
+ * Budget: 200 runs and 600 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/rewrite/pushdown.test.ts:27 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const legalPredicateMovementMovesAFilterExactlyWhereTheMoveKeepsItsSetAndNothingBelowATake =
 	guardSearch<"a take kept its rows">({
+		runs: 200,
 		passes: [pushdownPass],
 		evidence: "snapshot",
 		situations: [

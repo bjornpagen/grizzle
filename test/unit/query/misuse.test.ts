@@ -59,10 +59,17 @@ import {
 	twoScopes
 } from "#test/unit/query/misuse.fixtures.ts"
 
-/** The query builder's untyped core builds a canonical Description from a Live argument, refuses a Stale one, and from any other refuses with a typed error or builds one. */
+/**
+ * The query builder's untyped core builds a canonical Description from a Live argument, refuses a Stale one, and from
+ * any other refuses with a typed error or builds one.
+ *
+ * Budget: 1500 runs and 1500 steered cases, what its suite stated before it became a property
+ * (test/unit/query/misuse.test.ts:1002 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theQueryBuildersUntypedCoreBuildsACanonicalDescriptionFromALiveArgumentRefusesAStaleOneAndFromAnyOtherRefusesWithATypedErrorOrBuildsOne =
 	property.explore(aimed(caseGen, aims), {
 		needs: {},
+		budget: { runs: 1500, steered: 1500 },
 		situations: situations satisfies ReadonlyArray<Reached<MisuseFeature>>,
 		check: (_, c: Case<MisuseFeature>) => (misuse) =>
 			Effect.sync(() => {

@@ -87,7 +87,20 @@ export const theRowsAuditOracleVerifyRowsTsRefusesExactlyTheDerivedTablesAndCTEs
 			},
 			box: "seven readers of one column over a table, a derived table or a CTE, each a set or rows that may repeat",
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/sql/ast.ts",
+					original: '\t\t\treturn body.distinct !== false || body.rows !== "operand"',
+					replacement: '\t\t\treturn body.distinct !== false || body.rows === "operand"',
+					why: "Operator mutant (comparison) at packages/engine/src/sql/ast.ts:957 in isSetBody: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				},
+				{
+					file: "packages/engine/src/sql/ast.ts",
+					original: '\t\t\treturn body.distinct !== false || body.rows !== "operand"',
+					replacement: '\t\t\treturn body.distinct !== false || body.rows === "operand"',
+					why: "Operator mutant (comparison) at packages/engine/src/sql/ast.ts:957 in isSetBody: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)
 
@@ -119,7 +132,20 @@ export const theRowsAuditOracleVerifyRowsTsRefusesABoundThatCountsRepeatedRowsLI
 			},
 			box: "a set body and a body that may repeat rows, each unbounded, under LIMIT 1, LIMIT 2 and OFFSET 1",
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/sql/ast.ts",
+					original: '\t\t\treturn body.distinct !== false || body.rows !== "operand"',
+					replacement: '\t\t\treturn body.distinct !== false || body.rows === "operand"',
+					why: "Operator mutant (comparison) at packages/engine/src/sql/ast.ts:957 in isSetBody: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				},
+				{
+					file: "packages/engine/src/sql/ast.ts",
+					original: '\t\t\treturn body.distinct !== false || body.rows !== "operand"',
+					replacement: '\t\t\treturn body.distinct !== false || body.rows === "operand"',
+					why: "Operator mutant (comparison) at packages/engine/src/sql/ast.ts:957 in isSetBody: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)
 
@@ -159,7 +185,20 @@ export const theRowsAuditOracleVerifyRowsTsHoldsAOneRowClaimToItsShapeOrALIMIT1O
 			},
 			box: "a core of no FROM, of an aggregate over a table and of a column of a table, each under LIMIT 1 or none",
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/sql/ast.ts",
+					original: '\t\t\treturn body.distinct !== false || body.rows !== "operand"',
+					replacement: '\t\t\treturn body.distinct !== false || body.rows === "operand"',
+					why: "Operator mutant (comparison) at packages/engine/src/sql/ast.ts:957 in isSetBody: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				},
+				{
+					file: "packages/engine/src/sql/ast.ts",
+					original: '\t\t\treturn body.distinct !== false || body.rows !== "operand"',
+					replacement: '\t\t\treturn body.distinct !== false || body.rows === "operand"',
+					why: "Operator mutant (comparison) at packages/engine/src/sql/ast.ts:957 in isSetBody: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)
 
@@ -206,6 +245,19 @@ export const theRowsAuditOracleVerifyRowsTsHoldsAGroupsClaimToEachGROUPBYExpress
 			},
 			box: "a core claiming its groups, its targets every nonempty set of two columns and a count, grouped by every nonempty set of the two columns",
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/sql/ast.ts",
+					original: '\t\t\treturn body.distinct !== false || body.rows !== "operand"',
+					replacement: '\t\t\treturn body.distinct !== false || body.rows === "operand"',
+					why: "Operator mutant (comparison) at packages/engine/src/sql/ast.ts:957 in isSetBody: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				},
+				{
+					file: "packages/engine/src/sql/ast.ts",
+					original: '\t\t\treturn body.distinct !== false || body.rows !== "operand"',
+					replacement: '\t\t\treturn body.distinct !== false || body.rows === "operand"',
+					why: "Operator mutant (comparison) at packages/engine/src/sql/ast.ts:957 in isSetBody: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)

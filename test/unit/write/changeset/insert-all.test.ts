@@ -26,10 +26,17 @@ import {
 	textOf
 } from "#test/unit/write/changeset/insert-all.fixtures.ts"
 
-/** ChangeSet#insertAll is the inserts of its keys in any order: one Description, the same inputs and values, and one plan. */
+/**
+ * ChangeSet#insertAll is the inserts of its keys in any order: one Description, the same inputs and values, and one
+ * plan.
+ *
+ * Budget: 200 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/write/changeset/insert-all.test.ts:279 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const changeSetInsertAllIsTheInsertsOfItsKeysInAnyOrderOneDescriptionTheSameInputsAndValuesAndOnePlan =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 200, steered: 400 },
 		situations: [
 			"one key",
 			"four keys or more",

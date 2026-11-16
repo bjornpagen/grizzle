@@ -34,10 +34,17 @@ import {
 	soundCases
 } from "#test/unit/lower/dedup/soundness.fixtures.ts"
 
-/** Placement delivers the reference set with no repeats on generated, rooted and noninjective cases in either context, ordered or not. */
+/**
+ * Placement delivers the reference set with no repeats on generated, rooted and noninjective cases in either context,
+ * ordered or not.
+ *
+ * Budget: 1000 runs and 1000 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/dedup/soundness.test.ts:232 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const placementDeliversTheReferenceSetWithNoRepeatsOnGeneratedRootedAndNoninjectiveCasesInEitherContextOrderedOrNot =
 	property.explore(soundCases, {
 		needs: {},
+		budget: { runs: 1000, steered: 1000 },
 		situations: dedupFeatures satisfies ReadonlyArray<Reached<DedupFeature>>,
 		check: (_, c: Case<DedupFeature>) => (k) =>
 			Effect.sync(() => {
@@ -65,5 +72,22 @@ export const placementDeliversTheReferenceSetWithNoRepeatsOnGeneratedRootedAndNo
 			name: "the brute-force reference, which deduplicates every node"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/analysis/physical/analyze.ts",
+				original:
+					'\t\t\tchanged.has(node.id) ||\n\t\t\t(node.kind === "SelfRef" && changed.has(node.recursive)) ||\n\t\t\tinputsOf(node).some((input) => again.has(input))',
+				replacement:
+					'\t\t\t(node.kind === "SelfRef" && changed.has(node.recursive)) || inputsOf(node).some((input) => again.has(input))',
+				why: 'Operator mutant (disjunct) at packages/engine/src/analysis/physical/analyze.ts:129 in reanalyzePhysical: `changed.has(node.id) ||\n\t\t\t(node.kind === "SelfRef" && changed.has(node.recursiv` becomes `(node.kind === "SelfRef" && changed.has(node.recursive)) || inputsOf(node).some(`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			},
+			{
+				file: "packages/engine/src/analysis/physical/analyze.ts",
+				original:
+					'\t\t\tchanged.has(node.id) ||\n\t\t\t(node.kind === "SelfRef" && changed.has(node.recursive)) ||\n\t\t\tinputsOf(node).some((input) => again.has(input))',
+				replacement:
+					'\t\t\t(node.kind === "SelfRef" && changed.has(node.recursive)) || inputsOf(node).some((input) => again.has(input))',
+				why: 'Operator mutant (disjunct) at packages/engine/src/analysis/physical/analyze.ts:129 in reanalyzePhysical: `changed.has(node.id) ||\n\t\t\t(node.kind === "SelfRef" && changed.has(node.recursiv` becomes `(node.kind === "SelfRef" && changed.has(node.recursive)) || inputsOf(node).some(`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
 	})

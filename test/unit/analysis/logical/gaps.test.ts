@@ -45,10 +45,17 @@ import {
 	Variables
 } from "#test/unit/analysis/logical/gaps.fixtures.ts"
 
-/** A closed relation's columns of identical values are one class of one type, a column of distinct values is a key, and every claim holds on the facts. */
+/**
+ * A closed relation's columns of identical values are one class of one type, a column of distinct values is a key, and
+ * every claim holds on the facts.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/logical/gaps.test.ts:316 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aClosedRelationsColumnsOfIdenticalValuesAreOneClassOfOneTypeAColumnOfDistinctValuesIsAKeyAndEveryClaimHoldsOnTheFacts =
 	property.explore(closedCaseGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"two columns of identical values",
 			"identical values under two types",
@@ -140,10 +147,17 @@ export const aClosedRelationsColumnsOfIdenticalValuesAreOneClassOfOneTypeAColumn
 		]
 	})
 
-/** A lateral source's column fixed to a region column equals that column's variable both ways, the region's keys exactly its minimal keys, every claim holding on the facts. */
+/**
+ * A lateral source's column fixed to a region column equals that column's variable both ways, the region's keys
+ * exactly its minimal keys, every claim holding on the facts.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/logical/gaps.test.ts:469 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aLateralSourcesColumnFixedToARegionColumnEqualsThatColumnsVariableBothWaysTheRegionsKeysExactlyItsMinimalKeysEveryClaimHoldingOnTheFacts =
 	property.explore(lateralCaseGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"the region's column",
 			"the earlier occurrence's column",
@@ -293,12 +307,19 @@ export const aLateralSourcesColumnFixedToARegionColumnEqualsThatColumnsVariableB
 		]
 	})
 
-/** Keys of joined relations are one proof over independent factors whose choices are exactly the join's minimal keys, each holding on the facts. */
+/**
+ * Keys of joined relations are one proof over independent factors whose choices are exactly the join's minimal keys,
+ * each holding on the facts.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/logical/gaps.test.ts:742 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const keysOfJoinedRelationsAreOneProofOverIndependentFactorsWhoseChoicesAreExactlyTheJoinsMinimalKeysEachHoldingOnTheFacts =
 	property.explore(
 		aimed(joinCaseGen(3), [["two factors of two minimal keys each", independentFactorsGen(3)]]),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: [
 				"a factor of two minimal keys",
 				"two factors of two minimal keys each",
@@ -349,10 +370,17 @@ export const keysOfJoinedRelationsAreOneProofOverIndependentFactorsWhoseChoicesA
 		}
 	)
 
-/** Projections of a join determine exactly what the join determines among their columns, a dependency through a dropped column included. */
+/**
+ * Projections of a join determine exactly what the join determines among their columns, a dependency through a dropped
+ * column included.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/logical/gaps.test.ts:810 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const projectionsOfAJoinDetermineExactlyWhatTheJoinDeterminesAmongTheirColumnsADependencyThroughADroppedColumnIncluded =
 	property.explore(joinCaseGen(3), {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"a dependency only a dropped column carries, from no key",
 			"two stacked projections dropping columns",

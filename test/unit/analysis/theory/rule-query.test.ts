@@ -128,7 +128,24 @@ export const aRuleOverAQueryCompilesWheneverTheBuildersAdmitItALiteralBoundAnywh
 		},
 		box: "every containment into, containment out of and check over a derived relation of Item, the check named apart or as a check of Item, read itself or through a semijoin binding its id by a variable or a literal, whose definition binds kind, a joined Mark's id and on, and a negated Mark's on each by a variable or a literal",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/schema/own.ts",
+				original:
+					'\t...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [\n\t\t...installedIdentity(r),\n\t\t...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.sequence === undefined ? [f.named] : [f.named, f.sequence]\n\t\t),\n\t\t...r.keys.map((k) => k.named),\n\t\t...(r.kind === "relation" ? r.checks.map((c) => c.named) : [])\n\t])',
+				replacement:
+					'\t...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.sequence === undefined ? [f.named] : [f.named, f.sequence]\n\t\t), ...r.keys.map((k) => k.named), ...(r.kind === "relation" ? r.checks.map((c) => c.named) : [])])',
+				why: "Operator mutant (element) at packages/engine/src/schema/own.ts:349 in ownedIdentities: `[\n\t\t...installedIdentity(r),\n\t\t...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.se` becomes `[...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.sequence === undefined ? [f.name`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			},
+			{
+				file: "packages/engine/src/schema/own.ts",
+				original:
+					'\t...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [\n\t\t...installedIdentity(r),\n\t\t...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.sequence === undefined ? [f.named] : [f.named, f.sequence]\n\t\t),\n\t\t...r.keys.map((k) => k.named),\n\t\t...(r.kind === "relation" ? r.checks.map((c) => c.named) : [])\n\t])',
+				replacement:
+					'\t...Object.values(owned.relations).flatMap((r): ReadonlyArray<Identity<IdentityKind>> => [...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.sequence === undefined ? [f.named] : [f.named, f.sequence]\n\t\t), ...r.keys.map((k) => k.named), ...(r.kind === "relation" ? r.checks.map((c) => c.named) : [])])',
+				why: "Operator mutant (element) at packages/engine/src/schema/own.ts:349 in ownedIdentities: `[\n\t\t...installedIdentity(r),\n\t\t...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.se` becomes `[...Object.values(r.fields).flatMap((f) =>\n\t\t\tf.sequence === undefined ? [f.name`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
 /** A rule over a query compiles whenever the builders admit it, correlating texts of different patterns as a stored foreign key does. */

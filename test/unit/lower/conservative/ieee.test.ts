@@ -26,10 +26,17 @@ import {
 	render
 } from "#test/unit/lower/conservative/ieee.fixtures.ts"
 
-/** IEEE 754 forms render a nested float expression in SQL whose size is linear in its operations: each operand's text once. */
+/**
+ * IEEE 754 forms render a nested float expression in SQL whose size is linear in its operations: each operand's text
+ * once.
+ *
+ * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/conservative/ieee.test.ts:242 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const iEEE754FormsRenderANestedFloatExpressionInSQLWhoseSizeIsLinearInItsOperationsEachOperandsTextOnce =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: [
 			"an operation over an operation",
 			"an operand bound to a compound expression"

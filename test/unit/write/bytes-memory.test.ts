@@ -49,10 +49,17 @@ import {
 } from "#test/unit/write/bytes-memory.fixtures.ts"
 import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
-/** A write of large bytes values refuses a member past the message from its lengths alone, allocating none of it, and copies a member that fits once. */
+/**
+ * A write of large bytes values refuses a member past the message from its lengths alone, allocating none of it, and
+ * copies a member that fits once.
+ *
+ * Budget: 8 runs and 12 steered cases, what its suite stated before it became a property
+ * (test/unit/write/bytes-memory.test.ts:90 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aWriteOfLargeBytesValuesRefusesAMemberPastTheMessageFromItsLengthsAloneAllocatingNoneOfItAndCopiesAMemberThatFitsOnce =
 	property.explore(cases, {
 		needs: {},
+		budget: { runs: 8, steered: 12 },
 		situations: [
 			"a member refused from its lengths",
 			"a member bound",

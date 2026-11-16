@@ -192,10 +192,17 @@ export const aStratumsScheduleKeepsAnImmediateForeignKeyIntoARelationItReference
 		]
 	})
 
-/** A stratum's schedule orders every generated stratum exactly when the writes' required order holds no cycle, and keeps every required order. */
+/**
+ * A stratum's schedule orders every generated stratum exactly when the writes' required order holds no cycle, and
+ * keeps every required order.
+ *
+ * Budget: 300 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/write/schedule.test.ts:1325 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aStratumsScheduleOrdersEveryGeneratedStratumExactlyWhenTheWritesRequiredOrderHoldsNoCycleAndKeepsEveryRequiredOrder =
 	property.explore(strataDraw, {
 		needs: {},
+		budget: { runs: 300, steered: 400 },
 		situations: stratumSituations satisfies ReadonlyArray<Reached<StratumSituation>>,
 		check: (_, c: Case<StratumSituation>) => (stratum) =>
 			Effect.sync(() => {
@@ -291,6 +298,13 @@ export const aStratumsScheduleOrdersEveryGeneratedStratumExactlyWhenTheWritesReq
 					"\t\t[...(put ? edit.own : []), ...(moves ? [...edit.placed, ...edit.refreshed] : [])],\n",
 				replacement: "\t\t[...edit.own, ...(moves ? [...edit.placed, ...edit.refreshed] : [])],\n",
 				why: "A member's update in place counts as changing its caller fields whatever its edits write (write/frontend/schedule.ts updateChanges, before 73360caa), so a deletion of an ordered member or an insertion of a counted one meets a key over a it never writes; the kept case of edits beside a pure set pinned it."
+			},
+			{
+				file: "packages/engine/src/write/frontend/schedule.ts",
+				original:
+					"\t\tconst ready = remaining.find((v) => [...v.follows].every((u) => placed.has(u)))",
+				replacement: "\t\tconst ready = remaining.find((v) => [...v.follows].every((u) => false))",
+				why: "Operator mutant (boolean-return) at packages/engine/src/write/frontend/schedule.ts:672 in scheduleStratum: `placed.has(u)` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})

@@ -121,7 +121,13 @@ export const ridingAFamilyAxis21AContainmentRidesAnAxisExactlyWhen21sRuleHoldsCa
 		]
 	})
 
-/** Riding a family axis (§2.1) the theory lowers each containment onto the axis §2.1's rule names, its axes carrying exactly the riding pairs, and fills an accumulated field by exactly one. */
+/**
+ * Riding a family axis (§2.1) the theory lowers each containment onto the axis §2.1's rule names, its axes carrying
+ * exactly the riding pairs, and fills an accumulated field by exactly one.
+ *
+ * Budget: 200 runs and 2000 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/theory/families.test.ts:509 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const ridingAFamilyAxis21TheTheoryLowersEachContainmentOntoTheAxis21sRuleNamesItsAxesCarryingExactlyTheRidingPairsAndFillsAnAccumulatedFieldByExactlyOne =
 	property.explore(
 		(source) => {
@@ -138,6 +144,7 @@ export const ridingAFamilyAxis21TheTheoryLowersEachContainmentOntoTheAxis21sRule
 		},
 		{
 			needs: {},
+			budget: { runs: 200, steered: 2000 },
 			situations: [
 				"rides owner",
 				"rides predecessor",
@@ -274,10 +281,17 @@ export const ridingAFamilyAxis21TheTheoryLowersEachContainmentOntoTheAxis21sRule
 		}
 	)
 
-/** Riding a family axis (§2.1) a tree's parent copy rides its owner axis exactly when its selection is one comparison of start with zero that selects the members. */
+/**
+ * Riding a family axis (§2.1) a tree's parent copy rides its owner axis exactly when its selection is one comparison
+ * of start with zero that selects the members.
+ *
+ * Budget: 300 runs and 1000 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/theory/families.test.ts:749 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const ridingAFamilyAxis21ATreesParentCopyRidesItsOwnerAxisExactlyWhenItsSelectionIsOneComparisonOfStartWithZeroThatSelectsTheMembers =
 	property.explore(array(comparisonGen, { min: 0, max: 2 }), {
 		needs: {},
+		budget: { runs: 300, steered: 1000 },
 		situations: [
 			"rides",
 			"a wrong selection",
@@ -338,7 +352,22 @@ export const ridingAFamilyAxis21ATreesParentCopyRidesItsOwnerAxisExactlyWhenItsS
 			name: "§2.2: a tree's members are select(T, start > 0), evaluated over the naturals"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/families.ts",
+				original:
+					'\t\t\tif (\n\t\t\t\tatEnd(f, a.source, from) &&\n\t\t\t\tatEnd(f, a.target, to) &&\n\t\t\t\tpairs.length >= width &&\n\t\t\t\ta.source.key.every((t, j) => {\n\t\t\t\t\tconst p = pairs[j]\n\t\t\t\t\tconst target = a.target.key[j]\n\t\t\t\t\treturn (\n\t\t\t\t\t\tp !== undefined && target !== undefined && sameTerm(p.from, t) && sameTerm(p.to, target)\n\t\t\t\t\t)\n\t\t\t\t}) &&\n\t\t\t\tcarried.every((p) => p.from.kind === "field" && p.to.kind === "field")\n\t\t\t) {\n\t\t\t\treturn { family: f.id, axis: a.axis, carried }\n\t\t\t}',
+				replacement: "\t\t\t{}",
+				why: "Operator mutant (guard) at packages/engine/src/analysis/theory/families.ts:526 in ridesOf: `if (\n\t\t\t\tatEnd(f, a.source, from) &&\n\t\t\t\tatEnd(f, a.target, to) &&\n\t\t\t\tpairs.len` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/families.ts",
+				original:
+					'\t\t\tif (\n\t\t\t\tatEnd(f, a.source, from) &&\n\t\t\t\tatEnd(f, a.target, to) &&\n\t\t\t\tpairs.length >= width &&\n\t\t\t\ta.source.key.every((t, j) => {\n\t\t\t\t\tconst p = pairs[j]\n\t\t\t\t\tconst target = a.target.key[j]\n\t\t\t\t\treturn (\n\t\t\t\t\t\tp !== undefined && target !== undefined && sameTerm(p.from, t) && sameTerm(p.to, target)\n\t\t\t\t\t)\n\t\t\t\t}) &&\n\t\t\t\tcarried.every((p) => p.from.kind === "field" && p.to.kind === "field")\n\t\t\t) {\n\t\t\t\treturn { family: f.id, axis: a.axis, carried }\n\t\t\t}',
+				replacement: "\t\t\t{}",
+				why: "Operator mutant (guard) at packages/engine/src/analysis/theory/families.ts:526 in ridesOf: `if (\n\t\t\t\tatEnd(f, a.source, from) &&\n\t\t\t\tatEnd(f, a.target, to) &&\n\t\t\t\tpairs.len` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
 /** Resolution and refusals (§3.4, §3.7, rows-first §4) each lawful family and tree resolves to one Family IR as its statement states it, and each named malformation of one is refused where it is stated. */

@@ -69,7 +69,13 @@ import {
 } from "#test/unit/recursion/certificates.fixtures.ts"
 import { Graph, theRecursive } from "#test/unit/recursion/fixtures.ts"
 
-/** Generated recursions against the termination proof rules gives every generated definition the verdict, family and estimate the rules give it, and no vertex more states than the estimate at the fixpoint. */
+/**
+ * Generated recursions against the termination proof rules gives every generated definition the verdict, family and
+ * estimate the rules give it, and no vertex more states than the estimate at the fixpoint.
+ *
+ * Budget: 400 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/recursion/certificates.test.ts:1415 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const generatedRecursionsAgainstTheTerminationProofRulesGivesEveryGeneratedDefinitionTheVerdictFamilyAndEstimateTheRulesGiveItAndNoVertexMoreStatesThanTheEstimateAtTheFixpoint =
 	property.explore(
 		aimed(certificateCaseOf(specGen), [
@@ -79,6 +85,7 @@ export const generatedRecursionsAgainstTheTerminationProofRulesGivesEveryGenerat
 		]),
 		{
 			needs: {},
+			budget: { runs: 400, steered: 400 },
 			situations: [
 				...Arr.map(featureTests, ([name]) => name),
 				"a fixpoint reached",

@@ -62,7 +62,13 @@ import {
 	withNotes
 } from "#test/unit/write/changeset/value.fixtures.ts"
 
-/** The ChangeSet algebra builds the model's ChangeSet at every step, canonical, sealed and refused exactly where the model refuses. */
+/**
+ * The ChangeSet algebra builds the model's ChangeSet at every step, canonical, sealed and refused exactly where the
+ * model refuses.
+ *
+ * Budget: 300 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/write/changeset/value.test.ts:1569 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theChangeSetAlgebraBuildsTheModelsChangeSetAtEveryStepCanonicalSealedAndRefusedExactlyWhereTheModelRefuses =
 	property.stateful(
 		{
@@ -74,6 +80,7 @@ export const theChangeSetAlgebraBuildsTheModelsChangeSetAtEveryStepCanonicalSeal
 			size: { min: 1, max: 20 },
 			mix: constant(fullSwarm(commandNames)),
 			needs: {},
+			budget: { runs: 300, steered: 400 },
 			situations: [
 				"an array member",
 				"a Stream member",
@@ -111,12 +118,19 @@ export const theChangeSetAlgebraBuildsTheModelsChangeSetAtEveryStepCanonicalSeal
 		}
 	)
 
-/** The level check admits a query over a schema exactly where the query compiler compiles it against the ChangeSet's schema. */
+/**
+ * The level check admits a query over a schema exactly where the query compiler compiles it against the ChangeSet's
+ * schema.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/write/changeset/value.test.ts:1732 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theLevelCheckAdmitsAQueryOverASchemaExactlyWhereTheQueryCompilerCompilesItAgainstTheChangeSetsSchema =
 	property.explore(
 		(source) => [source.draw(element(levelSubjects)), source.draw(namedGen)] as const,
 		{
 			needs: {},
+			budget: { runs: 200, steered: 200 },
 			situations: [
 				"the schema itself",
 				"a level",
@@ -179,11 +193,30 @@ export const theLevelCheckAdmitsAQueryOverASchemaExactlyWhereTheQueryCompilerCom
 				name: "the query compiler's own level check, querySchema against the ChangeSet's schema"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/core/canonical.ts",
+					original: "\t\tif (other === undefined) {",
+					replacement: "\t\tif (other !== undefined) {",
+					why: "Operator mutant (comparison) at packages/engine/src/core/canonical.ts:505 in recordPairs: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				},
+				{
+					file: "packages/engine/src/write/changeset/value.ts",
+					original:
+						"\t}\n\trequireLevel(built.schema.over, state.over, label)\n\tconst query = publicDesc(built, label)",
+					replacement: "\t}\n\t{}\n\tconst query = publicDesc(built, label)",
+					why: "Operator mutant (statement) at packages/engine/src/write/changeset/value.ts:1011 in addRead: `requireLevel(built.schema.over, state.over, label)` becomes `{}`; the property fails (lane CATCH, grizzle b0d74512)."
+				}
+			]
 		}
 	)
 
-/** Bind reads the caller's map once: a map or a fact whose reading throws is refused, a live one bound as a copy. */
+/**
+ * Bind reads the caller's map once: a map or a fact whose reading throws is refused, a live one bound as a copy.
+ *
+ * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/write/changeset/value.test.ts:1834 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const bindReadsTheCallersMapOnceAMapOrAFactWhoseReadingThrowsIsRefusedALiveOneBoundAsACopy =
 	property.explore(
 		lsw({
@@ -202,6 +235,7 @@ export const bindReadsTheCallersMapOnceAMapOrAFactWhoseReadingThrowsIsRefusedALi
 		}),
 		{
 			needs: {},
+			budget: { runs: 100, steered: 100 },
 			situations: [
 				"a live map",
 				"throwing-getter as the map",

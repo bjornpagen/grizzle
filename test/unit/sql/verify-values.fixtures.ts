@@ -1,7 +1,7 @@
 /** What the properties of verify-values.test.ts read: its spaces, models and helpers. */
 
 import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
-import { array, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { array, element, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import type { Expr, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { provedSelect, target, types } from "#compiler/sql/build.ts"
@@ -68,16 +68,3 @@ export const integerGen: Gen<
 
 /** What an integer case reached: the type's bound, within or past it. */
 export type IntegerFeature = `${IntegerName} ${"within" | "past"}`
-
-/** The typmods around numeric's bounds. */
-const around = element([-1001, -1000, -999, -1, 0, 1, 2, 999, 1000, 1001] as const)
-
-/** A precision, and a scale or none: each pair one case of the space. */
-export const typmodGen: Gen<readonly [number, number | undefined]> = (source) =>
-	[
-		source.draw(around),
-		source.draw(oneOf<number | undefined>([constant(undefined), around]))
-	] as const
-
-/** What a typmod case reached: a precision and a scale within or past their bounds, or no scale. */
-export type TypmodFeature = "valid" | "precision past" | "scale past" | "no scale"

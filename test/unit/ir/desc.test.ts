@@ -98,7 +98,12 @@ import {
 } from "#test/unit/ir/desc.fixtures.ts"
 import { fail } from "#test/unit/ir/fixture.ts"
 
-/** Descriptions locates every node a JavaScript author leaves unlocated by its path, and keeps a stated location. */
+/**
+ * Descriptions locates every node a JavaScript author leaves unlocated by its path, and keeps a stated location.
+ *
+ * Budget: 300 runs and 2000 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/desc.test.ts:781 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const descriptionsLocatesEveryNodeAJavaScriptAuthorLeavesUnlocatedByItsPathAndKeepsAStatedLocation =
 	property.explore(
 		(source) => {
@@ -113,6 +118,7 @@ export const descriptionsLocatesEveryNodeAJavaScriptAuthorLeavesUnlocatedByItsPa
 		},
 		{
 			needs: {},
+			budget: { runs: 300, steered: 2000 },
 			situations: Arr.flatMap(locatedKinds, (kind): Arr.NonEmptyReadonlyArray<LocatedFeature> => [
 				`located ${kind}`,
 				`stated ${kind}`
@@ -165,7 +171,13 @@ export const descriptionsLocatesEveryNodeAJavaScriptAuthorLeavesUnlocatedByItsPa
 		}
 	)
 
-/** Descriptions keeps the order of a query's combinators: two chains are one description exactly when they are one chain. */
+/**
+ * Descriptions keeps the order of a query's combinators: two chains are one description exactly when they are one
+ * chain.
+ *
+ * Budget: 500 runs and 500 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/desc.test.ts:922 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const descriptionsKeepsTheOrderOfAQuerysCombinatorsTwoChainsAreOneDescriptionExactlyWhenTheyAreOneChain =
 	property.explore(
 		(source) => {
@@ -177,6 +189,7 @@ export const descriptionsKeepsTheOrderOfAQuerysCombinatorsTwoChainsAreOneDescrip
 		},
 		{
 			needs: {},
+			budget: { runs: 500, steered: 500 },
 			situations: [
 				"two chains told apart",
 				"two chains told apart by a take's count alone",
@@ -239,11 +252,17 @@ export const descriptionsKeepsTheOrderOfAQuerysCombinatorsTwoChainsAreOneDescrip
 		}
 	)
 
-/** Descriptions admits an Ordered exactly where a whole query stands. */
+/**
+ * Descriptions admits an Ordered exactly where a whole query stands.
+ *
+ * Budget: 200 runs and 2000 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/desc.test.ts:1127 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const descriptionsAdmitsAnOrderedExactlyWhereAWholeQueryStands = property.explore(
 	(source) => [pickFrom(queried, source.draw(pickGen)), source.draw(pickGen)] as const,
 	{
 		needs: {},
+		budget: { runs: 200, steered: 2000 },
 		situations: [
 			"a page's query",
 			"an attachment child",
@@ -277,7 +296,14 @@ export const descriptionsAdmitsAnOrderedExactlyWhereAWholeQueryStands = property
 			name: "an Ordered stands where a whole query does: a page, a child, a read-back, a program"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/desc.ts",
+				original: "\t\t\t(m) => m >= 1 && m <= allenMaskMax,",
+				replacement: "\t\t\t(m) => m >= 1 && m > allenMaskMax,",
+				why: "Operator mutant (comparison) at packages/engine/src/ir/desc.ts:1718 in <module>: `<=` becomes `>`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	}
 )
 
@@ -350,10 +376,16 @@ export const descriptionsDecodesAScaleAndAnAggregatesArgumentExactlyWhereTheirAr
 		]
 	})
 
-/** Descriptions refuses every description broken at one part or one rule, and decodes every other. */
+/**
+ * Descriptions refuses every description broken at one part or one rule, and decodes every other.
+ *
+ * Budget: 500 runs and 3000 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/desc.test.ts:1554 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const descriptionsRefusesEveryDescriptionBrokenAtOnePartOrOneRuleAndDecodesEveryOther =
 	property.explore(aimed(descCaseGen, corruptionAims), {
 		needs: {},
+		budget: { runs: 500, steered: 3000 },
 		situations: [
 			"live",
 			...Arr.map(descCorruptions, (c): CorruptedFeature<DescRule> => `${c.from} ${c.rule}`)
@@ -494,7 +526,12 @@ export const descriptionsDecodesAnInMemoryExpressionNestedToAnyDepthAndRefusesAC
 		}
 	)
 
-/** Descriptions carries bigint, Decimal, Money and Vector as tagged strings and escapes a leading tilde. */
+/**
+ * Descriptions carries bigint, Decimal, Money and Vector as tagged strings and escapes a leading tilde.
+ *
+ * Budget: 500 runs and 500 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/desc.test.ts:1848 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const descriptionsCarriesBigintDecimalMoneyAndVectorAsTaggedStringsAndEscapesALeadingTilde =
 	property.explore(
 		weighted([
@@ -503,6 +540,7 @@ export const descriptionsCarriesBigintDecimalMoneyAndVectorAsTaggedStringsAndEsc
 		]),
 		{
 			needs: {},
+			budget: { runs: 500, steered: 500 },
 			situations: [
 				"~n",
 				"~d",
@@ -549,9 +587,15 @@ export const descriptionsCarriesBigintDecimalMoneyAndVectorAsTaggedStringsAndEsc
 		}
 	)
 
-/** Descriptions round-trips generated expressions. */
+/**
+ * Descriptions round-trips generated expressions.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/desc.test.ts:1903 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const descriptionsRoundTripsGeneratedExpressions = property.explore(exprsGen, {
 	needs: {},
+	budget: { runs: 300, steered: 300 },
 	situations: ["~n", "~d", "an escaped tilde"] satisfies ReadonlyArray<Reached<TagFeature>>,
 	check: (_, c: Case<TagFeature>) => (e) =>
 		Effect.sync(() => {
@@ -580,10 +624,16 @@ export const descriptionsRoundTripsGeneratedExpressions = property.explore(exprs
 	]
 })
 
-/** Descriptions decodes an empty and or or to the constant its builder builds of no predicate. */
+/**
+ * Descriptions decodes an empty and or or to the constant its builder builds of no predicate.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/desc.test.ts:1988 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const descriptionsDecodesAnEmptyAndOrOrToTheConstantItsBuilderBuildsOfNoPredicate =
 	property.explore(emptiedGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"an empty conjunction",
 			"an empty disjunction",

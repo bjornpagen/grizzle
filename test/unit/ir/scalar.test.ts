@@ -73,12 +73,18 @@ import {
 } from "#test/unit/ir/scalar.fixtures.ts"
 import { scalarTypeGen } from "#test/unit/ir/types.ts"
 
-/** ScalarType decodes every generated type as itself, and refuses each corruption of one at the type it breaks. */
+/**
+ * ScalarType decodes every generated type as itself, and refuses each corruption of one at the type it breaks.
+ *
+ * Budget: 500 runs and 2000 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/scalar.test.ts:233 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const scalarTypeDecodesEveryGeneratedTypeAsItselfAndRefusesEachCorruptionOfOneAtTheTypeItBreaks =
 	property.explore(
 		(source) => source.draw(corrupted(source.draw(scalarTypeGen), scalarCorruptions)),
 		{
 			needs: {},
+			budget: { runs: 500, steered: 2000 },
 			situations: [
 				"live",
 				...Arr.map(scalarCorruptions, (c): CorruptedFeature<ScalarRule> => `${c.from} ${c.rule}`)
@@ -107,19 +113,25 @@ export const scalarTypeDecodesEveryGeneratedTypeAsItselfAndRefusesEachCorruption
 			kills: [
 				{
 					file: "packages/engine/src/ir/scalar-shape.ts",
-					original: "\tif (typmod.dims > vectorMaxDimensions.value) {",
-					replacement: "\tif (typmod.dims > vectorMaxDimensions.value + 1) {",
+					original: "\tif (typmod.dims > vectorMaxDimensions) {",
+					replacement: "\tif (typmod.dims > vectorMaxDimensions + 1) {",
 					why: "A vector type one dimension past vectorMaxDimensions decodes; the types property fails."
 				}
 			]
 		}
 	)
 
-/** Literals admits exactly the literals each type holds, a contract's by its base. */
+/**
+ * Literals admits exactly the literals each type holds, a contract's by its base.
+ *
+ * Budget: 3000 runs and 3000 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/scalar.test.ts:490 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const literalsAdmitsExactlyTheLiteralsEachTypeHoldsAContractsByItsBase = property.explore(
 	aimed(literalCaseGen, admittedAims),
 	{
 		needs: {},
+		budget: { runs: 3000, steered: 3000 },
 		situations: [
 			"under a contract",
 			...Arr.flatMap(
@@ -200,7 +212,12 @@ export const literalsAdmitsExactlyTheLiteralsEachTypeHoldsAContractsByItsBase = 
 	}
 )
 
-/** Literals numeric literals under a typmod admits exactly the values numeric(p, s) stores unchanged. */
+/**
+ * Literals numeric literals under a typmod admits exactly the values numeric(p, s) stores unchanged.
+ *
+ * Budget: 2000 runs and 2000 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/scalar.test.ts:596 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const literalsNumericLiteralsUnderATypmodAdmitsExactlyTheValuesNumericPSStoresUnchanged =
 	property.explore(
 		weighted<TypmodCase>([
@@ -222,6 +239,7 @@ export const literalsNumericLiteralsUnderATypmodAdmitsExactlyTheValuesNumericPSS
 		]),
 		{
 			needs: {},
+			budget: { runs: 2000, steered: 2000 },
 			situations: [
 				"an infinity refused",
 				"NaN admitted",
@@ -338,11 +356,17 @@ export const contractPredicatesNormalizesAnyAllocationToTheOneTableNumberedFromT
 		}
 	)
 
-/** Money and vector values agree with the owned Money carrier. */
+/**
+ * Money and vector values agree with the owned Money carrier.
+ *
+ * Budget: 500 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/scalar.test.ts:902 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const moneyAndVectorValuesAgreeWithTheOwnedMoneyCarrier = property.explore(
 	bigint(-(2n ** 63n), 2n ** 63n - 1n),
 	{
 		needs: {},
+		budget: { runs: 500, steered: 100 },
 		situations: ["a negative count", "a count of no sign"] satisfies ReadonlyArray<
 			Reached<"a negative count" | "a count of no sign">
 		>,
@@ -366,7 +390,12 @@ export const moneyAndVectorValuesAgreeWithTheOwnedMoneyCarrier = property.explor
 	}
 )
 
-/** Money and vector values agree with the owned Money carrier's reviver. */
+/**
+ * Money and vector values agree with the owned Money carrier's reviver.
+ *
+ * Budget: 1000 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/scalar.test.ts:902 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const moneyAndVectorValuesAgreeWithTheOwnedMoneyCarriersReviver = property.explore(
 	oneOf([
 		element([
@@ -391,6 +420,7 @@ export const moneyAndVectorValuesAgreeWithTheOwnedMoneyCarriersReviver = propert
 	]),
 	{
 		needs: {},
+		budget: { runs: 1000, steered: 200 },
 		situations: ["a payload", "no payload"] satisfies ReadonlyArray<
 			Reached<"a payload" | "no payload">
 		>,
@@ -417,11 +447,17 @@ export const moneyAndVectorValuesAgreeWithTheOwnedMoneyCarriersReviver = propert
 	}
 )
 
-/** Money and vector values agree with the Vector carrier. */
+/**
+ * Money and vector values agree with the Vector carrier.
+ *
+ * Budget: 500 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/scalar.test.ts:989 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const moneyAndVectorValuesAgreeWithTheVectorCarrier = property.explore(
 	array(float(-floatMax, floatMax), { min: 1, max: 8 }),
 	{
 		needs: {},
+		budget: { runs: 500, steered: 100 },
 		situations: ["one component", "several components"] satisfies ReadonlyArray<
 			Reached<"one component" | "several components">
 		>,
@@ -455,10 +491,16 @@ export const moneyAndVectorValuesAgreeWithTheVectorCarrier = property.explore(
 	}
 )
 
-/** Decimals admit only the canonical numeric_out text and the special values, and keep and carry it byte for byte. */
+/**
+ * Decimals admit only the canonical numeric_out text and the special values, and keep and carry it byte for byte.
+ *
+ * Budget: 2000 runs and 2000 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/scalar.test.ts:1031 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const decimalsAdmitOnlyTheCanonicalNumericOutTextAndTheSpecialValuesAndKeepAndCarryItByteForByte =
 	property.explore(texts, {
 		needs: {},
+		budget: { runs: 2000, steered: 2000 },
 		situations: ["a payload", "a special value", "no payload"] satisfies ReadonlyArray<
 			Reached<"a payload" | "a special value" | "no payload">
 		>,

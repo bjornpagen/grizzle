@@ -27,10 +27,16 @@ import {
 	reference
 } from "#test/unit/ir/scope.fixtures.ts"
 
-/** A node's scope is the definition's: the references below it no node on the way binds, and the variables they name. */
+/**
+ * A node's scope is the definition's: the references below it no node on the way binds, and the variables they name.
+ *
+ * Budget: 400 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/scope.test.ts:815 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aNodesScopeIsTheDefinitionsTheReferencesBelowItNoNodeOnTheWayBindsAndTheVariablesTheyName =
 	property.explore(population, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"a free variable",
 			"a reference to a node that is no region",

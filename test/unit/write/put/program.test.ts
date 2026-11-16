@@ -35,7 +35,13 @@ import {
 	stockFromParam
 } from "#test/unit/write/put/support.ts"
 
-/** The write program's relation parameters binds a described member's relation parameter from the caller's values, and refuses one left out or no list at its slot. */
+/**
+ * The write program's relation parameters binds a described member's relation parameter from the caller's values, and
+ * refuses one left out or no list at its slot.
+ *
+ * Budget: 200 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/write/put/program.test.ts:60 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theWriteProgramsRelationParametersBindsADescribedMembersRelationParameterFromTheCallersValuesAndRefusesOneLeftOutOrNoListAtItsSlot =
 	property.explore(
 		(source) =>
@@ -47,6 +53,7 @@ export const theWriteProgramsRelationParametersBindsADescribedMembersRelationPar
 			})),
 		{
 			needs: {},
+			budget: { runs: 200, steered: 100 },
 			situations: [
 				"every parameter given",
 				"a parameter left out",

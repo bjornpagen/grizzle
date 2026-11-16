@@ -95,10 +95,17 @@ import {
 import { everyKind, fail, heading, scalarTypes } from "#test/unit/ir/fixture.ts"
 import { generatedDags } from "#test/unit/ir/population.ts"
 
-/** Traversals of generated DAGs order every reachable node after its inputs, and close expressions over their arguments. */
+/**
+ * Traversals of generated DAGs order every reachable node after its inputs, and close expressions over their
+ * arguments.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/dag.test.ts:249 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const traversalsOfGeneratedDAGsOrderEveryReachableNodeAfterItsInputsAndCloseExpressionsOverTheirArguments =
 	property.explore(generatedDags, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: ["a shared input", "a closure past its arguments"] satisfies ReadonlyArray<
 			Reached<"a shared input" | "a closure past its arguments">
 		>,
@@ -156,10 +163,16 @@ export const traversalsOfGeneratedDAGsOrderEveryReachableNodeAfterItsInputsAndCl
 		]
 	})
 
-/** Traversals of generated DAGs handle a chain of any depth, past what the call stack holds, at every entry point. */
+/**
+ * Traversals of generated DAGs handle a chain of any depth, past what the call stack holds, at every entry point.
+ *
+ * Budget: 6 runs and 12 steered cases, what its suite stated before it became a property (test/unit/ir/dag.test.ts:316
+ * at 8cad5bce, its runs and its coverage's cases).
+ */
 export const traversalsOfGeneratedDAGsHandleAChainOfAnyDepthPastWhatTheCallStackHoldsAtEveryEntryPoint =
 	property.explore(chainDepth, {
 		needs: {},
+		budget: { runs: 6, steered: 12 },
 		situations: [
 			"a chain a recursion holds",
 			"a chain past a small stack's recursion"
@@ -241,7 +254,13 @@ export const traversalsOfGeneratedDAGsHandleAChainOfAnyDepthPastWhatTheCallStack
 		]
 	})
 
-/** ValidateDag over a DAG of direct references refuses two distinct nodes, or two distinct expressions, under one label, wherever they stand. */
+/**
+ * ValidateDag over a DAG of direct references refuses two distinct nodes, or two distinct expressions, under one
+ * label, wherever they stand.
+ *
+ * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/dag.test.ts:424 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const validateDagOverADAGOfDirectReferencesRefusesTwoDistinctNodesOrTwoDistinctExpressionsUnderOneLabelWhereverTheyStand =
 	property.explore(
 		(source) =>
@@ -253,6 +272,7 @@ export const validateDagOverADAGOfDirectReferencesRefusesTwoDistinctNodesOrTwoDi
 			] as const,
 		{
 			needs: {},
+			budget: { runs: 100, steered: 100 },
 			situations: ["two nodes", "two expressions"] satisfies ReadonlyArray<Reached<Clash>>,
 			check:
 				(_, c: Case<Clash>) =>
@@ -317,7 +337,12 @@ export const validateDagOverADAGOfDirectReferencesRefusesTwoDistinctNodesOrTwoDi
 		}
 	)
 
-/** DagDigest ignores allocation order, label spelling and source locations. */
+/**
+ * DagDigest ignores allocation order, label spelling and source locations.
+ *
+ * Budget: 200 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/dag.test.ts:515 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const dagDigestIgnoresAllocationOrderLabelSpellingAndSourceLocations = property.explore(
 	(source) => ({
 		invariance: source.draw(element(invariances)),
@@ -332,6 +357,7 @@ export const dagDigestIgnoresAllocationOrderLabelSpellingAndSourceLocations = pr
 	}),
 	{
 		needs: {},
+		budget: { runs: 200, steered: 100 },
 		situations: invariances satisfies ReadonlyArray<Reached<Invariance>>,
 		check:
 			(_, c: Case<Invariance>) =>
@@ -388,9 +414,15 @@ export const dagDigestIgnoresAllocationOrderLabelSpellingAndSourceLocations = pr
 	}
 )
 
-/** DagDigest changes with any semantic change. */
+/**
+ * DagDigest changes with any semantic change.
+ *
+ * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/dag.test.ts:585 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const dagDigestChangesWithAnySemanticChange = property.explore(labelled, {
 	needs: {},
+	budget: { runs: 100, steered: 100 },
 	situations: ["a literal changed", "another domain", "the roots reversed"] satisfies ReadonlyArray<
 		Reached<Change>
 	>,
@@ -429,7 +461,12 @@ export const dagDigestChangesWithAnySemanticChange = property.explore(labelled, 
 	]
 })
 
-/** NormalizeDag renames positionally, ignores label spelling, and gives a table the re-reader accepts. */
+/**
+ * NormalizeDag renames positionally, ignores label spelling, and gives a table the re-reader accepts.
+ *
+ * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/dag.test.ts:794 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const normalizeDagRenamesPositionallyIgnoresLabelSpellingAndGivesATableTheReReaderAccepts =
 	property.explore(
 		(source) =>
@@ -444,6 +481,7 @@ export const normalizeDagRenamesPositionallyIgnoresLabelSpellingAndGivesATableTh
 			] as const,
 		{
 			needs: {},
+			budget: { runs: 100, steered: 100 },
 			situations: ["several roots", "a shared input"] satisfies ReadonlyArray<
 				Reached<NormalFeature>
 			>,

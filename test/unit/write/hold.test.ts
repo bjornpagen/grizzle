@@ -47,10 +47,17 @@ import {
 	whyField
 } from "#test/unit/write/hold.fixtures.ts"
 
-/** A write over a retirable unit is refused at a group it does not state, and otherwise holds every group it touches before it touches it. */
+/**
+ * A write over a retirable unit is refused at a group it does not state, and otherwise holds every group it touches
+ * before it touches it.
+ *
+ * Budget: 400 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/write/hold.test.ts:402 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aWriteOverARetirableUnitIsRefusedAtAGroupItDoesNotStateAndOtherwiseHoldsEveryGroupItTouchesBeforeItTouchesIt =
 	property.explore(drawnGen, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"refused: unbound",
 			"refused: written",

@@ -26,10 +26,17 @@ import { succeeded } from "#test/support/assert.ts"
 import { entries, judged, type JudgedFeature } from "#test/unit/lower/catalog/reference.fixtures.ts"
 import { agrees } from "#test/unit/lower/rewrite/support.ts"
 
-/** The catalog's rewrites against their compositions, by the reference deliver one keyed set of rows over drawn lab facts. */
+/**
+ * The catalog's rewrites against their compositions, by the reference deliver one keyed set of rows over drawn lab
+ * facts.
+ *
+ * Budget: 60 runs and 60 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/catalog/reference.test.ts:56 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theCatalogsRewritesAgainstTheirCompositionsByTheReferenceDeliverOneKeyedSetOfRowsOverDrawnLabFacts =
 	property.explore(factsGen, {
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: judged satisfies ReadonlyArray<Reached<JudgedFeature>>,
 		check: (_, c: Case<JudgedFeature>) => (facts) =>
 			Effect.sync(() => {

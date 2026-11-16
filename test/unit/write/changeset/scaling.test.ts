@@ -66,7 +66,13 @@ export const aChangeSetBuilderStepReadsOnlyWhatItAddsBuildsAFixedNumberOfContain
 		}
 	)
 
-/** A ChangeSet builder step reads only what it adds assembles the Description the whole decode gives, over generated programs. */
+/**
+ * A ChangeSet builder step reads only what it adds assembles the Description the whole decode gives, over generated
+ * programs.
+ *
+ * Budget: 300 runs and 0 steered cases, what its suite stated before it became a property
+ * (test/unit/write/changeset/scaling.test.ts:318 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aChangeSetBuilderStepReadsOnlyWhatItAddsAssemblesTheDescriptionTheWholeDecodeGivesOverGeneratedPrograms =
 	property.explore(
 		(source) =>
@@ -75,6 +81,7 @@ export const aChangeSetBuilderStepReadsOnlyWhatItAddsAssemblesTheDescriptionTheW
 			),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 0 },
 			situations: [],
 			check: () => (ops) =>
 				Effect.sync(() => {
@@ -87,6 +94,15 @@ export const aChangeSetBuilderStepReadsOnlyWhatItAddsAssemblesTheDescriptionTheW
 				name: "the whole decode of the Description, the old path, with its keys' order"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/write/changeset/value.ts",
+					original:
+						"\tconst { top, x, y, bound, decoder } = combined(label, a, b, extra)\n\tconst reads = distinctReads(label, [...x.reads, ...y.reads])\n\treturn make(top, canonicalStrata([...x.strata, ...y.strata]), reads, bound, decoder)",
+					replacement:
+						"\tconst { top, x, y, bound, decoder } = combined(label, a, b, extra)\n\tconst reads = distinctReads(label, [...x.reads])\n\treturn make(top, canonicalStrata([...x.strata, ...y.strata]), reads, bound, decoder)",
+					why: "Operator mutant (element) at packages/engine/src/write/changeset/value.ts:1250 in sequenceOf: `[...x.reads, ...y.reads]` becomes `[...x.reads]`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)

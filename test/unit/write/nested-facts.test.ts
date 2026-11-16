@@ -40,10 +40,17 @@ import {
 	Sequenced
 } from "#test/unit/write/nested-facts.fixtures.ts"
 
-/** A nested addition's facts bind exactly when every fact states its caller's fields alone, refusing a drawn, accumulated or foreign field at any depth. */
+/**
+ * A nested addition's facts bind exactly when every fact states its caller's fields alone, refusing a drawn,
+ * accumulated or foreign field at any depth.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/write/nested-facts.test.ts:167 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aNestedAdditionsFactsBindExactlyWhenEveryFactStatesItsCallersFieldsAloneRefusingADrawnAccumulatedOrForeignFieldAtAnyDepth =
 	property.explore(additionsGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"the owner states its accumulated end",
 			"a member states its drawn index",

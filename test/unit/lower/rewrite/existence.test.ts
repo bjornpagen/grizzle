@@ -190,12 +190,19 @@ export const setComparisonsNeedAPhysicallyUniqueLeftInputAKeyedLeftInputAdmitsTh
 		}
 	)
 
-/** Scope an occurrence over a correlated source, or whose source another occurrence reads laterally, stays in its region. */
+/**
+ * Scope an occurrence over a correlated source, or whose source another occurrence reads laterally, stays in its
+ * region.
+ *
+ * Budget: 150 runs and 450 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/rewrite/existence.test.ts:349 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const scopeAnOccurrenceOverACorrelatedSourceOrWhoseSourceAnotherOccurrenceReadsLaterallyStaysInItsRegion =
 	guardSearch<
 		| "a scoped occurrence stayed in its region"
 		| "an existence-only occurrence over a correlated source"
 	>({
+		runs: 150,
 		passes: [existencePass],
 		evidence: "snapshot",
 		situations: [

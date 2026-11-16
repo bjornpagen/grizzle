@@ -31,10 +31,17 @@ import {
 } from "#test/unit/lower/shapes/relparam.fixtures.ts"
 import { parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
-/** A write's enumerated members lower to arrays, and an input of any count binds every statement with no refusal, each array carrying every fact. */
+/**
+ * A write's enumerated members lower to arrays, and an input of any count binds every statement with no refusal, each
+ * array carrying every fact.
+ *
+ * Budget: 2 runs and 6 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/shapes/relparam.test.ts:66 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aWritesEnumeratedMembersLowerToArraysAndAnInputOfAnyCountBindsEveryStatementWithNoRefusalEachArrayCarryingEveryFact =
 	property.explore(factCount, {
 		needs: {},
+		budget: { runs: 2, steered: 6 },
 		situations: ["a few facts", "a hundred thousand facts or more"] satisfies ReadonlyArray<
 			Reached<CountFeature>
 		>,
@@ -85,9 +92,9 @@ export const aWritesEnumeratedMembersLowerToArraysAndAnInputOfAnyCountBindsEvery
 			{
 				file: "packages/engine/src/codec/recordset.ts",
 				original:
-					"\t\tcolumnLiteral(input, column, facts, (fact) => codec.text(fact[column]), maxStringLength.value)",
+					"\t\tcolumnLiteral(input, column, facts, (fact) => codec.text(fact[column]), maxStringLength)",
 				replacement:
-					"\t\tcolumnLiteral(input, column, facts, (fact) => codec.text(fact[column]), facts.length > 65_535 ? 0 : maxStringLength.value)",
+					"\t\tcolumnLiteral(input, column, facts, (fact) => codec.text(fact[column]), facts.length > 65_535 ? 0 : maxStringLength)",
 				why: "A member column of more than 65,535 facts is refused by an invented bound, its array's longest literal taken as zero; the search fails."
 			}
 		]

@@ -37,10 +37,17 @@ import { decodedSchema } from "#test/support/fixtures/ir/desc.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { type Feature, pairGen, pairs, spell } from "#test/unit/derived/install.fixtures.ts"
 
-/** Derived relation view columns refuse two head names converting to one column identifier, and install names converting apart. */
+/**
+ * Derived relation view columns refuse two head names converting to one column identifier, and install names
+ * converting apart.
+ *
+ * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/derived/install.test.ts:185 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const derivedRelationViewColumnsRefuseTwoHeadNamesConvertingToOneColumnIdentifierAndInstallNamesConvertingApart =
 	property.explore(pairGen, {
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: [
 			"a collision of one word's spellings",
 			"a collision of several words' spellings",

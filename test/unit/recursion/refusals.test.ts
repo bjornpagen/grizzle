@@ -825,10 +825,17 @@ export const unboundedComputedStateThroughACorrelatedImportRefusesACounterLaunde
 		}
 	)
 
-/** The seen-state estimate counts a countdown's states from its seed to its bound and admits every estimate, and refuses the step over a seed that may be bigint's least value. */
+/**
+ * The seen-state estimate counts a countdown's states from its seed to its bound and admits every estimate, and
+ * refuses the step over a seed that may be bigint's least value.
+ *
+ * Budget: 64 runs and 32 steered cases, what its suite stated before it became a property
+ * (test/unit/recursion/refusals.test.ts:1419 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theSeenStateEstimateCountsACountdownsStatesFromItsSeedToItsBoundAndAdmitsEveryEstimateAndRefusesTheStepOverASeedThatMayBeBigintsLeastValue =
 	property.explore(seedGen, {
 		needs: {},
+		budget: { runs: 64, steered: 32 },
 		situations: [
 			"admitted from zero or above",
 			"admitted from below zero",

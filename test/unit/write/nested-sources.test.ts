@@ -27,10 +27,16 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property as propertyOf } from "@bjornpagen/testing/property"
 import { type Feature, property, sketchGen } from "#test/unit/write/nested-sources.fixtures.ts"
 
-/** A write's nested sources send every statement the bytes it sends as its flight's only statement, inline and staged. */
+/**
+ * A write's nested sources send every statement the bytes it sends as its flight's only statement, inline and staged.
+ *
+ * Budget: 64 runs and 48 steered cases, what its suite stated before it became a property
+ * (test/unit/write/nested-sources.test.ts:321 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aWritesNestedSourcesSendEveryStatementTheBytesItSendsAsItsFlightsOnlyStatementInlineAndStaged =
 	propertyOf.explore(sketchGen, {
 		needs: {},
+		budget: { runs: 64, steered: 48 },
 		situations: [
 			"several sources in one stratum",
 			"a statement inline",
@@ -44,5 +50,20 @@ export const aWritesNestedSourcesSendEveryStatementTheBytesItSendsAsItsFlightsOn
 			name: "each statement's executions bound alone in a flight of its own"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/runtime/write/bind.ts",
+				original:
+					"\tconst sources = new TupleMap<readonly [StratumAt, StoredRelationName], NestedSource>()\n\tfor (const statement of flight.statements) {\n\t\tfor (const slot of form(statement).paramSlots) {\n\t\t\tif (slot.kind === \"nestedRows\" && !sources.has([slot.stratum, slot.relation])) {\n\t\t\t\tsources.set(\n\t\t\t\t\t[slot.stratum, slot.relation],\n\t\t\t\t\tnestedSource(nestedCellsOf(nestedRowsOf, slot.stratum, slot.relation))\n\t\t\t\t)\n\t\t\t}\n\t\t}\n\t}\n\t/**\n\t * The executions under `transport` of a statement no family step plans, each member slot's facts by `slotFacts`: its\n\t * one, or, where its nested rows' arrays are past the transport's message, its staged form's (`Chunks`); each\n\t * placeholder of nested rows sends its source as the write built it (`sources`).\n\t */\n\tconst statementChunks = (\n\t\tstatement: FlightStatement,\n\t\ttransport: Transport,\n\t\tslotFacts: (slot: ParamId) => NormalizedSlot\n\t): Result.Result<ReadonlyArray<Execution>, EncodingFailure | LiteralBound | FamilyRowBound> => {\n\t\tconst sent = form(statement)\n\t\tconst nested = sent.paramSlots.map((slot): NestedPlaceholder | undefined =>\n\t\t\tslot.kind === \"nestedRows\"\n\t\t\t\t? {\n\t\t\t\t\t\tpart: slot.part,\n\t\t\t\t\t\tsource: defined(\n\t\t\t\t\t\t\tsources.get([slot.stratum, slot.relation]),",
+				replacement:
+					"\tconst sources = new TupleMap<readonly [StratumAt], NestedSource>()\n\tfor (const statement of flight.statements) {\n\t\tfor (const slot of form(statement).paramSlots) {\n\t\t\tif (slot.kind === \"nestedRows\" && !sources.has([slot.stratum])) {\n\t\t\t\tsources.set(\n\t\t\t\t\t[slot.stratum],\n\t\t\t\t\tnestedSource(nestedCellsOf(nestedRowsOf, slot.stratum, slot.relation))\n\t\t\t\t)\n\t\t\t}\n\t\t}\n\t}\n\t/**\n\t * The executions under `transport` of a statement no family step plans, each member slot's facts by `slotFacts`: its\n\t * one, or, where its nested rows' arrays are past the transport's message, its staged form's (`Chunks`); each\n\t * placeholder of nested rows sends its source as the write built it (`sources`).\n\t */\n\tconst statementChunks = (\n\t\tstatement: FlightStatement,\n\t\ttransport: Transport,\n\t\tslotFacts: (slot: ParamId) => NormalizedSlot\n\t): Result.Result<ReadonlyArray<Execution>, EncodingFailure | LiteralBound | FamilyRowBound> => {\n\t\tconst sent = form(statement)\n\t\tconst nested = sent.paramSlots.map((slot): NestedPlaceholder | undefined =>\n\t\t\tslot.kind === \"nestedRows\"\n\t\t\t\t? {\n\t\t\t\t\t\tpart: slot.part,\n\t\t\t\t\t\tsource: defined(\n\t\t\t\t\t\t\tsources.get([slot.stratum]),",
+				why: "A write's nested sources are keyed by stratum alone, so two relations' nested rows in one stratum share one source and a statement sends another relation's cells (runtime/write/bind.ts), the recorded plant nested-sources-keyed-by-stratum."
+			},
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original: "\t\t\t\t\t\t\t\t\t!writtenOf(f.owner.name, loc).mutable &&",
+				replacement: "\t\t\t\t\t\t\t\t\twrittenOf(f.owner.name, loc).mutable &&",
+				why: "Operator mutant (negation) at packages/engine/src/write/frontend/compile.ts:1398 in compile: `!writtenOf(f.owner.name, loc).mutable` becomes `writtenOf(f.owner.name, loc).mutable`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

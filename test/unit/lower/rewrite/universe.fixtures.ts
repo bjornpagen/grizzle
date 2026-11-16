@@ -166,6 +166,9 @@ export const exhaustUpTo = (spec: {
  * The plans of `grammar` up to three operators under every variant of `among`, searched: each case's plan preserves its
  * delivery as an exhausted one does, and the search must reach every operator of the core grammar as the third and
  * every context; `kept` and `kills` are the calling property's.
+ *
+ * Its budget is what this search stated before it built a property: 200 runs and 400 steered cases
+ * (test/unit/lower/rewrite/universe.test.ts:215-218 at 8cad5bce).
  */
 export const searchDepthThree = (spec: {
 	readonly grammar: Grammar
@@ -180,6 +183,7 @@ export const searchDepthThree = (spec: {
 			[source.draw(element(among)), source.draw(plansUpTo(grammar, 3))] as const,
 		{
 			needs: {},
+			budget: { runs: 200, steered: 400 },
 			situations: [
 				...Arr.map(coreSteps, (op): UniverseFeature => `${op} at depth three`),
 				"context snapshot",

@@ -105,7 +105,12 @@ export const rebuildingFromADescriptionKeepsTheAttachmentNamesOfARebuiltQueryRef
 		}
 	)
 
-/** Rebuilding from a Description types a rebuilt recursive row under the schema's rosters, as the original was typed. */
+/**
+ * Rebuilding from a Description types a rebuilt recursive row under the schema's rosters, as the original was typed.
+ *
+ * Budget: 60 runs and 60 steered cases, what its suite stated before it became a property
+ * (test/unit/query/roundtrip.test.ts:545 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const rebuildingFromADescriptionTypesARebuiltRecursiveRowUnderTheSchemasRostersAsTheOriginalWasTyped =
 	property.explore(
 		weighted([
@@ -114,6 +119,7 @@ export const rebuildingFromADescriptionTypesARebuiltRecursiveRowUnderTheSchemasR
 		]),
 		{
 			needs: {},
+			budget: { runs: 60, steered: 60 },
 			situations: ["a roster handle", "no handle"] satisfies ReadonlyArray<Reached<Handle>>,
 			check: (_, c: Case<Handle>) => (handle) =>
 				Effect.sync(() => {
@@ -151,10 +157,17 @@ export const rebuildingFromADescriptionTypesARebuiltRecursiveRowUnderTheSchemasR
 		}
 	)
 
-/** Generated queries over the worked example's schema decode, are canonical and deterministic, and rebuild to the same query. */
+/**
+ * Generated queries over the worked example's schema decode, are canonical and deterministic, and rebuild to the same
+ * query.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/query/roundtrip.test.ts:604 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const generatedQueriesOverTheWorkedExamplesSchemaDecodeAreCanonicalAndDeterministicAndRebuildToTheSameQuery =
 	property.explore(generatedChains(work), {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: chainFeatures satisfies ReadonlyArray<Reached<ChainFeature>>,
 		check: (_, c: Case<ChainFeature>) => (value) => chainRoundTrip(work)(value, c),
 		oracle: {
@@ -172,10 +185,16 @@ export const generatedQueriesOverTheWorkedExamplesSchemaDecodeAreCanonicalAndDet
 		]
 	})
 
-/** Generated queries over spans decode, are canonical and deterministic, and rebuild to the same query. */
+/**
+ * Generated queries over spans decode, are canonical and deterministic, and rebuild to the same query.
+ *
+ * Budget: 150 runs and 150 steered cases, what its suite stated before it became a property
+ * (test/unit/query/roundtrip.test.ts:630 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const generatedQueriesOverSpansDecodeAreCanonicalAndDeterministicAndRebuildToTheSameQuery =
 	property.explore(generatedChains(spans), {
 		needs: {},
+		budget: { runs: 150, steered: 150 },
 		situations: chainFeatures satisfies ReadonlyArray<Reached<ChainFeature>>,
 		check: (_, c: Case<ChainFeature>) => (value) => chainRoundTrip(spans)(value, c),
 		oracle: {

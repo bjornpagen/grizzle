@@ -25,10 +25,16 @@ import {
 	situations
 } from "#test/unit/write/program/binding.fixtures.ts"
 
-/** A compiled write's binding holds the law model's judgments, and binds by its slice as by the whole. */
+/**
+ * A compiled write's binding holds the law model's judgments, and binds by its slice as by the whole.
+ *
+ * Budget: 60 runs and 120 steered cases, what its suite stated before it became a property
+ * (test/unit/write/program/binding.test.ts:177 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aCompiledWritesBindingHoldsTheLawModelsJudgmentsAndBindsByItsSliceAsByTheWhole =
 	propertyOf.explore(caseGen, {
 		needs: {},
+		budget: { runs: 60, steered: 120 },
 		situations: situations satisfies ReadonlyArray<Reached<BindingSituation>>,
 		check: (_, at: Case<BindingSituation>) => (c) => property(c, (s) => at.note(s)),
 		oracle: {

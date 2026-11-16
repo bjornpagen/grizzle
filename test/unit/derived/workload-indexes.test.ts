@@ -57,7 +57,13 @@ import {
 	viewIndexes
 } from "#test/unit/derived/workload-indexes.fixtures.ts"
 
-/** Workload indexes on a derived relation index a view column, its key on its key index, a computed numeric's by its proved bound, and defer them with a view not installed. */
+/**
+ * Workload indexes on a derived relation index a view column, its key on its key index, a computed numeric's by its
+ * proved bound, and defer them with a view not installed.
+ *
+ * Budget: 40 runs and 60 steered cases, what its suite stated before it became a property
+ * (test/unit/derived/workload-indexes.test.ts:218 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const workloadIndexesOnADerivedRelationIndexAViewColumnItsKeyOnItsKeyIndexAComputedNumericsByItsProvedBoundAndDeferThemWithAViewNotInstalled =
 	property.explore(
 		(source): IndexCase => ({
@@ -66,6 +72,7 @@ export const workloadIndexesOnADerivedRelationIndexAViewColumnItsKeyOnItsKeyInde
 		}),
 		{
 			needs: {},
+			budget: { runs: 40, steered: 60 },
 			situations: [
 				"an index of a column",
 				"the key's own index",
@@ -145,7 +152,13 @@ export const workloadIndexesOnADerivedRelationIndexAViewColumnItsKeyOnItsKeyInde
 		}
 	)
 
-/** Workload indexes on a derived relation build a later program's view index concurrently, and create every one again after the view a redefinition recreates. */
+/**
+ * Workload indexes on a derived relation build a later program's view index concurrently, and create every one again
+ * after the view a redefinition recreates.
+ *
+ * Budget: 30 runs and 60 steered cases, what its suite stated before it became a property
+ * (test/unit/derived/workload-indexes.test.ts:311 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const workloadIndexesOnADerivedRelationBuildALaterProgramsViewIndexConcurrentlyAndCreateEveryOneAgainAfterTheViewARedefinitionRecreates =
 	property.explore(
 		(source): DraftCase => ({
@@ -154,6 +167,7 @@ export const workloadIndexesOnADerivedRelationBuildALaterProgramsViewIndexConcur
 		}),
 		{
 			needs: {},
+			budget: { runs: 30, steered: 60 },
 			situations: [
 				"an index built concurrently",
 				"an index after its recreated view",

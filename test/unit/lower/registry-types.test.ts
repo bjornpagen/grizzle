@@ -29,7 +29,13 @@ import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { checkedLowering } from "#test/support/oracle/verify/index.ts"
 import { registryTyped, type RootFeature } from "#test/unit/lower/registry-types.fixtures.ts"
 
-/** The scalar types of lowered statements are the registry's: every plain or wildcard-text result column of both artifacts is its carrier's one type. */
+/**
+ * The scalar types of lowered statements are the registry's: every plain or wildcard-text result column of both
+ * artifacts is its carrier's one type.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/registry-types.test.ts:69 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theScalarTypesOfLoweredStatementsAreTheRegistrysEveryPlainOrWildcardTextResultColumnOfBothArtifactsIsItsCarriersOneType =
 	property.explore(
 		queryCaseGen({
@@ -46,6 +52,7 @@ export const theScalarTypesOfLoweredStatementsAreTheRegistrysEveryPlainOrWildcar
 		}),
 		{
 			needs: {},
+			budget: { runs: 200, steered: 200 },
 			situations: ["plain root", "attached root", "heterogeneous union"] satisfies ReadonlyArray<
 				Reached<RootFeature>
 			>,

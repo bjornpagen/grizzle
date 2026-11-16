@@ -18,10 +18,17 @@ import { statementGen } from "#test/support/kernel/sqlgen.ts"
 import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
 import { leaves, marker } from "#test/unit/sql/transform.fixtures.ts"
 
-/** The SQL AST traversals keep an unchanged statement, and rebuild exactly the changed leaf of every generated statement. */
+/**
+ * The SQL AST traversals keep an unchanged statement, and rebuild exactly the changed leaf of every generated
+ * statement.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/transform.test.ts:55 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theSQLASTTraversalsKeepAnUnchangedStatementAndRebuildExactlyTheChangedLeafOfEveryGeneratedStatement =
 	property.explore(statementGen(sqlCatalog), {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"statement select",
 			"statement insert",

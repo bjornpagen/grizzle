@@ -166,10 +166,17 @@ export const theBoundedUnionConsumedInsideAStatementBoundsEveryArmByKDeduplicati
 		}
 	)
 
-/** The runtime merge of heading groups keeps the first k of every group's rows under the common order, NaN above all and the roster breaking ties. */
+/**
+ * The runtime merge of heading groups keeps the first k of every group's rows under the common order, NaN above all
+ * and the roster breaking ties.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/shapes/union.test.ts:391 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theRuntimeMergeOfHeadingGroupsKeepsTheFirstKOfEveryGroupsRowsUnderTheCommonOrderNaNAboveAllAndTheRosterBreakingTies =
 	property.explore(mergeCaseGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: ["every row", "first k", "a NaN", "descending"] satisfies ReadonlyArray<
 			Reached<"every row" | "first k" | "a NaN" | "descending">
 		>,
@@ -226,10 +233,16 @@ export const theRuntimeMergeOfHeadingGroupsKeepsTheFirstKOfEveryGroupsRowsUnderT
 		]
 	})
 
-/** The runtime merge of heading groups compares exact decimals by value, whatever their scale. */
+/**
+ * The runtime merge of heading groups compares exact decimals by value, whatever their scale.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/shapes/union.test.ts:497 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theRuntimeMergeOfHeadingGroupsComparesExactDecimalsByValueWhateverTheirScale =
 	property.explore(decimalPairs, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: ["equal at different scales", "ordered"] satisfies ReadonlyArray<
 			Reached<"equal at different scales" | "ordered">
 		>,

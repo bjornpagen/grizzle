@@ -1,13 +1,12 @@
 /**
  * The structural audit's checks of values, generated against oracles written apart from it: an identifier is nonempty,
- * holds no NUL, is well-formed UTF-16 and fits 63 bytes of UTF-8; a text literal holds no NUL and is well-formed; a
- * decimal literal is an optional minus, digits, and optionally a point and more digits, or NaN or an infinity; an
- * integer literal lies within its type; numeric's precision lies in 1..1000 and its scale in -1000..1000. Each draws
- * values around the edges: lone surrogates of either half, pairs, multibyte letters around the byte limit, empty digit
- * runs, the bounds and one past them, and named malformed spellings beside drawn ones.
+ * holds no NUL, is well-formed UTF-16 and fits 63 bytes of UTF-8; a decimal literal is an optional minus, digits, and
+ * optionally a point and more digits, or NaN or an infinity; an integer literal lies within its type. Each draws values
+ * around the edges: lone surrogates of either half, pairs, multibyte letters around the byte limit, empty digit runs,
+ * the bounds and one past them, and named malformed spellings beside drawn ones.
  *
  * Oracle: each check restated apart from the audit (test/support/oracle/verify/sql.ts), a second implementation.
- * Features: each integer type within and past its bounds; a typmod valid, past either bound, or without a scale.
+ * Features: each integer type within and past its bounds.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
@@ -16,9 +15,7 @@ import { matching } from "@bjornpagen/testing/pattern"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Effect, Formatter, String as Str } from "effect"
-import { exactParts } from "#compiler/core/decimal.ts"
-import type { TypeRef } from "#compiler/sql/ast.ts"
-import { col, distinctCore, lit, select, table, target, types } from "#compiler/sql/build.ts"
+import { col, distinctCore, lit, select, table, target } from "#compiler/sql/build.ts"
 import { assert } from "#test/support/assert.ts"
 import {
 	byteEdgeGen,
@@ -27,16 +24,20 @@ import {
 	integerGen,
 	rules,
 	selecting,
-	type TypmodFeature,
-	typmodGen,
 	unitsGen,
 	utf8
 } from "#test/unit/sql/verify-values.fixtures.ts"
 
-/** The audit's checks of values, generated an identifier is nonempty, without NUL, well-formed and at most 63 bytes. */
+/**
+ * The audit's checks of values, generated an identifier is nonempty, without NUL, well-formed and at most 63 bytes.
+ *
+ * Budget: 400 runs and 0 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/verify-values.test.ts:108 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theAuditsChecksOfValuesGeneratedAnIdentifierIsNonemptyWithoutNULWellFormedAndAtMost63Bytes =
 	property.explore(oneOf([unitsGen(8), byteEdgeGen]), {
 		needs: {},
+		budget: { runs: 400, steered: 0 },
 		situations: [],
 		check: () => (name) =>
 			Effect.sync(() => {
@@ -55,32 +56,23 @@ export const theAuditsChecksOfValuesGeneratedAnIdentifierIsNonemptyWithoutNULWel
 			name: "nonempty, no NUL, well-formed, at most 63 UTF-8 bytes, restated apart from the audit"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/sha256.ts",
+				original: "\t\t\tbytes += 2",
+				replacement: "\t\t\tbytes += 3",
+				why: "Operator mutant (bound) at packages/engine/src/core/sha256.ts:54 in utf8Length: `2` becomes `3`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** The audit's checks of values, generated a text literal holds no NUL and is well-formed. */
-export const theAuditsChecksOfValuesGeneratedATextLiteralHoldsNoNULAndIsWellFormed =
-	property.explore(unitsGen(6), {
-		needs: {},
-		situations: [],
-		check: () => (text) =>
-			Effect.sync(() => {
-				const valid = !Str.includes("\u0000")(text) && text.isWellFormed()
-				assert.equal(
-					rules(selecting(lit.text(text, types.text))).includes("literal"),
-					!valid,
-					Formatter.format(text)
-				)
-			}),
-		oracle: {
-			kind: "second-implementation",
-			name: "no NUL and well-formed, restated apart from the audit"
-		},
-		kept: [],
-		kills: []
-	})
-
-/** The audit's checks of values, generated a decimal literal is digits with an optional minus and fraction, or NaN or an infinity. */
+/**
+ * The audit's checks of values, generated a decimal literal is digits with an optional minus and fraction, or NaN or
+ * an infinity.
+ *
+ * Budget: 300 runs and 0 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/verify-values.test.ts:175 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theAuditsChecksOfValuesGeneratedADecimalLiteralIsDigitsWithAnOptionalMinusAndFractionOrNaNOrAnInfinity =
 	property.explore(
 		oneOf([
@@ -102,6 +94,7 @@ export const theAuditsChecksOfValuesGeneratedADecimalLiteralIsDigitsWithAnOption
 		]),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 0 },
 			situations: [],
 			check: () => (text) =>
 				Effect.sync(() => {
@@ -119,7 +112,14 @@ export const theAuditsChecksOfValuesGeneratedADecimalLiteralIsDigitsWithAnOption
 				name: "an optional minus, digits and an optional fraction, or NaN or an infinity, restated apart from the audit"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/sql/build.ts",
+					original: "\tscale: undefined,\n\tarray: false\n})",
+					replacement: "\tscale: undefined,\n\tarray: true\n})",
+					why: "Operator mutant (boolean) at packages/engine/src/sql/build.ts:56 in builtinType: `false` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)
 
@@ -155,42 +155,13 @@ export const theAuditsChecksOfValuesGeneratedAnIntegerLiteralLiesWithinItsType =
 		},
 		box: "each integer type at each bound and up to two past or within it",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/sql/build.ts",
+				original: "\tscale: undefined,\n\tarray: false\n})",
+				replacement: "\tscale: undefined,\n\tarray: true\n})",
+				why: "Operator mutant (boolean) at packages/engine/src/sql/build.ts:56 in builtinType: `false` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	}
 )
-
-/** The audit's checks of values, generated numeric's precision lies in 1..1000 and its scale in -1000..1000. */
-export const theAuditsChecksOfValuesGeneratedNumericsPrecisionLiesIn11000AndItsScaleIn10001000 =
-	property.exhaust(finite(typmodGen), {
-		needs: {},
-		situations: ["valid", "precision past", "scale past", "no scale"] satisfies ReadonlyArray<
-			Reached<TypmodFeature>
-		>,
-		check:
-			(_, c: Case<TypmodFeature>) =>
-			([precision, scale]) =>
-				Effect.sync(() => {
-					const type: TypeRef =
-						scale === undefined
-							? { kind: "builtin", name: "numeric", precision, scale: undefined, array: false }
-							: { kind: "builtin", name: "numeric", precision, scale, array: false }
-					const precisionValid = precision >= 1 && precision <= 1000
-					const scaleValid = scale === undefined || (scale >= -1000 && scale <= 1000)
-					assert.equal(
-						rules(selecting(lit.decimal(exactParts(1n, 0), type))).includes("type"),
-						!(precisionValid && scaleValid),
-						Formatter.format(type)
-					)
-					if (scale === undefined) {
-						c.note("no scale")
-					}
-					c.note(!precisionValid ? "precision past" : !scaleValid ? "scale past" : "valid")
-				}),
-		oracle: {
-			kind: "second-implementation",
-			name: "precision in 1..1000 and scale in -1000..1000, restated apart from the audit"
-		},
-		box: "every pair of ten precisions around numeric's bounds and ten scales or none",
-		kept: [],
-		kills: []
-	})

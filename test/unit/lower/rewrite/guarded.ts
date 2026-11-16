@@ -209,6 +209,9 @@ type Passes = ReadonlyArray<Pass<LogicalQuery, LogicalQuery>>
  * the pass's own guard over the case, its input and what the passes made of it, and notes what it judged. The search
  * must reach `situations`, steered toward them by the notes, a case aimed at a pending situation of `aims` drawn from
  * the population narrowed to the forms beside it (support.ts narrowedTo); `kept` and `kills` are the calling property's.
+ *
+ * Its budget is the calling property's `runs`, and three times as many steered cases while a situation is unreached,
+ * as this harness searched before it built a property (guarded.ts:209-227 at 8cad5bce: `cases: 3 * spec.runs`).
  */
 export const guardSearch = <const F extends string>(spec: {
 	readonly passes: Passes
@@ -218,6 +221,7 @@ export const guardSearch = <const F extends string>(spec: {
 		readonly [Reached<GuardFeature | F>, Arr.NonEmptyReadonlyArray<QueryForm>]
 	>
 	readonly holds: (q: QueryCase, input: LogicalQuery, ran: Ran, c: Case<GuardFeature | F>) => void
+	readonly runs: number
 	readonly kept: ReadonlyArray<Kept>
 	readonly kills: ReadonlyArray<Kill>
 }): Property =>
@@ -232,6 +236,7 @@ export const guardSearch = <const F extends string>(spec: {
 		),
 		{
 			needs: {},
+			budget: { runs: spec.runs, steered: 3 * spec.runs },
 			situations: spec.situations,
 			check: (_, c: Case<GuardFeature | F>) => (sketch) =>
 				Effect.sync(() => {

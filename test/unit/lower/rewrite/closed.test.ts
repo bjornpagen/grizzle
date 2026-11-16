@@ -252,6 +252,13 @@ export const r07BesideALateralReadKeepsAClosedOccurrenceWhoseSourceAnotherOccurr
 			},
 			box: "a region of the roster Kind, a task binding its kind to the roster's id or not, and a task whose kind is fixed to nothing, the first task's kind or the roster's id",
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/lower/optimize/closed/index.ts",
+					original: "\tif (bound.length === 1 && fixed.length === 0 && binding !== undefined) {",
+					replacement: "\tif (bound.length === 0 && fixed.length === 0 && binding !== undefined) {",
+					why: "Operator mutant (bound) at packages/engine/src/lower/optimize/closed/index.ts:63 in keyValue: `1` becomes `0`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)

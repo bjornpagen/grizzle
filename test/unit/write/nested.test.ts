@@ -163,7 +163,14 @@ export const aNestedWriteThroughTheProgramWritesOwnersWithTheirFoldedFamiliesAnd
 		oracle: { kind: "specification", name: "the nested write's rows (w4-w7 §3.10)" },
 		box: "one or two owners of up to two lines of quantity 0 or 1, one or two trees of up to four nodes",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/runtime/write/bind.ts",
+				original: "\t\t\t\twhole ? keyOf(ctx, layout, columns) : undefined,",
+				replacement: "\t\t\t\twhole ? undefined : keyOf(ctx, layout, columns),",
+				why: "Operator mutant (arm-swap) at packages/engine/src/runtime/write/bind.ts:680 in ownRows: `whole ? keyOf(ctx, layout, columns) : undefined` becomes `whole ? undefined : keyOf(ctx, layout, columns)`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
 /** A nested write's facts are a set by identity (rule 0, ruling 1) writes a fact stated twice once, and refuses two facts at one key by that key's law before any SQL. */
@@ -261,6 +268,12 @@ export const aNestedWritesFactsAreASetByIdentityRule0Ruling1WritesAFactStatedTwi
 				original: "\t\t\t\tsignature.push(held)\n",
 				replacement: "",
 				why: "A fact's signature is its own row's texts alone, never the rows it nests, so two owners at one key with different lines are one fact, not a key conflict; the set-by-identity property fails."
+			},
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original: "\t\t\t\tn.object.target.name === f.owner.name &&",
+				replacement: "\t\t\t\tn.object.target.name !== f.owner.name &&",
+				why: "Operator mutant (comparison) at packages/engine/src/write/frontend/compile.ts:990 in compile: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})
@@ -327,6 +340,12 @@ export const aNestedTreeAtDepthAndWidthNumbersAChainsAndAStarsNodesInPreOrderAtS
 					original: "\t\t\treturn { start, end: start + size }",
 					replacement: "\t\t\treturn { start, end: start + 1 }",
 					why: "A tree node's end is its start plus one, never plus its subtree's size; the depth-and-width property fails on a chain's end."
+				},
+				{
+					file: "packages/engine/src/write/frontend/compile.ts",
+					original: "\t\t\t\tn.object.target.name === f.owner.name &&",
+					replacement: "\t\t\t\tn.object.target.name !== f.owner.name &&",
+					why: "Operator mutant (comparison) at packages/engine/src/write/frontend/compile.ts:990 in compile: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
 				}
 			]
 		}

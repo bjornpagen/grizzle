@@ -30,10 +30,17 @@ import {
 	uuidKeyed
 } from "#test/unit/sql/access.fixtures.ts"
 
-/** The relations a statement reads and writes (sql/access.ts) creates a carrier, and reads and writes the carriers an ANALYZE names; other statements touch none. */
+/**
+ * The relations a statement reads and writes (sql/access.ts) creates a carrier, and reads and writes the carriers an
+ * ANALYZE names; other statements touch none.
+ *
+ * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/access.test.ts:81 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theRelationsAStatementReadsAndWritesSqlAccessTsCreatesACarrierAndReadsAndWritesTheCarriersAnANALYZENamesOtherStatementsTouchNone =
 	property.explore(accessCaseGen, {
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: [
 			"a carrier created",
 			"carriers analyzed",
@@ -88,10 +95,16 @@ export const theRelationsAStatementReadsAndWritesSqlAccessTsCreatesACarrierAndRe
 		]
 	})
 
-/** The ANALYZE statement admits exactly the carrier names, and no name rewrite touches an ANALYZE of them. */
+/**
+ * The ANALYZE statement admits exactly the carrier names, and no name rewrite touches an ANALYZE of them.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/access.test.ts:189 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theANALYZEStatementAdmitsExactlyTheCarrierNamesAndNoNameRewriteTouchesAnANALYZEOfThem =
 	property.explore(array(namedGen, { min: 1, max: 3 }), {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: ["live", "near miss", "json"] satisfies ReadonlyArray<Reached<AnalyzeFeature>>,
 		check: (_, c: Case<AnalyzeFeature>) => (names) =>
 			Effect.sync(() => {

@@ -19,10 +19,17 @@ import {
 	wrappers
 } from "#test/unit/analysis/logical/order.fixtures.ts"
 
-/** Completing an order is the policy's completion: the user's fields, the discriminant, the least narrower key, or the heading. */
+/**
+ * Completing an order is the policy's completion: the user's fields, the discriminant, the least narrower key, or the
+ * heading.
+ *
+ * Budget: 3000 runs and 3000 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/logical/order.test.ts:309 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const completingAnOrderIsThePolicysCompletionTheUsersFieldsTheDiscriminantTheLeastNarrowerKeyOrTheHeading =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 3000, steered: 3000 },
 		situations: [
 			"refused MalformedDescription",
 			"refused UnsupportedOperation",

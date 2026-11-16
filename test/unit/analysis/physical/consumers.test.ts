@@ -9,11 +9,17 @@ import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts
 import { type EndsFeature, pathEnds } from "#test/unit/analysis/physical/consumers.fixtures.ts"
 import { physical } from "#test/unit/analysis/physical/support.ts"
 
-/** The observed nodes are those an observation path's last step observes. */
+/**
+ * The observed nodes are those an observation path's last step observes.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/physical/consumers.test.ts:53 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theObservedNodesAreThoseAnObservationPathsLastStepObserves = property.explore(
 	queryCaseGen(defaultGenConfig),
 	{
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: ["an end that observes", "an end that ignores"] satisfies ReadonlyArray<
 			Reached<EndsFeature>
 		>,

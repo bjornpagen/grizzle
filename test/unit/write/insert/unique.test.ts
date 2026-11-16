@@ -26,10 +26,17 @@ import {
 	type UniqueFeature
 } from "#test/unit/write/insert/unique.fixtures.ts"
 
-/** Host normalization of a span candidate key refuses additions exactly when two hold one room over overlapping spans, before any SQL. */
+/**
+ * Host normalization of a span candidate key refuses additions exactly when two hold one room over overlapping spans,
+ * before any SQL.
+ *
+ * Budget: 300 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/write/insert/unique.test.ts:94 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const hostNormalizationOfASpanCandidateKeyRefusesAdditionsExactlyWhenTwoHoldOneRoomOverOverlappingSpansBeforeAnySQL =
 	property.explore(array(bookedGen, { min: 1, max: 4 }), {
 		needs: {},
+		budget: { runs: 300, steered: 200 },
 		situations: [
 			"overlapping spans in one room refused",
 			"adjacent spans in one room admitted",

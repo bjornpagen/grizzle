@@ -60,10 +60,16 @@ import {
 	type TicketFact
 } from "#test/unit/write/changeset/delta.fixtures.ts"
 
-/** Netting equals the oracle's netting of deltas and counts for every sequence of per-stratum changes. */
+/**
+ * Netting equals the oracle's netting of deltas and counts for every sequence of per-stratum changes.
+ *
+ * Budget: 1000 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/write/changeset/delta.test.ts:182 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const nettingEqualsTheOraclesNettingOfDeltasAndCountsForEverySequenceOfPerStratumChanges =
 	property.explore(sequences, {
 		needs: {},
+		budget: { runs: 1000, steered: 200 },
 		situations: [
 			"a fact two members of a stratum made present",
 			"a fact two members of a stratum made absent",
@@ -196,10 +202,17 @@ export const nettingEqualsTheOraclesNettingOfDeltasAndCountsForEverySequenceOfPe
 		]
 	})
 
-/** A stratum's change is a set difference nets a fact a delete freed and a lagging sequence's generated addition drew back identical, and reports one differing as a removal and an addition. */
+/**
+ * A stratum's change is a set difference nets a fact a delete freed and a lagging sequence's generated addition drew
+ * back identical, and reports one differing as a removal and an addition.
+ *
+ * Budget: 500 runs and 500 steered cases, what its suite stated before it became a property
+ * (test/unit/write/changeset/delta.test.ts:376 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aStratumsChangeIsASetDifferenceNetsAFactADeleteFreedAndALaggingSequencesGeneratedAdditionDrewBackIdenticalAndReportsOneDifferingAsARemovalAndAnAddition =
 	property.explore(laggingGen, {
 		needs: {},
+		budget: { runs: 500, steered: 500 },
 		situations: [
 			"a fact removed and added back identical",
 			"a generated fact differing in its key",
@@ -335,10 +348,28 @@ export const aStratumsChangeIsASetDifferenceNetsAFactADeleteFreedAndALaggingSequ
 			name: "S' = (S \\ D) ∪ A, each stratum's change its set difference with S, netted and counted as the delta oracle does (oracle/delta.ts)"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/runtime/write/net.ts",
+				original: '\t\tif (a.tag === "put") {',
+				replacement: '\t\tif (a.tag !== "put") {',
+				why: "Operator mutant (comparison) at packages/engine/src/runtime/write/net.ts:99 in countOf: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			},
+			{
+				file: "packages/engine/src/runtime/write/net.ts",
+				original: '\t\tif (a.tag === "put") {',
+				replacement: '\t\tif (a.tag !== "put") {',
+				why: "Operator mutant (comparison) at packages/engine/src/runtime/write/net.ts:99 in countOf: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Relation identity identifies a converted fact exactly as the boundary's fact identity identifies the same values. */
+/**
+ * Relation identity identifies a converted fact exactly as the boundary's fact identity identifies the same values.
+ *
+ * Budget: 200 runs and 0 steered cases, what its suite stated before it became a property
+ * (test/unit/write/changeset/delta.test.ts:551 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const relationIdentityIdentifiesAConvertedFactExactlyAsTheBoundarysFactIdentityIdentifiesTheSameValues =
 	property.explore(
 		(source) =>
@@ -353,6 +384,7 @@ export const relationIdentityIdentifiesAConvertedFactExactlyAsTheBoundarysFactId
 			] as const,
 		{
 			needs: {},
+			budget: { runs: 200, steered: 0 },
 			situations: [],
 			check:
 				() =>

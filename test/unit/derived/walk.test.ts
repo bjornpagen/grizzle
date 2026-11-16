@@ -30,10 +30,17 @@ import {
 	type ImportFeature
 } from "#test/unit/derived/walk.fixtures.ts"
 
-/** QueryUses over imports needs exactly the parameters an import's binding leaves open or uses, beside its own, and reads the import's relations. */
+/**
+ * QueryUses over imports needs exactly the parameters an import's binding leaves open or uses, beside its own, and
+ * reads the import's relations.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/derived/walk.test.ts:195 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const queryUsesOverImportsNeedsExactlyTheParametersAnImportsBindingLeavesOpenOrUsesBesideItsOwnAndReadsTheImportsRelations =
 	property.explore(importCaseGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"an input bound to a variable",
 			"an input bound to an importer's parameter",

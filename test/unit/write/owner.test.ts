@@ -37,10 +37,17 @@ import {
 	wholeRefusalOf
 } from "#test/unit/write/owner.fixtures.ts"
 
-/** An owner of counted families read from a query is refused beside an insert or put of its members in its stratum exactly when the query may insert it. */
+/**
+ * An owner of counted families read from a query is refused beside an insert or put of its members in its stratum
+ * exactly when the query may insert it.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/write/owner.test.ts:245 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const anOwnerOfCountedFamiliesReadFromAQueryIsRefusedBesideAnInsertOrPutOfItsMembersInItsStratumExactlyWhenTheQueryMayInsertIt =
 	property.explore(strataGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"insert of given ledgers beside insert of an entry: refused",
 			"insert of given ledgers beside put of an entry: refused",

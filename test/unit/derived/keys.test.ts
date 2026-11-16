@@ -85,7 +85,13 @@ import {
 	viewStated
 } from "#test/unit/derived/keys.fixtures.ts"
 
-/** Derived relation keys are proven keys in heading order, narrowest first, none implied by another, the whole heading only alone. */
+/**
+ * Derived relation keys are proven keys in heading order, narrowest first, none implied by another, the whole heading
+ * only alone.
+ *
+ * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/derived/keys.test.ts:1450 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImpliedByAnotherTheWholeHeadingOnlyAlone =
 	property.explore(
 		aimed(caseSketchGen, [
@@ -93,6 +99,7 @@ export const derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImp
 		]),
 		{
 			needs: {},
+			budget: { runs: 100, steered: 100 },
 			situations: [
 				"the whole heading",
 				"at most one fact",
@@ -156,12 +163,19 @@ export const derivedRelationKeysAreProvenKeysInHeadingOrderNarrowestFirstNoneImp
 		}
 	)
 
-/** Derived relation keys state exactly the minimal sets of head columns a join's keys determine the head by, through every relation it matches. */
+/**
+ * Derived relation keys state exactly the minimal sets of head columns a join's keys determine the head by, through
+ * every relation it matches.
+ *
+ * Budget: 200 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/derived/keys.test.ts:1524 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const derivedRelationKeysStateExactlyTheMinimalSetsOfHeadColumnsAJoinsKeysDetermineTheHeadByThroughEveryRelationItMatches =
 	property.explore(
 		aimed(joinSketchGen, [["a key of two factors, each with an alternative", twoFactorSketchGen]]),
 		{
 			needs: {},
+			budget: { runs: 200, steered: 300 },
 			situations: [
 				"the whole heading",
 				"a key narrower than the heading",
@@ -239,10 +253,17 @@ export const derivedRelationKeysStateExactlyTheMinimalSetsOfHeadColumnsAJoinsKey
 		}
 	)
 
-/** Derived relation keys index a product of relations keyed by either of two fields once per alternative of a factor, through projections, joins, several rules and a level above, stating exactly its minimal keys. */
+/**
+ * Derived relation keys index a product of relations keyed by either of two fields once per alternative of a factor,
+ * through projections, joins, several rules and a level above, stating exactly its minimal keys.
+ *
+ * Budget: 200 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/derived/keys.test.ts:1608 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const derivedRelationKeysIndexAProductOfRelationsKeyedByEitherOfTwoFieldsOncePerAlternativeOfAFactorThroughProjectionsJoinsSeveralRulesAndALevelAboveStatingExactlyItsMinimalKeys =
 	property.explore(aimed(productSketchGen, productAims), {
 		needs: {},
+		budget: { runs: 200, steered: 300 },
 		situations: [
 			"four factors of two minimal keys each",
 			"a factor's minimal key of several columns",
@@ -319,12 +340,19 @@ export const derivedRelationKeysIndexAProductOfRelationsKeyedByEitherOfTwoFields
 		]
 	})
 
-/** Derived relation keys refuse a definition no view can store or index with its typed cause, and key every other as it proves. */
+/**
+ * Derived relation keys refuse a definition no view can store or index with its typed cause, and key every other as it
+ * proves.
+ *
+ * Budget: 200 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/derived/keys.test.ts:1689 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const derivedRelationKeysRefuseADefinitionNoViewCanStoreOrIndexWithItsTypedCauseAndKeyEveryOtherAsItProves =
 	property.explore(
 		aimed(storableCaseGen, [["one fact keyed past its first column", pastFirstColumnCaseGen]]),
 		{
 			needs: {},
+			budget: { runs: 200, steered: 300 },
 			situations: [
 				"attachment",
 				"headingGroups",

@@ -16,7 +16,8 @@ import {
 	type Kept,
 	type Kill,
 	type Property,
-	property
+	property,
+	type Budget
 } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { makeIdSupply } from "#compiler/core/ids.ts"
@@ -581,6 +582,13 @@ type IdempotenceFeature =
 	| "delivered one"
 
 /**
+ * The budget each property of evidence.test.ts searches with, holdsOn's and idempotentOn's alike: what its suite
+ * stated before it became a property, 1500 runs and as many steered cases (test/unit/analysis/logical/evidence.test.ts:93
+ * at 8cad5bce, `const runs = 1500`, which every search read as its runs and as its coverage's cases).
+ */
+const evidenceBudget: Budget = { runs: 1500, steered: 1500 }
+
+/**
  * What a property of a harness states beside its draw: the situations its witnesses must reach, its kept cases and
  * the bugs it must kill.
  */
@@ -605,6 +613,7 @@ export const holdsOn = <S>(
 ): Property =>
 	property.explore(aimed(draw.generator, stated.aims), {
 		needs: {},
+		budget: evidenceBudget,
 		situations: stated.situations,
 		check:
 			(_, c: Case<EvidenceFeature>) =>
@@ -672,6 +681,7 @@ export const holdsOn = <S>(
 export const idempotentOn = <S>(draw: CaseDraw<S>, stated: Stated<IdempotenceFeature>): Property =>
 	property.explore(draw.generator, {
 		needs: {},
+		budget: evidenceBudget,
 		situations: stated.situations,
 		check:
 			(_, c: Case<IdempotenceFeature>) =>

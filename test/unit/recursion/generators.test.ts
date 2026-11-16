@@ -33,11 +33,17 @@ import {
 	pairsOf
 } from "#test/unit/recursion/generators.fixtures.ts"
 
-/** Graph-shaped recursive generators build each graph shape as named. */
+/**
+ * Graph-shaped recursive generators build each graph shape as named.
+ *
+ * Budget: 600 runs and 0 steered cases, what its suite stated before it became a property
+ * (test/unit/recursion/generators.test.ts:39 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const graphShapedRecursiveGeneratorsBuildEachGraphShapeAsNamed = property.explore(
 	graphSketchGen,
 	{
 		needs: {},
+		budget: { runs: 600, steered: 0 },
 		situations: [],
 		check: () => (sketch) =>
 			Effect.gen(function* () {
@@ -105,14 +111,27 @@ export const graphShapedRecursiveGeneratorsBuildEachGraphShapeAsNamed = property
 			}),
 		oracle: { kind: "specification", name: "each graph shape's definition" },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/array.ts",
+				original: "\t\tout.push(i)",
+				replacement: "\t\t{}",
+				why: "Operator mutant (statement) at packages/engine/src/core/array.ts:26 in indices: `out.push(i)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	}
 )
 
-/** Graph-shaped recursive generators mark the cases whose recursions terminate without feedback deduplication. */
+/**
+ * Graph-shaped recursive generators mark the cases whose recursions terminate without feedback deduplication.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/recursion/generators.test.ts:126 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const graphShapedRecursiveGeneratorsMarkTheCasesWhoseRecursionsTerminateWithoutFeedbackDeduplication =
 	property.explore(recursiveCaseSketchGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"reach forward terminates",
 			"reach forward loops",
@@ -143,5 +162,12 @@ export const graphShapedRecursiveGeneratorsMarkTheCasesWhoseRecursionsTerminateW
 			name: "a cycle search over the edges each recursion traverses"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/array.ts",
+				original: "\ta === b || (a.length === b.length && a.every((x, i) => x === b[i]))",
+				replacement: "\ta === b || (a.length !== b.length && a.every((x, i) => x === b[i]))",
+				why: "Operator mutant (comparison) at packages/engine/src/core/array.ts:16 in sameOrder: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

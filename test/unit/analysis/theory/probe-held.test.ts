@@ -30,10 +30,17 @@ import {
 	shapeGen
 } from "#test/unit/analysis/theory/probe-held.fixtures.ts"
 
-/** A rule's NEW probe holds the touched row at NEW's value in every column it reads, and requests its indexes by the key alone. */
+/**
+ * A rule's NEW probe holds the touched row at NEW's value in every column it reads, and requests its indexes by the
+ * key alone.
+ *
+ * Budget: 60 runs and 60 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/theory/probe-held.test.ts:247 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aRulesNEWProbeHoldsTheTouchedRowAtNEWsValueInEveryColumnItReadsAndRequestsItsIndexesByTheKeyAlone =
 	property.explore(shapeGen, {
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, c: Case<Feature>) => (shape) => Effect.sync(() => judged(shape, c.note)),
 		oracle: {

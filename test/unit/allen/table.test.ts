@@ -78,7 +78,14 @@ export const theCommittedAllenTableIsTheOfflineMinimizationsTableEntryForEntryWh
 		},
 		box: "every mask over the thirteen basic relations, the empty and the full one included",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/allen/atoms.ts",
+				original: 'export const atomIndexable = (atom: AllenAtom): boolean => atom.first === "A"',
+				replacement: "export const atomIndexable = (atom: AllenAtom): boolean => true",
+				why: 'Operator mutant (boolean-return) at packages/engine/src/allen/atoms.ts:62 in atomIndexable: `atom.first === "A"` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
 	})
 
 /** The generated Allen table gives every mask a formula that denotes it exactly, in canonical form, each disjunct with an indexable atom. */

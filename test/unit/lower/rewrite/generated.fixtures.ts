@@ -9,7 +9,8 @@ import {
 	type Oracle,
 	type Property,
 	property,
-	type Space
+	type Space,
+	type Budget
 } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import type { NodeId } from "#compiler/core/ids.ts"
@@ -159,6 +160,7 @@ export const exploreSteered = (spec: {
 	readonly aims: ReadonlyArray<
 		readonly [Reached<RewriteFeature>, Arr.NonEmptyReadonlyArray<QueryForm>]
 	>
+	readonly budget: Budget
 	readonly kept: ReadonlyArray<Kept>
 	readonly kills: ReadonlyArray<Kill>
 }): Property =>
@@ -173,6 +175,7 @@ export const exploreSteered = (spec: {
 		),
 		{
 			needs: {},
+			budget: spec.budget,
 			situations: spec.situations,
 			check: (_, c: Case<RewriteFeature>) => (sketch) =>
 				Effect.sync(() => {
@@ -190,11 +193,13 @@ export const exploreCases = (spec: {
 	readonly passes: Passes
 	readonly evidence: "snapshot" | "transaction"
 	readonly situations: ReadonlyArray<Reached<RewriteFeature>>
+	readonly budget: Budget
 	readonly kept: ReadonlyArray<Kept>
 	readonly kills: ReadonlyArray<Kill>
 }): Property =>
 	property.explore(spec.cases, {
 		needs: {},
+		budget: spec.budget,
 		situations: spec.situations,
 		check: (_, c: Case<RewriteFeature>) => (q) =>
 			Effect.sync(() => {

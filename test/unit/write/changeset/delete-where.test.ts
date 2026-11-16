@@ -33,10 +33,17 @@ import {
 	relationOf
 } from "#test/unit/write/changeset/delete-where.fixtures.ts"
 
-/** ChangeSet#deleteWhere is the delete of each selection's query in any order: one plan, or one refusal, and a JavaScript caller's fault refused. */
+/**
+ * ChangeSet#deleteWhere is the delete of each selection's query in any order: one plan, or one refusal, and a
+ * JavaScript caller's fault refused.
+ *
+ * Budget: 200 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/write/changeset/delete-where.test.ts:510 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const changeSetDeleteWhereIsTheDeleteOfEachSelectionsQueryInAnyOrderOnePlanOrOneRefusalAndAJavaScriptCallersFaultRefused =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 200, steered: 400 },
 		situations: [
 			"one key",
 			"four keys or more",

@@ -36,10 +36,17 @@ import {
 	tablesRead
 } from "#test/unit/lower/shapes/region.fixtures.ts"
 
-/** A region past the collapse limit is an explicit JOIN chain joins every occurrence on a condition that reads both sides, starting at the restricted one. */
+/**
+ * A region past the collapse limit is an explicit JOIN chain joins every occurrence on a condition that reads both
+ * sides, starting at the restricted one.
+ *
+ * Budget: 60 runs and 60 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/shapes/region.test.ts:209 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aRegionPastTheCollapseLimitIsAnExplicitJOINChainJoinsEveryOccurrenceOnAConditionThatReadsBothSidesStartingAtTheRestrictedOne =
 	property.explore(pathSketchGen, {
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: [
 			"restricted first written",
 			"restricted written later",

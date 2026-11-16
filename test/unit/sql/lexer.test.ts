@@ -127,10 +127,16 @@ export const lexReadsEveryRunOfUpToThreeTokensAndSeparatorsEdgeToEdgeAsPostgreSQ
 		]
 	})
 
-/** Lex reads every generated token sequence as the scanner does, each token back at the offset it was rendered at. */
+/**
+ * Lex reads every generated token sequence as the scanner does, each token back at the offset it was rendered at.
+ *
+ * Budget: 400 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/lexer.test.ts:977 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const lexReadsEveryGeneratedTokenSequenceAsTheScannerDoesEachTokenBackAtTheOffsetItWasRenderedAt =
 	property.explore(sequenceGen, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"word",
 			"quotedIdent",
@@ -189,10 +195,16 @@ export const lexReadsEveryGeneratedTokenSequenceAsTheScannerDoesEachTokenBackAtT
 		]
 	})
 
-/** Lex reports a quoted token that lost its closing quote as unterminated, at its own offset. */
+/**
+ * Lex reports a quoted token that lost its closing quote as unterminated, at its own offset.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/lexer.test.ts:1046 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const lexReportsAQuotedTokenThatLostItsClosingQuoteAsUnterminatedAtItsOwnOffset =
 	property.explore((source) => [source.draw(sequenceGen), source.draw(tokenGen)] as const, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"quotedIdent",
 			"string",
@@ -235,10 +247,16 @@ export const lexReportsAQuotedTokenThatLostItsClosingQuoteAsUnterminatedAtItsOwn
 		]
 	})
 
-/** Lex reads every statement the kernel's generator draws, printed, as the scanner does. */
+/**
+ * Lex reads every statement the kernel's generator draws, printed, as the scanner does.
+ *
+ * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/lexer.test.ts:1091 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const lexReadsEveryStatementTheKernelsGeneratorDrawsPrintedAsTheScannerDoes =
 	property.explore(statementGen(sqlCatalog), {
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: [
 			"word",
 			"quotedIdent",
@@ -271,11 +289,17 @@ export const lexReadsEveryStatementTheKernelsGeneratorDrawsPrintedAsTheScannerDo
 		]
 	})
 
-/** Lex ends every generated statement where psql's scanner ends it. */
+/**
+ * Lex ends every generated statement where psql's scanner ends it.
+ *
+ * Budget: 400 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/lexer.test.ts:1127 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const lexEndsEveryGeneratedStatementWherePsqlsScannerEndsIt = property.explore(
 	statementsGen,
 	{
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: statementFeatures satisfies ReadonlyArray<Reached<StatementEndFeature>>,
 		check: (_, c: Case<StatementEndFeature>) => (drawnStatements) =>
 			Effect.sync(() => {

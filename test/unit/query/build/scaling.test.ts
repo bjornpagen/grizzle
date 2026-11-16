@@ -28,7 +28,13 @@ import {
 	stepKinds
 } from "#test/unit/query/build/scaling.fixtures.ts"
 
-/** A query builder step reads only what it adds builds a fixed number of containers a step, whatever the chain's length. */
+/**
+ * A query builder step reads only what it adds builds a fixed number of containers a step, whatever the chain's
+ * length.
+ *
+ * Budget: 16 runs and 16 steered cases, what its suite stated before it became a property
+ * (test/unit/query/build/scaling.test.ts:190 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aQueryBuilderStepReadsOnlyWhatItAddsBuildsAFixedNumberOfContainersAStepWhateverTheChainsLength =
 	property.explore(
 		(source) => ({
@@ -37,6 +43,7 @@ export const aQueryBuilderStepReadsOnlyWhatItAddsBuildsAFixedNumberOfContainersA
 		}),
 		{
 			needs: {},
+			budget: { runs: 16, steered: 16 },
 			situations: stepKinds satisfies ReadonlyArray<Reached<StepKind>>,
 			check:
 				(_, c: Case<StepKind>) =>
@@ -65,13 +72,19 @@ export const aQueryBuilderStepReadsOnlyWhatItAddsBuildsAFixedNumberOfContainersA
 		}
 	)
 
-/** A query builder step reads only what it adds gives the Description the whole decode gives, over generated chains. */
+/**
+ * A query builder step reads only what it adds gives the Description the whole decode gives, over generated chains.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/query/build/scaling.test.ts:226 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aQueryBuilderStepReadsOnlyWhatItAddsGivesTheDescriptionTheWholeDecodeGivesOverGeneratedChains =
 	property.explore(
 		(source) =>
 			[source.draw(array(element(stepKinds), { min: 0, max: 8 })), source.draw(int(1, 5))] as const,
 		{
 			needs: {},
+			budget: { runs: 200, steered: 200 },
 			situations: stepKinds satisfies ReadonlyArray<Reached<StepKind>>,
 			check:
 				(_, c: Case<StepKind>) =>
@@ -87,6 +100,21 @@ export const aQueryBuilderStepReadsOnlyWhatItAddsGivesTheDescriptionTheWholeDeco
 				name: "the whole decode of a plain copy (decodeDesc)"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/core/record.ts",
+					original:
+						'\tif (typeof value !== "object" || value === null || isList(value)) {\n\t\treturn false\n\t}',
+					replacement: "\t{}",
+					why: 'Operator mutant (guard) at packages/engine/src/core/record.ts:29 in isPlainRecord: `if (typeof value !== "object" || value === null || isList(value)) {\n\t\treturn fal` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6).'
+				},
+				{
+					file: "packages/engine/src/core/record.ts",
+					original:
+						'\tif (typeof value !== "object" || value === null || isList(value)) {\n\t\treturn false\n\t}',
+					replacement: "\t{}",
+					why: 'Operator mutant (guard) at packages/engine/src/core/record.ts:29 in isPlainRecord: `if (typeof value !== "object" || value === null || isList(value)) {\n\t\treturn fal` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6).'
+				}
+			]
 		}
 	)

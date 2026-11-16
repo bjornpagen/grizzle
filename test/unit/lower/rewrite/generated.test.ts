@@ -55,7 +55,12 @@ import {
 } from "#test/unit/lower/rewrite/generated.fixtures.ts"
 import { wideCaseGen } from "#test/unit/lower/rewrite/wide.ts"
 
-/** Each rewrite pass preserves the delivered result on generated cases every pass alone, on cases of the population. */
+/**
+ * Each rewrite pass preserves the delivered result on generated cases every pass alone, on cases of the population.
+ *
+ * Budget: 150 runs and 150 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/rewrite/generated.test.ts:477 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const eachRewritePassPreservesTheDeliveredResultOnGeneratedCasesEveryPassAloneOnCasesOfThePopulation =
 	property.explore(
 		(source) => ({
@@ -64,6 +69,7 @@ export const eachRewritePassPreservesTheDeliveredResultOnGeneratedCasesEveryPass
 		}),
 		{
 			needs: {},
+			budget: { runs: 150, steered: 150 },
 			situations: Arr.map(
 				passNames,
 				(name): SinglePassFeature => `pass ${name}`
@@ -89,20 +95,42 @@ export const eachRewritePassPreservesTheDeliveredResultOnGeneratedCasesEveryPass
 		}
 	)
 
-/** Each rewrite pass preserves the delivered result on generated cases lateFetch over wide payload, where it fires. */
+/**
+ * Each rewrite pass preserves the delivered result on generated cases lateFetch over wide payload, where it fires.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/rewrite/generated.test.ts:516 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const eachRewritePassPreservesTheDeliveredResultOnGeneratedCasesLateFetchOverWidePayloadWhereItFires =
 	exploreCases({
+		budget: { runs: 200, steered: 200 },
 		cases: wideCaseGen,
 		passes: [lateFetchPass],
 		evidence: "snapshot",
 		situations: ["R06.lateFetch"],
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/expr.ts",
+				original:
+					"\treturn distinct.length === 0 ? noIds : Object.freeze(distinct.toSorted(compareStrings))",
+				replacement:
+					"\treturn distinct.length === 1 ? noIds : Object.freeze(distinct.toSorted(compareStrings))",
+				why: "Operator mutant (bound) at packages/engine/src/ir/expr.ts:563 in sortedUnique: `0` becomes `1`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Each rewrite pass preserves the delivered result on generated cases the composed pipeline over wide payload, in a transaction. */
+/**
+ * Each rewrite pass preserves the delivered result on generated cases the composed pipeline over wide payload, in a
+ * transaction.
+ *
+ * Budget: 100 runs and 0 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/rewrite/generated.test.ts:516 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const eachRewritePassPreservesTheDeliveredResultOnGeneratedCasesTheComposedPipelineOverWidePayloadInATransaction =
 	exploreCases({
+		budget: { runs: 100, steered: 0 },
 		cases: wideCaseGen,
 		passes: fullPipeline,
 		evidence: "transaction",
@@ -111,9 +139,16 @@ export const eachRewritePassPreservesTheDeliveredResultOnGeneratedCasesTheCompos
 		kills: []
 	})
 
-/** The composed rewrite phases preserve the delivered result demand, semantic simplification and relational rewrites in a snapshot read, firing every rule family. */
+/**
+ * The composed rewrite phases preserve the delivered result demand, semantic simplification and relational rewrites in
+ * a snapshot read, firing every rule family.
+ *
+ * Budget: 400 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/rewrite/generated.test.ts:546 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theComposedRewritePhasesPreserveTheDeliveredResultDemandSemanticSimplificationAndRelationalRewritesInASnapshotReadFiringEveryRuleFamily =
 	exploreSteered({
+		budget: { runs: 400, steered: 400 },
 		passes: fullPipeline,
 		evidence: "snapshot",
 		situations: [...pipelineRules, "simplify.mergeProjections", "node Take"],
@@ -172,9 +207,16 @@ export const theComposedRewritePhasesPreserveTheDeliveredResultDemandSemanticSim
 		]
 	})
 
-/** The composed rewrite phases preserve the delivered result the same in a transaction, where only immediate evidence holds. */
+/**
+ * The composed rewrite phases preserve the delivered result the same in a transaction, where only immediate evidence
+ * holds.
+ *
+ * Budget: 200 runs and 0 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/rewrite/generated.test.ts:576 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theComposedRewritePhasesPreserveTheDeliveredResultTheSameInATransactionWhereOnlyImmediateEvidenceHolds =
 	exploreSteered({
+		budget: { runs: 200, steered: 0 },
 		passes: fullPipeline,
 		evidence: "transaction",
 		situations: [],
@@ -183,7 +225,12 @@ export const theComposedRewritePhasesPreserveTheDeliveredResultTheSameInATransac
 		kills: []
 	})
 
-/** The mutant suite's counterexample shapes, each root's cases through the composed pipeline in a snapshot read. */
+/**
+ * The mutant suite's counterexample shapes, each root's cases through the composed pipeline in a snapshot read.
+ *
+ * Budget: 120 runs and 0 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/rewrite/generated.test.ts:603 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theMutantSuitesCounterexampleShapes = family(
 	Rec.map(
 		{
@@ -199,6 +246,7 @@ export const theMutantSuitesCounterexampleShapes = family(
 		},
 		(root) =>
 			exploreCases({
+				budget: { runs: 120, steered: 0 },
 				cases: rootedCaseGen(root, defaultGenConfig),
 				passes: fullPipeline,
 				evidence: "snapshot",

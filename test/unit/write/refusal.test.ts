@@ -34,13 +34,20 @@ import {
 	storable
 } from "#test/unit/write/refusal.fixtures.ts"
 
-/** The write refusal channel its DETAIL reads back a law's refusal and a concurrent change, whatever the names and key texts hold and however they are spelled. */
+/**
+ * The write refusal channel its DETAIL reads back a law's refusal and a concurrent change, whatever the names and key
+ * texts hold and however they are spelled.
+ *
+ * Budget: 1000 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/write/refusal.test.ts:191 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theWriteRefusalChannelItsDETAILReadsBackALawsRefusalAndAConcurrentChangeWhateverTheNamesAndKeyTextsHoldAndHoweverTheyAreSpelled =
 	property.explore(
 		(source) =>
 			[source.draw(storable), source.draw(keyGen), source.draw(element(reasons))] as const,
 		{
 			needs: {},
+			budget: { runs: 1000, steered: 200 },
 			situations: [
 				"spelled itself",
 				"spelled short",
@@ -107,7 +114,12 @@ export const theWriteRefusalChannelItsDETAILReadsBackALawsRefusalAndAConcurrentC
 		}
 	)
 
-/** The write refusal channel its DETAIL reads a DETAIL under any other tag as foreign, keeping its text. */
+/**
+ * The write refusal channel its DETAIL reads a DETAIL under any other tag as foreign, keeping its text.
+ *
+ * Budget: 300 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/write/refusal.test.ts:276 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theWriteRefusalChannelItsDETAILReadsADETAILUnderAnyOtherTagAsForeignKeepingItsText =
 	property.explore(
 		oneOf<readonly [ForeignFeature, string]>([
@@ -130,6 +142,7 @@ export const theWriteRefusalChannelItsDETAILReadsADETAILUnderAnyOtherTagAsForeig
 		]),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 100 },
 			situations: [
 				...Arr.map(foreignTags, (tag): ForeignFeature => `under ${tag}`),
 				"a concurrent change"

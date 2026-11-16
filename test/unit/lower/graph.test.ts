@@ -72,10 +72,17 @@ import {
 } from "#test/unit/lower/graph.fixtures.ts"
 import { nodeOfKind } from "#test/unit/lower/support.ts"
 
-/** Carried state columns (shapes/attach-recursive/carried.ts) on generated recursions, carries exactly the origin the recursion keeps, and every one is positive linear. */
+/**
+ * Carried state columns (shapes/attach-recursive/carried.ts) on generated recursions, carries exactly the origin the
+ * recursion keeps, and every one is positive linear.
+ *
+ * Budget: 60 runs and 60 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/graph.test.ts:118 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const carriedStateColumnsShapesAttachRecursiveCarriedTsOnGeneratedRecursionsCarriesExactlyTheOriginTheRecursionKeepsAndEveryOneIsPositiveLinear =
 	property.explore(recursiveCaseGen({ ...defaultRecursiveLimits, consumers: ["state"] }), {
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: [
 			"form:reach",
 			"form:walks",
@@ -265,10 +272,17 @@ export const provedRootPushdownGraphSeedPushdownMovesEachOfTwoConjunctsAlikeButF
 		}
 	)
 
-/** Proved root pushdown (graph.seedPushdown) on generated cases, applies an origin filter of every vertex type in the seed. */
+/**
+ * Proved root pushdown (graph.seedPushdown) on generated cases, applies an origin filter of every vertex type in the
+ * seed.
+ *
+ * Budget: 60 runs and 60 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/graph.test.ts:661 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const provedRootPushdownGraphSeedPushdownOnGeneratedCasesAppliesAnOriginFilterOfEveryVertexTypeInTheSeed =
 	property.explore(originFilterSketches, {
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: [
 			"the seed applies an origin filter",
 			"the seed applies an origin filter over double precision"
@@ -324,10 +338,16 @@ export const provedRootPushdownGraphSeedPushdownOnGeneratedCasesAppliesAnOriginF
 		]
 	})
 
-/** Proved root pushdown (graph.seedPushdown) on generated cases, fires on nothing else. */
+/**
+ * Proved root pushdown (graph.seedPushdown) on generated cases, fires on nothing else.
+ *
+ * Budget: 60 runs and 60 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/graph.test.ts:661 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const provedRootPushdownGraphSeedPushdownOnGeneratedCasesFiresOnNothingElse =
 	property.explore(otherConsumerSketches, {
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: [
 			"consumer:endFilter",
 			"consumer:endNe",

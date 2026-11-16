@@ -24,10 +24,17 @@ import {
 	unfrozen
 } from "#test/unit/query/desc-order.fixtures.ts"
 
-/** A query's Description as its builder makes it is the Description its decoder gives for it, every object's keys in the decoder's order, and frozen throughout. */
+/**
+ * A query's Description as its builder makes it is the Description its decoder gives for it, every object's keys in
+ * the decoder's order, and frozen throughout.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/query/desc-order.test.ts:84 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aQuerysDescriptionAsItsBuilderMakesItIsTheDescriptionItsDecoderGivesForItEveryObjectsKeysInTheDecodersOrderAndFrozenThroughout =
 	property.explore(caseSketchGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"a query",
 			"a node of kind rules",

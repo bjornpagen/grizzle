@@ -106,7 +106,14 @@ export const theCompleteBoundTupleSurvivesFusionAFoldOverAnImportedStageKeepsIts
 			},
 			box: "an import of (account, amount) or (id, account, amount), read by the query or by a fold",
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/ir/dag.ts",
+					original: "\t\tif (!index.has(node.id)) {",
+					replacement: "\t\tif (index.has(node.id)) {",
+					why: "Operator mutant (negation) at packages/engine/src/ir/dag.ts:228 in nodesByLabel: `!index.has(node.id)` becomes `index.has(node.id)`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)
 
@@ -203,9 +210,16 @@ export const fixedColumnsInR01FusionTwoColumnsCarryingOneInnerVariableFuseUnless
 		}
 	)
 
-/** Boundaries and refusals fuses no stage across an aggregate boundary, and none an expression correlates or another occurrence reads laterally. */
+/**
+ * Boundaries and refusals fuses no stage across an aggregate boundary, and none an expression correlates or another
+ * occurrence reads laterally.
+ *
+ * Budget: 150 runs and 450 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/rewrite/fuse.test.ts:286 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const boundariesAndRefusalsFusesNoStageAcrossAnAggregateBoundaryAndNoneAnExpressionCorrelatesOrAnotherOccurrenceReadsLaterally =
 	guardSearch<"a group kept its bound tuple" | "a scoped stage kept">({
+		runs: 150,
 		passes: [fusePass],
 		evidence: "snapshot",
 		situations: [

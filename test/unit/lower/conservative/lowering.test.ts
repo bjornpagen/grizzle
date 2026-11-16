@@ -379,10 +379,16 @@ export const regionsResolveAnOuterReferenceOnlyToASourceOneOccurrenceReads = pro
 	}
 )
 
-/** Take bound parameters binds a bound parameter at its declared type, and refuses one the query does not declare. */
+/**
+ * Take bound parameters binds a bound parameter at its declared type, and refuses one the query does not declare.
+ *
+ * Budget: 60 runs and 60 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/conservative/lowering.test.ts:685 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const takeBoundParametersBindsABoundParameterAtItsDeclaredTypeAndRefusesOneTheQueryDoesNotDeclare =
 	property.explore(bounded, {
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: ["a bound parameter"] satisfies ReadonlyArray<Reached<"a bound parameter">>,
 		check: (_, notes: Case<"a bound parameter">) => (c) =>
 			Effect.sync(() => {

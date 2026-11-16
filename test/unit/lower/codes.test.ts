@@ -22,7 +22,13 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { historyGen, type RosterFeature } from "#test/support/closed/generate.ts"
 import { closed, lowersByCodes } from "#test/unit/lower/codes.fixtures.ts"
 
-/** Closed literals a handle lowers to its code in the roster's history, never its declared position, and codes keep declared order. */
+/**
+ * Closed literals a handle lowers to its code in the roster's history, never its declared position, and codes keep
+ * declared order.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/codes.test.ts:150 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const closedLiteralsAHandleLowersToItsCodeInTheRostersHistoryNeverItsDeclaredPositionAndCodesKeepDeclaredOrder =
 	property.explore(
 		historyGen(closed, {
@@ -31,6 +37,7 @@ export const closedLiteralsAHandleLowersToItsCodeInTheRostersHistoryNeverItsDecl
 		}),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: [
 				["holes 0", "literal aligned"],
 				["holes 1", "literal aligned"],

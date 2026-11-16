@@ -131,7 +131,13 @@ export const spanLawsRefusesAContainmentPairingMoreThanOneSpanFieldWhateverElseI
 		}
 	)
 
-/** Field-compatibility classes admit a pairing of two fields exactly when their identities are one, keeping a typmod and a refinement inside one class. */
+/**
+ * Field-compatibility classes admit a pairing of two fields exactly when their identities are one, keeping a typmod
+ * and a refinement inside one class.
+ *
+ * Budget: 300 runs and 1000 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/logical/theory.test.ts:284 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const fieldCompatibilityClassesAdmitAPairingOfTwoFieldsExactlyWhenTheirIdentitiesAreOneKeepingATypmodAndARefinementInsideOneClass =
 	property.explore(
 		(source) => {
@@ -140,6 +146,7 @@ export const fieldCompatibilityClassesAdmitAPairingOfTwoFieldsExactlyWhenTheirId
 		},
 		{
 			needs: {},
+			budget: { runs: 300, steered: 1000 },
 			situations: [
 				"one identity",
 				"another identity",
@@ -199,10 +206,17 @@ export const fieldCompatibilityClassesAdmitAPairingOfTwoFieldsExactlyWhenTheirId
 		}
 	)
 
-/** Violation queries mean what their laws say every law's violation query names exactly the witnesses its statement's meaning gives, over drawn facts of Work. */
+/**
+ * Violation queries mean what their laws say every law's violation query names exactly the witnesses its statement's
+ * meaning gives, over drawn facts of Work.
+ *
+ * Budget: 300 runs and 2000 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/logical/theory.test.ts:539 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const violationQueriesMeanWhatTheirLawsSayEveryLawsViolationQueryNamesExactlyTheWitnessesItsStatementsMeaningGivesOverDrawnFactsOfWork =
 	property.explore(factsGen, {
 		needs: {},
+		budget: { runs: 300, steered: 2000 },
 		situations: [
 			"Account's key",
 			"Task's key",
@@ -357,10 +371,17 @@ export const violationQueriesMeanWhatTheirLawsSayACandidateKeysWitnessesAreTheVa
 		}
 	)
 
-/** Evidence and its validity context keys and checks are immediate storage facts under ownership's constraint names, a containment into a closed relation holds at every statement and any other in committed snapshots. */
+/**
+ * Evidence and its validity context keys and checks are immediate storage facts under ownership's constraint names, a
+ * containment into a closed relation holds at every statement and any other in committed snapshots.
+ *
+ * Budget: 150 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/logical/theory.test.ts:795 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const evidenceAndItsValidityContextKeysAndChecksAreImmediateStorageFactsUnderOwnershipsConstraintNamesAContainmentIntoAClosedRelationHoldsAtEveryStatementAndAnyOtherInCommittedSnapshots =
 	property.explore(evidenceSchemaGen, {
 		needs: {},
+		budget: { runs: 150, steered: 300 },
 		situations: [
 			"a candidate key",
 			"a primary key alone",
@@ -420,7 +441,13 @@ export const evidenceAndItsValidityContextKeysAndChecksAreImmediateStorageFactsU
 		]
 	})
 
-/** Evidence and its validity context law specialization states which containments are immediate through the immediate set theoryEvidence reads. */
+/**
+ * Evidence and its validity context law specialization states which containments are immediate through the immediate
+ * set theoryEvidence reads.
+ *
+ * Budget: 100 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/logical/theory.test.ts:867 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const evidenceAndItsValidityContextLawSpecializationStatesWhichContainmentsAreImmediateThroughTheImmediateSetTheoryEvidenceReads =
 	property.explore(
 		(source) => {
@@ -433,6 +460,7 @@ export const evidenceAndItsValidityContextLawSpecializationStatesWhichContainmen
 		},
 		{
 			needs: {},
+			budget: { runs: 100, steered: 200 },
 			situations: ["none named", "some named"] satisfies ReadonlyArray<
 				Reached<"none named" | "some named">
 			>,
@@ -489,7 +517,12 @@ export const evidenceAndItsValidityContextLawSpecializationStatesWhichContainmen
 		}
 	)
 
-/** Law identities are deterministic, independent of declaration order and of unrelated statements. */
+/**
+ * Law identities are deterministic, independent of declaration order and of unrelated statements.
+ *
+ * Budget: 50 runs and 50 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/logical/theory.test.ts:942 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const lawIdentitiesAreDeterministicIndependentOfDeclarationOrderAndOfUnrelatedStatements =
 	property.explore(
 		(source) =>
@@ -510,6 +543,7 @@ export const lawIdentitiesAreDeterministicIndependentOfDeclarationOrderAndOfUnre
 			] as const,
 		{
 			needs: {},
+			budget: { runs: 50, steered: 50 },
 			situations: ["reordered", "an unrelated statement"] satisfies ReadonlyArray<
 				Reached<"reordered" | "an unrelated statement">
 			>,

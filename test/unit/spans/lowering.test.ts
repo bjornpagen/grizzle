@@ -112,7 +112,13 @@ export const spanParametersAndWindowsAdmitsAPointInOfTwoParametersExactlyWhereTh
 		}
 	)
 
-/** Span parameters and windows binds a window or an equated value of a fixed-width span at its declared width, and refuses another width at bind. */
+/**
+ * Span parameters and windows binds a window or an equated value of a fixed-width span at its declared width, and
+ * refuses another width at bind.
+ *
+ * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/spans/lowering.test.ts:187 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const spanParametersAndWindowsBindsAWindowOrAnEquatedValueOfAFixedWidthSpanAtItsDeclaredWidthAndRefusesAnotherWidthAtBind =
 	property.explore(
 		(source) => ({
@@ -121,6 +127,7 @@ export const spanParametersAndWindowsBindsAWindowOrAnEquatedValueOfAFixedWidthSp
 		}),
 		{
 			needs: {},
+			budget: { runs: 100, steered: 100 },
 			situations: [
 				"the column's width",
 				"a width one unit off it",

@@ -39,10 +39,16 @@ import {
 	rulesOf
 } from "#test/unit/lower/dedup/verify.fixtures.ts"
 
-/** Structural obligation verification reports each break of a placed plan under its rule, and passes the plan unbroken. */
+/**
+ * Structural obligation verification reports each break of a placed plan under its rule, and passes the plan unbroken.
+ *
+ * Budget: 250 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/dedup/verify.test.ts:382 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const structuralObligationVerificationReportsEachBreakOfAPlacedPlanUnderItsRuleAndPassesThePlanUnbroken =
 	property.explore(brokenSpace(planSubjectGen, planFeatures), {
 		needs: {},
+		budget: { runs: 250, steered: 300 },
 		situations: planFeatures satisfies ReadonlyArray<Reached<PlanFeature>>,
 		check:
 			(_, c: Case<PlanFeature>) =>
@@ -98,13 +104,27 @@ export const structuralObligationVerificationReportsEachBreakOfAPlacedPlanUnderI
 			name: "each planted break's rule, and no problem in the plan the placement builds"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/dedup/place.ts",
+				original: "\t\t\tplacementCerts.push(cert.value)",
+				replacement: "\t\t\t{}",
+				why: "Operator mutant (statement) at packages/engine/src/lower/optimize/dedup/place.ts:188 in placeDeduplication: `placementCerts.push(cert.value)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Codec and result-channel alignment reports each break of a lowered program's statements under its rule, and passes the program unbroken. */
+/**
+ * Codec and result-channel alignment reports each break of a lowered program's statements under its rule, and passes
+ * the program unbroken.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/dedup/verify.test.ts:765 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const codecAndResultChannelAlignmentReportsEachBreakOfALoweredProgramsStatementsUnderItsRuleAndPassesTheProgramUnbroken =
 	property.explore(brokenSpace(programSubjectGen, channelBreakNames), {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: channelBreakNames satisfies ReadonlyArray<Reached<ChannelBreak>>,
 		check:
 			(_, c: Case<ChannelBreak>) =>
@@ -135,13 +155,29 @@ export const codecAndResultChannelAlignmentReportsEachBreakOfALoweredProgramsSta
 			name: "each planted break's rule, and no problem in the program the conservative lowering builds"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/lower/shapes/index.ts",
+				original:
+					"\tconst [only, ...others] = flight(roots)\n\tif (!isNonEmpty(others)) {\n\t\tconst delivered: FusedStatement<Slot> = { ...only, fused: [] }",
+				replacement:
+					"\tconst [only, ...others] = flight(roots)\n\tif (isNonEmpty(others)) {\n\t\tconst delivered: FusedStatement<Slot> = { ...only, fused: [] }",
+				why: "Operator mutant (negation) at packages/engine/src/lower/shapes/index.ts:261 in partedConservative: `!isNonEmpty(others)` becomes `isNonEmpty(others)`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Codec and result-channel alignment reports each artifact that delivers other rows channels than its twin, in both directions. */
+/**
+ * Codec and result-channel alignment reports each artifact that delivers other rows channels than its twin, in both
+ * directions.
+ *
+ * Budget: 150 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/dedup/verify.test.ts:812 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const codecAndResultChannelAlignmentReportsEachArtifactThatDeliversOtherRowsChannelsThanItsTwinInBothDirections =
 	property.explore(brokenSpace(programSubjectGen, artifactBreakNames), {
 		needs: {},
+		budget: { runs: 150, steered: 200 },
 		situations: artifactBreakNames satisfies ReadonlyArray<Reached<ArtifactBreak>>,
 		check:
 			(_, c: Case<ArtifactBreak>) =>
@@ -169,5 +205,12 @@ export const codecAndResultChannelAlignmentReportsEachArtifactThatDeliversOtherR
 			name: "each planted break is the artifacts rule both ways, and a program is its own twin"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/array.ts",
+				original: "\ta === b || (a.length === b.length && a.every((x, i) => x === b[i]))",
+				replacement: "\ta === b",
+				why: "Operator mutant (disjunct) at packages/engine/src/core/array.ts:16 in sameOrder: `a === b || (a.length === b.length && a.every((x, i) => x === b[i]))` becomes `a === b`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

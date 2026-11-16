@@ -29,10 +29,17 @@ import {
 	typePopulation
 } from "#test/unit/ir/identical.fixtures.ts"
 
-/** Structural identity agrees with canonical text equality over every one-leaf edit of a decoded type or expression table. */
+/**
+ * Structural identity agrees with canonical text equality over every one-leaf edit of a decoded type or expression
+ * table.
+ *
+ * Budget: 400 runs and 800 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/identical.test.ts:272 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const structuralIdentityAgreesWithCanonicalTextEqualityOverEveryOneLeafEditOfADecodedTypeOrExpressionTable =
 	property.explore(oneOf([typePopulation, tablePopulation]), {
 		needs: {},
+		budget: { runs: 400, steered: 800 },
 		situations: [
 			"types identical",
 			"types different",
@@ -70,5 +77,19 @@ export const structuralIdentityAgreesWithCanonicalTextEqualityOverEveryOneLeafEd
 			}),
 		oracle: { kind: "second-implementation", name: "canonical text equality" },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/scalar.ts",
+				original:
+					"\ta === undefined || b === undefined ? a === b : a.name === b.name && sameScalarType(a.base, b.base)",
+				replacement: "\tfalse",
+				why: "Operator mutant (boolean-return) at packages/engine/src/ir/scalar.ts:835 in sameContract: `a === undefined || b === undefined ? a === b : a.name === b.name && sameScalarTy` becomes `false`; the property fails (lane CATCH, grizzle 695fe292)."
+			},
+			{
+				file: "packages/engine/src/ir/expr.ts",
+				original: "\t\t\tnodes.add(n)",
+				replacement: "\t\t\t{}",
+				why: "Operator mutant (statement) at packages/engine/src/ir/expr.ts:585 in builtExpr: `nodes.add(n)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

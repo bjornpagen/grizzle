@@ -49,10 +49,16 @@ import {
 	type SoundnessFeature
 } from "#test/unit/analysis/physical/soundness.fixtures.ts"
 
-/** Every physical claim holds on the delivered rows generated cases, plain realization. */
+/**
+ * Every physical claim holds on the delivered rows generated cases, plain realization.
+ *
+ * Budget: 400 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/physical/soundness.test.ts:194 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const everyPhysicalClaimHoldsOnTheDeliveredRowsGeneratedCasesPlainRealization =
 	property.explore(queryCaseGen(defaultGenConfig), {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: claimFeatures satisfies ReadonlyArray<Reached<SoundnessFeature>>,
 		check: (_, c: Case<SoundnessFeature>) => (q) =>
 			Effect.sync(() => {
@@ -66,10 +72,16 @@ export const everyPhysicalClaimHoldsOnTheDeliveredRowsGeneratedCasesPlainRealiza
 		kills: []
 	})
 
-/** Every physical claim holds on the delivered rows generated cases, every node deduplicated. */
+/**
+ * Every physical claim holds on the delivered rows generated cases, every node deduplicated.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/physical/soundness.test.ts:221 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const everyPhysicalClaimHoldsOnTheDeliveredRowsGeneratedCasesEveryNodeDeduplicated =
 	property.explore(queryCaseGen(defaultGenConfig), {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: claimFeatures satisfies ReadonlyArray<Reached<SoundnessFeature>>,
 		check: (_, c: Case<SoundnessFeature>) => (q) =>
 			Effect.sync(() => {
@@ -83,12 +95,19 @@ export const everyPhysicalClaimHoldsOnTheDeliveredRowsGeneratedCasesEveryNodeDed
 		kills: []
 	})
 
-/** Every physical claim holds on the delivered rows the soundness population, both realizations: lateral sources, correlated variables and takes, shared nodes, windows and approximate searches. */
+/**
+ * Every physical claim holds on the delivered rows the soundness population, both realizations: lateral sources,
+ * correlated variables and takes, shared nodes, windows and approximate searches.
+ *
+ * Budget: 400 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/physical/soundness.test.ts:248 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const everyPhysicalClaimHoldsOnTheDeliveredRowsTheSoundnessPopulationBothRealizationsLateralSourcesCorrelatedVariablesAndTakesSharedNodesWindowsAndApproximateSearches =
 	property.explore(
 		(source) => [source.draw(queryCaseGen(soundnessGenConfig)), source.draw(boolean)] as const,
 		{
 			needs: {},
+			budget: { runs: 400, steered: 400 },
 			situations: [
 				...claimFeatures,
 				"a constant read laterally",
@@ -121,10 +140,17 @@ export const everyPhysicalClaimHoldsOnTheDeliveredRowsTheSoundnessPopulationBoth
 		}
 	)
 
-/** Every physical claim holds on the delivered rows the counterexample roots: projections, joins, witnesses, groups, unions, bounds under EXISTS. */
+/**
+ * Every physical claim holds on the delivered rows the counterexample roots: projections, joins, witnesses, groups,
+ * unions, bounds under EXISTS.
+ *
+ * Budget: 80 runs and 80 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/physical/soundness.test.ts:291 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const everyPhysicalClaimHoldsOnTheDeliveredRowsTheCounterexampleRootsProjectionsJoinsWitnessesGroupsUnionsBoundsUnderEXISTS =
 	property.explore(rootedCases, {
 		needs: {},
+		budget: { runs: 80, steered: 80 },
 		situations: Arr.map(
 			counterexampleRoots,
 			([root]): `root ${CounterexampleRoot}` => `root ${root}`
@@ -141,22 +167,20 @@ export const everyPhysicalClaimHoldsOnTheDeliveredRowsTheCounterexampleRootsProj
 			name: "the fragment evaluator: what each node's plain SQL delivers"
 		},
 		kept: [],
-		kills: [
-			{
-				file: "packages/engine/src/analysis/physical/rules.ts",
-				original: "\t\tif (new Set(values).size === values.length && rows.length > 0) {",
-				replacement:
-					"\t\tif ((new Set(values).size === values.length || new Set(values).size === 1) && rows.length > 0) {",
-				why: "A closed relation's column of one repeated value claimed a key (analysis/physical/rules.ts closedProps); the evaluator suites fail."
-			}
-		]
+		kills: []
 	})
 
-/** Every physical claim holds on the delivered rows noninjective key expressions. */
+/**
+ * Every physical claim holds on the delivered rows noninjective key expressions.
+ *
+ * Budget: 100 runs and 0 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/physical/soundness.test.ts:327 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const everyPhysicalClaimHoldsOnTheDeliveredRowsNoninjectiveKeyExpressions = property.explore(
 	noninjectiveKeyCaseGen,
 	{
 		needs: {},
+		budget: { runs: 100, steered: 0 },
 		situations: [],
 		check: (_, c: Case<string>) => (q) =>
 			Effect.sync(() => {
@@ -171,10 +195,16 @@ export const everyPhysicalClaimHoldsOnTheDeliveredRowsNoninjectiveKeyExpressions
 	}
 )
 
-/** Neither analysis reads the order of a filter's conjuncts generated cases, every filter's conjuncts reversed. */
+/**
+ * Neither analysis reads the order of a filter's conjuncts generated cases, every filter's conjuncts reversed.
+ *
+ * Budget: 400 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/physical/soundness.test.ts:363 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const neitherAnalysisReadsTheOrderOfAFiltersConjunctsGeneratedCasesEveryFiltersConjunctsReversed =
 	property.explore(queryCaseGen(soundnessGenConfig), {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"a filter of two conjuncts",
 			"a column fixed to two values"

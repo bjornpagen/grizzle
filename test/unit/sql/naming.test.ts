@@ -26,10 +26,16 @@ import {
 	type RenameFeature
 } from "#test/unit/sql/naming.fixtures.ts"
 
-/** Outermost-only public renaming names the output by the heading, in every arm and its ORDER BY, and nothing nested. */
+/**
+ * Outermost-only public renaming names the output by the heading, in every arm and its ORDER BY, and nothing nested.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/naming.test.ts:142 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const outermostOnlyPublicRenamingNamesTheOutputByTheHeadingInEveryArmAndItsORDERBYAndNothingNested =
 	property.explore(renamedGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: ["core", "set operation", "passthrough arm", "wrong width"] satisfies ReadonlyArray<
 			Reached<RenameFeature>
 		>,

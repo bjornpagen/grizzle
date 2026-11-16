@@ -90,10 +90,17 @@ import {
 	textBreaks
 } from "#test/unit/sql/audit/operators.ts"
 
-/** Every Live statement passes both audits, prints as its twin does, survives the snapshot's codec and emit, and lowers deterministically. */
+/**
+ * Every Live statement passes both audits, prints as its twin does, survives the snapshot's codec and emit, and lowers
+ * deterministically.
+ *
+ * Budget: 120 runs and 120 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/audit.test.ts:416 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const everyLiveStatementPassesBothAuditsPrintsAsItsTwinDoesSurvivesTheSnapshotsCodecAndEmitAndLowersDeterministically =
 	property.explore(liveSketchGen, {
 		needs: {},
+		budget: { runs: 120, steered: 120 },
 		situations: liveSituations satisfies ReadonlyArray<Reached<AuditLiveFeature>>,
 		check: (_, c: Case<AuditLiveFeature>) => (sketch) =>
 			Effect.sync(() => {
@@ -127,10 +134,17 @@ export const everyLiveStatementPassesBothAuditsPrintsAsItsTwinDoesSurvivesTheSna
 		]
 	})
 
-/** Every statement a generated write program places passes both audits, prints as its twin does, survives the snapshot's codec and emit, and compiles deterministically. */
+/**
+ * Every statement a generated write program places passes both audits, prints as its twin does, survives the
+ * snapshot's codec and emit, and compiles deterministically.
+ *
+ * Budget: 60 runs and 60 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/audit.test.ts:486 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const everyStatementAGeneratedWriteProgramPlacesPassesBothAuditsPrintsAsItsTwinDoesSurvivesTheSnapshotsCodecAndEmitAndCompilesDeterministically =
 	property.explore(writtenSketchGen, {
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: writtenSituations satisfies ReadonlyArray<Reached<AuditLiveFeature>>,
 		check: (_, c: Case<AuditLiveFeature>) => (sketch) =>
 			Effect.sync(() => {
@@ -184,7 +198,12 @@ export const everyStatementAGeneratedWriteProgramPlacesPassesBothAuditsPrintsAsI
 		]
 	})
 
-/** A statement broken at one site is refused by the audit for exactly the rule it breaks, under that rule's reason. */
+/**
+ * A statement broken at one site is refused by the audit for exactly the rule it breaks, under that rule's reason.
+ *
+ * Budget: 300 runs and 600 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/audit.test.ts:553 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aStatementBrokenAtOneSiteIsRefusedByTheAuditForExactlyTheRuleItBreaksUnderThatRulesReason =
 	property.explore(
 		aimed(
@@ -193,6 +212,7 @@ export const aStatementBrokenAtOneSiteIsRefusedByTheAuditForExactlyTheRuleItBrea
 		),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 600 },
 			situations: breakSituations satisfies ReadonlyArray<Reached<BreakFeature>>,
 			check:
 				(_, c: Case<BreakFeature>) =>
@@ -239,11 +259,25 @@ export const aStatementBrokenAtOneSiteIsRefusedByTheAuditForExactlyTheRuleItBrea
 				name: "each break refused for exactly the rule it declares, under that rule's reason"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/sql/transform.ts",
+					original:
+						"\t\t\t\t\treturn condition === b.condition && body === b.body ? b : { ...b, condition, body }",
+					replacement:
+						"\t\t\t\t\treturn condition !== b.condition && body === b.body ? b : { ...b, condition, body }",
+					why: "Operator mutant (comparison) at packages/engine/src/sql/transform.ts:1088 in <module>: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)
 
-/** A statement broken at one site is admitted when the rewrite is faithful, and prints as the rewrite declares. */
+/**
+ * A statement broken at one site is admitted when the rewrite is faithful, and prints as the rewrite declares.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/audit.test.ts:625 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aStatementBrokenAtOneSiteIsAdmittedWhenTheRewriteIsFaithfulAndPrintsAsTheRewriteDeclares =
 	property.explore(
 		aimed(
@@ -252,6 +286,7 @@ export const aStatementBrokenAtOneSiteIsAdmittedWhenTheRewriteIsFaithfulAndPrint
 		),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: faithfulSituations satisfies ReadonlyArray<Reached<FaithfulFeature>>,
 			check:
 				(_, c: Case<FaithfulFeature>) =>
@@ -289,11 +324,23 @@ export const aStatementBrokenAtOneSiteIsAdmittedWhenTheRewriteIsFaithfulAndPrint
 				name: "each faithful rewrite admitted, printing as it declares"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/sql/transform.ts",
+					original: "\t\treturn query === c.query ? c : { ...c, query }",
+					replacement: "\t\treturn query !== c.query ? c : { ...c, query }",
+					why: "Operator mutant (comparison) at packages/engine/src/sql/transform.ts:630 in <module>: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)
 
-/** A printed statement broken at one token is refused by the text audit for exactly the rule it breaks. */
+/**
+ * A printed statement broken at one token is refused by the text audit for exactly the rule it breaks.
+ *
+ * Budget: 400 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/audit.test.ts:687 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aPrintedStatementBrokenAtOneTokenIsRefusedByTheTextAuditForExactlyTheRuleItBreaks =
 	property.explore(
 		aimed(
@@ -302,6 +349,7 @@ export const aPrintedStatementBrokenAtOneTokenIsRefusedByTheTextAuditForExactlyT
 		),
 		{
 			needs: {},
+			budget: { runs: 400, steered: 400 },
 			situations: textBreakSituations satisfies ReadonlyArray<Reached<TextBreakFeature>>,
 			check:
 				(_, c: Case<TextBreakFeature>) =>
@@ -332,7 +380,14 @@ export const aPrintedStatementBrokenAtOneTokenIsRefusedByTheTextAuditForExactlyT
 				name: "each text break refused by the text audit for exactly the rule it declares"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/sql/lexer.ts",
+					original: "\t\t\tout += text.slice(from, k) + String.fromCharCode(c - 32)",
+					replacement: "\t\t\tout += text.slice(from, k) + String.fromCharCode(c - 31)",
+					why: "Operator mutant (bound) at packages/engine/src/sql/lexer.ts:151 in toUpperAscii: `32` becomes `31`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)
 

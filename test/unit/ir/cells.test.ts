@@ -180,10 +180,17 @@ export const aRelationsStringOfCellsDecodesBackToExactlyItsTuplesInCellsWBitsRea
 		]
 	})
 
-/** A relation's string of cells is the same for its rows in any order and repeated, and refuses two payloads at one key. */
+/**
+ * A relation's string of cells is the same for its rows in any order and repeated, and refuses two payloads at one
+ * key.
+ *
+ * Budget: 400 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/cells.test.ts:732 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aRelationsStringOfCellsIsTheSameForItsRowsInAnyOrderAndRepeatedAndRefusesTwoPayloadsAtOneKey =
 	property.explore(statement, {
 		needs: {},
+		budget: { runs: 400, steered: 300 },
 		situations: [
 			"rows out of index order",
 			"a row stated twice",
@@ -207,11 +214,17 @@ export const aRelationsStringOfCellsIsTheSameForItsRowsInAnyOrderAndRepeatedAndR
 		]
 	})
 
-/** A cell's width is the binary length of 1 + the largest payload code, exactly, past 2^53. */
+/**
+ * A cell's width is the binary length of 1 + the largest payload code, exactly, past 2^53.
+ *
+ * Budget: 300 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/cells.test.ts:790 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aCellsWidthIsTheBinaryLengthOf1TheLargestPayloadCodeExactlyPast253 = property.explore(
 	aimed(payloadSizes, [["a payload space past 2^53 points", widePayloadSizes]]),
 	{
 		needs: {},
+		budget: { runs: 300, steered: 200 },
 		situations: [
 			"a set",
 			"an empty payload space",
@@ -223,7 +236,14 @@ export const aCellsWidthIsTheBinaryLengthOf1TheLargestPayloadCodeExactlyPast253 
 			name: "the binary length of 1 + the largest payload code, in bigint arithmetic"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/cells.ts",
+				original: "\twhile (1n << BigInt(width) <= points) {",
+				replacement: "\twhile (1n << BigInt(width) > points) {",
+				why: "Operator mutant (comparison) at packages/engine/src/ir/cells.ts:193 in cellWidth: `<=` becomes `>`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	}
 )
 
@@ -256,10 +276,17 @@ export const aRostersCodesLeaveAHoleForEachRemovedHandleNeverReusedUnderEveryHol
 		]
 	})
 
-/** A roster's codes keep each handle's code through renames, append new handles past every code minted, and refuse a reorder. */
+/**
+ * A roster's codes keep each handle's code through renames, append new handles past every code minted, and refuse a
+ * reorder.
+ *
+ * Budget: 400 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/cells.test.ts:1111 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aRostersCodesKeepEachHandlesCodeThroughRenamesAppendNewHandlesPastEveryCodeMintedAndRefuseAReorder =
 	property.explore(history, {
 		needs: {},
+		budget: { runs: 400, steered: 300 },
 		situations: [
 			"a removal",
 			"a rename",

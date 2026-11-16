@@ -40,10 +40,17 @@ import {
 	type KeySetFeature
 } from "#test/unit/lower/dedup/key-sets.fixtures.ts"
 
-/** An attachment's parent key set deduplicates exactly where it is unproved on generated programs, their pages' included. */
+/**
+ * An attachment's parent key set deduplicates exactly where it is unproved on generated programs, their pages'
+ * included.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/dedup/key-sets.test.ts:305 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const anAttachmentsParentKeySetDeduplicatesExactlyWhereItIsUnprovedOnGeneratedProgramsTheirPagesIncluded =
 	property.explore(keySetCases, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"a proved key set",
 			"an unproved key set",

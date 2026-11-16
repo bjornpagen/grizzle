@@ -38,7 +38,13 @@ import {
 	stratumOf
 } from "#test/unit/write/changeset/normalize.fixtures.ts"
 
-/** Normalization against the add-wins meaning refuses only what add-wins rejects with that key law, and keeps the meaning of what it passes. */
+/**
+ * Normalization against the add-wins meaning refuses only what add-wins rejects with that key law, and keeps the
+ * meaning of what it passes.
+ *
+ * Budget: 1500 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/write/changeset/normalize.test.ts:586 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const normalizationAgainstTheAddWinsMeaningRefusesOnlyWhatAddWinsRejectsWithThatKeyLawAndKeepsTheMeaningOfWhatItPasses =
 	property.explore(
 		aimed(caseGen, [
@@ -47,6 +53,7 @@ export const normalizationAgainstTheAddWinsMeaningRefusesOnlyWhatAddWinsRejectsW
 		]),
 		{
 			needs: {},
+			budget: { runs: 1500, steered: 300 },
 			situations: [
 				"two strata",
 				"three strata",
@@ -88,13 +95,20 @@ export const normalizationAgainstTheAddWinsMeaningRefusesOnlyWhatAddWinsRejectsW
 		}
 	)
 
-/** Normalization against the add-wins meaning refuses a planted fact no relation admits by its own fault, and admits the ChangeSet without it. */
+/**
+ * Normalization against the add-wins meaning refuses a planted fact no relation admits by its own fault, and admits
+ * the ChangeSet without it.
+ *
+ * Budget: 200 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/write/changeset/normalize.test.ts:620 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const normalizationAgainstTheAddWinsMeaningRefusesAPlantedFactNoRelationAdmitsByItsOwnFaultAndAdmitsTheChangeSetWithoutIt =
 	property.explore(
 		(source) =>
 			[source.draw(array(memberGen, { min: 0, max: 2 })), source.draw(element(faults))] as const,
 		{
 			needs: {},
+			budget: { runs: 200, steered: 100 },
 			situations: faults satisfies ReadonlyArray<Reached<Fault>>,
 			check:
 				(_, c: Case<Fault>) =>

@@ -52,10 +52,17 @@ import {
 	tableOf
 } from "#test/unit/analysis/physical/dependencies.fixtures.ts"
 
-/** A fragment's dependency table closes, identifies and keys exactly as the brute-force oracle does, and proves every key the capped search found. */
+/**
+ * A fragment's dependency table closes, identifies and keys exactly as the brute-force oracle does, and proves every
+ * key the capped search found.
+ *
+ * Budget: 400 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/physical/dependencies.test.ts:322 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aFragmentsDependencyTableClosesIdentifiesAndKeysExactlyAsTheBruteForceOracleDoesAndProvesEveryKeyTheCappedSearchFound =
 	property.explore(specGen, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"identified",
 			"not identified",

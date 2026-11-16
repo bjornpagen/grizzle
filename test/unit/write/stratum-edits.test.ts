@@ -30,10 +30,16 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property as propertyOf } from "@bjornpagen/testing/property"
 import { type Feature, property, sketchGen } from "#test/unit/write/stratum-edits.fixtures.ts"
 
-/** A ChangeSet's family statements plan each stratum's own edits and nested writes, in that stratum alone. */
+/**
+ * A ChangeSet's family statements plan each stratum's own edits and nested writes, in that stratum alone.
+ *
+ * Budget: 64 runs and 48 steered cases, what its suite stated before it became a property
+ * (test/unit/write/stratum-edits.test.ts:405 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aChangeSetsFamilyStatementsPlanEachStratumsOwnEditsAndNestedWritesInThatStratumAlone =
 	propertyOf.explore(sketchGen, {
 		needs: {},
+		budget: { runs: 64, steered: 48 },
 		situations: [
 			"a nested insert before the edits",
 			"a nested insert after the edits",
@@ -48,5 +54,19 @@ export const aChangeSetsFamilyStatementsPlanEachStratumsOwnEditsAndNestedWritesI
 			name: "each stratum's own edits and nested writes restated: a removals statement of each member it puts or deletes, an additions statement of each it inserts, puts or nests"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original: "\t\tconst own = edits.filter((e) => e.stratum === stratum)",
+				replacement: "\t\tconst own = edits",
+				why: "A stratum's family nodes are planned from every stratum's edits, not its own (write/frontend/compile.ts), the frontend half of the recorded plant strata-families-every-stratum-plans-every-edit."
+			},
+			{
+				file: "packages/engine/src/write/program/compile.ts",
+				original:
+					"\t\t\t\tconst stratumEdits = frontend.edits.filter((edit) => edit.stratum === s)",
+				replacement: "\t\t\t\tconst stratumEdits = frontend.edits",
+				why: "A family write's program reads every stratum's edits, not its stratum's (write/program/compile.ts), the program half of the recorded plant strata-families-every-stratum-plans-every-edit."
+			}
+		]
 	})

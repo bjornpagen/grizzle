@@ -42,10 +42,16 @@ import {
 import { fieldOf, serialMember } from "#test/unit/schema/field-sketch.ts"
 import { bareContract, rawContract } from "#test/unit/schema/support.ts"
 
-/** Derived field inference gives back the descriptor of every declarable field type. */
+/**
+ * Derived field inference gives back the descriptor of every declarable field type.
+ *
+ * Budget: 100 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/derived/fields.test.ts:106 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const derivedFieldInferenceGivesBackTheDescriptorOfEveryDeclarableFieldType =
 	property.explore(declaredGen, {
 		needs: {},
+		budget: { runs: 100, steered: 200 },
 		situations: [
 			"kind pg",
 			"kind numeric",
@@ -116,10 +122,17 @@ export const derivedFieldInferenceGivesBackTheDescriptorOfEveryDeclarableFieldTy
 		]
 	})
 
-/** Derived field inference refuses a contract the schema declares on no relation, in fieldDescOf and at the derived field cast to it. */
+/**
+ * Derived field inference refuses a contract the schema declares on no relation, in fieldDescOf and at the derived
+ * field cast to it.
+ *
+ * Budget: 40 runs and 40 steered cases, what its suite stated before it became a property
+ * (test/unit/derived/fields.test.ts:186 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const derivedFieldInferenceRefusesAContractTheSchemaDeclaresOnNoRelationInFieldDescOfAndAtTheDerivedFieldCastToIt =
 	property.explore(contractCaseGen, {
 		needs: {},
+		budget: { runs: 40, steered: 40 },
 		situations: ["declared", "undeclared"] satisfies ReadonlyArray<
 			Reached<"declared" | "undeclared">
 		>,

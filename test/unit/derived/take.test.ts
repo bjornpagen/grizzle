@@ -27,11 +27,17 @@ import {
 	type TakeFeature
 } from "#test/unit/derived/take.fixtures.ts"
 
-/** A definition that ends in a take installs its take's order and no order beside it. */
+/**
+ * A definition that ends in a take installs its take's order and no order beside it.
+ *
+ * Budget: 120 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/derived/take.test.ts:228 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aDefinitionThatEndsInATakeInstallsItsTakesOrderAndNoOrderBesideIt = property.explore(
 	sketchGen,
 	{
 		needs: {},
+		budget: { runs: 120, steered: 200 },
 		situations: situations satisfies ReadonlyArray<Reached<TakeFeature>>,
 		check: (_, k: Case<TakeFeature>) => (s) =>
 			Effect.sync(() => {

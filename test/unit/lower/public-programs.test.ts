@@ -47,10 +47,16 @@ import {
 	type RosterFeature
 } from "#test/unit/lower/public-programs.fixtures.ts"
 
-/** The optimized lowering of checked public programs builds no DAG that breaks a rule for a generated read. */
+/**
+ * The optimized lowering of checked public programs builds no DAG that breaks a rule for a generated read.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/public-programs.test.ts:266 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theOptimizedLoweringOfCheckedPublicProgramsBuildsNoDAGThatBreaksARuleForAGeneratedRead =
 	property.explore(caseSketchGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"an option or bare child over an identity projection's input"
 		] satisfies ReadonlyArray<Reached<IdentityFeature>>,
@@ -71,7 +77,14 @@ export const theOptimizedLoweringOfCheckedPublicProgramsBuildsNoDAGThatBreaksARu
 			name: "the strict DAG re-reader and the lowering's audit (checkedLowering)"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/query/build/rule.ts",
+				original: "\t\t\tif (!ref.scope.active) {",
+				replacement: "\t\t\tif (ref.scope.active) {",
+				why: "Operator mutant (negation) at packages/engine/src/query/build/rule.ts:311 in finishRule: `!ref.scope.active` becomes `ref.scope.active`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
 /** The optimized lowering of checked public programs builds no DAG that breaks a rule for a planted read. */
@@ -105,7 +118,13 @@ export const theOptimizedLoweringOfCheckedPublicProgramsBuildsNoDAGThatBreaksARu
 		]
 	})
 
-/** The optimized lowering of checked public programs lowers a roster match an import bound to its variable reads, and drops one a plain match also binds. */
+/**
+ * The optimized lowering of checked public programs lowers a roster match an import bound to its variable reads, and
+ * drops one a plain match also binds.
+ *
+ * Budget: 40 runs and 40 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/public-programs.test.ts:336 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theOptimizedLoweringOfCheckedPublicProgramsLowersARosterMatchAnImportBoundToItsVariableReadsAndDropsOneAPlainMatchAlsoBinds =
 	property.explore(
 		(source) => {
@@ -124,6 +143,7 @@ export const theOptimizedLoweringOfCheckedPublicProgramsLowersARosterMatchAnImpo
 		},
 		{
 			needs: {},
+			budget: { runs: 40, steered: 40 },
 			situations: [
 				"an import bound to a variable only a roster match binds",
 				"roster match dropped beside a plain binder"

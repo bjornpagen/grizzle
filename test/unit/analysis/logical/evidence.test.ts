@@ -51,7 +51,20 @@ export const theLogicalAnalysissClaimsHoldOnTheFactsKeysAndCardinalityBoundsOver
 		],
 		aims: [],
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/expr.ts",
+				original: `\t\t\treturn inRange(literal.value, range) ? undefined : \`\${literal.value} lies outside \${carrier}\``,
+				replacement: `\t\t\treturn inRange(literal.value, range) ? \`\${literal.value} lies outside \${carrier}\` : undefined`,
+				why: `Operator mutant (arm-swap) at packages/engine/src/ir/expr.ts:880 in literalProblem: \`inRange(literal.value, range) ? undefined : \`\${literal.value} lies outside \${car\` becomes \`inRange(literal.value, range) ? \`\${literal.value} lies outside \${carrier}\` : und\`; the property fails (lane CATCH, grizzle 0baff5d6).`
+			},
+			{
+				file: "packages/engine/src/ir/expr.ts",
+				original: `\t\t\treturn inRange(literal.value, range) ? undefined : \`\${literal.value} lies outside \${carrier}\``,
+				replacement: `\t\t\treturn inRange(literal.value, range) ? \`\${literal.value} lies outside \${carrier}\` : undefined`,
+				why: `Operator mutant (arm-swap) at packages/engine/src/ir/expr.ts:880 in literalProblem: \`inRange(literal.value, range) ? undefined : \`\${literal.value} lies outside \${car\` becomes \`inRange(literal.value, range) ? \`\${literal.value} lies outside \${carrier}\` : und\`; the property fails (lane CATCH, grizzle 0baff5d6).`
+			}
+		]
 	})
 
 /** The logical analysis's claims hold on the facts keys, cardinality and determinism over cases with lateral sources, shared nodes, windows and approximate searches. */
@@ -110,7 +123,20 @@ export const theLogicalAnalysissClaimsHoldOnTheFactsDeliveredTypesOverCasesRoote
 		],
 		aims: [["an orphaned containment inside a transaction", orphanedCases(attachmentRooted)]],
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/expr.ts",
+				original: `\t\t\treturn inRange(literal.value, range) ? undefined : \`\${literal.value} lies outside \${carrier}\``,
+				replacement: `\t\t\treturn inRange(literal.value, range) ? \`\${literal.value} lies outside \${carrier}\` : undefined`,
+				why: `Operator mutant (arm-swap) at packages/engine/src/ir/expr.ts:880 in literalProblem: \`inRange(literal.value, range) ? undefined : \`\${literal.value} lies outside \${car\` becomes \`inRange(literal.value, range) ? \`\${literal.value} lies outside \${carrier}\` : und\`; the property fails (lane CATCH, grizzle 0baff5d6).`
+			},
+			{
+				file: "packages/engine/src/ir/expr.ts",
+				original: `\t\t\treturn inRange(literal.value, range) ? undefined : \`\${literal.value} lies outside \${carrier}\``,
+				replacement: `\t\t\treturn inRange(literal.value, range) ? \`\${literal.value} lies outside \${carrier}\` : undefined`,
+				why: `Operator mutant (arm-swap) at packages/engine/src/ir/expr.ts:880 in literalProblem: \`inRange(literal.value, range) ? undefined : \`\${literal.value} lies outside \${car\` becomes \`inRange(literal.value, range) ? \`\${literal.value} lies outside \${carrier}\` : und\`; the property fails (lane CATCH, grizzle 0baff5d6).`
+			}
+		]
 	})
 
 /** The logical analysis's claims hold on the facts bare children along declared containments and filters over one fact. */

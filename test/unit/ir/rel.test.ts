@@ -31,10 +31,17 @@ import {
 import { assert, contains } from "#test/support/assert.ts"
 import { dags, type Keeping } from "#test/unit/ir/rel.fixtures.ts"
 
-/** The RelNode family lists a node's edges and expressions exactly as its structural map meets them, and restates it unchanged. */
+/**
+ * The RelNode family lists a node's edges and expressions exactly as its structural map meets them, and restates it
+ * unchanged.
+ *
+ * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/rel.test.ts:47 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theRelNodeFamilyListsANodesEdgesAndExpressionsExactlyAsItsStructuralMapMeetsThemAndRestatesItUnchanged =
 	property.explore(dags, {
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: Arr.map(relKinds, (kind): `a ${RelKind}` => `a ${kind}`) satisfies ReadonlyArray<
 			Reached<`a ${RelKind}`>
 		>,
@@ -85,10 +92,16 @@ export const theRelNodeFamilyListsANodesEdgesAndExpressionsExactlyAsItsStructura
 		]
 	})
 
-/** The RelNode family keeps rows only of a data input whose heading is its own, for every kind. */
+/**
+ * The RelNode family keeps rows only of a data input whose heading is its own, for every kind.
+ *
+ * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/rel.test.ts:107 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theRelNodeFamilyKeepsRowsOnlyOfADataInputWhoseHeadingIsItsOwnForEveryKind =
 	property.explore(dags, {
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: [
 			"keeps every row",
 			...Arr.map(

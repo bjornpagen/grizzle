@@ -21,10 +21,17 @@ import {
 	Writer
 } from "#test/unit/ir/defaults.fixtures.ts"
 
-/** The Description boundary's defaults a query omitting an import's empty bind map and one stating it decode to one canonical text. */
+/**
+ * The Description boundary's defaults a query omitting an import's empty bind map and one stating it decode to one
+ * canonical text.
+ *
+ * Budget: 400 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/defaults.test.ts:180 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theDescriptionBoundarysDefaultsAQueryOmittingAnImportsEmptyBindMapAndOneStatingItDecodeToOneCanonicalText =
 	property.explore((source) => source.draw(queryGen(2)), {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, c: Case<Feature>) => (query) =>
 			Effect.sync(() => {

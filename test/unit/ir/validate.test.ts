@@ -30,7 +30,13 @@ import {
 	ruleFeatures
 } from "#test/unit/ir/validate.fixtures.ts"
 
-/** ValidateDag accepts every live DAG and its live variants, and raises a defect for each one a corruption breaks at any site. */
+/**
+ * ValidateDag accepts every live DAG and its live variants, and raises a defect for each one a corruption breaks at
+ * any site.
+ *
+ * Budget: 150 runs and 600 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/validate.test.ts:307 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const validateDagAcceptsEveryLiveDAGAndItsLiveVariantsAndRaisesADefectForEachOneACorruptionBreaksAtAnySite =
 	property.explore(
 		aimed(drawnCase, [
@@ -39,6 +45,7 @@ export const validateDagAcceptsEveryLiveDAGAndItsLiveVariantsAndRaisesADefectFor
 		]),
 		{
 			needs: {},
+			budget: { runs: 150, steered: 600 },
 			situations: [
 				"live",
 				...ruleFeatures,

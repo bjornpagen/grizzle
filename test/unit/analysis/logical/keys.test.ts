@@ -49,10 +49,16 @@ import {
 	type UnionFeature
 } from "#test/unit/analysis/logical/keys.fixtures.ts"
 
-/** Minimal keys are exactly the table's minimal keys, every one found from the whole heading. */
+/**
+ * Minimal keys are exactly the table's minimal keys, every one found from the whole heading.
+ *
+ * Budget: 500 runs and 500 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/logical/keys.test.ts:102 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const minimalKeysAreExactlyTheTablesMinimalKeysEveryOneFoundFromTheWholeHeading =
 	property.explore(tableGen, {
 		needs: {},
+		budget: { runs: 500, steered: 500 },
 		situations: [
 			"one minimal key",
 			"several minimal keys",
@@ -142,10 +148,17 @@ export const minimalKeysAreExactlyTheTablesMinimalKeysEveryOneFoundFromTheWholeH
 		]
 	})
 
-/** Keys over classes of equal columns are one key for k pairs of equal columns, never 2^k: each class's first column, the others its members. */
+/**
+ * Keys over classes of equal columns are one key for k pairs of equal columns, never 2^k: each class's first column,
+ * the others its members.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/logical/keys.test.ts:236 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const keysOverClassesOfEqualColumnsAreOneKeyForKPairsOfEqualColumnsNever2KEachClasssFirstColumnTheOthersItsMembers =
 	property.explore(classedGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"eight or more classes of several columns",
 			"a class of three columns",
@@ -280,11 +293,17 @@ export const keysOverClassesOfEqualColumnsAreOneKeyForKPairsOfEqualColumnsNever2
 		]
 	})
 
-/** Keys of a union are closed under the columns every arm makes equal, and only those. */
+/**
+ * Keys of a union are closed under the columns every arm makes equal, and only those.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/logical/keys.test.ts:476 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const keysOfAUnionAreClosedUnderTheColumnsEveryArmMakesEqualAndOnlyThose = property.explore(
 	unionCaseGen,
 	{
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"an equality every arm holds",
 			"an equality some arm lacks",
@@ -434,10 +453,17 @@ export const keysOfAUnionAreClosedUnderTheColumnsEveryArmMakesEqualAndOnlyThose 
 	}
 )
 
-/** The key kernel's union equalities refuses a forged equal step whose arms only determine the column, or that cites a column pair none has. */
+/**
+ * The key kernel's union equalities refuses a forged equal step whose arms only determine the column, or that cites a
+ * column pair none has.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/logical/keys.test.ts:677 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theKeyKernelsUnionEqualitiesRefusesAForgedEqualStepWhoseArmsOnlyDetermineTheColumnOrThatCitesAColumnPairNoneHas =
 	property.explore(mappingsGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"every arm makes b equal to a",
 			"an arm shifts",
@@ -574,5 +600,12 @@ export const theKeyKernelsUnionEqualitiesRefusesAForgedEqualStepWhoseArmsOnlyDet
 				since: "2026-10-29"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/rel.ts",
+				original: "\treturn [head, ...tail, ...rest.flatMap((g) => g.arms)]",
+				replacement: "\treturn [head, ...rest.flatMap((g) => g.arms)]",
+				why: "Operator mutant (element) at packages/engine/src/ir/rel.ts:580 in unionArms: `[head, ...tail, ...rest.flatMap((g) => g.arms)]` becomes `[head, ...rest.flatMap((g) => g.arms)]`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

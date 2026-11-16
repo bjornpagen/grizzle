@@ -20,7 +20,12 @@ import {
 	type Slot
 } from "#test/unit/analysis/navigation.fixtures.ts"
 
-/** Navigation keeps every generated read's answer, by the reference over the checked IR. */
+/**
+ * Navigation keeps every generated read's answer, by the reference over the checked IR.
+ *
+ * Budget: 400 runs and 400 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/navigation.test.ts:140 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const navigationKeepsEveryGeneratedReadsAnswerByTheReferenceOverTheCheckedIR =
 	property.explore(
 		aimed(caseSketchGen, [
@@ -33,6 +38,7 @@ export const navigationKeepsEveryGeneratedReadsAnswerByTheReferenceOverTheChecke
 		]),
 		{
 			needs: {},
+			budget: { runs: 400, steered: 400 },
 			situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 			check: (_, k: Case<Feature>) => (sketch) =>
 				Effect.sync(() => {
@@ -111,5 +117,18 @@ export const navigationsGateJudgesAWriteMembersNegationThatReadsNoVariableAmongT
 		},
 		box: "every assignment of three negations' slots, each none, a gate by the parameter, a gate by a literal or correlated, over a join of A at the parameter and B",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: `\t\t\tconst delivered = Object.fromEntries(outputs.map((id, i) => [\`o\${i}\`, varRef(id)] as const))`,
+				replacement: `\t\t\tconst delivered = Object.fromEntries(outputs.map((id, i) => [\`o\${i}\`] as const))`,
+				why: `Operator mutant (element) at packages/engine/src/analysis/theory/navigate.ts:462 in place: \`[\`o\${i}\`, varRef(id)]\` becomes \`[\`o\${i}\`]\`; the property fails (lane CATCH, grizzle 0baff5d6).`
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: `\t\t\tconst delivered = Object.fromEntries(outputs.map((id, i) => [\`o\${i}\`, varRef(id)] as const))`,
+				replacement: `\t\t\tconst delivered = Object.fromEntries(outputs.map((id, i) => [\`o\${i}\`] as const))`,
+				why: `Operator mutant (element) at packages/engine/src/analysis/theory/navigate.ts:462 in place: \`[\`o\${i}\`, varRef(id)]\` becomes \`[\`o\${i}\`]\`; the property fails (lane CATCH, grizzle 0baff5d6).`
+			}
+		]
 	})

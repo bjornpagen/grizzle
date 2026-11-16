@@ -76,7 +76,12 @@ import {
 	type UnreadableFeature
 } from "#test/unit/ir/shape.fixtures.ts"
 
-/** Shapes decode a live value into an equal fresh copy, and refuse one broken at one site, naming that site. */
+/**
+ * Shapes decode a live value into an equal fresh copy, and refuse one broken at one site, naming that site.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/shape.test.ts:341 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const shapesDecodeALiveValueIntoAnEqualFreshCopyAndRefuseOneBrokenAtOneSiteNamingThatSite =
 	property.explore(
 		(source) => ({
@@ -86,6 +91,7 @@ export const shapesDecodeALiveValueIntoAnEqualFreshCopyAndRefuseOneBrokenAtOneSi
 		}),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: breakNames satisfies ReadonlyArray<Reached<Break>>,
 			check:
 				(_, c: Case<Break>) =>
@@ -182,11 +188,17 @@ export const shapesDecodeALiveValueIntoAnEqualFreshCopyAndRefuseOneBrokenAtOneSi
 		}
 	)
 
-/** Shapes decode a decoded value again into an equal fresh copy, key order included. */
+/**
+ * Shapes decode a decoded value again into an equal fresh copy, key order included.
+ *
+ * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/shape.test.ts:394 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const shapesDecodeADecodedValueAgainIntoAnEqualFreshCopyKeyOrderIncluded = property.explore(
 	liveGen,
 	{
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: ["a list of points", "a point", "a mark"] satisfies ReadonlyArray<Reached<Decoded>>,
 		check: (_, c: Case<Decoded>) => (live) =>
 			Effect.sync(() => {
@@ -216,7 +228,12 @@ export const shapesDecodeADecodedValueAgainIntoAnEqualFreshCopyKeyOrderIncluded 
 	}
 )
 
-/** Shapes refuse a value whose reading throws, at its path. */
+/**
+ * Shapes refuse a value whose reading throws, at its path.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/shape.test.ts:431 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const shapesRefuseAValueWhoseReadingThrowsAtItsPath = property.explore(
 	(source) => ({
 		live: source.draw(liveGen),
@@ -230,6 +247,7 @@ export const shapesRefuseAValueWhoseReadingThrowsAtItsPath = property.explore(
 	}),
 	{
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"proxy at the root",
 			"proxy nested",
@@ -327,7 +345,12 @@ export const shapesLetADecodersOwnDefectEscape = property.exhaust(
 	}
 )
 
-/** Shapes accept exactly the distinct nonempty names, the nonempty lists and the safe and positive integers. */
+/**
+ * Shapes accept exactly the distinct nonempty names, the nonempty lists and the safe and positive integers.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/shape.test.ts:532 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const shapesAcceptExactlyTheDistinctNonemptyNamesTheNonemptyListsAndTheSafeAndPositiveIntegers =
 	property.explore(
 		(source) => ({
@@ -337,6 +360,7 @@ export const shapesAcceptExactlyTheDistinctNonemptyNamesTheNonemptyListsAndTheSa
 		}),
 		{
 			needs: {},
+			budget: { runs: 200, steered: 200 },
 			situations: [
 				"names accepted",
 				"a repeated name refused",
@@ -425,10 +449,17 @@ export const shapesAcceptExactlyTheDistinctNonemptyNamesTheNonemptyListsAndTheSa
 		}
 	)
 
-/** A record's keys keep __proto__ an ordinary key of a record, in this process and where Object.prototype.__proto__ exists. */
+/**
+ * A record's keys keep __proto__ an ordinary key of a record, in this process and where Object.prototype.__proto__
+ * exists.
+ *
+ * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/shape.test.ts:826 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aRecordsKeysKeepProtoAnOrdinaryKeyOfARecordInThisProcessAndWhereObjectPrototypeProtoExists =
 	property.explore((source) => [source.draw(entriesGen), source.draw(decodedIn)] as const, {
 		needs: { checkout: Checkout.dir },
+		budget: { runs: 100, steered: 100 },
 		situations: [
 			"an own __proto__ key in this process",
 			"an own __proto__ key in a consumer's process"
@@ -498,7 +529,12 @@ export const aRecordsKeysKeepProtoAnOrdinaryKeyOfARecordInThisProcessAndWhereObj
 		]
 	})
 
-/** A value nested through a recursive shape decode at any depth, the call stack no deeper for it: a fresh copy decoded. */
+/**
+ * A value nested through a recursive shape decode at any depth, the call stack no deeper for it: a fresh copy decoded.
+ *
+ * Budget: 12 runs and 40 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/shape.test.ts:924 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aValueNestedThroughARecursiveShapeDecodeAtAnyDepthTheCallStackNoDeeperForItAFreshCopyDecoded =
 	property.explore(
 		(source) =>
@@ -513,6 +549,7 @@ export const aValueNestedThroughARecursiveShapeDecodeAtAnyDepthTheCallStackNoDee
 			] as const,
 		{
 			needs: {},
+			budget: { runs: 12, steered: 40 },
 			situations: [
 				"chain",
 				"nested array",
@@ -551,7 +588,13 @@ export const aValueNestedThroughARecursiveShapeDecodeAtAnyDepthTheCallStackNoDee
 		}
 	)
 
-/** A value nested through a recursive shape refuse a value that holds itself as a cycle where it meets itself, however long the cycle. */
+/**
+ * A value nested through a recursive shape refuse a value that holds itself as a cycle where it meets itself, however
+ * long the cycle.
+ *
+ * Budget: 12 runs and 60 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/shape.test.ts:980 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aValueNestedThroughARecursiveShapeRefuseAValueThatHoldsItselfAsACycleWhereItMeetsItselfHoweverLongTheCycle =
 	property.explore(
 		(source) => {
@@ -570,6 +613,7 @@ export const aValueNestedThroughARecursiveShapeRefuseAValueThatHoldsItselfAsACyc
 		},
 		{
 			needs: {},
+			budget: { runs: 12, steered: 60 },
 			situations: [
 				"chain",
 				"nested array",

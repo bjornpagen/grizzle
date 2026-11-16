@@ -36,10 +36,17 @@ import {
 	nested
 } from "#test/unit/lower/catalog/lexicographic.fixtures.ts"
 
-/** The lexicographic recognizer decides every arrangement of up to six pairs exactly as the enumeration of every sign vector does. */
+/**
+ * The lexicographic recognizer decides every arrangement of up to six pairs exactly as the enumeration of every sign
+ * vector does.
+ *
+ * Budget: 600 runs and 600 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/catalog/lexicographic.test.ts:504 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theLexicographicRecognizerDecidesEveryArrangementOfUpToSixPairsExactlyAsTheEnumerationOfEverySignVectorDoes =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 600, steered: 600 },
 		situations: [
 			"recognized",
 			"not lexicographic",
@@ -82,7 +89,13 @@ export const theLexicographicRecognizerDecidesEveryArrangementOfUpToSixPairsExac
 		]
 	})
 
-/** The lexicographic recognizer recognizes the nested spelling of any order of seven to ten pairs, past the enumeration's six. */
+/**
+ * The lexicographic recognizer recognizes the nested spelling of any order of seven to ten pairs, past the
+ * enumeration's six.
+ *
+ * Budget: 40 runs and 40 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/catalog/lexicographic.test.ts:557 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theLexicographicRecognizerRecognizesTheNestedSpellingOfAnyOrderOfSevenToTenPairsPastTheEnumerationsSix =
 	property.explore(
 		(source) => {
@@ -97,6 +110,7 @@ export const theLexicographicRecognizerRecognizesTheNestedSpellingOfAnyOrderOfSe
 		},
 		{
 			needs: {},
+			budget: { runs: 40, steered: 40 },
 			situations: ["inclusive", "strict"] satisfies ReadonlyArray<Reached<"inclusive" | "strict">>,
 			check: (_, c: CaseOf<"inclusive" | "strict">) => (s) =>
 				Effect.sync(() => {
@@ -131,10 +145,17 @@ export const theLexicographicRecognizerRecognizesTheNestedSpellingOfAnyOrderOfSe
 		}
 	)
 
-/** The lexicographic recognizer recognizes or refuses a predicate nested a hundred thousand connectives deep exactly as its shallow equivalent. */
+/**
+ * The lexicographic recognizer recognizes or refuses a predicate nested a hundred thousand connectives deep exactly as
+ * its shallow equivalent.
+ *
+ * Budget: 24 runs and 24 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/catalog/lexicographic.test.ts:609 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theLexicographicRecognizerRecognizesOrRefusesAPredicateNestedAHundredThousandConnectivesDeepExactlyAsItsShallowEquivalent =
 	property.explore(deepGen, {
 		needs: {},
+		budget: { runs: 24, steered: 24 },
 		situations: ["recognized", "not lexicographic"] satisfies ReadonlyArray<
 			Reached<"recognized" | "not lexicographic">
 		>,
@@ -149,5 +170,18 @@ export const theLexicographicRecognizerRecognizesOrRefusesAPredicateNestedAHundr
 			name: "a predicate deepened by wrappers that keep its function decides as its shallow self"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/lower/shapes/catalog/lexicographic.ts",
+				original: '\t\tif (fn === "and" || fn === "or") {',
+				replacement: '\t\tif (fn === "or") {',
+				why: 'Operator mutant (disjunct) at packages/engine/src/lower/shapes/catalog/lexicographic.ts:67 in parse: `fn === "and" || fn === "or"` becomes `fn === "or"`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			},
+			{
+				file: "packages/engine/src/lower/shapes/catalog/lexicographic.ts",
+				original: '\t\tif (fn === "and" || fn === "or") {',
+				replacement: '\t\tif (fn === "or") {',
+				why: 'Operator mutant (disjunct) at packages/engine/src/lower/shapes/catalog/lexicographic.ts:67 in parse: `fn === "and" || fn === "or"` becomes `fn === "or"`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
 	})

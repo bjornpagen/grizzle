@@ -49,10 +49,17 @@ import {
 	statedTexts
 } from "#test/unit/write/nested-identity.fixtures.ts"
 
-/** A nested write's identities dedupe its facts and rows by their whole content, refuse two at one key, and key each by its texts themselves at any content length. */
+/**
+ * A nested write's identities dedupe its facts and rows by their whole content, refuse two at one key, and key each by
+ * its texts themselves at any content length.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/write/nested-identity.test.ts:214 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aNestedWritesIdentitiesDedupeItsFactsAndRowsByTheirWholeContentRefuseTwoAtOneKeyAndKeyEachByItsTextsThemselvesAtAnyContentLength =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"a fact stated twice",
 			"two facts at one id differing in their title alone",

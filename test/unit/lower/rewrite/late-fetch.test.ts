@@ -92,13 +92,28 @@ export const latePayloadFetchSelectsTheNarrowKeyUnderTheBoundThenJoinsThePayload
 		},
 		box: "a take of one or two over a stage that carries Account's key or none, ordered by the key or reading the payload, read by the query, a join or a lateral join, in each evidence context",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/scalar.ts",
+				original:
+					"\ta === undefined || b === undefined\n\t\t? a === b\n\t\t: a.width === b.width && sameScalarType(a.endpoint, b.endpoint)",
+				replacement:
+					"\ta === undefined || b === undefined\n\t\t? a !== b\n\t\t: a.width === b.width && sameScalarType(a.endpoint, b.endpoint)",
+				why: "Operator mutant (comparison) at packages/engine/src/ir/scalar.ts:867 in sameSpan: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Late payload fetch refuses a correlated take, whose rows are selected per outer row. */
+/**
+ * Late payload fetch refuses a correlated take, whose rows are selected per outer row.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/rewrite/late-fetch.test.ts:301 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const latePayloadFetchRefusesACorrelatedTakeWhoseRowsAreSelectedPerOuterRow =
 	property.explore(wideCaseGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: ["fetched", "a correlated take held back"] satisfies ReadonlyArray<
 			Reached<"fetched" | "a correlated take held back">
 		>,

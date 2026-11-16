@@ -187,7 +187,13 @@ import {
 	withRole
 } from "#test/unit/analysis/isolation/certify.fixtures.ts"
 
-/** The isolation certifier runs a role READ COMMITTED exactly when every condition proves it, names every condition a SERIALIZABLE role fails, and never relaxes a role for an added capability or a missing fact. */
+/**
+ * The isolation certifier runs a role READ COMMITTED exactly when every condition proves it, names every condition a
+ * SERIALIZABLE role fails, and never relaxes a role for an added capability or a missing fact.
+ *
+ * Budget: 500 runs and 500 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/isolation/certify.test.ts:4242 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditionProvesItNamesEveryConditionASERIALIZABLERoleFailsAndNeverRelaxesARoleForAnAddedCapabilityOrAMissingFact =
 	property.explore(
 		aimed(
@@ -196,6 +202,7 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 		),
 		{
 			needs: {},
+			budget: { runs: 500, steered: 500 },
 			situations: [
 				"a role certified READ COMMITTED",
 				...Arr.map(conditions, (c) => `a role SERIALIZABLE by ${c}` as const),
@@ -587,10 +594,17 @@ export const theIsolationCertifierRunsARoleREADCOMMITTEDExactlyWhenEveryConditio
 		}
 	)
 
-/** The isolation certifier runs a role with a change member that has no READ COMMITTED form SERIALIZABLE from the first round, naming each such member, and judges the others by its SERIALIZABLE form alone. */
+/**
+ * The isolation certifier runs a role with a change member that has no READ COMMITTED form SERIALIZABLE from the first
+ * round, naming each such member, and judges the others by its SERIALIZABLE form alone.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/isolation/certify.test.ts:4521 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theIsolationCertifierRunsARoleWithAChangeMemberThatHasNoREADCOMMITTEDFormSERIALIZABLEFromTheFirstRoundNamingEachSuchMemberAndJudgesTheOthersByItsSERIALIZABLEFormAlone =
 	property.explore(formCaseGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"a role SERIALIZABLE by form",
 			"a role certified READ COMMITTED beside a role with no READ COMMITTED form",
@@ -686,7 +700,13 @@ export const theIsolationCertifierRunsARoleWithAChangeMemberThatHasNoREADCOMMITT
 		]
 	})
 
-/** The isolation certifier reads a statement's query CTE instances as their expansion, each read again at each of its sites: every role at the same level with the same reasons, each once, and the same fences. */
+/**
+ * The isolation certifier reads a statement's query CTE instances as their expansion, each read again at each of its
+ * sites: every role at the same level with the same reasons, each once, and the same fences.
+ *
+ * Budget: 500 runs and 500 steered cases, what its suite stated before it became a property
+ * (test/unit/analysis/isolation/certify.test.ts:4631 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theIsolationCertifierReadsAStatementsQueryCTEInstancesAsTheirExpansionEachReadAgainAtEachOfItsSitesEveryRoleAtTheSameLevelWithTheSameReasonsEachOnceAndTheSameFences =
 	property.explore(
 		aimed(sharedCaseGen, [
@@ -694,6 +714,7 @@ export const theIsolationCertifierReadsAStatementsQueryCTEInstancesAsTheirExpans
 		]),
 		{
 			needs: {},
+			budget: { runs: 500, steered: 500 },
 			situations: [
 				"an instance read at two sites",
 				"an instance read beneath a probe of its site",

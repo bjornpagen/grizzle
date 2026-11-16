@@ -35,10 +35,17 @@ import {
 	sketchGen
 } from "#test/unit/write/staged.fixtures.ts"
 
-/** Nested rows past one Bind message go inline where they fit and otherwise through a carrier filled in the longest chunks one Bind carries. */
+/**
+ * Nested rows past one Bind message go inline where they fit and otherwise through a carrier filled in the longest
+ * chunks one Bind carries.
+ *
+ * Budget: 400 runs and 64 steered cases, what its suite stated before it became a property
+ * (test/unit/write/staged.test.ts:330 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const nestedRowsPastOneBindMessageGoInlineWhereTheyFitAndOtherwiseThroughACarrierFilledInTheLongestChunksOneBindCarries =
 	property.explore(sketchGen, {
 		needs: {},
+		budget: { runs: 400, steered: 64 },
 		situations: [
 			"inline",
 			"staged in one fill",

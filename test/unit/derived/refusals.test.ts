@@ -48,10 +48,17 @@ import {
 	writesRows
 } from "#test/unit/derived/refusals.fixtures.ts"
 
-/** Derived relation refusals refuse a statement writing a derived relation's rows at every entry, and a rule over an aggregate where the laws compile. */
+/**
+ * Derived relation refusals refuse a statement writing a derived relation's rows at every entry, and a rule over an
+ * aggregate where the laws compile.
+ *
+ * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
+ * (test/unit/derived/refusals.test.ts:528 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const derivedRelationRefusalsRefuseAStatementWritingADerivedRelationsRowsAtEveryEntryAndARuleOverAnAggregateWhereTheLawsCompile =
 	property.explore(lawSketchGen, {
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: [
 			"law key",
 			"law mutable",
@@ -103,10 +110,16 @@ export const derivedRelationRefusalsRefuseAStatementWritingADerivedRelationsRows
 		kills: []
 	})
 
-/** Derived relation refusals refuse a level, parameter or context an unchecked description can still write down. */
+/**
+ * Derived relation refusals refuse a level, parameter or context an unchecked description can still write down.
+ *
+ * Budget: 40 runs and 40 steered cases, what its suite stated before it became a property
+ * (test/unit/derived/refusals.test.ts:598 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const derivedRelationRefusalsRefuseALevelParameterOrContextAnUncheckedDescriptionCanStillWriteDown =
 	property.explore(unwritableGen, {
 		needs: {},
+		budget: { runs: 40, steered: 40 },
 		situations: [
 			"a derived relation in a root schema",
 			"a definition that reads its own level",

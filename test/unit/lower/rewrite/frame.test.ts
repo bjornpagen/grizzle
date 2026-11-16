@@ -116,10 +116,16 @@ export const aDAGsRootsARootStaysAtItsPositionAmongTheDAGsRootsWhenARewriteRepla
 		}
 	)
 
-/** Determinism the same input rewrites to the same DAG, certificates and SQL, run after run. */
+/**
+ * Determinism the same input rewrites to the same DAG, certificates and SQL, run after run.
+ *
+ * Budget: 120 runs and 0 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/rewrite/frame.test.ts:139 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const determinismTheSameInputRewritesToTheSameDAGCertificatesAndSQLRunAfterRun =
 	property.explore(queryCaseGen(defaultGenConfig), {
 		needs: {},
+		budget: { runs: 120, steered: 0 },
 		situations: [],
 		check: () => (c) =>
 			Effect.gen(function* () {
@@ -172,10 +178,17 @@ export const determinismTheSameInputRewritesToTheSameDAGCertificatesAndSQLRunAft
 		]
 	})
 
-/** Determinism a frame that changes nothing in a DAG a frame delivered delivers it again, as collecting and annotating would. */
+/**
+ * Determinism a frame that changes nothing in a DAG a frame delivered delivers it again, as collecting and annotating
+ * would.
+ *
+ * Budget: 60 runs and 60 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/rewrite/frame.test.ts:199 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const determinismAFrameThatChangesNothingInADAGAFrameDeliveredDeliversItAgainAsCollectingAndAnnotatingWould =
 	property.explore(queryCaseGen(defaultGenConfig), {
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: ["a pass delivered the settled DAG"] satisfies ReadonlyArray<Reached<FrameFeature>>,
 		check: (_, c: Case<FrameFeature>) => (q) =>
 			Effect.sync(() => {
@@ -223,10 +236,16 @@ export const determinismAFrameThatChangesNothingInADAGAFrameDeliveredDeliversItA
 		]
 	})
 
-/** Determinism a pass computed cold from a fresh copy of a DAG equals the pass computed warm from the cached one. */
+/**
+ * Determinism a pass computed cold from a fresh copy of a DAG equals the pass computed warm from the cached one.
+ *
+ * Budget: 150 runs and 150 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/rewrite/frame.test.ts:260 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const determinismAPassComputedColdFromAFreshCopyOfADAGEqualsThePassComputedWarmFromTheCachedOne =
 	property.explore(queryCaseGen(defaultGenConfig), {
 		needs: {},
+		budget: { runs: 150, steered: 150 },
 		situations: ["a pass changed the DAG"] satisfies ReadonlyArray<Reached<FrameFeature>>,
 		check: (_, c: Case<FrameFeature>) => (q) =>
 			Effect.gen(function* () {
@@ -262,5 +281,12 @@ export const determinismAPassComputedColdFromAFreshCopyOfADAGEqualsThePassComput
 			name: "a pass's result is a function of its input's content: cold from a fresh copy equals warm"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/rel.ts",
+				original: "\t\tif (exprsOf(node).some((e) => e.deps.nodes.includes(read))) {",
+				replacement: "\t\tif (exprsOf(node).some((e) => true)) {",
+				why: "Operator mutant (boolean-return) at packages/engine/src/ir/rel.ts:550 in semiJoinRight: `e.deps.nodes.includes(read)` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

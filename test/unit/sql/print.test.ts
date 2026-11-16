@@ -57,7 +57,13 @@ import {
 	type WriteFeature
 } from "#test/unit/sql/print.fixtures.ts"
 
-/** PL/pgSQL through the line sink writes a block of every width, wider than one call's argument limit, and its statements' lines compose. */
+/**
+ * PL/pgSQL through the line sink writes a block of every width, wider than one call's argument limit, and its
+ * statements' lines compose.
+ *
+ * Budget: 96 runs and 96 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/print.test.ts:396 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const pLPgSQLThroughTheLineSinkWritesABlockOfEveryWidthWiderThanOneCallsArgumentLimitAndItsStatementsLinesCompose =
 	property.explore(
 		aimed(
@@ -66,6 +72,7 @@ export const pLPgSQLThroughTheLineSinkWritesABlockOfEveryWidthWiderThanOneCallsA
 		),
 		{
 			needs: {},
+			budget: { runs: 96, steered: 96 },
 			situations: [
 				"narrow",
 				"wide statement list",
@@ -113,10 +120,17 @@ export const pLPgSQLThroughTheLineSinkWritesABlockOfEveryWidthWiderThanOneCallsA
 		}
 	)
 
-/** Dollar quoting quotes a block's lines with a tag none of them holds, so a DO block and a function body each lex back as one dollar string of the same lines. */
+/**
+ * Dollar quoting quotes a block's lines with a tag none of them holds, so a DO block and a function body each lex back
+ * as one dollar string of the same lines.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/print.test.ts:463 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const dollarQuotingQuotesABlocksLinesWithATagNoneOfThemHoldsSoADOBlockAndAFunctionBodyEachLexBackAsOneDollarStringOfTheSameLines =
 	property.explore(plBlockGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: ["$$", "$gz$", "$gzN$"] satisfies ReadonlyArray<Reached<DollarTag>>,
 		check: (_, c: Case<DollarTag>) => (block) =>
 			Effect.sync(() => {
@@ -152,10 +166,17 @@ export const dollarQuotingQuotesABlocksLinesWithATagNoneOfThemHoldsSoADOBlockAnd
 		]
 	})
 
-/** A commented alternative holds no live SQL: every physical line, a literal's line breaks of both kinds included, begins with -- and lexes as nothing. */
+/**
+ * A commented alternative holds no live SQL: every physical line, a literal's line breaks of both kinds included,
+ * begins with -- and lexes as nothing.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/print.test.ts:525 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const aCommentedAlternativeHoldsNoLiveSQLEveryPhysicalLineALiteralsLineBreaksOfBothKindsIncludedBeginsWithAndLexesAsNothing =
 	property.explore(commentable, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"statement",
 			"function",
@@ -214,10 +235,16 @@ export const aCommentedAlternativeHoldsNoLiveSQLEveryPhysicalLineALiteralsLineBr
 		]
 	})
 
-/** Identifiers, types and literals quotes every identifier so that it lexes back as that one name. */
+/**
+ * Identifiers, types and literals quotes every identifier so that it lexes back as that one name.
+ *
+ * Budget: 400 runs and 0 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/print.test.ts:631 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const identifiersTypesAndLiteralsQuotesEveryIdentifierSoThatItLexesBackAsThatOneName =
 	property.explore(nameGen, {
 		needs: {},
+		budget: { runs: 400, steered: 0 },
 		situations: [],
 		check: () => (name) =>
 			Effect.sync(() => {
@@ -244,7 +271,13 @@ export const identifiersTypesAndLiteralsQuotesEveryIdentifierSoThatItLexesBackAs
 		]
 	})
 
-/** Identifiers, types and literals a float literal of every double survives the snapshot and spells the double for the float input function. */
+/**
+ * Identifiers, types and literals a float literal of every double survives the snapshot and spells the double for the
+ * float input function.
+ *
+ * Budget: 300 runs and 300 steered cases, what its suite stated before it became a property
+ * (test/unit/sql/print.test.ts:664 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const identifiersTypesAndLiteralsAFloatLiteralOfEveryDoubleSurvivesTheSnapshotAndSpellsTheDoubleForTheFloatInputFunction =
 	property.explore(
 		weighted([
@@ -253,6 +286,7 @@ export const identifiersTypesAndLiteralsAFloatLiteralOfEveryDoubleSurvivesTheSna
 		]),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: ["NaN", "infinity", "negative zero", "finite"] satisfies ReadonlyArray<
 				Reached<FloatFeature>
 			>,

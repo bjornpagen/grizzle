@@ -34,10 +34,17 @@ import {
 } from "#test/unit/lower/shapes/attach.fixtures.ts"
 import { present } from "#test/unit/lower/support.ts"
 
-/** The fused attachment codec reads each child's texts back from the column PostgreSQL writes, the correlated ones from the parent row. */
+/**
+ * The fused attachment codec reads each child's texts back from the column PostgreSQL writes, the correlated ones from
+ * the parent row.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/shapes/attach.test.ts:208 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theFusedAttachmentCodecReadsEachChildsTextsBackFromTheColumnPostgreSQLWritesTheCorrelatedOnesFromTheParentRow =
 	property.explore(fusedCaseGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"no element field",
 			"one element field",
@@ -108,11 +115,17 @@ export const theFusedAttachmentCodecReadsEachChildsTextsBackFromTheColumnPostgre
 		]
 	})
 
-/** The fused attachment codec reads every array_out text as the strict reading does. */
+/**
+ * The fused attachment codec reads every array_out text as the strict reading does.
+ *
+ * Budget: 200 runs and 200 steered cases, what its suite stated before it became a property
+ * (test/unit/lower/shapes/attach.test.ts:286 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theFusedAttachmentCodecReadsEveryArrayOutTextAsTheStrictReadingDoes = property.explore(
 	array(textGen, { min: 0, max: 5 }),
 	{
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: ["empty", "quoted"] satisfies ReadonlyArray<Reached<"empty" | "quoted">>,
 		check: (_, note: Case<"empty" | "quoted">) => (elements) =>
 			Effect.sync(() => {

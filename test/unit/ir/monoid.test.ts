@@ -68,10 +68,17 @@ export const theClosedMonoidsKeepTheMonoidLawsOnEveryAdmittedCarrier = property.
 	}
 )
 
-/** The closed monoids admit exactly the carriers whose identity and combine their validators admit, count natural alone. */
+/**
+ * The closed monoids admit exactly the carriers whose identity and combine their validators admit, count natural
+ * alone.
+ *
+ * Budget: 400 runs and 2000 steered cases, what its suite stated before it became a property
+ * (test/unit/ir/monoid.test.ts:328 at 8cad5bce, its runs and its coverage's cases).
+ */
 export const theClosedMonoidsAdmitExactlyTheCarriersWhoseIdentityAndCombineTheirValidatorsAdmitCountNaturalAlone =
 	property.explore(aimed(admitsCaseGen, setAdmitsAims), {
 		needs: {},
+		budget: { runs: 400, steered: 2000 },
 		situations: Arr.flatMap(monoidNames, (name): Arr.NonEmptyReadonlyArray<AdmitsFeature> => [
 			`${name} admits`,
 			`${name} refuses`
