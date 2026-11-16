@@ -1,9 +1,18 @@
 /** What the properties of dag.test.ts read: its spaces, models and helpers. */
 
 import { constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option } from "effect"
+import type { Need } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Option } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { ExprId, makeIdSupply, NodeId, OccurrenceId, ScopeId, VarId } from "#compiler/core/ids.ts"
+import {
+	ExprId,
+	type IdSupply,
+	makeIdSupply,
+	NodeId,
+	OccurrenceId,
+	ScopeId,
+	VarId
+} from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import { dagDigest, relNode, topoOrder, unchangedEdges } from "#compiler/ir/dag.ts"
@@ -37,7 +46,7 @@ import { contractType } from "#compiler/scalar/registry.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { rebuildDag } from "#test/support/dag.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
-import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
+import { normalizeExprTable, scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
 import { everyKind, Exprs, heading, scalarTypes } from "#test/unit/ir/fixture.ts"
@@ -394,3 +403,37 @@ export const spellingOf = (
 	defined(spelling[1], "a value's spelling"),
 	defined(spelling[2], "a zero's spelling")
 ]
+
+/** What the search built once before its cases (build, reference), now once per worker: every case on it reads them. */
+export const buildNeed = {
+	key: "test/unit/ir/dag.fixtures.ts buildNeed",
+	open: Effect.sync(() => {
+		const build = (type: ScalarType, supply: IdSupply) => {
+			const b = new DagBuilder(supply)
+			const base = b.node({
+				kind: "Base",
+				relation: "Price",
+				occurrence: b.ids.occurrence(),
+				primaryKey: ["amount"],
+				keys: [],
+				relationKind: "relation",
+				heading: heading(["amount", type]),
+				loc: undefined,
+				meta: conservativeMeta
+			})
+			return b.build([base])
+		}
+		/**
+		 * Planted: no generator draws a contract type. Every spelling of the three entries from a pool of identifiers, and a
+		 * supply advanced by any amount, give one digest once normalized; still spelled by allocation, the predicate is
+		 * refused where a type no registry built enters, the decoder, so it can never reach a fingerprint.
+		 */
+		const reference = succeeded(
+			dagDigest(
+				build(cents(succeeded(normalizeExprTable(predicate("e3", "e1", "e2")))), makeIdSupply()),
+				"dag"
+			)
+		)
+		return Effect.succeed({ build, reference })
+	})
+} as const satisfies Need<unknown>

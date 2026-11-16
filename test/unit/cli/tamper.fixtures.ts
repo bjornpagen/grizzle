@@ -1,8 +1,10 @@
 /** What the properties of tamper.test.ts read: its spaces, models and helpers. */
 
 import { boolean, type Gen } from "@bjornpagen/testing/gen"
+import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import {
 	Array as Arr,
+	Cause,
 	DateTime,
 	Effect,
 	FileSystem,
@@ -91,12 +93,7 @@ const at = (s: number) =>
 	})
 
 /** A directory under `base` holding `name`'s migrations after drafting each of `versions` in turn. */
-export const drafted = (
-	base: string,
-	label: string,
-	name: string,
-	versions: ReadonlyArray<1 | 2>
-) =>
+const drafted = (base: string, label: string, name: string, versions: ReadonlyArray<1 | 2>) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const dir = `${base}/${label}`
@@ -478,3 +475,26 @@ export const tampered = (
 			)
 		})
 	)
+
+/** What the search built once before its cases (committed), now once per worker: every case on it reads it. */
+export const committedNeed = {
+	key: "test/unit/cli/tamper.fixtures.ts committedNeed",
+	open: Effect.gen(function* () {
+		const base = yield* workspace("tamper")
+		const committed = {
+			one: yield* drafted(base, "one", "TamperShop", [1]),
+			two: yield* drafted(base, "two", "TamperShop", [1, 2]),
+			other: yield* drafted(base, "other", "TamperOther", [1])
+		}
+		return committed
+	}).pipe(
+		Effect.mapBoth({
+			onFailure: (error) =>
+				NeedFailed.make({
+					need: "test/unit/cli/tamper.fixtures.ts committedNeed",
+					message: Cause.pretty(Cause.fail(error))
+				}),
+			onSuccess: (made) => Effect.succeed(made)
+		})
+	)
+} as const satisfies Need<unknown>

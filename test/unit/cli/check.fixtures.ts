@@ -1,8 +1,18 @@
 /** What the properties of check.test.ts read: its spaces, models and helpers. */
 
 import { boolean, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
+import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
-import { Array as Arr, DateTime, Effect, FileSystem, Option, String as Str } from "effect"
+import {
+	Array as Arr,
+	Cause,
+	DateTime,
+	Effect,
+	FileSystem,
+	Option,
+	Order,
+	String as Str
+} from "effect"
 import { decodeMeta } from "#adapter/boundary/meta.ts"
 import type { refusalText } from "#cli/refusals.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
@@ -12,9 +22,10 @@ import { noTransactionMarker, placeholderMarker } from "#compiler/deploy/render/
 import { snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
-import { defined, succeeded } from "#test/support/assert.ts"
+import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { besideFolders } from "#test/support/migrate/kit.ts"
 
 type MetaFault = "sound" | "unreadable" | "off the chain"
 
@@ -70,21 +81,21 @@ const shop = Object.freeze(shopV1("ChkAll", "none"))
 
 const ident = identifierOf(identity.schema(parsedSchemaName("ChkAll")))
 
-export const schemaDir = `migrations/${ident}`
+const schemaDir = `migrations/${ident}`
 
-export const init = "20261012120000_init"
+const init = "20261012120000_init"
 
-export const seed = "20261012120001_seed"
+const seed = "20261012120001_seed"
 
 /** The files of init the faults edit, by name, as its draft numbers them: its Setup, Structure and Publish files. */
-export interface Layout {
+interface Layout {
 	readonly setup: string
 	readonly structure: string
 	readonly publish: string
 }
 
 /** The file of init's files whose name ends in `-<phase>.sql`. */
-export const phaseFile = (files: ReadonlyArray<string>, phase: string): string =>
+const phaseFile = (files: ReadonlyArray<string>, phase: string): string =>
 	defined(
 		Arr.findFirst(files, (f) => Str.endsWith(`-${phase}.sql`)(f)).pipe(Option.getOrUndefined),
 		`init's ${phase} file`
@@ -231,3 +242,42 @@ export const notesOf = (p: Planted, found: ReadonlyArray<Finding>): ReadonlyArra
 		? (["a later folder off the chain the walk never reaches"] as const)
 		: [])
 ]
+
+/** What the search built once before its cases (fs, base, layout), now once per worker: every case on it reads them. */
+export const fsNeed = {
+	key: "test/unit/cli/check.fixtures.ts fsNeed",
+	open: Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const base = yield* workspace("check-base")
+		const drafted = yield* cliOver(base, config, ["generate", configName, "--name", "init"], at(0))
+		assert.equal(drafted.code, 0, drafted.stderr)
+		const custom = yield* cliOver(
+			base,
+			config,
+			["generate", configName, "--custom", "--name", "seed"],
+			at(1)
+		)
+		assert.equal(custom.code, 0, custom.stderr)
+		const committed = yield* fs.readDirectory(`${base}/${schemaDir}`)
+		assert.deepEqual(
+			Arr.sort(committed, Order.String),
+			Arr.sort([init, seed, ...besideFolders], Order.String)
+		)
+		const files = yield* fs.readDirectory(`${base}/${schemaDir}/${init}`)
+		const layout: Layout = {
+			setup: phaseFile(files, "setup"),
+			structure: phaseFile(files, "structure"),
+			publish: phaseFile(files, "publish")
+		}
+		return { fs, base, layout }
+	}).pipe(
+		Effect.mapBoth({
+			onFailure: (error) =>
+				NeedFailed.make({
+					need: "test/unit/cli/check.fixtures.ts fsNeed",
+					message: Cause.pretty(Cause.fail(error))
+				}),
+			onSuccess: (made) => Effect.succeed(made)
+		})
+	)
+} as const satisfies Need<unknown>

@@ -20,25 +20,20 @@
  */
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, FileSystem, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { check } from "#cli/check.ts"
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
 import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
-import { besideFolders } from "#test/support/migrate/kit.ts"
 import {
 	at,
 	type CheckFeature,
 	config,
 	entryOf,
 	findingsOf,
-	init,
-	type Layout,
+	fsNeed,
 	notesOf,
-	phaseFile,
 	plant,
-	plantedGen,
-	schemaDir,
-	seed
+	plantedGen
 } from "#test/unit/cli/check.fixtures.ts"
 
 /**
@@ -52,7 +47,7 @@ import {
  */
 export const grizzleCheckReportsEveryPlantedFaultAtOnceEachAtItsEntryExactlyAsTheChainWalkImpliesAndExits1ExactlyWhenItFindsOne =
 	property.explore(plantedGen, {
-		needs: {},
+		needs: { fsNeed },
 		situations: [
 			"a stray entry alone",
 			"four findings at once",
@@ -67,58 +62,34 @@ export const grizzleCheckReportsEveryPlantedFaultAtOnceEachAtItsEntryExactlyAsTh
 			"fileName",
 			"folderName"
 		] satisfies ReadonlyArray<Reached<CheckFeature>>,
-		check: (_, c: Case<CheckFeature>) => (p) =>
-			Effect.gen(function* () {
-				const fs = yield* FileSystem.FileSystem
-				const base = yield* workspace("check-base")
-				const drafted = yield* cliOver(
-					base,
-					config,
-					["generate", configName, "--name", "init"],
-					at(0)
-				)
-				assert.equal(drafted.code, 0, drafted.stderr)
-				const custom = yield* cliOver(
-					base,
-					config,
-					["generate", configName, "--custom", "--name", "seed"],
-					at(1)
-				)
-				assert.equal(custom.code, 0, custom.stderr)
-				const committed = yield* fs.readDirectory(`${base}/${schemaDir}`)
-				assert.deepEqual(
-					Arr.sort(committed, Order.String),
-					Arr.sort([init, seed, ...besideFolders], Order.String)
-				)
-				const files = yield* fs.readDirectory(`${base}/${schemaDir}/${init}`)
-				const layout: Layout = {
-					setup: phaseFile(files, "setup"),
-					structure: phaseFile(files, "structure"),
-					publish: phaseFile(files, "publish")
-				}
-				return yield* Effect.scoped(
-					Effect.gen(function* () {
-						const ws = yield* workspace("check-planted")
-						yield* fs.copy(base, ws, { overwrite: true })
-						yield* plant(ws, p, layout)
-						const expected = findingsOf(p, layout)
-						c.noteAll(notesOf(p, expected))
-						const ran = yield* cliOver(ws, config, ["check", configName], at(2))
-						assert.equal(ran.code, expected.length > 0 ? 1 : 0, ran.stderr)
-						const read = yield* resolvedConfig(config, `${ws}/${configName}`)
-						const resolved = succeeded(read)
-						const [checked] = yield* check(resolved, ws)
-						unorderedEqual(
-							Arr.map(defined(checked, "the schema's check").findings, (f) => ({
-								kind: f.kind,
-								entry: entryOf(f.where)
-							})),
-							expected,
-							Formatter.format(p)
-						)
-					})
-				)
-			}),
+		check:
+			({ fsNeed }, c: Case<CheckFeature>) =>
+			(p) =>
+				Effect.gen(function* () {
+					const { fs, base, layout } = yield* fsNeed
+					return yield* Effect.scoped(
+						Effect.gen(function* () {
+							const ws = yield* workspace("check-planted")
+							yield* fs.copy(base, ws, { overwrite: true })
+							yield* plant(ws, p, layout)
+							const expected = findingsOf(p, layout)
+							c.noteAll(notesOf(p, expected))
+							const ran = yield* cliOver(ws, config, ["check", configName], at(2))
+							assert.equal(ran.code, expected.length > 0 ? 1 : 0, ran.stderr)
+							const read = yield* resolvedConfig(config, `${ws}/${configName}`)
+							const resolved = succeeded(read)
+							const [checked] = yield* check(resolved, ws)
+							unorderedEqual(
+								Arr.map(defined(checked, "the schema's check").findings, (f) => ({
+									kind: f.kind,
+									entry: entryOf(f.where)
+								})),
+								expected,
+								Formatter.format(p)
+							)
+						})
+					)
+				}),
 		oracle: {
 			kind: "specification",
 			name: "each planted fault's own finding at its own entry, as the documented chain walk reaches it"

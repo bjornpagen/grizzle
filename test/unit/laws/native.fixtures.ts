@@ -2,7 +2,8 @@
 
 import { type Case, type Oracle } from "@bjornpagen/testing/explore"
 import { type Aimed, aimed, element, type Gen } from "@bjornpagen/testing/gen"
-import { Array as Arr, Formatter, Option, Record as Rec, Result } from "effect"
+import type { Need } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { assert, assertVariant, nonEmpty } from "#test/support/assert.ts"
@@ -202,7 +203,7 @@ const ordersOf = (
 }
 
 /** The features every suite notes. */
-export type Verdict =
+type Verdict =
 	| "accepted"
 	| "refused"
 	| `refused by ${NativeConstraint["kind"]}`
@@ -544,7 +545,7 @@ const FIN_LAWS: ReadonlyArray<readonly [Constraint, Law]> = [
 ]
 
 /** The fin lemma's installation, compiled once by each suite that judges it, before its search. */
-export const finInstallation = (): Installed =>
+const finInstallation = (): Installed =>
 	install(
 		"the fin lemma",
 		FIN,
@@ -676,7 +677,7 @@ const familyInstalled = (shape: Shape): FamilyInstalled => {
 /** Each family shape's installation, which a search compiles once before its cases run. */
 type FamiliesInstalled = { readonly [S in Shape]: FamilyInstalled }
 
-export const familiesInstalled = (): FamiliesInstalled => ({
+const familiesInstalled = (): FamiliesInstalled => ({
 	ordered: familyInstalled("ordered"),
 	counted: familyInstalled("counted")
 })
@@ -1138,3 +1139,30 @@ export const VERDICTS: NonEmptyReadonlyArray<Verdict> = [
 ]
 
 export const installed = finInstallation()
+
+/** What the search built once before its cases (installed), now once per worker: every case on it reads them. */
+export const finNeed = {
+	key: "test/unit/laws/native.fixtures.ts finNeed",
+	open: Effect.sync(() => {
+		const installed = finInstallation()
+		return Effect.succeed(installed)
+	})
+} as const satisfies Need<unknown>
+
+/** What the search built once before its cases (installed), now once per worker: every case on it reads them. */
+export const familiesStateNeed = {
+	key: "test/unit/laws/native.fixtures.ts familiesStateNeed",
+	open: Effect.sync(() => {
+		const installed = familiesInstalled()
+		return Effect.succeed(installed)
+	})
+} as const satisfies Need<unknown>
+
+/** What the search built once before its cases (installed), now once per worker: every case on it reads them. */
+export const familiesNeed = {
+	key: "test/unit/laws/native.fixtures.ts familiesNeed",
+	open: Effect.sync(() => {
+		const installed = familiesInstalled()
+		return Effect.succeed(installed)
+	})
+} as const satisfies Need<unknown>

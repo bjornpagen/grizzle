@@ -1,6 +1,7 @@
 /** What the properties of names.test.ts read: its spaces, models and helpers. */
 
-import { Array as Arr, Effect } from "effect"
+import { type Need, NeedFailed } from "@bjornpagen/testing/property"
+import { Array as Arr, Cause, Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
@@ -47,3 +48,21 @@ export const bound = Effect.fn("bound")(function* (name: string) {
 	}
 	return Arr.map(flight.statements, (statement) => succeeded(b.values(statement)))
 })
+
+/** What the search built once before its cases (items), now once per worker: every case on it reads them. */
+export const itemsNeed = {
+	key: "test/unit/write/program/names.fixtures.ts itemsNeed",
+	open: Effect.gen(function* () {
+		const items = yield* bound("items")
+		return items
+	}).pipe(
+		Effect.mapBoth({
+			onFailure: (error) =>
+				NeedFailed.make({
+					need: "test/unit/write/program/names.fixtures.ts itemsNeed",
+					message: Cause.pretty(Cause.fail(error))
+				}),
+			onSuccess: (made) => Effect.succeed(made)
+		})
+	)
+} as const satisfies Need<unknown>

@@ -5,8 +5,10 @@ import { Array as Arr, Cause, Order, Record as Rec, Result } from "effect"
 import { query, v } from "#compiler/public/query.ts"
 import { login, role, schema } from "#compiler/public/schema.ts"
 import { workload } from "#compiler/public/workload.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
+import { generatedTemplate } from "#test/support/install-migrate.ts"
 import { LeaseBudgetExhausted } from "#test/support/substrate/budget.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 
@@ -120,3 +122,15 @@ export const accountIds = Arr.sort(
 	Arr.map(workFacts.Account, (a) => a.id),
 	Order.String
 )
+
+/**
+ * Work drafted and served as `grizzle generate` drafts it, with its worlds' login, as the search installed it once
+ * before its cases: the template every case clones, built once per member, so no case installs the schema again.
+ */
+export const workTemplate = generatedTemplate({
+	declaredIn: import.meta,
+	name: "budget work",
+	content: { schema: "Work", logins: ["the worlds' login over it"], ambient: "ordinary" },
+	build: (name) => ({ schema: workAt(name), logins: [worldsOver(workAt(name))] }),
+	ambient: ordinarySession
+})

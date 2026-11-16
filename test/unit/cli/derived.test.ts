@@ -20,19 +20,19 @@
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, FileSystem, Formatter, Order, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
 import { parseSnapshot } from "#adapter/boundary/snapshot.ts"
 import { check } from "#cli/check.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
+
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
-import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { snapshotJson } from "#test/support/snapshot-json.ts"
 import {
 	at,
+	baseNeed,
 	config,
 	members,
-	type RecordedFacts,
 	recordsEvery,
 	schemaDir,
 	type Situation,
@@ -45,7 +45,7 @@ import {
 export const derivedRuntimeFactsCheckRefusesStaleDerivedFactsAndGenerateWritesSnapshotJsonBackWithTheCompilesDraftingNoFolder =
 	property.exhaust(finite(stalingGen), {
 		box: "a snapshot.json whose derived member is removed, or which leaves out any of the members the draft records, or whose closed facts hold one of a relation the schema lacks",
-		needs: {},
+		needs: { baseNeed },
 		situations: [
 			"the derived member removed",
 			"a member left out",
@@ -53,67 +53,52 @@ export const derivedRuntimeFactsCheckRefusesStaleDerivedFactsAndGenerateWritesSn
 			"a foreign fact",
 			"a foreign fact beside every member"
 		] satisfies ReadonlyArray<Reached<Situation>>,
-		check: (_, c: Case<Situation>) => (staling) =>
-			Effect.gen(function* () {
-				const fs = yield* FileSystem.FileSystem
-				const base = yield* workspace("derived-base")
-				const drafted = yield* cliOver(
-					base,
-					config,
-					["generate", configName, "--name", "init"],
-					at(0)
-				)
-				assert.equal(drafted.code, 0, drafted.stderr)
-				const snapshot = yield* fs.readFileString(`${base}/${schemaDir}/${snapshotFileName}`)
-				const manifest = yield* fs.readFileString(`${base}/${schemaDir}/${manifestFileName}`)
-				const listed = yield* fs.readDirectory(`${base}/${schemaDir}`)
-				const entries = Arr.sort(listed, Order.String)
-				unorderedEqual(
-					Rec.keys(trustedJson<{ readonly derived: RecordedFacts }>(snapshot).derived),
-					members,
-					"the first draft records every member of the derived facts, and only those"
-				)
-				Arr.forEach(situationsOf(staling, members), (situation) => c.note(situation))
-				const ws = yield* workspace("derived-planted")
-				yield* fs.copy(base, ws, { overwrite: true })
-				const file = `${ws}/${schemaDir}/${snapshotFileName}`
-				const stale = staled(snapshot, staling)
-				yield* fs.writeFileString(file, stale)
-				const served = parseSnapshot(snapshotJson(stale), 0)
-				if (recordsEvery(staling)) {
-					assert.ok(
-						Result.isSuccess(served),
-						`DbLayer.make's parse reads facts that record every member: ${Formatter.format(served)}`
+		check:
+			({ baseNeed }, c: Case<Situation>) =>
+			(staling) =>
+				Effect.gen(function* () {
+					const { fs, base, snapshot, manifest, entries } = yield* baseNeed
+					Arr.forEach(situationsOf(staling, members), (situation) => c.note(situation))
+					const ws = yield* workspace("derived-planted")
+					yield* fs.copy(base, ws, { overwrite: true })
+					const file = `${ws}/${schemaDir}/${snapshotFileName}`
+					const stale = staled(snapshot, staling)
+					yield* fs.writeFileString(file, stale)
+					const served = parseSnapshot(snapshotJson(stale), 0)
+					if (recordsEvery(staling)) {
+						assert.ok(
+							Result.isSuccess(served),
+							`DbLayer.make's parse reads facts that record every member: ${Formatter.format(served)}`
+						)
+					} else {
+						assert.ok(
+							Result.isFailure(served) &&
+								served.failure.reason._tag === "MalformedArtifact" &&
+								served.failure.reason.at[0] === "derived",
+							`DbLayer.make's parse refuses ${Formatter.format(staling)} by name: ${Formatter.format(served)}`
+						)
+					}
+					const refused = yield* cliOver(ws, config, ["check", configName], at(1))
+					assert.equal(refused.code, 1, refused.stdout)
+					const read = yield* resolvedConfig(config, `${ws}/${configName}`)
+					const resolved = succeeded(read)
+					const [checked] = yield* check(resolved, ws)
+					assert.deepEqual(
+						Arr.map(defined(checked, "the schema's check").findings, (f) => f.kind),
+						["derivedFacts"],
+						Formatter.format(staling)
 					)
-				} else {
-					assert.ok(
-						Result.isFailure(served) &&
-							served.failure.reason._tag === "MalformedArtifact" &&
-							served.failure.reason.at[0] === "derived",
-						`DbLayer.make's parse refuses ${Formatter.format(staling)} by name: ${Formatter.format(served)}`
-					)
-				}
-				const refused = yield* cliOver(ws, config, ["check", configName], at(1))
-				assert.equal(refused.code, 1, refused.stdout)
-				const read = yield* resolvedConfig(config, `${ws}/${configName}`)
-				const resolved = succeeded(read)
-				const [checked] = yield* check(resolved, ws)
-				assert.deepEqual(
-					Arr.map(defined(checked, "the schema's check").findings, (f) => f.kind),
-					["derivedFacts"],
-					Formatter.format(staling)
-				)
-				const regenerated = yield* cliOver(ws, config, ["generate", configName], at(2))
-				assert.equal(regenerated.code, 0, regenerated.stderr)
-				const after = yield* fs.readDirectory(`${ws}/${schemaDir}`)
-				assert.deepEqual(Arr.sort(after, Order.String), entries, "generate drafts no folder")
-				const rewritten = yield* fs.readFileString(file)
-				assert.equal(rewritten, snapshot, "snapshot.json is the draft's again")
-				const kept = yield* fs.readFileString(`${ws}/${schemaDir}/${manifestFileName}`)
-				assert.equal(kept, manifest, "manifest.json stands")
-				const passed = yield* cliOver(ws, config, ["check", configName], at(3))
-				assert.equal(passed.code, 0, passed.stderr)
-			}),
+					const regenerated = yield* cliOver(ws, config, ["generate", configName], at(2))
+					assert.equal(regenerated.code, 0, regenerated.stderr)
+					const after = yield* fs.readDirectory(`${ws}/${schemaDir}`)
+					assert.deepEqual(Arr.sort(after, Order.String), entries, "generate drafts no folder")
+					const rewritten = yield* fs.readFileString(file)
+					assert.equal(rewritten, snapshot, "snapshot.json is the draft's again")
+					const kept = yield* fs.readFileString(`${ws}/${schemaDir}/${manifestFileName}`)
+					assert.equal(kept, manifest, "manifest.json stands")
+					const passed = yield* cliOver(ws, config, ["check", configName], at(3))
+					assert.equal(passed.code, 0, passed.stderr)
+				}),
 		oracle: {
 			kind: "specification",
 			name: "the first draft's own snapshot.json and manifest.json, which generate writes back"

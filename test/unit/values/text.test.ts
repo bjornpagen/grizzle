@@ -34,13 +34,12 @@ import {
 	plantedValue
 } from "#test/unit/values/support.ts"
 import {
-	at,
+	bytesNeed,
 	type CodePointFeature,
 	codePointFeatures,
 	escaped,
 	kinds,
 	lengthSpelled,
-	type Order,
 	positions,
 	signOf,
 	text,
@@ -94,7 +93,7 @@ export const textValidationAdmitsExactlyTheWellFormedNULFreeStringsAndRefusesEve
 export const codePointOrderMatchesUTF8ByteOrder = property.explore(
 	(source) => [source.draw(text), source.draw(text)] as const,
 	{
-		needs: {},
+		needs: { bytesNeed },
 		budget: { runs: 5000, steered: 400 },
 		situations: [
 			"a unit past the surrogates against an astral scalar",
@@ -102,20 +101,10 @@ export const codePointOrderMatchesUTF8ByteOrder = property.explore(
 			"equal texts"
 		] satisfies ReadonlyArray<Reached<CodePointFeature>>,
 		check:
-			(_, c: Case<CodePointFeature>) =>
+			({ bytesNeed }, c: Case<CodePointFeature>) =>
 			([a, b]) =>
 				Effect.gen(function* () {
-					const encoder = new TextEncoder()
-					const bytes = (a: string, b: string): Order => {
-						const x = encoder.encode(a)
-						const y = encoder.encode(b)
-						for (let i = 0; i < Math.min(x.length, y.length); i++) {
-							if (x[i] !== y[i]) {
-								return at(x, i) < at(y, i) ? -1 : 1
-							}
-						}
-						return signOf(x.length - y.length)
-					}
+					const bytes = yield* bytesNeed
 					return yield* Effect.sync(() => {
 						c.noteAll(codePointFeatures(a, b))
 						assert.equal(compareCodePoints(a, b), bytes(a, b))

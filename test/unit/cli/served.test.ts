@@ -24,29 +24,24 @@
  */
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, FileSystem, Formatter, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { check } from "#cli/check.ts"
-import { identifierOf } from "#compiler/core/identity.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
-import { paramDomainIdentity } from "#compiler/physical/ddl/domains.ts"
+
 import { servedDirectory, servedPath } from "#compiler/served/forms.ts"
-import { servedFile } from "#compiler/served/json.ts"
+
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
-import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
-import { memberPaths } from "#test/support/served.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
+
 import {
 	at,
+	baseNeed,
 	config,
 	editedText,
 	expectedOf,
-	firstDraftSql,
 	login,
 	mutatedText,
 	plantSpace,
-	programsOf,
 	schemaDir,
-	servedShop,
 	type Situation,
 	situationsOf
 } from "#test/unit/cli/served.fixtures.ts"
@@ -60,7 +55,7 @@ import {
  */
 export const servedFilesCheckRefusesAServedFileThatIsNotItsLoginsCompileOneMissingAndOneOfNoLoginEachNamingTheLoginAndAnEditItsFirstProgramAndGenerateWritesTheServedDirectoryBack =
 	property.explore(plantSpace, {
-		needs: {},
+		needs: { baseNeed },
 		situations: [
 			"a program edited",
 			"programs of both roles edited",
@@ -73,119 +68,77 @@ export const servedFilesCheckRefusesAServedFileThatIsNotItsLoginsCompileOneMissi
 			"a member dropped",
 			"another layout"
 		] satisfies ReadonlyArray<Reached<Situation>>,
-		check: (_, c: Case<Situation>) => (plant) =>
-			Effect.gen(function* () {
-				const fs = yield* FileSystem.FileSystem
-				const base = yield* workspace("served-base")
-				const drafted = yield* cliOver(
-					base,
-					config,
-					["generate", configName, "--name", "init"],
-					at(0)
-				)
-				assert.equal(drafted.code, 0, drafted.stderr)
-				assert.ok(
-					Str.includes(`${schemaDir}/${servedPath(login)}`)(drafted.stdout),
-					`generate names the served file it writes: ${drafted.stdout}`
-				)
-				const passed = yield* cliOver(base, config, ["check", configName], at(1))
-				assert.equal(passed.code, 0, `check passes on the first draft: ${passed.stdout}`)
-				const domains = nonEmpty(
-					Arr.map(
-						succeeded(
-							compileTestWorkload(
-								[{ login, workloads: servedShop.server.workload }],
-								servedShop.schema,
-								testCompile
-							)
-						).params.domains,
-						(use) => identifierOf(paramDomainIdentity(use.place, use.regex))
-					),
-					"the pattern domains the served parameters name"
-				)
-				const firstDraft = yield* firstDraftSql(fs, `${base}/${schemaDir}`)
-				for (const domain of domains) {
-					assert.ok(
-						Str.includes(domain)(firstDraft),
-						`the first draft creates the parameter's pattern domain ${domain}`
-					)
-				}
-				const file = `${base}/${schemaDir}/${servedPath(login)}`
-				const text = yield* fs.readFileString(file)
-				const json = trustedJson<unknown>(text)
-				const programs = nonEmpty(
-					programsOf(succeeded(servedFile(json), "the served file")),
-					"the served programs"
-				)
-				const paths = nonEmpty(memberPaths(json, []), "the served file's member paths")
-				const listed = yield* fs.readDirectory(`${base}/${schemaDir}`)
-				const entries = Arr.sort(listed, Order.String)
-				c.noteAll(situationsOf(plant, programs))
-				const ws = yield* workspace("served-planted")
-				yield* fs.copy(base, ws, { overwrite: true })
-				const planted = `${ws}/${schemaDir}/${servedPath(login)}`
-				const written = ((): string => {
+		check:
+			({ baseNeed }, c: Case<Situation>) =>
+			(plant) =>
+				Effect.gen(function* () {
+					const { fs, base, text, json, programs, paths, entries } = yield* baseNeed
+					c.noteAll(situationsOf(plant, programs))
+					const ws = yield* workspace("served-planted")
+					yield* fs.copy(base, ws, { overwrite: true })
+					const planted = `${ws}/${schemaDir}/${servedPath(login)}`
+					const written = ((): string => {
+						switch (plant.kind) {
+							case "edited":
+								return editedText(text, programs, plant)
+							case "missing":
+							case "stray":
+								return text
+							case "mutated":
+								return mutatedText(text, json, paths, plant.mutation)
+						}
+					})()
 					switch (plant.kind) {
 						case "edited":
-							return editedText(text, programs, plant)
-						case "missing":
-						case "stray":
-							return text
 						case "mutated":
-							return mutatedText(text, json, paths, plant.mutation)
+							yield* fs.writeFileString(planted, written)
+							break
+						case "missing":
+							yield* fs.remove(planted)
+							break
+						case "stray":
+							yield* fs.writeFileString(`${ws}/${schemaDir}/${servedPath(plant.login)}`, text)
+							break
 					}
-				})()
-				switch (plant.kind) {
-					case "edited":
-					case "mutated":
-						yield* fs.writeFileString(planted, written)
-						break
-					case "missing":
-						yield* fs.remove(planted)
-						break
-					case "stray":
-						yield* fs.writeFileString(`${ws}/${schemaDir}/${servedPath(plant.login)}`, text)
-						break
-				}
-				const expected = expectedOf(plant, programs, written, text)
-				const refused = yield* cliOver(ws, config, ["check", configName], at(2))
-				assert.equal(refused.code, expected.length === 0 ? 0 : 1, refused.stdout)
-				const read = yield* resolvedConfig(config, `${ws}/${configName}`)
-				const [checked] = yield* check(succeeded(read), ws)
-				const findings = defined(checked, "the schema's check").findings
-				assert.deepEqual(
-					Arr.map(findings, (f) => ({ kind: f.kind, where: f.where })),
-					Arr.map(expected, (e) => ({ kind: e.kind, where: e.file })),
-					Formatter.format(plant)
-				)
-				for (const [i, e] of expected.entries()) {
-					const found = defined(findings[i], "the finding")
-					assert.ok(
-						Str.startsWith(e.says)(found.problem),
-						`the finding names ${e.says}: ${Formatter.format(found)}`
+					const expected = expectedOf(plant, programs, written, text)
+					const refused = yield* cliOver(ws, config, ["check", configName], at(2))
+					assert.equal(refused.code, expected.length === 0 ? 0 : 1, refused.stdout)
+					const read = yield* resolvedConfig(config, `${ws}/${configName}`)
+					const [checked] = yield* check(succeeded(read), ws)
+					const findings = defined(checked, "the schema's check").findings
+					assert.deepEqual(
+						Arr.map(findings, (f) => ({ kind: f.kind, where: f.where })),
+						Arr.map(expected, (e) => ({ kind: e.kind, where: e.file })),
+						Formatter.format(plant)
 					)
-				}
-				const regenerated = yield* cliOver(ws, config, ["generate", configName], at(3))
-				assert.equal(regenerated.code, 0, regenerated.stderr)
-				for (const e of expected) {
-					assert.ok(
-						Str.includes(e.file)(regenerated.stdout),
-						`generate names the file it writes or removes: ${regenerated.stdout}`
+					for (const [i, e] of expected.entries()) {
+						const found = defined(findings[i], "the finding")
+						assert.ok(
+							Str.startsWith(e.says)(found.problem),
+							`the finding names ${e.says}: ${Formatter.format(found)}`
+						)
+					}
+					const regenerated = yield* cliOver(ws, config, ["generate", configName], at(3))
+					assert.equal(regenerated.code, 0, regenerated.stderr)
+					for (const e of expected) {
+						assert.ok(
+							Str.includes(e.file)(regenerated.stdout),
+							`generate names the file it writes or removes: ${regenerated.stdout}`
+						)
+					}
+					const after = yield* fs.readDirectory(`${ws}/${schemaDir}`)
+					assert.deepEqual(Arr.sort(after, Order.String), entries, "generate drafts no folder")
+					const served = yield* fs.readDirectory(`${ws}/${schemaDir}/${servedDirectory}`)
+					assert.deepEqual(
+						Arr.sort(served, Order.String),
+						[`${login}.json`],
+						"the served directory holds the login's file alone"
 					)
-				}
-				const after = yield* fs.readDirectory(`${ws}/${schemaDir}`)
-				assert.deepEqual(Arr.sort(after, Order.String), entries, "generate drafts no folder")
-				const served = yield* fs.readDirectory(`${ws}/${schemaDir}/${servedDirectory}`)
-				assert.deepEqual(
-					Arr.sort(served, Order.String),
-					[`${login}.json`],
-					"the served directory holds the login's file alone"
-				)
-				const rewritten = yield* fs.readFileString(planted)
-				assert.equal(rewritten, text, "the served file is the first draft's again")
-				const again = yield* cliOver(ws, config, ["check", configName], at(4))
-				assert.equal(again.code, 0, again.stdout)
-			}),
+					const rewritten = yield* fs.readFileString(planted)
+					assert.equal(rewritten, text, "the served file is the first draft's again")
+					const again = yield* cliOver(ws, config, ["check", configName], at(4))
+					assert.equal(again.code, 0, again.stdout)
+				}),
 		oracle: {
 			kind: "specification",
 			name: "the first draft's own served file, which check passes and generate writes back"

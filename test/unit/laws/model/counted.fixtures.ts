@@ -1,7 +1,8 @@
 /** What the property of counted.test.ts reads: its box, the counted family's schema, its states and statements. */
 
 import { element, type Gen, int, map, oneOf, shuffled } from "@bjornpagen/testing/gen"
-import { Array as Arr } from "effect"
+import type { Need } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { CarrierValue } from "#compiler/scalar/compute/literal.ts"
 import { nonEmpty } from "#test/support/assert.ts"
@@ -23,7 +24,7 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { drawnColumn, type Row, type State } from "#test/unit/laws/model/natives.ts"
+import { drawnColumn, modelOf, type Row, type State } from "#test/unit/laws/model/natives.ts"
 
 /**
  * A counted family's natives admit exactly grizzle's plans and refuse every lawless state (fin.md §4.2, §4.5, w4-w7
@@ -48,7 +49,7 @@ import { drawnColumn, type Row, type State } from "#test/unit/laws/model/natives
 
 const count: FoldMonoid = { name: "count", least: 0n }
 
-export const schema: SchemaDesc = {
+const schema: SchemaDesc = {
 	name: "Counted",
 	relations: [
 		relation("Owner", { id: f.bigint, n: f.drawn, size: f.accumulated(f.natural, 0n) }, ["id"]),
@@ -69,7 +70,7 @@ interface Drawn {
 	readonly after: string
 }
 
-export const drawnOf = (model: LawModel): Drawn => ({
+const drawnOf = (model: LawModel): Drawn => ({
 	index: drawnColumn(model, "Member", "index"),
 	copy: drawnColumn(model, "Member", "copy"),
 	before: drawnColumn(model, "Member", "before 0.0"),
@@ -262,3 +263,13 @@ export const lawlessOf = (size: number, variant: Variant): FoldStored => {
 			}
 	}
 }
+
+/** What the search built once before its cases (model, drawn), now once per worker: every case on it reads them. */
+export const drawnNeed = {
+	key: "test/unit/laws/model/counted.fixtures.ts drawnNeed",
+	open: Effect.sync(() => {
+		const model = modelOf(schema)
+		const drawn = drawnOf(model)
+		return Effect.succeed({ model, drawn })
+	})
+} as const satisfies Need<unknown>

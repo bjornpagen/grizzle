@@ -13,7 +13,7 @@ import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { parameterNames } from "#test/support/kernel/dict.ts"
-import { bound } from "#test/unit/write/program/names.fixtures.ts"
+import { bound, itemsNeed } from "#test/unit/write/program/names.fixtures.ts"
 
 /**
  * Parameter names bind a relation parameter under any dictionary name as one named items.
@@ -25,16 +25,18 @@ export const parameterNamesBindARelationParameterUnderAnyDictionaryNameAsOneName
 	property.explore(
 		(source) => source.draw(element(nonEmpty(parameterNames, "the parameter names"))),
 		{
-			needs: {},
+			needs: { itemsNeed },
 			budget: { runs: 192, steered: 0 },
 			situations: [],
-			check: () => (name) =>
-				Effect.gen(function* () {
-					const items = yield* bound("items")
-					return yield* Effect.map(bound(name), (got) => {
-						assert.deepEqual(got, items, name)
-					})
-				}),
+			check:
+				({ itemsNeed }) =>
+				(name) =>
+					Effect.gen(function* () {
+						const items = yield* itemsNeed
+						return yield* Effect.map(bound(name), (got) => {
+							assert.deepEqual(got, items, name)
+						})
+					}),
 			oracle: {
 				kind: "universal",
 				name: "renaming a relation parameter changes no placeholder text a statement binds"

@@ -23,8 +23,14 @@
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { cliClock, workspace } from "#test/pg/cli/support.ts"
-import { casesGen, drafted, type Kind, kinds, tampered } from "#test/unit/cli/tamper.fixtures.ts"
+import { cliClock } from "#test/pg/cli/support.ts"
+import {
+	casesGen,
+	committedNeed,
+	type Kind,
+	kinds,
+	tampered
+} from "#test/unit/cli/tamper.fixtures.ts"
 
 /**
  * A committed migrations directory tampered with, generated: generate refuses by the reason naming the entry and
@@ -37,29 +43,26 @@ import { casesGen, drafted, type Kind, kinds, tampered } from "#test/unit/cli/ta
  */
 export const aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesByTheReasonNamingTheEntryAndWritesNothingAndCheckReportsIt =
 	property.explore(casesGen, {
-		needs: {},
+		needs: { committedNeed },
 		situations: kinds satisfies ReadonlyArray<Reached<Kind>>,
-		check: (_, c: Case<Kind>) => (cases) =>
-			Effect.gen(function* () {
-				const nextNow = cliClock()
-				const base = yield* workspace("tamper")
-				const committed = {
-					one: yield* drafted(base, "one", "TamperShop", [1]),
-					two: yield* drafted(base, "two", "TamperShop", [1, 2]),
-					other: yield* drafted(base, "other", "TamperOther", [1])
-				}
-				yield* Effect.forEach(
-					cases,
-					(x) =>
-						Effect.andThen(
-							Effect.sync(() => {
-								c.note(x.kind)
-							}),
-							tampered(x, committed, nextNow)
-						),
-					{ discard: true }
-				)
-			}),
+		check:
+			({ committedNeed }, c: Case<Kind>) =>
+			(cases) =>
+				Effect.gen(function* () {
+					const nextNow = cliClock()
+					const committed = yield* committedNeed
+					yield* Effect.forEach(
+						cases,
+						(x) =>
+							Effect.andThen(
+								Effect.sync(() => {
+									c.note(x.kind)
+								}),
+								tampered(x, committed, nextNow)
+							),
+						{ discard: true }
+					)
+				}),
 		oracle: {
 			kind: "specification",
 			name: "the reason and the finding the committed directory's reading gives each tampering"

@@ -35,7 +35,7 @@ import {
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
-import { type IdSupply, makeIdSupply, NodeId, ParamId } from "#compiler/core/ids.ts"
+import { makeIdSupply, NodeId, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import {
@@ -52,7 +52,7 @@ import { builtExpr, exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import { type Cell, conservativeMeta, inputsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
-import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { contractOf } from "#compiler/ir/scalar.ts"
 import {
 	assert,
 	defined,
@@ -68,6 +68,7 @@ import { validateDag, validateTable } from "#test/support/oracle/dag-validate.ts
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import {
 	build,
+	buildNeed,
 	cents,
 	chainDepth,
 	type ChainFeature,
@@ -570,43 +571,15 @@ export const normalizeDagGivesOneDigestToDAGsWhoseContractPredicatesWereAllocate
 				] as const
 		),
 		{
-			needs: {},
+			needs: { buildNeed },
 			situations: ["an advanced supply", "a spelling not in normal form"] satisfies ReadonlyArray<
 				Reached<"an advanced supply" | "a spelling not in normal form">
 			>,
 			check:
-				(_, c: Case<"an advanced supply" | "a spelling not in normal form">) =>
+				({ buildNeed }, c: Case<"an advanced supply" | "a spelling not in normal form">) =>
 				([[root, value, zero], advance]) =>
 					Effect.gen(function* () {
-						const build = (type: ScalarType, supply: IdSupply) => {
-							const b = new DagBuilder(supply)
-							const base = b.node({
-								kind: "Base",
-								relation: "Price",
-								occurrence: b.ids.occurrence(),
-								primaryKey: ["amount"],
-								keys: [],
-								relationKind: "relation",
-								heading: heading(["amount", type]),
-								loc: undefined,
-								meta: conservativeMeta
-							})
-							return b.build([base])
-						}
-						/**
-						 * Planted: no generator draws a contract type. Every spelling of the three entries from a pool of identifiers, and a
-						 * supply advanced by any amount, give one digest once normalized; still spelled by allocation, the predicate is
-						 * refused where a type no registry built enters, the decoder, so it can never reach a fingerprint.
-						 */
-						const reference = succeeded(
-							dagDigest(
-								build(
-									cents(succeeded(normalizeExprTable(predicate("e3", "e1", "e2")))),
-									makeIdSupply()
-								),
-								"dag"
-							)
-						)
+						const { build, reference } = yield* buildNeed
 						return yield* Effect.sync(() => {
 							const spelled = predicate(root, value, zero)
 							const supply = makeIdSupply()

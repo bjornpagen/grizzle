@@ -1,7 +1,8 @@
 /** What the properties of key-sets.test.ts read: its spaces, models and helpers. */
 
 import { type Aimed, aimed } from "@bjornpagen/testing/gen"
-import { Array as Arr, Record as Rec } from "effect"
+import type { Need } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -262,3 +263,12 @@ export const billingReads = Object.freeze(
 )
 
 export const artifacts = succeeded(testArtifacts(P.Billing, testCompile), "the billing artifacts")
+
+/** What the search built once before its cases (reads), now once per worker: every case on it reads them. */
+export const readsNeed = {
+	key: "test/unit/lower/dedup/key-sets.fixtures.ts readsNeed",
+	open: Effect.sync(() => {
+		const reads = new Map(billingReads)
+		return Effect.succeed(reads)
+	})
+} as const satisfies Need<unknown>

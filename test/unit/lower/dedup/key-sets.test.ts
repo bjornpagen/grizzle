@@ -37,7 +37,8 @@ import {
 	judge,
 	judgeCase,
 	keySetCases,
-	type KeySetFeature
+	type KeySetFeature,
+	readsNeed
 } from "#test/unit/lower/dedup/key-sets.fixtures.ts"
 
 /**
@@ -114,27 +115,29 @@ export const anAttachmentsParentKeySetDeduplicatesExactlyWhereItIsUnprovedOnEver
 			)
 		),
 		{
-			needs: {},
+			needs: { readsNeed },
 			situations: ["a proved key set"] satisfies ReadonlyArray<Reached<KeySetFeature>>,
-			check: (_, c: Case<KeySetFeature>) => (name) =>
-				Effect.gen(function* () {
-					const reads = new Map(billingReads)
-					return yield* Effect.sync(() => {
-						const template = succeeded(
-							compileTemplateOver(reads.get(name), P.Billing, artifacts, testCompile),
-							`${name} compiles`
-						)
-						judge(
-							{
-								where: name,
-								program: template.programs.optimized,
-								optimized: template.programs.optimized,
-								names: artifacts.names
-							},
-							c.note
-						)
-					})
-				}),
+			check:
+				({ readsNeed }, c: Case<KeySetFeature>) =>
+				(name) =>
+					Effect.gen(function* () {
+						const reads = yield* readsNeed
+						return yield* Effect.sync(() => {
+							const template = succeeded(
+								compileTemplateOver(reads.get(name), P.Billing, artifacts, testCompile),
+								`${name} compiles`
+							)
+							judge(
+								{
+									where: name,
+									program: template.programs.optimized,
+									optimized: template.programs.optimized,
+									names: artifacts.names
+								},
+								c.note
+							)
+						})
+					}),
 			oracle: {
 				kind: "specification",
 				name: "keys.ts keySetOf over the read's own placement"

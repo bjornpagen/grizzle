@@ -68,15 +68,16 @@ import {
 	brokenIn,
 	type ExploredFeature,
 	exploredSpace,
-	familiesInstalled,
+	familiesNeed,
+	familiesStateNeed,
 	FAMILY_ORACLE,
 	familyBoxGen,
 	type FamilyFeature,
 	FIN,
 	type FinFeature,
-	holdsEverySide,
-	finInstallation,
+	finNeed,
 	finState,
+	holdsEverySide,
 	HOST_ORACLE,
 	install,
 	installed,
@@ -261,7 +262,7 @@ export const theNativeConstraintsGrizzleInstallsHoldTheFinLemmasLawsExactlyAsThe
 /** The native constraints grizzle installs hold the fin lemma's laws on every state a family program's statements leave, lawful, breaking and misordered. Its budget is its suite's before it was a property (test/unit/laws/native.test.ts at 4ca3036a): 300 runs and 400 steered cases. */
 export const theNativeConstraintsGrizzleInstallsHoldTheFinLemmasLawsOnEveryStateAFamilyProgramsStatementsLeaveLawfulBreakingAndMisordered =
 	property.explore(programs, {
-		needs: {},
+		needs: { finNeed },
 		budget: { runs: 300, steered: 400 },
 		situations: [
 			"the theorem holds",
@@ -276,27 +277,29 @@ export const theNativeConstraintsGrizzleInstallsHoldTheFinLemmasLawsOnEveryState
 			"violates last",
 			"violates closure"
 		] satisfies ReadonlyArray<Reached<FinFeature>>,
-		check: (_, c: Case<FinFeature>) => (p) =>
-			Effect.gen(function* () {
-				const installed = finInstallation()
-				return yield* Effect.suspend(() => {
-					const every = (before: Families, statements: ReadonlyArray<FamilyStatement>) =>
-						Effect.sync(() => {
-							for (const stored of Arr.scan(statements, storedOf(before), applied)) {
-								judgeFamily(installed, stored, c)
-							}
-						})
-					return runProgram(
-						machineOf(p.shape, p.families, p.forms),
-						realOf({
-							lawful: (_form, m, before) => every(before, m.statements),
-							breaking: (_form, m, before) => every(before, m.statements),
-							misordered: (m, before) => every(before, m.statements)
-						}),
-						p.steps
-					)
-				})
-			}),
+		check:
+			({ finNeed }, c: Case<FinFeature>) =>
+			(p) =>
+				Effect.gen(function* () {
+					const installed = yield* finNeed
+					return yield* Effect.suspend(() => {
+						const every = (before: Families, statements: ReadonlyArray<FamilyStatement>) =>
+							Effect.sync(() => {
+								for (const stored of Arr.scan(statements, storedOf(before), applied)) {
+									judgeFamily(installed, stored, c)
+								}
+							})
+						return runProgram(
+							machineOf(p.shape, p.families, p.forms),
+							realOf({
+								lawful: (_form, m, before) => every(before, m.statements),
+								breaking: (_form, m, before) => every(before, m.statements),
+								misordered: (m, before) => every(before, m.statements)
+							}),
+							p.steps
+						)
+					})
+				}),
 		oracle: FAMILY_ORACLE,
 		kept: [],
 		kills: [
@@ -314,7 +317,7 @@ export const theNativeConstraintsGrizzleInstallsHoldTheFinLemmasLawsOnEveryState
 /** The native constraints grizzle installs hold grizzle's own families, ordered and counted, as the family theorem's constraints, over every state of one owner's first four slots. */
 export const theNativeConstraintsGrizzleInstallsHoldGrizzlesOwnFamiliesOrderedAndCountedAsTheFamilyTheoremsConstraintsOverEveryStateOfOneOwnersFirstFourSlots =
 	property.exhaust(finite(familyBoxGen), {
-		needs: {},
+		needs: { familiesStateNeed },
 		situations: [
 			"ordered",
 			"counted",
@@ -326,10 +329,10 @@ export const theNativeConstraintsGrizzleInstallsHoldGrizzlesOwnFamiliesOrderedAn
 			"an unrestricted closure beside the bound"
 		] satisfies ReadonlyArray<Reached<FamilyFeature>>,
 		check:
-			(_, c: Case<FamilyFeature>) =>
+			({ familiesStateNeed }, c: Case<FamilyFeature>) =>
 			([shape, stored]) =>
 				Effect.gen(function* () {
-					const installed = familiesInstalled()
+					const installed = yield* familiesStateNeed
 					return yield* Effect.sync(() => judgeFamilyState(installed[shape], shape, stored, c))
 				}),
 		oracle: LEMMA_ORACLE,
@@ -356,7 +359,7 @@ export const theNativeConstraintsGrizzleInstallsHoldGrizzlesOwnFamiliesOrderedAn
 /** The native constraints grizzle installs run every family program's transactions on grizzle's own families as the family model runs them: drawn copies, the count's cascade and each axis's deferral. Its budget is its suite's before it was a property (test/unit/laws/native.test.ts at 4ca3036a): 300 runs and 400 steered cases. */
 export const theNativeConstraintsGrizzleInstallsRunEveryFamilyProgramsTransactionsOnGrizzlesOwnFamiliesAsTheFamilyModelRunsThemDrawnCopiesTheCountsCascadeAndEachAxissDeferral =
 	property.explore(programs, {
-		needs: {},
+		needs: { familiesNeed },
 		budget: { runs: 300, steered: 400 },
 		situations: [
 			"ordered",
@@ -376,28 +379,30 @@ export const theNativeConstraintsGrizzleInstallsRunEveryFamilyProgramsTransactio
 			["ordered", "a count's cascade"],
 			["counted", "a count's cascade"]
 		] satisfies ReadonlyArray<Reached<FamilyFeature>>,
-		check: (_, c: Case<FamilyFeature>) => (p) =>
-			Effect.gen(function* () {
-				const installed = familiesInstalled()
-				return yield* Effect.suspend(() => {
-					const every = (before: Families, statements: ReadonlyArray<FamilyStatement>) =>
-						Effect.sync(() => {
-							judgeFamilyTransaction(installed[p.shape], p.shape, before, statements, c)
-							for (const stored of Arr.scan(statements, storedOf(before), applied)) {
-								judgeFamilyState(installed[p.shape], p.shape, stored, c)
-							}
-						})
-					return runProgram(
-						machineOf(p.shape, p.families, p.forms),
-						realOf({
-							lawful: (_form, m, before) => every(before, m.statements),
-							breaking: (_form, m, before) => every(before, m.statements),
-							misordered: (m, before) => every(before, m.statements)
-						}),
-						p.steps
-					)
-				})
-			}),
+		check:
+			({ familiesNeed }, c: Case<FamilyFeature>) =>
+			(p) =>
+				Effect.gen(function* () {
+					const installed = yield* familiesNeed
+					return yield* Effect.suspend(() => {
+						const every = (before: Families, statements: ReadonlyArray<FamilyStatement>) =>
+							Effect.sync(() => {
+								judgeFamilyTransaction(installed[p.shape], p.shape, before, statements, c)
+								for (const stored of Arr.scan(statements, storedOf(before), applied)) {
+									judgeFamilyState(installed[p.shape], p.shape, stored, c)
+								}
+							})
+						return runProgram(
+							machineOf(p.shape, p.families, p.forms),
+							realOf({
+								lawful: (_form, m, before) => every(before, m.statements),
+								breaking: (_form, m, before) => every(before, m.statements),
+								misordered: (m, before) => every(before, m.statements)
+							}),
+							p.steps
+						)
+					})
+				}),
 		oracle: LEMMA_ORACLE,
 		kept: [],
 		kills: [

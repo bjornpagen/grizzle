@@ -1,5 +1,6 @@
 /** What the properties of shape.test.ts read: its spaces, models and helpers. */
 
+import { Checkout } from "@bjornpagen/testing/checkout"
 import type { CheckoutDir } from "@bjornpagen/testing/checkout"
 import {
 	array,
@@ -14,8 +15,9 @@ import {
 	uniqueArray,
 	weighted
 } from "@bjornpagen/testing/gen"
+import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import { double } from "@bjornpagen/testing/values"
-import { Array as Arr, Data, Effect, Queue, Record as Rec, Stream } from "effect"
+import { Array as Arr, Cause, Data, Effect, Queue, Record as Rec, Stream } from "effect"
 import { ChildProcess } from "effect/process"
 import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -452,12 +454,12 @@ type ConsumerAnswer =
 	| { readonly kind: "exited"; readonly stderr: string }
 
 /**
- * A child Node started for one case, in the checkout the case runs the repository's code from (a worker tree, under a
+ * A child Node started in the checkout a worker runs the repository's code from (a worker tree, under a
  * mutant), with no flag and no NODE_OPTIONS, which carries the hardened flags (test/support/process.ts hardenedNode), as
  * a library consumer's is (shape-record.child.ts). The function it gives hands the child a record's entries on a line
- * and takes its answer from the next line it prints, or its exit. The child ends with the case's scope.
+ * and takes its answer from the next line it prints, or its exit. The child ends with the scope it starts in.
  */
-export const consumerProcess = (checkout: CheckoutDir) =>
+const consumerProcess = (checkout: CheckoutDir) =>
 	Effect.gen(function* () {
 		const requests = yield* Queue.unbounded<string>()
 		const answers = yield* Queue.unbounded<ConsumerAnswer>()
@@ -531,3 +533,27 @@ export const decodedIn = weighted<DecodedIn>([
 	[7, constant("this process")],
 	[1, constant("a consumer's process")]
 ])
+
+/**
+ * A consumer's child process, started once per worker in the worker's checkout (Checkout.dir, the worker tree under a
+ * mutant), which every case of the consumer's kind on the worker asks in turn: what the search started once before its
+ * cases, now once per worker. The property still needs Checkout.dir, so its kills and mutants run in worker trees.
+ */
+export const consumerNeed = {
+	key: "test/unit/ir/shape.fixtures.ts consumerNeed",
+	open: Effect.gen(function* () {
+		const take = yield* Checkout.dir.open
+		const dir = yield* Effect.scoped(take)
+		const consumer = yield* consumerProcess(dir)
+		return consumer
+	}).pipe(
+		Effect.mapBoth({
+			onFailure: (error) =>
+				NeedFailed.make({
+					need: "test/unit/ir/shape.fixtures.ts consumerNeed",
+					message: Cause.pretty(Cause.fail(error))
+				}),
+			onSuccess: (made) => Effect.succeed(made)
+		})
+	)
+} as const satisfies Need<unknown>

@@ -38,16 +38,17 @@ import { assert, defined, failed, succeeded } from "#test/support/assert.ts"
 import { paramText, textOfParam } from "#test/support/wire.ts"
 import {
 	boundCases,
+	encodeNeed,
 	everyFacts,
 	everySpec,
 	everyType,
 	fieldsOfReading,
-	type LiteralFeature,
 	literalCases,
+	type LiteralFeature,
+	normalizeNeed,
 	orderedSets,
 	type Plant,
 	plantSituations,
-	reading,
 	readingHeading,
 	refusalCases,
 	scaledSpec,
@@ -68,13 +69,13 @@ import { asDecimal } from "#test/unit/codec/values.ts"
  */
 export const relationNormalizationRefusesAPlantedMemberWithItsWordNamingTheSlotAndTheFieldNeverTheValue =
 	property.explore(refusalCases, {
-		needs: {},
+		needs: { normalizeNeed },
 		situations: plantSituations,
 		check:
-			(_, c: Case<`plant ${Plant}`>) =>
+			({ normalizeNeed }, c: Case<`plant ${Plant}`>) =>
 			({ facts, at, plant, field, bad }) =>
 				Effect.gen(function* () {
-					const normalize = relationNormalizer(reading)
+					const normalize = yield* normalizeNeed
 					return yield* Effect.sync(() => {
 						c.note(`plant ${plant}`)
 						const [member, reason, slot]: readonly [
@@ -195,15 +196,15 @@ export const relationNormalizationAdmitsAMemberSpanOfItsColumnsFixedWidthAndRefu
  */
 export const relationNormalizationEncodesCanonicallyTheSameSetInAnyOrderGivesByteIdenticalArrays =
 	property.explore(orderedSets, {
-		needs: {},
+		needs: { encodeNeed },
 		situations: ["an empty set", "a set of several facts"] satisfies ReadonlyArray<
 			Reached<"an empty set" | "a set of several facts">
 		>,
 		check:
-			(_, c: Case<"an empty set" | "a set of several facts">) =>
+			({ encodeNeed }, c: Case<"an empty set" | "a set of several facts">) =>
 			([facts, seed]) =>
 				Effect.gen(function* () {
-					const encode = arraysEncoder(reading)
+					const encode = yield* encodeNeed
 					return yield* Effect.sync(() => {
 						c.note(facts.length === 0 ? "an empty set" : "a set of several facts")
 						/** A code unit past the end reads as 0, as the native NaN does under `^`. */

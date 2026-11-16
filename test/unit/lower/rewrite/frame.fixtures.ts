@@ -1,7 +1,16 @@
 /** What the properties of frame.test.ts read: its spaces, models and helpers. */
 
+import type { Need } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import { relNode } from "#compiler/ir/dag.ts"
 import { metaSpecOf, type Roots, type ValidDag } from "#compiler/ir/rel.ts"
+import {
+	relationalRewrites,
+	semanticSimplification
+} from "#compiler/lower/optimize/demand/phases.ts"
+import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
+import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
+import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { rebuildDag } from "#test/support/dag.ts"
 
 /** Where the rewritten root sits among a DAG's roots: first, the query's own, or after it. */
@@ -16,3 +25,28 @@ export const freshCopy = <R extends Roots>(dag: ValidDag<R>): ValidDag<R> =>
 
 /** What the frame suites reach: a pass that delivered the DAG it was given, and one that changed it. */
 export type FrameFeature = "a pass delivered the settled DAG" | "a pass changed the DAG"
+
+/** What the search built once before its cases (chain), now once per worker: every case on it reads them. */
+export const chainNeed = {
+	key: "test/unit/lower/rewrite/frame.fixtures.ts chainNeed",
+	open: Effect.sync(() => {
+		const chain = [
+			semanticSimplification,
+			relationalRewrites,
+			simplifyPass,
+			existencePass,
+			fusePass,
+			relationalRewrites
+		]
+		return Effect.succeed(chain)
+	})
+} as const satisfies Need<unknown>
+
+/** What the search built once before its cases (passes), now once per worker: every case on it reads them. */
+export const passesNeed = {
+	key: "test/unit/lower/rewrite/frame.fixtures.ts passesNeed",
+	open: Effect.sync(() => {
+		const passes = [semanticSimplification, relationalRewrites]
+		return Effect.succeed(passes)
+	})
+} as const satisfies Need<unknown>

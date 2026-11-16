@@ -1,6 +1,7 @@
 /** What the properties of generators.test.ts read: its spaces, models and helpers. */
 
-import { Array as Arr } from "effect"
+import type { Need } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { defined } from "#test/support/assert.ts"
 import {
@@ -55,3 +56,12 @@ export const cyclic = (pairs: ReadonlyArray<readonly [number, number]>, n: numbe
 /** A recursion's form and direction, and whether its derivations stay finite without deduplication. */
 export type BagFeature =
 	`${"reach" | "walks" | "pairs"} ${"forward" | "reverse" | "both"} ${"terminates" | "loops"}`
+
+/** What the search built once before its cases (plain), now once per worker: every case on it reads them. */
+export const plainNeed = {
+	key: "test/unit/recursion/generators.fixtures.ts plainNeed",
+	open: Effect.sync(() => {
+		const plain = { loops: false, parallel: "never" as const, edges: "set" as const }
+		return Effect.succeed(plain)
+	})
+} as const satisfies Need<unknown>

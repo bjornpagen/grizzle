@@ -10,9 +10,10 @@ import {
 	map,
 	weighted
 } from "@bjornpagen/testing/gen"
+import type { Need } from "@bjornpagen/testing/property"
 import type { Source } from "@bjornpagen/testing/source"
 import { bigint } from "@bjornpagen/testing/values"
-import { Array as Arr, Option, Order, Record as Rec } from "effect"
+import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { type Theory } from "#compiler/analysis/theory/theory.ts"
 import { type LawId } from "#compiler/core/ids.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
@@ -507,3 +508,12 @@ export const declaration = (source: Source): ReadonlyArray<StatementDesc> => {
 				? mirrors(note, task)
 				: mirrors(task, note)
 }
+
+/** What the search built once before its cases (ids), now once per worker: every case on it reads them. */
+export const idsNeed = {
+	key: "test/unit/analysis/logical/theory.fixtures.ts idsNeed",
+	open: Effect.sync(() => {
+		const ids = [G.a1, G.a2, G.a3]
+		return Effect.succeed(ids)
+	})
+} as const satisfies Need<unknown>

@@ -21,26 +21,25 @@ import { Array as Arr, Effect } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { identity } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
-import { flight } from "#compiler/lower/conservative/types.ts"
+
 import { pg, span } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { pointIn } from "#compiler/query/build/terms.ts"
-import { types } from "#compiler/sql/build.ts"
+
 import { assert, placeOf, refusalLoc, refused } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { has, shapeOf } from "#test/support/kernel/shape.ts"
-import { sentForms } from "#test/support/oracle/forms.ts"
+
 import { paramText } from "#test/support/wire.ts"
 import {
 	encoders,
 	endpoints,
 	equated,
+	equatedChecksNeed,
 	pointInDescription,
 	type PointInFeature,
 	Slot,
 	Spans,
-	statements,
 	window
 } from "#test/unit/spans/lowering.fixtures.ts"
 
@@ -126,7 +125,7 @@ export const spanParametersAndWindowsBindsAWindowOrAnEquatedValueOfAFixedWidthSp
 			width: source.draw(oneOf([constant(15), int(14, 16), int(1, 60)]))
 		}),
 		{
-			needs: {},
+			needs: { equatedChecksNeed },
 			budget: { runs: 100, steered: 100 },
 			situations: [
 				"the column's width",
@@ -136,21 +135,13 @@ export const spanParametersAndWindowsBindsAWindowOrAnEquatedValueOfAFixedWidthSp
 				Reached<"the column's width" | "a width one unit off it" | "another width">
 			>,
 			check:
-				(_, c: Case<"the column's width" | "a width one unit off it" | "another width">) =>
+				(
+					{ equatedChecksNeed },
+					c: Case<"the column's width" | "a width one unit off it" | "another width">
+				) =>
 				({ start, width }) =>
 					Effect.gen(function* () {
-						for (const statement of statements(equated)) {
-							assert.ok(has(shapeOf(statement), "predicate = column param"))
-						}
-						for (const st of Arr.appendAll(
-							sentForms(equated.programs.optimized.statement),
-							flight(equated.programs.conservative.roots)
-						)) {
-							assert.deepEqual(
-								Arr.map(st.params, (slot) => (slot.kind === "scalar" ? slot.sqlType : undefined)),
-								[types.int4range]
-							)
-						}
+						yield* equatedChecksNeed
 						return yield* Effect.sync(() => {
 							c.note(
 								width === 15

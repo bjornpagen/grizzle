@@ -1,7 +1,8 @@
 /** What the properties of served-refresh.test.ts read: its spaces, models and helpers. */
 
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, DateTime, Equivalence, Option } from "effect"
+import { type Need, NeedFailed } from "@bjornpagen/testing/property"
+import { Array as Arr, Cause, DateTime, Effect, Equivalence, FileSystem, Option } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { pg, uuid } from "#compiler/public/fields.ts"
@@ -11,7 +12,7 @@ import { refresh, workload } from "#compiler/public/workload.ts"
 import { servedPath } from "#compiler/served/forms.ts"
 import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
+import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
 import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -92,7 +93,7 @@ const materialized: ReadonlyArray<Materialized> = [
 	{ name: "Usage", relation: Usage }
 ]
 
-export const relationAt = (position: number): Materialized =>
+const relationAt = (position: number): Materialized =>
 	defined(materialized[position], `materialized relation ${position}`)
 
 /**
@@ -122,14 +123,14 @@ export const setOf = (positions: ReadonlyArray<number>): number =>
 	Arr.reduce(Arr.dedupe(positions), 0, (bits, p) => bits | (1 << p))
 
 /** The positions of a set, ascending: declared level order. */
-export const positionsOf = (bits: number): ReadonlyArray<number> =>
+const positionsOf = (bits: number): ReadonlyArray<number> =>
 	Arr.filter(
 		upTo(materialized.length, (i) => i),
 		(p) => (bits & (1 << p)) !== 0
 	)
 
 /** Every nonempty set of the relations. */
-export const everySet = Object.freeze(upTo((1 << materialized.length) - 1, (i) => i + 1))
+const everySet = Object.freeze(upTo((1 << materialized.length) - 1, (i) => i + 1))
 
 export const at = (second: number) =>
 	DateTime.makeUnsafe({
@@ -146,7 +147,7 @@ export const at = (second: number) =>
  * The relations a served file's refresh member refreshes, in the file's order, each as the file names it: the file read
  * as a layer reads it (served/json.ts servedFile), its role's member under the member's name.
  */
-export const refreshedIn = (text: string): ReadonlyArray<string> => {
+const refreshedIn = (text: string): ReadonlyArray<string> => {
 	const file = succeeded(servedFile(trustedJson<unknown>(text)), "the served file")
 	const own = defined(
 		Option.getOrUndefined(Arr.findFirst(file.roles, (r) => r.name === roleName)),
@@ -196,3 +197,42 @@ export const situationsOf = (calls: Calls): ReadonlyArray<Situation> => {
 		repeated(calls.committed) || repeated(calls.configured) ? ["a relation repeated"] : []
 	return [...change, ...repeats]
 }
+
+/** What the search built once before its cases (fs, draftOf), now once per worker: every case on it reads them. */
+export const draftsNeed = {
+	key: "test/unit/cli/served-refresh.fixtures.ts draftsNeed",
+	open: Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const drafts = new Map<number, string>()
+		for (const bits of everySet) {
+			const ws = yield* workspace("served-refresh-draft")
+			const positions = nonEmpty(positionsOf(bits), "a nonempty set")
+			const drafted = yield* cliOver(
+				ws,
+				refreshConfigOf(positions),
+				["generate", configName, "--name", "init"],
+				at(0)
+			)
+			assert.equal(drafted.code, 0, drafted.stderr)
+			const text = yield* fs.readFileString(`${ws}/${servedFilePath}`)
+			assert.deepEqual(
+				refreshedIn(text),
+				Arr.map(positions, (p) => relationAt(p).name),
+				"a refresh member's targets are its relations in declared level order"
+			)
+			drafts.set(bits, text)
+		}
+		const draftOf = (positions: ReadonlyArray<number>): string =>
+			defined(drafts.get(setOf(positions)), "the first draft of the call's set")
+		return { fs, draftOf }
+	}).pipe(
+		Effect.mapBoth({
+			onFailure: (error) =>
+				NeedFailed.make({
+					need: "test/unit/cli/served-refresh.fixtures.ts draftsNeed",
+					message: Cause.pretty(Cause.fail(error))
+				}),
+			onSuccess: (made) => Effect.succeed(made)
+		})
+	)
+} as const satisfies Need<unknown>

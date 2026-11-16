@@ -12,18 +12,19 @@ import { word } from "@bjornpagen/testing/dictionary"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Order, Path, Record as Rec } from "effect"
-import { repoRoot } from "#bench/cold/identity.ts"
+import { Array as Arr, Effect, Order, Record as Rec } from "effect"
+
 import { gateOwner, ownerDirectories } from "#bench/harness/rules.ts"
-import { discoverGates } from "#bench/harness/runner.ts"
+
 import { assert } from "#test/support/assert.ts"
 import { catalogIds } from "#test/unit/bench/harness.dictionary.ts"
 import {
-	type RetryFeature,
+	gatesNeed,
 	modelOf,
 	ranOf,
 	reasonOf,
-	retriedCases
+	retriedCases,
+	type RetryFeature
 } from "#test/unit/bench/harness.fixtures.ts"
 
 /**
@@ -89,42 +90,37 @@ export const outcomesRetriesAndLoadsRetryExactlyWhatGrizzleClassifiesAsATransien
 /** The gate catalog gives every catalog gate exactly one bench file, in its owner's directory. */
 export const theGateCatalogGivesEveryCatalogGateExactlyOneBenchFileInItsOwnersDirectory =
 	property.exhaust(finite(word(catalogIds)), {
-		needs: {},
+		needs: { gatesNeed },
 		situations: ["query", "write"] satisfies ReadonlyArray<Reached<"query" | "write">>,
-		check: (_, c: Case<"query" | "write">) => (id) =>
-			Effect.gen(function* () {
-				const path = yield* Path.Path
-				const discovered = yield* discoverGates(
-					Arr.map(
-						[...ownerDirectories.query, ...ownerDirectories.write],
-						(dir) => `${repoRoot}/${dir}`
-					)
-				)
-				const listed = new Set(catalogIds)
-				yield* Effect.sync(() => {
-					c.note(gateOwner(id))
-					const covering = Arr.filter(discovered, (d) => Arr.contains(d.gate.gates, id))
-					assert.equal(covering.length, 1, id)
-					for (const d of covering) {
-						assert.ok(
-							Arr.contains(ownerDirectories[gateOwner(id)], path.dirname(d.file)),
-							`${d.file} covers ${id}`
-						)
+		check:
+			({ gatesNeed }, c: Case<"query" | "write">) =>
+			(id) =>
+				Effect.gen(function* () {
+					const { path, discovered, listed } = yield* gatesNeed
+					yield* Effect.sync(() => {
+						c.note(gateOwner(id))
+						const covering = Arr.filter(discovered, (d) => Arr.contains(d.gate.gates, id))
+						assert.equal(covering.length, 1, id)
+						for (const d of covering) {
+							assert.ok(
+								Arr.contains(ownerDirectories[gateOwner(id)], path.dirname(d.file)),
+								`${d.file} covers ${id}`
+							)
+							assert.deepEqual(
+								Arr.sort(Rec.keys(d.gate.options(true)), Order.String),
+								Arr.sort(Rec.keys(d.gate.options(false)), Order.String),
+								d.file
+							)
+						}
 						assert.deepEqual(
-							Arr.sort(Rec.keys(d.gate.options(true)), Order.String),
-							Arr.sort(Rec.keys(d.gate.options(false)), Order.String),
-							d.file
+							Arr.filter(
+								Arr.flatMap(discovered, (d) => d.gate.gates),
+								(gate) => !listed.has(gate)
+							),
+							[]
 						)
-					}
-					assert.deepEqual(
-						Arr.filter(
-							Arr.flatMap(discovered, (d) => d.gate.gates),
-							(gate) => !listed.has(gate)
-						),
-						[]
-					)
-				})
-			}),
+					})
+				}),
 		oracle: {
 			kind: "specification",
 			name: "one bench file a gate, in its owner's directory, its sizes alike at both scales"

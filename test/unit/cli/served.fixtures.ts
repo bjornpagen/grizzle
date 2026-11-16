@@ -11,19 +11,22 @@ import {
 	oneOf,
 	unicodeScalar
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, DateTime, Effect, type FileSystem, Order, String as Str } from "effect"
+import { type Need, NeedFailed } from "@bjornpagen/testing/property"
+import { Array as Arr, Cause, DateTime, Effect, FileSystem, Order, String as Str } from "effect"
 import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted, trustedJson } from "#compiler/core/trusted.ts"
+import { paramDomainIdentity } from "#compiler/physical/ddl/domains.ts"
 import { type ServedFile, servedPath } from "#compiler/served/forms.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
-import { defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
+import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { admittedNames, dictionaryNameGenOtherThan } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { editedAt, firstSql, without } from "#test/support/served.ts"
+import { editedAt, firstSql, memberPaths, without } from "#test/support/served.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** A program of the served file, in the file's order: its role's and its own name, and its first SQL text's path. */
@@ -102,10 +105,10 @@ export type Situation =
 	| "a member dropped"
 	| "another layout"
 
-export const servedShop = Object.freeze(shopV1("ServedShop", "full"))
+const servedShop = Object.freeze(shopV1("ServedShop", "full"))
 
 /** The SQL of a schema directory's one drafted folder, every file's text joined in name order. */
-export const firstDraftSql = (fs: FileSystem.FileSystem, dir: string) =>
+const firstDraftSql = (fs: FileSystem.FileSystem, dir: string) =>
 	Effect.gen(function* () {
 		const entries = yield* fs.readDirectory(dir)
 		const folder = Arr.headNonEmpty(
@@ -149,7 +152,7 @@ export const at = (second: number) =>
  * Every program of a served file, as a layer reads it (served/json.ts servedFile), that states SQL under a member named
  * `sql`, in the file's order: its roles', each role's programs in order.
  */
-export const programsOf = (file: ServedFile): ReadonlyArray<Program> =>
+const programsOf = (file: ServedFile): ReadonlyArray<Program> =>
 	Arr.flatMap(file.roles, (role, i) =>
 		Arr.flatMap(role.members, (member, j): ReadonlyArray<Program> => {
 			const sql = firstSql(member, ["roles", i, "members", j])
@@ -399,3 +402,60 @@ export const situationsOf = (
 			}
 	}
 }
+
+/** What the search built once before its cases (fs, base, domains, file, text, json, programs, paths, entries), now once per worker: every case on it reads them. */
+export const baseNeed = {
+	key: "test/unit/cli/served.fixtures.ts baseNeed",
+	open: Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const base = yield* workspace("served-base")
+		const drafted = yield* cliOver(base, config, ["generate", configName, "--name", "init"], at(0))
+		assert.equal(drafted.code, 0, drafted.stderr)
+		assert.ok(
+			Str.includes(`${schemaDir}/${servedPath(login)}`)(drafted.stdout),
+			`generate names the served file it writes: ${drafted.stdout}`
+		)
+		const passed = yield* cliOver(base, config, ["check", configName], at(1))
+		assert.equal(passed.code, 0, `check passes on the first draft: ${passed.stdout}`)
+		const domains = nonEmpty(
+			Arr.map(
+				succeeded(
+					compileTestWorkload(
+						[{ login, workloads: servedShop.server.workload }],
+						servedShop.schema,
+						testCompile
+					)
+				).params.domains,
+				(use) => identifierOf(paramDomainIdentity(use.place, use.regex))
+			),
+			"the pattern domains the served parameters name"
+		)
+		const firstDraft = yield* firstDraftSql(fs, `${base}/${schemaDir}`)
+		for (const domain of domains) {
+			assert.ok(
+				Str.includes(domain)(firstDraft),
+				`the first draft creates the parameter's pattern domain ${domain}`
+			)
+		}
+		const file = `${base}/${schemaDir}/${servedPath(login)}`
+		const text = yield* fs.readFileString(file)
+		const json = trustedJson<unknown>(text)
+		const programs = nonEmpty(
+			programsOf(succeeded(servedFile(json), "the served file")),
+			"the served programs"
+		)
+		const paths = nonEmpty(memberPaths(json, []), "the served file's member paths")
+		const listed = yield* fs.readDirectory(`${base}/${schemaDir}`)
+		const entries = Arr.sort(listed, Order.String)
+		return { fs, base, domains, file, text, json, programs, paths, entries }
+	}).pipe(
+		Effect.mapBoth({
+			onFailure: (error) =>
+				NeedFailed.make({
+					need: "test/unit/cli/served.fixtures.ts baseNeed",
+					message: Cause.pretty(Cause.fail(error))
+				}),
+			onSuccess: (made) => Effect.succeed(made)
+		})
+	)
+} as const satisfies Need<unknown>

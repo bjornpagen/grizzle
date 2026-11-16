@@ -45,7 +45,8 @@ import {
 	reality,
 	slack,
 	Two,
-	valueLength
+	valueLength,
+	valueNeed
 } from "#test/unit/write/bytes-memory.fixtures.ts"
 import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
@@ -58,70 +59,72 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  */
 export const aWriteOfLargeBytesValuesRefusesAMemberPastTheMessageFromItsLengthsAloneAllocatingNoneOfItAndCopiesAMemberThatFitsOnce =
 	property.explore(cases, {
-		needs: {},
+		needs: { valueNeed },
 		budget: { runs: 8, steered: 12 },
 		situations: [
 			"a member refused from its lengths",
 			"a member bound",
 			"two bytes columns"
 		] satisfies ReadonlyArray<Reached<Feature>>,
-		check: (_, c: Case<Feature>) => (d) =>
-			Effect.gen(function* () {
-				const value = new Uint8Array(valueLength).fill(7)
-				for (const feature of notes(d)) {
-					c.note(feature)
-				}
-				const facts = upTo(d.facts, (id) =>
-					d.columns === 1 ? { id, body: value } : { id, body: value, more: value }
-				)
-				const change =
-					d.columns === 1
-						? ChangeSet.empty(Large).insert(One, facts)
-						: ChangeSet.empty(Large).insert(Two, facts)
-				const program = succeeded(compileWrite(checking(Large), descOf(change), reality))
-				const write = runnableWrite(program, program.frontend.codes)
-				const members = yield* collectInputs(program.binding.groups, parsedOf(change).inputs)
-				const before = process.memoryUsage().arrayBuffers
-				const bound = bindWrite(write, {
-					members,
-					params: {},
-					transport: inForce(bindFrame)
-				})
-				const grown = process.memoryUsage().arrayBuffers - before
-				if (carried(d) > messageMaxBytes) {
-					assert.ok(
-						!bound.ok && bound.error._tag === "MessageBound",
-						"a member past the message is refused as its MessageBound"
+		check:
+			({ valueNeed }, c: Case<Feature>) =>
+			(d) =>
+				Effect.gen(function* () {
+					const value = yield* valueNeed
+					for (const feature of notes(d)) {
+						c.note(feature)
+					}
+					const facts = upTo(d.facts, (id) =>
+						d.columns === 1 ? { id, body: value } : { id, body: value, more: value }
 					)
-					assert.ok(grown < valueLength, `the refusal allocated ${grown} bytes`)
-					return
-				}
-				assert.ok(bound.ok, "a member within the message binds")
-				assert.ok(
-					grown < copied(d) + slack,
-					`a bound member's ${copied(d)} bytes allocated ${grown}: a second copy of some value`
-				)
-				const normalized = normalizeChangeSet(
-					write.flight.prepared.groups,
-					{ fill: write.flight.prepared.fill, codes: write.flight.codes },
-					members,
-					inForce(bindFrame)
-				)
-				if (!normalized.ok || normalized.value.kind !== "normalized") {
-					return assert.fail("a member within the message normalizes")
-				}
-				for (const slot of normalized.value.slots.values()) {
-					for (const fact of slot.facts) {
-						for (const field of d.columns === 1 ? ["body"] : ["body", "more"]) {
-							const held = fact[field]
-							assert.ok(
-								isAdmittedBytes(held) && held.bytes === value,
-								"admission holds the caller's array itself, no copy of it"
-							)
+					const change =
+						d.columns === 1
+							? ChangeSet.empty(Large).insert(One, facts)
+							: ChangeSet.empty(Large).insert(Two, facts)
+					const program = succeeded(compileWrite(checking(Large), descOf(change), reality))
+					const write = runnableWrite(program, program.frontend.codes)
+					const members = yield* collectInputs(program.binding.groups, parsedOf(change).inputs)
+					const before = process.memoryUsage().arrayBuffers
+					const bound = bindWrite(write, {
+						members,
+						params: {},
+						transport: inForce(bindFrame)
+					})
+					const grown = process.memoryUsage().arrayBuffers - before
+					if (carried(d) > messageMaxBytes) {
+						assert.ok(
+							!bound.ok && bound.error._tag === "MessageBound",
+							"a member past the message is refused as its MessageBound"
+						)
+						assert.ok(grown < valueLength, `the refusal allocated ${grown} bytes`)
+						return
+					}
+					assert.ok(bound.ok, "a member within the message binds")
+					assert.ok(
+						grown < copied(d) + slack,
+						`a bound member's ${copied(d)} bytes allocated ${grown}: a second copy of some value`
+					)
+					const normalized = normalizeChangeSet(
+						write.flight.prepared.groups,
+						{ fill: write.flight.prepared.fill, codes: write.flight.codes },
+						members,
+						inForce(bindFrame)
+					)
+					if (!normalized.ok || normalized.value.kind !== "normalized") {
+						return assert.fail("a member within the message normalizes")
+					}
+					for (const slot of normalized.value.slots.values()) {
+						for (const fact of slot.facts) {
+							for (const field of d.columns === 1 ? ["body"] : ["body", "more"]) {
+								const held = fact[field]
+								assert.ok(
+									isAdmittedBytes(held) && held.bytes === value,
+									"admission holds the caller's array itself, no copy of it"
+								)
+							}
 						}
 					}
-				}
-			}),
+				}),
 		oracle: {
 			kind: "specification",
 			name: "refused from its lengths with no copy past the message, one copy within it"

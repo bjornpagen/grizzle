@@ -52,6 +52,7 @@ import {
 	extra,
 	factsGen,
 	identityOf,
+	idsNeed,
 	kt,
 	type LawName,
 	manager,
@@ -320,15 +321,15 @@ export const violationQueriesMeanWhatTheirLawsSayACandidateKeysWitnessesAreTheVa
 				] as const
 		),
 		{
-			needs: {},
+			needs: { idsNeed },
 			situations: ["a shared name", "lawful", "labels"] satisfies ReadonlyArray<
 				Reached<"a shared name" | "lawful" | "labels">
 			>,
 			check:
-				(_, c: Case<"a shared name" | "lawful" | "labels">) =>
+				({ idsNeed }, c: Case<"a shared name" | "lawful" | "labels">) =>
 				([names, labels]) =>
 					Effect.gen(function* () {
-						const ids = [G.a1, G.a2, G.a3]
+						const ids = yield* idsNeed
 						return yield* Effect.sync(() => {
 							const accounts = Arr.flatMap(names, (n, i) =>
 								n === "none" ? [] : [{ id: defined(ids[i]), name: n }]

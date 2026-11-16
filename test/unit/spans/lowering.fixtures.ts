@@ -1,6 +1,7 @@
 /** What the properties of lowering.test.ts read: its spaces, models and helpers. */
 
-import { Array as Arr } from "effect"
+import type { Need } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import type { QueryDesc } from "#compiler/ir/desc.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
@@ -9,11 +10,14 @@ import { contract, pg, span, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { succeeded } from "#test/support/assert.ts"
+import { types } from "#compiler/sql/build.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { decodedQuery } from "#test/support/fixtures/ir/desc.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { has, shapeOf } from "#test/support/kernel/shape.ts"
+import { sentForms } from "#test/support/oracle/forms.ts"
 
 const Instant = contract("Instant", pg.bigint)
 
@@ -37,7 +41,7 @@ const compiled = (q: unknown): OracleTemplate =>
 	)
 
 /** The ASTs of every statement of both artifacts. */
-export const statements = (t: OracleTemplate): ReadonlyArray<SqlStatement> => [
+const statements = (t: OracleTemplate): ReadonlyArray<SqlStatement> => [
 	...programAsts(t.programs.optimized),
 	...Arr.map(flight(t.programs.conservative.roots), (s) => s.ast)
 ]
@@ -112,3 +116,23 @@ export const equated = compiled(
 		return r.match(Shift, { id, slot: r.param("s", Shift.fields.slot) }).find({ id })
 	})
 )
+
+/** What the search built once before its cases, now once per worker: every case on it reads them. */
+export const equatedChecksNeed = {
+	key: "test/unit/spans/lowering.fixtures.ts equatedChecksNeed",
+	open: Effect.sync(() => {
+		for (const statement of statements(equated)) {
+			assert.ok(has(shapeOf(statement), "predicate = column param"))
+		}
+		for (const st of Arr.appendAll(
+			sentForms(equated.programs.optimized.statement),
+			flight(equated.programs.conservative.roots)
+		)) {
+			assert.deepEqual(
+				Arr.map(st.params, (slot) => (slot.kind === "scalar" ? slot.sqlType : undefined)),
+				[types.int4range]
+			)
+		}
+		return Effect.void
+	})
+} as const satisfies Need<unknown>

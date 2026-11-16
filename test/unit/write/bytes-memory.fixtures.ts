@@ -2,6 +2,8 @@
 
 import { messageMaxBytes } from "@bjornpagen/grizzle-engine/core/wire"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import type { Need } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
 import { bytes, pg } from "#compiler/public/fields.ts"
@@ -53,3 +55,12 @@ export const notes = (d: Drawn): ReadonlyArray<Feature> => [
 ]
 
 export const reality = realityWrite(succeeded(testArtifacts(Large, testCompile)))
+
+/** What the search built once before its cases (value), now once per worker: every case on it reads them. */
+export const valueNeed = {
+	key: "test/unit/write/bytes-memory.fixtures.ts valueNeed",
+	open: Effect.sync(() => {
+		const value = new Uint8Array(valueLength).fill(7)
+		return Effect.succeed(value)
+	})
+} as const satisfies Need<unknown>

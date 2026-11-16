@@ -30,7 +30,8 @@ import {
 	type BagFeature,
 	cyclic,
 	limits,
-	pairsOf
+	pairsOf,
+	plainNeed
 } from "#test/unit/recursion/generators.fixtures.ts"
 
 /**
@@ -42,73 +43,75 @@ import {
 export const graphShapedRecursiveGeneratorsBuildEachGraphShapeAsNamed = property.explore(
 	graphSketchGen,
 	{
-		needs: {},
+		needs: { plainNeed },
 		budget: { runs: 600, steered: 0 },
 		situations: [],
-		check: () => (sketch) =>
-			Effect.gen(function* () {
-				const plain = { loops: false, parallel: "never" as const, edges: "set" as const }
-				return yield* Effect.sync(() => {
-					const chain = resolveGraph(sketch, {
-						...defaultRecursiveLimits.graph,
-						...plain,
-						shapes: ["chain"]
+		check:
+			({ plainNeed }) =>
+			(sketch) =>
+				Effect.gen(function* () {
+					const plain = yield* plainNeed
+					return yield* Effect.sync(() => {
+						const chain = resolveGraph(sketch, {
+							...defaultRecursiveLimits.graph,
+							...plain,
+							shapes: ["chain"]
+						})
+						assert.deepEqual(
+							edgePairs(chain),
+							Arr.map(indices(chain.n - 1), (i) => [i, i + 1])
+						)
+						const tree = resolveGraph(sketch, {
+							...defaultRecursiveLimits.graph,
+							...plain,
+							shapes: ["tree"]
+						})
+						assert.equal(pairsOf(tree).length, tree.n - 1)
+						assert.equal(new Set(Arr.map(pairsOf(tree), ([, b]) => b)).size, tree.n - 1)
+						assert.equal(isAcyclic(edgePairs(tree), tree.n), true)
+						const diamond = resolveGraph(sketch, {
+							...defaultRecursiveLimits.graph,
+							...plain,
+							shapes: ["diamond"],
+							minVertices: 4
+						})
+						like(
+							edgePairs(diamond),
+							matchers.arrayContaining([
+								[0, 1],
+								[0, 2],
+								[1, 3],
+								[2, 3]
+							])
+						)
+						assert.equal(isAcyclic(edgePairs(diamond), diamond.n), true)
+						const loop = resolveGraph(sketch, {
+							...defaultRecursiveLimits.graph,
+							...plain,
+							shapes: ["selfLoop"]
+						})
+						assert.equal(
+							Arr.some(edgePairs(loop), ([a, b]) => a === b),
+							true
+						)
+						const dense = resolveGraph(sketch, {
+							...defaultRecursiveLimits.graph,
+							...plain,
+							shapes: ["denseCycle"]
+						})
+						for (let i = 0; i < dense.n; i++) {
+							containsEqual(edgePairs(dense), [i, (i + 1) % dense.n])
+						}
+						assert.equal(isAcyclic(edgePairs(dense), dense.n), false)
+						const parallel = resolveGraph(sketch, {
+							...defaultRecursiveLimits.graph,
+							parallel: "always"
+						})
+						assert.equal(parallel.keyed, true)
+						assert.ok(parallel.edges.length > edgePairs(parallel).length)
+						assert.equal(new Set(Arr.map(parallel.edges, (e) => e.id)).size, parallel.edges.length)
 					})
-					assert.deepEqual(
-						edgePairs(chain),
-						Arr.map(indices(chain.n - 1), (i) => [i, i + 1])
-					)
-					const tree = resolveGraph(sketch, {
-						...defaultRecursiveLimits.graph,
-						...plain,
-						shapes: ["tree"]
-					})
-					assert.equal(pairsOf(tree).length, tree.n - 1)
-					assert.equal(new Set(Arr.map(pairsOf(tree), ([, b]) => b)).size, tree.n - 1)
-					assert.equal(isAcyclic(edgePairs(tree), tree.n), true)
-					const diamond = resolveGraph(sketch, {
-						...defaultRecursiveLimits.graph,
-						...plain,
-						shapes: ["diamond"],
-						minVertices: 4
-					})
-					like(
-						edgePairs(diamond),
-						matchers.arrayContaining([
-							[0, 1],
-							[0, 2],
-							[1, 3],
-							[2, 3]
-						])
-					)
-					assert.equal(isAcyclic(edgePairs(diamond), diamond.n), true)
-					const loop = resolveGraph(sketch, {
-						...defaultRecursiveLimits.graph,
-						...plain,
-						shapes: ["selfLoop"]
-					})
-					assert.equal(
-						Arr.some(edgePairs(loop), ([a, b]) => a === b),
-						true
-					)
-					const dense = resolveGraph(sketch, {
-						...defaultRecursiveLimits.graph,
-						...plain,
-						shapes: ["denseCycle"]
-					})
-					for (let i = 0; i < dense.n; i++) {
-						containsEqual(edgePairs(dense), [i, (i + 1) % dense.n])
-					}
-					assert.equal(isAcyclic(edgePairs(dense), dense.n), false)
-					const parallel = resolveGraph(sketch, {
-						...defaultRecursiveLimits.graph,
-						parallel: "always"
-					})
-					assert.equal(parallel.keyed, true)
-					assert.ok(parallel.edges.length > edgePairs(parallel).length)
-					assert.equal(new Set(Arr.map(parallel.edges, (e) => e.id)).size, parallel.edges.length)
-				})
-			}),
+				}),
 		oracle: { kind: "specification", name: "each graph shape's definition" },
 		kept: [],
 		kills: [

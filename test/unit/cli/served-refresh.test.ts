@@ -19,23 +19,20 @@
  */
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, FileSystem, Formatter, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { check } from "#cli/check.ts"
 import { loginFiles } from "#cli/files.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
-import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { loginFileFindings } from "#test/support/migrate/kit.ts"
 import {
 	at,
 	callsGen,
-	refreshConfigOf,
-	everySet,
+	draftsNeed,
 	loginName,
 	memberName,
-	positionsOf,
-	refreshedIn,
-	relationAt,
+	refreshConfigOf,
 	roleName,
 	schemaDir,
 	servedFilePath,
@@ -53,7 +50,7 @@ import {
  */
 export const servedRefreshMembersARefreshMembersServedTargetsAreItsCallsSetOfRelationsInLevelOrderCheckRefusesACommittedOneOfAnotherSetNamingTheMemberAndGenerateWritesItBackDraftingNoFolder =
 	property.explore(callsGen, {
-		needs: {},
+		needs: { draftsNeed },
 		situations: [
 			"the same relations, called otherwise",
 			"a relation added",
@@ -61,99 +58,84 @@ export const servedRefreshMembersARefreshMembersServedTargetsAreItsCallsSetOfRel
 			"relations exchanged",
 			"a relation repeated"
 		] satisfies ReadonlyArray<Reached<Situation>>,
-		check: (_, c: Case<Situation>) => (calls) =>
-			Effect.gen(function* () {
-				const fs = yield* FileSystem.FileSystem
-				const drafts = new Map<number, string>()
-				for (const bits of everySet) {
-					const ws = yield* workspace("served-refresh-draft")
-					const positions = nonEmpty(positionsOf(bits), "a nonempty set")
-					const drafted = yield* cliOver(
-						ws,
-						refreshConfigOf(positions),
-						["generate", configName, "--name", "init"],
-						at(0)
-					)
-					assert.equal(drafted.code, 0, drafted.stderr)
-					const text = yield* fs.readFileString(`${ws}/${servedFilePath}`)
-					assert.deepEqual(
-						refreshedIn(text),
-						Arr.map(positions, (p) => relationAt(p).name),
-						"a refresh member's targets are its relations in declared level order"
-					)
-					drafts.set(bits, text)
-				}
-				const draftOf = (positions: ReadonlyArray<number>): string =>
-					defined(drafts.get(setOf(positions)), "the first draft of the call's set")
-				return yield* Effect.scoped(
-					Effect.gen(function* () {
-						c.noteAll(situationsOf(calls))
-						const ws = yield* workspace("served-refresh")
-						const committed = refreshConfigOf(calls.committed)
-						const configured = refreshConfigOf(calls.configured)
-						const drafted = yield* cliOver(
-							ws,
-							committed,
-							["generate", configName, "--name", "init"],
-							at(1)
-						)
-						assert.equal(drafted.code, 0, drafted.stderr)
-						const file = `${ws}/${servedFilePath}`
-						const draft = yield* fs.readFileString(file)
-						assert.equal(
-							draft,
-							draftOf(calls.committed),
-							"a call's served file is its set's first draft, whatever its order and repeats"
-						)
-						const listed = yield* fs.readDirectory(`${ws}/${schemaDir}`)
-						const entries = Arr.sort(listed, Order.String)
-						const snapshot = yield* fs.readFileString(`${ws}/${schemaDir}/${snapshotFileName}`)
-						const manifest = yield* fs.readFileString(`${ws}/${schemaDir}/${manifestFileName}`)
-						const same = setOf(calls.committed) === setOf(calls.configured)
-						const checked = yield* cliOver(ws, configured, ["check", configName], at(2))
-						assert.equal(checked.code, same ? 0 : 1, checked.stdout)
-						const read = yield* resolvedConfig(configured, `${ws}/${configName}`)
-						const [result] = yield* check(succeeded(read), ws)
-						const findings = defined(result, "the schema's check").findings
-						const expected = same ? [] : loginFileFindings("stale")
-						assert.deepEqual(
-							Arr.map(findings, (f) => ({ kind: f.kind, where: f.where })),
-							Arr.map(expected, (f) => ({
-								kind: f.kind,
-								where: `${schemaDir}/${loginFiles[f.file].path(loginName)}`
-							})),
-							Formatter.format(calls)
-						)
-						for (const [found, model] of Arr.zip(findings, expected)) {
-							const says = `login ${loginName}, ${model.file === "served" ? `first at program ${memberName} of role ${roleName}:` : ""}`
-							assert.ok(
-								Str.startsWith(says)(found.problem),
-								`the finding names ${says}: ${Formatter.format(found)}`
+		check:
+			({ draftsNeed }, c: Case<Situation>) =>
+			(calls) =>
+				Effect.gen(function* () {
+					const { fs, draftOf } = yield* draftsNeed
+					return yield* Effect.scoped(
+						Effect.gen(function* () {
+							c.noteAll(situationsOf(calls))
+							const ws = yield* workspace("served-refresh")
+							const committed = refreshConfigOf(calls.committed)
+							const configured = refreshConfigOf(calls.configured)
+							const drafted = yield* cliOver(
+								ws,
+								committed,
+								["generate", configName, "--name", "init"],
+								at(1)
 							)
-						}
-						const regenerated = yield* cliOver(ws, configured, ["generate", configName], at(3))
-						assert.equal(regenerated.code, 0, regenerated.stderr)
-						const after = yield* fs.readDirectory(`${ws}/${schemaDir}`)
-						assert.deepEqual(
-							Arr.sort(after, Order.String),
-							entries,
-							"a refresh member plans no access, so generate drafts no folder"
-						)
-						const snapshotAfter = yield* fs.readFileString(`${ws}/${schemaDir}/${snapshotFileName}`)
-						assert.equal(snapshotAfter, snapshot, "snapshot.json is the first draft's")
-						const manifestAfter = yield* fs.readFileString(`${ws}/${schemaDir}/${manifestFileName}`)
-						assert.equal(manifestAfter, manifest, "manifest.json is the first draft's")
-						const rewritten = yield* fs.readFileString(file)
-						assert.equal(
-							rewritten,
-							draftOf(calls.configured),
-							"generate writes the configured set's first draft"
-						)
-						const again = yield* cliOver(ws, configured, ["check", configName], at(4))
-						assert.equal(again.code, 0, again.stdout)
-					})
-				)
-			}),
+							assert.equal(drafted.code, 0, drafted.stderr)
+							const file = `${ws}/${servedFilePath}`
+							const draft = yield* fs.readFileString(file)
+							assert.equal(
+								draft,
+								draftOf(calls.committed),
+								"a call's served file is its set's first draft, whatever its order and repeats"
+							)
+							const listed = yield* fs.readDirectory(`${ws}/${schemaDir}`)
+							const entries = Arr.sort(listed, Order.String)
+							const snapshot = yield* fs.readFileString(`${ws}/${schemaDir}/${snapshotFileName}`)
+							const manifest = yield* fs.readFileString(`${ws}/${schemaDir}/${manifestFileName}`)
+							const same = setOf(calls.committed) === setOf(calls.configured)
+							const checked = yield* cliOver(ws, configured, ["check", configName], at(2))
+							assert.equal(checked.code, same ? 0 : 1, checked.stdout)
+							const read = yield* resolvedConfig(configured, `${ws}/${configName}`)
+							const [result] = yield* check(succeeded(read), ws)
+							const findings = defined(result, "the schema's check").findings
+							const expected = same ? [] : loginFileFindings("stale")
+							assert.deepEqual(
+								Arr.map(findings, (f) => ({ kind: f.kind, where: f.where })),
+								Arr.map(expected, (f) => ({
+									kind: f.kind,
+									where: `${schemaDir}/${loginFiles[f.file].path(loginName)}`
+								})),
+								Formatter.format(calls)
+							)
+							for (const [found, model] of Arr.zip(findings, expected)) {
+								const says = `login ${loginName}, ${model.file === "served" ? `first at program ${memberName} of role ${roleName}:` : ""}`
+								assert.ok(
+									Str.startsWith(says)(found.problem),
+									`the finding names ${says}: ${Formatter.format(found)}`
+								)
+							}
+							const regenerated = yield* cliOver(ws, configured, ["generate", configName], at(3))
+							assert.equal(regenerated.code, 0, regenerated.stderr)
+							const after = yield* fs.readDirectory(`${ws}/${schemaDir}`)
+							assert.deepEqual(
+								Arr.sort(after, Order.String),
+								entries,
+								"a refresh member plans no access, so generate drafts no folder"
+							)
+							const snapshotAfter = yield* fs.readFileString(
+								`${ws}/${schemaDir}/${snapshotFileName}`
+							)
+							assert.equal(snapshotAfter, snapshot, "snapshot.json is the first draft's")
+							const manifestAfter = yield* fs.readFileString(
+								`${ws}/${schemaDir}/${manifestFileName}`
+							)
+							assert.equal(manifestAfter, manifest, "manifest.json is the first draft's")
+							const rewritten = yield* fs.readFileString(file)
+							assert.equal(
+								rewritten,
+								draftOf(calls.configured),
+								"generate writes the configured set's first draft"
+							)
+							const again = yield* cliOver(ws, configured, ["check", configName], at(4))
+							assert.equal(again.code, 0, again.stdout)
+						})
+					)
+				}),
 		oracle: {
 			kind: "specification",
 			name: "the first draft of each set of relations, whose targets are the set in level order"

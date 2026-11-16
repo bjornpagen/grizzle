@@ -15,14 +15,18 @@ import { partRuns } from "#adapter/reader/execution.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
 import type { SpecifiedArtifact } from "#compiler/lower/template.ts"
+import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { closedId, uuid, type Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
+import { migratedTemplate } from "#test/support/install-migrate.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"
 
@@ -34,7 +38,7 @@ const Task = relation("Task", { id: uuid, kind: closedId(Kind), title: Text }, [
 
 const Memo = relation("Memo", { id: uuid, task: uuid, text: Text }, ["id"])
 
-export const Unions = schema(
+const Unions = schema(
 	"Unions",
 	[Kind, Task, Memo],
 	[contained(on(Memo, "task"), on(Task, "id")), key(on(Memo, "task"))]
@@ -259,3 +263,15 @@ export type Feature =
 	| "a heading group the take cuts"
 	| "a cut group stored out of its order"
 	| "a done task without a memo"
+
+/**
+ * Unions installed through its first migration, as the search installed it once before its cases: the template every
+ * case clones, built once per member, so no case installs the schema again.
+ */
+export const unionsTemplate = migratedTemplate({
+	declaredIn: import.meta,
+	name: "unions",
+	content: { schema: "Unions", logins: [], ambient: "ordinary", label: "real" },
+	versions: [{ schema: Unions, logins: [], declarations: noDeclarations }],
+	options: { label: "real", extensions: [], compile: compileInstallation, ambient: ordinarySession }
+})

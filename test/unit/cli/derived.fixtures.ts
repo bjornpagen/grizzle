@@ -1,14 +1,20 @@
 /** What the properties of derived.test.ts read: its spaces, models and helpers. */
 
 import { boolean, constant, type Gen, oneOf, subarray } from "@bjornpagen/testing/gen"
-import { Array as Arr, DateTime, Record as Rec } from "effect"
+import { type Need, NeedFailed } from "@bjornpagen/testing/property"
+import { Array as Arr, Cause, DateTime, Effect, FileSystem, Order, Record as Rec } from "effect"
 import type { Json } from "#compiler/core/canonical.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
-import type { SnapshotDerived } from "#compiler/deploy/snapshot/types.ts"
+import {
+	manifestFileName,
+	type SnapshotDerived,
+	snapshotFileName
+} from "#compiler/deploy/snapshot/types.ts"
 import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
-import { offlineOwner } from "#test/pg/cli/support.ts"
+import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
+import { assert, unorderedEqual } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 
 /**
@@ -96,7 +102,7 @@ export const at = (second: number) =>
 	})
 
 /** The derived facts snapshot.json records, by member, the closed facts by relation. */
-export type RecordedFacts = { readonly [member: string]: { readonly [key: string]: Json } }
+type RecordedFacts = { readonly [member: string]: { readonly [key: string]: Json } }
 
 /** snapshot.json's text with its derived facts made stale by `staling`. */
 export const staled = (text: string, staling: Staling): string => {
@@ -133,3 +139,33 @@ export const members: ReadonlyArray<string> = Rec.values(derivedMembers)
 
 /** Every staling of the first draft's derived facts. */
 export const stalingGen: Gen<Staling> = stalings(members)
+
+/** What the search built once before its cases (fs, base, snapshot, manifest, entries), now once per worker: every case on it reads them. */
+export const baseNeed = {
+	key: "test/unit/cli/derived.fixtures.ts baseNeed",
+	open: Effect.gen(function* () {
+		const fs = yield* FileSystem.FileSystem
+		const base = yield* workspace("derived-base")
+		const drafted = yield* cliOver(base, config, ["generate", configName, "--name", "init"], at(0))
+		assert.equal(drafted.code, 0, drafted.stderr)
+		const snapshot = yield* fs.readFileString(`${base}/${schemaDir}/${snapshotFileName}`)
+		const manifest = yield* fs.readFileString(`${base}/${schemaDir}/${manifestFileName}`)
+		const listed = yield* fs.readDirectory(`${base}/${schemaDir}`)
+		const entries = Arr.sort(listed, Order.String)
+		unorderedEqual(
+			Rec.keys(trustedJson<{ readonly derived: RecordedFacts }>(snapshot).derived),
+			members,
+			"the first draft records every member of the derived facts, and only those"
+		)
+		return { fs, base, snapshot, manifest, entries }
+	}).pipe(
+		Effect.mapBoth({
+			onFailure: (error) =>
+				NeedFailed.make({
+					need: "test/unit/cli/derived.fixtures.ts baseNeed",
+					message: Cause.pretty(Cause.fail(error))
+				}),
+			onSuccess: (made) => Effect.succeed(made)
+		})
+	)
+} as const satisfies Need<unknown>

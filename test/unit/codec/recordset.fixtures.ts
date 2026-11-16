@@ -12,10 +12,16 @@ import {
 	uniqueArray,
 	weighted
 } from "@bjornpagen/testing/gen"
+import type { Need } from "@bjornpagen/testing/property"
 import type { Source } from "@bjornpagen/testing/source"
 import { double, uuid } from "@bjornpagen/testing/values"
-import { Array as Arr, Record, String as Str } from "effect"
-import { normalArray, positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
+import { Array as Arr, Effect, Record, String as Str } from "effect"
+import {
+	normalArray,
+	positionalColumns,
+	relationNormalizer,
+	type RelationSpec
+} from "#compiler/codec/recordset.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -27,7 +33,7 @@ import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { kindCodes, types } from "#test/unit/codec/support.ts"
 
 /** The relation of readings the normalization properties read: an id, a numeric(5,2) value and a raw double. */
-export const reading: RelationSpec = {
+const reading: RelationSpec = {
 	relation: "Reading",
 	columns: positionalColumns([
 		{ name: "id", type: types.uuid },
@@ -127,7 +133,7 @@ const boundOffset: Gen<number> = weighted([
 ])
 
 /** A bound case: the columns, their rows' texts, and how far the bound sits from the longest literal's length. */
-export interface BoundCase {
+interface BoundCase {
 	readonly width: number
 	readonly rows: ReadonlyArray<ReadonlyArray<string>>
 	readonly by: number
@@ -372,3 +378,21 @@ const everyFact: Gen<Readonly<Record<string, unknown>>> = (source) =>
 
 /** Up to eight facts of every field type. */
 export const everyFacts = array(everyFact, { min: 0, max: 8 })
+
+/** What the search built once before its cases (normalize), now once per worker: every case on it reads them. */
+export const normalizeNeed = {
+	key: "test/unit/codec/recordset.fixtures.ts normalizeNeed",
+	open: Effect.sync(() => {
+		const normalize = relationNormalizer(reading)
+		return Effect.succeed(normalize)
+	})
+} as const satisfies Need<unknown>
+
+/** What the search built once before its cases (encode), now once per worker: every case on it reads them. */
+export const encodeNeed = {
+	key: "test/unit/codec/recordset.fixtures.ts encodeNeed",
+	open: Effect.sync(() => {
+		const encode = arraysEncoder(reading)
+		return Effect.succeed(encode)
+	})
+} as const satisfies Need<unknown>

@@ -23,12 +23,9 @@ import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { conservativeMeta, type Rooted } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
-import {
-	relationalRewrites,
-	semanticSimplification
-} from "#compiler/lower/optimize/demand/phases.ts"
+import { relationalRewrites } from "#compiler/lower/optimize/demand/phases.ts"
 import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
-import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
+
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
@@ -39,8 +36,10 @@ import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { Posting, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 import {
+	chainNeed,
 	type FrameFeature,
 	freshCopy,
+	passesNeed,
 	type RootPosition
 } from "#test/unit/lower/rewrite/frame.fixtures.ts"
 import {
@@ -124,45 +123,47 @@ export const aDAGsRootsARootStaysAtItsPositionAmongTheDAGsRootsWhenARewriteRepla
  */
 export const determinismTheSameInputRewritesToTheSameDAGCertificatesAndSQLRunAfterRun =
 	property.explore(queryCaseGen(defaultGenConfig), {
-		needs: {},
+		needs: { passesNeed },
 		budget: { runs: 120, steered: 0 },
 		situations: [],
-		check: () => (c) =>
-			Effect.gen(function* () {
-				const passes = [semanticSimplification, relationalRewrites]
-				return yield* Effect.sync(() => {
-					const run = () =>
-						succeeded(
-							runPasses(
-								caseQuery(c),
-								passes,
-								passContext({ catalog: genCatalog(c.schema), evidence: "snapshot" })
+		check:
+			({ passesNeed }) =>
+			(c) =>
+				Effect.gen(function* () {
+					const passes = yield* passesNeed
+					return yield* Effect.sync(() => {
+						const run = () =>
+							succeeded(
+								runPasses(
+									caseQuery(c),
+									passes,
+									passContext({ catalog: genCatalog(c.schema), evidence: "snapshot" })
+								)
 							)
-						)
-					const sqlOf = (r: Ran): string =>
-						Arr.join(
-							Arr.map(
-								flight(
-									succeeded(
-										lowerConservative(conservativeInput(r.query), {
-											names: standInNames("s", schemaCodes(c.schema)),
-											params: r.query.params,
-											subject: { kind: "query" }
-										})
-									).roots
+						const sqlOf = (r: Ran): string =>
+							Arr.join(
+								Arr.map(
+									flight(
+										succeeded(
+											lowerConservative(conservativeInput(r.query), {
+												names: standInNames("s", schemaCodes(c.schema)),
+												params: r.query.params,
+												subject: { kind: "query" }
+											})
+										).roots
+									),
+									(s) => s.sql.text
 								),
-								(s) => s.sql.text
-							),
-							"\n"
-						)
-					const first = run()
-					for (const again of [run(), run()]) {
-						assert.deepEqual(again.query.dag, first.query.dag)
-						assert.deepEqual(again.certificates, first.certificates)
-						assert.equal(sqlOf(again), sqlOf(first))
-					}
-				})
-			}),
+								"\n"
+							)
+						const first = run()
+						for (const again of [run(), run()]) {
+							assert.deepEqual(again.query.dag, first.query.dag)
+							assert.deepEqual(again.certificates, first.certificates)
+							assert.equal(sqlOf(again), sqlOf(first))
+						}
+					})
+				}),
 		oracle: {
 			kind: "universal",
 			name: "one input rewrites to one DAG, one certificate list and one SQL text"
@@ -244,38 +245,33 @@ export const determinismAFrameThatChangesNothingInADAGAFrameDeliveredDeliversItA
  */
 export const determinismAPassComputedColdFromAFreshCopyOfADAGEqualsThePassComputedWarmFromTheCachedOne =
 	property.explore(queryCaseGen(defaultGenConfig), {
-		needs: {},
+		needs: { chainNeed },
 		budget: { runs: 150, steered: 150 },
 		situations: ["a pass changed the DAG"] satisfies ReadonlyArray<Reached<FrameFeature>>,
-		check: (_, c: Case<FrameFeature>) => (q) =>
-			Effect.gen(function* () {
-				const chain = [
-					semanticSimplification,
-					relationalRewrites,
-					simplifyPass,
-					existencePass,
-					fusePass,
-					relationalRewrites
-				]
-				return yield* Effect.sync(() => {
-					const catalog = genCatalog(q.schema)
-					let warm = caseQuery(q)
-					for (const pass of chain) {
-						const cold = { ...warm, dag: freshCopy(warm.dag) }
-						const warmCtx = passContext({ catalog, evidence: "snapshot" })
-						const coldCtx = passContext({ catalog, evidence: "snapshot" })
-						const hot = succeeded(pass.run(warm, warmCtx))
-						const fresh = succeeded(pass.run(cold, coldCtx))
-						assert.deepEqual(hot.dag, fresh.dag)
-						assert.equal(hot.dag.roots[0].id, fresh.dag.roots[0].id)
-						assert.deepEqual(warmCtx.certificates.all(), coldCtx.certificates.all())
-						if (hot.dag !== warm.dag) {
-							c.note("a pass changed the DAG")
+		check:
+			({ chainNeed }, c: Case<FrameFeature>) =>
+			(q) =>
+				Effect.gen(function* () {
+					const chain = yield* chainNeed
+					return yield* Effect.sync(() => {
+						const catalog = genCatalog(q.schema)
+						let warm = caseQuery(q)
+						for (const pass of chain) {
+							const cold = { ...warm, dag: freshCopy(warm.dag) }
+							const warmCtx = passContext({ catalog, evidence: "snapshot" })
+							const coldCtx = passContext({ catalog, evidence: "snapshot" })
+							const hot = succeeded(pass.run(warm, warmCtx))
+							const fresh = succeeded(pass.run(cold, coldCtx))
+							assert.deepEqual(hot.dag, fresh.dag)
+							assert.equal(hot.dag.roots[0].id, fresh.dag.roots[0].id)
+							assert.deepEqual(warmCtx.certificates.all(), coldCtx.certificates.all())
+							if (hot.dag !== warm.dag) {
+								c.note("a pass changed the DAG")
+							}
+							warm = hot
 						}
-						warm = hot
-					}
-				})
-			}),
+					})
+				}),
 		oracle: {
 			kind: "universal",
 			name: "a pass's result is a function of its input's content: cold from a fresh copy equals warm"

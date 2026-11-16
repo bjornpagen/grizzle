@@ -11,11 +11,12 @@ import {
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option, String as Str } from "effect"
+import type { Need } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { upTo } from "#test/support/up-to.ts"
 
 /** The element at an index the test knows is in range, failing the test where it is not. */
-export const at = <A>(values: ArrayLike<A>, index: number): A => {
+const at = <A>(values: ArrayLike<A>, index: number): A => {
 	const value = values[index]
 	if (value === undefined) {
 		throw new RangeError(`no element at ${index}`)
@@ -24,7 +25,7 @@ export const at = <A>(values: ArrayLike<A>, index: number): A => {
 }
 
 /** An order: -1, 0 or 1. */
-export type Order = -1 | 0 | 1
+type Order = -1 | 0 | 1
 
 export const signOf = (n: number): Order => (n < 0 ? -1 : n > 0 ? 1 : 0)
 
@@ -122,3 +123,22 @@ export type TupleFeature =
 export const kinds = ["nul", "lone high", "lone low", "reversed pair"] as const
 
 export const positions = ["first", "middle", "last"] as const
+
+/** What the search built once before its cases (bytes), now once per worker: every case on it reads them. */
+export const bytesNeed = {
+	key: "test/unit/values/text.fixtures.ts bytesNeed",
+	open: Effect.sync(() => {
+		const encoder = new TextEncoder()
+		const bytes = (a: string, b: string): Order => {
+			const x = encoder.encode(a)
+			const y = encoder.encode(b)
+			for (let i = 0; i < Math.min(x.length, y.length); i++) {
+				if (x[i] !== y[i]) {
+					return at(x, i) < at(y, i) ? -1 : 1
+				}
+			}
+			return signOf(x.length - y.length)
+		}
+		return Effect.succeed(bytes)
+	})
+} as const satisfies Need<unknown>

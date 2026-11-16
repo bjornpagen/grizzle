@@ -46,7 +46,7 @@ import {
 	breakNames,
 	breaksOf,
 	built,
-	consumerProcess,
+	consumerNeed,
 	containers,
 	CycleReads,
 	cyclic,
@@ -458,14 +458,14 @@ export const shapesAcceptExactlyTheDistinctNonemptyNamesTheNonemptyListsAndTheSa
  */
 export const aRecordsKeysKeepProtoAnOrdinaryKeyOfARecordInThisProcessAndWhereObjectPrototypeProtoExists =
 	property.explore((source) => [source.draw(entriesGen), source.draw(decodedIn)] as const, {
-		needs: { checkout: Checkout.dir },
+		needs: { checkout: Checkout.dir, consumerNeed },
 		budget: { runs: 100, steered: 100 },
 		situations: [
 			"an own __proto__ key in this process",
 			"an own __proto__ key in a consumer's process"
 		] satisfies ReadonlyArray<Reached<`an own __proto__ key in ${DecodedIn}`>>,
 		check:
-			({ checkout }, c: Case<`an own __proto__ key in ${DecodedIn}`>) =>
+			({ consumerNeed }, c: Case<`an own __proto__ key in ${DecodedIn}`>) =>
 			([entries, where]) =>
 				Effect.gen(function* () {
 					if (Arr.some(entries, ([key]) => key === "__proto__")) {
@@ -483,8 +483,7 @@ export const aRecordsKeysKeepProtoAnOrdinaryKeyOfARecordInThisProcessAndWhereObj
 							return
 						}
 						case "a consumer's process": {
-							const dir = yield* checkout
-							const consumer = yield* consumerProcess(dir)
+							const consumer = yield* consumerNeed
 							const answered = yield* consumer(entries)
 							assert.equal(
 								answered.kind,
