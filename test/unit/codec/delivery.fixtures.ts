@@ -1,5 +1,6 @@
 /** What the properties of delivery.test.ts read: its spaces, models and helpers. */
 
+import { Buffer } from "node:buffer"
 import { bytesChunkLength } from "@bjornpagen/grizzle-engine/codec/delivery"
 import {
 	array,
@@ -168,11 +169,13 @@ export const sent = (
 				])
 			)
 
-/** Whether two cells hold one value: equal texts, or bytes values of equal bytes. */
+/**
+ * Whether two cells hold one value: equal texts, or bytes values of equal bytes, compared by the platform in one call
+ * (Buffer.compare), not byte by byte through a callback: a bytes value reaches four chunks of the delivery's chunk
+ * length and more.
+ */
 export const sameCell = (a: Cell, b: DrawnCell): boolean =>
-	typeof a === "string" || typeof b === "string"
-		? a === b
-		: a.length === b.length && a.every((byte, at) => byte === b[at])
+	typeof a === "string" || typeof b === "string" ? a === b : Buffer.compare(a, b) === 0
 
 /** The result row the case sent `at`th: its arrival order is a permutation of the rows sent. */
 export const arrivedAt = (
