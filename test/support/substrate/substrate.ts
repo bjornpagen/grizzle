@@ -17,7 +17,6 @@ import {
 	HashSet,
 	Layer,
 	Option,
-	Record as Rec,
 	Redacted,
 	Ref,
 	type Scope,
@@ -543,7 +542,7 @@ export const psqlWriter = (
  * scope closes. A template's build allocates per template (templateAllocations): names and passwords every worker
  * derives from the template alone, and whatever the install still holds when it ends kept as the template's.
  */
-export interface Allocations {
+interface Allocations {
 	/** The schema name of the substrate's allocation number `n`, under `label`. */
 	readonly schema: (label: string, n: number) => string
 	/** The owner login's role of the substrate's allocation number `n` (SubstrateShape.ownerLogin). */
@@ -558,7 +557,7 @@ export interface Allocations {
 }
 
 /** A process's allocations: unique names (names.ts), random passwords, every one dropped when its scope closes. */
-export const processAllocations: Allocations = {
+const processAllocations: Allocations = {
 	schema: uniqueSchemaName,
 	ownerLogin: ownerLoginName,
 	password: randomPassword,
@@ -870,7 +869,7 @@ const nodeSpawner = NodeChildProcessSpawner.layer.pipe(
  * What a template's value is bound to in a case: the case's database and the cluster with the worker's budget, which
  * every form gives (a case's substrate holds both).
  */
-export interface Binding {
+export interface TemplateBinding {
 	readonly cluster: BudgetedCluster
 	readonly database: string
 }
@@ -881,7 +880,7 @@ export interface Binding {
  */
 export interface SubstrateTemplate<T> {
 	readonly database: DatabaseTemplate
-	readonly bound: Effect.Effect<(binding: Binding) => T, NeedFailed, NeedContext>
+	readonly bound: Effect.Effect<(binding: TemplateBinding) => T, NeedFailed, NeedContext>
 	/**
 	 * The tables a case over the worker's own clone (Substrate.seat) writes, by its value: emptied after every case
 	 * (replace.ts clearRows), before the clone is checked against its template.
@@ -893,14 +892,14 @@ export interface SubstrateTemplate<T> {
  * The base template (templates.ts baseTemplate) as a substrate template, whose cases read no value and write no table
  * of its: what a case makes in it, it makes under its own allocations, which its scope drops.
  */
-export const base: SubstrateTemplate<void> = {
+const base: SubstrateTemplate<void> = {
 	database: baseTemplate,
 	bound: Effect.succeed(Function.constVoid),
 	reset: () => noTables
 }
 
 /** A case over a clone of a template: its own substrate over the clone, and the template's value bound to it. */
-export interface SubstrateCase<T> {
+interface SubstrateCase<T> {
 	readonly substrate: SubstrateShape
 	readonly value: T
 }
@@ -913,13 +912,13 @@ export interface SubstrateCase<T> {
  * (templateAllocations); `bind` reads it as a case over a clone sees it, by the case's database and budget; `reset`
  * names the tables a seat's case writes (SubstrateTemplate reset).
  */
-export interface InstallSpec<P, T, E1, E2> {
+interface InstallSpec<P, T, E1, E2> {
 	readonly declaredIn: ImportMeta
 	readonly name: string
 	readonly content: Content
 	readonly plan: (names: TemplateNames) => Effect.Effect<P, E1>
 	readonly install: (plan: P) => Effect.Effect<void, E2, Substrate | Scope.Scope>
-	readonly bind: (plan: P, binding: Binding) => T
+	readonly bind: (plan: P, binding: TemplateBinding) => T
 	readonly reset: (value: T) => ResetGroup
 }
 
@@ -1087,7 +1086,7 @@ const dropped = (): Effect.Effect<void> => Effect.void
  * transaction that is rolled back when the case ends, the database and the budget it lives in, and the template's
  * value. It holds no second session and no allocation: whatever the case makes, it makes inside the transaction.
  */
-export interface RolledBack<T> {
+interface RolledBack<T> {
 	readonly connection: PgConnection
 	readonly cluster: BudgetedCluster
 	readonly database: string
@@ -1165,14 +1164,6 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 			)
 		}
 	}
-	/**
-	 * A case's choice among a closed set of templates, each under `form`: one need per key, to spread into a property's
-	 * needs, of which a case takes only the one it draws (`yield* resources[key]`).
-	 */
-	static readonly oneOf = <K extends string, T, A>(
-		templates: Readonly<Record<K, SubstrateTemplate<T>>>,
-		form: (template: SubstrateTemplate<T>) => Need<A>
-	): Readonly<Record<K, Need<A>>> => Rec.map(templates, form)
 	/** A shared database: build this layer once per file. It reads the initialised cluster once, as it builds. */
 	static readonly layer = Layer.effect(Substrate, makeSubstrate).pipe(
 		Layer.provide(Layer.mergeAll(nodeSpawner, InitializedCluster.layer))

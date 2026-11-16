@@ -66,16 +66,6 @@ export const uniqueSchemaName = (label: string, allocationNumber: number): strin
 }
 
 /**
- * A unique schema name of exactly `bytes` bytes, uniqueSchemaName's allocation under `label`, then `_` and the letter
- * `s` to the length: one segment more, so the name is still its own conversion and its own installed schema.
- */
-export const uniqueSchemaNameOfLength = (
-	label: string,
-	allocationNumber: number,
-	bytes: number
-): string => schemaNameOfLength(uniqueSchemaName(label, allocationNumber), bytes)
-
-/**
  * The schema name of exactly `bytes` bytes under the allocation `allocated`: `_` and the letter `s` to the length, one
  * segment more, so the name is still its own conversion and its own installed schema, under the same allocation.
  */

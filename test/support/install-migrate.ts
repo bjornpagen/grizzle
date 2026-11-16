@@ -82,7 +82,7 @@ import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { Credentials, SubstrateWorld } from "#test/support/substrate/session.ts"
 import {
-	type Binding,
+	type TemplateBinding,
 	installTemplate,
 	Substrate,
 	type SubstrateTemplate
@@ -526,13 +526,13 @@ const loginRoles = (
  * member's owner password derives (templates.ts templatePassword), as the template's build gave it.
  */
 const templateCredentials = (
-	binding: Binding,
+	binding: TemplateBinding,
 	roles: ReadonlyArray<string>
 ): ReadonlyMap<string, Credentials> =>
 	new Map(Arr.map(roles, (role) => [role, templateLogin(binding, role)]))
 
 /** The credentials of `role`, a login of a template's installation (templateCredentials). */
-const templateLogin = (binding: Binding, role: string): Credentials => ({
+const templateLogin = (binding: TemplateBinding, role: string): Credentials => ({
 	role,
 	password: Redacted.make(templatePassword(binding.cluster, role))
 })
@@ -575,7 +575,7 @@ interface InstalledParts {
  * (installMigrated), a history of versions (installMigratedThrough, test/support/installed.ts migrated), generate's
  * (installGeneratedThrough), or a template's, bound to a case's clone of it (migratedTemplate).
  */
-export const installedAt = (input: InstalledParts, binding: Binding): Installed => {
+const installedAt = (input: InstalledParts, binding: TemplateBinding): Installed => {
 	const { plan, credentials } = input
 	const credentialsOf = (role: string): Credentials =>
 		defined(credentials.get(role), `the login role ${role} of ${plan.declared}`)
