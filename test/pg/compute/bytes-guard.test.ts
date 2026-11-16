@@ -212,7 +212,19 @@ layer(Substrate.layer)("a guard of a text's bytes on PostgreSQL 19", (it) => {
 								],
 								{ cases: 60, sense: notesOnly }
 							),
-							kept: [],
+							kept: [
+								{
+									note: "FULLSUITE3's red at TEST_SEED=2458139245: a text of str.bytes(40) cast into its own type under a guard of its bytes within [0, 0], once refused as MalformedDescription at physical names, since the branch's coercion into the conditional's type, the guard's language, named a text domain no field declares",
+									sketch: {
+										source: { kind: "bytes", bytes: 40 },
+										guard: { kind: "within", low: 0, high: 0 },
+										target: 40,
+										texts: [""]
+									},
+									draws: "",
+									reaches: ["admitted by the text's own bound", "a text the guard holds, stored"]
+								}
+							],
 							runs: 60,
 							shrink: completeShrink,
 							steerEvery: 16,

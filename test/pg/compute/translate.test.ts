@@ -10,9 +10,12 @@
  * 2. An installed relation whose generated fields translate a title into xs:normalizedString's value space, fold a
  *    tag's ASCII case and collapse a title's white space, each cast into its declared text type by the inclusion of the
  *    image, and a second relation whose generated field casts a numeral to a bigint: the installer's own DDL, each
- *    drawn row inserted. Every row is admitted, and its generated fields hold the host's values. No key holds a
- *    generated field (README, "How a field is written": no fact carries its value, so such a schema is refused when
- *    it compiles), so neither relation keys one.
+ *    drawn row inserted. Three more fields stand a language only compilation proves beside a literal in a conditional:
+ *    the translation's and the collapse's images under Compute.cond over a match of the tag, and a match guard's
+ *    branch, the tag itself, under Compute.when. The conditional is of that language, which no field declares, so its
+ *    branches meet it with no domain of it, and each is stored into a declared type. Every row is admitted, and its
+ *    generated fields hold the host's values. No key holds a generated field (README, "How a field is written": no
+ *    fact carries its value, so such a schema is refused when it compiles), so neither relation keys one.
  *
  * Oracle: the reference evaluator character by character, and XML Schema's collapse (core/text.ts collapsed).
  *
@@ -332,6 +335,8 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 		| "a title collapsed"
 		| "a tag folded"
 		| "a numeral's leading zeros dropped"
+		| "a conditional's image stored, the tag lower case"
+		| "a conditional's literal stored, the tag not lower case"
 
 	/** Short titles over tab, LF, CR, space and letters; tags of a few letters either case; numerals with leading zeros. */
 	const title = stringsOver(element([0x09, 0x0a, 0x0d, 0x20, 0x61, 0xe9]), 6)
@@ -354,6 +359,8 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 	const Tag = str.regex("^[A-Za-z]{1,8}$", "u")
 	const FoldedTag = str.regex("^[a-z]{1,8}$", "u")
 	const Numeral = str.regex("^[0-9]{1,6}$", "u")
+	/** Lower-case letters alone: the match the conditional fields branch on. */
+	const LowerCase = Compute.pattern("^[a-z]+$")
 
 	const Named = relation.generated(
 		"Named",
@@ -365,7 +372,23 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 				Compute.cast(Compute.translate(r.title, "\t\n\r", "   "), Normalized)
 			),
 			folded: generated(FoldedTag, Compute.cast(Compute.lowerAscii(r.tag), FoldedTag)),
-			collapsed: generated(Collapsed, Compute.cast(Compute.collapse(r.title), Collapsed))
+			collapsed: generated(Collapsed, Compute.cast(Compute.collapse(r.title), Collapsed)),
+			normalizedIf: generated(
+				Title,
+				Compute.cond(
+					Compute.matches(r.tag, LowerCase),
+					Compute.translate(r.title, "\t\n\r", "   "),
+					""
+				)
+			),
+			collapsedIf: generated(
+				Title,
+				Compute.cond(Compute.matches(r.tag, LowerCase), Compute.collapse(r.title), "")
+			),
+			tagIf: generated(
+				Tag,
+				Compute.when(Compute.matches(r.tag, LowerCase), (tag) => tag, "x")
+			)
 		})
 	)
 	const Counted = relation.generated(
@@ -452,11 +475,11 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 				}
 			}
 			const stored = yield* pinned.queryValues(
-				`SELECT ${names.column(Named, "title")}, ${names.column(Named, "normalized")}, ${names.column(Named, "tag")}, ${names.column(Named, "folded")}, ${names.column(Named, "collapsed")} FROM ${names.table(Named)} ORDER BY ${names.column(Named, "id")}`,
+				`SELECT ${names.column(Named, "title")}, ${names.column(Named, "normalized")}, ${names.column(Named, "tag")}, ${names.column(Named, "folded")}, ${names.column(Named, "collapsed")}, ${names.column(Named, "normalizedIf")}, ${names.column(Named, "collapsedIf")}, ${names.column(Named, "tagIf")} FROM ${names.table(Named)} ORDER BY ${names.column(Named, "id")}`,
 				[]
 			)
 			for (const row of stored) {
-				const [t, n, g, f, cl] = Arr.map(row, String)
+				const [t, n, g, f, cl, ni, ci, ti] = Arr.map(row, String)
 				const storedTitle = defined(t)
 				const storedTag = defined(g)
 				if (n !== normalizedOf(storedTitle)) {
@@ -477,6 +500,20 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 				if (cl !== n) {
 					reached.add("a title collapsed")
 				}
+				const lower = asciiLower(storedTag) === storedTag
+				const expected = lower
+					? [normalizedOf(storedTitle), collapsed(storedTitle), storedTag]
+					: ["", "", "x"]
+				if (ni !== expected[0] || ci !== expected[1] || ti !== expected[2]) {
+					problems.push(
+						`the conditionals ${Formatter.format([ni, ci, ti])} of ${Formatter.format([storedTitle, storedTag])}, not ${Formatter.format(expected)}`
+					)
+				}
+				reached.add(
+					lower
+						? "a conditional's image stored, the tag lower case"
+						: "a conditional's literal stored, the tag not lower case"
+				)
 			}
 			return { problems, reached }
 		})
@@ -502,7 +539,9 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 									"a title normalized",
 									"a title collapsed",
 									"a tag folded",
-									"a numeral's leading zeros dropped"
+									"a numeral's leading zeros dropped",
+									"a conditional's image stored, the tag lower case",
+									"a conditional's literal stored, the tag not lower case"
 								],
 								{ cases: 30, sense: notesOnly }
 							),

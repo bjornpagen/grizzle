@@ -85,6 +85,7 @@ import {
 	type TextInfo,
 	baseOf,
 	contractOf,
+	enteredType,
 	exactDigitsOf,
 	isRefined,
 	languageOctets,
@@ -1903,26 +1904,27 @@ class Lowering<R extends Refs> {
 
 	/**
 	 * A cast node from `arg`'s actual type to `to`, converting as `how` states: a registered cast defined everywhere, a
-	 * partial one with the proof of its preconditions, or the binary coercion. In a check a conversion into a float, an
-	 * IEEE 754 rounding, is refused with float arithmetic.
+	 * partial one with the proof of its preconditions, or the binary coercion. The coercion drops a refinement or widens
+	 * a bound and never adds one, so its node is of `to`'s entered type (ir/scalar.ts enteredType), the text of every
+	 * value where `to` is a pattern's, and the value stands at `to`, which a language only compilation proves (a guard's,
+	 * a translation's image, a concatenation's bound) may be: no coercion names a text domain, and only a domain cast,
+	 * into a type its caller declared, does. In a check a conversion into a float, an IEEE 754 rounding, is refused with
+	 * float arithmetic.
 	 */
 	castNode(arg: Lowered, to: ScalarType, how: CastHow, at: SourceLoc): Lowered {
 		const conversion = conversionOf(arg.actual, to, how)
 		const bounds = arg.bounds === undefined ? undefined : castBounds(arg.bounds, conversion, to)
 		const facts = keptFacts(arg, conversion, to)
 		if (how.kind === "coercion") {
-			return this.emitAt(
-				{
-					kind: "cast",
-					cast: binaryCoercion,
-					args: [arg.expr],
-					type: to,
-					nonNull: "strict",
-					volatility: "immutable"
-				},
-				bounds,
-				facts
-			)
+			const entry = this.env.emit({
+				kind: "cast",
+				cast: binaryCoercion,
+				args: [arg.expr],
+				type: enteredType(to),
+				nonNull: "strict",
+				volatility: "immutable"
+			})
+			return this.settle(entry, to, entry.type, { bounds, facts }, [])
 		}
 		const { op } = how
 		if (!op.partial) {
