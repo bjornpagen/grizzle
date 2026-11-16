@@ -17,7 +17,13 @@ import {
 	projected
 } from "#test/unit/adapter/explain.fixtures.ts"
 
-/** EXPLAIN (FORMAT JSON, VERBOSE) decoding keeps each node's type, estimates and children, names what it reads by the served file, and refuses what the file does not name. */
+/**
+ * EXPLAIN (FORMAT JSON, VERBOSE) decoding keeps each node's type, estimates and children, names what it reads by the
+ * served file, and refuses what the file does not name.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/explain-plan: 300 independent cases and 112 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const eXPLAINFORMATJSONVERBOSEDecodingKeepsEachNodesTypeEstimatesAndChildrenNamesWhatItReadsByTheServedFileAndRefusesWhatTheFileDoesNotName =
 	property.explore(caseGen, {
 		needs: {},
@@ -87,6 +93,7 @@ export const eXPLAINFORMATJSONVERBOSEDecodingKeepsEachNodesTypeEstimatesAndChild
 			kind: "specification",
 			name: "the plan tree's projection onto the Plan's documented fields, its targets named by the drawn installed tables"
 		},
+		budget: { runs: 300, steered: 112 },
 		kept: [],
 		kills: [
 			{

@@ -37,7 +37,13 @@ import {
 	read
 } from "#test/unit/live/leading.fixtures.ts"
 
-/** The live leadership ends every waiting read with a typed error at any end of its candidacy, a defect's and an interruption's too, and starts a new candidacy at the next open. */
+/**
+ * The live leadership ends every waiting read with a typed error at any end of its candidacy, a defect's and an
+ * interruption's too, and starts a new candidacy at the next open.
+ *
+ * Budget: its suite's count before the conversion (unit/live/leading: 64 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theLiveLeadershipEndsEveryWaitingReadWithATypedErrorAtAnyEndOfItsCandidacyADefectsAndAnInterruptionsTooAndStartsANewCandidacyAtTheNextOpen =
 	property.explore(array(element<End>(["failure", "defect", "interruption"]), { min: 1, max: 4 }), {
 		needs: {},
@@ -129,6 +135,7 @@ export const theLiveLeadershipEndsEveryWaitingReadWithATypedErrorAtAnyEndOfItsCa
 				})
 			),
 		oracle: { kind: "specification", name: "the drawn ends of the candidacies" },
+		budget: { runs: 64, steered: 0 },
 		kept: [],
 		kills: [
 			{

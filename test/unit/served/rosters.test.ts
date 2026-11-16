@@ -25,7 +25,12 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { type Feature, rostersGen, roundTrip } from "#test/unit/served/rosters.fixtures.ts"
 
-/** A served file's rosters read back as the codes they were written from, a code after any hole in its place. */
+/**
+ * A served file's rosters read back as the codes they were written from, a code after any hole in its place.
+ *
+ * Budget: its suite's count before the conversion (unit/served/rosters: 60 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const aServedFilesRostersReadBackAsTheCodesTheyWereWrittenFromACodeAfterAnyHoleInItsPlace =
 	property.explore(rostersGen, {
 		needs: {},
@@ -43,6 +48,7 @@ export const aServedFilesRostersReadBackAsTheCodesTheyWereWrittenFromACodeAfterA
 		check: (_, notes: Case<Feature>) => (rosters) =>
 			Effect.sync(() => roundTrip(rosters, notes.note)),
 		oracle: { kind: "specification", name: "the codes written, and their codebook" },
+		budget: { runs: 60, steered: 0 },
 		kept: [],
 		kills: [
 			{

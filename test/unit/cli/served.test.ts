@@ -51,7 +51,13 @@ import {
 	situationsOf
 } from "#test/unit/cli/served.fixtures.ts"
 
-/** Served files: check refuses a served file that is not its login's compile, one missing and one of no login, each naming the login and an edit its first program, and generate writes the served directory back. */
+/**
+ * Served files: check refuses a served file that is not its login's compile, one missing and one of no login, each
+ * naming the login and an edit its first program, and generate writes the served directory back.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/served: 8 independent cases and 32 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const servedFilesCheckRefusesAServedFileThatIsNotItsLoginsCompileOneMissingAndOneOfNoLoginEachNamingTheLoginAndAnEditItsFirstProgramAndGenerateWritesTheServedDirectoryBack =
 	property.explore(plantSpace, {
 		needs: {},
@@ -184,6 +190,7 @@ export const servedFilesCheckRefusesAServedFileThatIsNotItsLoginsCompileOneMissi
 			kind: "specification",
 			name: "the first draft's own served file, which check passes and generate writes back"
 		},
+		budget: { runs: 8, steered: 32 },
 		kept: [],
 		kills: [
 			{
@@ -192,6 +199,13 @@ export const servedFilesCheckRefusesAServedFileThatIsNotItsLoginsCompileOneMissi
 				replacement:
 					"\t\tmanifest: fileText(\n\t\t\tmigrationForm(\n\t\t\t\t{\n\t\t\t\t\t...snapshot,\n\t\t\t\t\tmanifest: {\n\t\t\t\t\t\t...snapshot.manifest,\n\t\t\t\t\t\tobjects: snapshot.manifest.objects.filter((o) => !derived.params.domains.some((d) => o.ident.includes(d)))\n\t\t\t\t\t}\n\t\t\t\t},\n\t\t\t\tasLines,\n\t\t\t\tlaidOutRelationForm\n\t\t\t)\n\t\t)",
 				why: "The snapshot is recorded without the parameters' pattern domains its migration installs, so every generate drafts them again."
+			},
+			{
+				file: "packages/engine/src/served/json.ts",
+				original:
+					'const isRevived = (json: Json): boolean => {\n\tif (typeof json === "string") {\n\t\treturn json.startsWith("~")\n\t}\n\treturn (\n\t\ttypeof json === "object" &&\n\t\t!isList(json) &&\n\t\t(Object.hasOwn(json, revivedKey) || Object.hasOwn(json, mapKey) || Object.hasOwn(json, setKey))\n\t)\n}',
+				replacement: "const isRevived = (json: Json): boolean => { return false }",
+				why: 'Operator mutant (boolean-return) at packages/engine/src/served/json.ts:246 in isRevived: `{\n\tif (typeof json === "string") {\n\t\treturn json.startsWith("~")\n\t}\n\treturn (\n\t\t` becomes `{ return false }`; the property fails (lane CATCH, grizzle 0baff5d6).'
 			}
 		]
 	})

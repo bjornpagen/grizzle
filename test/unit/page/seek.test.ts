@@ -77,7 +77,14 @@ export const theSeekPredicateAgreesWithTheDeclaredLexicographicOrderOnEveryTuple
 			oracle: { kind: "specification", name: "the declared lexicographic order" },
 			box: "every direction set of zero to three keys, each seek, every tuple and boundary over three values",
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/sql/build.ts",
+					original: '\targs.length === 1 ? args[0] : { kind: "or", args }',
+					replacement: '\targs.length === 1 ? { kind: "or", args } : args[0]',
+					why: 'Operator mutant (arm-swap) at packages/engine/src/sql/build.ts:285 in or: `args.length === 1 ? args[0] : { kind: "or", args }` becomes `args.length === 1 ? { kind: "or", args } : args[0]`; the property fails (lane CATCH, grizzle 0baff5d6).'
+				}
+			]
 		}
 	)
 

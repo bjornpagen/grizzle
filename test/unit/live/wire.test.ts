@@ -44,7 +44,13 @@ import {
 	oneForm
 } from "#test/unit/live/wire.fixtures.ts"
 
-/** The wire's one table encodes every value of a type to JSON its schema admits, which the parse and the decode read back. */
+/**
+ * The wire's one table encodes every value of a type to JSON its schema admits, which the parse and the decode read
+ * back.
+ *
+ * Budget: its suite's count before the conversion (unit/live/wire-codec: 1500 independent cases and 400 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theWiresOneTableEncodesEveryValueOfATypeToJSONItsSchemaAdmitsWhichTheParseAndTheDecodeReadBack =
 	property.explore(caseSpace, {
 		needs: {},
@@ -88,6 +94,7 @@ export const theWiresOneTableEncodesEveryValueOfATypeToJSONItsSchemaAdmitsWhichT
 			kind: "specification",
 			name: "the carrier's JSON Schema, judged by the pinned validator, and the value itself by its one form"
 		},
+		budget: { runs: 1500, steered: 400 },
 		kept: [
 			{
 				token: ReplayToken(
@@ -109,9 +116,9 @@ export const theWiresOneTableEncodesEveryValueOfATypeToJSONItsSchemaAdmitsWhichT
 		kills: [
 			{
 				file: "packages/engine/src/live/wire.ts",
-				original: "\t\tschema: () => spelled(integers(int8Min.value, int8Max.value)),",
+				original: "\t\tschema: () => spelled(integers(int8Min, int8Max)),",
 				replacement:
-					'\t\tschema: () => ({ type: "integer", minimum: Number(int8Min.value), maximum: Number(int8Max.value) }),',
+					'\t\tschema: () => ({ type: "integer", minimum: Number(int8Min), maximum: Number(int8Max) }),',
 				why: "int8's schema is a JSON integer, its values still strings."
 			},
 			{
@@ -123,7 +130,13 @@ export const theWiresOneTableEncodesEveryValueOfATypeToJSONItsSchemaAdmitsWhichT
 		]
 	})
 
-/** The wire's one table parses nothing its schema refuses, and refuses what its schema admits only as one of the schema's gaps. */
+/**
+ * The wire's one table parses nothing its schema refuses, and refuses what its schema admits only as one of the
+ * schema's gaps.
+ *
+ * Budget: its suite's count before the conversion (unit/live/wire-exact: 3000 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theWiresOneTableParsesNothingItsSchemaRefusesAndRefusesWhatItsSchemaAdmitsOnlyAsOneOfTheSchemasGaps =
 	property.explore(nearCaseGen, {
 		needs: {},
@@ -161,6 +174,7 @@ export const theWiresOneTableParsesNothingItsSchemaRefusesAndRefusesWhatItsSchem
 			kind: "specification",
 			name: "the carrier's JSON Schema and the gaps it lists, the language the wire's parse takes"
 		},
+		budget: { runs: 3000, steered: 0 },
 		kept: [
 			{
 				token: ReplayToken(
@@ -171,10 +185,23 @@ export const theWiresOneTableParsesNothingItsSchemaRefusesAndRefusesWhatItsSchem
 				since: "2026-11-11"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/date.ts",
+				original: "\tif (days === undefined || day < 1 || day > days) {",
+				replacement: "\tif (days === undefined || day < 1 || day <= days) {",
+				why: "Operator mutant (comparison) at packages/engine/src/ir/date.ts:102 in toCalendarDate: `>` becomes `<=`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** The wire's one table parses to exactly what the host door parses: every value it reads the host door reads unchanged, and every value of a type reads back from its JSON. */
+/**
+ * The wire's one table parses to exactly what the host door parses: every value it reads the host door reads
+ * unchanged, and every value of a type reads back from its JSON.
+ *
+ * Budget: its suite's count before the conversion (unit/live/wire-host-door: 2000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theWiresOneTableParsesToExactlyWhatTheHostDoorParsesEveryValueItReadsTheHostDoorReadsUnchangedAndEveryValueOfATypeReadsBackFromItsJSON =
 	property.explore(nearCaseGen, {
 		needs: {},
@@ -216,6 +243,7 @@ export const theWiresOneTableParsesToExactlyWhatTheHostDoorParsesEveryValueItRea
 			kind: "second-implementation",
 			name: "scalar/values/identity.ts parseValue, the one door for every caller's host value"
 		},
+		budget: { runs: 2000, steered: 0 },
 		kept: [
 			{
 				token: ReplayToken(
@@ -226,5 +254,14 @@ export const theWiresOneTableParsesToExactlyWhatTheHostDoorParsesEveryValueItRea
 				since: "2026-11-11"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/live/wire.ts",
+				original:
+					"\tconst units = parts.coefficient * 10n ** BigInt(moneyFractionDigits - parts.minScale)",
+				replacement:
+					"\tconst units = parts.coefficient * 10n ** BigInt(parts.minScale - moneyFractionDigits)",
+				why: "Operator mutant (operand-swap) at packages/engine/src/live/wire.ts:450 in minorUnitsOf: `moneyFractionDigits.value - parts.minScale` becomes `parts.minScale - moneyFractionDigits.value`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

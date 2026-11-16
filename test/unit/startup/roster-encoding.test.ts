@@ -25,7 +25,12 @@ import {
 	featuresOf
 } from "#test/unit/startup/roster-encoding.fixtures.ts"
 
-/** A predicate's canonical encoding holds the same characters whatever the size of the rosters it reads. */
+/**
+ * A predicate's canonical encoding holds the same characters whatever the size of the rosters it reads.
+ *
+ * Budget: its suite's count before the conversion (unit/startup/roster-encoding: 40 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aPredicatesCanonicalEncodingHoldsTheSameCharactersWhateverTheSizeOfTheRostersItReads =
 	property.explore(caseGen, {
 		needs: {},
@@ -54,6 +59,7 @@ export const aPredicatesCanonicalEncodingHoldsTheSameCharactersWhateverTheSizeOf
 			kind: "universal",
 			name: "a guard's canonical encoding is the same at two sizes of the roster it reads"
 		},
+		budget: { runs: 40, steered: 0 },
 		kept: [],
 		kills: [
 			{

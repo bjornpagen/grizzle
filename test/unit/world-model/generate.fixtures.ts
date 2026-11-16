@@ -1,18 +1,7 @@
 /** What the properties of generate.test.ts read: its spaces, models and helpers. */
 
 import { word } from "@bjornpagen/testing/dictionary"
-import {
-	type Aimed,
-	aimed,
-	array,
-	boolean,
-	constant,
-	element,
-	type Gen,
-	int,
-	map,
-	oneOf
-} from "@bjornpagen/testing/gen"
+import { array, boolean, element, finite, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { floorSeed } from "@bjornpagen/testing/random"
 import { sample } from "@bjornpagen/testing/source"
 import { Array as Arr, Option, Order, Record } from "effect"
@@ -566,17 +555,15 @@ export type InstallFeature = "live" | InstallKind | "two logins" | "query"
 /** Each witness state, with the generator of each invalid kind it offers. */
 export const offering = Arr.map(witnesses, (state) => ({ state, invalidGen: invalidGens(state) }))
 
+/** Every invalid kind of the vocabulary, in its order: the box the exhaustion runs every case of. */
+export const invalidKindBox = finite(word(invalidKindWords))
+
 /**
- * An invalid kind of the vocabulary; and where a witness's turn aims at a kind no witness reached yet, that kind: every
- * kind is reached by construction, as the vocabulary's exhaustion reached it.
+ * Six draws of a kind's generator from the stream of its label: the draws a case of the exhaustion judges, which a
+ * case's own draws would enumerate too. The label fixes them: the runner hands a check no run seed to rotate them by.
  */
-export const invalidKindSpace: Aimed<InvalidKind, Feature> = aimed(
-	word(invalidKindWords),
-	Arr.map(invalidKindWords, (kind): readonly [Feature, Gen<InvalidKind>] => [
-		`invalid:${kind}`,
-		constant(kind)
-	])
-)
+export const drawsOf = <A>(kind: InvalidKind, generator: Gen<A>): ReadonlyArray<A> =>
+	sample(generator, floorSeed(`unit/world-model/invalid-kinds ${kind}`), 6)
 
 /** A model state, swarm weights, and 32 actions drawn in the state under them. */
 export const actionsGen: Gen<{

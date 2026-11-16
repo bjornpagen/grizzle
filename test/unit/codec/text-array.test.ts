@@ -26,7 +26,12 @@ import {
 	twoByteRunThenAnother
 } from "#test/unit/codec/text-array.fixtures.ts"
 
-/** A text column's binary array holds each text as its UTF-8 bytes, which a strict decoder reads back as the text. */
+/**
+ * A text column's binary array holds each text as its UTF-8 bytes, which a strict decoder reads back as the text.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/text-array: 300 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const aTextColumnsBinaryArrayHoldsEachTextAsItsUTF8BytesWhichAStrictDecoderReadsBackAsTheText =
 	property.explore(
 		aimed(textsSpace, [
@@ -88,6 +93,7 @@ export const aTextColumnsBinaryArrayHoldsEachTextAsItsUTF8BytesWhichAStrictDecod
 				kind: "second-implementation",
 				name: "the array binary format read back, each element decoded as strict UTF-8"
 			},
+			budget: { runs: 300, steered: 0 },
 			kept: [
 				{
 					token: ReplayToken(

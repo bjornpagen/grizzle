@@ -41,7 +41,15 @@ import {
 	seed
 } from "#test/unit/cli/check.fixtures.ts"
 
-/** Grizzle check reports every planted fault at once, each at its entry, exactly as the chain walk implies, and exits 1 exactly when it finds one. */
+/**
+ * Grizzle check reports every planted fault at once, each at its entry, exactly as the chain walk implies, and exits 1
+ * exactly when it finds one.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/check-at-once: 40 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (a later folder off the
+ * chain the walk never reaches; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap
+ * of 200, which it stops short of once every situation is reached.
+ */
 export const grizzleCheckReportsEveryPlantedFaultAtOnceEachAtItsEntryExactlyAsTheChainWalkImpliesAndExits1ExactlyWhenItFindsOne =
 	property.explore(plantedGen, {
 		needs: {},
@@ -115,6 +123,7 @@ export const grizzleCheckReportsEveryPlantedFaultAtOnceEachAtItsEntryExactlyAsTh
 			kind: "specification",
 			name: "each planted fault's own finding at its own entry, as the documented chain walk reaches it"
 		},
+		budget: { runs: 40, steered: 200 },
 		kept: [],
 		kills: [
 			{

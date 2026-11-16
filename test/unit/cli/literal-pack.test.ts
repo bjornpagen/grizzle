@@ -52,7 +52,13 @@ import {
 	schemaOf
 } from "#test/unit/cli/literal-pack.fixtures.ts"
 
-/** Grizzle check over a closed relation's hex literals passes a drafted literal, and refuses any changed digit at its file and statement, naming what it changes. */
+/**
+ * Grizzle check over a closed relation's hex literals passes a drafted literal, and refuses any changed digit at its
+ * file and statement, naming what it changes.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/literal-pack: 2 independent cases and 12 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const grizzleCheckOverAClosedRelationsHexLiteralsPassesADraftedLiteralAndRefusesAnyChangedDigitAtItsFileAndStatementNamingWhatItChanges =
 	property.explore(grids, {
 		needs: {},
@@ -169,6 +175,7 @@ export const grizzleCheckOverAClosedRelationsHexLiteralsPassesADraftedLiteralAnd
 			kind: "second-implementation",
 			name: "the grid's cells row-major, read off the oracle's bits of each literal"
 		},
+		budget: { runs: 2, steered: 12 },
 		kept: [],
 		kills: [
 			{

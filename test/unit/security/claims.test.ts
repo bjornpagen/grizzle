@@ -41,7 +41,13 @@ import {
 	situations
 } from "#test/unit/security/claims.fixtures.ts"
 
-/** The host claims decoder decodes a verify's object to exactly the own-property facts the model reads, and refuses exactly when it does. */
+/**
+ * The host claims decoder decodes a verify's object to exactly the own-property facts the model reads, and refuses
+ * exactly when it does.
+ *
+ * Budget: its suite's count before the conversion (unit/security/claims: 2000 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theHostClaimsDecoderDecodesAVerifysObjectToExactlyTheOwnPropertyFactsTheModelReadsAndRefusesExactlyWhenItDoes =
 	property.explore((source) => ({ mode: source.draw(modeGen), raw: source.draw(drawGen) }), {
 		needs: {},
@@ -96,6 +102,7 @@ export const theHostClaimsDecoderDecodesAVerifysObjectToExactlyTheOwnPropertyFac
 			kind: "second-implementation",
 			name: "the worlds model's host decoder of a verified payload (model/session/claims.ts payloadFacts)"
 		},
+		budget: { runs: 2000, steered: 0 },
 		kept: [],
 		kills: [
 			{

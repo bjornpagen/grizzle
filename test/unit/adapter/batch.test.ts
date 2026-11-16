@@ -55,7 +55,12 @@ export const aFlightKeepsItsContractAtEveryInterruptionPointOfEveryFlightOfOneSt
 		]
 	})
 
-/** A flight keeps its contract at every interruption point of drawn flights. */
+/**
+ * A flight keeps its contract at every interruption point of drawn flights.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/flight: 500 independent cases and 224 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const aFlightKeepsItsContractAtEveryInterruptionPointOfDrawnFlights = property.explore(
 	drawnFlights,
 	{
@@ -69,6 +74,7 @@ export const aFlightKeepsItsContractAtEveryInterruptionPointOfDrawnFlights = pro
 			kind: "second-implementation",
 			name: "the flight model (test/support/flight/model.ts) over the answers made and given"
 		},
+		budget: { runs: 500, steered: 224 },
 		kept: [],
 		kills: [
 			{
@@ -88,7 +94,12 @@ export const aFlightKeepsItsContractAtEveryInterruptionPointOfDrawnFlights = pro
 	}
 )
 
-/** Joined flights send every part's statements in part order and hand each part exactly its own outcomes. */
+/**
+ * Joined flights send every part's statements in part order and hand each part exactly its own outcomes.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/batch-2: 200 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const joinedFlightsSendEveryPartsStatementsInPartOrderAndHandEachPartExactlyItsOwnOutcomes =
 	property.explore(array(int(0, 3), { min: 0, max: 5 }), {
 		needs: {},
@@ -124,6 +135,7 @@ export const joinedFlightsSendEveryPartsStatementsInPartOrderAndHandEachPartExac
 			kind: "specification",
 			name: "each part's statements in part order, and each part's own outcomes back"
 		},
+		budget: { runs: 200, steered: 0 },
 		kept: [],
 		kills: [
 			{

@@ -35,7 +35,15 @@ import {
 	subjectOf
 } from "#test/unit/kernel/naming.fixtures.ts"
 
-/** Production names from src agree with src's records at every named native, key, alternatives expansion, checked contract and text domain, each named by the door's rule. */
+/**
+ * Production names from src agree with src's records at every named native, key, alternatives expansion, checked
+ * contract and text domain, each named by the door's rule.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/naming: 40 independent cases and 32 steered, Vitest at
+ * grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (a readable row check;
+ * toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200, which it stops short
+ * of once every situation is reached.
+ */
 export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlternativesExpansionCheckedContractAndTextDomainEachNamedByTheDoorsRule =
 	property.explore(namingCaseGen, {
 		needs: {},
@@ -257,6 +265,7 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 			kind: "specification",
 			name: "src's law model and installation records, and the naming door's rule restated: readable a row check's conversion, hashed __stem_digest of its identity"
 		},
+		budget: { runs: 40, steered: 200 },
 		kept: [
 			{
 				token: ReplayToken(
@@ -302,5 +311,13 @@ export const productionNamesFromSrcNameARowChecksLawByAStatementRebuiltInItsWrit
 		},
 		box: "every predicate over the two leaves of at most two levels of connectives, each of one or two operands",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/laws/model/model.ts",
+				original:
+					'\t\t\t\t\tdesc.kind === "field" ? r.fields.find((f) => f.name === desc.field) : undefined',
+				replacement: '\t\t\t\t\tdesc.kind === "field" ? r.fields.find((f) => true) : undefined',
+				why: "Operator mutant (boolean-return) at packages/engine/src/laws/model/model.ts:1070 in <module>: `f.name === desc.field` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

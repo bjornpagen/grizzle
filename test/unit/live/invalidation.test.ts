@@ -31,7 +31,13 @@ import {
 	stepsSpace
 } from "#test/unit/live/invalidation.fixtures.ts"
 
-/** A live source's invalidation ends exactly the sources standing on a slot made before it, whenever it is heard, and no source of a slot made since. */
+/**
+ * A live source's invalidation ends exactly the sources standing on a slot made before it, whenever it is heard, and
+ * no source of a slot made since.
+ *
+ * Budget: its suite's count before the conversion (unit/live/invalidation: 400 independent cases and 96 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aLiveSourcesInvalidationEndsExactlyTheSourcesStandingOnASlotMadeBeforeItWheneverItIsHeardAndNoSourceOfASlotMadeSince =
 	property.explore(stepsSpace, {
 		needs: {},
@@ -161,6 +167,7 @@ export const aLiveSourcesInvalidationEndsExactlyTheSourcesStandingOnASlotMadeBef
 			kind: "specification",
 			name: "the model's record of which slot was made when"
 		},
+		budget: { runs: 400, steered: 96 },
 		kept: [],
 		kills: [
 			{

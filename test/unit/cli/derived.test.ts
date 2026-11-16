@@ -126,6 +126,12 @@ export const derivedRuntimeFactsCheckRefusesStaleDerivedFactsAndGenerateWritesSn
 				replacement:
 					"\trecorded === undefined || canonicalEquals(recorded, derivedForm(computed), everyProperty)",
 				why: "A snapshot.json that records no derived member holds the compile's facts."
+			},
+			{
+				file: "packages/engine/src/core/canonical.ts",
+				original: '\t\tif (!value.startsWith("~")) {\n\t\t\treturn value\n\t\t}',
+				replacement: "\t\t{}",
+				why: 'Operator mutant (guard) at packages/engine/src/core/canonical.ts:1427 in <module>: `if (!value.startsWith("~")) {\n\t\t\treturn value\n\t\t}` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6).'
 			}
 		]
 	})

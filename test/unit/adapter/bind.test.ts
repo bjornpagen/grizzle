@@ -5,7 +5,13 @@ import { bindLength, bindOverrun } from "#adapter/wire/batch.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { type BindFeature, caseGen, pgBind } from "#test/unit/adapter/bind.fixtures.ts"
 
-/** A statement's Bind message is as long as pg writes it, and a flight is refused before it is sent exactly at its first message past the limit. */
+/**
+ * A statement's Bind message is as long as pg writes it, and a flight is refused before it is sent exactly at its
+ * first message past the limit.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/bind-length: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aStatementsBindMessageIsAsLongAsPgWritesItAndAFlightIsRefusedBeforeItIsSentExactlyAtItsFirstMessagePastTheLimit =
 	property.explore(caseGen, {
 		needs: {},
@@ -53,6 +59,7 @@ export const aStatementsBindMessageIsAsLongAsPgWritesItAndAFlightIsRefusedBefore
 			kind: "second-implementation",
 			name: "pg's own Connection writing each Bind message, its length word the length"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [],
 		kills: [
 			{

@@ -45,7 +45,13 @@ import {
 	wholeIdents
 } from "#test/unit/workload/install.fixtures.ts"
 
-/** The worked example's workload in the installation holds exactly the objects a law stands on or one of the workload's own programs asks for, byte for byte the same. */
+/**
+ * The worked example's workload in the installation holds exactly the objects a law stands on or one of the workload's
+ * own programs asks for, byte for byte the same.
+ *
+ * Budget: its suite's count before the conversion (unit/workload/install-sub: 20 independent cases and 16 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theWorkedExamplesWorkloadInTheInstallationHoldsExactlyTheObjectsALawStandsOnOrOneOfTheWorkloadsOwnProgramsAsksForByteForByteTheSame =
 	property.explore(subWorkloadGen, {
 		needs: {},
@@ -136,6 +142,7 @@ export const theWorkedExamplesWorkloadInTheInstallationHoldsExactlyTheObjectsALa
 			kind: "second-implementation",
 			name: "the whole workload's installation, the laws' alone and each program's alone: a sub-workload's objects are exactly those"
 		},
+		budget: { runs: 20, steered: 16 },
 		kept: [
 			{
 				token: ReplayToken(
@@ -155,7 +162,13 @@ export const theWorkedExamplesWorkloadInTheInstallationHoldsExactlyTheObjectsALa
 		]
 	})
 
-/** A workload that cannot install is refused with its reason: another schema's, a path off its schema, an unbounded prefix search. */
+/**
+ * A workload that cannot install is refused with its reason: another schema's, a path off its schema, an unbounded
+ * prefix search.
+ *
+ * Budget: its suite's count before the conversion (unit/workload/install-refused: 40 independent cases and 32 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aWorkloadThatCannotInstallIsRefusedWithItsReasonAnotherSchemasAPathOffItsSchemaAnUnboundedPrefixSearch =
 	property.explore(installCaseGen, {
 		needs: {},
@@ -192,6 +205,14 @@ export const aWorkloadThatCannotInstallIsRefusedWithItsReasonAnotherSchemasAPath
 			kind: "specification",
 			name: "a workload installs only on its own schema, with paths on relations it stores, and keys whose B-tree entry its patterns bound"
 		},
+		budget: { runs: 40, steered: 32 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/program/workload/compile.ts",
+				original: "\t\tpaths: uniquePaths([...extraction.paths, ...ir.targets]),",
+				replacement: "\t\tpaths: uniquePaths([...ir.targets]),",
+				why: "Operator mutant (element) at packages/engine/src/program/workload/compile.ts:355 in irAccess: `[...extraction.paths, ...ir.targets]` becomes `[...ir.targets]`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

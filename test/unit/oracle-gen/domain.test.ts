@@ -106,10 +106,23 @@ export const generatedScalarTypesHoldOnlyExactlyStoredValuesOneNativeEqualityVal
 		},
 		box: "every generated type, computed numerics included, with and without its edge classes, each key kept as a span or as a scalar",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/expr.ts",
+				original: `\t\t\treturn inRange(literal.value, range) ? undefined : \`\${literal.value} lies outside \${carrier}\``,
+				replacement: `\t\t\treturn inRange(literal.value, range) ? \`\${literal.value} lies outside \${carrier}\` : undefined`,
+				why: `Operator mutant (arm-swap) at packages/engine/src/ir/expr.ts:880 in literalProblem: \`inRange(literal.value, range) ? undefined : \`\${literal.value} lies outside \${car\` becomes \`inRange(literal.value, range) ? \`\${literal.value} lies outside \${carrier}\` : und\`; the property fails (lane CATCH, grizzle 0baff5d6).`
+			}
+		]
 	})
 
-/** Value domains spell every stored value as its one value, in each of its twin spellings, a text the column's input reads. */
+/**
+ * Value domains spell every stored value as its one value, in each of its twin spellings, a text the column's input
+ * reads.
+ *
+ * Budget: its suite's count before the conversion (unit/oracle-gen/domain-spelling: 300 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const valueDomainsSpellEveryStoredValueAsItsOneValueInEachOfItsTwinSpellingsATextTheColumnsInputReads =
 	property.explore(spellingGen, {
 		needs: {},
@@ -136,6 +149,14 @@ export const valueDomainsSpellEveryStoredValueAsItsOneValueInEachOfItsTwinSpelli
 			kind: "specification",
 			name: "a stored value is its class's one value, in its canonical spelling or a twin of the twin table"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/expr.ts",
+				original: "\t\t\tif (!(literal.start < literal.end)) {",
+				replacement: "\t\t\tif (!(literal.start >= literal.end)) {",
+				why: "Operator mutant (comparison) at packages/engine/src/ir/expr.ts:948 in literalProblem: `<` becomes `>=`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

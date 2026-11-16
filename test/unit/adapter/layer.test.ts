@@ -40,7 +40,12 @@ import {
 	tokenVerdict
 } from "#test/unit/adapter/layer.fixtures.ts"
 
-/** DbLayer.make builds every valid config, and refuses every fault injected into one at stage config, naming it. */
+/**
+ * DbLayer.make builds every valid config, and refuses every fault injected into one at stage config, naming it.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/layer-config: 400 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const dbLayerMakeBuildsEveryValidConfigAndRefusesEveryFaultInjectedIntoOneAtStageConfigNamingIt =
 	property.explore((source) => [source.draw(drawnGen), source.draw(faultGen)] as const, {
 		needs: {},
@@ -125,14 +130,15 @@ export const dbLayerMakeBuildsEveryValidConfigAndRefusesEveryFaultInjectedIntoOn
 			kind: "specification",
 			name: "DbConfig's documented settings: a valid config builds, each injected fault is DbConfigRefused naming its setting"
 		},
+		budget: { runs: 400, steered: 0 },
 		kept: [],
 		kills: [
 			{
 				file: "packages/grizzle/src/adapter/connection/config.ts",
 				original:
-					"export const timerDelay = (v: number): boolean => integerIn(v, timerMinMs.value, timerMaxMs.value)",
+					"export const timerDelay = (v: number): boolean => integerIn(v, timerMinMs, timerMaxMs)",
 				replacement:
-					"export const timerDelay = (v: number): boolean => integerIn(v, 0, timerMaxMs.value)",
+					"export const timerDelay = (v: number): boolean => integerIn(v, 0, timerMaxMs)",
 				why: "A timer's delay of 0 is admitted."
 			},
 			{
@@ -145,7 +151,13 @@ export const dbLayerMakeBuildsEveryValidConfigAndRefusesEveryFaultInjectedIntoOn
 		]
 	})
 
-/** DbLayer.make refuses at stage config exactly the process environments that set PGREPLICATION, and builds under PGOPTIONS. */
+/**
+ * DbLayer.make refuses at stage config exactly the process environments that set PGREPLICATION, and builds under
+ * PGOPTIONS.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/layer-environment: 200 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const dbLayerMakeRefusesAtStageConfigExactlyTheProcessEnvironmentsThatSetPGREPLICATIONAndBuildsUnderPGOPTIONS =
 	property.explore((source) => [source.draw(drawnGen), source.draw(environmentGen)] as const, {
 		needs: {},
@@ -199,6 +211,7 @@ export const dbLayerMakeRefusesAtStageConfigExactlyTheProcessEnvironmentsThatSet
 			kind: "specification",
 			name: "a login's layer is refused exactly when PGREPLICATION holds a text"
 		},
+		budget: { runs: 200, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -210,7 +223,15 @@ export const dbLayerMakeRefusesAtStageConfigExactlyTheProcessEnvironmentsThatSet
 		]
 	})
 
-/** DbLayer.make judges a token at stage token before any connection: no token68 a TokenMalformed, verify's refusal or throw a TokenError, a payload that does not decode a ClaimRefused. */
+/**
+ * DbLayer.make judges a token at stage token before any connection: no token68 a TokenMalformed, verify's refusal or
+ * throw a TokenError, a payload that does not decode a ClaimRefused.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/layer-token: 150 independent cases and 96 steered,
+ * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (verify throws a
+ * RangeError, verify throws an Error with a cause; toolchain-test run of 2026-11-16 08:21Z), so its steered phase
+ * keeps the runner's cap of 200, which it stops short of once every situation is reached.
+ */
 export const dbLayerMakeJudgesATokenAtStageTokenBeforeAnyConnectionNoToken68ATokenMalformedVerifysRefusalOrThrowATokenErrorAPayloadThatDoesNotDecodeAClaimRefused =
 	property.explore((source) => [source.draw(drawnGen), source.draw(tokenCaseGen)] as const, {
 		needs: {},
@@ -316,6 +337,14 @@ export const dbLayerMakeJudgesATokenAtStageTokenBeforeAnyConnectionNoToken68ATok
 			kind: "specification",
 			name: "the README's order of Db.open's stages and their reasons, over the drawn verify and payload"
 		},
+		budget: { runs: 150, steered: 200 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/connection/environment.ts",
+				original: '\t\treturn value !== undefined && value !== ""',
+				replacement: '\t\treturn value !== ""',
+				why: 'Operator mutant (conjunct) at packages/grizzle/src/adapter/connection/environment.ts:44 in startupVariableSet: `value !== undefined && value !== ""` becomes `value !== ""`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
 	})

@@ -32,7 +32,13 @@ import {
 	textOf
 } from "#test/unit/dev/toolchain-imports.fixtures.ts"
 
-/** Toolchain-imports renames the moved packages' scope in a foreign repository's file and changes no other byte, a second run nothing. */
+/**
+ * Toolchain-imports renames the moved packages' scope in a foreign repository's file and changes no other byte, a
+ * second run nothing.
+ *
+ * Budget: its suite's count before the conversion (unit/dev/toolchain-imports: 6 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const toolchainImportsRenamesTheMovedPackagesScopeInAForeignRepositorysFileAndChangesNoOtherByteASecondRunNothing =
 	property.explore(aimed(drawnGen, aims), {
 		needs: { dir: Scratch.dir, checkout: Checkout.dir },
@@ -70,6 +76,7 @@ export const toolchainImportsRenamesTheMovedPackagesScopeInAForeignRepositorysFi
 			kind: "specification",
 			name: "the file the case states, its moved specifiers under the toolchain's scope and every other byte as written"
 		},
+		budget: { runs: 6, steered: 0 },
 		kept: [],
 		kills: []
 	})

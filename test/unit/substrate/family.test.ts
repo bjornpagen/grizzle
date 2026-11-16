@@ -42,7 +42,13 @@ import {
 	systemPort
 } from "#test/unit/substrate/family.fixtures.ts"
 
-/** The cluster family maps every worker to exactly the member that clones its database, none past its share, and the first outside a worker. */
+/**
+ * The cluster family maps every worker to exactly the member that clones its database, none past its share, and the
+ * first outside a worker.
+ *
+ * Budget: its suite's count before the conversion (unit/substrate/family-map: 48 independent cases and 12 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theClusterFamilyMapsEveryWorkerToExactlyTheMemberThatClonesItsDatabaseNonePastItsShareAndTheFirstOutsideAWorker =
 	property.explore(mapGen, {
 		needs: {},
@@ -97,6 +103,7 @@ export const theClusterFamilyMapsEveryWorkerToExactlyTheMemberThatClonesItsDatab
 			kind: "specification",
 			name: "worker w on member (w − 1) mod K, none serving past ceil(W / K)"
 		},
+		budget: { runs: 48, steered: 12 },
 		kept: [],
 		kills: [
 			{
@@ -109,7 +116,13 @@ export const theClusterFamilyMapsEveryWorkerToExactlyTheMemberThatClonesItsDatab
 		]
 	})
 
-/** The cluster family reads a family file back as its family, and refuses every text that is no family of its first member. */
+/**
+ * The cluster family reads a family file back as its family, and refuses every text that is no family of its first
+ * member.
+ *
+ * Budget: its suite's count before the conversion (unit/substrate/family-file: 48 independent cases and 24 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theClusterFamilyReadsAFamilyFileBackAsItsFamilyAndRefusesEveryTextThatIsNoFamilyOfItsFirstMember =
 	property.explore(fileGen, {
 		needs: {},
@@ -158,11 +171,25 @@ export const theClusterFamilyReadsAFamilyFileBackAsItsFamilyAndRefusesEveryTextT
 			kind: "specification",
 			name: "one port a line in canonical decimal, none twice, the family's name first, as many as its members"
 		},
+		budget: { runs: 48, steered: 24 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/pg/src/family.ts",
+				original: "\tif (new Set(ports).size !== ports.length) {",
+				replacement: "\tif (new Set(ports).size === ports.length) {",
+				why: "Operator mutant (comparison) at packages/pg/src/family.ts:86 in parseFamily: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** The cluster family finds each further member a port new to the family and free on every localhost address, whatever holds the ports beside its name. */
+/**
+ * The cluster family finds each further member a port new to the family and free on every localhost address, whatever
+ * holds the ports beside its name.
+ *
+ * Budget: its suite's count before the conversion (unit/substrate/family-ports: 24 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theClusterFamilyFindsEachFurtherMemberAPortNewToTheFamilyAndFreeOnEveryLocalhostAddressWhateverHoldsThePortsBesideItsName =
 	property.explore(portGen, {
 		needs: {},
@@ -218,6 +245,7 @@ export const theClusterFamilyFindsEachFurtherMemberAPortNewToTheFamilyAndFreeOnE
 			kind: "specification",
 			name: "a port is free where a listener of the test's own can listen on it at every address localhost names"
 		},
+		budget: { runs: 24, steered: 0 },
 		kept: [],
 		kills: [
 			{

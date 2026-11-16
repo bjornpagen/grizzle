@@ -44,20 +44,63 @@ import {
 	keyPairs
 } from "#test/unit/oracle-runner/reference-plans.fixtures.ts"
 
-/** The reference evaluator's plans agree with its nested loops on the oracle populations: the conservative and the optimized. */
+/**
+ * The reference evaluator's plans agree with its nested loops on the oracle populations: the conservative and the optimized.
+ *
+ * Budget, each member: its suite's count before the conversion (unit/oracle-runner/reference-plans-<member>: 480
+ * independent cases and 0 steered, Vitest at grizzle 4ca3036a).
+ */
 export const theReferenceEvaluatorsPlansAgreeWithItsNestedLoopsOnTheOraclePopulations = family({
-	conservative: agree(queryCaseGen(defaultGenConfig)),
-	optimized: agree(queryCaseGen(optimizerGenConfig))
+	conservative: agree(queryCaseGen(defaultGenConfig), {
+		budget: { runs: 480, steered: 0 },
+		kills: [
+			{
+				file: "packages/engine/src/ir/scalar.ts",
+				original:
+					"\ta === b ||\n\t(a.carrier === b.carrier &&\n\t\tsameOrder(a.caps, b.caps) &&\n\t\tsameContract(contractOf(a), contractOf(b)) &&\n\t\tsameNumericTypmod(numericTypmodOf(a), numericTypmodOf(b)) &&\n\t\tsameNumericBound(numericBoundOf(a), numericBoundOf(b)) &&\n\t\tvectorTypmodOf(a)?.dims === vectorTypmodOf(b)?.dims &&\n\t\texactDigitsOf(a) === exactDigitsOf(b) &&\n\t\tsameText(textOf(a), textOf(b)) &&\n\t\tsameRoster(rosterOf(a), rosterOf(b)) &&\n\t\tsameSpan(spanOf(a), spanOf(b)))",
+				replacement: "\ta === b",
+				why: "Operator mutant (disjunct) at packages/engine/src/ir/scalar.ts:876 in sameScalarType: `a === b ||\n\t(a.carrier === b.carrier &&\n\t\tsameOrder(a.caps, b.caps) &&\n\t\tsameCon` becomes `a === b`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
+	}),
+	optimized: agree(queryCaseGen(optimizerGenConfig), {
+		budget: { runs: 480, steered: 0 },
+		kills: [
+			{
+				file: "packages/engine/src/ir/scalar.ts",
+				original:
+					'\ta === "wildcard" || b === "wildcard"\n\t\t? a === b\n\t\t: samePatterns(a.patterns, b.patterns) && a.key === b.key',
+				replacement: "\tfalse",
+				why: 'Operator mutant (boolean-return) at packages/engine/src/ir/scalar.ts:850 in sameRegexRef: `a === "wildcard" || b === "wildcard"\n\t\t? a === b\n\t\t: samePatterns(a.patterns, b.` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
+	})
 })
 
-/** The reference evaluator's plans agree with its nested loops where joins and merges meet twin spellings, over every palette and over one. */
+/**
+ * The reference evaluator's plans agree with its nested loops where joins and merges meet twin spellings, over every palette and over one.
+ *
+ * Budget, each member: its suite's count before the conversion (unit/oracle-runner/reference-plans-<member>: 480
+ * independent cases and 0 steered, Vitest at grizzle 4ca3036a).
+ */
 export const theReferenceEvaluatorsPlansAgreeWithItsNestedLoopsWhereJoinsAndMergesMeetTwinSpellings =
 	family({
 		twinned: agree(
 			queryCaseGen({
 				...defaultGenConfig,
 				spelling: "twinned"
-			})
+			}),
+			{
+				budget: { runs: 480, steered: 0 },
+				kills: [
+					{
+						file: "packages/engine/src/ir/scalar.ts",
+						original: "\ta?.digits === b?.digits && a?.scale === b?.scale",
+						replacement: "\tfalse",
+						why: "Operator mutant (boolean-return) at packages/engine/src/ir/scalar.ts:830 in sameNumericBound: `a?.digits === b?.digits && a?.scale === b?.scale` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6)."
+					}
+				]
+			}
 		),
 		onePalette: agree(
 			queryCaseGen({
@@ -67,14 +110,34 @@ export const theReferenceEvaluatorsPlansAgreeWithItsNestedLoopsWhereJoinsAndMerg
 					...defaultGenConfig.schema,
 					maxPalette: 1
 				}
-			})
+			}),
+			{ budget: { runs: 480, steered: 0 }, kills: [] }
 		)
 	})
 
-/** The reference evaluator's plans agree with its nested loops on recursions, of any length and of fixed length. */
+/**
+ * The reference evaluator's plans agree with its nested loops on recursions, of any length and of fixed length.
+ *
+ * Budget, each member: its suite's count before the conversion (unit/oracle-runner/reference-plans-<member>: 480
+ * independent cases and 0 steered, Vitest at grizzle 4ca3036a).
+ */
 export const theReferenceEvaluatorsPlansAgreeWithItsNestedLoopsOnRecursions = family({
-	recursive: agree(recursiveCaseGen(defaultRecursiveLimits)),
-	fixedLength: agree(fixedLengthCaseGen(defaultGraphLimits))
+	recursive: agree(recursiveCaseGen(defaultRecursiveLimits), {
+		budget: { runs: 480, steered: 0 },
+		kills: []
+	}),
+	fixedLength: agree(fixedLengthCaseGen(defaultGraphLimits), {
+		budget: { runs: 480, steered: 0 },
+		kills: [
+			{
+				file: "packages/engine/src/ir/scalar.ts",
+				original:
+					"\ta === undefined || b === undefined ? a === b : a.name === b.name && sameScalarType(a.base, b.base)",
+				replacement: "\tfalse",
+				why: "Operator mutant (boolean-return) at packages/engine/src/ir/scalar.ts:835 in sameContract: `a === undefined || b === undefined ? a === b : a.name === b.name && sameScalarTy` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
+	})
 })
 
 /** IndexIdentity is one identity exactly for the values comparison finds equal, and none where comparison alone decides. */

@@ -60,7 +60,12 @@ import {
 import { kindCodes, normalizedBy } from "#test/unit/codec/support.ts"
 import { asDecimal } from "#test/unit/codec/values.ts"
 
-/** Relation normalization refuses a planted member with its word, naming the slot and the field, never the value. */
+/**
+ * Relation normalization refuses a planted member with its word, naming the slot and the field, never the value.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/recordset-refusals: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const relationNormalizationRefusesAPlantedMemberWithItsWordNamingTheSlotAndTheFieldNeverTheValue =
 	property.explore(refusalCases, {
 		needs: {},
@@ -112,6 +117,7 @@ export const relationNormalizationRefusesAPlantedMemberWithItsWordNamingTheSlotA
 			kind: "specification",
 			name: "README's Errors and outcomes: the slot and the field named, never the value"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -123,7 +129,12 @@ export const relationNormalizationRefusesAPlantedMemberWithItsWordNamingTheSlotA
 		]
 	})
 
-/** Relation normalization admits a member span of its column's fixed width, and refuses any other width. */
+/**
+ * Relation normalization admits a member span of its column's fixed width, and refuses any other width.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/recordset-fixed-width: 300 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const relationNormalizationAdmitsAMemberSpanOfItsColumnsFixedWidthAndRefusesAnyOtherWidth =
 	property.explore(spanCases, {
 		needs: {},
@@ -155,6 +166,7 @@ export const relationNormalizationAdmitsAMemberSpanOfItsColumnsFixedWidthAndRefu
 					})
 				}),
 		oracle: { kind: "specification", name: "a span column's fixed width" },
+		budget: { runs: 300, steered: 0 },
 		kept: [
 			{
 				token: ReplayToken(
@@ -164,10 +176,23 @@ export const relationNormalizationAdmitsAMemberSpanOfItsColumnsFixedWidthAndRefu
 				since: "2026-10-29"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original:
+					"\tconst repeat = firstIndex(fields, (f, i) => i > 0 && fields[i - 1]?.name === f.name)",
+				replacement: "\tconst repeat = firstIndex(fields, (f, i) => true)",
+				why: "Operator mutant (boolean-return) at packages/engine/src/scalar/values/identity.ts:536 in headingPlan: `i > 0 && fields[i - 1]?.name === f.name` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Relation normalization encodes canonically: the same set in any order gives byte-identical arrays. */
+/**
+ * Relation normalization encodes canonically: the same set in any order gives byte-identical arrays.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/recordset-1919247219: 500 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const relationNormalizationEncodesCanonicallyTheSameSetInAnyOrderGivesByteIdenticalArrays =
 	property.explore(orderedSets, {
 		needs: {},
@@ -202,6 +227,7 @@ export const relationNormalizationEncodesCanonicallyTheSameSetInAnyOrderGivesByt
 			kind: "universal",
 			name: "the encoding of the set as first given, against any order and repetition"
 		},
+		budget: { runs: 500, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -219,7 +245,13 @@ export const relationNormalizationEncodesCanonicallyTheSameSetInAnyOrderGivesByt
 		]
 	})
 
-/** Relation normalization writes each array of facts normalized on the host as the raw input's arrays, in the heading's order or another. */
+/**
+ * Relation normalization writes each array of facts normalized on the host as the raw input's arrays, in the heading's
+ * order or another.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/recordset-1852797549: 300 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const relationNormalizationWritesEachArrayOfFactsNormalizedOnTheHostAsTheRawInputsArraysInTheHeadingsOrderOrAnother =
 	property.explore(spelledReadings, {
 		needs: {},
@@ -253,6 +285,7 @@ export const relationNormalizationWritesEachArrayOfFactsNormalizedOnTheHostAsThe
 			kind: "universal",
 			name: "the raw input's arrays, against the host's normalized facts in any column order"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -264,7 +297,12 @@ export const relationNormalizationWritesEachArrayOfFactsNormalizedOnTheHostAsThe
 		]
 	})
 
-/** Relation normalization encodes canonically whatever input spelling equal facts' numerics of no typmod took. */
+/**
+ * Relation normalization encodes canonically whatever input spelling equal facts' numerics of no typmod took.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/recordset-1935892844: 500 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const relationNormalizationEncodesCanonicallyWhateverInputSpellingEqualFactsNumericsOfNoTypmodTook =
 	property.explore(spelledSets, {
 		needs: {},
@@ -304,11 +342,25 @@ export const relationNormalizationEncodesCanonicallyWhateverInputSpellingEqualFa
 			kind: "universal",
 			name: "the encoding of the set as first spelled, against every other spelling"
 		},
+		budget: { runs: 500, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/decimal.ts",
+				original: "\tif (end === digitsStart) {",
+				replacement: "\tif (end !== digitsStart) {",
+				why: "Operator mutant (comparison) at packages/engine/src/scalar/values/decimal.ts:73 in exponentAt: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Relation normalization writes one array literal per column that array_in reads back as the column's texts, whatever they hold. */
+/**
+ * Relation normalization writes one array literal per column that array_in reads back as the column's texts, whatever
+ * they hold.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/arrays-literal: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const relationNormalizationWritesOneArrayLiteralPerColumnThatArrayInReadsBackAsTheColumnsTextsWhateverTheyHold =
 	property.explore(literalCases, {
 		needs: {},
@@ -354,6 +406,7 @@ export const relationNormalizationWritesOneArrayLiteralPerColumnThatArrayInReads
 			kind: "second-implementation",
 			name: "array_in's grammar restated (readArrayLiteral)"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -365,7 +418,13 @@ export const relationNormalizationWritesOneArrayLiteralPerColumnThatArrayInReads
 		]
 	})
 
-/** Relation normalization refuses a column whose literal would pass the string bound, naming it, and writes every literal within it. */
+/**
+ * Relation normalization refuses a column whose literal would pass the string bound, naming it, and writes every
+ * literal within it.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/arrays-literal-bound: 300 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const relationNormalizationRefusesAColumnWhoseLiteralWouldPassTheStringBoundNamingItAndWritesEveryLiteralWithinIt =
 	property.explore(boundCases, {
 		needs: {},
@@ -414,6 +473,7 @@ export const relationNormalizationRefusesAColumnWhoseLiteralWouldPassTheStringBo
 			kind: "specification",
 			name: "each column's literal written with no bound, against the bound: refused exactly when one is longer, naming one that is"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [
 			{
 				token: ReplayToken(
@@ -424,10 +484,25 @@ export const relationNormalizationRefusesAColumnWhoseLiteralWouldPassTheStringBo
 				since: "2026-11-07"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/codec/recordset.ts",
+				original:
+					'\tfor (let at = text.indexOf("\\\\"); at >= 0; at = text.indexOf("\\\\", at + 1)) {\n\t\tadded += 1\n\t}',
+				replacement:
+					'\tfor (let at = text.indexOf("\\\\"); at >= 0; at = text.indexOf("\\\\", at + 1)) {\n\t\tadded += 2\n\t}',
+				why: "Operator mutant (bound) at packages/engine/src/codec/recordset.ts:401 in elementOverhead: `1` becomes `2`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** The arrays of every field type carry each value's canonical text, which array_in reads back exactly, in the facts' canonical order. */
+/**
+ * The arrays of every field type carry each value's canonical text, which array_in reads back exactly, in the facts'
+ * canonical order.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/arrays-every-type: 200 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theArraysOfEveryFieldTypeCarryEachValuesCanonicalTextWhichArrayInReadsBackExactlyInTheFactsCanonicalOrder =
 	property.explore(everyFacts, {
 		needs: {},
@@ -458,6 +533,7 @@ export const theArraysOfEveryFieldTypeCarryEachValuesCanonicalTextWhichArrayInRe
 			kind: "second-implementation",
 			name: "array_in's grammar restated, and each value's canonical text"
 		},
+		budget: { runs: 200, steered: 0 },
 		kept: [],
 		kills: [
 			{

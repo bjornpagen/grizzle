@@ -61,7 +61,13 @@ import {
 	writableEntries
 } from "#test/unit/world-model/host.fixtures.ts"
 
-/** The worlds model's host semantics evaluates every drawn rule set as the reference evaluates the query an application builds from it. */
+/**
+ * The worlds model's host semantics evaluates every drawn rule set as the reference evaluates the query an application
+ * builds from it.
+ *
+ * Budget: its suite's count before the conversion (unit/world-model/host: 200 independent cases and 64 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theWorldsModelsHostSemanticsEvaluatesEveryDrawnRuleSetAsTheReferenceEvaluatesTheQueryAnApplicationBuildsFromIt =
 	property.explore(caseGen, {
 		needs: {},
@@ -94,11 +100,25 @@ export const theWorldsModelsHostSemanticsEvaluatesEveryDrawnRuleSetAsTheReferenc
 			kind: "second-implementation",
 			name: "the reference evaluator over the checked DAG of the query an application builds from the rules"
 		},
+		budget: { runs: 200, steered: 64 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/expr.ts",
+				original: "\t\t...(expr.deps.params.length > 0 || expr.deps.nodes.length > 0",
+				replacement: "\t\t...(expr.deps.params.length > 0 || expr.deps.nodes.length <= 0",
+				why: "Operator mutant (comparison) at packages/engine/src/ir/expr.ts:1115 in entryProblems: `>` becomes `<=`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** The worlds model's host semantics holds in a writable entry exactly the target facts whose head projections are its rows. */
+/**
+ * The worlds model's host semantics holds in a writable entry exactly the target facts whose head projections are its
+ * rows.
+ *
+ * Budget: its suite's count before the conversion (unit/world-model/host membership: 100 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const theWorldsModelsHostSemanticsHoldsInAWritableEntryExactlyTheTargetFactsWhoseHeadProjectionsAreItsRows =
 	property.explore(worldGen, {
 		needs: {},
@@ -139,11 +159,25 @@ export const theWorldsModelsHostSemanticsHoldsInAWritableEntryExactlyTheTargetFa
 			kind: "specification",
 			name: "a writable entry's rows are the head projections of the target facts isMember holds"
 		},
+		budget: { runs: 100, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/identity.ts",
+				original: `\t\t\tconversion.startsWith("pg_")\n\t\t\t\t? Result.err(\n\t\t\t\t\t\t\`a name whose conversion does not start with pg_, which PostgreSQL reserves; its conversion \${conversion} starts with it\`\n\t\t\t\t\t)\n\t\t\t\t: Result.ok(schemaName(declared))`,
+				replacement: `\t\t\tconversion.startsWith("pg_") ? Result.ok(schemaName(declared)) : Result.err(\n\t\t\t\t\t\t\`a name whose conversion does not start with pg_, which PostgreSQL reserves; its conversion \${conversion} starts with it\`\n\t\t\t\t\t)`,
+				why: 'Operator mutant (arm-swap) at packages/engine/src/core/identity.ts:292 in parseSchemaName: `conversion.startsWith("pg_")\n\t\t\t\t? Result.err(\n\t\t\t\t\t\t`a name whose conversion do` becomes `conversion.startsWith("pg_") ? Result.ok(schemaName(declared)) : Result.err(\n\t\t\t`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
 	})
 
-/** The worlds model's host semantics proves a role relation's field set a key exactly where grizzle's logical analysis proves its read at most one row. */
+/**
+ * The worlds model's host semantics proves a role relation's field set a key exactly where grizzle's logical analysis
+ * proves its read at most one row.
+ *
+ * Budget: its suite's count before the conversion (unit/world-model/host get keys: 60 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theWorldsModelsHostSemanticsProvesARoleRelationsFieldSetAKeyExactlyWhereGrizzlesLogicalAnalysisProvesItsReadAtMostOneRow =
 	property.explore(keysSpace, {
 		needs: {},
@@ -203,6 +237,7 @@ export const theWorldsModelsHostSemanticsProvesARoleRelationsFieldSetAKeyExactly
 			kind: "second-implementation",
 			name: "grizzle's logical keys (ir/rel.ts MetaSpec.logicalKeys) of the read the model keys"
 		},
+		budget: { runs: 60, steered: 0 },
 		kept: [
 			{
 				token: ReplayToken(
@@ -213,5 +248,13 @@ export const theWorldsModelsHostSemanticsProvesARoleRelationsFieldSetAKeyExactly
 				since: "2026-11-05"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/desc.ts",
+				original:
+					"\t\treturn Object.fromEntries(Object.entries(b).map(([k, e]) => [k, this.expr(e)]))",
+				replacement: "\t\treturn Object.fromEntries(Object.entries(b).map(([k, e]) => [k]))",
+				why: "Operator mutant (element) at packages/engine/src/ir/desc.ts:1392 in <module>: `[k, this.expr(e)]` becomes `[k]`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

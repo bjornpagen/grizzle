@@ -122,11 +122,26 @@ export const theFamilyLoweringHoldsExactlyTheTheoremEachPartByItsOwnConstraints 
 		},
 		box: "every state of one owner's first four slots, each holding no row, one or two, under no owner or one of count 0 to 3",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/array.ts",
+				original: "\t\tout.push(i)",
+				replacement: "\t\t{}",
+				why: "Operator mutant (statement) at packages/engine/src/core/array.ts:26 in indices: `out.push(i)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	}
 )
 
-/** Family programs commit lawful mutations to their families, refuse breaking ones and misordered shrinks, and never commit a breach. */
+/**
+ * Family programs commit lawful mutations to their families, refuse breaking ones and misordered shrinks, and never
+ * commit a breach.
+ *
+ * Budget: its suite's count before the conversion (unit/support/families/programs: 300 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (counted
+ * → a misordered shrink; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200,
+ * which it stops short of once every situation is reached.
+ */
 export const familyProgramsCommitLawfulMutationsToTheirFamiliesRefuseBreakingOnesAndMisorderedShrinksAndNeverCommitABreach =
 	property.explore(programs, {
 		needs: {},
@@ -186,6 +201,14 @@ export const familyProgramsCommitLawfulMutationsToTheirFamiliesRefuseBreakingOne
 			kind: "specification",
 			name: "the theorem read from every state a program's statements leave, and each mutation form's claim"
 		},
+		budget: { runs: 300, steered: 200 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/array.ts",
+				original: "\tfor (let i = 0; i < n; i++) {",
+				replacement: "\tfor (let i = 0; i >= n; i++) {",
+				why: "Operator mutant (comparison) at packages/engine/src/core/array.ts:25 in indices: `<` becomes `>=`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

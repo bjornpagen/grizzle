@@ -76,7 +76,12 @@ import {
 } from "#test/unit/scalar/lexical.fixtures.ts"
 import { admittedPatternOver, walkGen } from "#test/unit/text/generators.ts"
 
-/** Lexical forms each form's pattern and its scan agree on every candidate, and a member names XML Schema's value. */
+/**
+ * Lexical forms each form's pattern and its scan agree on every candidate, and a member names XML Schema's value.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/lexical-forms: 4000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const lexicalFormsEachFormsPatternAndItsScanAgreeOnEveryCandidateAndAMemberNamesXMLSchemasValue =
 	property.explore(candidateGen, {
 		needs: {},
@@ -110,6 +115,7 @@ export const lexicalFormsEachFormsPatternAndItsScanAgreeOnEveryCandidateAndAMemb
 			kind: "specification",
 			name: "XML Schema's lexical spaces built from their parts, against the form's pattern and its scan"
 		},
+		budget: { runs: 4000, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -153,10 +159,23 @@ export const lexicalFormsIsAdmittedByTheTextAnalysisAsARefinementStrRegexTypesAF
 		},
 		box: "every integer carrier, numeric(p, s) for p from 1 to 12 and s from 0 to p, and every other kind",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/regex/parse.ts",
+				original: '\t\tif (c !== cp("\\\\")) {',
+				replacement: '\t\tif (c === cp("\\\\")) {',
+				why: "Operator mutant (comparison) at packages/engine/src/scalar/regex/parse.ts:914 in <module>: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Language inclusion an included pair admits no member of the inner pattern outside the outer, and a refuted pair's witness separates them. */
+/**
+ * Language inclusion an included pair admits no member of the inner pattern outside the outer, and a refuted pair's
+ * witness separates them.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/lexical-inclusion: 1500 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const languageInclusionAnIncludedPairAdmitsNoMemberOfTheInnerPatternOutsideTheOuterAndARefutedPairsWitnessSeparatesThem =
 	property.explore(
 		(source) => {
@@ -216,6 +235,7 @@ export const languageInclusionAnIncludedPairAdmitsNoMemberOfTheInnerPatternOutsi
 				kind: "second-implementation",
 				name: "the host NFA's membership (scalar/regex/nfa.ts)"
 			},
+			budget: { runs: 1500, steered: 0 },
 			kept: [],
 			kills: [
 				{
@@ -228,7 +248,13 @@ export const languageInclusionAnIncludedPairAdmitsNoMemberOfTheInnerPatternOutsi
 		}
 	)
 
-/** A parse's lexical precondition is proved exactly when the operand's language is inside the form, by its type or by a matches guard. */
+/**
+ * A parse's lexical precondition is proved exactly when the operand's language is inside the form, by its type or by a
+ * matches guard.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/lexical-proved: 600 independent cases and 16 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aParsesLexicalPreconditionIsProvedExactlyWhenTheOperandsLanguageIsInsideTheFormByItsTypeOrByAMatchesGuard =
 	property.explore(
 		(source) => ({
@@ -271,6 +297,7 @@ export const aParsesLexicalPreconditionIsProvedExactlyWhenTheOperandsLanguageIsI
 				kind: "second-implementation",
 				name: "language inclusion of the pattern in the form (scalar/regex/inclusion.ts)"
 			},
+			budget: { runs: 600, steered: 16 },
 			kept: [],
 			kills: [
 				{
@@ -283,7 +310,13 @@ export const aParsesLexicalPreconditionIsProvedExactlyWhenTheOperandsLanguageIsI
 		}
 	)
 
-/** A decimal's parse is proved exactly when the operand's language is inside decimalText and its bytes within the form's, by its type or by guards. */
+/**
+ * A decimal's parse is proved exactly when the operand's language is inside decimalText and its bytes within the
+ * form's, by its type or by guards.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/lexical-decimal-proved: 600 independent cases and 240
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const aDecimalsParseIsProvedExactlyWhenTheOperandsLanguageIsInsideDecimalTextAndItsBytesWithinTheFormsByItsTypeOrByGuards =
 	property.explore(
 		(source) => ({
@@ -361,6 +394,7 @@ export const aDecimalsParseIsProvedExactlyWhenTheOperandsLanguageIsInsideDecimal
 				kind: "second-implementation",
 				name: "language inclusion of the pattern in decimalText (scalar/regex/inclusion.ts) and the bytes of its longest member within the bound the text analysis and the str.bytes prove, by the host matcher's walk"
 			},
+			budget: { runs: 600, steered: 240 },
 			kept: [],
 			kills: [
 				{

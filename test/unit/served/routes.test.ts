@@ -28,7 +28,13 @@ import { lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { drawnSchema, liveLoginGen } from "#test/support/served-login.ts"
 import { type Feature, routesAndKeys } from "#test/unit/served/routes.fixtures.ts"
 
-/** A login's served reads carry the footprint their program reads, routed by the fields its parameters fix, and the key their rows prove. */
+/**
+ * A login's served reads carry the footprint their program reads, routed by the fields its parameters fix, and the key
+ * their rows prove.
+ *
+ * Budget: its suite's count before the conversion (unit/served/routes: 60 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const aLoginsServedReadsCarryTheFootprintTheirProgramReadsRoutedByTheFieldsItsParametersFixAndTheKeyTheirRowsProve =
 	property.explore((source) => [source.draw(caseSketchGen), source.draw(lawLevelGen)] as const, {
 		needs: {},
@@ -52,6 +58,7 @@ export const aLoginsServedReadsCarryTheFootprintTheirProgramReadsRoutedByTheFiel
 			kind: "second-implementation",
 			name: "the footprint climbed from each Base up the program's fixed facts (test/support/served-routes.ts), and the KeySetProof of the optimized root"
 		},
+		budget: { runs: 60, steered: 0 },
 		kept: [],
 		kills: [
 			{

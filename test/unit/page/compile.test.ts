@@ -28,7 +28,12 @@ import {
 } from "#test/unit/page/compile.fixtures.ts"
 import { compiledPageResult } from "#test/unit/page/fixtures.ts"
 
-/** The page compiler refuses a bounded heterogeneous union, whatever its bound and order. */
+/**
+ * The page compiler refuses a bounded heterogeneous union, whatever its bound and order.
+ *
+ * Budget: its suite's count before the conversion (unit/page/bounded-union: 30 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const thePageCompilerRefusesABoundedHeterogeneousUnionWhateverItsBoundAndOrder =
 	property.explore(
 		(source) => ({
@@ -60,6 +65,7 @@ export const thePageCompilerRefusesABoundedHeterogeneousUnionWhateverItsBoundAnd
 				kind: "specification",
 				name: "no page over a bounded heterogeneous union, refused as UnsupportedOperation"
 			},
+			budget: { runs: 30, steered: 0 },
 			kept: [],
 			kills: [
 				{

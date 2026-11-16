@@ -31,7 +31,12 @@ import {
 	type WithinFeature
 } from "#test/unit/bench/query-gates.fixtures.ts"
 
-/** The query kit's keyed numeric agreement within agrees exactly when the keyed values match within the tolerance. */
+/**
+ * The query kit's keyed numeric agreement within agrees exactly when the keyed values match within the tolerance.
+ *
+ * Budget: its suite's count before the conversion (unit/bench/within: 200 independent cases and 16 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theQueryKitsKeyedNumericAgreementWithinAgreesExactlyWhenTheKeyedValuesMatchWithinTheTolerance =
 	property.explore(
 		(source) =>
@@ -96,12 +101,18 @@ export const theQueryKitsKeyedNumericAgreementWithinAgreesExactlyWhenTheKeyedVal
 				kind: "second-implementation",
 				name: "a model of keyed agreement: every key once on each side, equal or within the tolerance"
 			},
+			budget: { runs: 200, steered: 16 },
 			kept: [],
 			kills: []
 		}
 	)
 
-/** The query kit's delivered agreement deliveredAgree is set equality of delivered values. */
+/**
+ * The query kit's delivered agreement deliveredAgree is set equality of delivered values.
+ *
+ * Budget: its suite's count before the conversion (unit/bench/delivered-agree: 200 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theQueryKitsDeliveredAgreementDeliveredAgreeIsSetEqualityOfDeliveredValues =
 	property.explore(
 		(source) =>
@@ -172,6 +183,7 @@ export const theQueryKitsDeliveredAgreementDeliveredAgreeIsSetEqualityOfDelivere
 				kind: "specification",
 				name: "a delivery is a set of rows: a permutation agrees, a changed field, a repeat or a nested repeat does not"
 			},
+			budget: { runs: 200, steered: 0 },
 			kept: [],
 			kills: []
 		}

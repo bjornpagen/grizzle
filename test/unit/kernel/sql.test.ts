@@ -38,7 +38,12 @@ import {
 	statementCatalog
 } from "#test/unit/kernel/sql.fixtures.ts"
 
-/** Generated queries pass every rule of the statement audit and reach every clause the generator has. */
+/**
+ * Generated queries pass every rule of the statement audit and reach every clause the generator has.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/sqlgen-audit: 400 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const generatedQueriesPassEveryRuleOfTheStatementAuditAndReachEveryClauseTheGeneratorHas =
 	property.explore(selectGen(catalog), {
 		needs: {},
@@ -57,11 +62,24 @@ export const generatedQueriesPassEveryRuleOfTheStatementAuditAndReachEveryClause
 				c.noteAll(shapeFeatures(shapeOf(query)))
 			}),
 		oracle: { kind: "specification", name: "the statement audit" },
+		budget: { runs: 400, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/sql/ast.ts",
+				original: '\t\t\treturn body.op !== "UNION ALL" || body.rows !== "operand"',
+				replacement: '\t\t\treturn body.op !== "UNION ALL"',
+				why: 'Operator mutant (disjunct) at packages/engine/src/sql/ast.ts:959 in isSetBody: `body.op !== "UNION ALL" || body.rows !== "operand"` becomes `body.op !== "UNION ALL"`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
 	})
 
-/** Generated queries keep their shape under a renaming of every alias. */
+/**
+ * Generated queries keep their shape under a renaming of every alias.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/shape-renaming: 200 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const generatedQueriesKeepTheirShapeUnderARenamingOfEveryAlias = property.explore(
 	selectGen(catalog),
 	{
@@ -77,12 +95,27 @@ export const generatedQueriesKeepTheirShapeUnderARenamingOfEveryAlias = property
 				assert.deepEqual(shapeOf(renamed(query)), shapeOf(query))
 			}),
 		oracle: { kind: "universal", name: "a shape is invariant under renaming every alias" },
+		budget: { runs: 200, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/sql/transform.ts",
+				original: "\t\t\tif (isSetBody(rebuilt)) {\n\t\t\t\treturn rebuilt\n\t\t\t}",
+				replacement: "\t\t\t{}",
+				why: "Operator mutant (guard) at packages/engine/src/sql/transform.ts:594 in <module>: `if (isSetBody(rebuilt)) {\n\t\t\t\treturn rebuilt\n\t\t\t}` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	}
 )
 
-/** Generated statements pass both audits and reach every statement kind and every construct an audit rule watches. */
+/**
+ * Generated statements pass both audits and reach every statement kind and every construct an audit rule watches.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/statement-audit: 400 independent cases and 48 steered,
+ * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (window
+ * row_number; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200, which it
+ * stops short of once every situation is reached.
+ */
 export const generatedStatementsPassBothAuditsAndReachEveryStatementKindAndEveryConstructAnAuditRuleWatches =
 	property.explore(statementGen(statementCatalog), {
 		needs: {},
@@ -95,6 +128,7 @@ export const generatedStatementsPassBothAuditsAndReachEveryStatementKindAndEvery
 				c.noteAll(shapeFeatures(shape))
 			}),
 		oracle: { kind: "specification", name: "the statement audit and the text audit" },
+		budget: { runs: 400, steered: 200 },
 		kept: [],
 		kills: [
 			{
@@ -106,7 +140,12 @@ export const generatedStatementsPassBothAuditsAndReachEveryStatementKindAndEvery
 		]
 	})
 
-/** The one-hole walker lists the root statement's rewrites first. */
+/**
+ * The one-hole walker lists the root statement's rewrites first.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/root-hole: 100 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theOneHoleWalkerListsTheRootStatementsRewritesFirst = property.explore(
 	statementGen(statementCatalog),
 	{
@@ -124,12 +163,26 @@ export const theOneHoleWalkerListsTheRootStatementsRewritesFirst = property.expl
 				c.note(`statement ${shapeOf(statement).statement}`)
 			}),
 		oracle: { kind: "specification", name: "the root hole's contract" },
+		budget: { runs: 100, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/sql/ast.ts",
+				original: '\t\t\treturn body.distinct !== false || body.rows !== "operand"',
+				replacement: '\t\t\treturn body.distinct !== false || body.rows === "operand"',
+				why: "Operator mutant (comparison) at packages/engine/src/sql/ast.ts:957 in isSetBody: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	}
 )
 
-/** The one-hole walker changes exactly one site per rewrite, rebuilding only the path to it and sharing every other node. */
+/**
+ * The one-hole walker changes exactly one site per rewrite, rebuilding only the path to it and sharing every other
+ * node.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/one-hole: 200 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theOneHoleWalkerChangesExactlyOneSitePerRewriteRebuildingOnlyThePathToItAndSharingEveryOtherNode =
 	property.explore(selectGen(catalog), {
 		needs: {},
@@ -144,6 +197,15 @@ export const theOneHoleWalkerChangesExactlyOneSitePerRewriteRebuildingOnlyThePat
 			kind: "specification",
 			name: "the marker at one site, and the fresh objects along one path"
 		},
+		budget: { runs: 200, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/sql/transform.ts",
+				original:
+					"\t\t\treturn source === step.source && on === step.on ? step : { ...step, source, on }",
+				replacement: "\t\t\treturn source === step.source ? step : { ...step, source, on }",
+				why: "Operator mutant (conjunct) at packages/engine/src/sql/transform.ts:418 in <module>: `source === step.source && on === step.on` becomes `source === step.source`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

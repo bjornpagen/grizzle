@@ -34,7 +34,13 @@ import {
 	verdictOf
 } from "#test/unit/vector/vector.fixtures.ts"
 
-/** The cosine domain admits exactly the buffers of the field's dimensions, finite, of a norm in [cosineNormMin, cosineNormMax], at Vector.from and at every encode. */
+/**
+ * The cosine domain admits exactly the buffers of the field's dimensions, finite, of a norm in [cosineNormMin,
+ * cosineNormMax], at Vector.from and at every encode.
+ *
+ * Budget: its suite's count before the conversion (unit/vector/cosine-domain: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theCosineDomainAdmitsExactlyTheBuffersOfTheFieldsDimensionsFiniteOfANormInCosineNormMinCosineNormMaxAtVectorFromAndAtEveryEncode =
 	property.explore(bufferGen, {
 		needs: {},
@@ -118,18 +124,25 @@ export const theCosineDomainAdmitsExactlyTheBuffersOfTheFieldsDimensionsFiniteOf
 			kind: "specification",
 			name: "the cosine domain's verdict on the float32 buffer: its dimensions, finite components, norm in the domain"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/scalar/values/vector.ts",
-				original: "\treturn n >= cosineNormMin.value && n <= cosineNormMax.value",
-				replacement: "\treturn n >= cosineNormMin.value && n < cosineNormMax.value",
+				original: "\treturn n >= cosineNormMin && n <= cosineNormMax",
+				replacement: "\treturn n >= cosineNormMin && n < cosineNormMax",
 				why: "The host's cosine domain is open at its greatest norm; the values property fails."
 			}
 		]
 	})
 
-/** The cosine domain refuses a vector literal outside the domain when the query is built, and holds one inside as it was then. */
+/**
+ * The cosine domain refuses a vector literal outside the domain when the query is built, and holds one inside as it
+ * was then.
+ *
+ * Budget: its suite's count before the conversion (unit/vector/literal-domain: 60 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theCosineDomainRefusesAVectorLiteralOutsideTheDomainWhenTheQueryIsBuiltAndHoldsOneInsideAsItWasThen =
 	property.explore(componentsGen(dims), {
 		needs: {},
@@ -159,12 +172,13 @@ export const theCosineDomainRefusesAVectorLiteralOutsideTheDomainWhenTheQueryIsB
 			kind: "specification",
 			name: "the cosine domain's verdict on the literal's float32 buffer"
 		},
+		budget: { runs: 60, steered: 0 },
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/ir/expr.ts",
-				original: "\t\t\treturn norm >= cosineNormMin.value && norm <= cosineNormMax.value",
-				replacement: "\t\t\treturn norm >= cosineNormMin.value && norm < cosineNormMax.value",
+				original: "\t\t\treturn norm >= cosineNormMin && norm <= cosineNormMax",
+				replacement: "\t\t\treturn norm >= cosineNormMin && norm < cosineNormMax",
 				why: "A vector literal's cosine domain is open at its greatest norm; the literals property fails."
 			}
 		]

@@ -56,7 +56,12 @@ import {
 } from "#test/unit/oracle/addwins.fixtures.ts"
 import { schema } from "#test/unit/oracle/fixtures.ts"
 
-/** The add-wins transition is S' = (S \ D) ∪ A per stratum, with keys checked after each stratum. */
+/**
+ * The add-wins transition is S' = (S \ D) ∪ A per stratum, with keys checked after each stratum.
+ *
+ * Budget: its suite's count before the conversion (unit/oracle/addwins-transition: 2000 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const theAddWinsTransitionIsSSDAPerStratumWithKeysCheckedAfterEachStratum = property.explore(
 	transitionGen,
 	{
@@ -92,12 +97,25 @@ export const theAddWinsTransitionIsSSDAPerStratumWithKeysCheckedAfterEachStratum
 			kind: "second-implementation",
 			name: "the definition S' = (S \\ D) ∪ A per stratum, written out apart, keys checked after each"
 		},
+		budget: { runs: 2000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/codes.ts",
+				original: "\t\tcodeOf.set(slot.handle, code)",
+				replacement: "\t\t{}",
+				why: "Operator mutant (statement) at packages/engine/src/ir/codes.ts:69 in rosterCodec: `codeOf.set(slot.handle, code)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	}
 )
 
-/** Build-order independence does not depend on member order, member splitting, or how strata are unioned. */
+/**
+ * Build-order independence does not depend on member order, member splitting, or how strata are unioned.
+ *
+ * Budget: its suite's count before the conversion (unit/oracle/addwins-build-order: 1000 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const buildOrderIndependenceDoesNotDependOnMemberOrderMemberSplittingOrHowStrataAreUnioned =
 	property.explore(buildOrderGen, {
 		needs: {},
@@ -152,11 +170,24 @@ export const buildOrderIndependenceDoesNotDependOnMemberOrderMemberSplittingOrHo
 			kind: "universal",
 			name: "the outcome is unchanged by member order, member splitting and how strata are unioned"
 		},
+		budget: { runs: 1000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/codes.ts",
+				original: "\t\tcodeOf.set(slot.handle, code)",
+				replacement: "\t\t{}",
+				why: "Operator mutant (statement) at packages/engine/src/ir/codes.ts:69 in rosterCodec: `codeOf.set(slot.handle, code)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Put is sugar for a described deletion of the occupants at its keys plus an insertion. */
+/**
+ * Put is sugar for a described deletion of the occupants at its keys plus an insertion.
+ *
+ * Budget: its suite's count before the conversion (unit/oracle/addwins-put: 1000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const putIsSugarForADescribedDeletionOfTheOccupantsAtItsKeysPlusAnInsertion =
 	property.explore(putGen, {
 		needs: {},
@@ -205,11 +236,25 @@ export const putIsSugarForADescribedDeletionOfTheOccupantsAtItsKeysPlusAnInserti
 			kind: "specification",
 			name: "put is a described deletion of the occupants at its keys plus an insertion, counted as put"
 		},
+		budget: { runs: 1000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/codes.ts",
+				original: "\t\tcodeOf.set(slot.handle, code)",
+				replacement: "\t\t{}",
+				why: "Operator mutant (statement) at packages/engine/src/ir/codes.ts:69 in rosterCodec: `codeOf.set(slot.handle, code)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Counts across strata, netted over the per-stratum changes, agree with the per-stratum netting reference on every accepted or no-change sequence. */
+/**
+ * Counts across strata, netted over the per-stratum changes, agree with the per-stratum netting reference on every
+ * accepted or no-change sequence.
+ *
+ * Budget: its suite's count before the conversion (unit/oracle/addwins-counts: 4000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const countsAcrossStrataNettedOverThePerStratumChangesAgreesWithThePerStratumNettingReferenceOnEveryAcceptedOrNoChangeSequence =
 	property.explore(countsGen, {
 		needs: {},
@@ -252,11 +297,25 @@ export const countsAcrossStrataNettedOverThePerStratumChangesAgreesWithThePerStr
 			kind: "second-implementation",
 			name: "the per-stratum netting reference, written out apart"
 		},
+		budget: { runs: 4000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/array.ts",
+				original: "\treturn i < 0 ? undefined : i",
+				replacement: "\treturn i >= 0 ? undefined : i",
+				why: "Operator mutant (comparison) at packages/engine/src/core/array.ts:11 in firstIndex: `<` becomes `>=`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Generated additions stand for a kept fact at the key they state, draw past every fact of the state they join, or take the values given. */
+/**
+ * Generated additions stand for a kept fact at the key they state, draw past every fact of the state they join, or
+ * take the values given.
+ *
+ * Budget: its suite's count before the conversion (unit/oracle/addwins-generated: 1000 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const generatedAdditionsStandForAKeptFactAtTheKeyTheyStateDrawPastEveryFactOfTheStateTheyJoinOrTakeTheValuesGiven =
 	property.explore(generatedGen, {
 		needs: {},
@@ -341,6 +400,14 @@ export const generatedAdditionsStandForAKeptFactAtTheKeyTheyStateDrawPastEveryFa
 			kind: "specification",
 			name: "a generated addition stands for a kept fact at its key, draws past every fact, or takes the given values"
 		},
+		budget: { runs: 1000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/array.ts",
+				original: "\treturn i < 0 ? undefined : i",
+				replacement: "\treturn i >= 0 ? undefined : i",
+				why: "Operator mutant (comparison) at packages/engine/src/core/array.ts:11 in firstIndex: `<` becomes `>=`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

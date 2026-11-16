@@ -52,7 +52,13 @@ import {
 	type ValueVerdict
 } from "#test/unit/adapter/refresh.fixtures.ts"
 
-/** Db.refresh targets are the named relations once each, in level order then declared order, and a value outside the role or no derived relation of the schema is refused. */
+/**
+ * Db.refresh targets are the named relations once each, in level order then declared order, and a value outside the
+ * role or no derived relation of the schema is refused.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/refresh-targets: 80 independent cases and 128 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const dbRefreshTargetsAreTheNamedRelationsOnceEachInLevelOrderThenDeclaredOrderAndAValueOutsideTheRoleOrNoDerivedRelationOfTheSchemaIsRefused =
 	property.explore(targetsCaseGen, {
 		needs: {},
@@ -179,11 +185,25 @@ export const dbRefreshTargetsAreTheNamedRelationsOnceEachInLevelOrderThenDeclare
 			kind: "specification",
 			name: "the refresh order and refusals restated over the drawn levels and refresh list"
 		},
+		budget: { runs: 80, steered: 128 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/refresh/targets.ts",
+				original: "\t\t\tArr.dedupeWith(targets, (a, b) => a.relation === b.relation),",
+				replacement: "\t\t\tArr.dedupeWith(targets, (a, b) => false),",
+				why: "Operator mutant (boolean-return) at packages/grizzle/src/adapter/refresh/targets.ts:178 in refreshTargets: `a.relation === b.relation` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Plain or CONCURRENTLY passes the views as one text[] literal PostgreSQL reads back as them, each once, whatever their order. */
+/**
+ * Plain or CONCURRENTLY passes the views as one text[] literal PostgreSQL reads back as them, each once, whatever
+ * their order.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/text-array: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const plainOrCONCURRENTLYPassesTheViewsAsOneTextLiteralPostgreSQLReadsBackAsThemEachOnceWhateverTheirOrder =
 	property.explore(
 		array(
@@ -242,6 +262,7 @@ export const plainOrCONCURRENTLYPassesTheViewsAsOneTextLiteralPostgreSQLReadsBac
 				kind: "universal",
 				name: "PostgreSQL's array literal read back is the views, each once, whatever their order"
 			},
+			budget: { runs: 300, steered: 0 },
 			kept: [],
 			kills: [
 				{
@@ -291,7 +312,14 @@ export const plainOrCONCURRENTLYNamesTheRefusedTargetByItsPositionInRefreshOrder
 		]
 	})
 
-/** How a refresh ends as its one SERIALIZABLE flight's answers say: committed in refresh order, retryable on SERIALIZABLE's refusals and a rewritten view, stale at the fence, unknown when COMMIT may have run, and the server's report otherwise. */
+/**
+ * How a refresh ends as its one SERIALIZABLE flight's answers say: committed in refresh order, retryable on
+ * SERIALIZABLE's refusals and a rewritten view, stale at the fence, unknown when COMMIT may have run, and the server's
+ * report otherwise.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/refresh-endings: 300 independent cases and 176
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const howARefreshEndsAsItsOneSERIALIZABLEFlightsAnswersSayCommittedInRefreshOrderRetryableOnSERIALIZABLEsRefusalsAndARewrittenViewStaleAtTheFenceUnknownWhenCOMMITMayHaveRunAndTheServersReportOtherwise =
 	property.explore(endingCaseGen, {
 		needs: {},
@@ -386,6 +414,16 @@ export const howARefreshEndsAsItsOneSERIALIZABLEFlightsAnswersSayCommittedInRefr
 			kind: "specification",
 			name: "the refresh transaction's endings, restated from run.ts over the fault the server meets"
 		},
+		budget: { runs: 300, steered: 176 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/errors/failures.ts",
+				original:
+					'const said = (text: string | undefined): string | undefined => (text === "" ? undefined : text)',
+				replacement:
+					'const said = (text: string | undefined): string | undefined => (text !== "" ? undefined : text)',
+				why: "Operator mutant (comparison) at packages/grizzle/src/adapter/errors/failures.ts:65 in said: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

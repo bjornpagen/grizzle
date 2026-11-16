@@ -25,7 +25,13 @@ import {
 	sent
 } from "#test/unit/codec/delivery.fixtures.ts"
 
-/** A statement's delivery assembles its result rows, in any order, into the rows sent, each bytes value a fresh array of its bytes. */
+/**
+ * A statement's delivery assembles its result rows, in any order, into the rows sent, each bytes value a fresh array
+ * of its bytes.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/delivery: 200 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const aStatementsDeliveryAssemblesItsResultRowsInAnyOrderIntoTheRowsSentEachBytesValueAFreshArrayOfItsBytes =
 	property.explore(cases, {
 		needs: {},
@@ -86,6 +92,7 @@ export const aStatementsDeliveryAssemblesItsResultRowsInAnyOrderIntoTheRowsSentE
 				ords: d.ords,
 				arrival: d.arrival
 			}),
+		budget: { runs: 200, steered: 0 },
 		kept: [],
 		kills: [
 			{

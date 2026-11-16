@@ -32,7 +32,13 @@ import {
 	span
 } from "#test/unit/live/placement.fixtures.ts"
 
-/** A decoded transaction placed in the leader's snapshot stands where its full id stands: ahead at or past the horizon, running where held running, else seen. */
+/**
+ * A decoded transaction placed in the leader's snapshot stands where its full id stands: ahead at or past the horizon,
+ * running where held running, else seen.
+ *
+ * Budget: its suite's count before the conversion (unit/live/placement: 400 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const aDecodedTransactionPlacedInTheLeadersSnapshotStandsWhereItsFullIdStandsAheadAtOrPastTheHorizonRunningWhereHeldRunningElseSeen =
 	property.explore(placedGen, {
 		needs: {},
@@ -72,6 +78,7 @@ export const aDecodedTransactionPlacedInTheLeadersSnapshotStandsWhereItsFullIdSt
 			kind: "specification",
 			name: "XidInMVCCSnapshot's placement over full 64-bit ids"
 		},
+		budget: { runs: 400, steered: 0 },
 		kept: [],
 		kills: [
 			{

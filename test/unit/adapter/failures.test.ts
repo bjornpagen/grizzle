@@ -20,7 +20,13 @@ import {
 	serialization
 } from "#test/unit/adapter/failures.fixtures.ts"
 
-/** The failure vocabulary reads every server report into exactly one class that carries its SQLSTATE, message, DETAIL, HINT and named objects as given. */
+/**
+ * The failure vocabulary reads every server report into exactly one class that carries its SQLSTATE, message, DETAIL,
+ * HINT and named objects as given.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/failure-vocabulary: 2000 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const theFailureVocabularyReadsEveryServerReportIntoExactlyOneClassThatCarriesItsSQLSTATEMessageDETAILHINTAndNamedObjectsAsGiven =
 	property.explore(reportGen, {
 		needs: {},
@@ -97,6 +103,7 @@ export const theFailureVocabularyReadsEveryServerReportIntoExactlyOneClassThatCa
 			kind: "specification",
 			name: "PostgreSQL's SQLSTATE contract and the README's promise of a failure's fields, stated here"
 		},
+		budget: { runs: 2000, steered: 0 },
 		kept: [],
 		kills: [
 			{

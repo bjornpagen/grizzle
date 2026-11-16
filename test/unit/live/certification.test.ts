@@ -46,7 +46,13 @@ import {
 	sittingFootprint
 } from "#test/unit/live/certification.fixtures.ts"
 
-/** A role's certificate is the same with the live source of any reads as with none, for the QTI-shaped learner and the platform. */
+/**
+ * A role's certificate is the same with the live source of any reads as with none, for the QTI-shaped learner and the
+ * platform.
+ *
+ * Budget: its suite's count before the conversion (unit/live/certification: 12 independent cases and 8 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const aRolesCertificateIsTheSameWithTheLiveSourceOfAnyReadsAsWithNoneForTheQTIShapedLearnerAndThePlatform =
 	property.explore(caseGen, {
 		needs: {},
@@ -100,6 +106,7 @@ export const aRolesCertificateIsTheSameWithTheLiveSourceOfAnyReadsAsWithNoneForT
 			kind: "second-implementation",
 			name: "the certifier's verdict over the same logins' draft with no read, which holds no live source"
 		},
+		budget: { runs: 12, steered: 8 },
 		kept: [],
 		kills: [
 			{

@@ -178,7 +178,13 @@ export const everySourcesReadingReadsItsFailuresAsExactlyTheKindsTheEventModelGi
 		]
 	})
 
-/** A session never had reads as the oracle table's kind and reason, by its SQLSTATE or its code, alike on every path, and the wire carries it. */
+/**
+ * A session never had reads as the oracle table's kind and reason, by its SQLSTATE or its code, alike on every path,
+ * and the wire carries it.
+ *
+ * Budget: its suite's count before the conversion (unit/live/call-error-connect: 400 independent cases and 16 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aSessionNeverHadReadsAsTheOracleTablesKindAndReasonByItsSQLSTATEOrItsCodeAlikeOnEveryPathAndTheWireCarriesIt =
 	property.explore(metGen, {
 		needs: {},
@@ -234,6 +240,7 @@ export const aSessionNeverHadReadsAsTheOracleTablesKindAndReasonByItsSQLSTATEOrI
 			kind: "specification",
 			name: 'PostgreSQL 19\'s errcodes.txt and README "Errors and outcomes", as a table of kinds and reasons'
 		},
+		budget: { runs: 400, steered: 16 },
 		kept: [],
 		kills: [
 			{

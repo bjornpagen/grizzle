@@ -37,7 +37,13 @@ import {
 } from "#test/unit/workload/extract.fixtures.ts"
 import { fixtureLogin, planOf, W } from "#test/unit/workload/fixtures.ts"
 
-/** The workload plan records each program's access by name and plans exactly the paths and statistics its programs request. */
+/**
+ * The workload plan records each program's access by name and plans exactly the paths and statistics its programs
+ * request.
+ *
+ * Budget: its suite's count before the conversion (unit/workload/extract-planned: 30 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theWorkloadPlanRecordsEachProgramsAccessByNameAndPlansExactlyThePathsAndStatisticsItsProgramsRequest =
 	property.explore(workloadGen, {
 		needs: {},
@@ -116,11 +122,26 @@ export const theWorkloadPlanRecordsEachProgramsAccessByNameAndPlansExactlyThePat
 			kind: "specification",
 			name: "the plan records each program's access by name and plans exactly what its programs request, whatever their names and order"
 		},
+		budget: { runs: 30, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/program/workload/value.ts",
+				original:
+					'): Workload<S, P> => {\n\tif (extra.length > 0) {\n\t\tthrow malformed(label, "workload(schema, programs): two arguments")',
+				replacement:
+					'): Workload<S, P> => {\n\tif (extra.length <= 0) {\n\t\tthrow malformed(label, "workload(schema, programs): two arguments")',
+				why: "Operator mutant (comparison) at packages/engine/src/program/workload/value.ts:428 in workload: `>` becomes `<=`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** MergeStatistics makes one request per column set, with the union of its kinds and uses, in canonical order. */
+/**
+ * MergeStatistics makes one request per column set, with the union of its kinds and uses, in canonical order.
+ *
+ * Budget: its suite's count before the conversion (unit/workload/extract-merge: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const mergeStatisticsMakesOneRequestPerColumnSetWithTheUnionOfItsKindsAndUsesInCanonicalOrder =
 	property.explore(array(statisticsGen, { min: 0, max: 6 }), {
 		needs: {},
@@ -162,6 +183,7 @@ export const mergeStatisticsMakesOneRequestPerColumnSetWithTheUnionOfItsKindsAnd
 			kind: "second-implementation",
 			name: "one request per column set, the union of its kinds and uses, in canonical order"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [],
 		kills: [
 			{

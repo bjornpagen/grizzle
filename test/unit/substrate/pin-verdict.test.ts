@@ -33,7 +33,13 @@ import {
 	pairGen
 } from "#test/unit/substrate/pin-verdict.fixtures.ts"
 
-/** Build.sh's verdict on a pin builds over nothing and over another release, refuses a pin of the installation's release that lacks one of its patches, naming them, and keeps the pin itself. */
+/**
+ * Build.sh's verdict on a pin builds over nothing and over another release, refuses a pin of the installation's
+ * release that lacks one of its patches, naming them, and keeps the pin itself.
+ *
+ * Budget: its suite's count before the conversion (unit/substrate/pin-verdict: 500 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const buildShsVerdictOnAPinBuildsOverNothingAndOverAnotherReleaseRefusesAPinOfTheInstallationsReleaseThatLacksOneOfItsPatchesNamingThemAndKeepsThePinItself =
 	property.explore(pairGen, {
 		needs: {},
@@ -74,6 +80,7 @@ export const buildShsVerdictOnAPinBuildsOverNothingAndOverAnotherReleaseRefusesA
 			kind: "specification",
 			name: "the release keys the refusal; the pin lacks the patches of files in the installation's alone and of rewritten ones"
 		},
+		budget: { runs: 500, steered: 0 },
 		kept: [],
 		kills: [
 			{

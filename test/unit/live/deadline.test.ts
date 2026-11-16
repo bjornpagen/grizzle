@@ -20,7 +20,13 @@ import { parseSenderDeadline } from "#compiler/plan/runtime.ts"
 import { assert } from "#test/support/assert.ts"
 import { type Feature, silenceSpace } from "#test/unit/live/deadline.fixtures.ts"
 
-/** A stream of the leader's deadline ends with ReplicationSilent exactly once it has heard nothing for its wal_sender_timeout, and never under 0. */
+/**
+ * A stream of the leader's deadline ends with ReplicationSilent exactly once it has heard nothing for its
+ * wal_sender_timeout, and never under 0.
+ *
+ * Budget: its suite's count before the conversion (unit/live/deadline: 300 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theLeadersStreamDeadlineAStreamEndsWithReplicationSilentExactlyOnceItHasHeardNothingForItsWalSenderTimeoutAndNeverUnder0 =
 	property.explore(silenceSpace, {
 		needs: {},
@@ -112,6 +118,7 @@ export const theLeadersStreamDeadlineAStreamEndsWithReplicationSilentExactlyOnce
 					})
 				),
 		oracle: { kind: "specification", name: "the first gap at least the deadline" },
+		budget: { runs: 300, steered: 0 },
 		kept: [],
 		kills: [
 			{

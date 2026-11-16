@@ -46,7 +46,15 @@ import { assert, defined } from "#test/support/assert.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { caseGen, type Feature, file, showCase } from "#test/unit/cli/served-certified.fixtures.ts"
 
-/** A role's isolation level is decided once from the statements its writes send, every name they reach resolved, and its served file and the installation hold it alike. */
+/**
+ * A role's isolation level is decided once from the statements its writes send, every name they reach resolved, and
+ * its served file and the installation hold it alike.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/served-certified: 24 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (a role certified
+ * READ COMMITTED; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200, which
+ * it stops short of once every situation is reached.
+ */
 export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEveryNameTheyReachResolvedAndItsServedFileAndTheInstallationHoldItAlike =
 	property.explore(caseGen, {
 		needs: {},
@@ -225,6 +233,7 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 			kind: "second-implementation",
 			name: "the certificates the plan holds, against the names grizzle installs and the levels the served files and the installation record"
 		},
+		budget: { runs: 24, steered: 200 },
 		kept: [
 			{
 				token: ReplayToken(
@@ -249,6 +258,12 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 				replacement:
 					"\t\troles[role.name] = servedRole(read.base, name, role.name, (read.roles[0] ?? role).isolation)",
 				why: "served gives every role token its login's first role's level; the levels' property fails."
+			},
+			{
+				file: "packages/grizzle/src/cli/config.ts",
+				original: "\tconst unknown = Arr.findFirst(Rec.keys(value), (k) => !allowed.includes(k))",
+				replacement: "\tconst unknown = Arr.findFirst(Rec.keys(value), (k) => true)",
+				why: "Operator mutant (boolean-return) at packages/grizzle/src/cli/config.ts:146 in onlyKeys: `!allowed.includes(k)` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		],
 		show: showCase

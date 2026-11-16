@@ -23,7 +23,13 @@ import {
 	targetGen
 } from "#test/unit/kernel/declared-names.fixtures.ts"
 
-/** The naming door's byte limit admits a declared name exactly when its conversion fits, and names its table by that conversion, whole. */
+/**
+ * The naming door's byte limit admits a declared name exactly when its conversion fits, and names its table by that
+ * conversion, whole.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/declared-name-limit: 400 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const theNamingDoorsByteLimitAdmitsADeclaredNameExactlyWhenItsConversionFitsAndNamesItsTableByThatConversionWhole =
 	property.explore(
 		(source) =>
@@ -72,12 +78,13 @@ export const theNamingDoorsByteLimitAdmitsADeclaredNameExactlyWhenItsConversionF
 				kind: "specification",
 				name: "the generator's own segments, lowercased and joined by underscores, and the limit on their bytes"
 			},
+			budget: { runs: 400, steered: 0 },
 			kept: [],
 			kills: [
 				{
 					file: "packages/engine/src/core/identity.ts",
-					original: "\t\treturn bytes > maxIdentifierBytes.value",
-					replacement: "\t\treturn bytes >= maxIdentifierBytes.value",
+					original: "\t\treturn bytes > maxIdentifierBytes",
+					replacement: "\t\treturn bytes >= maxIdentifierBytes",
 					why: "A conversion of exactly maxIdentifierBytes is refused; the byte-limit property fails."
 				},
 				{

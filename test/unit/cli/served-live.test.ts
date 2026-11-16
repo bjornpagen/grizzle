@@ -23,7 +23,12 @@ import { lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { drawnSchema, liveLoginGen } from "#test/support/served-login.ts"
 import { type Feature, liveIsTheUnion } from "#test/unit/cli/served-live.fixtures.ts"
 
-/** An installation's live plan is exactly the union of what its served reads route by. */
+/**
+ * An installation's live plan is exactly the union of what its served reads route by.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/served-live: 16 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const anInstallationsLivePlanIsExactlyTheUnionOfWhatItsServedReadsRouteBy = property.explore(
 	(source) => [source.draw(caseSketchGen), source.draw(lawLevelGen)] as const,
 	{
@@ -45,6 +50,7 @@ export const anInstallationsLivePlanIsExactlyTheUnionOfWhatItsServedReadsRouteBy
 			kind: "second-implementation",
 			name: "the union of the served files' read footprints, named back by the drafted snapshot's theory"
 		},
+		budget: { runs: 16, steered: 0 },
 		kept: [],
 		kills: [
 			{

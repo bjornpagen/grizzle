@@ -61,7 +61,13 @@ import {
 	wallClock
 } from "#test/unit/adapter/pool.fixtures.ts"
 
-/** The session pool keeps exactly the open connections and recovers from every interruption, loss and refusal, over drawn sequences. */
+/**
+ * The session pool keeps exactly the open connections and recovers from every interruption, loss and refusal, over
+ * drawn sequences.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/pool: 40 independent cases and 16 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInterruptionLossAndRefusalOverDrawnSequences =
 	property.explore(sequenceGen, {
 		needs: {},
@@ -363,6 +369,7 @@ export const theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInt
 			kind: "second-implementation",
 			name: "a model of the leases held, against the server's open connections and pg's Pool's counts"
 		},
+		budget: { runs: 40, steered: 16 },
 		kept: [
 			{
 				token: ReplayToken(

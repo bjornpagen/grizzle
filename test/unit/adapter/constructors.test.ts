@@ -27,7 +27,15 @@ import {
 	staleOf
 } from "#test/unit/adapter/constructors.fixtures.ts"
 
-/** The public failure and outcome constructors build every failure and outcome exactly as the adapter does, carrying each drawn fact, and the adapter's classifications build the same values. */
+/**
+ * The public failure and outcome constructors build every failure and outcome exactly as the adapter does, carrying
+ * each drawn fact, and the adapter's classifications build the same values.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/public-constructors: 1000 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a). At those counts its kill "40P01 is read as 40001, a deadlock as a
+ * serialization failure." survived at TEST_SEED=1 (toolchain-test run of 2026-11-16 08:21Z); at the runner's 150 runs
+ * and 200 steered, which it was landed at, it is killed, so it keeps them.
+ */
 export const thePublicFailureAndOutcomeConstructorsBuildEveryFailureAndOutcomeExactlyAsTheAdapterDoesCarryingEachDrawnFactAndTheAdaptersClassificationsBuildTheSameValues =
 	property.explore(constructorCases, {
 		needs: {},
@@ -179,6 +187,7 @@ export const thePublicFailureAndOutcomeConstructorsBuildEveryFailureAndOutcomeEx
 			kind: "specification",
 			name: "each constructor carries its facts as given, and the adapter's classification of the same facts is the public value"
 		},
+		budget: { runs: 150, steered: 200 },
 		kept: [],
 		kills: [
 			{

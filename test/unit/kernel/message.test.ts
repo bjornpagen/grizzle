@@ -36,7 +36,13 @@ import {
 	word
 } from "#test/unit/kernel/message.fixtures.ts"
 
-/** A failure's message states a CompileError by its reason, location and sentence, a collision's other location and an artifact's path. */
+/**
+ * A failure's message states a CompileError by its reason, location and sentence, a collision's other location and an
+ * artifact's path.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/compile-error-message: 80 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const aFailuresMessageStatesACompileErrorByItsReasonLocationAndSentenceACollisionsOtherLocationAndAnArtifactsPath =
 	property.explore(compileErrorGen, {
 		needs: {},
@@ -71,11 +77,25 @@ export const aFailuresMessageStatesACompileErrorByItsReasonLocationAndSentenceAC
 			kind: "specification",
 			name: "the reason's tag, its location formatted, its sentence (compileReasonText) and a collision's other location, each in the report"
 		},
+		budget: { runs: 80, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/errors.ts",
+				original: `\t\treturn \`MalformedArtifact in the \${reason.artifact}\${reason.at.length === 0 ? "" : \` at \${formatPath(reason.at)}\`}: \${reason.what}\``,
+				replacement: `\t\treturn \`MalformedArtifact in the \${reason.artifact}\${reason.at.length === 0 ? \` at \${formatPath(reason.at)}\` : ""}: \${reason.what}\``,
+				why: `Operator mutant (arm-swap) at packages/engine/src/core/errors.ts:926 in compileErrorMessage: \`reason.at.length === 0 ? "" : \` at \${formatPath(reason.at)}\`\` becomes \`reason.at.length === 0 ? \` at \${formatPath(reason.at)}\` : ""\`; the property fails (lane CATCH, grizzle 0baff5d6).`
+			}
+		]
 	})
 
-/** A failure's message states a tagged failure by its tag and every field, down the chain of its causes and through its fields. */
+/**
+ * A failure's message states a tagged failure by its tag and every field, down the chain of its causes and through its
+ * fields.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/tagged-message: 80 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aFailuresMessageStatesATaggedFailureByItsTagAndEveryFieldDownTheChainOfItsCausesAndThroughItsFields =
 	property.explore(
 		(source): TaggedSketch => ({
@@ -122,12 +142,25 @@ export const aFailuresMessageStatesATaggedFailureByItsTagAndEveryFieldDownTheCha
 				kind: "specification",
 				name: "the tag, every field and every cause's facts, each in the report"
 			},
+			budget: { runs: 80, steered: 0 },
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/core/errors.ts",
+					original: '\tError.isError(value) && "_tag" in value && value._tag === "CompileError"',
+					replacement: '\tError.isError(value) && "_tag" in value',
+					why: 'Operator mutant (conjunct) at packages/engine/src/core/errors.ts:1015 in isCompileError: `Error.isError(value) && "_tag" in value && value._tag === "CompileError"` becomes `Error.isError(value) && "_tag" in value`; the property fails (lane CATCH, grizzle 0baff5d6).'
+				}
+			]
 		}
 	)
 
-/** A failure's message states an end that is no Error, or an Error of no message, by what it is. */
+/**
+ * A failure's message states an end that is no Error, or an Error of no message, by what it is.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/no-error-message: 60 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aFailuresMessageStatesAnEndThatIsNoErrorOrAnErrorOfNoMessageByWhatItIs =
 	property.explore(endGen, {
 		needs: {},
@@ -154,6 +187,14 @@ export const aFailuresMessageStatesAnEndThatIsNoErrorOrAnErrorOfNoMessageByWhatI
 				}
 			}),
 		oracle: { kind: "specification", name: "the end's own formatting, in the report" },
+		budget: { runs: 60, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/errors.ts",
+				original: '\tError.isError(value) && "_tag" in value && value._tag === "CompileError"',
+				replacement: "\ttrue",
+				why: 'Operator mutant (boolean-return) at packages/engine/src/core/errors.ts:1015 in isCompileError: `Error.isError(value) && "_tag" in value && value._tag === "CompileError"` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
 	})

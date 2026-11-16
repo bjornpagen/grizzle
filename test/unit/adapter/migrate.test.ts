@@ -65,7 +65,13 @@ import {
 	unrecordedStatement
 } from "#test/unit/adapter/migrate.fixtures.ts"
 
-/** Transaction control in a migration file refuses exactly the statements PostgreSQL's grammar reads as controlling a transaction, past comments of both kinds. */
+/**
+ * Transaction control in a migration file refuses exactly the statements PostgreSQL's grammar reads as controlling a
+ * transaction, past comments of both kinds.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/transaction-control: 600 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const transactionControlInAMigrationFileRefusesExactlyTheStatementsPostgreSQLsGrammarReadsAsControllingATransactionPastCommentsOfBothKinds =
 	property.explore(statementGen, {
 		needs: {},
@@ -110,6 +116,7 @@ export const transactionControlInAMigrationFileRefusesExactlyTheStatementsPostgr
 			kind: "specification",
 			name: "PostgreSQL's grammar of transaction control (gram.y TransactionStmt), per statement form"
 		},
+		budget: { runs: 600, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -122,7 +129,13 @@ export const transactionControlInAMigrationFileRefusesExactlyTheStatementsPostgr
 		]
 	})
 
-/** The input check before any connection orders the folders by name and the files by ordinal with each one's mode, and refuses each fault planted in them at stage input, naming it. */
+/**
+ * The input check before any connection orders the folders by name and the files by ordinal with each one's mode, and
+ * refuses each fault planted in them at stage input, naming it.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/migrate-input: 150 independent cases and 16 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theInputCheckBeforeAnyConnectionOrdersTheFoldersByNameAndTheFilesByOrdinalWithEachOnesModeAndRefusesEachFaultPlantedInThemAtStageInputNamingIt =
 	property.explore(inputCaseGen, {
 		needs: {},
@@ -196,11 +209,25 @@ export const theInputCheckBeforeAnyConnectionOrdersTheFoldersByNameAndTheFilesBy
 			kind: "specification",
 			name: "the chain's drafts in name order, each fault's refusal planted at its folder"
 		},
+		budget: { runs: 150, steered: 16 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/deploy/snapshot/build.ts",
+				original: `\t\twrite(members, \`\${JSON.stringify(key)}: \`, member, i === entries.length - 1 ? "" : ",")`,
+				replacement: `\t\twrite(members, \`\${JSON.stringify(key)}: \`, member, i === entries.length - 1 ? "," : "")`,
+				why: 'Operator mutant (arm-swap) at packages/engine/src/deploy/snapshot/build.ts:1305 in nestedValue: `i === entries.length - 1 ? "" : ","` becomes `i === entries.length - 1 ? "," : ""`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
 	})
 
-/** The plan: skip, resume, run, or refuse before any statement runs exactly the folders the ledger has not applied, resuming the partial one, or refuses in the documented order. */
+/**
+ * The plan: skip, resume, run, or refuse before any statement runs exactly the folders the ledger has not applied,
+ * resuming the partial one, or refuses in the documented order.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/migrate-plan: 200 independent cases and 64 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const thePlanSkipResumeRunOrRefuseBeforeAnyStatementRunsExactlyTheFoldersTheLedgerHasNotAppliedResumingThePartialOneOrRefusesInTheDocumentedOrder =
 	property.explore(planCases, {
 		needs: {},
@@ -501,6 +528,7 @@ export const thePlanSkipResumeRunOrRefuseBeforeAnyStatementRunsExactlyTheFolders
 			kind: "specification",
 			name: "the planner's documented order, restated over the chain's positions"
 		},
+		budget: { runs: 200, steered: 64 },
 		kept: [],
 		kills: [
 			{

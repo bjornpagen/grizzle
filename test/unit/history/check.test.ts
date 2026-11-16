@@ -45,7 +45,13 @@ import {
 	hostWitnessOf
 } from "#test/unit/history/check.fixtures.ts"
 
-/** The history checker agrees with a naive enumerator on generated histories of two or three operations on one keyed relation. */
+/**
+ * The history checker agrees with a naive enumerator on generated histories of two or three operations on one keyed
+ * relation.
+ *
+ * Budget: its suite's count before the conversion (unit/history-checker: 3000 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theHistoryCheckerAgreesWithANaiveEnumeratorOnGeneratedHistoriesOfTwoOrThreeOperationsOnOneKeyedRelation =
 	property.explore(historyGen, {
 		needs: {},
@@ -106,6 +112,7 @@ export const theHistoryCheckerAgreesWithANaiveEnumeratorOnGeneratedHistoriesOfTw
 			kind: "second-implementation",
 			name: "a naive enumerator of every real-time-respecting serial order"
 		},
+		budget: { runs: 3000, steered: 0 },
 		kept: [],
 		kills: []
 	})

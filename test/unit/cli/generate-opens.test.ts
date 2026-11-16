@@ -155,8 +155,8 @@ export const generateAndDbLayerMakeCompileALoginsProgramsAlikeAtTheSelectListsBo
 		kills: [
 			{
 				file: "packages/engine/src/sql/print.ts",
-				original: "\tif (targets.length > selectMaxEntries.value) {",
-				replacement: "\tif (targets.length >= selectMaxEntries.value) {",
+				original: "\tif (targets.length > selectMaxEntries) {",
+				replacement: "\tif (targets.length >= selectMaxEntries) {",
 				why: "A select list at the bound is refused."
 			}
 		]

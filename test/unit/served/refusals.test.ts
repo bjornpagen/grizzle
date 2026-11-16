@@ -41,7 +41,13 @@ import {
 	sketchGen
 } from "#test/unit/served/refusals.fixtures.ts"
 
-/** A served login's classifier classifies every refusal a role's writes can raise exactly as its installation's full classifier does. */
+/**
+ * A served login's classifier classifies every refusal a role's writes can raise exactly as its installation's full
+ * classifier does.
+ *
+ * Budget: its suite's count before the conversion (unit/served/refusals: 60 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const aServedLoginsClassifierClassifiesEveryRefusalARolesWritesCanRaiseExactlyAsItsInstallationsFullClassifierDoes =
 	property.explore(aimed(sketchGen("drawn"), [[contractClaim, sketchGen("contract claim")]]), {
 		needs: {},
@@ -77,6 +83,7 @@ export const aServedLoginsClassifierClassifiesEveryRefusalARolesWritesCanRaiseEx
 			kind: "second-implementation",
 			name: "the installation's full classifier (adapter/served/refusals.ts installationWitness), over the refusals test/support/served-reach.ts computes"
 		},
+		budget: { runs: 60, steered: 0 },
 		kept: [],
 		kills: [
 			{

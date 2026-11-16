@@ -50,7 +50,12 @@ import {
 	worldSound
 } from "#test/unit/served/routes-sound.fixtures.ts"
 
-/** A read's routes reach every change of a row that alters the read's answer. */
+/**
+ * A read's routes reach every change of a row that alters the read's answer.
+ *
+ * Budget: its suite's count before the conversion (unit/served/routes-sound: 60 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aReadsRoutesReachEveryChangeOfARowThatAltersTheReadsAnswer = property.explore(
 	aimed(sketchGen("drawn"), [
 		[routedChange, sketchGen("routed")],
@@ -74,6 +79,7 @@ export const aReadsRoutesReachEveryChangeOfARowThatAltersTheReadsAnswer = proper
 			kind: "specification",
 			name: "the reference's answer over the case's facts with and without each fact (meaning.ts expectedQuery)"
 		},
+		budget: { runs: 60, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -101,7 +107,12 @@ export const aReadsRoutesReachEveryChangeOfARowThatAltersTheReadsAnswer = proper
 	}
 )
 
-/** A read's routes reach every change of a row that alters a read through a query entry. */
+/**
+ * A read's routes reach every change of a row that alters a read through a query entry.
+ *
+ * Budget: its suite's count before the conversion (unit/served/routes-sound/world: 60 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aReadsRoutesReachEveryChangeOfARowThatAltersAReadThroughAQueryEntry = property.explore(
 	caseSketchGen,
 	{
@@ -137,6 +148,7 @@ export const aReadsRoutesReachEveryChangeOfARowThatAltersAReadThroughAQueryEntry
 			kind: "specification",
 			name: "the reference's answer over the read's inlined IR, the case's facts with and without each fact"
 		},
+		budget: { runs: 60, steered: 0 },
 		kept: [],
 		kills: [
 			{

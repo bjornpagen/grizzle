@@ -18,7 +18,12 @@ import { Sqlstate } from "#compiler/core/sqlstate.ts"
 import { assert } from "#test/support/assert.ts"
 import { type Feature, reference, textGen } from "#test/unit/deps/scanners.fixtures.ts"
 
-/** Scanners that replace a RegExp under src: Sqlstate.parse reads exactly /^[0-9A-Z]{5}$/, as the text itself. */
+/**
+ * Scanners that replace a RegExp under src: Sqlstate.parse reads exactly /^[0-9A-Z]{5}$/, as the text itself.
+ *
+ * Budget: its suite's count before the conversion (unit/deps/scanners-sqlstate: 2000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const scannersThatReplaceARegExpUnderSrcSqlstateParseReadsExactly09AZ5AsTheTextItself =
 	property.explore(textGen, {
 		needs: {},
@@ -46,6 +51,7 @@ export const scannersThatReplaceARegExpUnderSrcSqlstateParseReadsExactly09AZ5AsT
 			kind: "second-implementation",
 			name: "the RegExp /^[0-9A-Z]{5}$/ it replaced"
 		},
+		budget: { runs: 2000, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -54,6 +60,13 @@ export const scannersThatReplaceARegExpUnderSrcSqlstateParseReadsExactly09AZ5AsT
 				replacement:
 					"\t\tif (!((unit >= 0x30 && unit <= 0x39) || (unit >= 0x41 && unit <= 0x59))) {",
 				why: "Sqlstate.parse's range of capitals ends at Y; the property fails."
+			},
+			{
+				file: "packages/engine/src/core/sqlstate.ts",
+				original:
+					"\t\tif (!((unit >= 0x30 && unit <= 0x39) || (unit >= 0x41 && unit <= 0x5a))) {\n\t\t\treturn undefined\n\t\t}",
+				replacement: "\t\t{}",
+				why: "Operator mutant (guard) at packages/engine/src/core/sqlstate.ts:34 in parse: `if (!((unit >= 0x30 && unit <= 0x39) || (unit >= 0x41 && unit <= 0x5a))) {\n\t\t\tre` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})

@@ -64,7 +64,12 @@ import {
 	thunkOutcomes
 } from "#test/unit/kernel/assert.fixtures.ts"
 
-/** The assertion door holds unorderedEqual exactly between lists that are one set, each holding every element once. */
+/**
+ * The assertion door holds unorderedEqual exactly between lists that are one set, each holding every element once.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/unordered-equal: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theAssertionDoorHoldsUnorderedEqualExactlyBetweenListsThatAreOneSetEachHoldingEveryElementOnce =
 	property.explore(
 		(source) => ({
@@ -103,12 +108,18 @@ export const theAssertionDoorHoldsUnorderedEqualExactlyBetweenListsThatAreOneSet
 				kind: "second-implementation",
 				name: "element counts under deepStrictEqual's equality"
 			},
+			budget: { runs: 300, steered: 0 },
 			kept: [],
 			kills: []
 		}
 	)
 
-/** The assertion door holds refused exactly for a failure of its reason, and succeeded exactly for a success. */
+/**
+ * The assertion door holds refused exactly for a failure of its reason, and succeeded exactly for a success.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/refused: 200 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theAssertionDoorHoldsRefusedExactlyForAFailureOfItsReasonAndSucceededExactlyForASuccess =
 	property.explore(plantedGen(proseTags), {
 		needs: {},
@@ -149,11 +160,24 @@ export const theAssertionDoorHoldsRefusedExactlyForAFailureOfItsReasonAndSucceed
 					}
 				}),
 		oracle: { kind: "specification", name: "the planted outcome and its reason" },
+		budget: { runs: 200, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/loc.ts",
+				original: `\tconst head = path === "" ? loc.label : \`\${loc.label} at \${path}\``,
+				replacement: `\tconst head = path === "" ? \`\${loc.label} at \${path}\` : loc.label`,
+				why: `Operator mutant (arm-swap) at packages/engine/src/core/loc.ts:146 in formatLoc: \`path === "" ? loc.label : \`\${loc.label} at \${path}\`\` becomes \`path === "" ? \`\${loc.label} at \${path}\` : loc.label\`; the property fails (lane CATCH, grizzle 0baff5d6).`
+			}
+		]
 	})
 
-/** The assertion door holds faulted exactly for a failure that is its fault. */
+/**
+ * The assertion door holds faulted exactly for a failure that is its fault.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/faulted: 200 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theAssertionDoorHoldsFaultedExactlyForAFailureThatIsItsFault = property.explore(
 	plantedGen(valueFaultWords),
 	{
@@ -179,12 +203,19 @@ export const theAssertionDoorHoldsFaultedExactlyForAFailureThatIsItsFault = prop
 					)
 				}),
 		oracle: { kind: "specification", name: "the planted outcome and its fault" },
+		budget: { runs: 200, steered: 0 },
 		kept: [],
 		kills: []
 	}
 )
 
-/** The assertion door holds refusedAt exactly for a failure whose named field holds the value, whatever its other fields. */
+/**
+ * The assertion door holds refusedAt exactly for a failure whose named field holds the value, whatever its other
+ * fields.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/refused-at: 200 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theAssertionDoorHoldsRefusedAtExactlyForAFailureWhoseNamedFieldHoldsTheValueWhateverItsOtherFields =
 	property.explore(
 		(source) => ({
@@ -219,12 +250,19 @@ export const theAssertionDoorHoldsRefusedAtExactlyForAFailureWhoseNamedFieldHold
 						}
 					}),
 			oracle: { kind: "specification", name: "the planted outcome and its stage" },
+			budget: { runs: 200, steered: 0 },
 			kept: [],
 			kills: []
 		}
 	)
 
-/** The assertion door holds matchesObject on an Option field exactly when the field is an Option of the pattern's case and value. */
+/**
+ * The assertion door holds matchesObject on an Option field exactly when the field is an Option of the pattern's case
+ * and value.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/matches-option: 200 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theAssertionDoorHoldsMatchesObjectOnAnOptionFieldExactlyWhenTheFieldIsAnOptionOfThePatternsCaseAndValue =
 	property.explore(
 		(source) => ({
@@ -270,12 +308,18 @@ export const theAssertionDoorHoldsMatchesObjectOnAnOptionFieldExactlyWhenTheFiel
 						)
 					}),
 			oracle: { kind: "specification", name: "the Option's case and value compared by hand" },
+			budget: { runs: 200, steered: 0 },
 			kept: [],
 			kills: []
 		}
 	)
 
-/** The assertion door holds throwsRefused exactly for a thunk that throws a CompileError of its reason. */
+/**
+ * The assertion door holds throwsRefused exactly for a thunk that throws a CompileError of its reason.
+ *
+ * Budget: its suite's count before the conversion (unit/kernel/throws-refused: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theAssertionDoorHoldsThrowsRefusedExactlyForAThunkThatThrowsACompileErrorOfItsReason =
 	property.explore(
 		(source) => ({
@@ -327,7 +371,15 @@ export const theAssertionDoorHoldsThrowsRefusedExactlyForAThunkThatThrowsACompil
 						}
 					}),
 			oracle: { kind: "specification", name: "the planted thunk's outcome and its reason" },
+			budget: { runs: 300, steered: 0 },
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/core/errors.ts",
+					original: '\tError.isError(value) && "_tag" in value && value._tag === "CompileError"',
+					replacement: '\tError.isError(value) && "_tag" in value && value._tag !== "CompileError"',
+					why: "Operator mutant (comparison) at packages/engine/src/core/errors.ts:1015 in isCompileError: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)

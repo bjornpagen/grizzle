@@ -44,7 +44,13 @@ import {
 	situationsOf
 } from "#test/unit/cli/served-refresh.fixtures.ts"
 
-/** Served refresh members a refresh member's served targets are its call's set of relations in level order, check refuses a committed one of another set naming the member, and generate writes it back drafting no folder. */
+/**
+ * Served refresh members a refresh member's served targets are its call's set of relations in level order, check
+ * refuses a committed one of another set naming the member, and generate writes it back drafting no folder.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/served-refresh: 8 independent cases and 32 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const servedRefreshMembersARefreshMembersServedTargetsAreItsCallsSetOfRelationsInLevelOrderCheckRefusesACommittedOneOfAnotherSetNamingTheMemberAndGenerateWritesItBackDraftingNoFolder =
 	property.explore(callsGen, {
 		needs: {},
@@ -152,6 +158,7 @@ export const servedRefreshMembersARefreshMembersServedTargetsAreItsCallsSetOfRel
 			kind: "specification",
 			name: "the first draft of each set of relations, whose targets are the set in level order"
 		},
+		budget: { runs: 8, steered: 32 },
 		kept: [],
 		kills: [
 			{

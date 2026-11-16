@@ -25,7 +25,12 @@ import { lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { drawnSchema, loginGen } from "#test/support/served-login.ts"
 import { type Feature, routesOf } from "#test/unit/live/routes.fixtures.ts"
 
-/** The HTTP surface's routes are exactly the login's served members, one route each. */
+/**
+ * The HTTP surface's routes are exactly the login's served members, one route each.
+ *
+ * Budget: its suite's count before the conversion (unit/live/routes: 60 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theHTTPSurfacesRoutesAreExactlyTheLoginsServedMembersOneRouteEach = property.explore(
 	(source) => [source.draw(caseSketchGen), source.draw(lawLevelGen)] as const,
 	{
@@ -49,6 +54,7 @@ export const theHTTPSurfacesRoutesAreExactlyTheLoginsServedMembersOneRouteEach =
 			kind: "specification",
 			name: "the programs each drawn role's workload was built with, by their drawn names"
 		},
+		budget: { runs: 60, steered: 0 },
 		kept: [],
 		kills: [
 			{

@@ -86,7 +86,16 @@ export const guardedKeysAtStartupDecideEachRelationsObjectsBeyondItsPrimaryKeyOn
 		},
 		box: "2h, 4h and 6h guarded keys for h of 1 and 2",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/schema/world.ts",
+				original:
+					'\tconst roleName = requireName(name, label, "a role name")\n\tif (extra.length > 0) {\n\t\tthrow malformed(label, "role(base, name, relations, options?): at most four arguments")',
+				replacement:
+					'\tconst roleName = requireName(name, label, "a role name")\n\tif (extra.length <= 0) {\n\t\tthrow malformed(label, "role(base, name, relations, options?): at most four arguments")',
+				why: "Operator mutant (comparison) at packages/engine/src/schema/world.ts:302 in admitRole: `>` becomes `<=`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
 /** The install order compares its objects within a binary heap's bound on its pushes. */

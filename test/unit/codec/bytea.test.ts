@@ -17,7 +17,12 @@ import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { arraysOf, cases, type Feature, readArray } from "#test/unit/codec/bytea.fixtures.ts"
 
-/** A bytes column's binary array holds each value as admitted, and refuses an array a caller changed since admission. */
+/**
+ * A bytes column's binary array holds each value as admitted, and refuses an array a caller changed since admission.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/bytea: 200 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const aBytesColumnsBinaryArrayHoldsEachValueAsAdmittedAndRefusesAnArrayACallerChangedSinceAdmission =
 	property.explore(cases, {
 		needs: {},
@@ -77,6 +82,7 @@ export const aBytesColumnsBinaryArrayHoldsEachValueAsAdmittedAndRefusesAnArrayAC
 				assert.deepEqual(readArray(written.value), before, "each value as admitted, in order")
 			}),
 		oracle: { kind: "second-implementation", name: "the array binary format read back" },
+		budget: { runs: 200, steered: 0 },
 		kept: [],
 		kills: [
 			{

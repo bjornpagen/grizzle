@@ -38,7 +38,13 @@ import {
 	uuidAt
 } from "#test/unit/adapter/reader.fixtures.ts"
 
-/** Every declared parameter admitted at the read boundary refuses a scalar parameter of another host type whether or not the optimized artifact binds it, and admits a valid one. */
+/**
+ * Every declared parameter admitted at the read boundary refuses a scalar parameter of another host type whether or
+ * not the optimized artifact binds it, and admits a valid one.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/reader-eliminated-parameter: 100 independent cases and
+ * 0 steered, Vitest at grizzle 4ca3036a).
+ */
 export const everyDeclaredParameterAdmittedAtTheReadBoundaryRefusesAScalarParameterOfAnotherHostTypeWhetherOrNotTheOptimizedArtifactBindsItAndAdmitsAValidOne =
 	property.explore(pinnedReadGen, {
 		needs: {},
@@ -115,6 +121,7 @@ export const everyDeclaredParameterAdmittedAtTheReadBoundaryRefusesAScalarParame
 			kind: "specification",
 			name: "every declared parameter is admitted at the read boundary, whatever the optimizer eliminated"
 		},
+		budget: { runs: 100, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -126,7 +133,13 @@ export const everyDeclaredParameterAdmittedAtTheReadBoundaryRefusesAScalarParame
 		]
 	})
 
-/** A read's relation input is its distinct facts, in arrays of every column order a slot reads, from any delivery and any number of facts; a codec's refusal names its slot. */
+/**
+ * A read's relation input is its distinct facts, in arrays of every column order a slot reads, from any delivery and
+ * any number of facts; a codec's refusal names its slot.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/reader-inputs: 120 independent cases and 80 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aReadsRelationInputIsItsDistinctFactsInArraysOfEveryColumnOrderASlotReadsFromAnyDeliveryAndAnyNumberOfFactsACodecsRefusalNamesItsSlot =
 	property.explore(inputCaseGen, {
 		needs: {},
@@ -261,6 +274,14 @@ export const aReadsRelationInputIsItsDistinctFactsInArraysOfEveryColumnOrderASlo
 			kind: "specification",
 			name: "the input's distinct facts, projected onto each column order a slot reads"
 		},
+		budget: { runs: 120, steered: 80 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/reader/relations.ts",
+				original: '\tif (typeof value !== "object" || !Predicate.isIterable(value)) {',
+				replacement: '\tif (typeof value === "object" || !Predicate.isIterable(value)) {',
+				why: "Operator mutant (comparison) at packages/grizzle/src/adapter/reader/relations.ts:144 in prepareInput: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

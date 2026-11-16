@@ -44,7 +44,13 @@ import {
 	wholeId
 } from "#test/unit/live/changes.fixtures.ts"
 
-/** The live leader's reading of a replication stream a transaction's keys are the coverage rule's, and an announcement names only views. */
+/**
+ * The live leader's reading of a replication stream a transaction's keys are the coverage rule's, and an announcement
+ * names only views.
+ *
+ * Budget: its suite's count before the conversion (unit/live/changes: 500 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theLiveLeadersReadingOfAReplicationStreamATransactionsKeysAreTheCoverageRulesAndAnAnnouncementNamesOnlyViews =
 	property.explore(
 		(s) => ({
@@ -166,6 +172,7 @@ export const theLiveLeadersReadingOfAReplicationStreamATransactionsKeysAreTheCov
 				kind: "second-implementation",
 				name: "the coverage rule over the drawn changes"
 			},
+			budget: { runs: 500, steered: 0 },
 			kept: [],
 			kills: [
 				{

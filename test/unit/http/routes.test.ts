@@ -62,7 +62,12 @@ import {
 	sketchGen
 } from "#test/unit/http/routes.fixtures.ts"
 
-/** An HTTP handler's routes are exactly the served members, and every request is answered as one stream of events. */
+/**
+ * An HTTP handler's routes are exactly the served members, and every request is answered as one stream of events.
+ *
+ * Budget: its suite's count before the conversion (unit/http/routes: 60 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const anHTTPHandlersRoutesAreExactlyTheServedMembersAndEveryRequestIsAnsweredAsOneStreamOfEvents =
 	property.explore(aimed(sketchGen("drawn"), [[noBearer, sketchGen("no bearer")]]), {
 		needs: {},
@@ -139,6 +144,7 @@ export const anHTTPHandlersRoutesAreExactlyTheServedMembersAndEveryRequestIsAnsw
 			kind: "specification",
 			name: "the served file's members, their roles' contexts, and the order of a call's checks"
 		},
+		budget: { runs: 60, steered: 0 },
 		kept: [],
 		kills: [
 			{

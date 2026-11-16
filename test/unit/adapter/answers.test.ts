@@ -149,7 +149,12 @@ export const anAttachmentsDeliveryDeliversWhatItsProofAllowsAndIsADefectNamingTh
 		]
 	})
 
-/** A statement's rows are a set: a row the answer holds twice, in any spelling, is UnreadableAnswer at its statement. */
+/**
+ * A statement's rows are a set: a row the answer holds twice, in any spelling, is UnreadableAnswer at its statement.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/answers-rows: 500 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aStatementsRowsAreASetARowTheAnswerHoldsTwiceInAnySpellingIsUnreadableAnswerAtItsStatement =
 	property.explore(stitchCases, {
 		needs: {},
@@ -240,6 +245,7 @@ export const aStatementsRowsAreASetARowTheAnswerHoldsTwiceInAnySpellingIsUnreada
 			kind: "specification",
 			name: "the delivered set: the generated rows, distinct until the case plants a repeat"
 		},
+		budget: { runs: 500, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -252,7 +258,13 @@ export const aStatementsRowsAreASetARowTheAnswerHoldsTwiceInAnySpellingIsUnreada
 		]
 	})
 
-/** A window's rows strictly increase in the fetch order and stop at the LIMIT, so an equal tuple, a step back or a row past the LIMIT is UnreadableAnswer, never a delivered row. */
+/**
+ * A window's rows strictly increase in the fetch order and stop at the LIMIT, so an equal tuple, a step back or a row
+ * past the LIMIT is UnreadableAnswer, never a delivered row.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/answers-page: 500 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aWindowsRowsStrictlyIncreaseInTheFetchOrderAndStopAtTheLIMITSoAnEqualTupleAStepBackOrARowPastTheLIMITIsUnreadableAnswerNeverADeliveredRow =
 	property.explore(pageCases, {
 		needs: {},
@@ -331,6 +343,7 @@ export const aWindowsRowsStrictlyIncreaseInTheFetchOrderAndStopAtTheLIMITSoAnEqu
 			kind: "specification",
 			name: "a window the first min(size, n) of n increasing rows"
 		},
+		budget: { runs: 500, steered: 0 },
 		kept: [],
 		kills: [
 			{

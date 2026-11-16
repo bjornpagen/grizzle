@@ -29,7 +29,13 @@ import {
 	readFails
 } from "#test/unit/bench/plans.fixtures.ts"
 
-/** The EXPLAIN readers read every node's type, every index a node names and every labelled edge, in plan order, from either cell form. */
+/**
+ * The EXPLAIN readers read every node's type, every index a node names and every labelled edge, in plan order, from
+ * either cell form.
+ *
+ * Budget: its suite's count before the conversion (unit/bench/plan-readers: 200 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theEXPLAINReadersReadEveryNodesTypeEveryIndexANodeNamesAndEveryLabelledEdgeInPlanOrderFromEitherCellForm =
 	property.explore((source) => ({ plan: source.draw(planGen), text: source.draw(boolean) }), {
 		needs: {},
@@ -86,11 +92,17 @@ export const theEXPLAINReadersReadEveryNodesTypeEveryIndexANodeNamesAndEveryLabe
 			kind: "specification",
 			name: "the plan the generator states, printed as EXPLAIN prints it and read back"
 		},
+		budget: { runs: 200, steered: 0 },
 		kept: [],
 		kills: []
 	})
 
-/** The EXPLAIN readers refuse a cell that is not one plan. */
+/**
+ * The EXPLAIN readers refuse a cell that is not one plan.
+ *
+ * Budget: its suite's count before the conversion (unit/bench/plan-readers-malformed: 100 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const theEXPLAINReadersRefuseACellThatIsNotOnePlan = property.explore(
 	(source) => ({
 		plan: source.draw(planGen),
@@ -137,6 +149,7 @@ export const theEXPLAINReadersRefuseACellThatIsNotOnePlan = property.explore(
 			kind: "specification",
 			name: "a cell that is not one plan is refused as MalformedPlan by every reader"
 		},
+		budget: { runs: 100, steered: 0 },
 		kept: [],
 		kills: []
 	}

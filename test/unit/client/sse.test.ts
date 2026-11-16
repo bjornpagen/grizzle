@@ -31,7 +31,12 @@ import {
 	streams
 } from "#test/unit/client/sse.fixtures.ts"
 
-/** The client's event-stream reader reads every framing of an event stream into exactly the events it means. */
+/**
+ * The client's event-stream reader reads every framing of an event stream into exactly the events it means.
+ *
+ * Budget: its suite's count before the conversion (unit/client/sse: 400 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theClientsEventStreamReaderReadsEveryFramingOfAnEventStreamIntoExactlyTheEventsItMeans =
 	property.explore(streams, {
 		needs: {},
@@ -97,6 +102,7 @@ export const theClientsEventStreamReaderReadsEveryFramingOfAnEventStreamIntoExac
 			kind: "second-implementation",
 			name: "the events the drawn stream means, and the WHATWG grammar read over the whole text at once"
 		},
+		budget: { runs: 400, steered: 0 },
 		kept: [],
 		kills: [
 			{

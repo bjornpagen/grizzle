@@ -36,7 +36,15 @@ import {
 	windowOf
 } from "#test/unit/page/request.fixtures.ts"
 
-/** A window admits exactly an anchor and a size as its template's call, and refuses every other window by its members, its size or its anchor. */
+/**
+ * A window admits exactly an anchor and a size as its template's call, and refuses every other window by its members,
+ * its size or its anchor.
+ *
+ * Budget: its suite's count before the conversion (unit/page/window: 2000 independent cases and 640 steered, Vitest at
+ * grizzle 4ca3036a). At those counts its kill "A key longer than the comparators is admitted" survived at TEST_SEED=1
+ * (toolchain-test run of 2026-11-16 08:21Z); at the runner's 150 runs and 200 steered, which it was landed at, it is
+ * killed, so it keeps them.
+ */
 export const aWindowAdmitsExactlyAnAnchorAndASizeAsItsTemplatesCallAndRefusesEveryOtherWindowByItsMembersItsSizeOrItsAnchor =
 	property.explore(aimed(windowCaseGen, windowAims), {
 		needs: {},
@@ -73,6 +81,7 @@ export const aWindowAdmitsExactlyAnAnchorAndASizeAsItsTemplatesCallAndRefusesEve
 				)
 			}),
 		oracle: { kind: "specification", name: "the window rule restated (expectedOf)" },
+		budget: { runs: 150, steered: 200 },
 		kept: [],
 		kills: [
 			{

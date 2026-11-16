@@ -26,7 +26,12 @@ import {
 	textGen
 } from "#test/unit/oracle-install/capture.fixtures.ts"
 
-/** UnquoteLiteral reads every literal quote_literal writes as its text, and refuses every literal with a fault planted. */
+/**
+ * UnquoteLiteral reads every literal quote_literal writes as its text, and refuses every literal with a fault planted.
+ *
+ * Budget: its suite's count before the conversion (unit/oracle-install/capture: 2000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const unquoteLiteralReadsEveryLiteralQuoteLiteralWritesAsItsTextAndRefusesEveryLiteralWithAFaultPlanted =
 	property.explore(textGen, {
 		needs: {},
@@ -71,6 +76,7 @@ export const unquoteLiteralReadsEveryLiteralQuoteLiteralWritesAsItsTextAndRefuse
 			kind: "universal",
 			name: "unquoteLiteral ∘ quote_literal = id, and no planted fault reads back"
 		},
+		budget: { runs: 2000, steered: 0 },
 		kept: [],
 		kills: []
 	})

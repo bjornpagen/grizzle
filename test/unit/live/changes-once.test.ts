@@ -38,7 +38,13 @@ import {
 	type Taking
 } from "#test/unit/live/changes-once.fixtures.ts"
 
-/** A registered live read's changes are taken once: a second take dies wherever it comes, and the first consumer hears every change. */
+/**
+ * A registered live read's changes are taken once: a second take dies wherever it comes, and the first consumer hears
+ * every change.
+ *
+ * Budget: its suite's count before the conversion (unit/live/changes-once: 48 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const aRegisteredLiveReadsChangesAreTakenOnceASecondTakeDiesWhereverItComesAndTheFirstConsumerHearsEveryChange =
 	property.explore(
 		(source) => ({
@@ -148,6 +154,7 @@ export const aRegisteredLiveReadsChangesAreTakenOnceASecondTakeDiesWhereverItCom
 				kind: "specification",
 				name: "the drawn point of the second take and the row written"
 			},
+			budget: { runs: 48, steered: 0 },
 			kept: [],
 			kills: [
 				{

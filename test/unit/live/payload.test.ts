@@ -32,7 +32,13 @@ import {
 	table
 } from "#test/unit/live/payload.fixtures.ts"
 
-/** A sealed batch of the fan-out opens to exactly its notifications, every value byte for byte, and an authenticated batch that is no UTF-8 is a defect. */
+/**
+ * A sealed batch of the fan-out opens to exactly its notifications, every value byte for byte, and an authenticated
+ * batch that is no UTF-8 is a defect.
+ *
+ * Budget: its suite's count before the conversion (unit/live/payload: 200 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const aSealedBatchOfTheFanOutOpensToExactlyItsNotificationsEveryValueByteForByteAndAnAuthenticatedBatchThatIsNoUTF8IsADefect =
 	property.explore(caseGen, {
 		needs: {},
@@ -81,6 +87,7 @@ export const aSealedBatchOfTheFanOutOpensToExactlyItsNotificationsEveryValueByte
 			kind: "specification",
 			name: "the sealed notifications themselves, and 0xFF, which no well-formed UTF-8 holds"
 		},
+		budget: { runs: 200, steered: 0 },
 		kept: [],
 		kills: [
 			{

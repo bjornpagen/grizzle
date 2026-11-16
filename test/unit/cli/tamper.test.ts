@@ -26,7 +26,15 @@ import { Effect } from "effect"
 import { cliClock, workspace } from "#test/pg/cli/support.ts"
 import { casesGen, drafted, type Kind, kinds, tampered } from "#test/unit/cli/tamper.fixtures.ts"
 
-/** A committed migrations directory tampered with, generated: generate refuses by the reason naming the entry and writes nothing, and check reports it. */
+/**
+ * A committed migrations directory tampered with, generated: generate refuses by the reason naming the entry and
+ * writes nothing, and check reports it.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/tamper: 2 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a). At those counts its kill "A diverged chain names its oldest folder." survived at TEST_SEED=1
+ * (toolchain-test run of 2026-11-16 08:55Z); at the runner's 150 runs and 200 steered, which it was landed at, it is
+ * killed, so it keeps them.
+ */
 export const aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesByTheReasonNamingTheEntryAndWritesNothingAndCheckReportsIt =
 	property.explore(casesGen, {
 		needs: {},
@@ -56,6 +64,7 @@ export const aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesBy
 			kind: "specification",
 			name: "the reason and the finding the committed directory's reading gives each tampering"
 		},
+		budget: { runs: 150, steered: 200 },
 		kept: [],
 		kills: [
 			{
@@ -69,6 +78,13 @@ export const aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesBy
 				original: '\t\tat("chainEnd", path(snapshotFileName), refusalText.chainEnd.problem)\n',
 				replacement: "",
 				why: "check drops a chain that does not end at snapshot.json."
+			},
+			{
+				file: "packages/engine/src/deploy/render/folder.ts",
+				original:
+					"export const isFolderName = (name: string): boolean => {\n\tconst timestamp = folderTimestamp(name)\n\tconst prefix = folderPrefix(timestamp)\n\treturn isTimestamp(timestamp) && name.startsWith(prefix) && isWords(name.slice(prefix.length))\n}",
+				replacement: "export const isFolderName = (name: string): boolean => { return false }",
+				why: "Operator mutant (boolean-return) at packages/engine/src/deploy/render/folder.ts:477 in isFolderName: `{\n\tconst timestamp = folderTimestamp(name)\n\tconst prefix = folderPrefix(timestam` becomes `{ return false }`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})

@@ -52,7 +52,12 @@ import {
 	walkGen
 } from "#test/unit/world-model/step.fixtures.ts"
 
-/** The worlds model's step keeps every invariant on every branch and agrees with its own outcomes. */
+/**
+ * The worlds model's step keeps every invariant on every branch and agrees with its own outcomes.
+ *
+ * Budget: its suite's count before the conversion (unit/world-model/step: 150 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theWorldsModelsStepKeepsEveryInvariantOnEveryBranchAndAgreesWithItsOwnOutcomes =
 	property.explore(walkGen, {
 		needs: {},
@@ -98,11 +103,17 @@ export const theWorldsModelsStepKeepsEveryInvariantOnEveryBranchAndAgreesWithIts
 			kind: "specification",
 			name: "invariantsOf on every branch, and each outcome read back by observedNext as the real system shows it"
 		},
+		budget: { runs: 150, steered: 0 },
 		kept: [],
 		kills: []
 	})
 
-/** The worlds model's migration folders drafts a folder's files in the order and number grizzle's generate drafts them. */
+/**
+ * The worlds model's migration folders drafts a folder's files in the order and number grizzle's generate drafts them.
+ *
+ * Budget: its suite's count before the conversion (unit/world-model/folder files: 30 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem =
 	property.explore(migrationGen, {
 		needs: {},
@@ -128,6 +139,14 @@ export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumb
 			kind: "second-implementation",
 			name: "the phases of the folder grizzle's generate drafts"
 		},
+		budget: { runs: 30, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/sql/lexer.ts",
+				original: "const isDigit = (c: number): boolean => c >= 0x30 && c <= 0x39",
+				replacement: "const isDigit = (c: number): boolean => c >= 0x30 && c <= 58",
+				why: "Operator mutant (bound) at packages/engine/src/sql/lexer.ts:103 in isDigit: `0x39` becomes `58`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

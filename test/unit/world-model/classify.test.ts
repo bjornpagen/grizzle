@@ -105,5 +105,12 @@ export const theWritableEntryRuleClassifiesEveryEntryOfTheSmallSpaceAsGrizzlesWr
 		},
 		box: "every entry over P, Q or D of one rule, every field use, head extra and further member, or of the rule written twice, every head holding a field",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/schema/entry.ts",
+				original: "\t\t\t\tout.set(relation.name, relation)",
+				replacement: "\t\t\t\t{}",
+				why: "Operator mutant (statement) at packages/engine/src/schema/entry.ts:138 in relationsOf: `out.set(relation.name, relation)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

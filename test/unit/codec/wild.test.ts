@@ -34,7 +34,13 @@ import {
 	written
 } from "#test/unit/codec/wild.fixtures.ts"
 
-/** The encoders refuse every value with a word of the vocabulary, or admit it to a text that round-trips, and never throw. */
+/**
+ * The encoders refuse every value with a word of the vocabulary, or admit it to a text that round-trips, and never
+ * throw.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/wild: 3000 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theEncodersRefuseEveryValueWithAWordOfTheVocabularyOrAdmitItToATextThatRoundTripsAndNeverThrow =
 	property.explore(aimed(caseGen, wildAims), {
 		needs: {},
@@ -79,11 +85,24 @@ export const theEncodersRefuseEveryValueWithAWordOfTheVocabularyOrAdmitItToAText
 			kind: "universal",
 			name: "a word of the codec's vocabulary, or a text that converts back and encodes to itself"
 		},
+		budget: { runs: 3000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/codec/scalar.ts",
+				original: '\tif (spec.carrier === "bytes") {',
+				replacement: '\tif (spec.carrier !== "bytes") {',
+				why: "Operator mutant (comparison) at packages/engine/src/codec/scalar.ts:124 in parameterText: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** The encoders name the slot and the word in a template slot's refusal, never the value. */
+/**
+ * The encoders name the slot and the word in a template slot's refusal, never the value.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/wild-slot: 500 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theEncodersNameTheSlotAndTheWordInATemplateSlotsRefusalNeverTheValue =
 	property.explore(slotCases, {
 		needs: {},
@@ -110,11 +129,17 @@ export const theEncodersNameTheSlotAndTheWordInATemplateSlotsRefusalNeverTheValu
 			kind: "specification",
 			name: "the slot and the word named, the value's marker absent"
 		},
+		budget: { runs: 500, steered: 0 },
 		kept: [],
 		kills: []
 	})
 
-/** Admission reads a value once admits a getter's first answer and encodes from it, however it answers after. */
+/**
+ * Admission reads a value once admits a getter's first answer and encodes from it, however it answers after.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/wild-unstable: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const admissionReadsAValueOnceAdmitsAGettersFirstAnswerAndEncodesFromItHoweverItAnswersAfter =
 	property.explore(unstableCases, {
 		needs: {},
@@ -150,11 +175,25 @@ export const admissionReadsAValueOnceAdmitsAGettersFirstAnswerAndEncodesFromItHo
 			kind: "specification",
 			name: "the getter's first answer, as admission kept it"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original:
+					"\tconst repeat = firstIndex(fields, (f, i) => i > 0 && fields[i - 1]?.name === f.name)",
+				replacement: "\tconst repeat = firstIndex(fields, (f, i) => true)",
+				why: "Operator mutant (boolean-return) at packages/engine/src/scalar/values/identity.ts:536 in headingPlan: `i > 0 && fields[i - 1]?.name === f.name` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Fact identity refuses every fact with a word and its field, or admits every field, and never throws. */
+/**
+ * Fact identity refuses every fact with a word and its field, or admits every field, and never throws.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/wild-fact: 1000 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const factIdentityRefusesEveryFactWithAWordAndItsFieldOrAdmitsEveryFieldAndNeverThrows =
 	property.explore(factGen, {
 		needs: {},
@@ -184,11 +223,24 @@ export const factIdentityRefusesEveryFactWithAWordAndItsFieldOrAdmitsEveryFieldA
 			kind: "specification",
 			name: "a word and the field it refuses, or every field admitted"
 		},
+		budget: { runs: 1000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/fault.ts",
+				original: "\tvalueFaultWords.some((word) => word === value)",
+				replacement: "\tfalse",
+				why: "Operator mutant (boolean-return) at packages/engine/src/scalar/values/fault.ts:90 in isValueFault: `valueFaultWords.some((word) => word === value)` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** The tuple converter converts every row to a frozen tuple, each position the value its text encodes. */
+/**
+ * The tuple converter converts every row to a frozen tuple, each position the value its text encodes.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/wild-rows: 1000 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theTupleConverterConvertsEveryRowToAFrozenTupleEachPositionTheValueItsTextEncodes =
 	property.explore(rowCaseGen, {
 		needs: {},
@@ -238,6 +290,7 @@ export const theTupleConverterConvertsEveryRowToAFrozenTupleEachPositionTheValue
 			kind: "universal",
 			name: "each cell's text encodes the value the tuple holds"
 		},
+		budget: { runs: 1000, steered: 0 },
 		kept: [],
 		kills: [
 			{

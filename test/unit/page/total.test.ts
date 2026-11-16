@@ -44,7 +44,13 @@ import {
 	type TotalFeature
 } from "#test/unit/page/total.fixtures.ts"
 
-/** The page compiler and the page runtime template compile every generated ordered query, or refuse it with a typed CompileError of no malformed structure. */
+/**
+ * The page compiler and the page runtime template compile every generated ordered query, or refuse it with a typed
+ * CompileError of no malformed structure.
+ *
+ * Budget: its suite's count before the conversion (unit/page/runtime-total: 200 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const thePageCompilerAndThePageRuntimeTemplateCompileEveryGeneratedOrderedQueryOrRefuseItWithATypedCompileErrorOfNoMalformedStructure =
 	property.explore(orderedSketchGen, {
 		needs: {},
@@ -133,6 +139,7 @@ export const thePageCompilerAndThePageRuntimeTemplateCompileEveryGeneratedOrdere
 			kind: "universal",
 			name: "totality: a page or a typed refusal of no malformed structure"
 		},
+		budget: { runs: 200, steered: 0 },
 		kept: [],
 		kills: [
 			{

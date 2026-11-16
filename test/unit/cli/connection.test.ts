@@ -62,7 +62,12 @@ import {
 	typedOf
 } from "#test/unit/cli/connection.fixtures.ts"
 
-/** The configuration's connection, generated resolves to exactly the drawn role and connection. */
+/**
+ * The configuration's connection, generated resolves to exactly the drawn role and connection.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/connection-agreement: 200 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theConfigurationsConnectionGeneratedResolvesToExactlyTheDrawnRoleAndConnection =
 	property.explore(drawnGen, {
 		needs: {},
@@ -78,11 +83,26 @@ export const theConfigurationsConnectionGeneratedResolvesToExactlyTheDrawnRoleAn
 			kind: "specification",
 			name: "the drawn connection, its role and password as given and the parse's fields"
 		},
+		budget: { runs: 200, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/connection/config.ts",
+				original:
+					"export const timerDelay = (v: number): boolean => integerIn(v, timerMinMs, timerMaxMs)",
+				replacement: "export const timerDelay = (v: number): boolean => false",
+				why: "Operator mutant (boolean-return) at packages/grizzle/src/adapter/connection/config.ts:169 in timerDelay: `integerIn(v, timerMinMs.value, timerMaxMs.value)` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** The configuration's connection, generated refuses a role that is no nonempty string, or none, at stage config, naming it and never quoting the password. */
+/**
+ * The configuration's connection, generated refuses a role that is no nonempty string, or none, at stage config,
+ * naming it and never quoting the password.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/connection-role-faults: 100 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const theConfigurationsConnectionGeneratedRefusesARoleThatIsNoNonemptyStringOrNoneAtStageConfigNamingItAndNeverQuotingThePassword =
 	property.explore((source) => [source.draw(drawnGen), source.draw(roleFaultGen)] as const, {
 		needs: {},
@@ -98,6 +118,7 @@ export const theConfigurationsConnectionGeneratedRefusesARoleThatIsNoNonemptyStr
 			kind: "specification",
 			name: "a role that is no nonempty string is refused at stage config, naming connection.role"
 		},
+		budget: { runs: 100, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -109,7 +130,13 @@ export const theConfigurationsConnectionGeneratedRefusesARoleThatIsNoNonemptyStr
 		]
 	})
 
-/** The configuration's connection, generated refuses a connection that throws at stage config, holding what it threw, stating an Error's message and never the password. */
+/**
+ * The configuration's connection, generated refuses a connection that throws at stage config, holding what it threw,
+ * stating an Error's message and never the password.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/connection-threw: 100 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theConfigurationsConnectionGeneratedRefusesAConnectionThatThrowsAtStageConfigHoldingWhatItThrewStatingAnErrorsMessageAndNeverThePassword =
 	property.explore(
 		(source) =>
@@ -152,12 +179,26 @@ export const theConfigurationsConnectionGeneratedRefusesAConnectionThatThrowsAtS
 				kind: "specification",
 				name: "what a refusal states of a thrown value (cli/errors.ts Said), and the value itself"
 			},
+			budget: { runs: 100, steered: 0 },
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/core/errors.ts",
+					original: '\tError.isError(value) && "_tag" in value && value._tag === "CompileError"',
+					replacement: '\tError.isError(value) && "_tag" in value',
+					why: 'Operator mutant (conjunct) at packages/engine/src/core/errors.ts:1015 in isCompileError: `Error.isError(value) && "_tag" in value && value._tag === "CompileError"` becomes `Error.isError(value) && "_tag" in value`; the property fails (lane CATCH, grizzle 0baff5d6).'
+				}
+			]
 		}
 	)
 
-/** The migration's process environment, generated refuses at stage environment exactly the environments that set PGOPTIONS or PGREPLICATION, naming the first. */
+/**
+ * The migration's process environment, generated refuses at stage environment exactly the environments that set
+ * PGOPTIONS or PGREPLICATION, naming the first.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/owner-environment: 100 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theMigrationsProcessEnvironmentGeneratedRefusesAtStageEnvironmentExactlyTheEnvironmentsThatSetPGOPTIONSOrPGREPLICATIONNamingTheFirst =
 	property.explore(
 		(source): OwnerEnvironment => ({
@@ -211,6 +252,7 @@ export const theMigrationsProcessEnvironmentGeneratedRefusesAtStageEnvironmentEx
 				kind: "specification",
 				name: "the first startup variable an environment sets to a text is refused, none quoted"
 			},
+			budget: { runs: 100, steered: 0 },
 			kept: [],
 			kills: [
 				{

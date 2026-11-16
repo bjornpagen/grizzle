@@ -96,7 +96,13 @@ export const bitStringsAtAWordsEdgesCountAndEnumerateEveryBlockEdgeAsTheModelDoe
 		]
 	})
 
-/** Bit strings on the host read PostgreSQL's text as the model's positions, total past either end, and write the same text back. */
+/**
+ * Bit strings on the host read PostgreSQL's text as the model's positions, total past either end, and write the same
+ * text back.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/bits-read: 1000 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const bitStringsOnTheHostReadPostgreSQLsTextAsTheModelsPositionsTotalPastEitherEndAndWriteTheSameTextBack =
 	property.explore(texts, {
 		needs: {},
@@ -109,6 +115,7 @@ export const bitStringsOnTheHostReadPostgreSQLsTextAsTheModelsPositionsTotalPast
 		] satisfies ReadonlyArray<Reached<Read>>,
 		check: (_, c: Case<Read>) => (value) => readAny(value, c),
 		oracle: { kind: "second-implementation", name: "the model of PostgreSQL's text" },
+		budget: { runs: 1000, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -120,7 +127,13 @@ export const bitStringsOnTheHostReadPostgreSQLsTextAsTheModelsPositionsTotalPast
 		]
 	})
 
-/** Bit strings on the host add each bit in place as set union, so a code already there changes nothing, and refuse a position outside. */
+/**
+ * Bit strings on the host add each bit in place as set union, so a code already there changes nothing, and refuse a
+ * position outside.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/bits-add: 1000 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const bitStringsOnTheHostAddEachBitInPlaceAsSetUnionSoACodeAlreadyThereChangesNothingAndRefuseAPositionOutside =
 	property.explore(
 		(source): Additions => {
@@ -141,6 +154,7 @@ export const bitStringsOnTheHostAddEachBitInPlaceAsSetUnionSoACodeAlreadyThereCh
 			] satisfies ReadonlyArray<Reached<Added>>,
 			check: (_, c: Case<Added>) => (value) => setMembers(value, c),
 			oracle: { kind: "second-implementation", name: "the model's set union" },
+			budget: { runs: 1000, steered: 0 },
 			kept: [],
 			kills: [
 				{
@@ -153,7 +167,13 @@ export const bitStringsOnTheHostAddEachBitInPlaceAsSetUnionSoACodeAlreadyThereCh
 		}
 	)
 
-/** Bit strings on the host combine two strings of one length into the first as the model's union, intersection and difference, and refuse two lengths. */
+/**
+ * Bit strings on the host combine two strings of one length into the first as the model's union, intersection and
+ * difference, and refuse two lengths.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/bits-combine: 1000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const bitStringsOnTheHostCombineTwoStringsOfOneLengthIntoTheFirstAsTheModelsUnionIntersectionAndDifferenceAndRefuseTwoLengths =
 	property.explore(
 		(source): Combining => {
@@ -181,6 +201,7 @@ export const bitStringsOnTheHostCombineTwoStringsOfOneLengthIntoTheFirstAsTheMod
 				kind: "second-implementation",
 				name: "the model's union, intersection and difference"
 			},
+			budget: { runs: 1000, steered: 0 },
 			kept: [],
 			kills: [
 				{
@@ -221,7 +242,12 @@ export const bitStringsOnTheHostReadAWBitCellOfEveryOneHotStringAsPostgreSQLCast
 		]
 	})
 
-/** Bit strings on the host read a w-bit cell as PostgreSQL casts its substring to int4, and 0 past either end. */
+/**
+ * Bit strings on the host read a w-bit cell as PostgreSQL casts its substring to int4, and 0 past either end.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/bits-cell: 1000 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const bitStringsOnTheHostReadAWBitCellAsPostgreSQLCastsItsSubstringToInt4And0PastEitherEnd =
 	property.explore(
 		(source): Cells => {
@@ -252,7 +278,15 @@ export const bitStringsOnTheHostReadAWBitCellAsPostgreSQLCastsItsSubstringToInt4
 				kind: "specification",
 				name: "PostgreSQL's substring cast to int4, restated on the text"
 			},
+			budget: { runs: 1000, steered: 0 },
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/codec/bits.ts",
+					original: "\treturn (window >>> (wordBits - width)) | 0",
+					replacement: "\treturn (window >>> (width - wordBits)) | 0",
+					why: "Operator mutant (operand-swap) at packages/engine/src/codec/bits.ts:238 in cell: `wordBits - width` becomes `width - wordBits`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)

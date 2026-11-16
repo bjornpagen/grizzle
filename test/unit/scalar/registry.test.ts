@@ -98,7 +98,12 @@ import {
 	isSerial
 } from "#test/unit/scalar/support.ts"
 
-/** The capability registry gives every descriptor its carrier's capabilities, a serial and a contract their base's. */
+/**
+ * The capability registry gives every descriptor its carrier's capabilities, a serial and a contract their base's.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/capabilities: 1000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theCapabilityRegistryGivesEveryDescriptorItsCarriersCapabilitiesASerialAndAContractTheirBases =
 	property.explore(descriptorGen(2), {
 		needs: {},
@@ -125,6 +130,7 @@ export const theCapabilityRegistryGivesEveryDescriptorItsCarriersCapabilitiesASe
 			kind: "specification",
 			name: "a type's capabilities are its carrier's, which the catalog suite holds to PostgreSQL's"
 		},
+		budget: { runs: 1000, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -160,10 +166,25 @@ export const scalarTypeOfAFieldDescToItsScalarTypeBuiltEveryTypeATestFixtureExpo
 			name: "the registry's own build of each fixture type's FieldDesc"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/scalar.ts",
+				original:
+					'\ta === "wildcard" || b === "wildcard"\n\t\t? a === b\n\t\t: samePatterns(a.patterns, b.patterns) && a.key === b.key',
+				replacement:
+					'\ta === "wildcard" || b === "wildcard"\n\t\t? a !== b\n\t\t: samePatterns(a.patterns, b.patterns) && a.key === b.key',
+				why: "Operator mutant (comparison) at packages/engine/src/ir/scalar.ts:851 in sameRegexRef: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** ScalarTypeOf: a FieldDesc to its ScalarType reads every descriptor kind, and agrees with the descriptor's own ScalarType. */
+/**
+ * ScalarTypeOf: a FieldDesc to its ScalarType reads every descriptor kind, and agrees with the descriptor's own
+ * ScalarType.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/registry-kinds: 1000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const scalarTypeOfAFieldDescToItsScalarTypeReadsEveryDescriptorKindAndAgreesWithTheDescriptorsOwnScalarType =
 	property.explore(descriptorGen(2), {
 		needs: {},
@@ -195,11 +216,27 @@ export const scalarTypeOfAFieldDescToItsScalarTypeReadsEveryDescriptorKindAndAgr
 			kind: "second-implementation",
 			name: "the descriptor's own ScalarType, against scalarTypeOf of its Description"
 		},
+		budget: { runs: 1000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/schema/relation.ts",
+				original:
+					'\treturn hasProperties(value) && value["writing"] === "serial" ? { kind: "serial" } : callerWriting',
+				replacement:
+					'\treturn hasProperties(value) && value["writing"] !== "serial" ? { kind: "serial" } : callerWriting',
+				why: "Operator mutant (comparison) at packages/engine/src/schema/relation.ts:183 in writingOf: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** ScalarTypeOf: a FieldDesc to its ScalarType resolves a closedId roster through the environment, and refuses an unknown one. */
+/**
+ * ScalarTypeOf: a FieldDesc to its ScalarType resolves a closedId roster through the environment, and refuses an
+ * unknown one.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/roster-env: 100 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const scalarTypeOfAFieldDescToItsScalarTypeResolvesAClosedIdRosterThroughTheEnvironmentAndRefusesAnUnknownOne =
 	property.explore(rosterCaseGen, {
 		needs: {},
@@ -237,11 +274,18 @@ export const scalarTypeOfAFieldDescToItsScalarTypeResolvesAClosedIdRosterThrough
 			kind: "specification",
 			name: "the drawn roster, under its declared name alone"
 		},
+		budget: { runs: 100, steered: 0 },
 		kept: [],
 		kills: []
 	})
 
-/** ScalarTypeOf: a FieldDesc to its ScalarType reads a pattern's metadata off the language its Description carries, under every environment. */
+/**
+ * ScalarTypeOf: a FieldDesc to its ScalarType reads a pattern's metadata off the language its Description carries,
+ * under every environment.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/text-env: 100 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const scalarTypeOfAFieldDescToItsScalarTypeReadsAPatternsMetadataOffTheLanguageItsDescriptionCarriesUnderEveryEnvironment =
 	property.explore(textCaseGen, {
 		needs: {},
@@ -266,11 +310,17 @@ export const scalarTypeOfAFieldDescToItsScalarTypeReadsAPatternsMetadataOffTheLa
 			kind: "specification",
 			name: "the text the patterns and their language carry (carriedText)"
 		},
+		budget: { runs: 100, steered: 0 },
 		kept: [],
 		kills: []
 	})
 
-/** ScalarTypeOf: a FieldDesc to its ScalarType takes the checker's predicate table from the environment. */
+/**
+ * ScalarTypeOf: a FieldDesc to its ScalarType takes the checker's predicate table from the environment.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/predicate-env: 50 independent cases and 48 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const scalarTypeOfAFieldDescToItsScalarTypeTakesTheCheckersPredicateTableFromTheEnvironment =
 	property.explore(predicateCaseGen, {
 		needs: {},
@@ -324,11 +374,27 @@ export const scalarTypeOfAFieldDescToItsScalarTypeTakesTheCheckersPredicateTable
 			kind: "second-implementation",
 			name: "the checker's predicate table over the base"
 		},
+		budget: { runs: 50, steered: 48 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/scalar.ts",
+				original:
+					"\ta === undefined || b === undefined ? a === b : a.name === b.name && sameScalarType(a.base, b.base)",
+				replacement:
+					"\ta === undefined || b === undefined ? a !== b : a.name === b.name && sameScalarType(a.base, b.base)",
+				why: "Operator mutant (comparison) at packages/engine/src/ir/scalar.ts:835 in sameContract: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** ScalarTypeOf builds each type from its content gives each Description its own content, frozen, canonically equal to an equal content's and apart from a different one's. */
+/**
+ * ScalarTypeOf builds each type from its content gives each Description its own content, frozen, canonically equal to
+ * an equal content's and apart from a different one's.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/content: 200 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const scalarTypeOfBuildsEachTypeFromItsContentGivesEachDescriptionItsOwnContentFrozenCanonicallyEqualToAnEqualContentsAndApartFromADifferentOnes =
 	property.explore(contentCaseGen, {
 		needs: {},
@@ -363,11 +429,25 @@ export const scalarTypeOfBuildsEachTypeFromItsContentGivesEachDescriptionItsOwnC
 			kind: "specification",
 			name: "the readings' contents, compared apart from their text"
 		},
+		budget: { runs: 200, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/expr.ts",
+				original: '\tif (root !== undefined && baseOf(root.type).carrier !== "bool") {',
+				replacement: '\tif (root !== undefined && baseOf(root.type).carrier === "bool") {',
+				why: "Operator mutant (comparison) at packages/engine/src/ir/expr.ts:1239 in predicateProblems: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** LiteralDescFor: literal operands adopt the base's host type returns the literal each carrier's host kind states, and refuses every other value by its fault, never throwing. */
+/**
+ * LiteralDescFor: literal operands adopt the base's host type returns the literal each carrier's host kind states, and
+ * refuses every other value by its fault, never throwing.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/literal-desc: 3000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const literalDescForLiteralOperandsAdoptTheBasesHostTypeReturnsTheLiteralEachCarriersHostKindStatesAndRefusesEveryOtherValueByItsFaultNeverThrowing =
 	property.explore(literalOperandSpace, {
 		needs: {},
@@ -417,11 +497,25 @@ export const literalDescForLiteralOperandsAdoptTheBasesHostTypeReturnsTheLiteral
 					c.note("vector snapshot at build")
 				}),
 		oracle: { kind: "specification", name: "each carrier's host kind, judged per carrier" },
+		budget: { runs: 3000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/literal.ts",
+				original: "\t\t\tif (value === Number.NEGATIVE_INFINITY) {",
+				replacement: "\t\t\tif (value !== Number.NEGATIVE_INFINITY) {",
+				why: "Operator mutant (comparison) at packages/engine/src/scalar/literal.ts:68 in hostLiteral: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** DescribeField reads every descriptor a builder made, and refuses a look-alike, the undeclared numeric builder and every wild value as malformed, at describeField, span and closedId. */
+/**
+ * DescribeField reads every descriptor a builder made, and refuses a look-alike, the undeclared numeric builder and
+ * every wild value as malformed, at describeField, span and closedId.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/describe-field: 1000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const describeFieldReadsEveryDescriptorABuilderMadeAndRefusesALookAlikeTheUndeclaredNumericBuilderAndEveryWildValueAsMalformedAtDescribeFieldSpanAndClosedId =
 	property.explore(boundarySpace, {
 		needs: {},
@@ -479,6 +573,7 @@ export const describeFieldReadsEveryDescriptorABuilderMadeAndRefusesALookAlikeTh
 			kind: "specification",
 			name: "a descriptor a builder made, against every look-alike and wild value"
 		},
+		budget: { runs: 1000, steered: 0 },
 		kept: [],
 		kills: [
 			{

@@ -66,7 +66,12 @@ import {
 	withKit
 } from "#test/unit/live/values.fixtures.ts"
 
-/** A read's events fold into the live model's value, and a re-sent upsert changes nothing. */
+/**
+ * A read's events fold into the live model's value, and a re-sent upsert changes nothing.
+ *
+ * Budget: its suite's count before the conversion (unit/live/fold-model: 400 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theLiveModelsValuesAReadsEventsFoldIntoTheModelsValueAndAReSentUpsertChangesNothing =
 	property.explore(foldModelGen, {
 		needs: {},
@@ -103,6 +108,7 @@ export const theLiveModelsValuesAReadsEventsFoldIntoTheModelsValueAndAReSentUpse
 					})
 				}),
 		oracle: { kind: "second-implementation", name: "the model's list or set of specs" },
+		budget: { runs: 400, steered: 0 },
 		kept: [
 			{
 				token: ReplayToken(
@@ -121,10 +127,22 @@ export const theLiveModelsValuesAReadsEventsFoldIntoTheModelsValueAndAReSentUpse
 				since: "2026-11-11"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/decimal.ts",
+				original: "const isDigit = (code: number): boolean => code >= 0x30 && code <= 0x39",
+				replacement: "const isDigit = (code: number): boolean => code < 0x30 && code <= 0x39",
+				why: "Operator mutant (comparison) at packages/engine/src/scalar/values/decimal.ts:42 in isDigit: `>=` becomes `<`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** diff carries one value of the live model to the other with the least changes. */
+/**
+ * diff carries one value of the live model to the other with the least changes.
+ *
+ * Budget: its suite's count before the conversion (unit/live/diff: 400 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theLiveModelsValuesDiffCarriesOneValueToTheOtherWithTheLeastChanges = property.explore(
 	diffGen,
 	{
@@ -181,6 +199,7 @@ export const theLiveModelsValuesDiffCarriesOneValueToTheOtherWithTheLeastChanges
 			kind: "specification",
 			name: "the next value, and the least changes counted by a longest increasing subsequence"
 		},
+		budget: { runs: 400, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -199,7 +218,12 @@ export const theLiveModelsValuesDiffCarriesOneValueToTheOtherWithTheLeastChanges
 	}
 )
 
-/** coalesce is the net change of two batches of the live model. */
+/**
+ * coalesce is the net change of two batches of the live model.
+ *
+ * Budget: its suite's count before the conversion (unit/live/coalesce: 400 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theLiveModelsValuesCoalesceIsTheNetChangeOfTwoBatches = property.explore(coalesceGen, {
 	needs: {},
 	situations: ["a key added then removed", "batches over other keys"] satisfies ReadonlyArray<
@@ -229,6 +253,7 @@ export const theLiveModelsValuesCoalesceIsTheNetChangeOfTwoBatches = property.ex
 				})
 			}),
 	oracle: { kind: "specification", name: "the value the second batch was diffed to" },
+	budget: { runs: 400, steered: 0 },
 	kept: [],
 	kills: [
 		{
@@ -247,7 +272,12 @@ export const theLiveModelsValuesCoalesceIsTheNetChangeOfTwoBatches = property.ex
 	]
 })
 
-/** fold is a read's lifecycle, and a write's outcome is its value. */
+/**
+ * fold is a read's lifecycle, and a write's outcome is its value.
+ *
+ * Budget: its suite's count before the conversion (unit/live/lifecycle: 300 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theLiveModelsValuesFoldIsAReadsLifecycleAndAWritesOutcomeIsItsValue = property.explore(
 	lifecycleGen,
 	{
@@ -321,6 +351,7 @@ export const theLiveModelsValuesFoldIsAReadsLifecycleAndAWritesOutcomeIsItsValue
 			kind: "specification",
 			name: "provisional from reset, a value from ready on, an error voiding any value"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -365,6 +396,13 @@ export const theLiveModelsValuesKeysCompareByValueAndRowsByWhatTheyDeliver = pro
 		box: "every pair of the key forms' makers",
 		show: ({ left, right }) => `${String(left.make)} beside ${String(right.make)}`,
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/tuple-map.ts",
+				original: "\thas(key: K): boolean {\n\t\treturn this.#found(key)?.slot !== undefined\n\t}",
+				replacement: "\thas(key: K): boolean { return true }",
+				why: "Operator mutant (boolean-return) at packages/engine/src/core/tuple-map.ts:74 in <module>: `{\n\t\treturn this.#found(key)?.slot !== undefined\n\t}` becomes `{ return true }`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	}
 )

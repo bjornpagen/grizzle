@@ -45,7 +45,13 @@ import {
 import { codecOf, kindCodes } from "#test/unit/codec/support.ts"
 import { asVector } from "#test/unit/codec/values.ts"
 
-/** Each carrier's codec writes PostgreSQL's output form, reads it back, and refuses each planted value and text with its word. */
+/**
+ * Each carrier's codec writes PostgreSQL's output form, reads it back, and refuses each planted value and text with
+ * its word.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/scalar-forms: 1500 independent cases and 144 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const eachCarriersCodecWritesPostgreSQLsOutputFormReadsItBackAndRefusesEachPlantedValueAndTextWithItsWord =
 	property.explore(aimed(carrierCases, formAims), {
 		needs: {},
@@ -88,6 +94,7 @@ export const eachCarriersCodecWritesPostgreSQLsOutputFormReadsItBackAndRefusesEa
 			kind: "second-implementation",
 			name: "the kernel's strict reading of PostgreSQL's output text (test/support/kernel/strict.ts)"
 		},
+		budget: { runs: 1500, steered: 144 },
 		kept: [],
 		kills: [
 			{
@@ -99,7 +106,12 @@ export const eachCarriersCodecWritesPostgreSQLsOutputFormReadsItBackAndRefusesEa
 		]
 	})
 
-/** Integer and span text, scanned without RegExp reads int8 text exactly where the integer output grammar admits it. */
+/**
+ * Integer and span text, scanned without RegExp reads int8 text exactly where the integer output grammar admits it.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/scalar-6909556: 20000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const integerAndSpanTextScannedWithoutRegExpReadsInt8TextExactlyWhereTheIntegerOutputGrammarAdmitsIt =
 	property.explore(int8Texts, {
 		needs: {},
@@ -129,11 +141,17 @@ export const integerAndSpanTextScannedWithoutRegExpReadsInt8TextExactlyWhereTheI
 			kind: "specification",
 			name: "int8out's grammar as a reference RegExp, and int8's range"
 		},
+		budget: { runs: 20000, steered: 0 },
 		kept: [],
 		kills: []
 	})
 
-/** Integer and span text, scanned without RegExp reads int8range text exactly where the span output grammar admits it. */
+/**
+ * Integer and span text, scanned without RegExp reads int8range text exactly where the span output grammar admits it.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/scalar-7565409: 20000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const integerAndSpanTextScannedWithoutRegExpReadsInt8rangeTextExactlyWhereTheSpanOutputGrammarAdmitsIt =
 	property.explore(spanTexts, {
 		needs: {},
@@ -157,11 +175,24 @@ export const integerAndSpanTextScannedWithoutRegExpReadsInt8rangeTextExactlyWher
 			kind: "specification",
 			name: "range_out's grammar as a reference RegExp, its ends int8s in order"
 		},
+		budget: { runs: 20000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/span.ts",
+				original: "\tif (!(s.value < e.value)) {",
+				replacement: "\tif ((s.value < e.value)) {",
+				why: "Operator mutant (negation) at packages/engine/src/scalar/values/span.ts:121 in makeSpan: `!(s.value < e.value)` becomes `(s.value < e.value)`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Vectors round-trips random float32 vectors of the cosine domain. */
+/**
+ * Vectors round-trips random float32 vectors of the cosine domain.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/scalar-3: 2000 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const vectorsRoundTripsRandomFloat32VectorsOfTheCosineDomain = property.explore(
 	vectorComponents,
 	{
@@ -201,7 +232,15 @@ export const vectorsRoundTripsRandomFloat32VectorsOfTheCosineDomain = property.e
 					assert.equal(Vector.equals(asVector(vector3.convert(text)), v), true)
 				}),
 		oracle: { kind: "universal", name: "a vector's text reads back as the vector" },
+		budget: { runs: 2000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/codec/scalar.ts",
+				original: "\t\tif (value === null || value === undefined) {",
+				replacement: "\t\tif (value === null || value !== undefined) {",
+				why: "Operator mutant (comparison) at packages/engine/src/codec/scalar.ts:140 in encode: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	}
 )

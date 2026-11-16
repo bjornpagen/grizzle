@@ -35,7 +35,13 @@ import {
 	type WitnessFeature
 } from "#test/unit/adapter/witness.fixtures.ts"
 
-/** A server error at a write means what the classification rules say of the fields grizzle controls, at every origin of a write's flights. */
+/**
+ * A server error at a write means what the classification rules say of the fields grizzle controls, at every origin of
+ * a write's flights.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/witness: 1500 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const aServerErrorAtAWriteMeansWhatTheClassificationRulesSayOfTheFieldsGrizzleControlsAtEveryOriginOfAWritesFlights =
 	property.explore(witnessCases, {
 		needs: {},
@@ -657,6 +663,14 @@ export const aServerErrorAtAWriteMeansWhatTheClassificationRulesSayOfTheFieldsGr
 			kind: "specification",
 			name: "the classification rules of outcomes/index.ts and witness/classify.ts, restated over the installation's constraints, laws and rosters"
 		},
+		budget: { runs: 1500, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/sqlstate.ts",
+				original: "\t\tif (!((unit >= 0x30 && unit <= 0x39) || (unit >= 0x41 && unit <= 0x5a))) {",
+				replacement: "\t\tif (!((unit >= 49 && unit <= 0x39) || (unit >= 0x41 && unit <= 0x5a))) {",
+				why: "Operator mutant (bound) at packages/engine/src/core/sqlstate.ts:34 in parse: `0x30` becomes `49`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

@@ -34,7 +34,12 @@ import { lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { drawnSchema, loginGen } from "#test/support/served-login.ts"
 import { type Feature, reach } from "#test/unit/served/reach.fixtures.ts"
 
-/** A login's served file holds exactly the rosters and the laws the login's code can reach. */
+/**
+ * A login's served file holds exactly the rosters and the laws the login's code can reach.
+ *
+ * Budget: its suite's count before the conversion (unit/served/reach: 60 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const aLoginsServedFileHoldsExactlyTheRostersAndTheLawsTheLoginsCodeCanReach =
 	property.explore((source) => [source.draw(caseSketchGen), source.draw(lawLevelGen)] as const, {
 		needs: {},
@@ -61,6 +66,7 @@ export const aLoginsServedFileHoldsExactlyTheRostersAndTheLawsTheLoginsCodeCanRe
 			kind: "specification",
 			name: "the reach computed from the compiled program and its installation (test/support/served-reach.ts)"
 		},
+		budget: { runs: 60, steered: 0 },
 		kept: [],
 		kills: [
 			{

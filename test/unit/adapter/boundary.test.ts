@@ -21,7 +21,13 @@ import {
 	withAccessor
 } from "#test/unit/adapter/boundary.fixtures.ts"
 
-/** The public boundary answers every paged member's window by the README's contract, and refuses every other value with a typed refusal. */
+/**
+ * The public boundary answers every paged member's window by the README's contract, and refuses every other value with
+ * a typed refusal.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/boundary-window: 2000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const thePublicBoundaryAnswersEveryPagedMembersWindowByTheREADMEsContractAndRefusesEveryOtherValueWithATypedRefusal =
 	property.explore(windowCaseGen, {
 		needs: {},
@@ -67,6 +73,7 @@ export const thePublicBoundaryAnswersEveryPagedMembersWindowByTheREADMEsContract
 			kind: "specification",
 			name: "README Reading's window: its four anchors, a size of at least 1, a key its comparators' codecs admit"
 		},
+		budget: { runs: 2000, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -78,7 +85,13 @@ export const thePublicBoundaryAnswersEveryPagedMembersWindowByTheREADMEsContract
 		]
 	})
 
-/** The public boundary admits a built schema at the schema door, and refuses every other value as a MalformedDescription. */
+/**
+ * The public boundary admits a built schema at the schema door, and refuses every other value as a
+ * MalformedDescription.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/boundary-schema: 500 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const thePublicBoundaryAdmitsABuiltSchemaAtTheSchemaDoorAndRefusesEveryOtherValueAsAMalformedDescription =
 	property.explore(
 		lsw<typeof Shop>({
@@ -107,7 +120,16 @@ export const thePublicBoundaryAdmitsABuiltSchemaAtTheSchemaDoorAndRefusesEveryOt
 				kind: "specification",
 				name: "a schema door takes a value schema(...) built and refuses anything else"
 			},
+			budget: { runs: 500, steered: 0 },
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/program/schema.ts",
+					original:
+						'\tif (built !== undefined) {\n\t\treturn Result.ok(\n\t\t\tObject.freeze<SchemaInput>({\n\t\t\t\tkind: "built",\n\t\t\t\tvalue: built.value,\n\t\t\t\tdesc: built.desc,\n\t\t\t\tcontent: built.content\n\t\t\t})\n\t\t)\n\t}',
+					replacement: "\t{}",
+					why: "Operator mutant (guard) at packages/engine/src/program/schema.ts:200 in parseSchemaInput: `if (built !== undefined) {\n\t\treturn Result.ok(\n\t\t\tObject.freeze<SchemaInput>({\n\t` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)

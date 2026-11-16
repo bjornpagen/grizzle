@@ -77,7 +77,13 @@ import {
 	valueOf
 } from "#test/unit/cli/cli.fixtures.ts"
 
-/** The command line, generated, reads every line of the grammar as exactly what it says, its flags in any order and either spelling. */
+/**
+ * The command line, generated, reads every line of the grammar as exactly what it says, its flags in any order and
+ * either spelling.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/grammar: 200 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theCommandLineGeneratedReadsEveryLineOfTheGrammarAsExactlyWhatItSaysItsFlagsInAnyOrderAndEitherSpelling =
 	property.explore(spelledGen, {
 		needs: {},
@@ -92,11 +98,25 @@ export const theCommandLineGeneratedReadsEveryLineOfTheGrammarAsExactlyWhatItSay
 			kind: "specification",
 			name: "the grammar's meaning of each line, whatever its flags' order and spelling"
 		},
+		budget: { runs: 200, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/cli/args.ts",
+				original: "\tif (renames.length === 0 && drops.length === 0) {",
+				replacement: "\tif (renames.length === 0 && drops.length !== 0) {",
+				why: "Operator mutant (comparison) at packages/grizzle/src/cli/args.ts:250 in declaredOf: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** The command line, generated, refuses one fault injected into a line of the grammar as a usage error naming that fault. */
+/**
+ * The command line, generated, refuses one fault injected into a line of the grammar as a usage error naming that
+ * fault.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/grammar-faults: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theCommandLineGeneratedRefusesOneFaultInjectedIntoALineOfTheGrammarAsAUsageErrorNamingThatFault =
 	property.explore(faultGen, {
 		needs: {},
@@ -118,11 +138,24 @@ export const theCommandLineGeneratedRefusesOneFaultInjectedIntoALineOfTheGrammar
 			kind: "specification",
 			name: "the fault each injection plants into a line of the grammar"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/cli/args.ts",
+				original: `\t\tconst value = arg === \`--\${flag}\` ? rest[++i] : Str.slice(\`--\${flag}=\`.length)(arg)\n\t\tif (value === undefined || value.length === 0 || Str.startsWith("-")(value)) {\n\t\t\treturn malformed({ kind: "flagWithoutValue", flag })`,
+				replacement: `\t\tconst value = arg === \`--\${flag}\` ? rest[++i] : Str.slice(\`--\${flag}=\`.length)(arg)\n\t\tif (value === undefined || value.length === (-1) || Str.startsWith("-")(value)) {\n\t\t\treturn malformed({ kind: "flagWithoutValue", flag })`,
+				why: "Operator mutant (bound) at packages/grizzle/src/cli/args.ts:206 in scan: `0` becomes `(-1)`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** The command line, generated, prints the usage for --help or -h anywhere, and for no argument at all. */
+/**
+ * The command line, generated, prints the usage for --help or -h anywhere, and for no argument at all.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/grammar-help: 100 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theCommandLineGeneratedPrintsTheUsageForHelpOrHAnywhereAndForNoArgumentAtAll =
 	property.explore(helpGen, {
 		needs: {},
@@ -137,6 +170,7 @@ export const theCommandLineGeneratedPrintsTheUsageForHelpOrHAnywhereAndForNoArgu
 			kind: "specification",
 			name: "the usage for a line holding --help or -h anywhere, and for no argument"
 		},
+		budget: { runs: 100, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -144,11 +178,25 @@ export const theCommandLineGeneratedPrintsTheUsageForHelpOrHAnywhereAndForNoArgu
 				original: "\tif (command === undefined || Arr.some(argv, isHelp)) {",
 				replacement: "\tif (command === undefined || isHelp(command)) {",
 				why: "--help counts only as the command."
+			},
+			{
+				file: "packages/grizzle/src/cli/args.ts",
+				original: "\tif (command === undefined || Arr.some(argv, isHelp)) {",
+				replacement: "\tif (command === undefined || Arr.every(argv, isHelp)) {",
+				why: "Operator mutant (quantifier) at packages/grizzle/src/cli/args.ts:287 in parseArgs: `some` becomes `every`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})
 
-/** Folder timestamps, generated, are the UTC second as fourteen digits, read back as the second they name, and a new folder's sorts after every folder of its schema. */
+/**
+ * Folder timestamps, generated, are the UTC second as fourteen digits, read back as the second they name, and a new
+ * folder's sorts after every folder of its schema.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/timestamps: 400 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (a timestamp past year
+ * 9999; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200, which it stops
+ * short of once every situation is reached.
+ */
 export const folderTimestampsGeneratedAreTheUTCSecondAsFourteenDigitsReadBackAsTheSecondTheyNameAndANewFoldersSortsAfterEveryFolderOfItsSchema =
 	property.explore(stampingSpace, {
 		needs: {},
@@ -185,6 +233,7 @@ export const folderTimestampsGeneratedAreTheUTCSecondAsFourteenDigitsReadBackAsT
 			kind: "second-implementation",
 			name: "day arithmetic of the Gregorian calendar, and the documented rule: the current second or one past the newest folder's"
 		},
+		budget: { runs: 400, steered: 200 },
 		kept: [],
 		kills: [
 			{
@@ -192,11 +241,23 @@ export const folderTimestampsGeneratedAreTheUTCSecondAsFourteenDigitsReadBackAsT
 				original: "\tif (current > latest) {",
 				replacement: "\tif (current >= latest) {",
 				why: "A new folder's timestamp repeats the newest folder's when the clock reads it."
+			},
+			{
+				file: "packages/grizzle/src/cli/clock.ts",
+				original: 'const isDigit = (c: string): boolean => c >= "0" && c <= "9"',
+				replacement: 'const isDigit = (c: string): boolean => c < "0" && c <= "9"',
+				why: "Operator mutant (comparison) at packages/grizzle/src/cli/clock.ts:50 in isDigit: `>=` becomes `<`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})
 
-/** The configuration file, generated, resolves to exactly its schemas, logins and migrations directory, its connection unread, and refuses one planted fault by its own reason, never naming the password. */
+/**
+ * The configuration file, generated, resolves to exactly its schemas, logins and migrations directory, its connection
+ * unread, and refuses one planted fault by its own reason, never naming the password.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/configuration: 200 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theConfigurationFileGeneratedResolvesToExactlyItsSchemasLoginsAndMigrationsDirectoryItsConnectionUnreadAndRefusesOnePlantedFaultByItsOwnReasonNeverNamingThePassword =
 	property.explore(sketchGen, {
 		needs: {},
@@ -238,11 +299,25 @@ export const theConfigurationFileGeneratedResolvesToExactlyItsSchemasLoginsAndMi
 			kind: "specification",
 			name: "the configuration's documented settings, resolved by hand, and the refusal each planted fault names"
 		},
+		budget: { runs: 200, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/cli/config.ts",
+				original: '\ttypeof v === "object" && v !== null && !Arr.isArray(v)',
+				replacement: "\ttrue",
+				why: 'Operator mutant (boolean-return) at packages/grizzle/src/cli/config.ts:141 in isObject: `typeof v === "object" && v !== null && !Arr.isArray(v)` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
 	})
 
-/** The bin's configuration file is named by the command line, loaded and checked before any command runs: every way loading fails is refused, writing nothing. */
+/**
+ * The bin's configuration file is named by the command line, loaded and checked before any command runs: every way
+ * loading fails is refused, writing nothing.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/bin-loading: 8 independent cases and 12 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theBinsConfigurationFileIsNamedByTheCommandLineLoadedAndCheckedBeforeAnyCommandRunsEveryWayLoadingFailsIsRefusedWritingNothing =
 	property.explore(loadingSpace, {
 		needs: { checkout: Checkout.dir },
@@ -279,6 +354,14 @@ export const theBinsConfigurationFileIsNamedByTheCommandLineLoadedAndCheckedBefo
 			kind: "specification",
 			name: "the exit statuses run.ts documents: 1 for a refusal, 2 for a usage error; and a refusal writes nothing"
 		},
+		budget: { runs: 8, steered: 12 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/cli/args.ts",
+				original: 'const isHelp = (arg: string): boolean => arg === "--help" || arg === "-h"',
+				replacement: 'const isHelp = (arg: string): boolean => arg === "--help" || arg !== "-h"',
+				why: "Operator mutant (comparison) at packages/grizzle/src/cli/args.ts:117 in isHelp: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

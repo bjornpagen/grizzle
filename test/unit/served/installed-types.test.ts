@@ -41,7 +41,15 @@ import {
 	sketchGen
 } from "#test/unit/served/installed-types.fixtures.ts"
 
-/** A served compile under a snapshot casts a parameter only to a type the snapshot's installation installs. */
+/**
+ * A served compile under a snapshot casts a parameter only to a type the snapshot's installation installs.
+ *
+ * Budget: its suite's count before the conversion (unit/served/installed-types: 60 independent cases and 60 steered,
+ * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (an uninstalled
+ * pattern domain refused, a pattern parameter installed, compiled, a parameter's pattern domain over a field's
+ * structural domain; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200,
+ * which it stops short of once every situation is reached.
+ */
 export const aServedCompileUnderASnapshotCastsAParameterOnlyToATypeTheSnapshotsInstallationInstalls =
 	property.explore(aimed(sketchGen({ kind: "drawn" }), aimsAt), {
 		needs: {},
@@ -68,6 +76,7 @@ export const aServedCompileUnderASnapshotCastsAParameterOnlyToATypeTheSnapshotsI
 			kind: "specification",
 			name: "the parameter types the login declares against those snapshot.json records (derived.params)"
 		},
+		budget: { runs: 60, steered: 200 },
 		kept: [
 			{
 				token: ReplayToken(

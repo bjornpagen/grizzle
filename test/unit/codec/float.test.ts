@@ -52,7 +52,12 @@ import {
 	texts
 } from "#test/unit/codec/float.fixtures.ts"
 
-/** Exact binary32 reading reads every binary32 value's shortest text back to that value. */
+/**
+ * Exact binary32 reading reads every binary32 value's shortest text back to that value.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/float-1714631201: 5000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const exactBinary32ReadingReadsEveryBinary32ValuesShortestTextBackToThatValue =
 	property.explore(float32, {
 		needs: {},
@@ -76,11 +81,24 @@ export const exactBinary32ReadingReadsEveryBinary32ValuesShortestTextBackToThatV
 			kind: "second-implementation",
 			name: "an exact rational reading against the value's rounding interval"
 		},
+		budget: { runs: 5000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/float.ts",
+				original: "\tif (lead === 0x49) {",
+				replacement: "\tif (lead !== 0x49) {",
+				why: "Operator mutant (comparison) at packages/engine/src/scalar/values/float.ts:221 in convertReal: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Exact binary32 reading reads a decimal at or beside a binary32 midpoint once, ties to even. */
+/**
+ * Exact binary32 reading reads a decimal at or beside a binary32 midpoint once, ties to even.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/float-midpoint: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const exactBinary32ReadingReadsADecimalAtOrBesideABinary32MidpointOnceTiesToEven =
 	property.explore(
 		(source) => ({
@@ -119,6 +137,7 @@ export const exactBinary32ReadingReadsADecimalAtOrBesideABinary32MidpointOnceTie
 				kind: "specification",
 				name: "the midpoint as an exact rational, ties to even"
 			},
+			budget: { runs: 300, steered: 0 },
 			kept: [],
 			kills: [
 				{
@@ -126,12 +145,24 @@ export const exactBinary32ReadingReadsADecimalAtOrBesideABinary32MidpointOnceTie
 					original: "\t\tif (r2 > d || (r2 === d && (q & 1n) === 1n)) {",
 					replacement: "\t\tif (r2 >= d) {",
 					why: "A decimal midpoint between two binary32 values is rounded away from zero, not to even."
+				},
+				{
+					file: "packages/engine/src/scalar/values/float.ts",
+					original: "\t2n ** BigInt(emax + 1) - 2n ** BigInt(emax + 1 - p)",
+					replacement: "\t2n ** BigInt(emax + 1 - p) - 2n ** BigInt(emax + 1)",
+					why: "Operator mutant (operand-swap) at packages/limits/src/limits.ts:1393 in greatestFinite: `2n ** BigInt(emax + 1) - 2n ** BigInt(emax + 1 - p)` becomes `2n ** BigInt(emax + 1 - p) - 2n ** BigInt(emax + 1)`; the property fails (lane CATCH, grizzle 0baff5d6)."
 				}
 			]
 		}
 	)
 
-/** Exact binary32 reading agrees with an independent rational reading on random decimals, and refuses overflow and nonzero underflow. */
+/**
+ * Exact binary32 reading agrees with an independent rational reading on random decimals, and refuses overflow and
+ * nonzero underflow.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/float-1918989417: 5000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const exactBinary32ReadingAgreesWithAnIndependentRationalReadingOnRandomDecimalsAndRefusesOverflowAndNonzeroUnderflow =
 	property.explore(decimal, {
 		needs: {},
@@ -162,11 +193,25 @@ export const exactBinary32ReadingAgreesWithAnIndependentRationalReadingOnRandomD
 			kind: "second-implementation",
 			name: "the decimal as an exact rational, rounded to nearest by hand"
 		},
+		budget: { runs: 5000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/float.ts",
+				original: "\t\tconst value = Number(q) * 2 ** e",
+				replacement: "\t\tconst value = Number(q) * 3 ** e",
+				why: "Operator mutant (bound) at packages/engine/src/scalar/values/float.ts:158 in decimalToBinary32: `2` becomes `3`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** The float text grammar, scanned without RegExp admits exactly the texts the grammar admits, and the specials for double and real, never for a vector component. */
+/**
+ * The float text grammar, scanned without RegExp admits exactly the texts the grammar admits, and the specials for
+ * double and real, never for a vector component.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/float-7497063: 20000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theFloatTextGrammarScannedWithoutRegExpAdmitsExactlyTheTextsTheGrammarAdmitsAndTheSpecialsForDoubleAndRealNeverForAVectorComponent =
 	property.explore(texts, {
 		needs: {},
@@ -213,6 +258,7 @@ export const theFloatTextGrammarScannedWithoutRegExpAdmitsExactlyTheTextsTheGram
 			kind: "specification",
 			name: "the text grammar, and the specials each reader admits"
 		},
+		budget: { runs: 20000, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -220,11 +266,24 @@ export const theFloatTextGrammarScannedWithoutRegExpAdmitsExactlyTheTextsTheGram
 				original: "\t\treturn negative ? Number.NEGATIVE_INFINITY : Number.POSITIVE_INFINITY",
 				replacement: "\t\treturn Number.POSITIVE_INFINITY",
 				why: "A real's text -Infinity is read as Infinity."
+			},
+			{
+				file: "packages/engine/src/ir/carriers.ts",
+				original:
+					"export const canonicalZero = (x: number): CanonicalFloat => mintCanonical(x === 0 ? 0 : x)",
+				replacement:
+					"export const canonicalZero = (x: number): CanonicalFloat => mintCanonical(x !== 0 ? 0 : x)",
+				why: "Operator mutant (comparison) at packages/engine/src/ir/carriers.ts:36 in canonicalZero: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})
 
-/** Double precision text round-trips every binary64 value through its shortest text, -0 as +0. */
+/**
+ * Double precision text round-trips every binary64 value through its shortest text, -0 as +0.
+ *
+ * Budget: its suite's count before the conversion (unit/codec/float-6578796: 10000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const doublePrecisionTextRoundTripsEveryBinary64ValueThroughItsShortestText0As0 =
 	property.explore(doubles, {
 		needs: {},
@@ -250,6 +309,7 @@ export const doublePrecisionTextRoundTripsEveryBinary64ValueThroughItsShortestTe
 			kind: "universal",
 			name: "a double's shortest text reads back as the double, -0 as +0"
 		},
+		budget: { runs: 10000, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -258,6 +318,14 @@ export const doublePrecisionTextRoundTripsEveryBinary64ValueThroughItsShortestTe
 				replacement:
 					"export const floatText = (x: number): string => String(canonicalZero(Number(x.toPrecision(16))))",
 				why: "A double is written to sixteen significant digits, not its shortest round-trip text."
+			},
+			{
+				file: "packages/engine/src/ir/carriers.ts",
+				original:
+					"export const canonicalZero = (x: number): CanonicalFloat => mintCanonical(x === 0 ? 0 : x)",
+				replacement:
+					"export const canonicalZero = (x: number): CanonicalFloat => mintCanonical(x === 0 ? x : 0)",
+				why: "Operator mutant (arm-swap) at packages/engine/src/ir/carriers.ts:36 in canonicalZero: `x === 0 ? 0 : x` becomes `x === 0 ? x : 0`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})

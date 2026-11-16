@@ -26,7 +26,13 @@ import {
 	membersOf
 } from "#test/unit/cli/served-clocked.fixtures.ts"
 
-/** A member bound to the database's clock certifies as its program with the call's now, reads the clock by transaction_timestamp() alone, and a clocked read is served at its call's instant, never live. */
+/**
+ * A member bound to the database's clock certifies as its program with the call's now, reads the clock by
+ * transaction_timestamp() alone, and a clocked read is served at its call's instant, never live.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/served-clocked: 24 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const aMemberBoundToTheDatabasesClockCertifiesAsItsProgramWithTheCallsNowReadsTheClockByTransactionTimestampAloneAndAClockedReadIsServedAtItsCallsInstantNeverLive =
 	property.explore(caseGen, {
 		needs: {},
@@ -111,6 +117,7 @@ export const aMemberBoundToTheDatabasesClockCertifiesAsItsProgramWithTheCallsNow
 			kind: "second-implementation",
 			name: "the same programs compiled with the call's now: their certificates, statements and live plan"
 		},
+		budget: { runs: 24, steered: 0 },
 		kept: [],
 		kills: [
 			{

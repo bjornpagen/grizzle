@@ -77,7 +77,12 @@ import {
 	unseen
 } from "#test/unit/live/openapi.fixtures.ts"
 
-/** A login's OpenAPI document validates, is canonical, and holds one operation per program, its events its shape's. */
+/**
+ * A login's OpenAPI document validates, is canonical, and holds one operation per program, its events its shape's.
+ *
+ * Budget: its suite's count before the conversion (unit/live/openapi-logins: 60 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aLoginsOpenAPIDocumentValidatesIsCanonicalAndHoldsOneOperationPerProgramItsEventsItsShapes =
 	property.explore((source) => [source.draw(caseSketchGen), source.draw(lawLevelGen)] as const, {
 		needs: {},
@@ -102,6 +107,7 @@ export const aLoginsOpenAPIDocumentValidatesIsCanonicalAndHoldsOneOperationPerPr
 			kind: "specification",
 			name: "the served file the document is read off and the event model's own table"
 		},
+		budget: { runs: 60, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -177,7 +183,13 @@ export const aLoginsOpenAPIDocumentValidatesIsCanonicalAndHoldsOneOperationPerPr
 		]
 	})
 
-/** A login's OpenAPI document documents every served ChangeSet's facts and outcome, valid and one operation per program. */
+/**
+ * A login's OpenAPI document documents every served ChangeSet's facts and outcome, valid and one operation per
+ * program.
+ *
+ * Budget: its suite's count before the conversion (unit/live/openapi-changes: 60 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aLoginsOpenAPIDocumentDocumentsEveryServedChangeSetsFactsAndOutcomeValidAndOneOperationPerProgram =
 	property.explore(
 		(source) =>
@@ -234,14 +246,30 @@ export const aLoginsOpenAPIDocumentDocumentsEveryServedChangeSetsFactsAndOutcome
 				kind: "specification",
 				name: "the served file the document is read off and the event model's own table"
 			},
+			budget: { runs: 60, steered: 0 },
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/core/canonical.ts",
+					original: '\t\t\t\tthis.#read(top.value[i], "")',
+					replacement: "\t\t\t\t{}",
+					why: 'Operator mutant (statement) at packages/engine/src/core/canonical.ts:1350 in <module>: `this.#read(top.value[i], "")` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6).'
+				}
+			]
 		}
 	)
 
 /**
  * A login's OpenAPI documents are short: a summary, a body's description and a tag's description depend on what each
  * may depend on alone, across the two or three documents of a case as within each.
+ *
+ * Budget: openapi-logins's count (unit/live/openapi-logins, 60 independent cases and none steered), the claim it held
+ * across those cases before the conversion. At those counts its required situations went unreached at TEST_SEED=1 (a
+ * tag's description seen again under what it may depend on; toolchain-test run of 2026-11-16 08:21Z), so its steered
+ * phase keeps the runner's cap of 200, which it stops short of once every situation is reached. At those counts its
+ * kill "A role's description names the relations its programs write." survived at TEST_SEED=1 (toolchain-test run of
+ * 2026-11-16 08:55Z); at the runner's 150 runs and 200 steered, which it was landed at, it is killed, so it keeps
+ * them.
  */
 export const aLoginsOpenAPIDocumentIsShortEachTextDependingOnWhatItMayDependOnAloneAcrossDocuments =
 	property.explore(
@@ -267,6 +295,7 @@ export const aLoginsOpenAPIDocumentIsShortEachTextDependingOnWhatItMayDependOnAl
 				kind: "specification",
 				name: "the served file each document is read off: what each text may depend on"
 			},
+			budget: { runs: 150, steered: 200 },
 			kept: [],
 			kills: [
 				{

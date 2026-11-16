@@ -64,7 +64,15 @@ import {
 	writeSpace
 } from "#test/unit/oracle/write-expect.fixtures.ts"
 
-/** The write oracle's judgement passes a faithful realization and refuses every planted mutant of it. */
+/**
+ * The write oracle's judgement passes a faithful realization and refuses every planted mutant of it.
+ *
+ * Budget: its suite's count before the conversion (unit/oracle/write-judge: 400 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (faithful refusal
+ * at bind, mutant: applied where refused at bind, mutant: a law's refusal where refused at bind, mutant: a parameter's
+ * refusal unclassified; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200,
+ * which it stops short of once every situation is reached.
+ */
 export const theWriteOraclesJudgementPassesAFaithfulRealizationAndRefusesEveryPlantedMutantOfIt =
 	property.explore(writeSpace, {
 		needs: {},
@@ -256,6 +264,14 @@ export const theWriteOraclesJudgementPassesAFaithfulRealizationAndRefusesEveryPl
 			kind: "specification",
 			name: "the expectation's faithful realization passes the judge and every planted mutant of it fails"
 		},
+		budget: { runs: 400, steered: 200 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/physical/install/compile.ts",
+				original: '\t\tif (!(lower || ch === "_" || (i > 0 && ch >= "0" && ch <= "9"))) {',
+				replacement: '\t\tif ((lower || ch === "_" || (i > 0 && ch >= "0" && ch <= "9"))) {',
+				why: 'Operator mutant (negation) at packages/engine/src/physical/install/compile.ts:239 in admittedSchema: `!(lower || ch === "_" || (i > 0 && ch >= "0" && ch <= "9"))` becomes `(lower || ch === "_" || (i > 0 && ch >= "0" && ch <= "9"))`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
 	})

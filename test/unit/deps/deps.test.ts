@@ -50,7 +50,13 @@ import {
 	plantedModule
 } from "#test/unit/deps/planted.ts"
 
-/** The audit finds what it must: it finds exactly what a generated module plants, on its line, and reads its imports as Node runs them. */
+/**
+ * The audit finds what it must: it finds exactly what a generated module plants, on its line, and reads its imports as
+ * Node runs them.
+ *
+ * Budget: its suite's count before the conversion (unit/deps/planted: 600 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theAuditFindsWhatItMustFindsExactlyWhatAGeneratedModulePlantsOnItsLineAndReadsItsImportsAsNodeRunsThem =
 	property.explore(plantedModule, {
 		needs: {},
@@ -88,6 +94,7 @@ export const theAuditFindsWhatItMustFindsExactlyWhatAGeneratedModulePlantsOnItsL
 			kind: "specification",
 			name: "the findings each planted piece states, line by line in the order the module states them"
 		},
+		budget: { runs: 600, steered: 0 },
 		kept: [],
 		kills: []
 	})
@@ -207,6 +214,12 @@ export const runtimeRunsUnderHardenedNodeAndLoadsEveryEntryPointEachReachingNoAr
 					"/** The code a server reported, as a SQLSTATE, or undefined for any other text. */",
 				replacement: `/** The body, checked once as the module loads against the code of success. */\nexport const sqlstateBodyHolds = new RegExp(\`^\${sqlstateBody}$\`).test("00000")\n\n/** The code a server reported, as a SQLSTATE, or undefined for any other text. */`,
 				why: "A src module (core/sqlstate.ts) builds and runs a RegExp as it loads; the tree's audit and the runtime property fail."
+			},
+			{
+				file: "packages/engine/src/core/array.ts",
+				original: "\tfor (let i = 0; i < n; i++) {",
+				replacement: "\tfor (let i = 0; i >= n; i++) {",
+				why: "Operator mutant (comparison) at packages/engine/src/core/array.ts:25 in indices: `<` becomes `>=`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})

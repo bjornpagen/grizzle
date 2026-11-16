@@ -56,7 +56,13 @@ import {
 	unallocatedGen
 } from "#test/unit/substrate/substrate.fixtures.ts"
 
-/** Substrate names allocate exactly the names the word rule and the byte limit admit, every name under an allocation carrying its prefix and its process. */
+/**
+ * Substrate names allocate exactly the names the word rule and the byte limit admit, every name under an allocation
+ * carrying its prefix and its process.
+ *
+ * Budget: its suite's count before the conversion (unit/substrate/names: 400 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const substrateNamesAllocateExactlyTheNamesTheWordRuleAndTheByteLimitAdmitEveryNameUnderAnAllocationCarryingItsPrefixAndItsProcess =
 	property.explore(
 		(source) => ({
@@ -149,6 +155,7 @@ export const substrateNamesAllocateExactlyTheNamesTheWordRuleAndTheByteLimitAdmi
 				kind: "specification",
 				name: "the word rule on the generator's own words, and the bytes of the names they spell"
 			},
+			budget: { runs: 400, steered: 0 },
 			kept: [
 				{
 					token: ReplayToken(
@@ -159,11 +166,24 @@ export const substrateNamesAllocateExactlyTheNamesTheWordRuleAndTheByteLimitAdmi
 					since: "2026-11-08"
 				}
 			],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/core/identity.ts",
+					original: "\t}\n\tflush()\n\treturn segments.map((s) => s.toLowerCase())",
+					replacement: "\t}\n\t{}\n\treturn segments.map((s) => s.toLowerCase())",
+					why: "Operator mutant (statement) at packages/engine/src/core/identity.ts:204 in nameSegments: `flush()` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)
 
-/** psql's writer protocol reads psql's verbose report as its last severity line's message and each field's first one-line value. */
+/**
+ * psql's writer protocol reads psql's verbose report as its last severity line's message and each field's first one-
+ * line value.
+ *
+ * Budget: its suite's count before the conversion (unit/substrate/psql-report: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const psqlWriterProtocolReadsPsqlsVerboseReportAsItsLastSeverityLinesMessageAndEachFieldsFirstOneLineValue =
 	property.explore(
 		(source) => ({
@@ -223,12 +243,20 @@ export const psqlWriterProtocolReadsPsqlsVerboseReportAsItsLastSeverityLinesMess
 				kind: "specification",
 				name: "the last report printed, its message and each field's first one-line value"
 			},
+			budget: { runs: 300, steered: 0 },
 			kept: [],
 			kills: []
 		}
 	)
 
-/** Expectations run their attempt once and hold exactly for a PostgreSQL refusal of their SQLSTATE and constraint. */
+/**
+ * Expectations run their attempt once and hold exactly for a PostgreSQL refusal of their SQLSTATE and constraint.
+ *
+ * Budget: its suite's count before the conversion (unit/substrate/expectations: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (constraint,
+ * held; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200, which it stops
+ * short of once every situation is reached.
+ */
 export const expectationsRunTheirAttemptOnceAndHoldExactlyForAPostgreSQLRefusalOfTheirSQLSTATEAndConstraint =
 	property.explore(
 		(source) => ({
@@ -292,6 +320,7 @@ export const expectationsRunTheirAttemptOnceAndHoldExactlyForAPostgreSQLRefusalO
 				kind: "specification",
 				name: "an expectation holds exactly for a refusal of its SQLSTATE and, where it names one, its constraint"
 			},
+			budget: { runs: 300, steered: 200 },
 			kept: [],
 			kills: []
 		}

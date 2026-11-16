@@ -28,7 +28,12 @@ import { schemaAdmits } from "#test/support/openapi/validator.ts"
 import { bmpLast, endsAstral, type Feature, patternSpace } from "#test/unit/live/ecma.fixtures.ts"
 import { walkGen } from "#test/unit/text/generators.ts"
 
-/** A refined text's ECMA-262 pattern compiles under u and holds of exactly the texts the pattern's automaton accepts. */
+/**
+ * A refined text's ECMA-262 pattern compiles under u and holds of exactly the texts the pattern's automaton accepts.
+ *
+ * Budget: its suite's count before the conversion (unit/live/ecma: 800 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const aRefinedTextsECMA262PatternCompilesUnderUAndHoldsOfExactlyTheTextsThePatternsAutomatonAccepts =
 	property.explore(patternSpace, {
 		needs: {},
@@ -76,6 +81,7 @@ export const aRefinedTextsECMA262PatternCompilesUnderUAndHoldsOfExactlyTheTextsT
 			kind: "specification",
 			name: "nfa.ts buildNfa over the pattern's parse, judged by match.ts matches"
 		},
+		budget: { runs: 800, steered: 0 },
 		kept: [],
 		kills: [
 			{

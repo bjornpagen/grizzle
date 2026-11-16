@@ -62,14 +62,16 @@ import {
 	holdsHarnessRules,
 	type InstallFeature,
 	installsGen,
-	invalidKindSpace,
+	invalidKindBox,
+	drawsOf,
 	offering,
 	realitiesGen
 } from "#test/unit/world-model/generate.fixtures.ts"
 
 /** The worlds generators draw every invalid kind where a witness state offers it, each draw of its kind, naming held sessions under the serial rule. */
 export const theWorldsGeneratorsDrawEveryInvalidKindWhereAWitnessStateOffersItEachDrawOfItsKindNamingHeldSessionsUnderTheSerialRule =
-	property.explore(invalidKindSpace, {
+	property.exhaust(invalidKindBox, {
+		box: "every invalid kind of the vocabulary, each where the first witness state offering it offers it",
 		needs: {},
 		situations: Arr.map(invalidKindWords, (k): Feature => `invalid:${k}`) satisfies ReadonlyArray<
 			Reached<Feature>
@@ -85,13 +87,14 @@ export const theWorldsGeneratorsDrawEveryInvalidKindWhereAWitnessStateOffersItEa
 				if (gen === undefined) {
 					return assert.fail(`the witness state stopped offering ${kind}`)
 				}
-				const action = c.draw(gen)
-				const found = invalidKindsOf(state, action)
-				assert.ok(
-					found.includes(kind),
-					`drawn for ${kind}, a ${action.kind} classified ${Arr.join(found, ", ")}`
-				)
-				holdsHarnessRules(state, action)
+				for (const action of drawsOf(kind, gen)) {
+					const found = invalidKindsOf(state, action)
+					assert.ok(
+						found.includes(kind),
+						`drawn for ${kind}, a ${action.kind} classified ${Arr.join(found, ", ")}`
+					)
+					holdsHarnessRules(state, action)
+				}
 				c.note(`invalid:${kind}`)
 			}),
 		oracle: {
@@ -102,7 +105,13 @@ export const theWorldsGeneratorsDrawEveryInvalidKindWhereAWitnessStateOffersItEa
 		kills: []
 	})
 
-/** The worlds generators draw actions under swarm weights that name only sessions the state holds, keep the serial rule, and are offered. */
+/**
+ * The worlds generators draw actions under swarm weights that name only sessions the state holds, keep the serial
+ * rule, and are offered.
+ *
+ * Budget: its suite's count before the conversion (unit/world-model/generate-actions: 160 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const theWorldsGeneratorsDrawActionsUnderSwarmWeightsThatNameOnlySessionsTheStateHoldsKeepTheSerialRuleAndAreOffered =
 	property.explore(actionsGen, {
 		needs: {},
@@ -120,11 +129,20 @@ export const theWorldsGeneratorsDrawActionsUnderSwarmWeightsThatNameOnlySessions
 			kind: "specification",
 			name: "the harness rules: held sessions, the serial rule, what the state offers"
 		},
+		budget: { runs: 160, steered: 0 },
 		kept: [],
 		kills: []
 	})
 
-/** The worlds generators draw lawful realities of every base: each fact in its domain, one per primary key, repair a no-op on them. */
+/**
+ * The worlds generators draw lawful realities of every base: each fact in its domain, one per primary key, repair a
+ * no-op on them.
+ *
+ * Budget: its suite's count before the conversion (unit/world-model/generate-realities: 200 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (empty;
+ * toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200, which it stops short
+ * of once every situation is reached.
+ */
 export const theWorldsGeneratorsDrawLawfulRealitiesOfEveryBaseEachFactInItsDomainOnePerPrimaryKeyRepairANoOpOnThem =
 	property.explore(realitiesGen, {
 		needs: {},
@@ -166,11 +184,18 @@ export const theWorldsGeneratorsDrawLawfulRealitiesOfEveryBaseEachFactInItsDomai
 			kind: "specification",
 			name: "the law model's violations, the repair's fixed point, keys and domains"
 		},
+		budget: { runs: 200, steered: 200 },
 		kept: [],
 		kills: []
 	})
 
-/** The worlds generators draw installations whose rules the host model admits, lawful or with one write-list defect planted. */
+/**
+ * The worlds generators draw installations whose rules the host model admits, lawful or with one write-list defect
+ * planted.
+ *
+ * Budget: its suite's count before the conversion (unit/world-model/generate-installs: 200 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const theWorldsGeneratorsDrawInstallationsWhoseRulesTheHostModelAdmitsLawfulOrWithOneWriteListDefectPlanted =
 	property.explore(installsGen, {
 		needs: {},
@@ -222,11 +247,17 @@ export const theWorldsGeneratorsDrawInstallationsWhoseRulesTheHostModelAdmitsLaw
 			kind: "specification",
 			name: "the write-list classifier, the login partition and the rule-fault checker"
 		},
+		budget: { runs: 200, steered: 0 },
 		kept: [],
 		kills: []
 	})
 
-/** The worlds generators draw the forced moves under weights of zero, and only live inputs under validity of zero. */
+/**
+ * The worlds generators draw the forced moves under weights of zero, and only live inputs under validity of zero.
+ *
+ * Budget: its suite's count before the conversion (unit/world-model/generate-forced: 200 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const theWorldsGeneratorsDrawTheForcedMovesUnderWeightsOfZeroAndOnlyLiveInputsUnderValidityOfZero =
 	property.explore(forcedGen, {
 		needs: {},
@@ -272,11 +303,21 @@ export const theWorldsGeneratorsDrawTheForcedMovesUnderWeightsOfZeroAndOnlyLiveI
 			kind: "specification",
 			name: "the forced moves and the offered kinds of the state"
 		},
+		budget: { runs: 200, steered: 0 },
 		kept: [],
 		kills: []
 	})
 
-/** The worlds generators enumerate a finite box, duplicate-free up to renaming, covering every action kind the state offers. */
+/**
+ * The worlds generators enumerate a finite box, duplicate-free up to renaming, covering every action kind the state
+ * offers.
+ *
+ * Budget: its suite's count before the conversion (unit/world-model/generate-box: 24 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a). At those counts its kill "Operator mutant (comparison) at
+ * packages/engine/src/lower/conservative/deliver.ts:495 in <module>: `>` becomes `<=`" survived at TEST_SEED=1
+ * (toolchain-test run of 2026-11-16 08:21Z); at the runner's 150 runs and 200 steered, which it was landed at, it is
+ * killed, so it keeps them.
+ */
 export const theWorldsGeneratorsEnumerateAFiniteBoxDuplicateFreeUpToRenamingCoveringEveryActionKindTheStateOffers =
 	property.explore(boxGen, {
 		needs: {},
@@ -333,6 +374,14 @@ export const theWorldsGeneratorsEnumerateAFiniteBoxDuplicateFreeUpToRenamingCove
 			kind: "specification",
 			name: "the box's canonical form up to renaming, the offered kinds and the serial rule"
 		},
+		budget: { runs: 150, steered: 200 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/lower/conservative/deliver.ts",
+				original: "\t\t\tif (arm.attachments.length > 0) {",
+				replacement: "\t\t\tif (arm.attachments.length <= 0) {",
+				why: "Operator mutant (comparison) at packages/engine/src/lower/conservative/deliver.ts:495 in <module>: `>` becomes `<=`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

@@ -59,7 +59,15 @@ import {
 	resetGen
 } from "#test/unit/adapter/flight-bound.fixtures.ts"
 
-/** The flight bound refuses a flight longer than one write carries before any byte of it is written, and writes every other whole. */
+/**
+ * The flight bound refuses a flight longer than one write carries before any byte of it is written, and writes every
+ * other whole.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/flight-bound: 160 independent cases and 16 steered,
+ * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (refused one byte
+ * past the bound, refused at the second flight; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps
+ * the runner's cap of 200, which it stops short of once every situation is reached.
+ */
 export const theFlightBoundRefusesAFlightLongerThanOneWriteCarriesBeforeAnyByteOfItIsWrittenAndWritesEveryOtherWhole =
 	property.explore(caseGen, {
 		needs: {},
@@ -155,6 +163,7 @@ export const theFlightBoundRefusesAFlightLongerThanOneWriteCarriesBeforeAnyByteO
 			kind: "second-implementation",
 			name: "the wire: every message a twin session's server reads of the same call under the production bound"
 		},
+		budget: { runs: 160, steered: 200 },
 		kept: [],
 		kills: [
 			{
@@ -180,7 +189,15 @@ export const theFlightBoundRefusesAFlightLongerThanOneWriteCarriesBeforeAnyByteO
 		]
 	})
 
-/** A flight whose connection is reset is a lost connection when its write failed before its last byte left, and a commit of unknown fate only once COMMIT could have run. */
+/**
+ * A flight whose connection is reset is a lost connection when its write failed before its last byte left, and a
+ * commit of unknown fate only once COMMIT could have run.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/flight-reset: 120 independent cases and 32 steered,
+ * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (framedTwice:
+ * reset after COMMIT ran; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of
+ * 200, which it stops short of once every situation is reached.
+ */
 export const aFlightWhoseConnectionIsResetIsALostConnectionWhenItsWriteFailedBeforeItsLastByteLeftAndACommitOfUnknownFateOnlyOnceCOMMITCouldHaveRun =
 	property.explore(resetGen, {
 		needs: {},
@@ -246,6 +263,7 @@ export const aFlightWhoseConnectionIsResetIsALostConnectionWhenItsWriteFailedBef
 			kind: "second-implementation",
 			name: "the wire: whether the server read the call's COMMIT whole and ran it"
 		},
+		budget: { runs: 120, steered: 200 },
 		kept: [],
 		kills: [
 			{
@@ -258,7 +276,13 @@ export const aFlightWhoseConnectionIsResetIsALostConnectionWhenItsWriteFailedBef
 		]
 	})
 
-/** A statement's Parse message is refused before any byte of its flight is written exactly when it is longer than the server reads, its text with its name and fields. */
+/**
+ * A statement's Parse message is refused before any byte of its flight is written exactly when it is longer than the
+ * server reads, its text with its name and fields.
+ *
+ * Budget: its suite's count before the conversion (unit/adapter/flight-parse: 160 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aStatementsParseMessageIsRefusedBeforeAnyByteOfItsFlightIsWrittenExactlyWhenItIsLongerThanTheServerReadsItsTextWithItsNameAndFields =
 	property.explore(parseCaseGen, {
 		needs: {},
@@ -337,6 +361,16 @@ export const aStatementsParseMessageIsRefusedBeforeAnyByteOfItsFlightIsWrittenEx
 			kind: "second-implementation",
 			name: "the wire: each Parse's length word a twin session's server reads of the same call"
 		},
+		budget: { runs: 160, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/wire/batch.ts",
+				original:
+					'\t\t\tif (Result.isFailure(early) || transaction.end === "ROLLBACK" || !spanCloses(span)) {',
+				replacement:
+					'\t\t\tif (Result.isFailure(early) || transaction.end === "ROLLBACK" || spanCloses(span)) {',
+				why: "Operator mutant (negation) at packages/grizzle/src/adapter/wire/batch.ts:1044 in runEntered: `!spanCloses(span)` becomes `spanCloses(span)`; the property fails (lane CATCH, grizzle b0d74512)."
+			}
+		]
 	})

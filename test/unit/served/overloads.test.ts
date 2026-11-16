@@ -55,5 +55,12 @@ export const aRangeOverloadInAServedFileReadsBackAsItsOneInstanceWhichTheRegistr
 		},
 		box: "every range overload, each code over each span carrier",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/served/json.ts",
+				original: "\t\t\tout[key] = this.value(record[key], within)",
+				replacement: "\t\t\t{}",
+				why: "Operator mutant (statement) at packages/engine/src/served/json.ts:673 in <module>: `out[key] = this.value(record[key], within)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

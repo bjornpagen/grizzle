@@ -66,7 +66,12 @@ import {
 	servedShape
 } from "#test/unit/served/file.fixtures.ts"
 
-/** A served file reads back every drawn login's file as the runtime reads it, and no member is dropped unseen. */
+/**
+ * A served file reads back every drawn login's file as the runtime reads it, and no member is dropped unseen.
+ *
+ * Budget: its suite's count before the conversion (unit/served/file: 60 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const aServedFileReadsBackEveryDrawnLoginsFileAsTheRuntimeReadsItAndNoMemberIsDroppedUnseen =
 	property.explore(
 		(source) =>
@@ -101,6 +106,7 @@ export const aServedFileReadsBackEveryDrawnLoginsFileAsTheRuntimeReadsItAndNoMem
 				kind: "specification",
 				name: "the file the compile served, compared as the runtime reads it"
 			},
+			budget: { runs: 60, steered: 0 },
 			kept: [],
 			kills: [
 				{
@@ -133,7 +139,12 @@ export const aServedFileReadsBackEveryDrawnLoginsFileAsTheRuntimeReadsItAndNoMem
 		}
 	)
 
-/** A served file reads back every served ChangeSet as the runtime reads it, and no member is dropped unseen. */
+/**
+ * A served file reads back every served ChangeSet as the runtime reads it, and no member is dropped unseen.
+ *
+ * Budget: its suite's count before the conversion (unit/served/change: 60 independent cases and 16 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const aServedFileReadsBackEveryServedChangeSetAsTheRuntimeReadsItAndNoMemberIsDroppedUnseen =
 	property.explore(
 		(source) =>
@@ -179,6 +190,7 @@ export const aServedFileReadsBackEveryServedChangeSetAsTheRuntimeReadsItAndNoMem
 				kind: "specification",
 				name: "the served change forms, compared as the runtime reads them"
 			},
+			budget: { runs: 60, steered: 16 },
 			kept: [],
 			kills: [
 				{
@@ -211,7 +223,13 @@ export const aServedFileReadsBackEveryServedChangeSetAsTheRuntimeReadsItAndNoMem
 		}
 	)
 
-/** A served file reads back every vector a served ChangeSet binds bit for bit as it was bound, and refuses one that is not finite by name. */
+/**
+ * A served file reads back every vector a served ChangeSet binds bit for bit as it was bound, and refuses one that is
+ * not finite by name.
+ *
+ * Budget: its suite's count before the conversion (unit/served/bound-vector: 60 independent cases and 16 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aServedFileReadsBackEveryVectorAServedChangeSetBindsBitForBitAsItWasBoundAndRefusesOneThatIsNotFiniteByName =
 	property.explore(
 		(source) =>
@@ -243,6 +261,7 @@ export const aServedFileReadsBackEveryVectorAServedChangeSetBindsBitForBitAsItWa
 				kind: "specification",
 				name: "the vector bound, bit for bit with -0 as 0, or its refusal by name where it is not finite"
 			},
+			budget: { runs: 60, steered: 16 },
 			kept: [
 				{
 					token: ReplayToken(

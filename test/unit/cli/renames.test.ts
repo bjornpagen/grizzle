@@ -55,7 +55,13 @@ import {
 	verdictOf
 } from "#test/unit/cli/renames.fixtures.ts"
 
-/** The rename declaration reader reads every rename as D9 does: one reading of two sides that are not one name, or a refusal. */
+/**
+ * The rename declaration reader reads every rename as D9 does: one reading of two sides that are not one name, or a
+ * refusal.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/renames-spelling: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theRenameDeclarationReaderReadsEveryRenameAsD9DoesOneReadingOfTwoSidesThatAreNotOneNameOrARefusal =
 	property.explore(renameSpace, {
 		needs: {},
@@ -105,6 +111,7 @@ export const theRenameDeclarationReaderReadsEveryRenameAsD9DoesOneReadingOfTwoSi
 					}
 				}),
 		oracle: { kind: "specification", name: "D9's grammar, read as every split at an =" },
+		budget: { runs: 300, steered: 0 },
 		kept: [],
 		kills: [
 			{
@@ -114,11 +121,24 @@ export const theRenameDeclarationReaderReadsEveryRenameAsD9DoesOneReadingOfTwoSi
 				replacement:
 					'\t\t\treturn b.kind === "handle" && a.roster === b.roster && a.handle === b.handle',
 				why: "A handle rename's two sides are one name only when their rosters are spelled alike byte for byte."
+			},
+			{
+				file: "packages/grizzle/src/cli/renames.ts",
+				original:
+					'\tconst [only, ...more] = splits\n\tif (more.length > 0) {\n\t\treturn refused({ kind: "ambiguous", given, readings: splits.length })',
+				replacement:
+					'\tconst [only, ...more] = splits\n\tif (more.length <= 0) {\n\t\treturn refused({ kind: "ambiguous", given, readings: splits.length })',
+				why: "Operator mutant (comparison) at packages/grizzle/src/cli/renames.ts:225 in sidesOf: `>` becomes `<=`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})
 
-/** The rename declaration reader reads every drop as D9 reads a side, and a rename of one side as a refusal. */
+/**
+ * The rename declaration reader reads every drop as D9 reads a side, and a rename of one side as a refusal.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/renames-drop: 200 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theRenameDeclarationReaderReadsEveryDropAsD9ReadsASideAndARenameOfOneSideAsARefusal =
 	property.explore(sideGen, {
 		needs: {},
@@ -152,11 +172,25 @@ export const theRenameDeclarationReaderReadsEveryDropAsD9ReadsASideAndARenameOfO
 				)
 			}),
 		oracle: { kind: "specification", name: "D9's grammar of a side" },
+		budget: { runs: 200, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/cli/renames.ts",
+				original:
+					'\tif (Str.includes("\\u0000")(handle)) {\n\t\treturn "a handle holds no NUL, which ends a PostgreSQL name"\n\t}',
+				replacement: "\t{}",
+				why: 'Operator mutant (guard) at packages/grizzle/src/cli/renames.ts:127 in handleProblem: `if (Str.includes("\\u0000")(handle)) {\n\t\treturn "a handle holds no NUL, which end` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
 	})
 
-/** The rename declaration reader refuses a command line that renames or drops a name twice, or renames two to one. */
+/**
+ * The rename declaration reader refuses a command line that renames or drops a name twice, or renames two to one.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/renames-lists: 300 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theRenameDeclarationReaderRefusesACommandLineThatRenamesOrDropsANameTwiceOrRenamesTwoToOne =
 	property.explore(listingSpace, {
 		needs: {},
@@ -190,11 +224,26 @@ export const theRenameDeclarationReaderRefusesACommandLineThatRenamesOrDropsANam
 			kind: "specification",
 			name: "D9: one declaration per old name and per new name, names alike being one"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/cli/renames.ts",
+				original:
+					'\tconst [only, ...more] = splits\n\tif (more.length > 0) {\n\t\treturn refused({ kind: "ambiguous", given, readings: splits.length })',
+				replacement:
+					'\tconst [only, ...more] = splits\n\tif (more.length <= 0) {\n\t\treturn refused({ kind: "ambiguous", given, readings: splits.length })',
+				why: "Operator mutant (comparison) at packages/grizzle/src/cli/renames.ts:225 in sidesOf: `>` becomes `<=`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** The rename declaration reader resolves a handle rename's roster to the schema's alike one, and refuses one it lacks. */
+/**
+ * The rename declaration reader resolves a handle rename's roster to the schema's alike one, and refuses one it lacks.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/renames-rosters: 200 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theRenameDeclarationReaderResolvesAHandleRenamesRosterToTheSchemasAlikeOneAndRefusesOneItLacks =
 	property.explore(rosterCaseGen, {
 		needs: {},
@@ -243,6 +292,14 @@ export const theRenameDeclarationReaderResolvesAHandleRenamesRosterToTheSchemasA
 				c.note("resolved")
 			}),
 		oracle: { kind: "specification", name: "declaredAlike rosters are one roster" },
+		budget: { runs: 200, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/cli/renames.ts",
+				original: "\treturn bytes > handleMaxBytes",
+				replacement: "\treturn bytes <= handleMaxBytes",
+				why: "Operator mutant (comparison) at packages/grizzle/src/cli/renames.ts:134 in handleProblem: `>` becomes `<=`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

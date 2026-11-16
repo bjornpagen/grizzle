@@ -97,7 +97,13 @@ import {
 	sameMultiset
 } from "#test/unit/bench/harness.fixtures.ts"
 
-/** EXPLAIN capture reads every generated capture back exactly, counts rows by the roles its nodes play, and keeps a statement's totals at its root. */
+/**
+ * EXPLAIN capture reads every generated capture back exactly, counts rows by the roles its nodes play, and keeps a
+ * statement's totals at its root.
+ *
+ * Budget: its suite's count before the conversion (unit/bench/explain-round-trip: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const eXPLAINCaptureReadsEveryGeneratedCaptureBackExactlyCountsRowsByTheRolesItsNodesPlayAndKeepsAStatementsTotalsAtItsRoot =
 	property.explore(captureGen, {
 		needs: {},
@@ -189,11 +195,17 @@ export const eXPLAINCaptureReadsEveryGeneratedCaptureBackExactlyCountsRowsByTheR
 			kind: "universal",
 			name: "read ∘ print = id over generated captures, and rows counted by the role each node was generated in"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [],
 		kills: []
 	})
 
-/** EXPLAIN capture refuses output PostgreSQL never prints, a fault planted in a generated capture, as MalformedPlan. */
+/**
+ * EXPLAIN capture refuses output PostgreSQL never prints, a fault planted in a generated capture, as MalformedPlan.
+ *
+ * Budget: its suite's count before the conversion (unit/bench/explain-faults: 300 independent cases and 784 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const eXPLAINCaptureRefusesOutputPostgreSQLNeverPrintsAFaultPlantedInAGeneratedCaptureAsMalformedPlan =
 	property.explore(faultCases, {
 		needs: {},
@@ -220,11 +232,18 @@ export const eXPLAINCaptureRefusesOutputPostgreSQLNeverPrintsAFaultPlantedInAGen
 			kind: "specification",
 			name: "each planted fault is output PostgreSQL never prints, which the reader refuses"
 		},
+		budget: { runs: 300, steered: 784 },
 		kept: [],
 		kills: []
 	})
 
-/** Outcomes, retries and loads retry exactly what grizzle classifies as a TransientFailure, up to the caller's policy, the last attempt standing. */
+/**
+ * Outcomes, retries and loads retry exactly what grizzle classifies as a TransientFailure, up to the caller's policy,
+ * the last attempt standing.
+ *
+ * Budget: its suite's count before the conversion (unit/bench/retries: 400 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const outcomesRetriesAndLoadsRetryExactlyWhatGrizzleClassifiesAsATransientFailureUpToTheCallersPolicyTheLastAttemptStanding =
 	property.explore(retriedCases, {
 		needs: {},
@@ -265,11 +284,26 @@ export const outcomesRetriesAndLoadsRetryExactlyWhatGrizzleClassifiesAsATransien
 			kind: "second-implementation",
 			name: "a model of grizzle's documented TransientFailure classification over scripted attempts"
 		},
+		budget: { runs: 400, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/outcomes/index.ts",
+				original:
+					"\tconst found = Arr.findFirst(uniqueAborts, (u) => u.constraint === failure.constraint)",
+				replacement: "\tconst found = Arr.findFirst(uniqueAborts, (u) => true)",
+				why: "Operator mutant (boolean-return) at packages/grizzle/src/adapter/outcomes/index.ts:255 in transientFailureOf: `u.constraint === failure.constraint` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Result rows agree, and digest alike, exactly as one multiset of rows that neither list repeats, a cell's NULL apart from its text. */
+/**
+ * Result rows agree, and digest alike, exactly as one multiset of rows that neither list repeats, a cell's NULL apart
+ * from its text.
+ *
+ * Budget: its suite's count before the conversion (unit/bench/rows-agree: 400 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const resultRowsAgreeAndDigestAlikeExactlyAsOneMultisetOfRowsThatNeitherListRepeatsACellsNULLApartFromItsText =
 	property.explore(rowPairGen, {
 		needs: {},
@@ -300,11 +334,18 @@ export const resultRowsAgreeAndDigestAlikeExactlyAsOneMultisetOfRowsThatNeitherL
 			kind: "second-implementation",
 			name: "rows counted cell by cell, a list agreeing with another when neither repeats a row and the counts match"
 		},
+		budget: { runs: 400, steered: 0 },
 		kept: [],
 		kills: []
 	})
 
-/** Result rows read a statement's rows as text cells, refusing the first cell, in row order, that is neither text nor NULL. */
+/**
+ * Result rows read a statement's rows as text cells, refusing the first cell, in row order, that is neither text nor
+ * NULL.
+ *
+ * Budget: its suite's count before the conversion (unit/bench/text-rows: 200 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const resultRowsReadAStatementsRowsAsTextCellsRefusingTheFirstCellInRowOrderThatIsNeitherTextNorNULL =
 	property.explore(
 		(source) => ({
@@ -345,12 +386,18 @@ export const resultRowsReadAStatementsRowsAsTextCellsRefusingTheFirstCellInRowOr
 				kind: "specification",
 				name: "a cell is text or NULL, and the first that is neither is named by its statement, row and column"
 			},
+			budget: { runs: 200, steered: 0 },
 			kept: [],
 			kills: []
 		}
 	)
 
-/** Verdicts judge a gate by its tagged checks fail on exactly the checks that fail, and pass when every check holds. */
+/**
+ * Verdicts judge a gate by its tagged checks fail on exactly the checks that fail, and pass when every check holds.
+ *
+ * Budget: its suite's count before the conversion (unit/bench/verdicts: 100 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const verdictsJudgeAGateByItsTaggedChecksFailOnExactlyTheChecksThatFailAndPassWhenEveryCheckHolds =
 	property.explore(
 		(source) => nonEmpty(source.draw(array(checkGen, { min: 1, max: 4 })), "checks"),
@@ -376,12 +423,18 @@ export const verdictsJudgeAGateByItsTaggedChecksFailOnExactlyTheChecksThatFailAn
 				kind: "specification",
 				name: "a verdict fails on its failing checks, in their order"
 			},
+			budget: { runs: 100, steered: 0 },
 			kept: [],
 			kills: []
 		}
 	)
 
-/** Gate records carry their identity and phases name exactly the gaps planted in a record, in the order it is read. */
+/**
+ * Gate records carry their identity and phases name exactly the gaps planted in a record, in the order it is read.
+ *
+ * Budget: its suite's count before the conversion (unit/bench/record-problems: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const gateRecordsCarryTheirIdentityAndPhasesNameExactlyTheGapsPlantedInARecordInTheOrderItIsRead =
 	property.explore(recordGen(catalogIds), {
 		needs: {},
@@ -425,6 +478,7 @@ export const gateRecordsCarryTheirIdentityAndPhasesNameExactlyTheGapsPlantedInAR
 			kind: "specification",
 			name: "each planted gap, named in the order a record is read"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [],
 		kills: []
 	})
@@ -561,10 +615,26 @@ export const theGateCatalogGivesEveryCatalogGateExactlyOneBenchFileInItsOwnersDi
 		},
 		box: "every gate of the catalog, against the bench files under the owners' directories",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/registry.ts",
+				original:
+					'export const storedOnly = (t: ScalarType): boolean => t.caps.every((c) => c === "storage")',
+				replacement:
+					'export const storedOnly = (t: ScalarType): boolean => t.caps.every((c) => c !== "storage")',
+				why: "Operator mutant (comparison) at packages/engine/src/scalar/registry.ts:53 in storedOnly: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Pnpm bench's command line reads exactly what its grammar reads, and refuses every other command line. */
+/**
+ * Pnpm bench's command line reads exactly what its grammar reads, and refuses every other command line.
+ *
+ * Budget: its suite's count before the conversion (unit/bench/command-line: 400 independent cases and 16 steered,
+ * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (all; toolchain-
+ * test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200, which it stops short of once
+ * every situation is reached.
+ */
 export const pnpmBenchsCommandLineReadsExactlyWhatItsGrammarReadsAndRefusesEveryOtherCommandLine =
 	property.explore(array(element(argWords), { min: 0, max: 5 }), {
 		needs: {},
@@ -612,6 +682,7 @@ export const pnpmBenchsCommandLineReadsExactlyWhatItsGrammarReadsAndRefusesEvery
 				}
 			}),
 		oracle: { kind: "second-implementation", name: "a model of pnpm bench's grammar" },
+		budget: { runs: 400, steered: 200 },
 		kept: [],
 		kills: []
 	})

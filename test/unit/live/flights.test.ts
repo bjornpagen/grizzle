@@ -61,7 +61,13 @@ import {
 	silent
 } from "#test/unit/live/flights.fixtures.ts"
 
-/** A live answer over the protocol's results sends ready only after its COMMIT answered, and ends every failure with its meaning's CallError and retry. */
+/**
+ * A live answer over the protocol's results sends ready only after its COMMIT answered, and ends every failure with
+ * its meaning's CallError and retry.
+ *
+ * Budget: its suite's count before the conversion (unit/live/flights: 200 independent cases and 64 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const aLiveAnswerOverTheProtocolsResultsSendsReadyOnlyAfterItsCOMMITAnsweredAndEndsEveryFailureWithItsMeaningsCallErrorAndRetry =
 	property.explore(
 		(source) => ({
@@ -235,6 +241,7 @@ export const aLiveAnswerOverTheProtocolsResultsSendsReadyOnlyAfterItsCOMMITAnswe
 				kind: "specification",
 				name: "each fault's meaning: whether anything may have committed, and whether the failure is the call's own"
 			},
+			budget: { runs: 200, steered: 64 },
 			kept: [],
 			kills: [
 				{

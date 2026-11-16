@@ -40,7 +40,14 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { nameCase, type NameFeature, namesGen } from "#test/unit/served/role-name.fixtures.ts"
 
-/** The one roleNameOf names a login's, its roles', its served file's and its decoder login's PostgreSQL roles as the naming door's stems under each drawn role space, through one function, the spaces disjoint and the 63-byte bound held. */
+/**
+ * The one roleNameOf names a login's, its roles', its served file's and its decoder login's PostgreSQL roles as the
+ * naming door's stems under each drawn role space, through one function, the spaces disjoint and the 63-byte bound
+ * held.
+ *
+ * Budget: its suite's count before the conversion (unit/served/role-name: 64 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const theOneRoleNameOfNamesALoginsItsRolesItsServedFilesAndItsDecoderLoginsPostgreSQLRolesAsTheNamingDoorsStemsUnderEachDrawnRoleSpaceThroughOneFunctionTheSpacesDisjointAndThe63ByteBoundHeld =
 	property.explore(namesGen, {
 		needs: {},
@@ -62,6 +69,7 @@ export const theOneRoleNameOfNamesALoginsItsRolesItsServedFilesAndItsDecoderLogi
 			kind: "specification",
 			name: "a role space: the naming door's stem, under `<prefix conversion>__` when prefixed"
 		},
+		budget: { runs: 64, steered: 0 },
 		kept: [],
 		kills: [
 			{

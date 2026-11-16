@@ -35,7 +35,12 @@ import {
 	valueKey
 } from "#test/unit/oracle-runner/compare.fixtures.ts"
 
-/** Row multisets name exactly the rows each side holds more often, against a count-by-row model. */
+/**
+ * Row multisets name exactly the rows each side holds more often, against a count-by-row model.
+ *
+ * Budget: its suite's count before the conversion (unit/oracle-runner/compare-multisets: 400 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const rowMultisetsNameExactlyTheRowsEachSideHoldsMoreOftenAgainstACountByRowModel =
 	property.explore(multisetPairGen, {
 		needs: {},
@@ -76,11 +81,25 @@ export const rowMultisetsNameExactlyTheRowsEachSideHoldsMoreOftenAgainstACountBy
 			kind: "second-implementation",
 			name: "a count of each row, compared as multisets"
 		},
+		budget: { runs: 400, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/tuple-map.ts",
+				original: "\t\t\tnode.slot.value = value",
+				replacement: "\t\t\t{}",
+				why: "Operator mutant (statement) at packages/engine/src/core/tuple-map.ts:85 in <module>: `node.slot.value = value` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Canonical cell keyed sets agree exactly when each run's cells spell a set of values and the two sets are one, whatever the spellings. */
+/**
+ * Canonical cell keyed sets agree exactly when each run's cells spell a set of values and the two sets are one,
+ * whatever the spellings.
+ *
+ * Budget: its suite's count before the conversion (unit/oracle-runner/compare-canonical: 400 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const canonicalCellKeyedSetsAgreeExactlyWhenEachRunsCellsSpellASetOfValuesAndTheTwoSetsAreOneWhateverTheSpellings =
 	property.explore(runPairGen, {
 		needs: {},
@@ -119,6 +138,14 @@ export const canonicalCellKeyedSetsAgreeExactlyWhenEachRunsCellsSpellASetOfValue
 			kind: "second-implementation",
 			name: "a count of the value classes each run's cells spell"
 		},
+		budget: { runs: 400, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/tuple-map.ts",
+				original: "\t\t\tnode.slot.value = value",
+				replacement: "\t\t\t{}",
+				why: "Operator mutant (statement) at packages/engine/src/core/tuple-map.ts:85 in <module>: `node.slot.value = value` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

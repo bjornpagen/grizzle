@@ -57,7 +57,13 @@ import {
 	workloadGen
 } from "#test/unit/workload/value.fixtures.ts"
 
-/** Workload(schema, programs) records each program's Description under its name, and compiles from it with the schema named alone. */
+/**
+ * Workload(schema, programs) records each program's Description under its name, and compiles from it with the schema
+ * named alone.
+ *
+ * Budget: its suite's count before the conversion (unit/workload/value-desc: 40 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const workloadSchemaProgramsRecordsEachProgramsDescriptionUnderItsNameAndCompilesFromItWithTheSchemaNamedAlone =
 	property.explore(workloadGen, {
 		needs: {},
@@ -113,11 +119,24 @@ export const workloadSchemaProgramsRecordsEachProgramsDescriptionUnderItsNameAnd
 			kind: "second-implementation",
 			name: "the workload value's own compile: its Description compiles to the plan the value does, and over another schema is refused"
 		},
+		budget: { runs: 40, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/loc.ts",
+				original: '\ttypeof segment === "string" || typeof segment === "number"',
+				replacement: "\tfalse",
+				why: 'Operator mutant (boolean-return) at packages/engine/src/core/loc.ts:101 in isSegment: `typeof segment === "string" || typeof segment === "number"` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
 	})
 
-/** Workload(schema, programs) compiles a ChangeSet over a schema of the same content under another name. */
+/**
+ * Workload(schema, programs) compiles a ChangeSet over a schema of the same content under another name.
+ *
+ * Budget: its suite's count before the conversion (unit/workload/value-renamed: 10 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const workloadSchemaProgramsCompilesAChangeSetOverASchemaOfTheSameContentUnderAnotherName =
 	property.explore(renamedNameGen, {
 		needs: {},
@@ -147,11 +166,17 @@ export const workloadSchemaProgramsCompilesAChangeSetOverASchemaOfTheSameContent
 			kind: "second-implementation",
 			name: "the plan of the same ChangeSet over Work itself"
 		},
+		budget: { runs: 10, steered: 0 },
 		kept: [],
 		kills: []
 	})
 
-/** Workload(schema, programs) refuses a program the checker refuses, naming the program. */
+/**
+ * Workload(schema, programs) refuses a program the checker refuses, naming the program.
+ *
+ * Budget: its suite's count before the conversion (unit/workload/value-checker: 20 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const workloadSchemaProgramsRefusesAProgramTheCheckerRefusesNamingTheProgram =
 	property.explore(nameGen, {
 		needs: {},
@@ -187,11 +212,25 @@ export const workloadSchemaProgramsRefusesAProgramTheCheckerRefusesNamingTheProg
 			kind: "specification",
 			name: "a program the checker refuses is refused by its typed refusal at the program's own path"
 		},
+		budget: { runs: 20, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/canonical.ts",
+				original: "\t\tif (caught instanceof signal) {\n\t\t\treturn Result.err(caught)\n\t\t}",
+				replacement: "\t\t{}",
+				why: "Operator mutant (guard) at packages/engine/src/core/canonical.ts:223 in catchSignal: `if (caught instanceof signal) {\n\t\t\treturn Result.err(caught)\n\t\t}` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Workload()'s signature admits a schema and a record of named programs over it or a level below, and refuses any other call with MalformedDescription. */
+/**
+ * Workload()'s signature admits a schema and a record of named programs over it or a level below, and refuses any
+ * other call with MalformedDescription.
+ *
+ * Budget: its suite's count before the conversion (unit/workload/value-signature: 100 independent cases and 48
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const workloadSSignatureAdmitsASchemaAndARecordOfNamedProgramsOverItOrALevelBelowAndRefusesAnyOtherCallWithMalformedDescription =
 	property.explore(signatureCaseGen, {
 		needs: {},
@@ -229,6 +268,7 @@ export const workloadSSignatureAdmitsASchemaAndARecordOfNamedProgramsOverItOrALe
 			kind: "specification",
 			name: "workload(schema, programs): a schema, a plain record of named programs over it or a level below, nothing more"
 		},
+		budget: { runs: 100, steered: 48 },
 		kept: [
 			{
 				token: ReplayToken(
@@ -249,7 +289,13 @@ export const workloadSSignatureAdmitsASchemaAndARecordOfNamedProgramsOverItOrALe
 		]
 	})
 
-/** Workload()'s signature refuses a programs record or a program whose reading throws with MalformedDescription, never a defect. */
+/**
+ * Workload()'s signature refuses a programs record or a program whose reading throws with MalformedDescription, never
+ * a defect.
+ *
+ * Budget: its suite's count before the conversion (unit/workload/value-unreadable: 40 independent cases and 16
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const workloadSSignatureRefusesAProgramsRecordOrAProgramWhoseReadingThrowsWithMalformedDescriptionNeverADefect =
 	property.explore(unreadableGen, {
 		needs: {},
@@ -283,6 +329,7 @@ export const workloadSSignatureRefusesAProgramsRecordOrAProgramWhoseReadingThrow
 			kind: "specification",
 			name: "a reading that throws is MalformedDescription, never a defect"
 		},
+		budget: { runs: 40, steered: 16 },
 		kept: [],
 		kills: []
 	})

@@ -52,7 +52,13 @@ import {
 	table
 } from "#test/unit/live/subscriptions.fixtures.ts"
 
-/** The live registry's routing is exact, folding a subscription's events equals running its read, and what it holds is bounded by its value. */
+/**
+ * The live registry's routing is exact, folding a subscription's events equals running its read, and what it holds is
+ * bounded by its value.
+ *
+ * Budget: its suite's count before the conversion (unit/live/subscriptions: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theLiveRegistryRoutingIsExactFoldingASubscriptionsEventsEqualsRunningItsReadAndWhatItHoldsIsBoundedByItsValue =
 	property.explore(
 		(s) => {
@@ -258,6 +264,7 @@ export const theLiveRegistryRoutingIsExactFoldingASubscriptionsEventsEqualsRunni
 						})
 					),
 			oracle: { kind: "second-implementation", name: "the model table and its reads" },
+			budget: { runs: 300, steered: 0 },
 			kept: [],
 			kills: [
 				{
@@ -270,7 +277,12 @@ export const theLiveRegistryRoutingIsExactFoldingASubscriptionsEventsEqualsRunni
 		}
 	)
 
-/** A live read of the registry ends with tokenExpired at its token's expiry, each change before it sent first. */
+/**
+ * A live read of the registry ends with tokenExpired at its token's expiry, each change before it sent first.
+ *
+ * Budget: its suite's count before the conversion (unit/live/expiry: 100 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theLiveRegistryALiveReadEndsWithTokenExpiredAtItsTokensExpiryEachChangeBeforeItSentFirst =
 	property.explore(
 		(s) => ({
@@ -352,7 +364,15 @@ export const theLiveRegistryALiveReadEndsWithTokenExpiredAtItsTokensExpiryEachCh
 						})
 					),
 			oracle: { kind: "specification", name: "the Db's expiry instant" },
+			budget: { runs: 100, steered: 0 },
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/grizzle/src/adapter/live/subscriptions.ts",
+					original: '\t\t\t\tif (Result.isFailure(opened) || standing.kind !== "open") {',
+					replacement: '\t\t\t\tif (Result.isFailure(opened) || standing.kind === "open") {',
+					why: "Operator mutant (comparison) at packages/grizzle/src/adapter/live/subscriptions.ts:340 in register: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)

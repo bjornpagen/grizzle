@@ -51,7 +51,12 @@ import {
 	sketchSpace
 } from "#test/unit/world-model/compile.fixtures.ts"
 
-/** The worlds model's compile rules compile a write exactly where the model admits it past its compile. */
+/**
+ * The worlds model's compile rules compile a write exactly where the model admits it past its compile.
+ *
+ * Budget: its suite's count before the conversion (unit/world-model/compile: 80 independent cases and 16 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsItPastItsCompile =
 	property.explore(sketchSpace, {
 		needs: {},
@@ -136,6 +141,14 @@ export const theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsI
 			kind: "second-implementation",
 			name: "the worlds model's compile rules, against grizzle's served compile of the write"
 		},
+		budget: { runs: 80, steered: 16 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/errors.ts",
+				original: '\tError.isError(value) && "_tag" in value && value._tag === "CompileError"',
+				replacement: "\tfalse",
+				why: 'Operator mutant (boolean-return) at packages/engine/src/core/errors.ts:1015 in isCompileError: `Error.isError(value) && "_tag" in value && value._tag === "CompileError"` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
 	})

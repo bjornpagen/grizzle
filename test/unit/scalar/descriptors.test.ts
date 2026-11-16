@@ -123,10 +123,22 @@ export const aliasIdentityMakesTwoSpellingsOneDescriptorExactlyWhenTheyNameOneTy
 			name: "the SQL type each spelling names, which the catalog suite holds PostgreSQL to, and its writing"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/scalar.ts",
+				original: "\ta?.precision === b?.precision && a?.scale === b?.scale",
+				replacement: "\ta?.precision === b?.precision && a?.scale !== b?.scale",
+				why: "Operator mutant (comparison) at packages/engine/src/ir/scalar.ts:838 in sameNumericTypmod: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Alias identity makes two descriptors one type exactly when their parts name one. */
+/**
+ * Alias identity makes two descriptors one type exactly when their parts name one.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/distinct-types: 1000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const aliasIdentityMakesTwoDescriptorsOneTypeExactlyWhenTheirPartsNameOne = property.explore(
 	typePairGen,
 	{
@@ -150,12 +162,28 @@ export const aliasIdentityMakesTwoDescriptorsOneTypeExactlyWhenTheirPartsNameOne
 			kind: "specification",
 			name: "a type is its SQL type, typmod, roster, endpoint, width and contract name"
 		},
+		budget: { runs: 1000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/decimal.ts",
+				original:
+					"\tif (!isInteger(scale) || scale < numericMinScale || scale > numericMaxScale) {",
+				replacement:
+					"\tif (!isInteger(scale) || scale >= numericMinScale || scale > numericMaxScale) {",
+				why: "Operator mutant (comparison) at packages/engine/src/scalar/values/decimal.ts:510 in checkNumericTypmod: `<` becomes `>=`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	}
 )
 
-/** Alias identity builds every descriptor's Description through its decoder, and a ScalarType the full decoder makes exactly. */
+/**
+ * Alias identity builds every descriptor's Description through its decoder, and a ScalarType the full decoder makes
+ * exactly.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/descriptor-decode: 1000 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const aliasIdentityBuildsEveryDescriptorsDescriptionThroughItsDecoderAndAScalarTypeTheFullDecoderMakesExactly =
 	property.explore(descriptorGen(2), {
 		needs: {},
@@ -172,11 +200,25 @@ export const aliasIdentityBuildsEveryDescriptorsDescriptionThroughItsDecoderAndA
 				assert.equal(Object.isFrozen(field), true)
 			}),
 		oracle: { kind: "universal", name: "decode ∘ describe = describe, key order kept" },
+		budget: { runs: 1000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/scalar-shape.ts",
+				original: '\tif (t.bound !== undefined && carrier !== "numeric") {',
+				replacement: '\tif (t.bound === undefined && carrier !== "numeric") {',
+				why: "Operator mutant (comparison) at packages/engine/src/ir/scalar-shape.ts:444 in narrow: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Typmod validation agrees with the carrier's numeric typmod rule on every integer pair, and refuses every other argument and arity. */
+/**
+ * Typmod validation agrees with the carrier's numeric typmod rule on every integer pair, and refuses every other
+ * argument and arity.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/descriptors-7239021: 2000 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const typmodValidationAgreesWithTheCarriersNumericTypmodRuleOnEveryIntegerPairAndRefusesEveryOtherArgumentAndArity =
 	property.explore(numericTypmodSpace, {
 		needs: {},
@@ -228,11 +270,24 @@ export const typmodValidationAgreesWithTheCarriersNumericTypmodRuleOnEveryIntege
 			kind: "specification",
 			name: "the numeric typmod rule restated (numericTypmodOf)"
 		},
+		budget: { runs: 2000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/decimal.ts",
+				original: '\ttypeof value === "number" && Number.isInteger(value)',
+				replacement: '\ttypeof value !== "number" && Number.isInteger(value)',
+				why: "Operator mutant (comparison) at packages/engine/src/scalar/values/decimal.ts:496 in isInteger: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Typmod validation selects real for float(1-24) and double precision for float(25-53), and refuses the rest. */
+/**
+ * Typmod validation selects real for float(1-24) and double precision for float(25-53), and refuses the rest.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/float-typmod: 500 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const typmodValidationSelectsRealForFloat124AndDoublePrecisionForFloat2553AndRefusesTheRest =
 	property.explore(floatPrecisionSpace, {
 		needs: {},
@@ -264,11 +319,24 @@ export const typmodValidationSelectsRealForFloat124AndDoublePrecisionForFloat255
 			kind: "specification",
 			name: "PostgreSQL's float(p): real for 1-24, double precision for 25-53, an error otherwise"
 		},
+		budget: { runs: 500, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/pg.ts",
+				original: "\tisInteger(value) && Object.hasOwn(floatDescriptors, value)",
+				replacement: "\ttrue",
+				why: "Operator mutant (boolean-return) at packages/engine/src/scalar/pg.ts:70 in isFloatPrecision: `isInteger(value) && Object.hasOwn(floatDescriptors, value)` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Typmod validation admits vector dimensions 1-16000 alone, and refuses the rest. */
+/**
+ * Typmod validation admits vector dimensions 1-16000 alone, and refuses the rest.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/vector-dims: 1000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const typmodValidationAdmitsVectorDimensions116000AloneAndRefusesTheRest = property.explore(
 	vectorSpace,
 	{
@@ -311,19 +379,25 @@ export const typmodValidationAdmitsVectorDimensions116000AloneAndRefusesTheRest 
 			kind: "specification",
 			name: "pgvector's dimensions, an integer from 1 to vectorMaxDimensions"
 		},
+		budget: { runs: 1000, steered: 0 },
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/scalar/vector.ts",
-				original: "\t\tdimensions > vectorMaxDimensions.value",
-				replacement: "\t\tdimensions > vectorMaxDimensions.value + 1",
+				original: "\t\tdimensions > vectorMaxDimensions",
+				replacement: "\t\tdimensions > vectorMaxDimensions + 1",
 				why: "pg.vector admits one dimension past pgvector's greatest; the typmods property fails."
 			}
 		]
 	}
 )
 
-/** Typmod validation admits a positive span width of the endpoint's base type, and refuses the rest. */
+/**
+ * Typmod validation admits a positive span width of the endpoint's base type, and refuses the rest.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/span-width: 1000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const typmodValidationAdmitsAPositiveSpanWidthOfTheEndpointsBaseTypeAndRefusesTheRest =
 	property.explore(spanWidthSpace, {
 		needs: {},
@@ -368,11 +442,27 @@ export const typmodValidationAdmitsAPositiveSpanWidthOfTheEndpointsBaseTypeAndRe
 			kind: "specification",
 			name: "the README's widths: a positive integer within the endpoint's base type"
 		},
+		budget: { runs: 1000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/schema/relation.ts",
+				original:
+					'\treturn hasProperties(value) && value["writing"] === "serial" ? { kind: "serial" } : callerWriting',
+				replacement:
+					'\treturn hasProperties(value) && value["writing"] !== "serial" ? { kind: "serial" } : callerWriting',
+				why: "Operator mutant (comparison) at packages/engine/src/schema/relation.ts:183 in writingOf: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** Span endpoint eligibility admits integer, bigint and contracts over them, as int4range and int8range, and refuses every other endpoint. */
+/**
+ * Span endpoint eligibility admits integer, bigint and contracts over them, as int4range and int8range, and refuses
+ * every other endpoint.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/span-endpoints: 1000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const spanEndpointEligibilityAdmitsIntegerBigintAndContractsOverThemAsInt4rangeAndInt8rangeAndRefusesEveryOtherEndpoint =
 	property.explore(descriptorGen(2), {
 		needs: {},
@@ -405,11 +495,25 @@ export const spanEndpointEligibilityAdmitsIntegerBigintAndContractsOverThemAsInt
 			kind: "specification",
 			name: "the README's span endpoints: integer or bigint, or a contract over one"
 		},
+		budget: { runs: 1000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/registry.ts",
+				original:
+					'\tif (carrier !== "int2" && carrier !== "int4" && carrier !== "int8" && carrier !== "uuid") {',
+				replacement: '\tif (carrier !== "int2" && carrier !== "int4" && carrier !== "int8") {',
+				why: 'Operator mutant (conjunct) at packages/engine/src/scalar/registry.ts:435 in serialNameOf: `carrier !== "int2" && carrier !== "int4" && carrier !== "int8" && carrier !== "u` becomes `carrier !== "int2" && carrier !== "int4" && carrier !== "int8"`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
 	})
 
-/** ClosedId names the roster, keeps the closed relation, and keeps declared handle order. */
+/**
+ * ClosedId names the roster, keeps the closed relation, and keeps declared handle order.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/closed-id: 100 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const closedIdNamesTheRosterKeepsTheClosedRelationAndKeepsDeclaredHandleOrder =
 	property.explore(closedIdCaseGen, {
 		needs: {},
@@ -448,11 +552,25 @@ export const closedIdNamesTheRosterKeepsTheClosedRelationAndKeepsDeclaredHandleO
 			kind: "specification",
 			name: "the roster of the drawn name and handles, in declared order (Roster.of)"
 		},
+		budget: { runs: 100, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/scalar.ts",
+				original:
+					"\ta === b ||\n\t(a.carrier === b.carrier &&\n\t\tsameOrder(a.caps, b.caps) &&\n\t\tsameContract(contractOf(a), contractOf(b)) &&\n\t\tsameNumericTypmod(numericTypmodOf(a), numericTypmodOf(b)) &&\n\t\tsameNumericBound(numericBoundOf(a), numericBoundOf(b)) &&\n\t\tvectorTypmodOf(a)?.dims === vectorTypmodOf(b)?.dims &&\n\t\texactDigitsOf(a) === exactDigitsOf(b) &&\n\t\tsameText(textOf(a), textOf(b)) &&\n\t\tsameRoster(rosterOf(a), rosterOf(b)) &&\n\t\tsameSpan(spanOf(a), spanOf(b)))",
+				replacement: "\ttrue",
+				why: "Operator mutant (boolean-return) at packages/engine/src/ir/scalar.ts:876 in sameScalarType: `a === b ||\n\t(a.carrier === b.carrier &&\n\t\tsameOrder(a.caps, b.caps) &&\n\t\tsameCon` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
-/** ClosedId refuses anything that is not a closed relation. */
+/**
+ * ClosedId refuses anything that is not a closed relation.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/closed-id-forgeries: 500 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const closedIdRefusesAnythingThatIsNotAClosedRelation = property.explore(forgedGen, {
 	needs: {},
 	situations: [
@@ -477,6 +595,14 @@ export const closedIdRefusesAnythingThatIsNotAClosedRelation = property.explore(
 		kind: "specification",
 		name: "the one rule of a closed relation each forgery breaks"
 	},
+	budget: { runs: 500, steered: 0 },
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/engine/src/schema/relation.ts",
+			original: "\t\tif (utf8Length(h) > handleMaxBytes) {",
+			replacement: "\t\tif (utf8Length(h) <= handleMaxBytes) {",
+			why: "Operator mutant (comparison) at packages/engine/src/schema/relation.ts:623 in handleList: `>` becomes `<=`; the property fails (lane CATCH, grizzle 0baff5d6)."
+		}
+	]
 })

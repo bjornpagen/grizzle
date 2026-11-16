@@ -31,7 +31,12 @@ import { allKeys, keyIndices, relationNamed, schemaDesc } from "#test/support/or
 import { ownedInput } from "#test/support/policy.ts"
 import { acyclic, fits, holds, nodes, plain } from "#test/unit/oracle-gen/query.fixtures.ts"
 
-/** Generated query cases are valid: Description, facts under the laws, a normalized valid DAG, bound parameters. */
+/**
+ * Generated query cases are valid: Description, facts under the laws, a normalized valid DAG, bound parameters.
+ *
+ * Budget: its suite's count before the conversion (unit/oracle-gen/query-valid: 2000 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const generatedQueryCasesAreValidDescriptionFactsUnderTheLawsANormalizedValidDAGBoundParameters =
 	property.explore(queryCaseGen(defaultGenConfig), {
 		needs: {},
@@ -103,13 +108,24 @@ export const generatedQueryCasesAreValidDescriptionFactsUnderTheLawsANormalizedV
 			kind: "specification",
 			name: "the engine's schema admission, ownership, DAG validation, keys, containments and literal checks"
 		},
+		budget: { runs: 2000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/expr.ts",
+				original: `\t\t\treturn norm >= cosineNormMin && norm <= cosineNormMax\n\t\t\t\t? undefined\n\t\t\t\t: \`a vector literal whose native norm lies in the cosine domain [\${cosineNormMin}, \${cosineNormMax}]\``,
+				replacement: `\t\t\treturn norm >= cosineNormMin && norm <= cosineNormMax ? \`a vector literal whose native norm lies in the cosine domain [\${cosineNormMin}, \${cosineNormMax}]\` : undefined`,
+				why: "Operator mutant (arm-swap) at packages/engine/src/ir/expr.ts:964 in literalProblem: `norm >= cosineNormMin.value && norm <= cosineNormMax.value\n\t\t\t\t? undefined\n\t\t\t\t:` becomes `norm >= cosineNormMin.value && norm <= cosineNormMax.value ? `a vector literal w`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
 /**
  * Generated query cases honor a configuration that leaves forms out: the plain configuration draws no node of them and
  * no parameter, and the acyclic one filters every closure's edges.
+ *
+ * Budget, each member: its suite's count before the conversion (unit/oracle-gen/query-<member>: 300 independent
+ * cases and 0 steered, Vitest at grizzle 4ca3036a).
  */
 export const generatedQueryCasesHonorAConfigurationThatLeavesFormsOut = family({
 	plain: property.explore(queryCaseGen(plain), {
@@ -126,6 +142,7 @@ export const generatedQueryCasesHonorAConfigurationThatLeavesFormsOut = family({
 			kind: "specification",
 			name: "a configuration that leaves forms out draws no node of them and no parameter"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [],
 		kills: []
 	}),
@@ -150,7 +167,16 @@ export const generatedQueryCasesHonorAConfigurationThatLeavesFormsOut = family({
 			kind: "specification",
 			name: "the acyclic configuration filters every closure's edges"
 		},
+		budget: { runs: 300, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/scalar.ts",
+				original:
+					"\ta === b ||\n\t(a.length === b.length &&\n\t\ta.every((p, i) => {\n\t\t\tconst q = b[i]\n\t\t\treturn q !== undefined && p.source === q.source && p.flags === q.flags\n\t\t}))",
+				replacement: "\tfalse",
+				why: "Operator mutant (boolean-return) at packages/engine/src/ir/scalar.ts:842 in samePatterns: `a === b ||\n\t(a.length === b.length &&\n\t\ta.every((p, i) => {\n\t\t\tconst q = b[i]\n\t\t` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 })

@@ -39,7 +39,13 @@ import {
 	workWriter
 } from "#test/unit/cli/served-levels.fixtures.ts"
 
-/** A login's served file is the same text from the draft's workload plan and from the committed snapshot alone, over the configured level and a level below it. */
+/**
+ * A login's served file is the same text from the draft's workload plan and from the committed snapshot alone, over
+ * the configured level and a level below it.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/served-levels: 24 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const aLoginsServedFileIsTheSameTextFromTheDraftsWorkloadPlanAndFromTheCommittedSnapshotAloneOverTheConfiguredLevelAndALevelBelowIt =
 	property.explore(caseGen, {
 		needs: {},
@@ -108,6 +114,16 @@ export const aLoginsServedFileIsTheSameTextFromTheDraftsWorkloadPlanAndFromTheCo
 			kind: "second-implementation",
 			name: "the snapshot-only compile of each login (adapter/served/compile.ts snapshotServedEntry)"
 		},
+		budget: { runs: 24, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/cli/config.ts",
+				original:
+					"\t\t\t!Arr.some(\n\t\t\t\tlevelsOf(entry.built),\n\t\t\t\t(level) => level.name === login.base.name && sameLevel(level.content, read.base.content)\n\t\t\t)",
+				replacement:
+					"\t\t\tArr.some(\n\t\t\t\tlevelsOf(entry.built),\n\t\t\t\t(level) => level.name === login.base.name && sameLevel(level.content, read.base.content)\n\t\t\t)",
+				why: "Operator mutant (negation) at packages/grizzle/src/cli/config.ts:313 in resolveConfigWith: `!Arr.some(\n\t\t\t\tlevelsOf(entry.built),\n\t\t\t\t(level) => level.name === login.base.n` becomes `Arr.some(\n\t\t\t\tlevelsOf(entry.built),\n\t\t\t\t(level) => level.name === login.base.na`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

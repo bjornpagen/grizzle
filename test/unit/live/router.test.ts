@@ -23,7 +23,12 @@ import { addRoutes, removeRoutes, route, type RouteIndex } from "#adapter/live/r
 import { assert } from "#test/support/assert.ts"
 import { type Drawn, type Feature, keyGen, matches } from "#test/unit/live/router.fixtures.ts"
 
-/** The live router a key reaches exactly the subscriptions it matches, and deregistering keeps no empty bucket. */
+/**
+ * The live router a key reaches exactly the subscriptions it matches, and deregistering keeps no empty bucket.
+ *
+ * Budget: its suite's count before the conversion (unit/live/router: 600 independent cases and 0 steered, Vitest at
+ * grizzle 4ca3036a).
+ */
 export const theLiveRouterAKeyReachesExactlyTheSubscriptionsItMatchesAndDeregisteringKeepsNoEmptyBucket =
 	property.explore(
 		(s) => {
@@ -124,6 +129,7 @@ export const theLiveRouterAKeyReachesExactlyTheSubscriptionsItMatchesAndDeregist
 				kind: "second-implementation",
 				name: "a filter of the registered subscriptions"
 			},
+			budget: { runs: 600, steered: 0 },
 			kept: [],
 			kills: [
 				{

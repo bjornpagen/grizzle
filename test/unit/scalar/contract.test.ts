@@ -47,7 +47,12 @@ import {
 	predicateFor
 } from "#test/unit/scalar/contract.fixtures.ts"
 
-/** Contract identity is a domain over its base and its own brand, one identity per equal declaration, distinct by name. */
+/**
+ * Contract identity is a domain over its base and its own brand, one identity per equal declaration, distinct by name.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/contract-identity: 300 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a).
+ */
 export const contractIdentityIsADomainOverItsBaseAndItsOwnBrandOneIdentityPerEqualDeclarationDistinctByName =
 	property.explore(
 		(source) => ({
@@ -179,12 +184,26 @@ export const contractIdentityIsADomainOverItsBaseAndItsOwnBrandOneIdentityPerEqu
 				kind: "specification",
 				name: "the base's own description, and the field identity text of each declaration"
 			},
+			budget: { runs: 300, steered: 0 },
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/ir/scalar.ts",
+					original: "\t\t: a.width === b.width && sameScalarType(a.endpoint, b.endpoint)",
+					replacement: "\t\t: a.width !== b.width && sameScalarType(a.endpoint, b.endpoint)",
+					why: "Operator mutant (comparison) at packages/engine/src/ir/scalar.ts:868 in sameSpan: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)
 
-/** Contract admission builds exactly from a declared name, a descriptor and no extra argument, and refuses the rest as malformed. */
+/**
+ * Contract admission builds exactly from a declared name, a descriptor and no extra argument, and refuses the rest as
+ * malformed.
+ *
+ * Budget: its suite's count before the conversion (unit/scalar/contract-admission: 1000 independent cases and 0
+ * steered, Vitest at grizzle 4ca3036a).
+ */
 export const contractAdmissionBuildsExactlyFromADeclaredNameADescriptorAndNoExtraArgumentAndRefusesTheRestAsMalformed =
 	property.explore(admissionSpace, {
 		needs: {},
@@ -231,6 +250,7 @@ export const contractAdmissionBuildsExactlyFromADeclaredNameADescriptorAndNoExtr
 			kind: "specification",
 			name: "the declared-name rule, and a descriptor a builder made"
 		},
+		budget: { runs: 1000, steered: 0 },
 		kept: [],
 		kills: [
 			{

@@ -1,7 +1,7 @@
 /** What the properties of reference-plans.test.ts read: its spaces, models and helpers. */
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { property } from "@bjornpagen/testing/property"
+import { type Budget, type Kill, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Result } from "effect"
 import type { RelDag } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
@@ -97,7 +97,10 @@ const transcript = (c: QueryCase, nested: boolean): ReadonlyArray<TranscriptEntr
 }
 
 /** Explores a population: on every case the plans' transcript equals the nested loops'. */
-export const agree = (generator: Gen<QueryCase>) =>
+export const agree = (
+	generator: Gen<QueryCase>,
+	own: { readonly budget: Budget; readonly kills: ReadonlyArray<Kill> }
+) =>
 	property.explore(generator, {
 		needs: {},
 		situations: [],
@@ -109,8 +112,9 @@ export const agree = (generator: Gen<QueryCase>) =>
 			kind: "second-implementation",
 			name: "the reference's nested loops of its definition, every plan refused"
 		},
+		budget: own.budget,
 		kept: [],
-		kills: []
+		kills: own.kills
 	})
 
 const int2 = scalarOfSpec({ carrier: "int2" })

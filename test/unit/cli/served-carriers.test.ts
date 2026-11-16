@@ -40,7 +40,16 @@ import {
 	temporaryHolders
 } from "#test/unit/cli/served-carriers.fixtures.ts"
 
-/** TEMPORARY on the database is granted to exactly the roles whose served workload creates a carrier, expected of exactly them, and migrated to them. */
+/**
+ * TEMPORARY on the database is granted to exactly the roles whose served workload creates a carrier, expected of
+ * exactly them, and migrated to them.
+ *
+ * Budget: its suite's count before the conversion (unit/cli/served-carriers: 16 independent cases and 0 steered,
+ * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (a migration
+ * granting TEMPORARY to a role that held none, a migration revoking TEMPORARY from a role that stands; toolchain-test
+ * run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200, which it stops short of once every
+ * situation is reached.
+ */
 export const tEMPORARYOnTheDatabaseIsGrantedToExactlyTheRolesWhoseServedWorkloadCreatesACarrierExpectedOfExactlyThemAndMigratedToThem =
 	property.explore(caseGen, {
 		needs: {},
@@ -105,6 +114,7 @@ export const tEMPORARYOnTheDatabaseIsGrantedToExactlyTheRolesWhoseServedWorkload
 			kind: "second-implementation",
 			name: "the CREATE TEMPORARY TABLE texts each role's served file holds"
 		},
+		budget: { runs: 16, steered: 200 },
 		kept: [],
 		kills: [
 			{

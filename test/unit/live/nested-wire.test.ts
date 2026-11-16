@@ -21,7 +21,12 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { caseGen, type Feature, nestingHolds } from "#test/unit/live/nested-wire.fixtures.ts"
 
-/** A nested insert's wire projects every nesting the write compiler accepts, and round-trips its facts. */
+/**
+ * A nested insert's wire projects every nesting the write compiler accepts, and round-trips its facts.
+ *
+ * Budget: its suite's count before the conversion (unit/live/nested-wire: 60 independent cases and 0 steered, Vitest
+ * at grizzle 4ca3036a).
+ */
 export const aNestedInsertsWireProjectsEveryNestingTheWriteCompilerAcceptsAndRoundTripsItsFacts =
 	property.explore(caseGen, {
 		needs: {},
@@ -35,6 +40,7 @@ export const aNestedInsertsWireProjectsEveryNestingTheWriteCompilerAcceptsAndRou
 			kind: "specification",
 			name: "the write compiler's acceptance of the ChangeSet and the codec's own encode of each drawn instance"
 		},
+		budget: { runs: 60, steered: 0 },
 		kept: [],
 		kills: [
 			{
