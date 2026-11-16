@@ -59,6 +59,7 @@ import { tokenOf } from "@bjornpagen/testing/tape"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
+import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import {
 	carryChain,
 	catalogRenamedDrawGen,
@@ -112,7 +113,7 @@ import {
 	grizzleFirstSession,
 	ordinarySession
 } from "#test/support/ambient.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
 import { installedSchemas } from "#test/support/install-migrate.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
@@ -343,6 +344,9 @@ const planted = (
 	reaches: ["a step applied"]
 })
 
+/** The roster name the drawn paths' closed patterns take, as the naming door parses it. */
+const rosterK: DeclaredName = succeeded(parseDeclaredName("K"))
+
 const kept: ReadonlyArray<Kept<RenamedCase, Feature>> = [
 	planted(
 		{ kind: "stated", path: referencedRenamedFirst },
@@ -376,7 +380,316 @@ const kept: ReadonlyArray<Kept<RenamedCase, Feature>> = [
 	planted(
 		{ kind: "stated", path: serialDeclaredAtEnd },
 		"a field holding bigint's greatest value declared serial: its identity advanced to its end, past the row, (d) read with no next value to compute"
-	)
+	),
+	{
+		note: "FULLSUITE3: a handle removed from a roster whose domain types a relation the same step drops, holding the removed code (A to B, every removal a drop): the domain's VALIDATE drafted before the drop refused the dropped table's row, 23514",
+		sketch: {
+			draw: {
+				kind: "drawn",
+				sketch: {
+					path: {
+						swarm: {
+							addColumn: 2,
+							dropColumn: 3,
+							retype: 2,
+							primaryKey: 3,
+							candidateKeys: 3,
+							mutable: 3,
+							containment: 1,
+							addRelation: 3,
+							dropRelation: 3,
+							payload: 2,
+							promoteKey: 2,
+							addCheck: 3,
+							removeChecks: 2,
+							dropStatistics: 2,
+							addSerial: 3,
+							dropSerial: 1,
+							retypeSerial: 2,
+							dropIdentity: 1,
+							toggleRead: 3,
+							addCoded: 2,
+							relation: 3,
+							column: 1,
+							retyped: 3,
+							relationRetyped: 1,
+							swapRelations: 2,
+							swapColumns: 1,
+							closed: 2,
+							hop: 2,
+							alias: 1,
+							dictionary: 2,
+							catalog: 3,
+							ontoRemoved: 2,
+							removeHandle: 3
+						},
+						a: {
+							palette: [1, 4, 1],
+							closed: [
+								{
+									pattern: {
+										closed: rosterK,
+										slots: [
+											{ kind: "hole", was: "Open" },
+											{ kind: "live", handle: "Done" },
+											{ kind: "hole", was: "Held" },
+											{ kind: "live", handle: "Gone" }
+										],
+										spellings: { plain: 3 }
+									},
+									payload: [
+										{
+											type: 6,
+											values: [
+												{ cls: 1, sp: 3 },
+												{ cls: 14, sp: 3 },
+												{ cls: 11, sp: 2 },
+												{ cls: 1, sp: 3 }
+											]
+										}
+									]
+								},
+								{
+									pattern: {
+										closed: rosterK,
+										slots: [
+											{ kind: "hole", was: "Open" },
+											{ kind: "live", handle: "Done" },
+											{ kind: "live", handle: "Held" },
+											{ kind: "live", handle: "Gone" }
+										],
+										spellings: { plain: 3 }
+									},
+									payload: []
+								}
+							],
+							relations: [
+								{
+									columns: [0, 6, 0, 6],
+									pkMask: 17,
+									pure: true,
+									keyMasks: [],
+									mutable: true,
+									fk: { enabled: false, target: 1, typed: false },
+									spanKey: false
+								},
+								{
+									columns: [2],
+									pkMask: 21,
+									pure: true,
+									keyMasks: [7],
+									mutable: true,
+									fk: { enabled: true, target: 0, typed: false },
+									spanKey: false
+								}
+							]
+						},
+						donor: {
+							palette: [9],
+							closed: [
+								{
+									pattern: {
+										closed: rosterK,
+										slots: [
+											{ kind: "hole", was: "Open" },
+											{ kind: "live", handle: "Done" },
+											{ kind: "live", handle: "Held" }
+										],
+										spellings: { plain: 3 }
+									},
+									payload: [
+										{
+											type: 8,
+											values: [
+												{ cls: 1, sp: 0 },
+												{ cls: 8, sp: 2 },
+												{ cls: 10, sp: 1 }
+											]
+										}
+									]
+								},
+								{
+									pattern: {
+										closed: rosterK,
+										slots: [
+											{ kind: "hole", was: "Open" },
+											{ kind: "live", handle: "Done" },
+											{ kind: "hole", was: "Held" },
+											{ kind: "live", handle: "Gone" }
+										],
+										spellings: { plain: 3 }
+									},
+									payload: [
+										{
+											type: 11,
+											values: [
+												{ cls: 2, sp: 3 },
+												{ cls: 15, sp: 3 },
+												{ cls: 12, sp: 2 },
+												{ cls: 11, sp: 1 }
+											]
+										},
+										{
+											type: 6,
+											values: [
+												{ cls: 6, sp: 0 },
+												{ cls: 15, sp: 0 },
+												{ cls: 10, sp: 0 },
+												{ cls: 0, sp: 2 }
+											]
+										}
+									]
+								}
+							],
+							relations: [
+								{
+									columns: [4, 3],
+									pkMask: 26,
+									pure: true,
+									keyMasks: [10, 28],
+									mutable: false,
+									fk: { enabled: false, target: 1, typed: false },
+									spanKey: false
+								}
+							]
+						},
+						toB: [
+							{
+								kind: "addColumn",
+								picks: { first: 60108, second: 24964, third: 212, mask: 1, masks: [1], flag: true }
+							},
+							{
+								kind: "candidateKeys",
+								picks: {
+									first: 45463,
+									second: 61004,
+									third: 20615,
+									mask: 16,
+									masks: [],
+									flag: false
+								}
+							},
+							{
+								kind: "addColumn",
+								picks: {
+									first: 22805,
+									second: 32791,
+									third: 8137,
+									mask: 15,
+									masks: [20],
+									flag: true
+								}
+							}
+						],
+						toC: [
+							{
+								kind: "promoteKey",
+								picks: {
+									first: 38804,
+									second: 37145,
+									third: 46454,
+									mask: 12,
+									masks: [1],
+									flag: true
+								}
+							}
+						],
+						extras: {
+							checks: [],
+							statistics: [],
+							serials: [
+								{ first: 35557, second: 46871, third: 65490, mask: 1, masks: [24], flag: true }
+							],
+							identities: [],
+							unread: [65359]
+						},
+						extrasToB: [
+							{
+								kind: "addSerial",
+								picks: {
+									first: 64957,
+									second: 62720,
+									third: 40249,
+									mask: 5,
+									masks: [],
+									flag: false
+								}
+							}
+						],
+						extrasToC: [
+							{
+								kind: "dropStatistics",
+								picks: {
+									first: 19253,
+									second: 3136,
+									third: 13299,
+									mask: 22,
+									masks: [25, 22],
+									flag: true
+								}
+							},
+							{
+								kind: "toggleRead",
+								picks: { first: 46274, second: 3, third: 28, mask: 25, masks: [9, 2], flag: true }
+							}
+						],
+						facts: [
+							[
+								{
+									values: [
+										{ cls: 10, sp: 2 },
+										{ cls: 14, sp: 3 },
+										{ cls: 10, sp: 0 },
+										{ cls: 5, sp: 2 },
+										{ cls: 7, sp: 3 },
+										{ cls: 3, sp: 0 },
+										{ cls: 10, sp: 3 },
+										{ cls: 13, sp: 0 }
+									],
+									target: 7
+								}
+							],
+							[],
+							[]
+						]
+					},
+					toB: [
+						{
+							kind: "removeHandle",
+							picks: { first: 13462, second: 2884, third: 46562, mask: 6, masks: [], flag: false }
+						},
+						{
+							kind: "catalog",
+							picks: { first: 6926, second: 7710, third: 20083, mask: 31, masks: [], flag: false }
+						}
+					],
+					toC: [
+						{
+							kind: "hop",
+							picks: { first: 43525, second: 14, third: 65448, mask: 26, masks: [], flag: true }
+						}
+					],
+					chained: false,
+					again: true,
+					choose: false
+				}
+			},
+			ambient: {
+				path: { kind: "default" },
+				settings: [
+					{ parameter: "DateStyle", value: "German, DMY" },
+					{ parameter: "IntervalStyle", value: "postgres" }
+				]
+			}
+		},
+		draws: "",
+		reaches: [
+			"ambient setting",
+			"catalog-type name",
+			"sq: a uuidv7 to a uuid",
+			"every removal declared a drop"
+		]
+	}
 ]
 
 /**

@@ -1773,7 +1773,9 @@ class Differ {
 			})
 		}
 		/** The domain's one constraint replaced in place under its name: dropped, then added NOT VALID, so a domain never
-		 * holds two constraints, and validated against the stored values once Structure has converted what it must. */
+		 * holds two constraints, and validated against the stored values once Structure has converted what it must and
+		 * every column the target no longer has is dropped (publish.validate), since PostgreSQL validates a domain over
+		 * every column it types. */
 		const a = was.constraint
 		const b = v.constraint
 		if (a !== undefined && b !== undefined && sameText(a, b)) {
@@ -1800,7 +1802,7 @@ class Differ {
 					action: { kind: "addConstraint", constraint: b, notValid: true }
 				}
 			])
-			this.sql("validate", [
+			this.sql("publish.validate", [
 				{
 					kind: "alterDomain",
 					name: create.name,

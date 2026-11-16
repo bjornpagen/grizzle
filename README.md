@@ -3124,8 +3124,8 @@ deploy.
   the old name and delete the folder. `check` and `migrate` refuse the folder until you decide.
 - **Codes are history.** The snapshot records each roster's codes: a new handle takes the next code, a renamed one
   keeps its own, and a removed one leaves a hole no handle takes again. The migration validates the roster's domain
-  against its new names constant, refusing, by table and column, every row that holds a removed code: change or delete
-  those rows in a data step first. A set over a grown roster converts in place to its wider
+  against its new names constant once every relation and field it drops is gone, refusing, by table and column, every
+  row that holds a removed code: change or delete those rows in a data step first. A set over a grown roster converts in place to its wider
   domain, the new handles absent. A roster declared out of its codes' order is refused before anything is drafted:
   append new handles.
 - **A roster continues one roster at most.** It continues the roster a `--rename` names, or else the roster of its own

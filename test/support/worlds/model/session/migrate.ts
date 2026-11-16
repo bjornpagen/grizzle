@@ -202,10 +202,11 @@ const asLeft = <S extends Unnamed>(state: S): S => state
  * one file for each run of slots that holds a statement, in this order: Setup, the new constants and domains (a changed
  * roster's new names constant among them); Structure, a changed roster domain's CHECK re-pointed NOT VALID, the world objects of the roles the installation holds that change or go and
  * every new world function, new tables and columns, and constraints NOT VALID; the indexes of new relations; the
- * concurrent indexes of relations that may hold rows; Validate, the constraints validated (a re-pointed roster domain's
- * CHECK among them) and the concurrent indexes attached; Publish, the roles, logins, memberships and grants, the new
- * roles' world objects, what the target no longer has (an index a new key serves instead, a roster's old constant,
- * dropped RESTRICT, among it), and last the COMMENT of every object the folder creates under a hashed name.
+ * concurrent indexes of relations that may hold rows; Validate, the constraints validated and the concurrent indexes
+ * attached; Publish, the roles, logins, memberships and grants, the new roles' world objects, what the target no longer
+ * has (an index a new key serves instead, a roster's old constant, dropped RESTRICT, among it), a re-pointed roster
+ * domain's CHECK validated once that is gone, and last the COMMENT of every object the folder creates under a hashed
+ * name.
  */
 export type FolderFile = "setup" | "structure" | "indexes" | "concurrent" | "validate" | "publish"
 
@@ -256,7 +257,8 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 	const notValid = Arr.filter(native, (law) => !uniqueIndexed(law) && onHeld(law))
 	const concurrent = Arr.some(native, (law) => uniqueIndexed(law) && onHeld(law))
 	/** A roster both bases hold whose handles differ: a new names constant in Setup, its domain's CHECK re-pointed in
-	 * Structure and VALIDATEd in Validate, the old constant dropped and the new one's COMMENT in Publish. */
+	 * Structure, and in Publish the old constant dropped, the CHECK VALIDATEd once every dropped column is gone and the
+	 * new constant's COMMENT. */
 	const rosterChanged = Arr.some(now.closed, (c) => {
 		const before = Option.getOrUndefined(Arr.findFirst(was.closed, (x) => x.name === c.name))
 		return before !== undefined && !samePlain(before.members, c.members)
@@ -327,7 +329,7 @@ export const folderFiles = (from: InstallSpec, to: InstallSpec): ReadonlyArray<F
 		...(structure ? ["structure" as const] : []),
 		...(indexes ? ["indexes" as const] : []),
 		...(concurrent ? ["concurrent" as const] : []),
-		...(notValid.length > 0 || concurrent || rosterChanged ? ["validate" as const] : []),
+		...(notValid.length > 0 || concurrent ? ["validate" as const] : []),
 		...(publish ? ["publish" as const] : [])
 	]
 }

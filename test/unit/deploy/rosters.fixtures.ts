@@ -508,7 +508,7 @@ const predicted = (
 		out.push(
 			["structure", `drop check ${now.domain}.${now.check}`],
 			["structure", `add check ${now.domain}.${now.check}`],
-			["validate", `validate ${now.domain}.${now.check}`],
+			["publish.validate", `validate ${now.domain}.${now.check}`],
 			["publish.removed", `drop function ${was.names}`]
 		)
 	}
@@ -540,7 +540,7 @@ const predicted = (
 				out.push(
 					["structure", `drop check ${now.bits}.${now.bitsCheck}`],
 					["structure", `add check ${now.bits}.${now.bitsCheck}`],
-					["validate", `validate ${now.bits}.${now.bitsCheck}`]
+					["publish.validate", `validate ${now.bits}.${now.bitsCheck}`]
 				)
 			}
 		}

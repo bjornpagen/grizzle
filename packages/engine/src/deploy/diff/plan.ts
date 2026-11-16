@@ -79,13 +79,17 @@ export interface Declarations {
  *   index a failed build left;
  * - validate.attach, validate: key constraints attached to their concurrently built indexes, then VALIDATE CONSTRAINT
  *   and the containments that need those keys;
- * - publish, publish.drop, publish.roles, publish.worlds, publish.grants, publish.defaults, publish.removed: the
- *   installation's validation statements (the refined constants' casts to their domains), the removed laws' native
- *   objects and constraints, the logins and roles, the roles' schemas, the views, world
+ * - publish, publish.drop, publish.roles, publish.worlds, publish.grants, publish.defaults, publish.removed,
+ *   publish.validate: the installation's validation statements (the refined constants' casts to their domains), the
+ *   removed laws' native objects and constraints, the logins and roles, the roles' schemas, the views, world
  *   functions and policies of the roles this migration creates, and row security, the grants and memberships, the
  *   login defaults and PUBLIC revokes, every object the target no longer has, dropped in place: its indexes, roles and role schemas,
- *   statistics, views, functions, stored tags, columns, tables and types, in that order, and last the COMMENT of every
- *   object this migration creates or renames, or whose comment the target changes (physical/install/comments.ts). */
+ *   statistics, views, functions, stored tags, columns, tables and types, in that order; then each domain's VALIDATE
+ *   CONSTRAINT, once every column the target no longer has is gone: PostgreSQL validates a domain over every column it
+ *   types, and the rows of a column the migration drops do not outlive it (a removed handle's code in a dropped
+ *   relation, which no data step converts), while the CHECK, added NOT VALID in Structure, has held every write since;
+ *   and last the COMMENT of every object this migration creates or renames, or whose comment the target changes
+ *   (physical/install/comments.ts). */
 export const slots = [
 	"setup.drop",
 	"setup",
@@ -109,6 +113,7 @@ export const slots = [
 	"publish.grants",
 	"publish.defaults",
 	"publish.removed",
+	"publish.validate",
 	"publish.comments"
 ] as const
 export type Slot = (typeof slots)[number]
@@ -166,6 +171,7 @@ export const slotFile: { readonly [S in Slot]: SlotsFile } = {
 	"publish.grants": publishFile,
 	"publish.defaults": publishFile,
 	"publish.removed": publishFile,
+	"publish.validate": publishFile,
 	"publish.comments": publishFile
 }
 
