@@ -37,17 +37,18 @@ import {
 	printedSets,
 	type Reached,
 	refinement,
-	shapeGen,
+	shapeSpace,
 	sweptColors,
 	type Verdict,
 	walkDepth,
 	walked
 } from "#test/unit/text/compile-space.fixtures.ts"
 
-/** The raw NFA PostgreSQL's parser builds holds the states and arcs its fold counts, no walk of it is deeper than its fold's depth, and its colors are its printed sets' classes. */
+/** The raw NFA PostgreSQL's parser builds holds the states and arcs its fold counts, no walk of it is deeper than its fold's depth, and its colors are its printed sets' classes. Its budget is its suite's before it was a property (test/unit/text/compile-space.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const theRawNFAPostgreSQLsParserBuildsHoldsTheStatesAndArcsItsFoldCountsNoWalkOfItIsDeeperThanItsFoldsDepthAndItsColorsAreItsPrintedSetsClasses =
 	property.explore(patternGen, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"a pattern",
 			"sets that cut one another",
@@ -125,10 +126,11 @@ export const theRawNFAPostgreSQLsParserBuildsHoldsTheStatesAndArcsItsFoldCountsN
 		]
 	})
 
-/** PostgreSQL's regex compile limits refuse a pattern as ResourceBound with the limit it crosses and admit it inside every limit. */
+/** PostgreSQL's regex compile limits refuse a pattern as ResourceBound with the limit it crosses and admit it inside every limit. Its budget is its suite's before it was a property (test/unit/text/compile-space.test.ts at 4ca3036a): 32 runs and 64 steered cases. */
 export const postgreSQLsRegexCompileLimitsRefuseAPatternAsResourceBoundWithTheLimitItCrossesAndAdmitItInsideEveryLimit =
-	property.explore(shapeGen, {
+	property.explore(shapeSpace, {
 		needs: {},
+		budget: { runs: 32, steered: 64 },
 		situations: [
 			"depth",
 			"arcs",
@@ -136,7 +138,8 @@ export const postgreSQLsRegexCompileLimitsRefuseAPatternAsResourceBoundWithTheLi
 			"matchCells",
 			"anchors",
 			"anchorLoop",
-			"admitted"
+			"admitted",
+			"anchors at the limit"
 		] satisfies ReadonlyArray<ReachedOf<Verdict>>,
 		check: (_, c: Case<Verdict>) => (shape) =>
 			Effect.sync(() => {
@@ -159,6 +162,9 @@ export const postgreSQLsRegexCompileLimitsRefuseAPatternAsResourceBoundWithTheLi
 				if (!crossed) {
 					assert.equal(admitted.ok, true, `${label}: admitted inside every limit`)
 					c.note("admitted")
+					if (shape.crosses === "anchors" && shape.measured(ir) === shape.limit) {
+						c.note("anchors at the limit")
+					}
 					return
 				}
 				const got = defined(measure, `${label}: refused`)
@@ -177,8 +183,8 @@ export const postgreSQLsRegexCompileLimitsRefuseAPatternAsResourceBoundWithTheLi
 		kills: [
 			{
 				file: "packages/engine/src/scalar/regex/space.ts",
-				original: "\tif (anchors > regexMaxAnchors.value) {",
-				replacement: "\tif (anchors >= regexMaxAnchors.value) {",
+				original: "\tif (anchors > regexMaxAnchors) {",
+				replacement: "\tif (anchors >= regexMaxAnchors) {",
 				why: "A pattern with exactly as many moving anchors as the anchors limit allows is refused; the limits property fails."
 			},
 			{
@@ -197,10 +203,11 @@ export const postgreSQLsRegexCompileLimitsRefuseAPatternAsResourceBoundWithTheLi
 		]
 	})
 
-/** The RFC 3986 URI-reference grammar as one pattern is admitted, and accepts exactly the strings ECMAScript's RegExp accepts, on strings over its alphabet and walks of its own NFA. */
+/** The RFC 3986 URI-reference grammar as one pattern is admitted, and accepts exactly the strings ECMAScript's RegExp accepts, on strings over its alphabet and walks of its own NFA. Its budget is its suite's before it was a property (test/unit/text/compile-space.test.ts at 4ca3036a): 2000 runs and 2000 steered cases. */
 export const theRFC3986URIReferenceGrammarAsOnePatternIsAdmittedAndAcceptsExactlyTheStringsECMAScriptsRegExpAcceptsOnStringsOverItsAlphabetAndWalksOfItsOwnNFA =
 	property.explore(oneOf([parts, walked]), {
 		needs: {},
+		budget: { runs: 2000, steered: 2000 },
 		situations: ["a member", "no member", "a walked member"] satisfies ReadonlyArray<
 			ReachedOf<Membership>
 		>,

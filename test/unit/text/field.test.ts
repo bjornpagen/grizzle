@@ -25,7 +25,7 @@ import { assert, succeeded, throwsRefused } from "#test/support/assert.ts"
 import type { Admission } from "#test/unit/text/field.fixtures.ts"
 import { families, flagsGen, patternOver } from "#test/unit/text/generators.ts"
 
-/** Str.regex builds an immutable descriptor that keeps its source and flags, whose desc is a valid Description field, and which a schema holds exactly when the text analysis admits its pattern. */
+/** Str.regex builds an immutable descriptor that keeps its source and flags, whose desc is a valid Description field, and which a schema holds exactly when the text analysis admits its pattern. Its budget is its suite's before it was a property (test/unit/text/field.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const strRegexBuildsAnImmutableDescriptorThatKeepsItsSourceAndFlagsWhoseDescIsAValidDescriptionFieldAndWhichASchemaHoldsExactlyWhenTheTextAnalysisAdmitsItsPattern =
 	property.explore(
 		(source) => ({
@@ -34,6 +34,7 @@ export const strRegexBuildsAnImmutableDescriptorThatKeepsItsSourceAndFlagsWhoseD
 		}),
 		{
 			needs: {},
+			budget: { runs: 200, steered: 200 },
 			situations: ["admitted", "refused"] satisfies ReadonlyArray<Reached<Admission>>,
 			check:
 				(_, c: Case<Admission>) =>

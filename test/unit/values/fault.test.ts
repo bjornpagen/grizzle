@@ -22,7 +22,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { assert, lacksText } from "#test/support/assert.ts"
 import type { Refused } from "#test/unit/values/fault.fixtures.ts"
 
-/** Value faults never carry the refused value. */
+/** Value faults never carry the refused value. Its budget is its suite's before it was a property (test/unit/values/fault.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const valueFaultsNeverCarryTheRefusedValue = property.explore(
 	(source) => ({
 		secret: source.draw(matching(regex("^[1-9]\\d{5,11}$"))),
@@ -30,6 +30,7 @@ export const valueFaultsNeverCarryTheRefusedValue = property.explore(
 	}),
 	{
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: ["out of range", "misspelt"] satisfies ReadonlyArray<Reached<Refused>>,
 		check:
 			(_, c: Case<Refused>) =>

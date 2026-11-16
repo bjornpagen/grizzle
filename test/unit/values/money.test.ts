@@ -17,9 +17,10 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { countGen, type Feature, featuresOf } from "#test/unit/values/money.fixtures.ts"
 
-/** Money round-trips its minor units through numeric. */
+/** Money round-trips its minor units through numeric. Its budget is its suite's before it was a property (test/unit/values/money.test.ts at 4ca3036a): 2000 runs and 200 steered cases. */
 export const moneyRoundTripsItsMinorUnitsThroughNumeric = property.explore(countGen, {
 	needs: {},
+	budget: { runs: 2000, steered: 200 },
 	situations: [
 		"a negative count",
 		"less than one whole unit",
@@ -36,8 +37,8 @@ export const moneyRoundTripsItsMinorUnitsThroughNumeric = property.explore(count
 	kills: [
 		{
 			file: "packages/engine/src/scalar/values/money.ts",
-			original: "\t\treturn Money.make(roundedUnits(amount, moneyFractionDigits.value))",
-			replacement: "\t\treturn Money.make(roundedUnits(amount, moneyFractionDigits.value - 1))",
+			original: "\t\treturn Money.make(roundedUnits(amount, moneyFractionDigits))",
+			replacement: "\t\treturn Money.make(roundedUnits(amount, moneyFractionDigits - 1))",
 			why: "fromDecimal rounds at one fraction digit too few; the round trip fails."
 		}
 	]

@@ -34,12 +34,17 @@
 
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { draftCase, type DraftFeature, draftingGen } from "#test/unit/deploy/variables.fixtures.ts"
+import {
+	draftCase,
+	type DraftFeature,
+	draftingSpace
+} from "#test/unit/deploy/variables.fixtures.ts"
 
-/** The variables of a drafted migration fill every drafted statement under each drawn role space as psql interpolates it, byte for byte under none, name every created role by its variable, and refuse every variable that is neither DBNAME nor a role's stem, aside or live source name. */
+/** The variables of a drafted migration fill every drafted statement under each drawn role space as psql interpolates it, byte for byte under none, name every created role by its variable, and refuse every variable that is neither DBNAME nor a role's stem, aside or live source name. Its budget is its suite's before it was a property (test/unit/deploy/variables.test.ts at 4ca3036a): 24 runs and 16 steered cases. */
 export const theVariablesOfADraftedMigrationFillEveryDraftedStatementUnderEachDrawnRoleSpaceAsPsqlInterpolatesItByteForByteUnderNoneNameEveryCreatedRoleByItsVariableAndRefuseEveryVariableThatIsNeitherDBNAMENorARolesStemAsideOrLiveSourceName =
-	property.explore(draftingGen, {
+	property.explore(draftingSpace, {
 		needs: {},
+		budget: { runs: 24, steered: 16 },
 		situations: [
 			"a prefix",
 			"no prefix",

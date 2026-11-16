@@ -28,10 +28,11 @@ import {
 	type Utf8Feature
 } from "#test/unit/core/utf8.fixtures.ts"
 
-/** The one reader of UTF-8 bytes as text reads well-formed bytes as exactly their text, a leading U+FEFF kept, refuses every fault, and reads chunks as it reads the whole. */
+/** The one reader of UTF-8 bytes as text reads well-formed bytes as exactly their text, a leading U+FEFF kept, refuses every fault, and reads chunks as it reads the whole. Its budget is its suite's before it was a property (test/unit/core/utf8.test.ts at 4ca3036a): 300 runs and 40 steered cases. */
 export const theOneReaderOfUTF8BytesAsTextReadsWellFormedBytesAsExactlyTheirTextALeadingUFEFFKeptRefusesEveryFaultAndReadsChunksAsItReadsTheWhole =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 300, steered: 40 },
 		situations: [
 			"a text that begins with U+FEFF",
 			"a text holding U+FEFF after its start",

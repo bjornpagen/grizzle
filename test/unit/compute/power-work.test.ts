@@ -21,10 +21,11 @@ import { powerWork } from "#test/support/oracle/evaluate/power.ts"
 import { costliest, edges, powerBatch, powerWorkLimit } from "#test/support/power-pairs.ts"
 import { admitted, type WorkFeature } from "#test/unit/compute/power-work.fixtures.ts"
 
-/** Numeric power's evaluation does no more digit work than numeric.c does, within the measured limit, for every power the suites draw. */
+/** Numeric power's evaluation does no more digit work than numeric.c does, within the measured limit, for every power the suites draw. Its budget is its suite's before it was a property (test/unit/compute/power-work.test.ts at 4ca3036a): 4 runs and 8 steered cases. */
 export const numericPowersEvaluationDoesNoMoreDigitWorkThanNumericCDoesWithinTheMeasuredLimitForEveryPowerTheSuitesDraw =
 	property.explore(powerBatch, {
 		needs: {},
+		budget: { runs: 4, steered: 8 },
 		situations: [
 			"an admitted power evaluated",
 			"a power next to exp(6000) evaluated"
@@ -60,5 +61,13 @@ export const numericPowersEvaluationDoesNoMoreDigitWorkThanNumericCDoesWithinThe
 			name: "numeric.c's truncations, which powerWorkLimit's measurement bounds"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/builders.ts",
+				original:
+					'\tconst real: OpenExpr = { kind: "compute", fn, args: [a.real, ...others.map((o) => o.real)] }',
+				replacement: '\tconst real: OpenExpr = { kind: "compute", fn, args: [a.real] }',
+				why: "Operator mutant (element) at packages/engine/src/scalar/compute/builders.ts:536 in computeCall: `[a.real, ...others.map((o) => o.real)]` becomes `[a.real]`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

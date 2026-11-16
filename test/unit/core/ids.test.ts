@@ -28,9 +28,10 @@ import {
 	textOf
 } from "#test/unit/core/ids.fixtures.ts"
 
-/** FieldId is injective in (relation, field) and decodes back. */
+/** FieldId is injective in (relation, field) and decodes back. Its budget is its suite's before it was a property (test/unit/core/ids.test.ts at 4ca3036a): 1000 runs and 200 steered cases. */
 export const fieldIdIsInjectiveInRelationFieldAndDecodesBack = property.explore(sketch, {
 	needs: {},
+	budget: { runs: 1000, steered: 200 },
 	situations: [
 		"pairs drawn apart",
 		"one pair twice",

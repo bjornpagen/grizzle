@@ -41,10 +41,11 @@ import {
 	violates
 } from "#test/unit/compute/totality.fixtures.ts"
 
-/** Totality refuses a partial operation over literals exactly where their values leave it undefined. */
+/** Totality refuses a partial operation over literals exactly where their values leave it undefined. Its budget is its suite's before it was a property (test/unit/compute/totality.test.ts at 4ca3036a): 600 runs and 600 steered cases. */
 export const totalityRefusesAPartialOperationOverLiteralsExactlyWhereTheirValuesLeaveItUndefined =
 	property.explore(literalCaseGen, {
 		needs: {},
+		budget: { runs: 600, steered: 600 },
 		situations: refusalSituations satisfies ReadonlyArray<Reached<RefusalFeature>>,
 		check:
 			(_, c: Case<RefusalFeature>) =>
@@ -120,7 +121,7 @@ export const totalityRefusesAPartialOperationOverLiteralsExactlyWhereTheirValues
 		]
 	})
 
-/** Totality computes a guard's branch exactly where the guard holds, over columns and parameters. */
+/** Totality computes a guard's branch exactly where the guard holds, over columns and parameters. Its budget is its suite's before it was a property (test/unit/compute/totality.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const totalityComputesAGuardsBranchExactlyWhereTheGuardHoldsOverColumnsAndParameters =
 	property.explore(
 		(source) => {
@@ -134,6 +135,7 @@ export const totalityComputesAGuardsBranchExactlyWhereTheGuardHoldsOverColumnsAn
 		},
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: guardSituations satisfies ReadonlyArray<Reached<GuardFeature>>,
 			check:
 				(_, c: Case<GuardFeature>) =>

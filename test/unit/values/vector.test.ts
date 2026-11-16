@@ -40,7 +40,7 @@ import {
 	vectorOf
 } from "#test/unit/values/vector.fixtures.ts"
 
-/** Vector construction admits a Float32Array of its dimension count in 1-16000, never checking its components. */
+/** Vector construction admits a Float32Array of its dimension count in 1-16000, never checking its components. Its budget is its suite's before it was a property (test/unit/values/vector.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const vectorConstructionAdmitsAFloat32ArrayOfItsDimensionCountIn116000NeverCheckingItsComponents =
 	property.explore(
 		(source) => ({
@@ -50,6 +50,7 @@ export const vectorConstructionAdmitsAFloat32ArrayOfItsDimensionCountIn116000Nev
 		}),
 		{
 			needs: {},
+			budget: { runs: 400, steered: 400 },
 			situations: [
 				...Arr.map(buffers, (b) => `buffer ${b}` as const),
 				...Arr.map(counts, (c) => `count ${c}` as const)
@@ -117,16 +118,16 @@ export const vectorConstructionAdmitsAFloat32ArrayOfItsDimensionCountIn116000Nev
 				{
 					file: "packages/engine/src/scalar/values/vector.ts",
 					original:
-						'\ttypeof n === "number" && Number.isInteger(n) && n >= 1 && n <= vectorMaxDimensions.value',
+						'\ttypeof n === "number" && Number.isInteger(n) && n >= 1 && n <= vectorMaxDimensions',
 					replacement:
-						'\ttypeof n === "number" && Number.isInteger(n) && n >= 1 && n < vectorMaxDimensions.value',
+						'\ttypeof n === "number" && Number.isInteger(n) && n >= 1 && n < vectorMaxDimensions',
 					why: "The greatest dimension count is refused; the construction property fails."
 				}
 			]
 		}
 	)
 
-/** Vector admission of a JavaScript caller's value admits a Float32Array of its dimensions and refuses every wild value as vectorType. */
+/** Vector admission of a JavaScript caller's value admits a Float32Array of its dimensions and refuses every wild value as vectorType. Its budget is its suite's before it was a property (test/unit/values/vector.test.ts at 4ca3036a): 500 runs and 500 steered cases. */
 export const vectorAdmissionOfAJavaScriptCallersValueAdmitsAFloat32ArrayOfItsDimensionsAndRefusesEveryWildValueAsVectorType =
 	property.explore(
 		lsw<Float32Array>({
@@ -136,6 +137,7 @@ export const vectorAdmissionOfAJavaScriptCallersValueAdmitsAFloat32ArrayOfItsDim
 		}),
 		{
 			needs: {},
+			budget: { runs: 500, steered: 500 },
 			situations: [
 				"live",
 				...Arr.map(WILD_KINDS, (kind): DrawnFeature<never> => `wild ${kind}`)
@@ -183,7 +185,7 @@ export const vectorAdmissionOfAJavaScriptCallersValueAdmitsAFloat32ArrayOfItsDim
 		}
 	)
 
-/** Vector in the canonical serializer revives only canonical payloads. */
+/** Vector in the canonical serializer revives only canonical payloads. Its budget is its suite's before it was a property (test/unit/values/vector.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const vectorInTheCanonicalSerializerRevivesOnlyCanonicalPayloads = property.explore(
 	(source) => ({
 		xs: source.draw(array(finiteFloat, { min: 1, max: 4 })),
@@ -191,6 +193,7 @@ export const vectorInTheCanonicalSerializerRevivesOnlyCanonicalPayloads = proper
 	}),
 	{
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: payloadCorruptions satisfies ReadonlyArray<Reached<PayloadCorruption>>,
 		check:
 			(_, c: Case<PayloadCorruption>) =>
@@ -237,10 +240,11 @@ export const vectorInTheCanonicalSerializerRevivesOnlyCanonicalPayloads = proper
 	}
 )
 
-/** Vector in the canonical serializer round-trips every float32 vector bit for bit, a host vector one text with its canonical form. */
+/** Vector in the canonical serializer round-trips every float32 vector bit for bit, a host vector one text with its canonical form. Its budget is its suite's before it was a property (test/unit/values/vector.test.ts at 4ca3036a): 2000 runs and 200 steered cases. */
 export const vectorInTheCanonicalSerializerRoundTripsEveryFloat32VectorBitForBitAHostVectorOneTextWithItsCanonicalForm =
 	property.explore(array(componentGen, { min: 1, max: 8 }), {
 		needs: {},
+		budget: { runs: 2000, steered: 200 },
 		situations: ["a -0 component", "one component", "several components"] satisfies ReadonlyArray<
 			Reached<RoundTripFeature>
 		>,

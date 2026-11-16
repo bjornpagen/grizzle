@@ -79,10 +79,11 @@ import {
 	versionAt
 } from "#test/unit/physical/literal.fixtures.ts"
 
-/** A drafted migration's bit strings writes every bit string of a drafted migration as one hex constant, and its snapshot alike. */
+/** A drafted migration's bit strings writes every bit string of a drafted migration as one hex constant, and its snapshot alike. Its budget is its suite's before it was a property (test/unit/physical/literal.test.ts at 4ca3036a): 80 runs and 160 steered cases. */
 export const aDraftedMigrationsBitStringsWritesEveryBitStringOfADraftedMigrationAsOneHexConstantAndItsSnapshotAlike =
 	property.explore(schemas, {
 		needs: {},
+		budget: { runs: 80, steered: 160 },
 		situations: [
 			"no payload",
 			"a closed-id payload",
@@ -168,10 +169,11 @@ export const aDraftedMigrationsBitStringsWritesEveryBitStringOfADraftedMigration
 		kills: []
 	})
 
-/** A closed constant's hex literal decodes to its constant, is the oracle's hex of its padded bits, reads back printed, and refuses every changed digit. */
+/** A closed constant's hex literal decodes to its constant, is the oracle's hex of its padded bits, reads back printed, and refuses every changed digit. Its budget is its suite's before it was a property (test/unit/physical/literal.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const aClosedConstantsHexLiteralDecodesToItsConstantIsTheOraclesHexOfItsPaddedBitsReadsBackPrintedAndRefusesEveryChangedDigit =
 	property.explore(strings, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"a padded literal",
 			"a whole-digit literal",
@@ -302,10 +304,11 @@ export const aClosedConstantsHexLiteralDecodesToItsConstantIsTheOraclesHexOfItsP
 		]
 	})
 
-/** A changed digit of an installed relation's constant names the relation, the first cell a change reaches and its key, or the padding it sets, for every digit. */
+/** A changed digit of an installed relation's constant names the relation, the first cell a change reaches and its key, or the padding it sets, for every digit. Its budget is its suite's before it was a property (test/unit/physical/literal.test.ts at 4ca3036a): 60 runs and 120 steered cases. */
 export const aChangedDigitOfAnInstalledRelationsConstantNamesTheRelationTheFirstCellAChangeReachesAndItsKeyOrThePaddingItSetsForEveryDigit =
 	property.explore(draws, {
 		needs: {},
+		budget: { runs: 60, steered: 120 },
 		situations: [
 			"a set",
 			"a function",

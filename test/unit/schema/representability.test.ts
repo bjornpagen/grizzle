@@ -95,10 +95,11 @@ import {
 } from "#test/unit/schema/representability.fixtures.ts"
 import { bareContract, descOf, rawPg, rawSpan, regex } from "#test/unit/schema/support.ts"
 
-/** Pattern byte bounds bounds a pattern's key by at least its longest match in UTF-8 bytes, and by nothing when its language is infinite. */
+/** Pattern byte bounds bounds a pattern's key by at least its longest match in UTF-8 bytes, and by nothing when its language is infinite. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const patternByteBoundsBoundsAPatternsKeyByAtLeastItsLongestMatchInUTF8BytesAndByNothingWhenItsLanguageIsInfinite =
 	property.explore(patternSketchGen, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"bounded",
 			"exact",
@@ -174,7 +175,7 @@ export const patternByteBoundsBoundsAPatternsKeyByAtLeastItsLongestMatchInUTF8By
 		kills: []
 	})
 
-/** Length bounds reads a charLength bound, four bytes a code point, and an octetLength bound, exact bytes, from a contract predicate. */
+/** Length bounds reads a charLength bound, four bytes a code point, and an octetLength bound, exact bytes, from a contract predicate. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const lengthBoundsReadsACharLengthBoundFourBytesACodePointAndAnOctetLengthBoundExactBytesFromAContractPredicate =
 	property.explore(
 		(source) => ({
@@ -189,6 +190,7 @@ export const lengthBoundsReadsACharLengthBoundFourBytesACodePointAndAnOctetLengt
 		}),
 		{
 			needs: {},
+			budget: { runs: 400, steered: 400 },
 			situations: [
 				"charLength bounded",
 				"octetLength bounded",
@@ -260,10 +262,11 @@ export const lengthBoundsReadsACharLengthBoundFourBytesACodePointAndAnOctetLengt
 		}
 	)
 
-/** KeyTextBytes is the most bytes a text holds beside its fields in every index grizzle plans over them, and one byte more is refused where an index's layout meets the bound. */
+/** KeyTextBytes is the most bytes a text holds beside its fields in every index grizzle plans over them, and one byte more is refused where an index's layout meets the bound. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const keyTextBytesIsTheMostBytesATextHoldsBesideItsFieldsInEveryIndexGrizzlePlansOverThemAndOneByteMoreIsRefusedWhereAnIndexsLayoutMeetsTheBound =
 	property.explore(budgetCaseGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"declared key",
 			"key over a selection",
@@ -303,7 +306,7 @@ export const keyTextBytesIsTheMostBytesATextHoldsBesideItsFieldsInEveryIndexGriz
 		kills: []
 	})
 
-/** B-tree entries (nbtree.h BTMaxItemSize) refuses a key with an unbounded field or a worst-case entry above the item limit, and admits every other. */
+/** B-tree entries (nbtree.h BTMaxItemSize) refuses a key with an unbounded field or a worst-case entry above the item limit, and admits every other. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 150 runs and 150 steered cases. */
 export const bTreeEntriesNbtreeHBTMaxItemSizeRefusesAKeyWithAnUnboundedFieldOrAWorstCaseEntryAboveTheItemLimitAndAdmitsEveryOther =
 	property.explore(
 		(source) => ({
@@ -328,6 +331,7 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeRefusesAKeyWithAnUnboundedFieldOrAW
 		}),
 		{
 			needs: {},
+			budget: { runs: 150, steered: 150 },
 			situations: [
 				"admitted",
 				"refused, unbounded",
@@ -386,7 +390,7 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeRefusesAKeyWithAnUnboundedFieldOrAW
 		}
 	)
 
-/** B-tree entries (nbtree.h BTMaxItemSize) refuses a key of more than 32 fields, PostgreSQL's INDEX_MAX_KEYS, and admits one of at most 32, span keys included. */
+/** B-tree entries (nbtree.h BTMaxItemSize) refuses a key of more than 32 fields, PostgreSQL's INDEX_MAX_KEYS, and admits one of at most 32, span keys included. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 120 runs and 120 steered cases. */
 export const bTreeEntriesNbtreeHBTMaxItemSizeRefusesAKeyOfMoreThan32FieldsPostgreSQLsINDEXMAXKEYSAndAdmitsOneOfAtMost32SpanKeysIncluded =
 	property.explore(
 		(source) => ({
@@ -395,6 +399,7 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeRefusesAKeyOfMoreThan32FieldsPostgr
 		}),
 		{
 			needs: {},
+			budget: { runs: 120, steered: 120 },
 			situations: [
 				"primary admitted",
 				"primary refused",
@@ -440,7 +445,7 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeRefusesAKeyOfMoreThan32FieldsPostgr
 		}
 	)
 
-/** GiST entries for span keys (gist.c gistSplit) lays a span key out over btree_gist's scalar keys and the span, and refuses a key with two span fields. */
+/** GiST entries for span keys (gist.c gistSplit) lays a span key out over btree_gist's scalar keys and the span, and refuses a key with two span fields. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 120 runs and 120 steered cases. */
 export const giSTEntriesForSpanKeysGistCGistSplitLaysASpanKeyOutOverBtreeGistsScalarKeysAndTheSpanAndRefusesAKeyWithTwoSpanFields =
 	property.explore(
 		(source) => ({
@@ -451,6 +456,7 @@ export const giSTEntriesForSpanKeysGistCGistSplitLaysASpanKeyOutOverBtreeGistsSc
 		}),
 		{
 			needs: {},
+			budget: { runs: 120, steered: 120 },
 			situations: [
 				"two spans",
 				"span first",
@@ -538,10 +544,11 @@ export const giSTEntriesForSpanKeysGistCGistSplitLaysASpanKeyOutOverBtreeGistsSc
 		}
 	)
 
-/** GiST entries for span keys (gist.c gistSplit) bounds a GiST entry by btree_gist's two-bound key representation, refusing a vector. */
+/** GiST entries for span keys (gist.c gistSplit) bounds a GiST entry by btree_gist's two-bound key representation, refusing a vector. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const giSTEntriesForSpanKeysGistCGistSplitBoundsAGiSTEntryByBtreeGistsTwoBoundKeyRepresentationRefusingAVector =
 	property.explore(array(gistDatumGen, { min: 0, max: 5 }), {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"vector refused",
 			"within a GiST page",
@@ -588,10 +595,11 @@ export const giSTEntriesForSpanKeysGistCGistSplitBoundsAGiSTEntryByBtreeGistsTwo
 		kills: []
 	})
 
-/** A vector field is a key field like any other: every vector has one form, so its equality is identity admits a key holding a vector where its B-tree entry fits, and refuses one beside a span, which btree_gist cannot index. */
+/** A vector field is a key field like any other: every vector has one form, so its equality is identity admits a key holding a vector where its B-tree entry fits, and refuses one beside a span, which btree_gist cannot index. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const aVectorFieldIsAKeyFieldLikeAnyOtherEveryVectorHasOneFormSoItsEqualityIsIdentityAdmitsAKeyHoldingAVectorWhereItsBTreeEntryFitsAndRefusesOneBesideASpanWhichBtreeGistCannotIndex =
 	property.explore(vectorKeySketchGen, {
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: [
 			"vector in the primary key",
 			"vector in a candidate key",

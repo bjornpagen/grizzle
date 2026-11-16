@@ -80,10 +80,11 @@ import {
 } from "#test/unit/compute/text.fixtures.ts"
 import { jsMatcher } from "#test/unit/text/generators.ts"
 
-/** Compute's text terms matches agrees with ECMAScript on the host and in the reference evaluator. */
+/** Compute's text terms matches agrees with ECMAScript on the host and in the reference evaluator. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const computesTextTermsMatchesAgreesWithECMAScriptOnTheHostAndInTheReferenceEvaluator =
 	property.explore(matchCase, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"match",
 			"no match",
@@ -166,10 +167,11 @@ export const computesTextTermsMatchesAgreesWithECMAScriptOnTheHostAndInTheRefere
 		]
 	})
 
-/** Compute's text terms concat, startsWith and endsWith agree between the host and the reference's code points. */
+/** Compute's text terms concat, startsWith and endsWith agree between the host and the reference's code points. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 600 runs and 600 steered cases. */
 export const computesTextTermsConcatStartsWithAndEndsWithAgreeBetweenTheHostAndTheReferencesCodePoints =
 	property.explore(affix, {
 		needs: {},
+		budget: { runs: 600, steered: 600 },
 		situations: [
 			"prefix held",
 			"suffix held",
@@ -246,10 +248,11 @@ export const computesTextTermsConcatStartsWithAndEndsWithAgreeBetweenTheHostAndT
 		]
 	})
 
-/** Compute's text terms refuses each fault planted in a valid term by its reason and fields, and compiles the term without it. */
+/** Compute's text terms refuses each fault planted in a valid term by its reason and fields, and compiles the term without it. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndFieldsAndCompilesTheTermWithoutIt =
 	property.explore(plantedGen, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: faults satisfies ReadonlyArray<Reached<Fault>>,
 		check: (_, k: Case<Fault>) => (p) =>
 			Effect.sync(() => {
@@ -438,19 +441,20 @@ export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndF
 			{
 				file: "packages/engine/src/scalar/compute/lower.ts",
 				original:
-					'\t\tif (this.env.mode === "query" && (bytes === undefined || bytes > regexTextMaxBytes.value)) {',
+					'\t\tif (this.env.mode === "query" && (bytes === undefined || bytes > regexTextMaxBytes)) {',
 				replacement:
-					'\t\tif (this.env.mode === "query" && (bytes !== undefined && bytes > regexTextMaxBytes.value)) {',
+					'\t\tif (this.env.mode === "query" && (bytes !== undefined && bytes > regexTextMaxBytes)) {',
 				why: "A query's matches over a subject no pattern bounds is admitted; the refusals' property fails."
 			}
 		]
 	})
 
-/** Compute's text terms hands `~` the ARE of every value its pattern takes, never a source. */
+/** Compute's text terms hands `~` the ARE of every value its pattern takes, never a source. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const computesTextTermsHandsTheAREOfEveryValueItsPatternTakesNeverASource = property.explore(
 	spellingGen,
 	{
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: [
 			"a literal's ARE",
 			"a CASE of one value",

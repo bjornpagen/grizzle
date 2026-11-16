@@ -41,10 +41,11 @@ import {
 	type WrittenFeature
 } from "#test/unit/deploy/split.fixtures.ts"
 
-/** Splitting a no-transaction file into its statements, generated splits exactly at the semicolons that end statements. */
+/** Splitting a no-transaction file into its statements, generated splits exactly at the semicolons that end statements. Its budget is its suite's before it was a property (test/unit/deploy/split.test.ts at 4ca3036a): 500 runs and 500 steered cases. */
 export const splittingANoTransactionFileIntoItsStatementsGeneratedSplitsExactlyAtTheSemicolonsThatEndStatements =
 	property.explore(fileGen, {
 		needs: {},
+		budget: { runs: 500, steered: 500 },
 		situations: splitFeatures satisfies ReadonlyArray<Reached<SplitFeature>>,
 		check:
 			(_, c: Case<SplitFeature>) =>
@@ -128,10 +129,11 @@ export const splittingANoTransactionFileIntoItsStatementsGeneratedSplitsExactlyA
 		]
 	})
 
-/** A reviewed statement read against its draft is written as drafted exactly when it holds the draft's tokens, each placeholder filled by a balanced run. */
+/** A reviewed statement read against its draft is written as drafted exactly when it holds the draft's tokens, each placeholder filled by a balanced run. Its budget is its suite's before it was a property (test/unit/deploy/split.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const aReviewedStatementReadAgainstItsDraftIsWrittenAsDraftedExactlyWhenItHoldsTheDraftsTokensEachPlaceholderFilledByABalancedRun =
 	property.explore(draftGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"a placeholder filled",
 			"a word edited",

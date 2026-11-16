@@ -60,10 +60,11 @@ import {
 	storedKeyFates
 } from "#test/unit/deploy/backfill.fixtures.ts"
 
-/** Backfilling a family added to stored rows, generated draws every value its references state over any stored rows in any storage order, ends at the catalog its target installs from nothing, and adds its constraints after the backfill. */
+/** Backfilling a family added to stored rows, generated draws every value its references state over any stored rows in any storage order, ends at the catalog its target installs from nothing, and adds its constraints after the backfill. Its budget is its suite's before it was a property (test/unit/deploy/backfill.test.ts at 4ca3036a): 200 runs and 300 steered cases. */
 export const backfillingAFamilyAddedToStoredRowsGeneratedDrawsEveryValueItsReferencesStateOverAnyStoredRowsInAnyStorageOrderEndsAtTheCatalogItsTargetInstallsFromNothingAndAddsItsConstraintsAfterTheBackfill =
 	property.explore(backfillGen, {
 		needs: {},
+		budget: { runs: 200, steered: 300 },
 		situations: [
 			"counted",
 			"ordered by line",
@@ -117,10 +118,11 @@ export const backfillingAFamilyAddedToStoredRowsGeneratedDrawsEveryValueItsRefer
 		]
 	})
 
-/** Backfilling a family added to stored rows, generated removing a family keeps every row and drops its columns, leaving its fields to the caller keeps their values, and drawing over a caller's values draws them anew. */
+/** Backfilling a family added to stored rows, generated removing a family keeps every row and drops its columns, leaving its fields to the caller keeps their values, and drawing over a caller's values draws them anew. Its budget is its suite's before it was a property (test/unit/deploy/backfill.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const backfillingAFamilyAddedToStoredRowsGeneratedRemovingAFamilyKeepsEveryRowAndDropsItsColumnsLeavingItsFieldsToTheCallerKeepsTheirValuesAndDrawingOverACallersValuesDrawsThemAnew =
 	property.explore(reversalGen, {
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: [
 			"a counted family removed",
 			"left to its caller",

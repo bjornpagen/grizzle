@@ -55,10 +55,11 @@ import {
 	withinInt4
 } from "#test/unit/check/semantics.fixtures.ts"
 
-/** The checker's parameter, member and bound rules give every generated read's checked query exactly the read's own parameters, each of the type it is declared at. */
+/** The checker's parameter, member and bound rules give every generated read's checked query exactly the read's own parameters, each of the type it is declared at. Its budget is its suite's before it was a property (test/unit/check/semantics.test.ts at 4ca3036a): 200 runs and 400 steered cases. */
 export const theCheckersParameterMemberAndBoundRulesGiveEveryGeneratedReadsCheckedQueryExactlyTheReadsOwnParametersEachOfTheTypeItIsDeclaredAt =
 	property.explore(caseSketchGen, {
 		needs: {},
+		budget: { runs: 200, steered: 400 },
 		situations: [
 			"a parameter declared by its field",
 			"a parameter declared by its base",
@@ -92,10 +93,11 @@ export const theCheckersParameterMemberAndBoundRulesGiveEveryGeneratedReadsCheck
 		kills: []
 	})
 
-/** The checker's parameter, member and bound rules type each query's own parameters by the declarations their uses share, never an import's own, join a variable's fields within one family, and refuse what those rules refuse. */
+/** The checker's parameter, member and bound rules type each query's own parameters by the declarations their uses share, never an import's own, join a variable's fields within one family, and refuse what those rules refuse. Its budget is its suite's before it was a property (test/unit/check/semantics.test.ts at 4ca3036a): 300 runs and 600 steered cases. */
 export const theCheckersParameterMemberAndBoundRulesTypeEachQuerysOwnParametersByTheDeclarationsTheirUsesShareNeverAnImportsOwnJoinAVariablesFieldsWithinOneFamilyAndRefuseWhatThoseRulesRefuse =
 	property.explore(paramCaseGen, {
 		needs: {},
+		budget: { runs: 300, steered: 600 },
 		situations: [
 			"declarations of two families",
 			"a bound variable of another family",
@@ -162,10 +164,11 @@ export const theCheckersParameterMemberAndBoundRulesTypeEachQuerysOwnParametersB
 		kills: []
 	})
 
-/** The checker's parameter, member and bound rules hold a member's head to its relation's heading for its op, every column entering its field at the field's own type, one heading and no attachment, refused at the member or the attachment. */
+/** The checker's parameter, member and bound rules hold a member's head to its relation's heading for its op, every column entering its field at the field's own type, one heading and no attachment, refused at the member or the attachment. Its budget is its suite's before it was a property (test/unit/check/semantics.test.ts at 4ca3036a): 300 runs and 600 steered cases. */
 export const theCheckersParameterMemberAndBoundRulesHoldAMembersHeadToItsRelationsHeadingForItsOpEveryColumnEnteringItsFieldAtTheFieldsOwnTypeOneHeadingAndNoAttachmentRefusedAtTheMemberOrTheAttachment =
 	property.explore(memberCaseSpace, {
 		needs: {},
+		budget: { runs: 300, steered: 600 },
 		situations: [
 			"insert",
 			"put",
@@ -250,10 +253,11 @@ export const theCheckersParameterMemberAndBoundRulesHoldAMembersHeadToItsRelatio
 		]
 	})
 
-/** The checker's parameter, member and bound rules bound take's parameter, which an import binds to a literal, by int4's positive range. */
+/** The checker's parameter, member and bound rules bound take's parameter, which an import binds to a literal, by int4's positive range. Its budget is its suite's before it was a property (test/unit/check/semantics.test.ts at 4ca3036a): 60 runs and 60 steered cases. */
 export const theCheckersParameterMemberAndBoundRulesBoundTakesParameterWhichAnImportBindsToALiteralByInt4sPositiveRange =
 	property.explore(takeBoundGen, {
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: takeBoundFeatures satisfies ReadonlyArray<Reached<TakeBoundFeature>>,
 		check: (_, c: Case<TakeBoundFeature>) => (bound) =>
 			Effect.sync(() => {
@@ -293,17 +297,18 @@ export const theCheckersParameterMemberAndBoundRulesBoundTakesParameterWhichAnIm
 		kills: [
 			{
 				file: "packages/engine/src/check/checker.ts",
-				original: "\tif (k < 1n || k > BigInt(int4Max.value)) {",
-				replacement: "\tif (k < 0n || k > BigInt(int4Max.value)) {",
+				original: "\tif (k < 1n || k > BigInt(int4Max)) {",
+				replacement: "\tif (k < 0n || k > BigInt(int4Max)) {",
 				why: "A take of zero is admitted (check/checker.ts); the take's bound property fails."
 			}
 		]
 	})
 
-/** The checker's parameter, member and bound rules bind a negated match's parameter, which an import binds to a literal, to that literal. */
+/** The checker's parameter, member and bound rules bind a negated match's parameter, which an import binds to a literal, to that literal. Its budget is its suite's before it was a property (test/unit/check/semantics.test.ts at 4ca3036a): 60 runs and 60 steered cases. */
 export const theCheckersParameterMemberAndBoundRulesBindANegatedMatchsParameterWhichAnImportBindsToALiteralToThatLiteral =
 	property.explore(taggedCaseGen, {
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: [
 			"an item tagged at the label",
 			"an item tagged at another label"

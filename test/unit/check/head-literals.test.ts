@@ -17,10 +17,11 @@ import {
 	unionOf
 } from "#test/unit/check/head-literals.fixtures.ts"
 
-/** Head literal typing types a head literal by the field it writes, its union's term-typed arms or its value, and a handle by its roster. */
+/** Head literal typing types a head literal by the field it writes, its union's term-typed arms or its value, and a handle by its roster. Its budget is its suite's before it was a property (test/unit/check/head-literals.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const headLiteralTypingTypesAHeadLiteralByTheFieldItWritesItsUnionsTermTypedArmsOrItsValueAndAHandleByItsRoster =
 	property.explore(armsSpace, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"a plain text its rule fixes Kind to",
 			"a plain text its rule fixes Kind to by a handle",

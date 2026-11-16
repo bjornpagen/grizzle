@@ -20,10 +20,11 @@ import {
 	unplanted
 } from "#test/unit/program/delivered.fixtures.ts"
 
-/** Typed rows at bind refuse a stated delivery the facts break, and bind one the program proves. */
+/** Typed rows at bind refuse a stated delivery the facts break, and bind one the program proves. Its budget is its suite's before it was a property (test/unit/program/delivered.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const typedRowsAtBindRefuseAStatedDeliveryTheFactsBreakAndBindOneTheProgramProves =
 	property.explore((source) => [source.draw(caseSketchGen), source.draw(plantGen)] as const, {
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: [
 			"option the facts break: refused",
 			"one the facts break: refused",
@@ -61,11 +62,12 @@ export const typedRowsAtBindRefuseAStatedDeliveryTheFactsBreakAndBindOneTheProgr
 		]
 	})
 
-/** Typed rows at bind refuse a layout without one of the record's keys. */
+/** Typed rows at bind refuse a layout without one of the record's keys. Its budget is its suite's before it was a property (test/unit/program/delivered.test.ts at 4ca3036a): 60 runs and 60 steered cases. */
 export const typedRowsAtBindRefuseALayoutWithoutOneOfTheRecordsKeys = property.explore(
 	caseSketchGen,
 	{
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: ["column removed: refused", "attachment removed: refused"] satisfies ReadonlyArray<
 			Reached<LayoutFeature>
 		>,
@@ -88,11 +90,12 @@ export const typedRowsAtBindRefuseALayoutWithoutOneOfTheRecordsKeys = property.e
 	}
 )
 
-/** Typed rows at bind refuse to read a query rebuilt from its Description. */
+/** Typed rows at bind refuse to read a query rebuilt from its Description. Its budget is its suite's before it was a property (test/unit/program/delivered.test.ts at 4ca3036a): 40 runs and 40 steered cases. */
 export const typedRowsAtBindRefuseToReadAQueryRebuiltFromItsDescription = property.explore(
 	caseSketchGen,
 	{
 		needs: {},
+		budget: { runs: 40, steered: 40 },
 		situations: [
 			"rebuilt: refused",
 			"rebuilt arm beside a typed arm: refused"
@@ -108,10 +111,11 @@ export const typedRowsAtBindRefuseToReadAQueryRebuiltFromItsDescription = proper
 	}
 )
 
-/** Typed rows at bind decode each heading group of a heterogeneous union as its own record. */
+/** Typed rows at bind decode each heading group of a heterogeneous union as its own record. Its budget is its suite's before it was a property (test/unit/program/delivered.test.ts at 4ca3036a): 60 runs and 60 steered cases. */
 export const typedRowsAtBindDecodeEachHeadingGroupOfAHeterogeneousUnionAsItsOwnRecord =
 	property.explore(caseSketchGen, {
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: mixedForms satisfies ReadonlyArray<Reached<MixedForm>>,
 		check: (_, notes: Case<MixedForm>) => (sketch) =>
 			Effect.sync(() => {

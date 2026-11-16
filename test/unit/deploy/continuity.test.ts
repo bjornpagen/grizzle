@@ -30,10 +30,11 @@ import {
 	sketchGen
 } from "#test/unit/deploy/continuity.fixtures.ts"
 
-/** Roster continuity carries every roster's codes on through renames, respellings, takes and swaps, and converts a field whose values move to another roster's meaning at its placeholder. */
+/** Roster continuity carries every roster's codes on through renames, respellings, takes and swaps, and converts a field whose values move to another roster's meaning at its placeholder. Its budget is its suite's before it was a property (test/unit/deploy/continuity.test.ts at 4ca3036a): 40 runs and 120 steered cases. */
 export const rosterContinuityCarriesEveryRostersCodesOnThroughRenamesRespellingsTakesAndSwapsAndConvertsAFieldWhoseValuesMoveToAnotherRostersMeaningAtItsPlaceholder =
 	property.explore(sketchGen, {
 		needs: {},
+		budget: { runs: 40, steered: 120 },
 		situations: featureNames satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, c: Case<Feature>) => (sketch) => Effect.sync(() => run(sketch, c)),
 		oracle: {

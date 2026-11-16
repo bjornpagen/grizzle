@@ -48,10 +48,11 @@ import {
 	patterns
 } from "#test/unit/text/analysis-once.fixtures.ts"
 
-/** The text analysis runs once for each distinct pattern a schema's fields declare, whatever reads it. */
+/** The text analysis runs once for each distinct pattern a schema's fields declare, whatever reads it. Its budget is its suite's before it was a property (test/unit/text/analysis-once.test.ts at 4ca3036a): 60 runs and 60 steered cases. */
 export const theTextAnalysisRunsOnceForEachDistinctPatternASchemasFieldsDeclareWhateverReadsIt =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: [
 			"one pattern",
 			"several patterns",

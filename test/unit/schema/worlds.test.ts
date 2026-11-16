@@ -79,10 +79,11 @@ import {
 	tagOf
 } from "#test/unit/schema/worlds.fixtures.ts"
 
-/** Context admission admits a context of scalar claims its caller states, and refuses one at the first field no claim is. */
+/** Context admission admits a context of scalar claims its caller states, and refuses one at the first field no claim is. Its budget is its suite's before it was a property (test/unit/schema/worlds.test.ts at 4ca3036a): 100 runs and 200 steered cases. */
 export const contextAdmissionAdmitsAContextOfScalarClaimsItsCallerStatesAndRefusesOneAtTheFirstFieldNoClaimIs =
 	property.explore(contextCaseGen, {
 		needs: {},
+		budget: { runs: 100, steered: 200 },
 		situations: [
 			"admitted",
 			"refused",
@@ -160,10 +161,11 @@ export const contextAdmissionAdmitsAContextOfScalarClaimsItsCallerStatesAndRefus
 		]
 	})
 
-/** Role admission refuses every planted breach of a role's rules by that rule at the builder and at ownership, and admits its healthy twin. */
+/** Role admission refuses every planted breach of a role's rules by that rule at the builder and at ownership, and admits its healthy twin. Its budget is its suite's before it was a property (test/unit/schema/worlds.test.ts at 4ca3036a): 200 runs and 400 steered cases. */
 export const roleAdmissionRefusesEveryPlantedBreachOfARolesRulesByThatRuleAtTheBuilderAndAtOwnershipAndAdmitsItsHealthyTwin =
 	property.explore(roleCaseGen, {
 		needs: {},
+		budget: { runs: 200, steered: 400 },
 		situations: [
 			"none",
 			"described",
@@ -215,10 +217,11 @@ export const roleAdmissionRefusesEveryPlantedBreachOfARolesRulesByThatRuleAtTheB
 		kills: []
 	})
 
-/** Query entry totality admits every definition a program admits as a query entry, and lowers a query reading it. */
+/** Query entry totality admits every definition a program admits as a query entry, and lowers a query reading it. Its budget is its suite's before it was a property (test/unit/schema/worlds.test.ts at 4ca3036a): 40 runs and 100 steered cases. */
 export const queryEntryTotalityAdmitsEveryDefinitionAProgramAdmitsAsAQueryEntryAndLowersAQueryReadingIt =
 	property.explore((source) => ({ sketch: source.draw(caseSketchGen), at: source.draw(pickGen) }), {
 		needs: {},
+		budget: { runs: 40, steered: 100 },
 		situations: [
 			"a union",
 			"a take",
@@ -277,10 +280,11 @@ export const queryEntryTotalityAdmitsEveryDefinitionAProgramAdmitsAsAQueryEntryA
 		kills: []
 	})
 
-/** Login admission refuses each login at its first role breaking a login rule, by that rule, and admits the rest. */
+/** Login admission refuses each login at its first role breaking a login rule, by that rule, and admits the rest. Its budget is its suite's before it was a property (test/unit/schema/worlds.test.ts at 4ca3036a): 100 runs and 200 steered cases. */
 export const loginAdmissionRefusesEachLoginAtItsFirstRoleBreakingALoginRuleByThatRuleAndAdmitsTheRest =
 	property.explore(loginProgramGen, {
 		needs: {},
+		budget: { runs: 100, steered: 200 },
 		situations: [
 			"admitted",
 			"roleBase",

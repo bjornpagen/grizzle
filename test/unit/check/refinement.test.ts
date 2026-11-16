@@ -190,10 +190,11 @@ export const unionPropagationTypesAUnionsColumnAsTheCommonGuaranteesOfItsArmsWhi
 		}
 	)
 
-/** Refined constants list exactly the closed payload cells of a type whose domain carries a CHECK, each at its field's type. */
+/** Refined constants list exactly the closed payload cells of a type whose domain carries a CHECK, each at its field's type. Its budget is its suite's before it was a property (test/unit/check/refinement.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const refinedConstantsListExactlyTheClosedPayloadCellsOfATypeWhoseDomainCarriesACHECKEachAtItsFieldsType =
 	property.explore(closedCaseGen, {
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: ["a refined cell", "an unrefined cell", "no row"] satisfies ReadonlyArray<
 			Reached<ConstantFeature>
 		>,

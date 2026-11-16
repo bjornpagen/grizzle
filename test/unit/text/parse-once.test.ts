@@ -39,10 +39,11 @@ import {
 	schemaOf
 } from "#test/unit/text/parse-once.fixtures.ts"
 
-/** An admitted pattern is parsed where its program compiles, once a table whatever reads it, and never per row. */
+/** An admitted pattern is parsed where its program compiles, once a table whatever reads it, and never per row. Its budget is its suite's before it was a property (test/unit/text/parse-once.test.ts at 4ca3036a): 40 runs and 40 steered cases. */
 export const anAdmittedPatternIsParsedWhereItsProgramCompilesOnceATableWhateverReadsItAndNeverPerRow =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 40, steered: 40 },
 		situations: [
 			"one pattern",
 			"several patterns",

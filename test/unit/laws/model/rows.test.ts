@@ -38,10 +38,11 @@ import {
 	uuidKind
 } from "#test/unit/laws/model/rows.fixtures.ts"
 
-/** A relation's rows fit one heap tuple a row is refused exactly when it takes more than the limit, at the boundary. */
+/** A relation's rows fit one heap tuple a row is refused exactly when it takes more than the limit, at the boundary. Its budget is its suite's before it was a property (test/unit/laws/model/rows.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const aRelationsRowsFitOneHeapTupleARowIsRefusedExactlyWhenItTakesMoreThanTheLimitAtTheBoundary =
 	property.explore(array(columnGen, { min: 0, max: 12 }), {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, c: Case<Feature>) => (columns) =>
 			Effect.sync(() => {
@@ -71,14 +72,14 @@ export const aRelationsRowsFitOneHeapTupleARowIsRefusedExactlyWhenItTakesMoreTha
 		kills: [
 			{
 				file: "packages/engine/src/laws/model/rows.ts",
-				original: "\tconst header = alignUp(heapTupleHeaderBytes.value + bitmap, maxAlign.value)",
-				replacement: "\tconst header = alignUp(heapTupleHeaderBytes.value, maxAlign.value)",
+				original: "\tconst header = alignUp(heapTupleHeaderBytes + bitmap, maxAlign)",
+				replacement: "\tconst header = alignUp(heapTupleHeaderBytes, maxAlign)",
 				why: "A row's null bitmap uncounted (laws/model/rows.ts rowBytes); the layout fails."
 			}
 		]
 	})
 
-/** A relation's rows fit one heap tuple the law model admits a relation whose row reaches MaxHeapTupleSize, and refuses one a bigint past it. */
+/** A relation's rows fit one heap tuple the law model admits a relation whose row reaches MaxHeapTupleSize, and refuses one a bigint past it. Its budget is its suite's before it was a property (test/unit/laws/model/rows.test.ts at 4ca3036a): 40 runs and 100 steered cases. */
 export const aRelationsRowsFitOneHeapTupleTheLawModelAdmitsARelationWhoseRowReachesMaxHeapTupleSizeAndRefusesOneABigintPastIt =
 	property.explore(
 		(source) =>
@@ -88,6 +89,7 @@ export const aRelationsRowsFitOneHeapTupleTheLawModelAdmitsARelationWhoseRowReac
 			] as const,
 		{
 			needs: {},
+			budget: { runs: 40, steered: 100 },
 			situations: [
 				"within the bound",
 				"at the bound",

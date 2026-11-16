@@ -47,10 +47,11 @@ import {
 	v
 } from "#test/unit/compute/support.ts"
 
-/** A contract's facts are exactly the facts its proves declares, each of which its predicate implies. */
+/** A contract's facts are exactly the facts its proves declares, each of which its predicate implies. Its budget is its suite's before it was a property (test/unit/compute/facts.test.ts at 4ca3036a): 400 runs and 600 steered cases. */
 export const aContractsFactsAreExactlyTheFactsItsProvesDeclaresEachOfWhichItsPredicateImplies =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 400, steered: 600 },
 		situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			(_, c: Case<Feature>) =>

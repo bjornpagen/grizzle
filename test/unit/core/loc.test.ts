@@ -55,10 +55,11 @@ import {
 	written
 } from "#test/unit/core/loc.fixtures.ts"
 
-/** Stack frame parsing reads every engine's frame as its file, line and column, and no site from any other line. */
+/** Stack frame parsing reads every engine's frame as its file, line and column, and no site from any other line. Its budget is its suite's before it was a property (test/unit/core/loc.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const stackFrameParsingReadsEveryEnginesFrameAsItsFileLineAndColumnAndNoSiteFromAnyOtherLine =
 	property.explore(linesGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"V8 in a function",
 			"V8 at top level",
@@ -129,10 +130,11 @@ export const stackFrameParsingReadsEveryEnginesFrameAsItsFileLineAndColumnAndNoS
 		]
 	})
 
-/** Call-site capture locates a declaration at the line of its innermost caller outside the library. */
+/** Call-site capture locates a declaration at the line of its innermost caller outside the library. Its budget is its suite's before it was a property (test/unit/core/loc.test.ts at 4ca3036a): 50 runs and 50 steered cases. */
 export const callSiteCaptureLocatesADeclarationAtTheLineOfItsInnermostCallerOutsideTheLibrary =
 	property.explore(captureGen, {
 		needs: {},
+		budget: { runs: 50, steered: 50 },
 		situations: [
 			"the caller's own call",
 			"through the library",
@@ -177,9 +179,10 @@ export const callSiteCaptureLocatesADeclarationAtTheLineOfItsInnermostCallerOuts
 		]
 	})
 
-/** SourceLoc is recognized by its exact structure. */
+/** SourceLoc is recognized by its exact structure. Its budget is its suite's before it was a property (test/unit/core/loc.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const sourceLocIsRecognizedByItsExactStructure = property.explore(structureGen, {
 	needs: {},
+	budget: { runs: 200, steered: 200 },
 	situations: [
 		"a location",
 		"a location with a site",
@@ -232,10 +235,11 @@ export const sourceLocIsRecognizedByItsExactStructure = property.explore(structu
 	]
 })
 
-/** SourceLoc relocates a refusal inside a value by prefixing its path, keeping its label, site, reason and capability. */
+/** SourceLoc relocates a refusal inside a value by prefixing its path, keeping its label, site, reason and capability. Its budget is its suite's before it was a property (test/unit/core/loc.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const sourceLocRelocatesARefusalInsideAValueByPrefixingItsPathKeepingItsLabelSiteReasonAndCapability =
 	property.explore(withinGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: ["a site", "no site"] satisfies ReadonlyArray<Reached<"a site" | "no site">>,
 		check:
 			(_, c: Case<"a site" | "no site">) =>

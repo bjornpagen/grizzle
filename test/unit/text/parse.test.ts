@@ -52,10 +52,11 @@ import {
 	unsupported
 } from "#test/unit/text/parse.fixtures.ts"
 
-/** Refusals with location and reason refuses valid ECMAScript outside the fragment where the construct begins, wherever it is planted. */
+/** Refusals with location and reason refuses valid ECMAScript outside the fragment where the construct begins, wherever it is planted. Its budget is its suite's before it was a property (test/unit/text/parse.test.ts at 4ca3036a): 600 runs and 600 steered cases. */
 export const refusalsWithLocationAndReasonRefusesValidECMAScriptOutsideTheFragmentWhereTheConstructBeginsWhereverItIsPlanted =
 	property.explore(plantedSpace, {
 		needs: {},
+		budget: { runs: 600, steered: 600 },
 		situations: Arr.map(unsupported, spelling) satisfies ReadonlyArray<Reached<Spelled>>,
 		check:
 			(_, c: Case<Spelled>) =>
@@ -86,7 +87,7 @@ export const refusalsWithLocationAndReasonRefusesValidECMAScriptOutsideTheFragme
 		]
 	})
 
-/** Refusals with location and reason is MalformedDescription exactly where ECMAScript's Unicode mode throws, on random sources. */
+/** Refusals with location and reason is MalformedDescription exactly where ECMAScript's Unicode mode throws, on random sources. Its budget is its suite's before it was a property (test/unit/text/parse.test.ts at 4ca3036a): 30000 runs and 1000 steered cases. */
 export const refusalsWithLocationAndReasonIsMalformedDescriptionExactlyWhereECMAScriptsUnicodeModeThrowsOnRandomSources =
 	property.explore(
 		aimed<ReadonlyArray<string>, SourceKind>(array(unit, { min: 0, max: 9 }), [
@@ -95,6 +96,7 @@ export const refusalsWithLocationAndReasonIsMalformedDescriptionExactlyWhereECMA
 		]),
 		{
 			needs: {},
+			budget: { runs: 30000, steered: 1000 },
 			situations: [
 				"malformed",
 				"admitted",
@@ -125,7 +127,7 @@ export const refusalsWithLocationAndReasonIsMalformedDescriptionExactlyWhereECMA
 		}
 	)
 
-/** Refusals with location and reason refuses a literal NUL and a lone surrogate in the source, at its offset. */
+/** Refusals with location and reason refuses a literal NUL and a lone surrogate in the source, at its offset. Its budget is its suite's before it was a property (test/unit/text/parse.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const refusalsWithLocationAndReasonRefusesALiteralNULAndALoneSurrogateInTheSourceAtItsOffset =
 	property.explore(
 		(source) => ({
@@ -136,6 +138,7 @@ export const refusalsWithLocationAndReasonRefusesALiteralNULAndALoneSurrogateInT
 		}),
 		{
 			needs: {},
+			budget: { runs: 100, steered: 100 },
 			situations: ["a NUL", "a lone surrogate"] satisfies ReadonlyArray<
 				Reached<"a NUL" | "a lone surrogate">
 			>,
@@ -166,13 +169,14 @@ export const refusalsWithLocationAndReasonRefusesALiteralNULAndALoneSurrogateInT
 		}
 	)
 
-/** Refusals with location and reason refuses exactly the flags other than u and su, and a non-string source, as malformed, at the builder. */
+/** Refusals with location and reason refuses exactly the flags other than u and su, and a non-string source, as malformed, at the builder. Its budget is its suite's before it was a property (test/unit/text/parse.test.ts at 4ca3036a): 1000 runs and 1000 steered cases. */
 export const refusalsWithLocationAndReasonRefusesExactlyTheFlagsOtherThanUAndSuAndANonStringSourceAsMalformedAtTheBuilder =
 	property.explore(
 		(source) =>
 			[source.draw(sourceGen), source.draw(map(option(flagsGen), Option.getOrUndefined))] as const,
 		{
 			needs: {},
+			budget: { runs: 1000, steered: 1000 },
 			situations: [
 				"admitted flags",
 				"other flags",

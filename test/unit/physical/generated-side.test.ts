@@ -15,10 +15,11 @@ import {
 	sideCaseGen
 } from "#test/unit/physical/generated-side.fixtures.ts"
 
-/** A law column over a generated field reads the row's written fields alone, never a generated column. */
+/** A law column over a generated field reads the row's written fields alone, never a generated column. Its budget is its suite's before it was a property (test/unit/physical/generated-side.test.ts at 4ca3036a): 60 runs and 60 steered cases. */
 export const aLawColumnOverAGeneratedFieldReadsTheRowsWrittenFieldsAloneNeverAGeneratedColumn =
 	property.explore(sideCaseGen, {
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: [
 			"a term over a generated field",
 			"a selection over a generated field",

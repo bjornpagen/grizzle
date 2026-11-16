@@ -29,10 +29,11 @@ import {
 	validGen
 } from "#test/unit/core/role-prefix.fixtures.ts"
 
-/** The role prefix, used verbatim installs every drawn valid prefix, digits and single underscores and all, as exactly prefix, __ and the stem. */
+/** The role prefix, used verbatim installs every drawn valid prefix, digits and single underscores and all, as exactly prefix, __ and the stem. Its budget is its suite's before it was a property (test/unit/core/role-prefix.test.ts at 4ca3036a): 256 runs and 32 steered cases. */
 export const theRolePrefixUsedVerbatimInstallsEveryDrawnValidPrefixDigitsAndSingleUnderscoresAndAllAsExactlyPrefixAndTheStem =
 	property.explore(validGen, {
 		needs: {},
+		budget: { runs: 256, steered: 32 },
 		situations: [
 			"a digit inside a word",
 			"a leading underscore",
@@ -51,10 +52,11 @@ export const theRolePrefixUsedVerbatimInstallsEveryDrawnValidPrefixDigitsAndSing
 		]
 	})
 
-/** The role prefix, used verbatim parses a drawn text as a prefix exactly when it is a lowercase identifier segment with no __, not led by pg_, within the 43 bytes the longest hashed role name leaves, and refuses every other. */
+/** The role prefix, used verbatim parses a drawn text as a prefix exactly when it is a lowercase identifier segment with no __, not led by pg_, within the 43 bytes the longest hashed role name leaves, and refuses every other. Its budget is its suite's before it was a property (test/unit/core/role-prefix.test.ts at 4ca3036a): 256 runs and 32 steered cases. */
 export const theRolePrefixUsedVerbatimParsesADrawnTextAsAPrefixExactlyWhenItIsALowercaseIdentifierSegmentWithNoNotLedByPgWithinThe43BytesTheLongestHashedRoleNameLeavesAndRefusesEveryOther =
 	property.explore(textGen, {
 		needs: {},
+		budget: { runs: 256, steered: 32 },
 		situations: [
 			"a prefix",
 			"a character",

@@ -26,10 +26,11 @@ import {
 	unguarded
 } from "#test/unit/physical/isolation-guard.fixtures.ts"
 
-/** The guard trigger per relation no guard exactly on a relation some role writes, every writer READ COMMITTED and inserting. */
+/** The guard trigger per relation no guard exactly on a relation some role writes, every writer READ COMMITTED and inserting. Its budget is its suite's before it was a property (test/unit/physical/isolation-guard.test.ts at 4ca3036a): 400 runs and 200 steered cases. */
 export const theGuardTriggerPerRelationNoGuardExactlyOnARelationSomeRoleWritesEveryWriterREADCOMMITTEDAndInserting =
 	property.explore(rolesGen, {
 		needs: {},
+		budget: { runs: 400, steered: 200 },
 		situations: [
 			"a relation no role holds",
 			"a relation a role only reads",

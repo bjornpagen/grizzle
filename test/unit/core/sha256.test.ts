@@ -21,10 +21,11 @@ import { sha256Hex, utf8, utf8Length } from "#compiler/core/sha256.ts"
 import { assert } from "#test/support/assert.ts"
 import { type Feature, generalized, noteText, utf16 } from "#test/unit/core/sha256.fixtures.ts"
 
-/** Utf8 writes any UTF-16 string as generalized UTF-8, a lone surrogate as its own three bytes. */
+/** Utf8 writes any UTF-16 string as generalized UTF-8, a lone surrogate as its own three bytes. Its budget is its suite's before it was a property (test/unit/core/sha256.test.ts at 4ca3036a): 500 runs and 200 steered cases. */
 export const utf8WritesAnyUTF16StringAsGeneralizedUTF8ALoneSurrogateAsItsOwnThreeBytes =
 	property.explore(utf16, {
 		needs: {},
+		budget: { runs: 500, steered: 200 },
 		situations: [
 			"a one-byte point",
 			"a two-byte point",
@@ -64,9 +65,10 @@ export const utf8WritesAnyUTF16StringAsGeneralizedUTF8ALoneSurrogateAsItsOwnThre
 		]
 	})
 
-/** Sha256Hex hashes a text as its generalized UTF-8 bytes. */
+/** Sha256Hex hashes a text as its generalized UTF-8 bytes. Its budget is its suite's before it was a property (test/unit/core/sha256.test.ts at 4ca3036a): 300 runs and 200 steered cases. */
 export const sha256HexHashesATextAsItsGeneralizedUTF8Bytes = property.explore(utf16, {
 	needs: {},
+	budget: { runs: 300, steered: 200 },
 	situations: ["a lone surrogate", "a four-byte point"] satisfies ReadonlyArray<Reached<Feature>>,
 	check: (_, c: Case<Feature>) => (text) =>
 		Effect.sync(() => {

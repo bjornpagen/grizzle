@@ -57,10 +57,11 @@ import {
 } from "#test/unit/compute/transformed-guard.fixtures.ts"
 import { jsMatcher } from "#test/unit/text/generators.ts"
 
-/** A guard over a transformed text proves a partial operation exactly when the transform's image and the guard's pattern together lie inside its form. */
+/** A guard over a transformed text proves a partial operation exactly when the transform's image and the guard's pattern together lie inside its form. Its budget is its suite's before it was a property (test/unit/compute/transformed-guard.test.ts at 4ca3036a): 800 runs and 800 steered cases. */
 export const aGuardOverATransformedTextProvesAPartialOperationExactlyWhenTheTransformsImageAndTheGuardsPatternTogetherLieInsideItsForm =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 800, steered: 800 },
 		situations: Arr.flatMap(routes, (r): Arr.NonEmptyReadonlyArray<Feature> => [
 			`${r} admitted`,
 			`${r} refused`
@@ -103,10 +104,11 @@ export const aGuardOverATransformedTextProvesAPartialOperationExactlyWhenTheTran
 		kills: []
 	})
 
-/** A transformed text's byte bound admits a cast into a bounded text exactly when the bound its operations prove and their language fit it. */
+/** A transformed text's byte bound admits a cast into a bounded text exactly when the bound its operations prove and their language fit it. Its budget is its suite's before it was a property (test/unit/compute/transformed-guard.test.ts at 4ca3036a): 400 runs and 800 steered cases. */
 export const aTransformedTextsByteBoundAdmitsACastIntoABoundedTextExactlyWhenTheBoundItsOperationsProveAndTheirLanguageFitIt =
 	property.explore(byteCaseSpace, {
 		needs: {},
+		budget: { runs: 400, steered: 800 },
 		situations: [
 			...Arr.flatMap(byteRoutes, (r): Arr.NonEmptyReadonlyArray<ByteFeature> => [
 				`${r} admitted`,

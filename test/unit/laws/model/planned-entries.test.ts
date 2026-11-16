@@ -47,10 +47,11 @@ import {
 	typesOf
 } from "#test/unit/laws/model/planned-entries.fixtures.ts"
 
-/** The law model's planned B-tree indexes fit their entries, or the first that outgrows its entry or holds unbounded text is UnrepresentableKey. */
+/** The law model's planned B-tree indexes fit their entries, or the first that outgrows its entry or holds unbounded text is UnrepresentableKey. Its budget is its suite's before it was a property (test/unit/laws/model/planned-entries.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const theLawModelsPlannedBTreeIndexesFitTheirEntriesOrTheFirstThatOutgrowsItsEntryOrHoldsUnboundedTextIsUnrepresentableKey =
 	property.explore(sketchGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"target is the declared key",
 			"target is a superkey",
@@ -168,8 +169,8 @@ export const theLawModelsPlannedBTreeIndexesFitTheirEntriesOrTheFirstThatOutgrow
 		kills: [
 			{
 				file: "packages/engine/src/schema/representability.ts",
-				original: "\treturn bytes > btreeMaxItemSize.value",
-				replacement: "\treturn bytes >= btreeMaxItemSize.value",
+				original: "\treturn bytes > btreeMaxItemSize",
+				replacement: "\treturn bytes >= btreeMaxItemSize",
 				why: "An entry of exactly BTMaxItemSize is refused (schema/representability.ts btreeEntry)."
 			}
 		]

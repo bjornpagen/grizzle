@@ -48,16 +48,17 @@ import {
 	containmentsOf,
 	type Feature,
 	installed,
-	lawGen,
+	lawSpace,
 	Reading,
 	situations,
 	statementsOf
 } from "#test/unit/laws/model/projection.fixtures.ts"
 
-/** Partial projections lower by §5.1's rules every drawn law installs its DDL: generated CASE columns, keys and references over them, constant columns, deferral, and mirrors as its containments. */
+/** Partial projections lower by §5.1's rules every drawn law installs its DDL: generated CASE columns, keys and references over them, constant columns, deferral, and mirrors as its containments. Its budget is its suite's before it was a property (test/unit/laws/model/projection.test.ts at 4ca3036a): 32 runs and 96 steered cases. */
 export const partialProjectionsLowerBy51sRulesEveryDrawnLawInstallsItsDDLGeneratedCASEColumnsKeysAndReferencesOverThemConstantColumnsDeferralAndMirrorsAsItsContainments =
-	property.explore(lawGen, {
+	property.explore(lawSpace, {
 		needs: {},
+		budget: { runs: 32, steered: 96 },
 		situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, c: Case<Feature>) => (law) =>
 			Effect.sync(() => {

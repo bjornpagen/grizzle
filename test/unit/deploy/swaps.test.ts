@@ -34,10 +34,11 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { caseGen, type Feature, swaps } from "#test/unit/deploy/swaps.fixtures.ts"
 
-/** Keys over a retyped field, and key swaps add a retyped key again in the conversion's transaction, and build a moved primary key under a swap name no installation registers. */
+/** Keys over a retyped field, and key swaps add a retyped key again in the conversion's transaction, and build a moved primary key under a swap name no installation registers. Its budget is its suite's before it was a property (test/unit/deploy/swaps.test.ts at 4ca3036a): 60 runs and 60 steered cases. */
 export const keysOverARetypedFieldAndKeySwapsAddARetypedKeyAgainInTheConversionsTransactionAndBuildAMovedPrimaryKeyUnderASwapNameNoInstallationRegisters =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 60, steered: 60 },
 		situations: [
 			"a key over the retyped field added again",
 			"the primary key swapped"

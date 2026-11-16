@@ -76,10 +76,11 @@ import {
 	written
 } from "#test/unit/physical/insert-grants.fixtures.ts"
 
-/** Roles that write by an insert list the declaration, its grants, byte-identical write roles and the refusal of programs beyond insert. */
+/** Roles that write by an insert list the declaration, its grants, byte-identical write roles and the refusal of programs beyond insert. Its budget is its suite's before it was a property (test/unit/physical/insert-grants.test.ts at 4ca3036a): 160 runs and 160 steered cases. */
 export const rolesThatWriteByAnInsertListTheDeclarationItsGrantsByteIdenticalWriteRolesAndTheRefusalOfProgramsBeyondInsert =
 	property.explore(worldSpace, {
 		needs: {},
+		budget: { runs: 160, steered: 160 },
 		situations: features,
 		check: (_, c: Case<InsertFeature>) => (w: InsertWorld) =>
 			Effect.sync(() => {

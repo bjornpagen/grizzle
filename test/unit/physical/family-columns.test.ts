@@ -46,10 +46,11 @@ import {
 	resolve
 } from "#test/unit/physical/family-columns.fixtures.ts"
 
-/** A family's columns and references keep the emission discipline, and drawn law columns, generated fields and foreign key actions follow their natives, whatever roles write them. */
+/** A family's columns and references keep the emission discipline, and drawn law columns, generated fields and foreign key actions follow their natives, whatever roles write them. Its budget is its suite's before it was a property (test/unit/physical/family-columns.test.ts at 4ca3036a): 60 runs and 200 steered cases. */
 export const aFamilysColumnsAndReferencesKeepTheEmissionDisciplineAndDrawnLawColumnsGeneratedFieldsAndForeignKeyActionsFollowTheirNativesWhateverRolesWriteThem =
 	propertyOf.explore(familyCaseGen, {
 		needs: {},
+		budget: { runs: 60, steered: 200 },
 		situations: [
 			"a drawn law column",
 			"a drawn law column a query entry writes",

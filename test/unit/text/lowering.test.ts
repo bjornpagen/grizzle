@@ -47,7 +47,7 @@ import {
 	type Verdict
 } from "#test/unit/text/lowering.fixtures.ts"
 
-/** Constraint loops (scalar/regex/ir.ts repeat) leaves no repetition that loops through an assertion. */
+/** Constraint loops (scalar/regex/ir.ts repeat) leaves no repetition that loops through an assertion. Its budget is its suite's before it was a property (test/unit/text/lowering.test.ts at 4ca3036a): 1000 runs and 1000 steered cases. */
 export const constraintLoopsScalarRegexIrTsRepeatLeavesNoRepetitionThatLoopsThroughAnAssertion =
 	property.explore(
 		(source) =>
@@ -57,6 +57,7 @@ export const constraintLoopsScalarRegexIrTsRepeatLeavesNoRepetitionThatLoopsThro
 			] as const,
 		{
 			needs: {},
+			budget: { runs: 1000, steered: 1000 },
 			situations: ["source loops through an assertion"] satisfies ReadonlyArray<
 				Reached<"source loops through an assertion">
 			>,
@@ -89,10 +90,11 @@ export const constraintLoopsScalarRegexIrTsRepeatLeavesNoRepetitionThatLoopsThro
 		}
 	)
 
-/** Reading a printed ARE back recognizes the language of the pattern it was printed from, on generated patterns of every family. */
+/** Reading a printed ARE back recognizes the language of the pattern it was printed from, on generated patterns of every family. Its budget is its suite's before it was a property (test/unit/text/lowering.test.ts at 4ca3036a): 1000 runs and 1000 steered cases. */
 export const readingAPrintedAREBackRecognizesTheLanguageOfThePatternItWasPrintedFromOnGeneratedPatternsOfEveryFamily =
 	property.explore((source) => [source.draw(familyPattern), source.draw(flagsGen)] as const, {
 		needs: {},
+		budget: { runs: 1000, steered: 1000 },
 		situations: ["compared", "read back to its own key"] satisfies ReadonlyArray<
 			Reached<"compared" | "read back to its own key">
 		>,
@@ -146,10 +148,11 @@ export const readingAPrintedAREBackRecognizesTheLanguageOfThePatternItWasPrinted
 		kills: []
 	})
 
-/** Reading a printed ARE back admits a pattern exactly when it admits the ARE it prints as, read back. */
+/** Reading a printed ARE back admits a pattern exactly when it admits the ARE it prints as, read back. Its budget is its suite's before it was a property (test/unit/text/lowering.test.ts at 4ca3036a): 500 runs and 500 steered cases. */
 export const readingAPrintedAREBackAdmitsAPatternExactlyWhenItAdmitsTheAREItPrintsAsReadBack =
 	property.explore(nestedPattern, {
 		needs: {},
+		budget: { runs: 500, steered: 500 },
 		situations: [
 			"admitted",
 			"refused at a budget",
@@ -204,7 +207,7 @@ export const readingAPrintedAREBackAdmitsAPatternExactlyWhenItAdmitsTheAREItPrin
 		]
 	})
 
-/** The enforcement of a finite language prints no longer than its other form, the IN list on a tie, and both forms recognize the language. */
+/** The enforcement of a finite language prints no longer than its other form, the IN list on a tie, and both forms recognize the language. Its budget is its suite's before it was a property (test/unit/text/lowering.test.ts at 4ca3036a): 1000 runs and 1000 steered cases. */
 export const theEnforcementOfAFiniteLanguagePrintsNoLongerThanItsOtherFormTheINListOnATieAndBothFormsRecognizeTheLanguage =
 	property.explore(
 		aimed(
@@ -213,6 +216,7 @@ export const theEnforcementOfAFiniteLanguagePrintsNoLongerThanItsOtherFormTheINL
 		),
 		{
 			needs: {},
+			budget: { runs: 1000, steered: 1000 },
 			situations: ["IN list chosen", "regex chosen", "tie"] satisfies ReadonlyArray<
 				Reached<FormFeature>
 			>,

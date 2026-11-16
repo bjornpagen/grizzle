@@ -255,8 +255,8 @@ export const aNumericMeansResultBoundHoldsTheMeanOfItsArgumentsGreatestValuePost
 		kills: [
 			{
 				file: "packages/engine/src/scalar/aggregate.ts",
-				original: "\t\t\t\t: Math.max(b.digits, -numericMaxDisplayScale.value) + 1,",
-				replacement: "\t\t\t\t: Math.max(b.digits, -numericMaxDisplayScale.value),",
+				original: "\t\t\t\t: Math.max(b.digits, -numericMaxDisplayScale) + 1,",
+				replacement: "\t\t\t\t: Math.max(b.digits, -numericMaxDisplayScale),",
 				why: "A numeric mean whose argument has more fraction digits than its scale loses the integer digit its rounding may carry; the mean bound property fails."
 			}
 		]

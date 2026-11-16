@@ -91,10 +91,11 @@ export const aSlottedClosedRelationsPlannedConstantsPacksExactlyTheDependentSumE
 		]
 	})
 
-/** A fault planted in a valid slotted declaration admits a valid declaration and refuses it with any one fault planted, at the site the fault breaks. */
+/** A fault planted in a valid slotted declaration admits a valid declaration and refuses it with any one fault planted, at the site the fault breaks. Its budget is its suite's before it was a property (test/unit/physical/fin.test.ts at 4ca3036a): 200 runs and 400 steered cases. */
 export const aFaultPlantedInAValidSlottedDeclarationAdmitsAValidDeclarationAndRefusesItWithAnyOneFaultPlantedAtTheSiteTheFaultBreaks =
 	property.explore(faultedGen, {
 		needs: {},
+		budget: { runs: 200, steered: 400 },
 		situations: faultKinds satisfies ReadonlyArray<Reached<FaultKind>>,
 		check: (_, k: Case<FaultKind>) => (c) =>
 			Effect.sync(() => {
@@ -117,10 +118,11 @@ export const aFaultPlantedInAValidSlottedDeclarationAdmitsAValidDeclarationAndRe
 		kills: []
 	})
 
-/** A cell read as an integer refuses a payload space exactly when its codes are past the greatest integer, naming the constant, the bound and the codes. */
+/** A cell read as an integer refuses a payload space exactly when its codes are past the greatest integer, naming the constant, the bound and the codes. Its budget is its suite's before it was a property (test/unit/physical/fin.test.ts at 4ca3036a): 200 runs and 100 steered cases. */
 export const aCellReadAsAnIntegerRefusesAPayloadSpaceExactlyWhenItsCodesArePastTheGreatestIntegerNamingTheConstantTheBoundAndTheCodes =
 	property.explore(codesGen, {
 		needs: {},
+		budget: { runs: 200, steered: 100 },
 		situations: [
 			"at the bound",
 			"one past the bound",
@@ -154,17 +156,18 @@ export const aCellReadAsAnIntegerRefusesAPayloadSpaceExactlyWhenItsCodesArePastT
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/constants.ts",
-				original: "\tcodes > BigInt(cellMaxCodes.value)",
-				replacement: "\tcodes >= BigInt(cellMaxCodes.value)",
+				original: "\tcodes > BigInt(cellMaxCodes)",
+				replacement: "\tcodes >= BigInt(cellMaxCodes)",
 				why: "A payload space of exactly 2^31 - 1 codes is refused."
 			}
 		]
 	})
 
-/** A cell read as an integer plans a declared relation exactly when the product of its payload rosters' sizes fits a cell. */
+/** A cell read as an integer plans a declared relation exactly when the product of its payload rosters' sizes fits a cell. Its budget is its suite's before it was a property (test/unit/physical/fin.test.ts at 4ca3036a): 12 runs and 16 steered cases. */
 export const aCellReadAsAnIntegerPlansADeclaredRelationExactlyWhenTheProductOfItsPayloadRostersSizesFitsACell =
 	property.explore(sizesGen, {
 		needs: {},
+		budget: { runs: 12, steered: 16 },
 		situations: [
 			"a payload within the bound planned",
 			"a payload past the bound refused"

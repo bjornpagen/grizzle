@@ -16,10 +16,11 @@ import {
 	sketchGen
 } from "#test/unit/laws/model/probed-target.fixtures.ts"
 
-/** A fixed target's UNIQUE beside the reverse probes out of its selection plans no redundant pair, a unique index per referenced set and none beyond the keys and references, no more objects than the implied keys restated, a constant only where it saves one, and reports a key every duplicate breaks. */
+/** A fixed target's UNIQUE beside the reverse probes out of its selection plans no redundant pair, a unique index per referenced set and none beyond the keys and references, no more objects than the implied keys restated, a constant only where it saves one, and reports a key every duplicate breaks. Its budget is its suite's before it was a property (test/unit/laws/model/probed-target.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const aFixedTargetsUNIQUEBesideTheReverseProbesOutOfItsSelectionPlansNoRedundantPairAUniqueIndexPerReferencedSetAndNoneBeyondTheKeysAndReferencesNoMoreObjectsThanTheImpliedKeysRestatedAConstantOnlyWhereItSavesOneAndReportsAKeyEveryDuplicateBreaks =
 	property.explore(sketchGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: FEATURES satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, c: Case<Feature>) => (s) =>
 			Effect.sync(() => {

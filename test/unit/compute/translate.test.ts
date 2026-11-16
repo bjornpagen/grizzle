@@ -102,10 +102,11 @@ import {
 } from "#test/unit/compute/translate.fixtures.ts"
 import { jsMatcher, stringsOver } from "#test/unit/text/generators.ts"
 
-/** Compute's translate and lowerAscii translate and lowerAscii agree with the map on the host and in the reference. */
+/** Compute's translate and lowerAscii translate and lowerAscii agree with the map on the host and in the reference. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const computesTranslateAndLowerAsciiTranslateAndLowerAsciiAgreeWithTheMapOnTheHostAndInTheReference =
 	property.explore(translationCase, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"a character replaced",
 			"a character kept",
@@ -180,10 +181,11 @@ export const computesTranslateAndLowerAsciiTranslateAndLowerAsciiAgreeWithTheMap
 		kills: []
 	})
 
-/** Compute's translate and lowerAscii types a translation as text of exactly the image of its operand's language. */
+/** Compute's translate and lowerAscii types a translation as text of exactly the image of its operand's language. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const computesTranslateAndLowerAsciiTypesATranslationAsTextOfExactlyTheImageOfItsOperandsLanguage =
 	property.explore(imageCase, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"an image member",
 			"a non-member",
@@ -293,10 +295,11 @@ export const computesTranslateAndLowerAsciiTypesATranslationAsTextOfExactlyTheIm
 		]
 	})
 
-/** Compute's translate and lowerAscii refuses each fault planted in a valid translation or collapse by its reason and place, and compiles the term without it. */
+/** Compute's translate and lowerAscii refuses each fault planted in a valid translation or collapse by its reason and place, and compiles the term without it. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 300 runs and 400 steered cases. */
 export const computesTranslateAndLowerAsciiRefusesEachFaultPlantedInAValidTranslationOrCollapseByItsReasonAndPlaceAndCompilesTheTermWithoutIt =
 	property.explore(plantedGen, {
 		needs: {},
+		budget: { runs: 300, steered: 400 },
 		situations: faults satisfies ReadonlyArray<Reached<Fault>>,
 		check: (_, k: Case<Fault>) => (p) =>
 			Effect.sync(() => {
@@ -441,10 +444,11 @@ export const computesTranslateAndLowerAsciiRefusesEachFaultPlantedInAValidTransl
 		]
 	})
 
-/** Compute's translate and lowerAscii proves a cast into a refined text exactly by the image's inclusion, and names the analysis bounds it cannot pass. */
+/** Compute's translate and lowerAscii proves a cast into a refined text exactly by the image's inclusion, and names the analysis bounds it cannot pass. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 200 runs and 400 steered cases. */
 export const computesTranslateAndLowerAsciiProvesACastIntoARefinedTextExactlyByTheImagesInclusionAndNamesTheAnalysisBoundsItCannotPass =
 	property.explore(castGen, {
 		needs: {},
+		budget: { runs: 200, steered: 400 },
 		situations: [
 			"an image inside the target",
 			"an image outside the target",
@@ -603,10 +607,11 @@ export const computesTranslateAndLowerAsciiProvesACastIntoARefinedTextExactlyByT
 		]
 	})
 
-/** Compute's translate and lowerAscii collapse and replaceWhitespace agree with XML Schema's definition. */
+/** Compute's translate and lowerAscii collapse and replaceWhitespace agree with XML Schema's definition. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const computesTranslateAndLowerAsciiCollapseAndReplaceWhitespaceAgreeWithXMLSchemasDefinition =
 	property.explore(array(stringsOver(spaceCharacter, 10), { min: 1, max: 24 }), {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"a run folded",
 			"an end trimmed",
@@ -671,10 +676,11 @@ export const computesTranslateAndLowerAsciiCollapseAndReplaceWhitespaceAgreeWith
 		]
 	})
 
-/** Compute's translate and lowerAscii types a collapse as text holding its image within the operand's length bound. */
+/** Compute's translate and lowerAscii types a collapse as text holding its image within the operand's length bound. Its budget is its suite's before it was a property (test/unit/compute/translate.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const computesTranslateAndLowerAsciiTypesACollapseAsTextHoldingItsImageWithinTheOperandsLengthBound =
 	property.explore(collapseCase, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"an image member",
 			"an image non-member",

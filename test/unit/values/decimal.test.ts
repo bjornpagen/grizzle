@@ -86,11 +86,12 @@ import {
 } from "#test/unit/values/decimal.fixtures.ts"
 import { decimalGen, numericText } from "#test/unit/values/support.ts"
 
-/** Decimal parsing reads every exact spelling to numeric_in's value, in its one form. */
+/** Decimal parsing reads every exact spelling to numeric_in's value, in its one form. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 2000 runs and 2000 steered cases. */
 export const decimalParsingReadsEveryExactSpellingToNumericInsValueInItsOneForm = property.explore(
 	spellingGen,
 	{
 		needs: {},
+		budget: { runs: 2000, steered: 2000 },
 		situations: spellingFeatures satisfies ReadonlyArray<Reached<SpellingFeature>>,
 		check: (_, c: Case<SpellingFeature>) => (spelling) =>
 			Effect.sync(() => {
@@ -116,11 +117,12 @@ export const decimalParsingReadsEveryExactSpellingToNumericInsValueInItsOneForm 
 	}
 )
 
-/** Decimal parsing refuses every spelling one corruption breaks. */
+/** Decimal parsing refuses every spelling one corruption breaks. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 1000 runs and 1000 steered cases. */
 export const decimalParsingRefusesEverySpellingOneCorruptionBreaks = property.explore(
 	corruptionSpace,
 	{
 		needs: {},
+		budget: { runs: 1000, steered: 1000 },
 		situations: [
 			...corruptions,
 			...Arr.map(textCorruptions, (corruption) => [corruption, "an exact spelling"] as const)
@@ -152,10 +154,11 @@ export const decimalParsingRefusesEverySpellingOneCorruptionBreaks = property.ex
 	}
 )
 
-/** Decimal parsing admits a value at each of PostgreSQL's numeric format limits as its one text, refuses one past, and drops zeros past the fraction limit. */
+/** Decimal parsing admits a value at each of PostgreSQL's numeric format limits as its one text, refuses one past, and drops zeros past the fraction limit. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 100 runs and 200 steered cases. */
 export const decimalParsingAdmitsAValueAtEachOfPostgreSQLsNumericFormatLimitsAsItsOneTextRefusesOnePastAndDropsZerosPastTheFractionLimit =
 	property.explore(formatCaseGen, {
 		needs: {},
+		budget: { runs: 100, steered: 200 },
 		situations: [
 			...Arr.flatMap(formatLimits, (limit) => [`${limit} at` as const, `${limit} past` as const]),
 			"by text",
@@ -185,17 +188,20 @@ export const decimalParsingAdmitsAValueAtEachOfPostgreSQLsNumericFormatLimitsAsI
 		kills: [
 			{
 				file: "packages/engine/src/scalar/values/decimal.ts",
-				original: "\t\t\tminScale > numericMaxFractionDigits.value ||",
-				replacement: "\t\t\tminScale >= numericMaxFractionDigits.value ||",
+				original:
+					"\t\tif (minScale > numericMaxFractionDigits || digits.length - minScale > numericMaxIntegerDigits) {",
+				replacement:
+					"\t\tif (minScale >= numericMaxFractionDigits || digits.length - minScale > numericMaxIntegerDigits) {",
 				why: "A value at the fraction limit is refused; the format limits property fails."
 			}
 		]
 	})
 
-/** Decimal parsing round-trips its own text exactly, its parts padded by zeros are the value, and refuses a negative coefficient. */
+/** Decimal parsing round-trips its own text exactly, its parts padded by zeros are the value, and refuses a negative coefficient. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 2000 runs and 200 steered cases. */
 export const decimalParsingRoundTripsItsOwnTextExactlyItsPartsPaddedByZerosAreTheValueAndRefusesANegativeCoefficient =
 	property.explore((source) => [source.draw(decimalGen), source.draw(trailingZeros)] as const, {
 		needs: {},
+		budget: { runs: 2000, steered: 200 },
 		situations: ["unpadded parts", "padded parts", "special"] satisfies ReadonlyArray<
 			Reached<"unpadded parts" | "padded parts" | "special">
 		>,
@@ -239,12 +245,13 @@ export const decimalParsingRoundTripsItsOwnTextExactlyItsPartsPaddedByZerosAreTh
 		]
 	})
 
-/** Decimal parsing converts numeric_out text at every display scale to the value's one form, its text and parts the value's. */
+/** Decimal parsing converts numeric_out text at every display scale to the value's one form, its text and parts the value's. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 2000 runs and 2000 steered cases. */
 export const decimalParsingConvertsNumericOutTextAtEveryDisplayScaleToTheValuesOneFormItsTextAndPartsTheValues =
 	property.explore(
 		(source) => [source.draw(decimalGen), source.draw(element([0, 1, 8, 24, 40]))] as const,
 		{
 			needs: {},
+			budget: { runs: 2000, steered: 2000 },
 			situations: ["padded", "canonical", "special"] satisfies ReadonlyArray<
 				Reached<"padded" | "canonical" | "special">
 			>,
@@ -272,10 +279,11 @@ export const decimalParsingConvertsNumericOutTextAtEveryDisplayScaleToTheValuesO
 		}
 	)
 
-/** Decimal identity and order orders as cmp_numerics, and equality, text and parts agree with the order. */
+/** Decimal identity and order orders as cmp_numerics, and equality, text and parts agree with the order. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 2000 runs and 400 steered cases. */
 export const decimalIdentityAndOrderOrdersAsCmpNumericsAndEqualityTextAndPartsAgreeWithTheOrder =
 	property.explore(orderedPairGen, {
 		needs: {},
+		budget: { runs: 2000, steered: 400 },
 		situations: [
 			"equal values",
 			"a special against a finite value",
@@ -302,10 +310,11 @@ export const decimalIdentityAndOrderOrdersAsCmpNumericsAndEqualityTextAndPartsAg
 		kills: []
 	})
 
-/** Decimal in the canonical serializer writes every value as a payload of the IR's decimal grammar (ir/decimal.ts). */
+/** Decimal in the canonical serializer writes every value as a payload of the IR's decimal grammar (ir/decimal.ts). Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 1000 runs and 200 steered cases. */
 export const decimalInTheCanonicalSerializerWritesEveryValueAsAPayloadOfTheIRsDecimalGrammarIrDecimalTs =
 	property.explore(decimalGen, {
 		needs: {},
+		budget: { runs: 1000, steered: 200 },
 		situations: ["finite", "negative", "special"] satisfies ReadonlyArray<
 			Reached<"finite" | "negative" | "special">
 		>,
@@ -334,10 +343,11 @@ export const decimalInTheCanonicalSerializerWritesEveryValueAsAPayloadOfTheIRsDe
 		]
 	})
 
-/** Decimal in the canonical serializer takes a text as a payload exactly when the reviver revives it. */
+/** Decimal in the canonical serializer takes a text as a payload exactly when the reviver revives it. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 5000 runs and 200 steered cases. */
 export const decimalInTheCanonicalSerializerTakesATextAsAPayloadExactlyWhenTheReviverRevivesIt =
 	property.explore(payloadTextSpace, {
 		needs: {},
+		budget: { runs: 5000, steered: 200 },
 		situations: ["a payload", "no payload", "a leading zero"] satisfies ReadonlyArray<
 			Reached<PayloadFeature>
 		>,
@@ -365,10 +375,11 @@ export const decimalInTheCanonicalSerializerTakesATextAsAPayloadExactlyWhenTheRe
 		]
 	})
 
-/** Numeric(p, s) normalization validates precision and scale as numerictypmodin does: both integers within its limits, both given. */
+/** Numeric(p, s) normalization validates precision and scale as numerictypmodin does: both integers within its limits, both given. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 1000 runs and 400 steered cases. */
 export const numericPSNormalizationValidatesPrecisionAndScaleAsNumerictypmodinDoesBothIntegersWithinItsLimitsBothGiven =
 	property.explore((source) => [source.draw(typmodEntry), source.draw(typmodEntry)] as const, {
 		needs: {},
+		budget: { runs: 1000, steered: 400 },
 		situations: [
 			"admitted",
 			"refused",
@@ -401,18 +412,19 @@ export const numericPSNormalizationValidatesPrecisionAndScaleAsNumerictypmodinDo
 			{
 				file: "packages/engine/src/scalar/values/decimal.ts",
 				original:
-					"\tif (!isInteger(precision) || precision < 1 || precision > numericMaxPrecision.value) {",
+					"\tif (!isInteger(precision) || precision < 1 || precision > numericMaxPrecision) {",
 				replacement:
-					"\tif (!isInteger(precision) || precision < 1 || precision >= numericMaxPrecision.value) {",
+					"\tif (!isInteger(precision) || precision < 1 || precision >= numericMaxPrecision) {",
 				why: "The greatest precision is refused; the typmod property fails."
 			}
 		]
 	})
 
-/** Numeric(p, s) normalization keeps NaN, refuses an infinity or a value rounding past p digits, and stores the rest at scale s within half a unit, a tie away from zero, idempotently. */
+/** Numeric(p, s) normalization keeps NaN, refuses an infinity or a value rounding past p digits, and stores the rest at scale s within half a unit, a tie away from zero, idempotently. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 3000 runs and 600 steered cases. */
 export const numericPSNormalizationKeepsNaNRefusesAnInfinityOrAValueRoundingPastPDigitsAndStoresTheRestAtScaleSWithinHalfAUnitATieAwayFromZeroIdempotently =
 	property.explore(normalizedGen, {
 		needs: {},
+		budget: { runs: 3000, steered: 600 },
 		situations: [
 			"kept",
 			"rounded",
@@ -443,10 +455,11 @@ export const numericPSNormalizationKeepsNaNRefusesAnInfinityOrAValueRoundingPast
 		]
 	})
 
-/** Decimal admission of a JavaScript caller's value parses a decimal string, refuses a value of no decimal host kind as decimalType, and admit raises only CompileError. */
+/** Decimal admission of a JavaScript caller's value parses a decimal string, refuses a value of no decimal host kind as decimalType, and admit raises only CompileError. Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 500 runs and 500 steered cases. */
 export const decimalAdmissionOfAJavaScriptCallersValueParsesADecimalStringRefusesAValueOfNoDecimalHostKindAsDecimalTypeAndAdmitRaisesOnlyCompileError =
 	property.explore(lsw<string>({ live: numericText, stale: Option.none(), wild: WILD_KINDS }), {
 		needs: {},
+		budget: { runs: 500, steered: 500 },
 		situations: [
 			"live",
 			...Arr.map(WILD_KINDS, (kind): DrawnFeature<never> => `wild ${kind}`)

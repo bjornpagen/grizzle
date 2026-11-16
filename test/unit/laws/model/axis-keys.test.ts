@@ -109,8 +109,8 @@ export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarri
 		kills: [
 			{
 				file: "packages/engine/src/schema/representability.ts",
-				original: "\treturn bytes > btreeMaxItemSize.value",
-				replacement: "\treturn bytes >= btreeMaxItemSize.value",
+				original: "\treturn bytes > btreeMaxItemSize",
+				replacement: "\treturn bytes >= btreeMaxItemSize",
 				why: "An entry of exactly BTMaxItemSize is refused (schema/representability.ts btreeEntry); the concat fold's axis key fails."
 			}
 		]

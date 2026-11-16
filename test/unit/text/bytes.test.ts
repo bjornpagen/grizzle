@@ -34,10 +34,11 @@ import {
 } from "#test/support/text/bytes.ts"
 import { expectedBytes } from "#test/unit/text/bytes.fixtures.ts"
 
-/** Str.bytes meets a text a byte bound refines meets every text its pattern meets, and bounds its bytes. */
+/** Str.bytes meets a text a byte bound refines meets every text its pattern meets, and bounds its bytes. Its budget is its suite's before it was a property (test/unit/text/bytes.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const strBytesMeetsATextAByteBoundRefinesMeetsEveryTextItsPatternMeetsAndBoundsItsBytes =
 	property.explore(meetCaseGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: meetFeatures satisfies ReadonlyArray<Reached<MeetFeature>>,
 		check: (_, k: Case<MeetFeature>) => (c) =>
 			Effect.sync(() => {
@@ -75,5 +76,13 @@ export const strBytesMeetsATextAByteBoundRefinesMeetsEveryTextItsPatternMeetsAnd
 			name: "the lesser of a side's pattern bound and its byte bound, and the containment installed"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/physical/install/compile.ts",
+				original:
+					"\tif (settings.levels.some((l) => identifierOf(l) === settings.extensionSchema)) {",
+				replacement: "\tif (settings.levels.some((l) => true)) {",
+				why: "Operator mutant (boolean-return) at packages/engine/src/physical/install/compile.ts:331 in admittedSettings: `identifierOf(l) === settings.extensionSchema` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

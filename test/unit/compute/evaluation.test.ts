@@ -34,10 +34,11 @@ import {
 	type PowerFeature
 } from "#test/unit/compute/evaluation.fixtures.ts"
 
-/** The oracle's classes of evaluation claims numeric power's outcome only where both ends of the libm error model give it. */
+/** The oracle's classes of evaluation claims numeric power's outcome only where both ends of the libm error model give it. Its budget is its suite's before it was a property (test/unit/compute/evaluation.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const theOraclesClassesOfEvaluationClaimsNumericPowersOutcomeOnlyWhereBothEndsOfTheLibmErrorModelGiveIt =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: ["outcome claimed at both ends", "declined"] satisfies ReadonlyArray<
 			Reached<PowerFeature>
 		>,
@@ -72,7 +73,16 @@ export const theOraclesClassesOfEvaluationClaimsNumericPowersOutcomeOnlyWhereBot
 			}),
 		oracle: { kind: "specification", name: "the libm error model's two ends" },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/decimal.ts",
+				original:
+					'\t\tif (typeof negative !== "boolean" || typeof coefficient !== "bigint" || coefficient < 0n) {',
+				replacement:
+					'\t\tif (typeof negative === "boolean" || typeof coefficient !== "bigint" || coefficient < 0n) {',
+				why: "Operator mutant (comparison) at packages/engine/src/scalar/values/decimal.ts:201 in <module>: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})
 
 /** The oracle's classes of evaluation evaluates exactly only the float operations IEEE 754 rounds correctly. */

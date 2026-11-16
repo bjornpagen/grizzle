@@ -33,10 +33,11 @@ import {
 	realVerdict
 } from "#test/unit/values/float.fixtures.ts"
 
-/** Real admission stores a double as its nearest binary32 value, ties to even and -0 as 0, and refuses exactly what the cast refuses. */
+/** Real admission stores a double as its nearest binary32 value, ties to even and -0 as 0, and refuses exactly what the cast refuses. Its budget is its suite's before it was a property (test/unit/values/float.test.ts at 4ca3036a): 5000 runs and 400 steered cases. */
 export const realAdmissionStoresADoubleAsItsNearestBinary32ValueTiesToEvenAnd0As0AndRefusesExactlyWhatTheCastRefuses =
 	property.explore(doubleGen, {
 		needs: {},
+		budget: { runs: 5000, steered: 400 },
 		situations: [
 			"rounded",
 			"stored exactly",
@@ -65,10 +66,11 @@ export const realAdmissionStoresADoubleAsItsNearestBinary32ValueTiesToEvenAnd0As
 		]
 	})
 
-/** PostgreSQL's float order is the model's total order, and its equality is the identity text's. */
+/** PostgreSQL's float order is the model's total order, and its equality is the identity text's. Its budget is its suite's before it was a property (test/unit/values/float.test.ts at 4ca3036a): 5000 runs and 400 steered cases. */
 export const postgreSQLsFloatOrderIsTheModelsTotalOrderAndItsEqualityIsTheIdentityTexts =
 	property.explore((source) => [source.draw(orderedGen), source.draw(orderedGen)] as const, {
 		needs: {},
+		budget: { runs: 5000, steered: 400 },
 		situations: [
 			"a NaN against another value",
 			"two NaNs",

@@ -20,10 +20,11 @@ import {
 import { printCase } from "#test/support/oracle/public/print.ts"
 import { named, sentForms, text } from "#test/unit/program/describe.fixtures.ts"
 
-/** DescribeQuery, queryFromDescription and lowerQuery rebuild every generated query read as the same Description, which lowers to the same statements. */
+/** DescribeQuery, queryFromDescription and lowerQuery rebuild every generated query read as the same Description, which lowers to the same statements. Its budget is its suite's before it was a property (test/unit/program/describe.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const describeQueryQueryFromDescriptionAndLowerQueryRebuildEveryGeneratedQueryReadAsTheSameDescriptionWhichLowersToTheSameStatements =
 	property.explore(caseSketchGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: programForms satisfies ReadonlyArray<Reached<ProgramFeature>>,
 		check: (_, k: Case<ProgramFeature>) => (sketch) =>
 			Effect.sync(() => {
@@ -70,10 +71,11 @@ export const describeQueryQueryFromDescriptionAndLowerQueryRebuildEveryGenerated
 		]
 	})
 
-/** DescribeQuery, queryFromDescription and lowerQuery check a Description against the schema it is given. */
+/** DescribeQuery, queryFromDescription and lowerQuery check a Description against the schema it is given. Its budget is its suite's before it was a property (test/unit/program/describe.test.ts at 4ca3036a): 20 runs and 20 steered cases. */
 export const describeQueryQueryFromDescriptionAndLowerQueryCheckADescriptionAgainstTheSchemaItIsGiven =
 	property.explore(named, {
 		needs: {},
+		budget: { runs: 20, steered: 20 },
 		situations: ["elsewhere"] satisfies ReadonlyArray<Reached<"elsewhere">>,
 		check: (_, k: Case<"elsewhere">) => (name) =>
 			Effect.sync(() => {

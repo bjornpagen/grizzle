@@ -33,9 +33,10 @@ import {
 	stripped
 } from "#test/unit/core/fingerprint.fixtures.ts"
 
-/** Fingerprints cover every part the contract names and nothing else. */
+/** Fingerprints cover every part the contract names and nothing else. Its budget is its suite's before it was a property (test/unit/core/fingerprint.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const fingerprintsCoverEveryPartTheContractNamesAndNothingElse = property.explore(partsGen, {
 	needs: {},
+	budget: { runs: 400, steered: 400 },
 	situations: changes satisfies ReadonlyArray<Reached<Change>>,
 	check:
 		(_, c: Case<Change>) =>
@@ -92,11 +93,12 @@ export const fingerprintsCoverEveryPartTheContractNamesAndNothingElse = property
 	]
 })
 
-/** Fingerprints separate their domains, and refuse a domain of no single line. */
+/** Fingerprints separate their domains, and refuse a domain of no single line. Its budget is its suite's before it was a property (test/unit/core/fingerprint.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const fingerprintsSeparateTheirDomainsAndRefuseADomainOfNoSingleLine = property.explore(
 	domainGen,
 	{
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: ["two domains", "an empty domain", "a domain of two lines"] satisfies ReadonlyArray<
 			Reached<DomainFeature>
 		>,

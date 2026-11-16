@@ -13,10 +13,11 @@ import {
 	rulesRequired
 } from "#test/unit/check/roundtrip.fixtures.ts"
 
-/** Generated queries round-trip through their descriptions a live description reads back as the same Description and IR, and a broken one is refused with its rule's reason. */
+/** Generated queries round-trip through their descriptions a live description reads back as the same Description and IR, and a broken one is refused with its rule's reason. Its budget is its suite's before it was a property (test/unit/check/roundtrip.test.ts at 4ca3036a): 800 runs and 800 steered cases. */
 export const generatedQueriesRoundTripThroughTheirDescriptionsALiveDescriptionReadsBackAsTheSameDescriptionAndIRAndABrokenOneIsRefusedWithItsRulesReason =
 	property.explore(caseSpace, {
 		needs: {},
+		budget: { runs: 800, steered: 800 },
 		situations: [
 			"live",
 			...Arr.map(rewrites, (r) => r.feature),

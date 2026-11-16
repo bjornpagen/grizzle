@@ -36,7 +36,7 @@ import {
 } from "#test/unit/schema/caller-input.fixtures.ts"
 import { type DrawnRoster, fieldOf } from "#test/unit/schema/field-sketch.ts"
 
-/** Caller input refuses a union of carriers that meet no column, and unites every other pair. */
+/** Caller input refuses a union of carriers that meet no column, and unites every other pair. Its budget is its suite's before it was a property (test/unit/schema/caller-input.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const callerInputRefusesAUnionOfCarriersThatMeetNoColumnAndUnitesEveryOtherPair =
 	property.explore(
 		aimed<UnionCase, UnionFeature>(unionCaseGen, [
@@ -44,6 +44,7 @@ export const callerInputRefusesAUnionOfCarriersThatMeetNoColumnAndUnitesEveryOth
 		]),
 		{
 			needs: {},
+			budget: { runs: 200, steered: 200 },
 			situations: [
 				"united",
 				"refused",

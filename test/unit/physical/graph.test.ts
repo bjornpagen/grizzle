@@ -39,10 +39,11 @@ import {
 	unstemmed
 } from "#test/unit/physical/graph.fixtures.ts"
 
-/** The obligation graph orders by phase, then by dependency, then by kind and identity. */
+/** The obligation graph orders by phase, then by dependency, then by kind and identity. Its budget is its suite's before it was a property (test/unit/physical/graph.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const theObligationGraphOrdersByPhaseThenByDependencyThenByKindAndIdentity =
 	property.explore(graphGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"an order of several phases",
 			"a dependency against identity order",
@@ -212,7 +213,7 @@ export const theObligationGraphOrdersByPhaseThenByDependencyThenByKindAndIdentit
 		]
 	})
 
-/** The obligation graph keeps an object's reasons, its own then each given later, once each. */
+/** The obligation graph keeps an object's reasons, its own then each given later, once each. Its budget is its suite's before it was a property (test/unit/physical/graph.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const theObligationGraphKeepsAnObjectsReasonsItsOwnThenEachGivenLaterOnceEach =
 	property.explore(
 		(source) => ({
@@ -221,6 +222,7 @@ export const theObligationGraphKeepsAnObjectsReasonsItsOwnThenEachGivenLaterOnce
 		}),
 		{
 			needs: {},
+			budget: { runs: 200, steered: 200 },
 			situations: ["a reason given twice", "reasons added to the object"] satisfies ReadonlyArray<
 				Reached<"a reason given twice" | "reasons added to the object">
 			>,

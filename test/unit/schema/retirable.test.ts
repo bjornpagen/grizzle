@@ -62,5 +62,14 @@ export const aRetirableStatementAtTheSchemaDoorOwnsAUnitExactlyWhenItsRowsStayIn
 		},
 		box: "Root's retirement fields, none, one or two; Step keyed with or without its group; every nonempty set of Step, Claim and Note as bodies; Claim's step into Step carried, crossed or none; Note's step into Step or none; Root mutable or not; a key reading Root's retirement field or none; a retirement field on Note or none",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/schema/statements.ts",
+				original:
+					'const isDeclaration = (value: Readonly<Record<string, unknown>>): boolean => {\n\tconst kind = ownedKind(value) ?? value["kind"]\n\treturn kind === "relation" || kind === "closed" || kind === "closedRelation" || kind === "derived"\n}',
+				replacement:
+					"const isDeclaration = (value: Readonly<Record<string, unknown>>): boolean => { return true }",
+				why: 'Operator mutant (boolean-return) at packages/engine/src/schema/statements.ts:119 in isDeclaration: `{\n\tconst kind = ownedKind(value) ?? value["kind"]\n\treturn kind === "relation" ||` becomes `{ return true }`; the property fails (lane CATCH, grizzle 0baff5d6).'
+			}
+		]
 	})

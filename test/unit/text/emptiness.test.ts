@@ -35,7 +35,7 @@ import {
 } from "#test/unit/text/emptiness.fixtures.ts"
 import { type Flags, jsMatcher } from "#test/unit/text/generators.ts"
 
-/** A pattern no text matches is never in the IR, and refused by matchPattern and analyzeText, exactly when no way through its NFA can match. */
+/** A pattern no text matches is never in the IR, and refused by matchPattern and analyzeText, exactly when no way through its NFA can match. Its budget is its suite's before it was a property (test/unit/text/emptiness.test.ts at 4ca3036a): 600 runs and 1000 steered cases. */
 export const aPatternNoTextMatchesIsNeverInTheIRAndRefusedByMatchPatternAndAnalyzeTextExactlyWhenNoWayThroughItsNFACanMatch =
 	property.explore(
 		aimed<readonly [source: string, flags: Flags], Emptiness>(caseGen, [
@@ -44,6 +44,7 @@ export const aPatternNoTextMatchesIsNeverInTheIRAndRefusedByMatchPatternAndAnaly
 		]),
 		{
 			needs: {},
+			budget: { runs: 600, steered: 1000 },
 			situations: [
 				"empty through an anchor",
 				"empty through a class",

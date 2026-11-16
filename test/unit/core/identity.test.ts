@@ -188,10 +188,11 @@ export const theNamingDoorRefusesTwoDeclaredNamesOfOneNamespaceThatConvertAlikeA
 		kills: []
 	})
 
-/** The naming door admits distinct hashed identities, and refuses two distinct identities of one identifier as DigestCollision. */
+/** The naming door admits distinct hashed identities, and refuses two distinct identities of one identifier as DigestCollision. Its budget is its suite's before it was a property (test/unit/core/identity.test.ts at 4ca3036a): 200 runs and 50 steered cases. */
 export const theNamingDoorAdmitsDistinctHashedIdentitiesAndRefusesTwoDistinctIdentitiesOfOneIdentifierAsDigestCollision =
 	property.explore(censusGen, {
 		needs: {},
+		budget: { runs: 200, steered: 50 },
 		situations: ["admitted", "a digest collision"] satisfies ReadonlyArray<
 			Reached<"admitted" | "a digest collision">
 		>,
@@ -238,10 +239,11 @@ export const theNamingDoorAdmitsDistinctHashedIdentitiesAndRefusesTwoDistinctIde
 		]
 	})
 
-/** The naming door admits a migration's distinct temporaries, and refuses one meeting a standing name or another temporary as DigestCollision where it is minted. */
+/** The naming door admits a migration's distinct temporaries, and refuses one meeting a standing name or another temporary as DigestCollision where it is minted. Its budget is its suite's before it was a property (test/unit/core/identity.test.ts at 4ca3036a): 300 runs and 50 steered cases. */
 export const theNamingDoorAdmitsAMigrationsDistinctTemporariesAndRefusesOneMeetingAStandingNameOrAnotherTemporaryAsDigestCollisionWhereItIsMinted =
 	property.explore(temporariesGen, {
 		needs: {},
+		budget: { runs: 300, steered: 50 },
 		situations: [
 			"admitted",
 			"minted again",

@@ -57,10 +57,11 @@ import {
 	worldGen
 } from "#test/unit/physical/constants.fixtures.ts"
 
-/** Roster and closed constants domains that admit exactly the live codes, names that are content, EXECUTE by rule, decoded view columns. */
+/** Roster and closed constants domains that admit exactly the live codes, names that are content, EXECUTE by rule, decoded view columns. Its budget is its suite's before it was a property (test/unit/physical/constants.test.ts at 4ca3036a): 120 runs and 120 steered cases. */
 export const rosterAndClosedConstantsDomainsThatAdmitExactlyTheLiveCodesNamesThatAreContentEXECUTEByRuleDecodedViewColumns =
 	property.explore(worldGen, {
 		needs: {},
+		budget: { runs: 120, steered: 120 },
 		situations: features,
 		check: (_2, c) => (w) =>
 			Effect.sync(() => {

@@ -2,6 +2,8 @@
 
 import { indexMaxKeys } from "@bjornpagen/grizzle-engine/schema/representability"
 import {
+	type Aimed,
+	aimed,
 	array,
 	boolean,
 	constant,
@@ -339,8 +341,32 @@ interface EngineSketch {
 	readonly planted: Planted
 }
 
-export const engineGen: Gen<EngineSketch> = (source) => ({
+const engineGen: Gen<EngineSketch> = (source) => ({
 	requests: source.draw(array(requestGen, { min: 0, max: 6 })),
 	arrival: source.draw(array(int(0, 2 ** 31 - 1), { min: 6, max: 6 })),
 	planted: source.draw(plantedGen)
 })
+
+/**
+ * An HNSW request on Event's vector column under the default class and another under the cosine class, among up to four
+ * drawn requests: one column list no single index serves, so two indexes on it.
+ */
+const twoClassesGen: Gen<EngineSketch> = (source) => {
+	const drawn = source.draw(engineGen)
+	const hnsw = (cosine: boolean): RequestSketch => ({
+		...source.draw(requestGen),
+		vector: 0,
+		law: false,
+		cosine
+	})
+	return {
+		...drawn,
+		requests: [...Arr.take(drawn.requests, 4), hnsw(false), hnsw(true)],
+		planted: { kind: "none" }
+	}
+}
+
+/** The drawn engines, aimed at two indexes on one column list. */
+export const engineSpace: Aimed<EngineSketch, IndexFeature> = aimed(engineGen, [
+	["two indexes on one column list", twoClassesGen]
+])

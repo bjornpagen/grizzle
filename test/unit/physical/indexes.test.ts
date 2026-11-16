@@ -33,7 +33,7 @@ import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import {
-	engineGen,
+	engineSpace,
 	expectedRefusal,
 	type IndexFeature,
 	install,
@@ -44,10 +44,11 @@ import {
 	valueClass
 } from "#test/unit/physical/indexes.fixtures.ts"
 
-/** The index request engine lands every request on exactly one index, plans alike in any arrival order, and refuses what it cannot create. */
+/** The index request engine lands every request on exactly one index, plans alike in any arrival order, and refuses what it cannot create. Its budget is its suite's before it was a property (test/unit/physical/indexes.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeInAnyArrivalOrderAndRefusesWhatItCannotCreate =
-	property.explore(engineGen, {
+	property.explore(engineSpace, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"served by an installed index",
 			"served by a created index",

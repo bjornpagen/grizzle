@@ -35,10 +35,11 @@ import {
 	subsumes
 } from "#test/unit/laws/model/beyond-primary.fixtures.ts"
 
-/** The objects beyond a primary key and the immediate laws are decided as before, once, by guards' canonical texts and the plans' immediate laws. */
+/** The objects beyond a primary key and the immediate laws are decided as before, once, by guards' canonical texts and the plans' immediate laws. Its budget is its suite's before it was a property (test/unit/laws/model/beyond-primary.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const theObjectsBeyondAPrimaryKeyAndTheImmediateLawsAreDecidedAsBeforeOnceByGuardsCanonicalTextsAndThePlansImmediateLaws =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"a guarded key subsumed",
 			"two keys over one set in two orders, one object",

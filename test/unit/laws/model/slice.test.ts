@@ -50,10 +50,11 @@ import {
 	type ByNameFeature
 } from "#test/unit/laws/model/slice.fixtures.ts"
 
-/** A compile's law model is the whole schema's restricted to its slice's writes and names. */
+/** A compile's law model is the whole schema's restricted to its slice's writes and names. Its budget is its suite's before it was a property (test/unit/laws/model/slice.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNames =
 	property.explore(caseSpace, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: features satisfies ReadonlyArray<Reached<SliceFeature>>,
 		check: (_, k: Case<SliceFeature>) => (c) =>
 			Effect.gen(function* () {
@@ -593,10 +594,11 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 		]
 	})
 
-/** A schema's ownership refuses a derived definition matching a live derived relation by its name, which stores nothing to match. */
+/** A schema's ownership refuses a derived definition matching a live derived relation by its name, which stores nothing to match. Its budget is its suite's before it was a property (test/unit/laws/model/slice.test.ts at 4ca3036a): 40 runs and 40 steered cases. */
 export const aSchemasOwnershipRefusesADerivedDefinitionMatchingALiveDerivedRelationByItsNameWhichStoresNothingToMatch =
 	property.explore(byNameGen, {
 		needs: {},
+		budget: { runs: 40, steered: 40 },
 		situations: [
 			"a direct match by name",
 			"a match by name inside a matched query"

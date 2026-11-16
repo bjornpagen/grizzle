@@ -102,10 +102,11 @@ export const declaredRenamesAndDropsDropAFieldGrizzleDrawsAgainWithNoDeclaration
 		}
 	)
 
-/** Declared renames and drops a relation, a field or a roster respelled to an alike name is one installed object, and so is a law column that reads it: drafted with no declaration, and nothing dropped. */
+/** Declared renames and drops a relation, a field or a roster respelled to an alike name is one installed object, and so is a law column that reads it: drafted with no declaration, and nothing dropped. Its budget is its suite's before it was a property (test/unit/deploy/renames.test.ts at 4ca3036a): 64 runs and 64 steered cases. */
 export const declaredRenamesAndDropsARelationAFieldOrARosterRespelledToAnAlikeNameIsOneInstalledObjectAndSoIsALawColumnThatReadsItDraftedWithNoDeclarationAndNothingDropped =
 	property.explore(respellingGen, {
 		needs: {},
+		budget: { runs: 64, steered: 64 },
 		situations: ["relation", "field", "roster", "every name respelled"] satisfies ReadonlyArray<
 			Reached<RespelledFeature>
 		>,

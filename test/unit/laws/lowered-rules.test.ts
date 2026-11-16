@@ -23,10 +23,11 @@ import {
 	type LevelFeature
 } from "#test/unit/laws/lowered-rules.fixtures.ts"
 
-/** A containment into a key-shaped conjunction of stored relations lowers to one deferred foreign key per match exactly when its definition meets the seven conditions, and the conservative installation keeps the rule for the judge under the same law. */
+/** A containment into a key-shaped conjunction of stored relations lowers to one deferred foreign key per match exactly when its definition meets the seven conditions, and the conservative installation keeps the rule for the judge under the same law. Its budget is its suite's before it was a property (test/unit/laws/lowered-rules.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const aContainmentIntoAKeyShapedConjunctionOfStoredRelationsLowersToOneDeferredForeignKeyPerMatchExactlyWhenItsDefinitionMeetsTheSevenConditionsAndTheConservativeInstallationKeepsTheRuleForTheJudgeUnderTheSameLaw =
 	property.explore(caseSpace, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"lowered",
 			"kept",

@@ -30,10 +30,11 @@ import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { exactValue } from "#test/support/equivalence.ts"
 import { type Feature, servedGen, tabled } from "#test/unit/text/served-matcher.fixtures.ts"
 
-/** Served matchers read back from the served form as buildNfa makes them, and judge every text as the compiled table does. */
+/** Served matchers read back from the served form as buildNfa makes them, and judge every text as the compiled table does. Its budget is its suite's before it was a property (test/unit/text/served-matcher.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const servedMatchersReadBackFromTheServedFormAsBuildNfaMakesThemAndJudgeEveryTextAsTheCompiledTableDoes =
 	property.explore(servedGen, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"a pattern under u",
 			"a pattern under su",

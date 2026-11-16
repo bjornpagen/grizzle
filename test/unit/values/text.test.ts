@@ -48,10 +48,11 @@ import {
 	type TupleFeature
 } from "#test/unit/values/text.fixtures.ts"
 
-/** Text validation admits exactly the well-formed NUL-free strings and refuses every planted NUL, lone surrogate and non-string by its fault. */
+/** Text validation admits exactly the well-formed NUL-free strings and refuses every planted NUL, lone surrogate and non-string by its fault. Its budget is its suite's before it was a property (test/unit/values/text.test.ts at 4ca3036a): 1000 runs and 1000 steered cases. */
 export const textValidationAdmitsExactlyTheWellFormedNULFreeStringsAndRefusesEveryPlantedNULLoneSurrogateAndNonStringByItsFault =
 	property.explore(plantedTextGen, {
 		needs: {},
+		budget: { runs: 1000, steered: 1000 },
 		situations: [
 			"live",
 			"not a string",
@@ -89,11 +90,12 @@ export const textValidationAdmitsExactlyTheWellFormedNULFreeStringsAndRefusesEve
 		]
 	})
 
-/** Code point order matches UTF-8 byte order. */
+/** Code point order matches UTF-8 byte order. Its budget is its suite's before it was a property (test/unit/values/text.test.ts at 4ca3036a): 5000 runs and 400 steered cases. */
 export const codePointOrderMatchesUTF8ByteOrder = property.explore(
 	(source) => [source.draw(text), source.draw(text)] as const,
 	{
 		needs: {},
+		budget: { runs: 5000, steered: 400 },
 		situations: [
 			"a unit past the surrogates against an astral scalar",
 			"one text the other's prefix",
@@ -135,10 +137,11 @@ export const codePointOrderMatchesUTF8ByteOrder = property.explore(
 	}
 )
 
-/** Text tuple orders order as their texts' spellings do, each text after its length, and as JSON arrays by code unit and by code point. */
+/** Text tuple orders order as their texts' spellings do, each text after its length, and as JSON arrays by code unit and by code point. Its budget is its suite's before it was a property (test/unit/values/text.test.ts at 4ca3036a): 2000 runs and 2000 steered cases. */
 export const textTupleOrdersOrderAsTheirTextsSpellingsDoEachTextAfterItsLengthAndAsJSONArraysByCodeUnitAndByCodePoint =
 	property.explore((source) => [source.draw(tuple), source.draw(tuple)] as const, {
 		needs: {},
+		budget: { runs: 2000, steered: 2000 },
 		situations: [
 			"equal tuples",
 			"one tuple the other's prefix",

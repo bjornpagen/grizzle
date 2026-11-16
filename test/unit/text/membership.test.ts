@@ -65,7 +65,7 @@ import {
 	plantedValue
 } from "#test/unit/values/support.ts"
 
-/** Host NFA membership equals ECMAScript on the handwritten family patterns, over their families' strings and walks of their own NFA, every pattern accepting and refusing. */
+/** Host NFA membership equals ECMAScript on the handwritten family patterns, over their families' strings and walks of their own NFA, every pattern accepting and refusing. Its budget is its suite's before it was a property (test/unit/text/membership.test.ts at 4ca3036a): 6000 runs and 6000 steered cases. */
 export const hostNFAMembershipEqualsECMAScriptOnTheHandwrittenFamilyPatternsOverTheirFamiliesStringsAndWalksOfTheirOwnNFAEveryPatternAcceptingAndRefusing =
 	property.explore(
 		aimed(familyCaseGen, [
@@ -80,6 +80,7 @@ export const hostNFAMembershipEqualsECMAScriptOnTheHandwrittenFamilyPatternsOver
 		]),
 		{
 			needs: {},
+			budget: { runs: 6000, steered: 6000 },
 			situations: [
 				...Arr.map(admittedPatterns, (p): FamilyFeature => `${p.label} accepts`),
 				...Arr.map(refusals, ([p]): FamilyFeature => `${p.label} refuses`)
@@ -114,11 +115,12 @@ export const hostNFAMembershipEqualsECMAScriptOnTheHandwrittenFamilyPatternsOver
 		}
 	)
 
-/** Host NFA membership equals ECMAScript on generated patterns. */
+/** Host NFA membership equals ECMAScript on generated patterns. Its budget is its suite's before it was a property (test/unit/text/membership.test.ts at 4ca3036a): 2000 runs and 2000 steered cases. */
 export const hostNFAMembershipEqualsECMAScriptOnGeneratedPatterns = property.explore(
 	patternSketchGen,
 	{
 		needs: {},
+		budget: { runs: 2000, steered: 2000 },
 		situations: ["admitted", "empty", "witness"] satisfies ReadonlyArray<Reached<GeneratedFeature>>,
 		check:
 			(_, c: Case<GeneratedFeature>) =>
@@ -172,12 +174,13 @@ export const hostNFAMembershipEqualsECMAScriptOnGeneratedPatterns = property.exp
 	}
 )
 
-/** Host NFA membership equals ECMAScript accepts no string that is not admitted text, under every family's patterns, and the tautology every admitted one. */
+/** Host NFA membership equals ECMAScript accepts no string that is not admitted text, under every family's patterns, and the tautology every admitted one. Its budget is its suite's before it was a property (test/unit/text/membership.test.ts at 4ca3036a): 1000 runs and 1000 steered cases. */
 export const hostNFAMembershipEqualsECMAScriptAcceptsNoStringThatIsNotAdmittedTextUnderEveryFamilysPatternsAndTheTautologyEveryAdmittedOne =
 	property.explore(
 		(source) => [source.draw(plantedTextGen), source.draw(element(familyPatterns))] as const,
 		{
 			needs: {},
+			budget: { runs: 1000, steered: 1000 },
 			situations: [
 				"live",
 				"nul middle",
@@ -227,10 +230,11 @@ export const hostNFAMembershipEqualsECMAScriptAcceptsNoStringThatIsNotAdmittedTe
 		}
 	)
 
-/** Every claimed fact holds on the samples tautologies accept, finite languages are exactly their members, bounds bound. */
+/** Every claimed fact holds on the samples tautologies accept, finite languages are exactly their members, bounds bound. Its budget is its suite's before it was a property (test/unit/text/membership.test.ts at 4ca3036a): 2000 runs and 2000 steered cases. */
 export const everyClaimedFactHoldsOnTheSamplesTautologiesAcceptFiniteLanguagesAreExactlyTheirMembersBoundsBound =
 	property.explore(membershipCaseGen, {
 		needs: {},
+		budget: { runs: 2000, steered: 2000 },
 		situations: ["tautology", "finite", "bounded"] satisfies ReadonlyArray<
 			Reached<"tautology" | "finite" | "bounded">
 		>,
@@ -284,13 +288,14 @@ export const everyClaimedFactHoldsOnTheSamplesTautologiesAcceptFiniteLanguagesAr
 		]
 	})
 
-/** Every claimed fact holds on the samples equal canonical keys never disagree. */
+/** Every claimed fact holds on the samples equal canonical keys never disagree. Its budget is its suite's before it was a property (test/unit/text/membership.test.ts at 4ca3036a): 2000 runs and 2000 steered cases. */
 export const everyClaimedFactHoldsOnTheSamplesEqualCanonicalKeysNeverDisagree = property.explore(
 	aimed<KeyCase, KeyFeature>(keyCaseGen, [
 		["distinct keys of patterns one code point apart", oneLiteralChangedGen]
 	]),
 	{
 		needs: {},
+		budget: { runs: 2000, steered: 2000 },
 		situations: [
 			"equal keys",
 			"distinct keys",
@@ -346,10 +351,11 @@ export const everyClaimedFactHoldsOnTheSamplesEqualCanonicalKeysNeverDisagree = 
 	}
 )
 
-/** Language-equivalent spellings share one canonical key gives a finite language's pattern and the alternation of its members in any order one key, where both are keyed by their automaton. */
+/** Language-equivalent spellings share one canonical key gives a finite language's pattern and the alternation of its members in any order one key, where both are keyed by their automaton. Its budget is its suite's before it was a property (test/unit/text/membership.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const languageEquivalentSpellingsShareOneCanonicalKeyGivesAFiniteLanguagesPatternAndTheAlternationOfItsMembersInAnyOrderOneKeyWhereBothAreKeyedByTheirAutomaton =
 	property.explore(twoSpellings, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"one member",
 			"several members",

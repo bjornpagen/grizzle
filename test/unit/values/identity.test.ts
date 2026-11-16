@@ -47,10 +47,11 @@ import {
 	reordered
 } from "#test/unit/values/identity.fixtures.ts"
 
-/** ParseValue stores every value of each carrier as its host type and range say, and refuses every other by its fault, never throwing; Uuid.parse admits exactly as the uuid carrier does. */
+/** ParseValue stores every value of each carrier as its host type and range say, and refuses every other by its fault, never throwing; Uuid.parse admits exactly as the uuid carrier does. Its budget is its suite's before it was a property (test/unit/values/identity.test.ts at 4ca3036a): 3000 runs and 3000 steered cases. */
 export const parseValueStoresEveryValueOfEachCarrierAsItsHostTypeAndRangeSayAndRefusesEveryOtherByItsFaultNeverThrowingUuidParseAdmitsExactlyAsTheUuidCarrierDoes =
 	property.explore(admissionSpace, {
 		needs: {},
+		budget: { runs: 3000, steered: 3000 },
 		situations: Arr.flatMap(carriers, (c): Arr.NonEmptyReadonlyArray<AdmissionFeature> => [
 			`${c.spec.carrier} stored`,
 			`${c.spec.carrier} refused`
@@ -97,7 +98,7 @@ export const parseValueStoresEveryValueOfEachCarrierAsItsHostTypeAndRangeSayAndR
 		]
 	})
 
-/** FactIdentity gives two spellings of one fact one identity, and a changed fact another. */
+/** FactIdentity gives two spellings of one fact one identity, and a changed fact another. Its budget is its suite's before it was a property (test/unit/values/identity.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const factIdentityGivesTwoSpellingsOfOneFactOneIdentityAndAChangedFactAnother =
 	property.explore(
 		(source) => ({
@@ -108,6 +109,7 @@ export const factIdentityGivesTwoSpellingsOfOneFactOneIdentityAndAChangedFactAno
 		}),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: [
 				...Arr.map(factRewrites, (r) => `same: ${r}` as const),
 				...Arr.map(factChanges, (r) => `changed: ${r}` as const)
@@ -171,7 +173,7 @@ export const factIdentityGivesTwoSpellingsOfOneFactOneIdentityAndAChangedFactAno
 		}
 	)
 
-/** FactIdentity refuses facts that are not exactly the heading, naming the field when there is one. */
+/** FactIdentity refuses facts that are not exactly the heading, naming the field when there is one. Its budget is its suite's before it was a property (test/unit/values/identity.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const factIdentityRefusesFactsThatAreNotExactlyTheHeadingNamingTheFieldWhenThereIsOne =
 	property.explore(
 		(source) => ({
@@ -183,6 +185,7 @@ export const factIdentityRefusesFactsThatAreNotExactlyTheHeadingNamingTheFieldWh
 		}),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: malformations satisfies ReadonlyArray<Reached<Malformed>>,
 			check:
 				(_2, c: Case<Malformed>) =>

@@ -67,10 +67,11 @@ import {
 	type Writer
 } from "#test/unit/physical/family-grants.fixtures.ts"
 
-/** A member writer's hold on its family's owner exact column grants, the owner rows its policy admits, translation refusals and the advance closure. */
+/** A member writer's hold on its family's owner exact column grants, the owner rows its policy admits, translation refusals and the advance closure. Its budget is its suite's before it was a property (test/unit/physical/family-grants.test.ts at 4ca3036a): 160 runs and 160 steered cases. */
 export const aMemberWritersHoldOnItsFamilysOwnerExactColumnGrantsTheOwnerRowsItsPolicyAdmitsTranslationRefusalsAndTheAdvanceClosure =
 	property.explore(worldGen, {
 		needs: {},
+		budget: { runs: 160, steered: 160 },
 		situations: features,
 		check: (_, c) => (w) =>
 			Effect.sync(() => {

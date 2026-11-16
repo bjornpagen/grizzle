@@ -7,7 +7,18 @@ import {
 	regexMaxMatchCells,
 	regexMaxMatchStates
 } from "@bjornpagen/grizzle-engine/scalar/regex/space"
-import { array, element, type Gen, int, map, oneOf, string, subset } from "@bjornpagen/testing/gen"
+import {
+	type Aimed,
+	aimed,
+	array,
+	element,
+	type Gen,
+	int,
+	map,
+	oneOf,
+	string,
+	subset
+} from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, String as Str } from "effect"
 import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -250,7 +261,7 @@ const chainOf = (n: number): string => {
 /** The i-th word of four letters, digits and underscores, every word distinct: i in base 36, padded by underscores. */
 const wordOf = (i: number): string => Str.padStart(4, "_")(i.toString(36))
 
-export const shapeGen: Gen<Shape> = oneOf<Shape>([
+const shapeGen: Gen<Shape> = oneOf<Shape>([
 	(s) => ({
 		crosses: "depth",
 		source: chainOf(regexMaxDepth + s.draw(int(-600, 40))),
@@ -294,7 +305,23 @@ export const shapeGen: Gen<Shape> = oneOf<Shape>([
 	}
 ])
 
-export type Verdict = RegexSpaceMeasure["kind"] | "admitted"
+export type Verdict = RegexSpaceMeasure["kind"] | "admitted" | "anchors at the limit"
+
+/**
+ * A pattern of as many moving anchors as the anchors limit allows, or one fewer: admitted at the limit itself, which a
+ * limit compared one off refuses.
+ */
+const anchorsAtLimitGen: Gen<Shape> = (s) => ({
+	crosses: "anchors",
+	source: Str.repeat(regexMaxAnchors + s.draw(int(-1, 0)))("(?:$|a|)b"),
+	measured: (ir) => anchorsOf(built(ir)),
+	limit: regexMaxAnchors
+})
+
+/** The drawn shapes, aimed at a pattern at the anchors limit. */
+export const shapeSpace: Aimed<Shape, Verdict> = aimed(shapeGen, [
+	["anchors at the limit", anchorsAtLimitGen]
+])
 
 /**
  * The strict URI-reference grammar of RFC 3986 Appendix A, each rule spelled as the pattern of its ABNF and composed

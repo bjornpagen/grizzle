@@ -68,10 +68,11 @@ import {
 	wordsGen
 } from "#test/unit/deploy/folder.fixtures.ts"
 
-/** Migration folders, generated a folder name is fourteen ASCII digits, an underscore and lowercase words. */
+/** Migration folders, generated a folder name is fourteen ASCII digits, an underscore and lowercase words. Its budget is its suite's before it was a property (test/unit/deploy/folder.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const migrationFoldersGeneratedAFolderNameIsFourteenASCIIDigitsAnUnderscoreAndLowercaseWords =
 	property.explore(folderNameGen, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: ["a folder name", "no folder name"] satisfies ReadonlyArray<
 			Reached<"a folder name" | "no folder name">
 		>,
@@ -97,10 +98,11 @@ export const migrationFoldersGeneratedAFolderNameIsFourteenASCIIDigitsAnUndersco
 		]
 	})
 
-/** Migration folders, generated parseMigrationName admits exactly the words of at most maxMigrationNameLength bytes, and folderName builds from each exactly the names isFolderName accepts. */
+/** Migration folders, generated parseMigrationName admits exactly the words of at most maxMigrationNameLength bytes, and folderName builds from each exactly the names isFolderName accepts. Its budget is its suite's before it was a property (test/unit/deploy/folder.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const migrationFoldersGeneratedParseMigrationNameAdmitsExactlyTheWordsOfAtMostMaxMigrationNameLengthBytesAndFolderNameBuildsFromEachExactlyTheNamesIsFolderNameAccepts =
 	property.explore((source) => [source.draw(timestampGen), source.draw(wordsGen)] as const, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"a name admitted",
 			"a name refused",
@@ -153,10 +155,11 @@ export const migrationFoldersGeneratedParseMigrationNameAdmitsExactlyTheWordsOfA
 		]
 	})
 
-/** Migration folders, generated a folder's files are NN-<words>.sql beside meta.json, one per positive ordinal, in ordinal order. */
+/** Migration folders, generated a folder's files are NN-<words>.sql beside meta.json, one per positive ordinal, in ordinal order. Its budget is its suite's before it was a property (test/unit/deploy/folder.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const migrationFoldersGeneratedAFoldersFilesAreNNWordsSqlBesideMetaJsonOnePerPositiveOrdinalInOrdinalOrder =
 	property.explore(namesGen, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"no file",
 			"files in order",
@@ -212,10 +215,11 @@ export const migrationFoldersGeneratedAFoldersFilesAreNNWordsSqlBesideMetaJsonOn
 		]
 	})
 
-/** Migration folders, generated names a draft after its first change, a closed relation's refined payload changed or a handle appended, in a folder's name. */
+/** Migration folders, generated names a draft after its first change, a closed relation's refined payload changed or a handle appended, in a folder's name. Its budget is its suite's before it was a property (test/unit/deploy/folder.test.ts at 4ca3036a): 60 runs and 100 steered cases. */
 export const migrationFoldersGeneratedNamesADraftAfterItsFirstChangeAClosedRelationsRefinedPayloadChangedOrAHandleAppendedInAFoldersName =
 	property.explore(labelsGen, {
 		needs: {},
+		budget: { runs: 60, steered: 100 },
 		situations: [
 			"a refined payload changed alone",
 			"a handle appended",
@@ -266,7 +270,7 @@ export const migrationFoldersGeneratedNamesADraftAfterItsFirstChangeAClosedRelat
 		kills: []
 	})
 
-/** Meta.json, generated reads back exactly what it writes, byte for byte, its declarations and every decision, and refuses a value short of the format or its proof. */
+/** Meta.json, generated reads back exactly what it writes, byte for byte, its declarations and every decision, and refuses a value short of the format or its proof. Its budget is its suite's before it was a property (test/unit/deploy/folder.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const metaJsonGeneratedReadsBackExactlyWhatItWritesByteForByteItsDeclarationsAndEveryDecisionAndRefusesAValueShortOfTheFormatOrItsProof =
 	property.explore(
 		(source): readonly [MigrationMeta, Fault] => {
@@ -275,6 +279,7 @@ export const metaJsonGeneratedReadsBackExactlyWhatItWritesByteForByteItsDeclarat
 		},
 		{
 			needs: {},
+			budget: { runs: 400, steered: 400 },
 			situations: [
 				"a drafted meta with a loss, read",
 				"declarations, read",

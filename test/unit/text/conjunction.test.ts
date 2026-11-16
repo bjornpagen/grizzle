@@ -72,7 +72,7 @@ import {
 } from "#test/unit/text/conjunction.fixtures.ts"
 import { stringsOver } from "#test/unit/text/generators.ts"
 
-/** A conjunction's language is every member's at once, by the host and by the intersection's automaton, and is keyed by its language. */
+/** A conjunction's language is every member's at once, by the host and by the intersection's automaton, and is keyed by its language. Its budget is its suite's before it was a property (test/unit/text/conjunction.test.ts at 4ca3036a): 1200 runs and 1200 steered cases. */
 export const aConjunctionsLanguageIsEveryMembersAtOnceByTheHostAndByTheIntersectionsAutomatonAndIsKeyedByItsLanguage =
 	property.explore(
 		(source) => {
@@ -87,6 +87,7 @@ export const aConjunctionsLanguageIsEveryMembersAtOnceByTheHostAndByTheIntersect
 		},
 		{
 			needs: {},
+			budget: { runs: 1200, steered: 1200 },
 			situations: [
 				"a pair",
 				"a triple",
@@ -195,7 +196,7 @@ export const aConjunctionsLanguageIsEveryMembersAtOnceByTheHostAndByTheIntersect
 		}
 	)
 
-/** A conjunction's inclusion holds exactly when no short text or inner walk holds every inner member and misses an outer one. */
+/** A conjunction's inclusion holds exactly when no short text or inner walk holds every inner member and misses an outer one. Its budget is its suite's before it was a property (test/unit/text/conjunction.test.ts at 4ca3036a): 1500 runs and 1500 steered cases. */
 export const aConjunctionsInclusionHoldsExactlyWhenNoShortTextOrInnerWalkHoldsEveryInnerMemberAndMissesAnOuterOne =
 	property.explore(
 		aimed<InclusionCase, InclusionFeature>(inclusionCaseGen, [
@@ -203,6 +204,7 @@ export const aConjunctionsInclusionHoldsExactlyWhenNoShortTextOrInnerWalkHoldsEv
 		]),
 		{
 			needs: {},
+			budget: { runs: 1500, steered: 1500 },
 			situations: [
 				"included",
 				"refuted",
@@ -277,12 +279,13 @@ export const aConjunctionsInclusionHoldsExactlyWhenNoShortTextOrInnerWalkHoldsEv
 		}
 	)
 
-/** A match guard over a refined subject types its branch by the subject's patterns and the match's, so a parse in it compiles exactly when they lie inside the form. */
+/** A match guard over a refined subject types its branch by the subject's patterns and the match's, so a parse in it compiles exactly when they lie inside the form. Its budget is its suite's before it was a property (test/unit/text/conjunction.test.ts at 4ca3036a): 600 runs and 600 steered cases. */
 export const aMatchGuardOverARefinedSubjectTypesItsBranchByTheSubjectsPatternsAndTheMatchsSoAParseInItCompilesExactlyWhenTheyLieInsideTheForm =
 	property.explore(
 		aimed<GuardCase, GuardFeature>(guardCaseGen, [["admitted", digitsUnderLengthGen]]),
 		{
 			needs: {},
+			budget: { runs: 600, steered: 600 },
 			situations: ["admitted", "refused"] satisfies ReadonlyArray<Reached<GuardFeature>>,
 			check:
 				(_, k: Case<GuardFeature>) =>
@@ -351,10 +354,11 @@ export const aMatchGuardOverARefinedSubjectTypesItsBranchByTheSubjectsPatternsAn
 		}
 	)
 
-/** A conjunction's CHECK prints in no more bytes than its members' own tests joined by AND. */
+/** A conjunction's CHECK prints in no more bytes than its members' own tests joined by AND. Its budget is its suite's before it was a property (test/unit/text/conjunction.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const aConjunctionsCHECKPrintsInNoMoreBytesThanItsMembersOwnTestsJoinedByAND =
 	property.explore(sizeCaseGen, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: ["a regex check of several patterns", "an IN list"] satisfies ReadonlyArray<
 			Reached<SizeFeature>
 		>,

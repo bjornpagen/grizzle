@@ -31,10 +31,11 @@ import {
 	textOf
 } from "#test/unit/deploy/render.fixtures.ts"
 
-/** A migration file's markers, generated are found on exactly the lines the model reads, generate prints each with its own kind's fix, and a file runs statement by statement exactly when its first line is the marker. */
+/** A migration file's markers, generated are found on exactly the lines the model reads, generate prints each with its own kind's fix, and a file runs statement by statement exactly when its first line is the marker. Its budget is its suite's before it was a property (test/unit/deploy/render.test.ts at 4ca3036a): 400 runs and 600 steered cases. */
 export const aMigrationFilesMarkersGeneratedAreFoundOnExactlyTheLinesTheModelReadsGeneratePrintsEachWithItsOwnKindsFixAndAFileRunsStatementByStatementExactlyWhenItsFirstLineIsTheMarker =
 	property.explore(fileGen, {
 		needs: {},
+		budget: { runs: 400, steered: 600 },
 		situations: [
 			"a placeholder marker line",
 			"a confirm marker line",

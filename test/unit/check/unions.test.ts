@@ -25,10 +25,11 @@ import {
 } from "#test/unit/check/unions.fixtures.ts"
 import { caseDesc, verdictOf } from "#test/unit/check/unions.ts"
 
-/** A union of rules is grouped by heading, typed per column, told apart by its discriminant, ordered only within a key and narrowed by a match's constants, as the model of its rules decides. */
+/** A union of rules is grouped by heading, typed per column, told apart by its discriminant, ordered only within a key and narrowed by a match's constants, as the model of its rules decides. Its budget is its suite's before it was a property (test/unit/check/unions.test.ts at 4ca3036a): 400 runs and 1200 steered cases. */
 export const aUnionOfRulesIsGroupedByHeadingTypedPerColumnToldApartByItsDiscriminantOrderedOnlyWithinAKeyAndNarrowedByAMatchsConstantsAsTheModelOfItsRulesDecides =
 	property.explore(unionCaseSpace, {
 		needs: {},
+		budget: { runs: 400, steered: 1200 },
 		situations: [
 			...rules,
 			"one heading",

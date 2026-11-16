@@ -11,10 +11,11 @@ import {
 	type TemplateFeature
 } from "#test/unit/program/context.fixtures.ts"
 
-/** A template rests on committed-snapshot evidence only for a snapshot, and shares one conservative artifact. */
+/** A template rests on committed-snapshot evidence only for a snapshot, and shares one conservative artifact. Its budget is its suite's before it was a property (test/unit/program/context.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const aTemplateRestsOnCommittedSnapshotEvidenceOnlyForASnapshotAndSharesOneConservativeArtifact =
 	property.explore(sketchGen, {
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: [
 			"rows",
 			"page",

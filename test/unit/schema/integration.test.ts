@@ -36,7 +36,7 @@ import {
 	type SamePairRow
 } from "#test/unit/schema/integration.fixtures.ts"
 
-/** Row checks over the field registry and Compute composes Compute arithmetic, casts and charLength with the row's field terms, and ownership accepts the result. */
+/** Row checks over the field registry and Compute composes Compute arithmetic, casts and charLength with the row's field terms, and ownership accepts the result. Its budget is its suite's before it was a property (test/unit/schema/integration.test.ts at 4ca3036a): 60 runs and 60 steered cases. */
 export const rowChecksOverTheFieldRegistryAndComputeComposesComputeArithmeticCastsAndCharLengthWithTheRowsFieldTermsAndOwnershipAcceptsTheResult =
 	property.explore(
 		(source) => ({
@@ -47,6 +47,7 @@ export const rowChecksOverTheFieldRegistryAndComputeComposesComputeArithmeticCas
 		}),
 		{
 			needs: {},
+			budget: { runs: 60, steered: 60 },
 			situations: ["arithmetic", "a cast", "charLength and a handle"] satisfies ReadonlyArray<
 				Reached<Composed>
 			>,
@@ -79,11 +80,18 @@ export const rowChecksOverTheFieldRegistryAndComputeComposesComputeArithmeticCas
 					}),
 			oracle: { kind: "specification", name: "ownership of the composed row check" },
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/schema/own.ts",
+					original: '\ttypeof value === "string" && roster.handles.includes(value)',
+					replacement: "\tfalse",
+					why: 'Operator mutant (boolean-return) at packages/engine/src/schema/own.ts:753 in isRosterHandle: `typeof value === "string" && roster.handles.includes(value)` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6).'
+				}
+			]
 		}
 	)
 
-/** Row checks over the field registry and Compute refuses a row field's literal of another host kind or roster, and two contracts of different identity. */
+/** Row checks over the field registry and Compute refuses a row field's literal of another host kind or roster, and two contracts of different identity. Its budget is its suite's before it was a property (test/unit/schema/integration.test.ts at 4ca3036a): 60 runs and 60 steered cases. */
 export const rowChecksOverTheFieldRegistryAndComputeRefusesARowFieldsLiteralOfAnotherHostKindOrRosterAndTwoContractsOfDifferentIdentity =
 	property.explore(
 		(source) => ({
@@ -98,6 +106,7 @@ export const rowChecksOverTheFieldRegistryAndComputeRefusesARowFieldsLiteralOfAn
 		}),
 		{
 			needs: {},
+			budget: { runs: 60, steered: 60 },
 			situations: [
 				"a number for a bigint",
 				"a handle off the roster",
@@ -134,6 +143,13 @@ export const rowChecksOverTheFieldRegistryAndComputeRefusesARowFieldsLiteralOfAn
 				name: "a literal of another host kind or roster, and two contracts of different identity, refused"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/core/errors.ts",
+					original: '\tError.isError(value) && "_tag" in value && value._tag === "CompileError"',
+					replacement: '\tError.isError(value) && "_tag" in value && value._tag !== "CompileError"',
+					why: "Operator mutant (comparison) at packages/engine/src/core/errors.ts:1015 in isCompileError: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				}
+			]
 		}
 	)

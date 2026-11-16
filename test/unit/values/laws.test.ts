@@ -30,10 +30,11 @@ import {
 	rewritten
 } from "#test/unit/values/laws.fixtures.ts"
 
-/** The value carriers' laws equality is value identity, every implementation agrees, and equal values have one identity text. */
+/** The value carriers' laws equality is value identity, every implementation agrees, and equal values have one identity text. Its budget is its suite's before it was a property (test/unit/values/laws.test.ts at 4ca3036a): 2000 runs and 2000 steered cases. */
 export const theValueCarriersLawsEqualityIsValueIdentityEveryImplementationAgreesAndEqualValuesHaveOneIdentityText =
 	property.explore(pairSpace, {
 		needs: {},
+		budget: { runs: 2000, steered: 2000 },
 		situations: [
 			"decimal equal",
 			"decimal unequal",
@@ -79,10 +80,11 @@ export const theValueCarriersLawsEqualityIsValueIdentityEveryImplementationAgree
 		]
 	})
 
-/** The value carriers' laws every value a constructor returns is frozen, and so is every object it reaches. */
+/** The value carriers' laws every value a constructor returns is frozen, and so is every object it reaches. Its budget is its suite's before it was a property (test/unit/values/laws.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const theValueCarriersLawsEveryValueAConstructorReturnsIsFrozenAndSoIsEveryObjectItReaches =
 	property.explore(constructedSpace, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"Decimal.fromString",
 			"Money.fromCanonical",
@@ -126,10 +128,11 @@ export const theValueCarriersLawsEveryValueAConstructorReturnsIsFrozenAndSoIsEve
 		]
 	})
 
-/** The value carriers' laws a written payload revives to its value, and only a written payload revives. */
+/** The value carriers' laws a written payload revives to its value, and only a written payload revives. Its budget is its suite's before it was a property (test/unit/values/laws.test.ts at 4ca3036a): 3000 runs and 3000 steered cases. */
 export const theValueCarriersLawsAWrittenPayloadRevivesToItsValueAndOnlyAWrittenPayloadRevives =
 	property.explore(offeredSpace, {
 		needs: {},
+		budget: { runs: 3000, steered: 3000 },
 		situations: [
 			"d written",
 			"d near miss refused",

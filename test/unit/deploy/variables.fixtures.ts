@@ -1,7 +1,16 @@
 /** What the properties of variables.test.ts read: its spaces, models and helpers. */
 
 import { type Case } from "@bjornpagen/testing/explore"
-import { array, codePoint, element, type Gen, option, string } from "@bjornpagen/testing/gen"
+import {
+	type Aimed,
+	aimed,
+	array,
+	codePoint,
+	element,
+	type Gen,
+	option,
+	string
+} from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, DateTime, Effect, FileSystem, Option, Order, String as Str } from "effect"
 import { roleNameOf } from "#adapter/served/served.ts"
@@ -95,7 +104,7 @@ const variableGen =
 		}
 	}
 
-export const draftingGen: Gen<Drafting> = (source) => ({
+const draftingGen: Gen<Drafting> = (source) => ({
 	schema: source.draw(wordsGen),
 	prefix: Option.map(source.draw(option(wordsGen)), Str.toLowerCase),
 	database: source.draw(string(codePoint(0x61, 0x7a), { min: 1, max: 12 })),
@@ -115,6 +124,20 @@ export const draftingGen: Gen<Drafting> = (source) => ({
 		)
 	)
 })
+
+/**
+ * A drafting whose variable migrate fills with nothing: a capital first, so neither DBNAME, a stem (lowercase words), a
+ * role's aside name (`__aside_`) nor a live source's (`__live_`).
+ */
+const unknownVariableGen: Gen<Drafting> = (source) => ({
+	...source.draw(draftingGen),
+	variable: `X${source.draw(string(codePoint(0x61, 0x7a), { min: 0, max: 8 }))}`
+})
+
+/** The drawn draftings, aimed at an unknown variable. */
+export const draftingSpace: Aimed<Drafting, DraftFeature> = aimed(draftingGen, [
+	["an unknown variable", unknownVariableGen]
+])
 
 /**
  * How a case's variable is drawn: a stem's shape, a role's aside name, an object's aside name, a root's live source

@@ -155,10 +155,11 @@ export const theArtifactsOfASchemaAreOneValueWhicheverInputReachesTheSchemaUnder
 		}
 	)
 
-/** A level is its content, not its name admits a query on its schema renamed and naming the Db's schema, and refuses it on one of other content. */
+/** A level is its content, not its name admits a query on its schema renamed and naming the Db's schema, and refuses it on one of other content. Its budget is its suite's before it was a property (test/unit/program/schema-input.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const aLevelIsItsContentNotItsNameAdmitsAQueryOnItsSchemaRenamedAndNamingTheDbsSchemaAndRefusesItOnOneOfOtherContent =
 	property.explore(contentGen, {
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: [
 			...Arr.map(identifierFeatures, (feature) => `renamed: ${feature}` as const),
 			...contentChanges
@@ -296,10 +297,11 @@ export const aLevelIsItsContentNotItsNameAdmitsAQueryOnItsSchemaRenamedAndNaming
 		]
 	})
 
-/** A schema the decoder refuses is refused at the decoder's path, by the schema parser and by a workload compiled against it. */
+/** A schema the decoder refuses is refused at the decoder's path, by the schema parser and by a workload compiled against it. Its budget is its suite's before it was a property (test/unit/program/schema-input.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const aSchemaTheDecoderRefusesIsRefusedAtTheDecodersPathByTheSchemaParserAndByAWorkloadCompiledAgainstIt =
 	property.explore(liveSketchGen, {
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: [
 			"live",
 			"wild an unnamed relation",

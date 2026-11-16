@@ -2,6 +2,8 @@
 
 import { type Case } from "@bjornpagen/testing/explore"
 import {
+	type Aimed,
+	aimed,
 	boolean,
 	constant,
 	element,
@@ -226,7 +228,7 @@ type Law =
 	| Readonly<{ kind: "references"; edges: ReadonlyArray<Edge> }>
 	| Readonly<{ kind: "mirrors"; left: MirrorLeft }>
 
-export const lawGen: Gen<Law> = oneOf<Law>([
+const lawGen: Gen<Law> = oneOf<Law>([
 	(source): Law => ({
 		kind: "key",
 		selection: source.draw(itemSelectionGen),
@@ -251,6 +253,25 @@ export const lawGen: Gen<Law> = oneOf<Law>([
 			])
 		)
 	})
+])
+
+/**
+ * A containment into one constant selection of Owner beside Note's into it, both at one liveness and neither by a
+ * superkey: the two share the constant selection's own column.
+ */
+const sharedContainmentGen: Gen<Law> = (source) => {
+	const live = source.draw(boolean)
+	return {
+		kind: "containment",
+		selection: source.draw(itemSelectionGen),
+		superkey: false,
+		target: { kind: "constant", live, second: { kind: "from Note", live } }
+	}
+}
+
+/** The drawn laws, aimed at two containments into one constant selection. */
+export const lawSpace: Aimed<Law, Feature> = aimed(lawGen, [
+	["two containments into one constant selection, at its own column", sharedContainmentGen]
 ])
 
 type ItemRow = RowScalars<typeof Item>

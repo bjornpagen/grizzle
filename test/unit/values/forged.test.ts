@@ -35,10 +35,11 @@ import { carriers, type Feature, forgedCases, pairOf, pairs } from "#test/suppor
 import { textOfParam } from "#test/support/wire.ts"
 import { kindCodes } from "#test/unit/codec/support.ts"
 
-/** A forged carrier instance is refused, or admitted as the PostgreSQL value it holds, so one value is one fact whatever its caller writes later. */
+/** A forged carrier instance is refused, or admitted as the PostgreSQL value it holds, so one value is one fact whatever its caller writes later. Its budget is its suite's before it was a property (test/unit/values/forged.test.ts at 4ca3036a): 1500 runs and 3000 steered cases. */
 export const aForgedCarrierInstanceIsRefusedOrAdmittedAsThePostgreSQLValueItHoldsSoOneValueIsOneFactWhateverItsCallerWritesLater =
 	property.explore(forgedCases(carriers), {
 		needs: {},
+		budget: { runs: 1500, steered: 3000 },
 		situations: [
 			"refused at admission",
 			"thrown out at construction",

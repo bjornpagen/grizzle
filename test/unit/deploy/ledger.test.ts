@@ -28,10 +28,11 @@ import {
 	plantedRows
 } from "#test/unit/deploy/ledger.fixtures.ts"
 
-/** The ledger's state is the model's for every ledger an apply leaves, in any row order, and refuses every damage no apply leaves, naming its folder. */
+/** The ledger's state is the model's for every ledger an apply leaves, in any row order, and refuses every damage no apply leaves, naming its folder. Its budget is its suite's before it was a property (test/unit/deploy/ledger.test.ts at 4ca3036a): 300 runs and 400 steered cases. */
 export const theLedgersStateIsTheModelsForEveryLedgerAnApplyLeavesInAnyRowOrderAndRefusesEveryDamageNoApplyLeavesNamingItsFolder =
 	property.explore(ledgerGen, {
 		needs: {},
+		budget: { runs: 300, steered: 400 },
 		situations: [
 			"an empty ledger",
 			"a custom folder of no file",

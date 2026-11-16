@@ -25,10 +25,11 @@ import {
 	type Situation
 } from "#test/unit/schema/generation-row.fixtures.ts"
 
-/** A generation expression's row admits a read of the caller's fields and refuses a read of a drawn or an accumulated field by name. */
+/** A generation expression's row admits a read of the caller's fields and refuses a read of a drawn or an accumulated field by name. Its budget is its suite's before it was a property (test/unit/schema/generation-row.test.ts at 4ca3036a): 40 runs and 40 steered cases. */
 export const aGenerationExpressionsRowAdmitsAReadOfTheCallersFieldsAndRefusesAReadOfADrawnOrAnAccumulatedFieldByName =
 	property.explore(generationCaseGen, {
 		needs: {},
+		budget: { runs: 40, steered: 40 },
 		situations: [
 			"refused at an accumulated read",
 			"refused at a drawn read",

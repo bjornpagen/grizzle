@@ -54,13 +54,13 @@ export const postgreSQLsLimitsAdmitWhatReachesEachLimitAndRefuseOnePastItAsResou
 			kills: [
 				{
 					file: "packages/engine/src/physical/ddl/context.ts",
-					original: "\t\tif (needed > tableMaxColumns.value) {",
-					replacement: "\t\tif (needed > tableMaxColumns.value + 1) {",
+					original: "\t\tif (needed > tableMaxColumns) {",
+					replacement: "\t\tif (needed > tableMaxColumns + 1) {",
 					why: "A table of one column past tableMaxColumns is admitted."
 				},
 				{
 					file: "packages/engine/src/sql/print.ts",
-					original: "\tif (params > statementMaxParams.value) {",
+					original: "\tif (params > statementMaxParams) {",
 					replacement: "\tif (params > Number.MAX_SAFE_INTEGER) {",
 					why: "A statement's placeholders are bounded by nothing, so one past statementMaxParams prints."
 				}
@@ -68,10 +68,11 @@ export const postgreSQLsLimitsAdmitWhatReachesEachLimitAndRefuseOnePastItAsResou
 		}
 	)
 
-/** PostgreSQL's limits compile a query whose literal is drawn past 2 MiB, each statement holding it. */
+/** PostgreSQL's limits compile a query whose literal is drawn past 2 MiB, each statement holding it. Its budget is its suite's before it was a property (test/unit/program/limits.test.ts at 4ca3036a): 4 runs and 8 steered cases. */
 export const postgreSQLsLimitsCompileAQueryWhoseLiteralIsDrawnPast2MiBEachStatementHoldingIt =
 	property.explore((source) => [source.draw(literalUnit), source.draw(repetitions)] as const, {
 		needs: {},
+		budget: { runs: 4, steered: 8 },
 		situations: ["a short literal", "a literal past 2 MiB"] satisfies ReadonlyArray<
 			Reached<LengthFeature>
 		>,

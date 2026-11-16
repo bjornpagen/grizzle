@@ -18,10 +18,11 @@ import {
 	situations
 } from "#test/unit/check/folds.fixtures.ts"
 
-/** A fold reads each fact it matches once, by a key is refused exactly where a match binds no key of its source, and otherwise folds every matched fact. */
+/** A fold reads each fact it matches once, by a key is refused exactly where a match binds no key of its source, and otherwise folds every matched fact. Its budget is its suite's before it was a property (test/unit/check/folds.test.ts at 4ca3036a): 400 runs and 2000 steered cases. */
 export const aFoldReadsEachFactItMatchesOnceByAKeyIsRefusedExactlyWhereAMatchBindsNoKeyOfItsSourceAndOtherwiseFoldsEveryMatchedFact =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 400, steered: 2000 },
 		situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, k: Case<Feature>) => (c) =>
 			Effect.sync(() => {

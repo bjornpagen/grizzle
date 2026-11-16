@@ -53,7 +53,7 @@ import {
 	type Written
 } from "#test/unit/schema/compose.fixtures.ts"
 
-/** Composing relations into a schema refuses two declarations of one name differing, at the later with the earlier's location, refuses a statement changing a lower level's writes, and admits one meaning as one declaration. */
+/** Composing relations into a schema refuses two declarations of one name differing, at the later with the earlier's location, refuses a statement changing a lower level's writes, and admits one meaning as one declaration. Its budget is its suite's before it was a property (test/unit/schema/compose.test.ts at 4ca3036a): 600 runs and 600 steered cases. */
 export const composingRelationsIntoASchemaRefusesTwoDeclarationsOfOneNameDifferingAtTheLaterWithTheEarliersLocationRefusesAStatementChangingALowerLevelsWritesAndAdmitsOneMeaningAsOneDeclaration =
 	property.explore(
 		(source) => {
@@ -69,6 +69,7 @@ export const composingRelationsIntoASchemaRefusesTwoDeclarationsOfOneNameDifferi
 		},
 		{
 			needs: {},
+			budget: { runs: 600, steered: 600 },
 			situations: [
 				"admitted",
 				"a clash within a level",

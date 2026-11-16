@@ -24,7 +24,7 @@ import { owning } from "#test/support/policy.ts"
 import type { Payload } from "#test/unit/laws/model/semantics.fixtures.ts"
 import { modelOf, schemaOf } from "#test/unit/laws/model/support.ts"
 
-/** A schema that states no law compiles rosters and closed relations only to the empty law model, and installs. */
+/** A schema that states no law compiles rosters and closed relations only to the empty law model, and installs. Its budget is its suite's before it was a property (test/unit/laws/model/semantics.test.ts at 4ca3036a): 30 runs and 30 steered cases. */
 export const aSchemaThatStatesNoLawCompilesRostersAndClosedRelationsOnlyToTheEmptyLawModelAndInstalls =
 	property.explore(
 		array(
@@ -44,6 +44,7 @@ export const aSchemaThatStatesNoLawCompilesRostersAndClosedRelationsOnlyToTheEmp
 		),
 		{
 			needs: {},
+			budget: { runs: 30, steered: 30 },
 			situations: ["no relation", "a roster alone", "a closed relation"] satisfies ReadonlyArray<
 				Reached<"no relation" | "a roster alone" | "a closed relation">
 			>,

@@ -46,10 +46,11 @@ import {
 } from "#test/unit/check/reasons.fixtures.ts"
 import { Lab } from "#test/unit/check/schemas.ts"
 
-/** A literal at a typed slot is no literal of another host kind or range, refused outside its contract or language, and admitted within. */
+/** A literal at a typed slot is no literal of another host kind or range, refused outside its contract or language, and admitted within. Its budget is its suite's before it was a property (test/unit/check/reasons.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const aLiteralAtATypedSlotIsNoLiteralOfAnotherHostKindOrRangeRefusedOutsideItsContractOrLanguageAndAdmittedWithin =
 	property.explore(slotGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"Cents bound",
 			"Qty bound",
@@ -100,10 +101,11 @@ export const aLiteralAtATypedSlotIsNoLiteralOfAnotherHostKindOrRangeRefusedOutsi
 		]
 	})
 
-/** A query's contracts are one descriptor per name across the query and its schema, a name declared with two refused with that name. */
+/** A query's contracts are one descriptor per name across the query and its schema, a name declared with two refused with that name. Its budget is its suite's before it was a property (test/unit/check/reasons.test.ts at 4ca3036a): 100 runs and 200 steered cases. */
 export const aQuerysContractsAreOneDescriptorPerNameAcrossTheQueryAndItsSchemaANameDeclaredWithTwoRefusedWithThatName =
 	property.explore(contractCaseGen, {
 		needs: {},
+		budget: { runs: 100, steered: 200 },
 		situations: [
 			"one name declared with two descriptors",
 			"the schema's contract declared otherwise",
@@ -140,10 +142,11 @@ export const aQuerysContractsAreOneDescriptorPerNameAcrossTheQueryAndItsSchemaAN
 		kills: []
 	})
 
-/** A fault planted in a generated query is refused with its reason at the location it determines, and the query without it is admitted. */
+/** A fault planted in a generated query is refused with its reason at the location it determines, and the query without it is admitted. Its budget is its suite's before it was a property (test/unit/check/reasons.test.ts at 4ca3036a): 200 runs and 400 steered cases. */
 export const aFaultPlantedInAGeneratedQueryIsRefusedWithItsReasonAtTheLocationItDeterminesAndTheQueryWithoutItIsAdmitted =
 	property.explore(caseSketchGen, {
 		needs: {},
+		budget: { runs: 200, steered: 400 },
 		situations: [
 			"live",
 			"wild an attachment binding no parent column",

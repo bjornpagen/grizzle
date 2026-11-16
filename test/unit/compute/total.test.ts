@@ -36,10 +36,11 @@ import {
 	verdictOf
 } from "#test/unit/compute/total.fixtures.ts"
 
-/** Contract predicate tables agree with the query mode's lowering of the same predicate, but for the reads, round and the float and money arithmetic a check refuses. */
+/** Contract predicate tables agree with the query mode's lowering of the same predicate, but for the reads, round and the float and money arithmetic a check refuses. Its budget is its suite's before it was a property (test/unit/compute/total.test.ts at 4ca3036a): 400 runs and 1200 steered cases. */
 export const contractPredicateTablesAgreeWithTheQueryModesLoweringOfTheSamePredicateButForTheReadsRoundAndTheFloatAndMoneyArithmeticACheckRefuses =
 	property.explore(predicateSpace, {
 		needs: {},
+		budget: { runs: 400, steered: 1200 },
 		situations: [
 			"agreed: admitted",
 			"agreed: PartialOperation",
@@ -106,7 +107,7 @@ export const contractPredicateTablesAgreeWithTheQueryModesLoweringOfTheSamePredi
 		]
 	})
 
-/** The ContractLiteral check checks a literal opposite a contract's term against its predicate, compared with it or beside it in arithmetic. */
+/** The ContractLiteral check checks a literal opposite a contract's term against its predicate, compared with it or beside it in arithmetic. Its budget is its suite's before it was a property (test/unit/compute/total.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const theContractLiteralCheckChecksALiteralOppositeAContractsTermAgainstItsPredicateComparedWithItOrBesideItInArithmetic =
 	property.explore(
 		(source) => ({
@@ -115,6 +116,7 @@ export const theContractLiteralCheckChecksALiteralOppositeAContractsTermAgainstI
 		}),
 		{
 			needs: {},
+			budget: { runs: 100, steered: 100 },
 			situations: [
 				"compare admitted",
 				"compare refused",

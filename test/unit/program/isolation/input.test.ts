@@ -36,10 +36,11 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { caseGen, type Feature, run } from "#test/unit/program/isolation/input.fixtures.ts"
 
-/** Isolation facts give one fact for every relation and every member, each its builder's answer, every key enforced over fields and the counted groups of immutable owners. */
+/** Isolation facts give one fact for every relation and every member, each its builder's answer, every key enforced over fields and the counted groups of immutable owners. Its budget is its suite's before it was a property (test/unit/program/isolation/input.test.ts at 4ca3036a): 120 runs and 120 steered cases. */
 export const isolationFactsGiveOneFactForEveryRelationAndEveryMemberEachItsBuildersAnswerEveryKeyEnforcedOverFieldsAndTheCountedGroupsOfImmutableOwners =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 120, steered: 120 },
 		situations: [
 			"an immutable owner's family",
 			"a mutable owner's family",

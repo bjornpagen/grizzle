@@ -15,10 +15,11 @@ import {
 	statementsOf
 } from "#test/unit/program/recompile.fixtures.ts"
 
-/** Compiling again every generated read compiles as a Db compiles it, and compiling it again after other reads gives the same template. */
+/** Compiling again every generated read compiles as a Db compiles it, and compiling it again after other reads gives the same template. Its budget is its suite's before it was a property (test/unit/program/recompile.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const compilingAgainEveryGeneratedReadCompilesAsADbCompilesItAndCompilingItAgainAfterOtherReadsGivesTheSameTemplate =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: ["compiled", "compiled again after another read"] satisfies ReadonlyArray<
 			Reached<RecompileFeature>
 		>,
@@ -69,5 +70,13 @@ export const compilingAgainEveryGeneratedReadCompilesAsADbCompilesItAndCompiling
 			name: "a compilation is a function of its query and schema: compiled again after other reads, the same statements"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/program/compile.ts",
+				original:
+					'\tif (built !== undefined) {\n\t\treturn Result.flatMap(\n\t\t\tcatchCompileError(() => publicDesc(built, "query")),\n\t\t\t(desc) =>\n\t\t\t\tResult.map(parseOver(built.schema.over.value), (schema): QueryInput => ({\n\t\t\t\t\tkind: "built",\n\t\t\t\t\tdesc,\n\t\t\t\t\tschema\n\t\t\t\t}))\n\t\t)\n\t}',
+				replacement: "\t{}",
+				why: "Operator mutant (guard) at packages/engine/src/program/compile.ts:112 in queryInput: `if (built !== undefined) {\n\t\treturn Result.flatMap(\n\t\t\tcatchCompileError(() => p` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			}
+		]
 	})

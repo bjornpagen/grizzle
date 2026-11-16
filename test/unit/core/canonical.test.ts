@@ -112,10 +112,11 @@ import {
 	value
 } from "#test/unit/core/canonical.fixtures.ts"
 
-/** The canonical text is RFC 8785 over the specified JSON form, whatever the key insertion order */
+/** The canonical text is RFC 8785 over the specified JSON form, whatever the key insertion order Its budget is its suite's before it was a property (test/unit/core/canonical.test.ts at 4ca3036a): 1000 runs and 1000 steered cases. */
 export const theCanonicalTextIsRFC8785OverTheSpecifiedJSONFormWhateverTheKeyInsertionOrder =
 	property.explore(textGen, {
 		needs: {},
+		budget: { runs: 1000, steered: 1000 },
 		situations: [
 			"a bigint",
 			"a vector",
@@ -184,10 +185,11 @@ export const theCanonicalTextIsRFC8785OverTheSpecifiedJSONFormWhateverTheKeyInse
 		]
 	})
 
-/** The canonical text round-trips the JSON form and the text, bigints, tagged values and tilde strings included */
+/** The canonical text round-trips the JSON form and the text, bigints, tagged values and tilde strings included Its budget is its suite's before it was a property (test/unit/core/canonical.test.ts at 4ca3036a): 500 runs and 500 steered cases. */
 export const theCanonicalTextRoundTripsTheJSONFormAndTheTextBigintsTaggedValuesAndTildeStringsIncluded =
 	property.explore(value, {
 		needs: {},
+		budget: { runs: 500, steered: 500 },
 		situations: [
 			"a bigint",
 			"a vector",
@@ -224,10 +226,11 @@ export const theCanonicalTextRoundTripsTheJSONFormAndTheTextBigintsTaggedValuesA
 		]
 	})
 
-/** A value outside the model is refused at its path, in the direction it arises, and never thrown: the caller's value as MalformedDescription, canonical text read back as MalformedArtifact */
+/** A value outside the model is refused at its path, in the direction it arises, and never thrown: the caller's value as MalformedDescription, canonical text read back as MalformedArtifact Its budget is its suite's before it was a property (test/unit/core/canonical.test.ts at 4ca3036a): 600 runs and 600 steered cases. */
 export const aValueOutsideTheModelIsRefusedAtItsPathInTheDirectionItArisesAndNeverThrownTheCallersValueAsMalformedDescriptionCanonicalTextReadBackAsMalformedArtifact =
 	property.explore(outsideGen, {
 		needs: {},
+		budget: { runs: 600, steered: 600 },
 		situations: outsides satisfies ReadonlyArray<Reached<OutsideKind>>,
 		check:
 			(_, c: Case<OutsideKind>) =>
@@ -370,10 +373,11 @@ export const aValueOutsideTheModelIsRefusedAsACycleWhereItMeetsItselfWhenItHolds
 		]
 	})
 
-/** The omitted members leave out an undefined property, and under omitSourceLocs exactly a SourceLoc under loc */
+/** The omitted members leave out an undefined property, and under omitSourceLocs exactly a SourceLoc under loc Its budget is its suite's before it was a property (test/unit/core/canonical.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const theOmittedMembersLeaveOutAnUndefinedPropertyAndUnderOmitSourceLocsExactlyASourceLocUnderLoc =
 	property.explore(omittedGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: [
 			"an undefined property",
 			"a SourceLoc under loc",
@@ -421,10 +425,11 @@ export const theOmittedMembersLeaveOutAnUndefinedPropertyAndUnderOmitSourceLocsE
 		]
 	})
 
-/** The omitted members read a value as it is now: a changed value is written as changed, a frozen one as it stays */
+/** The omitted members read a value as it is now: a changed value is written as changed, a frozen one as it stays Its budget is its suite's before it was a property (test/unit/core/canonical.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const theOmittedMembersReadAValueAsItIsNowAChangedValueIsWrittenAsChangedAFrozenOneAsItStays =
 	property.explore(memoGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"unfrozen",
 			"frozen at the top",
@@ -484,10 +489,11 @@ export const theOmittedMembersReadAValueAsItIsNowAChangedValueIsWrittenAsChanged
 		]
 	})
 
-/** Canonical comparison is equality of specified text, sameContent's too, and sorts a set by it, refusing a member outside the model at its place */
+/** Canonical comparison is equality of specified text, sameContent's too, and sorts a set by it, refusing a member outside the model at its place Its budget is its suite's before it was a property (test/unit/core/canonical.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const canonicalComparisonIsEqualityOfSpecifiedTextSameContentsTooAndSortsASetByItRefusingAMemberOutsideTheModelAtItsPlace =
 	property.explore(compareGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: ["a repeated member", "two distinct members"] satisfies ReadonlyArray<
 			Reached<"a repeated member" | "two distinct members">
 		>,
@@ -558,10 +564,11 @@ export const canonicalComparisonIsEqualityOfSpecifiedTextSameContentsTooAndSorts
 		]
 	})
 
-/** Canonical tokens spell the canonical text, are one list exactly when the texts are one, and order as the texts do by code unit */
+/** Canonical tokens spell the canonical text, are one list exactly when the texts are one, and order as the texts do by code unit Its budget is its suite's before it was a property (test/unit/core/canonical.test.ts at 4ca3036a): 3000 runs and 3000 steered cases. */
 export const canonicalTokensSpellTheCanonicalTextAreOneListExactlyWhenTheTextsAreOneAndOrderAsTheTextsDoByCodeUnit =
 	property.explore(tokensSpace, {
 		needs: {},
+		budget: { runs: 3000, steered: 3000 },
 		situations: [
 			"equal texts",
 			"two strings",

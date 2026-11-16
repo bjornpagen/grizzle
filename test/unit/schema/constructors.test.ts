@@ -157,7 +157,7 @@ import {
 } from "#test/unit/schema/constructors.fixtures.ts"
 import { descOf, rawClosedId, rawPg, type Row } from "#test/unit/schema/support.ts"
 
-/** Relation requires a nonempty name, built descriptors and a nonempty, distinct primary key over its own fields, and keeps none of the caller's inputs. */
+/** Relation requires a nonempty name, built descriptors and a nonempty, distinct primary key over its own fields, and keeps none of the caller's inputs. Its budget is its suite's before it was a property (test/unit/schema/constructors.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const relationRequiresANonemptyNameBuiltDescriptorsAndANonemptyDistinctPrimaryKeyOverItsOwnFieldsAndKeepsNoneOfTheCallersInputs =
 	property.explore(
 		(source) => {
@@ -186,6 +186,7 @@ export const relationRequiresANonemptyNameBuiltDescriptorsAndANonemptyDistinctPr
 		},
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: [...relationDefects, "add a field", "drop a field"] satisfies ReadonlyArray<
 				Reached<RelationDefect | Mutation>
 			>,
@@ -280,7 +281,7 @@ export const relationRequiresANonemptyNameBuiltDescriptorsAndANonemptyDistinctPr
 		}
 	)
 
-/** Closed records a roster's handles in declared order, types each handle as a code of its roster, and refuses every other roster. */
+/** Closed records a roster's handles in declared order, types each handle as a code of its roster, and refuses every other roster. Its budget is its suite's before it was a property (test/unit/schema/constructors.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const closedRecordsARostersHandlesInDeclaredOrderTypesEachHandleAsACodeOfItsRosterAndRefusesEveryOtherRoster =
 	property.explore(
 		(source) => {
@@ -301,6 +302,7 @@ export const closedRecordsARostersHandlesInDeclaredOrderTypesEachHandleAsACodeOf
 		},
 		{
 			needs: {},
+			budget: { runs: 200, steered: 200 },
 			situations: rosterDefects satisfies ReadonlyArray<Reached<RosterDefect>>,
 			check: (_, c: Case<RosterDefect>) => (s) =>
 				Effect.sync(() => {
@@ -355,7 +357,7 @@ export const closedRecordsARostersHandlesInDeclaredOrderTypesEachHandleAsACodeOf
 		}
 	)
 
-/** Closed records a closed relation's rows, one per key of its roster, against its fields, and refuses every other declaration. */
+/** Closed records a closed relation's rows, one per key of its roster, against its fields, and refuses every other declaration. Its budget is its suite's before it was a property (test/unit/schema/constructors.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const closedRecordsAClosedRelationsRowsOnePerKeyOfItsRosterAgainstItsFieldsAndRefusesEveryOtherDeclaration =
 	property.explore(
 		(source) => {
@@ -381,6 +383,7 @@ export const closedRecordsAClosedRelationsRowsOnePerKeyOfItsRosterAgainstItsFiel
 		},
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: [
 				...closedDefects,
 				"no payload",
@@ -523,7 +526,7 @@ export const closedRecordsAClosedRelationsRowsOnePerKeyOfItsRosterAgainstItsFiel
 		}
 	)
 
-/** Literals take their field's value rounds a real to binary32 and a numeric(p, s) to its scale, half away from zero, refusing what the column refuses, at every construction site. */
+/** Literals take their field's value rounds a real to binary32 and a numeric(p, s) to its scale, half away from zero, refusing what the column refuses, at every construction site. Its budget is its suite's before it was a property (test/unit/schema/constructors.test.ts at 4ca3036a): 600 runs and 600 steered cases. */
 export const literalsTakeTheirFieldsValueRoundsARealToBinary32AndANumericPSToItsScaleHalfAwayFromZeroRefusingWhatTheColumnRefusesAtEveryConstructionSite =
 	property.explore(
 		(source) => ({
@@ -532,6 +535,7 @@ export const literalsTakeTheirFieldsValueRoundsARealToBinary32AndANumericPSToIts
 		}),
 		{
 			needs: {},
+			budget: { runs: 600, steered: 600 },
 			situations: [
 				"real: rounded",
 				"real: special",
@@ -628,7 +632,7 @@ export const literalsTakeTheirFieldsValueRoundsARealToBinary32AndANumericPSToIts
 		}
 	)
 
-/** Statements on names a nonempty list of distinct terms of the heading in the order written, key a side, and select a predicate. */
+/** Statements on names a nonempty list of distinct terms of the heading in the order written, key a side, and select a predicate. Its budget is its suite's before it was a property (test/unit/schema/constructors.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const statementsOnNamesANonemptyListOfDistinctTermsOfTheHeadingInTheOrderWrittenKeyASideAndSelectAPredicate =
 	property.explore(
 		(source) => ({
@@ -638,6 +642,7 @@ export const statementsOnNamesANonemptyListOfDistinctTermsOfTheHeadingInTheOrder
 		}),
 		{
 			needs: {},
+			budget: { runs: 200, steered: 200 },
 			situations: Arr.map(fieldListCases, featureOf) satisfies ReadonlyArray<
 				Reached<FieldListFeature>
 			>,
@@ -728,7 +733,7 @@ export const statementsOnNamesANonemptyListOfDistinctTermsOfTheHeadingInTheOrder
 		}
 	)
 
-/** Statements contained and mirrors relate two sides built by on, of one width. */
+/** Statements contained and mirrors relate two sides built by on, of one width. Its budget is its suite's before it was a property (test/unit/schema/constructors.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const statementsContainedAndMirrorsRelateTwoSidesBuiltByOnOfOneWidth = property.explore(
 	(source) => ({
 		statement: source.draw(element<SideStatement>(["contained", "mirrors"])),
@@ -744,6 +749,7 @@ export const statementsContainedAndMirrorsRelateTwoSidesBuiltByOnOfOneWidth = pr
 	}),
 	{
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: Arr.flatMap(["contained", "mirrors"] as const, (st) =>
 			Arr.map(
 				["related", "widths differ", "a bare relation"] as const,
@@ -792,7 +798,7 @@ export const statementsContainedAndMirrorsRelateTwoSidesBuiltByOnOfOneWidth = pr
 	}
 )
 
-/** Statements check records the row predicate over its own row, literals adopting the field's type, terms admitted by identity. */
+/** Statements check records the row predicate over its own row, literals adopting the field's type, terms admitted by identity. Its budget is its suite's before it was a property (test/unit/schema/constructors.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const statementsCheckRecordsTheRowPredicateOverItsOwnRowLiteralsAdoptingTheFieldsTypeTermsAdmittedByIdentity =
 	property.explore(
 		(source) => ({
@@ -803,6 +809,7 @@ export const statementsCheckRecordsTheRowPredicateOverItsOwnRowLiteralsAdoptingT
 		}),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: [...checkDefects, "a sum", "an untyped sum"] satisfies ReadonlyArray<
 				Reached<CheckDefect | "a sum" | "an untyped sum">
 			>,
@@ -854,7 +861,7 @@ export const statementsCheckRecordsTheRowPredicateOverItsOwnRowLiteralsAdoptingT
 		}
 	)
 
-/** Alternatives is one statement of its armed handles in roster order, expanding to each arm's containment and each handle's reverse. */
+/** Alternatives is one statement of its armed handles in roster order, expanding to each arm's containment and each handle's reverse. Its budget is its suite's before it was a property (test/unit/schema/constructors.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const alternativesIsOneStatementOfItsArmedHandlesInRosterOrderExpandingToEachArmsContainmentAndEachHandlesReverse =
 	property.explore(
 		(source) => ({
@@ -873,6 +880,7 @@ export const alternativesIsOneStatementOfItsArmedHandlesInRosterOrderExpandingTo
 		}),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: [
 				...alternativesDefects,
 				"a Key as the parent",
@@ -1017,7 +1025,7 @@ export const alternativesIsOneStatementOfItsArmedHandlesInRosterOrderExpandingTo
 		}
 	)
 
-/** Schema and schema.extend records each relation of its list under the name it carries, first declared first, and statements in order, expanding mirrors in place, and refuses a malformed declaration where it stands. */
+/** Schema and schema.extend records each relation of its list under the name it carries, first declared first, and statements in order, expanding mirrors in place, and refuses a malformed declaration where it stands. Its budget is its suite's before it was a property (test/unit/schema/constructors.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const schemaAndSchemaExtendRecordsEachRelationOfItsListUnderTheNameItCarriesFirstDeclaredFirstAndStatementsInOrderExpandingMirrorsInPlaceAndRefusesAMalformedDeclarationWhereItStands =
 	property.explore(
 		(source) => {
@@ -1036,6 +1044,7 @@ export const schemaAndSchemaExtendRecordsEachRelationOfItsListUnderTheNameItCarr
 		},
 		{
 			needs: {},
+			budget: { runs: 200, steered: 200 },
 			situations: [...schemaDefects, "mirrors expanded"] satisfies ReadonlyArray<
 				Reached<SchemaDefect | "mirrors expanded">
 			>,
@@ -1120,7 +1129,7 @@ export const schemaAndSchemaExtendRecordsEachRelationOfItsListUnderTheNameItCarr
 		}
 	)
 
-/** Schema and schema.extend extends under its own name and computes derived levels from what definitions read. */
+/** Schema and schema.extend extends under its own name and computes derived levels from what definitions read. Its budget is its suite's before it was a property (test/unit/schema/constructors.test.ts at 4ca3036a): 300 runs and 900 steered cases. */
 export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevelsFromWhatDefinitionsRead =
 	property.explore(
 		(source) => ({
@@ -1142,6 +1151,7 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 		}),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 900 },
 			situations: [
 				...levelDefects,
 				"level 2",

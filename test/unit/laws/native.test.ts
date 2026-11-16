@@ -151,10 +151,11 @@ export const theNativeConstraintsGrizzleInstallsAcceptEveryStateOfARulesBoxExact
 		}
 	)
 
-/** The native constraints grizzle installs accept a drawn schema's states exactly when its laws hold, over selections of the whole predicate language, puts included. */
+/** The native constraints grizzle installs accept a drawn schema's states exactly when its laws hold, over selections of the whole predicate language, puts included. Its budget is its suite's before it was a property (test/unit/laws/native.test.ts at 4ca3036a): 1000 runs and 2000 steered cases. */
 export const theNativeConstraintsGrizzleInstallsAcceptADrawnSchemasStatesExactlyWhenItsLawsHoldOverSelectionsOfTheWholePredicateLanguagePutsIncluded =
 	property.explore(exploredSpace, {
 		needs: {},
+		budget: { runs: 1000, steered: 2000 },
 		situations: [
 			...RULE_KINDS,
 			...VERDICTS,
@@ -257,10 +258,11 @@ export const theNativeConstraintsGrizzleInstallsHoldTheFinLemmasLawsExactlyAsThe
 		]
 	})
 
-/** The native constraints grizzle installs hold the fin lemma's laws on every state a family program's statements leave, lawful, breaking and misordered. */
+/** The native constraints grizzle installs hold the fin lemma's laws on every state a family program's statements leave, lawful, breaking and misordered. Its budget is its suite's before it was a property (test/unit/laws/native.test.ts at 4ca3036a): 300 runs and 400 steered cases. */
 export const theNativeConstraintsGrizzleInstallsHoldTheFinLemmasLawsOnEveryStateAFamilyProgramsStatementsLeaveLawfulBreakingAndMisordered =
 	property.explore(programs, {
 		needs: {},
+		budget: { runs: 300, steered: 400 },
 		situations: [
 			"the theorem holds",
 			"breach twice",
@@ -351,10 +353,11 @@ export const theNativeConstraintsGrizzleInstallsHoldGrizzlesOwnFamiliesOrderedAn
 		]
 	})
 
-/** The native constraints grizzle installs run every family program's transactions on grizzle's own families as the family model runs them: drawn copies, the count's cascade and each axis's deferral. */
+/** The native constraints grizzle installs run every family program's transactions on grizzle's own families as the family model runs them: drawn copies, the count's cascade and each axis's deferral. Its budget is its suite's before it was a property (test/unit/laws/native.test.ts at 4ca3036a): 300 runs and 400 steered cases. */
 export const theNativeConstraintsGrizzleInstallsRunEveryFamilyProgramsTransactionsOnGrizzlesOwnFamiliesAsTheFamilyModelRunsThemDrawnCopiesTheCountsCascadeAndEachAxissDeferral =
 	property.explore(programs, {
 		needs: {},
+		budget: { runs: 300, steered: 400 },
 		situations: [
 			"ordered",
 			"counted",
@@ -456,10 +459,11 @@ export const theNativeConstraintsGrizzleInstallsAcceptEveryStateOfASpanRulesBoxE
 		}
 	)
 
-/** The native constraints grizzle installs keep two laws over selections of one relation apart, each refused by its own constraint, and install a rule stated in both orientations as one law. */
+/** The native constraints grizzle installs keep two laws over selections of one relation apart, each refused by its own constraint, and install a rule stated in both orientations as one law. Its budget is its suite's before it was a property (test/unit/laws/native.test.ts at 4ca3036a): 100 runs and 500 steered cases. */
 export const theNativeConstraintsGrizzleInstallsKeepTwoLawsOverSelectionsOfOneRelationApartEachRefusedByItsOwnConstraintAndInstallARuleStatedInBothOrientationsAsOneLaw =
 	property.explore(pairGen, {
 		needs: {},
+		budget: { runs: 100, steered: 500 },
 		situations: [
 			...PAIR_KINDS,
 			...Arr.map(PAIR_KINDS, (kind): readonly [PairFeature, PairFeature] => [

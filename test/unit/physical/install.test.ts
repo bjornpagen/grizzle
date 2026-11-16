@@ -52,10 +52,11 @@ import {
 	typeChecks
 } from "#test/unit/physical/install.fixtures.ts"
 
-/** The fresh installation is in install order, every object needed and justified, every edge kept. */
+/** The fresh installation is in install order, every object needed and justified, every edge kept. Its budget is its suite's before it was a property (test/unit/physical/install.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const theFreshInstallationIsInInstallOrderEveryObjectNeededAndJustifiedEveryEdgeKept =
 	property.explore(generatedGen, {
 		needs: {},
+		budget: { runs: 100, steered: 100 },
 		situations: [
 			"a foreign key",
 			"a constant",
@@ -137,7 +138,7 @@ export const theFreshInstallationIsInInstallOrderEveryObjectNeededAndJustifiedEv
 		]
 	})
 
-/** The fresh installation compiles byte-identical SQL whatever order the relations and statements are declared in. */
+/** The fresh installation compiles byte-identical SQL whatever order the relations and statements are declared in. Its budget is its suite's before it was a property (test/unit/physical/install.test.ts at 4ca3036a): 60 runs and 60 steered cases. */
 export const theFreshInstallationCompilesByteIdenticalSQLWhateverOrderTheRelationsAndStatementsAreDeclaredIn =
 	property.explore(
 		(source) => {
@@ -151,6 +152,7 @@ export const theFreshInstallationCompilesByteIdenticalSQLWhateverOrderTheRelatio
 		},
 		{
 			needs: {},
+			budget: { runs: 60, steered: 60 },
 			situations: ["relations reordered", "statements reordered"] satisfies ReadonlyArray<
 				Reached<"relations reordered" | "statements reordered">
 			>,
@@ -176,10 +178,11 @@ export const theFreshInstallationCompilesByteIdenticalSQLWhateverOrderTheRelatio
 		}
 	)
 
-/** The fresh installation names its schema, owner, vector schema and extension schema by admitted identifiers only. */
+/** The fresh installation names its schema, owner, vector schema and extension schema by admitted identifiers only. Its budget is its suite's before it was a property (test/unit/physical/install.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const theFreshInstallationNamesItsSchemaOwnerVectorSchemaAndExtensionSchemaByAdmittedIdentifiersOnly =
 	property.explore(namesGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"a leading underscore refused",
 			"a leading digit refused",
@@ -306,9 +309,9 @@ export const theFreshInstallationNamesItsSchemaOwnerVectorSchemaAndExtensionSche
 			{
 				file: "packages/engine/src/physical/install/compile.ts",
 				original:
-					'\tif (name.length === 0 || name.length > maxIdentifierBytes.value || name.startsWith("pg_")) {',
+					'\tif (name.length === 0 || name.length > maxIdentifierBytes || name.startsWith("pg_")) {',
 				replacement:
-					'\tif (name.length === 0 || name.length > maxIdentifierBytes.value + 1 || name.startsWith("pg_")) {',
+					'\tif (name.length === 0 || name.length > maxIdentifierBytes + 1 || name.startsWith("pg_")) {',
 				why: "An identifier of 64 bytes is admitted for the owner, the vector schema and the extension schema."
 			}
 		]

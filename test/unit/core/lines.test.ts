@@ -82,7 +82,7 @@ export const theTextBoundIsV8sLongestStringOnTheRunningNode = property.exhaust(
 	}
 )
 
-/** The text bound a written text is exactly its lines joined when it fits, and refused with its length otherwise. */
+/** The text bound a written text is exactly its lines joined when it fits, and refused with its length otherwise. Its budget is its suite's before it was a property (test/unit/core/lines.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const theTextBoundAWrittenTextIsExactlyItsLinesJoinedWhenItFitsAndRefusedWithItsLengthOtherwise =
 	property.explore(
 		(s) => ({
@@ -103,6 +103,7 @@ export const theTextBoundAWrittenTextIsExactlyItsLinesJoinedWhenItFitsAndRefused
 		}),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: ["far within", "at the limit", "one past", "far past"] satisfies ReadonlyArray<
 				Reached<Bound>
 			>,
@@ -146,7 +147,7 @@ export const theTextBoundAWrittenTextIsExactlyItsLinesJoinedWhenItFitsAndRefused
 		}
 	)
 
-/** The text bound a text past JavaScript's longest string is refused with its length before it is built. */
+/** The text bound a text past JavaScript's longest string is refused with its length before it is built. Its budget is its suite's before it was a property (test/unit/core/lines.test.ts at 4ca3036a): 8 runs and 8 steered cases. */
 export const theTextBoundATextPastJavaScriptsLongestStringIsRefusedWithItsLengthBeforeItIsBuilt =
 	property.explore(
 		(s) => ({
@@ -160,6 +161,7 @@ export const theTextBoundATextPastJavaScriptsLongestStringIsRefusedWithItsLength
 		}),
 		{
 			needs: {},
+			budget: { runs: 8, steered: 8 },
 			situations: ["the fewest lines past", "more lines past"] satisfies ReadonlyArray<
 				Reached<Past>
 			>,
@@ -195,7 +197,7 @@ export const theTextBoundATextPastJavaScriptsLongestStringIsRefusedWithItsLength
 		}
 	)
 
-/** The text bound an enclosure is exactly its frame around its parts when it fits, and refused with its length otherwise. */
+/** The text bound an enclosure is exactly its frame around its parts when it fits, and refused with its length otherwise. Its budget is its suite's before it was a property (test/unit/core/lines.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const theTextBoundAnEnclosureIsExactlyItsFrameAroundItsPartsWhenItFitsAndRefusedWithItsLengthOtherwise =
 	property.explore(
 		(s) => ({
@@ -207,6 +209,7 @@ export const theTextBoundAnEnclosureIsExactlyItsFrameAroundItsPartsWhenItFitsAnd
 		}),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: ["far within", "at the limit", "one past", "far past"] satisfies ReadonlyArray<
 				Reached<Bound>
 			>,

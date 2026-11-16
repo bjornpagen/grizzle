@@ -39,10 +39,11 @@ import {
 } from "#test/support/laws/reverse.ts"
 import { ownedInput } from "#test/support/policy.ts"
 
-/** A containment's reverse index is a B-tree over the longest leading bounded run that fits, else a hash index, and never refuses the containment. */
+/** A containment's reverse index is a B-tree over the longest leading bounded run that fits, else a hash index, and never refuses the containment. Its budget is its suite's before it was a property (test/unit/laws/model/reverse-index.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const aContainmentsReverseIndexIsABTreeOverTheLongestLeadingBoundedRunThatFitsElseAHashIndexAndNeverRefusesTheContainment =
 	property.explore(reverseCaseGen, {
 		needs: {},
+		budget: { runs: 300, steered: 300 },
 		situations: reverseFeatures satisfies ReadonlyArray<Reached<ReverseFeature>>,
 		check: (_, k: Case<ReverseFeature>) => (c) =>
 			Effect.sync(() => {
@@ -128,8 +129,8 @@ export const aContainmentsReverseIndexIsABTreeOverTheLongestLeadingBoundedRunTha
 			},
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
-				original: "\tfor (let n = Math.min(bounded.length, indexMaxKeys.value); n > 0; n--) {",
-				replacement: "\tfor (let n = 1; n <= Math.min(bounded.length, indexMaxKeys.value); n++) {",
+				original: "\tfor (let n = Math.min(bounded.length, indexMaxKeys); n > 0; n--) {",
+				replacement: "\tfor (let n = 1; n <= Math.min(bounded.length, indexMaxKeys); n++) {",
 				why: "The B-tree over the shortest leading run that fits, its first column alone (laws/model/plan.ts btreeRun)."
 			}
 		]

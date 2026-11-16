@@ -85,10 +85,11 @@ import {
 	subjectOf
 } from "#test/unit/program/laws.fixtures.ts"
 
-/** LawsOf lists exactly the laws the installation can report, each once, in the schema's canonical order. */
+/** LawsOf lists exactly the laws the installation can report, each once, in the schema's canonical order. Its budget is its suite's before it was a property (test/unit/program/laws.test.ts at 4ca3036a): 120 runs and 120 steered cases. */
 export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchemasCanonicalOrder =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 120, steered: 120 },
 		situations: [
 			"a pattern grizzle erases",
 			"one domain over two fields",

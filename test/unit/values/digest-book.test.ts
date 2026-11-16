@@ -18,10 +18,11 @@ import { DigestBook, sameBytes } from "#compiler/scalar/values/bytes.ts"
 import { assert } from "#test/support/assert.ts"
 import { admission, type Feature, Forged } from "#test/unit/values/digest-book.fixtures.ts"
 
-/** A write's digest book holds a value exactly when its digest names no other bytes before it. */
+/** A write's digest book holds a value exactly when its digest names no other bytes before it. Its budget is its suite's before it was a property (test/unit/values/digest-book.test.ts at 4ca3036a): 200 runs and 24 steered cases. */
 export const aWritesDigestBookHoldsAValueExactlyWhenItsDigestNamesNoOtherBytesBeforeIt =
 	property.explore(array(admission, { min: 1, max: 12 }), {
 		needs: {},
+		budget: { runs: 200, steered: 24 },
 		situations: [
 			"a first value of its digest",
 			"the same bytes again",

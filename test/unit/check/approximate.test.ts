@@ -21,10 +21,11 @@ import {
 	searchVerdict
 } from "#test/unit/check/approximate.ts"
 
-/** ApproximateNearest admits exactly a search whose one rule, read once per execution, ranks by a query vector's cosine distance to an indexable stored vector, refusing every other with its reason. */
+/** ApproximateNearest admits exactly a search whose one rule, read once per execution, ranks by a query vector's cosine distance to an indexable stored vector, refusing every other with its reason. Its budget is its suite's before it was a property (test/unit/check/approximate.test.ts at 4ca3036a): 300 runs and 600 steered cases. */
 export const approximateNearestAdmitsExactlyASearchWhoseOneRuleReadOncePerExecutionRanksByAQueryVectorsCosineDistanceToAnIndexableStoredVectorRefusingEveryOtherWithItsReason =
 	property.explore(searchCaseSpace, {
 		needs: {},
+		budget: { runs: 300, steered: 600 },
 		situations: [
 			...rules,
 			"refused, an attachment filtering by its parent",
@@ -78,17 +79,18 @@ export const approximateNearestAdmitsExactlyASearchWhoseOneRuleReadOncePerExecut
 		kills: [
 			{
 				file: "packages/engine/src/check/approximate/trace.ts",
-				original: "\tif (dimensions > hnswPolicy.maxDimensions.value) {",
-				replacement: "\tif (dimensions >= hnswPolicy.maxDimensions.value) {",
+				original: "\tif (dimensions > hnswPolicy.maxDimensions) {",
+				replacement: "\tif (dimensions >= hnswPolicy.maxDimensions) {",
 				why: "A vector at HNSW's bound is refused (check/approximate/trace.ts); the eligibility property fails."
 			}
 		]
 	})
 
-/** ApproximateNearest bans a page over, and a derived definition of, exactly the results computed from a search. */
+/** ApproximateNearest bans a page over, and a derived definition of, exactly the results computed from a search. Its budget is its suite's before it was a property (test/unit/check/approximate.test.ts at 4ca3036a): 60 runs and 100 steered cases. */
 export const approximateNearestBansAPageOverAndADerivedDefinitionOfExactlyTheResultsComputedFromASearch =
 	property.explore(provenanceGen, {
 		needs: {},
+		budget: { runs: 60, steered: 100 },
 		situations: [
 			"the search",
 			"an import of the search",

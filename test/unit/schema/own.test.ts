@@ -112,7 +112,7 @@ import {
 } from "#test/unit/schema/own.fixtures.ts"
 import { rawClosedId, rawContract, rawPg, rawSpan, type Row } from "#test/unit/schema/support.ts"
 
-/** The owned product fingerprints canonical content: order, repeats and locations drop out, meaning does not, and the canonical description owns to it. */
+/** The owned product fingerprints canonical content: order, repeats and locations drop out, meaning does not, and the canonical description owns to it. Its budget is its suite's before it was a property (test/unit/schema/own.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const theOwnedProductFingerprintsCanonicalContentOrderRepeatsAndLocationsDropOutMeaningDoesNotAndTheCanonicalDescriptionOwnsToIt =
 	property.explore(
 		(source) => ({
@@ -131,6 +131,7 @@ export const theOwnedProductFingerprintsCanonicalContentOrderRepeatsAndLocations
 		}),
 		{
 			needs: {},
+			budget: { runs: 200, steered: 200 },
 			situations: [
 				"roster order",
 				"check predicate",
@@ -263,7 +264,7 @@ export const theOwnedProductFingerprintsCanonicalContentOrderRepeatsAndLocations
 		}
 	)
 
-/** Conflicting declarations refuses a name claimed twice with conflicting meaning, and owns the same meaning twice as one declaration. */
+/** Conflicting declarations refuses a name claimed twice with conflicting meaning, and owns the same meaning twice as one declaration. Its budget is its suite's before it was a property (test/unit/schema/own.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const conflictingDeclarationsRefusesANameClaimedTwiceWithConflictingMeaningAndOwnsTheSameMeaningTwiceAsOneDeclaration =
 	property.explore(
 		(source) => ({
@@ -275,6 +276,7 @@ export const conflictingDeclarationsRefusesANameClaimedTwiceWithConflictingMeani
 		}),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: Arr.flatMap(conflicts, (k) => [
 				`${k}: refused` as const,
 				`${k}: one declaration` as const
@@ -328,7 +330,7 @@ export const conflictingDeclarationsRefusesANameClaimedTwiceWithConflictingMeani
 		}
 	)
 
-/** Closed relations checks every handle written against a closedId field, at any contract depth, against its roster. */
+/** Closed relations checks every handle written against a closedId field, at any contract depth, against its roster. Its budget is its suite's before it was a property (test/unit/schema/own.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const closedRelationsChecksEveryHandleWrittenAgainstAClosedIdFieldAtAnyContractDepthAgainstItsRoster =
 	property.explore(
 		(source) => ({
@@ -343,6 +345,7 @@ export const closedRelationsChecksEveryHandleWrittenAgainstAClosedIdFieldAtAnyCo
 		}),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: [
 				...Arr.flatMap(handleSites, (site) => [
 					`${site}: on the roster` as const,
@@ -469,7 +472,7 @@ export const closedRelationsChecksEveryHandleWrittenAgainstAClosedIdFieldAtAnyCo
 		}
 	)
 
-/** Closed relations refuses a handle longer than a name's 63 bytes, the most a roster's names constant holds, built or decoded. */
+/** Closed relations refuses a handle longer than a name's 63 bytes, the most a roster's names constant holds, built or decoded. Its budget is its suite's before it was a property (test/unit/schema/own.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const closedRelationsRefusesAHandleLongerThanANames63BytesTheMostARostersNamesConstantHoldsBuiltOrDecoded =
 	property.explore(
 		(source) => ({
@@ -479,6 +482,7 @@ export const closedRelationsRefusesAHandleLongerThanANames63BytesTheMostARosters
 		}),
 		{
 			needs: {},
+			budget: { runs: 200, steered: 200 },
 			situations: [
 				"built within",
 				"built above",
@@ -642,7 +646,7 @@ export const statementsOverADerivedRelationOwnsAKeyCheckContainmentEitherWayAndM
 		kills: []
 	})
 
-/** Scope and structure refuses a description naming what no level declares or breaking a structural rule, each by its documented reason. */
+/** Scope and structure refuses a description naming what no level declares or breaking a structural rule, each by its documented reason. Its budget is its suite's before it was a property (test/unit/schema/own.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const scopeAndStructureRefusesADescriptionNamingWhatNoLevelDeclaresOrBreakingAStructuralRuleEachByItsDocumentedReason =
 	property.explore(
 		(source) => ({
@@ -656,6 +660,7 @@ export const scopeAndStructureRefusesADescriptionNamingWhatNoLevelDeclaresOrBrea
 		}),
 		{
 			needs: {},
+			budget: { runs: 400, steered: 400 },
 			situations: structures satisfies ReadonlyArray<Reached<Structure>>,
 			check: (_, c: Case<Structure>) => (s) =>
 				Effect.sync(() => {

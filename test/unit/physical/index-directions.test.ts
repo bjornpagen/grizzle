@@ -36,10 +36,11 @@ import {
 	vectorOf
 } from "#test/unit/physical/index-directions.fixtures.ts"
 
-/** Access indexes over one column list in several directions install one index per class under reversal, distinctly named, serving each order forward or backward. */
+/** Access indexes over one column list in several directions install one index per class under reversal, distinctly named, serving each order forward or backward. Its budget is its suite's before it was a property (test/unit/physical/index-directions.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const accessIndexesOverOneColumnListInSeveralDirectionsInstallOneIndexPerClassUnderReversalDistinctlyNamedServingEachOrderForwardOrBackward =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"an exact reverse pair",
 			"a mixed vector",

@@ -190,10 +190,11 @@ export const computeBuildersTypeAndRefuseOperandsByTheBuildersTypingRules = prop
 	}
 )
 
-/** A JavaScript caller's operands build from a descriptor and an int8 literal, and refuse every wild descriptor and value as malformed. */
+/** A JavaScript caller's operands build from a descriptor and an int8 literal, and refuse every wild descriptor and value as malformed. Its budget is its suite's before it was a property (test/unit/compute/builders.test.ts at 4ca3036a): 1000 runs and 1000 steered cases. */
 export const aJavaScriptCallersOperandsBuildFromADescriptorAndAnInt8LiteralAndRefuseEveryWildDescriptorAndValueAsMalformed =
 	property.explore(boundaryCaseGen, {
 		needs: {},
+		budget: { runs: 1000, steered: 1000 },
 		situations: [
 			"live",
 			...Arr.map(WILD_KINDS, (kind): BoundaryFeature => `wild ${kind}`),

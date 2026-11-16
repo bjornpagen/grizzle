@@ -95,10 +95,11 @@ import {
 	writeKey
 } from "#test/unit/program/isolation/extract.fixtures.ts"
 
-/** A change member's facts name every read by its mode, its own, its group and its binding, and every write by the positive reads that feed it, as the contract restated over the drawn statements says. */
+/** A change member's facts name every read by its mode, its own, its group and its binding, and every write by the positive reads that feed it, as the contract restated over the drawn statements says. Its budget is its suite's before it was a property (test/unit/program/isolation/extract.test.ts at 4ca3036a): 500 runs and 500 steered cases. */
 export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindingAndEveryWriteByThePositiveReadsThatFeedItAsTheContractRestatedOverTheDrawnStatementsSays =
 	property.explore(caseGen, {
 		needs: {},
+		budget: { runs: 500, steered: 500 },
 		situations: [
 			"a positive read",
 			"a negated read",

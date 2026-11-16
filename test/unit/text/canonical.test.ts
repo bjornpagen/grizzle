@@ -27,10 +27,11 @@ import {
 } from "#test/unit/text/canonical.fixtures.ts"
 import { flagsGen } from "#test/unit/text/generators.ts"
 
-/** The canonical text and order writes each parsed pattern's IR as JSON.stringify writes its shape, and orders every alternation's arms strictly by that text. */
+/** The canonical text and order writes each parsed pattern's IR as JSON.stringify writes its shape, and orders every alternation's arms strictly by that text. Its budget is its suite's before it was a property (test/unit/text/canonical.test.ts at 4ca3036a): 1000 runs and 1000 steered cases. */
 export const theCanonicalTextAndOrderWritesEachParsedPatternsIRAsJSONStringifyWritesItsShapeAndOrdersEveryAlternationsArmsStrictlyByThatText =
 	property.explore((source) => [source.draw(anyPattern), source.draw(flagsGen)] as const, {
 		needs: {},
+		budget: { runs: 1000, steered: 1000 },
 		situations: ["an alternation", "nested alternations"] satisfies ReadonlyArray<Reached<Ordered>>,
 		check:
 			(_, c: Case<Ordered>) =>

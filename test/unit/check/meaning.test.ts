@@ -12,10 +12,11 @@ import {
 	sketchSpace
 } from "#test/unit/check/meaning.fixtures.ts"
 
-/** The builder and the checker give every generated query read the meaning its program states, by the reference. */
+/** The builder and the checker give every generated query read the meaning its program states, by the reference. Its budget is its suite's before it was a property (test/unit/check/meaning.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const theBuilderAndTheCheckerGiveEveryGeneratedQueryReadTheMeaningItsProgramStatesByTheReference =
 	property.explore(sketchSpace, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, k: Case<Feature>) => (sketch) =>
 			Effect.sync(() => {

@@ -50,7 +50,7 @@ import {
 } from "#test/unit/compute/lower.fixtures.ts"
 import { baseParams, lowerWith, testPg } from "#test/unit/compute/support.ts"
 
-/** Lowering in query mode refuses an untyped leaf standing first, types two untyped branches by the literal typing rule, and refuses a fraction for a numeric. */
+/** Lowering in query mode refuses an untyped leaf standing first, types two untyped branches by the literal typing rule, and refuses a fraction for a numeric. Its budget is its suite's before it was a property (test/unit/compute/lower.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
 export const loweringInQueryModeRefusesAnUntypedLeafStandingFirstTypesTwoUntypedBranchesByTheLiteralTypingRuleAndRefusesAFractionForANumeric =
 	property.explore(
 		(source) => ({
@@ -71,6 +71,7 @@ export const loweringInQueryModeRefusesAnUntypedLeafStandingFirstTypesTwoUntyped
 		}),
 		{
 			needs: {},
+			budget: { runs: 300, steered: 300 },
 			situations: [
 				"form literal first",
 				"form parameter first",
@@ -179,10 +180,11 @@ export const loweringInQueryModeRefusesAnUntypedLeafStandingFirstTypesTwoUntyped
 		}
 	)
 
-/** A conversion into a contract can fail wherever the contract has a CHECK, never total. */
+/** A conversion into a contract can fail wherever the contract has a CHECK, never total. Its budget is its suite's before it was a property (test/unit/compute/lower.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
 export const aConversionIntoAContractCanFailWhereverTheContractHasACHECKNeverTotal =
 	property.explore(castCaseGen, {
 		needs: {},
+		budget: { runs: 200, steered: 200 },
 		situations: [
 			"generated term",
 			"domain cast into a checked contract",
@@ -241,10 +243,11 @@ export const aConversionIntoAContractCanFailWhereverTheContractHasACHECKNeverTot
 		]
 	})
 
-/** A combination of two compatible terms combines in one common type whichever comes first, and widens each branch into it. */
+/** A combination of two compatible terms combines in one common type whichever comes first, and widens each branch into it. Its budget is its suite's before it was a property (test/unit/compute/lower.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const aCombinationOfTwoCompatibleTermsCombinesInOneCommonTypeWhicheverComesFirstAndWidensEachBranchIntoIt =
 	property.explore(combinedCaseGen, {
 		needs: {},
+		budget: { runs: 400, steered: 400 },
 		situations: [
 			"generated cond",
 			"generated least or greatest",

@@ -42,10 +42,11 @@ import {
 import { owning } from "#test/support/policy.ts"
 import { type Feature, sorted } from "#test/unit/physical/executes.fixtures.ts"
 
-/** The EXECUTE grants of a role are exactly the constants its statements evaluate, through constants' bodies and domains' casts and CHECKs. */
+/** The EXECUTE grants of a role are exactly the constants its statements evaluate, through constants' bodies and domains' casts and CHECKs. Its budget is its suite's before it was a property (test/unit/physical/executes.test.ts at 4ca3036a): 128 runs and 64 steered cases. */
 export const theEXECUTEGrantsOfARoleAreExactlyTheConstantsItsStatementsEvaluateThroughConstantsBodiesAndDomainsCastsAndCHECKs =
 	property.explore(executesWorldGen, {
 		needs: {},
+		budget: { runs: 128, steered: 64 },
 		situations: [
 			"a constant only a written table's casts reach",
 			"a role that writes nothing",
