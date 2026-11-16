@@ -23,7 +23,9 @@
 		"packages/pg/src/pin-verdict.ts",
 		"packages/pg/src/port-free.ts",
 		"scripts/dev/toolchain-imports.ts",
-		"oxlint.ast.config.ts"
+		"oxlint.ast.config.ts",
+		// The runner config, which toolchain-test loads by its path at the package root.
+		"test.config.ts"
 	],
 	"ignorePatterns": [
 		"!packages/engine/src/query/build/**",

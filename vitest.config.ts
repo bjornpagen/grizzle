@@ -1,12 +1,12 @@
 import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
 import { Array as Arr } from "effect"
-import properties from "#test.config.ts"
 import { unitExamples } from "#test/support/examples.ts"
 import { hangLimit } from "#test/support/limits.ts"
+import { propertyModules, smallStackModules } from "#test/support/roster.ts"
 import { includeOf, tiers } from "#test/support/tiers.ts"
 
-/** The property modules toolchain-test runs (test.config.ts), each left out of every project here. */
-const leftToRunner = Arr.map(properties.include, (glob) => `!${glob}`)
+/** The property modules toolchain-test runs (test/support/roster.ts), each left out of every project here. */
+const leftToRunner = Arr.map(propertyModules, (glob) => `!${glob}`)
 
 /**
  * `pnpm test`: the tests that need no network, the unit tier and the type tier. The type tier's checks are one tsgo
@@ -21,8 +21,8 @@ const leftToRunner = Arr.map(properties.include, (glob) => `!${glob}`)
  * that never ends is reported hung at the hang limit (limits.ts caseHang). A hook is bounded by the hang limit, so a
  * setup that never ends is reported under its hook's name. Every test case runs a search, outside the files
  * test/support/examples.ts exempts, each set with its reason. A test module converted to properties runs under
- * toolchain-test instead (test.config.ts), and is left out here, small-stack project included; the small-stack modules
- * are the runner config's, so the two lists cannot drift apart.
+ * toolchain-test instead (test.config.ts), and is left out here, small-stack project included; the list of them and
+ * the small-stack modules are test/support/roster.ts's, which both runners read, so they cannot drift apart.
  */
 export default defineTestConfig({
 	include: [...includeOf(tiers.unit), ...leftToRunner],
@@ -33,6 +33,6 @@ export default defineTestConfig({
 		test: { kind: "unbounded" },
 		hook: { kind: "bounded", millis: hangLimit.value }
 	},
-	smallStack: [...properties.smallStack, ...leftToRunner],
+	smallStack: [...smallStackModules, ...leftToRunner],
 	examples: unitExamples
 })

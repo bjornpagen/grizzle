@@ -22,8 +22,7 @@
 		"#index.ts": "./packages/grizzle/src/index.ts",
 		"#pg/*": "./packages/pg/src/*",
 		"#oxlint.config.ts": "./oxlint.config.ts",
-		"#toolchain.config.ts": "./toolchain.config.ts",
-		"#test.config.ts": "./test.config.ts"
+		"#toolchain.config.ts": "./toolchain.config.ts"
 	},
 	"scripts": {
 		"prepare": "effect-tsgo patch && lefthook install",
