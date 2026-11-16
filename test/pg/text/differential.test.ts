@@ -20,7 +20,7 @@ import { regexMaxRepeat } from "@bjornpagen/grizzle-engine/scalar/lexical"
  * test/unit/text/parse.test.ts's, and that the limits judge the printed ARE whatever its spelling is
  * test/unit/text/lowering.test.ts's.
  */
-import { aimed, drawn, explore, sketched } from "@bjornpagen/testing/explore"
+import { aimed, drawn, explore, type Kept, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
 	array,
@@ -494,6 +494,46 @@ const agreeOn = (
  */
 const differentialSteerEvery = 16
 
+/**
+ * The nested-quantifier search's runs: its floor stream, fixed by the suite's label and so the same on every seed, runs
+ * a quarter of them, 400, past case 396 of that stream, where a compile space that counts a start anchor PostgreSQL
+ * must move as staying (scalar/regex/space.ts movingAnchors, mutant 0cb12aaa70 of lane CATCH, 2026-11-16) first admits
+ * a pattern PostgreSQL refuses. It was 4,800: the search reached its one required situation within its first cases
+ * and found "none new in its last 4,792 cases" (TEST_SEED=604930236) and "none new in its last 4,780 cases"
+ * (TEST_SEED=1); at-limit's sixteen cases at each limit's edge kill 11 of the 13 mutants this search kills (CATCH), and
+ * the other two are this search's kept cases (nestedKept), which run first on every seed whatever the budget. Measured
+ * on a private cluster family at TEST_SEED=1: the whole file 175.8 s of CPU and 509.7 s of PostgreSQL's at 4,800 runs
+ * (lane PERF).
+ */
+const nestedRuns = 1_600
+
+/**
+ * What a nested-quantifier case reaches: a pattern the compile space admits and that is large enough to stress
+ * PostgreSQL's compiler, or one it refuses as past PostgreSQL's limits.
+ */
+type NestedFeature = "a large pattern" | "a pattern past PostgreSQL's limits"
+
+/**
+ * The two counterexamples only this search finds, kept by value, so each is caught on every seed: what CATCH's
+ * mutants of scalar/regex/space.ts admitted, each printed by the search's own failure at TEST_SEED=1. The compile space
+ * as it stands refuses both as past PostgreSQL's limits (refine's "bound"), which each case notes and must reach; a
+ * compile space that admits either has PostgreSQL refuse to compile it, and the case fails.
+ */
+const nestedKept: ReadonlyArray<Kept<string, NestedFeature>> = [
+	{
+		note: "an unbounded piece of minimum two whose second copy the compile space leaves out of its NFA (space.ts rawNfa, CATCH mutant fb4323a1e8, piece.min > 2): admitted, and PostgreSQL refuses it as too complex; the rotating stream's case 1,589 at TEST_SEED=1",
+		sketch: "(?:(?:a)?){2,}(?:(?:.{1,50}|^)){255}b",
+		draws: "",
+		reaches: ["a pattern past PostgreSQL's limits"]
+	},
+	{
+		note: "a start anchor a path reaches past a consumed character, which PostgreSQL must move, counted as staying (space.ts movingAnchors, CATCH mutant 0cb12aaa70, entry(forward, from) === 0): admitted past the moving anchors PostgreSQL holds; the floor stream's case 396 on every seed",
+		sketch: "(?:(?:(?:.{1,50}|^)){0,200})*b",
+		draws: "",
+		reaches: ["a pattern past PostgreSQL's limits"]
+	}
+]
+
 layer(Substrate.layer)(
 	"regex membership: ECMAScript, host NFA, PostgreSQL ARE and installed domain",
 	(it) => {
@@ -679,12 +719,12 @@ layer(Substrate.layer)(
 							suite: "text/differential/nested",
 							draw: drawn(nestedPattern),
 							literal: Formatter.format,
-							coverage: required<"a large pattern">(["a large pattern"], {
-								cases: 4800,
+							coverage: required<NestedFeature>(["a large pattern"], {
+								cases: nestedRuns,
 								sense: notesOnly
 							}),
-							kept: [],
-							runs: 4800,
+							kept: nestedKept,
+							runs: nestedRuns,
 							shrink: completeShrink,
 							concurrency: windowCasesAtOnce(1, differentialSteerEvery),
 							steerEvery: differentialSteerEvery,
@@ -693,7 +733,11 @@ layer(Substrate.layer)(
 						(source, k) =>
 							Effect.gen(function* () {
 								const r = refine(source, "u", SourceLoc("str.regex", []))
-								if (r === "empty" || r === "bound" || RegexIr.expandedSize(r.members[0].ir) < 64) {
+								if (r === "bound") {
+									k.note("a pattern past PostgreSQL's limits")
+									return
+								}
+								if (r === "empty" || RegexIr.expandedSize(r.members[0].ir) < 64) {
 									return
 								}
 								k.note("a large pattern")
