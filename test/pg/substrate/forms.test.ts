@@ -11,7 +11,6 @@ import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import {
-	firstCaseDeadline,
 	loggedIn,
 	secondWorkTemplate,
 	servedTemplate,
@@ -33,7 +32,6 @@ import { withLayer } from "#test/support/with-layer.ts"
  */
 export const freshBase = property.explore(int(1, 4), {
 	needs: { substrate: Substrate.fresh },
-	caseDeadline: firstCaseDeadline,
 	situations: [],
 	check:
 		({ substrate }) =>
@@ -62,7 +60,6 @@ export const freshBase = property.explore(int(1, 4), {
 /** A case's own clone of an installed template holds its installation, no earlier case's rows, and its logins. */
 export const freshInstalled = property.explore(int(1, 4), {
 	needs: { work: Substrate.freshOf(workTemplate) },
-	caseDeadline: firstCaseDeadline,
 	situations: [],
 	check:
 		({ work }) =>
@@ -80,7 +77,6 @@ export const freshInstalled = property.explore(int(1, 4), {
 /** The worker's own clone of an installed template, held across cases, is its template again before every case. */
 export const seated = property.explore(int(1, 4), {
 	needs: { work: Substrate.seat(workTemplate) },
-	caseDeadline: firstCaseDeadline,
 	situations: [],
 	check:
 		({ work }) =>
@@ -98,7 +94,6 @@ export const seated = property.explore(int(1, 4), {
 /** One owner transaction a case on the worker's own clone, rolled back after it, so the next finds no row of it. */
 export const rolledBack = property.explore(int(1, 4), {
 	needs: { work: Substrate.rolledBack(workTemplate) },
-	caseDeadline: firstCaseDeadline,
 	situations: [],
 	check:
 		({ work }) =>
@@ -118,7 +113,6 @@ export const rolledBack = property.explore(int(1, 4), {
  */
 export const served = property.explore(int(1, 4), {
 	needs: { work: Served.of(servedWorld(Work).server, Substrate.freshOf(servedTemplate)) },
-	caseDeadline: firstCaseDeadline,
 	situations: [],
 	check:
 		({ work }) =>
@@ -145,7 +139,6 @@ export const served = property.explore(int(1, 4), {
  */
 export const oneOfTemplates = property.explore(oneOfCase, {
 	needs: Substrate.oneOf({ first: workTemplate, second: secondWorkTemplate }, Substrate.freshOf),
-	caseDeadline: firstCaseDeadline,
 	situations: [],
 	check:
 		(work) =>
