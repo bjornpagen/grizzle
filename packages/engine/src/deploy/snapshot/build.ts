@@ -1,4 +1,4 @@
-import { maxStringLength } from "@grizzle/limits"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import {
 	canonicalEquals,
 	catchRefusal,
@@ -1322,7 +1322,7 @@ export const writeJsonText = (value: unknown): Result.Result<string, CompileErro
 	Result.flatMap(toJson(value, everyProperty), (json) =>
 		Result.flatMap(
 			catchRefusal(() =>
-				textOf(maxStringLength.value, "\t", jsonTextLoc, (out) => {
+				textOf(maxStringLength, "\t", jsonTextLoc, (out) => {
 					jsonValue(out, "", json, "")
 					out.line("")
 				})
@@ -1360,7 +1360,7 @@ const formValue = (out: Lines, head: string, value: FormOf<CompactLine>, tail: s
  * each installed statement compact on a line of its own (formValue), ending in a newline. */
 const fileText = (form: RecordOf<CompactLine>): string =>
 	valueOf(
-		textOf(maxStringLength.value, "\t", jsonTextLoc, (out) => {
+		textOf(maxStringLength, "\t", jsonTextLoc, (out) => {
 			formValue(out, "", form, "")
 			out.line("")
 		})

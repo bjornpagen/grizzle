@@ -14,10 +14,10 @@
  * their limits, spans and vectors in keys.
  */
 
+import { btreeMaxItemSize } from "@bjornpagen/grizzle-engine/schema/representability"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, boolean, constant, element, int, map, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
-import { btreeMaxItemSize } from "@grizzle/limits"
 import { regex as arkregex } from "arkregex"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
@@ -377,9 +377,9 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeRefusesAKeyWithAnUnboundedFieldOrAW
 			kept: [],
 			kills: [
 				{
-					file: "packages/limits/src/limits.ts",
-					original: "\t\t) - alignUp(pointer.value, align.value)",
-					replacement: "\t\t) - alignUp(pointer.value, align.value) + 16",
+					file: "packages/engine/src/schema/representability.ts",
+					original: ") - alignUp(itemPointerBytes, maxAlign)",
+					replacement: ") - alignUp(itemPointerBytes, maxAlign) + 16",
 					why: "BTMaxItemSize sixteen bytes past PostgreSQL's."
 				}
 			]
@@ -431,9 +431,9 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeRefusesAKeyOfMoreThan32FieldsPostgr
 			kept: [],
 			kills: [
 				{
-					file: "packages/limits/src/limits.ts",
-					original: "export const indexMaxKeys: Limit = published({\n\tvalue: 32,",
-					replacement: "export const indexMaxKeys: Limit = published({\n\tvalue: 33,",
+					file: "packages/engine/src/schema/representability.ts",
+					original: "export const indexMaxKeys = 32",
+					replacement: "export const indexMaxKeys = 33",
 					why: "INDEX_MAX_KEYS one past PostgreSQL's."
 				}
 			]
@@ -637,13 +637,13 @@ export const aVectorFieldIsAKeyFieldLikeAnyOtherEveryVectorHasOneFormSoItsEquali
 					assert.deepEqual(layout, Result.err<KeyFault>({ kind: "gistOperatorClass", field: "v" }))
 					refused(owned, "UnrepresentableKey")
 					c.note("vector beside a span refused")
-				} else if (bytes > btreeMaxItemSize.value) {
+				} else if (bytes > btreeMaxItemSize) {
 					assert.deepEqual(
 						layout,
 						Result.err<KeyFault>({
 							kind: "btreeEntry",
 							bytes,
-							limit: btreeMaxItemSize.value,
+							limit: btreeMaxItemSize,
 							datums: Arr.map(columns, (col) => ({ field: col.name, bytes: col.datum.bytes }))
 						})
 					)

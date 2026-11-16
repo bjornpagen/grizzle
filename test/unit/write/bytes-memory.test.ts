@@ -18,9 +18,9 @@
  * Features: a member refused from its lengths, a member bound, two bytes columns.
  */
 
+import { messageMaxBytes } from "@bjornpagen/grizzle-engine/core/wire"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { messageMaxBytes } from "@grizzle/limits"
 import { Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
@@ -81,7 +81,7 @@ export const aWriteOfLargeBytesValuesRefusesAMemberPastTheMessageFromItsLengthsA
 					transport: inForce(bindFrame)
 				})
 				const grown = process.memoryUsage().arrayBuffers - before
-				if (carried(d) > messageMaxBytes.value) {
+				if (carried(d) > messageMaxBytes) {
 					assert.ok(
 						!bound.ok && bound.error._tag === "MessageBound",
 						"a member past the message is refused as its MessageBound"

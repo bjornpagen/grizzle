@@ -1,3 +1,4 @@
+import { timerMaxMs } from "@bjornpagen/grizzle/adapter/connection/config"
 import {
 	Array as Arr,
 	Data,
@@ -18,8 +19,6 @@ import {
 	serverIdentity,
 	sourceIdentity
 } from "#bench/cold/identity.ts"
-
-import { timerMaxMs } from "@grizzle/limits"
 import {
 	type ProbeDatabase,
 	type ProbeInput,
@@ -279,8 +278,8 @@ const benchRun = Effect.fn("benchRun")(function* (options: ColdOptions) {
 		password: Redacted.value(credentials.password),
 		caFile: s.cluster.caFile,
 		account: a1,
-		connectTimeoutMs: timerMaxMs.value,
-		idleTimeoutMs: timerMaxMs.value
+		connectTimeoutMs: timerMaxMs,
+		idleTimeoutMs: timerMaxMs
 	}
 	const databaseRaw = yield* Effect.forEach(
 		upTo(options.databaseSamples, (i) => i),

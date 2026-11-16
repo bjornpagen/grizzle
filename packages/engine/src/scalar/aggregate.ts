@@ -1,13 +1,9 @@
-import {
-	int8Digits,
-	int8ExactDigits,
-	numericMaxDisplayScale,
-	numericMaxIntegerDigits
-} from "@grizzle/limits"
 import { type CompileError, resourceBound, unsupported } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import { int8Digits } from "#compiler/ir/carriers.ts"
 import { type CatalogOpId, OpId as opId } from "#compiler/ir/expr.ts"
+import { int8ExactDigits } from "#compiler/ir/physical.ts"
 import type { AggregateCallOver, AggregateFn } from "#compiler/ir/rel.ts"
 import {
 	type Carrier,
@@ -16,6 +12,7 @@ import {
 	baseOf,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
+import { numericMaxDisplayScale } from "#compiler/scalar/compute/numeric.ts"
 import {
 	exactNumericBound,
 	exactType,
@@ -24,6 +21,7 @@ import {
 } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"
+import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 
 export type AggregateName = "count" | "sum" | "mean" | "min" | "max"
 
@@ -150,7 +148,7 @@ const typed = (result: (arg: ScalarType) => ScalarType, lowering: AggregateLower
 
 /** A numeric sum's bound: its argument's integer digits widened by the rows, its fraction digits its argument's. */
 const sumBound = (b: NumericBound): NumericBound => ({
-	digits: b.digits + rowDigits.value,
+	digits: b.digits + rowDigits,
 	scale: b.scale
 })
 
@@ -169,10 +167,10 @@ const numericMean = (lowering: AggregateLowering): Entry => ({
 	kind: "numeric",
 	bound: (b) => ({
 		digits:
-			b.scale <= numericMaxDisplayScale.value
+			b.scale <= numericMaxDisplayScale
 				? b.digits
-				: Math.max(b.digits, -numericMaxDisplayScale.value) + 1,
-		scale: numericMaxDisplayScale.value
+				: Math.max(b.digits, -numericMaxDisplayScale) + 1,
+		scale: numericMaxDisplayScale
 	}),
 	lowering
 })
@@ -191,7 +189,7 @@ const resultOf = (
 		if (digits === undefined) {
 			return Result.err(unsupported(loc, `an exact sum over ${typeLabel(arg)}`))
 		}
-		const total = digits + rowDigits.value
+		const total = digits + rowDigits
 		return withinNumeric(exactType(entry.carrier, total), total, loc)
 	}
 	const b = exactNumericBound(arg)
@@ -208,11 +206,11 @@ const withinNumeric = (
 	digits: number,
 	loc: SourceLoc
 ): Result.Result<ScalarType, CompileError> =>
-	digits > numericMaxIntegerDigits.value
+	digits > numericMaxIntegerDigits
 		? Result.err(
 				resourceBound(loc, {
 					kind: "numericDigits",
-					limit: numericMaxIntegerDigits.value,
+					limit: numericMaxIntegerDigits,
 					needed: digits
 				})
 			)
@@ -232,7 +230,7 @@ const catalogName = (t: ScalarType): string => {
 		case "exactMoney":
 			return "numeric"
 		case "exactInteger":
-			return b.digits <= int8ExactDigits.value ? "bigint" : "numeric"
+			return b.digits <= int8ExactDigits ? "bigint" : "numeric"
 		case "float4":
 			return "real"
 		case "float8":
@@ -288,9 +286,7 @@ const avgOverloads: Readonly<Partial<Record<Carrier, Entry>>> = {
  * sum(bigint)'s result, a computed numeric of a bigint's digits widened by the rows: what a window total of grouped
  * counts is (lower/shapes/catalog/share.ts).
  */
-export const bigintSumType: ScalarType = numericValue(
-	sumBound({ digits: int8Digits.value, scale: 0 })
-)
+export const bigintSumType: ScalarType = numericValue(sumBound({ digits: int8Digits, scale: 0 }))
 
 /**
  * The carriers with min and max: those with the minMax capability. A closed id's is min(smallint) over its code, which

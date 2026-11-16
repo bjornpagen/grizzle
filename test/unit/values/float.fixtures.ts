@@ -1,13 +1,13 @@
 /** What the properties of float.test.ts read: its spaces, models and helpers. */
 
-import { element, type Gen, weighted } from "@bjornpagen/testing/gen"
-import { double, float } from "@bjornpagen/testing/values"
 import {
 	binary32LeastExponent,
 	binary32Max,
 	binary32MaxExponent,
 	binary32Precision
-} from "@grizzle/limits"
+} from "@bjornpagen/grizzle-engine/scalar/values/float"
+import { element, type Gen, weighted } from "@bjornpagen/testing/gen"
+import { double, float } from "@bjornpagen/testing/values"
 import { toReal } from "#compiler/scalar/values/float.ts"
 import { assert, faulted, succeeded } from "#test/support/assert.ts"
 
@@ -20,14 +20,13 @@ const specials: Gen<number> = element([
 ])
 
 /** The greatest binary32 subnormal, (2^(p - 1) - 1) · 2^least. */
-const greatestSubnormal =
-	(2 ** (binary32Precision.value - 1) - 1) * 2 ** binary32LeastExponent.value
+const greatestSubnormal = (2 ** (binary32Precision - 1) - 1) * 2 ** binary32LeastExponent
 
 /** The least magnitude a double rounds to a binary32 infinity at: binary32Max plus half its last place. */
-const overflowAt = binary32Max.value + 2 ** (binary32MaxExponent.value - binary32Precision.value)
+const overflowAt = binary32Max + 2 ** (binary32MaxExponent - binary32Precision)
 
 /** The greatest magnitude a nonzero double rounds to a binary32 zero at: half the least subnormal. */
-const underflowAt = 2 ** (binary32LeastExponent.value - 1)
+const underflowAt = 2 ** (binary32LeastExponent - 1)
 
 /**
  * A double the cast meets: any finite double by its place, a binary32 value, a binary32 subnormal, or a special, each a
@@ -35,7 +34,7 @@ const underflowAt = 2 ** (binary32LeastExponent.value - 1)
  */
 export const doubleGen: Gen<number> = weighted([
 	[6, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
-	[2, float(-binary32Max.value, binary32Max.value)],
+	[2, float(-binary32Max, binary32Max)],
 	[1, float(-greatestSubnormal, greatestSubnormal)],
 	[1, specials]
 ])
@@ -57,7 +56,7 @@ const binary32 = Object.freeze(
 			/** The binary32 values on either side of a finite one: the least subnormal's beside zero. */
 			neighbours: (value: number): readonly [number, number] => {
 				if (value === 0) {
-					return [-(2 ** binary32LeastExponent.value), 2 ** binary32LeastExponent.value]
+					return [-(2 ** binary32LeastExponent), 2 ** binary32LeastExponent]
 				}
 				scratch[0] = value
 				const pattern = bits[0] ?? 0

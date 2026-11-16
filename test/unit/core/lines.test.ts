@@ -15,10 +15,10 @@
  * string, and more.
  */
 
+import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, constant, element, finite, int, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { maxStringLength } from "@grizzle/limits"
 import { Array as Arr, Effect, Result, String as Str } from "effect"
 import { enclosedWithin, type Lines, textOf } from "#compiler/core/lines.ts"
 import { assert, refused } from "#test/support/assert.ts"
@@ -38,7 +38,7 @@ import {
 
 /** The text bound is V8's longest string on the running Node. */
 export const theTextBoundIsV8sLongestStringOnTheRunningNode = property.exhaust(
-	finite(int(maxStringLength.value - 8, maxStringLength.value + 8)),
+	finite(int(maxStringLength - 8, maxStringLength + 8)),
 	{
 		needs: {},
 		situations: [
@@ -51,16 +51,16 @@ export const theTextBoundIsV8sLongestStringOnTheRunningNode = property.exhaust(
 				const built = Result.try(() => Str.repeat(length)("x").length)
 				assert.equal(
 					Result.isSuccess(built),
-					length <= maxStringLength.value,
+					length <= maxStringLength,
 					`a string of ${length} code units`
 				)
 				if (Result.isFailure(built)) {
 					assert.ok(built.failure instanceof RangeError, "V8 refuses the length")
 				}
 				c.note(
-					length === maxStringLength.value
+					length === maxStringLength
 						? "V8's longest string"
-						: length < maxStringLength.value
+						: length < maxStringLength
 							? "within V8's longest string"
 							: "past V8's longest string"
 				)
@@ -73,9 +73,9 @@ export const theTextBoundIsV8sLongestStringOnTheRunningNode = property.exhaust(
 		kept: [],
 		kills: [
 			{
-				file: "packages/limits/src/limits.ts",
-				original: "\tvalue: 2 ** 29 - 24,",
-				replacement: "\tvalue: 2 ** 29 - 23,",
+				file: "packages/engine/src/core/canonical.ts",
+				original: "maxStringLength = 2 ** 29 - 24",
+				replacement: "maxStringLength = 2 ** 29 - 23",
 				why: "maxStringLength one past V8's longest string; the V8 property fails."
 			}
 		]
@@ -168,20 +168,20 @@ export const theTextBoundATextPastJavaScriptsLongestStringIsRefusedWithItsLength
 				({ width, extra }) =>
 					Effect.sync(() => {
 						const line = Str.repeat(width)("x")
-						const count = Math.floor(maxStringLength.value / (width + 1)) + 1 + extra
+						const count = Math.floor(maxStringLength / (width + 1)) + 1 + extra
 						const write = (out: Lines): void => {
 							for (let i = 0; i < count; i++) {
 								out.line(line)
 							}
 						}
 						const needed = count * width + count - 1
-						assert.ok(needed > maxStringLength.value)
+						assert.ok(needed > maxStringLength)
 						assert.deepEqual(
-							refused(textOf(maxStringLength.value, "  ", at, write), "ResourceBound").reason,
+							refused(textOf(maxStringLength, "  ", at, write), "ResourceBound").reason,
 							{
 								_tag: "ResourceBound",
 								at,
-								bound: { kind: "stringLength", limit: maxStringLength.value, needed }
+								bound: { kind: "stringLength", limit: maxStringLength, needed }
 							}
 						)
 						c.note(extra === 0 ? "the fewest lines past" : "more lines past")

@@ -1,7 +1,8 @@
+import { bytesChunkLength } from "@bjornpagen/grizzle-engine/codec/delivery"
 /**
  * A bytes field is written and read back whole, on PostgreSQL 19rc2: every value a case draws (the empty value, every
  * byte value 0x00 to 0xff in a drawn rotation, short drawn values, a long value of a few MiB, and values one short of,
- * at and one past a chunk of the delivery in force, @grizzle/limits bytesChunkLength, and of several chunks) is written
+ * at and one past a chunk of the delivery in force, bytesChunkLength, and of several chunks) is written
  * through db.apply, one fact per call or all in one batched insert, whose member array travels as a binary bytea[], and
  * returned by the insert in chunks (codec/delivery.ts); then read back by a query, by its ordered form, which delivers
  * the rows in its order, and by a query of the shelves the values sit on with each shelf's values attached, a statement
@@ -21,7 +22,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { bytesChunkLength } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Layer, Option, Order } from "effect"
 import { Digest } from "effect/crypto"
 import { Db } from "#adapter/public/db.ts"
@@ -75,7 +75,7 @@ const value: Gen<Value> = weighted<Value>([
 		2,
 		(s) => ({
 			arm: "about a chunk",
-			length: s.draw(element([1, 2])) * bytesChunkLength.value + s.draw(element([-1, 0, 1])),
+			length: s.draw(element([1, 2])) * bytesChunkLength + s.draw(element([-1, 0, 1])),
 			seed: s.draw(seed)
 		})
 	]
@@ -135,7 +135,7 @@ const pastTheOldBound: Kept<Drawn, Feature> = {
 }
 
 const notes = (d: Drawn): ReadonlyArray<Feature> => {
-	const c = bytesChunkLength.value
+	const c = bytesChunkLength
 	const out: Array<Feature> = []
 	for (const x of d.values) {
 		if (x.arm === "empty") {

@@ -1,4 +1,4 @@
-import { bytesChunkLength } from "@grizzle/limits"
+import { bytesChunkLength } from "#compiler/codec/delivery.ts"
 import { maxOf } from "#compiler/core/array.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { defect } from "#compiler/core/invariant.ts"
@@ -106,7 +106,7 @@ export const executableQueryFrom = (
 	const delivered = columns.map((c) => c.delivered)
 	const plain = outerCore(ast.body)
 	if (plain?.distinct === false && plain.groupBy.length === 0) {
-		return deliveredRows({ ...ast, body: plain }, delivered, [], supply, bytesChunkLength.value)
+		return deliveredRows({ ...ast, body: plain }, delivered, [], supply, bytesChunkLength)
 	}
 	/** SELECT r.c1 AS name1, ... FROM (<statement>) AS r(c1, ...) ORDER BY r.c<k> ..., delivered. */
 	const origin = { kind: "internal", purpose: "result text casts" } as const
@@ -154,7 +154,7 @@ export const executableQueryFrom = (
 		),
 		orderBy
 	}
-	return deliveredRows(rows, delivered, [], supply, bytesChunkLength.value)
+	return deliveredRows(rows, delivered, [], supply, bytesChunkLength)
 }
 
 /** A program statement's large form as a template holds it: the large mode's statement and the spec emitted from it. */

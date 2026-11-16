@@ -1,5 +1,4 @@
-import { type Limit, measured } from "@bjornpagen/limit"
-import { numericMaxIntegerDigits } from "@grizzle/limits"
+import { numericMaxIntegerDigits } from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import { Array as Arr, Data, Option, Result, String as Str } from "effect"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
@@ -460,27 +459,27 @@ const fromColumns = (
  * The shorter operand's base-NBASE digits from which mul_var sums its digit-pair products as BigInt products
  * (pairTriangle) rather than over double columns: a measured crossover, where V8's BigInt multiplication, whose cost
  * grows slower than the columns' quadratic one, overtakes the column loop; both give the same integer.
+ *
+ * @limitKind measured
+ * @owner grizzle's test oracle
+ * @unit base-10000 digits of mul_var's shorter operand
+ * @scope the numeric power oracle's mul_var (test/support/oracle/evaluate/power.ts), which of two exact ways it sums
+ *   its digit-pair products
+ * @evidence a scratch run of both ways over two values of n decimal digits each, rscale n, the best of 5 to 15 runs
+ *   each, on 2026-11-06
+ * @observed one run of each size, interleaved, at a load average near 60
+ * @environment macOS (Darwin 27.0.0, an arm64 virtual machine) on 10 cores, Node 26.13.0, under the load of the other
+ *   sessions on the machine
+ * @workload products of 1,000, 2,000, 4,000, 8,000, 16,000 and 32,000 decimal digits, 250 to 8,000 base-10000 digits a
+ *   side
+ * @result the column loop took 0.02, 0.09, 0.61, 1.05 and 4.87 ms up to 16,000 decimal digits, the BigInt triangle
+ *   0.10, 0.24, 0.67, 1.07 and 7.01 ms; at 32,000 the loop took 45.38 ms and the triangle 31.07 ms
+ * @decision 6,000 base-10000 digits, 24,000 decimal digits, lies between the last size the loop won and the first the
+ *   triangle won; either way costs the same integer, so the bound moves only time
+ * @revalidate a Node or V8 upgrade that changes BigInt multiplication, a change to either way of summing, or a power
+ *   suite whose large products slow
  */
-const bigintTriangleDigits: Limit = measured({
-	value: 6000,
-	owner: "grizzle's test oracle",
-	unit: "base-10000 digits of mul_var's shorter operand",
-	scope:
-		"the numeric power oracle's mul_var (test/support/oracle/evaluate/power.ts), which of two exact ways it sums its digit-pair products",
-	evidence:
-		"a scratch run of both ways over two values of n decimal digits each, rscale n, the best of 5 to 15 runs each, on 2026-11-06",
-	observed: "one run of each size, interleaved, at a load average near 60",
-	environment:
-		"macOS (Darwin 27.0.0, an arm64 virtual machine) on 10 cores, Node 26.13.0, under the load of the other sessions on the machine",
-	workload:
-		"products of 1,000, 2,000, 4,000, 8,000, 16,000 and 32,000 decimal digits, 250 to 8,000 base-10000 digits a side",
-	result:
-		"the column loop took 0.02, 0.09, 0.61, 1.05 and 4.87 ms up to 16,000 decimal digits, the BigInt triangle 0.10, 0.24, 0.67, 1.07 and 7.01 ms; at 32,000 the loop took 45.38 ms and the triangle 31.07 ms",
-	decision:
-		"6,000 base-10000 digits, 24,000 decimal digits, lies between the last size the loop won and the first the triangle won; either way costs the same integer, so the bound moves only time",
-	revalidate:
-		"a Node or V8 upgrade that changes BigInt multiplication, a change to either way of summing, or a power suite whose large products slow"
-})
+const bigintTriangleDigits = 6000
 
 /**
  * The sum of the digit-pair products mul_var keeps, as one integer whose last digit pair is the result's last: pair i1
@@ -590,7 +589,7 @@ const mulVar = (left: NumVar, right: NumVar, rscale: number, meter: Meter): NumV
 	for (let i1 = 0; i1 < var1ndigitpairs; i1++) {
 		meter.work += Math.max(Math.min(var2ndigitpairs, resNdigitpairs - i1 - pairOffset), 0)
 	}
-	if (var1ndigits >= bigintTriangleDigits.value) {
+	if (var1ndigits >= bigintTriangleDigits) {
 		const triangle = pairTriangle(
 			var1,
 			var2,
@@ -1115,7 +1114,7 @@ const powerVarIntAt = (
 	f: number,
 	meter: Meter
 ): NumVar => {
-	if (f > numericMaxIntegerDigits.value) {
+	if (f > numericMaxIntegerDigits) {
 		return fail("22003")
 	}
 	if (f + 1 < -NUMERIC_MAX_DISPLAY_SCALE) {
@@ -1165,7 +1164,7 @@ const powerVarIntAt = (
 		}
 		if (
 			(Math.max(weightOf(baseProd), weightOf(result)) + 1) * DEC_DIGITS >
-			numericMaxIntegerDigits.value
+			numericMaxIntegerDigits
 		) {
 			if (!neg) {
 				return fail("22003")

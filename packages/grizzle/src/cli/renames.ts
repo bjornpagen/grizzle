@@ -131,8 +131,8 @@ const handleProblem = (handle: string): string | undefined => {
 		return "a handle holds no lone surrogate, which no UTF-8 encodes"
 	}
 	const bytes = utf8Length(handle)
-	return bytes > handleMaxBytes.value
-		? `a handle of at most ${handleMaxBytes.value} UTF-8 bytes, the most a name holds, not ${bytes}`
+	return bytes > handleMaxBytes
+		? `a handle of at most ${handleMaxBytes} UTF-8 bytes, the most a name holds, not ${bytes}`
 		: undefined
 }
 

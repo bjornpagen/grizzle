@@ -1,5 +1,8 @@
-import { numericMaxFractionDigits, regexTextMaxBytes } from "@grizzle/limits"
-import { numericMaxIntegerDigits } from "@grizzle/limits"
+import { regexTextMaxBytes } from "@bjornpagen/grizzle-engine/core/errors"
+import {
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits
+} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import { Array as Arr, Option } from "effect"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { OpId } from "#compiler/ir/expr.ts"
@@ -133,7 +136,7 @@ const proofHolds = (
 						node.type,
 						node.operand,
 						refine(
-							ofDigits(numericMaxIntegerDigits.value, numericMaxFractionDigits.value, {
+							ofDigits(numericMaxIntegerDigits, numericMaxFractionDigits, {
 								infinite: false,
 								nan: false
 							}),
@@ -196,7 +199,7 @@ const proofHolds = (
 			case "bounded":
 				return Arr.some(
 					premises,
-					(p) => p.kind === "octets" && p.operand === 0 && p.bytes <= regexTextMaxBytes.value
+					(p) => p.kind === "octets" && p.operand === 0 && p.bytes <= regexTextMaxBytes
 				)
 			case "nonzero":
 			case "nonnegative":

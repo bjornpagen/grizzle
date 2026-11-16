@@ -13,10 +13,10 @@
  * Features: a relation parameter at lateralParentMax facts, and one past it, each under every name.
  */
 
+import { lateralParentMax } from "@bjornpagen/grizzle-engine/lower/shapes/index"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { lateralParentMax } from "@grizzle/limits"
 import { Effect, Result } from "effect"
 import { formFor } from "#adapter/reader/execution.ts"
 import { executionInputs, paramCodecs } from "#adapter/reader/relations.ts"
@@ -37,7 +37,7 @@ export const aReadsPerExecutionChoiceRunsTheWholeRelationFormExactlyWhenTheNamed
 			(source) =>
 				[
 					source.draw(element(nonEmpty(parameterNames, "the parameter names"))),
-					source.draw(element([lateralParentMax.value, lateralParentMax.value + 1]))
+					source.draw(element([lateralParentMax, lateralParentMax + 1]))
 				] as const
 		),
 		{
@@ -49,9 +49,7 @@ export const aReadsPerExecutionChoiceRunsTheWholeRelationFormExactlyWhenTheNamed
 				(_, c: Case<Count>) =>
 				([name, count]) =>
 					Effect.sync(() => {
-						c.note(
-							count > lateralParentMax.value ? "one past lateralParentMax" : "at lateralParentMax"
-						)
+						c.note(count > lateralParentMax ? "one past lateralParentMax" : "at lateralParentMax")
 						const read = namedAccounts(name)
 						const template = succeeded(compileTemplate(read, undefined, testCompile))
 						const { desc } = succeeded(queryInput(read))
@@ -69,7 +67,7 @@ export const aReadsPerExecutionChoiceRunsTheWholeRelationFormExactlyWhenTheNamed
 						assert.ok(forms.kind === "chosen", name)
 						assert.equal(
 							formFor(program.run, readExceeds(inputs)) === forms.large,
-							count > lateralParentMax.value,
+							count > lateralParentMax,
 							name
 						)
 					}),

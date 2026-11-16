@@ -671,20 +671,20 @@ export class ParamRejected extends Data.TaggedError("ParamRejected")<{
  * Which transport bound an execution's parameters are past, found on the host before its flight is sent:
  *
  * - message: the Bind message of the flight's statement at `statement` would be `bytes` long, as its length word
- *   counts it, past the longest message PostgreSQL reads, `limit` (@grizzle/limits messageMaxBytes), past which the
+ *   counts it, past the longest message PostgreSQL reads, `limit` (messageMaxBytes), past which the
  *   backend ends the connection instead of answering;
  * - literal: the array of the relation input `input`'s column `column` would be longer than any placeholder carries,
  *   so none can carry it (ir/products.ts LiteralBound): a text array longer than the longest string the host builds,
- *   `limit` UTF-16 code units (@grizzle/limits maxStringLength), or a bytes column's binary array longer than the longest
- *   message PostgreSQL reads, `limit` bytes (@grizzle/limits messageMaxBytes);
+ *   `limit` UTF-16 code units (maxStringLength), or a bytes column's binary array longer than the longest
+ *   message PostgreSQL reads, `limit` bytes (messageMaxBytes);
  * - familyRow: one row a family write places, vacates or recounts, a `member` row of the family `owner.count`, is past
  *   one of those bounds alone, so no `statement` of the write's plan can carry it however its rows are cut
  *   (write/family/order.ts Unsendable);
  * - flight: the flight's messages, every byte pg writes for it in its one corked write, would be `bytes` long, past the
- *   most one write over TLS carries, `limit` (@grizzle/limits flightMaxBytes), past which the write fails whole and the
+ *   most one write over TLS carries, `limit` (flightMaxBytes), past which the write fails whole and the
  *   connection with it, its end unsent;
  * - parse: a statement's Parse message, its text with its name and the message's fields, would be `bytes` long, as its
- *   length word counts it, past the longest message PostgreSQL reads, `limit` (@grizzle/limits messageMaxBytes), past
+ *   length word counts it, past the longest message PostgreSQL reads, `limit` (messageMaxBytes), past
  *   which the backend ends the connection instead of answering;
  * - input: the member `input`'s arrays, or one row of it for a nested write, would make a Bind message of at least
  *   `bytes`, past the longest message PostgreSQL reads, `limit` (ir/products.ts MessageBound), found from its values'

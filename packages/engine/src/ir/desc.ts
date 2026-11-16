@@ -1,9 +1,3 @@
-import {
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale,
-	vectorMaxDimensions
-} from "@grizzle/limits"
 import { allenMaskMax } from "#compiler/core/allen.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import {
@@ -37,6 +31,7 @@ import * as Result from "#compiler/core/result.ts"
 import { type CanonicalSet, tupleKeyedSet } from "#compiler/core/set.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
+import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { isMoneyPayload, isVectorPayload, moneyTag, vectorTag } from "#compiler/ir/carriers.ts"
 import type { ClockBinding } from "#compiler/ir/clock.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
@@ -52,6 +47,11 @@ import {
 } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { reservedSlots } from "#compiler/ir/slots.ts"
+import {
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/scalar/values/fault.ts"
 
 /**
  * Literals, as authored (LiteralOf): the host value. A numeric literal is a Decimal or a bigint, or an
@@ -1794,10 +1794,10 @@ const fieldDescBody: S.Shape<FieldDesc> = S.tagged("kind", {
 		S.struct({ precision: S.integer, scale: S.integer }),
 		(f) =>
 			f.precision >= 1 &&
-			f.precision <= numericMaxPrecision.value &&
-			f.scale >= numericMinScale.value &&
-			f.scale <= numericMaxScale.value,
-		`numeric(p, s), both declared, p in 1..${numericMaxPrecision.value} and s in ${numericMinScale.value}..${numericMaxScale.value}`
+			f.precision <= numericMaxPrecision &&
+			f.scale >= numericMinScale &&
+			f.scale <= numericMaxScale,
+		`numeric(p, s), both declared, p in 1..${numericMaxPrecision} and s in ${numericMinScale}..${numericMaxScale}`
 	),
 	uuid: S.struct({}),
 	bytes: S.struct({}),
@@ -1833,8 +1833,8 @@ const fieldDescBody: S.Shape<FieldDesc> = S.tagged("kind", {
 	vector: S.struct({
 		dimensions: S.refine(
 			S.positiveInteger,
-			(n) => n <= vectorMaxDimensions.value,
-			`1..${vectorMaxDimensions.value} dimensions`
+			(n) => n <= vectorMaxDimensions,
+			`1..${vectorMaxDimensions} dimensions`
 		)
 	})
 })

@@ -10,11 +10,11 @@
  * Features: each way a decimal is refused, past the range and misspelt.
  */
 
+import { numericMaxIntegerDigits } from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { numericMaxIntegerDigits } from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Effect, Formatter } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
@@ -37,9 +37,7 @@ export const valueFaultsNeverCarryTheRefusedValue = property.explore(
 				Effect.sync(() => {
 					c.note(refused)
 					const text =
-						refused === "out of range"
-							? `${secret}.5e${numericMaxIntegerDigits.value}`
-							: `${secret}.5x`
+						refused === "out of range" ? `${secret}.5e${numericMaxIntegerDigits}` : `${secret}.5x`
 					assert.throws(
 						() => Decimal.of(text),
 						(error: unknown) => {

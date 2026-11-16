@@ -13,7 +13,8 @@
 		"#compiler/*": "@bjornpagen/grizzle-engine/internal/*"
 	},
 	"exports": {
-		"./pin": "./src/pin.ts"
+		"./pin": "./src/pin.ts",
+		"./settings": "./src/settings.ts"
 	},
 	"bin": {
 		"grizzle-pg": "./bin/grizzle-pg.sh"
@@ -25,8 +26,6 @@
 	},
 	"dependencies": {
 		"@bjornpagen/grizzle-engine": "workspace:*",
-		"@bjornpagen/limit": "workspace:*",
-		"@grizzle/limits": "workspace:*",
 		"@bjornpagen/testing": "workspace:*",
 		"@effect/platform-node": "catalog:",
 		"arkregex": "catalog:"

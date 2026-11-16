@@ -1,3 +1,4 @@
+import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/adapter/connection/config"
 /**
  * A call over HTTP answers the events the in-process call answers, and a client that goes away leaves nothing behind.
  * Over a schema of scored items, its stored items and every call drawn, served as an application serves it (its
@@ -36,7 +37,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { timerMaxMs, timerMinMs } from "@grizzle/limits"
 import {
 	Array as Arr,
 	Deferred,
@@ -182,9 +182,9 @@ const callGen =
  * range's ends or one between. A heartbeat is a comment line, so no answer's events depend on it.
  */
 const heartbeatGen: Gen<number> = oneOf<number>([
-	constant(timerMinMs.value),
-	constant(timerMaxMs.value),
-	int(timerMinMs.value, timerMaxMs.value)
+	constant(timerMinMs),
+	constant(timerMaxMs),
+	int(timerMinMs, timerMaxMs)
 ])
 
 const caseGen: Gen<StreamCase> = (source) => {

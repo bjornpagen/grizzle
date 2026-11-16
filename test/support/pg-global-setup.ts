@@ -16,7 +16,7 @@ import { dropRole } from "#test/support/substrate/substrate.ts"
  * sessions on each member that each read a setting or a catalog row, so a doctor still running past it hangs; nothing
  * else bounds the global setup.
  */
-const doctorTimeout = Duration.millis(hangLimit.value)
+const doctorTimeout = Duration.millis(hangLimit)
 
 /**
  * Runs `each` on every member of the family GRIZZLE_PG_CLUSTER names, as its family file records it

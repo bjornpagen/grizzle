@@ -1,5 +1,6 @@
-import { cellMaxCodes, constantMaxBits, maxStringLength } from "@grizzle/limits"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import { compareText, everyProperty, Refusal } from "#compiler/core/canonical.ts"
+import { int4Max } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, resourceBound } from "#compiler/core/errors.ts"
 import { type ConstantDigest, constantDigest } from "#compiler/core/fingerprint.ts"
 import { hexDigitsFor } from "#compiler/core/hex.ts"
@@ -55,6 +56,7 @@ import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { persistentText } from "#compiler/physical/ddl/expr.ts"
 import { enforcement, lawReasons, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { Owned } from "#compiler/schema/own.ts"
+import { bitsPerByte } from "#compiler/schema/representability.ts"
 import type {
 	CreateConstant,
 	CreateDomain,
@@ -77,6 +79,43 @@ import {
 	payloadDigit
 } from "#compiler/sql/constants.ts"
 import { printObjectName, textArrayLiteral } from "#compiler/sql/print.ts"
+
+/**
+ * The longest bit string PostgreSQL holds, VARBITMAXLEN, and so the most bits of one constant: the bit varying a
+ * closed side compiles to, which its IMMUTABLE function returns. A longer string is refused as it is built, "bit string
+ * length exceeds the maximum allowed (%d)" (src/backend/utils/adt/varbit.c). The int32 length every bit string
+ * carries (VarBit's bit_len) holds INT_MAX at most, and the length stops BITS_PER_BYTE - 1 bits short of it so that
+ * rounding it up to whole bytes, the largest addition PostgreSQL makes to a length (VARBITTOTALLEN), cannot overflow.
+ * It is a whole number of bytes, so a constant within it is within it padded to whole hex digits too.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bits
+ * @scope one bit varying value: a closed side's constant, as its function returns it
+ * @derivation varbit.h's VARBITMAXLEN, "#define VARBITMAXLEN (INT_MAX - BITS_PER_BYTE + 1)"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/varbit.h#L83, verified 2026-11-14),
+ *   INT_MAX being the greatest integer
+ * @from {@link int4Max}, {@link bitsPerByte}
+ */
+export const constantMaxBits = int4Max - bitsPerByte + 1
+
+/**
+ * The most payload codes one cell of a closed relation's constant holds, its cells read as integers: a cell holds 0 for
+ * absent and 1 + c for payload code c, and a read casts its bits to integer, which reads them as an unsigned 32-bit
+ * number returned as a signed int4, so a value past the greatest integer reads negative and a cell of more than 32 bits
+ * is "integer out of range". A payload space of more codes is refused when its constant is planned.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit codes
+ * @scope the payload space of one closed relation or side: the codes 1 + c its cells hold, each read as an integer
+ * @derivation bittoint4 reads a cell's bits as uint32 and returns it as int32, refusing more than 32 bits: "if
+ *   (VARBITLEN(arg) > sizeof(result) * BITS_PER_BYTE)" and "PG_RETURN_INT32(result)"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/varbit.c#L1593, verified 2026-11-14);
+ *   the greatest cell, 1 + (codes - 1), is at most the greatest integer
+ * @from {@link int4Max}
+ */
+export const cellMaxCodes = int4Max
 
 /**
  * The installation's constants: the functions a closed fact is read from, each an IMMUTABLE SQL function of no argument
@@ -216,12 +255,12 @@ const plannedCells = (
 		throw new Refusal(tooWide)
 	}
 	const bits = keyCells(layout.key) * BigInt(cellWidth(codes))
-	if (bits > BigInt(constantMaxBits.value)) {
+	if (bits > BigInt(constantMaxBits)) {
 		throw new Refusal(
 			resourceBound(loc, {
 				kind: "constantBits",
 				constant: what,
-				limit: constantMaxBits.value,
+				limit: constantMaxBits,
 				needed: bits
 			})
 		)
@@ -236,14 +275,14 @@ const plannedCells = (
 
 /**
  * The refusal of a constant whose payload space holds `codes` codes, `what` naming it, when its greatest cell, 1 +
- * (codes - 1), is past the greatest integer a cell is read as (@grizzle/limits cellMaxCodes); none when it fits.
+ * (codes - 1), is past the greatest integer a cell is read as (cellMaxCodes); none when it fits.
  */
 export const cellCodesBound = (codes: bigint, what: string): CompileError | undefined =>
-	codes > BigInt(cellMaxCodes.value)
+	codes > BigInt(cellMaxCodes)
 		? resourceBound(SourceLoc(what, []), {
 				kind: "cellCodes",
 				constant: what,
-				limit: cellMaxCodes.value,
+				limit: cellMaxCodes,
 				needed: codes
 			})
 		: undefined
@@ -329,12 +368,12 @@ const ownerFunction = (
 	const sizes = mapNonEmpty(owner, (f) => f.codec.size)
 	const points = spaceSize(sizes)
 	const bits = points * BigInt(cellWidth(codes))
-	if (bits > BigInt(constantMaxBits.value)) {
+	if (bits > BigInt(constantMaxBits)) {
 		throw new Refusal(
 			resourceBound(SourceLoc(what, []), {
 				kind: "constantBits",
 				constant: what,
-				limit: constantMaxBits.value,
+				limit: constantMaxBits,
 				needed: bits
 			})
 		)
@@ -777,11 +816,11 @@ const packOf = (schema: string, planned: PlannedCells): PackConstant => {
 	const fn = functionOf(schema, planned.named)
 	const { cells, width } = planned.constant
 	const digits = hexDigitsFor(Number(cells * BigInt(width)))
-	if (digits > maxStringLength.value) {
+	if (digits > maxStringLength) {
 		throw new Refusal(
 			resourceBound(SourceLoc(printObjectName(fn), []), {
 				kind: "stringLength",
-				limit: maxStringLength.value,
+				limit: maxStringLength,
 				needed: digits
 			})
 		)

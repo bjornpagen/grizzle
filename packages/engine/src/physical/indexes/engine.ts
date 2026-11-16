@@ -13,8 +13,6 @@ import {
 	type NonEmptyReadonlyArray,
 	sortNonEmpty
 } from "#compiler/core/nonempty.ts"
-
-import { gistMaxItemSize, indexMaxKeys } from "@grizzle/limits"
 import {
 	type Comparator,
 	combineAll,
@@ -44,6 +42,7 @@ import type {
 } from "#compiler/physical/ddl/context.ts"
 import type { KeyIndex } from "#compiler/physical/ddl/tables.ts"
 import type { Node } from "#compiler/physical/obligations/graph.ts"
+import { gistMaxItemSize, indexMaxKeys } from "#compiler/schema/representability.ts"
 import { btreeEntry, gistEntryBytes, keyDatums } from "#compiler/schema/representability.ts"
 import type { CreateIndex } from "#compiler/sql/ast.ts"
 import { columnKey } from "#compiler/sql/build.ts"
@@ -1176,14 +1175,14 @@ const createIndex = (b: InstallBuilder, planned: Planned, drafted: Drafted): Pla
 			const bytes = gistEntryBytes(datums.value)
 			if (!bytes.ok) {
 				unrepresentable({ kind: "gistOperatorClass", field: bytes.error })
-			} else if (bytes.value > gistMaxItemSize.value) {
-				unrepresentable({ kind: "gistEntry", bytes: bytes.value, limit: gistMaxItemSize.value })
+			} else if (bytes.value > gistMaxItemSize) {
+				unrepresentable({ kind: "gistEntry", bytes: bytes.value, limit: gistMaxItemSize })
 			}
 			break
 		}
 		case "hnsw":
-			if (keys.length > indexMaxKeys.value) {
-				unrepresentable({ kind: "columns", limit: indexMaxKeys.value })
+			if (keys.length > indexMaxKeys) {
+				unrepresentable({ kind: "columns", limit: indexMaxKeys })
 			}
 			break
 		case "hash":

@@ -1,8 +1,6 @@
-/** What the properties of limits.test.ts read: its spaces, models and helpers. */
-
-import type { Limit } from "@bjornpagen/limit"
+import { selectMaxEntries, statementMaxParams } from "@bjornpagen/grizzle-engine/sql/print"
+import { tableMaxColumns } from "@bjornpagen/grizzle-engine/write/carriers/carriers"
 import { characterOf, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { selectMaxEntries, statementMaxParams, tableMaxColumns } from "@grizzle/limits"
 import { Array as Arr, Record as Rec } from "effect"
 import type { CompileBound, CompileError } from "#compiler/core/errors.ts"
 import * as Engine from "#compiler/core/result.ts"
@@ -20,7 +18,7 @@ import { ownedInput } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
- * PostgreSQL's limits where grizzle meets them (@grizzle/limits), each drawn on both sides of it:
+ * PostgreSQL's limits where grizzle meets them, each drawn on both sides of it:
  *
  * - a stored relation's table holds at most tableMaxColumns columns: a relation of that many fields is admitted when its
  *   installation is compiled, where its table is created, and one of a field more is refused there, as ResourceBound
@@ -31,7 +29,7 @@ import { upTo } from "#test/support/up-to.ts"
  * - a statement's length is bounded by PostgreSQL's longest message, about a gigabyte, and by nothing smaller: a query
  *   whose literal is drawn up to a few MiB of UTF-8 compiles, each of its statements holding the literal whole.
  *
- * Oracle: each limit's published value (@grizzle/limits), a specification. The first box is exhaustive: each limit met
+ * Oracle: each limit's published value, a specification. The first box is exhaustive: each limit met
  * by one less, by it and by one more.
  *
  * Features: each limit within, at and past; a short literal and one past 2 MiB.
@@ -94,7 +92,7 @@ type Bounded = Extract<CompileBound["kind"], "tableColumns" | "selectList" | "st
 /** Each limit, and what meeting `count` of what it bounds gives: the compile's result and the bound a refusal names. */
 export const limits: {
 	readonly [B in Bounded]: {
-		readonly limit: Limit
+		readonly limit: number
 		readonly compile: (count: number) => Engine.Result<unknown, CompileError>
 		readonly bound: (count: number) => CompileBound
 	}
@@ -105,19 +103,19 @@ export const limits: {
 		bound: (count) => ({
 			kind: "tableColumns",
 			table: printObjectName(succeeded(wideInstallation(1), "one column").names.relation("Wide")),
-			limit: tableMaxColumns.value,
+			limit: tableMaxColumns,
 			needed: count
 		})
 	},
 	selectList: {
 		limit: selectMaxEntries,
 		compile: (count) => emit(selectOf(count), emptyNameMap),
-		bound: (count) => ({ kind: "selectList", limit: selectMaxEntries.value, needed: count })
+		bound: (count) => ({ kind: "selectList", limit: selectMaxEntries, needed: count })
 	},
 	statementParams: {
 		limit: statementMaxParams,
 		compile: (count) => emit(placeholders(count), emptyNameMap),
-		bound: (count) => ({ kind: "statementParams", limit: statementMaxParams.value, needed: count })
+		bound: (count) => ({ kind: "statementParams", limit: statementMaxParams, needed: count })
 	}
 }
 

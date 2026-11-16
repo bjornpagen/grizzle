@@ -1,6 +1,7 @@
-import { int2Max, int2Min, int4Max, int4Min, int8Max, int8Min } from "@grizzle/limits"
+import { int4Max } from "#compiler/core/canonical.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
+import { int2Max, int2Min, int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 
 const checkNumber = (
 	value: unknown,
@@ -17,7 +18,7 @@ const checkNumber = (
 }
 
 export const toInt2 = (value: unknown): Result.Result<number, ValueFault> =>
-	checkNumber(value, int2Min.value, int2Max.value)
+	checkNumber(value, int2Min, int2Max)
 
 /**
  * Integer host values of pg.smallint, pg.integer and pg.bigint.
@@ -27,13 +28,13 @@ export const toInt2 = (value: unknown): Result.Result<number, ValueFault> =>
  * value, because the host type is bigint.
  */
 export const toInt4 = (value: unknown): Result.Result<number, ValueFault> =>
-	checkNumber(value, int4Min.value, int4Max.value)
+	checkNumber(value, int4Min, int4Max)
 
 export const toInt8 = (value: unknown): Result.Result<bigint, ValueFault> => {
 	if (typeof value !== "bigint") {
 		return Result.err("integerType")
 	}
-	if (value < int8Min.value || value > int8Max.value) {
+	if (value < int8Min || value > int8Max) {
 		return Result.err("integerRange")
 	}
 	return Result.ok(value)

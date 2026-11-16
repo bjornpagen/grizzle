@@ -1,4 +1,3 @@
-import { tableMaxColumns } from "@grizzle/limits"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
@@ -50,6 +49,23 @@ import {
 	writeKeeps,
 	writeValue
 } from "#compiler/write/insert/statement.ts"
+
+/**
+ * The most columns one table of PostgreSQL holds: a stored relation's table with the tag columns added to it, a view, a
+ * materialized view and a write program's carrier, each refused as ResourceBound (tableColumns) where it is emitted,
+ * since PostgreSQL refuses the statement with 54011, "tables can have at most 1600 columns". A column the table once
+ * held and dropped counts too, which a migration cannot see: PostgreSQL refuses such an ADD COLUMN itself.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit columns
+ * @scope one table, view or materialized view, its dropped columns included
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/htup_details.h#L48
+ * @quote #define MaxHeapAttributeNumber 1600
+ * @verified 2026-11-14
+ */
+export const tableMaxColumns = 1_600
 
 /** A field of a carrier's heading with the column that holds it. */
 export interface CarrierColumn extends HeadingColumn {
@@ -180,12 +196,12 @@ export const carrierScan = (carrier: WriteCarrier, alias: string): FromItem => (
  * PostgreSQL holds, tableMaxColumns.
  */
 const createAst = (carrier: WriteCarrier): CreateCarrier => {
-	if (carrier.heading.length > tableMaxColumns.value) {
+	if (carrier.heading.length > tableMaxColumns) {
 		throw new Refusal(
 			resourceBound(SourceLoc("write lowering", ["carriers", carrier.name]), {
 				kind: "tableColumns",
 				table: printTableName(carrier.name),
-				limit: tableMaxColumns.value,
+				limit: tableMaxColumns,
 				needed: carrier.heading.length
 			})
 		)

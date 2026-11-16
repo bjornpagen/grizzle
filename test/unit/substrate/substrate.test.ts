@@ -16,10 +16,10 @@
  * the generators plant, drawn by explicit weight beside the lawful ones. Features: each verdict of each property.
  */
 
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, int, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
-import { maxIdentifierBytes } from "@grizzle/limits"
 import { Array as Arr, Effect, Option, Ref, Result, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { assert, assertVariant } from "#test/support/assert.ts"
@@ -91,7 +91,7 @@ export const substrateNamesAllocateExactlyTheNamesTheWordRuleAndTheByteLimitAdmi
 					Effect.sync(() => {
 						const plain =
 							Option.isNone(identifier.fault) &&
-							Buffer.byteLength(identifier.text) <= maxIdentifierBytes.value
+							Buffer.byteLength(identifier.text) <= maxIdentifierBytes
 						assert.equal(
 							refuses(() => assertIdentifier(identifier.text)),
 							!plain,
@@ -113,7 +113,7 @@ export const substrateNamesAllocateExactlyTheNamesTheWordRuleAndTheByteLimitAdmi
 						const bytes = Buffer.byteLength(
 							`gz_${label.text}_${process.pid}_${allocation}_0000000000`
 						)
-						const fits = bytes <= maxIdentifierBytes.value
+						const fits = bytes <= maxIdentifierBytes
 						const made = Result.try(() => uniqueSchemaName(label.text, allocation))
 						assert.equal(Result.isSuccess(made), Option.isNone(label.fault) && fits, label.text)
 						if (Result.isFailure(made)) {
@@ -127,14 +127,14 @@ export const substrateNamesAllocateExactlyTheNamesTheWordRuleAndTheByteLimitAdmi
 						assert.deepEqual(allocatingPid(schema), Option.some(process.pid))
 						const prefix = rolePrefix(schema)
 						for (const name of mintedUnder(schema)) {
-							if (Buffer.byteLength(name) <= maxIdentifierBytes.value) {
+							if (Buffer.byteLength(name) <= maxIdentifierBytes) {
 								assert.ok(Str.startsWith(prefix)(name), `${name} starts with ${prefix}`)
 								assert.deepEqual(allocatingPid(name), Option.some(process.pid), name)
 							}
 						}
 						const full = `${schema}__${role.text}`
 						const named = Result.try(() => roleName(schema, role.text))
-						const roleFits = Buffer.byteLength(full) <= maxIdentifierBytes.value
+						const roleFits = Buffer.byteLength(full) <= maxIdentifierBytes
 						assert.equal(Result.isSuccess(named), Option.isNone(role.fault) && roleFits, full)
 						if (Result.isFailure(named)) {
 							c.note(Option.isSome(role.fault) ? "a role refused" : "a role past the limit")

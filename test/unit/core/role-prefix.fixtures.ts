@@ -1,8 +1,8 @@
 /** What the properties of role-prefix.test.ts read: its spaces, models and helpers. */
 
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import { type Case } from "@bjornpagen/testing/explore"
 import { array, boolean, codePoint, element, type Gen, int, string } from "@bjornpagen/testing/gen"
-import { maxIdentifierBytes } from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { parseRolePrefix, roleInSpace } from "#compiler/core/identity.ts"
@@ -69,7 +69,7 @@ export const validCase = (v: Valid, c: Case<ValidFeature>) =>
 		assert.equal(verbatim, v.prefix, "the prefix parses to itself, never converted")
 		const installed = roleInSpace({ kind: "prefixed", prefix: parsed.value }, v.stem)
 		const expected = `${v.prefix}__${v.stem}`
-		if (utf8Length(expected) > maxIdentifierBytes.value) {
+		if (utf8Length(expected) > maxIdentifierBytes) {
 			assert.ok(!installed.ok, `${expected} is past the identifier`)
 			return
 		}

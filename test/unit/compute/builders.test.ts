@@ -12,11 +12,11 @@
  * refused; live and every wild kind at each site.
  */
 
+import { int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite, oneOf } from "@bjornpagen/testing/gen"
 import { drawnFeature, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { int8Max, int8Min } from "@grizzle/limits"
 import { Array as Arr, Effect } from "effect"
 import { sameScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
@@ -225,10 +225,7 @@ export const aJavaScriptCallersOperandsBuildFromADescriptorAndAnInt8LiteralAndRe
 					 */
 					const admitted =
 						d.kind === "live" ||
-						(site === "literal value" &&
-							typeof x === "bigint" &&
-							x >= int8Min.value &&
-							x <= int8Max.value)
+						(site === "literal value" && typeof x === "bigint" && x >= int8Min && x <= int8Max)
 					if (admitted) {
 						assert.equal(typedAs(build(), testPg.bigint), true)
 					} else {

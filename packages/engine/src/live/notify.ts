@@ -1,4 +1,3 @@
-import { maxIdentifierBytes, notifyPayloadMaxBytes } from "@grizzle/limits"
 /**
  * Liveness's one grammar: what a committed write changed, as the route keys a live program's runtime routes it by,
  * the text that spells each, and the sealed batches of those texts the fan-out channel carries. The side that reads a
@@ -8,13 +7,48 @@ import { maxIdentifierBytes, notifyPayloadMaxBytes } from "@grizzle/limits"
  * reads nothing of a payload but its arrival, and makes none that opens.
  */
 import { nominal } from "#compiler/core/brand.ts"
+import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
+import { namedatalen } from "#compiler/core/identity.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
+import { blockSize } from "#compiler/core/page.ts"
 import * as Result from "#compiler/core/result.ts"
 import { open, seal, sealKeyBytes, sealNonceBytes, sealTagBytes } from "#compiler/core/seal.ts"
 import { utf8, utf8Length } from "#compiler/core/sha256.ts"
 import { utf8Text } from "#compiler/core/utf8.ts"
+
+/**
+ * The margin NOTIFY_PAYLOAD_MAX_LENGTH leaves of a page beside a channel's name, which keeps one notification on one
+ * SLRU page of the notification queue.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope the part of one notification queue page no channel name and no payload may take
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/commands/async.c#L194-L202
+ * @quote #define NOTIFY_PAYLOAD_MAX_LENGTH (BLCKSZ - NAMEDATALEN - 128)
+ * @verified 2026-11-14
+ */
+const notifyPayloadMargin = 128
+
+/**
+ * NOTIFY_PAYLOAD_MAX_LENGTH, the bytes a notification's payload must stay under: Async_Notify refuses a payload of
+ * this many bytes or more with 22023, which fails the statement that sent it, and with it the write.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope one NOTIFY payload in the server encoding, its terminating zero excluded: sent only while shorter
+ * @derivation async.c's "#define NOTIFY_PAYLOAD_MAX_LENGTH (BLCKSZ - NAMEDATALEN - 128)"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/commands/async.c#L202) and Async_Notify's "if
+ *   (payload_len >= NOTIFY_PAYLOAD_MAX_LENGTH) ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+ *   errmsg("payload string too long")))"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/commands/async.c#L924-L927, verified 2026-11-14)
+ * @from {@link blockSize}, {@link namedatalen}, {@link notifyPayloadMargin}
+ */
+const notifyPayloadMaxBytes = blockSize - namedatalen - notifyPayloadMargin
 
 /** A stored relation's installed table, by its identifier, as a route key names it. */
 export type RouteTable = Identifier<"table">
@@ -127,7 +161,7 @@ export const parseWalPosition = (text: string): Result.Result<WalPosition, LiveT
  */
 const isInstalledIdentifier = (text: string): boolean => {
 	if (
-		text.length > maxIdentifierBytes.value ||
+		text.length > maxIdentifierBytes ||
 		!(isLetter(text.charCodeAt(0)) || text.startsWith("__"))
 	) {
 		return false
@@ -231,7 +265,7 @@ const base64Group = { characters: 4, bytes: 3 } as const
  * the tag's (core/seal.ts sealNonceBytes, sealTagBytes).
  */
 const batchMaxBytes: number =
-	Math.floor((notifyPayloadMaxBytes.value - 1) / base64Group.characters) * base64Group.bytes -
+	Math.floor((notifyPayloadMaxBytes - 1) / base64Group.characters) * base64Group.bytes -
 	sealNonceBytes -
 	sealTagBytes
 

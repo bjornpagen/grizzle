@@ -1,9 +1,9 @@
-import { maxStringLength } from "@grizzle/limits"
 /**
  * The read-flight planner of a write whose family work the host plans from stored rows (`legacyFlights`), which no
  * served file holds, and a write compiled in process as binding runs it (`runnableWrite`).
  */
 import { arrayTexts } from "#compiler/codec/recordset.ts"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -931,7 +931,7 @@ const readLiterals = (
 		relation,
 		Array.from({ length: width }, (_, i) => `key ${i + 1}`),
 		keys,
-		maxStringLength.value
+		maxStringLength
 	)
 	if (!literals.ok) {
 		throw defect("a read cut to its transport carries every literal it writes")

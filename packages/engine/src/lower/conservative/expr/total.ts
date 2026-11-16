@@ -1,20 +1,18 @@
-import type { Limit } from "@bjornpagen/limit"
-import {
-	binary32MaxExponent,
-	binary32MinExponent,
-	binary32Precision,
-	binary64MaxExponent,
-	binary64MinExponent,
-	binary64Precision,
-	int8ExactDigits
-} from "@grizzle/limits"
 import { exactParts, nanParts } from "#compiler/core/decimal.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { int8ExactDigits } from "#compiler/ir/physical.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { ExactCarrier } from "#compiler/scalar/aggregate.ts"
+import { binary64MinExponent } from "#compiler/scalar/compute/cast.ts"
 import { type FloatCarrier, nativeRange } from "#compiler/scalar/compute/native.ts"
 import { type IeeeOp, type NativeOp, nativeOp } from "#compiler/scalar/compute/registry.ts"
+import { binary64MaxExponent, binary64Precision } from "#compiler/scalar/lexical.ts"
+import {
+	binary32MaxExponent,
+	binary32MinExponent,
+	binary32Precision
+} from "#compiler/scalar/values/float.ts"
 import type { Expr, OperandSelect, Select, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	and,
@@ -54,7 +52,7 @@ const spaceOf = (t: ScalarType): Space | undefined => {
 	const b = baseOf(t)
 	switch (b.carrier) {
 		case "exactInteger":
-			return b.digits <= int8ExactDigits.value ? "int8" : "numeric"
+			return b.digits <= int8ExactDigits ? "int8" : "numeric"
 		case "exactMoney":
 			return "numeric"
 		case "int2":
@@ -262,9 +260,9 @@ const numericInteger = (n: bigint): Expr => lit.decimal(exactParts(n, 0), types.
  * multiples of it rounds as every value between them does.
  */
 const formatOf = (
-	p: Limit,
-	emax: Limit,
-	emin: Limit,
+	p: number,
+	emax: number,
+	emin: number,
 	type: TypeRef
 ): {
 	readonly over: Expr
@@ -273,9 +271,9 @@ const formatOf = (
 	readonly halfUnit: Expr
 	readonly type: TypeRef
 } => {
-	const cell = p.value - emin.value
+	const cell = p - emin
 	return {
-		over: numericInteger(2n ** BigInt(emax.value + 1) - 2n ** BigInt(emax.value - p.value)),
+		over: numericInteger(2n ** BigInt(emax + 1) - 2n ** BigInt(emax - p)),
 		under: numericInteger(2n ** BigInt(cell)),
 		quotientScale: numericInteger(10n ** BigInt(cell)),
 		halfUnit: lit.decimal(exactParts(5n, cell + 1), types.numeric),

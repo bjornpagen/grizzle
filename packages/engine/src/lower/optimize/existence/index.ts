@@ -22,8 +22,6 @@ import {
 	derivedMeta,
 	widenedHeading
 } from "#compiler/lower/optimize/demand/editor.ts"
-
-import { collapseLimit } from "@grizzle/limits"
 import {
 	type CellPhysical,
 	measureOverDemand,
@@ -34,6 +32,7 @@ import {
 	type Rule,
 	rewritePass
 } from "#compiler/lower/optimize/demand/frame.ts"
+import { collapseLimit } from "#compiler/lower/shapes/region/index.ts"
 import { carrierEquality } from "#compiler/scalar/compute/registry.ts"
 
 const semiJoinRule = "R02.semiJoin"
@@ -156,7 +155,7 @@ const stacked = (cx: RewriteCx, region: Cell): number => {
  * the collapse limit, so one more semi-join keeps one join problem PostgreSQL flattens.
  */
 const withinCollapse = (cx: RewriteCx, cell: Cell, region: Region): boolean =>
-	region.occurrences.length + stacked(cx, cell) <= collapseLimit.value
+	region.occurrences.length + stacked(cx, cell) <= collapseLimit
 
 /** The existence-only occurrences of `candidates` whose removal joins no two inputs without a condition. */
 const connectedOf = (

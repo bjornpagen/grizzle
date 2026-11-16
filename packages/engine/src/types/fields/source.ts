@@ -1,4 +1,27 @@
-import type { regexMaxRepeat, typeUnionLimit } from "@grizzle/limits"
+import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
+
+/**
+ * The members of one union TypeScript represents: a union or template literal whose cross product reaches this many is
+ * TS2590, "Expression produces a union type that is too complex to represent". A pattern's inferred host type is its
+ * exact member union below it and string at it (types/fields/source.ts LanguageCount), decided before anything is
+ * expanded.
+ *
+ * @limitKind measured
+ * @owner TypeScript's checker (tsgo 7.1.0-beta), its cross-product union refusal
+ * @unit union members
+ * @scope one union or template literal type, a str.regex pattern's inferred host type among them
+ * @evidence test/types/regex/agreement.ts: its program states a template literal of 9 × 41 × 271 = 99,999 members,
+ *   which typechecks, and one of 10^5 members under a TS2590 directive, which the type-test batch requires on every
+ *   run
+ * @observed 2026-11-06, a standalone probe of the two templates, the same the program states
+ * @environment tsgo 7.1.0-beta as package.json pins it, on macOS
+ * @workload the two template literal types alone, checked once
+ * @result the 99,999-member template typechecked; the 100,000-member one was TS2590
+ * @decision the checker's own threshold, which grizzle's inference never reaches: a count at it widens the host type
+ *   to string
+ * @revalidate a TypeScript upgrade; the regex agreement program's TS2590 directive left unmet
+ */
+export const typeUnionLimit = 100_000
 
 /**
  * The characters a backslash escapes outside a class, and the ones ArkRegex wants escaped inside one. `/` and `}` are
@@ -428,11 +451,11 @@ interface Counted<Text extends string, Rest extends string> {
 }
 
 /**
- * A counted repetition's bound checked against PostgreSQL's greatest, the compiler's regexMaxRepeat (@grizzle/limits),
+ * A counted repetition's bound checked against PostgreSQL's greatest, the compiler's regexMaxRepeat,
  * read off the limit itself: "above", refused before ArkRegex expands it, or the numeral without its leading zeros.
  */
 type Bound<N extends string> =
-	NumeralAbove<N, `${(typeof regexMaxRepeat)["value"]}`> extends true ? "above" : StripZeros<N>
+	NumeralAbove<N, `${typeof regexMaxRepeat}`> extends true ? "above" : StripZeros<N>
 
 /**
  * What R, what follows a `{` outside a class, opens, decided from its numerals before ArkRegex expands anything: a
@@ -805,14 +828,14 @@ type InClass<
 export type RewriteSource<S extends string> = Scan<S, "", "none", [], "atArm", []>
 
 /**
- * TypeScript's representable union: a union or template literal of typeUnionLimit's members (@grizzle/limits) or more
+ * TypeScript's representable union: a union or template literal of typeUnionLimit's members or more
  * is TS2590, the checker's cross-product refusal, the limit read off its own value. A count of that many is "over", and
  * every count is saturated there.
  */
 type OverUnion<N extends string> =
-	NumeralAbove<N, `${(typeof typeUnionLimit)["value"]}`> extends true
+	NumeralAbove<N, `${typeof typeUnionLimit}`> extends true
 		? "over"
-		: StripZeros<N> extends `${(typeof typeUnionLimit)["value"]}`
+		: StripZeros<N> extends `${typeof typeUnionLimit}`
 			? "over"
 			: N
 

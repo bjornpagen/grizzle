@@ -1,3 +1,4 @@
+import { btreeMaxItemSize } from "@bjornpagen/grizzle-engine/schema/representability"
 import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import {
@@ -15,7 +16,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { boundedShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { btreeMaxItemSize } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { onceCalls, type WrittenOutcome } from "#adapter/db/handles.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
@@ -356,7 +356,7 @@ const shapeWith =
 			return base
 		}
 		let lo = 1
-		let hi = btreeMaxItemSize.value
+		let hi = btreeMaxItemSize
 		while (lo < hi) {
 			const mid = Math.ceil((lo + hi) / 2)
 			if (Option.isSome(layoutBytes(sizedTo(mid), key))) {
@@ -868,7 +868,7 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 									)
 								}
 								assert.ok(
-									fault.bytes > fault.limit && fault.limit === btreeMaxItemSize.value,
+									fault.bytes > fault.limit && fault.limit === btreeMaxItemSize,
 									`the refusal counts the entry past BTMaxItemSize: ${Formatter.format(fault)}`
 								)
 								assert.ok(
@@ -893,9 +893,7 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 									`grizzle installs ${Formatter.format(fields)}, whose widest entry PostgreSQL refuses`
 								)
 							}
-							if (
-								Option.exists(layoutBytes(s, s.key), (bytes) => bytes > btreeMaxItemSize.value - 8)
-							) {
+							if (Option.exists(layoutBytes(s, s.key), (bytes) => bytes > btreeMaxItemSize - 8)) {
 								c.note("a key at the item limit accepted")
 							}
 							const names = namesOf(done)

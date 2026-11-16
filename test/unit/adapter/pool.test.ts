@@ -85,7 +85,7 @@ export const theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInt
 									transport: server.transport,
 									database: "fake",
 									password: noPassword,
-									connectTimeoutMs: testConnectTimeout.value
+									connectTimeoutMs: testConnectTimeout
 								},
 								"fake"
 							),

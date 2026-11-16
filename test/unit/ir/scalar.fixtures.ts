@@ -1,5 +1,11 @@
 /** What the properties of scalar.test.ts read: its spaces, models and helpers. */
 
+import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
+import {
+	cosineNormMax,
+	cosineNormMin,
+	numericMaxPrecision
+} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import {
 	array,
 	boolean,
@@ -18,12 +24,6 @@ import { type Corruption } from "@bjornpagen/testing/lsw"
 import { matching } from "@bjornpagen/testing/pattern"
 import type { Source } from "@bjornpagen/testing/source"
 import { bigint, double, float } from "@bjornpagen/testing/values"
-import {
-	cosineNormMax,
-	cosineNormMin,
-	numericMaxPrecision,
-	vectorMaxDimensions
-} from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, pipe, Record as Rec, String as Str } from "effect"
 import { canonicalTag } from "#compiler/core/canonical.ts"
@@ -137,7 +137,7 @@ export const scalarCorruptions: Arr.NonEmptyReadonlyArray<
 			{ ...t, typmod: { scale: 2 } },
 			{ ...t, typmod: { precision: 5 } },
 			{ ...t, typmod: {} },
-			{ ...t, typmod: { precision: numericMaxPrecision.value + 1, scale: 0 } }
+			{ ...t, typmod: { precision: numericMaxPrecision + 1, scale: 0 } }
 		]
 	),
 	breaks(
@@ -150,7 +150,7 @@ export const scalarCorruptions: Arr.NonEmptyReadonlyArray<
 		"a vector has at most 16000 dimensions",
 		"wild",
 		(t) => t.carrier === "vector",
-		(t) => [{ ...t, typmod: { dims: vectorMaxDimensions.value + 1 } }]
+		(t) => [{ ...t, typmod: { dims: vectorMaxDimensions + 1 } }]
 	),
 	breaks(
 		"only numeric and vector carry a typmod",
@@ -182,7 +182,7 @@ export const scalarCorruptions: Arr.NonEmptyReadonlyArray<
 						{
 							...t,
 							typmod: {
-								precision: ((t.typmod?.precision ?? 0) % numericMaxPrecision.value) + 1,
+								precision: ((t.typmod?.precision ?? 0) % numericMaxPrecision) + 1,
 								scale: t.typmod?.scale ?? 0
 							}
 						}
@@ -475,9 +475,7 @@ export const admits = (literal: TypedLiteral, outer: ScalarType): boolean => {
 			}
 			const xs = [...literal.value.components]
 			const norm = Math.sqrt(Arr.reduce(xs, 0, (sum, x) => sum + x * x))
-			return (
-				xs.length === type.typmod.dims && norm >= cosineNormMin.value && norm <= cosineNormMax.value
-			)
+			return xs.length === type.typmod.dims && norm >= cosineNormMin && norm <= cosineNormMax
 		}
 	}
 }

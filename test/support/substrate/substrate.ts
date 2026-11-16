@@ -313,7 +313,7 @@ export const dropRole = (
 		 */
 		const terminated = yield* admin.queryValues(
 			"SELECT pid, pg_catalog.pg_terminate_backend(pid, $2::int8) FROM pg_catalog.pg_stat_activity WHERE usename = $1::text",
-			[role, String(testExitWait.value)]
+			[role, String(testExitWait)]
 		)
 		/**
 		 * pg_terminate_backend also returns false, with "PID n is not a PostgreSQL backend process", for a backend that
@@ -442,7 +442,7 @@ const dropOwnerLogin = (
 	role: string
 ): Effect.Effect<void> =>
 	asSuperuser(cluster, database, [
-		`SELECT pg_catalog.pg_terminate_backend(a.pid, ${testExitWait.value}) FROM pg_catalog.pg_stat_activity AS a WHERE a.usename = ${quoteString(role)}::name`,
+		`SELECT pg_catalog.pg_terminate_backend(a.pid, ${testExitWait}) FROM pg_catalog.pg_stat_activity AS a WHERE a.usename = ${quoteString(role)}::name`,
 		`DROP ROLE IF EXISTS ${quoteIdent(role)}`
 	])
 
@@ -779,11 +779,9 @@ const build = Effect.fnUntraced(function* (
  */
 const hangGuarded = <A, E, R>(what: string, step: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
 	Effect.timeoutOrElse(step, {
-		duration: Duration.millis(hangLimit.value),
+		duration: Duration.millis(hangLimit),
 		orElse: () =>
-			Effect.die(
-				new Error(`${what} hung: it did not end within the hang limit of ${hangLimit.value} ms`)
-			)
+			Effect.die(new Error(`${what} hung: it did not end within the hang limit of ${hangLimit} ms`))
 	})
 
 /**

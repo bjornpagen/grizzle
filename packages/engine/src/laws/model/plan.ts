@@ -25,6 +25,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "#compiler/core/nonempty.ts"
+import { type CellSide, sideOf } from "#compiler/ir/cells.ts"
 import { descText, type ExprDesc, fieldTermsOf, termText } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AxisKind, AxisPair, Family, FamilyFold } from "#compiler/ir/family.ts"
@@ -46,13 +47,11 @@ import {
 	type TheoryRelation
 } from "#compiler/ir/law.ts"
 import { type CombineFn, monoidSpecs } from "#compiler/ir/monoid.ts"
-
-import { indexMaxKeys } from "@grizzle/limits"
-import { type CellSide, sideOf } from "#compiler/ir/cells.ts"
 import { closedCell } from "#compiler/ir/rel.ts"
 import { baseOf, rosterOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { keyOf, literalKey } from "#compiler/laws/model/names.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
+import { indexMaxKeys } from "#compiler/schema/representability.ts"
 import {
 	type BtreeEntryBytes,
 	btreeEntry,
@@ -216,8 +215,8 @@ const plannedEntry = (
 	loc: SourceLoc
 ): BtreeEntryBytes => {
 	const key = columns.map(plannedText)
-	if (columns.length > indexMaxKeys.value) {
-		return unrepresentable(loc, subject, key, { kind: "columns", limit: indexMaxKeys.value })
+	if (columns.length > indexMaxKeys) {
+		return unrepresentable(loc, subject, key, { kind: "columns", limit: indexMaxKeys })
 	}
 	const entry: Array<EntryColumn> = []
 	for (const c of columns) {
@@ -277,7 +276,7 @@ interface BtreeRun<C extends PlannedColumn> {
  */
 const btreeRun = <C extends PlannedColumn>(columns: ReadonlyArray<C>): BtreeRun<C> | undefined => {
 	const bounded = boundedColumns(columns)
-	for (let n = Math.min(bounded.length, indexMaxKeys.value); n > 0; n--) {
+	for (let n = Math.min(bounded.length, indexMaxKeys); n > 0; n--) {
 		const run = bounded.slice(0, n)
 		const [first, ...rest] = run
 		const proved = btreeEntry(run.map((b) => entryColumn(b.column, b.datum)))
@@ -366,7 +365,7 @@ const plannedPeriodReverse = (
 	const spanDatum = createdDatum(span) ?? missing(`the bounded datum of the span of ${subject}`)
 	const spanEntry = { field: plannedText(span), datum: spanDatum }
 	const bounded = boundedColumns(scalars)
-	for (let n = Math.min(bounded.length, indexMaxKeys.value - 1); n >= 0; n--) {
+	for (let n = Math.min(bounded.length, indexMaxKeys - 1); n >= 0; n--) {
 		const run = bounded.slice(0, n)
 		const proved = gistEntry(
 			run.map((b) => ({ field: plannedText(b.column), datum: b.datum })),
@@ -402,8 +401,8 @@ const plannedGist = (
 	loc: SourceLoc
 ): GistEntryBytes => {
 	const key = [...scalars.map(plannedText), plannedText(span)]
-	if (key.length > indexMaxKeys.value) {
-		return unrepresentable(loc, subject, key, { kind: "columns", limit: indexMaxKeys.value })
+	if (key.length > indexMaxKeys) {
+		return unrepresentable(loc, subject, key, { kind: "columns", limit: indexMaxKeys })
 	}
 	const bounded = (c: PlannedColumn): { readonly field: string; readonly datum: DatumBound } => {
 		const datum = plannedDatum(c)
@@ -2780,11 +2779,11 @@ class FamilyPlanner {
 				`a family's owner axis over columns the caller or grizzle writes, which its ON UPDATE CASCADE rewrites; the owner axis of ${familyText(this.#shape())} carries ${generated.kind === "field" ? generated.field.name : "a generated law column"}, which PostgreSQL generates and no cascade may write (42601): copy a written field instead`
 			)
 		}
-		if (targetColumns.length > indexMaxKeys.value) {
+		if (targetColumns.length > indexMaxKeys) {
 			return refuse(
 				"UnsupportedLawFamily",
 				this.#loc,
-				`a family axis of at most ${indexMaxKeys.value} columns, which one UNIQUE holds (INDEX_MAX_KEYS); the ${kind} axis of ${familyText(this.#shape())} carries ${targetColumns.length}: carry fewer copies on it`
+				`a family axis of at most ${indexMaxKeys} columns, which one UNIQUE holds (INDEX_MAX_KEYS); the ${kind} axis of ${familyText(this.#shape())} carries ${targetColumns.length}: carry fewer copies on it`
 			)
 		}
 		const fold = this.#foldCarried(targetColumns)

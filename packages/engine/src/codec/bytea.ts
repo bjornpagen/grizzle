@@ -1,4 +1,3 @@
-import { messageMaxBytes } from "@grizzle/limits"
 /**
  * The binary arrays of bytes and text columns, a hot path: a member's bytes values travel in PostgreSQL's binary format,
  * never as their hex text, so a value of n bytes sends n bytes and its length, and the server reads them with
@@ -13,6 +12,7 @@ import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Hex, utf8, utf8Length } from "#compiler/core/sha256.ts"
+import { messageMaxBytes } from "#compiler/core/wire.ts"
 import type { ParamBinary } from "#compiler/core/wire.ts"
 import type { LiteralBound } from "#compiler/ir/products.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
@@ -85,7 +85,7 @@ const detached = (value: Uint8Array): boolean => {
  * One column's array in the array binary format (src/backend/utils/adt/arrayfuncs.c array_send and array_recv): one
  * dimension of `lengths.length` elements from 1, no NULL, element type `oid`, then each element's length and bytes in
  * order, which `write` puts at its offset; an empty input is the array of no dimension. Its length is counted from the
- * elements' lengths before it is built, so an array longer than any message PostgreSQL reads (@grizzle/limits
+ * elements' lengths before it is built, so an array longer than any message PostgreSQL reads (
  * messageMaxBytes), which no placeholder could carry, is refused as `column`'s bound of `input` before a byte of it is
  * allocated.
  */
@@ -100,13 +100,13 @@ const binaryArray = <E>(
 	for (const n of lengths) {
 		length += byteaElementBytes(n)
 	}
-	if (length > messageMaxBytes.value) {
+	if (length > messageMaxBytes) {
 		return Result.err({
 			_tag: "LiteralBound",
 			form: "binary",
 			input,
 			column,
-			limit: messageMaxBytes.value
+			limit: messageMaxBytes
 		})
 	}
 	const out = new Uint8Array(length)

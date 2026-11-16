@@ -1,7 +1,12 @@
 /** What the properties of axis-keys.test.ts read: its spaces, models and helpers. */
 
+import {
+	alignUp,
+	btreeMaxItemSize,
+	maxAlign,
+	typlens
+} from "@bjornpagen/grizzle-engine/schema/representability"
 import { constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
-import { alignUp, btreeMaxItemSize, maxAlign, typlens } from "@grizzle/limits"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { accumulated, Bits, bits, drawn, natural, uuid } from "#compiler/public/fields.ts"
 import {
@@ -40,7 +45,7 @@ export type TextType =
 
 /** The bytes the IndexTupleData header, a uuid and a bigint aligned to 8 take, at exact offsets since no varlena or
  * NULL comes before them. */
-const keyPrefixBytes = alignUp(8 + typlens.uuid.value, typlens.int8.value) + typlens.int8.value
+const keyPrefixBytes = alignUp(8 + typlens.uuid, typlens.int8) + typlens.int8
 
 /** The bytes of the entry before the text's data: its prefix, aligned to 4 for the text, and the text's varlena header. */
 const textStartBytes = alignUp(keyPrefixBytes, 4) + 4
@@ -50,10 +55,10 @@ const textStartBytes = alignUp(keyPrefixBytes, 4) + 4
  * varlena header and its longest value aligned to 4, the whole MAXALIGNed.
  */
 export const entryBytes = (textBytes: number): number =>
-	alignUp(textStartBytes + textBytes, maxAlign.value)
+	alignUp(textStartBytes + textBytes, maxAlign)
 
 /** The most text bytes whose entry fits: BTMaxItemSize is itself MAXALIGNed. */
-const fittingBytes = btreeMaxItemSize.value - textStartBytes
+const fittingBytes = btreeMaxItemSize - textStartBytes
 
 /** UTF-8 encodes a code point in at most 4 bytes. */
 const codePointBytes = 4
@@ -73,14 +78,14 @@ export const bytesOf = (t: TextType): number | undefined => {
 /** The box: the unbounded text, and every bound of either measure whose entry lies within a MAXALIGN step of the bound. */
 export const textGen: Gen<TextType> = oneOf<TextType>([
 	constant<TextType>({ kind: "unbounded" }),
-	map(int(fittingBytes - maxAlign.value, fittingBytes + maxAlign.value), (n): TextType => ({
+	map(int(fittingBytes - maxAlign, fittingBytes + maxAlign), (n): TextType => ({
 		kind: "octets",
 		n
 	})),
 	map(
 		int(
-			Math.floor((fittingBytes - maxAlign.value) / codePointBytes),
-			Math.ceil((fittingBytes + maxAlign.value) / codePointBytes)
+			Math.floor((fittingBytes - maxAlign) / codePointBytes),
+			Math.ceil((fittingBytes + maxAlign) / codePointBytes)
 		),
 		(n): TextType => ({ kind: "code points", n })
 	)
@@ -142,9 +147,9 @@ export type Feature = Verdict | TextType["kind"]
 
 export const verdictOf = (bytes: number): Verdict => {
 	const entry = entryBytes(bytes)
-	return entry < btreeMaxItemSize.value
+	return entry < btreeMaxItemSize
 		? "an entry within the bound"
-		: entry === btreeMaxItemSize.value
+		: entry === btreeMaxItemSize
 			? "an entry at the bound"
 			: "an entry past the bound"
 }
@@ -208,17 +213,16 @@ export const codesWith = (holes: number) =>
 	])
 
 /** A bit(n)'s varlena header and its 4-byte bit count, before a byte per eight codes. */
-const setHeaderBytes = 4 + typlens.int4.value
+const setHeaderBytes = 4 + typlens.int4
 
 /** A bit(n) of `codes` codes. */
 export const setBytes = (codes: number): number => setHeaderBytes + Math.ceil(codes / 8)
 
 /** Line's (order, at, after) entry: its prefix, a bit(n) aligned to 4, MAXALIGNed. */
 export const entryOf = (codes: number): number =>
-	alignUp(alignUp(keyPrefixBytes, 4) + setBytes(codes), maxAlign.value)
+	alignUp(alignUp(keyPrefixBytes, 4) + setBytes(codes), maxAlign)
 
 /** The most codes whose entry fits: each eight codes take a byte, and BTMaxItemSize is itself MAXALIGNed. */
-export const fittingCodes =
-	8 * (btreeMaxItemSize.value - alignUp(keyPrefixBytes, 4) - setHeaderBytes)
+export const fittingCodes = 8 * (btreeMaxItemSize - alignUp(keyPrefixBytes, 4) - setHeaderBytes)
 
 export type SetFeature = "an entry within the bound" | "an entry at the bound" | "an entry past it"

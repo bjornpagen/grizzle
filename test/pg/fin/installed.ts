@@ -199,7 +199,7 @@ export const seatPool = <A, E, R>(
 			acquire: installing.withPermit(acquire),
 			min: 0,
 			max: seatsAtOnce,
-			timeToLive: testIdleTimeout.value
+			timeToLive: testIdleTimeout
 		})
 	)
 

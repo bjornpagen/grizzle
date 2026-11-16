@@ -247,7 +247,7 @@ layer(Substrate.layer)("a change member's apply", (it) => {
 									...defaultPool,
 									password: { kind: "given", password },
 									transport: { kind: "given", transport: tap.transport },
-									pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 2 }
+									pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: 2 }
 								})
 								yield* Effect.scoped(
 									Effect.flatMap(pool.lease, (session) =>

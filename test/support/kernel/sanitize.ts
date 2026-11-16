@@ -165,7 +165,7 @@ export const endBackend = (
 	Effect.gen(function* () {
 		const identity = [backend.pid, backend.started]
 		const terminated = yield* admin.queryValues(
-			`SELECT pg_catalog.pg_terminate_backend(a.pid, ${testExitWait.value}) ${backendRow}`,
+			`SELECT pg_catalog.pg_terminate_backend(a.pid, ${testExitWait}) ${backendRow}`,
 			identity
 		)
 		if (Arr.every(terminated, ([exited]) => exited === true)) {

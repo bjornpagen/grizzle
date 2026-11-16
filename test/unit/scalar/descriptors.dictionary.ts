@@ -1,5 +1,5 @@
+import { binary64Precision } from "@bjornpagen/grizzle-engine/scalar/lexical"
 import { dictionary } from "@bjornpagen/testing/dictionary"
-import { binary64Precision } from "@grizzle/limits"
 import { Array as Arr } from "effect"
 import { nonEmpty } from "#test/support/assert.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -14,7 +14,7 @@ export const plainSketches = dictionary(
 		[
 			...Arr.map(spellings, (name): DescriptorSketch => ({ kind: "spelling", name })),
 			...Arr.map(
-				upTo(binary64Precision.value, (i) => i + 1),
+				upTo(binary64Precision, (i) => i + 1),
 				(precision): DescriptorSketch => ({
 					kind: "float",
 					precision

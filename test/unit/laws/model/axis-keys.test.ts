@@ -18,10 +18,10 @@
  *   eight codes after Line's (order, at) at their exact offsets. Features: an entry at the bound, an entry past it.
  */
 
+import { btreeMaxItemSize, typlens } from "@bjornpagen/grizzle-engine/schema/representability"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { btreeMaxItemSize, typlens } from "@grizzle/limits"
 import { Array as Arr, Effect, Option } from "effect"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
@@ -69,7 +69,7 @@ export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarri
 				} else {
 					c.pair(t.kind, verdictOf(bytes))
 				}
-				if (bytes !== undefined && entryBytes(bytes) <= btreeMaxItemSize.value) {
+				if (bytes !== undefined && entryBytes(bytes) <= btreeMaxItemSize) {
 					succeeded(compiled, `an entry of ${entryBytes(bytes)} bytes fits`)
 					return
 				}
@@ -91,10 +91,10 @@ export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarri
 						: {
 								kind: "btreeEntry",
 								bytes: entryBytes(bytes),
-								limit: btreeMaxItemSize.value,
+								limit: btreeMaxItemSize,
 								datums: [
-									{ field: "doc", bytes: typlens.uuid.value },
-									{ field: "at", bytes: typlens.int8.value },
+									{ field: "doc", bytes: typlens.uuid },
+									{ field: "at", bytes: typlens.int8 },
 									{ field: "after", bytes: 4 + bytes }
 								]
 							}
@@ -131,11 +131,9 @@ export const aCarriedSetsKeyIsSizedByItsRostersCodesHolesIncludedAndRefusedPastT
 					owner: "owner"
 				})
 				const bytes = entryOf(codes)
-				if (bytes <= btreeMaxItemSize.value) {
+				if (bytes <= btreeMaxItemSize) {
 					succeeded(compiled, `${holes} holes: an entry of ${bytes} bytes fits`)
-					c.note(
-						bytes === btreeMaxItemSize.value ? "an entry at the bound" : "an entry within the bound"
-					)
+					c.note(bytes === btreeMaxItemSize ? "an entry at the bound" : "an entry within the bound")
 					return
 				}
 				const reason = refused(compiled, "UnrepresentableKey").reason
@@ -145,10 +143,10 @@ export const aCarriedSetsKeyIsSizedByItsRostersCodesHolesIncludedAndRefusedPastT
 				assert.deepEqual(reason.fault, {
 					kind: "btreeEntry",
 					bytes,
-					limit: btreeMaxItemSize.value,
+					limit: btreeMaxItemSize,
 					datums: [
-						{ field: "order", bytes: typlens.uuid.value },
-						{ field: "at", bytes: typlens.int8.value },
+						{ field: "order", bytes: typlens.uuid },
+						{ field: "at", bytes: typlens.int8 },
 						{ field: "after", bytes: setBytes(codes) }
 					]
 				})

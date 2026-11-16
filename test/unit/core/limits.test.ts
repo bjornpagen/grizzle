@@ -1,5 +1,5 @@
 /**
- * The limits of a closed relation's codes and constants, and of a heap tuple (@grizzle/limits), each derived again by
+ * The limits of a closed relation's codes and constants, and of a heap tuple, each derived again by
  * another route than its own `compute`, against a second implementation where Node holds one:
  *
  * - smallint, integer and bigint are the two's-complement integers Int16Array, Int32Array and BigInt64Array hold, so
@@ -17,21 +17,19 @@
  * alignment; a tuple below, at and past heapTupleMaxBytes.
  */
 
+import { blockSize, itemIdBytes, pageHeaderBytes } from "@bjornpagen/grizzle-engine/core/page"
+import { heapTupleMaxBytes } from "@bjornpagen/grizzle-engine/laws/model/model"
+import { constantMaxBits } from "@bjornpagen/grizzle-engine/physical/ddl/constants"
+import {
+	alignUp,
+	maxAlign,
+	rosterMaxCodes,
+	typlens
+} from "@bjornpagen/grizzle-engine/schema/representability"
 import { word } from "@bjornpagen/testing/dictionary"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import {
-	alignUp,
-	blockSize,
-	constantMaxBits,
-	heapTupleMaxBytes,
-	itemIdBytes,
-	maxAlign,
-	pageHeaderBytes,
-	rosterMaxCodes,
-	typlens
-} from "@grizzle/limits"
 import { Effect } from "effect"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { IntegerCarrier } from "#compiler/ir/scalar.ts"
@@ -58,8 +56,8 @@ export const postgreSQLsIntegersAreTheTwosComplementIntegersOfTheirTyplens = pro
 			Effect.sync(() => {
 				const [least, greatest] = integerRanges[carrier]
 				const oracle = typedArrays[carrier]
-				assert.equal(
-					typlens[carrier].value,
+				assert.equal<number>(
+					typlens[carrier],
 					oracle.bytes,
 					"the typlen is the typed array's element size"
 				)
@@ -77,9 +75,9 @@ export const postgreSQLsIntegersAreTheTwosComplementIntegersOfTheirTyplens = pro
 		kept: [],
 		kills: [
 			{
-				file: "packages/limits/src/limits.ts",
-				original: "\tvalue: 32767,",
-				replacement: "\tvalue: 32768,",
+				file: "packages/engine/src/ir/carriers.ts",
+				original: "int2Max = 32767",
+				replacement: "int2Max = 32768",
 				why: "smallint's greatest value one past Int16's; the integer carriers' property fails, and the roster property with it."
 			}
 		]
@@ -92,7 +90,7 @@ export const postgreSQLsIntegersNumberARostersCodesByEveryNonNegativeSmallintOnc
 		finite(
 			weighted([
 				[1, int(-8, 8)],
-				[1, int(rosterMaxCodes.value - 8, rosterMaxCodes.value + 8)]
+				[1, int(rosterMaxCodes - 8, rosterMaxCodes + 8)]
 			])
 		),
 		{
@@ -106,7 +104,7 @@ export const postgreSQLsIntegersNumberARostersCodesByEveryNonNegativeSmallintOnc
 			] satisfies ReadonlyArray<Reached<Code>>,
 			check: (_, c: Case<Code>) => (code) =>
 				Effect.sync(() => {
-					const isCode = code >= 0 && code < rosterMaxCodes.value
+					const isCode = code >= 0 && code < rosterMaxCodes
 					assert.equal(
 						isCode,
 						code >= 0 && typedArrays.int2.holds(BigInt(code)),
@@ -115,7 +113,7 @@ export const postgreSQLsIntegersNumberARostersCodesByEveryNonNegativeSmallintOnc
 					c.note(
 						code < 0
 							? "below the codes"
-							: code === rosterMaxCodes.value - 1
+							: code === rosterMaxCodes - 1
 								? "the last code"
 								: isCode
 									? "a code"
@@ -126,15 +124,15 @@ export const postgreSQLsIntegersNumberARostersCodesByEveryNonNegativeSmallintOnc
 			kept: [],
 			kills: [
 				{
-					file: "packages/limits/src/limits.ts",
-					original: "\tvalue: 32767,",
-					replacement: "\tvalue: 32768,",
+					file: "packages/engine/src/ir/carriers.ts",
+					original: "int2Max = 32767",
+					replacement: "int2Max = 32768",
 					why: "smallint's greatest value one past Int16's; the integer carriers' property fails, and the roster property with it."
 				},
 				{
-					file: "packages/limits/src/limits.ts",
-					original: "\tcompute: ([max]) => max.value + 1",
-					replacement: "\tcompute: ([max]) => max.value + 2",
+					file: "packages/engine/src/schema/representability.ts",
+					original: "rosterMaxCodes = int2Max + 1",
+					replacement: "rosterMaxCodes = int2Max + 2",
 					why: "rosterMaxCodes one code past smallint's non-negative values; the roster property fails."
 				}
 			]
@@ -143,7 +141,7 @@ export const postgreSQLsIntegersNumberARostersCodesByEveryNonNegativeSmallintOnc
 
 /** A constant's length rounds up to whole bytes inside an int32 exactly up to constantMaxBits. */
 export const aConstantsLengthRoundsUpToWholeBytesInsideAnInt32ExactlyUpToConstantMaxBits =
-	property.exhaust(finite(int(constantMaxBits.value - 8, constantMaxBits.value + 8)), {
+	property.exhaust(finite(int(constantMaxBits - 8, constantMaxBits + 8)), {
 		box: "every bit length within a byte of constantMaxBits",
 		needs: {},
 		situations: ["at the bound", "below the bound", "past the bound"] satisfies ReadonlyArray<
@@ -154,13 +152,13 @@ export const aConstantsLengthRoundsUpToWholeBytesInsideAnInt32ExactlyUpToConstan
 				const rounded = length + 8 - 1
 				assert.equal(
 					Int32Array.of(rounded)[0] === rounded,
-					length <= constantMaxBits.value,
+					length <= constantMaxBits,
 					`a length of ${length} bits`
 				)
 				c.note(
-					length === constantMaxBits.value
+					length === constantMaxBits
 						? "at the bound"
-						: length < constantMaxBits.value
+						: length < constantMaxBits
 							? "below the bound"
 							: "past the bound"
 				)
@@ -169,9 +167,9 @@ export const aConstantsLengthRoundsUpToWholeBytesInsideAnInt32ExactlyUpToConstan
 		kept: [],
 		kills: [
 			{
-				file: "packages/limits/src/limits.ts",
-				original: "\tcompute: ([intMax, bits]) => intMax.value - bits.value + 1",
-				replacement: "\tcompute: ([intMax, bits]) => intMax.value - bits.value + 2",
+				file: "packages/engine/src/physical/ddl/constants.ts",
+				original: "constantMaxBits = int4Max - bitsPerByte + 1",
+				replacement: "constantMaxBits = int4Max - bitsPerByte + 2",
 				why: "constantMaxBits one bit past the longest length that rounds up into an int32; the constant property fails."
 			}
 		]
@@ -195,7 +193,7 @@ export const aHeapPageRoundsASizeUpAsTYPEALIGNDoes = property.exhaust(finite(rou
 	kept: [],
 	kills: [
 		{
-			file: "packages/limits/src/limits.ts",
+			file: "packages/engine/src/schema/representability.ts",
 			original: "export const alignUp = (n: number, a: number): number => Math.ceil(n / a) * a",
 			replacement:
 				"export const alignUp = (n: number, a: number): number => (Math.floor(n / a) + 1) * a",
@@ -206,7 +204,7 @@ export const aHeapPageRoundsASizeUpAsTYPEALIGNDoes = property.exhaust(finite(rou
 
 /** A heap page holds as its largest heap tuple the largest one PageAddItem fits on an empty page beside its line pointer. */
 export const aHeapPageHoldsAsItsLargestHeapTupleTheLargestOnePageAddItemFitsOnAnEmptyPageBesideItsLinePointer =
-	property.exhaust(finite(int(heapTupleMaxBytes.value - 16, heapTupleMaxBytes.value + 16)), {
+	property.exhaust(finite(int(heapTupleMaxBytes - 16, heapTupleMaxBytes + 16)), {
 		box: "every tuple size within sixteen bytes of heapTupleMaxBytes",
 		needs: {},
 		situations: ["below the bound", "at the bound", "past the bound"] satisfies ReadonlyArray<
@@ -215,15 +213,14 @@ export const aHeapPageHoldsAsItsLargestHeapTupleTheLargestOnePageAddItemFitsOnAn
 		check: (_, c: Case<Tuple>) => (size) =>
 			Effect.sync(() => {
 				assert.equal(
-					pageHeaderBytes.value + itemIdBytes.value <=
-						blockSize.value - typeAlign(maxAlign.value, size),
-					size <= heapTupleMaxBytes.value,
+					pageHeaderBytes + itemIdBytes <= blockSize - typeAlign(maxAlign, size),
+					size <= heapTupleMaxBytes,
 					`a tuple of ${size} bytes`
 				)
 				c.note(
-					size === heapTupleMaxBytes.value
+					size === heapTupleMaxBytes
 						? "at the bound"
-						: size < heapTupleMaxBytes.value
+						: size < heapTupleMaxBytes
 							? "below the bound"
 							: "past the bound"
 				)
@@ -232,10 +229,11 @@ export const aHeapPageHoldsAsItsLargestHeapTupleTheLargestOnePageAddItemFitsOnAn
 		kept: [],
 		kills: [
 			{
-				file: "packages/limits/src/limits.ts",
-				original: "\t\tblock.value - alignUp(header.value + itemId.value, align.value)",
+				file: "packages/engine/src/laws/model/model.ts",
+				original:
+					"heapTupleMaxBytes = blockSize - alignUp(pageHeaderBytes + itemIdBytes, maxAlign)",
 				replacement:
-					"\t\tblock.value - alignUp(header.value + itemId.value, align.value) + align.value",
+					"heapTupleMaxBytes = blockSize - alignUp(pageHeaderBytes + itemIdBytes, maxAlign) + maxAlign",
 				why: "heapTupleMaxBytes an alignment past what an empty page fits; the heap tuple property fails."
 			}
 		]

@@ -1,3 +1,4 @@
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 /**
  * On PostgreSQL 19, through the command line: an installation an earlier grizzle migrated, its decoder login, its
  * publication and its replication slot named as that grizzle's naming door named them, migrated by today's grizzle
@@ -41,7 +42,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { maxIdentifierBytes } from "@grizzle/limits"
 import {
 	Array as Arr,
 	Effect,
@@ -276,7 +276,7 @@ const earlierCase = (e: Earlier, c: Case<EarlierFeature>) =>
 			const earlier = spelledEarlier(now, e.segments)
 			const earlierDecoder = `${rolePrefix}__${earlier}`
 			assert.ok(
-				utf8Length(earlierDecoder) <= maxIdentifierBytes.value,
+				utf8Length(earlierDecoder) <= maxIdentifierBytes,
 				`${earlierDecoder} fits PostgreSQL's identifier: the drawn segments are short enough`
 			)
 			yield* respell(root, now, earlier)

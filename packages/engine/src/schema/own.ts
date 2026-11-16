@@ -18,8 +18,7 @@ import {
 	identity,
 	parseSchemaName
 } from "#compiler/core/identity.ts"
-
-import { handleMaxBytes } from "@grizzle/limits"
+import { namedatalen } from "#compiler/core/identity.ts"
 import {
 	type ColumnIdent,
 	type ConstraintName,
@@ -90,6 +89,21 @@ import type { SchemaContent } from "#compiler/schema/levels.ts"
 import { keyLayout } from "#compiler/schema/representability.ts"
 import { foreignInput } from "#compiler/schema/terms.ts"
 import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.ts"
+
+/**
+ * The most UTF-8 bytes of one roster handle. A roster's names constant holds its handles as one name[], and a name
+ * keeps at most NAMEDATALEN - 1 bytes of its text, clipping a longer one at a character boundary: a longer handle would
+ * decode clipped, and two that share their first NAMEDATALEN - 1 bytes would decode alike.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope one roster handle in UTF-8, as its roster's names constant holds it in a name
+ * @derivation NAMEDATALEN less its terminating zero, as namein clips a name: "len = pg_mbcliplen(s, len, NAMEDATALEN -
+ *   1);" (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/name.c, verified 2026-11-14)
+ * @from {@link namedatalen}
+ */
+export const handleMaxBytes = namedatalen - 1
 
 /**
  * An owned field: `named` is its column's identity at the naming door and `column` that identity's identifier; `writing`
@@ -1573,11 +1587,11 @@ class Owner {
 					`handles that hold no NUL and no lone surrogate, as a PostgreSQL name does; ${JSON.stringify(handle)} holds one`
 				)
 			}
-			if (utf8Length(handle) > handleMaxBytes.value) {
+			if (utf8Length(handle) > handleMaxBytes) {
 				fail(
 					"MalformedDescription",
 					labeledChildLoc(entry.desc.loc, "handles", `roster of ${r.name}`),
-					`handles of at most ${handleMaxBytes.value} UTF-8 bytes, the most a name holds (NAMEDATALEN - 1); ${JSON.stringify(handle)} has ${utf8Length(handle)}`
+					`handles of at most ${handleMaxBytes} UTF-8 bytes, the most a name holds (NAMEDATALEN - 1); ${JSON.stringify(handle)} has ${utf8Length(handle)}`
 				)
 			}
 		}
@@ -1605,7 +1619,7 @@ class Owner {
 				fail(
 					"MalformedDescription",
 					loc,
-					`a closed-id field whose decoded column ${field}_name fits a name of ${handleMaxBytes.value} bytes`
+					`a closed-id field whose decoded column ${field}_name fits a name of ${handleMaxBytes} bytes`
 				)
 			}
 			const other = columns.get(identifierOf(identity.decodedColumn(declared)))

@@ -1,4 +1,3 @@
-import { cosineNormMax, cosineNormMin } from "@grizzle/limits"
 import { compareText } from "#compiler/core/canonical.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
@@ -6,6 +5,7 @@ import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { vectorFunctions } from "#compiler/lower/conservative/vector/index.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement } from "#compiler/physical/obligations/graph.ts"
+import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
 import type { Expr, InlineConstraint } from "#compiler/sql/ast.ts"
 import { lit, qualifiedCall, tableCol, types } from "#compiler/sql/build.ts"
 
@@ -19,8 +19,8 @@ export const isVectorType = (t: ScalarType): boolean => baseOf(t).carrier === "v
 const normPredicate = (vectorSchema: string, column: Expr): Expr => ({
 	kind: "between",
 	expr: qualifiedCall(vectorSchema, vectorFunctions.norm, [column]),
-	low: lit.float(cosineNormMin.value, types.double),
-	high: lit.float(cosineNormMax.value, types.double),
+	low: lit.float(cosineNormMin, types.double),
+	high: lit.float(cosineNormMax, types.double),
 	not: false
 })
 
@@ -104,7 +104,7 @@ export const addVectorNorms = (b: InstallBuilder, norms: ReadonlyArray<VectorNor
 				ddl: [],
 				reasons: [
 					enforcement(
-						`the cosine domain of ${n.relation}.${n.field}: vector_norm in [${cosineNormMin.value}, ${cosineNormMax.value}]`
+						`the cosine domain of ${n.relation}.${n.field}: vector_norm in [${cosineNormMin}, ${cosineNormMax}]`
 					)
 				],
 				phase: "structure"

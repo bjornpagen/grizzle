@@ -1,36 +1,394 @@
-import type { Limit } from "@bjornpagen/limit"
-import {
-	alignDown,
-	alignUp,
-	bitsBytes,
-	btreeMaxItemSize,
-	decDigits,
-	gistMaxItemSize,
-	indexMaxKeys,
-	indexNullBitmapBytes,
-	indexTupleHeader,
-	maxAlign,
-	numericDigitBytes,
-	numericHeaderBytes,
-	rangeFlagBytes,
-	rangeHeaderBytes,
-	typlens,
-	utf8EncodingMaxBytes,
-	varlenaHeaderBytes,
-	vectorHeaderBytes
-} from "@grizzle/limits"
 import { nominal } from "#compiler/core/brand.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
+import { blockSize, itemIdBytes, pageHeaderBytes } from "#compiler/core/page.ts"
 import * as Result from "#compiler/core/result.ts"
+import { int2Max } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
 import type { TextLanguage } from "#compiler/ir/scalar.ts"
+import { utf8EncodingMaxBytes } from "#compiler/scalar/compute/lower.ts"
+import { decDigits } from "#compiler/scalar/compute/numeric.ts"
+import { varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
 
 /**
- * The bits one byte of a bit string holds, BITS_PER_BYTE.
+ * BITS_PER_BYTE, the bits PostgreSQL counts in one byte of a datum.
  *
- * @formatConstant a bit string's byte: 8 bits
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit bits
+ * @scope one byte of a datum, as a bit string's length and a type's width count it
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/pg_config_manual.h#L111
+ * @quote #define BITS_PER_BYTE 8
+ * @verified 2026-11-14
  */
-const bitsPerByte = 8
+export const bitsPerByte = 8
+
+/**
+ * The most codes one roster numbers, its holes included. A closed-id field stores its handle's code as a smallint, and
+ * a roster numbers its handles from 0 in the order they were declared, a removed handle leaving its code a hole, so a
+ * code is one of smallint's non-negative values. A code is never negative because it is a digit of the mixed-radix
+ * index a closed relation's constant is read at, where a negative one would borrow from the digit above it.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit codes
+ * @scope the codes of one roster, its live handles' and its holes, each the smallint a closed-id column stores
+ * @derivation smallint's non-negative values, 0 to its greatest: one code each
+ * @from {@link int2Max}
+ */
+export const rosterMaxCodes = int2Max + 1
+
+/**
+ * The typlen of each fixed-size type a field, a range's endpoint or a varlena's part is: a smallint's is the bytes one
+ * code takes in its closed-id column.
+ */
+export const typlens = {
+	/**
+	 * @limitKind published
+	 * @owner PostgreSQL 19rc2
+	 * @unit bytes
+	 * @scope one smallint datum, in a heap tuple and in an index entry
+	 * @constraint compile-time constant
+	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${62}
+	 * @quote typname => 'int2', typlen => '2', typbyval => 't'
+	 * @verified 2026-11-14
+	 */
+	int2: 2,
+	/**
+	 * @limitKind published
+	 * @owner PostgreSQL 19rc2
+	 * @unit bytes
+	 * @scope one integer datum, in a heap tuple and in an index entry
+	 * @constraint compile-time constant
+	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${74}
+	 * @quote typname => 'int4', typlen => '4', typbyval => 't'
+	 * @verified 2026-11-14
+	 */
+	int4: 4,
+	/**
+	 * @limitKind published
+	 * @owner PostgreSQL 19rc2
+	 * @unit bytes
+	 * @scope one bigint datum, in a heap tuple and in an index entry
+	 * @constraint compile-time constant
+	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${57}
+	 * @quote typname => 'int8', typlen => '8', typbyval => 't'
+	 * @verified 2026-11-14
+	 */
+	int8: 8,
+	/**
+	 * @limitKind published
+	 * @owner PostgreSQL 19rc2
+	 * @unit bytes
+	 * @scope one real datum, in a heap tuple and in an index entry
+	 * @constraint compile-time constant
+	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${220}
+	 * @quote typname => 'float4', typlen => '4', typbyval => 't'
+	 * @verified 2026-11-14
+	 */
+	float4: 4,
+	/**
+	 * @limitKind published
+	 * @owner PostgreSQL 19rc2
+	 * @unit bytes
+	 * @scope one double precision datum, in a heap tuple and in an index entry
+	 * @constraint compile-time constant
+	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${225}
+	 * @quote typname => 'float8', typlen => '8', typbyval => 't'
+	 * @verified 2026-11-14
+	 */
+	float8: 8,
+	/**
+	 * @limitKind published
+	 * @owner PostgreSQL 19rc2
+	 * @unit bytes
+	 * @scope one money datum, in a heap tuple and in an index entry
+	 * @constraint compile-time constant
+	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${239}
+	 * @quote typname => 'money', typlen => '8', typbyval => 't'
+	 * @verified 2026-11-14
+	 */
+	money: 8,
+	/**
+	 * @limitKind published
+	 * @owner PostgreSQL 19rc2
+	 * @unit bytes
+	 * @scope one boolean datum, in a heap tuple and in an index entry
+	 * @constraint compile-time constant
+	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${36}
+	 * @quote typname => 'bool', typlen => '1', typbyval => 't'
+	 * @verified 2026-11-14
+	 */
+	bool: 1,
+	/**
+	 * @limitKind published
+	 * @owner PostgreSQL 19rc2
+	 * @unit bytes
+	 * @scope one oid datum, in a heap tuple and in an index entry
+	 * @constraint compile-time constant
+	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${89}
+	 * @quote typname => 'oid', typlen => '4', typbyval => 't'
+	 * @verified 2026-11-14
+	 */
+	oid: 4,
+	/**
+	 * @limitKind published
+	 * @owner PostgreSQL 19rc2
+	 * @unit bytes
+	 * @scope one uuid datum, in a heap tuple and in an index entry
+	 * @constraint compile-time constant
+	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${409}
+	 * @quote typname => 'uuid', typlen => '16', typbyval => 'f'
+	 * @verified 2026-11-14
+	 */
+	uuid: 16,
+	/**
+	 * @limitKind published
+	 * @owner PostgreSQL 19rc2
+	 * @unit bytes
+	 * @scope one date datum, in a heap tuple and in an index entry
+	 * @constraint compile-time constant
+	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${288}
+	 * @quote typname => 'date', typlen => '4', typbyval => 't'
+	 * @verified 2026-11-14
+	 */
+	date: 4
+} as const
+
+/**
+ * The greatest alignment PostgreSQL rounds a tuple and its parts to, MAXIMUM_ALIGNOF: 8 on every platform it builds
+ * on, the alignment of int64 and double. An entry measured at the greatest alignment is at least its size at any.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope the alignment of a heap or index tuple, its header, its attributes and its line pointer's share of a page
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/meson.build#L1877-L1878
+ * @quote we intentionally do not consider any types wider than 64 bits, as allowing MAXIMUM_ALIGNOF to exceed 8 would
+ *   be too much of a penalty for disk and memory space
+ * @verified 2026-11-14
+ */
+export const maxAlign = 8
+
+/** `n` rounded up to a multiple of the alignment `a`, as PostgreSQL's TYPEALIGN rounds a size. */
+export const alignUp = (n: number, a: number): number => Math.ceil(n / a) * a
+
+/**
+ * A tuple identifier, ItemPointerData.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope the heap tuple identifier an index tuple and a B-tree pivot carry
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/storage/itemptr.h#L30-L31
+ * @quote The struct is designed to be six bytes long (it contains three int16 fields)
+ * @verified 2026-11-14
+ */
+const itemPointerBytes = 6
+
+/**
+ * An index tuple's header, IndexTupleData: its heap tuple identifier and its two-byte t_info.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope the header of every B-tree and GiST index tuple
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/itup.h#L35-L51
+ * @quote typedef struct IndexTupleData { ItemPointerData t_tid; unsigned short t_info; } IndexTupleData;
+ * @verified 2026-11-14
+ */
+const indexTupleHeader = 8
+
+/**
+ * A B-tree page's special space, BTPageOpaqueData: two block numbers, a level, flags and a cycle id.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope the special space of every B-tree page
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/nbtree.h#L63-L70
+ * @quote typedef struct BTPageOpaqueData { BlockNumber btpo_prev; BlockNumber btpo_next; uint32 btpo_level; uint16
+ *   btpo_flags; BTCycleId btpo_cycleid; } BTPageOpaqueData;
+ * @verified 2026-11-14
+ */
+const btreeOpaqueBytes = 16
+
+/**
+ * A GiST page's special space, GISTPageOpaqueData: an LSN, a block number, flags and the page id.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope the special space of every GiST page
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/gist.h#L80-L86
+ * @quote typedef struct GISTPageOpaqueData { PageGistNSN nsn; BlockNumber rightlink; uint16 flags; uint16
+ *   gist_page_id; } GISTPageOpaqueData;
+ * @verified 2026-11-14
+ */
+const gistOpaqueBytes = 16
+
+/**
+ * The most bytes one set over a roster takes, uncompressed and in line: a bit(n) varlena of its header, its bit count
+ * and a byte per eight bits, n its roster's codes. A roster's codes are installation data, which ownership does not
+ * hold, so the bound is the one every installation's roster keeps within: its most codes.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope one set over a roster, its bit(n) datum
+ * @derivation VARBITTOTALLEN(n), "#define VARBITTOTALLEN(BITLEN) (((BITLEN) + BITS_PER_BYTE-1)/BITS_PER_BYTE +
+ *   VARHDRSZ + VARBITHDRSZ)" with VARBITHDRSZ sizeof(int32)
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/varbit.h), at n the most codes a roster
+ *   numbers
+ * @from {@link varlenaHeaderBytes}, {@link typlens.int4}, {@link rosterMaxCodes}, {@link bitsPerByte}
+ */
+const bitsBytes = varlenaHeaderBytes + typlens.int4 + Math.ceil(rosterMaxCodes / bitsPerByte)
+
+/**
+ * A range's header, sizeof(RangeType): its varlena header and its range type's OID, which its bounds follow.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope the header of one range datum
+ * @derivation sizeof(RangeType), "typedef struct { int32 vl_len_; Oid rangetypid; /* Following the OID are zero to two
+ *   bound values, then a flags byte *\/ } RangeType;"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/rangetypes.h#L25-L30), which
+ *   range_serialize counts first: VARHDRSZ and an oid
+ * @from {@link varlenaHeaderBytes}, {@link typlens.oid}
+ */
+const rangeHeaderBytes = varlenaHeaderBytes + typlens.oid
+
+/**
+ * A range's flags byte, after its bounds.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope the flags of one range datum
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/rangetypes.c#L2072-L2073
+ * @quote /* Add space for flag byte *\/ msize += sizeof(char);
+ * @verified 2026-11-14
+ */
+const rangeFlagBytes = 1
+
+/**
+ * A numeric's header, NUMERIC_HDRSZ: its varlena header, its sign and display scale, and its weight.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope the long header of one numeric datum, the longest it takes
+ * @derivation "#define NUMERIC_HDRSZ (VARHDRSZ + sizeof(uint16) + sizeof(int16))"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L178): VARHDRSZ and two
+ *   16-bit fields, each a smallint's width
+ * @from {@link varlenaHeaderBytes}, {@link typlens.int2}
+ */
+const numericHeaderBytes = varlenaHeaderBytes + typlens.int2 * 2
+
+/**
+ * A numeric's NBASE digit, NumericDigit, an int16.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope one NBASE digit of a numeric datum
+ * @derivation "typedef int16 NumericDigit;"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L103), a smallint's width
+ * @from {@link typlens.int2}
+ */
+const numericDigitBytes = typlens.int2
+
+/**
+ * A vector's header, offsetof(Vector, x): its varlena header, its dimension count and a reserved field.
+ *
+ * @limitKind derived
+ * @owner pgvector 0.8.7
+ * @unit bytes
+ * @scope the header of one vector datum, which its components follow
+ * @derivation offsetof(Vector, x) in VECTOR_SIZE, "#define VECTOR_SIZE(_dim) add_size(offsetof(Vector, x),
+ *   mul_size(sizeof(float), _dim))" (https://github.com/pgvector/pgvector/blob/v0.8.7/src/vector.h#L13), of "typedef
+ *   struct Vector { int32 vl_len_; int16 dim; int16 unused; float x[FLEXIBLE_ARRAY_MEMBER]; } Vector;"
+ *   (https://github.com/pgvector/pgvector/blob/v0.8.7/src/vector.h#L18-L24): VARHDRSZ and two int16 fields, each a
+ *   smallint's width; each component a C float, a real ("typedef float float4;", c.h)
+ * @from {@link varlenaHeaderBytes}, {@link typlens.int2}
+ */
+const vectorHeaderBytes = varlenaHeaderBytes + typlens.int2 * 2
+
+const alignDown = (n: number, a: number): number => Math.floor(n / a) * a
+
+/**
+ * The most bytes one B-tree entry takes: BTMaxItemSize, a third of a page, its pivot's heap tuple identifier left.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope one B-tree index entry, a key's index's among them
+ * @derivation nbtree.h's BTMaxItemSize: MAXALIGN_DOWN((BLCKSZ - MAXALIGN(SizeOfPageHeaderData + 3*sizeof(ItemIdData))
+ *   - MAXALIGN(sizeof(BTPageOpaqueData))) / 3) - MAXALIGN(sizeof(ItemPointerData))
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/nbtree.h#L165-L169), three entries to a
+ *   page
+ * @from {@link blockSize}, {@link maxAlign}, {@link pageHeaderBytes}, {@link itemIdBytes}, {@link btreeOpaqueBytes},
+ *   {@link itemPointerBytes}
+ */
+export const btreeMaxItemSize =
+	alignDown(
+		(blockSize -
+			alignUp(pageHeaderBytes + 3 * itemIdBytes, maxAlign) -
+			alignUp(btreeOpaqueBytes, maxAlign)) /
+			3,
+		maxAlign
+	) - alignUp(itemPointerBytes, maxAlign)
+
+/**
+ * The most bytes one GiST entry takes: an empty page, GiSTPageSize, less its one line pointer.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope one GiST index entry, a span key's among them
+ * @derivation gist_private.h's GiSTPageSize, BLCKSZ - SizeOfPageHeaderData - MAXALIGN(sizeof(GISTPageOpaqueData))
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/gist_private.h#L474-L475), less the
+ *   entry's one ItemIdData, as gistfitpage counts it
+ * @from {@link blockSize}, {@link maxAlign}, {@link pageHeaderBytes}, {@link gistOpaqueBytes}, {@link itemIdBytes}
+ */
+export const gistMaxItemSize =
+	blockSize - pageHeaderBytes - alignUp(gistOpaqueBytes, maxAlign) - itemIdBytes
+
+/**
+ * The most columns one index holds, INDEX_MAX_KEYS: a key's index has one per field.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit columns
+ * @scope one index: a key's, a span key's GiST constraint, an access path's
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/pg_config_manual.h#L79
+ * @quote #define INDEX_MAX_KEYS 32
+ * @verified 2026-11-14
+ */
+export const indexMaxKeys = 32
+
+/**
+ * An index tuple's null bitmap, IndexAttributeBitMapData: a bit for each of INDEX_MAX_KEYS columns, whatever the index's
+ * own count, which follows the header exactly when the tuple holds a null.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope the null bitmap of one index tuple that holds a null
+ * @derivation "typedef struct IndexAttributeBitMapData { uint8 bits[(INDEX_MAX_KEYS + 8 - 1) / 8]; }"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/itup.h#L55-L58, verified 2026-11-14): a
+ *   byte per eight of INDEX_MAX_KEYS bits, C's integer division
+ * @from {@link indexMaxKeys}, {@link bitsPerByte}
+ */
+const indexNullBitmapBytes = Math.floor((indexMaxKeys + bitsPerByte - 1) / bitsPerByte)
 
 /** The two bounds a range holds, and a btree_gist key of a fixed-size type beside each other. */
 const bounds = ["lower", "upper"] as const
@@ -40,7 +398,7 @@ const bounds = ["lower", "upper"] as const
  * holds a null, MAXALIGNed; index_form_tuple lays the datums out from there.
  */
 const indexDataOffset = (nulls: boolean): number =>
-	alignUp(indexTupleHeader.value + (nulls ? indexNullBitmapBytes.value : 0), maxAlign.value)
+	alignUp(indexTupleHeader + (nulls ? indexNullBitmapBytes : 0), maxAlign)
 
 export interface DatumBound {
 	/** The most bytes the datum occupies in an index tuple, its header included. */
@@ -113,7 +471,7 @@ const fixed = (bytes: number, align: number, family: Family): DatumBound => ({
  * carries a fold's set accumulators, at the codes it knows its roster has (laws/model/plan.ts #axis).
  */
 export const setDatumBound = (codes: number): DatumBound =>
-	fixed(varlenaHeaderBytes.value + typlens.int4.value + Math.ceil(codes / bitsPerByte), 4, "bit")
+	fixed(varlenaHeaderBytes + typlens.int4 + Math.ceil(codes / bitsPerByte), 4, "bit")
 
 /** The literal value of a length bound's operand. */
 const literalCount = (e: ExprDesc): number | undefined => {
@@ -237,7 +595,7 @@ const languageByteBound = (language: TextLanguage): number =>
  */
 const predicateByteBound = (predicate: ExprDesc): number =>
 	Math.min(
-		Math.max(0, lengthBound("charLength", predicate)) * utf8EncodingMaxBytes.value,
+		Math.max(0, lengthBound("charLength", predicate)) * utf8EncodingMaxBytes,
 		Math.max(0, lengthBound("octetLength", predicate))
 	)
 
@@ -287,21 +645,21 @@ const integerFamily = (desc: FieldDesc): "int4" | "int8" | undefined => {
 const pgDatumBound = (type: Extract<FieldDesc, { readonly kind: "pg" }>["type"]): DatumBound => {
 	switch (type) {
 		case "smallint":
-			return fixed(typlens.int2.value, 2, "int2")
+			return fixed(typlens.int2, 2, "int2")
 		case "integer":
-			return fixed(typlens.int4.value, 4, "int4")
+			return fixed(typlens.int4, 4, "int4")
 		case "bigint":
-			return fixed(typlens.int8.value, 8, "int8")
+			return fixed(typlens.int8, 8, "int8")
 		case "real":
-			return fixed(typlens.float4.value, 4, "float4")
+			return fixed(typlens.float4, 4, "float4")
 		case "double precision":
-			return fixed(typlens.float8.value, 8, "float8")
+			return fixed(typlens.float8, 8, "float8")
 		case "money":
-			return fixed(typlens.money.value, 8, "money")
+			return fixed(typlens.money, 8, "money")
 		case "boolean":
-			return fixed(typlens.bool.value, 1, "bool")
+			return fixed(typlens.bool, 1, "bool")
 		case "date":
-			return fixed(typlens.date.value, 4, "date")
+			return fixed(typlens.date, 4, "date")
 	}
 }
 
@@ -313,15 +671,14 @@ const pgDatumBound = (type: Extract<FieldDesc, { readonly kind: "pg" }>["type"])
  * groups, ceil(digits / DEC_DIGITS) + ceil(scale / DEC_DIGITS), are never more.
  */
 const numericMaximumSize = (precision: number): number =>
-	numericHeaderBytes.value +
-	numericDigitBytes.value * Math.floor((precision + 2 * (decDigits.value - 1)) / decDigits.value)
+	numericHeaderBytes + numericDigitBytes * Math.floor((precision + 2 * (decDigits - 1)) / decDigits)
 
 /**
  * range_serialize's size of a range over an endpoint of `endpoint` bytes, both bounds present: its header, which is
  * MAXALIGNed, its two bounds, each at its own width's alignment and so unpadded, and its flags byte.
  */
-const rangeBytes = (endpoint: Limit): number =>
-	rangeHeaderBytes.value + bounds.length * endpoint.value + rangeFlagBytes.value
+const rangeBytes = (endpoint: number): number =>
+	rangeHeaderBytes + bounds.length * endpoint + rangeFlagBytes
 
 /**
  * The largest index datum of a field, declared or inferred; undefined for bytes and for text whose pattern proves no
@@ -337,11 +694,11 @@ export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
 		case "pg":
 			return pgDatumBound(desc.type)
 		case "uuid":
-			return fixed(typlens.uuid.value, 1, "uuid")
+			return fixed(typlens.uuid, 1, "uuid")
 		case "closedId":
-			return fixed(typlens.int2.value, 2, "code")
+			return fixed(typlens.int2, 2, "code")
 		case "bits":
-			return fixed(bitsBytes.value, 4, "bit")
+			return fixed(bitsBytes, 4, "bit")
 		case "numeric":
 			return fixed(numericMaximumSize(desc.precision), 4, "numeric")
 		case "computedNumeric":
@@ -353,14 +710,14 @@ export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
 					? fixed(rangeBytes(typlens.int4), 4, "range")
 					: fixed(rangeBytes(typlens.int8), 8, "range")
 		case "vector":
-			return fixed(vectorHeaderBytes.value + typlens.float4.value * desc.dimensions, 4, "vector")
+			return fixed(vectorHeaderBytes + typlens.float4 * desc.dimensions, 4, "vector")
 		case "bytes":
 			return undefined
 		case "text":
 			break
 	}
 	const bytes = textByteBound(desc)
-	return Number.isFinite(bytes) ? fixed(varlenaHeaderBytes.value + bytes, 4, "text") : undefined
+	return Number.isFinite(bytes) ? fixed(varlenaHeaderBytes + bytes, 4, "text") : undefined
 }
 
 /**
@@ -393,7 +750,7 @@ export const btreeEntryBytes = (columns: ReadonlyArray<EntryColumn>): number => 
 		offset = exact ? alignUp(offset, datum.align) + datum.bytes : afterAtWorst(offset, datum)
 		exact = exact && isFixedWidth(datum) && !nullable
 	}
-	return alignUp(offset, maxAlign.value)
+	return alignUp(offset, maxAlign)
 }
 
 /** The offset past `datum` laid out at `offset` or after, at its worst alignment padding and its longest. */
@@ -431,7 +788,7 @@ const gistKeyBytes = (d: GistDatum): number => {
 		case "numeric":
 		case "text":
 		case "bit":
-			return varlenaHeaderBytes.value + alignUp(d.bytes, 4) + d.bytes
+			return varlenaHeaderBytes + alignUp(d.bytes, 4) + d.bytes
 		case "range":
 			return d.bytes
 	}
@@ -439,11 +796,11 @@ const gistKeyBytes = (d: GistDatum): number => {
 
 /** The most bytes a GiST tuple over these key datums can reach. */
 const keyGistEntryBytes = (datums: ReadonlyArray<GistDatum>): number => {
-	let size = indexTupleHeader.value
+	let size = indexTupleHeader
 	for (const d of datums) {
-		size += maxAlign.value - 1 + gistKeyBytes(d)
+		size += maxAlign - 1 + gistKeyBytes(d)
 	}
-	return alignUp(size, maxAlign.value)
+	return alignUp(size, maxAlign)
 }
 
 /** The most bytes a GiST tuple over these fields' datums can reach, or the first field btree_gist cannot index. */
@@ -500,8 +857,8 @@ export const gistEntry = (
 	if (!bytes.ok) {
 		return Result.err({ kind: "gistOperatorClass", field: bytes.error })
 	}
-	return bytes.value > gistMaxItemSize.value
-		? Result.err({ kind: "gistEntry", bytes: bytes.value, limit: gistMaxItemSize.value })
+	return bytes.value > gistMaxItemSize
+		? Result.err({ kind: "gistEntry", bytes: bytes.value, limit: gistMaxItemSize })
 		: Result.ok(provedGist(bytes.value))
 }
 
@@ -542,8 +899,8 @@ export const keyDatums = (
 	}>,
 	KeyFault
 > => {
-	if (fields.length > indexMaxKeys.value) {
-		return Result.err({ kind: "columns", limit: indexMaxKeys.value })
+	if (fields.length > indexMaxKeys) {
+		return Result.err({ kind: "columns", limit: indexMaxKeys })
 	}
 	const out: Array<{
 		readonly field: string
@@ -579,11 +936,11 @@ export const btreeEntry = (
 	columns: ReadonlyArray<EntryColumn>
 ): Result.Result<BtreeEntryBytes, KeyFault> => {
 	const bytes = btreeEntryBytes(columns)
-	return bytes > btreeMaxItemSize.value
+	return bytes > btreeMaxItemSize
 		? Result.err({
 				kind: "btreeEntry",
 				bytes,
-				limit: btreeMaxItemSize.value,
+				limit: btreeMaxItemSize,
 				datums: columns.map((c) => ({ field: c.name, bytes: c.datum.bytes }))
 			})
 		: Result.ok(provedEntry(bytes))
@@ -601,22 +958,22 @@ export const btreeEntry = (
  * fields that leave the text no byte.
  */
 export const textBytesBeside = (others: KeyFields): Result.Result<number, KeyFault> => {
-	if (others.length + 1 > indexMaxKeys.value) {
-		return Result.err({ kind: "columns", limit: indexMaxKeys.value })
+	if (others.length + 1 > indexMaxKeys) {
+		return Result.err({ kind: "columns", limit: indexMaxKeys })
 	}
 	const bounded = keyDatums(others)
 	if (!bounded.ok) {
 		return bounded
 	}
-	const text = { field: "the text", datum: fixed(varlenaHeaderBytes.value, 4, "text") }
+	const text = { field: "the text", datum: fixed(varlenaHeaderBytes, 4, "text") }
 	const datums = [...bounded.value, text]
 	const extent = datums.reduce((offset, d) => afterAtWorst(offset, d.datum), indexDataOffset(true))
-	const room = alignDown(btreeMaxItemSize.value, maxAlign.value) - extent
+	const room = alignDown(btreeMaxItemSize, maxAlign) - extent
 	return room < 0
 		? Result.err({
 				kind: "btreeEntry",
-				bytes: alignUp(extent, maxAlign.value),
-				limit: btreeMaxItemSize.value,
+				bytes: alignUp(extent, maxAlign),
+				limit: btreeMaxItemSize,
 				datums: datums.map((d) => ({ field: d.field, bytes: d.datum.bytes }))
 			})
 		: Result.ok(room)

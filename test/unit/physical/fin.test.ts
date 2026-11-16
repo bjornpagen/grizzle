@@ -24,10 +24,10 @@
  * and one past it refused.
  */
 
+import { cellMaxCodes } from "@bjornpagen/grizzle-engine/physical/ddl/constants"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { cellMaxCodes } from "@grizzle/limits"
 import { Effect } from "effect"
 import { cellCodesBound } from "#compiler/physical/ddl/constants.ts"
 import { closedId } from "#compiler/public/fields.ts"
@@ -129,7 +129,7 @@ export const aCellReadAsAnIntegerRefusesAPayloadSpaceExactlyWhenItsCodesArePastT
 		] satisfies ReadonlyArray<Reached<Bounded>>,
 		check: (_, k: Case<Bounded>) => (codes) =>
 			Effect.sync(() => {
-				assert.equal(BigInt(cellMaxCodes.value), greatest)
+				assert.equal(BigInt(cellMaxCodes), greatest)
 				const refusal = cellCodesBound(codes, "the constant")
 				if (codes <= greatest) {
 					assert.equal(refusal, undefined, `${codes} codes fit a cell`)
@@ -141,7 +141,7 @@ export const aCellReadAsAnIntegerRefusesAPayloadSpaceExactlyWhenItsCodesArePastT
 				assert.deepEqual(reason.bound, {
 					kind: "cellCodes",
 					constant: "the constant",
-					limit: cellMaxCodes.value,
+					limit: cellMaxCodes,
 					needed: codes
 				})
 				k.note(codes === greatest + 1n ? "one past the bound" : "past the bound")
@@ -195,7 +195,7 @@ export const aCellReadAsAnIntegerPlansADeclaredRelationExactlyWhenTheProductOfIt
 					assert.deepEqual(reason.bound, {
 						kind: "cellCodes",
 						constant: "closed relation Wide",
-						limit: cellMaxCodes.value,
+						limit: cellMaxCodes,
 						needed: codes
 					})
 					k.note("a payload past the bound refused")

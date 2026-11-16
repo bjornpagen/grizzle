@@ -1,3 +1,4 @@
+import { decimalTextMaxBytes } from "@bjornpagen/grizzle-engine/scalar/lexical"
 import {
 	boolean,
 	characterOf,
@@ -10,7 +11,6 @@ import {
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { decimalTextMaxBytes } from "@grizzle/limits"
 import { type Array as Arr, DateTime, Record as Rec, String as Str } from "effect"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { LexicalTarget } from "#compiler/scalar/lexical.ts"
@@ -570,7 +570,7 @@ const decimalWithin =
  */
 export const decimalTextGen: Gen<string> = weighted([
 	[1, element(["0", "-0", "+0", "0.", ".0", "-.000", "000", "-0.0"])],
-	[9, decimalWithin(decimalTextMaxBytes.value)]
+	[9, decimalWithin(decimalTextMaxBytes)]
 ])
 
 /**
@@ -580,7 +580,7 @@ export const decimalTextGen: Gen<string> = weighted([
 const decimalCandidate = (target: LexicalTarget, text: string): Candidate => {
 	const read = defined(referenceDecimal(text), "a member of the grammar")
 	const value = Decimal.fromParts(read.negative, read.digits, Number(read.scale))
-	const member = text.length <= decimalTextMaxBytes.value
+	const member = text.length <= decimalTextMaxBytes
 	return {
 		target,
 		text,
@@ -619,7 +619,7 @@ const candidatesOf = (target: LexicalTarget): Gen<Candidate> => {
 			return map(
 				weighted([
 					[4, decimalTextGen],
-					[1, decimalWithin(decimalTextMaxBytes.value + 3)]
+					[1, decimalWithin(decimalTextMaxBytes + 3)]
 				]),
 				(text) => decimalCandidate(target, text)
 			)

@@ -185,8 +185,7 @@
 					"packages/engine/src/core/sqlstate.ts",
 					"packages/engine/src/core/text.ts",
 					"packages/engine/src/core/trusted.ts",
-					"packages/engine/src/core/tuple-map.ts",
-					"packages/limits/src/limits.ts"
+					"packages/engine/src/core/tuple-map.ts"
 				]
 			},
 			{

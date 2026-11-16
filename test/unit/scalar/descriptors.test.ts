@@ -21,11 +21,13 @@
  * time beside the wide range; for closed ids, one handle and several, two names and one.
  */
 
+import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
+import { binary64Precision } from "@bjornpagen/grizzle-engine/scalar/lexical"
+import { binary32Precision } from "@bjornpagen/grizzle-engine/scalar/values/float"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { corruptedFeature, drawnFeature, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { binary32Precision, binary64Precision, vectorMaxDimensions } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { decodeDesc } from "#compiler/ir/desc.ts"
@@ -247,16 +249,14 @@ export const typmodValidationSelectsRealForFloat124AndDoublePrecisionForFloat255
 					c.note(feature)
 				}
 				const precision = passed(drawnPrecision)
-				if (!isInteger(precision) || precision < 1 || precision > binary64Precision.value) {
+				if (!isInteger(precision) || precision < 1 || precision > binary64Precision) {
 					c.note("refused")
 					throwsRefused(() => floatOf(precision), "MalformedDescription")
 				} else {
 					c.note("admitted")
 					assert.equal(
 						floatOf(precision),
-						precision <= binary32Precision.value
-							? pgDescriptors.real
-							: pgDescriptors["double precision"]
+						precision <= binary32Precision ? pgDescriptors.real : pgDescriptors["double precision"]
 					)
 				}
 			}),
@@ -297,7 +297,7 @@ export const typmodValidationAdmitsVectorDimensions116000AloneAndRefusesTheRest 
 						extra.length === 0 &&
 						isInteger(dimensions) &&
 						dimensions >= 1 &&
-						dimensions <= vectorMaxDimensions.value
+						dimensions <= vectorMaxDimensions
 					) {
 						c.note("admitted")
 						admitVectorDimensions(dimensions, [])

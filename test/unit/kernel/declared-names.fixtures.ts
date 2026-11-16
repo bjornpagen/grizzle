@@ -1,7 +1,7 @@
 /** What the properties of declared-names.test.ts read: its spaces, models and helpers. */
 
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import { characterOf, element, type Gen, int, string, weighted } from "@bjornpagen/testing/gen"
-import { maxIdentifierBytes } from "@grizzle/limits"
 import { Array as Arr, String as Str } from "effect"
 import { nonEmpty } from "#test/support/assert.ts"
 
@@ -72,8 +72,8 @@ export const nameOf =
 
 /** A conversion's length around the limit: mostly within two bytes of it, sometimes well under or past. */
 export const targetGen: Gen<number> = weighted<number>([
-	[4, int(maxIdentifierBytes.value - 2, maxIdentifierBytes.value + 2)],
-	[1, int(20, maxIdentifierBytes.value + 12)]
+	[4, int(maxIdentifierBytes - 2, maxIdentifierBytes + 2)],
+	[1, int(20, maxIdentifierBytes + 12)]
 ])
 
 export type LimitFeature =
@@ -84,10 +84,10 @@ export type LimitFeature =
 	| "two at the limit apart"
 
 export const situationOf = (bytes: number): LimitFeature =>
-	bytes < maxIdentifierBytes.value
+	bytes < maxIdentifierBytes
 		? "under the limit"
-		: bytes === maxIdentifierBytes.value
+		: bytes === maxIdentifierBytes
 			? "at the limit"
-			: bytes === maxIdentifierBytes.value + 1
+			: bytes === maxIdentifierBytes + 1
 				? "one byte past"
 				: "far past"

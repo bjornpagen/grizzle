@@ -1,5 +1,6 @@
 /** What the properties of renames.test.ts read: its spaces, models and helpers. */
 
+import { handleMaxBytes } from "@bjornpagen/grizzle-engine/schema/own"
 import {
 	aimed,
 	array,
@@ -15,7 +16,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { passed } from "@bjornpagen/testing/lsw"
-import { handleMaxBytes } from "@grizzle/limits"
 import { Array as Arr, Option, Result, String as Str } from "effect"
 import type { DeclarationRefused } from "#cli/renames.ts"
 import {
@@ -113,10 +113,7 @@ const longHandleGen: Gen<string> = (source) => {
 	const character = source.draw(element(["h", "é", "€", "😀"] as const))
 	const width = new TextEncoder().encode(character).length
 	const count = source.draw(
-		int(
-			Math.floor((handleMaxBytes.value - 3) / width),
-			Math.ceil((handleMaxBytes.value + 3) / width)
-		)
+		int(Math.floor((handleMaxBytes - 3) / width), Math.ceil((handleMaxBytes + 3) / width))
 	)
 	return Str.repeat(count)(character)
 }
@@ -212,7 +209,7 @@ const isHandle = (text: string): boolean =>
 	!Str.isEmpty(text) &&
 	!Str.includes("\u0000")(text) &&
 	text.isWellFormed() &&
-	new TextEncoder().encode(text).length <= handleMaxBytes.value
+	new TextEncoder().encode(text).length <= handleMaxBytes
 
 /** The text before the first `sign` of `text` and the text after it, or none where it holds none. */
 const around = (text: string, sign: string): readonly [string, string] | undefined => {

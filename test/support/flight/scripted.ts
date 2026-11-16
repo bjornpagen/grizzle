@@ -1,4 +1,4 @@
-import { flightMaxBytes, messageMaxBytes } from "@grizzle/limits"
+import { flightMaxBytes, messageMaxBytes } from "@bjornpagen/grizzle-engine/core/wire"
 import { Array as Arr, Duration, Effect } from "effect"
 import { Pool } from "pg"
 import type { ServerError } from "#adapter/errors/failures.ts"
@@ -507,10 +507,10 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 	return {
 		role: scriptedRole,
 		controls: servedSession,
-		flightMaxBytes: flightMaxBytes.value,
-		messageMaxBytes: messageMaxBytes.value,
+		flightMaxBytes: flightMaxBytes,
+		messageMaxBytes: messageMaxBytes,
 		cancel,
-		connectTimeout: Duration.millis(testConnectTimeout.value),
+		connectTimeout: Duration.millis(testConnectTimeout),
 		state: () => state,
 		retire: () => {
 			move("retire")

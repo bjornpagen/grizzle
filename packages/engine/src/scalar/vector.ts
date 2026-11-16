@@ -1,7 +1,7 @@
-import { vectorMaxDimensions } from "@grizzle/limits"
 import type { Column } from "#compiler/core/decoder.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { bareEnv, carrierSql, type Descriptor, defineField } from "#compiler/scalar/registry.ts"
 import { vectorColumn } from "#compiler/scalar/values/convert.ts"
 import type { Vector } from "#compiler/scalar/values/vector.ts"
@@ -24,11 +24,11 @@ export const admitVectorDimensions = (dimensions: unknown, extra: ReadonlyArray<
 		typeof dimensions !== "number" ||
 		!Number.isInteger(dimensions) ||
 		dimensions < 1 ||
-		dimensions > vectorMaxDimensions.value
+		dimensions > vectorMaxDimensions
 	) {
 		throw malformedDescription(
 			captureLoc("pg.vector dimensions", []),
-			`vector dimensions: an integer 1-${vectorMaxDimensions.value}`
+			`vector dimensions: an integer 1-${vectorMaxDimensions}`
 		)
 	}
 }

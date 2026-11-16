@@ -17,10 +17,10 @@
  * shape admitted; a member, no member, and a walked member.
  */
 
+import { regexMaxHeldStates } from "@bjornpagen/grizzle-engine/scalar/regex/space"
 import { type Reached as ReachedOf } from "@bjornpagen/testing/features"
 import { oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { regexMaxHeldStates } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
 import { colorsOf, rawNfa, rawSize } from "#compiler/scalar/regex/space.ts"
@@ -69,12 +69,12 @@ export const theRawNFAPostgreSQLsParserBuildsHoldsTheStatesAndArcsItsFoldCountsN
 					}
 					const colors = colorsOf(ir)
 					const size = rawSize(ir, colors)
-					if (arm === "nested" && size.states > regexMaxHeldStates.value) {
+					if (arm === "nested" && size.states > regexMaxHeldStates) {
 						c.note("a nested pattern no compile holds")
 						return
 					}
 					assert.ok(
-						size.states <= regexMaxHeldStates.value,
+						size.states <= regexMaxHeldStates,
 						`${label}: an admitted pattern holds no more states than a compile holds`
 					)
 					c.note("a pattern")

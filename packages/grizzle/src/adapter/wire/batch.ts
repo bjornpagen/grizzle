@@ -1087,7 +1087,7 @@ const runEntered = <P, F>(
  * In pipeline mode pg writes each query as Parse (when its name is not parsed yet), Bind, Describe, Execute and a Sync
  * of its own, without waiting for the answers. A flight writes all of its queries at once, corked into one write, and
  * reads every answer in that one round trip (session.ts sends it). One write carries at most the session's
- * flightMaxBytes (@grizzle/limits), so a longer flight is refused before any byte of it is written, as InputTooLarge
+ * flightMaxBytes, so a longer flight is refused before any byte of it is written, as InputTooLarge
  * (`send`): it ran nothing, and the session is as it was.
  *
  * - Framing. A Sync per statement would commit each statement on its own, so the statements of a transaction run

@@ -1,4 +1,3 @@
-import type { Limit } from "@bjornpagen/limit"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { summarize } from "#bench/cold/stats.ts"
 import {
@@ -261,14 +260,14 @@ interface LawCase extends Table {
 	readonly relation: Relation
 	readonly refusal: string
 	readonly base: Table
-	readonly ceiling: Option.Option<Limit>
+	readonly ceiling: Option.Option<number>
 }
 
 const lawCase = (
 	kind: LawKind,
 	relation: Relation,
 	base: Table,
-	ceiling: Option.Option<Limit>
+	ceiling: Option.Option<number>
 ): LawCase => {
 	const spec = laws[kind]
 	return {
@@ -323,7 +322,7 @@ const lawCases: ReadonlyArray<LawCase> = [
 interface DomainCase extends Table {
 	readonly reading: DomainReading
 	readonly base: Table
-	readonly ceiling: Option.Option<Limit>
+	readonly ceiling: Option.Option<number>
 }
 
 const domainTitles: { readonly [R in DomainReading]: string } = {
@@ -761,10 +760,10 @@ export default defineGate({
 			})
 			const costs = Arr.map(lawCases, (c) => ({ c, micros: beyond(c, c.base) }))
 			const domainCosts = Arr.map(domainCases, (c) => ({ c, micros: beyond(c, c.base) }))
-			const ceilingOf = (ceiling: Option.Option<Limit>) =>
+			const ceilingOf = (ceiling: Option.Option<number>) =>
 				Option.match(ceiling, {
 					onNone: () => ({}),
-					onSome: (limit) => ({ ceilingMicros: round3(limit.value) })
+					onSome: (limit) => ({ ceilingMicros: round3(limit) })
 				})
 			const statementCases: ReadonlyArray<CaseRecord<"law-cost">> = [
 				statementCase(bare, {}),
@@ -945,8 +944,8 @@ export default defineGate({
 					Option.toArray(
 						Option.map(c.ceiling, (ceiling) =>
 							mechanism(
-								`${c.title} costs at most ${round3(ceiling.value)} µs per one-row INSERT beyond ${c.base.title}`,
-								micros <= ceiling.value,
+								`${c.title} costs at most ${round3(ceiling)} µs per one-row INSERT beyond ${c.base.title}`,
+								micros <= ceiling,
 								`${micros} µs`
 							)
 						)

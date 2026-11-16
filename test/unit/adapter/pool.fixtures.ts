@@ -2,8 +2,8 @@
 
 import { Buffer } from "node:buffer"
 import type { TLSSocket } from "node:tls"
+import { timerMinMs } from "@bjornpagen/grizzle/adapter/connection/config"
 import { array, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
-import { timerMinMs } from "@grizzle/limits"
 import { type Array as Arr, Clock, Duration, Effect, Exit, Result, type Scope } from "effect"
 import type { PgSocket } from "#adapter/types/driver.ts"
 import type { Transport } from "#adapter/types/layer.ts"
@@ -171,8 +171,8 @@ export const situations: Arr.NonEmptyReadonlyArray<PoolFeature> = [
  * (testIdleTimeout).
  */
 export const idleMillis: { readonly [I in Sequence["idle"]]: number } = {
-	short: timerMinMs.value,
-	long: testIdleTimeout.value
+	short: timerMinMs,
+	long: testIdleTimeout
 }
 
 const frame = (type: string, body: Uint8Array): Buffer => {

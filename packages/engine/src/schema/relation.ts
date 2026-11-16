@@ -1,4 +1,3 @@
-import { handleMaxBytes } from "@grizzle/limits"
 import { nominal } from "#compiler/core/brand.ts"
 import { sameContent } from "#compiler/core/canonical.ts"
 import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
@@ -61,6 +60,7 @@ import {
 import { RosterSet } from "#compiler/scalar/values/bits.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 import { literalFor, literalResult } from "#compiler/schema/literal.ts"
+import { handleMaxBytes } from "#compiler/schema/own.ts"
 import {
 	builderLoc,
 	describedField,
@@ -620,10 +620,10 @@ const handleList = (value: unknown, label: string): NonEmptyReadonlyArray<string
 		"a roster lists each handle once"
 	)
 	for (const h of handles) {
-		if (utf8Length(h) > handleMaxBytes.value) {
+		if (utf8Length(h) > handleMaxBytes) {
 			throw malformed(
 				label,
-				`handles of at most ${handleMaxBytes.value} UTF-8 bytes, the most a name holds (NAMEDATALEN - 1); ${JSON.stringify(h)} has ${utf8Length(h)}`
+				`handles of at most ${handleMaxBytes} UTF-8 bytes, the most a name holds (NAMEDATALEN - 1); ${JSON.stringify(h)} has ${utf8Length(h)}`
 			)
 		}
 	}

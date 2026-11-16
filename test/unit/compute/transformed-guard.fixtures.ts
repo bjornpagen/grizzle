@@ -1,5 +1,6 @@
 /** What the properties of transformed-guard.test.ts read: its spaces, models and helpers. */
 
+import { regexMaxRepeat } from "@bjornpagen/grizzle-engine/scalar/lexical"
 import {
 	type Aimed,
 	aimed,
@@ -12,7 +13,6 @@ import {
 	shuffled,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { regexMaxRepeat } from "@grizzle/limits"
 import { Array as Arr, Formatter, Option, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
@@ -726,7 +726,7 @@ const collapsedLanguage = (t: Typed): Language => {
 		middle: withPoint(other, space),
 		chars: t.chars
 	}
-	return t.chars - boundedEnds <= regexMaxRepeat.value &&
+	return t.chars - boundedEnds <= regexMaxRepeat &&
 		analyzeText([{ source: languageSource(bounded), flags: "u" }], SourceLoc("image", [])).ok
 		? bounded
 		: { kind: "collapsed", runs: other, gap: space }

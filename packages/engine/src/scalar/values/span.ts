@@ -1,6 +1,7 @@
-import { int4Max, int4Min, int8Max, int8Min } from "@grizzle/limits"
+import { int4Max } from "#compiler/core/canonical.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
+import { int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 
 /**
@@ -39,15 +40,15 @@ const endpointChecks: {
 		if (
 			typeof value !== "number" ||
 			!Number.isInteger(value) ||
-			value < int4Min.value ||
-			value > int4Max.value
+			value < int4Min ||
+			value > int4Max
 		) {
 			return Result.err("spanEndpoint")
 		}
 		return Result.ok(value === 0 ? 0 : value)
 	},
 	int8: (value) => {
-		if (typeof value !== "bigint" || value < int8Min.value || value > int8Max.value) {
+		if (typeof value !== "bigint" || value < int8Min || value > int8Max) {
 			return Result.err("spanEndpoint")
 		}
 		return Result.ok(value)

@@ -1,5 +1,5 @@
-import { regexTextMaxBytes } from "@grizzle/limits"
 import { floatSpecialNameOf } from "#compiler/core/canonical.ts"
+import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import type { ExprId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -516,7 +516,7 @@ const apply = (
 			return isString(a) ? Result.ok(BigInt(utf8Length(a))) : mismatch(op)
 		case "utf16Length":
 			return isString(a)
-				? utf8Length(a) > regexTextMaxBytes.value
+				? utf8Length(a) > regexTextMaxBytes
 					? undefinedAt("bounded")
 					: Result.ok(BigInt(a.length))
 				: mismatch(op)

@@ -2562,7 +2562,7 @@ const runInserterAlone = (
 		const pool = yield* poolFor(o.rig.installed.as(o.rig.worlds.server), {
 			...defaultPool,
 			transport: { kind: "given", transport: tap.transport },
-			pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 1 },
+			pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: 1 },
 			session: servedSession
 		})
 		yield* Effect.orDie(

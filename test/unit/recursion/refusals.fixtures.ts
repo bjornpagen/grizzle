@@ -1,8 +1,8 @@
 /** What the properties of refusals.test.ts read: its spaces, models and helpers. */
 
+import { int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 import { boolean, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { bigint as bigintIn } from "@bjornpagen/testing/values"
-import { int8Max, int8Min } from "@grizzle/limits"
 import { Array as Arr, Formatter, Record as Rec } from "effect"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
@@ -698,10 +698,10 @@ const literal = (value: bigint): Seed => ({ kind: "literal", value })
 
 export const seedGen: Gen<Seed> = oneOf<Seed>([
 	constant<Seed>({ kind: "data" }),
-	map(int(0, 3), (d) => literal(int8Min.value + BigInt(d))),
+	map(int(0, 3), (d) => literal(int8Min + BigInt(d))),
 	map(int(-3, 3), (d) => literal(BigInt(d))),
-	map(int(0, 3), (d) => literal(int8Max.value - BigInt(d))),
-	map(bigintIn(int8Min.value, int8Max.value), literal)
+	map(int(0, 3), (d) => literal(int8Max - BigInt(d))),
+	map(bigintIn(int8Min, int8Max), literal)
 ])
 
 export const heads = element<Head>(["exact", "missing", "extra"])

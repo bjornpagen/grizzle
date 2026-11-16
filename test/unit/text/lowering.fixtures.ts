@@ -1,7 +1,7 @@
 /** What the properties of lowering.test.ts read: its spaces, models and helpers. */
 
+import { regexMaxHeldArcs } from "@bjornpagen/grizzle-engine/scalar/regex/ir"
 import { array, element, type Gen, int, map, oneOf, shuffled } from "@bjornpagen/testing/gen"
-import { regexMaxHeldArcs } from "@grizzle/limits"
 import { Array as Arr, Option, String as Str } from "effect"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { domainDigest } from "#compiler/core/fingerprint.ts"
@@ -204,7 +204,7 @@ const loopWord: Gen<string> = map(array(loopAtom, { min: 1, max: 2 }), (atoms) =
 const pastHeldArcs: Gen<string> = (source) => {
 	const inner = source.draw(int(128, 255))
 	const middle = source.draw(int(128, 255))
-	const outer = Math.floor(regexMaxHeldArcs.value / (inner * middle)) + 1 + source.draw(int(0, 3))
+	const outer = Math.floor(regexMaxHeldArcs / (inner * middle)) + 1 + source.draw(int(0, 3))
 	return `(?:(?:${source.draw(loopAtom)}{${inner}}){${middle}}){${outer}}`
 }
 

@@ -1,11 +1,98 @@
-import {
-	reservedConnections,
-	superuserReservedConnections,
-	workerBufferBlocks,
-	workerPredicateLocks
-} from "@grizzle/limits"
+import { blockSize } from "@bjornpagen/grizzle-engine/core/page"
 import { memberShare } from "#pg/family.ts"
 import { connectionsPerLease, unleasedConnections } from "#pg/lease.ts"
+
+/**
+ * The connections PostgreSQL keeps for superusers alone, at its default, which scripts/pg/init.sh leaves as it is.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit connections
+ * @scope the local cluster's superuser_reserved_connections, out of its max_connections
+ * @constraint configurable default
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/misc/guc_parameters.dat#L2941
+ * @quote boot_val => '3',
+ * @verified 2026-11-14
+ */
+const superuserReservedConnections = 3
+
+/**
+ * The connections PostgreSQL keeps for pg_use_reserved_connections, at its default, which init.sh leaves as it is.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit connections
+ * @scope the local cluster's reserved_connections, out of its max_connections
+ * @constraint configurable default
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/misc/guc_parameters.dat#L2552
+ * @quote boot_val => '0',
+ * @verified 2026-11-14
+ */
+const reservedConnections = 0
+
+/**
+ * The largest database a network worker's files work in, measured: each worker's shared database, which file after
+ * file reuses, as autovacuum leaves its catalogs between their schemas.
+ *
+ * @limitKind measured
+ * @owner grizzle's network test tier
+ * @unit bytes
+ * @scope one network worker's database: its shared database (gz_shared_<n>), or a file's own clone of the template, as
+ *   pg_database_size reports it
+ * @evidence pg_database_size of every gz_ database on the local cluster: `SELECT datname, pg_database_size(oid) FROM
+ *   pg_catalog.pg_database WHERE datname LIKE 'gz\_%'`, as the bootstrap superuser (scripts/pg/ctl.sh admin)
+ * @observed one reading on 2026-11-14 at 00:44 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, the local PostgreSQL 19rc2 cluster (scripts/pg/pin.env),
+ *   grizzle 1623175d
+ * @workload every network run on the cluster since its 19rc2 init on 2026-11-13, each worker's files reusing its
+ *   shared database, six workers then
+ * @result gz_shared_1 to gz_shared_6: 32,981,519, 21,525,319, 22,524,743, 28,169,031, 35,558,215 and 38,916,935 bytes;
+ *   the template is 7.7 MB, so a file's own clone starts smaller than any
+ * @decision the largest, gz_shared_6: a worker runs one file at a time, and a file works in one database, so this
+ *   bounds the pages one worker's file reads. No headroom added: a database past it is unmeasured
+ * @revalidate a shared database that grows past it; a PostgreSQL repin; a test tier whose files install larger schemas
+ *   or keep more rows; another machine
+ */
+const workerDatabaseBytes = 38_916_935
+
+/**
+ * The pages one network worker's database holds, in PostgreSQL's blocks: its largest database, rounded up to whole
+ * blocks.
+ *
+ * @limitKind derived
+ * @owner grizzle's network test tier (scripts/pg/init.sh)
+ * @unit blocks
+ * @scope the shared buffers one network worker's database fills, out of the local cluster's shared_buffers
+ * @derivation a worker runs one file at a time, and a file works in one database, so the largest such database, in
+ *   blocks rounded up, holds every page one worker's file reads
+ * @from {@link workerDatabaseBytes}, {@link blockSize}
+ */
+const workerBufferBlocks = Math.ceil(workerDatabaseBytes / blockSize)
+
+/**
+ * The predicate locks one network worker's file holds at once, measured: the most any one test database held while
+ * every worker ran a file.
+ *
+ * @limitKind measured
+ * @owner grizzle's network test tier
+ * @unit predicate locks
+ * @scope the SIRead locks one network worker's file holds at once, every transaction of its database's together, as
+ *   pg_locks lists them
+ * @evidence `SELECT max(n), sum(n), count(*) FROM (SELECT database, count(*) AS n FROM pg_catalog.pg_locks WHERE mode
+ *   = 'SIReadLock' GROUP BY 1) AS x` as the bootstrap superuser, every 3 s, during a full `pnpm -s test:network`
+ * @observed ten readings on 2026-11-14 between 01:28 and 01:29 UTC
+ * @environment cassowary, Ubuntu 26.04 on arm64 in AWS, the local PostgreSQL 19rc2 cluster sized by clusterSize with
+ *   max_pred_locks_per_transaction 2048, grizzle 993326b3; a second full network run and other lanes' files on the
+ *   cluster at once
+ * @workload a full network run at one file per core, every worker's file in its own database, beside another run's
+ *   files
+ * @result at most 2,038 locks in one database, 7,812 in all over 57 databases at once; no 53200 (out of shared memory)
+ * @decision the largest one database held. No headroom added: the table holds this many for every worker at once
+ *   (clusterPredicateLocks), and the measured total over every database is a seventeenth of that
+ * @revalidate a 53200 in a network run; a test tier whose transactions read more rows SERIALIZABLE; a change of
+ *   max_pred_locks_per_relation or max_pred_locks_per_page; a PostgreSQL repin
+ */
+const workerPredicateLocks = 2038
 
 /**
  * A family member's max_connections, which scripts/pg/init.sh sets and scripts/pg/doctor.sh requires at least: a slot
@@ -19,8 +106,8 @@ const clusterConnections: number =
 	memberShare * (connectionsPerLease + 1) -
 	1 +
 	unleasedConnections +
-	superuserReservedConnections.value +
-	reservedConnections.value
+	superuserReservedConnections +
+	reservedConnections
 
 /**
  * A family member's shared_buffers in blocks, which scripts/pg/init.sh sets and scripts/pg/doctor.sh requires at
@@ -33,7 +120,7 @@ const clusterConnections: number =
  * memory, the documentation's starting point for a dedicated server. The machine's cores are read here and enter no
  * Limit.
  */
-const clusterSharedBuffers: number = memberShare * workerBufferBlocks.value
+const clusterSharedBuffers: number = memberShare * workerBufferBlocks
 
 /**
  * A family member's max_pred_locks_per_transaction, which scripts/pg/init.sh sets and scripts/pg/doctor.sh requires at
@@ -48,7 +135,7 @@ const clusterSharedBuffers: number = memberShare * workerBufferBlocks.value
  * whatever this is: init.sh pins max_pred_locks_per_relation.
  */
 const clusterPredicateLocks: number = Math.ceil(
-	(memberShare * workerPredicateLocks.value) / clusterConnections
+	(memberShare * workerPredicateLocks) / clusterConnections
 )
 
 /**

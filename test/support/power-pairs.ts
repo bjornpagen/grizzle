@@ -1,4 +1,3 @@
-import { type Limit, measured } from "@bjornpagen/limit"
 import {
 	array,
 	boolean,
@@ -236,24 +235,28 @@ export const costliest: Pair = [`9.${Str.repeat(70)("9")}`, "131071"]
  * proof admits: its base-10000 digit operations, numeric.c's own, which PostgreSQL's power_var does for the same power.
  * A port that computes more of them than numeric.c's truncations keep, an exact product where mul_var truncates,
  * passes it.
+ *
+ * @limitKind measured
+ * @owner grizzle's test oracle
+ * @unit base-10000 digit operations of one numeric power
+ * @scope one evaluation of numeric power by the oracle's port of numeric.c, over a pair the power suites draw that the
+ *   proof admits
+ * @evidence a scratch measurement of powerWork over the power suites' edges and 40 cases of their batch generator (20
+ *   of the floor stream of pg/compute/power, 20 of a rotating stream), and over the integer path's admitted powers
+ *   next to numeric's integer digits, on 2026-11-06
+ * @observed one run of each, at a load average near 60
+ * @environment macOS (Darwin 27.0.0, an arm64 virtual machine) on 10 cores, Node 26.13.0; the work is a count, so the
+ *   machine and its load move only the time
+ * @workload 7,037 powers of the edges and the 40 cases that the proof admits; 9.x^131071 and 99.x^65535 over
+ *   significands of 10 to 72 digits; 1.x^2000000
+ * @result the drawn and edge powers at most 59,690,920 (9.7e-369^-7.026820952), next to the exponential bound about
+ *   41,500,000 (9.13e286^9.07); the integer path's 9.(70 nines)^131071 1,695,779,467, the most found, 9.(72
+ *   eights)^131071 1,691,680,195 and 99.x^65535 1,422,061,716; with mul_var's truncation dropped, 9.(70 nines)^131071
+ *   3,177,216,298
+ * @decision 2,000,000,000 is 1.18 times the costliest power found, the proof admitting no exponent past numeric's
+ *   integer digits over the base's own integer digits, and below the 3,177,216,298 the costliest power's exact
+ *   products need, so an untruncated mul_var passes it there
+ * @revalidate a change to the port's digit accounting, to the proof's bounds on power, or to the generators'
+ *   significands, exponents or arms
  */
-export const powerWorkLimit: Limit = measured({
-	value: 2_000_000_000,
-	owner: "grizzle's test oracle",
-	unit: "base-10000 digit operations of one numeric power",
-	scope:
-		"one evaluation of numeric power by the oracle's port of numeric.c, over a pair the power suites draw that the proof admits",
-	evidence:
-		"a scratch measurement of powerWork over the power suites' edges and 40 cases of their batch generator (20 of the floor stream of pg/compute/power, 20 of a rotating stream), and over the integer path's admitted powers next to numeric's integer digits, on 2026-11-06",
-	observed: "one run of each, at a load average near 60",
-	environment:
-		"macOS (Darwin 27.0.0, an arm64 virtual machine) on 10 cores, Node 26.13.0; the work is a count, so the machine and its load move only the time",
-	workload:
-		"7,037 powers of the edges and the 40 cases that the proof admits; 9.x^131071 and 99.x^65535 over significands of 10 to 72 digits; 1.x^2000000",
-	result:
-		"the drawn and edge powers at most 59,690,920 (9.7e-369^-7.026820952), next to the exponential bound about 41,500,000 (9.13e286^9.07); the integer path's 9.(70 nines)^131071 1,695,779,467, the most found, 9.(72 eights)^131071 1,691,680,195 and 99.x^65535 1,422,061,716; with mul_var's truncation dropped, 9.(70 nines)^131071 3,177,216,298",
-	decision:
-		"2,000,000,000 is 1.18 times the costliest power found, the proof admitting no exponent past numeric's integer digits over the base's own integer digits, and below the 3,177,216,298 the costliest power's exact products need, so an untruncated mul_var passes it there",
-	revalidate:
-		"a change to the port's digit accounting, to the proof's bounds on power, or to the generators' significands, exponents or arms"
-})
+export const powerWorkLimit = 2_000_000_000

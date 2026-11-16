@@ -25,16 +25,10 @@ export const lexicalTargetOfField = (type: unknown): LexicalTarget => {
 	}
 	return target
 }
-
-export { type Limit } from "@bjornpagen/limit"
-export {
-	bytesMaxLength,
-	flightMaxBytes,
-	maxStringLength,
-	messageMaxBytes,
-	regexMaxRepeat
-} from "@grizzle/limits"
-export { decimalTextMaxBytes } from "@grizzle/limits"
+export { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
+export { flightMaxBytes, messageMaxBytes } from "#compiler/core/wire.ts"
+export { maxStringLength } from "#compiler/core/canonical.ts"
+export { decimalTextMaxBytes, regexMaxRepeat } from "#compiler/scalar/lexical.ts"
 export { type JoinedHost, type RegexText, str } from "#compiler/text/field.ts"
 
 /** The SQL types a text parses into, those with a lexical form (scalar/lexical.ts). */

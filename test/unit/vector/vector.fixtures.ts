@@ -1,5 +1,6 @@
 /** What the properties of vector.test.ts read: its spaces, models and helpers. */
 
+import { cosineNormMax, cosineNormMin } from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import {
 	array,
 	boolean,
@@ -11,7 +12,6 @@ import {
 	oneOf
 } from "@bjornpagen/testing/gen"
 import { float } from "@bjornpagen/testing/values"
-import { cosineNormMax, cosineNormMin } from "@grizzle/limits"
 import { Array as Arr } from "effect"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { Compute } from "#compiler/public/compute.ts"
@@ -24,8 +24,8 @@ import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
 
 export const dims = search.DocumentVector.dimensions
-export const lowest = cosineNormMin.value
-export const highest = cosineNormMax.value
+export const lowest = cosineNormMin
+export const highest = cosineNormMax
 /** Half the least norm: four components of it have the least norm exactly. */
 const quarterNorm = lowest / 2
 

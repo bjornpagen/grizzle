@@ -1,8 +1,11 @@
+import { regexTextMaxBytes } from "@bjornpagen/grizzle-engine/core/errors"
+import { decimalTextMaxBytes } from "@bjornpagen/grizzle-engine/scalar/lexical"
 import { Array as Arr, Option, Result } from "effect"
 import type { ParamId } from "#compiler/core/ids.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { codePoints } from "#compiler/core/text.ts"
+import type { VectorText } from "#compiler/ir/carriers.ts"
 import {
 	type ColumnRef,
 	describeOp,
@@ -10,9 +13,6 @@ import {
 	predicateTree,
 	type ScalarExpr
 } from "#compiler/ir/expr.ts"
-
-import { decimalTextMaxBytes, regexTextMaxBytes } from "@grizzle/limits"
-import type { VectorText } from "#compiler/ir/carriers.ts"
 import {
 	baseOf,
 	type Carrier,
@@ -620,7 +620,7 @@ const catalogApply = (
 			return isString(a) ? Result.succeed(BigInt(utf8Encoder.encode(a).length)) : mismatch(op)
 		case "utf16Length":
 			return isString(a)
-				? utf8Encoder.encode(a).length > regexTextMaxBytes.value
+				? utf8Encoder.encode(a).length > regexTextMaxBytes
 					? undefinedAt("bounded")
 					: Result.succeed(BigInt(utf16Units(a)))
 				: mismatch(op)
@@ -699,7 +699,7 @@ const catalogApply = (
 			}
 			const read = referenceDecimal(a)
 			const value =
-				read === undefined || utf8Length(a) > decimalTextMaxBytes.value
+				read === undefined || utf8Length(a) > decimalTextMaxBytes
 					? undefined
 					: Decimal.fromParts(read.negative, read.digits, Number(read.scale))
 			return value?.ok === true ? Result.succeed(value.value) : undefinedAt("lexical")

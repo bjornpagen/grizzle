@@ -26,8 +26,6 @@ import {
 	outputNames,
 	refuse
 } from "#compiler/lower/conservative/context.ts"
-
-import { lateralParentMax } from "@grizzle/limits"
 import {
 	checkedAttachment,
 	Delivery,
@@ -136,6 +134,46 @@ import {
 	NameSupply,
 	namesPast
 } from "#compiler/sql/naming.ts"
+
+/**
+ * A bound parent set at or below this size takes the correlated LATERAL form. A LATERAL probe of LIMIT k per parent and
+ * a DISTINCT ON or row_number pass over every group are genuinely different shapes, so the threshold between them is an
+ * operating point, measured by bench/query/take.bench.ts (its R20 gate) across parent counts and group sizes.
+ *
+ * A function that decides a threshold takes it as its own parameter where a test drives that decision with a smaller
+ * value; production passes this constant.
+ *
+ * @limitKind measured
+ * @owner grizzle's take(k) lowering (lower/shapes/take, lower/shapes/index.ts runsLargeForm)
+ * @unit bound parents
+ * @scope the distinct parents of one execution's bound parent set, at or below which take(k) per parent is the LATERAL
+ *   probe
+ * @evidence ~/.cache/grizzle-release/LIMITS/out/evidence/take/ on cassowary: query-take.full.json, the uncommitted
+ *   record of `pnpm bench gates --only R20` (bench/query/take.bench.ts, gate R20), and run.log, its console output
+ *   with the machine's uptime before and after it. The first record, of 2026-11-14 07:53:25 to 08:03:31 UTC at grizzle
+ *   01cc8dda (bench/results/gates/query-take.full.json in RC2CITE's clone), went with that clone
+ * @observed 2026-11-16 07:56:04 to 08:06:02 UTC, one full-scale run
+ * @environment cassowary, Ubuntu 26.04 on an AWS Graviton3 (Neoverse-V1, arm64) instance with 64 logical CPUs and 247
+ *   GiB, Node 26.13.1, the local PostgreSQL 19rc2 cluster family with scripts/pg/pin.env's three patches (gcc 15.2.0,
+ *   jit off), grizzle ac71cfbb with lane LIMITS's move of the limits, which changes no lowering; load average 253
+ *   falling to 104 over the run from other sessions, other lanes' files on the cluster
+ * @workload the Lab fixture's take bench: take(1) as DISTINCT ON and take(3) as row_number over every group, against
+ *   the LATERAL probe of LIMIT k per parent, for group sizes 2, 8, 32 and 128 and bound parent sets of 1, 4, 16, 64,
+ *   256, 1024, 4096 and 16384, 15 timed samples each after a warm run
+ * @result execute p50 in ms, LATERAL / whole-relation: at 256 parents, groups of 2: 1.422/1389.107 (k 1) and
+ *   1.664/1.776 (k 3); groups of 8: 1.051/1387.636 and 1.348/22.505; groups of 32: 1.238/1379.878 and 1.533/102.627;
+ *   groups of 128: 2.314/1383.346 and 2.718/350.148. At 1024 parents, groups of 2: 2.571/2.198 (k 1) and 3.423/3.526
+ *   (k 3), the first measured count at which a whole-relation form is the faster; groups of 8 or more keep the LATERAL
+ *   probe the faster. R20, R27 and R42 pass; no errors; the machine's load is not separated per sample. The run of
+ *   2026-11-14 at load 2.8 to 8.5 found the same edge: at 1024 parents, groups of 2, k 1, 2.406/2.057
+ * @decision 256 is the largest measured parent count at which the LATERAL probe is no slower than the whole-relation
+ *   pass at every group size and k; at the next measured count, 1024, the whole-relation pass is faster for groups of
+ *   two at k 1. No headroom added: a parent count between 256 and 1024 is unmeasured
+ * @revalidate a PostgreSQL repin or a planner setting change; a change to either form's SQL (lower/shapes/take); a
+ *   different machine or cluster configuration; a run at a parent count between 256 and 1024; a workload whose groups
+ *   differ from the Lab fixture's
+ */
+export const lateralParentMax = 256
 
 /**
  * Which form a per-execution take choice lowers to in one lowering of a statement: the LATERAL form for a small parent
@@ -583,7 +621,7 @@ const takeShape =
 			node,
 			parentsOf(cx, node, facts, attachment),
 			facts,
-			lateralParentMax.value
+			lateralParentMax
 		)
 		if (choice.kind !== "fixed") {
 			state.record({

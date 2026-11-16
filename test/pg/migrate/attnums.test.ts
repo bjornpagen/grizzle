@@ -1,3 +1,4 @@
+import { tableMaxColumns } from "@bjornpagen/grizzle-engine/write/carriers/carriers"
 /**
  * A table's attribute numbers on PostgreSQL 19rc2, around the bound: PostgreSQL never reuses a dropped
  * column's attribute number, and refuses a table past 1600 of them, live and dropped together, with 54011 (heap.c,
@@ -18,7 +19,6 @@ import { requiredInSpace } from "@bjornpagen/testing/features"
 import { int } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { tableMaxColumns } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -42,7 +42,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /** PostgreSQL's limit on a table's attribute numbers, live and dropped (htup_details.h MaxHeapAttributeNumber). */
-const maxAttributes = tableMaxColumns.value
+const maxAttributes = tableMaxColumns
 
 /** The columns of a version: `prefix0 … prefix(n − 1)`, each int2, beside the key. */
 const columnsOf = (prefix: string, n: number): ReadonlyArray<string> =>

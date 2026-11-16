@@ -1,17 +1,5 @@
-import type { Limit } from "@bjornpagen/limit"
-import {
-	int2Digits,
-	int2Max,
-	int2Min,
-	int4Digits,
-	int4Max,
-	int4Min,
-	int8Digits,
-	int8Max,
-	int8Min,
-	vectorMaxDimensions
-} from "@grizzle/limits"
 import { nominal } from "#compiler/core/brand.ts"
+import { int4Max } from "#compiler/core/canonical.ts"
 import {
 	type Canonicalizable,
 	canonicalTag,
@@ -21,6 +9,131 @@ import {
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+
+/**
+ * The least smallint.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit a smallint value
+ * @scope every smallint value: a column, a parameter, a literal, an endpoint
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L374
+ * @quote <entry>-32768 to +32767</entry>
+ * @verified 2026-11-14
+ */
+export const int2Min = -32768
+
+/**
+ * The greatest smallint.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit a smallint value
+ * @scope every smallint value: a column, a parameter, a literal, an endpoint
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L374
+ * @quote <entry>-32768 to +32767</entry>
+ * @verified 2026-11-14
+ */
+export const int2Max = 32767
+
+/**
+ * The least integer.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit an integer value
+ * @scope every integer value: a column, a parameter, a literal, an endpoint, a span width
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L380
+ * @quote <entry>-2147483648 to +2147483647</entry>
+ * @verified 2026-11-14
+ */
+export const int4Min = -2147483648
+
+/**
+ * The least bigint, and money's least count of minor units.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit a bigint value
+ * @scope every bigint value and every money count of minor units, a row count included
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L386
+ * @quote <entry>-9223372036854775808 to +9223372036854775807</entry>
+ * @verified 2026-11-14
+ */
+export const int8Min = -9223372036854775808n
+
+/**
+ * The greatest bigint, and money's greatest count of minor units.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit a bigint value
+ * @scope every bigint value and every money count of minor units, a row count included
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L386
+ * @quote <entry>-9223372036854775808 to +9223372036854775807</entry>
+ * @verified 2026-11-14
+ */
+export const int8Max = 9223372036854775807n
+
+/** The decimal digits of the greatest magnitude in [min, max]: the least d with |x| < 10^d for every x of the range. */
+const rangeDigits = (min: bigint, max: bigint): number =>
+	Math.max((-min).toString().length, String(max).length)
+
+/**
+ * The integer digits of a smallint, |x| < 10^int2Digits.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit decimal digits
+ * @scope the integer digits of every smallint value
+ * @derivation the decimal length of smallint's greatest magnitude, -int2Min
+ * @from {@link int2Min}, {@link int2Max}
+ */
+const int2Digits = rangeDigits(BigInt(int2Min), BigInt(int2Max))
+
+/**
+ * The integer digits of an integer, |x| < 10^int4Digits.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit decimal digits
+ * @scope the integer digits of every integer value
+ * @derivation the decimal length of integer's greatest magnitude, -int4Min
+ * @from {@link int4Min}, {@link int4Max}
+ */
+export const int4Digits = rangeDigits(BigInt(int4Min), BigInt(int4Max))
+
+/**
+ * The integer digits of a bigint, |x| < 10^int8Digits: of a bigint value, of money's count of minor units, and of a
+ * count of rows, which PostgreSQL counts in a bigint.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit decimal digits
+ * @scope the integer digits of every bigint value, money count and row count
+ * @derivation the decimal length of bigint's greatest magnitude, -int8Min
+ * @from {@link int8Min}, {@link int8Max}
+ */
+export const int8Digits = rangeDigits(int8Min, int8Max)
+
+/**
+ * pgvector's most dimensions a vector holds: its storage limit, not the HNSW index's 2,000.
+ *
+ * @limitKind published
+ * @owner pgvector 0.8.7
+ * @unit dimensions
+ * @scope one vector value: a column's typmod, a literal, a parameter
+ * @constraint compile-time constant
+ * @source https://github.com/pgvector/pgvector/blob/v0.8.7/src/vector.h#L11
+ * @quote #define VECTOR_MAX_DIM 16000
+ * @verified 2026-11-05
+ */
+export const vectorMaxDimensions = 16000
 
 declare const canonicalFloat: unique symbol
 
@@ -60,13 +173,13 @@ export { vectorTag }
 export const integerRanges: {
 	readonly [C in "int2" | "int4" | "int8"]: readonly [bigint, bigint]
 } = {
-	int2: [BigInt(int2Min.value), BigInt(int2Max.value)],
-	int4: [BigInt(int4Min.value), BigInt(int4Max.value)],
-	int8: [int8Min.value, int8Max.value]
+	int2: [BigInt(int2Min), BigInt(int2Max)],
+	int4: [BigInt(int4Min), BigInt(int4Max)],
+	int8: [int8Min, int8Max]
 }
 
 /** The integer carriers' integer digits, |x| < 10^digits. */
-export const integerDigits: { readonly [C in "int2" | "int4" | "int8"]: Limit } = {
+export const integerDigits: { readonly [C in "int2" | "int4" | "int8"]: number } = {
 	int2: int2Digits,
 	int4: int4Digits,
 	int8: int8Digits
@@ -101,7 +214,7 @@ export const uuidTextLength =
 /** The minor units `text` spells when it is a money amount's canonical text, else undefined. */
 const moneyUnits = (text: string): bigint | undefined => {
 	const digits = text.startsWith("-") ? text.slice(1) : text
-	if (digits.length === 0 || digits.length > int8Digits.value) {
+	if (digits.length === 0 || digits.length > int8Digits) {
 		return undefined
 	}
 	for (let i = 0; i < digits.length; i++) {
@@ -117,7 +230,7 @@ const moneyUnits = (text: string): bigint | undefined => {
 		return undefined
 	}
 	const value = BigInt(text)
-	return value >= int8Min.value && value <= int8Max.value ? value : undefined
+	return value >= int8Min && value <= int8Max ? value : undefined
 }
 
 export const isMoneyPayload = (text: string): boolean => moneyUnits(text) !== undefined
@@ -157,7 +270,7 @@ const vectorComponents = (list: string): ReadonlyArray<number> | undefined => {
 		return undefined
 	}
 	const texts = list.slice(1, -1).split(",")
-	if (texts.length > vectorMaxDimensions.value) {
+	if (texts.length > vectorMaxDimensions) {
 		return undefined
 	}
 	const components: Array<number> = []
@@ -201,7 +314,7 @@ export class VectorText implements Canonicalizable {
 	static of(components: Float32Array): Result.Result<VectorText, CompileError> {
 		const held = Array.from(components, (c) => (c === 0 ? 0 : c))
 		return held.length >= 1 &&
-			held.length <= vectorMaxDimensions.value &&
+			held.length <= vectorMaxDimensions &&
 			held.every((c) => Number.isFinite(c))
 			? Result.ok(new VectorText(held))
 			: Result.err(malformedVector())

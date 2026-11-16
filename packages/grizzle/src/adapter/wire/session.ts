@@ -592,12 +592,12 @@ export interface Session {
 	 */
 	readonly destroy: () => void
 	/**
-	 * The most bytes one write of the session's connection carries, and so one flight (@grizzle/limits flightMaxBytes):
+	 * The most bytes one write of the session's connection carries, and so one flight (flightMaxBytes):
 	 * the flight's builder refuses a longer flight before any byte of it is written (wire/batch.ts send).
 	 */
 	readonly flightMaxBytes: number
 	/**
-	 * The longest message the session's server reads, as its length word counts it (@grizzle/limits messageMaxBytes):
+	 * The longest message the session's server reads, as its length word counts it (messageMaxBytes):
 	 * the flight's builder refuses a flight with a longer Parse or Bind before any byte of it is written (wire/batch.ts
 	 * send, bindOverrun).
 	 */
@@ -810,8 +810,8 @@ const makeSession = (
 	return {
 		role: spec.role,
 		controls: spec.controls,
-		flightMaxBytes: flightMaxBytes.value,
-		messageMaxBytes: messageMaxBytes.value,
+		flightMaxBytes: flightMaxBytes,
+		messageMaxBytes: messageMaxBytes,
 		cancel: cancelRequest(spec, key),
 		connectTimeout: Duration.millis(spec.connectTimeoutMs),
 		state: () => state,

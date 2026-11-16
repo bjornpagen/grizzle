@@ -1,4 +1,3 @@
-import { maxStringLength } from "@grizzle/limits"
 /**
  * The host's fills of a nested write: every column of every row a nesting writes that grizzle writes itself, by
  * the schema's fill order (ir/fill.ts), which the analysis built and checked when the schema compiled
@@ -32,6 +31,7 @@ import { maxStringLength } from "@grizzle/limits"
  */
 import { encodeFailure } from "#compiler/codec/fault.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
@@ -777,7 +777,7 @@ const combineHost = (
  * holds, so the write is refused before any statement, as PostgreSQL would refuse its row past 1 GB.
  */
 const concatHost = (a: unknown, b: unknown): unknown =>
-	typeof a === "string" && typeof b === "string" && a.length + b.length <= maxStringLength.value
+	typeof a === "string" && typeof b === "string" && a.length + b.length <= maxStringLength
 		? a + b
 		: undefined
 

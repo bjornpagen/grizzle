@@ -1,5 +1,6 @@
 /** What the properties of identity.test.ts read: its spaces, models and helpers. */
 
+import { cosineNormMax, cosineNormMin } from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import {
 	aimed,
 	type Aimed,
@@ -16,7 +17,6 @@ import {
 import { type Drawn, lsw, type WildKind } from "@bjornpagen/testing/lsw"
 import type { Source } from "@bjornpagen/testing/source"
 import { bigint, double, uuid } from "@bjornpagen/testing/values"
-import { cosineNormMax, cosineNormMin } from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
@@ -227,11 +227,11 @@ export const carriers: Arr.NonEmptyReadonlyArray<Carrier> = [
 					1,
 					-3,
 					0.5,
-					cosineNormMin.value,
-					cosineNormMin.value / 2,
-					cosineNormMax.value,
-					-cosineNormMax.value,
-					cosineNormMax.value * 2,
+					cosineNormMin,
+					cosineNormMin / 2,
+					cosineNormMax,
+					-cosineNormMax,
+					cosineNormMax * 2,
 					Number.NaN
 				]),
 				{ min: 1, max: 3 }
@@ -255,7 +255,7 @@ export const carriers: Arr.NonEmptyReadonlyArray<Carrier> = [
 				return { fault: "vectorNonFinite" }
 			}
 			const norm = Math.sqrt(value.reduce((sum, x) => sum + x * x, 0))
-			return norm >= cosineNormMin.value && norm <= cosineNormMax.value
+			return norm >= cosineNormMin && norm <= cosineNormMax
 				? { stored: Vector.make(value, 2) }
 				: { fault: "vectorNorm" }
 		}

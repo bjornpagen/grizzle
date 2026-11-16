@@ -391,7 +391,7 @@ const cutLeases = Effect.gen(function* () {
 				const pool = yield* poolFor(reader, {
 					...defaultPool,
 					password: { kind: "given", password },
-					pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max }
+					pool: { idleTimeoutMs: testIdleTimeout, min: 1, max }
 				})
 				const inFlight = connectsInFlight(pool.native)
 				if (leases.length > max) {
@@ -651,7 +651,7 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 									poolFor(reader, {
 										...defaultPool,
 										password: { kind: "given", password: gate.password },
-										pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: w.max }
+										pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: w.max }
 									}),
 									poolScope
 								)

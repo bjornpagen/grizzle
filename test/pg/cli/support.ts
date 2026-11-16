@@ -155,7 +155,7 @@ export const offlineConnection: DbConnection = {
 	},
 	database: "offline",
 	password: Redacted.make(offlinePassword),
-	connectTimeoutMs: testConnectTimeout.value
+	connectTimeoutMs: testConnectTimeout
 }
 
 /** The migration identity's connection to no cluster, for a configuration no test migrates with. */

@@ -1,3 +1,11 @@
+import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
+import {
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import {
 	boolean,
 	codePoint,
@@ -11,14 +19,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
-import {
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale,
-	vectorMaxDimensions
-} from "@grizzle/limits"
 import { Option } from "effect"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type FieldDesc, pgScalarNames } from "#compiler/ir/desc.ts"
@@ -89,8 +89,8 @@ export const textGen: Gen<FieldDesc> = oneOf<FieldDesc>([
 /** numeric(p, s), its precision and scale anywhere PostgreSQL admits them, small ones first. */
 export const numericGen: Gen<FieldDesc> = (source) => ({
 	kind: "numeric",
-	precision: source.draw(smallFirst(int(1, 12), int(1, numericMaxPrecision.value))),
-	scale: source.draw(smallFirst(int(0, 4), int(numericMinScale.value, numericMaxScale.value)))
+	precision: source.draw(smallFirst(int(1, 12), int(1, numericMaxPrecision))),
+	scale: source.draw(smallFirst(int(0, 4), int(numericMinScale, numericMaxScale)))
 })
 
 /** A span's endpoint: integer or bigint, or a contract over one. */
@@ -119,7 +119,7 @@ const contractBaseGen: Gen<DeclaredSketch> = oneOf<DeclaredSketch>([
 		},
 		rosters: noRosters
 	}),
-	map(smallFirst(int(1, 4), int(1, vectorMaxDimensions.value)), (dimensions) => ({
+	map(smallFirst(int(1, 4), int(1, vectorMaxDimensions)), (dimensions) => ({
 		desc: { kind: "vector", dimensions },
 		rosters: noRosters
 	}))
@@ -167,14 +167,14 @@ const computedGen: Gen<ScalarType> = oneOf<ScalarType>([
 	(source) =>
 		numericValue({
 			digits: source.draw(
-				smallFirst(int(0, 12), int(-numericMaxFractionDigits.value, numericMaxIntegerDigits.value))
+				smallFirst(int(0, 12), int(-numericMaxFractionDigits, numericMaxIntegerDigits))
 			),
-			scale: source.draw(smallFirst(int(0, 4), int(0, numericMaxFractionDigits.value)))
+			scale: source.draw(smallFirst(int(0, 4), int(0, numericMaxFractionDigits)))
 		}),
 	(source) =>
 		exactType(
 			source.draw(boolean) ? "exactInteger" : "exactMoney",
-			source.draw(smallFirst(int(0, 20), int(0, numericMaxIntegerDigits.value)))
+			source.draw(smallFirst(int(0, 20), int(0, numericMaxIntegerDigits)))
 		)
 ])
 

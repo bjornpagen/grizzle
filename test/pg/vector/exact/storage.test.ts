@@ -1,3 +1,4 @@
+import { cosineNormMax, cosineNormMin } from "@bjornpagen/grizzle-engine/scalar/values/fault"
 /**
  * Vector storage on PostgreSQL 19 and the pinned pgvector.
  *
@@ -19,7 +20,6 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { float } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { cosineNormMax, cosineNormMin } from "@grizzle/limits"
 import {
 	Array as Arr,
 	Effect,
@@ -65,8 +65,8 @@ const id = (n: number): Uuid =>
 
 const embeddingType = (): ScalarType => scalarOf({ kind: "vector", dimensions: 4 }, {})
 
-const lowest = cosineNormMin.value
-const highest = cosineNormMax.value
+const lowest = cosineNormMin
+const highest = cosineNormMax
 
 /** The largest finite binary32 value. */
 const floatMax = Math.fround(3.4028234663852886e38)

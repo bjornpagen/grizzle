@@ -1,4 +1,4 @@
-import { moneyFractionDigits } from "@grizzle/limits"
+import { moneyFractionDigits } from "@bjornpagen/grizzle-engine/scalar/values/decimal"
 import { Array as Arr, Option, Order, Result, String as Str } from "effect"
 import { toResult } from "#adapter/engine.ts"
 import type { Delivery } from "#compiler/codec/delivery.ts"
@@ -174,15 +174,11 @@ const readMoney = (text: string): Result.Result<Money, StrictFault> => {
 	if (!isNumericOutput(text, "any", "special")) {
 		return Result.fail("numericSyntax")
 	}
-	if (!isNumericOutput(text, moneyFractionDigits.value, "finite")) {
+	if (!isNumericOutput(text, moneyFractionDigits, "finite")) {
 		return Result.fail("moneyShape")
 	}
 	const parsed = Decimal.fromString(text)
-	if (
-		!parsed.ok ||
-		!parsed.value.isFinite() ||
-		parsed.value.parts.minScale > moneyFractionDigits.value
-	) {
+	if (!parsed.ok || !parsed.value.isFinite() || parsed.value.parts.minScale > moneyFractionDigits) {
 		return Result.fail("moneyShape")
 	}
 	const money = Money.fromDecimal(parsed.value)
@@ -221,15 +217,11 @@ const readExactMoney = (text: string): Result.Result<Money, StrictFault> => {
 		return Result.fail("numericSyntax")
 	}
 	const parsed = Decimal.fromString(text)
-	if (
-		!parsed.ok ||
-		!parsed.value.isFinite() ||
-		parsed.value.parts.minScale > moneyFractionDigits.value
-	) {
+	if (!parsed.ok || !parsed.value.isFinite() || parsed.value.parts.minScale > moneyFractionDigits) {
 		return Result.fail("moneyShape")
 	}
 	const p = parsed.value.parts
-	const units = p.coefficient * 10n ** BigInt(moneyFractionDigits.value - p.minScale)
+	const units = p.coefficient * 10n ** BigInt(moneyFractionDigits - p.minScale)
 	return Result.succeed(Money.exact(p.negative ? -units : units))
 }
 

@@ -503,7 +503,7 @@ export const historied: Effect.Effect<
 				transport: server.transport,
 				database: "flight",
 				password: noPassword,
-				connectTimeoutMs: testConnectTimeout.value
+				connectTimeoutMs: testConnectTimeout
 			},
 			"flight"
 		),

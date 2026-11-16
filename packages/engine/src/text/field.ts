@@ -1,4 +1,4 @@
-import { int4Max } from "@grizzle/limits"
+import { int4Max } from "#compiler/core/canonical.ts"
 import { textColumn } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
@@ -141,14 +141,9 @@ const admitBytes = (
 	readonly octets: number
 	readonly language: Result.Result<PatternLanguage, CompileError>
 } => {
-	if (
-		typeof bytes !== "number" ||
-		!Number.isSafeInteger(bytes) ||
-		bytes < 0 ||
-		bytes > int4Max.value
-	) {
+	if (typeof bytes !== "number" || !Number.isSafeInteger(bytes) || bytes < 0 || bytes > int4Max) {
 		return refuseBytes(
-			`a byte bound: an integer from 0 to ${int4Max.value}, which octet_length's integer result is compared with`
+			`a byte bound: an integer from 0 to ${int4Max}, which octet_length's integer result is compared with`
 		)
 	}
 	const registered = registeredText(text)

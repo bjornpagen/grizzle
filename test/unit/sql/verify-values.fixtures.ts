@@ -1,7 +1,7 @@
 /** What the properties of verify-values.test.ts read: its spaces, models and helpers. */
 
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import { array, constant, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
-import { maxIdentifierBytes } from "@grizzle/limits"
 import { Array as Arr, String as Str } from "effect"
 import type { Expr, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { provedSelect, target, types } from "#compiler/sql/build.ts"
@@ -41,7 +41,7 @@ export const utf8 = (text: string): number => new TextEncoder().encode(text).len
  * code unit shorter than its bytes, so a name past the limit in bytes and within it in code units is in reach.
  */
 export const byteEdgeGen: Gen<string> = (source) => {
-	const bytes = source.draw(int(maxIdentifierBytes.value - 2, maxIdentifierBytes.value + 2))
+	const bytes = source.draw(int(maxIdentifierBytes - 2, maxIdentifierBytes + 2))
 	const twoByte = source.draw(int(0, Math.floor(bytes / 2)))
 	return `${Str.repeat(twoByte)("é")}${Str.repeat(bytes - 2 * twoByte)("a")}`
 }

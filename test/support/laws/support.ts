@@ -431,7 +431,7 @@ export const openWriter = <S extends AnySchema>(opened: {
 	)
 
 /** One installed family schema as the harness drives it. */
-export interface Session {
+export interface LawSession {
 	readonly host: HostSchema
 	/** Empties every table, as the owner. */
 	readonly reset: Effect.Effect<void, SqlError>
@@ -493,8 +493,8 @@ export const ownerView = (
 const sessionOf = (
 	host: HostSchema,
 	installed: Installed,
-	apply: Session["apply"]
-): Effect.Effect<Session, never, Substrate> =>
+	apply: LawSession["apply"]
+): Effect.Effect<LawSession, never, Substrate> =>
 	Effect.map(ownerView(host, installed), (owner) => ({
 		host,
 		reset: owner.reset,
@@ -620,7 +620,7 @@ export const runtimeSession = <S extends AnySchema>(
 	host: HostSchema,
 	opened: Opened<S>,
 	relations: Readonly<Record<string, unknown>>
-): Effect.Effect<Session, never, Substrate> =>
+): Effect.Effect<LawSession, never, Substrate> =>
 	sessionOf(host, opened.installed, servedApply(opened, relations))
 
 /**
@@ -1764,7 +1764,7 @@ const showWrites = (writes: ReadonlyArray<CycleWrite>): string =>
 
 /** The first way an outcome departs from the host's expectation, if any. */
 const mismatch = (
-	session: Session,
+	session: LawSession,
 	expected: Expected,
 	outcome: StepOutcome
 ): string | undefined => {
@@ -1835,7 +1835,7 @@ export const familyCaseGen =
  * refused when it compiles.
  */
 const outcomeFeatures = (
-	session: Session,
+	session: LawSession,
 	state: HostState,
 	ops: ReadonlyArray<HostOp>,
 	outcome: StepOutcome
@@ -1948,7 +1948,7 @@ export const exemptReachable = (host: HostSchema, domains: Domains): boolean =>
  * A full role's write is never outside its world: no host outcome is, and mismatch reports it.
  */
 export const runSteps = (
-	session: Session,
+	session: LawSession,
 	domains: Domains,
 	sketch: CaseSketch,
 	note: Case<FamilyFeature>["note"]

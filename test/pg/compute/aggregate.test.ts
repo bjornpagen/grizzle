@@ -1,3 +1,4 @@
+import { int8Digits } from "@bjornpagen/grizzle-engine/ir/carriers"
 /**
  * Aggregate typing against PostgreSQL 19 (scalar/aggregate.ts): count(*), and every aggregate of the language, sum,
  * mean, min and max, over a sample of each carrier a field holds, a closed id, a set and a contract among them.
@@ -21,7 +22,6 @@ import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { int8Digits } from "@grizzle/limits"
 import { Array as Arr, Effect, Result, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { integerDigits } from "#compiler/ir/carriers.ts"
@@ -128,9 +128,9 @@ const resultCall = (
 
 /** The integer transition types, by the name pg_aggregate's aggtranstype::regtype gives each, and their digits. */
 const integerAccumulators: ReadonlyMap<string, number> = new Map([
-	["smallint", integerDigits.int2.value],
-	["integer", integerDigits.int4.value],
-	["bigint", integerDigits.int8.value]
+	["smallint", integerDigits.int2],
+	["integer", integerDigits.int4],
+	["bigint", integerDigits.int8]
 ])
 
 /**
@@ -160,7 +160,7 @@ const accumulatorProblem = (
 		if (argDigits === undefined) {
 			return [`${label}: ${op} accumulates in ${accumulator} over an argument of no digit bound`]
 		}
-		const needed = argDigits + int8Digits.value
+		const needed = argDigits + int8Digits
 		return digits >= needed
 			? []
 			: [

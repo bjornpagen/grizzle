@@ -6,7 +6,7 @@
  * and classifier are rebuilt under (ir/codes.ts rosterCodebook).
  *
  * Over generated rosters, each a nonempty list of codes with holes anywhere and at least one live code, each live code
- * a distinct handle of up to the bytes a handle holds (@grizzle/limits handleMaxBytes), any text a roster admits, under
+ * a distinct handle of up to the bytes a handle holds (handleMaxBytes), any text a roster admits, under
  * distinct declared names:
  *
  * - The wire form: a roster's codes written (rosterWire) and read (rosterCodesOf) are its codes.

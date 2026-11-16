@@ -1,3 +1,4 @@
+import { numericMaxFractionDigits } from "@bjornpagen/grizzle-engine/scalar/values/fault"
 /**
  * Compute.parseDecimal on PostgreSQL 19rc2: over drawn pairs of decimal texts (test/support/lexical.ts decimalTextGen),
  * each part's count of digits at an edge the parse turns on (256 integer and 255 fraction digits, the widest
@@ -26,7 +27,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { numericMaxFractionDigits } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -151,7 +151,7 @@ const highGen =
 			canonicalDecimal(shifted(value, false)),
 			low
 		]
-		const within = Arr.filter(neighbours, (text) => text.length <= decimalTextMaxBytes.value)
+		const within = Arr.filter(neighbours, (text) => text.length <= decimalTextMaxBytes)
 		return source.draw(
 			weighted([
 				[4, element(nonEmpty(within, "the low end itself is within the form"))],
@@ -175,8 +175,8 @@ const textFeatures = (text: string): ReadonlyArray<Feature> => {
 	const facts: ReadonlyArray<readonly [Feature, boolean]> = [
 		["past 256 integer digits", significant.integer > 256],
 		["past 255 fraction digits", significant.fraction > 255],
-		["the form's last byte", text.length === decimalTextMaxBytes.value],
-		["numeric's most fraction digits", significant.fraction === numericMaxFractionDigits.value],
+		["the form's last byte", text.length === decimalTextMaxBytes],
+		["numeric's most fraction digits", significant.fraction === numericMaxFractionDigits],
 		["a negative zero", Str.startsWith("-")(text) && value.digits === 0n],
 		["leading zeros", Str.startsWith("0")(integer) && integer.length > 1],
 		["trailing zeros", fraction !== undefined && Str.endsWith("0")(fraction)],
@@ -191,7 +191,7 @@ const textFeatures = (text: string): ReadonlyArray<Feature> => {
 }
 
 /** A decimal text the parse reads total: the form's pattern within its bytes. */
-const KeyText = str.bytes(decimalTextMaxBytes.value, regexField<string>(decimalText.source, []))
+const KeyText = str.bytes(decimalTextMaxBytes, regexField<string>(decimalText.source, []))
 
 /** The host evaluator's parse of a text: the evaluation, as a check lowers it, of parseDecimal(v). */
 const keyField = field(describeFieldOrThrow(KeyText, SourceLoc("KeyText", [])).desc, "text")

@@ -46,6 +46,7 @@ import { defect } from "#compiler/core/invariant.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { blockSize, itemIdBytes, pageHeaderBytes } from "#compiler/core/page.ts"
 import * as Result from "#compiler/core/result.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
@@ -92,8 +93,6 @@ import {
 	type ScalarType,
 	textOf
 } from "#compiler/ir/scalar.ts"
-
-import { heapTupleMaxBytes } from "@grizzle/limits"
 import { existenceConstraints } from "#compiler/laws/model/catalog.ts"
 import { keyOf } from "#compiler/laws/model/names.ts"
 import {
@@ -128,8 +127,27 @@ import { guardedTerm } from "#compiler/scalar/natural.ts"
 import { ProgramPatterns, tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
 import type { Owned } from "#compiler/schema/own.ts"
 import type { Slice } from "#compiler/schema/reach.ts"
+import { alignUp, maxAlign } from "#compiler/schema/representability.ts"
 import { exprPatternReads } from "#compiler/schema/walk.ts"
 import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
+
+/**
+ * The largest heap tuple, MaxHeapTupleSize, its header and alignment padding included: a row of a stored relation's
+ * table must fit one otherwise empty page beside its line pointer, and a fixed-width column is never moved out of line,
+ * so a row whose fixed-width columns, its generated cells and selected terms among them, can pass it cannot be stored.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope one heap tuple, its header and alignment padding included: one row of a stored relation's table
+ * @derivation htup_details.h's MaxHeapTupleSize, "#define MaxHeapTupleSize (BLCKSZ - MAXALIGN(SizeOfPageHeaderData +
+ *   sizeof(ItemIdData)))"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/htup_details.h#L755, verified
+ *   2026-11-14): a page less its header and the one line pointer that points at the tuple, rounded up to the greatest
+ *   alignment, since a heap page has no special space
+ * @from {@link blockSize}, {@link maxAlign}, {@link pageHeaderBytes}, {@link itemIdBytes}
+ */
+export const heapTupleMaxBytes = blockSize - alignUp(pageHeaderBytes + itemIdBytes, maxAlign)
 
 /** The native objects installed as a table constraint: keys, CHECKs and references. */
 export type ConstraintNativeKind =
@@ -1451,7 +1469,7 @@ class Specializer {
 					rowColumn(c.field.desc, c.value.kind === "generated" && c.value.guard.length > 0)
 				)
 			]
-			const refused = wideRow(r.name, columns, heapTupleMaxBytes.value)
+			const refused = wideRow(r.name, columns, heapTupleMaxBytes)
 			if (refused !== undefined) {
 				throw new Refusal(CompileError.make(prose("UnsupportedLawFamily", r.loc, refused)))
 			}

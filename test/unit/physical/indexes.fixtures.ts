@@ -1,5 +1,6 @@
 /** What the properties of indexes.test.ts read: its spaces, models and helpers. */
 
+import { indexMaxKeys } from "@bjornpagen/grizzle-engine/schema/representability"
 import {
 	array,
 	boolean,
@@ -12,7 +13,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
-import { indexMaxKeys } from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Equivalence, Option } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
@@ -252,8 +252,8 @@ const plantedGen: Gen<Planted> = weighted<Planted>([
 		1,
 		map(
 			array(element(eventColumns), {
-				min: indexMaxKeys.value + 1,
-				max: indexMaxKeys.value + 4
+				min: indexMaxKeys + 1,
+				max: indexMaxKeys + 4
 			}),
 			(keys) => ({ kind: "too many keys", keys })
 		)

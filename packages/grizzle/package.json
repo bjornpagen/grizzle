@@ -21,7 +21,8 @@
 		"./client": "./src/client.ts",
 		"./compile": "./src/compile.ts",
 		"./http": "./src/http/index.ts",
-		"./package.json": "./package.json"
+		"./package.json": "./package.json",
+		"./adapter/connection/config": "./src/adapter/connection/config.ts"
 	},
 	"bin": {
 		"grizzle": "./src/cli/main.ts"
@@ -34,8 +35,6 @@
 	},
 	"dependencies": {
 		"@bjornpagen/grizzle-engine": "workspace:*",
-		"@bjornpagen/limit": "workspace:*",
-		"@grizzle/limits": "workspace:*",
 		"@effect/platform-node": "catalog:"
 	},
 	"devDependencies": {

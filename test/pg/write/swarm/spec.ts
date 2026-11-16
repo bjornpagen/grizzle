@@ -1,3 +1,4 @@
+import { int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 /**
  * The schemas the family swarm search draws (test/pg/write/swarm/families.test.ts): a family core of relations R0 …
  * Rn−1 as the reference writer specifies them (test/support/families/fill.ts FillSpec: trees, ordered and counted
@@ -20,7 +21,6 @@
  */
 import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { keep, type Swarm, swarm, swarmChoice, weightOf } from "@bjornpagen/testing/swarm"
-import { int8Min } from "@grizzle/limits"
 import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effect"
 import { accumulated, bits, drawn, natural, pg, uuid } from "#compiler/public/fields.ts"
 import { type AnyFamily, type RowScalars, schema, type Statement } from "#compiler/public/schema.ts"
@@ -195,7 +195,7 @@ export const maskUnion = (ids: ReadonlyArray<number>): ReadonlySet<string> =>
 	new Set(Arr.flatMap(ids, (id) => [...maskOf(id)]))
 
 /** Max's identity over bigint, its end where a family has no member. */
-export const maxIdentity: bigint = int8Min.value
+export const maxIdentity: bigint = int8Min
 
 /** Whether relation `r` is an ordered family's member, written nested under its owner alone. */
 export const nestedOnly = (spec: FillSpec, r: number): boolean =>

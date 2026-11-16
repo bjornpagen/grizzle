@@ -1,5 +1,7 @@
 /** What the properties of scalar.test.ts read: its spaces, models and helpers. */
 
+import { int4Max } from "@bjornpagen/grizzle-engine/core/canonical"
+import { int4Min, int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 import {
 	array,
 	boolean,
@@ -14,7 +16,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { bigint, float } from "@bjornpagen/testing/values"
-import { int4Max, int4Min, int8Max, int8Min } from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, DateTime, pipe, String as Str } from "effect"
 import type { CodecFault } from "#compiler/core/errors.ts"
@@ -124,7 +125,7 @@ export interface Carried {
 }
 
 const fixed4 = scalarOf(f.span(f.integer, 15n), {})
-const fixed8 = scalarOf(f.span(f.bigint, int8Max.value), {})
+const fixed8 = scalarOf(f.span(f.bigint, int8Max), {})
 const refined = scalarOf(f.regex("^[a-z]+$", "u"), {})
 const integerSyntax = Object.freeze(["", "+1", "01", "-0", "1.0", " 1", "1e3", "١"])
 
@@ -156,7 +157,7 @@ export const carried = {
 	},
 	int8: {
 		type: types.int8,
-		live: map(bigint(int8Min.value, int8Max.value), (n) => ({ value: n, text: digitsOf(n) })),
+		live: map(bigint(int8Min, int8Max), (n) => ({ value: n, text: digitsOf(n) })),
 		refusedValues: [[1, "integerType"]],
 		refusedTexts: [
 			["9223372036854775808", "integerRange"],
@@ -209,7 +210,7 @@ export const carried = {
 	},
 	money: {
 		type: types.money,
-		live: map(bigint(int8Min.value, int8Max.value), (minor) => ({
+		live: map(bigint(int8Min, int8Max), (minor) => ({
 			value: Money.of(minor),
 			text: decimalText(minor < 0n, minor < 0n ? -minor : minor, 2)
 		})),
@@ -287,7 +288,7 @@ export const carried = {
 	},
 	int4range: {
 		type: types.range4,
-		live: writtenSpan4(int4Min.value, int4Max.value),
+		live: writtenSpan4(int4Min, int4Max),
 		refusedValues: [
 			[{ start: 2, end: 2 }, "spanOrder"],
 			[{ start: 1n, end: 2n }, "spanEndpoint"]
@@ -299,7 +300,7 @@ export const carried = {
 	},
 	int8range: {
 		type: types.range8,
-		live: writtenSpan8(int8Min.value, int8Max.value),
+		live: writtenSpan8(int8Min, int8Max),
 		refusedValues: [[{ start: 1, end: 2 }, "spanEndpoint"]],
 		refusedTexts: []
 	},
@@ -341,12 +342,12 @@ export const carried = {
 		type: fixed8,
 		/** The width is exact over bigint, where end - start can exceed every bigint. */
 		live: map(bigint(-1n, 0n), (start) => ({
-			value: { start, end: start + int8Max.value },
-			text: `[${start},${start + int8Max.value})`
+			value: { start, end: start + int8Max },
+			text: `[${start},${start + int8Max})`
 		})),
 		refusedValues: [
-			[{ start: int8Min.value, end: int8Max.value }, "spanWidth"],
-			[{ start: 1n, end: int8Max.value }, "spanWidth"]
+			[{ start: int8Min, end: int8Max }, "spanWidth"],
+			[{ start: 1n, end: int8Max }, "spanWidth"]
 		],
 		refusedTexts: []
 	},
@@ -500,7 +501,7 @@ export const int8Text = (t: string): bigint | undefined => {
 		return undefined
 	}
 	const n = BigInt(t)
-	return n >= int8Min.value && n <= int8Max.value ? n : undefined
+	return n >= int8Min && n <= int8Max ? n : undefined
 }
 
 /** The int8 codec. */
@@ -508,7 +509,7 @@ export const int8 = codecOf(types.int8, kindCodes)
 /** An int8 text: any text of its characters, or the digits of a whole number past its range either way. */
 export const int8Texts = weighted([
 	[1, string(element(Str.split("0123456789-+. ", "")), { min: 0, max: 22 })],
-	[1, map(bigint(int8Min.value * 2n, int8Max.value * 2n), String)]
+	[1, map(bigint(int8Min * 2n, int8Max * 2n), String)]
 ])
 
 /** The int8range codec. */
@@ -520,10 +521,7 @@ export const spanTexts = weighted([
 		1,
 		map(
 			(source) =>
-				[
-					source.draw(bigint(int8Min.value, int8Max.value)),
-					source.draw(bigint(int8Min.value, int8Max.value))
-				] as const,
+				[source.draw(bigint(int8Min, int8Max)), source.draw(bigint(int8Min, int8Max))] as const,
 			([a, b]) => `[${a},${b})`
 		)
 	]

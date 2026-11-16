@@ -1,3 +1,4 @@
+import { timerMinMs } from "@bjornpagen/grizzle/adapter/connection/config"
 /**
  * A connection that can't be had, for a Db already open (README "Errors and outcomes"): a failing `password` Effect
  * fails a read and a write alike with the CallError `credentialRefused`, reason `passwordFailed`, never to retry, since
@@ -16,7 +17,6 @@ import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { timerMinMs } from "@grizzle/limits"
 import { Effect, Exit, Formatter, Option } from "effect"
 import { CredentialError } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
@@ -140,7 +140,7 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 												failing.now ? Effect.fail(refusal) : Effect.succeed(credentials.password)
 											)
 										),
-										pool: { max: 1, min: 0, idleTimeoutMs: timerMinMs.value },
+										pool: { max: 1, min: 0, idleTimeoutMs: timerMinMs },
 										login: o.served.login,
 										verify: testVerify
 									})

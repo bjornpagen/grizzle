@@ -40,7 +40,7 @@ export default defineTestConfig({
 	conditions: [],
 	timeouts: {
 		test: { kind: "unbounded" },
-		hook: { kind: "bounded", millis: hangLimit.value }
+		hook: { kind: "bounded", millis: hangLimit }
 	},
 	smallStack: [...smallStackModules, ...leftToRunner],
 	examples: unitExamples

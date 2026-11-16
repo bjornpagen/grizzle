@@ -10,6 +10,8 @@ import {
 	moneyTag,
 	vectorTag
 } from "#compiler/ir/carriers.ts"
+import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
+import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import { DecimalText, type DecimalValue, decimalTag } from "#compiler/ir/decimal.ts"
 import {
 	type ColumnRef,
@@ -42,16 +44,6 @@ import {
 	type PreconditionProof,
 	parseForms
 } from "#compiler/ir/proof.ts"
-
-import {
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale,
-	vectorMaxDimensions
-} from "@grizzle/limits"
-import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import {
 	type Capability,
 	type CapabilitySet,
@@ -87,6 +79,13 @@ import {
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
+import {
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/scalar/values/fault.ts"
 
 /**
  * The wire form the decoder reads before the carrier's rules: every meaning-changing field optional, nested
@@ -146,10 +145,10 @@ const capabilitySetShape: S.Shape<CapabilitySet> = S.refine(
 const numericBoundShape: S.Shape<NumericBound> = S.refine(
 	S.struct({ digits: S.integer, scale: S.nonNegativeInteger }),
 	(b) =>
-		b.digits >= -numericMaxFractionDigits.value &&
-		b.digits <= numericMaxIntegerDigits.value &&
-		b.scale <= numericMaxFractionDigits.value,
-	`a computed numeric's bound: from ${-numericMaxFractionDigits.value} to ${numericMaxIntegerDigits.value} integer digits and at most ${numericMaxFractionDigits.value} fraction digits`
+		b.digits >= -numericMaxFractionDigits &&
+		b.digits <= numericMaxIntegerDigits &&
+		b.scale <= numericMaxFractionDigits,
+	`a computed numeric's bound: from ${-numericMaxFractionDigits} to ${numericMaxIntegerDigits} integer digits and at most ${numericMaxFractionDigits} fraction digits`
 )
 
 const typmodShape: S.Shape<WireTypmod> = S.structStated(
@@ -391,11 +390,11 @@ const narrowNumericTypmod = (typmod: WireTypmod): NumericTypmod | string => {
 	if (scale === undefined) {
 		return "a numeric typmod has its scale: numeric(p) is numeric(p, 0)"
 	}
-	if (precision < 1 || precision > numericMaxPrecision.value) {
-		return `numeric precision lies in 1..${numericMaxPrecision.value}`
+	if (precision < 1 || precision > numericMaxPrecision) {
+		return `numeric precision lies in 1..${numericMaxPrecision}`
 	}
-	if (scale < numericMinScale.value || scale > numericMaxScale.value) {
-		return `numeric scale lies in ${numericMinScale.value}..${numericMaxScale.value}`
+	if (scale < numericMinScale || scale > numericMaxScale) {
+		return `numeric scale lies in ${numericMinScale}..${numericMaxScale}`
 	}
 	return Object.freeze({ precision, scale })
 }
@@ -404,8 +403,8 @@ const narrowVectorTypmod = (typmod: WireTypmod | undefined): VectorTypmod | stri
 	if (typmod?.dims === undefined) {
 		return "a vector type has dimensions"
 	}
-	if (typmod.dims > vectorMaxDimensions.value) {
-		return `a vector has at most ${vectorMaxDimensions.value} dimensions`
+	if (typmod.dims > vectorMaxDimensions) {
+		return `a vector has at most ${vectorMaxDimensions} dimensions`
 	}
 	if (typmod.precision !== undefined || typmod.scale !== undefined) {
 		return "a vector has no precision or scale"

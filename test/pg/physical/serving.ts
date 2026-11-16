@@ -651,7 +651,7 @@ export const loadAtVolume = (
 		const passed = yield* Effect.timeoutOption(
 			Effect.repeat(holdersBefore(admin, filled), {
 				until: (holders) => !Arr.isReadonlyArrayNonEmpty(holders),
-				schedule: Schedule.spaced(Duration.millis(backendWaitStep.value))
+				schedule: Schedule.spaced(Duration.millis(backendWaitStep))
 			}),
 			caseHang
 		)

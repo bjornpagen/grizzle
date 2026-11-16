@@ -1,4 +1,3 @@
-import { moneyFractionDigits } from "@grizzle/limits"
 import { floatSpecials } from "#compiler/core/canonical.ts"
 import { exactParts } from "#compiler/core/decimal.ts"
 import { defect } from "#compiler/core/invariant.ts"
@@ -24,6 +23,7 @@ import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
 import { isDateParse } from "#compiler/scalar/compute/registry.ts"
+import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { cast, lit } from "#compiler/sql/build.ts"
 import { type ClosedRead, closedRead as closedReadOf } from "#compiler/sql/constants.ts"
@@ -36,9 +36,9 @@ import { dateOfText } from "#compiler/sql/lexical.ts"
 export const moneyText = (minor: bigint): string => {
 	const negative = minor < 0n
 	const magnitude = negative ? -minor : minor
-	const unit = 10n ** BigInt(moneyFractionDigits.value)
+	const unit = 10n ** BigInt(moneyFractionDigits)
 	const whole = magnitude / unit
-	const cents = (magnitude % unit).toString().padStart(moneyFractionDigits.value, "0")
+	const cents = (magnitude % unit).toString().padStart(moneyFractionDigits, "0")
 	return `${negative ? "-" : ""}${whole.toString()}.${cents}`
 }
 

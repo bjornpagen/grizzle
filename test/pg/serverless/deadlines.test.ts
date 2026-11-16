@@ -118,7 +118,7 @@ layer(Substrate.layer)("no server-side deadlines", (it) => {
 										: Option.none()
 								const pool = yield* poolFor(writer, {
 									...defaultPool,
-									pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max },
+									pool: { idleTimeoutMs: testIdleTimeout, min: 1, max },
 									attachPool: Option.isSome(vercel) ? attachDatabasePool : defaultPool.attachPool
 								})
 								const backends = new Set<string>()

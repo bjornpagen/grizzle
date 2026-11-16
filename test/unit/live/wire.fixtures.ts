@@ -1,5 +1,9 @@
 /** What the properties of wire.test.ts read: its spaces, models and helpers. */
 
+import { int4Max } from "@bjornpagen/grizzle-engine/core/canonical"
+import { int2Max, int2Min, int4Min, int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
+import { moneyFractionDigits } from "@bjornpagen/grizzle-engine/scalar/values/decimal"
+import { binary32Max } from "@bjornpagen/grizzle-engine/scalar/values/float"
 import {
 	type Aimed,
 	aimed,
@@ -17,16 +21,6 @@ import {
 	unicodeScalar
 } from "@bjornpagen/testing/gen"
 import { bigint, double, uuid } from "@bjornpagen/testing/values"
-import {
-	binary32Max,
-	int2Max,
-	int2Min,
-	int4Max,
-	int4Min,
-	int8Max,
-	int8Min,
-	moneyFractionDigits
-} from "@grizzle/limits"
 import { Array as Arr, Record as Rec, String as Str } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
@@ -153,7 +147,7 @@ const decimalsGen = (integerDigits: number, scale: number): Gen<Decimal> => {
 
 /** A binary32 number from -binary32Max to binary32Max, or a word naming a float JSON numbers cannot hold. */
 const realGen: Gen<number> = oneOf<number>([
-	(source) => Math.fround(source.draw(double(-binary32Max.value, binary32Max.value))),
+	(source) => Math.fround(source.draw(double(-binary32Max, binary32Max))),
 	element([0, -0]),
 	element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])
 ])
@@ -195,11 +189,11 @@ const valueOf =
 	(source) => {
 		switch (spec.carrier) {
 			case "int2":
-				return source.draw(int(int2Min.value, int2Max.value))
+				return source.draw(int(int2Min, int2Max))
 			case "int4":
-				return source.draw(int(int4Min.value, int4Max.value))
+				return source.draw(int(int4Min, int4Max))
 			case "int8":
-				return source.draw(bigint(int8Min.value, int8Max.value))
+				return source.draw(bigint(int8Min, int8Max))
 			case "numeric": {
 				const numeric = spec.numeric
 				if (numeric.kind === "typmod" && source.draw(int(0, 9)) === 0) {
@@ -217,13 +211,13 @@ const valueOf =
 					])
 				)
 			case "money":
-				return Money.of(source.draw(bigint(int8Min.value, int8Max.value)))
+				return Money.of(source.draw(bigint(int8Min, int8Max)))
 			case "exactInteger": {
 				const most = 10n ** BigInt(spec.digits) - 1n
 				return source.draw(bigint(-most, most))
 			}
 			case "exactMoney": {
-				const most = 10n ** BigInt(spec.digits + moneyFractionDigits.value) - 1n
+				const most = 10n ** BigInt(spec.digits + moneyFractionDigits) - 1n
 				return Money.exact(source.draw(bigint(-most, most)))
 			}
 			case "bool":
@@ -243,13 +237,11 @@ const valueOf =
 				return new Set(Arr.filter(spec.handles, (handle) => chosen.includes(handle)))
 			}
 			case "range4": {
-				const [start, end] = source.draw(
-					spanUnits(BigInt(int4Min.value), BigInt(int4Max.value), spec.width)
-				)
+				const [start, end] = source.draw(spanUnits(BigInt(int4Min), BigInt(int4Max), spec.width))
 				return Object.freeze({ start: Number(start), end: Number(end) })
 			}
 			case "range8": {
-				const [start, end] = source.draw(spanUnits(int8Min.value, int8Max.value, spec.width))
+				const [start, end] = source.draw(spanUnits(int8Min, int8Max, spec.width))
 				return Object.freeze({ start, end })
 			}
 			case "rangeDate": {

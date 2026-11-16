@@ -25,9 +25,9 @@
  * dictionary's CASE.
  */
 
+import { regexMaxDepth } from "@bjornpagen/grizzle-engine/scalar/regex/space"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { regexMaxDepth } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -297,7 +297,7 @@ export const computesTextTermsRefusesEachFaultPlantedInAValidTermByItsReasonAndF
 					pattern: `/${pastSpace}/u`,
 					measure: {
 						kind: "depth",
-						limit: regexMaxDepth.value,
+						limit: regexMaxDepth,
 						needed: rawSize(pastIr, colorsOf(pastIr)).depth
 					}
 				} as const

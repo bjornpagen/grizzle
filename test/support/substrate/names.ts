@@ -1,8 +1,7 @@
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
+import { regex } from "arkregex"
 import { Formatter, Option, String as Str } from "effect"
 import { Hex } from "effect/encoding"
-
-import { maxIdentifierBytes } from "@grizzle/limits"
-import { regex } from "arkregex"
 /** Lowercase ASCII letter words joined by single underscores: a schema label, and a role name roleName takes. */
 const word = regex("^[a-z]+(?:_[a-z]+)*$")
 
@@ -151,9 +150,9 @@ export const assertIdentifier = (name: string): void => {
 	if (!regex("^[a-z_][a-z0-9_]*$").test(name)) {
 		throw new Error(`${Formatter.format(name)} is not a plain lowercase identifier`)
 	}
-	if (Buffer.byteLength(name, "utf8") > maxIdentifierBytes.value) {
+	if (Buffer.byteLength(name, "utf8") > maxIdentifierBytes) {
 		throw new Error(
-			`${Formatter.format(name)} exceeds ${maxIdentifierBytes.value} bytes and would be truncated`
+			`${Formatter.format(name)} exceeds ${maxIdentifierBytes} bytes and would be truncated`
 		)
 	}
 }

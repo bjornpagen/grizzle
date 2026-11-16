@@ -1,13 +1,13 @@
 /** What the properties of compile-space.test.ts read: its spaces, models and helpers. */
 
-import { array, element, type Gen, int, map, oneOf, string, subset } from "@bjornpagen/testing/gen"
+import { regexMaxHeldArcs } from "@bjornpagen/grizzle-engine/scalar/regex/ir"
 import {
 	regexMaxAnchors,
 	regexMaxDepth,
-	regexMaxHeldArcs,
 	regexMaxMatchCells,
 	regexMaxMatchStates
-} from "@grizzle/limits"
+} from "@bjornpagen/grizzle-engine/scalar/regex/space"
+import { array, element, type Gen, int, map, oneOf, string, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order, String as Str } from "effect"
 import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -253,46 +253,43 @@ const wordOf = (i: number): string => Str.padStart(4, "_")(i.toString(36))
 export const shapeGen: Gen<Shape> = oneOf<Shape>([
 	(s) => ({
 		crosses: "depth",
-		source: chainOf(regexMaxDepth.value + s.draw(int(-600, 40))),
+		source: chainOf(regexMaxDepth + s.draw(int(-600, 40))),
 		measured: (ir) => walkDepth(built(ir), false),
-		limit: regexMaxDepth.value
+		limit: regexMaxDepth
 	}),
 	(s) => ({
 		crosses: "arcs",
 		source: `${Arr.join(Arr.makeBy(512, cjk), "")}(?:[${Arr.join(Arr.makeBy(512, cjk), "")}]{255}){${s.draw(int(6, 9))}}`,
 		measured: (ir) => 2 * builtArcs(built(ir)),
-		limit: regexMaxHeldArcs.value
+		limit: regexMaxHeldArcs
 	}),
 	(s) => ({
 		crosses: "matchStates",
-		source: `^(?:${Arr.join(upTo(Math.floor(regexMaxMatchStates.value / 3) + s.draw(int(-40, 40)), wordOf), "|")})$`,
+		source: `^(?:${Arr.join(upTo(Math.floor(regexMaxMatchStates / 3) + s.draw(int(-40, 40)), wordOf), "|")})$`,
 		measured: matchStatesOf,
-		limit: regexMaxMatchStates.value
+		limit: regexMaxMatchStates
 	}),
 	(s) => ({
 		crosses: "matchCells",
 		source: `^(?:${Arr.join(
-			upTo(
-				Math.floor(Math.sqrt(regexMaxMatchCells.value)) + s.draw(int(-8, 8)),
-				(i) => `${cjk(i)}y`
-			),
+			upTo(Math.floor(Math.sqrt(regexMaxMatchCells)) + s.draw(int(-8, 8)), (i) => `${cjk(i)}y`),
 			"|"
 		)})$`,
 		measured: (ir) => matchStatesOf(ir) * sweptColors(ir).count,
-		limit: regexMaxMatchCells.value
+		limit: regexMaxMatchCells
 	}),
 	(s) => ({
 		crosses: "anchors",
-		source: Str.repeat(regexMaxAnchors.value + s.draw(int(-1, 2)))("(?:$|a|)b"),
+		source: Str.repeat(regexMaxAnchors + s.draw(int(-1, 2)))("(?:$|a|)b"),
 		measured: (ir) => anchorsOf(built(ir)),
-		limit: regexMaxAnchors.value
+		limit: regexMaxAnchors
 	}),
 	(s) => {
 		const k = s.draw(int(1, 64))
 		return {
 			crosses: "anchorLoop",
 			source: `(?:(?:(?:(?:ab){255}){255}){${k}}|$)*b`,
-			loops: 2 * 255 * 255 * k + 1 > regexMaxHeldArcs.value
+			loops: 2 * 255 * 255 * k + 1 > regexMaxHeldArcs
 		}
 	}
 ])

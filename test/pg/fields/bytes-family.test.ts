@@ -1,8 +1,9 @@
+import { bytesChunkLength } from "@bjornpagen/grizzle-engine/codec/delivery"
 /**
  * A family's members carrying bytes, on PostgreSQL 19rc2: an owner of a bytes value of its own, which its nested write
  * admits once for the owner's row and once for its own insert, is inserted with members nested in order, each
  * member's bytes value empty, short, or one short of, at or one past a chunk of the delivery in force
- * (@grizzle/limits bytesChunkLength), or of several chunks; then one member is deleted, which re-places every later
+ * (bytesChunkLength), or of several chunks; then one member is deleted, which re-places every later
  * sibling: grizzle reads the stored suffix, its bytes values in chunks (write/family/decode.ts), and writes each
  * re-placed member again whole, its bytes value in its column's binary array (write/family/order.ts columnArray).
  * Every member reads back at its slot with its bytes, before and after.
@@ -18,7 +19,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { bytesChunkLength } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -60,7 +60,7 @@ interface Drawn {
 const length: Gen<number> = weighted([
 	[1, () => 0],
 	[3, int(1, 64)],
-	[2, (s) => s.draw(element([1, 2])) * bytesChunkLength.value + s.draw(element([-1, 0, 1]))]
+	[2, (s) => s.draw(element([1, 2])) * bytesChunkLength + s.draw(element([-1, 0, 1]))]
 ])
 
 const cases: Gen<Drawn> = (s) => {
@@ -82,7 +82,7 @@ type Feature =
 	| "a re-placed member of several chunks"
 
 const notes = (d: Drawn): ReadonlyArray<Feature> => {
-	const c = bytesChunkLength.value
+	const c = bytesChunkLength
 	const replaced = d.values.slice(d.cut + 1)
 	const out: Array<Feature> = []
 	if (d.cut === 0) {

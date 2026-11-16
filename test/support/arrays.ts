@@ -1,4 +1,4 @@
-import { maxStringLength } from "@grizzle/limits"
+import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 import { Array as Arr, pipe, String as Str } from "effect"
 import { arrayTexts, parameterNormalizer, type RelationSpec } from "#compiler/codec/recordset.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -16,13 +16,10 @@ export const arraysEncoder = (spec: RelationSpec): RelationParamEncoder => {
 	const fields = Arr.map(spec.columns, (c) => c.field)
 	return (facts) =>
 		Result.flatMap(normalize(facts), (normalized) =>
-			Result.map(
-				arrayTexts(spec.relation, fields, normalized.rows, maxStringLength.value),
-				(arrays) => ({
-					arrays,
-					count: normalized.count
-				})
-			)
+			Result.map(arrayTexts(spec.relation, fields, normalized.rows, maxStringLength), (arrays) => ({
+				arrays,
+				count: normalized.count
+			}))
 		)
 }
 

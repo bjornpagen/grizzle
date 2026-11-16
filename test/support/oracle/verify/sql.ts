@@ -1,9 +1,9 @@
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import {
-	maxIdentifierBytes,
 	numericMaxPrecision,
 	numericMaxScale,
 	numericMinScale
-} from "@grizzle/limits"
+} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Order, Result, String as Str } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
@@ -458,8 +458,8 @@ class StatementAuditor {
 			this.reportAt("identifier", `${what} contains NUL`, at)
 		} else if (!isWellFormed(name)) {
 			this.reportAt("identifier", `${what} is not well-formed UTF-16`, at)
-		} else if (utf8Length(name) > maxIdentifierBytes.value) {
-			this.reportAt("identifier", `${what} "${name}" exceeds ${maxIdentifierBytes.value} bytes`, at)
+		} else if (utf8Length(name) > maxIdentifierBytes) {
+			this.reportAt("identifier", `${what} "${name}" exceeds ${maxIdentifierBytes} bytes`, at)
 		}
 	}
 
@@ -570,22 +570,22 @@ class StatementAuditor {
 		if (
 			!Number.isSafeInteger(type.precision) ||
 			type.precision < 1 ||
-			type.precision > numericMaxPrecision.value
+			type.precision > numericMaxPrecision
 		) {
 			this.report(
 				"type",
-				`numeric precision ${type.precision} is outside 1..${numericMaxPrecision.value}`
+				`numeric precision ${type.precision} is outside 1..${numericMaxPrecision}`
 			)
 		}
 		if (
 			type.scale !== undefined &&
 			(!Number.isSafeInteger(type.scale) ||
-				type.scale < numericMinScale.value ||
-				type.scale > numericMaxScale.value)
+				type.scale < numericMinScale ||
+				type.scale > numericMaxScale)
 		) {
 			this.report(
 				"type",
-				`numeric scale ${type.scale} is outside ${numericMinScale.value}..${numericMaxScale.value}`
+				`numeric scale ${type.scale} is outside ${numericMinScale}..${numericMaxScale}`
 			)
 		}
 	}

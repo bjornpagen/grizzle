@@ -1,9 +1,9 @@
 /** What the properties of builders.test.ts read: its spaces, models and helpers. */
 
+import { int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 import { constant, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { type Drawn, type DrawnFeature, lsw, WILD_KINDS } from "@bjornpagen/testing/lsw"
 import { bigint } from "@bjornpagen/testing/values"
-import { int8Max, int8Min } from "@grizzle/limits"
 import { Array as Arr, Option } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -254,7 +254,7 @@ export const boundaryCaseGen: Gen<readonly [Drawn<unknown, never>, ComputeSite]>
 		[
 			source.draw(
 				lsw<unknown>({
-					live: bigint(int8Min.value, int8Max.value),
+					live: bigint(int8Min, int8Max),
 					stale: Option.none(),
 					wild: WILD_KINDS
 				})

@@ -17,8 +17,6 @@ import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { CatalogOpId, ExprSpec, TypedLiteral, ScalarExpr } from "#compiler/ir/expr.ts"
 import { headingColumns, type LawField, type TheoryRelation } from "#compiler/ir/law.ts"
-
-import { numericMaxIntegerDigits } from "@grizzle/limits"
 import {
 	type AggregateCallOver,
 	conservativeMeta,
@@ -51,6 +49,7 @@ import {
 } from "#compiler/scalar/compute/types.ts"
 import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"
+import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 
 /** A refusal deep inside a construction is the kernel's Refusal, caught at the theory boundary (catchRefusal). */
 const refusal = (tag: ProseTag, loc: SourceLoc, capability: string): Refusal =>
@@ -321,11 +320,11 @@ export class ViolationBuilder {
 		const bounds = types.map((t) => this.numericBound(t))
 		const hull = bounds.reduce(numericHull, { digits: 0, scale: 0 })
 		const digits = hull.digits + 1
-		if (digits > numericMaxIntegerDigits.value) {
+		if (digits > numericMaxIntegerDigits) {
 			throw new Refusal(
 				resourceBound(this.loc, {
 					kind: "numericDigits",
-					limit: numericMaxIntegerDigits.value,
+					limit: numericMaxIntegerDigits,
 					needed: digits
 				})
 			)

@@ -1,8 +1,9 @@
+import { regexMaxDepth } from "@bjornpagen/grizzle-engine/scalar/regex/space"
+import { typeUnionLimit } from "@bjornpagen/grizzle-engine/types/fields/source"
 import { floorPopulation, type Reached } from "@bjornpagen/testing/features"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { floorSeed, rotatingSeed } from "@bjornpagen/testing/random"
 import { sample } from "@bjornpagen/testing/source"
-import { regexMaxDepth, typeUnionLimit } from "@grizzle/limits"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -159,12 +160,12 @@ const repeatedMembers = (k: number, m: number, n: number): number =>
 		0,
 		(sum, j) =>
 			Math.min(
-				typeUnionLimit.value,
+				typeUnionLimit,
 				sum +
 					Arr.reduce(
 						upTo(j, (i) => i + 1),
 						1,
-						(p) => Math.min(typeUnionLimit.value, p * k)
+						(p) => Math.min(typeUnionLimit, p * k)
 					)
 			)
 	)
@@ -454,7 +455,7 @@ const caseGen: Gen<RegexCase> = (source) => {
 			return literalCase(form, `^a\\0${source.draw(element(wordAlphabet))}$`, flags, undefined)
 		case "overDepth": {
 			const pair = source.draw(element(["ab", "xc"] as const))
-			const repeats = regexMaxDepth.value / 2 + 1 + source.draw(int(0, 3))
+			const repeats = regexMaxDepth / 2 + 1 + source.draw(int(0, 3))
 			return literalCase(form, `^${Str.repeat(repeats)(pair)}$`, flags, undefined)
 		}
 		case "flags":
@@ -476,8 +477,8 @@ const caseGen: Gen<RegexCase> = (source) => {
 					: band === "mid"
 						? source.draw(int(lengthFor(writtenMembers) + 1, lengthFor(5000)))
 						: band === "near"
-							? lengthFor(typeUnionLimit.value / 2) + 1
-							: lengthFor(typeUnionLimit.value) + source.draw(int(1, 3))
+							? lengthFor(typeUnionLimit / 2) + 1
+							: lengthFor(typeUnionLimit) + source.draw(int(1, 3))
 			const n = band === "small" || band === "near" ? m : m + source.draw(int(0, 2))
 			const count = repeatedMembers(k, m, n)
 			const pattern = `^[${Arr.join(chars, "")}]{${m}${n === m ? "" : `,${n}`}}$`
@@ -487,7 +488,7 @@ const caseGen: Gen<RegexCase> = (source) => {
 					(j) => stringsOfLength(chars, j)
 				)
 			const host: HostClaim =
-				count >= typeUnionLimit.value
+				count >= typeUnionLimit
 					? { kind: "string" }
 					: count > writtenMembers
 						? {
@@ -651,9 +652,9 @@ const templateOf = (name: string, members: number): ReadonlyArray<string> => {
  * exactly that many is TS2590, so the inference's threshold is the checker's on every run.
  */
 const unionLimitLines = (): ReadonlyArray<string> => {
-	const at = templateOf("AtLimit", typeUnionLimit.value)
+	const at = templateOf("AtLimit", typeUnionLimit)
 	return [
-		...templateOf("UnderLimit", typeUnionLimit.value - 1),
+		...templateOf("UnderLimit", typeUnionLimit - 1),
 		...Arr.dropRight(at, 1),
 		"// @ts-expect-error -- TS2590: a union of the limit's members is more than TypeScript represents",
 		...Arr.takeRight(at, 1)

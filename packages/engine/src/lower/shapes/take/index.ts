@@ -106,7 +106,7 @@ const wholeRelationShape = (bound: TakeBound): "distinctOn" | "rowNumber" =>
 	bound.kind === "literal" && bound.k === 1n ? "distinctOn" : "rowNumber"
 
 /**
- * The fixed R20 policy: a parent set of at most `lateralMax` groups (@grizzle/limits lateralParentMax in production)
+ * The fixed R20 policy: a parent set of at most `lateralMax` groups (lateralParentMax in production)
  * takes the correlated LATERAL form.
  *
  * Bounded subsets: take(k) by the bound parent set.

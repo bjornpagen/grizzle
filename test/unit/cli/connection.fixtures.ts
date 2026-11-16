@@ -2,6 +2,7 @@
 
 import net from "node:net"
 import { inspect } from "node:util"
+import { timerMaxMs } from "@bjornpagen/grizzle/adapter/connection/config"
 import {
 	array,
 	constant,
@@ -13,7 +14,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { passed, type Wild, wild, type WildKind } from "@bjornpagen/testing/lsw"
-import { timerMaxMs } from "@grizzle/limits"
 import { Array as Arr, Data, Effect, Redacted, type Result, String as Str } from "effect"
 import pgDriver from "pg"
 import { type StartupVariable } from "#adapter/connection/environment.ts"
@@ -124,7 +124,7 @@ export const drawnGen: Gen<Drawn> = (source) => ({
 	servername: source.draw(oneOf([hostGen, textPart])),
 	ca: source.draw(element(["one", "list"])),
 	database: source.draw(textPart),
-	connectTimeoutMs: source.draw(oneOf([element([1, timerMaxMs.value]), int(1, timerMaxMs.value)]))
+	connectTimeoutMs: source.draw(oneOf([element([1, timerMaxMs]), int(1, timerMaxMs)]))
 })
 
 const open = (): net.Socket => new net.Socket()
@@ -221,7 +221,7 @@ export const notes = (d: Drawn): ReadonlyArray<ConnectionFeature> =>
 			["a password Effect", d.passwordForm === "effect"],
 			["a CA list", d.ca === "list"],
 			["the highest port", d.port === 65535],
-			["the longest timeout", d.connectTimeoutMs === timerMaxMs.value]
+			["the longest timeout", d.connectTimeoutMs === timerMaxMs]
 		] satisfies ReadonlyArray<readonly [ConnectionFeature, boolean]>,
 		([feature, holds]) => (holds ? [feature] : [])
 	)

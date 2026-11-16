@@ -1,4 +1,3 @@
-import { maxIdentifierBytes } from "@grizzle/limits"
 import { nominal } from "#compiler/core/brand.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
@@ -8,6 +7,36 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Comparator, compareStrings, type Direction } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
+
+/**
+ * The size of PostgreSQL's name type, NAMEDATALEN, its terminating zero byte included: what an identifier and a
+ * roster's handle in its names constant are held in.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope a name value, its terminating zero included: an identifier, a roster's handle
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/pg_config_manual.h#L39
+ * @quote #define NAMEDATALEN 64
+ * @verified 2026-11-14
+ */
+export const namedatalen = 64
+
+/**
+ * The longest identifier PostgreSQL keeps, in bytes: a longer one is truncated, so two names that differ past it are
+ * one name.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope one identifier: an object's, a column's, a role's or a temporary table's name
+ * @derivation NAMEDATALEN less its terminating zero: "The system uses no more than NAMEDATALEN-1 bytes of an
+ *   identifier; longer names can be written in commands, but they will be truncated."
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/syntax.sgml#L133-L135)
+ * @from {@link namedatalen}
+ */
+export const maxIdentifierBytes = namedatalen - 1
 
 /**
  * The naming door: every PostgreSQL identifier grizzle installs, declared or derived, is minted here from the object's
@@ -83,7 +112,7 @@ const digestChars = 10
  * are the format's.
  */
 const stemBudget: number =
-	maxIdentifierBytes.value - hashedLead.length - digestSeparator.length - digestChars
+	maxIdentifierBytes - hashedLead.length - digestSeparator.length - digestChars
 
 /**
  * The bytes an installation's role prefix may take: what the longest identifier leaves of `<prefix>__<name>` once the
@@ -99,7 +128,7 @@ const stemBudget: number =
  * longest hashed role name, `__aside_<digest>`, each a width of the naming door's format.
  */
 const rolePrefixBytes: number =
-	maxIdentifierBytes.value -
+	maxIdentifierBytes -
 	roleSeparator.length -
 	(hashedLead.length +
 		Math.max(liveSegment.length, asideSegment.length) +
@@ -264,9 +293,9 @@ const parsedName = (name: string): Result.Result<ParsedName, string> =>
 	Result.flatMap(parseNameCharacters(name), (named): Result.Result<ParsedName, string> => {
 		const conversion = conversionOf(named)
 		const bytes = utf8Length(conversion)
-		return bytes > maxIdentifierBytes.value
+		return bytes > maxIdentifierBytes
 			? Result.err(
-					`a name whose conversion fits ${maxIdentifierBytes.value} bytes; its conversion ${conversion} takes ${bytes}`
+					`a name whose conversion fits ${maxIdentifierBytes} bytes; its conversion ${conversion} takes ${bytes}`
 				)
 			: Result.ok({ name: declaredNameOf(named), conversion })
 	})
@@ -333,7 +362,7 @@ export const rolePrefixFaultText = (fault: RolePrefixFault): string => {
 		case "reserved":
 			return "a first segment other than pg_, which PostgreSQL reserves for its own roles"
 		case "length":
-			return `at most ${fault.limit} bytes, not ${fault.bytes}, so the installation's decoder login and a role set aside fit under it within PostgreSQL's ${maxIdentifierBytes.value}`
+			return `at most ${fault.limit} bytes, not ${fault.bytes}, so the installation's decoder login and a role set aside fit under it within PostgreSQL's ${maxIdentifierBytes}`
 	}
 }
 
@@ -423,8 +452,8 @@ export const roleInSpace = (
 		return Result.ok(name)
 	}
 	const role = `${space.prefix}${roleSeparator}${name}`
-	return utf8Length(role) > maxIdentifierBytes.value
-		? Result.err({ role, limit: maxIdentifierBytes.value })
+	return utf8Length(role) > maxIdentifierBytes
+		? Result.err({ role, limit: maxIdentifierBytes })
 		: Result.ok(role)
 }
 
@@ -469,7 +498,7 @@ export const roleNameForm = (name: string): RoleNameForm | undefined => {
 		.split(digestSeparator)
 	if (
 		!name.startsWith(hashedLead) ||
-		utf8Length(name) > maxIdentifierBytes.value ||
+		utf8Length(name) > maxIdentifierBytes ||
 		name.slice(digestAt - digestSeparator.length, digestAt) !== digestSeparator ||
 		!isDigest(name.slice(digestAt)) ||
 		!segments.every(isSegment)
@@ -927,7 +956,7 @@ const decodedSuffix = "_name"
  * field whose conversion fills the identifier leaves no room for.
  */
 export const decodedColumnFits = (field: DeclaredName): boolean =>
-	utf8Length(`${conversionOf(field)}${decodedSuffix}`) <= maxIdentifierBytes.value
+	utf8Length(`${conversionOf(field)}${decodedSuffix}`) <= maxIdentifierBytes
 
 /**
  * An identity of a kind readable as one declared name's conversion, stemmed from that name: the name split once, its
@@ -1556,14 +1585,14 @@ const fittedOf = <K extends "login" | "role">(named: Identity<K>): Fitted<K> =>
 /** A login's or role's PostgreSQL role, `<schema>__<name>`, refused at `loc` as RoleNameTooLong when it does not fit
  * PostgreSQL's maxIdentifierBytes with its schema's name. */
 const fitted = <K extends "login" | "role">(named: Identity<K>, loc: SourceLoc): Fitted<K> => {
-	if (utf8Length(named.identifier) > maxIdentifierBytes.value) {
+	if (utf8Length(named.identifier) > maxIdentifierBytes) {
 		throw new Refusal(
 			CompileError.make({
 				_tag: "RoleNameTooLong",
 				at: loc,
 				of: named.kind,
 				role: named.identifier,
-				limit: maxIdentifierBytes.value
+				limit: maxIdentifierBytes
 			})
 		)
 	}

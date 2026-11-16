@@ -1,6 +1,6 @@
-import { regexMaxRepeat } from "@grizzle/limits"
 import { xmlWhitespace } from "#compiler/core/text.ts"
 import type { PatternSource } from "#compiler/ir/scalar.ts"
+import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
 import {
 	type CharSet,
 	charSet,
@@ -95,7 +95,7 @@ export const collapseSources = (
 		flags: sourceFlags,
 		exact: isFreeOver(node)
 	}
-	if (lengthBound === undefined || lengthBound - boundedEnds > regexMaxRepeat.value) {
+	if (lengthBound === undefined || lengthBound - boundedEnds > regexMaxRepeat) {
 		return [free]
 	}
 	const bounded =

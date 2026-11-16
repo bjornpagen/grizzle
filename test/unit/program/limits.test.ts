@@ -36,10 +36,10 @@ export const postgreSQLsLimitsAdmitWhatReachesEachLimitAndRefuseOnePastItAsResou
 				([kind, offset]) =>
 					Effect.sync(() => {
 						const { limit, compile, bound } = limits[kind]
-						const count = limit.value + offset
+						const count = limit + offset
 						c.note(`${kind} ${offset < 0 ? "within" : offset === 0 ? "at" : "past"}`)
 						const result = compile(count)
-						if (count <= limit.value) {
+						if (count <= limit) {
 							succeeded(result, `${count} under ${kind}`)
 							return
 						}

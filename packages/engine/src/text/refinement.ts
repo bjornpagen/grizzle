@@ -1,4 +1,3 @@
-import { regexDfaMaxStates, regexDfaMaxWork } from "@grizzle/limits"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
@@ -31,6 +30,7 @@ import {
 	membersWithin,
 	minimalDfa
 } from "#compiler/scalar/regex/dfa.ts"
+import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
 import { canonicalText, type LiveNode, type RegexNode } from "#compiler/scalar/regex/ir.ts"
 import type { Nfa } from "#compiler/scalar/regex/match.ts"
 import type { RegexFlags } from "#compiler/scalar/regex/parse.ts"
@@ -41,12 +41,12 @@ import { printExpr } from "#compiler/sql/print.ts"
 import { structuralBounds } from "#compiler/text/bounds.ts"
 
 /**
- * The host's bounds on a pattern's subset construction (@grizzle/limits regexDfaMaxStates, regexDfaMaxWork): past
+ * The host's bounds on a pattern's subset construction (regexDfaMaxStates, regexDfaMaxWork): past
  * either, the analysis knows the language by its structure alone.
  */
 const dfaLimits: DfaLimits = Object.freeze({
-	maxStates: regexDfaMaxStates.value,
-	maxWork: regexDfaMaxWork.value
+	maxStates: regexDfaMaxStates,
+	maxWork: regexDfaMaxWork
 })
 
 /**

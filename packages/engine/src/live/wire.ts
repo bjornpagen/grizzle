@@ -1,14 +1,4 @@
-import {
-	binary32Max,
-	bytesMaxLength,
-	int2Max,
-	int2Min,
-	int4Max,
-	int4Min,
-	int8Max,
-	int8Min,
-	moneyFractionDigits
-} from "@grizzle/limits"
+import { int4Max } from "#compiler/core/canonical.ts"
 /**
  * The JSON wire's spelling of every scalar grizzle serves, as one table over the carriers (`carrierWire`): for each, the
  * JSON Schema of its spellings, its `encode` (a host value the server holds to JSON), its `parse` (the server's exact
@@ -30,6 +20,7 @@ import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { validateText } from "#compiler/core/text.ts"
+import { int2Max, int2Min, int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { uuidGroups } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, convertDate, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
@@ -45,7 +36,10 @@ import {
 	integersBelow,
 	uuidSpelling
 } from "#compiler/live/pattern.ts"
+import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
+import { binary32Max } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
@@ -224,7 +218,7 @@ const isFloatWord = (json: unknown): json is FloatSpecialName =>
 	json === "NaN" || json === "Infinity" || json === "-Infinity"
 
 /** The greatest magnitude of a binary32 number: a float4's, and a vector component's, JSON number. */
-const binary32Greatest = binary32Max.value
+const binary32Greatest = binary32Max
 
 /** A float's schema: a JSON number from `-most` to `most`, or a word naming a float no JSON number holds. */
 const floatSchema = (most: number, gaps: ReadonlyArray<SchemaGap>): WireSchema =>
@@ -429,11 +423,11 @@ const moneyOf = (
 		if (parts.kind !== "finite") {
 			return Result.err("range")
 		}
-		if (parts.minScale > moneyFractionDigits.value) {
+		if (parts.minScale > moneyFractionDigits) {
 			return Result.err("scale")
 		}
 		if (integerDigits !== undefined) {
-			return Result.map(decimalFits(value, integerDigits, moneyFractionDigits.value), (exact) =>
+			return Result.map(decimalFits(value, integerDigits, moneyFractionDigits), (exact) =>
 				Money.exact(minorUnitsOf(exact))
 			)
 		}
@@ -447,7 +441,7 @@ const minorUnitsOf = (value: Decimal): bigint => {
 	if (parts.kind !== "finite") {
 		throw defect("a finite amount of money")
 	}
-	const units = parts.coefficient * 10n ** BigInt(moneyFractionDigits.value - parts.minScale)
+	const units = parts.coefficient * 10n ** BigInt(moneyFractionDigits - parts.minScale)
 	return parts.negative ? -units : units
 }
 
@@ -590,14 +584,14 @@ const dateOf = (json: unknown): Result.Result<CalendarDate, WireFaultKind> => {
 }
 
 const int4Wire: CarrierWire<"int4"> = {
-	schema: () => ({ type: "integer", minimum: int4Min.value, maximum: int4Max.value }),
+	schema: () => ({ type: "integer", minimum: int4Min, maximum: int4Max }),
 	encode: (value) => value,
-	parse: (json) => smallIntegerOf(json, int4Min.value, int4Max.value),
+	parse: (json) => smallIntegerOf(json, int4Min, int4Max),
 	decode: (json) => trustedNumber(json),
 	is: isNumber
 }
 
-const int8Range = (value: bigint): boolean => value >= int8Min.value && value <= int8Max.value
+const int8Range = (value: bigint): boolean => value >= int8Min && value <= int8Max
 
 const dateWire: CarrierWire<"date"> = {
 	schema: () => ({ ...spelled(calendarDates), format: "date" }),
@@ -613,15 +607,15 @@ const dateWire: CarrierWire<"date"> = {
  */
 const carrierWire: CarrierWires = {
 	int2: {
-		schema: () => ({ type: "integer", minimum: int2Min.value, maximum: int2Max.value }),
+		schema: () => ({ type: "integer", minimum: int2Min, maximum: int2Max }),
 		encode: (value) => value,
-		parse: (json) => smallIntegerOf(json, int2Min.value, int2Max.value),
+		parse: (json) => smallIntegerOf(json, int2Min, int2Max),
 		decode: (json) => trustedNumber(json),
 		is: isNumber
 	},
 	int4: int4Wire,
 	int8: {
-		schema: () => spelled(integers(int8Min.value, int8Max.value)),
+		schema: () => spelled(integers(int8Min, int8Max)),
 		encode: (value) => value.toString(),
 		parse: (json) => bigIntegerOf(json, int8Range),
 		decode: (json) => BigInt(trustedString(json)),
@@ -653,7 +647,7 @@ const carrierWire: CarrierWires = {
 		is: isNumber
 	},
 	money: {
-		schema: () => spelled(amounts(int8Min.value, int8Max.value, moneyFractionDigits.value)),
+		schema: () => spelled(amounts(int8Min, int8Max, moneyFractionDigits)),
 		encode: (value) => value.toString(),
 		parse: (json) => moneyOf(json, undefined),
 		decode: (json) => Money.fromOutput(trustedString(json)),
@@ -699,7 +693,7 @@ const carrierWire: CarrierWires = {
 	},
 	bytes: {
 		schema: () => ({
-			...spelled(base64Texts(bytesMaxLength.value)),
+			...spelled(base64Texts(bytesMaxLength)),
 			contentEncoding: "base64"
 		}),
 		encode: (value) => value.toBase64(),
@@ -711,7 +705,7 @@ const carrierWire: CarrierWires = {
 			if (bytes === undefined) {
 				return Result.err("spelling")
 			}
-			return bytes.length > bytesMaxLength.value ? Result.err("range") : Result.ok(bytes)
+			return bytes.length > bytesMaxLength ? Result.err("range") : Result.ok(bytes)
 		},
 		decode: (json) => Uint8Array.fromBase64(trustedString(json)),
 		is: (value): value is Uint8Array<ArrayBuffer> =>
@@ -739,17 +733,12 @@ const carrierWire: CarrierWires = {
 		schema: (spec) => spanSchema(int4Wire.schema({ carrier: "int4" }), spec.width),
 		encode: (value) => spanJson(value, (endpoint) => endpoint),
 		parse: (json, spec) =>
-			spanOf(
-				json,
-				(endpoint) => smallIntegerOf(endpoint, int4Min.value, int4Max.value),
-				BigInt,
-				spec.width
-			),
+			spanOf(json, (endpoint) => smallIntegerOf(endpoint, int4Min, int4Max), BigInt, spec.width),
 		decode: (json) => trustedSpan(json, trustedNumber),
 		is: isSpanOf(isNumber)
 	},
 	range8: {
-		schema: (spec) => spanSchema(spelled(integers(int8Min.value, int8Max.value)), spec.width),
+		schema: (spec) => spanSchema(spelled(integers(int8Min, int8Max)), spec.width),
 		encode: (value) => spanJson(value, (endpoint) => endpoint.toString()),
 		parse: (json, spec) =>
 			spanOf(
@@ -821,7 +810,7 @@ const carrierWire: CarrierWires = {
 		is: isBigint
 	},
 	exactMoney: {
-		schema: (spec) => spelled(decimals(spec.digits, moneyFractionDigits.value)),
+		schema: (spec) => spelled(decimals(spec.digits, moneyFractionDigits)),
 		encode: (value) => value.toString(),
 		parse: (json, spec) => moneyOf(json, spec.digits),
 		decode: (json) => Money.fromOutput(trustedString(json)),

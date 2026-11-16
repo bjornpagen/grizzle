@@ -6,7 +6,7 @@
  * Oracle: a second implementation, the delivery's result rows written from its specification (codec/delivery.ts
  * Delivery) with the platform's own base64url encoder, which shares no code with the assembly, then shuffled. The
  * chunk length is drawn small, so a case meets every boundary of a value of a few chunks, and the one in force
- * (@grizzle/limits bytesChunkLength) in some cases.
+ * (bytesChunkLength) in some cases.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"

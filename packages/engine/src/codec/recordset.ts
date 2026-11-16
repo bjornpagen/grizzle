@@ -1,4 +1,3 @@
-import { maxStringLength } from "@grizzle/limits"
 /**
  * A relation input's encoding, a hot path: every execution that binds a relation input normalizes it and writes each
  * of its facts here, so the per-fact work is native loops with no closure or Option per element.
@@ -11,6 +10,7 @@ import {
 import { encodeFailure, factPlace, slotPlace } from "#compiler/codec/fault.ts"
 import { countParam, type ScalarCodec, scalarCodec, textParam } from "#compiler/codec/scalar.ts"
 import { nominal } from "#compiler/core/brand.ts"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { isRecord } from "#compiler/core/record.ts"
@@ -154,7 +154,7 @@ type ArrayForm =
 const literalArray = (codec: ScalarCodec): ArrayForm => ({
 	kind: "written",
 	array: (input, column, facts) =>
-		columnLiteral(input, column, facts, (fact) => codec.text(fact[column]), maxStringLength.value)
+		columnLiteral(input, column, facts, (fact) => codec.text(fact[column]), maxStringLength)
 })
 
 /** A text column's binary text[] of its values' canonical texts (codec/bytea.ts textArray), which no literal of the
@@ -485,7 +485,7 @@ const closed = (literal: OpenLiteral): ParamText => arrayLiteral(`{${literal.ele
  * The arrays of a normalized input, one placeholder text each (ir/products.ts ArrayTexts): over `columns` of it, one
  * text-format array literal per column, `{"t1","t2",...}` of its rows' texts in row order, or, of no column, the count
  * of its rows. Every literal is one string, so one longer than `limit` UTF-16 code units, the longest string the host
- * builds in production (@grizzle/limits maxStringLength), is refused before it is built, as the bound of the column it
+ * builds in production (maxStringLength), is refused before it is built, as the bound of the column it
  * carries (ir/products.ts LiteralBound), by a count of its length that every character it gains goes through (grown),
  * its braces before any row; the literals are written by one pass over the rows.
  */

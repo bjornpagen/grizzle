@@ -1,4 +1,3 @@
-import { cosineNormMax, cosineNormMin, vectorMaxDimensions } from "@grizzle/limits"
 import type { Brand } from "effect"
 import { nominal } from "#compiler/core/brand.ts"
 import {
@@ -11,7 +10,9 @@ import { hostRead } from "#compiler/core/host.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { phantom } from "#compiler/core/phantom.ts"
 import * as Result from "#compiler/core/result.ts"
+import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { VectorText } from "#compiler/ir/carriers.ts"
+import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
 import { encodingFailure, faultError } from "#compiler/scalar/values/fault.ts"
 
 /**
@@ -66,7 +67,7 @@ export type Vector<N extends number = number> = VectorBuffer<N> & Brand.Brand<"V
 const brand = nominal<Float32Array, Float32Array & Brand.Brand<"Vector">>()
 
 const isDimensions = (n: unknown): n is number =>
-	typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= vectorMaxDimensions.value
+	typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= vectorMaxDimensions
 
 /** What a vector's read answers for a buffer it could not read: no vector. */
 const notVector = (): ValueFault => "vectorType"
@@ -162,7 +163,7 @@ const norm = (vector: Float32Array): number => {
 /** Whether the norm lies in the cosine domain [cosineNormMin, cosineNormMax]. A NaN norm lies outside. */
 const inCosineDomain = (vector: Float32Array): boolean => {
 	const n = norm(vector)
-	return n >= cosineNormMin.value && n <= cosineNormMax.value
+	return n >= cosineNormMin && n <= cosineNormMax
 }
 
 /** The encode-time component check: every component finite, the norm in the cosine domain. */

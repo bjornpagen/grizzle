@@ -1,22 +1,178 @@
 import {
-	bytesMaxLength,
-	cosineNormMax,
-	cosineNormMin,
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale,
-	vectorMaxDimensions
-} from "@grizzle/limits"
-import {
 	type CompileError,
 	EncodingFailure,
 	malformedDescription,
 	type ValueFault,
 	valueFaultWords
 } from "#compiler/core/errors.ts"
+import { maxAllocSize } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
+import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
+import {
+	binary32MaxExponent,
+	binary32MinExponent,
+	binary32Precision
+} from "#compiler/scalar/values/float.ts"
+
+/**
+ * A varlena's header, VARHDRSZ, which translate's result allocation counts beside its characters.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope the header of one variable-length datum, uncompressed and in line: a numeric, a text, a range, a vector
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/c.h#L787
+ * @quote #define VARHDRSZ ((int32) sizeof(int32))
+ * @verified 2026-11-14
+ */
+export const varlenaHeaderBytes = 4
+
+/**
+ * The most bytes one bytes value holds, the most one bytea holds: a value arrives in binary, which bytearecv copies into
+ * an allocation of its bytes and its header, and palloc refuses an allocation past MaxAllocSize, which also bounds a
+ * varlena's length word, so no bytea of any writer is longer. A longer value is refused at its boundary (bytesLength),
+ * before any SQL.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope one bytes value, one bytea, as bytearecv reads it from a binary parameter
+ * @derivation bytearecv allocates "result = (bytea *) palloc(nbytes + VARHDRSZ);" for a value of nbytes bytes
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/bytea.c#L365, verified 2026-11-14),
+ *   and "#define AllocSizeIsValid(size) ((Size) (size) <= MaxAllocSize)"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/memutils.h#L42), so nbytes is at most
+ *   MaxAllocSize - VARHDRSZ
+ * @from {@link maxAllocSize}, {@link varlenaHeaderBytes}
+ */
+export const bytesMaxLength = maxAllocSize - varlenaHeaderBytes
+
+/**
+ * The greatest precision a numeric typmod declares.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit decimal digits
+ * @scope the precision p of numeric(p, s): a field's, a cast's, a parameter's or a typed literal's
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/numeric.h#L35
+ * @quote #define NUMERIC_MAX_PRECISION 1000
+ * @verified 2026-11-14
+ */
+export const numericMaxPrecision = 1000
+
+/**
+ * The least scale a numeric typmod declares: a negative scale rounds to a power of ten.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit decimal digits
+ * @scope the scale s of numeric(p, s)
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/numeric.h#L37
+ * @quote #define NUMERIC_MIN_SCALE (-1000)
+ * @verified 2026-11-14
+ */
+export const numericMinScale = -1000
+
+/**
+ * The greatest scale a numeric typmod declares.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit decimal digits
+ * @scope the scale s of numeric(p, s)
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/numeric.h#L38
+ * @quote #define NUMERIC_MAX_SCALE 1000
+ * @verified 2026-11-14
+ */
+export const numericMaxScale = 1000
+
+/**
+ * The most integer digits a numeric value has, |x| < 10^numericMaxIntegerDigits: past it PostgreSQL's arithmetic raises
+ * 22003 "value overflows numeric format", so a numeric expression whose bound passes it is ResourceBound.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit decimal digits
+ * @scope the integer digits of every numeric value, a computed one's bound included
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L399
+ * @quote up to 131072 digits before the decimal point; up to 16383 digits after the decimal point
+ * @verified 2026-11-14
+ */
+export const numericMaxIntegerDigits = 131072
+
+/**
+ * The most fraction digits a numeric value has: NUMERIC_DSCALE_MAX, past which numeric multiplication rounds
+ * (numeric.c mul_var's caller) and a value's text is refused.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit decimal digits
+ * @scope the fraction digits of every numeric value, a computed one's bound included
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L399
+ * @quote up to 131072 digits before the decimal point; up to 16383 digits after the decimal point
+ * @verified 2026-11-14
+ */
+export const numericMaxFractionDigits = 16383
+
+/**
+ * The cosine domain, the norms between cosineNormMin and cosineNormMax inclusive, as vector_norm computes them: the
+ * norms of the vectors pgvector's cosine_distance is a number in [0, 2] for. pgvector 0.8.7's VectorCosineSimilarity
+ * (src/vector.c) accumulates the dot product and both squared norms in binary32 floats, in any order and with fused
+ * multiply-adds (the Makefile's -fassociative-math -ffp-contract=fast), and returns similarity / sqrt(norma * normb),
+ * clamped to [-1, 1] unless it is NaN. A zero norma or normb makes it 0 / 0, NaN, and an infinite one Infinity /
+ * Infinity or 0, so the distance is NaN or not the vectors'; and HNSW's vector_cosine_ops never indexes a vector whose
+ * vector_norm is not positive (src/hnswutils.c HnswCheckNorm), so an approximate search would miss it. Within the
+ * domain every accumulator is positive and finite, the quotient finite, and the clamp yields [0, 2].
+ *
+ * The least norm keeps norma positive. Its largest square rounds to a positive binary32 value only when it exceeds
+ * 2^(emin - p), half the least subnormal, which rounds to zero; a vector of n components has a square of at least
+ * norm^2 / n, and with n below 2^ceil(log2(n + 1)) the norm 2^ceil((emin - p + ceil(log2(n + 1))) / 2) makes every
+ * vector of at most vectorMaxDimensions components have one, strictly, its 2.4% margin (2^14 / 16000) far above
+ * vector_norm's own double rounding. A sum of nonnegative roundings is at least its largest term.
+ *
+ * @limitKind derived
+ * @owner pgvector 0.8.7 cosine_distance over IEEE 754-2019 binary32
+ * @unit a vector norm
+ * @scope the norm of every vector a column stores, a parameter binds and a literal states
+ * @derivation 2^ceil((emin - p + ceil(log2(n + 1))) / 2), n = vectorMaxDimensions: the largest of n squares of a
+ *   vector of this norm exceeds 2^(emin - p), so it rounds to a positive binary32 value
+ * @from {@link binary32Precision}, {@link binary32MinExponent}, {@link vectorMaxDimensions}
+ */
+export const cosineNormMin =
+	2 **
+	Math.ceil(
+		(binary32MinExponent - binary32Precision + Math.ceil(Math.log2(vectorMaxDimensions + 1))) / 2
+	)
+
+/**
+ * The greatest norm keeps every accumulator finite. A binary32 sum rounds to Infinity once it reaches 2^(emax + 1) -
+ * 2^(emax - p), the midpoint past the greatest finite value; n rounded products and n roundings of nonnegative partial
+ * sums, in any order, are at most (1 + 2^-p)^n times the exact norm^2, and the dot product's partial sums at most that
+ * times |a| |b| (Cauchy-Schwarz). So the greatest power of two whose square times (1 + 2^-p)^n stays below the midpoint
+ * bounds both, with every partial sum at most the total; binary64's range holds norma * normb, between 2^-298 and
+ * 2^254, exactly.
+ *
+ * @limitKind derived
+ * @owner pgvector 0.8.7 cosine_distance over IEEE 754-2019 binary32
+ * @unit a vector norm
+ * @scope the norm of every vector a column stores, a parameter binds and a literal states
+ * @derivation 2^floor(log2((2^(emax + 1) - 2^(emax - p)) / (1 + 2^-p)^n) / 2), n = vectorMaxDimensions: a squared norm
+ *   or dot product of vectors of this norm, summed in binary32, stays below the midpoint that rounds to Infinity
+ * @from {@link binary32Precision}, {@link binary32MaxExponent}, {@link vectorMaxDimensions}
+ */
+export const cosineNormMax =
+	2 **
+	Math.floor(
+		Math.log2(
+			(2 ** (binary32MaxExponent + 1) - 2 ** (binary32MaxExponent - binary32Precision)) /
+				(1 + 2 ** -binary32Precision) ** vectorMaxDimensions
+		) / 2
+	)
 
 /**
  * The refusal vocabulary of the exact value carriers.
@@ -37,8 +193,8 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	decimalType: "an exact decimal: a Decimal, a bigint, or an exact decimal string",
 	decimalSyntax:
 		"an exact decimal literal: digits with an optional fraction and exponent, NaN, or Infinity",
-	decimalRange: `a numeric within PostgreSQL's format: below 10^${numericMaxIntegerDigits.value} with at most ${numericMaxFractionDigits.value} fractional digits`,
-	numericTypmod: `a numeric precision 1-${numericMaxPrecision.value} and scale ${numericMinScale.value}-${numericMaxScale.value}, both integers`,
+	decimalRange: `a numeric within PostgreSQL's format: below 10^${numericMaxIntegerDigits} with at most ${numericMaxFractionDigits} fractional digits`,
+	numericTypmod: `a numeric precision 1-${numericMaxPrecision} and scale ${numericMinScale}-${numericMaxScale}, both integers`,
 	numericScale:
 		"a numeric of at most its scale's fractional digits, a multiple of 10^-scale at a negative scale: a value its column would round is refused, never rounded",
 	numericOverflow:
@@ -64,7 +220,7 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	textNul: "text without NUL: PostgreSQL text cannot store U+0000",
 	textSurrogate: "well-formed text: an unpaired UTF-16 surrogate is not a Unicode scalar",
 	bytesType: "bytes: a Uint8Array",
-	bytesLength: `bytes one bytea holds: at most ${bytesMaxLength.value} bytes`,
+	bytesLength: `bytes one bytea holds: at most ${bytesMaxLength} bytes`,
 	bytesChanged:
 		"bytes its caller leaves as they were from their admission to their send: a value changed meanwhile is refused rather than sent unlike the identity the write worked out from it",
 	bytesCollision:
@@ -80,9 +236,9 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	spanOrder: "a nonempty span: start < end",
 	spanWidth: "a span of the declared fixed width: end - start equals the width",
 	vectorType: "a vector: a Float32Array of its components",
-	vectorDimensions: `vector dimensions: an integer 1-${vectorMaxDimensions.value} that the components match`,
+	vectorDimensions: `vector dimensions: an integer 1-${vectorMaxDimensions} that the components match`,
 	vectorNonFinite: "a finite vector component: NaN and infinity are not vector values",
-	vectorNorm: `a vector whose native norm lies in the cosine domain [${cosineNormMin.value}, ${cosineNormMax.value}]`,
+	vectorNorm: `a vector whose native norm lies in the cosine domain [${cosineNormMin}, ${cosineNormMax}]`,
 	factShape: "a fact: a plain object with exactly the heading's fields"
 }
 

@@ -1,5 +1,6 @@
 /** What the properties of project.test.ts read: its spaces, models and helpers. */
 
+import { fileNameMaxBytes } from "@bjornpagen/grizzle-engine/deploy/render/folder"
 import {
 	accepted,
 	type Answer,
@@ -25,7 +26,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { fullSwarm } from "@bjornpagen/testing/swarm"
-import { fileNameMaxBytes } from "@grizzle/limits"
 import {
 	Array as Arr,
 	DateTime,
@@ -1278,7 +1278,7 @@ const runGenerate = (
 			if (Option.exists(Arr.last(was.folders), (f) => f.second >= before.clock + p.advance)) {
 				r.c.note("a folder in the same second as the newest")
 			}
-			if (Str.length(name) === fileNameMaxBytes.value) {
+			if (Str.length(name) === fileNameMaxBytes) {
 				r.c.note("a folder named at the file name limit")
 			}
 			if (folder.kind === "custom") {

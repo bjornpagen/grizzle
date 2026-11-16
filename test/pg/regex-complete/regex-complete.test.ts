@@ -1,3 +1,4 @@
+import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 /**
  * Refinement validation sites on PostgreSQL 19.
  *
@@ -39,7 +40,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { maxStringLength } from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Exit, Formatter, Option, Order, String as Str } from "effect"
 import { partRuns } from "#adapter/reader/execution.ts"
@@ -830,7 +830,7 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 								slot.relation,
 								fields,
 								[Arr.map(fields, (f) => paramText(defined(fact[f], `the fact's ${f}`)))],
-								maxStringLength.value
+								maxStringLength
 							)
 							if (!written.ok) {
 								throw new Error(`arrays: ${written.error._tag}`)

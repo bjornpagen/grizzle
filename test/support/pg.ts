@@ -647,7 +647,7 @@ export const session = (
 export const clusterPool: PoolBounds = {
 	max: testPoolMax,
 	min: 0,
-	idleTimeoutMs: testIdleTimeout.value
+	idleTimeoutMs: testIdleTimeout
 }
 
 /**
@@ -679,7 +679,7 @@ export const clusterConnection = (
 	transport: clusterTransport(cluster),
 	database,
 	password,
-	connectTimeoutMs: testConnectTimeout.value
+	connectTimeoutMs: testConnectTimeout
 })
 
 /**

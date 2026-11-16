@@ -1,3 +1,5 @@
+import { int4Max } from "@bjornpagen/grizzle-engine/core/canonical"
+import { int4Min, int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 /**
  * Exact scalar codecs against PostgreSQL 19 in raw-text mode (codec/scalar.ts): the outermost SELECT casts every column
  * to text, which the conversions read.
@@ -48,7 +50,6 @@ import type { Source } from "@bjornpagen/testing/source"
 import { bigint, double, float, uuid } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { int4Max, int4Min, int8Max, int8Min } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { positionalColumns } from "#compiler/codec/recordset.ts"
 import type { ScalarCodec } from "#compiler/codec/scalar.ts"
@@ -165,14 +166,11 @@ const withNonFinite = (finite: Gen<number>): Gen<number> =>
 const realMax = 3.4028234663852886e38
 
 const int8Gen: Gen<bigint> = oneOf([
-	bigint(int8Min.value, int8Max.value),
-	element([int8Min.value, int8Max.value, 0n, -1n, 1n])
+	bigint(int8Min, int8Max),
+	element([int8Min, int8Max, 0n, -1n, 1n])
 ])
 
-const int4Gen: Gen<number> = oneOf([
-	int(int4Min.value, int4Max.value),
-	element([int4Min.value, int4Max.value, 0, -0])
-])
+const int4Gen: Gen<number> = oneOf([int(int4Min, int4Max), element([int4Min, int4Max, 0, -0])])
 
 /**
  * Two distinct endpoints, the lower first: the second endpoint, where it repeats the first, is moved to its `neighbour`,
@@ -192,11 +190,11 @@ const span =
 
 /** An int4 endpoint's neighbour: the next one up, or down from the greatest. */
 const int4Neighbour = (endpoint: number): number =>
-	endpoint === int4Max.value ? endpoint - 1 : endpoint + 1
+	endpoint === int4Max ? endpoint - 1 : endpoint + 1
 
 /** An int8 endpoint's neighbour: the next one up, or down from the greatest. */
 const int8Neighbour = (endpoint: bigint): bigint =>
-	endpoint === int8Max.value ? endpoint - 1n : endpoint + 1n
+	endpoint === int8Max ? endpoint - 1n : endpoint + 1n
 
 /**
  * A binary32 value of any exponent: a sign, a significand in [1, 2) of any binary64 bits and an exponent from the least
@@ -531,7 +529,7 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 				)
 				const factOf = (id: string) => (source: Source) => ({
 					id,
-					amount: source.draw(bigint(0n, int8Max.value)),
+					amount: source.draw(bigint(0n, int8Max)),
 					rate: source.draw(map(int(-9999999, 9999999), (n) => Decimal.of(`${n}e-2`))),
 					raw: source.draw(realGen),
 					charge: source.draw(map(int8Gen, (u) => Money.of(u))),

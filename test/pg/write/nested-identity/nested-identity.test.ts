@@ -1,3 +1,4 @@
+import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
@@ -5,7 +6,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { maxStringLength } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Layer, Option, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -23,7 +23,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
- * A nested write whose texts sum past the longest string V8 holds (@grizzle/limits maxStringLength) is accepted by
+ * A nested write whose texts sum past the longest string V8 holds (maxStringLength) is accepted by
  * PostgreSQL and reads back as written, on PostgreSQL 19rc2: its identities are structural (write/family/nesting.ts
  * NestedSet), so the host never joins its rows' texts into one, where it once died with `RangeError: Invalid string
  * length` before any SQL.
@@ -191,7 +191,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										if (Arr.dedupe(c.lengths).length > 1) {
 											cx.note("members of two lengths")
 										}
-										if (Arr.reduce(c.lengths, 0, (n, l) => n + l) > maxStringLength.value) {
+										if (Arr.reduce(c.lengths, 0, (n, l) => n + l) > maxStringLength) {
 											cx.note("bodies summing past the longest string")
 										}
 									})

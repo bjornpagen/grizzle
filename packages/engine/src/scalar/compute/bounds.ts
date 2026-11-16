@@ -1,7 +1,7 @@
-import { numericMaxFractionDigits, numericMaxIntegerDigits } from "@grizzle/limits"
 import type { Exact, Fact, FactSource, OperandPremise } from "#compiler/ir/proof.ts"
 import { doubleAtLeast, doubleParts, log2Of } from "#compiler/scalar/compute/cast.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 
 const pow10 = (n: number): bigint => 10n ** BigInt(n)
 
@@ -154,11 +154,8 @@ const bounds = (low: Edge, high: Edge, nan: boolean, digits: number, scale: numb
 		low,
 		high,
 		nan,
-		digits: Math.max(
-			Math.min(digits, numericMaxIntegerDigits.value + 1),
-			-numericMaxFractionDigits.value
-		),
-		scale: Math.min(scale, numericMaxFractionDigits.value)
+		digits: Math.max(Math.min(digits, numericMaxIntegerDigits + 1), -numericMaxFractionDigits),
+		scale: Math.min(scale, numericMaxFractionDigits)
 	})
 
 /** Every finite value of `digits` integer digits and `scale` fractional ones, with the infinities and NaN as given. */

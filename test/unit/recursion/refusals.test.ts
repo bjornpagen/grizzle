@@ -27,10 +27,10 @@
  * Features: each verdict and each cause of each family, several rules refusing one definition, and the admitted controls.
  */
 
+import { int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { int8Max, int8Min } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
@@ -862,9 +862,9 @@ export const theSeenStateEstimateCountsACountdownsStatesFromItsSeedToItsBoundAnd
 						})
 					]
 				)
-				if (seeded.kind === "literal" && seeded.value > int8Min.value) {
+				if (seeded.kind === "literal" && seeded.value > int8Min) {
 					c.note(seeded.value >= 0n ? "admitted from zero or above" : "admitted from below zero")
-					if (seeded.value === int8Max.value) {
+					if (seeded.value === int8Max) {
 						c.note("admitted from bigint's greatest value")
 					}
 					const cert = theRecursive(admitted(outcomeOf(desc))).termination

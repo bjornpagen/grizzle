@@ -1,5 +1,7 @@
 /** What the properties of desc.test.ts read: its spaces, models and helpers. */
 
+import { numericMaxPrecision } from "@bjornpagen/grizzle-engine/scalar/values/fault"
+import { binary32LeastExponent } from "@bjornpagen/grizzle-engine/scalar/values/float"
 import {
 	array,
 	boolean,
@@ -19,7 +21,6 @@ import {
 	type Corruption
 } from "@bjornpagen/testing/lsw"
 import { bigint, float } from "@bjornpagen/testing/values"
-import { binary32LeastExponent, numericMaxPrecision } from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Option, pipe, Record as Rec, String as Str } from "effect"
 import { type Canonicalizable, canonicalTag, type Json } from "#compiler/core/canonical.ts"
@@ -1231,7 +1232,7 @@ export const descCorruptions: Arr.NonEmptyReadonlyArray<DescCorruption> = [
 		Arr.map([2 ** 13, -1, 1.5], (mask) => ({ ...part, mask }))
 	),
 	breaking("a numeric precision is 1 to 1000", kindIs("numeric", "precision"), (part) =>
-		Arr.map([0, numericMaxPrecision.value + 1], (precision) => ({ ...part, precision }))
+		Arr.map([0, numericMaxPrecision + 1], (precision) => ({ ...part, precision }))
 	),
 	breaking(
 		"each variable id once",
@@ -1475,7 +1476,7 @@ export const tagOf = (literal: unknown): readonly [TagFeature, string] | "untagg
  * the same text as their payload texts.
  */
 /** A component of no zero: a float32 of either sign, at least the least subnormal. */
-const leastFloat32 = 2 ** binary32LeastExponent.value
+const leastFloat32 = 2 ** binary32LeastExponent
 
 /** A vector component a float32 holds, nonzero. */
 const nonzeroComponent: Gen<number> = oneOf([float(-4, -leastFloat32), float(leastFloat32, 4)])

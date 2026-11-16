@@ -97,7 +97,7 @@ export const defaultPool: PoolOptions = {
 	pool: clusterPool,
 	attachPool: () => undefined,
 	transport: { kind: "cluster" },
-	connectTimeoutMs: testConnectTimeout.value,
+	connectTimeoutMs: testConnectTimeout,
 	session: servedSession
 }
 

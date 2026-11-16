@@ -1,3 +1,4 @@
+import { int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 /**
  * A guard over a parameter on PostgreSQL 19: Compute.when(Compute.nonzero(d), (d) => Compute.div(x, d), 0n) over a
  * bigint parameter d and a drawn bigint dividend x, prepared and executed under a custom or a generic plan with d bound
@@ -20,7 +21,6 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { bigint } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { int8Max, int8Min } from "@grizzle/limits"
 import { Effect, Formatter } from "effect"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
@@ -52,13 +52,13 @@ interface GuardCase {
 
 /** A nonzero bigint: its magnitude from 1 to int8's greatest, either sign, so int8's least is never its quotient's. */
 const nonzero: Gen<bigint> = (source) => {
-	const magnitude = source.draw(bigint(1n, int8Max.value))
+	const magnitude = source.draw(bigint(1n, int8Max))
 	return source.draw(boolean) ? -magnitude : magnitude
 }
 
 const caseGen: Gen<GuardCase> = (source) => ({
 	plan: source.draw(element<Plan>(["custom", "generic"])),
-	dividend: source.draw(bigint(int8Min.value + 1n, int8Max.value)),
+	dividend: source.draw(bigint(int8Min + 1n, int8Max)),
 	divisor: source.draw(boolean) ? 0n : source.draw(nonzero)
 })
 

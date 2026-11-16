@@ -1,5 +1,13 @@
 /** What the properties of decimal.test.ts read: its spaces, models and helpers. */
 
+import { int4Max } from "@bjornpagen/grizzle-engine/core/canonical"
+import {
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import {
 	aimed,
 	type Aimed,
@@ -15,14 +23,6 @@ import {
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
-import {
-	int4Max,
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Option, pipe, String as Str } from "effect"
 import { type ValueFault } from "#compiler/core/errors.ts"
@@ -306,7 +306,7 @@ export const corrupted = (text: string, corruption: Corruption, at: number): str
 }
 
 /** The greatest exponent magnitude a numeric text may write: PG_INT32_MAX / 2 (numeric.c set_var_from_str). */
-const maxExponent = Math.trunc(int4Max.value / 2)
+const maxExponent = Math.trunc(int4Max / 2)
 
 /** A limit of PostgreSQL's numeric format, and trailing zeros that run past one and drop away. */
 type FormatLimit =
@@ -371,8 +371,8 @@ export const formatCaseGen: Gen<FormatCase> = (source) => {
 /** The value a format case builds, through its entry. */
 export const formatValueOf = (c: FormatCase): Result.Result<Decimal, ValueFault> => {
 	const sign = c.negative ? "-" : ""
-	const fraction = numericMaxFractionDigits.value + c.margin
-	const integer = numericMaxIntegerDigits.value + c.margin
+	const fraction = numericMaxFractionDigits + c.margin
+	const integer = numericMaxIntegerDigits + c.margin
 	switch (c.limit) {
 		case "fraction digits":
 			return c.entry === "text"
@@ -402,11 +402,11 @@ export const formatTextOf = (c: FormatCase): string => {
 	const sign = c.negative ? "-" : ""
 	switch (c.limit) {
 		case "fraction digits":
-			return `${sign}0.${zeros(numericMaxFractionDigits.value - 1)}1`
+			return `${sign}0.${zeros(numericMaxFractionDigits - 1)}1`
 		case "integer digits":
-			return `${sign}${Str.repeat(numericMaxIntegerDigits.value)("9")}`
+			return `${sign}${Str.repeat(numericMaxIntegerDigits)("9")}`
 		case "an exponent's integer digits":
-			return `${sign}1${zeros(numericMaxIntegerDigits.value - 1)}`
+			return `${sign}1${zeros(numericMaxIntegerDigits - 1)}`
 		case "an exponent's magnitude":
 			return "0"
 		case "zeros past the fraction digits":
@@ -482,18 +482,18 @@ export const orderFeatures = (a: Decimal, b: Decimal): ReadonlyArray<OrderFeatur
 
 /** A typmod's precision or scale as a JavaScript caller passes it: an integer, a bound or past one, or no integer. */
 export const typmodEntry: Gen<unknown> = weighted<unknown>([
-	[4, int(numericMinScale.value - 100, numericMaxPrecision.value + 100)],
+	[4, int(numericMinScale - 100, numericMaxPrecision + 100)],
 	[
 		2,
 		element<unknown>([
 			0,
 			1,
-			numericMaxPrecision.value,
-			numericMaxPrecision.value + 1,
-			numericMinScale.value - 1,
-			numericMinScale.value,
-			numericMaxScale.value,
-			numericMaxScale.value + 1
+			numericMaxPrecision,
+			numericMaxPrecision + 1,
+			numericMinScale - 1,
+			numericMinScale,
+			numericMaxScale,
+			numericMaxScale + 1
 		])
 	],
 	[1, element<unknown>([-0, 0.5, 1.5, Number.NaN, "5", 2n, null, undefined])]
@@ -516,14 +516,14 @@ export const typmodFeatures = (
 ): ReadonlyArray<TypmodFeature> => {
 	const atBound =
 		precision === 1 ||
-		precision === numericMaxPrecision.value ||
-		scale === numericMinScale.value ||
-		scale === numericMaxScale.value
+		precision === numericMaxPrecision ||
+		scale === numericMinScale ||
+		scale === numericMaxScale
 	const pastBound =
 		precision === 0 ||
-		precision === numericMaxPrecision.value + 1 ||
-		scale === numericMinScale.value - 1 ||
-		scale === numericMaxScale.value + 1
+		precision === numericMaxPrecision + 1 ||
+		scale === numericMinScale - 1 ||
+		scale === numericMaxScale + 1
 	return [
 		admitted ? "admitted" : "refused",
 		...(admitted && atBound ? (["admitted at a bound"] as const) : []),

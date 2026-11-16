@@ -34,11 +34,15 @@
  * and every wild kind.
  */
 
+import {
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { type DrawnFeature, drawnFeature, lsw, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { numericMaxPrecision, numericMaxScale, numericMinScale } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
@@ -376,8 +380,8 @@ export const numericPSNormalizationValidatesPrecisionAndScaleAsNumerictypmodinDo
 			([precision, scale]) =>
 				Effect.sync(() => {
 					const admitted =
-						isInt(precision, 1, numericMaxPrecision.value) &&
-						isInt(scale, numericMinScale.value, numericMaxScale.value)
+						isInt(precision, 1, numericMaxPrecision) &&
+						isInt(scale, numericMinScale, numericMaxScale)
 					c.noteAll(typmodFeatures(precision, scale, admitted))
 					if (admitted) {
 						assert.deepEqual(succeeded(checkNumericTypmod(precision, scale)), {

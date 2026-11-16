@@ -33,6 +33,15 @@ import type {
 	TypeRef
 } from "#compiler/sql/ast.ts"
 
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
+import {
+	cosineNormMax,
+	cosineNormMin,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "@bjornpagen/grizzle-engine/scalar/values/fault"
+import { regex } from "arkregex"
 import { definitionDigest } from "#compiler/physical/ddl/domains.ts"
 import {
 	and,
@@ -75,16 +84,6 @@ import {
 import { IdentifierScope, rosterNamesIdentity } from "#test/support/oracle/install/names.ts"
 import { elementAt, entryOf } from "#test/support/oracle/pick.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
-
-import {
-	cosineNormMax,
-	cosineNormMin,
-	maxIdentifierBytes,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "@grizzle/limits"
-import { regex } from "arkregex"
 /**
  * The planner reports its first refusal; internally it unwinds with this wrapper and planInstall turns it back into
  * a Result, so the build reads top to bottom.
@@ -174,8 +173,8 @@ const spanWidth = (column: string, width: bigint): Expr => {
 const vectorNorm = (vectorSchema: string, column: string): Expr => ({
 	kind: "between",
 	expr: qualifiedCall(vectorSchema, "vector_norm", [tableCol(column)]),
-	low: lit.float(cosineNormMin.value, types.double),
-	high: lit.float(cosineNormMax.value, types.double),
+	low: lit.float(cosineNormMin, types.double),
+	high: lit.float(cosineNormMax, types.double),
 	not: false
 })
 
@@ -225,7 +224,7 @@ const describedOf = (input: unknown): unknown =>
 
 const isAdmittedSchemaName = (name: string): boolean =>
 	regex("^[a-z_][a-z0-9_]*$").test(name) &&
-	Buffer.byteLength(name, "utf8") <= maxIdentifierBytes.value &&
+	Buffer.byteLength(name, "utf8") <= maxIdentifierBytes &&
 	!Str.startsWith("pg_")(name)
 
 interface Located<A> {
@@ -498,18 +497,18 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 				return builtin(builtinType(field.type), pgValues[field.type])
 			case "numeric": {
 				const { precision, scale } = field
-				if (precision < 1 || precision > numericMaxPrecision.value) {
+				if (precision < 1 || precision > numericMaxPrecision) {
 					refuse(
 						"MalformedDescription",
 						location,
-						`numeric precision lies in 1..${numericMaxPrecision.value}`
+						`numeric precision lies in 1..${numericMaxPrecision}`
 					)
 				}
-				if (scale < numericMinScale.value || scale > numericMaxScale.value) {
+				if (scale < numericMinScale || scale > numericMaxScale) {
 					refuse(
 						"MalformedDescription",
 						location,
-						`a numeric scale lies in ${numericMinScale.value}..${numericMaxScale.value}`
+						`a numeric scale lies in ${numericMinScale}..${numericMaxScale}`
 					)
 				}
 				return builtin(numericType(precision, scale), { kind: "numeric" })

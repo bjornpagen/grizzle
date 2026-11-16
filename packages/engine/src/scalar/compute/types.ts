@@ -1,11 +1,6 @@
-import {
-	moneyDigits,
-	moneyFractionDigits,
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits
-} from "@grizzle/limits"
 import type { DecimalParts } from "#compiler/core/decimal.ts"
 import { integerDigits } from "#compiler/ir/carriers.ts"
+import { int8Digits } from "#compiler/ir/carriers.ts"
 import type { DefinedOp } from "#compiler/ir/expr.ts"
 import {
 	type Capability,
@@ -34,6 +29,20 @@ import {
 } from "#compiler/scalar/compute/registry.ts"
 import { nativeCapabilities, type PlainCarrier } from "#compiler/scalar/native.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"
+import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
+import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
+
+/**
+ * The integer digits of a money amount, |amount| < 10^moneyDigits: a bigint count of minor units, less its fraction.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit decimal digits
+ * @scope the integer digits of every money amount
+ * @derivation a count below 10^int8Digits minor units, 10^moneyFractionDigits to the unit
+ * @from {@link int8Digits}, {@link moneyFractionDigits}
+ */
+export const moneyDigits = int8Digits - moneyFractionDigits
 
 /**
  * The native capabilities of each carrier: the field registry's table (scalar/registry.ts), so a
@@ -72,8 +81,8 @@ export const literalNumeric = (parts: DecimalParts): ScalarType =>
  * and what an overload is looked up by, never a node's type.
  */
 export const anyNumeric: ScalarType = numericValue({
-	digits: numericMaxIntegerDigits.value,
-	scale: numericMaxFractionDigits.value
+	digits: numericMaxIntegerDigits,
+	scale: numericMaxFractionDigits
 })
 
 /**
@@ -87,13 +96,13 @@ export const exactNumericBound = (t: ScalarType): NumericBound | undefined => {
 		case "int2":
 		case "int4":
 		case "int8":
-			return { digits: integerDigits[v.carrier].value, scale: 0 }
+			return { digits: integerDigits[v.carrier], scale: 0 }
 		case "money":
-			return { digits: moneyDigits.value, scale: moneyFractionDigits.value }
+			return { digits: moneyDigits, scale: moneyFractionDigits }
 		case "exactInteger":
 			return { digits: v.digits, scale: 0 }
 		case "exactMoney":
-			return { digits: v.digits, scale: moneyFractionDigits.value }
+			return { digits: v.digits, scale: moneyFractionDigits }
 		case "numeric":
 			return v.typmod === undefined
 				? v.bound
@@ -130,9 +139,9 @@ export const familyDigits = (t: ScalarType): number | undefined => {
 		case "int2":
 		case "int4":
 		case "int8":
-			return integerDigits[t.carrier].value
+			return integerDigits[t.carrier]
 		case "money":
-			return moneyDigits.value
+			return moneyDigits
 		case "exactInteger":
 		case "exactMoney":
 			return t.digits

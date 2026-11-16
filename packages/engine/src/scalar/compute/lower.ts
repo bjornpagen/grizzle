@@ -1,28 +1,6 @@
-import {
-	binary32Digits,
-	binary32FractionDigits,
-	binary64Digits,
-	binary64FractionDigits,
-	binary64MaxExponent,
-	decimalTextMaxBytes,
-	int4Digits,
-	int4Max,
-	int8Max,
-	int8Min,
-	maxAllocSize,
-	moneyDigits,
-	moneyFractionDigits,
-	numericMaxDisplayScale,
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	powerExpLimit,
-	regexDfaMaxStates,
-	regexDfaMaxWork,
-	regexMaxRepeat,
-	regexTextMaxBytes,
-	translateMaxBytes
-} from "@grizzle/limits"
+import { int4Max } from "#compiler/core/canonical.ts"
 import { canonicalTextOf, catchRefusal, Refusal, sameContent } from "#compiler/core/canonical.ts"
+import { maxAllocSize, regexTextMaxBytes } from "#compiler/core/errors.ts"
 import {
 	CompileError,
 	type Guard,
@@ -43,6 +21,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
+import { int4Digits, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { integerDigits, integerRanges } from "#compiler/ir/carriers.ts"
 import { dayNumber, firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
 import type {
@@ -142,6 +121,7 @@ import {
 	tenTo
 } from "#compiler/scalar/compute/bounds.ts"
 import { floatNumericDigits, parseBy } from "#compiler/scalar/compute/cast.ts"
+import { binary64MinExponent } from "#compiler/scalar/compute/cast.ts"
 import { admitLiteral, literalMember, literalValue } from "#compiler/scalar/compute/evaluate.ts"
 import {
 	bareLiteralKind,
@@ -149,6 +129,7 @@ import {
 	type CarrierValue
 } from "#compiler/scalar/compute/literal.ts"
 import { nativeProof, resultBounds } from "#compiler/scalar/compute/native.ts"
+import { numericMaxDisplayScale } from "#compiler/scalar/compute/numeric.ts"
 import {
 	binaryCoercion,
 	type CastOp,
@@ -165,6 +146,7 @@ import {
 	overloadOf,
 	registeredCast
 } from "#compiler/scalar/compute/registry.ts"
+import { moneyDigits } from "#compiler/scalar/compute/types.ts"
 import {
 	anyNumeric,
 	commonType,
@@ -183,14 +165,22 @@ import {
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
 import {
+	binary64Digits,
+	binary64MaxExponent,
+	decimalTextMaxBytes,
+	regexMaxRepeat
+} from "#compiler/scalar/lexical.ts"
+import {
 	formOctets,
 	formSource,
 	type LexicalTarget,
 	lexicalTargetOf,
 	parseTargetOf
 } from "#compiler/scalar/lexical.ts"
+import { binary64Precision } from "#compiler/scalar/lexical.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { admitMatch, type MatchAdmission, matchSourceAt } from "#compiler/scalar/regex/admit.ts"
+import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/scalar/regex/inclusion.ts"
 import {
 	bytesWithin,
 	formIncludes,
@@ -214,8 +204,103 @@ import {
 	storedOnly,
 	type TextLookup
 } from "#compiler/scalar/registry.ts"
+import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
+import { numericMaxPrecision, varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
+import { binary32Digits } from "#compiler/scalar/values/float.ts"
+import { binary32LeastExponent } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+
+/**
+ * The most bytes a character of a UTF-8 database takes, pg_database_encoding_max_length() there: the widest UTF-8
+ * sequence PostgreSQL reads, which translate allocates for each byte of its operand.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope one character of a UTF-8 database, the maxmblen pg_wchar_table holds for PG_UTF8
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/common/wchar.c#L1872
+ * @quote [PG_UTF8] = {pg_utf2wchar_with_len, pg_wchar2utf_with_len, pg_utf_mblen, pg_utf_dsplen, pg_utf8_verifychar,
+ *   pg_utf8_verifystr, 4},
+ * @verified 2026-11-14
+ */
+export const utf8EncodingMaxBytes = 4
+
+/**
+ * The longest text, in UTF-8 bytes, PostgreSQL's translate reads: it allocates its result for the worst case, a widest
+ * character for every byte of its operand, with its header, and refuses an allocation past MaxAllocSize with 54000,
+ * "requested length too large". So a query translates only an operand whose pattern bounds its bytes within this, and a
+ * check or generated column that translates a longer text fails its write.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope the operand of one translate(text, text, text) call
+ * @derivation translate refuses "if (unlikely(pg_mul_s32_overflow(pg_database_encoding_max_length(), m, &bytelen)) ||
+ *   unlikely(pg_add_s32_overflow(bytelen, VARHDRSZ, &bytelen)) || unlikely(!AllocSizeIsValid(bytelen)))" over its
+ *   operand's m bytes
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/oracle_compat.c#L854-L864, verified
+ *   2026-11-14), and "#define AllocSizeIsValid(size) ((Size) (size) <= MaxAllocSize)"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/memutils.h#L42), so m is at most
+ *   (MaxAllocSize - VARHDRSZ) / maxmblen, rounded down
+ * @from {@link maxAllocSize}, {@link utf8EncodingMaxBytes}, {@link varlenaHeaderBytes}
+ */
+const translateMaxBytes = Math.floor((maxAllocSize - varlenaHeaderBytes) / utf8EncodingMaxBytes)
+
+/**
+ * The internal limit on a calculation's result scale, NUMERIC_MAX_RESULT_SCALE.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit decimal digits
+ * @scope the scale of an intermediate numeric result, which exp_var's input bound is three times
+ * @derivation numeric.h: "#define NUMERIC_MAX_RESULT_SCALE (NUMERIC_MAX_PRECISION * 2)"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/numeric.h#L46)
+ * @from {@link numericMaxPrecision}
+ */
+const numericMaxResultScale = numericMaxPrecision * 2
+
+/**
+ * The fraction digits of every binary32 value: the least subnormal 2^-k = 5^k / 10^k has exactly k of them, and every
+ * other value is an integer multiple of it.
+ *
+ * @limitKind derived
+ * @owner IEEE 754-2019 binary32
+ * @unit decimal digits
+ * @scope the fraction digits of every finite real value
+ * @derivation -(emin - p + 1): 2^-k is 5^k / 10^k, of k fraction digits
+ * @from {@link binary32LeastExponent}
+ */
+const binary32FractionDigits = -binary32LeastExponent
+
+/**
+ * The fraction digits of every binary64 value: those of its least subnormal, 2^-(p - 1 - emin).
+ *
+ * @limitKind derived
+ * @owner IEEE 754-2019 binary64
+ * @unit decimal digits
+ * @scope the fraction digits of every finite double precision value
+ * @derivation -(emin - p + 1): 2^-k is 5^k / 10^k, of k fraction digits
+ * @from {@link binary64Precision}, {@link binary64MinExponent}
+ */
+const binary64FractionDigits = binary64Precision - 1 - binary64MinExponent
+
+/**
+ * The bound PostgreSQL's power_var puts on exp(y · ln x) for an exponent that is no integer (numeric.c power_var, its
+ * test before exp_var, and exp_var's own): y · ln x below NUMERIC_MAX_RESULT_SCALE · 3, at which it raises 22003
+ * "value overflows numeric format".
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit a natural logarithm
+ * @scope y · ln x of a power with an exponent that is no integer
+ * @derivation exp_var's overflow test, three times the result scale: "if (fabs(val) >= NUMERIC_MAX_RESULT_SCALE * 3)"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L10503)
+ * @from {@link numericMaxResultScale}
+ */
+const powerExpLimit = numericMaxResultScale * 3
 
 /**
  * A lowered operand: the node's recorded entry, the type the caller's term has (nominal), the SQL type the node
@@ -601,8 +686,8 @@ const checkMembers: ReadonlySet<string> = new Set([
 ])
 
 /** Money's range, a signed 64-bit count of minor units. */
-const moneyLow: Exact = exactOf(int8Min.value, moneyFractionDigits.value)
-const moneyHigh: Exact = exactOf(int8Max.value, moneyFractionDigits.value)
+const moneyLow: Exact = exactOf(int8Min, moneyFractionDigits)
+const moneyHigh: Exact = exactOf(int8Max, moneyFractionDigits)
 
 /** Every value of a carrier, before any contract: what a value of its base type can be. */
 const carrierBounds = (t: ScalarType): Bounds | undefined => {
@@ -613,7 +698,7 @@ const carrierBounds = (t: ScalarType): Bounds | undefined => {
 			return ofRange(
 				integerRanges[t.carrier][0],
 				integerRanges[t.carrier][1],
-				integerDigits[t.carrier].value
+				integerDigits[t.carrier]
 			)
 		case "numeric":
 			return t.typmod === undefined
@@ -623,24 +708,25 @@ const carrierBounds = (t: ScalarType): Bounds | undefined => {
 						nan: true
 					})
 		case "float4":
-			return ofDigits(binary32Digits.value, binary32FractionDigits.value, {
+			return ofDigits(binary32Digits, binary32FractionDigits, {
 				infinite: true,
 				nan: true
 			})
 		case "float8":
-			return ofDigits(binary64Digits.value, binary64FractionDigits.value, {
+			return ofDigits(binary64Digits, binary64FractionDigits, {
 				infinite: true,
 				nan: true
 			})
 		case "money":
-			return refine(
-				ofDigits(moneyDigits.value, moneyFractionDigits.value, { infinite: false, nan: false }),
-				{ kind: "within", low: moneyLow, high: moneyHigh }
-			)
+			return refine(ofDigits(moneyDigits, moneyFractionDigits, { infinite: false, nan: false }), {
+				kind: "within",
+				low: moneyLow,
+				high: moneyHigh
+			})
 		case "exactInteger":
 			return ofDigits(t.digits, 0, { infinite: false, nan: false })
 		case "exactMoney":
-			return ofDigits(t.digits, moneyFractionDigits.value, { infinite: false, nan: false })
+			return ofDigits(t.digits, moneyFractionDigits, { infinite: false, nan: false })
 		case "date":
 			return dateBounds
 		case "bool":
@@ -1062,8 +1148,8 @@ const languagePremise = (
 						kind: "regexInclusion",
 						inner: patternsText(regex.patterns),
 						outer,
-						states: regexDfaMaxStates.value,
-						work: regexDfaMaxWork.value
+						states: regexDfaMaxStates,
+						work: regexDfaMaxWork
 					}
 				})
 			)
@@ -1247,7 +1333,7 @@ const guardTest = (
 		case "lexical":
 			return lexicalRemedy(precondition.form, operand, target, mode, patterns)
 		case "bounded":
-			return { kind: "octets", bytes: regexTextMaxBytes.value }
+			return { kind: "octets", bytes: regexTextMaxBytes }
 	}
 }
 
@@ -1374,7 +1460,7 @@ const guardOf = (
 						text: `a text whose type proves a double's decimal text, str.regex(doubleText.source) or a refinement of it, or ${when(`Compute.matches(${operand}, doubleText)`)}`
 					}
 				case "decimalText": {
-					const bytes = decimalTextMaxBytes.value
+					const bytes = decimalTextMaxBytes
 					const within = `Compute.when(Compute.within(Compute.octetLength(${operand}), 0, ${bytes}), () => ${operation}, <your value>)`
 					return {
 						remedy,
@@ -1430,7 +1516,7 @@ const numericOf = (bounds: Bounds | undefined): ScalarType =>
 	bounds === undefined
 		? anyNumeric
 		: numericValue({
-				digits: Math.min(bounds.digits, numericMaxIntegerDigits.value),
+				digits: Math.min(bounds.digits, numericMaxIntegerDigits),
 				scale: bounds.scale
 			})
 
@@ -1589,7 +1675,7 @@ class Lowering<R extends Refs> {
 		if (
 			this.env.mode !== "build" &&
 			bounds !== undefined &&
-			bounds.digits > numericMaxIntegerDigits.value
+			bounds.digits > numericMaxIntegerDigits
 		) {
 			throw new Refusal(
 				CompileError.make({
@@ -1597,7 +1683,7 @@ class Lowering<R extends Refs> {
 					at: this.env.loc,
 					bound: {
 						kind: "numericDigits",
-						limit: numericMaxIntegerDigits.value,
+						limit: numericMaxIntegerDigits,
 						needed: bounds.digits
 					}
 				})
@@ -1895,7 +1981,7 @@ class Lowering<R extends Refs> {
 			case "bounded": {
 				const a = args[0]
 				const bytes = a === undefined ? undefined : textBytes(a)
-				return bytes === undefined || bytes > regexTextMaxBytes.value
+				return bytes === undefined || bytes > regexTextMaxBytes
 					? refuse(0)
 					: { precondition, premises: [{ kind: "octets", operand: 0, bytes }] }
 			}
@@ -2457,7 +2543,7 @@ class Lowering<R extends Refs> {
 				this.overload("charLength", [x.actual], here),
 				[x],
 				plainType("int4"),
-				ofRange(0n, BigInt(maxAllocSize.value), String(maxAllocSize.value).length),
+				ofRange(0n, BigInt(maxAllocSize), String(maxAllocSize).length),
 				here,
 				"char_length"
 			)
@@ -2531,11 +2617,11 @@ class Lowering<R extends Refs> {
 	 */
 	regexReadable(what: string, subject: Lowered, at: SourceLoc): void {
 		const bytes = textOf(subject.nominal)?.byteBound
-		if (this.env.mode === "query" && (bytes === undefined || bytes > regexTextMaxBytes.value)) {
+		if (this.env.mode === "query" && (bytes === undefined || bytes > regexTextMaxBytes)) {
 			stop(
 				"UnsupportedOperation",
 				at,
-				`${what} in a query over a text whose pattern bounds it within ${regexTextMaxBytes.value} bytes: PostgreSQL's regex engine widens its subject to four bytes for every byte and refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the subject's pattern bounds no length" : `the subject's pattern bounds it at ${bytes} bytes`}, so bound it, or read it in a contract predicate, row check or generated field`
+				`${what} in a query over a text whose pattern bounds it within ${regexTextMaxBytes} bytes: PostgreSQL's regex engine widens its subject to four bytes for every byte and refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the subject's pattern bounds no length" : `the subject's pattern bounds it at ${bytes} bytes`}, so bound it, or read it in a contract predicate, row check or generated field`
 			)
 		}
 	}
@@ -2653,11 +2739,11 @@ class Lowering<R extends Refs> {
 		}
 		const text = textOf(x.nominal)
 		const bytes = text?.byteBound
-		if (this.env.mode === "query" && (bytes === undefined || bytes > translateMaxBytes.value)) {
+		if (this.env.mode === "query" && (bytes === undefined || bytes > translateMaxBytes)) {
 			return stop(
 				"UnsupportedOperation",
 				at,
-				`translate in a query over a text whose pattern bounds it within ${translateMaxBytes.value} bytes: PostgreSQL's translate allocates four bytes for every byte of its operand and refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the operand's pattern bounds no length" : `the operand's pattern bounds it at ${bytes} bytes`}, so bound it, or translate in a contract predicate, row check or generated field`
+				`translate in a query over a text whose pattern bounds it within ${translateMaxBytes} bytes: PostgreSQL's translate allocates four bytes for every byte of its operand and refuses past 1 GB, and a read never fails on a value; ${bytes === undefined ? "the operand's pattern bounds no length" : `the operand's pattern bounds it at ${bytes} bytes`}, so bound it, or translate in a contract predicate, row check or generated field`
 			)
 		}
 		const f = this.literal(from, wildcardText, childLoc(at, 1))
@@ -2807,7 +2893,7 @@ class Lowering<R extends Refs> {
 			)
 		}
 		const op = this.overload("utf16Length", [x.actual], at)
-		const bounds = ofRange(0n, BigInt(maxAllocSize.value), String(maxAllocSize.value).length)
+		const bounds = ofRange(0n, BigInt(maxAllocSize), String(maxAllocSize).length)
 		return this.native(
 			op,
 			[x],
@@ -3537,7 +3623,7 @@ class Lowering<R extends Refs> {
 			return stop(
 				"UnsupportedOperation",
 				at,
-				`cast: ${typeLabel(target)} has no lexical form a text parses into; the forms are an integer type's, numeric(p, s) with 0 <= s <= p and at most ${regexMaxRepeat.value} digits on either side of its point, double precision's, boolean's and date's; Compute.parseDecimal(x) reads any decimal text into numeric exactly`
+				`cast: ${typeLabel(target)} has no lexical form a text parses into; the forms are an integer type's, numeric(p, s) with 0 <= s <= p and at most ${regexMaxRepeat} digits on either side of its point, double precision's, boolean's and date's; Compute.parseDecimal(x) reads any decimal text into numeric exactly`
 			)
 		}
 		if (!op.partial) {
@@ -3771,11 +3857,7 @@ class Lowering<R extends Refs> {
 					op,
 					[a],
 					plainType("int4"),
-					ofRange(
-						0n,
-						BigInt(numericMaxFractionDigits.value),
-						String(numericMaxFractionDigits.value).length
-					),
+					ofRange(0n, BigInt(numericMaxFractionDigits), String(numericMaxFractionDigits).length),
 					here,
 					`Compute.minScale(${exprText(a.expr)})`
 				)
@@ -3795,7 +3877,7 @@ class Lowering<R extends Refs> {
 					desc.fn === "sqrt"
 						? a.bounds === undefined
 							? undefined
-							: ofDigits(Math.ceil(a.bounds.digits / 2) + 1, numericMaxDisplayScale.value, {
+							: ofDigits(Math.ceil(a.bounds.digits / 2) + 1, numericMaxDisplayScale, {
 									infinite: a.bounds.high.kind === "infinite",
 									nan: true
 								})
@@ -3911,7 +3993,7 @@ class Lowering<R extends Refs> {
 					)
 				}
 				const op = this.overload(desc.fn, [a.actual], here)
-				const bounds = ofRange(0n, BigInt(maxAllocSize.value), String(maxAllocSize.value).length)
+				const bounds = ofRange(0n, BigInt(maxAllocSize), String(maxAllocSize).length)
 				return this.native(op, [a], this.resultType(op, bounds), bounds, here, desc.fn)
 			}
 			case "utf16Length":
@@ -4243,7 +4325,7 @@ class Lowering<R extends Refs> {
 			}
 		}
 		const op = this.overload("widthBucket", [anyNumeric, anyNumeric, anyNumeric, int4], at)
-		const bucket = ofRange(0n, BigInt(int4Max.value), int4Digits.value)
+		const bucket = ofRange(0n, BigInt(int4Max), int4Digits)
 		return this.native(
 			op,
 			[nx, nl, nh, nc],
@@ -4313,7 +4395,7 @@ const arithmeticBounds = (
 		case "mul":
 			return mulBounds(a, b)
 		case "div":
-			return ofDigits(a.digits + b.scale + 1, numericMaxDisplayScale.value, {
+			return ofDigits(a.digits + b.scale + 1, numericMaxDisplayScale, {
 				infinite: a.low.kind === "infinite" || a.high.kind === "infinite",
 				nan: a.nan || b.nan
 			})
@@ -4356,7 +4438,7 @@ const roundingScale = (target: ScalarType): number => {
 	switch (t.carrier) {
 		case "money":
 		case "exactMoney":
-			return moneyFractionDigits.value
+			return moneyFractionDigits
 		case "numeric":
 			return t.typmod === undefined ? t.bound.scale : t.typmod.scale
 		case "int2":
@@ -4697,13 +4779,11 @@ export const powerInRange = (
 		const reach =
 			Math.max(Math.abs(log2Magnitude(bLow)), Math.abs(log2Magnitude(bHigh))) *
 			Math.max(magnitudeAtLeast(eLow), magnitudeAtLeast(eHigh))
-		return reach <= binary64MaxExponent.value
+		return reach <= binary64MaxExponent
 	}
 	const weight = powerWeight(bLow, bHigh, eLow, eHigh)
 	const integral = compareExact(eLow, eHigh) === 0 && scaleOfExact(eLow) === 0
-	return integral
-		? weight < numericMaxIntegerDigits.value
-		: weight * Math.LN10 < powerExpLimit.value
+	return integral ? weight < numericMaxIntegerDigits : weight * Math.LN10 < powerExpLimit
 }
 
 /**
@@ -4721,7 +4801,7 @@ const powerBounds = (a: Lowered, b: Lowered, v: ScalarType): Bounds | undefined 
 		return undefined
 	}
 	const digits = Math.floor(powerWeight(ea[0], ea[1], eb[0], eb[1])) + 1
-	return ofDigits(Math.min(digits, numericMaxIntegerDigits.value), numericMaxDisplayScale.value, {
+	return ofDigits(Math.min(digits, numericMaxIntegerDigits), numericMaxDisplayScale, {
 		infinite: false,
 		nan: true
 	})
@@ -4758,7 +4838,7 @@ export const bucketInRange = (
 	countHigh: Exact
 ): boolean =>
 	(compareExact(lowHigh, highLow) < 0 || compareExact(highHigh, lowLow) < 0) &&
-	insideRange(countLow, countHigh, exactOf(1n, 0), exactOf(BigInt(int4Max.value) - 1n, 0))
+	insideRange(countLow, countHigh, exactOf(1n, 0), exactOf(BigInt(int4Max) - 1n, 0))
 
 /** Zero as a literal of `v`'s family, which a guard compares its subject with. */
 const zeroLiteral = (v: ScalarType): LiteralDesc => {

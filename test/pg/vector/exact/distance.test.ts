@@ -1,3 +1,5 @@
+import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
+import { cosineNormMax, cosineNormMin } from "@bjornpagen/grizzle-engine/scalar/values/fault"
 /**
  * Exact cosine distance on PostgreSQL 19 and the pinned pgvector.
  *
@@ -39,7 +41,6 @@ import { double, float } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { runOfProcess } from "@bjornpagen/testing/vitest/run"
 import { layer } from "@effect/vitest"
-import { cosineNormMax, cosineNormMin, vectorMaxDimensions } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Order, pipe, Record as Rec, String as Str } from "effect"
 import { planIndexNames } from "#bench/harness/explain.ts"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
@@ -351,17 +352,17 @@ const probeKinds = Object.freeze(Rec.keys(probeFeatureOf))
 type WidthFeature = "few dimensions" | "the HNSW limit" | "the storage limit"
 
 const widthFeatureOf = (dims: number): WidthFeature =>
-	dims === vectorMaxDimensions.value
+	dims === vectorMaxDimensions
 		? "the storage limit"
-		: dims === hnswPolicy.maxDimensions.value
+		: dims === hnswPolicy.maxDimensions
 			? "the HNSW limit"
 			: "few dimensions"
 
 /** A dimension count of each width: two to eight, or either limit. */
 const dimsOf: { readonly [W in WidthFeature]: Gen<number> } = {
 	"few dimensions": int(2, 8),
-	"the HNSW limit": constant(hnswPolicy.maxDimensions.value),
-	"the storage limit": constant(vectorMaxDimensions.value)
+	"the HNSW limit": constant(hnswPolicy.maxDimensions),
+	"the storage limit": constant(vectorMaxDimensions)
 }
 
 const widthFeatures = Object.freeze(Rec.keys(dimsOf))
@@ -418,9 +419,9 @@ const scaled = (dims: number, norm: number, direction: ReadonlyArray<number>): V
 
 /** A norm in the cosine domain: either bound, or any power of two between them. */
 const normGen: Gen<number> = oneOf([
-	constant(cosineNormMin.value),
-	constant(cosineNormMax.value),
-	map(double(Math.log2(cosineNormMin.value), Math.log2(cosineNormMax.value)), (e) => 2 ** e)
+	constant(cosineNormMin),
+	constant(cosineNormMax),
+	map(double(Math.log2(cosineNormMin), Math.log2(cosineNormMax)), (e) => 2 ** e)
 ])
 
 /**
@@ -510,8 +511,8 @@ const pairOf = (
 		}
 		case "orthogonal axes":
 			return {
-				a: axis(0, cosineNormMin.value),
-				b: axis(dims - 1, cosineNormMax.value),
+				a: axis(0, cosineNormMin),
+				b: axis(dims - 1, cosineNormMax),
 				distance: 1
 			}
 	}
@@ -710,7 +711,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 							case "drawn":
 								return scaled(4, sketch.norm, directionOf(4, sketch.direction))
 							case "bound": {
-								const bound = sketch.greatest ? cosineNormMax.value : cosineNormMin.value
+								const bound = sketch.greatest ? cosineNormMax : cosineNormMin
 								return Vector.make(
 									Float32Array.from(indices(4), (i) =>
 										i === sketch.axis ? (sketch.negative ? -bound : bound) : 0
@@ -919,7 +920,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 								const dims = relation.fields.value.dimensions
 								k.note(widthFeatureOf(dims))
 								const constraint = names.normCheck(relation, "value")
-								const bound = checkCase.greatest ? cosineNormMax.value : cosineNormMin.value
+								const bound = checkCase.greatest ? cosineNormMax : cosineNormMin
 								const direction = directionOf(dims, checkCase.direction)
 								const length = Math.sqrt(Arr.reduce(direction, 0, (a, x) => a + x * x))
 								const factor = (bound * (1 + checkCase.nudge)) / length
@@ -939,7 +940,7 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 								const label = `${relation.name} near ${bound} by ${checkCase.nudge}`
 								expectNormAgrees(v, native, label)
 								/** The CHECK is vector_norm between the bounds: it admits exactly the native domain. */
-								const inside = native >= cosineNormMin.value && native <= cosineNormMax.value
+								const inside = native >= cosineNormMin && native <= cosineNormMax
 								if (inside) {
 									yield* insert
 								} else {
@@ -952,8 +953,8 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 								 */
 								const host = Vector.norm(v)
 								const margin = Math.min(
-									Math.abs(host - cosineNormMin.value),
-									Math.abs(host - cosineNormMax.value)
+									Math.abs(host - cosineNormMin),
+									Math.abs(host - cosineNormMax)
 								)
 								if (margin <= 4 * normTolerance(dims, host)) {
 									k.note("decided near a bound")

@@ -1,7 +1,7 @@
-import { regexMaxRepeat } from "@grizzle/limits"
 import { catchSignal } from "#compiler/core/canonical.ts"
 import * as Result from "#compiler/core/result.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
+import { regexMaxRepeat } from "#compiler/scalar/lexical.ts"
 import {
 	type CharSet,
 	charSet,
@@ -397,11 +397,11 @@ class Parser {
 		if (max !== "unbounded" && max < min.value) {
 			throw this.#malformed(at, construct, "numbers out of order in the quantifier")
 		}
-		if (min.value > regexMaxRepeat.value || (max !== "unbounded" && max > regexMaxRepeat.value)) {
+		if (min.value > regexMaxRepeat || (max !== "unbounded" && max > regexMaxRepeat)) {
 			this.#unsupported(
 				at,
 				construct,
-				`a repetition bound above ${regexMaxRepeat.value}, PostgreSQL's limit; bound the length with Compute.charLength or Compute.octetLength in a contract predicate`
+				`a repetition bound above ${regexMaxRepeat}, PostgreSQL's limit; bound the length with Compute.charLength or Compute.octetLength in a contract predicate`
 			)
 		}
 		return { min: min.value, max }

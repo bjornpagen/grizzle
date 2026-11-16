@@ -1,5 +1,6 @@
 /** What the properties of substrate.test.ts read: its spaces, models and helpers. */
 
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import {
 	array,
 	characterOf,
@@ -10,7 +11,6 @@ import {
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { maxIdentifierBytes } from "@grizzle/limits"
 import { Array as Arr, Data, Effect, Option, Result, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName } from "#compiler/core/ids.ts"
@@ -136,8 +136,8 @@ interface Identifier {
 export const identifierGen: Gen<Identifier> = (source) => {
 	const length = source.draw(
 		weighted<number>([
-			[3, int(maxIdentifierBytes.value - 1, maxIdentifierBytes.value + 1)],
-			[1, int(1, maxIdentifierBytes.value + 8)]
+			[3, int(maxIdentifierBytes - 1, maxIdentifierBytes + 1)],
+			[1, int(1, maxIdentifierBytes + 8)]
 		])
 	)
 	const text = `${source.draw(characterOf(lowercase))}${source.draw(string(characterOf(identifierRest), { min: length - 1, max: length - 1 }))}`

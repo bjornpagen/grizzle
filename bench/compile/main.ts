@@ -1,7 +1,7 @@
 #!/usr/bin/env -S node
 import net from "node:net"
+import { timerMaxMs } from "@bjornpagen/grizzle/adapter/connection/config"
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
-import { timerMaxMs } from "@grizzle/limits"
 import {
 	Array as Arr,
 	Console,
@@ -379,12 +379,12 @@ const offline: DbConnection = {
 	},
 	database: "offline",
 	password: Redacted.make("offline"),
-	connectTimeoutMs: timerMaxMs.value
+	connectTimeoutMs: timerMaxMs
 }
 
 const owner: MigrationConnectionConfig = { ...offline, role: "bench_owner" }
 
-const pool: PoolBounds = { max: 1, min: 0, idleTimeoutMs: timerMaxMs.value }
+const pool: PoolBounds = { max: 1, min: 0, idleTimeoutMs: timerMaxMs }
 
 /** A command line's run in process over the configuration, refused unless it ended with status 0. */
 const command = (phase: Phase, argv: ReadonlyArray<string>, cwd: string, load: ConfigLoader) =>

@@ -1,5 +1,6 @@
 /** What the properties of rosters.test.ts read: its spaces, models and helpers. */
 
+import { handleMaxBytes } from "@bjornpagen/grizzle-engine/schema/own"
 import {
 	type Gen,
 	int,
@@ -10,7 +11,6 @@ import {
 	uniqueArray,
 	uniqueKeys
 } from "@bjornpagen/testing/gen"
-import { handleMaxBytes } from "@grizzle/limits"
 import { Array as Arr, Formatter, Order, Record as Rec, String as Str } from "effect"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
@@ -40,9 +40,9 @@ const utf8MaxBytes = 4
 
 /** A handle: any text of scalar values a handle holds, or one beginning with `~`, which the file's own tags begin with. */
 const handleGen: Gen<string> = oneOf([
-	string(unicodeScalar, { min: 1, max: Math.floor(handleMaxBytes.value / utf8MaxBytes) }),
+	string(unicodeScalar, { min: 1, max: Math.floor(handleMaxBytes / utf8MaxBytes) }),
 	map(
-		string(unicodeScalar, { min: 0, max: Math.floor(handleMaxBytes.value / utf8MaxBytes) - 1 }),
+		string(unicodeScalar, { min: 0, max: Math.floor(handleMaxBytes / utf8MaxBytes) - 1 }),
 		(rest) => `~${rest}`
 	)
 ])

@@ -21,6 +21,7 @@ import {
 	sameSource
 } from "#compiler/lower/shapes/catalog/context.ts"
 
+import { heapTupleHeaderBytes, itemIdBytes, pageHeaderBytes } from "#compiler/core/page.ts"
 import {
 	attempt,
 	binaryOperands,
@@ -35,9 +36,83 @@ import {
 	required,
 	sameExpr
 } from "#compiler/lower/shapes/catalog/exprs.ts"
-
-import { maxDyadicExponent } from "@grizzle/limits"
 import { type SelfMatch, selfMatch } from "#compiler/lower/shapes/catalog/ordinal.ts"
+import { binary64DecimalDigits, binary64Precision } from "#compiler/scalar/lexical.ts"
+
+/**
+ * The largest block number of a relation: its pages are numbered from 0 to it.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2's storage manager
+ * @unit pages, as their block numbers count them from 0
+ * @scope one relation's main fork
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/storage/block.h#L35
+ * @quote #define MaxBlockNumber ((BlockNumber) 0xFFFFFFFE)
+ * @verified 2026-11-14
+ */
+const maxBlockNumber = 0xffff_fffe
+
+/**
+ * The largest page PostgreSQL can be built with, so a bound on rows per page at it bounds every build's.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2's build
+ * @unit bytes
+ * @scope one heap page, under the largest block size configure admits
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/configure.ac#L257
+ * @quote 32) BLCKSZ=32768;;
+ * @verified 2026-11-14
+ */
+const largestBlockSize = 32_768
+
+/**
+ * More rows than one stored relation can hold under any build: every page of a relation, each holding fewer tuples
+ * than its space after the header over the least a tuple takes, its fixed header and its line pointer (the bound
+ * MaxHeapTuplesPerPage computes with the header aligned, src/include/access/htup_details.h).
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2's heap storage
+ * @unit rows
+ * @scope one stored relation, at any block size
+ * @derivation (maxBlockNumber + 1) pages times floor((largestBlockSize - pageHeaderBytes) / (heapTupleHeaderBytes +
+ *   itemIdBytes)) tuples a page: 4,294,967,295 × 1,212 = 5,205,500,361,540, thirteen digits
+ * @from {@link maxBlockNumber}, {@link largestBlockSize}, {@link pageHeaderBytes}, {@link heapTupleHeaderBytes},
+ *   {@link itemIdBytes}
+ */
+const storedMaxRows =
+	BigInt(maxBlockNumber + 1) *
+	BigInt(Math.floor((largestBlockSize - pageHeaderBytes) / (heapTupleHeaderBytes + itemIdBytes)))
+
+/**
+ * The largest j of a dyadic fraction m / 2^j the discrete rewrite admits (see tryPercentile), the least of the two
+ * exponents its proof needs: the product x = p · n of such a fraction and a row count n of a stored relation is exact
+ * in double precision while m · n stays within its significand, every integer up to 2^binary64Precision (ECMAScript's
+ * double precision is the IEEE 754 binary64 PostgreSQL's is); and numeric's cast keeps x's fractional part of at least
+ * 2^-j from rounding to zero while 2^-j is more than half a unit in the last decimal place the cast keeps of x,
+ * binary64DecimalDigits less the digits of storedMaxRows.
+ *
+ * @limitKind derived
+ * @owner grizzle's percentile rewrite (lower/shapes/catalog/percentile.ts)
+ * @unit binary exponent of a fraction's denominator
+ * @scope one discrete percentile's fraction
+ * @derivation min(the largest j with 2^j × storedMaxRows ≤ 2^binary64Precision (2^53), which is 10; the largest j with
+ *   2^-j > 0.5 × 10^-(binary64DecimalDigits - 13), that is 2^j < 2 × 10^(15 - 13), which is 7) = 7
+ * @from {@link binary64DecimalDigits}, {@link binary64Precision}, {@link storedMaxRows}
+ */
+const maxDyadicExponent = (() => {
+	const kept = binary64DecimalDigits - String(storedMaxRows).length
+	let rounding = 0
+	while (2n ** BigInt(rounding + 1) < 2n * 10n ** BigInt(kept)) {
+		rounding++
+	}
+	let exact = 0
+	while (2n ** BigInt(exact + 1) * storedMaxRows <= 2n ** BigInt(binary64Precision)) {
+		exact++
+	}
+	return Math.min(rounding, exact)
+})()
 
 type Selection =
 	| { readonly kind: "disc"; readonly p: number }
@@ -421,7 +496,7 @@ export const tryPercentile = (cx: CatalogContext, cell: Cell): PercentileResult 
 		}
 		for (const s of sel) {
 			demand(
-				Number.isInteger(s.p * 2 ** maxDyadicExponent.value),
+				Number.isInteger(s.p * 2 ** maxDyadicExponent),
 				"a dyadic fraction, whose product the composition's numeric ceil cannot round to an integer"
 			)
 		}

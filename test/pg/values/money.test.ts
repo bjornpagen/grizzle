@@ -1,3 +1,5 @@
+import { int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
+import { moneyFractionDigits } from "@bjornpagen/grizzle-engine/scalar/values/decimal"
 /**
  * Money against PostgreSQL 19, its monetary locale C.UTF-8: the host's Money (scalar/values/money.ts) is PostgreSQL's
  * money, value for value.
@@ -23,7 +25,6 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { bigint } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { int8Max, int8Min, moneyFractionDigits } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -36,9 +37,9 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { orderOf } from "#test/unit/values/support.ts"
 
 const units = weighted([
-	[6, bigint(int8Min.value, int8Max.value)],
+	[6, bigint(int8Min, int8Max)],
 	[2, bigint(-100_000n, 100_000n)],
-	[1, element([int8Min.value, int8Max.value, int8Min.value + 1n, int8Max.value - 1n, 0n, -1n, 1n])]
+	[1, element([int8Min, int8Max, int8Min + 1n, int8Max - 1n, 0n, -1n, 1n])]
 ])
 
 /** An amount anywhere: a minor-unit count of up to 21 digits at a scale of up to six places. */
@@ -56,18 +57,14 @@ const edgePlaces = 2
  * fraction of a unit past it, so it lands on, below and above the tie that rounds it out of range.
  */
 const edge: Gen<Decimal> = (source) => {
-	const bound = source.draw(element([int8Max.value, int8Min.value]))
+	const bound = source.draw(element([int8Max, int8Min]))
 	const minor = bound + source.draw(bigint(-2n, 2n))
 	const fraction = source.draw(
 		bigint(-(10n ** BigInt(edgePlaces)) + 1n, 10n ** BigInt(edgePlaces) - 1n)
 	)
 	const scaled = minor * 10n ** BigInt(edgePlaces) + fraction
 	return succeeded(
-		Decimal.fromParts(
-			scaled < 0n,
-			scaled < 0n ? -scaled : scaled,
-			moneyFractionDigits.value + edgePlaces
-		)
+		Decimal.fromParts(scaled < 0n, scaled < 0n ? -scaled : scaled, moneyFractionDigits + edgePlaces)
 	)
 }
 

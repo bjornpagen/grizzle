@@ -79,6 +79,10 @@ import {
 	scalarOfSpec
 } from "#test/support/oracle/gen/domain.ts"
 
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
+import { int8Max } from "@bjornpagen/grizzle-engine/ir/carriers"
+import { noLive } from "#compiler/live/notify.ts"
+import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	type FactsSketch,
 	factsSketchGen,
@@ -87,10 +91,6 @@ import {
 	resolveFacts,
 	type ValueFacts
 } from "#test/support/oracle/gen/facts.ts"
-
-import { int8Max, maxIdentifierBytes } from "@grizzle/limits"
-import { noLive } from "#compiler/live/notify.ts"
-import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	allKeys,
 	closedIdType,
@@ -1500,8 +1500,7 @@ const renamed = (
 			const decodedFits =
 				column === undefined ||
 				rosterOf(column.type) === undefined ||
-				Buffer.byteLength(`${conversionOf(entry.declared)}_name`, "utf8") <=
-					maxIdentifierBytes.value
+				Buffer.byteLength(`${conversionOf(entry.declared)}_name`, "utf8") <= maxIdentifierBytes
 			return column === undefined || !decodedFits
 				? t
 				: renameField(t, relation, column.name, entry.declared)
@@ -3182,7 +3181,7 @@ const aSerial: Extras = { ...noExtras, identities: [{ relation: 0, column: 0 }] 
 export const serialDeclaredAtEnd: StatedRenamedPath = plantedRenameWith(
 	{ a: bigintKeyed, b: bigintKeyed, c: bigintKeyed },
 	{ a: noExtras, b: aSerial, c: aSerial },
-	{ R0: [one(int8Max.value)] },
+	{ R0: [one(int8Max)] },
 	{ a: fieldsOfR0(["a"]), b: fieldsOfR0(["a"]), c: fieldsOfR0(["a"]) },
 	false,
 	{ toB: [], toC: [] }

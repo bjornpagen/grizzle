@@ -1,7 +1,7 @@
 /** What the properties of limits.test.ts read: its spaces, models and helpers. */
 
+import { maxAlign } from "@bjornpagen/grizzle-engine/schema/representability"
 import { type Gen, int } from "@bjornpagen/testing/gen"
-import { maxAlign } from "@grizzle/limits"
 import type { IntegerCarrier } from "#compiler/ir/scalar.ts"
 
 /** Node's typed array of each integer carrier's width, which holds the same two's-complement integers. */
@@ -45,8 +45,8 @@ interface Rounding {
 
 /** Every size from 0 to four times the greatest alignment, at every power-of-two alignment up to it: 132. */
 export const roundings: Gen<Rounding> = (s) => ({
-	a: 2 ** s.draw(int(0, Math.log2(maxAlign.value))),
-	n: s.draw(int(0, 4 * maxAlign.value))
+	a: 2 ** s.draw(int(0, Math.log2(maxAlign))),
+	n: s.draw(int(0, 4 * maxAlign))
 })
 
 /** Where a tuple's size falls against heapTupleMaxBytes. */

@@ -1,7 +1,7 @@
 /** What the properties of staged.test.ts read: its spaces, models and helpers. */
 
+import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 import { array, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { maxStringLength } from "@grizzle/limits"
 import { Array as Arr, String as Str } from "effect"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
@@ -167,7 +167,7 @@ export const resolved = (sketch: Sketch) => {
 							)
 						)
 					),
-		literalUnits: maxStringLength.value,
+		literalUnits: maxStringLength,
 		frame: bindFrame
 	}
 	return { cells, statement, value, transport, width, analyze: sketch.analyze }

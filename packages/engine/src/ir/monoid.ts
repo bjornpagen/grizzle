@@ -1,4 +1,3 @@
-import { int8Min } from "@grizzle/limits"
 import { defect } from "#compiler/core/invariant.ts"
 /**
  * The closed monoids a fold accumulates in, each over the carriers it admits: its planes, its identity on each, and how
@@ -7,6 +6,7 @@ import { defect } from "#compiler/core/invariant.ts"
  * is not, so only a sequence, an ordered family or a tree, folds by it (check/fold.ts foldRule).
  */
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { int8Min } from "#compiler/ir/carriers.ts"
 import { integerRanges, MoneyText } from "#compiler/ir/carriers.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
@@ -190,7 +190,7 @@ const leastOf = (t: ScalarType): TypedLiteral => {
 		case "code":
 			return { kind: "handle", handle: base.roster.handles[0] }
 		case "money":
-			return { kind: "money", value: parsed(MoneyText.parse(`${int8Min.value}`), "money's least") }
+			return { kind: "money", value: parsed(MoneyText.parse(`${int8Min}`), "money's least") }
 		case "numeric":
 		case "float4":
 		case "float8":

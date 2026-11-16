@@ -1,4 +1,19 @@
 /**
+ * max_stack_depth's default, in kilobytes: how deep a backend's stack may grow before PostgreSQL refuses to recurse
+ * further, which its regex compiler checks as it walks its NFAs (regexMaxDepth). It is the superuser's setting, which
+ * no role grizzle admits can change, so Db.open and grizzle migrate refuse a server whose setting is below it.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit kilobytes
+ * @scope max_stack_depth, as pg_settings reports it, of the server grizzle's patterns are compiled on
+ * @constraint configurable default
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/config.sgml#L2328
+ * @quote The default setting is two megabytes (<literal>2MB</literal>)
+ * @verified 2026-11-14
+ */
+export const maxStackDepth = 2_048
+/**
  * What every plan is spelled in: the engine's errors and results, identifiers and names, descriptions and scalar
  * types, the SQL AST and its printed text, the schema the plans compile against, and the public types the shell's
  * signatures name.
@@ -61,14 +76,9 @@ export {
 	type StoredRelationName
 } from "#compiler/core/ids.ts"
 export { defect, defined } from "#compiler/core/invariant.ts"
-export { type Limit } from "@bjornpagen/limit"
-export {
-	flightMaxBytes,
-	handleMaxBytes,
-	maxStackDepth,
-	maxStringLength,
-	messageMaxBytes
-} from "@grizzle/limits"
+export { flightMaxBytes, messageMaxBytes } from "#compiler/core/wire.ts"
+export { handleMaxBytes } from "#compiler/schema/own.ts"
+export { maxStringLength } from "#compiler/core/canonical.ts"
 export { SourceLoc } from "#compiler/core/loc.ts"
 export { prepared, type Prepared } from "#compiler/core/prepared.ts"
 export { concatNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"

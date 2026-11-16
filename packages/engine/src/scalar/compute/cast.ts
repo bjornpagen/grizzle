@@ -1,33 +1,62 @@
-import {
-	binary32DecimalDigits,
-	binary32MaxExponent,
-	binary32MinExponent,
-	binary32Precision,
-	binary64DecimalDigits,
-	binary64MaxExponent,
-	binary64MinExponent,
-	binary64Precision,
-	moneyFractionDigits
-} from "@grizzle/limits"
 import * as Result from "#compiler/core/result.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { fromUnits, toInteger } from "#compiler/scalar/compute/numeric.ts"
 import type { Undefined } from "#compiler/scalar/compute/registry.ts"
 import {
+	binary64DecimalDigits,
+	binary64MaxExponent,
+	binary64Precision
+} from "#compiler/scalar/lexical.ts"
+import {
 	type LexicalTarget,
 	type LexicalValue,
 	lexicalTargetOf,
 	lexicalValue
 } from "#compiler/scalar/lexical.ts"
+import { decimalDigitsOf } from "#compiler/scalar/lexical.ts"
+import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import {
+	binary32MaxExponent,
+	binary32MinExponent,
+	binary32Precision
+} from "#compiler/scalar/values/float.ts"
 import { fround } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+
+/**
+ * binary64's least normal exponent, emin.
+ *
+ * @limitKind published
+ * @owner IEEE 754-2019 binary64
+ * @unit a binary exponent
+ * @scope the exponent of every normal double precision value
+ * @constraint protocol constant
+ * @source https://docs.oracle.com/javase/specs/jls/se21/html/jls-4.html#jls-4.2.3
+ * @quote Table 4.2.3-A. Floating-point parameters. Emin: float -126, double -1022
+ * @verified 2026-11-05
+ */
+export const binary64MinExponent = -1022
+
+/**
+ * FLT_DIG: the significant digits a real keeps cast to numeric.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2 float4_numeric over C's FLT_DIG
+ * @unit decimal digits
+ * @scope the significant digits of a real cast to numeric
+ * @derivation floor((p - 1) * log10(2)), C's FLT_DIG for binary32, the precision float4_numeric prints with:
+ *   "snprintf(buf, sizeof(buf), "%.*g", FLT_DIG, val);"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L4662)
+ * @from {@link binary32Precision}
+ */
+const binary32DecimalDigits = decimalDigitsOf(binary32Precision)
 
 export type IntCarrier = "int2" | "int4" | "int8"
 
 /** Money's minor units to the unit, 10^moneyFractionDigits: what numeric to money multiplies by. */
-const minorUnitsPerUnit = 10n ** BigInt(moneyFractionDigits.value)
+const minorUnitsPerUnit = 10n ** BigInt(moneyFractionDigits)
 
 type IntResult = Result.Result<bigint, Undefined>
 
@@ -50,14 +79,14 @@ const floatFormat: {
 	}
 } = {
 	float4: {
-		bits: binary32Precision.value,
-		minExp: binary32MinExponent.value,
-		maxExp: binary32MaxExponent.value
+		bits: binary32Precision,
+		minExp: binary32MinExponent,
+		maxExp: binary32MaxExponent
 	},
 	float8: {
-		bits: binary64Precision.value,
-		minExp: binary64MinExponent.value,
-		maxExp: binary64MaxExponent.value
+		bits: binary64Precision,
+		minExp: binary64MinExponent,
+		maxExp: binary64MaxExponent
 	}
 }
 
@@ -141,13 +170,13 @@ export const log2Of = (num: bigint, den: bigint): number => {
 		return Number.NEGATIVE_INFINITY
 	}
 	const e = binaryExponent(num, den)
-	const shift = binary64Precision.value - 1 - e
+	const shift = binary64Precision - 1 - e
 	const significand = shift >= 0 ? (num << BigInt(shift)) / den : num / (den << BigInt(-shift))
-	return e + Math.log2(Number(significand) / 2 ** (binary64Precision.value - 1))
+	return e + Math.log2(Number(significand) / 2 ** (binary64Precision - 1))
 }
 
 /** binary64's trailing significand field, p - 1 bits: the significand's bits below its leading one, left implicit. */
-const binary64TrailingBits = BigInt(binary64Precision.value - 1)
+const binary64TrailingBits = BigInt(binary64Precision - 1)
 
 /**
  * The exact rational value of a finite double: sign, numerator, denominator (a power of two). A magnitude's encoding
@@ -164,7 +193,7 @@ export const doubleParts = (
 	const exponent = Number(bits >> binary64TrailingBits)
 	const fraction = bits & ((1n << binary64TrailingBits) - 1n)
 	const significand = exponent === 0 ? fraction : fraction | (1n << binary64TrailingBits)
-	const e = (exponent === 0 ? 1 : exponent) + binary64MinExponent.value - binary64Precision.value
+	const e = (exponent === 0 ? 1 : exponent) + binary64MinExponent - binary64Precision
 	return e >= 0
 		? { negative, num: significand << BigInt(e), den: 1n }
 		: { negative, num: significand, den: pow2(-e) }
@@ -219,8 +248,8 @@ type FloatCarrier = "float4" | "float8"
  * FLT_DIG and DBL_DIG (ir/carriers.ts).
  */
 export const floatNumericDigits: { readonly [C in FloatCarrier]: number } = {
-	float4: binary32DecimalDigits.value,
-	float8: binary64DecimalDigits.value
+	float4: binary32DecimalDigits,
+	float8: binary64DecimalDigits
 }
 
 /**
@@ -400,7 +429,7 @@ export const floatCast = (
 export const moneyCast = (target: "numeric" | "money" | "exactMoney"): HostCast => {
 	switch (target) {
 		case "numeric":
-			return { from: "money", convert: (m) => fromUnits(m.minorUnits, moneyFractionDigits.value) }
+			return { from: "money", convert: (m) => fromUnits(m.minorUnits, moneyFractionDigits) }
 		case "exactMoney":
 			return { from: "money", convert: Result.ok }
 		case "money":

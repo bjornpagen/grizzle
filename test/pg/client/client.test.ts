@@ -347,7 +347,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the client over HTTP", (i
 						yield* Effect.gen(function* () {
 							const handler = yield* httpHandler({
 								logins: [login],
-								heartbeatMs: hangLimit.value
+								heartbeatMs: hangLimit
 							})
 							const text = openApiText(login.file)
 							if (!text.ok) {

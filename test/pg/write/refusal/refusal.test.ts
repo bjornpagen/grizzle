@@ -1,3 +1,4 @@
+import { int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 /**
  * The write refusal channel on PostgreSQL 19: the installed refusal function raises exactly its arguments, the
  * SQLSTATE, the constraint name and the DETAIL PostgreSQL evaluates, which arrive intact as the error fields the
@@ -16,7 +17,6 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { bigint, uuid } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { int8Max, int8Min } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { readChangeDetail, readLawDetail } from "#compiler/runtime/write/refusal.ts"
@@ -181,7 +181,7 @@ layer(Substrate.layer)("the write refusal channel on PostgreSQL 19", (it) => {
 									[
 										{
 											employee: source.draw(uuid(7)),
-											week: source.draw(bigint(int8Min.value, int8Max.value)).toString(),
+											week: source.draw(bigint(int8Min, int8Max)).toString(),
 											note: source.draw(note)
 										},
 										source.draw(element(raisedFeatures))

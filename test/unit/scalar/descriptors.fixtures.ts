@@ -1,5 +1,13 @@
 /** What the properties of descriptors.test.ts read: its spaces, models and helpers. */
 
+import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
+import { binary64Precision } from "@bjornpagen/grizzle-engine/scalar/lexical"
+import {
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "@bjornpagen/grizzle-engine/scalar/values/fault"
+import { binary32Precision } from "@bjornpagen/grizzle-engine/scalar/values/float"
 import {
 	aimed,
 	array,
@@ -28,14 +36,6 @@ import {
 import { matching } from "@bjornpagen/testing/pattern"
 import type { Source } from "@bjornpagen/testing/source"
 import { bigint } from "@bjornpagen/testing/values"
-import {
-	binary32Precision,
-	binary64Precision,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale,
-	vectorMaxDimensions
-} from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Record } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -166,36 +166,36 @@ export const boundsReached = <F extends string>(
 export const precisionBounds = [
 	{ feature: "precision 0", value: 0 },
 	{ feature: "precision 1", value: 1 },
-	{ feature: "the greatest precision", value: numericMaxPrecision.value },
-	{ feature: "one past the greatest precision", value: numericMaxPrecision.value + 1 }
+	{ feature: "the greatest precision", value: numericMaxPrecision },
+	{ feature: "one past the greatest precision", value: numericMaxPrecision + 1 }
 ] as const satisfies Arr.NonEmptyReadonlyArray<Bound<string>>
 
 /** numeric's scale bounds: numericMinScale the least and numericMaxScale the greatest. */
 export const scaleBounds = [
-	{ feature: "one under the least scale", value: numericMinScale.value - 1 },
-	{ feature: "the least scale", value: numericMinScale.value },
-	{ feature: "the greatest scale", value: numericMaxScale.value },
-	{ feature: "one past the greatest scale", value: numericMaxScale.value + 1 }
+	{ feature: "one under the least scale", value: numericMinScale - 1 },
+	{ feature: "the least scale", value: numericMinScale },
+	{ feature: "the greatest scale", value: numericMaxScale },
+	{ feature: "one past the greatest scale", value: numericMaxScale + 1 }
 ] as const satisfies Arr.NonEmptyReadonlyArray<Bound<string>>
 
 /** float(p)'s bounds: none below 1, real's greatest and the one past it, double precision's greatest. */
 export const floatBounds = [
 	{ feature: "precision 0", value: 0 },
 	{ feature: "precision 1", value: 1 },
-	{ feature: "real's greatest precision", value: binary32Precision.value },
-	{ feature: "one past real's greatest precision", value: binary32Precision.value + 1 },
-	{ feature: "the greatest precision", value: binary64Precision.value },
-	{ feature: "one past the greatest precision", value: binary64Precision.value + 1 }
+	{ feature: "real's greatest precision", value: binary32Precision },
+	{ feature: "one past real's greatest precision", value: binary32Precision + 1 },
+	{ feature: "the greatest precision", value: binary64Precision },
+	{ feature: "one past the greatest precision", value: binary64Precision + 1 }
 ] as const satisfies Arr.NonEmptyReadonlyArray<Bound<string>>
 
 /** pgvector's dimension bounds: none below 1, vectorMaxDimensions the greatest, and their neighbours. */
 export const dimensionBounds = [
 	{ feature: "no dimension", value: 0 },
 	{ feature: "one dimension", value: 1 },
-	{ feature: "one under the greatest dimensions", value: vectorMaxDimensions.value - 1 },
-	{ feature: "the greatest dimensions", value: vectorMaxDimensions.value },
-	{ feature: "one past the greatest dimensions", value: vectorMaxDimensions.value + 1 },
-	{ feature: "two past the greatest dimensions", value: vectorMaxDimensions.value + 2 }
+	{ feature: "one under the greatest dimensions", value: vectorMaxDimensions - 1 },
+	{ feature: "the greatest dimensions", value: vectorMaxDimensions },
+	{ feature: "one past the greatest dimensions", value: vectorMaxDimensions + 1 },
+	{ feature: "two past the greatest dimensions", value: vectorMaxDimensions + 2 }
 ] as const satisfies Arr.NonEmptyReadonlyArray<Bound<string>>
 
 /**
@@ -208,10 +208,10 @@ export const admittedNumericTypmod = (
 ): { readonly precision: number; readonly scale: number } | undefined =>
 	isInteger(precision) &&
 	precision >= 1 &&
-	precision <= numericMaxPrecision.value &&
+	precision <= numericMaxPrecision &&
 	isInteger(scale) &&
-	scale >= numericMinScale.value &&
-	scale <= numericMaxScale.value
+	scale >= numericMinScale &&
+	scale <= numericMaxScale
 		? { precision, scale: scale === 0 ? 0 : scale }
 		: undefined
 
@@ -262,7 +262,7 @@ export type FloatTypmodFeature = TypmodFeature | (typeof floatBounds)[number]["f
 /** A float(p) precision near its bounds, or wild; aimed at each wild kind still pending, a precision of that kind. */
 export const floatPrecisionSpace = aimed<Drawn<number, never>, FloatTypmodFeature>(
 	lsw<number>({
-		live: nearBounds(int(-4, binary64Precision.value + 6), floatBounds),
+		live: nearBounds(int(-4, binary64Precision + 6), floatBounds),
 		stale: Option.none(),
 		wild: WILD_KINDS
 	}),
@@ -291,7 +291,7 @@ export const vectorSpace = aimed<
 >(
 	vectorCaseOf(
 		lsw<number>({
-			live: nearBounds(int(-2, vectorMaxDimensions.value + 2), dimensionBounds),
+			live: nearBounds(int(-2, vectorMaxDimensions + 2), dimensionBounds),
 			stale: Option.none(),
 			wild: WILD_KINDS
 		})

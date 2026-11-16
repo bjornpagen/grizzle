@@ -1,4 +1,3 @@
-import { int8Max } from "@grizzle/limits"
 /**
  * What one served program takes and answers on the wire, as data over its scalars (live/wire.ts), and the walks of it:
  * a program's input (its parameters, its facts and a page's window), its rows, its keys and its write's outcome, each
@@ -18,6 +17,7 @@ import { transientTags } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { sqlstateBody } from "#compiler/core/sqlstate.ts"
+import { int8Max } from "#compiler/ir/carriers.ts"
 import {
 	type AnswerKind,
 	answers,
@@ -578,7 +578,7 @@ export const inputSchema = <L>(
 }
 
 /** The spelling of a count a write's outcome states: a natural bigint, in the wire's integer grammar. */
-const countSchema: WireSchema = { type: "string", pattern: anchored(naturals(0n, int8Max.value)) }
+const countSchema: WireSchema = { type: "string", pattern: anchored(naturals(0n, int8Max)) }
 
 /** The JSON Schema of a write's outcome. */
 const outcomeSchema = <L>(outcome: WireOutcome<L>, leaf: (l: L) => WireSchema): WireSchema => {

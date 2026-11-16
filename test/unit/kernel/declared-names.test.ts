@@ -10,9 +10,9 @@
  * Features: a conversion under the limit, at it, one byte past and far past, and two names at the limit apart.
  */
 
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { maxIdentifierBytes } from "@grizzle/limits"
 import { Array as Arr, Effect } from "effect"
 import { conversionOf, identity, parseDeclaredName } from "#compiler/core/identity.ts"
 import { assert } from "#test/support/assert.ts"
@@ -47,7 +47,7 @@ export const theNamingDoorsByteLimitAdmitsADeclaredNameExactlyWhenItsConversionF
 						const bytes = Buffer.byteLength(converted)
 						c.note(situationOf(bytes))
 						const parsed = parseDeclaredName(declared)
-						assert.equal(parsed.ok, bytes <= maxIdentifierBytes.value, declared)
+						assert.equal(parsed.ok, bytes <= maxIdentifierBytes, declared)
 						if (!parsed.ok) {
 							return undefined
 						}
@@ -61,8 +61,8 @@ export const theNamingDoorsByteLimitAdmitsADeclaredNameExactlyWhenItsConversionF
 						assert.equal(x === y, a.converted === b.converted, `${a.declared} beside ${b.declared}`)
 						if (
 							x !== y &&
-							Buffer.byteLength(x) === maxIdentifierBytes.value &&
-							Buffer.byteLength(y) === maxIdentifierBytes.value
+							Buffer.byteLength(x) === maxIdentifierBytes &&
+							Buffer.byteLength(y) === maxIdentifierBytes
 						) {
 							c.note("two at the limit apart")
 						}

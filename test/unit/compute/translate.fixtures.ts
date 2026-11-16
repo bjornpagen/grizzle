@@ -158,7 +158,7 @@ export type ImageFeature =
 	| "an exact image past the measures"
 
 /**
- * A code point and a chain of plain code points at the edge of the depth grizzle holds a pattern to (@grizzle/limits
+ * A code point and a chain of plain code points at the edge of the depth grizzle holds a pattern to (
  * regexMaxDepth): the pattern and its own image fit the measure for every last run up to 196, and the exact image,
  * eight arcs deeper for the prefix and the suffix of any text it writes out around a pattern unanchored at either
  * end, passes it from a last run of 189. Each such case compiles a pattern of some 16,000 positions, so the arm is

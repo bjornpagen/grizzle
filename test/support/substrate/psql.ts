@@ -110,7 +110,7 @@ export type BackendCancel = "signalled" | "not running" | "unreachable"
  * From end-of-file on an idle psql's stdin to its exit: the hang limit, one wait inside a test, since a psql that never
  * exits hangs. It runs on the live clock, never on a test's TestClock, which moves only when the test adjusts it.
  */
-const exitDeadline = Duration.millis(hangLimit.value)
+const exitDeadline = Duration.millis(hangLimit)
 
 /** The live clock: wall time, even in a test whose current clock is its TestClock. */
 const wallClock: Clock.Clock = Clock.Clock.defaultValue()

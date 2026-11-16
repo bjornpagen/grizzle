@@ -26,7 +26,7 @@ export type OperandIndex = 0 | 1 | 2 | 3
  * - `bucketDomain`: width_bucket's bounds differ and its count lies in 1..2147483646;
  * - `lexical`: a text a parse reads is a member of the lexical form `form` names (ParseForm), so the parse reads it
  *   without raising, to the value the form's mapping gives it (scalar/lexical.ts lexicalValue);
- * - `bounded`: a text a regex function reads is at most regexTextMaxBytes UTF-8 bytes (@grizzle/limits), the longest
+ * - `bounded`: a text a regex function reads is at most regexTextMaxBytes UTF-8 bytes, the longest
  *   subject PostgreSQL's regex engine widens without refusing its allocation, so the read never raises.
  *
  * nonzero, nonnegative and finite are facts a term's TypeScript type states (Facts), exactly, and powerDomain rests on

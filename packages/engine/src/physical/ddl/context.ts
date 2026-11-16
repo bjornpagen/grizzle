@@ -1,4 +1,3 @@
-import { tableMaxColumns } from "@grizzle/limits"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
@@ -41,6 +40,7 @@ import {
 	transformExpr,
 	transformStatement
 } from "#compiler/sql/transform.ts"
+import { tableMaxColumns } from "#compiler/write/carriers/carriers.ts"
 import { refusalFunctionDdl } from "#compiler/write/refusal.ts"
 
 export interface InstallSettings {
@@ -420,12 +420,12 @@ export class InstallBuilder {
 		}
 		const table = printObjectName(widened.relation)
 		const needed = (this.#columns.get(table) ?? 0) + widened.columns
-		if (needed > tableMaxColumns.value) {
+		if (needed > tableMaxColumns) {
 			throw new Refusal(
 				resourceBound(SourceLoc(`installation of schema ${this.owned.name}`, []), {
 					kind: "tableColumns",
 					table,
-					limit: tableMaxColumns.value,
+					limit: tableMaxColumns,
 					needed
 				})
 			)

@@ -361,7 +361,7 @@ export const liveSurfaces = (
 ): Effect.Effect<LiveSurfaces, HttpConfigRefused, DbLayerOf<AnyLogin>> =>
 	Effect.gen(function* () {
 		const inProcess = yield* inProcessCalls(file, role, token)
-		const handler = yield* httpHandler({ logins: [file], heartbeatMs: hangLimit.value })
+		const handler = yield* httpHandler({ logins: [file], heartbeatMs: hangLimit })
 		return { inProcess, http: httpCalls(handler, file, role, token), raw: rawCall(handler) }
 	})
 

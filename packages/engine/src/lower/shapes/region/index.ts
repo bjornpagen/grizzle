@@ -1,4 +1,3 @@
-import { collapseLimit } from "@grizzle/limits"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
@@ -22,6 +21,24 @@ import { type NativeOp, nativeOp, operandCarriers } from "#compiler/scalar/compu
 import type { Expr, FromItem, JoinStep, OperandBody } from "#compiler/sql/ast.ts"
 import { and, core, lit, operandSelect, target } from "#compiler/sql/build.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
+
+/**
+ * PostgreSQL's default join_collapse_limit, which is from_collapse_limit's too: the most FROM items the planner flattens
+ * one join problem into, and plans exhaustively, before it plans the rest as separate subproblems in the order written.
+ * No grizzle session sets either, so the default is the value every statement is planned under. The docs state it
+ * through from_collapse_limit, "By default, this variable is set the same as from_collapse_limit", whose "default is
+ * eight" (https://www.postgresql.org/docs/19/runtime-config-query.html).
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2's planner
+ * @unit FROM items
+ * @scope one join problem the planner flattens, under the session default no grizzle session changes
+ * @constraint configurable default
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/misc/guc_parameters.dat#L1538-L1546
+ * @quote { name => 'join_collapse_limit', type => 'int', context => 'PGC_USERSET', [...] boot_val => '8',
+ * @verified 2026-11-14
+ */
+export const collapseLimit = 8
 
 /** The relation aliases a query fragment reads through column references, at any depth. */
 const aliasesRead = (body: OperandBody, within: ReadonlySet<string>): ReadonlySet<string> => {
@@ -390,7 +407,7 @@ export const regionLowerer =
 			conditions: [...lowered.conditions, ...impliedBounds(node, cx, env, lowered)]
 		}
 		const [first, ...others] = parts.occurrences
-		if (first === undefined || parts.occurrences.length <= collapseLimit.value) {
+		if (first === undefined || parts.occurrences.length <= collapseLimit) {
 			return distinctSelect(
 				parts.targets,
 				parts.occurrences.map((o) => o.item),

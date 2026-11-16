@@ -601,7 +601,7 @@ const rank = (spec: UnitSpec): number => (spec.kind !== "program" ? 0 : spec.hea
  * (compiler.ts), which ends a check that idles, so this guard catches a hang outside the check without judging a slow
  * check, which the growing-schema programs make for as long as tsgo takes.
  */
-const hangGuard = Duration.millis(hangLimit.value)
+const hangGuard = Duration.millis(hangLimit)
 
 /**
  * Places every unit of `groups` under the run's seed, typechecks them as one program, and attributes the diagnostics.

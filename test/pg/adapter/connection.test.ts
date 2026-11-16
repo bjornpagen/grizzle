@@ -529,7 +529,7 @@ layer(Substrate.layer)("adapter connections", (it) => {
 								const pool = yield* poolFor(writer, {
 									...defaultPool,
 									password: { kind: "given", password },
-									pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: program.max }
+									pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: program.max }
 								})
 								for (const step of program.steps) {
 									switch (step.kind) {

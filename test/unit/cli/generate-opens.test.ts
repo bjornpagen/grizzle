@@ -1,27 +1,7 @@
+import { selectMaxEntries } from "@bjornpagen/grizzle-engine/sql/print"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-/**
- * `grizzle generate` compiles every program of a login's workloads once, into the login's served file, through the
- * one compile of a login (adapter/served/compile.ts compileServed over adapter/served/login.ts loginRoles), so a program
- * generate admits is one the login's compilation over its workload's slice admits and the served file generate drafts
- * opens the layer, and one that compilation refuses refuses generate, by the program, with the same CompileError.
- *
- * The box is PostgreSQL's select list around its bound (@grizzle/limits selectMaxEntries): a login whose workload holds
- * one query, whose head is every field of two joined relations, split between them evenly, on the bound and one
- * entry past it. The checker admits every width; the statements the layer compiles refuse a head past the
- * bound when they are printed (ResourceBound, selectList). Within it, the layer compiles the program, generate drafts
- * it and writes its served file, and that file opens a DbLayer, which builds without a connection; past it, the
- * layer refuses the program and generate refuses with the CompileError the layer refuses it with, the draft's access
- * plan or the served file's compile naming the program. A case compiles a program of some 1,664 columns, so the box is
- * the bound and the entry past it alone.
- *
- * Oracle: a differential between generate and the login's compilation over its workload's slice, which must admit and
- * refuse alike, with one CompileError; and the bound itself, which admits exactly the select lists within it.
- *
- * Features: a head on the bound, and one past it.
- */
-import { selectMaxEntries } from "@grizzle/limits"
 import { Effect, Exit, Layer, Result } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import { served } from "#adapter/public/layer.ts"
@@ -65,7 +45,7 @@ export const generateAndDbLayerMakeCompileALoginsProgramsAlikeAtTheSelectListsBo
 		check: (_, c: Case<Width>) => (head: Head) =>
 			Effect.gen(function* () {
 				c.noteAll(widthsOf(head))
-				const within = head.entries <= selectMaxEntries.value
+				const within = head.entries <= selectMaxEntries
 				const pairs = pairsOf(head)
 				const config = yield* resolveConfig(
 					defineConfig({

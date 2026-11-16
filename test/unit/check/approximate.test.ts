@@ -55,7 +55,7 @@ export const approximateNearestAdmitsExactlyASearchWhoseOneRuleReadOncePerExecut
 				if (c.reading === "the query" || c.reading === "an import bound to a parameter") {
 					k.note(`admitted, ${c.reading}`)
 				}
-				if (c.dimensions === hnswPolicy.maxDimensions.value) {
+				if (c.dimensions === hnswPolicy.maxDimensions) {
 					k.note("admitted at HNSW's bound")
 				}
 				const q = succeeded(result, "the eligible search")

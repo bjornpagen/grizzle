@@ -1,7 +1,10 @@
 /** What the properties of rule-query.test.ts read: its spaces, models and helpers. */
 
+import {
+	numericMaxPrecision,
+	numericMaxScale
+} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { numericMaxPrecision, numericMaxScale } from "@grizzle/limits"
 import { Array as Arr, String as Str } from "effect"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
@@ -300,8 +303,8 @@ export const decimalOf: { readonly [D in DecimalLiteral]: Decimal } = {
 	NaN: Decimal.fromOutput("NaN"),
 	Infinity: Decimal.fromOutput("Infinity"),
 	"-Infinity": Decimal.fromOutput("-Infinity"),
-	"past precision": Decimal.fromOutput(`1${Str.repeat(numericMaxPrecision.value)("0")}`),
-	"past scale": Decimal.fromOutput(`0.${Str.repeat(numericMaxScale.value)("0")}1`)
+	"past precision": Decimal.fromOutput(`1${Str.repeat(numericMaxPrecision)("0")}`),
+	"past scale": Decimal.fromOutput(`0.${Str.repeat(numericMaxScale)("0")}1`)
 }
 
 /** The literal a derived relation's head delivers: a text, or a Decimal (DecimalLiteral). */

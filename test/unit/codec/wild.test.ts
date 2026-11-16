@@ -1,42 +1,9 @@
 import { inspect } from "node:util"
+import { int4Max } from "@bjornpagen/grizzle-engine/core/canonical"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { drawnFeature, passed } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
-/**
- * What the encoders answer for anything JavaScript can pass (README "Errors and outcomes": an encoding failure is EncodingFailure
- * with its word, before any SQL).
- *
- * Every descriptor of every carrier meets Live values of its own host type, values of every other carrier's host type,
- * and Wild values (the testing library's lsw): proxies whose every trap throws, objects whose getter throws, bigint for
- * number and number for bigint, lone surrogates, NUL, -0, NaN, the infinities, symbols, functions and any JSON value.
- * The encoder answers each by refusing it with a word of the codec vocabulary, or by admitting it to a text that
- * converts back to a value that encodes to the same text; a Live value is always admitted. A Live value is one its
- * descriptor holds as it is: a numeric under a typmod draws a count of the typmod's units (numericUnder), never a value
- * PostgreSQL's coercion would round, which the boundary refuses. It never throws: a value
- * whose reading throws is refused as not of the carrier's host type. A template slot's refusal names the slot and the
- * word, and never the value.
- *
- * A result row grizzle reads for itself is positional text, every cell a text (the session admits no NULL): it converts
- * to a frozen tuple, positionally, each value the one the text encodes.
- *
- * A fact meets the same values as fields, and itself as a proxy, an array or anything else: factIdentity refuses with a
- * word and the field, or admits every field. A getter is read exactly once, at admission: one that answers a valid
- * value first and an invalid one after is admitted with its first answer, and encodes from what admission kept.
- *
- * Oracles: the round trip (encode, convert, encode again to the same text) for what an encoder admits; the codec's
- * own vocabulary (CodecFault and ValueFault) for what it refuses; the template slot's marker, which the refusal must
- * not hold; the value each row cell's text encodes.
- *
- * Features: a Live value and every wild kind; a fact admitted, refused at a field and refused whole; a row with a bytes
- * column and one with a column of text. A template slot's refusal and an unstable getter each reach one situation,
- * their generators' own, and require none.
- *
- * One descriptor, hand-written as a JavaScript caller or a stored snapshot states one, beside the Live values of its
- * host type. The scalar type decoder is the boundary that admits it, so it stays
- * `unknown` until decoded.
- */
-import { int4Max } from "@grizzle/limits"
 import { Array as Arr, Effect, pipe, Record, String as Str } from "effect"
 import { scalarReader } from "#compiler/codec/read.ts"
 import { tupleConverter } from "#compiler/codec/row.ts"
@@ -156,7 +123,7 @@ export const admissionReadsAValueOnceAdmitsAGettersFirstAnswerAndEncodesFromItHo
 			() =>
 			([first, then]) =>
 				Effect.sync(() => {
-					const end = int4Max.value
+					const end = int4Max
 					const range4 = decoded(written.range4[0]).type
 					const codec = scalarCodec(range4, kindCodes)
 					const unstable = unstableSpan(first, then, end)

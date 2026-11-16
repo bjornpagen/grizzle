@@ -16,10 +16,10 @@
  * bound, a varlena and mixed alignments for the law model.
  */
 
+import { heapTupleMaxBytes } from "@bjornpagen/grizzle-engine/laws/model/model"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { heapTupleMaxBytes } from "@grizzle/limits"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { rowBytes, rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
 import { assert, refused } from "#test/support/assert.ts"
@@ -105,7 +105,7 @@ export const aRelationsRowsFitOneHeapTupleTheLawModelAdmitsARelationWhoseRowReac
 							...upTo(k, (): Column => ({ kind: int8, nullable: false }))
 						]
 						let fits = 0
-						while (specified(columns(fits + 1)) <= heapTupleMaxBytes.value) {
+						while (specified(columns(fits + 1)) <= heapTupleMaxBytes) {
 							fits += 1
 						}
 						const k = fits + offset
@@ -135,7 +135,7 @@ export const aRelationsRowsFitOneHeapTupleTheLawModelAdmitsARelationWhoseRowReac
 							statements: [],
 							extends: undefined
 						}
-						if (bytes <= heapTupleMaxBytes.value) {
+						if (bytes <= heapTupleMaxBytes) {
 							modelOf(desc)
 							return
 						}

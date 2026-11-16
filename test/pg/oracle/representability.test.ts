@@ -1,3 +1,4 @@
+import { btreeMaxItemSize } from "@bjornpagen/grizzle-engine/schema/representability"
 /**
  * The key representability bound against PostgreSQL 19: every key the compiler accepts fits a B-tree index entry,
  * at the computed maximum, with the widest values its fields admit.
@@ -12,7 +13,7 @@
  * and integers. PostgreSQL must accept every such fact into the key's unique index.
  *
  * Text is bounded in each spelling the compiler accepts: its pattern ^.{0,n}$, n within PostgreSQL's repetition limit
- * (@grizzle/limits regexMaxRepeat), a contract's charLength(value) <= n over the wildcard pattern, or a contract's
+ * (regexMaxRepeat), a contract's charLength(value) <= n over the wildcard pattern, or a contract's
  * octetLength(value) <= n over it, which bounds the text's bytes exactly and reaches the item limit at the byte. A key's
  * entry is counted at exact offsets through its fixed-width prefix, so a key whose bounded text comes after fixed-width
  * fields alone is sized to the byte PostgreSQL lays out.
@@ -23,7 +24,6 @@
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { btreeMaxItemSize } from "@grizzle/limits"
 import { Array as Arr, Effect } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import {
@@ -61,7 +61,7 @@ export const acceptsTheWidestFact = property.explore(keyGen, {
 					if (
 						sketch.fill &&
 						Arr.some(fields, (f) => f.kind === "text") &&
-						layout.value.btreeBytes > btreeMaxItemSize.value - 8
+						layout.value.btreeBytes > btreeMaxItemSize - 8
 					) {
 						k.note("key at the computed maximum")
 					}

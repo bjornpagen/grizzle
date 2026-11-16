@@ -1,6 +1,4 @@
-/** What the properties of guards.test.ts read: its spaces, models and helpers. */
-
-import { regexTextMaxBytes } from "@grizzle/limits"
+import { regexTextMaxBytes } from "@bjornpagen/grizzle-engine/core/errors"
 import { Array as Arr, Record as Rec } from "effect"
 import type { GuardTest, PreconditionKind } from "#compiler/core/errors.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
@@ -236,7 +234,7 @@ export const plants: { readonly [K in PreconditionKind]: Arr.NonEmptyReadonlyArr
 				kind: "guarded",
 				term: (x) =>
 					Compute.when(
-						Compute.within(Compute.octetLength(x), 0, regexTextMaxBytes.value),
+						Compute.within(Compute.octetLength(x), 0, regexTextMaxBytes),
 						() => Compute.utf16Length(x),
 						0
 					)

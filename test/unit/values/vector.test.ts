@@ -16,11 +16,11 @@
  * several components.
  */
 
+import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, map } from "@bjornpagen/testing/gen"
 import { type DrawnFeature, drawnFeature, lsw, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { vectorMaxDimensions } from "@grizzle/limits"
 import { Array as Arr, Effect, Option, pipe, String as Str } from "effect"
 import { decode, encode, everyProperty } from "#compiler/core/canonical.ts"
 import { CompileError } from "#compiler/core/errors.ts"
@@ -63,8 +63,8 @@ export const vectorConstructionAdmitsAFloat32ArrayOfItsDimensionCountIn116000Nev
 						const length =
 							count === "the maximum" || count === "past the maximum"
 								? count === "the maximum"
-									? vectorMaxDimensions.value
-									: vectorMaxDimensions.value + 1
+									? vectorMaxDimensions
+									: vectorMaxDimensions + 1
 								: components.length
 						const xs = length === components.length ? components : Array.from({ length }, () => 0.5)
 						const value: unknown =
@@ -96,7 +96,7 @@ export const vectorConstructionAdmitsAFloat32ArrayOfItsDimensionCountIn116000Nev
 											: length
 						/** The count is read first, as the type's own dimension count; then the buffer, then its length. */
 						const admitted = Vector.admit(value, dims)
-						const countOk = Number.isInteger(dims) && dims >= 1 && dims <= vectorMaxDimensions.value
+						const countOk = Number.isInteger(dims) && dims >= 1 && dims <= vectorMaxDimensions
 						if (countOk && buffer !== "a Float32Array") {
 							faulted(admitted, "vectorType")
 							return

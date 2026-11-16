@@ -1,7 +1,7 @@
 /** What the properties of domain.test.ts read: its spaces, models and helpers. */
 
+import { btreeMaxItemSize } from "@bjornpagen/grizzle-engine/schema/representability"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
-import { btreeMaxItemSize } from "@grizzle/limits"
 import { Array as Arr } from "effect"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { NumericBound, ScalarType } from "#compiler/ir/scalar.ts"
@@ -53,7 +53,7 @@ export const representableKey = (type: ScalarType): boolean => {
 	const bound = datumBound(fieldDescOf(type))
 	return (
 		bound !== undefined &&
-		btreeEntryBytes([{ name: "k", datum: bound, nullable: false }]) <= btreeMaxItemSize.value
+		btreeEntryBytes([{ name: "k", datum: bound, nullable: false }]) <= btreeMaxItemSize
 	)
 }
 

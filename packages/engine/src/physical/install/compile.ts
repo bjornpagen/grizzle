@@ -1,8 +1,8 @@
-import { maxIdentifierBytes } from "@grizzle/limits"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import {
 	censusOf,
 	DeclaredNamespace,
@@ -230,7 +230,7 @@ const liveOf = (extensions: ReadonlyArray<InstallExtension>): LivePlan => {
  * pg_.
  */
 const admittedSchema = (name: string): boolean => {
-	if (name.length === 0 || name.length > maxIdentifierBytes.value || name.startsWith("pg_")) {
+	if (name.length === 0 || name.length > maxIdentifierBytes || name.startsWith("pg_")) {
 		return false
 	}
 	for (let i = 0; i < name.length; i++) {

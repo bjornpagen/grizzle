@@ -460,7 +460,7 @@ export interface KeyIndex {
  *
  * The deferral rule is the law model's; the names are the law model's and ownership's; this module only spells them.
  * Each vector column also carries its cosine-domain CHECK (`vectorNorms`) and each date column its range CHECK
- * (`dateRanges`); a bytes column carries none, since its type's own bound is its value's (@grizzle/limits bytesMaxLength).
+ * (`dateRanges`); a bytes column carries none, since its type's own bound is its value's (bytesMaxLength).
  * Every table is added before the objects on it, so the inline constraints are planned first. */
 export const addTables = (b: InstallBuilder): PlacedNatives => {
 	const inline: Inline = new Map()

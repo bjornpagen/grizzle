@@ -1,10 +1,11 @@
-import { int8Digits, int8Max, int8Min, moneyFractionDigits } from "@grizzle/limits"
 import { type Canonicalizable, canonicalTag, type TaggedValue } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, type ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
+import { int8Digits, int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import type { MoneyValue } from "#compiler/ir/carriers.ts"
+import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import { Decimal, roundedUnits } from "#compiler/scalar/values/decimal.ts"
 import { faultError } from "#compiler/scalar/values/fault.ts"
 
@@ -15,7 +16,7 @@ import { faultError } from "#compiler/scalar/values/fault.ts"
 const isCanonicalInteger = (text: string): boolean => {
 	const start = text.startsWith("-") ? 1 : 0
 	const length = text.length - start
-	if (length === 0 || length > int8Digits.value) {
+	if (length === 0 || length > int8Digits) {
 		return false
 	}
 	for (let i = start; i < text.length; i++) {
@@ -79,7 +80,7 @@ export class Money implements Canonicalizable {
 		if (typeof minorUnits !== "bigint") {
 			return Result.err("moneyType")
 		}
-		if (minorUnits < int8Min.value || minorUnits > int8Max.value) {
+		if (minorUnits < int8Min || minorUnits > int8Max) {
 			return Result.err("moneyRange")
 		}
 		return Result.ok(new Money(minting, minorUnits))
@@ -141,7 +142,7 @@ export class Money implements Canonicalizable {
 		if (!amount.isFinite()) {
 			return Result.err("moneySpecial")
 		}
-		return Money.make(roundedUnits(amount, moneyFractionDigits.value))
+		return Money.make(roundedUnits(amount, moneyFractionDigits))
 	}
 
 	/**
@@ -155,8 +156,8 @@ export class Money implements Canonicalizable {
 		const point = text.indexOf(".", start)
 		const digits =
 			point < 0
-				? text.slice(start) + "0".repeat(moneyFractionDigits.value)
-				: text.slice(start, point) + text.slice(point + 1).padEnd(moneyFractionDigits.value, "0")
+				? text.slice(start) + "0".repeat(moneyFractionDigits)
+				: text.slice(start, point) + text.slice(point + 1).padEnd(moneyFractionDigits, "0")
 		const units = BigInt(digits)
 		return new Money(minting, negative ? -units : units)
 	}
@@ -195,8 +196,8 @@ export class Money implements Canonicalizable {
 		const negative = this.minorUnits < 0n
 		const digits = (negative ? -this.minorUnits : this.minorUnits)
 			.toString()
-			.padStart(moneyFractionDigits.value + 1, "0")
-		const point = digits.length - moneyFractionDigits.value
+			.padStart(moneyFractionDigits + 1, "0")
+		const point = digits.length - moneyFractionDigits
 		return `${negative ? "-" : ""}${digits.slice(0, point)}.${digits.slice(point)}`
 	}
 

@@ -1,5 +1,6 @@
 /** What the properties of delivery.test.ts read: its spaces, models and helpers. */
 
+import { bytesChunkLength } from "@bjornpagen/grizzle-engine/codec/delivery"
 import {
 	array,
 	codePoint,
@@ -11,7 +12,6 @@ import {
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { bytesChunkLength } from "@grizzle/limits"
 import { Array as Arr } from "effect"
 import { type CellKind } from "#compiler/codec/delivery.ts"
 import { maxOf } from "#compiler/core/array.ts"
@@ -83,7 +83,7 @@ const text: Gen<string> = string(codePoint(0x20, 0x7e), { min: 0, max: 6 })
 export const cases: Gen<Drawn> = (s) => {
 	const chunkLength = s.draw(
 		weighted([
-			[1, constant(bytesChunkLength.value)],
+			[1, constant(bytesChunkLength)],
 			[19, int(1, 8)]
 		])
 	)
@@ -232,7 +232,7 @@ export const notes = (
 	if (Arr.some(d.ords, (ord, i) => ord !== i + 1)) {
 		out.push("rows numbered with gaps")
 	}
-	if (c === bytesChunkLength.value) {
+	if (c === bytesChunkLength) {
 		out.push("the chunk length in force")
 	}
 	return out

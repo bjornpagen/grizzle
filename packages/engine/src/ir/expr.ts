@@ -1,4 +1,3 @@
-import { cosineNormMax, cosineNormMin } from "@grizzle/limits"
 import { appendAll } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import {
@@ -44,6 +43,7 @@ import {
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
+import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
 
 /**
  * The identity of one native overload, resolved against the installed capability registry. The scalar package owns
@@ -962,9 +962,9 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 				return `a vector literal has ${type.typmod.dims} components`
 			}
 			const norm = nativeNorm(components)
-			return norm >= cosineNormMin.value && norm <= cosineNormMax.value
+			return norm >= cosineNormMin && norm <= cosineNormMax
 				? undefined
-				: `a vector literal whose native norm lies in the cosine domain [${cosineNormMin.value}, ${cosineNormMax.value}]`
+				: `a vector literal whose native norm lies in the cosine domain [${cosineNormMin}, ${cosineNormMax}]`
 		}
 	}
 }

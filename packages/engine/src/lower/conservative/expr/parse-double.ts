@@ -1,7 +1,52 @@
-import { boundaryDigits, exponentReach, int8ExactDigits } from "@grizzle/limits"
+import { int8ExactDigits } from "#compiler/ir/physical.ts"
 import { roundToFloat } from "#compiler/lower/conservative/expr/total.ts"
+import { binary64MinExponent } from "#compiler/scalar/compute/cast.ts"
+import { binary64MaxExponent, binary64Precision } from "#compiler/scalar/lexical.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
 import { binary, call, cast, gt, lit, types } from "#compiler/sql/build.ts"
+
+/**
+ * The most significant decimal digits a point at which binary64's rounding changes has: every such point, a midpoint
+ * between two neighbouring doubles, the overflow threshold and half the least subnormal, is an odd multiple of
+ * 2^(e - p) for some e at least emin, below 2^(e + 1); its digits are the odd multiplier's times 5^(p - e) where e < p,
+ * most at e = emin, and at most binary64's integer digits elsewhere. So a decimal cut to this many significant digits,
+ * with one nonzero digit after them where it had more, lies on the same side of every such point as the decimal itself,
+ * and rounds and compares with the thresholds alike.
+ *
+ * @limitKind derived
+ * @owner grizzle's parse of a double's decimal text (lower/conservative/expr/parse-double.ts)
+ * @unit decimal digits
+ * @scope the significant digits of a double's text read into the numeric it rounds from
+ * @derivation the digits of (2^(p + 1) - 1) * 5^(p - emin), the greatest odd multiplier below 2^(p + 1) times the
+ *   least weight 2^(emin - p) of a rounding point, written in decimal
+ * @from {@link binary64Precision}, {@link binary64MinExponent}
+ */
+const boundaryDigits = (
+	((1n << BigInt(binary64Precision + 1)) - 1n) *
+	5n ** BigInt(binary64Precision - binary64MinExponent)
+).toString().length
+
+/**
+ * The magnitude a double's text's decimal exponent is clamped to: a decimal 0.d... * 10^e with e above the digits of
+ * 2^(emax + 1) is past the overflow threshold, and one with e at most -(p - emin - digits(5^(p - emin)) + 1) is below
+ * half the least subnormal, 2^(emin - p) = 5^(p - emin) * 10^(emin - p), so clamping e into [-reach, reach] keeps every
+ * decimal on the side of both thresholds it was on, and the numeric read from it within numeric's digits.
+ *
+ * @limitKind derived
+ * @owner grizzle's parse of a double's decimal text (lower/conservative/expr/parse-double.ts)
+ * @unit a decimal exponent
+ * @scope the decimal exponent of the numeric a double's text is read into
+ * @derivation max(digits(2^(emax + 1)) + 1, (p - emin) - digits(5^(p - emin)) + 1): past the first every value
+ *   overflows, at or below the second's negation every value is below half the least subnormal
+ * @from {@link binary64Precision}, {@link binary64MinExponent}, {@link binary64MaxExponent}
+ */
+const exponentReach = Math.max(
+	(1n << BigInt(binary64MaxExponent + 1)).toString().length + 1,
+	binary64Precision -
+		binary64MinExponent -
+		(5n ** BigInt(binary64Precision - binary64MinExponent)).toString().length +
+		1
+)
 
 const text = (value: string): Expr => lit.text(value, types.text)
 const integer = (value: number): Expr => lit.int(value, types.integer)
@@ -52,7 +97,7 @@ export const parseDoubleForm = (x: Expr): Expr => {
 		binary(
 			"||",
 			caseWhen(call("starts_with", [exponentText, text("-")]), text("-0"), text("0")),
-			call("left", [call("ltrim", [exponentText, text("+-0")]), integer(int8ExactDigits.value)])
+			call("left", [call("ltrim", [exponentText, text("+-0")]), integer(int8ExactDigits)])
 		),
 		types.bigint
 	)
@@ -64,14 +109,14 @@ export const parseDoubleForm = (x: Expr): Expr => {
 	const clamped: Expr = {
 		kind: "greatest",
 		args: [
-			bigint(-exponentReach.value),
-			{ kind: "least", args: [bigint(exponentReach.value), decimalExponent] }
+			bigint(-exponentReach),
+			{ kind: "least", args: [bigint(exponentReach), decimalExponent] }
 		]
 	}
 	const cut = binary(
 		"||",
-		call("left", [digits, integer(boundaryDigits.value)]),
-		caseWhen(gt(call("char_length", [digits]), integer(boundaryDigits.value)), text("1"), text(""))
+		call("left", [digits, integer(boundaryDigits)]),
+		caseWhen(gt(call("char_length", [digits]), integer(boundaryDigits)), text("1"), text(""))
 	)
 	const numeral = cast(
 		binary("||", binary("||", binary("||", text("0."), cut), text("e")), cast(clamped, types.text)),

@@ -26,12 +26,12 @@
  */
 import { createServer, type Socket } from "node:net"
 import { inspect } from "node:util"
+import { timerMinMs } from "@bjornpagen/grizzle/adapter/connection/config"
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { timerMinMs } from "@grizzle/limits"
 import { Array as Arr, Effect, Redacted, String as Str } from "effect"
 import pgDriver from "pg"
 import { ReadFailure } from "#adapter/errors/execution.ts"
@@ -103,7 +103,7 @@ const classOf = (refusal: ConnectRefusal): string => {
  * The connect timeout of the attempts to a server that never answers: the least delay a Node timer waits, since nothing
  * will answer it, so any delay times the attempt out and the case spends none of the run waiting longer.
  */
-const silentTimeout = timerMinMs.value
+const silentTimeout = timerMinMs
 
 /**
  * What a call error states, as README "Errors and outcomes" names it: its kind, its reason (an unavailable reason's
@@ -264,7 +264,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 								role: writer.role,
 								password: writer.password,
 								ca: s.cluster.caPem,
-								connectTimeoutMs: testConnectTimeout.value,
+								connectTimeoutMs: testConnectTimeout,
 								secrets: [own]
 							}
 							switch (plant) {

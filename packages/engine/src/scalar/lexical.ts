@@ -1,14 +1,135 @@
-import {
-	decimalTextMaxBytes,
-	doubleExponentMax,
-	doubleMantissaDigits,
-	regexMaxRepeat
-} from "@grizzle/limits"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { ParseForm } from "#compiler/ir/proof.ts"
 import { type NumericTypmod, type ScalarType, contractOf } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
+import { greatestFinite } from "#compiler/scalar/values/float.ts"
+
+/**
+ * PostgreSQL's explicit repetition limit: a pattern whose `{m}`, `{m,}` or `{m,n}` states a bound above it is refused
+ * (scalar/regex/parse.ts), as PostgreSQL's regex compiler refuses it (regcomp.c scannum, against DUPMAX, which is
+ * _POSIX2_RE_DUP_MAX). regguts.h defines it only where <limits.h> does not, and POSIX fixes it at the same value
+ * (https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/limits.h.html, "{_POSIX2_RE_DUP_MAX} Maximum number of
+ * repeated occurrences of a BRE or ERE interval expression; [...] Value: 255"), so every platform's build has it.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2's regex compiler
+ * @unit repetitions
+ * @scope each bound of a counted repetition in one str.regex pattern
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/regex/regguts.h#L95
+ * @quote #define _POSIX2_RE_DUP_MAX 255
+ * @verified 2026-11-14
+ */
+export const regexMaxRepeat = 255
+
+/**
+ * IEEE 754-2019's binary64 format, double precision and JavaScript's number: its precision p.
+ *
+ * @limitKind published
+ * @owner IEEE 754-2019 binary64
+ * @unit bits
+ * @scope the significand of every double precision value
+ * @constraint protocol constant
+ * @source https://docs.oracle.com/javase/specs/jls/se21/html/jls-4.html#jls-4.2.3
+ * @quote Table 4.2.3-A. Floating-point parameters. N: float 24, double 53
+ * @verified 2026-11-05
+ */
+export const binary64Precision = 53
+
+/**
+ * binary64's greatest exponent, emax.
+ *
+ * @limitKind published
+ * @owner IEEE 754-2019 binary64
+ * @unit a binary exponent
+ * @scope the exponent of every finite double precision value
+ * @constraint protocol constant
+ * @source https://docs.oracle.com/javase/specs/jls/se21/html/jls-4.html#jls-4.2.3
+ * @quote Table 4.2.3-A. Floating-point parameters. Emax: float +127, double +1023
+ * @verified 2026-11-05
+ */
+export const binary64MaxExponent = 1023
+
+/**
+ * C's FLT_DIG and DBL_DIG for a binary format of precision p, floor((p - 1) * log10(2)): the decimal digits every
+ * decimal of that many digits round-trips through the format with (C17 5.2.4.2.2), which float4_numeric and
+ * float8_numeric write a float to numeric with, "%.*g" (numeric.c).
+ */
+export const decimalDigitsOf = (p: number): number => Math.floor((p - 1) * Math.log10(2))
+
+/**
+ * DBL_DIG: the significant digits a double precision keeps cast to numeric.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2 float8_numeric over C's DBL_DIG
+ * @unit decimal digits
+ * @scope the significant digits of a double precision cast to numeric
+ * @derivation floor((p - 1) * log10(2)), C's DBL_DIG for binary64, the precision float8_numeric prints with:
+ *   "snprintf(buf, sizeof(buf), "%.*g", DBL_DIG, val);"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L4563)
+ * @from {@link binary64Precision}
+ */
+export const binary64DecimalDigits = decimalDigitsOf(binary64Precision)
+
+/**
+ * The integer digits of every finite binary64 value, |x| < 10^binary64Digits.
+ *
+ * @limitKind derived
+ * @owner IEEE 754-2019 binary64
+ * @unit decimal digits
+ * @scope the integer digits of every finite double precision value
+ * @derivation the decimal length of the greatest finite value, an integer
+ * @from {@link binary64Precision}, {@link binary64MaxExponent}
+ */
+export const binary64Digits = String(greatestFinite(binary64Precision, binary64MaxExponent)).length
+
+/**
+ * The most UTF-8 bytes of a member of decimalText's form: every decimal text of at most this many bytes names a value
+ * plain numeric holds, its point taking a byte, so it has at most numericMaxFractionDigits digits past the point and no
+ * more before it than numericMaxIntegerDigits; one byte more admits `.` and numericMaxFractionDigits + 1 digits, which
+ * numeric_in refuses as "value overflows numeric format".
+ *
+ * @limitKind derived
+ * @owner grizzle's lexical forms
+ * @unit UTF-8 bytes
+ * @scope a decimal text Compute.parseDecimal reads, the bytes of its form's every member
+ * @derivation numericMaxFractionDigits + 1, the point and the most fraction digits numeric holds, at most
+ *   numericMaxIntegerDigits so its integer digits fit as well
+ * @from {@link numericMaxFractionDigits}, {@link numericMaxIntegerDigits}
+ */
+export const decimalTextMaxBytes = Math.min(numericMaxFractionDigits + 1, numericMaxIntegerDigits)
+
+/**
+ * The significant digits of a double precision mantissa on either side of its point: DBL_DIG, the digits every
+ * decimal of which survives binary64 unchanged, so no admitted mantissa is longer than a double resolves.
+ *
+ * @limitKind derived
+ * @owner grizzle's lexical forms
+ * @unit decimal digits
+ * @scope the significant digits of a double precision lexical form's mantissa, before its point and after it
+ * @derivation DBL_DIG: every decimal of that many significant digits rounds to a binary64 value and back unchanged
+ * @from {@link binary64DecimalDigits}
+ */
+const doubleMantissaDigits = binary64DecimalDigits
+
+/**
+ * The greatest decimal exponent of a double precision lexical form: the mantissa is below 10^DBL_DIG and, when
+ * nonzero, at least 10^-DBL_DIG, so with |exponent| at most binary64Digits - 1 - DBL_DIG every value but zero lies in
+ * [10^-(binary64Digits - 1), 10^(binary64Digits - 1)): below the greatest finite binary64, so float8in never
+ * overflows to infinity, and above the least subnormal, 2^-1074, so it never underflows to zero, the two results
+ * float8in refuses.
+ *
+ * @limitKind derived
+ * @owner grizzle's lexical forms
+ * @unit a decimal exponent
+ * @scope the magnitude of a double precision lexical form's exponent
+ * @derivation binary64Digits - 1 - DBL_DIG: the mantissa's own magnitude, up to DBL_DIG digits either side of its
+ *   point, plus the exponent stays inside binary64's finite nonzero range
+ * @from {@link binary64Digits}, {@link doubleMantissaDigits}
+ */
+const doubleExponentMax = binary64Digits - 1 - doubleMantissaDigits
 
 /**
  * A type a text has a lexical form of, the target of a parse: XML Schema's lexical space of the datatype the type
@@ -54,8 +175,8 @@ export type LexicalValue = bigint | Decimal | number | boolean | CalendarDate
 const decimalWritable = ({ precision, scale }: NumericTypmod): boolean =>
 	scale >= 0 &&
 	scale <= precision &&
-	scale <= regexMaxRepeat.value &&
-	precision - scale - 1 <= regexMaxRepeat.value
+	scale <= regexMaxRepeat &&
+	precision - scale - 1 <= regexMaxRepeat
 
 /**
  * The lexical target of a parse's form (ir/proof.ts ParseForm): its target type's own, every double's text, or every
@@ -186,9 +307,9 @@ const decimalForm = ({ precision, scale }: NumericTypmod): string => {
 
 /** The double precision form: a bounded mantissa with an optional bounded exponent, or one of the special values. */
 const doubleForm = (): string => {
-	const m = doubleMantissaDigits.value
+	const m = doubleMantissaDigits
 	const mantissa = `${integerDigits(m)}(?:\\.${fractionDigits(m, 0)})?|\\.${fractionDigits(m, 1)}`
-	const exponent = `[eE][+-]?0*${numeralAtMost(BigInt(doubleExponentMax.value))}`
+	const exponent = `[eE][+-]?0*${numeralAtMost(BigInt(doubleExponentMax))}`
 	return `[+-]?(?:${mantissa})(?:${exponent})?|-?INF|NaN`
 }
 
@@ -250,7 +371,7 @@ export const formSource = (target: LexicalTarget): string => {
 export const formOctets = (target: LexicalTarget): number | undefined => {
 	switch (target.kind) {
 		case "decimalText":
-			return decimalTextMaxBytes.value
+			return decimalTextMaxBytes
 		case "integer":
 		case "decimal":
 		case "double":
@@ -351,7 +472,7 @@ const exponentValue = (text: string): number | undefined => {
 		return undefined
 	}
 	const value = Number(BigInt(text))
-	return Math.abs(value) > doubleExponentMax.value ? undefined : value
+	return Math.abs(value) > doubleExponentMax ? undefined : value
 }
 
 /**
@@ -372,7 +493,7 @@ const doubleValue = (
 	const e = Math.max(text.indexOf("e"), text.indexOf("E"))
 	const n = numeralOf(e < 0 ? text : text.slice(0, e))
 	const exponent = e < 0 ? 0 : exponentValue(text.slice(e + 1))
-	const m = doubleMantissaDigits.value
+	const m = doubleMantissaDigits
 	if (
 		n === undefined ||
 		exponent === undefined ||
@@ -435,7 +556,7 @@ export const doubleOfText = (text: string): number | undefined =>
  */
 export const decimalOfText = (text: string): Decimal | undefined => {
 	const n = numeralOf(text)
-	if (n === undefined || text.length > decimalTextMaxBytes.value) {
+	if (n === undefined || text.length > decimalTextMaxBytes) {
 		return undefined
 	}
 	const { units, scale } = unitsOf(n)

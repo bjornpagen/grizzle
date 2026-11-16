@@ -1,6 +1,10 @@
 /** What the properties of emptiness.test.ts read: its spaces, models and helpers. */
 
 import {
+	regexDfaMaxStates,
+	regexDfaMaxWork
+} from "@bjornpagen/grizzle-engine/scalar/regex/inclusion"
+import {
 	array,
 	constant,
 	element,
@@ -11,7 +15,6 @@ import {
 	shuffled,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { regexDfaMaxStates, regexDfaMaxWork } from "@grizzle/limits"
 import { Array as Arr, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
@@ -192,8 +195,8 @@ export const searchOf = (
 
 /** The host's bounds on a subset construction, as analyzeText's. */
 export const dfaLimits = Object.freeze({
-	maxStates: regexDfaMaxStates.value,
-	maxWork: regexDfaMaxWork.value
+	maxStates: regexDfaMaxStates,
+	maxWork: regexDfaMaxWork
 })
 
 /** A code point spelled as its braced escape, which means itself inside a class and out. */

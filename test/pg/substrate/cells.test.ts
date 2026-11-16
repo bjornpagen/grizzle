@@ -1,3 +1,4 @@
+import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 /**
  * The law of erasure's templates (fin.md §17), proved against PostgreSQL 19rc2: the migration's pack, the table CHECK a
  * closed law is, over its digit columns, the roster domains that keep each digit in range, function application with absence as
@@ -28,7 +29,6 @@ import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { maxStringLength } from "@grizzle/limits"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { cell, fromText } from "#compiler/codec/bits.ts"
 import { indices } from "#compiler/core/array.ts"
@@ -256,7 +256,7 @@ const rConstant = (): string =>
 					})
 				)
 			),
-			maxStringLength.value
+			maxStringLength
 		)
 	)
 
@@ -451,7 +451,7 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 							Effect.gen(function* () {
 								const tuples = tuplesOf(c)
 								const host = succeeded(
-									bitText(succeeded(constantOf(c.layout, tuples)), maxStringLength.value)
+									bitText(succeeded(constantOf(c.layout, tuples)), maxStringLength)
 								)
 								yield* s.admin.query(packSql(fn, c.layout, Arr.map(tuples, rowOf)), [])
 								const [[packed] = []] = yield* s.admin.queryValues(`SELECT ${fn}()::text`, [])
@@ -654,7 +654,7 @@ layer(Substrate.layer)("the law of erasure's templates of fin.md §17 on Postgre
 									)
 								)
 							),
-							maxStringLength.value
+							maxStringLength
 						)
 					)
 					const sText = Arr.join(

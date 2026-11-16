@@ -1,3 +1,4 @@
+import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 import { type Case, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { array, boolean, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
@@ -5,7 +6,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { maxStringLength } from "@grizzle/limits"
 import {
 	Array as Arr,
 	Data,
@@ -659,7 +659,7 @@ const slotText = (
 			String(slot.param),
 			Arr.map(slot.columns, (col) => col.name),
 			Arr.dedupeWith(texts, (x, y) => x.length === y.length && Arr.every(x, (t, i) => t === y[i])),
-			maxStringLength.value
+			maxStringLength
 		)
 		if (!arrays.ok) {
 			throw new Error(`the arrays of ${slot.param} pass the string bound`)

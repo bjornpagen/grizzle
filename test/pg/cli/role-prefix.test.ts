@@ -1,3 +1,4 @@
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 /**
  * On PostgreSQL 19: one committed `grizzle generate` output installed into two databases of one cluster, each under its
  * own role space, through the command line.
@@ -41,7 +42,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { maxIdentifierBytes } from "@grizzle/limits"
 import {
 	Array as Arr,
 	DateTime,
@@ -187,7 +187,7 @@ const spaceCase = (s: Spaces, c: Case<SpaceFeature>) =>
 				)
 			for (const role of [...expected(first), ...expected(second)]) {
 				assert.ok(
-					utf8Length(role) <= maxIdentifierBytes.value,
+					utf8Length(role) <= maxIdentifierBytes,
 					`${role} fits PostgreSQL's identifier: the allocations are short enough`
 				)
 			}

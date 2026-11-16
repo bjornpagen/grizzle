@@ -41,6 +41,7 @@ import {
 	settle
 } from "#bench/query/support/kit.ts"
 
+import { lateralParentMax } from "@bjornpagen/grizzle-engine/lower/shapes/index"
 import {
 	BestThree,
 	bestForStudents,
@@ -63,8 +64,6 @@ import {
 	withPrice,
 	withPriceFor
 } from "#bench/query/support/lab.ts"
-
-import { lateralParentMax } from "@grizzle/limits"
 import {
 	indexAccessOn,
 	nodeTypes,
@@ -105,7 +104,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  *   and as a derived relation's definition (support/lab.ts BestThree), which "always wants every group, so it never
  *   takes the correlated form" (:243): refreshed by the runtime's refresh transaction, its refresh time, rows written
  *   and the definition's workers launched recorded. The threshold between the two forms, lateralParentMax
- *   (@grizzle/limits), is an operating point between two genuinely different shapes that deliver the same rows, so the
+ *  , is an operating point between two genuinely different shapes that deliver the same rows, so the
  *   gate also runs both over the same input across the sizes it decides by, for its evidence to be read off the
  *   crossover: take(k) by (score desc, id) per parent, k = 1 and k = 3, for a relation parameter's parents sent as the
  *   runtime sends a relation input, one text array per column read by unnest, as the LATERAL probe, LIMIT k per
@@ -310,7 +309,7 @@ export default defineGate({
 			 */
 			const fewChild = planOf(fewM.generated, 0)
 			const sheets = compile(fx, studentSheets, reading)
-			const manyParents = Math.min(options.students, lateralParentMax.value * 2)
+			const manyParents = Math.min(options.students, lateralParentMax * 2)
 			const manyM = yield* measureQuery(runtime, raw, sheets, { upto: manyParents }, measure)
 			const manyChild = planOf(manyM.generated, 0)
 			cases.push({
@@ -325,7 +324,7 @@ export default defineGate({
 					parameters: {
 						id: oneParent,
 						many: manyParents,
-						lateralParentMax: lateralParentMax.value
+						lateralParentMax: lateralParentMax
 					},
 					resultSemantics: "each parent student with its three best sittings",
 					cacheState: warm
@@ -449,7 +448,7 @@ export default defineGate({
 						parameters: {
 							fewStudents: Arr.map(wanted, (w) => w.id),
 							manyStudents: everyone.length,
-							lateralParentMax: lateralParentMax.value
+							lateralParentMax: lateralParentMax
 						},
 						resultSemantics: "each named student with its three best sittings",
 						cacheState: warm
@@ -727,7 +726,7 @@ export default defineGate({
 									parents,
 									groupSize: band.groupSize,
 									k: perParent,
-									lateralParentMax: lateralParentMax.value
+									lateralParentMax: lateralParentMax
 								},
 								resultSemantics: "each named student with its best sittings",
 								cacheState: warm

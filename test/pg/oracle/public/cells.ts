@@ -1,4 +1,4 @@
-import { bytesChunkLength } from "@grizzle/limits"
+import { bytesChunkLength } from "@bjornpagen/grizzle-engine/codec/delivery"
 import {
 	Array as Arr,
 	Data,
@@ -203,7 +203,7 @@ const checkCells = (
 			...Arr.map(s.heading, (c) => cellKindOf(c.type)),
 			...Arr.map(s.fused, () => "text" as const)
 		])
-		const strict = strictDelivered(delivery, answer, bytesChunkLength.value)
+		const strict = strictDelivered(delivery, answer, bytesChunkLength)
 		if (Result.isFailure(strict)) {
 			disagree(`statement ${i}'s answer is no delivery of its columns: ${strict.failure}`)
 		}

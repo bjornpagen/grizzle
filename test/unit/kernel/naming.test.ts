@@ -1,35 +1,7 @@
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
-/**
- * Production names from src: the test kit's naming (test/support/kernel/naming.ts) agrees with src's own records, and
- * every name the law model mints keeps the naming door's rule (core/identity.ts).
- *
- * - Each case draws a schema of a law family's box (test/support/laws: keys over whole and selected sides, checks,
- *   containments, alternatives over single and composite keys, span coverage, a work queue, timekeeping), a relation
- *   of drawn contracts under drawn names over two definitions, or a check or a key over a derived relation (a rule over
- *   a query, which its deferred constraint triggers hold), read at its own level or at an empty level above it. Every
- *   named native's constraint reports a law of the theory, among the constraints of its kind the kit names for that
- *   law; every constraint of the law model, a table's constraint or a rule's trigger, is found under the owner the kit
- *   names for it (constraintOwner), reporting one of its laws; every key statement's law, as the kit names it, is
- *   reported by a constraint of the model; every alternatives expansion's arms and reverses are its tagged and native
- *   foreign keys; a text domain's CHECK states each column's pattern law, and a checked contract's domain CHECK, shared
- *   by contracts of one definition, states for each stored column it types the law of that column's own contract and
- *   reports its first use's (laws/model/model.ts DomainConstraintLaw), or, typing none, carries the contract's law.
- *   Every native's name is readable exactly where its identity is a declared row check's, then the check's name's
- *   conversion, and otherwise hashed, `__<stem>_<digest>` with the digest the naming door's rule restated over the
- *   identity's canonical encoding; each fits an identifier, and no two natives of one namespace share a name.
- * - A row check's law is named by its statement rebuilt in its written operand order, which ownership reorders, over
- *   every predicate of at most two levels of connectives over two leaves.
- *
- * Oracles: src's law model and installation records, read through the kit, and the naming door's rule restated here
- * (hashedName); the schema's one row check's one law for the owned form.
- *
- * Features: a named native, an alternatives expansion, a checked contract, a text domain, a key statement, a readable
- * row check, a hashed law column, an empty level above, a rule's trigger; a conjunction under a disjunction and a
- * singleton conjunction.
- */
-import { maxIdentifierBytes } from "@grizzle/limits"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { conversionOf, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -95,7 +67,7 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 					const id = native.named
 					named.push([`${native.namespace} ${native.owner}`, identifierOf(id)])
 					assert.ok(
-						bytesOf(identifierOf(id)) <= maxIdentifierBytes.value,
+						bytesOf(identifierOf(id)) <= maxIdentifierBytes,
 						`${identifierOf(id)} fits an identifier`
 					)
 					if (id.kind === "check") {

@@ -185,7 +185,7 @@ const declaredArray = (
 		column.name,
 		normal.rows,
 		(row) => defined(row[part], "a normalized row's text at its column"),
-		maxStringLength.value
+		maxStringLength
 	)
 }
 

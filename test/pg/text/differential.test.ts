@@ -1,3 +1,4 @@
+import { regexMaxRepeat } from "@bjornpagen/grizzle-engine/scalar/lexical"
 /**
  * Regex membership across the three engines.
  *
@@ -36,7 +37,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { regexMaxRepeat } from "@grizzle/limits"
 import { Array as Arr, Effect, Exit, Formatter, Pool, String as Str } from "effect"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
@@ -177,13 +177,13 @@ const repeatedOf =
 	(body: Gen<string>): Gen<Growth> =>
 	(source) => {
 		const drawnBody = source.draw(body)
-		const inner = source.draw(int(1, regexMaxRepeat.value))
+		const inner = source.draw(int(1, regexMaxRepeat))
 		const exact = source.draw(boolean)
 		const anchored = source.draw(boolean)
 		return {
 			at: (n) =>
 				`${anchored ? "^" : ""}(?:(?:${drawnBody}){${inner}}){${exact ? n : `0,${n}`}}${anchored ? "$" : "b"}`,
-			top: regexMaxRepeat.value
+			top: regexMaxRepeat
 		}
 	}
 
@@ -192,7 +192,7 @@ const colorfulGen: Gen<Growth> = (source) => {
 	const points = source.draw(uniqueKeys(widePoint, { min: 2, max: 2_048 }))
 	const quantifier = source.draw(element(["", "?", "{0,255}", "{1,255}", "{255}", "*"]))
 	const spelled = Arr.join(Arr.map(points, escaped), "")
-	return { at: (n) => `${spelled}(?:[${spelled}]${quantifier}){${n}}b`, top: regexMaxRepeat.value }
+	return { at: (n) => `${spelled}(?:[${spelled}]${quantifier}){${n}}b`, top: regexMaxRepeat }
 }
 
 /** An alternation of n hundred words of a drawn alphabet: the states a match reads, and colors as the alphabet is wide. */
@@ -220,7 +220,7 @@ const nestingGen: Gen<Growth> = (source) => {
 
 /** An alternation of an anchor on either side of a wide class's counted run, n times, two anchors to move each time. */
 const anchorsGen: Gen<Growth> = (source) => {
-	const run = `${source.draw(element([".", "[a-z]", "\\W"]))}{1,${source.draw(int(1, regexMaxRepeat.value))}}`
+	const run = `${source.draw(element([".", "[a-z]", "\\W"]))}{1,${source.draw(int(1, regexMaxRepeat))}}`
 	return { at: (n) => `(?:^|${run}|$){${n}}b`, top: 64 }
 }
 
@@ -240,7 +240,7 @@ const colorsGen: Gen<Growth> = (source) => {
 /** A counted run of a nullable body, the shape whose empty paths copy arcs. */
 const nullableNestGen: Gen<Growth> = repeatedOf(
 	(source) =>
-		`(?:${source.draw(element(["a|", "a|b?", "a?", "(?:a|)"]))}){${source.draw(int(2, regexMaxRepeat.value))}}`
+		`(?:${source.draw(element(["a|", "a|b?", "a?", "(?:a|)"]))}){${source.draw(int(2, regexMaxRepeat))}}`
 )
 
 /**

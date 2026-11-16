@@ -1,13 +1,5 @@
-import {
-	maxExponent,
-	moneyFractionDigits,
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "@grizzle/limits"
 import { type Canonicalizable, canonicalTag, type TaggedValue } from "#compiler/core/canonical.ts"
+import { int4Max } from "#compiler/core/canonical.ts"
 import {
 	type DecimalParts,
 	type FiniteParts,
@@ -22,7 +14,46 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type DecimalValue, decimalPayload, decimalTag } from "#compiler/ir/decimal.ts"
 import type { NumericTypmod } from "#compiler/ir/scalar.ts"
+import {
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "#compiler/scalar/values/fault.ts"
 import { faultError } from "#compiler/scalar/values/fault.ts"
+
+/**
+ * The fraction digits of money: a money value is a bigint count of minor units, 10^moneyFractionDigits to the unit. It
+ * is lc_monetary's frac_digits, and every login pins lc_monetary to C.UTF-8, whose frac_digits is CHAR_MAX, which
+ * cash.c replaces with 2 (physical/ddl/roles.ts, admission verifying it).
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2 cash.c, lc_monetary C.UTF-8
+ * @unit decimal digits
+ * @scope the fraction digits of every money value, its input, its output and its casts to and from numeric
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/cash.c#L210-L221
+ * @quote frac_digits will be CHAR_MAX in some locales, notably C. [...] fpoint = lconvert->frac_digits; if (fpoint < 0
+ *   || fpoint > 10) fpoint = 2;
+ * @verified 2026-11-14
+ */
+export const moneyFractionDigits = 2
+
+/**
+ * The greatest exponent magnitude a numeric's text may write: set_var_from_str refuses a greater one before anything
+ * else.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit a decimal exponent
+ * @scope the exponent of a numeric text a caller writes, `1e5` and `1E-5`
+ * @derivation PG_INT32_MAX / 2 in C integer division, numeric.c set_var_from_str
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L6927, "if (exponent >
+ *   PG_INT32_MAX / 2)")
+ * @from {@link int4Max}
+ */
+const maxExponent = Math.trunc(int4Max / 2)
 
 export type { DecimalParts, FiniteParts, NumericTypmod }
 
@@ -76,7 +107,7 @@ const exponentAt = (
 	let magnitude = 0
 	for (let i = digitsStart; i < end; i++) {
 		magnitude = magnitude * 10 + (text.charCodeAt(i) - 0x30)
-		if (magnitude > maxExponent.value) {
+		if (magnitude > maxExponent) {
 			return Result.err("decimalRange")
 		}
 	}
@@ -162,7 +193,7 @@ export class Decimal implements Canonicalizable {
 		exponent: number
 	): Result.Result<Decimal, ValueFault> {
 		if (exponent >= 0) {
-			if (digits.length + exponent > numericMaxIntegerDigits.value) {
+			if (digits.length + exponent > numericMaxIntegerDigits) {
 				return Result.err("decimalRange")
 			}
 			const text = digits + "0".repeat(exponent)
@@ -170,10 +201,7 @@ export class Decimal implements Canonicalizable {
 			return Result.ok(new Decimal(minting, parts, negative ? `-${text}` : text))
 		}
 		const minScale = -exponent
-		if (
-			minScale > numericMaxFractionDigits.value ||
-			digits.length - minScale > numericMaxIntegerDigits.value
-		) {
+		if (minScale > numericMaxFractionDigits || digits.length - minScale > numericMaxIntegerDigits) {
 			return Result.err("decimalRange")
 		}
 		const parts = finiteParts(negative, BigInt(digits), minScale)
@@ -242,7 +270,7 @@ export class Decimal implements Canonicalizable {
 	static fromMinorUnits(minorUnits: bigint): Decimal {
 		const negative = minorUnits < 0n
 		let coefficient = negative ? -minorUnits : minorUnits
-		let minScale = moneyFractionDigits.value
+		let minScale = moneyFractionDigits
 		while (minScale > 0 && coefficient % 10n === 0n) {
 			coefficient /= 10n
 			minScale--
@@ -504,10 +532,10 @@ export const checkNumericTypmod = (
 	precision: unknown,
 	scale: unknown
 ): Result.Result<NumericTypmod, ValueFault> => {
-	if (!isInteger(precision) || precision < 1 || precision > numericMaxPrecision.value) {
+	if (!isInteger(precision) || precision < 1 || precision > numericMaxPrecision) {
 		return Result.err("numericTypmod")
 	}
-	if (!isInteger(scale) || scale < numericMinScale.value || scale > numericMaxScale.value) {
+	if (!isInteger(scale) || scale < numericMinScale || scale > numericMaxScale) {
 		return Result.err("numericTypmod")
 	}
 	return Result.ok({ precision, scale: scale === 0 ? 0 : scale })

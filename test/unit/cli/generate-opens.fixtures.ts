@@ -1,8 +1,5 @@
-/** What the properties of generate-opens.test.ts read: its spaces, models and helpers. */
-
-import { measured } from "@bjornpagen/limit"
+import { selectMaxEntries } from "@bjornpagen/grizzle-engine/sql/print"
 import { type Gen, int, map } from "@bjornpagen/testing/gen"
-import { selectMaxEntries } from "@grizzle/limits"
 import { Record as Rec } from "effect"
 import { noParamTypes } from "#compiler/physical/ddl/domains.ts"
 import type { InstalledSource } from "#compiler/program/schema.ts"
@@ -28,7 +25,7 @@ export interface Head {
 
 /** A head on the bound or one entry past it, its fields split evenly between two relations. */
 export const headGen: Gen<Head> = map(int(0, 1), (offset): Head => {
-	const entries = selectMaxEntries.value + offset
+	const entries = selectMaxEntries + offset
 	return { entries, left: Math.ceil((entries - 1) / 2) }
 })
 
@@ -36,9 +33,9 @@ export type Width = "within the bound" | "at the bound" | "past the bound" | "on
 
 /** Where a head stands against the bound. */
 export const widthsOf = (head: Head): ReadonlyArray<Width> => [
-	head.entries <= selectMaxEntries.value ? "within the bound" : "past the bound",
-	...(head.entries === selectMaxEntries.value ? ["at the bound" as const] : []),
-	...(head.entries === selectMaxEntries.value + 1 ? ["one past the bound" as const] : [])
+	head.entries <= selectMaxEntries ? "within the bound" : "past the bound",
+	...(head.entries === selectMaxEntries ? ["at the bound" as const] : []),
+	...(head.entries === selectMaxEntries + 1 ? ["one past the bound" as const] : [])
 ]
 
 /**
@@ -80,24 +77,27 @@ export const file = `${repoRoot}app/grizzle.config.ts`
  * How long one case may run: a case compiles a login whose one query's head holds PostgreSQL's 1,664 select entries (or
  * one more) twice, through generate and through DbLayer.make, synchronously, about half a minute of one core's work,
  * past the runner's one-minute case deadline once the machine is oversubscribed.
+ *
+ * @limitKind measured
+ * @owner test/unit/cli/generate-opens.test.ts, its property's cases
+ * @unit milliseconds per case
+ * @scope one case of the generate-opens property, on one worker of toolchain-test's pool
+ * @evidence `/usr/bin/time -v toolchain-test replay` of each of the property's two cases (its whole space), and the
+ *   full run that lost case 0's worker, in lane GZ-UNIT-C's landing clone
+ *   (~/.cache/grizzle-release/TESTSYS/GZ-UNIT-C/land-run3.txt, the run's report); Vitest's record of the old test,
+ *   59,362 ms for both cases in one file (~/.cache/grizzle-release/TESTSYS/GZ-UNIT-C/vitest-base.txt)
+ * @observed 2026-11-16: replays 04:02 to 04:04 UTC; the full run 03:41 to 04:02 UTC; Vitest 02:17 UTC
+ * @environment cassowary, Ubuntu 26.04 on an AWS Graviton3 (arm64) instance with 64 logical CPUs, Node 26.13,
+ *   toolchain-test at toolchain acbe88c, other sessions' runs on the machine: load average 418 to 511 over the
+ *   replays, 545 to 840 over the full run, 120 to 170 under Vitest
+ * @workload the property's two cases: a head of 1,664 entries (the bound) and of 1,665 (one past it), each compiled by
+ *   generate and by DbLayer.make
+ * @result case 0: 34.27 s user, 1.03 s system, 54.55 s wall; case 1: 30.63 s user, 0.92 s system, 53.46 s wall (each
+ *   replay's process start included); under the full run case 0 held its worker's event loop past the runner's 60 s
+ *   deadline and its grace, and the worker was killed
+ * @decision ten minutes: 17.5 times the slowest case's 34.3 s of CPU, where the most oversubscription observed is
+ *   about 14 times (a load of 900 on 64 CPUs, 2026-11-16), so a case that still runs at ten minutes is hung, not slow
+ * @revalidate a change to the compile of a login (adapter/served/compile.ts, served/login.ts), to generate's draft, or
+ *   to selectMaxEntries; a different machine; a run that loses this property's worker at the deadline
  */
-export const compileCaseDeadline = measured({
-	value: 600_000,
-	owner: "test/unit/cli/generate-opens.test.ts, its property's cases",
-	unit: "milliseconds per case",
-	scope: "one case of the generate-opens property, on one worker of toolchain-test's pool",
-	evidence:
-		"`/usr/bin/time -v toolchain-test replay` of each of the property's two cases (its whole space), and the full run that lost case 0's worker, in lane GZ-UNIT-C's landing clone (~/.cache/grizzle-release/TESTSYS/GZ-UNIT-C/land-run3.txt, the run's report); Vitest's record of the old test, 59,362 ms for both cases in one file (~/.cache/grizzle-release/TESTSYS/GZ-UNIT-C/vitest-base.txt)",
-	observed:
-		"2026-11-16: replays 04:02 to 04:04 UTC; the full run 03:41 to 04:02 UTC; Vitest 02:17 UTC",
-	environment:
-		"cassowary, Ubuntu 26.04 on an AWS Graviton3 (arm64) instance with 64 logical CPUs, Node 26.13, toolchain-test at toolchain acbe88c, other sessions' runs on the machine: load average 418 to 511 over the replays, 545 to 840 over the full run, 120 to 170 under Vitest",
-	workload:
-		"the property's two cases: a head of 1,664 entries (the bound) and of 1,665 (one past it), each compiled by generate and by DbLayer.make",
-	result:
-		"case 0: 34.27 s user, 1.03 s system, 54.55 s wall; case 1: 30.63 s user, 0.92 s system, 53.46 s wall (each replay's process start included); under the full run case 0 held its worker's event loop past the runner's 60 s deadline and its grace, and the worker was killed",
-	decision:
-		"ten minutes: 17.5 times the slowest case's 34.3 s of CPU, where the most oversubscription observed is about 14 times (a load of 900 on 64 CPUs, 2026-11-16), so a case that still runs at ten minutes is hung, not slow",
-	revalidate:
-		"a change to the compile of a login (adapter/served/compile.ts, served/login.ts), to generate's draft, or to selectMaxEntries; a different machine; a run that loses this property's worker at the deadline"
-})
+export const compileCaseDeadline = 600_000

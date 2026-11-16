@@ -27,10 +27,10 @@
  * refused, a decimal's refused by its language and by its bytes.
  */
 
+import { decimalTextMaxBytes } from "@bjornpagen/grizzle-engine/scalar/lexical"
 import { type Reached } from "@bjornpagen/testing/features"
 import { array, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { decimalTextMaxBytes } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -323,10 +323,10 @@ export const aDecimalsParseIsProvedExactlyWhenTheOperandsLanguageIsInsideDecimal
 							bound.kind === "bytes" ? bound.bytes : Number.POSITIVE_INFINITY
 						)
 						const withinBytes =
-							bytes <= decimalTextMaxBytes.value ||
+							bytes <= decimalTextMaxBytes ||
 							(verdict === "included" &&
 								bytes < patternBytes &&
-								longestMember(nfaOf(pattern), bytes) <= decimalTextMaxBytes.value)
+								longestMember(nfaOf(pattern), bytes) <= decimalTextMaxBytes)
 						const checked = checkedIn(
 							schema("DecimalLexical", [decimalRelation(pattern, route, bound)], [])
 						)
@@ -347,7 +347,7 @@ export const aDecimalsParseIsProvedExactlyWhenTheOperandsLanguageIsInsideDecimal
 						assert.deepEqual(
 							reason.guard.remedy,
 							verdict === "included"
-								? { kind: "octets", bytes: decimalTextMaxBytes.value }
+								? { kind: "octets", bytes: decimalTextMaxBytes }
 								: { kind: "matches", pattern: "decimalText" },
 							label
 						)

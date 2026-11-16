@@ -1,4 +1,3 @@
-import { statisticsMaxColumns } from "@grizzle/limits"
 import { firstIndex, appendAll } from "#compiler/core/array.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
@@ -32,6 +31,20 @@ import { baseOf, type Carrier, fewValued, isSpanCarrier } from "#compiler/ir/sca
 import { type Atom, atomKey, operandOf, predicateAtoms } from "#compiler/physical/access/atoms.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
+
+/**
+ * The most columns one extended statistics object covers, STATS_MAX_DIMENSIONS.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit columns
+ * @scope one extended statistics object: a request's and an access path's
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/statistics/statistics.h#L19
+ * @quote #define STATS_MAX_DIMENSIONS 8 /* max number of attributes *\/
+ * @verified 2026-11-14
+ */
+export const statisticsMaxColumns = 8
 
 interface ExtractOptions {
 	/** The roots that are a paged ordered program: a workload program whose root is an ordered result. */
@@ -936,7 +949,7 @@ class Extractor {
 		const selected = sorted([...o.eq.keys()].filter((c) => !isVectorColumn(heading, c)))
 		if (
 			selected.length >= 2 &&
-			selected.length <= statisticsMaxColumns.value &&
+			selected.length <= statisticsMaxColumns &&
 			this.keyWithin(base, new Set(selected)) === undefined
 		) {
 			this.addStatistics({
@@ -1215,7 +1228,7 @@ class Extractor {
 					c.kind === "stored" && !isVectorColumn(heading, c.column) ? [c.column] : []
 				)
 			)
-			if (columns.length < 2 || columns.length > statisticsMaxColumns.value) {
+			if (columns.length < 2 || columns.length > statisticsMaxColumns) {
 				continue
 			}
 			if (this.keyWithin(r.base, new Set(columns)) !== undefined) {

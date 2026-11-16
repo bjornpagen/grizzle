@@ -8,7 +8,7 @@ import { hangLimit } from "#test/support/limits.ts"
  * files are the tiers' own (the unit project's in stage 1; in stage 2 the network tier's PostgreSQL files or the oracle
  * subset), so a test of them that ends at all ends within it, and a mutant that loops is cut there.
  */
-const mutationTestTimeout: number = hangLimit.value
+const mutationTestTimeout: number = hangLimit
 
 /**
  * The mutation tester's own Vitest config (main.ts runFiles), which every run of a mutant's files names with --config:

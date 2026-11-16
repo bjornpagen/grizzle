@@ -66,8 +66,8 @@ export const searchSchema = (dimensions: number): SchemaDesc => ({
 /** The dimensions a case's vectors have: a few, and either side of HNSW's bound, which the eligibility check reads. */
 const dimensionsGen: Gen<number> = element([
 	3,
-	hnswPolicy.maxDimensions.value,
-	hnswPolicy.maxDimensions.value + 1
+	hnswPolicy.maxDimensions,
+	hnswPolicy.maxDimensions + 1
 ])
 
 /**
@@ -171,7 +171,7 @@ export const searchVerdict = (c: SearchCase): SearchVerdict => {
 			: []),
 		...(c.union ? ["a union" as const] : []),
 		...(c.score === "an aggregate" ? ["an aggregate" as const] : []),
-		...(c.dimensions > hnswPolicy.maxDimensions.value
+		...(c.dimensions > hnswPolicy.maxDimensions
 			? ["an indexed vector past HNSW's bound" as const]
 			: []),
 		...(c.by !== "distance" ? ["by naming another column" as const] : [])
@@ -407,7 +407,7 @@ export const provenanceDesc = (p: Provenance): QueryDesc => {
 export const admittedGen =
 	(reading: Reading): Gen<SearchCase> =>
 	(source) => ({
-		dimensions: source.draw(element([3, hnswPolicy.maxDimensions.value])),
+		dimensions: source.draw(element([3, hnswPolicy.maxDimensions])),
 		score: "query distance",
 		union: false,
 		by: "distance",

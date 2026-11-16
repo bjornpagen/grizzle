@@ -195,8 +195,8 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 							ca: installed.cluster.caPem,
 							database: installed.database,
 							password: Redacted.value(installed.as(own.server).password),
-							connectTimeoutMs: testConnectTimeout.value,
-							idleTimeoutMs: testIdleTimeout.value,
+							connectTimeoutMs: testConnectTimeout,
+							idleTimeoutMs: testIdleTimeout,
 							served
 						})
 					)
@@ -329,7 +329,7 @@ export default defineConfig({
 		database: ${jsonText(pgPin.devRole)},
 		role: ${jsonText(pgPin.devRole)},
 		password: Effect.succeed(Redacted.make(readFileSync(${jsonText(cluster.passwordFile)}, "utf8").trim())),
-		connectTimeoutMs: ${testConnectTimeout.value}
+		connectTimeoutMs: ${testConnectTimeout}
 	})
 })
 `

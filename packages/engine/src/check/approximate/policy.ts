@@ -1,5 +1,19 @@
-import { hnswMaxDimensions } from "@grizzle/limits"
 import { vectorCosineOpclass } from "#compiler/ir/products.ts"
+
+/**
+ * The most dimensions pgvector's HNSW index indexes: an indexed vector space of more is refused at compile time
+ * (trace.ts), since CREATE INDEX would refuse it.
+ *
+ * @limitKind published
+ * @owner pgvector 0.8.7
+ * @unit dimensions
+ * @scope the vector column of one HNSW index
+ * @constraint compile-time constant
+ * @source https://github.com/pgvector/pgvector/blob/v0.8.7/src/hnsw.h#L33
+ * @quote #define HNSW_MAX_DIM 2000
+ * @verified 2026-11-05
+ */
+const hnswMaxDimensions = 2000
 
 /**
  * The fixed HNSW index of approximate retrieval, and the one search setting grizzle pins.

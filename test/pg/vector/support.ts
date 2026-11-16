@@ -1,4 +1,4 @@
-import { vectorMaxDimensions } from "@grizzle/limits"
+import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
 import { Array as Arr, Option, pipe, String as Str } from "effect"
 
 /**
@@ -50,7 +50,7 @@ export const vectorInVerdict = (
 	dimensions: Option.Option<number>
 ): InputVerdict => {
 	for (const [i, x] of xs.entries()) {
-		if (i === vectorMaxDimensions.value) {
+		if (i === vectorMaxDimensions) {
 			return "54000"
 		}
 		const rounded = Math.fround(x)

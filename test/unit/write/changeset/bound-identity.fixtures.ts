@@ -1,6 +1,4 @@
-/** What the properties of bound-identity.test.ts read: its spaces, models and helpers. */
-
-import { maxStringLength } from "@grizzle/limits"
+import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 import { Array as Arr, String as Str } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -30,7 +28,7 @@ export const inserted = (): ChangeSetValue =>
  * longest string. */
 export const count = 7
 
-export const lengths = [4, Math.floor(maxStringLength.value / count) + 1] as const
+export const lengths = [4, Math.floor(maxStringLength / count) + 1] as const
 
 export interface BoundCase {
 	readonly length: (typeof lengths)[number]

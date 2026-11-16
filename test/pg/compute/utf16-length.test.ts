@@ -1,3 +1,4 @@
+import { regexTextMaxBytes } from "@bjornpagen/grizzle-engine/core/errors"
 /**
  * Compute.utf16Length on PostgreSQL 19, against JavaScript's String.length: the UTF-16 code units Effect Schema's
  * isMinLength, isMaxLength and isLengthBetween count of a string.
@@ -37,7 +38,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { regexTextMaxBytes } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -208,15 +208,7 @@ type BoundFeature =
 /** A byte bound drawn small, or about regexTextMaxBytes, at it and either side, or at str.bytes's largest. */
 const boundBytes: Gen<number> = weighted([
 	[3, int(0, 48)],
-	[
-		2,
-		element([
-			regexTextMaxBytes.value - 1,
-			regexTextMaxBytes.value,
-			regexTextMaxBytes.value + 1,
-			2 ** 31 - 1
-		])
-	]
+	[2, element([regexTextMaxBytes - 1, regexTextMaxBytes, regexTextMaxBytes + 1, 2 ** 31 - 1])]
 ])
 
 const sourceGen: Gen<Source> = weighted<Source>([
@@ -433,7 +425,7 @@ layer(Substrate.layer)("Compute.utf16Length on PostgreSQL 19", (it) => {
 										})
 									)
 									const bound = boundOf(c)
-									if (bound > regexTextMaxBytes.value) {
+									if (bound > regexTextMaxBytes) {
 										assert.ok(
 											!compiled.ok,
 											"a count over a text past the regex engine's bytes is refused"
@@ -443,7 +435,7 @@ layer(Substrate.layer)("Compute.utf16Length on PostgreSQL 19", (it) => {
 										assert.equal(reason.precondition, "bounded")
 										assert.deepEqual(reason.guard.remedy, {
 											kind: "octets",
-											bytes: regexTextMaxBytes.value
+											bytes: regexTextMaxBytes
 										})
 										k.note("refused, naming the bound")
 										return
@@ -452,7 +444,7 @@ layer(Substrate.layer)("Compute.utf16Length on PostgreSQL 19", (it) => {
 										compiled.ok,
 										`a count over a bounded text compiles: ${compiled.ok ? "" : compiled.error.message}`
 									)
-									if (bound === regexTextMaxBytes.value) {
+									if (bound === regexTextMaxBytes) {
 										k.note("admitted at the limit")
 									}
 									k.note(

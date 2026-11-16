@@ -1,4 +1,4 @@
-import { maxStringLength } from "@grizzle/limits"
+import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 import { regex } from "arkregex"
 import { Array as Arr, Order, String as Str } from "effect"
 import { nominal } from "#compiler/core/brand.ts"
@@ -216,7 +216,7 @@ export const hostBits = (
 	relation: HandClosed<string>
 ): EngineResult.Result<string, KeyCollision | CompileBound> =>
 	EngineResult.flatMap(hostConstant(relation), (constant) =>
-		installedText(constant, maxStringLength.value)
+		installedText(constant, maxStringLength)
 	)
 
 /** A member's columns in its relation's members table, beside its key: its rank and its payload code. */

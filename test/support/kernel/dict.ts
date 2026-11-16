@@ -1,5 +1,5 @@
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import { element, type Gen, proportional } from "@bjornpagen/testing/gen"
-import { maxIdentifierBytes } from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Order, String as Str } from "effect"
 import { conversionOf, parseDeclaredName, parseSchemaName } from "#compiler/core/identity.ts"
@@ -80,9 +80,9 @@ type Candidate = DeclaredName | { readonly declared: string; readonly feature: "
  */
 const longFeature = (declared: string): IdentifierFeature => {
 	const bytes = utf8Length(conversionOf(declared))
-	return bytes === maxIdentifierBytes.value
+	return bytes === maxIdentifierBytes
 		? "long, at the limit"
-		: bytes > maxIdentifierBytes.value
+		: bytes > maxIdentifierBytes
 			? "long, past the limit"
 			: "plain"
 }

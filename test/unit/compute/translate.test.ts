@@ -31,10 +31,13 @@
  * Features: as each search names them, every route of every property.
  */
 
+import {
+	regexDfaMaxStates,
+	regexDfaMaxWork
+} from "@bjornpagen/grizzle-engine/scalar/regex/inclusion"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
-import { regexDfaMaxStates, regexDfaMaxWork } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -521,7 +524,7 @@ export const computesTranslateAndLowerAsciiProvesACastIntoARefinedTextExactlyByT
 						assertVariant(reason.bound, "kind", "regexInclusion", label)
 						assert.deepEqual(
 							[reason.bound.inner, reason.bound.states, reason.bound.work],
-							[`/${past}/u`, regexDfaMaxStates.value, regexDfaMaxWork.value],
+							[`/${past}/u`, regexDfaMaxStates, regexDfaMaxWork],
 							label
 						)
 						if (target.kind === "a numeric") {
@@ -564,7 +567,7 @@ export const computesTranslateAndLowerAsciiProvesACastIntoARefinedTextExactlyByT
 						assertVariant(reason.bound, "kind", "regexInclusion", label)
 						assert.deepEqual(
 							[reason.bound.states, reason.bound.work],
-							[regexDfaMaxStates.value, regexDfaMaxWork.value],
+							[regexDfaMaxStates, regexDfaMaxWork],
 							label
 						)
 						k.note("a refinement past the analysis bounds")

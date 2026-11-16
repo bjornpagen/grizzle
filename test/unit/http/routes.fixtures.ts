@@ -1,5 +1,6 @@
 /** What the properties of routes.test.ts read: its spaces, models and helpers. */
 
+import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/adapter/connection/config"
 import {
 	characterOf,
 	constant,
@@ -10,7 +11,6 @@ import {
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { timerMaxMs, timerMinMs } from "@grizzle/limits"
 import { Array as Arr, Effect, Order, String as Str } from "effect"
 import { isRecord } from "#compiler/core/record.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
@@ -360,7 +360,7 @@ export const answered = (handler: HttpHandler, request: Request) =>
  * range's ends or one between. A heartbeat is a comment line, so no answer's events depend on it.
  */
 export const heartbeatGen: Gen<number> = oneOf<number>([
-	constant(timerMinMs.value),
-	constant(timerMaxMs.value),
-	int(timerMinMs.value, timerMaxMs.value)
+	constant(timerMinMs),
+	constant(timerMaxMs),
+	int(timerMinMs, timerMaxMs)
 ])

@@ -1,10 +1,3 @@
-import type { Limit } from "@bjornpagen/limit"
-import {
-	binary32MaxExponent,
-	binary32MinExponent,
-	binary64MaxExponent,
-	binary64MinExponent
-} from "@grizzle/limits"
 import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import type { Exact, NativeProof, OperandIndex, OperandPremise } from "#compiler/ir/proof.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -22,7 +15,10 @@ import {
 	ofPoint,
 	ofSpecial
 } from "#compiler/scalar/compute/bounds.ts"
+import { binary64MinExponent } from "#compiler/scalar/compute/cast.ts"
 import type { IeeeOp, NativeOp } from "#compiler/scalar/compute/registry.ts"
+import { binary64MaxExponent } from "#compiler/scalar/lexical.ts"
+import { binary32MaxExponent, binary32MinExponent } from "#compiler/scalar/values/float.ts"
 
 /** A float carrier, the result of every IEEE 754 operation and rounding. */
 export type FloatCarrier = "float4" | "float8"
@@ -46,9 +42,9 @@ interface NativeRange {
  * - a product's and a quotient's operands in [2^-product, 2^product], product = floor(rounding / 2): their product or
  *   quotient lies in [2^-rounding, 2^rounding].
  */
-const nativeRangeOf = (emax: Limit, emin: Limit): NativeRange => {
-	const rounding = Math.min(emax.value, -emin.value) - 1
-	return { sum: emax.value - 1, product: Math.floor(rounding / 2), rounding }
+const nativeRangeOf = (emax: number, emin: number): NativeRange => {
+	const rounding = Math.min(emax, -emin) - 1
+	return { sum: emax - 1, product: Math.floor(rounding / 2), rounding }
 }
 
 /** Each width's native range (nativeRangeOf). */
@@ -71,8 +67,8 @@ const zero: Exact = exactOf(0n, 0)
 const ieeeRange: {
 	readonly [C in FloatCarrier]: { readonly overflow: number; readonly underflow: number }
 } = {
-	float8: { overflow: binary64MaxExponent.value, underflow: -binary64MinExponent.value },
-	float4: { overflow: binary32MaxExponent.value, underflow: -binary32MinExponent.value }
+	float8: { overflow: binary64MaxExponent, underflow: -binary64MinExponent },
+	float4: { overflow: binary32MaxExponent, underflow: -binary32MinExponent }
 }
 
 /**

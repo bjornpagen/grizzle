@@ -1,4 +1,3 @@
-import { fileNameMaxBytes } from "@grizzle/limits"
 import { nominal } from "#compiler/core/brand.ts"
 import { catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import {
@@ -24,6 +23,23 @@ import {
 } from "#compiler/deploy/render/markers.ts"
 import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
+
+/**
+ * The longest file name the operating system states, NAME_MAX: a migration folder is one directory entry, created where
+ * it is drafted and wherever its repository is checked out. Darwin's NAME_MAX, whose comment reads "max bytes in a file
+ * name", is Linux's too (https://github.com/torvalds/linux/blob/v7.3/include/uapi/linux/limits.h#L12, "#define
+ * NAME_MAX         255"). A file system may admit a longer name (pathconf's _PC_NAME_MAX); grizzle writes none longer.
+ *
+ * @limitKind published
+ * @owner Darwin (xnu 12377.121.6), and Linux alike
+ * @unit bytes
+ * @scope one file name, a single path component such as a migration folder's name
+ * @constraint compile-time constant
+ * @source https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/sys/syslimits.h#L103
+ * @quote #define NAME_MAX 255
+ * @verified 2026-11-05
+ */
+export const fileNameMaxBytes = 255
 
 export const metaFileName = "meta.json"
 
@@ -401,7 +417,7 @@ const folderPrefix = (timestamp: string): string => `${timestamp}${folderSeparat
  * separator, each one byte.
  */
 export const maxMigrationNameLength: number =
-	fileNameMaxBytes.value - timestampLength - folderSeparator.length
+	fileNameMaxBytes - timestampLength - folderSeparator.length
 
 /**
  * The migration name `name` is, parsed: lowercase ASCII letters and digits in words joined by `_` or `-`, at most

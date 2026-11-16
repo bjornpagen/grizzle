@@ -1001,7 +1001,7 @@ export const tappedSession = (
 						transport: tap.transport,
 						database: options.database,
 						password: options.password,
-						connectTimeoutMs: testConnectTimeout.value
+						connectTimeoutMs: testConnectTimeout
 					},
 					options.role
 				),

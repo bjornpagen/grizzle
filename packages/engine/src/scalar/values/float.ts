@@ -1,12 +1,89 @@
-import {
-	binary32Digits,
-	binary32LeastExponent,
-	binary32Max,
-	binary32Precision
-} from "@grizzle/limits"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type CanonicalFloat, canonicalZero } from "#compiler/ir/carriers.ts"
+
+/**
+ * IEEE 754-2019's binary32 format, the real, a vector component and pgvector's accumulators: its precision p, the bits
+ * of its significand.
+ *
+ * @limitKind published
+ * @owner IEEE 754-2019 binary32
+ * @unit bits
+ * @scope the significand of every real value and vector component
+ * @constraint protocol constant
+ * @source https://docs.oracle.com/javase/specs/jls/se21/html/jls-4.html#jls-4.2.3
+ * @quote Table 4.2.3-A. Floating-point parameters. N: float 24, double 53
+ * @verified 2026-11-05
+ */
+export const binary32Precision = 24
+
+/**
+ * binary32's greatest exponent, emax.
+ *
+ * @limitKind published
+ * @owner IEEE 754-2019 binary32
+ * @unit a binary exponent
+ * @scope the exponent of every finite real value and vector component
+ * @constraint protocol constant
+ * @source https://docs.oracle.com/javase/specs/jls/se21/html/jls-4.html#jls-4.2.3
+ * @quote Table 4.2.3-A. Floating-point parameters. Emax: float +127, double +1023
+ * @verified 2026-11-05
+ */
+export const binary32MaxExponent = 127
+
+/**
+ * binary32's least normal exponent, emin.
+ *
+ * @limitKind published
+ * @owner IEEE 754-2019 binary32
+ * @unit a binary exponent
+ * @scope the exponent of every normal real value and vector component
+ * @constraint protocol constant
+ * @source https://docs.oracle.com/javase/specs/jls/se21/html/jls-4.html#jls-4.2.3
+ * @quote Table 4.2.3-A. Floating-point parameters. Emin: float -126, double -1022
+ * @verified 2026-11-05
+ */
+export const binary32MinExponent = -126
+
+/** The greatest finite value of a format of precision p and greatest exponent emax: (2 - 2^(1-p)) * 2^emax, exactly. */
+export const greatestFinite = (p: number, emax: number): bigint =>
+	2n ** BigInt(emax + 1) - 2n ** BigInt(emax + 1 - p)
+
+/**
+ * The greatest finite binary32 value, (2 - 2^-23) * 2^127.
+ *
+ * @limitKind derived
+ * @owner IEEE 754-2019 binary32
+ * @unit a real value
+ * @scope every finite real value and vector component
+ * @derivation (2 - 2^(1-p)) * 2^emax, the all-ones significand at the greatest exponent
+ * @from {@link binary32Precision}, {@link binary32MaxExponent}
+ */
+export const binary32Max = Number(greatestFinite(binary32Precision, binary32MaxExponent))
+
+/**
+ * The binary exponent of binary32's least subnormal's one bit, emin - p + 1: 2^-149.
+ *
+ * @limitKind derived
+ * @owner IEEE 754-2019 binary32
+ * @unit a binary exponent
+ * @scope the least nonzero magnitude of a real value and vector component
+ * @derivation emin - p + 1: the least significant bit of a subnormal at the least exponent
+ * @from {@link binary32Precision}, {@link binary32MinExponent}
+ */
+export const binary32LeastExponent = binary32MinExponent - binary32Precision + 1
+
+/**
+ * The integer digits of every finite binary32 value, |x| < 10^binary32Digits.
+ *
+ * @limitKind derived
+ * @owner IEEE 754-2019 binary32
+ * @unit decimal digits
+ * @scope the integer digits of every finite real value
+ * @derivation the decimal length of the greatest finite value, an integer
+ * @from {@link binary32Precision}, {@link binary32MaxExponent}
+ */
+export const binary32Digits = String(greatestFinite(binary32Precision, binary32MaxExponent)).length
 
 export { type CanonicalFloat, canonicalZero }
 
@@ -90,14 +167,14 @@ export const compareFloat = (a: number, b: number): -1 | 0 | 1 => {
 export const floatText = (x: number): string => String(canonicalZero(x))
 
 /** 2^p and 2^(p - 1): a normal binary32 significand q lies in [2^(p - 1), 2^p). */
-const significandEnd = 1n << BigInt(binary32Precision.value)
-const significandStart = 1n << BigInt(binary32Precision.value - 1)
+const significandEnd = 1n << BigInt(binary32Precision)
+const significandStart = 1n << BigInt(binary32Precision - 1)
 
 /**
  * The decimal exponent at or below which a decimal of `digits + exponent` lies below half the least subnormal,
  * 2^(least - 1), and rounds to zero: floor((least - 1) · log10(2)).
  */
-const zeroExponent = Math.floor((binary32LeastExponent.value - 1) * Math.log10(2))
+const zeroExponent = Math.floor((binary32LeastExponent - 1) * Math.log10(2))
 
 const bitLength = (x: bigint): number => (x === 0n ? 0 : x.toString(2).length)
 
@@ -127,7 +204,7 @@ export const decimalToBinary32 = (coefficient: bigint, exponent: number): number
 		return 0
 	}
 	const digits = coefficient.toString().length
-	if (digits + exponent > binary32Digits.value) {
+	if (digits + exponent > binary32Digits) {
 		return Number.POSITIVE_INFINITY
 	}
 	if (digits + exponent < zeroExponent) {
@@ -135,10 +212,7 @@ export const decimalToBinary32 = (coefficient: bigint, exponent: number): number
 	}
 	const num = exponent >= 0 ? coefficient * 10n ** BigInt(exponent) : coefficient
 	const den = exponent >= 0 ? 1n : 10n ** BigInt(-exponent)
-	let e = Math.max(
-		bitLength(num) - bitLength(den) - binary32Precision.value,
-		binary32LeastExponent.value
-	)
+	let e = Math.max(bitLength(num) - bitLength(den) - binary32Precision, binary32LeastExponent)
 	for (;;) {
 		const n = e < 0 ? num << BigInt(-e) : num
 		const d = e > 0 ? den << BigInt(e) : den
@@ -147,7 +221,7 @@ export const decimalToBinary32 = (coefficient: bigint, exponent: number): number
 			e++
 			continue
 		}
-		if (q < significandStart && e > binary32LeastExponent.value) {
+		if (q < significandStart && e > binary32LeastExponent) {
 			e--
 			continue
 		}
@@ -156,7 +230,7 @@ export const decimalToBinary32 = (coefficient: bigint, exponent: number): number
 			q++
 		}
 		const value = Number(q) * 2 ** e
-		return value > binary32Max.value ? Number.POSITIVE_INFINITY : value
+		return value > binary32Max ? Number.POSITIVE_INFINITY : value
 	}
 }
 

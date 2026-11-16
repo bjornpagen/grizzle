@@ -1,4 +1,3 @@
-import { indexMaxKeys } from "@grizzle/limits"
 import {
 	type JoinColumn,
 	type Met,
@@ -124,6 +123,7 @@ import type {
 	SidePair,
 	SideScope
 } from "#compiler/schema/own.ts"
+import { indexMaxKeys } from "#compiler/schema/representability.ts"
 import {
 	btreeEntry,
 	type DatumBound,
@@ -2214,7 +2214,7 @@ const entryHolds = (fields: ReadonlyArray<LawField>): boolean => {
 		}
 		entry.push({ name: f.name, datum, nullable: false })
 	}
-	return fields.length <= indexMaxKeys.value && btreeEntry(entry).ok
+	return fields.length <= indexMaxKeys && btreeEntry(entry).ok
 }
 
 /**

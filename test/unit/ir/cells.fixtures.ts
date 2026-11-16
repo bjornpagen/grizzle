@@ -1,5 +1,6 @@
 /** What the properties of cells.test.ts read: its spaces, models and helpers. */
 
+import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 import {
 	array,
 	boolean,
@@ -12,7 +13,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
-import { maxStringLength } from "@grizzle/limits"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type * as EngineResult from "#compiler/core/result.ts"
@@ -395,7 +395,7 @@ export const theorem = (space: Space, c: Case<Dependent>) =>
 		const encoded = succeeded(
 			encodedOf({ key: keySpace, payload: [Math.max(1, points.length)] }, rows)
 		)
-		const text = succeeded(bitText(encoded, maxStringLength.value))
+		const text = succeeded(bitText(encoded, maxStringLength))
 		const read = Arr.flatMap(
 			Array.from({ length: points.length }, (_, at) => at),
 			(at): ReadonlyArray<Tuple> => {

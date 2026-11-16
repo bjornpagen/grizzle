@@ -26,7 +26,7 @@ export const runLineMarker = "GRIZZLE-MUTATE "
  * coverage pass runs them under NODE_V8_COVERAGE, so a file whose coverage pass outruns it is cut there and its baseline
  * records the run as failing.
  */
-const fileTimeout: number = hangLimit.value
+const fileTimeout: number = hangLimit
 
 /** Prints one line on stdout, at once: main.ts reads each as it comes. */
 const print = (line: RunLine): void => {

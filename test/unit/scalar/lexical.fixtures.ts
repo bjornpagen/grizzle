@@ -1,7 +1,7 @@
 /** What the properties of lexical.test.ts read: its spaces, models and helpers. */
 
+import { decimalTextMaxBytes } from "@bjornpagen/grizzle-engine/scalar/lexical"
 import { constant, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
-import { decimalTextMaxBytes } from "@grizzle/limits"
 import { Array as Arr } from "effect"
 import { Compute } from "#compiler/public/compute.ts"
 import { generated, pg, uuid } from "#compiler/public/fields.ts"
@@ -147,7 +147,7 @@ export type DecimalFeature =
 /** A bound of none, a few bytes, or one byte either side of the most the form's members hold. */
 export const decimalBoundGen: Gen<DecimalBound> = weighted<DecimalBound>([
 	[2, constant({ kind: "none" })],
-	[3, map(int(-1, 1), (offset) => ({ kind: "bytes", bytes: decimalTextMaxBytes.value + offset }))],
+	[3, map(int(-1, 1), (offset) => ({ kind: "bytes", bytes: decimalTextMaxBytes + offset }))],
 	[1, map(int(0, 12), (bytes) => ({ kind: "bytes", bytes }))]
 ])
 

@@ -1,4 +1,3 @@
-import { bytesChunkLength } from "@grizzle/limits"
 /**
  * The SQL of a family write's statements, each reading its rows from the
  * columnar arrays its placeholders carry, $n the array of the n-th column of its rows' layout (write/family/order.ts
@@ -18,6 +17,7 @@ import { bytesChunkLength } from "@grizzle/limits"
  * write's.
  */
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
+import { bytesChunkLength } from "#compiler/codec/delivery.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
@@ -951,7 +951,7 @@ export const suffixReadSql = (
 		at,
 		width,
 		supply,
-		bytesChunkLength.value
+		bytesChunkLength
 	)
 	const m = supply.relation(internal("read member"))
 	const mt = supply.relation(internal("read member group"))
@@ -984,7 +984,7 @@ export const suffixReadSql = (
 		at,
 		width,
 		supply,
-		bytesChunkLength.value
+		bytesChunkLength
 	)
 	const ast: SqlStatement = {
 		...select(unionAll("disjoint", [ownerArm, memberArm])),
@@ -1394,9 +1394,7 @@ export const chainReadSql = (
 	const tagColumn = supply.column(internal("chain tag"))
 	const out = Array.from({ length: width }, () => supply.column(internal("chain column")))
 	const at = (i: number): string => defined(out[i], `chain column ${i}`)
-	const built = arms.map((arm) =>
-		taggedArm(arm, tagColumn, at, width, supply, bytesChunkLength.value)
-	)
+	const built = arms.map((arm) => taggedArm(arm, tagColumn, at, width, supply, bytesChunkLength))
 	const root = defined(roots[0], "a chain begins at a put or an edit")
 	const [first, ...rest] = built
 	const [firstCte, ...restCtes] = ctes

@@ -1,14 +1,43 @@
-import { floatDoublePrecision, floatRealPrecision } from "@grizzle/limits"
 import type { Column } from "#compiler/core/decoder.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import type { PgScalarName } from "#compiler/ir/desc.ts"
+import { binary64Precision } from "#compiler/scalar/lexical.ts"
 import { bareEnv, type Descriptor, defineField, type SqlTag } from "#compiler/scalar/registry.ts"
 import { serialAliases } from "#compiler/scalar/serial.ts"
 import { carrierColumn } from "#compiler/scalar/values/convert.ts"
 import { checkNumericTypmod, type Decimal } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
+import { binary32Precision } from "#compiler/scalar/values/float.ts"
 import { vector } from "#compiler/scalar/vector.ts"
+
+/**
+ * The greatest binary precision float(p) maps to real: real's own, binary32's.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bits
+ * @scope the binary precision p of float(p) that selects real
+ * @derivation p names the least binary precision, and real is binary32, so float(1) through float(binary32's
+ *   precision) select real: "accepts float(1) to float(24) as selecting the real type"
+ *   (https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L905-L910)
+ * @from {@link binary32Precision}
+ */
+const floatRealPrecision = binary32Precision
+
+/**
+ * The greatest binary precision float(p) admits: double precision's own, binary64's.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bits
+ * @scope the binary precision p of float(p) that selects double precision
+ * @derivation double precision is binary64, so float(p) past real's precision through binary64's selects it and a
+ *   greater p draws an error: "float(25) to float(53) select double precision. Values of p outside the allowed range
+ *   draw an error." (https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L905-L910)
+ * @from {@link binary64Precision}
+ */
+const floatDoublePrecision = binary64Precision
 
 /** The integers 1 through N, a union of their literals. */
 type OneThrough<
@@ -73,7 +102,7 @@ export const isFloatPrecision = (value: unknown): value is FloatPrecision =>
 export const refuseFloat = (): never => {
 	throw malformedDescription(
 		captureLoc("pg.float", []),
-		`a float binary precision: an integer 1-${floatRealPrecision.value} (real) or ${floatRealPrecision.value + 1}-${floatDoublePrecision.value} (double precision)`
+		`a float binary precision: an integer 1-${floatRealPrecision} (real) or ${floatRealPrecision + 1}-${floatDoublePrecision} (double precision)`
 	)
 }
 

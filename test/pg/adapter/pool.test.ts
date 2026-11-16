@@ -175,7 +175,7 @@ const interruptedStatement = Effect.gen(function* () {
 			Effect.gen(function* () {
 				const pool = yield* poolFor(login, {
 					...defaultPool,
-					pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: k.max }
+					pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: k.max }
 				})
 				if (k.statement === "lock") {
 					const holder = yield* s.session({ ...ownerSession(), label: "lock holder" })
@@ -303,7 +303,7 @@ const stalledRelease = Effect.gen(function* () {
 					poolFor(login, {
 						...defaultPool,
 						transport: { kind: "given", transport: tap.transport },
-						pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 1 }
+						pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: 1 }
 					}),
 					layerScope
 				)
@@ -378,7 +378,7 @@ layer(Substrate.layer, { excludeTestServices: true })("adapter session pool", (i
 						Effect.gen(function* () {
 							const pool = yield* poolFor(reader, {
 								...defaultPool,
-								pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max }
+								pool: { idleTimeoutMs: testIdleTimeout, min: 1, max }
 							})
 							const scope = yield* Effect.scope
 							const held: Array<Held> = []

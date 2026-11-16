@@ -1,7 +1,7 @@
 /** What the properties of bytes-memory.test.ts read: its spaces, models and helpers. */
 
+import { messageMaxBytes } from "@bjornpagen/grizzle-engine/core/wire"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
-import { messageMaxBytes } from "@grizzle/limits"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
 import { bytes, pg } from "#compiler/public/fields.ts"
@@ -48,7 +48,7 @@ export const copied = (d: Drawn): number => d.columns * d.facts * valueLength
 export const slack = valueLength
 
 export const notes = (d: Drawn): ReadonlyArray<Feature> => [
-	carried(d) > messageMaxBytes.value ? "a member refused from its lengths" : "a member bound",
+	carried(d) > messageMaxBytes ? "a member refused from its lengths" : "a member bound",
 	...(d.columns === 2 ? (["two bytes columns"] as const) : [])
 ]
 

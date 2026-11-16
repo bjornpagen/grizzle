@@ -1,10 +1,10 @@
-import { maxStringLength } from "@grizzle/limits"
 /**
  * A column of a write's rows as its placeholder carries it: an array of its cells' texts, or of its bytes values, as
  * the columnar transport writes it.
  */
 import { byteaArray, textArray } from "#compiler/codec/bytea.ts"
 import { columnLiteral } from "#compiler/codec/recordset.ts"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import type * as Result from "#compiler/core/result.ts"
@@ -35,7 +35,7 @@ export const columnArray = (
 		}
 	}
 	if (values.length === 0) {
-		return columnLiteral(input, column, texts, (text) => text, maxStringLength.value)
+		return columnLiteral(input, column, texts, (text) => text, maxStringLength)
 	}
 	if (texts.length === 0) {
 		return byteaArray(input, column, values)

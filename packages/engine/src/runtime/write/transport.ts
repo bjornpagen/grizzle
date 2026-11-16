@@ -1,4 +1,5 @@
-import { maxStringLength, messageMaxBytes } from "@grizzle/limits"
+import { maxStringLength } from "#compiler/core/canonical.ts"
+import { messageMaxBytes } from "#compiler/core/wire.ts"
 
 /**
  * The bytes of a Bind message beside its parameters' texts, as the wire writes it: `statement`, its own fields and its
@@ -21,7 +22,7 @@ export interface Transport {
 
 /** The transport in force over the wire's frame: PostgreSQL's longest message and V8's longest string. */
 export const inForce = (frame: BindFrame): Transport => ({
-	messageBytes: messageMaxBytes.value,
-	literalUnits: maxStringLength.value,
+	messageBytes: messageMaxBytes,
+	literalUnits: maxStringLength,
 	frame
 })

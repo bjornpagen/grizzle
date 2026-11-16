@@ -47,7 +47,7 @@ import {
 	type HostOp,
 	type HostValue
 } from "#test/support/laws/model.ts"
-import { openWriter, servedApply, type Session } from "#test/support/laws/support.ts"
+import { openWriter, servedApply, type LawSession } from "#test/support/laws/support.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -626,7 +626,7 @@ const encodingOf = (r: Rel, field: string): Encoding => r.encodings[field] ?? "p
 const boxSession = (
 	p: BoxParams,
 	installed: Installed
-): Effect.Effect<Session, OpenError, Substrate | Scope.Scope> =>
+): Effect.Effect<LawSession, OpenError, Substrate | Scope.Scope> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const value = boxSchema(p, installed.declared)

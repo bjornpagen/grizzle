@@ -1,10 +1,10 @@
-import { int8Max, int8Min } from "@grizzle/limits"
 import { firstIndex } from "#compiler/core/array.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints, compareQuotedTuples, validateText } from "#compiler/core/text.ts"
+import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { codeOf, handlesText, type RosterCodec } from "#compiler/ir/codes.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
@@ -197,7 +197,7 @@ const admitMoney = (value: unknown): Result.Result<Money, ValueFault> => {
 	if (!(value instanceof Money)) {
 		return Result.err("moneyType")
 	}
-	return value.minorUnits >= int8Min.value && value.minorUnits <= int8Max.value
+	return value.minorUnits >= int8Min && value.minorUnits <= int8Max
 		? Result.ok(value)
 		: Result.err("moneyRange")
 }

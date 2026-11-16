@@ -1,9 +1,4 @@
-import {
-	maxStringLength,
-	messageMaxBytes,
-	selectMaxEntries,
-	statementMaxParams
-} from "@grizzle/limits"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { ClockUnit } from "#compiler/core/clock.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
@@ -13,6 +8,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
+import { messageMaxBytes } from "#compiler/core/wire.ts"
 import {
 	type AlterDomainAction,
 	type AlterRoleAction,
@@ -96,6 +92,40 @@ import {
 	databaseLock
 } from "#compiler/sql/catalog.ts"
 import { statementParams } from "#compiler/sql/transform.ts"
+
+/**
+ * The most entries one select list holds, a SELECT's target list or a RETURNING list, each refused as ResourceBound
+ * (selectList) where it is printed, since PostgreSQL refuses a longer one with 54011, "target lists can have at most
+ * 1664 entries" (src/backend/parser/parse_node.c free_parsestate).
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit entries
+ * @scope one target list of one query level
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/htup_details.h#L34
+ * @quote #define MaxTupleAttributeNumber 1664
+ * @verified 2026-11-14
+ */
+export const selectMaxEntries = 1_664
+
+/**
+ * The most placeholders one statement binds: a Bind message counts its parameter values in an unsigned 16-bit field,
+ * `numParams = pq_getmsgint(input_message, 2);`
+ * (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/tcop/postgres.c#L1734), and the count must be the
+ * statement's highest `$n` ("bind message supplies %d parameters, but prepared statement \"%s\" requires %d"), so a
+ * statement of more is refused as ResourceBound (statementParams) when it is printed.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2's frontend/backend protocol
+ * @unit placeholders
+ * @scope one statement
+ * @constraint protocol constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/limits.sgml#L115-L116
+ * @quote <entry>query parameters</entry> <entry>65,535</entry>
+ * @verified 2026-11-14
+ */
+export const statementMaxParams = 2 ** 16 - 1
 
 /** An integer literal of PostgreSQL's integer type, which prints bare. */
 const sqlUnit = "  "
@@ -733,11 +763,11 @@ const printTarget = (target: Target): string =>
 
 /** A select list, a SELECT's or a RETURNING's: refused (ResourceBound, selectList) past PostgreSQL's selectMaxEntries. */
 const printTargets = (targets: ReadonlyArray<Target>): string => {
-	if (targets.length > selectMaxEntries.value) {
+	if (targets.length > selectMaxEntries) {
 		throw new Refusal(
 			resourceBound(statementTextLoc, {
 				kind: "selectList",
-				limit: selectMaxEntries.value,
+				limit: selectMaxEntries,
 				needed: targets.length
 			})
 		)
@@ -2433,7 +2463,7 @@ export const terminated = (out: Lines, write: (out: Lines) => void): void => {
 
 /** The SQL text `write` writes, refused (ResourceBound, stringLength) past V8's longest string. */
 export const sqlText = (at: SourceLoc, write: (out: Lines) => void): string => {
-	const text = textOf(maxStringLength.value, sqlUnit, at, write)
+	const text = textOf(maxStringLength, sqlUnit, at, write)
 	if (!text.ok) {
 		throw new Refusal(text.error)
 	}
@@ -2447,9 +2477,9 @@ export const sqlText = (at: SourceLoc, write: (out: Lines) => void): string => {
 export const statementText = (at: SourceLoc, write: (out: Lines) => void): string => {
 	const text = sqlText(at, write)
 	const bytes = utf8Length(text)
-	if (bytes > messageMaxBytes.value) {
+	if (bytes > messageMaxBytes) {
 		throw new Refusal(
-			resourceBound(at, { kind: "statementBytes", limit: messageMaxBytes.value, needed: bytes })
+			resourceBound(at, { kind: "statementBytes", limit: messageMaxBytes, needed: bytes })
 		)
 	}
 	return text
@@ -2458,11 +2488,11 @@ export const statementText = (at: SourceLoc, write: (out: Lines) => void): strin
 /** Refuses (ResourceBound, statementParams) a statement that binds more parameters than a Bind message counts. */
 const boundParams = (statement: SqlStatement): void => {
 	const params = statementParams(statement)
-	if (params > statementMaxParams.value) {
+	if (params > statementMaxParams) {
 		throw new Refusal(
 			resourceBound(statementTextLoc, {
 				kind: "statementParams",
-				limit: statementMaxParams.value,
+				limit: statementMaxParams,
 				needed: params
 			})
 		)

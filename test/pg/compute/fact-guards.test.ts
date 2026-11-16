@@ -1,3 +1,10 @@
+import { int4Max } from "@bjornpagen/grizzle-engine/core/canonical"
+import { int2Max, int2Min, int4Min, int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
+import {
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 /**
  * A fact guard over a contract on PostgreSQL 19: Compute.nonzero, Compute.nonnegative, Compute.positive and
  * Compute.isFinite over a term of a contract drawn over a numeric of every typmod, its precision and its scale both
@@ -21,17 +28,6 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { bigint } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import {
-	int2Max,
-	int2Min,
-	int4Max,
-	int4Min,
-	int8Max,
-	int8Min,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "@grizzle/limits"
 import { Array as Arr, Data, Effect, Formatter, Option, Result } from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
@@ -98,16 +94,16 @@ type Feature =
 
 /** The integer types' ranges. */
 const integerRanges = {
-	smallint: [BigInt(int2Min.value), BigInt(int2Max.value)],
-	integer: [BigInt(int4Min.value), BigInt(int4Max.value)],
-	bigint: [int8Min.value, int8Max.value]
+	smallint: [BigInt(int2Min), BigInt(int2Max)],
+	integer: [BigInt(int4Min), BigInt(int4Max)],
+	bigint: [int8Min, int8Max]
 } as const
 
 /** A numeric typmod: mostly a small precision and a scale within it, sometimes either anywhere PostgreSQL allows. */
 const numericBase: Gen<Base> = (source) => {
-	const precision = source.draw(oneOf([int(1, 12), int(1, numericMaxPrecision.value)]))
+	const precision = source.draw(oneOf([int(1, 12), int(1, numericMaxPrecision)]))
 	const scale = source.draw(
-		oneOf([int(0, Math.min(precision, 12)), int(numericMinScale.value, numericMaxScale.value)])
+		oneOf([int(0, Math.min(precision, 12)), int(numericMinScale, numericMaxScale)])
 	)
 	return { kind: "numeric", precision, scale }
 }

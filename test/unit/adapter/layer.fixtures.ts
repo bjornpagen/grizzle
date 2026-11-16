@@ -1,6 +1,7 @@
 /** What the properties of layer.test.ts read: its spaces, models and helpers. */
 
 import net from "node:net"
+import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/adapter/connection/config"
 import {
 	array,
 	boolean,
@@ -14,7 +15,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { uuid as uuidValue } from "@bjornpagen/testing/values"
-import { timerMaxMs, timerMinMs } from "@grizzle/limits"
 import {
 	Array as Arr,
 	Effect,
@@ -153,9 +153,9 @@ interface Drawn {
 
 /** A timer's delay, from the least to the longest a Node timer keeps: its range's ends, or one between. */
 const delayGen: Gen<number> = oneOf<number>([
-	constant(timerMinMs.value),
-	constant(timerMaxMs.value),
-	int(timerMinMs.value, timerMaxMs.value)
+	constant(timerMinMs),
+	constant(timerMaxMs),
+	int(timerMinMs, timerMaxMs)
 ])
 
 export const drawnGen: Gen<Drawn> = (source) => {
@@ -296,7 +296,7 @@ export const ruleOf = (f: Fault): Option.Option<SettingRule["kind"]> =>
 const badDelays: Arr.NonEmptyReadonlyArray<unknown> = [
 	0,
 	-1,
-	timerMaxMs.value + 1,
+	timerMaxMs + 1,
 	1.5,
 	Number.NaN,
 	Number.POSITIVE_INFINITY,

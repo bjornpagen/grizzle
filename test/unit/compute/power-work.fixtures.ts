@@ -1,6 +1,7 @@
-/** What the properties of power-work.test.ts read: its spaces, models and helpers. */
-
-import { numericMaxPrecision, numericMaxScale } from "@grizzle/limits"
+import {
+	numericMaxPrecision,
+	numericMaxScale
+} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { type Pair } from "#test/support/power-pairs.ts"
@@ -30,7 +31,7 @@ const baseField = (base: Decimal): TestField | undefined => {
 	const scale = base.parts.minScale
 	const digits = base.parts.coefficient === 0n ? 1 : String(base.parts.coefficient).length
 	const precision = Math.max(digits, scale, 1)
-	return precision > numericMaxPrecision.value || scale > numericMaxScale.value
+	return precision > numericMaxPrecision || scale > numericMaxScale
 		? undefined
 		: testPg.numericOf(precision, scale)
 }

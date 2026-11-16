@@ -1,5 +1,7 @@
 /** What the properties of wild.test.ts read: its spaces, models and helpers. */
 
+import { int4Max } from "@bjornpagen/grizzle-engine/core/canonical"
+import { int4Min, int8Max, int8Min } from "@bjornpagen/grizzle-engine/ir/carriers"
 import {
 	array,
 	boolean,
@@ -23,7 +25,6 @@ import {
 	type WildKind
 } from "@bjornpagen/testing/lsw"
 import { bigint, double, float, uuid } from "@bjornpagen/testing/values"
-import { int4Max, int4Min, int8Max, int8Min } from "@grizzle/limits"
 import { Array as Arr, DateTime, Option, Record } from "effect"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import type { CodecFault, ValueFault } from "#compiler/core/errors.ts"
@@ -69,8 +70,8 @@ export const decoded = (written: Written): Carried => {
 
 const caps = capabilitySet(["storage", "equality"])
 
-const int32 = int(int4Min.value, int4Max.value)
-const int64 = bigint(int8Min.value, int8Max.value)
+const int32 = int(int4Min, int4Max)
+const int64 = bigint(int8Min, int8Max)
 
 /**
  * A numeric(precision, scale) descriptor and its Live values, both from the one typmod: a signed count of 10^-scale
@@ -89,14 +90,14 @@ const numericUnder = (precision: number, scale: number): Written => {
 
 /** A span over int4 endpoints, built ordered: a start below int4's greatest, then an end past it. */
 const spans4: Gen<unknown> = (source) => {
-	const start = source.draw(int(int4Min.value, int4Max.value - 1))
-	return { start, end: source.draw(int(start + 1, int4Max.value)) }
+	const start = source.draw(int(int4Min, int4Max - 1))
+	return { start, end: source.draw(int(start + 1, int4Max)) }
 }
 
 /** A span over int8 endpoints, built ordered: a start below int8's greatest, then an end past it. */
 const spans8: Gen<unknown> = (source) => {
-	const start = source.draw(bigint(int8Min.value, int8Max.value - 1n))
-	return { start, end: source.draw(bigint(start + 1n, int8Max.value)) }
+	const start = source.draw(bigint(int8Min, int8Max - 1n))
+	return { start, end: source.draw(bigint(start + 1n, int8Max)) }
 }
 
 /**
@@ -239,7 +240,7 @@ export const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Writt
 		{
 			label: "int8range of width 1",
 			type: { carrier: "range8", span: { endpoint: { carrier: "int8", caps }, width: 1n }, caps },
-			live: map(bigint(int8Min.value, int8Max.value - 1n), (start) => ({ start, end: start + 1n }))
+			live: map(bigint(int8Min, int8Max - 1n), (start) => ({ start, end: start + 1n }))
 		}
 	],
 	rangeDate: [
@@ -359,7 +360,7 @@ export const slotCases: Gen<readonly [Carried, string]> = (source) =>
 
 /** A case of the getter property: the start its getter answers first, and the one it answers after. */
 export const unstableCases: Gen<readonly [number, number]> = (source) =>
-	[source.draw(int(int4Min.value, int4Max.value - 1)), source.draw(int32)] as const
+	[source.draw(int(int4Min, int4Max - 1)), source.draw(int32)] as const
 
 /** A span whose `start` getter answers `first` and then `then`, counting its reads. */
 export const unstableSpan = <E extends number | bigint>(first: E, then: E, end: E) => {

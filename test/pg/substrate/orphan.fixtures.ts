@@ -177,7 +177,7 @@ const admitted = (server: Throwaway): Effect.Effect<void> =>
 			if (tried._tag === "Success") {
 				return
 			}
-			yield* liveSleep(Duration.millis(backendWaitStep.value))
+			yield* liveSleep(Duration.millis(backendWaitStep))
 		}
 	})
 
@@ -258,7 +258,7 @@ const runningBackend = (observer: Client, form: Form): Effect.Effect<number, Sql
 			if (row !== undefined) {
 				return Number(row[0])
 			}
-			yield* liveSleep(Duration.millis(backendWaitStep.value))
+			yield* liveSleep(Duration.millis(backendWaitStep))
 		}
 	})
 
@@ -282,12 +282,12 @@ const goneAfter = (
 			if (listed.length === 0) {
 				return now - killed
 			}
-			if (now - killed >= orphanExitBound.value) {
+			if (now - killed >= orphanExitBound) {
 				return assert.fail(
-					`the backend ${pid} of a client killed ${now - killed} ms ago still runs, past ${orphanExitBound.value} ms: ${Formatter.format(listed)}`
+					`the backend ${pid} of a client killed ${now - killed} ms ago still runs, past ${orphanExitBound} ms: ${Formatter.format(listed)}`
 				)
 			}
-			yield* liveSleep(Duration.millis(backendWaitStep.value))
+			yield* liveSleep(Duration.millis(backendWaitStep))
 		}
 	})
 
@@ -300,7 +300,7 @@ const endOrphans = (observer: Client): Effect.Effect<void> =>
 		rowsOf(
 			observer,
 			"SELECT pg_catalog.pg_terminate_backend(a.pid, $2::int8) FROM pg_catalog.pg_stat_activity AS a WHERE a.application_name = $1",
-			[orphanName, String(testExitWait.value)]
+			[orphanName, String(testExitWait)]
 		)
 	)
 

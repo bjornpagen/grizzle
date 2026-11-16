@@ -1,3 +1,9 @@
+import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
+import {
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 /**
  * The scalar registry against the PostgreSQL 19 catalog: every descriptor names what PostgreSQL stores, and every
  * capability the registry claims is one PostgreSQL offers.
@@ -28,12 +34,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import {
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale,
-	vectorMaxDimensions
-} from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, pipe, Result, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -263,10 +263,8 @@ const nearBounds = (bounds: ReadonlyArray<number>, far: number): Gen<number> =>
 /** A numeric typmod: its precision near 1 and numericMaxPrecision, its scale near 0 and both scale bounds. */
 const typmodGen: Gen<readonly [number, number]> = (source) =>
 	[
-		source.draw(nearBounds([1, numericMaxPrecision.value], numericMaxPrecision.value + 10)),
-		source.draw(
-			nearBounds([numericMinScale.value, 0, numericMaxScale.value], numericMaxScale.value + 10)
-		)
+		source.draw(nearBounds([1, numericMaxPrecision], numericMaxPrecision + 10)),
+		source.draw(nearBounds([numericMinScale, 0, numericMaxScale], numericMaxScale + 10))
 	] as const
 
 /** What a vector dimension count reached: refused below, admitted, refused above. */
@@ -405,10 +403,7 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 				return yield* exhaust(
 					{
 						suite: "pg/scalar/registry/vector-dimensions",
-						generator: oneOf([
-							int(-2, 3),
-							int(vectorMaxDimensions.value - 2, vectorMaxDimensions.value + 2)
-						]),
+						generator: oneOf([int(-2, 3), int(vectorMaxDimensions - 2, vectorMaxDimensions + 2)]),
 						literal: Formatter.format,
 						box: "every dimension count within two of 1 and of vectorMaxDimensions, and down to -2",
 						oracle: {

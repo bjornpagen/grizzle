@@ -43,7 +43,7 @@ import {
 	installLaws,
 	openWriter,
 	runtimeSession,
-	type Session
+	type LawSession
 } from "#test/support/laws/support.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -123,7 +123,7 @@ export interface Family<P> {
 	readonly connect: (
 		p: P,
 		installed: Installed
-	) => Effect.Effect<Session, OpenError, Substrate | Scope.Scope>
+	) => Effect.Effect<LawSession, OpenError, Substrate | Scope.Scope>
 }
 
 /**

@@ -57,6 +57,7 @@ import {
 	type VarDesc
 } from "#compiler/ir/desc.ts"
 
+import { int4Max } from "#compiler/core/canonical.ts"
 import {
 	type ExprSpec,
 	type DefinedOp,
@@ -86,8 +87,6 @@ import {
 	type TakeBound,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-
-import { int4Max } from "@grizzle/limits"
 import {
 	baseOf,
 	contractOf,
@@ -745,7 +744,7 @@ const producerKinds = {
 	pack: "spanPack"
 } as const satisfies Readonly<Record<"intersection" | "difference" | "pack", ProducerKind>>
 
-const int4TakeCapability = `a positive integer bound for take, at most ${int4Max.value}`
+const int4TakeCapability = `a positive integer bound for take, at most ${int4Max}`
 
 /**
  * A take bound has one domain, int4's positive range, however it is spelled: a literal, or a parameter an import
@@ -755,7 +754,7 @@ const int4TakeCapability = `a positive integer bound for take, at most ${int4Max
  * the query that binds it, in int4's terms.
  */
 const int4TakeBound = (k: bigint, loc: SourceLoc): TakeBound => {
-	if (k < 1n || k > BigInt(int4Max.value)) {
+	if (k < 1n || k > BigInt(int4Max)) {
 		fail("MalformedDescription", loc, int4TakeCapability)
 	}
 	return { kind: "literal", k }

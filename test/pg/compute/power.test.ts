@@ -1,3 +1,10 @@
+import { binary64MinExponent } from "@bjornpagen/grizzle-engine/scalar/compute/cast"
+import { binary64MaxExponent, binary64Precision } from "@bjornpagen/grizzle-engine/scalar/lexical"
+import {
+	numericMaxFractionDigits,
+	numericMaxPrecision,
+	numericMaxScale
+} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 /**
  * Compute.power on PostgreSQL 19.
  *
@@ -20,6 +27,7 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { bigint } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
+import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { PreconditionKind } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -50,16 +58,6 @@ import {
 	type TestField,
 	v
 } from "#test/unit/compute/support.ts"
-
-import {
-	binary64MaxExponent,
-	binary64MinExponent,
-	binary64Precision,
-	numericMaxFractionDigits,
-	numericMaxPrecision,
-	numericMaxScale
-} from "@grizzle/limits"
-import { regex } from "arkregex"
 /**
  * The field a literal base is typed by, as Compute.literal types one: a literal never stands first, so the base is a
  * literal of a numeric field, whose typmod holds its value exactly, (its digits, its least scale), or NaN, which every
@@ -77,7 +75,7 @@ const baseField = (base: Decimal): TestField | undefined => {
 	const scale = base.parts.minScale
 	const digits = base.parts.coefficient === 0n ? 1 : String(base.parts.coefficient).length
 	const precision = Math.max(digits, scale, 1)
-	return precision > numericMaxPrecision.value || scale > numericMaxScale.value
+	return precision > numericMaxPrecision || scale > numericMaxScale
 		? undefined
 		: testPg.numericOf(precision, scale)
 }
@@ -135,7 +133,7 @@ interface GuardedPower {
 }
 
 /** The least positive value of a numeric of no typmod: 10^-numericMaxFractionDigits, 10^-16383. */
-const leastPositive = `1e-${numericMaxFractionDigits.value}`
+const leastPositive = `1e-${numericMaxFractionDigits}`
 
 const guardedPowerGen: Gen<GuardedPower> = (source) => ({
 	guard: source.draw(
@@ -191,10 +189,10 @@ interface FloatPower {
 }
 
 /** binary64's trailing significand field's width, p - 1 bits. */
-const trailingBits = BigInt(binary64Precision.value - 1)
+const trailingBits = BigInt(binary64Precision - 1)
 
 /** The binary64 exponent bias, emax: a biased exponent of 1 is emin. */
-const bias = binary64MaxExponent.value
+const bias = binary64MaxExponent
 
 /** The positive double of biased exponent `biased`, 0 for a subnormal or zero, and trailing significand `fraction`. */
 const doubleOfFields = (biased: number, fraction: bigint): number => {
@@ -224,7 +222,7 @@ const floatExponentGen: Gen<number> = weighted<number>([
 ])
 
 /** The least normal double, 2^emin: below it a nonzero double is subnormal. */
-const leastNormal = 2 ** binary64MinExponent.value
+const leastNormal = 2 ** binary64MinExponent
 
 /**
  * Escaped: a base whose exact value has more than 308 fraction digits read as zero through a double magnitude, so

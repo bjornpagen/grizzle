@@ -1,4 +1,3 @@
-import { type Limit, derived, measured } from "@bjornpagen/limit"
 import { liveMillis, liveSleep } from "@bjornpagen/testing/live"
 import { regex } from "arkregex"
 import {
@@ -38,38 +37,56 @@ export interface Ran {
 /**
  * How long a check's process tree may be idle before it has stalled: no reading of it across the whole window finds a
  * thread running, waiting for a CPU or waiting on the disk, or more CPU time than the last reading that did.
+ *
+ * @limitKind measured
+ * @owner the type tier's compiler runs (test/types/batch)
+ * @unit milliseconds
+ * @scope one tsgo check the type-test batch or a scaling test runs, from its spawn to its exit, measured on its whole
+ *   process tree
+ * @evidence ~/.cache/grizzle-release/GREENTRUNK/out/stall/ on cassowary: evidence-1.txt, the output of
+ *   ~/.cache/grizzle-release/GREENTRUNK/tools/stall-evidence.sh, whose stall-measure.mjs runs a check and reads its
+ *   process tree from /proc every 10 ms as the guard reads it (each process's utime, stime, cutime and cstime in clock
+ *   ticks, each thread's state, each thread's children) and records the longest stretch between two readings that
+ *   found progress; and watch-1.txt, the output of tools/stall-watch.mjs, tsgo's watch mode read the same way every
+ *   250 ms for 20 s. test/types/batch/batch.test.ts, the stall guard's property, re-verifies the window's sense:
+ *   tsgo's watch mode, idle after its first check, fails with CompilerStalled, and neither a check run once nor a busy
+ *   child under a waiting parent does
+ * @observed 2026-11-14, 23:36:59 to 23:39:05 UTC
+ * @environment cassowary, Ubuntu 26.04 arm64 on 64 cores, Linux 7.0.0-1016-aws (clock ticks of 10 ms, getconf CLK_TCK
+ *   100), Node 26.13.1, TypeScript 7.1.0-beta+effect-tsgo.0.67.1 (tsgo) as pnpm install patches it, grizzle at
+ *   18297bc7; load average 339 to 395 from other sessions throughout
+ * @workload the stall guard property's own program, one clean declaration, checked once (three runs, 0.5 to 0.7 s
+ *   wall); packages/engine's tsconfig with noEmit (two runs, 1.1 and 1.4 s); the repository's whole tsconfig with
+ *   noEmit (one run, 81.0 s wall, 101.3 s of CPU); and tsgo's watch mode over the guard property's program for 20 s
+ * @result the longest stretch without progress as the guard judges it (a thread running, waiting for a CPU or on the
+ *   disk, or CPU time spent) was 114 ms over the whole repository's check, 3,945 of its 4,019 readings finding a
+ *   thread busy; 65 ms over packages/engine's; 29 ms over the one-declaration check. Counting CPU time alone it was
+ *   573 ms, 238 ms and 71 ms. The reader fell at most 104 ms behind its interval. The watch mode was last busy 1,005
+ *   ms in and made no progress at any reading of the 18.7 s after. Linux's ps prints CPU time in whole seconds
+ *   (procps-ng 4.0.4, time= as 02:07:58), so the ps reading this replaces saw no progress from a check that spent less
+ *   than a second of CPU, and judged the one-declaration check stalled under a 1 s window whenever load stretched it
+ *   past the window (TEST_SEED=3440897367 and 1167524907)
+ * @decision 30 s is 263 times the longest stretch without progress seen: a check the machine is too busy to run waits
+ *   for a CPU, which is progress, so load adds no stretch the window must cover, and a check that progresses is never
+ *   judged by it; a stalled one fails in 30 s instead of a test's hour
+ * @revalidate a TypeScript 7 or Go upgrade; a check that starts waiting on something outside its process (a language
+ *   service plugin's server, a network fetch); another kernel or machine; a CompilerStalled whose goroutine dump shows
+ *   the checkers running
  */
-const stallWindow: Limit = measured({
-	value: 30_000,
-	owner: "the type tier's compiler runs (test/types/batch)",
-	unit: "milliseconds",
-	scope:
-		"one tsgo check the type-test batch or a scaling test runs, from its spawn to its exit, measured on its whole process tree",
-	evidence:
-		"~/.cache/grizzle-release/GREENTRUNK/out/stall/ on cassowary: evidence-1.txt, the output of ~/.cache/grizzle-release/GREENTRUNK/tools/stall-evidence.sh, whose stall-measure.mjs runs a check and reads its process tree from /proc every 10 ms as the guard reads it (each process's utime, stime, cutime and cstime in clock ticks, each thread's state, each thread's children) and records the longest stretch between two readings that found progress; and watch-1.txt, the output of tools/stall-watch.mjs, tsgo's watch mode read the same way every 250 ms for 20 s. test/types/batch/batch.test.ts, the stall guard's property, re-verifies the window's sense: tsgo's watch mode, idle after its first check, fails with CompilerStalled, and neither a check run once nor a busy child under a waiting parent does",
-	observed: "2026-11-14, 23:36:59 to 23:39:05 UTC",
-	environment:
-		"cassowary, Ubuntu 26.04 arm64 on 64 cores, Linux 7.0.0-1016-aws (clock ticks of 10 ms, getconf CLK_TCK 100), Node 26.13.1, TypeScript 7.1.0-beta+effect-tsgo.0.67.1 (tsgo) as pnpm install patches it, grizzle at 18297bc7; load average 339 to 395 from other sessions throughout",
-	workload:
-		"the stall guard property's own program, one clean declaration, checked once (three runs, 0.5 to 0.7 s wall); packages/engine's tsconfig with noEmit (two runs, 1.1 and 1.4 s); the repository's whole tsconfig with noEmit (one run, 81.0 s wall, 101.3 s of CPU); and tsgo's watch mode over the guard property's program for 20 s",
-	result:
-		"the longest stretch without progress as the guard judges it (a thread running, waiting for a CPU or on the disk, or CPU time spent) was 114 ms over the whole repository's check, 3,945 of its 4,019 readings finding a thread busy; 65 ms over packages/engine's; 29 ms over the one-declaration check. Counting CPU time alone it was 573 ms, 238 ms and 71 ms. The reader fell at most 104 ms behind its interval. The watch mode was last busy 1,005 ms in and made no progress at any reading of the 18.7 s after. Linux's ps prints CPU time in whole seconds (procps-ng 4.0.4, time= as 02:07:58), so the ps reading this replaces saw no progress from a check that spent less than a second of CPU, and judged the one-declaration check stalled under a 1 s window whenever load stretched it past the window (TEST_SEED=3440897367 and 1167524907)",
-	decision:
-		"30 s is 263 times the longest stretch without progress seen: a check the machine is too busy to run waits for a CPU, which is progress, so load adds no stretch the window must cover, and a check that progresses is never judged by it; a stalled one fails in 30 s instead of a test's hour",
-	revalidate:
-		"a TypeScript 7 or Go upgrade; a check that starts waiting on something outside its process (a language service plugin's server, a network fetch); another kernel or machine; a CompilerStalled whose goroutine dump shows the checkers running"
-})
+const stallWindow = 30_000
 
-/** How often the guard reads the process tree: thirty times per window, so a stall is caught within a thirtieth of it. */
-const stallSampleEvery: Limit = derived({
-	owner: "the type tier's compiler runs (test/types/batch)",
-	unit: "milliseconds",
-	scope: "the interval between two readings of a check's process tree",
-	from: [stallWindow],
-	derivation:
-		"a stall is declared at the first reading a whole window after the last progress, so a thirtieth of the window delays it by at most a thirtieth; one reading of the tree's /proc files is cheap beside a check",
-	compute: ([window]) => Math.ceil(window.value / 30)
-})
+/**
+ * How often the guard reads the process tree: thirty times per window, so a stall is caught within a thirtieth of it.
+ *
+ * @limitKind derived
+ * @owner the type tier's compiler runs (test/types/batch)
+ * @unit milliseconds
+ * @scope the interval between two readings of a check's process tree
+ * @derivation a stall is declared at the first reading a whole window after the last progress, so a thirtieth of the
+ *   window delays it by at most a thirtieth; one reading of the tree's /proc files is cheap beside a check
+ * @from {@link stallWindow}
+ */
+const stallSampleEvery = Math.ceil(stallWindow / 30)
 
 /**
  * A stall guard: how long a process tree may be idle, and how often it is read. The type tier passes stallWindow and
@@ -79,8 +96,8 @@ export type StallGuard = Readonly<{ window: Duration.Duration; every: Duration.D
 
 /** The guard the type tier's compiler runs under. */
 const compilerStallGuard: StallGuard = {
-	window: Duration.millis(stallWindow.value),
-	every: Duration.millis(stallSampleEvery.value)
+	window: Duration.millis(stallWindow),
+	every: Duration.millis(stallSampleEvery)
 }
 
 /** A /proc stat file held a line outside proc(5)'s format: the guard cannot read the tree, so it fails rather than guess. */

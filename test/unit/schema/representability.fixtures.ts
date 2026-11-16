@@ -1,5 +1,7 @@
 /** What the properties of representability.test.ts read: its spaces, models and helpers. */
 
+import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
+import { typlens } from "@bjornpagen/grizzle-engine/schema/representability"
 import {
 	array,
 	boolean,
@@ -10,7 +12,6 @@ import {
 	map,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { typlens, vectorMaxDimensions } from "@grizzle/limits"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -929,16 +930,16 @@ type GistFamily = FixedGistFamily | "numeric" | "text" | "bit" | "range" | "vect
 
 /** Each fixed family's typlen, its datum's bytes: a code is a smallint. */
 export const fixedTyplens: { readonly [F in FixedGistFamily]: number } = {
-	int2: typlens.int2.value,
-	int4: typlens.int4.value,
-	int8: typlens.int8.value,
-	float4: typlens.float4.value,
-	float8: typlens.float8.value,
-	money: typlens.money.value,
-	bool: typlens.bool.value,
-	uuid: typlens.uuid.value,
-	date: typlens.date.value,
-	code: typlens.int2.value
+	int2: typlens.int2,
+	int4: typlens.int4,
+	int8: typlens.int8,
+	float4: typlens.float4,
+	float8: typlens.float8,
+	money: typlens.money,
+	bool: typlens.bool,
+	uuid: typlens.uuid,
+	date: typlens.date,
+	code: typlens.int2
 }
 
 const isFixedGistFamily = (family: GistFamily): family is FixedGistFamily => {
@@ -1413,7 +1414,7 @@ export const vectorKeySketchGen: Gen<VectorKeySketch> = (source) => ({
 	span: source.draw(boolean),
 	dimensions: source.draw(
 		weighted([
-			[1, int(1, vectorMaxDimensions.value)],
+			[1, int(1, vectorMaxDimensions)],
 			[1, int(1, 64)]
 		])
 	),

@@ -1,6 +1,9 @@
 #!/usr/bin/env -S node
+import {
+	regexDfaMaxStates,
+	regexDfaMaxWork
+} from "@bjornpagen/grizzle-engine/scalar/regex/inclusion"
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
-import { regexDfaMaxStates, regexDfaMaxWork } from "@grizzle/limits"
 import { Array as Arr, Console, Data, DateTime, Effect, pipe, String as Str } from "effect"
 import {
 	type RunIdentity,
@@ -19,7 +22,7 @@ import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The subset-construction benchmark, `pnpm bench dfa`: scalar/regex/dfa.ts minimalDfa under the two limits that bound it
- * (@grizzle/limits regexDfaMaxStates and regexDfaMaxWork), on patterns text/refinement.ts analyzeText admits, the
+ * (regexDfaMaxStates and regexDfaMaxWork), on patterns text/refinement.ts analyzeText admits, the
  * evidence those limits cite. It needs no database.
  *
  * Every pattern is parsed and its NFA built once, untimed; then minimalDfa runs `runs` times under the limits, one
@@ -33,10 +36,10 @@ import { upTo } from "#test/support/up-to.ts"
 const runs = 7
 const ceiling = 16
 
-const limits: DfaLimits = { maxStates: regexDfaMaxStates.value, maxWork: regexDfaMaxWork.value }
+const limits: DfaLimits = { maxStates: regexDfaMaxStates, maxWork: regexDfaMaxWork }
 const ceilingLimits: DfaLimits = {
-	maxStates: ceiling * regexDfaMaxStates.value,
-	maxWork: ceiling * regexDfaMaxWork.value
+	maxStates: ceiling * regexDfaMaxStates,
+	maxWork: ceiling * regexDfaMaxWork
 }
 
 /** A pattern the benchmark constructs, the family it stands for, and how the table names it. */

@@ -1,3 +1,9 @@
+import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
+import {
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "@bjornpagen/grizzle-engine/scalar/values/fault"
 import {
 	constant,
 	element,
@@ -11,12 +17,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
 import { bigint } from "@bjornpagen/testing/values"
-import {
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale,
-	vectorMaxDimensions
-} from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { integerRanges } from "#compiler/ir/carriers.ts"
@@ -218,14 +218,14 @@ const numericGen: Gen<DescriptorSketch> = (source) => ({
 	precision: source.draw(
 		weighted([
 			[1, int(1, 6)],
-			[1, int(numericMaxPrecision.value - 2, numericMaxPrecision.value)]
+			[1, int(numericMaxPrecision - 2, numericMaxPrecision)]
 		])
 	),
 	scale: source.draw(
 		weighted([
 			[1, int(-2, 6)],
-			[1, int(numericMinScale.value, numericMinScale.value + 2)],
-			[1, int(numericMaxScale.value - 2, numericMaxScale.value)]
+			[1, int(numericMinScale, numericMinScale + 2)],
+			[1, int(numericMaxScale - 2, numericMaxScale)]
 		])
 	)
 })
@@ -233,7 +233,7 @@ const numericGen: Gen<DescriptorSketch> = (source) => ({
 const vectorGen: Gen<DescriptorSketch> = map(
 	weighted([
 		[1, int(1, 4)],
-		[1, int(vectorMaxDimensions.value - 2, vectorMaxDimensions.value)]
+		[1, int(vectorMaxDimensions - 2, vectorMaxDimensions)]
 	]),
 	(dimensions): DescriptorSketch => ({ kind: "vector", dimensions })
 )

@@ -427,7 +427,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 													const pool = yield* poolFor(o.installed.as(o.server), {
 														...defaultPool,
 														transport: { kind: "given", transport: tap.transport },
-														pool: { idleTimeoutMs: testIdleTimeout.value, min: 1, max: 1 }
+														pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: 1 }
 													}).pipe(Scope.provide(poolScope))
 													yield* Effect.scoped(
 														Effect.flatMap(pool.lease, (session) =>

@@ -1,5 +1,6 @@
 /** What the properties of role-name.test.ts read: its spaces, models and helpers. */
 
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import { type Case } from "@bjornpagen/testing/explore"
 import {
 	array,
@@ -10,7 +11,6 @@ import {
 	option,
 	string
 } from "@bjornpagen/testing/gen"
-import { maxIdentifierBytes } from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { served } from "#adapter/public/layer.ts"
@@ -195,7 +195,7 @@ const boundOf = (
 	past: boolean
 ): Option.Option<"at" | "past" | "budget"> => {
 	const longest = Arr.reduce(stems, 0, (most, [s]) => Math.max(most, utf8Length(s)))
-	const room = Math.min(prefixBudget, maxIdentifierBytes.value - 2 - longest)
+	const room = Math.min(prefixBudget, maxIdentifierBytes - 2 - longest)
 	if (room < 1) {
 		return Option.none()
 	}
@@ -209,7 +209,7 @@ const boundOf = (
 	}
 	for (const [stem, name] of stems) {
 		const bytes = length + 2 + utf8Length(stem)
-		if (bytes > maxIdentifierBytes.value) {
+		if (bytes > maxIdentifierBytes) {
 			throwsRefused(() => name({ rolePrefix: prefix }), "RoleNameTooLong", `${stem} past the limit`)
 		} else {
 			assert.equal(utf8Length(name({ rolePrefix: prefix })), bytes, `${stem} under the prefix`)
@@ -271,7 +271,7 @@ export const nameCase = (n: Names, c: Case<NameFeature>) =>
 		const namesUnder = (space: Drawn): ReadonlyArray<string> => {
 			const at = installationOf(space)
 			const fitting = (stem: string): boolean =>
-				utf8Length(specified(space, stem)) <= maxIdentifierBytes.value
+				utf8Length(specified(space, stem)) <= maxIdentifierBytes
 			if (!Arr.every([loginStem, ...roleStems], fitting)) {
 				throwsRefused(
 					() => Arr.map([desk, ...roles], (w) => roleNameOf(w, at)),

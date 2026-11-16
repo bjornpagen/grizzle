@@ -1,3 +1,4 @@
+import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 /**
  * On PostgreSQL 19: a login's and its roles' PostgreSQL roles and schemas as the installation names them, at the
  * identifier limit, through the command line, generated.
@@ -38,7 +39,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
-import { maxIdentifierBytes } from "@grizzle/limits"
 import {
 	Array as Arr,
 	DateTime,
@@ -202,7 +202,7 @@ const limitCase = (n: Names, c: Case<LimitFeature>) =>
 		Effect.gen(function* () {
 			c.noteAll(notesOf(n))
 			const substrate = yield* Substrate
-			const length = maxIdentifierBytes.value - 2 - longest(n) + (n.past ? 1 : 0)
+			const length = maxIdentifierBytes - 2 - longest(n) + (n.past ? 1 : 0)
 			const allocated = yield* substrate.schemaOfLength("gzlimit", length)
 			const declared = spell(allocated, n.spellings)
 			if (declared !== allocated) {
@@ -238,7 +238,7 @@ const limitCase = (n: Names, c: Case<LimitFeature>) =>
 				assert.ok(!drafted, "generate drafts nothing")
 				for (const w of worlds) {
 					const bytes = utf8Length(allocated) + 2 + utf8Length(converted(w.name))
-					if (bytes > maxIdentifierBytes.value) {
+					if (bytes > maxIdentifierBytes) {
 						throwsRefused(
 							() => roleNameOf(w.world, {}),
 							"RoleNameTooLong",
@@ -259,7 +259,7 @@ const limitCase = (n: Names, c: Case<LimitFeature>) =>
 			const loginRole = roleNameOf(world.login, {})
 			const roles = Arr.map(world.roles, (role) => roleNameOf(role, {}))
 			assert.ok(
-				Arr.some([loginRole, ...roles], (r) => utf8Length(r) === maxIdentifierBytes.value),
+				Arr.some([loginRole, ...roles], (r) => utf8Length(r) === maxIdentifierBytes),
 				"a role fills the identifier"
 			)
 			const roleRows = yield* substrate.admin.queryValues(

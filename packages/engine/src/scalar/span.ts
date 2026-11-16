@@ -1,7 +1,8 @@
-import { int4Max, int8Max } from "@grizzle/limits"
+import { int4Max } from "#compiler/core/canonical.ts"
 import { type Column, convertColumn } from "#compiler/core/decoder.ts"
 import { malformedDescription, unsupported } from "#compiler/core/errors.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { int8Max } from "#compiler/ir/carriers.ts"
 import { dayNumber, lastCalendarDate } from "#compiler/ir/date.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
@@ -29,23 +30,18 @@ const widthOf = (carrier: "int4" | "int8" | "date", width: unknown): number | bi
 		return width
 	}
 	if (carrier === "int4") {
-		if (
-			typeof width !== "number" ||
-			!Number.isInteger(width) ||
-			width < 1 ||
-			width > int4Max.value
-		) {
+		if (typeof width !== "number" || !Number.isInteger(width) || width < 1 || width > int4Max) {
 			throw malformedDescription(
 				captureLoc("span width", []),
-				`a span width over integer: a JavaScript integer 1-${int4Max.value}`
+				`a span width over integer: a JavaScript integer 1-${int4Max}`
 			)
 		}
 		return width
 	}
-	if (typeof width !== "bigint" || width < 1n || width > int8Max.value) {
+	if (typeof width !== "bigint" || width < 1n || width > int8Max) {
 		throw malformedDescription(
 			captureLoc("span width", []),
-			`a span width over bigint: a bigint 1-${int8Max.value}`
+			`a span width over bigint: a bigint 1-${int8Max}`
 		)
 	}
 	return width

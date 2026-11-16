@@ -1,4 +1,3 @@
-import { tableMaxColumns } from "@grizzle/limits"
 import { catchRefusal, Refusal, sameText } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
 import { TemporaryCensus } from "#compiler/core/identity.ts"
@@ -50,6 +49,7 @@ import type {
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { hashedNames } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
+import { tableMaxColumns } from "#compiler/write/carriers/carriers.ts"
 
 /** What a schema's draft is drafted from: `grizzle check`'s, and `grizzle generate`'s before it names the folder. */
 export interface DraftInput {
@@ -216,7 +216,7 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 		/** The target's content, its attribute numbers continuing the previous snapshot's. A changed one is the new
 		 * snapshot, fingerprinted where it is born; an unchanged one leaves the previous snapshot standing, and no
 		 * fingerprint of it is taken. */
-		const content = unwrap(withAttnums(state, applied.previous, plan, tableMaxColumns.value))
+		const content = unwrap(withAttnums(state, applied.previous, plan, tableMaxColumns))
 		const changed = plan.steps.length > 0 || !sameText(content, contentOf(previous))
 		const snapshot = changed ? unwrap(finishSnapshot(content)) : previous
 		const drafted = changed ? planFiles(plan) : []

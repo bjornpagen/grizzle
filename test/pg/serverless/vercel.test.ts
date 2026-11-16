@@ -1,3 +1,4 @@
+import { timerMinMs } from "@bjornpagen/grizzle/adapter/connection/config"
 /**
  * The session pool on Vercel Fluid compute.
  *
@@ -26,7 +27,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { timerMinMs } from "@grizzle/limits"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Array as Arr, Effect, Formatter, Layer, ManagedRuntime, Option, Redacted } from "effect"
 import { openServed } from "#adapter/db/served.ts"
@@ -234,7 +234,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 									 * pool's idle timer only has to close those above the floor before Vercel's keep-alive after the last
 									 * release ends.
 									 */
-									const idleTimeoutMs = timerMinMs.value
+									const idleTimeoutMs = timerMinMs
 									const { attached, onVercelPool } = recordedAttach()
 									const pool = yield* poolFor(reader, {
 										...onVercelPool,

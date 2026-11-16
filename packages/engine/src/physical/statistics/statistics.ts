@@ -1,9 +1,9 @@
-import { statisticsMaxColumns } from "@grizzle/limits"
 import { refuse } from "#compiler/analysis/theory/build.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
+import { statisticsMaxColumns } from "#compiler/physical/access/extract.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import type { CreateStatistics } from "#compiler/sql/ast.ts"
 
@@ -108,13 +108,13 @@ export const planStatistics = (
 		if (
 			first === undefined ||
 			second === undefined ||
-			r.columns.length > statisticsMaxColumns.value ||
+			r.columns.length > statisticsMaxColumns ||
 			new Set(r.columns).size !== r.columns.length
 		) {
 			return refuse(
 				"MalformedDescription",
 				SourceLoc(label, []),
-				`two to ${statisticsMaxColumns.value} distinct statistics columns`
+				`two to ${statisticsMaxColumns} distinct statistics columns`
 			)
 		}
 		const unknown = r.columns.find((field) => o.field({ kind: "field", field }) === undefined)

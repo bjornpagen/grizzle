@@ -1,4 +1,3 @@
-import { maxStringLength } from "@grizzle/limits"
 import { appendAll } from "#compiler/core/array.ts"
 import {
 	type CompileError,
@@ -14,6 +13,38 @@ import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareQuoted } from "#compiler/core/text.ts"
+
+/**
+ * The longest string V8 builds, in UTF-16 code units: a statement, drafted file, snapshot.json, meta.json or canonical
+ * text that would be longer is refused as ResourceBound (stringLength) before it is built, where building it would
+ * throw RangeError "Invalid string length". It is String::kMaxLength on a 64-bit platform, which node:buffer's
+ * constants.MAX_STRING_LENGTH reports (test/unit/core/lines.test.ts reads it).
+ *
+ * @limitKind published
+ * @owner V8 14.6, Node 26.13.0's JavaScript engine
+ * @unit UTF-16 code units
+ * @scope one JavaScript string
+ * @constraint compile-time constant
+ * @source https://github.com/nodejs/node/blob/v26.13.0/deps/v8/include/v8-primitive.h#L127
+ * @quote kApiSystemPointerSize == 4 ? (1 << 28) - 16 : (1 << 29) - 24;
+ * @verified 2026-11-05
+ */
+export const maxStringLength = 2 ** 29 - 24
+
+/**
+ * The greatest integer, which is also INT_MAX, a C int's greatest value: PostgreSQL's integer is its int32, and a C
+ * int is 32 bits on every platform it builds on.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit an integer value
+ * @scope every integer value: a column, a parameter, a literal, an endpoint, a span width
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L380
+ * @quote <entry>-2147483648 to +2147483647</entry>
+ * @verified 2026-11-14
+ */
+export const int4Max = 2147483647
 
 export const canonicalFormat = "grizzle-canonical"
 
@@ -933,11 +964,11 @@ class TextSink implements Sink {
 
 	#append(text: string): void {
 		const needed = this.#text.length + text.length
-		if (needed > maxStringLength.value) {
+		if (needed > maxStringLength) {
 			throw new Refusal(
 				resourceBound(canonicalTextLoc, {
 					kind: "stringLength",
-					limit: maxStringLength.value,
+					limit: maxStringLength,
 					needed
 				})
 			)

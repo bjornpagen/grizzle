@@ -46,8 +46,8 @@ export const numericPowersEvaluationDoesNoMoreDigitWorkThanNumericCDoesWithinThe
 					const [a, b] = pair
 					const { work } = powerWork(Decimal.of(a), Decimal.of(b))
 					assert.ok(
-						work <= powerWorkLimit.value,
-						`power(${a}, ${b}) does ${work} digit operations, past ${powerWorkLimit.value}`
+						work <= powerWorkLimit,
+						`power(${a}, ${b}) does ${work} digit operations, past ${powerWorkLimit}`
 					)
 					c.note("an admitted power evaluated")
 					if (near) {

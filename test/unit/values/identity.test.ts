@@ -15,11 +15,11 @@
  * Features: each carrier stored and refused; each rewrite and each change; each malformation.
  */
 
+import { binary32Max } from "@bjornpagen/grizzle-engine/scalar/values/float"
 import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, int, shuffled } from "@bjornpagen/testing/gen"
 import { passed } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { binary32Max } from "@grizzle/limits"
 import { Array as Arr, Effect, String as Str } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -214,7 +214,7 @@ export const factIdentityRefusesFactsThatAreNotExactlyTheHeadingNamingTheFieldWh
 												: malformed === "a real past the range"
 													? [
 															heading,
-															{ ...fact, ratio: binary32Max.value * 2 },
+															{ ...fact, ratio: binary32Max * 2 },
 															{ fault: "realInexact", field: "ratio" }
 														]
 													: malformed === "a real no binary32 value holds"

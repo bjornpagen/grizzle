@@ -1,5 +1,4 @@
 import { createSecureContext, type SecureContext } from "node:tls"
-import { portMax, timerMaxMs, timerMinMs } from "@grizzle/limits"
 import * as Arr from "effect/Array"
 import * as Brand from "effect/Brand"
 import * as Effect from "effect/Effect"
@@ -20,6 +19,53 @@ import {
 	readCaller,
 	roleSpaceOf
 } from "#compiler/plan/runtime.ts"
+
+/**
+ * The least delay a Node timer waits: pg's connect timeout and pg-pool's idle timeout are Node timers, and grizzle
+ * admits a connectTimeoutMs, an idleTimeoutMs or a heartbeatMs from it.
+ *
+ * @limitKind published
+ * @owner Node.js 26.13.0 timers
+ * @unit milliseconds
+ * @scope a connection's connectTimeoutMs, a DbConfig's pool.idleTimeoutMs and an HttpConfig's heartbeatMs, each the
+ *   delay of a Node timer
+ * @constraint protocol constant
+ * @source https://nodejs.org/docs/v26.13.0/api/timers.html#settimeoutcallback-delay-args
+ * @quote When `delay` is larger than `2147483647` or less than `1` or `NaN`, the `delay` will be set to `1`.
+ * @verified 2026-11-05
+ */
+export const timerMinMs = 1
+
+/**
+ * The longest delay a Node timer keeps: pg's connect timeout and pg-pool's idle timeout are Node timers, and one longer
+ * is set to 1, so it fires at once.
+ *
+ * @limitKind published
+ * @owner Node.js 26.13.0 timers
+ * @unit milliseconds
+ * @scope a connection's connectTimeoutMs, a DbConfig's pool.idleTimeoutMs and an HttpConfig's heartbeatMs, each the
+ *   delay of a Node timer
+ * @constraint protocol constant
+ * @source https://nodejs.org/docs/v26.13.0/api/timers.html#settimeoutcallback-delay-args
+ * @quote When `delay` is larger than `2147483647` or less than `1` or `NaN`, the `delay` will be set to `1`.
+ * @verified 2026-11-05
+ */
+export const timerMaxMs = 2_147_483_647
+
+/**
+ * The largest port number: TCP's, the transport a connection's socket runs over, whose port numbers are 16 bits, the
+ * Dynamic Ports ending the range.
+ *
+ * @limitKind published
+ * @owner the IETF's transport port number registries (RFC 6335)
+ * @unit port numbers
+ * @scope the port of one connection's host
+ * @constraint protocol constant
+ * @source https://www.rfc-editor.org/rfc/rfc6335.html#section-6
+ * @quote the Dynamic Ports, also known as the Private or Ephemeral Ports, from 49152-65535 (never assigned)
+ * @verified 2026-11-05
+ */
+const portMax = 65_535
 
 /**
  * A connection block, parsed once where it is given: the DbConfig DbLayer.make takes, and the migration connection
@@ -166,13 +212,13 @@ const integerIn = (v: number, least: number, most: number): boolean =>
 	Number.isSafeInteger(v) && v >= least && v <= most
 
 /** Whether `v` is a timer's delay: an integer number of milliseconds from 1 to the longest a timer keeps. */
-export const timerDelay = (v: number): boolean => integerIn(v, timerMinMs.value, timerMaxMs.value)
+export const timerDelay = (v: number): boolean => integerIn(v, timerMinMs, timerMaxMs)
 
 /** The rule a timer's delay keeps. */
 export const timerRule: SettingRule = {
 	kind: "integer",
-	least: timerMinMs.value,
-	most: timerMaxMs.value,
+	least: timerMinMs,
+	most: timerMaxMs,
 	unit: "milliseconds"
 }
 
@@ -291,9 +337,9 @@ const parseTransport = (
 	if (Str.startsWith("/")(host)) {
 		return Result.fail(faultAt(where, "host", { kind: "networkHost" }))
 	}
-	if (typeof port !== "number" || !integerIn(port, 1, portMax.value)) {
+	if (typeof port !== "number" || !integerIn(port, 1, portMax)) {
 		return Result.fail(
-			faultAt(where, "port", { kind: "integer", least: 1, most: portMax.value, unit: "port" })
+			faultAt(where, "port", { kind: "integer", least: 1, most: portMax, unit: "port" })
 		)
 	}
 	if (typeof passedOpen !== "function") {

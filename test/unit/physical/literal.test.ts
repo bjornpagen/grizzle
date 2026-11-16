@@ -31,9 +31,9 @@
  * changed cell and a padding bit set; a lowercase digit, an edited row count and a literal out of its printed form.
  */
 
+import { maxStringLength } from "@bjornpagen/grizzle-engine/core/canonical"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { maxStringLength } from "@grizzle/limits"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { draftMigration } from "#compiler/deploy/render/generate.ts"
@@ -188,7 +188,7 @@ export const aClosedConstantsHexLiteralDecodesToItsConstantIsTheOraclesHexOfItsP
 				const hex = literalOf(constant)
 				assert.equal(
 					hex,
-					hexOfText(succeeded(installedText(constant, maxStringLength.value))),
+					hexOfText(succeeded(installedText(constant, maxStringLength))),
 					"the literal is the oracle's hex of the cells' bits padded to whole digits"
 				)
 				assert.deepEqual(

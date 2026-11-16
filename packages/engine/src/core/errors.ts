@@ -1,4 +1,3 @@
-import { regexTextMaxBytes } from "@grizzle/limits"
 import {
 	type ChangedColumn,
 	type ClaimRule,
@@ -32,6 +31,53 @@ import { formatLoc, formatPath, prefixedLoc, type SourceLoc } from "#compiler/co
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 
+/**
+ * PostgreSQL's MaxAllocSize, the largest chunk its allocator hands out, which bounds the messages a backend reads.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope one allocation of a backend
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/memutils.h#L40
+ * @quote #define MaxAllocSize ((Size) 0x3fffffff)
+ * @verified 2026-11-14
+ */
+export const maxAllocSize = 0x3fff_ffff
+
+/**
+ * The bytes of one pg_wchar, the wide character PostgreSQL's regex engine reads a text as: an unsigned int, 32 bits on
+ * every platform PostgreSQL 19 builds on.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope one pg_wchar, an unsigned int of the platform's C ABI, 32 bits on every platform PostgreSQL builds on
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/mb/pg_wchar.h#L28
+ * @quote typedef unsigned int pg_wchar;
+ * @verified 2026-11-14
+ */
+const pgWcharBytes = 4
+
+/**
+ * The longest text, in UTF-8 bytes, PostgreSQL's regex engine reads: before it matches, it widens the text into one
+ * pg_wchar per byte and one more, and refuses an allocation past MaxAllocSize ("invalid memory alloc request size"). So
+ * a query matches by ~, which Compute.matches is, only an operand whose pattern bounds its bytes within this, and a
+ * check or generated column that matches a longer text fails its write.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19rc2
+ * @unit bytes
+ * @scope the subject text of one match by ~
+ * @derivation RE_execute allocates "data = palloc_array(pg_wchar, dat_len + 1);" over its subject's dat_len bytes for
+ *   ~ (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/regexp.c#L332, verified 2026-11-14),
+ *   and palloc refuses a size past MaxAllocSize, so the length plus one is at most MaxAllocSize / sizeof(pg_wchar),
+ *   rounded down
+ * @from {@link maxAllocSize}, {@link pgWcharBytes}
+ */
+export const regexTextMaxBytes = Math.floor(maxAllocSize / pgWcharBytes) - 1
+
 /** A path inside a value: object keys and array indices. */
 type Path = ReadonlyArray<string | number>
 
@@ -52,7 +98,7 @@ export type Artifact =
 
 /**
  * The limit of PostgreSQL's regex compiler a pattern's ARE passes (scalar/regex/space.ts pastCompileSpace), with the
- * facts it states, each bound a @grizzle/limits constant:
+ * facts it states, each bound a constant:
  * - `anchorLoop`: an unbounded repetition of a body that can match zero-width through an anchor, which PostgreSQL
  *   breaks by cloning states exponentially and which is too large to rewrite as a loop of consuming matches;
  * - `colors`: `needed` colors, the classes of characters its sets hold alike, past `limit` (regexMaxColors);
@@ -101,24 +147,24 @@ const regexSpaceText = (measure: RegexSpaceMeasure): string => {
  * The bound a ResourceBound crossed, with the facts it states:
  * - `regexCompileSpace`: the pattern `pattern`, which `measure` puts past a limit of PostgreSQL's regex compiler;
  * - `stringLength`: a text grizzle builds as one string, `needed` UTF-16 code units long, past V8's longest string,
- *   `limit` (@grizzle/limits maxStringLength);
+ *   `limit` (maxStringLength);
  * - `tableColumns`: the table, view or materialized view `table` (a write program's carrier among them), of `needed`
- *   columns, past PostgreSQL's `limit` (@grizzle/limits tableMaxColumns);
- * - `selectList`: a select list of `needed` entries, past PostgreSQL's `limit` (@grizzle/limits selectMaxEntries);
+ *   columns, past PostgreSQL's `limit` (tableMaxColumns);
+ * - `selectList`: a select list of `needed` entries, past PostgreSQL's `limit` (selectMaxEntries);
  * - `statementBytes`: a statement `needed` UTF-8 bytes long, past PostgreSQL's longest protocol message, `limit`
- *   (@grizzle/limits messageMaxBytes);
- * - `statementParams`: a statement of `needed` placeholders, past the `limit` a Bind message counts (@grizzle/limits
+ *   (messageMaxBytes);
+ * - `statementParams`: a statement of `needed` placeholders, past the `limit` a Bind message counts (
  *   statementMaxParams);
  * - `numericDigits`: a numeric expression whose value may need `needed` integer digits, past numeric's `limit`
  *   (ir/carriers.ts numericMaxIntegerDigits), where PostgreSQL's numeric arithmetic would raise;
  * - `constantBits`: the constant of the closed relation or side `constant`, whose cells times their width come to
- *   `needed` bits, past PostgreSQL's longest bit string, `limit` (@grizzle/limits constantMaxBits), refused before it is
+ *   `needed` bits, past PostgreSQL's longest bit string, `limit` (constantMaxBits), refused before it is
  *   packed;
  * - `cellCodes`: the constant of the closed relation or side `constant`, whose payload space holds `needed` codes, past
- *   the `limit` a cell read as an integer holds (@grizzle/limits cellMaxCodes), refused before it is packed;
+ *   the `limit` a cell read as an integer holds (cellMaxCodes), refused before it is packed;
  * - `regexInclusion`: whether every value of the language `inner` is a member of the language `outer`, which a cast's
  *   precondition rests on, undecided because comparing their automata passes the text analysis's bounds, `states` DFA
- *   states or `work` NFA-state visits (@grizzle/limits regexDfaMaxStates, regexDfaMaxWork).
+ *   states or `work` NFA-state visits (regexDfaMaxStates, regexDfaMaxWork).
  */
 export type CompileBound =
 	| {
@@ -264,7 +310,7 @@ const preconditionText = (kind: PreconditionKind, operand: string): string => {
 		case "lexical":
 			return `${operand} is a member of its target's lexical form`
 		case "bounded":
-			return `${operand} is at most ${regexTextMaxBytes.value} UTF-8 bytes, the longest text PostgreSQL's regex engine reads`
+			return `${operand} is at most ${regexTextMaxBytes} UTF-8 bytes, the longest text PostgreSQL's regex engine reads`
 	}
 }
 

@@ -150,7 +150,7 @@ const transport = {
 	servername: "localhost"
 } as const
 
-const pool = { max: 1, min: 0, idleTimeoutMs: testConnectTimeout.value } as const
+const pool = { max: 1, min: 0, idleTimeoutMs: testConnectTimeout } as const
 
 /** A verify that refuses every token. */
 const verifyToken: Verify = (token) => Effect.fail(new TokenError({ cause: token }))
@@ -165,7 +165,7 @@ const validConfig = (login: LoginName): LoginConfig => {
 		transport,
 		database: "work",
 		password: Redacted.make("secret"),
-		connectTimeoutMs: testConnectTimeout.value,
+		connectTimeoutMs: testConnectTimeout,
 		pool
 	}
 	return login === "PlainLogin"

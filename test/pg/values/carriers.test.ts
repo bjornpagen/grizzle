@@ -1,3 +1,4 @@
+import { vectorMaxDimensions } from "@bjornpagen/grizzle-engine/ir/carriers"
 /**
  * Spans and vectors against PostgreSQL 19 and the pinned pgvector: the host's carriers (scalar/values/span.ts,
  * scalar/values/vector.ts) are PostgreSQL's, value for value.
@@ -37,7 +38,6 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { double } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { vectorMaxDimensions } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Option, pipe, Result, String as Str } from "effect"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
 import { compareSpan, makeSpan, spanText } from "#compiler/scalar/values/span.ts"
@@ -154,7 +154,7 @@ const binaryVerdict = (xs: ReadonlyArray<number>): InputVerdict => {
 			return "22003"
 		}
 	}
-	if (xs.length > vectorMaxDimensions.value) {
+	if (xs.length > vectorMaxDimensions) {
 		return "54000"
 	}
 	return Arr.every(xs, Number.isFinite) ? "admitted" : "22000"
@@ -195,7 +195,7 @@ const inputGen: Gen<InputSketch> = (source) => {
 		length: source.draw(
 			weighted([
 				[3, constant(head.length)],
-				[1, int(vectorMaxDimensions.value - 1, vectorMaxDimensions.value + 1)]
+				[1, int(vectorMaxDimensions - 1, vectorMaxDimensions + 1)]
 			])
 		)
 	}
@@ -395,7 +395,7 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 											Arr.map(xs, Math.fround),
 											"pgvector reads each component as its binary32 rounding"
 										)
-										if (xs.length === vectorMaxDimensions.value) {
+										if (xs.length === vectorMaxDimensions) {
 											c.note("at the storage limit")
 										}
 										if (Arr.some(xs, (x) => x !== 0 && Math.fround(x) === 0)) {

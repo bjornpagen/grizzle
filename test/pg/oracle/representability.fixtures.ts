@@ -1,3 +1,5 @@
+import { regexMaxRepeat } from "@bjornpagen/grizzle-engine/scalar/lexical"
+import { btreeMaxItemSize } from "@bjornpagen/grizzle-engine/schema/representability"
 import {
 	array,
 	boolean,
@@ -8,7 +10,6 @@ import {
 	oneOf,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { btreeMaxItemSize, regexMaxRepeat } from "@grizzle/limits"
 import { Array as Arr, Option, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
@@ -47,7 +48,7 @@ const fieldGen: Gen<FieldSketch> = weighted<FieldSketch>([
 			(source) => ({
 				kind: "text",
 				bound: "pattern",
-				length: source.draw(int(0, regexMaxRepeat.value))
+				length: source.draw(int(0, regexMaxRepeat))
 			}),
 			(source) => ({ kind: "text", bound: "charLength", length: source.draw(int(0, 700)) }),
 			(source) => ({ kind: "text", bound: "octetLength", length: source.draw(int(0, 2800)) })
@@ -144,8 +145,8 @@ export const filled = (s: KeySketch): ReadonlyArray<FieldSketch> => {
 	let lo = 0
 	let hi =
 		firstField?.kind === "text" && firstField.bound === "pattern"
-			? regexMaxRepeat.value
-			: btreeMaxItemSize.value
+			? regexMaxRepeat
+			: btreeMaxItemSize
 	while (lo < hi) {
 		const mid = Math.ceil((lo + hi) / 2)
 		if (layoutOf(at(mid)).ok) {
