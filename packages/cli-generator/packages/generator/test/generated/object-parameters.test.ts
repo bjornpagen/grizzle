@@ -20,8 +20,6 @@
  * in `--help`; properties per location (the six path styles, the three query parameters, the two headers), each oracle
  * the expansion above computed from the drawn object and compared byte for byte with what reached the capture server;
  * and an exhaustion of text that is not JSON for every kind of JSON input.
- *
- * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
 import { exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, type RequiredCoverage, requiredInSpace } from "@bjornpagen/testing/features"

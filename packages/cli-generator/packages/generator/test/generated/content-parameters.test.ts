@@ -8,8 +8,6 @@
  *   text that is not JSON in a JSON flag. Oracles: the query's pairs percent-decoded and their JSON parsed back to the
  *   values given; the header's and the cookie's text as given; and exit 2 with no connection for each fault.
  * - Help: each JSON content flag shows `json` as its value in `--help`.
- *
- * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

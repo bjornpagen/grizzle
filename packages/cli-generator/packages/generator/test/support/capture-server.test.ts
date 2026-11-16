@@ -31,11 +31,6 @@ import { searched } from "@bjornpagen/testing/vitest"
  *   incomplete body, and the observation completes once the client closes.
  * - TLS: connections to origin A or B, with or without the fixture's client certificate. Oracle: each connection's
  *   origin and certificate subject, present exactly when the client presented one.
- *
- * Plants (local only, reverted): http.ts trimWhitespace keeping the trailing whitespace; http.ts chunkedBody dropping
- * the last chunk; capture-server.ts headOf writing the framing header before the scripted ones; capture-server.ts
- * writeResponse sending one byte more of a stalled body; capture-server.ts recording `Option.none()` for every TLS
- * certificate.
  */
 import { describe, it, layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"

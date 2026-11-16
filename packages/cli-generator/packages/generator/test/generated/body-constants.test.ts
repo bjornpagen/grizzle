@@ -15,10 +15,6 @@
  * One package with one POST whose body holds each form. A property draws a run, by field flags or by a whole body,
  * each member given or not; the oracle is the schema's constants and the drawn values: the body that reached the
  * capture server, compared as JSON, or exit 2 and no request.
- *
- * Plants, each applied to the generator, seen to fail this suite and reverted: flatten.ts oneValue answering none (every
- * constant a flag again); input.ts mergeSources skipping the constants; flatten.ts shapes answering true for every
- * allOf member (the refined string a JSON flag).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

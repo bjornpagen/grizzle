@@ -23,8 +23,6 @@
  *   outside its field's schema. Oracles: the pairs the rules give, in property and member order, read back off the
  *   wire by each wire's own rules (a form body as the WHATWG URL Standard reads it, where `+` is a space; a query as
  *   RFC 3986 percent-encoding, where `+` is a plus); and exit 2 with no connection for each fault.
- *
- * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
 import { explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -349,6 +349,9 @@ importers:
         specifier: 'catalog:'
         version: 7.1.0-beta
     devDependencies:
+      '@bjornpagen/limits':
+        specifier: workspace:*
+        version: link:../limits
       '@bjornpagen/testing':
         specifier: workspace:*
         version: link:../testing
@@ -362,8 +365,22 @@ importers:
         specifier: 'catalog:'
         version: 5.1.0(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)(yaml@2.9.1))
 
+  vendor/toolchain/packages/limit: {}
+
+  vendor/toolchain/packages/limits:
+    dependencies:
+      '@bjornpagen/limit':
+        specifier: workspace:*
+        version: link:../limit
+
   vendor/toolchain/packages/testing:
     dependencies:
+      '@bjornpagen/limit':
+        specifier: workspace:*
+        version: link:../limit
+      '@bjornpagen/limits':
+        specifier: workspace:*
+        version: link:../limits
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.1.4(effect@4.1.4)(redis@6.3.1)

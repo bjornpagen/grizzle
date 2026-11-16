@@ -32,12 +32,6 @@ import { searched } from "@bjornpagen/testing/vitest"
  *
  * A case draws a focus, a feature or none, and the run aimed at it; while the floor and the steered phase still miss a
  * required feature, the case aims at one of those instead, so each is reached on every run seed.
- *
- * Plants, each applied to src/runtime-src/runtime and seen to fail this suite and reverted:
- * - negotiate.ts's selectRequestMedia taking the first declared media type by default instead of the JSON one;
- * - negotiate.ts's selectRequestMedia taking a --content-type the operation does not declare as its first media type;
- * - serialize.ts's form body joining a field that does not explode with ";" instead of ",";
- * - input.ts's selectBody never refusing a flag of another alternative.
  */
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"

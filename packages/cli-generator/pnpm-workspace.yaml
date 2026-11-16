@@ -3,6 +3,8 @@ packages:
   # The toolchain, the submodule pinned at its commit: its dev tools and testing library join the workspace and run from
   # source, and its own gate proves them.
   - vendor/toolchain/packages/devtools
+  - vendor/toolchain/packages/limit
+  - vendor/toolchain/packages/limits
   - vendor/toolchain/packages/testing
 nodeLinker: hoisted
 verifyDepsBeforeRun: error

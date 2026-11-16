@@ -1,4 +1,4 @@
-import { HARDENED_FLAGS } from "@bjornpagen/testing/vitest/config"
+import { HARDENED_FLAGS } from "@bjornpagen/testing/runner"
 import { NodeCrypto, NodeServices } from "@effect/platform-node"
 import {
 	Array as Arr,

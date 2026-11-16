@@ -17,18 +17,6 @@
  * One package with a secured GET taking a header parameter, a secured POST with a JSON body, and an open GET. A
  * property draws a request and runs it as a dry run with and without the credential and as a verbose real send,
  * comparing the three with each other and with what reached the capture server; an exhaustion runs every JSON error.
- *
- * Plants, each applied to src/runtime-src/runtime and seen to fail this suite and reverted:
- * - client.ts's sendOrder listing the headers sorted by name, as fetch's `Headers` iterates them, not as undici writes
- *   them;
- * - client.ts's sendOrder leaving `content-length` where the record holds it, not last, where undici writes it;
- * - client.ts's `--verbose` request block redacting a header by its name before the run's scrubber writes the credential
- *   as its placeholder, so it printed `<redacted>` where the dry run prints `Bearer <redacted:token>`;
- * - auth.ts's shownRedactedValue without a placeholder's `Bearer` form;
- * - redact.ts's placeholder written `<redacted-<scheme>>`;
- * - output.ts's dry run without its `content-length` line;
- * - output.ts's send ignoring `--dry-run`, so a dry run opened a connection;
- * - output.ts's JSON error without `requestId`, so a 404 carrying its declared request id rendered without it.
  */
 import { createServer } from "node:net"
 import { exhaust, explore } from "@bjornpagen/testing/explore"

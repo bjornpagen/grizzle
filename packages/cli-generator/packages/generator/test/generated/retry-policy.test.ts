@@ -21,8 +21,6 @@
  * A steered property draws the operation, the body's source, the flags and the server's sequence of answers. Oracle:
  * a model of the rules above run over that sequence, compared with every attempt the capture server recorded, the exit
  * code, the notices and the JSON error.
- *
- * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
 import { explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

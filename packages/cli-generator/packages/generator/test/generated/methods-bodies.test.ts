@@ -9,9 +9,6 @@
  *   `Content-Length` for a file and `Transfer-Encoding: chunked` for stdin. An empty body's framing is no part of the
  *   contract: no framing, `Content-Length: 0` and a chunked body with no chunk all frame a zero-length body (RFC 9112
  *   6.3), so asserting one would pin an implementation detail.
- *
- * Plants (local only, reverted): input.ts stdinBody announcing a length of zero; normalize/operations.ts upper-casing
- * an additional operation's method.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

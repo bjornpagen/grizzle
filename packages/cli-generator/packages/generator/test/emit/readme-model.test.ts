@@ -8,8 +8,6 @@
  * the element and field refusals of the commands that remain; the webhooks are listed in document order as escaped
  * literals; every fence closes, and no line inside one could close it; no control, format, separator or lone surrogate
  * code point appears raw; and oxfmt leaves the Markdown unchanged.
- *
- * Plants, each applied to src/emit/readme.ts, seen to fail this suite and reverted: none yet.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

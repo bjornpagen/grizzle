@@ -18,9 +18,6 @@
  *   flow's URL; exit 3 and no request without a credential, exit 2 and no request for a planted fault; and the
  *   credential's value nowhere in what the run prints.
  * - Help: the root's help offers every scheme's `--<scheme>-file` flag with a description naming that scheme.
- *
- * Plants (local only, reverted): input.ts stripLineEnd keeping a credential file's line end; auth.ts appendCookie
- * joining the cookie's name and value with a colon; auth.ts credentialFileSetting describing no flag.
  */
 import { aimed, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

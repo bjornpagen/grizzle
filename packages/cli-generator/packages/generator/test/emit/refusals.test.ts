@@ -6,10 +6,6 @@
  * path array before another positional, a path parameter written by content, form content in a query parameter (each
  * `unsupported-parameter`), and an event-stream request body, alone or beside an NDJSON or a text alternative
  * (`unsupported-body`).
- *
- * Plants, each applied to src/emit/cli.ts, seen to fail this suite and reverted:
- * - positionalEntry refusing a boolean path parameter as `unsupported-flag`, so its operation was reported as
- *   `EMT-1/unsupported-flag`.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

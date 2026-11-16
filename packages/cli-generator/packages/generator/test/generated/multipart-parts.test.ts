@@ -30,11 +30,6 @@ import { searched } from "@bjornpagen/testing/vitest"
  *
  * A case draws a focus, a feature or none, and the run aimed at it; while the floor and the steered phase still miss a
  * required feature, the case aims at one of those instead, so each is reached on every run seed.
- *
- * Plants, each applied to src/runtime-src/runtime and seen to fail this suite and reverted:
- * - multipart.ts's part head leaving out a part's first declared header;
- * - multipart.ts's part head writing `image/png` for a part sent as `image/jpeg`;
- * - input.ts's partOptions never refusing an option given without its part.
  */
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"

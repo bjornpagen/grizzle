@@ -7,10 +7,6 @@
  * `RQB-03/flag-collision`) exactly when it is a reserved flag name, each once at its own pointer with no command for
  * the operation; otherwise the operation is a command, at the path its site gives. An operation that folds to a
  * runtime flag's name, such as `follow`, is a command, and so is a group named like one.
- *
- * Plants, owed at the swarm gate (not run yet): index.ts holding command names against the reserved flag names (the
- * over-refusal that cost GitHub's follow); plan.ts holding parameter flags against the reserved command names only;
- * index.ts dropping the reserved command names from the group check.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

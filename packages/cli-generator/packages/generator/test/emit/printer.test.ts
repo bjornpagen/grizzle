@@ -10,13 +10,6 @@
  * back as the value with its keys sorted and its objects broken, and a package manifest prints with its top-level keys
  * in the documented order, its dependency maps sorted and every array and object broken; the formatter leaves both
  * unchanged, and a manifest with a key outside the order is refused.
- *
- * Plants, each applied to src/emit/printer.ts or src/emit/escape.ts, seen to fail this suite and reverted: importLine
- * breaking a named import of one name past column 100; isComposition never true, so function-composition arguments
- * hug or print flat; printJson's numbers through jsonTextOf (`1e+21`); package.json sorting only the dependency maps,
- * not `bin` and `engines`; an empty argument list breaking past column 100; isPoorChain dropped from movesWhenLong;
- * movesBelow ignoring a breakable value's first line; keyText printing `__proto__` bare; `\u` escapes in lower case;
- * printJson keeping an object's keys in insertion order.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

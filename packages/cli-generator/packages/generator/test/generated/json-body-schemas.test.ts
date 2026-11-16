@@ -16,8 +16,6 @@
  * property draws a body for one of them, sometimes made to reach one situation, written compact or spaced, and gives
  * it by `--body`. Oracle: a reference check of the body against each schema's rules above; a passing body arrives as
  * one request carrying exactly the text given, and a failing one is exit 2 with no connection.
- *
- * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
 import { explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

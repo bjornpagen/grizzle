@@ -22,12 +22,6 @@
  * followed past ready, an end, failures safe and never, invalid JSON data, a lifecycle cut short, an open stream to its
  * end, raw bytes, an undeclared event type, a ready read past to its next event, an unexpected event, and data its
  * schema admits and refuses.
- *
- * Plants (~/.cache/effect-openapi-cli-generator/plants): sse-joins-across-blank-line.patch (a blank line dispatches
- * the event without clearing its data, so the next event's data joins it), sse-stops-before-ready.patch (the stream
- * stops one event before its stop point); and, applied to src/runtime-src/runtime/sse.ts, seen to fail and reverted, an
- * event outside a closed contract read as a text item, a `ready` with a `next` taken as the stop point, and `admitted`
- * answering true for every data (data a schema refuses printed).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -12,8 +12,6 @@
  *   with exit 4; the proxy's heads naming exactly the hosts it carried; a bearer token on exactly the hops to a bound
  *   origin or, with the flag, to the base; Proxy-Authorization at the proxy exactly when its URL has userinfo, and never
  *   at an origin; and one warning for a credentialed plaintext base that is not loopback, none for a loopback base.
- *
- * Plants (local only, reverted):
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

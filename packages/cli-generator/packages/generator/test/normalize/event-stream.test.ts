@@ -17,11 +17,6 @@
  *
  * Features: each placement, each union form, each finding, a contract with a retry rule, JSON data for other events,
  * the open contract, a closed contract, a ready role with its next event, a name repeated with the same row.
- *
- * Plants (~/.cache/effect-openapi-cli-generator/plants): event-stream-role-ignored.patch (a malformed `x-stream` reads
- * as no role); and, applied to src/normalize/event-stream.ts, seen to fail and reverted, a `next` naming no event
- * accepted, a union whose every branch names its event read as open, dataOf ignoring a `contentSchema`, and schemas.ts
- * sitesOf storing only a `contentSchema` that holds no `$ref` (the asserting reference's own key unstored).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

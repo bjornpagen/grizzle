@@ -12,14 +12,12 @@
  * - A global flag before the group name sends the same request as after the command's own arguments.
  *
  * One package from `test/fixtures/lazy-root` (nested tags, an author command), with the eager oracle beside it.
- *
- * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
+import { availableParallelism } from "node:os"
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
-import { testWorkers } from "@bjornpagen/testing/workers"
 import { layer } from "@effect/vitest"
 import { deepStrictEqual } from "@effect/vitest/utils"
 import { regex } from "arkregex"
@@ -276,10 +274,10 @@ const invocationsOf = (
  * @unit CLI processes at once
  * @scope one exhaustion, in one Vitest worker; the run's other test files go on in workers of their own beside it, so
  * the run holds these processes on top of its workers while it lasts
- * @derivation testWorkers, the testing library's count of test processes one run holds at once: availableParallelism(),
- * one a logical CPU, since each bin is a Node process of one JavaScript thread
+ * @derivation availableParallelism(), the logical CPUs this process may use: one bin at a time a CPU, since each bin is
+ * a Node process of one JavaScript thread
  */
-const INVOCATIONS_AT_ONCE = testWorkers
+const INVOCATIONS_AT_ONCE = availableParallelism()
 
 /** Where a global flag goes: before the group name, or after the command's own arguments. */
 type Placement = "before the group" | "after the arguments"

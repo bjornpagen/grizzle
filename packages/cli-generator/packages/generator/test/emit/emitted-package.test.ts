@@ -17,10 +17,6 @@
  *
  * The compiler is the oracle, so it is checked to refuse: a package with a command whose root services layer has its
  * `BaseUrl.layer` entry cut fails tsc, which names `Servers`, the service the commands require and nothing provides.
- *
- * Plants, each applied to src/emit and seen to fail this suite and reverted:
- * - cli.ts's isArrayParameter without its content check, so an optional array parameter written by content reached its
- *   builder as the flag's Option (the kept case).
  */
 import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
 import type { Kept } from "@bjornpagen/testing/explore"

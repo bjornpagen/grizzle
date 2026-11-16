@@ -13,8 +13,6 @@
  *
  * One package with a mutual-TLS scheme beside a header key. An exhaustion per error (every flag, variable and
  * invalid-variable setting) and an exhaustion of retry counts through a recording proxy.
- *
- * Under the owner's swarm gate this suite has not been run yet, nor checked against plants.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

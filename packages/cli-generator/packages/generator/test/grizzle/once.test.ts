@@ -34,20 +34,14 @@
  * case aimed at it; while the floor and the steered phase still miss a feature, it aims at one of those instead
  *, so each is reached on every run seed. A case may run as long as grizzle lets one case of its own
  * searches run (test/support/limits.ts caseHang), which the driver reports: its calls wait on the same cluster.
- *
- * Plants, each applied to the generator, seen to fail this suite on a private cluster, and reverted: sse.ts eventSteps
- * writing no `upsert` after a stream's first (rows lost); sse.ts eventSteps ending the stream at its first `upsert`
- * (no `ready`); flatten.ts oneValue taking every closed object with members for the one value `{}` (a read's params
- * sent as `{}`, its flags gone); sse.ts eventSteps stopping at `ready` under `--follow` too (a followed read's change
- * never printed).
  */
 import { explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, int, shuffled, weighted } from "@bjornpagen/testing/gen"
 import { exact, ordered, set, structuralHash } from "@bjornpagen/testing/oracle"
+import { HARDENED_FLAGS } from "@bjornpagen/testing/runner"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
-import { HARDENED_FLAGS } from "@bjornpagen/testing/vitest/config"
 import { layer } from "@effect/vitest"
 import { fail } from "@effect/vitest/utils"
 import { jsonTextOf } from "@superstarter/json"

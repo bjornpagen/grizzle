@@ -9,9 +9,6 @@
  *   wire.ts frames it, and the forwarded one with its path and query as written, the client's own header lines and
  *   `Connection: close`, and nothing for an unmapped authority; the client reads `200` then the server's answer
  *   through a tunnel, the server's answer for a forward, and `502` for an unmapped authority.
- *
- * Plants (local only, reverted): recording-proxy.ts routeOf keeping Proxy-Authorization; routeOf ignoring the
- * scheme's default port; serveProxied never answering `200 Connection Established`.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

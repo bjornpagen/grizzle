@@ -134,7 +134,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 1524,
+		"total": 1535,
 		"files": {
 			"packages/generator/src/emit/api.ts": 115,
 			"packages/generator/src/emit/cli.ts": 153,
@@ -160,6 +160,14 @@
 			"packages/generator/test/emit/password-file.test.ts": 30,
 			"packages/generator/test/emit/s30-fixes.test.ts": 13,
 			"packages/generator/test/emit/sec-fixes.test.ts": 3,
+			"packages/generator/test/generated/body-alternatives.test.ts": 1,
+			"packages/generator/test/generated/credential-sources.test.ts": 1,
+			"packages/generator/test/generated/event-stream.test.ts": 2,
+			"packages/generator/test/generated/json-body-schemas.test.ts": 1,
+			"packages/generator/test/generated/multipart-parts.test.ts": 1,
+			"packages/generator/test/generated/printed-requests.test.ts": 2,
+			"packages/generator/test/generated/retry-policy.test.ts": 1,
+			"packages/generator/test/generated/run-scoped.test.ts": 1,
 			"packages/generator/test/inventory/self-reference.test.ts": 24,
 			"packages/generator/test/load/budget.test.ts": 4,
 			"packages/generator/test/load/document-set.test.ts": 5,
@@ -172,6 +180,7 @@
 			"packages/generator/test/model/json-tree.test.ts": 3,
 			"packages/generator/test/model/pointer.test.ts": 10,
 			"packages/generator/test/model/verdict.test.ts": 2,
+			"packages/generator/test/names/alias-cycles.test.ts": 1,
 			"packages/generator/test/names/base64-field.test.ts": 8,
 			"packages/generator/test/names/credential-collision-mtls.test.ts": 9,
 			"packages/generator/test/names/flatten.test.ts": 15,

@@ -1,4 +1,4 @@
-import { testWorkers } from "@bjornpagen/testing/workers"
+import { availableParallelism } from "node:os"
 import { jsonTextOf } from "@superstarter/json"
 import {
 	Array as Arr,
@@ -36,10 +36,10 @@ const filledArrayDepth = 2
  * @unit CLI processes at once
  * @scope one exercise of one built package, in the benchmark's process; the benchmark runs beside the gate's other
  * tasks, and every process that sizes itself so adds up
- * @derivation testWorkers, the testing library's count of test processes one run holds at once: availableParallelism(),
- * one a logical CPU, since each invocation is a Node process of one JavaScript thread
+ * @derivation availableParallelism(), the logical CPUs this process may use: one invocation at a time a CPU, since each
+ * invocation is a Node process of one JavaScript thread
  */
-const invocationsAtOnce = testWorkers
+const invocationsAtOnce = availableParallelism()
 
 const decodeText = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.String))
 

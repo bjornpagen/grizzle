@@ -10,10 +10,6 @@
  * while a feature is pending at one that is. The oracle is the plant: the message names the planted
  * place's pointer, and `(required)`, the JSON type the schema expects there, or `(additionalProperties)`, and quotes no
  * planted value.
- *
- * Plants, each applied to src/runtime-src/runtime/input.ts, seen to fail this suite and reverted: whereRefused naming
- * the path's tokens unescaped; the leaf hook's MissingKey worded without `(required)`; structuredBody's check without
- * `closedObjects`, so an excess member passes.
  */
 import { explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -11,9 +11,6 @@
  *   drawn per case. The package is generated and built once through cli-package.ts, as every generated-CLI suite
  *   builds its own. Oracles: never-crashes, and determinism: a second run of the same invocation exits with the same
  *   code and prints the same bytes.
- *
- * Plants (local only, reverted): errors.ts UsageError's exit code set to 70; output.ts reading `({}).__proto__` at
- * start-up, which only the hardened flags break.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

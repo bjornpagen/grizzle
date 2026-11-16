@@ -13,10 +13,6 @@
  *   certificate's one CredentialMissing error naming the scheme and both its file settings, a missing file's one
  *   UsageError line naming the certificate setting, and no error for a dry run, nor a notice for one at the bound
  *   origin; and no path printed.
- *
- * Plants (local only, reverted): client.ts clientFor taking the certified clients for every hop; auth.ts
- * presentsCertificate answering yes for every origin; errors.ts CredentialMissing's exit code set to 1; entry.ts's
- * unreadable-file error printing the path it could not read.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

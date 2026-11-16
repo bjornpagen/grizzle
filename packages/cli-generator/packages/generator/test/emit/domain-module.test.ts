@@ -9,11 +9,6 @@
  * instance. A planted fault is refused with its reason: a reachable definition that is no schema object, one the
  * importer rejects, a reachable key the identifier map leaves out, two reachable keys given one name, and a name Effect
  * would export differently.
- *
- * Plants, each applied to src/emit/domain.ts, seen to fail this suite and reverted:
- * - importCode handing toCodeDocument the representations as toRepresentations gave them, without definitionsOnly;
- * - definitionsOnly keeping every reference, its names check always true;
- * - definitionsOnly leaving a property's type as it found it, so a reference it names stays unwritten.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import type { Kept } from "@bjornpagen/testing/explore"

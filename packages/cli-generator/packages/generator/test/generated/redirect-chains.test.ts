@@ -11,10 +11,6 @@
  *   another method or at another origin is followed, and no count of hops ends a chain), every credential on each hop
  *   to the bound origin and none on a hop to the unbound one, no trace propagation header on any hop, and exit 0 once
  *   the chain lands.
- *
- * Plants (local only, reverted): auth.ts attachWith attaching the credentials on every origin; client.ts becomesGet
- * ignoring 303; client.ts nextHop refusing the eleventh redirect (the old hop cap); client.ts nextHop's loop identity
- * without the method; client.ts nextHop's loop identity without the origin.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

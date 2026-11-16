@@ -7,9 +7,6 @@
  *   prints its argv and environment as JSON on stdout, copies stdin to stderr and exits with its argument count
  *   modulo four. Oracle: the invocation itself, beside the variables the platform adds to an empty environment (macOS
  *   adds `__CF_USER_TEXT_ENCODING` to every process), read once from Node spawned directly with none.
- *
- * Plants (local only, reverted): cli-package.ts runBin with `extendEnv: true`; runBin dropping its first argument;
- * process.ts finished reading stderr from stdout.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -14,9 +14,6 @@
  *
  * Features: a cycle of one schema, of two, of three or more; a cycle through each applicator; an open chain of each
  * kind; a body pointing straight into a cycle and one reaching it through a property.
- *
- * Plants: normalize/schemas.ts normalizeSchemas handing the converted store, cycle and all, to names (the store left
- * cyclic, as before the store refused alias cycles): every closed case dies with UnresolvedBodyRef.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

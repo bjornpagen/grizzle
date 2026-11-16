@@ -15,13 +15,6 @@
  *
  * An operation's docs are drawn as normalization holds them, sanitized and so never past the cap: a description at the
  * cap is one the cap cut.
- *
- * Plants, each applied to src/emit/help.ts or src/model/brands.ts, seen to fail this suite and reverted:
- * - help's description cut one code point short of the cap (a description at the cap);
- * - help's description taken from the summary before the description;
- * - the table line taken from the description before the summary;
- * - brands.ts's maxProseLength at 1999 (sanitizing prose, and no description reaches the cap);
- * - a scheme's `deprecated` marker left out of AUTH.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

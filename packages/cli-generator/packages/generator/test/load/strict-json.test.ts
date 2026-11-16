@@ -5,11 +5,6 @@
  * loader's order: the size limit; then, in document order, the depth limit and the node budget; then JSON syntax; then,
  * in document order, a repeated key (compared after unescaping) and an unsafe number literal at a `default`, `enum` or
  * `const` site (never inside `example`/`examples`, never as a name under a name map such as `properties`).
- *
- * Plants, each applied to src/load/json.ts, seen to fail this suite and reverted: keys compared before unescaping;
- * `pointerOf` reporting the parent object instead of the member; the node budget counting keys; the depth check off by
- * one (`>=`); `valueContext` treating every key under `properties` as a keyword; `isUnsafeNumber` reading only the
- * integer part; `locate` counting UTF-16 units for the column.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

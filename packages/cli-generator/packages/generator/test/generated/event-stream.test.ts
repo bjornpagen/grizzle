@@ -29,13 +29,6 @@
  * Features: a stop at ready, a stream followed to its end, an interrupted stream, data across lines, a comment, a write
  * that splits an event; each failure verdict with and without a budget, on the read and on the write; a cut read and a
  * cut write, each with and without a budget; refused data of each event type.
- *
- * Plants (~/.cache/effect-openapi-cli-generator/plants): sse-stops-before-ready.patch (the stream stops one event before
- * its stop point), event-retry-without-budget.patch (a retry-safe error event retries with no `--retries`),
- * constant-not-sent.patch (a constant parameter is sent empty), output.ts renderErrorJson printing a failure event's
- * data as the `body` string (local, reverted), output.ts send treating every cut stream as a read's, and none
- * (local, reverted: the cut write is called again under a budget; the cut read exits 5), and api.ts eventDataExpr
- * naming no schema for checked data (local, reverted: refused data printed).
  */
 import { exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
