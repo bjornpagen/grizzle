@@ -16,241 +16,141 @@
  * feature: which forms the population reaches is the gate's own required features, as above. Features of the
  * configuration properties: a closure under the acyclic configuration.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { noCoverage, required } from "@bjornpagen/testing/features"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { caseHang } from "#test/support/limits.ts"
-
-import { Array as Arr, Effect, Formatter, Order, Record } from "effect"
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, family, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Order, Record } from "effect"
 import { NodeId } from "#compiler/core/ids.ts"
-import { topoOrder } from "#compiler/ir/dag.ts"
-import { type TypedLiteral, literalProblem } from "#compiler/ir/expr.ts"
-import type { RelNode } from "#compiler/ir/rel.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { literalProblem } from "#compiler/ir/expr.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { assert, defined, lacks } from "#test/support/assert.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
-import {
-	defaultGenConfig,
-	type GenConfig,
-	type QueryCase,
-	queryCaseGen
-} from "#test/support/oracle/gen/case.ts"
+import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { literalRowKey } from "#test/support/oracle/gen/domain.ts"
 import { factValues } from "#test/support/oracle/gen/facts.ts"
-import { printQueryCase } from "#test/support/oracle/gen/print.ts"
 import { allKeys, keyIndices, relationNamed, schemaDesc } from "#test/support/oracle/gen/schema.ts"
 import { ownedInput } from "#test/support/policy.ts"
+import { acyclic, fits, holds, nodes, plain } from "#test/unit/oracle-gen/query.fixtures.ts"
 
-const nodes = (c: QueryCase): ReadonlyArray<RelNode> => topoOrder(c.query.dag)
-
-/** Fails with the printed case, rendered only when the check fails. */
-const holds = (condition: boolean, what: string, c: QueryCase): void => {
-	if (!condition) {
-		throw new Error(`${what}\n${printQueryCase(c)}`)
-	}
-}
-
-const fits = (
-	row: ReadonlyArray<TypedLiteral>,
-	columns: ReadonlyArray<{ readonly type: ScalarType }>
-): boolean =>
-	row.length === columns.length &&
-	Arr.every(row, (v, i) => {
-		const column = columns[i]
-		return column !== undefined && literalProblem(v, column.type) === undefined
+/** Generated query cases are valid: Description, facts under the laws, a normalized valid DAG, bound parameters. */
+export const generatedQueryCasesAreValidDescriptionFactsUnderTheLawsANormalizedValidDAGBoundParameters =
+	property.explore(queryCaseGen(defaultGenConfig), {
+		needs: {},
+		situations: [],
+		check: () => (c) =>
+			Effect.sync(() => {
+				holds(
+					admitSchemaDesc(schemaDesc(c.schema)).ok,
+					"the schema Description decodes and its closed relations are admitted",
+					c
+				)
+				/** An admissible schema: ownership accepts it, every key representable. */
+				const owned = ownedInput(schemaDesc(c.schema))
+				if (!owned.ok) {
+					holds(false, `ownership: ${owned.error.message}`, c)
+				}
+				validateDag(c.query.dag)
+				assert.deepEqual(c.query.dag.roots, [c.query.dag.roots[0]])
+				const root = c.query.dag.roots[0]
+				assert.equal(root.id, NodeId("n#0"))
+				assert.deepEqual(
+					Arr.sort(Record.keys(c.query.params), Order.String),
+					Arr.sort(root.meta.paramDeps, Order.String)
+				)
+				for (const p of Record.values(c.query.params)) {
+					holds(
+						p.kind === "scalar"
+							? literalProblem(p.value, p.type) === undefined
+							: Arr.every(p.rows, (row) => fits(row, p.heading)),
+						"every parameter value fits its type",
+						c
+					)
+				}
+				const values = factValues(c.facts)
+				for (const r of c.schema.relations) {
+					const rows = defined(values[r.name], `the facts of ${r.name}`)
+					holds(
+						Arr.every(rows, (row) => fits(row, r.columns)),
+						`every fact of ${r.name} fits its columns`,
+						c
+					)
+					for (const key of allKeys(r)) {
+						const cols = keyIndices(r, key)
+						holds(
+							new Set(Arr.map(rows, (row) => literalRowKey(row, cols))).size === rows.length,
+							`${r.name} key ${Arr.join(key, ",")}`,
+							c
+						)
+					}
+				}
+				for (const k of c.schema.containments) {
+					const from = relationNamed(c.schema, k.from.relation)
+					const to = relationNamed(c.schema, k.to.relation)
+					const targets = new Set(
+						Arr.map(defined(values[to.name], `the facts of ${to.name}`), (row) =>
+							literalRowKey(row, keyIndices(to, k.to.fields))
+						)
+					)
+					for (const row of defined(values[from.name], `the facts of ${from.name}`)) {
+						holds(
+							targets.has(literalRowKey(row, keyIndices(from, k.from.fields))),
+							`${from.name} is contained`,
+							c
+						)
+					}
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the engine's schema admission, ownership, DAG validation, keys, containments and literal checks"
+		},
+		kept: [],
+		kills: []
 	})
 
-describe("generated query cases", () => {
-	it.effect(
-		"are valid: Description, facts under the laws, a normalized valid DAG, bound parameters",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "the engine's schema admission, ownership, DAG validation, keys, containments and literal checks"
-						},
-						suite: "unit/oracle-gen/query-valid",
-						draw: drawn(queryCaseGen(defaultGenConfig)),
-						literal: Formatter.format,
-						coverage: noCoverage,
-						kept: [],
-						runs: 2000,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(c) =>
-						Effect.sync(() => {
-							holds(
-								admitSchemaDesc(schemaDesc(c.schema)).ok,
-								"the schema Description decodes and its closed relations are admitted",
-								c
-							)
-							/** An admissible schema: ownership accepts it, every key representable. */
-							const owned = ownedInput(schemaDesc(c.schema))
-							if (!owned.ok) {
-								holds(false, `ownership: ${owned.error.message}`, c)
-							}
-							validateDag(c.query.dag)
-							assert.deepEqual(c.query.dag.roots, [c.query.dag.roots[0]])
-							const root = c.query.dag.roots[0]
-							assert.equal(root.id, NodeId("n#0"))
-							assert.deepEqual(
-								Arr.sort(Record.keys(c.query.params), Order.String),
-								Arr.sort(root.meta.paramDeps, Order.String)
-							)
-							for (const p of Record.values(c.query.params)) {
-								holds(
-									p.kind === "scalar"
-										? literalProblem(p.value, p.type) === undefined
-										: Arr.every(p.rows, (row) => fits(row, p.heading)),
-									"every parameter value fits its type",
-									c
-								)
-							}
-							const values = factValues(c.facts)
-							for (const r of c.schema.relations) {
-								const rows = defined(values[r.name], `the facts of ${r.name}`)
-								holds(
-									Arr.every(rows, (row) => fits(row, r.columns)),
-									`every fact of ${r.name} fits its columns`,
-									c
-								)
-								for (const key of allKeys(r)) {
-									const cols = keyIndices(r, key)
-									holds(
-										new Set(Arr.map(rows, (row) => literalRowKey(row, cols))).size === rows.length,
-										`${r.name} key ${Arr.join(key, ",")}`,
-										c
-									)
-								}
-							}
-							for (const k of c.schema.containments) {
-								const from = relationNamed(c.schema, k.from.relation)
-								const to = relationNamed(c.schema, k.to.relation)
-								const targets = new Set(
-									Arr.map(defined(values[to.name], `the facts of ${to.name}`), (row) =>
-										literalRowKey(row, keyIndices(to, k.to.fields))
-									)
-								)
-								for (const row of defined(values[from.name], `the facts of ${from.name}`)) {
-									holds(
-										targets.has(literalRowKey(row, keyIndices(from, k.from.fields))),
-										`${from.name} is contained`,
-										c
-									)
-								}
-							}
-						})
-				)
-			)
-	)
-
-	it.effect("honor a configuration that leaves forms out", (ctx) =>
-		Effect.gen(function* () {
-			const plain: GenConfig = {
-				...defaultGenConfig,
-				query: {
-					...defaultGenConfig.query,
-					params: false,
-					inputSets: false,
-					closure: "acyclic",
-					weights: {
-						...defaultGenConfig.query.weights,
-						closure: 0,
-						intersect: 0,
-						difference: 0,
-						take: 0
-					},
-					roots: {
-						...defaultGenConfig.query.roots,
-						attach: 0,
-						hetero: 0
-					}
+/**
+ * Generated query cases honor a configuration that leaves forms out: the plain configuration draws no node of them and
+ * no parameter, and the acyclic one filters every closure's edges.
+ */
+export const generatedQueryCasesHonorAConfigurationThatLeavesFormsOut = family({
+	plain: property.explore(queryCaseGen(plain), {
+		needs: {},
+		situations: [],
+		check: () => (c) =>
+			Effect.sync(() => {
+				for (const n of nodes(c)) {
+					lacks(["Recursive", "Intersect", "Difference", "Take", "Attach", "InputSet"], n.kind)
 				}
-			}
-			yield* searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "a configuration that leaves forms out draws no node of them and no parameter"
-						},
-						suite: "unit/oracle-gen/query-plain",
-						draw: drawn(queryCaseGen(plain)),
-						literal: Formatter.format,
-						coverage: noCoverage,
-						kept: [],
-						runs: 300,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(c) =>
-						Effect.sync(() => {
-							for (const n of nodes(c)) {
-								lacks(
-									["Recursive", "Intersect", "Difference", "Take", "Attach", "InputSet"],
-									n.kind
-								)
-							}
-							assert.equal(Record.size(c.query.params), 0)
-						})
-				)
-			)
-			const acyclic: GenConfig = {
-				...defaultGenConfig,
-				query: {
-					...defaultGenConfig.query,
-					closure: "acyclic",
-					weights: {
-						...defaultGenConfig.query.weights,
-						closure: 6
+				assert.equal(Record.size(c.query.params), 0)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "a configuration that leaves forms out draws no node of them and no parameter"
+		},
+		kept: [],
+		kills: []
+	}),
+	acyclic: property.explore(queryCaseGen(acyclic), {
+		needs: {},
+		situations: ["closure"] satisfies ReadonlyArray<Reached<"closure">>,
+		check: (_, reached: Case<"closure">) => (c) =>
+			Effect.sync(() => {
+				for (const n of nodes(c)) {
+					if (n.kind !== "Recursive") {
+						continue
 					}
+					reached.note("closure")
+					const edges = n.base
+					if (edges.kind !== "ProjectSet") {
+						assert.fail(`a closure's edges are a ${edges.kind}, not a ProjectSet`)
+					}
+					assert.equal(edges.input.kind, "Filter")
 				}
-			}
-			yield* searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "the acyclic configuration filters every closure's edges"
-						},
-						suite: "unit/oracle-gen/query-acyclic",
-						draw: drawn(queryCaseGen(acyclic)),
-						literal: Formatter.format,
-						coverage: required<"closure">(["closure"], { cases: 300, sense: notesOnly }),
-						kept: [],
-						runs: 300,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(c, reached) =>
-						Effect.sync(() => {
-							for (const n of nodes(c)) {
-								if (n.kind !== "Recursive") {
-									continue
-								}
-								reached.note("closure")
-								const edges = n.base
-								if (edges.kind !== "ProjectSet") {
-									assert.fail(`a closure's edges are a ${edges.kind}, not a ProjectSet`)
-								}
-								assert.equal(edges.input.kind, "Filter")
-							}
-						})
-				)
-			)
-		})
-	)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the acyclic configuration filters every closure's edges"
+		},
+		kept: [],
+		kills: []
+	})
 })

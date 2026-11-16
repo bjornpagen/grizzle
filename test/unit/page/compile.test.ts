@@ -13,67 +13,40 @@
  *
  * Features: each union, and each order over the take: the union's own, and its key reversed.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
+
+import { type Reached } from "@bjornpagen/testing/features"
 import { element, int } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Effect, Formatter } from "effect"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import { refused } from "#test/support/assert.ts"
 import { testCompile } from "#test/support/compile.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { compiledPageResult, flagged, flaggedByTitle } from "#test/unit/page/fixtures.ts"
+import {
+	bounded,
+	type Feature,
+	type Reorder,
+	type Union
+} from "#test/unit/page/compile.fixtures.ts"
+import { compiledPageResult } from "#test/unit/page/fixtures.ts"
 
-type Union = "flagged" | "flagged by title"
-
-type Reorder = "the union's own order" | "its key reversed"
-
-type Feature = Union | Reorder
-
-/**
- * The union taken at `take` and ordered again: by its own order (flagged's id descending, flaggedByTitle's title
- * ascending), or by its key in the other direction.
- */
-const bounded = (union: Union, reorder: Reorder, take: number): unknown => {
-	const own = reorder === "the union's own order"
-	switch (union) {
-		case "flagged":
-			return flagged.take(take).orderBy(["id", own ? "desc" : "asc"])
-		case "flagged by title":
-			return flaggedByTitle.take(take).orderBy(["title", own ? "asc" : "desc"])
-	}
-}
-
-describe("the page compiler", () => {
-	it.effect("refuses a bounded heterogeneous union, whatever its bound and order", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "specification",
-						name: "no page over a bounded heterogeneous union, refused as UnsupportedOperation"
-					},
-					suite: "unit/page/bounded-union",
-					draw: drawn((source) => ({
-						union: source.draw(element<Union>(["flagged", "flagged by title"])),
-						reorder: source.draw(element<Reorder>(["the union's own order", "its key reversed"])),
-						take: source.draw(int(1, 50))
-					})),
-					literal: Formatter.format,
-					coverage: required<Feature>(
-						["flagged", "flagged by title", "the union's own order", "its key reversed"],
-						{ cases: 30, sense: notesOnly }
-					),
-					kept: [],
-					runs: 30,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				({ union, reorder, take }, c) =>
+/** The page compiler refuses a bounded heterogeneous union, whatever its bound and order. */
+export const thePageCompilerRefusesABoundedHeterogeneousUnionWhateverItsBoundAndOrder =
+	property.explore(
+		(source) => ({
+			union: source.draw(element<Union>(["flagged", "flagged by title"])),
+			reorder: source.draw(element<Reorder>(["the union's own order", "its key reversed"])),
+			take: source.draw(int(1, 50))
+		}),
+		{
+			needs: {},
+			situations: [
+				"flagged",
+				"flagged by title",
+				"the union's own order",
+				"its key reversed"
+			] satisfies ReadonlyArray<Reached<Feature>>,
+			check:
+				(_, c: Case<Feature>) =>
+				({ union, reorder, take }) =>
 					Effect.sync(() => {
 						refused(
 							compiledPageResult(bounded(union, reorder, take), testCompile),
@@ -82,8 +55,21 @@ describe("the page compiler", () => {
 						)
 						c.note(union)
 						c.note(reorder)
-					})
-			)
-		)
+					}),
+			oracle: {
+				kind: "specification",
+				name: "no page over a bounded heterogeneous union, refused as UnsupportedOperation"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/lower/shapes/page/compile.ts",
+					original:
+						'\t\t\tcase "takeThenOrder":\n\t\t\t\treturn refuse(\n\t\t\t\t\t"UnsupportedOperation",\n\t\t\t\t\tnodeLabel(bound.take),\n\t\t\t\t\t"a page over a bounded heterogeneous union: a group statement cannot tell which of its rows are among the union\'s first k, which only the merge across groups decides"\n\t\t\t\t)',
+					replacement:
+						'\t\t\t\treturn refuse(\n\t\t\t\t\t"UnsupportedOperation",\n\t\t\t\t\tnodeLabel(bound.take),\n\t\t\t\t\t"a page over a bounded heterogeneous union: a group statement cannot tell which of its rows are among the union\'s first k, which only the merge across groups decides"\n\t\t\t\t)\n\t\t\tcase "takeThenOrder":',
+					why: "An order over the take is paged as an unbounded union is, not refused; the property fails."
+				}
+			]
+		}
 	)
-})

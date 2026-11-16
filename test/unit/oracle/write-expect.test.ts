@@ -34,440 +34,213 @@
  * The oracle is the specification: the faithful realization the expectation states passes the judge, and each mutant,
  * a planted fault of a realization, fails it. Features: every faithful outcome and every mutant above.
  */
-import { explore, steered } from "@bjornpagen/testing/explore"
-import { type Pending, required } from "@bjornpagen/testing/features"
-import { boolean } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record, Result } from "effect"
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Option, Result } from "effect"
 import { ExecutionFailure } from "#adapter/errors/execution.ts"
 import { ParamRejected } from "#adapter/errors/failures.ts"
-import { identity } from "#compiler/core/identity.ts"
-import type { LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
-import { codebookFor, firstCodes, schemaInputOf } from "#test/support/compile.ts"
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { planRealInstall } from "#test/support/oracle/install/real.ts"
-import {
-	castsTypmod,
-	type ChangeSetSketch,
-	changeSetSketchGen,
-	resolveChangeSet
-} from "#test/support/oracle/write/changeset.ts"
-import { typeInfo } from "#test/support/oracle/write/domain.ts"
-import { expectChangeSet, type Violations } from "#test/support/oracle/write/expect.ts"
-import {
-	type FactsSketch,
-	factsSketchGen,
-	keyOf,
-	resolveFacts
-} from "#test/support/oracle/write/facts.ts"
+import { assert } from "#test/support/assert.ts"
+import { castsTypmod, resolveChangeSet } from "#test/support/oracle/write/changeset.ts"
+import { expectChangeSet } from "#test/support/oracle/write/expect.ts"
+import { resolveFacts } from "#test/support/oracle/write/facts.ts"
 import { judgeWrite, plantedCase } from "#test/support/oracle/write/harness.ts"
-import type { GroupState, WriteOutcome, OutcomeWitness } from "#test/support/oracle/write/run.ts"
-import {
-	buildWSchema,
-	columnOf,
-	lawNames,
-	relationIn,
-	resolveSchema,
-	type SchemaSketch,
-	schemaSketchGen,
-	type WGroup,
-	type WriteLawNames,
-	type WSchema
-} from "#test/support/oracle/write/schema.ts"
-import { pickGen, pickFrom } from "#test/support/pick.ts"
+import type { GroupState, WriteOutcome } from "#test/support/oracle/write/run.ts"
+import { resolveSchema } from "#test/support/oracle/write/schema.ts"
+import { pickFrom } from "#test/support/pick.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
+import {
+	domainRefused,
+	groupLaws,
+	otherKey,
+	plantedAimed,
+	refused,
+	situations,
+	someKey,
+	unreported,
+	violatingKey,
+	type WriteExpectFeature,
+	writeLawNames,
+	writeSpace
+} from "#test/unit/oracle/write-expect.fixtures.ts"
 
-/**
- * The law names of a generated schema's real compiled installation, built as the pg oracle builds them
- * (oracle/write/run.ts installTarget): the schema value under the oracle's declared name, planned by the real installer
- * under that name's schema with no extension, every law of a write schema being native. The owner names who owns the
- * installed objects, which no law name depends on.
- */
-const writeLawNames = (schema: WSchema): WriteLawNames => {
-	const declared = "Wo"
-	const value = buildWSchema(schema, declared).value
-	const plan = succeeded(
-		planRealInstall(value, {
-			installation: identity.schema(parsedSchemaName(declared)),
-			owner: "grizzle_dev",
-			logins: [],
-			extensions: [],
-			codes: succeeded(codebookFor(schemaInputOf(value), firstCodes)),
-			compile: compileInstallation
-		})
-	)
-	return lawNames(plan)
-}
-
-/** Every law a group declares. */
-const groupLaws = (group: WGroup, laws: WriteLawNames): ReadonlyArray<LawId> => [
-	...Arr.flatMap(group.relations, (r) => [
-		laws.primaryKey(r.name),
-		...Arr.map(r.keys, (k) => laws.key(r.name, k))
-	]),
-	...Arr.map(group.containments, (c) => laws.foreignKey(c.from.relation, c.from.fields)),
-	...Arr.map(group.projectedKeys, (k) => laws.projectedKey(k.relation, k.fields).law)
-]
-
-/** A native violation's witness: PostgreSQL states its key only in its message. */
-const unreported: OutcomeWitness = { kind: "unreported" }
-
-const refused = (law: LawId, witness: OutcomeWitness): Result.Result<WriteOutcome, unknown> =>
-	Result.succeed({ kind: "invariant-rejected", refused: { kind: "every", laws: [law] }, witness })
-
-/**
- * A domain's refusal of a relation's columns as the adapter reports it: the pattern law of each column the domain
- * types there, `every` where one and `some` where several, keyless.
- */
-const domainRefused = (
-	laws: Arr.NonEmptyReadonlyArray<LawId>
-): Result.Result<WriteOutcome, unknown> => {
-	const [first, second, ...rest] = laws
-	return Result.succeed({
-		kind: "invariant-rejected",
-		refused:
-			second === undefined
-				? { kind: "every", laws: [first] }
-				: { kind: "some", laws: [first, second, ...rest] },
-		witness: unreported
-	})
-}
-
-/** The first violator's values at the law's fields. */
-const firstKey = (violations: Violations) =>
-	Record.fromEntries(
-		Arr.map(violations.fields, (f) => [f, Arr.headNonEmpty(violations.violators)[f]])
-	)
-
-/** A violator's key at the law's fields: the key a faithful witness carries. */
-const violatingKey = (violations: Violations): OutcomeWitness => ({
-	kind: "key",
-	relation: violations.relation,
-	values: firstKey(violations)
-})
-
-/**
- * A key of the law's relation at its fields that is none of its violating keys: a violator's key with one field
- * redrawn from its domain.
- */
-const otherKey = (group: WGroup, violations: Violations): OutcomeWitness | undefined => {
-	const relation = relationIn(group, violations.relation)
-	const { fields, keys } = violations
-	const base = firstKey(violations)
-	const free = Arr.findFirst(fields, (field) =>
-		Arr.findFirst(typeInfo[columnOf(relation, field).kind].values, (value) => {
-			const candidate = { ...base, [field]: value }
-			return keys.has(keyOf(relation, fields, candidate)) ? Option.none() : Option.some(candidate)
-		})
-	)
-	return Option.isSome(free)
-		? { kind: "key", relation: relation.name, values: free.value }
-		: undefined
-}
-
-/** A key of the group's first relation, its primary key at the first value of each field's domain. */
-const someKey = (group: WGroup): OutcomeWitness => {
-	const relation = Option.getOrThrowWith(
-		Arr.head(group.relations),
-		() => new Error("a refused group declares no relation")
-	)
-	return {
-		kind: "key",
-		relation: relation.name,
-		values: Record.fromEntries(
-			Arr.map(relation.primaryKey, (f) => [f, typeInfo[columnOf(relation, f).kind].values[0]])
-		)
-	}
-}
-
-const situations = [
-	"faithful refusal",
-	"faithful domain refusal",
-	"mutant: one of a domain's several laws",
-	"mutant: an unacceptable law",
-	"mutant: a non-violating key",
-	"mutant: a keyless witness of a keyed law",
-	"mutant: a keyed witness of a native law",
-	"mutant: refused where applied",
-	"mutant: applied where domain-refused",
-	"mutant: a domain's violation unclassified",
-	"faithful refusal at bind",
-	"mutant: applied where refused at bind",
-	"mutant: a law's refusal where refused at bind",
-	"mutant: a parameter's refusal unclassified",
-	"mutant: applied where unorderable",
-	"applied: a typmod cast"
-] as const
-
-type WriteExpectFeature = (typeof situations)[number]
-
-/** The situations of a domain refusal: the faithful one, and its two mutants. */
-const domainSituations: ReadonlyArray<WriteExpectFeature> = [
-	"faithful domain refusal",
-	"mutant: applied where domain-refused",
-	"mutant: a domain's violation unclassified"
-]
-
-/** The planted arms a witness may judge in place of its drawn case (`plantedAimed`). */
-type AimedArm = "wider member" | "typmod cast" | "unorderable stratum"
-
-/** The arm a case judges: its drawn ChangeSet, or a planted arm aimed at a pending situation. */
-type CaseArm = "drawn" | AimedArm
-
-/**
- * The planted arm a witness's turn aims at: where it aims at a domain refusal's situation, the "wider member" arm,
- * which reads a stored wide text past the narrow domain into it (changeset.ts plantedChangeSet); where it aims at the
- * typmod cast's, the "typmod cast" arm, which reads a precise numeric into a rounded one; where it aims at an
- * unorderable stratum's, the "unorderable stratum" arm, whose one stratum's writes the keys order in a cycle; so the
- * cases of one window aim at distinct pending situations. A drawn ChangeSet reaches each too rarely.
- */
-const armAimedAt = (pending: Pending<WriteExpectFeature>): Option.Option<AimedArm> =>
-	Arr.some(domainSituations, (s) => pending.aimed(s))
-		? Option.some("wider member")
-		: pending.aimed("applied: a typmod cast")
-			? Option.some("typmod cast")
-			: pending.aimed("mutant: applied where unorderable")
-				? Option.some("unorderable stratum")
-				: Option.none()
-
-/** A case: its schema, the group it picks, its facts and its ChangeSet, and the arm it judges. */
-type WriteSketch = readonly [SchemaSketch, number, FactsSketch, ChangeSetSketch, CaseArm]
-
-/**
- * A case, drawn under its steering: its arm the planted one its turn aims at (armAimedAt), in half its cases by a draw
- * of its own, else drawn, and always drawn for a rotating case.
- */
-const writeDraw = steered<WriteSketch, WriteSketch, WriteExpectFeature>(
-	(steering) => {
-		const aim = Option.flatMap(steering, armAimedAt)
-		return (source) => [
-			source.draw(schemaSketchGen),
-			source.draw(pickGen),
-			source.draw(factsSketchGen(5)),
-			source.draw(changeSetSketchGen),
-			Option.match(aim, {
-				onNone: (): CaseArm => "drawn",
-				onSome: (arm): CaseArm => (source.draw(boolean) ? arm : "drawn")
-			})
-		]
-	},
-	(sketch) => sketch
-)
-
-/**
- * The planted group and arm a case judges in place of its drawn case, as its sketch's arm says, on the schema's planted
- * group. None for a drawn arm, and for a schema without the planted group, which runs as drawn.
- */
-const plantedAimed = (
-	schema: WSchema,
-	arm: CaseArm
-): Option.Option<{ readonly group: WGroup; readonly arm: AimedArm }> =>
-	arm === "drawn"
-		? Option.none()
-		: Option.map(
-				Arr.findFirst(schema.groups, (g) => g.role === "planted"),
-				(group) => ({ group, arm })
-			)
-
-describe("the write oracle's judgement", () => {
-	it.effect("passes a faithful realization and refuses every planted mutant of it", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "specification",
-						name: "the expectation's faithful realization passes the judge and every planted mutant of it fails"
-					},
-					suite: "unit/oracle/write-judge",
-					draw: writeDraw,
-					literal: Formatter.format,
-					coverage: required<WriteExpectFeature>(situations, { cases: 400, sense: notesOnly }),
-					kept: [],
-					runs: 400,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				([schemaSketch, groupPick, factsSketch, changesSketch, arm], n) =>
-					Effect.sync(() => {
-						const schema = n.draw(resolveSchema(schemaSketch))
-						const [first, ...rest] = schema.groups
-						if (first === undefined) {
-							return
-						}
-						const laws = writeLawNames(schema)
-						const { group, facts, c } = Option.match(plantedAimed(schema, arm), {
-							onNone: () => {
-								const drawnGroup = pickFrom([first, ...rest], groupPick)
-								const drawnFacts = resolveFacts(drawnGroup, factsSketch)
-								return {
-									group: drawnGroup,
-									facts: drawnFacts,
-									c: n.draw(resolveChangeSet(drawnGroup, drawnFacts, changesSketch))
-								}
-							},
-							onSome: ({ group: planted, arm }) => {
-								const aimed = plantedCase(planted, arm, factsSketch)
-								return { group: aimed.group, facts: aimed.facts, c: aimed.changes }
+/** The write oracle's judgement passes a faithful realization and refuses every planted mutant of it. */
+export const theWriteOraclesJudgementPassesAFaithfulRealizationAndRefusesEveryPlantedMutantOfIt =
+	property.explore(writeSpace, {
+		needs: {},
+		situations: situations satisfies ReadonlyArray<Reached<WriteExpectFeature>>,
+		check:
+			(_, n: Case<WriteExpectFeature>) =>
+			([schemaSketch, groupPick, factsSketch, changesSketch, arm]) =>
+				Effect.sync(() => {
+					const schema = n.draw(resolveSchema(schemaSketch))
+					const [first, ...rest] = schema.groups
+					if (first === undefined) {
+						return
+					}
+					const laws = writeLawNames(schema)
+					const { group, facts, c } = Option.match(plantedAimed(schema, arm), {
+						onNone: () => {
+							const drawnGroup = pickFrom([first, ...rest], groupPick)
+							const drawnFacts = resolveFacts(drawnGroup, factsSketch)
+							return {
+								group: drawnGroup,
+								facts: drawnFacts,
+								c: n.draw(resolveChangeSet(drawnGroup, drawnFacts, changesSketch))
 							}
-						})
-						const expected = expectChangeSet({ group, laws }, facts, c, {}, { kind: "sequences" })
-						/** The state a side commits: the initial one, or none where the compile refuses the ChangeSet. */
-						const state: GroupState =
-							expected.kind === "unorderable"
-								? { relations: new Map(), sequences: new Map() }
-								: { relations: expected.initial.relations, sequences: expected.initial.sequences }
-						const verdict = (outcome: Result.Result<WriteOutcome, unknown>) =>
-							judgeWrite(group, c, expected, outcome, state)
-						const mutant = (
-							name: WriteExpectFeature,
-							outcome: Result.Result<WriteOutcome, unknown>
-						) => {
-							n.note(name)
-							assert.notDeepEqual(verdict(outcome), [], `${name} passed the judge`)
-						}
-						const [anyLaw] = groupLaws(group, laws)
-						switch (expected.kind) {
-							case "unorderable":
-								mutant(
-									"mutant: applied where unorderable",
-									Result.succeed({ kind: "no-change", reads: {} })
-								)
-								return
-							case "applied":
-								if (castsTypmod(c)) {
-									n.note("applied: a typmod cast")
-								}
-								if (anyLaw !== undefined) {
-									mutant("mutant: refused where applied", refused(anyLaw, unreported))
-								}
-								return
-							case "outsideDomain": {
-								const refusing = Arr.findFirst([...expected.domain.typed], ([relation, laws]) =>
-									expected.domain.refusing.has(relation) && Arr.isReadonlyArrayNonEmpty(laws)
-										? Option.some(laws)
-										: Option.none()
-								)
-								if (Option.isNone(refusing)) {
-									throw new Error(
-										"a domain refusal expectation refuses no relation the domain types"
-									)
-								}
-								const laws = refusing.value
-								n.note("faithful domain refusal")
-								assert.deepEqual(verdict(domainRefused(laws)), [])
-								if (laws.length > 1) {
-									mutant(
-										"mutant: one of a domain's several laws",
-										refused(Arr.headNonEmpty(laws), unreported)
-									)
-								}
-								mutant(
-									"mutant: applied where domain-refused",
-									Result.succeed({ kind: "no-change", reads: {} })
-								)
-								mutant(
-									"mutant: a domain's violation unclassified",
-									Result.fail(
-										new ExecutionFailure({
-											reason: serverError({
-												...nothingReported,
-												sqlstate: sqlstates.checkViolation
-											})
-										})
-									)
-								)
-								return
-							}
-							case "unbound": {
-								const [param] = [...expected.params]
-								if (param === undefined) {
-									throw new Error("a parameter's refusal names no parameter")
-								}
-								n.note("faithful refusal at bind")
-								assert.deepEqual(
-									verdict(
-										Result.fail(
-											new ExecutionFailure({
-												reason: new ParamRejected({
-													param,
-													patterns: [{ source: "^.{0,3}$", flags: "su" }]
-												})
-											})
-										)
-									),
-									[]
-								)
-								mutant(
-									"mutant: applied where refused at bind",
-									Result.succeed({ kind: "no-change", reads: {} })
-								)
-								if (anyLaw !== undefined) {
-									mutant(
-										"mutant: a law's refusal where refused at bind",
-										refused(anyLaw, unreported)
-									)
-								}
-								mutant(
-									"mutant: a parameter's refusal unclassified",
-									Result.fail(
-										new ExecutionFailure({
-											reason: serverError({
-												...nothingReported,
-												sqlstate: sqlstates.checkViolation
-											})
-										})
-									)
-								)
-								return
-							}
-							case "rejected": {
-								const [first] = [...expected.refusals]
-								if (first === undefined) {
-									return
-								}
-								const [law, refusal] = first
-								const [other] = Arr.filter(groupLaws(group, laws), (l) => !expected.refusals.has(l))
-								if (other !== undefined) {
-									mutant("mutant: an unacceptable law", refused(other, unreported))
-								}
-								n.note("faithful refusal")
-								switch (refusal.kind) {
-									case "key": {
-										assert.deepEqual(verdict(refused(law, violatingKey(refusal.violations))), [])
-										const at = otherKey(group, refusal.violations)
-										if (at !== undefined) {
-											mutant("mutant: a non-violating key", refused(law, at))
-										}
-										mutant("mutant: a keyless witness of a keyed law", refused(law, unreported))
-										return
-									}
-									case "keyOrUnreported": {
-										assert.deepEqual(verdict(refused(law, violatingKey(refusal.violations))), [])
-										assert.deepEqual(verdict(refused(law, unreported)), [])
-										const at = otherKey(group, refusal.violations)
-										if (at !== undefined) {
-											mutant("mutant: a non-violating key", refused(law, at))
-										}
-										return
-									}
-									case "unreported":
-										assert.deepEqual(verdict(refused(law, unreported)), [])
-										mutant("mutant: a keyed witness of a native law", refused(law, someKey(group)))
-										return
-								}
-							}
+						},
+						onSome: ({ group: planted, arm }) => {
+							const aimed = plantedCase(planted, arm, factsSketch)
+							return { group: aimed.group, facts: aimed.facts, c: aimed.changes }
 						}
 					})
-			)
-		)
-	)
-})
+					const expected = expectChangeSet({ group, laws }, facts, c, {}, { kind: "sequences" })
+					/** The state a side commits: the initial one, or none where the compile refuses the ChangeSet. */
+					const state: GroupState =
+						expected.kind === "unorderable"
+							? { relations: new Map(), sequences: new Map() }
+							: { relations: expected.initial.relations, sequences: expected.initial.sequences }
+					const verdict = (outcome: Result.Result<WriteOutcome, unknown>) =>
+						judgeWrite(group, c, expected, outcome, state)
+					const mutant = (
+						name: WriteExpectFeature,
+						outcome: Result.Result<WriteOutcome, unknown>
+					) => {
+						n.note(name)
+						assert.notDeepEqual(verdict(outcome), [], `${name} passed the judge`)
+					}
+					const [anyLaw] = groupLaws(group, laws)
+					switch (expected.kind) {
+						case "unorderable":
+							mutant(
+								"mutant: applied where unorderable",
+								Result.succeed({ kind: "no-change", reads: {} })
+							)
+							return
+						case "applied":
+							if (castsTypmod(c)) {
+								n.note("applied: a typmod cast")
+							}
+							if (anyLaw !== undefined) {
+								mutant("mutant: refused where applied", refused(anyLaw, unreported))
+							}
+							return
+						case "outsideDomain": {
+							const refusing = Arr.findFirst([...expected.domain.typed], ([relation, laws]) =>
+								expected.domain.refusing.has(relation) && Arr.isReadonlyArrayNonEmpty(laws)
+									? Option.some(laws)
+									: Option.none()
+							)
+							if (Option.isNone(refusing)) {
+								throw new Error("a domain refusal expectation refuses no relation the domain types")
+							}
+							const laws = refusing.value
+							n.note("faithful domain refusal")
+							assert.deepEqual(verdict(domainRefused(laws)), [])
+							if (laws.length > 1) {
+								mutant(
+									"mutant: one of a domain's several laws",
+									refused(Arr.headNonEmpty(laws), unreported)
+								)
+							}
+							mutant(
+								"mutant: applied where domain-refused",
+								Result.succeed({ kind: "no-change", reads: {} })
+							)
+							mutant(
+								"mutant: a domain's violation unclassified",
+								Result.fail(
+									new ExecutionFailure({
+										reason: serverError({
+											...nothingReported,
+											sqlstate: sqlstates.checkViolation
+										})
+									})
+								)
+							)
+							return
+						}
+						case "unbound": {
+							const [param] = [...expected.params]
+							if (param === undefined) {
+								throw new Error("a parameter's refusal names no parameter")
+							}
+							n.note("faithful refusal at bind")
+							assert.deepEqual(
+								verdict(
+									Result.fail(
+										new ExecutionFailure({
+											reason: new ParamRejected({
+												param,
+												patterns: [{ source: "^.{0,3}$", flags: "su" }]
+											})
+										})
+									)
+								),
+								[]
+							)
+							mutant(
+								"mutant: applied where refused at bind",
+								Result.succeed({ kind: "no-change", reads: {} })
+							)
+							if (anyLaw !== undefined) {
+								mutant("mutant: a law's refusal where refused at bind", refused(anyLaw, unreported))
+							}
+							mutant(
+								"mutant: a parameter's refusal unclassified",
+								Result.fail(
+									new ExecutionFailure({
+										reason: serverError({
+											...nothingReported,
+											sqlstate: sqlstates.checkViolation
+										})
+									})
+								)
+							)
+							return
+						}
+						case "rejected": {
+							const [first] = [...expected.refusals]
+							if (first === undefined) {
+								return
+							}
+							const [law, refusal] = first
+							const [other] = Arr.filter(groupLaws(group, laws), (l) => !expected.refusals.has(l))
+							if (other !== undefined) {
+								mutant("mutant: an unacceptable law", refused(other, unreported))
+							}
+							n.note("faithful refusal")
+							switch (refusal.kind) {
+								case "key": {
+									assert.deepEqual(verdict(refused(law, violatingKey(refusal.violations))), [])
+									const at = otherKey(group, refusal.violations)
+									if (at !== undefined) {
+										mutant("mutant: a non-violating key", refused(law, at))
+									}
+									mutant("mutant: a keyless witness of a keyed law", refused(law, unreported))
+									return
+								}
+								case "keyOrUnreported": {
+									assert.deepEqual(verdict(refused(law, violatingKey(refusal.violations))), [])
+									assert.deepEqual(verdict(refused(law, unreported)), [])
+									const at = otherKey(group, refusal.violations)
+									if (at !== undefined) {
+										mutant("mutant: a non-violating key", refused(law, at))
+									}
+									return
+								}
+								case "unreported":
+									assert.deepEqual(verdict(refused(law, unreported)), [])
+									mutant("mutant: a keyed witness of a native law", refused(law, someKey(group)))
+									return
+							}
+						}
+					}
+				}),
+		oracle: {
+			kind: "specification",
+			name: "the expectation's faithful realization passes the judge and every planted mutant of it fails"
+		},
+		kept: [],
+		kills: []
+	})

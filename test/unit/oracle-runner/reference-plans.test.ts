@@ -19,333 +19,103 @@
  * feature of its own is required. indexIdentity's features: one identity, two, none for another carrier, none outside
  * the roster.
  */
-import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
-import { noCoverage, requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
-import type { RelDag } from "#compiler/ir/rel.ts"
-import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { Money } from "#compiler/scalar/values/money.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, family, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter } from "effect"
+import { assert } from "#test/support/assert.ts"
+import { sameIdentity } from "#test/support/kernel/identity.ts"
 import {
 	defaultGenConfig,
 	optimizerGenConfig,
-	type QueryCase,
 	queryCaseGen
 } from "#test/support/oracle/gen/case.ts"
-
-import {
-	bool,
-	float4,
-	float8,
-	int4,
-	int8,
-	money,
-	numeric,
-	scalarOfSpec
-} from "#test/support/oracle/gen/domain.ts"
-
 import {
 	defaultGraphLimits,
 	defaultRecursiveLimits,
 	fixedLengthCaseGen,
 	recursiveCaseGen
 } from "#test/support/oracle/gen/recursive.ts"
-import { closedIdType } from "#test/support/oracle/gen/schema.ts"
-import { expectedStatements } from "#test/support/oracle/reference/deliver.ts"
+import { equal, indexIdentity } from "#test/support/oracle/reference/values.ts"
 import {
-	type ExistencePlan,
-	noBindings,
-	type OccurrencePlan,
-	Reference,
-	type ReferenceInput,
-	unobserved
-} from "#test/support/oracle/reference/evaluate.ts"
+	agree,
+	handles,
+	type KeyFeature,
+	keyPairs
+} from "#test/unit/oracle-runner/reference-plans.fixtures.ts"
 
-import { type ValueIdentity, sameIdentity } from "#test/support/kernel/identity.ts"
-import { caseHang } from "#test/support/limits.ts"
-import {
-	type DeclineReason,
-	equal,
-	indexIdentity,
-	rowIdentity,
-	type Value
-} from "#test/support/oracle/reference/values.ts"
+/** The reference evaluator's plans agree with its nested loops on the oracle populations: the conservative and the optimized. */
+export const theReferenceEvaluatorsPlansAgreeWithItsNestedLoopsOnTheOraclePopulations = family({
+	conservative: agree(queryCaseGen(defaultGenConfig)),
+	optimized: agree(queryCaseGen(optimizerGenConfig))
+})
 
-class NestedLoops extends Reference {
-	static nested(dag: RelDag, input: ReferenceInput): NestedLoops {
-		return new NestedLoops(dag, input).settle()
-	}
-
-	override regionPlans(): Option.Option<ReadonlyArray<OccurrencePlan>> {
-		return Option.none()
-	}
-
-	override existencePlan(): Option.Option<ExistencePlan> {
-		return Option.none()
-	}
-}
-
-/** One thing the reference makes of a case: a relation's rows by their identities, a decline, or what stops it. */
-type TranscriptEntry =
-	| { readonly kind: "rows"; readonly label: string; readonly rows: ReadonlyArray<ValueIdentity> }
-	| { readonly kind: "declined"; readonly reason: DeclineReason }
-	| { readonly kind: "stop"; readonly what: string }
-
-/**
- * Everything the reference makes of a case, in order: the root's rows, each delivered statement's rows, every decline,
- * and the refusal or defect that stops it.
- */
-const transcript = (c: QueryCase, nested: boolean): ReadonlyArray<TranscriptEntry> => {
-	const lines: Array<TranscriptEntry> = []
-	const input: ReferenceInput = {
-		schema: c.schema,
-		facts: c.facts,
-		params: c.query.params,
-		observer: {
-			...unobserved,
-			decline: (reason) => {
-				lines.push({ kind: "declined", reason })
-			}
-		}
-	}
-	const ref = nested ? NestedLoops.nested(c.query.dag, input) : Reference.of(c.query.dag, input)
-	const ran = Result.try(() => {
-		const rel = ref.eval(c.query.dag.roots[0], noBindings)
-		lines.push({
-			kind: "rows",
-			label: "root",
-			rows: Arr.map(rel.rows, (r) => rowIdentity(r, rel.heading))
-		})
-		for (const s of expectedStatements(ref, c.query.dag.roots[0])) {
-			lines.push({
-				kind: "rows",
-				label: s.label,
-				rows: Arr.map(s.rows, (r) => rowIdentity(r, s.heading))
+/** The reference evaluator's plans agree with its nested loops where joins and merges meet twin spellings, over every palette and over one. */
+export const theReferenceEvaluatorsPlansAgreeWithItsNestedLoopsWhereJoinsAndMergesMeetTwinSpellings =
+	family({
+		twinned: agree(
+			queryCaseGen({
+				...defaultGenConfig,
+				spelling: "twinned"
 			})
-		}
+		),
+		onePalette: agree(
+			queryCaseGen({
+				...defaultGenConfig,
+				spelling: "twinned",
+				schema: {
+					...defaultGenConfig.schema,
+					maxPalette: 1
+				}
+			})
+		)
 	})
-	if (Result.isFailure(ran)) {
-		const e = ran.failure
-		lines.push({ kind: "stop", what: Error.isError(e) ? `${e.name} ${e.message}` : String(e) })
-	}
-	return lines
-}
 
-/**
- * Explores a population: on every case the plans' transcript equals the nested loops'. The floor and rotating streams
- * together run 600 cases.
- */
-const agree = (suite: string, generator: Gen<QueryCase>) =>
-	explore(
-		{
-			oracle: {
-				kind: "second-implementation",
-				name: "the reference's nested loops of its definition, every plan refused"
-			},
-			suite,
-			draw: drawn(generator),
-			literal: Formatter.format,
-			coverage: noCoverage,
-			kept: [],
-			runs: 480,
-			shrink: completeShrink,
-			steerEvery: 16,
-			caseHang
+/** The reference evaluator's plans agree with its nested loops on recursions, of any length and of fixed length. */
+export const theReferenceEvaluatorsPlansAgreeWithItsNestedLoopsOnRecursions = family({
+	recursive: agree(recursiveCaseGen(defaultRecursiveLimits)),
+	fixedLength: agree(fixedLengthCaseGen(defaultGraphLimits))
+})
+
+/** IndexIdentity is one identity exactly for the values comparison finds equal, and none where comparison alone decides. */
+export const indexIdentityIsOneIdentityExactlyForTheValuesComparisonFindsEqualAndNoneWhereComparisonAloneDecides =
+	property.exhaust(finite(keyPairs), {
+		needs: {},
+		situations: [
+			"one identity",
+			"two identities",
+			"none for another carrier",
+			"none outside the roster"
+		] satisfies ReadonlyArray<Reached<KeyFeature>>,
+		check:
+			(_, c: Case<KeyFeature>) =>
+			([type, own, a, b]) =>
+				Effect.sync(() => {
+					const ka = indexIdentity(a, type)
+					const kb = indexIdentity(b, type)
+					const label = `${Formatter.format(a)} and ${Formatter.format(b)} as ${type.carrier}`
+					if (Arr.some(own, (v) => v === a)) {
+						assert.notEqual(ka, undefined, `${Formatter.format(a)} as ${type.carrier}`)
+					}
+					if (ka === undefined) {
+						c.note(
+							type === handles && typeof a === "string"
+								? "none outside the roster"
+								: "none for another carrier"
+						)
+						return
+					}
+					if (kb !== undefined) {
+						const one = sameIdentity(ka, kb)
+						assert.equal(one, equal(a, b, type), label)
+						c.note(one ? "one identity" : "two identities")
+					}
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the reference's comparison: two keyed values share a key exactly when it finds them equal, and it never meets a keyed value of another carrier"
 		},
-		(c) =>
-			Effect.sync(() => {
-				assert.deepEqual(transcript(c, false), transcript(c, true))
-			})
-	)
-
-describe("the reference evaluator's plans", () => {
-	it.effect("agree with its nested loops on the oracle populations", (ctx) =>
-		Effect.gen(function* () {
-			yield* searched(
-				ctx,
-				agree("unit/oracle-runner/reference-plans-conservative", queryCaseGen(defaultGenConfig))
-			)
-			yield* searched(
-				ctx,
-				agree("unit/oracle-runner/reference-plans-optimized", queryCaseGen(optimizerGenConfig))
-			)
-		})
-	)
-
-	it.effect("agree with its nested loops where joins and merges meet twin spellings", (ctx) =>
-		Effect.gen(function* () {
-			yield* searched(
-				ctx,
-				agree(
-					"unit/oracle-runner/reference-plans-twinned",
-					queryCaseGen({
-						...defaultGenConfig,
-						spelling: "twinned"
-					})
-				)
-			)
-			yield* searched(
-				ctx,
-				agree(
-					"unit/oracle-runner/reference-plans-one-palette",
-					queryCaseGen({
-						...defaultGenConfig,
-						spelling: "twinned",
-						schema: {
-							...defaultGenConfig.schema,
-							maxPalette: 1
-						}
-					})
-				)
-			)
-		})
-	)
-
-	it.effect("agree with its nested loops on recursions", (ctx) =>
-		Effect.gen(function* () {
-			yield* searched(
-				ctx,
-				agree(
-					"unit/oracle-runner/reference-plans-recursive",
-					recursiveCaseGen(defaultRecursiveLimits)
-				)
-			)
-			yield* searched(
-				ctx,
-				agree(
-					"unit/oracle-runner/reference-plans-fixed-length",
-					fixedLengthCaseGen(defaultGraphLimits)
-				)
-			)
-		})
-	)
-})
-
-describe("indexIdentity", () => {
-	const int2 = scalarOfSpec({ carrier: "int2" })
-	const text = scalarOfSpec({ carrier: "text" })
-	const uuid = scalarOfSpec({ carrier: "uuid" })
-	const handles = closedIdType({ name: "Color", handles: ["red", "green"] })
-	const samples: Arr.NonEmptyReadonlyArray<
-		readonly [ScalarType, Arr.NonEmptyReadonlyArray<Value>]
-	> = [
-		[int2, [0n, 1n, -1n, 32767n]],
-		[int4, [0n, 7n, -7n]],
-		[int8, [0n, 9007199254740993n, -9007199254740993n]],
-		[
-			numeric,
-			Arr.map(
-				[
-					"1",
-					"1.0",
-					"1.00",
-					"-1",
-					"0",
-					"0.000",
-					"10",
-					"1e1",
-					"NaN",
-					"Infinity",
-					"-Infinity"
-				] as const,
-				(spelled) => Decimal.of(spelled)
-			)
-		],
-		[float4, [0, -0, 1.5, Number.NaN, Number.POSITIVE_INFINITY]],
-		[
-			float8,
-			[
-				0,
-				-0,
-				0.1,
-				0.30000000000000004,
-				Number.NaN,
-				Number.NEGATIVE_INFINITY,
-				Number.POSITIVE_INFINITY
-			]
-		],
-		[money, [Money.of(0n), Money.of(105n), Money.of(-105n)]],
-		[bool, [true, false]],
-		[text, ["", "a", "A", "a\u0000", "\u{1F600}", "￿"]],
-		[uuid, ["00000000-0000-0000-0000-000000000000", "00000000-0000-0000-0000-000000000001"]],
-		[handles, ["red", "green"]]
-	]
-
-	/**
-	 * Every sampled value of every type, so each type meets every other carrier's values, and the handles type meets
-	 * strings outside its roster, which comparison refuses.
-	 */
-	const everyValue = nonEmpty(
-		Arr.flatMap(samples, ([, values]) => values),
-		"the sampled values"
-	)
-
-	type KeyFeature =
-		| "one identity"
-		| "two identities"
-		| "none for another carrier"
-		| "none outside the roster"
-
-	it.effect(
-		"is one identity exactly for the values comparison finds equal, and none where comparison alone decides",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/oracle-runner/index-key",
-						/** Each sampled type, and every ordered pair of every type's values. */
-						generator: (source) => {
-							const [type, own] = source.draw(element(samples))
-							return [
-								type,
-								own,
-								source.draw(element(everyValue)),
-								source.draw(element(everyValue))
-							] as const
-						},
-						literal: Formatter.format,
-						coverage: requiredInSpace<KeyFeature>([
-							"one identity",
-							"two identities",
-							"none for another carrier",
-							"none outside the roster"
-						]),
-						box: "every sampled type, and every ordered pair of every type's sampled values",
-						oracle: {
-							kind: "second-implementation",
-							name: "the reference's comparison: two keyed values share a key exactly when it finds them equal, and it never meets a keyed value of another carrier"
-						},
-						caseHang
-					},
-					([type, own, a, b], c) =>
-						Effect.sync(() => {
-							const ka = indexIdentity(a, type)
-							const kb = indexIdentity(b, type)
-							const label = `${Formatter.format(a)} and ${Formatter.format(b)} as ${type.carrier}`
-							if (Arr.some(own, (v) => v === a)) {
-								assert.notEqual(ka, undefined, `${Formatter.format(a)} as ${type.carrier}`)
-							}
-							if (ka === undefined) {
-								c.note(
-									type === handles && typeof a === "string"
-										? "none outside the roster"
-										: "none for another carrier"
-								)
-								return
-							}
-							if (kb !== undefined) {
-								const one = sameIdentity(ka, kb)
-								assert.equal(one, equal(a, b, type), label)
-								c.note(one ? "one identity" : "two identities")
-							}
-						})
-				)
-			)
-	)
-})
+		box: "every sampled type, and every ordered pair of every type's sampled values",
+		kept: [],
+		kills: []
+	})

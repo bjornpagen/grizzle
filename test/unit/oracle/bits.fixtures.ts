@@ -1,0 +1,170 @@
+/** What the properties of bits.test.ts read: its spaces, models and helpers. */
+
+import { type Case } from "@bjornpagen/testing/explore"
+import { type Gen, int } from "@bjornpagen/testing/gen"
+import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
+import { parseDeclaredName } from "#compiler/core/identity.ts"
+import { ExprId } from "#compiler/core/ids.ts"
+import { builtExpr, OpId, type ScalarExpr } from "#compiler/ir/expr.ts"
+import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
+import { nativeOp } from "#compiler/scalar/compute/registry.ts"
+import { capabilitiesOf } from "#compiler/scalar/registry.ts"
+import { assert, defined, nonEmpty, succeeded } from "#test/support/assert.ts"
+import { constantEnv, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
+
+const size = 5
+
+const handleOf = (code: number): string => `h${code}`
+
+const codesOf = (mask: number): ReadonlySet<number> =>
+	new Set(
+		Arr.filter(
+			Arr.makeBy(size, (code) => code),
+			(code) => ((mask >> code) & 1) === 1
+		)
+	)
+
+/** One case: two sets of the roster's codes, each a bit mask. */
+interface Pair {
+	readonly a: number
+	readonly b: number
+}
+
+export const pairs: Gen<Pair> = (s) => ({
+	a: s.draw(int(0, 2 ** size - 1)),
+	b: s.draw(int(0, 2 ** size - 1))
+})
+
+export type Situation = "an empty set" | "a strict subset" | "disjoint sets" | "overlapping sets"
+
+const roster = Roster.of(succeeded(parseDeclaredName("Kind")), nonEmpty(Arr.makeBy(size, handleOf)))
+
+const set: ScalarType = { carrier: "bits", caps: capabilitiesOf("bits"), roster }
+
+const code: ScalarType = {
+	carrier: "code",
+	caps: capabilitiesOf("code"),
+	contract: undefined,
+	roster
+}
+
+const plain = (carrier: "bool" | "int8"): ScalarType => ({
+	carrier,
+	caps: capabilitiesOf(carrier),
+	contract: undefined
+})
+
+const literal = (mask: number, label: string): ScalarExpr =>
+	builtExpr(
+		{
+			kind: "literal",
+			value: { kind: "handles", handles: Arr.map([...codesOf(mask)], handleOf) },
+			type: set,
+			args: [],
+			nonNull: "literal"
+		},
+		ExprId(label)
+	)
+
+/** The registry's node of `id` over `args`, of `type`. */
+const opNode = (id: string, args: ReadonlyArray<ScalarExpr>, type: ScalarType, label: string) => {
+	const op = defined(nativeOp(OpId(id)), `the registry lists ${id}`)
+	if (op.partial) {
+		return assert.fail(`${id} is total`)
+	}
+	return builtExpr(
+		{ kind: "op", op: op.id, args, type, nonNull: "strict", volatility: "immutable" },
+		ExprId(label)
+	)
+}
+
+/** The evaluator's value of `root`, which reads no leaf but its literals: exact, never declined. */
+const evaluated = (root: ScalarExpr): unknown => {
+	const r = evaluate(root, constantEnv)
+	return Result.isSuccess(r) ? r.success : assert.fail(`declined: ${Formatter.format(r.failure)}`)
+}
+
+const handlesOf = (value: unknown): ReadonlyArray<string> =>
+	value instanceof Set
+		? Arr.sort(Arr.map([...value], String), Order.String)
+		: assert.fail(`a set, not ${Formatter.format(value)}`)
+
+export const agrees = ({ a, b }: Pair, c: Case<Situation>) =>
+	Effect.sync(() => {
+		const x = literal(a, "a")
+		const y = literal(b, "b")
+		const ma = codesOf(a)
+		const mb = codesOf(b)
+		const sorted = (codes: Iterable<number>): ReadonlyArray<string> =>
+			Arr.sort(Arr.map([...codes], handleOf), Order.String)
+		assert.deepEqual(
+			handlesOf(evaluated(opNode("bitor", [x, y], set, "union"))),
+			sorted(new Set([...ma, ...mb])),
+			"union"
+		)
+		assert.deepEqual(
+			handlesOf(evaluated(opNode("bitand", [x, y], set, "intersection"))),
+			sorted(Arr.filter([...ma], (k) => mb.has(k))),
+			"intersection"
+		)
+		assert.deepEqual(
+			handlesOf(evaluated(opNode("difference:bits", [x, y], set, "difference"))),
+			sorted(Arr.filter([...ma], (k) => !mb.has(k))),
+			"difference"
+		)
+		assert.equal(
+			evaluated(opNode("bit_count(bit)", [x], plain("int8"), "cardinality")),
+			BigInt(ma.size),
+			"cardinality"
+		)
+		const subset = Arr.every([...ma], (k) => mb.has(k))
+		const disjoint = !Arr.some([...ma], (k) => mb.has(k))
+		assert.equal(
+			evaluated(opNode("subset:bits", [x, y], plain("bool"), "subset")),
+			subset,
+			"subset"
+		)
+		assert.equal(
+			evaluated(opNode("disjoint:bits", [x, y], plain("bool"), "disjoint")),
+			disjoint,
+			"disjoint"
+		)
+		for (const k of Arr.makeBy(size, (k) => k)) {
+			const handle = builtExpr(
+				{
+					kind: "literal",
+					value: { kind: "handle", handle: handleOf(k) },
+					type: code,
+					args: [],
+					nonNull: "literal"
+				},
+				ExprId(`h${k}`)
+			)
+			assert.deepEqual(
+				handlesOf(
+					evaluated(
+						opNode("set_bit(bit,integer,integer)", [literal(0, "empty"), handle], set, "singleton")
+					)
+				),
+				sorted([k]),
+				`the singleton of code ${k}`
+			)
+			assert.deepEqual(
+				handlesOf(evaluated(opNode("set_bit(bit,integer,integer)", [x, handle], set, "adjoin"))),
+				sorted(new Set([...ma, k])),
+				`a with code ${k} added`
+			)
+		}
+		if (ma.size === 0 || mb.size === 0) {
+			c.note("an empty set")
+		}
+		if (subset && ma.size < mb.size) {
+			c.note("a strict subset")
+		}
+		if (disjoint && ma.size > 0 && mb.size > 0) {
+			c.note("disjoint sets")
+		}
+		if (!subset && !disjoint) {
+			c.note("overlapping sets")
+		}
+	})

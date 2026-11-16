@@ -6,22 +6,42 @@ import {
 	MODULE_RULES,
 	TEST_RULES
 } from "@bjornpagen/testing/oxlint"
+import { Array as Arr } from "effect"
 import { defineConfig } from "oxlint"
 import toolchain from "#toolchain.config.ts"
 
 const { active, lintConfig } = standard(toolchain)
 
 /**
+ * The dictionary doors that mint (@bjornpagen/testing/dictionary's dictionary, which import-doors lets no other module
+ * import): each holds the vocabularies of the test module beside it that are the domain itself, never cases a person
+ * chose. The bench catalog's gate ids; the scalar namespace's plain descriptors and the ScalarTypes the test fixtures
+ * export; the world model's invalid kinds.
+ */
+const DICTIONARY_MINTS = [
+	"test/unit/bench/harness.dictionary.ts",
+	"test/unit/scalar/descriptors.dictionary.ts",
+	"test/unit/scalar/registry.dictionary.ts",
+	"test/unit/world-model/generate.dictionary.ts"
+] as const
+
+/** DICTIONARY_MINTS as the package's import map names them. */
+const DICTIONARY_MINTS_SPECIFIERS = Arr.map(DICTIONARY_MINTS, (path) => `#${path}` as const)
+
+/**
  * The dictionary doors of test scope (no-case-list): modules whose exported lists are vocabularies the code branches
  * on, never cases a person chose, so a search may draw from a list imported from one. test/support/kernel/dict.ts holds
  * the identifier, literal and parameter-name dictionaries the generators draw beside their own; the oracle generator's
  * value domain (test/support/oracle/gen/domain.ts) its carriers, type specs, paddings and float specials; and
- * test/support/worlds/invalid/kinds.ts the world model's roster of invalid kinds, each by the boundary it crosses.
+ * test/support/worlds/invalid/kinds.ts the world model's roster of invalid kinds, each by the boundary it crosses. A
+ * test module's own vocabularies, minted with the testing library's dictionary(), are in a door beside it,
+ * <name>.dictionary.ts (DICTIONARY_MINTS).
  */
 const DICTIONARY_DOORS = [
 	"#test/support/kernel/dict.ts",
 	"#test/support/oracle/gen/domain.ts",
-	"#test/support/worlds/invalid/kinds.ts"
+	"#test/support/worlds/invalid/kinds.ts",
+	...DICTIONARY_MINTS_SPECIFIERS
 ] as const
 
 /** The engine's clock and scheduling ban, one message for every global it names. */
@@ -278,6 +298,13 @@ export default defineConfig(
 						guards: { kind: "exports", names: ["isDeepStrictEqual"] },
 						doors: ["test/support/assert.ts"],
 						message: "Use the typed deepEqual of #test/support/assert.ts."
+					},
+					{
+						module: "@bjornpagen/testing/dictionary",
+						guards: { kind: "exports", names: ["dictionary"] },
+						doors: DICTIONARY_MINTS,
+						message:
+							"A dictionary is minted in a dictionary door beside its test module, <name>.dictionary.ts, listed in oxlint.config.ts DICTIONARY_MINTS: a vocabulary that is the domain itself, never cases a person chose."
 					}
 				]
 			},
@@ -558,13 +585,6 @@ export default defineConfig(
 				files: ["test/pg/oracle/mutants/invalid.test.ts"],
 				rules: active({
 					/** Its space is the oracle's seven invalid mutants (test/support/oracle/mutants/mutants.ts), each a hand-made flaw the harness must kill: the list is a kill set, which the conversion states as kills on the oracle's property. */
-					"devtools/no-case-list": "off"
-				})
-			},
-			{
-				files: ["test/unit/scalar/registry.test.ts"],
-				rules: active({
-					/** Its fixtures search holds the ScalarTypes the test fixture modules export to the registry: the fixtures are what it checks, so its space is every one of them, not inputs chosen for a property. */
 					"devtools/no-case-list": "off"
 				})
 			},

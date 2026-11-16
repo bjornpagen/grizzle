@@ -5,8 +5,14 @@
  * configs read it without loading the runner config's services.
  */
 export const propertyModules: ReadonlyArray<string> = [
+	"test/unit/adapter/**/*.test.ts",
 	"test/unit/allen/**/*.test.ts",
+	"test/unit/bench/**/*.test.ts",
+	"test/unit/client/**/*.test.ts",
+	"test/unit/codec/**/*.test.ts",
 	"test/unit/derived/**/*.test.ts",
+	"test/unit/http/**/*.test.ts",
+	"test/unit/kernel/**/*.test.ts",
 	"test/unit/lower/catalog/**/*.test.ts",
 	"test/unit/lower/codes.test.ts",
 	"test/unit/lower/conservative/**/*.test.ts",
@@ -19,9 +25,21 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/unit/lower/selection-key.test.ts",
 	"test/unit/lower/shapes/**/*.test.ts",
 	"test/unit/lower/vector.test.ts",
+	"test/unit/oracle-gen/**/*.test.ts",
+	"test/unit/oracle-install/**/*.test.ts",
+	"test/unit/oracle-runner/compare.test.ts",
+	"test/unit/oracle-runner/reference-plans.test.ts",
+	"test/unit/oracle/**/*.test.ts",
+	"test/unit/page/**/*.test.ts",
 	"test/unit/query/**/*.test.ts",
 	"test/unit/recursion/**/*.test.ts",
-	"test/unit/spans/**/*.test.ts"
+	"test/unit/scalar/**/*.test.ts",
+	"test/unit/security/**/*.test.ts",
+	"test/unit/spans/**/*.test.ts",
+	"test/unit/support/**/*.test.ts",
+	"test/unit/vector/**/*.test.ts",
+	"test/unit/workload/**/*.test.ts",
+	"test/unit/world-model/**/*.test.ts"
 ]
 
 /**

@@ -26,25 +26,18 @@
  * Features: every shape of candidate; every lexical kind; an included and a refuted pair; each route admitted and
  * refused, a decimal's refused by its language and by its bytes.
  */
-import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
-import { required, requiredInSpace } from "@bjornpagen/testing/features"
-import { array, constant, element, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { array, element, finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { decimalTextMaxBytes } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
-import { Compute } from "#compiler/public/compute.ts"
-import { generated, pg, uuid } from "#compiler/public/fields.ts"
-import { type AnyRelation, relation, schema } from "#compiler/public/schema.ts"
-import { decimalText, str } from "#compiler/public/text.ts"
-import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { toFloat } from "#compiler/scalar/compute/cast.ts"
+import { schema } from "#compiler/public/schema.ts"
+import { decimalText } from "#compiler/public/text.ts"
 import {
 	formOctets,
 	formSource,
@@ -52,551 +45,338 @@ import {
 	lexicalValue
 } from "#compiler/scalar/lexical.ts"
 import { inclusion } from "#compiler/scalar/regex/inclusion.ts"
-import { closure, matches, type Nfa } from "#compiler/scalar/regex/match.ts"
+import { matches } from "#compiler/scalar/regex/match.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { parsePattern } from "#compiler/scalar/regex/parse.ts"
-import { generatedField } from "#compiler/schema/relation.ts"
-import { regexField } from "#compiler/text/field.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import {
 	candidateGen,
 	dateDays,
-	type Shape,
 	sameValue,
+	type Shape,
 	shapes,
 	targetGen
 } from "#test/support/lexical.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { checkedIn } from "#test/support/policy.ts"
+import {
+	admittedMaxPrecision,
+	alphabet,
+	type CheckFeature,
+	checkTargets,
+	decimalBoundGen,
+	type DecimalFeature,
+	decimalRelation,
+	type InclusionFeature,
+	longestMember,
+	nfaOf,
+	pairGen,
+	roundDouble,
+	type Route
+} from "#test/unit/scalar/lexical.fixtures.ts"
 import { admittedPatternOver, walkGen } from "#test/unit/text/generators.ts"
 
-const nfaOf = (source: string): Nfa => buildNfa(succeeded(parsePattern(source, "u")))
-
-const roundDouble = (negative: boolean, num: bigint, den: bigint): number =>
-	toFloat(negative, num, den, "float8")
-
-/** The greatest precision of the numeric targets whose forms the text analysis is held to admit. */
-const admittedMaxPrecision = 12
-
-describe("lexical forms", () => {
-	it.effect(
-		"each form's pattern and its scan agree on every candidate, and a member names XML Schema's value",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/scalar/lexical-forms",
-						draw: drawn(candidateGen),
-						literal: Formatter.format,
-						coverage: required<Shape>(shapes, { cases: 4000, sense: notesOnly }),
-						kept: [],
-						runs: 4000,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang,
-						oracle: {
-							kind: "specification",
-							name: "XML Schema's lexical spaces built from their parts, against the form's pattern and its scan"
-						}
-					},
-					(c, run) =>
-						Effect.sync(() => {
-							run.note(c.shape)
-							const label = `${Formatter.format(c.target)} ${Formatter.format(c.text)}`
-							const scanned = lexicalValue(c.target, c.text, roundDouble)
-							const octets = formOctets(c.target)
-							assert.equal(
-								matches(nfaOf(formSource(c.target)), c.text) &&
-									(octets === undefined || utf8Length(c.text) <= octets),
-								c.member,
-								`${label}: pattern and bytes`
-							)
-							assert.equal(scanned !== undefined, c.member, `${label}: scan`)
-							if (c.member) {
-								assert.ok(
-									sameValue(scanned, c.value),
-									`${label}: value ${Formatter.format(scanned)}`
-								)
-							}
-							if (c.target.kind === "date" && c.member) {
-								const [y, m, d] = Arr.map(Str.split("-")(c.text), Number)
-								assert.equal(
-									dayNumber(succeeded(toCalendarDate(c.text))),
-									dateDays(defined(y, "year"), defined(m, "month"), defined(d, "day")),
-									`${label}: day number`
-								)
-							}
-						})
+/** Lexical forms each form's pattern and its scan agree on every candidate, and a member names XML Schema's value. */
+export const lexicalFormsEachFormsPatternAndItsScanAgreeOnEveryCandidateAndAMemberNamesXMLSchemasValue =
+	property.explore(candidateGen, {
+		needs: {},
+		situations: shapes satisfies ReadonlyArray<Reached<Shape>>,
+		check: (_, run: Case<Shape>) => (c) =>
+			Effect.sync(() => {
+				run.note(c.shape)
+				const label = `${Formatter.format(c.target)} ${Formatter.format(c.text)}`
+				const scanned = lexicalValue(c.target, c.text, roundDouble)
+				const octets = formOctets(c.target)
+				assert.equal(
+					matches(nfaOf(formSource(c.target)), c.text) &&
+						(octets === undefined || utf8Length(c.text) <= octets),
+					c.member,
+					`${label}: pattern and bytes`
 				)
-			)
-	)
-
-	it.effect(
-		"is admitted by the text analysis as a refinement str.regex types a field by, for every typmod in a box",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/scalar/lexical-admitted",
-						generator: targetGen(admittedMaxPrecision),
-						literal: Formatter.format,
-						coverage: requiredInSpace<LexicalTarget["kind"]>([
-							"integer",
-							"decimal",
-							"double",
-							"boolean",
-							"date",
-							"doubleText",
-							"decimalText"
-						]),
-						caseHang,
-						box: "every integer carrier, numeric(p, s) for p from 1 to 12 and s from 0 to p, and every other kind",
-						oracle: {
-							kind: "specification",
-							name: "the text analysis's admission (text/refinement.ts)"
-						}
-					},
-					(t, c) =>
-						Effect.sync(() => {
-							c.note(t.kind)
-							const analyzed = analyzeText(
-								[{ source: formSource(t), flags: "u" }],
-								SourceLoc("lexicalForm", [])
-							)
-							assert.equal(
-								analyzed.ok ? analyzed.value.check.kind : "refused",
-								"regex",
-								`${Formatter.format(t)}'s form is an admitted refinement`
-							)
-						})
-				)
-			)
-	)
-})
-
-/** What a pair of patterns came to under the walk, the features of the inclusion suite. */
-type InclusionFeature = "included" | "refuted" | "bounded"
-
-/**
- * A pattern pair over one small alphabet, the characters of the forms' numerals, and walks of the inner pattern's NFA;
- * one pair in two puts a lexical form outside.
- */
-const alphabet: Arr.NonEmptyReadonlyArray<number> = [0x30, 0x31, 0x39, 0x2d, 0x2e, 0x65]
-
-const pairGen: Gen<{ readonly inner: string; readonly outer: string }> = weighted([
-	[
-		1,
-		(source) => ({
-			inner: source.draw(admittedPatternOver(alphabet)),
-			outer: source.draw(admittedPatternOver(alphabet))
-		})
-	],
-	[
-		1,
-		(source) => ({
-			inner: source.draw(admittedPatternOver(alphabet)),
-			outer: formSource(source.draw(targetGen(admittedMaxPrecision)))
-		})
-	]
-])
-
-describe("language inclusion", () => {
-	it.effect(
-		"an included pair admits no member of the inner pattern outside the outer, and a refuted pair's witness separates them",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/scalar/lexical-inclusion",
-						draw: drawn((source) => {
-							const pair = source.draw(pairGen)
-							const parsed = parsePattern(pair.inner, "u")
-							return {
-								...pair,
-								walks: parsed.ok
-									? source.draw(array(walkGen(buildNfa(parsed.value)), { min: 1, max: 16 }))
-									: []
-							}
-						}),
-						literal: Formatter.format,
-						coverage: required<InclusionFeature>(["included", "refuted"], {
-							cases: 1500,
-							sense: notesOnly
-						}),
-						kept: [],
-						runs: 1500,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang,
-						oracle: {
-							kind: "second-implementation",
-							name: "the host NFA's membership (scalar/regex/nfa.ts)"
-						}
-					},
-					({ inner, outer, walks }, run) =>
-						Effect.sync(() => {
-							const a = parsePattern(inner, "u")
-							const b = parsePattern(outer, "u")
-							if (!a.ok || !b.ok) {
-								return assert.fail(`${inner} and ${outer}: admitted patterns parse`)
-							}
-							const innerNfa = buildNfa(a.value)
-							const outerNfa = buildNfa(b.value)
-							const result = inclusion([innerNfa], [outerNfa])
-							run.note(result.kind)
-							const label = `/${inner}/ in /${outer}/`
-							switch (result.kind) {
-								case "included":
-									for (const w of walks) {
-										if (w !== undefined) {
-											assert.ok(matches(innerNfa, w), `${label}: a walk is a member`)
-											assert.ok(
-												matches(outerNfa, w),
-												`${label}: ${Formatter.format(w)} is in the outer`
-											)
-										}
-									}
-									return
-								case "refuted":
-									assert.ok(
-										matches(innerNfa, result.witness),
-										`${label}: the witness is in the inner`
-									)
-									assert.ok(
-										!matches(outerNfa, result.witness),
-										`${label}: the witness is not in the outer`
-									)
-									return
-								case "bounded":
-									return
-							}
-						})
-				)
-			)
-	)
-})
-
-/** How a case states the parse's operand: by its field's type, or under a Compute.matches guard on a plain text. */
-type Route = "type" | "guard"
-
-/** What the checker answered a case, by how it stated the operand. */
-type CheckFeature = `${Route} admitted` | `${Route} refused`
-
-/**
- * A case's relation: its text field `t` typed by the pattern, or plain text under a matches guard by it, and a field
- * generated from its parse into the target, one builder per target so each names its own descriptor.
- */
-type Parsed = (pattern: string, route: Route) => AnyRelation
-
-const typedText = (pattern: string, route: Route) =>
-	route === "type" ? regexField<string>(pattern, []) : regexField<string>("^.*$", ["su"])
-
-const checkTargets: Arr.NonEmptyReadonlyArray<readonly [LexicalTarget, Parsed]> = [
-	[
-		{ kind: "integer", carrier: "int2" },
-		(pattern, route) =>
-			relation.generated("R", { id: uuid, t: typedText(pattern, route) }, ["id"], (r) => ({
-				n: generated(
-					pg.smallint,
-					route === "type"
-						? Compute.cast(r.t, pg.smallint)
-						: Compute.when(
-								Compute.matches(r.t, Compute.pattern(pattern)),
-								(t) => Compute.cast(t, pg.smallint),
-								Compute.literal(pg.smallint, 0)
-							)
-				)
-			}))
-	],
-	[
-		{ kind: "decimal", typmod: { precision: 3, scale: 1 } },
-		(pattern, route) =>
-			relation.generated("R", { id: uuid, t: typedText(pattern, route) }, ["id"], (r) => ({
-				n: generated(
-					pg.numeric(3, 1),
-					route === "type"
-						? Compute.cast(r.t, pg.numeric(3, 1))
-						: Compute.when(
-								Compute.matches(r.t, Compute.pattern(pattern)),
-								(t) => Compute.cast(t, pg.numeric(3, 1)),
-								Compute.literal(pg.numeric(3, 1), "0")
-							)
-				)
-			}))
-	],
-	[
-		{ kind: "doubleText" },
-		(pattern, route) =>
-			relation.generated("R", { id: uuid, t: typedText(pattern, route) }, ["id"], (r) => ({
-				n: generated(
-					pg["double precision"],
-					route === "type"
-						? Compute.parseDouble(r.t)
-						: Compute.when(
-								Compute.matches(r.t, Compute.pattern(pattern)),
-								(t) => Compute.parseDouble(t),
-								Compute.literal(pg["double precision"], 0)
-							)
-				)
-			}))
-	],
-	[
-		{ kind: "boolean" },
-		(pattern, route) =>
-			relation.generated("R", { id: uuid, t: typedText(pattern, route) }, ["id"], (r) => ({
-				n: generated(
-					pg.boolean,
-					route === "type"
-						? Compute.cast(r.t, pg.boolean)
-						: Compute.when(
-								Compute.matches(r.t, Compute.pattern(pattern)),
-								(t) => Compute.cast(t, pg.boolean),
-								Compute.literal(pg.boolean, false)
-							)
-				)
-			}))
-	]
-]
-
-describe("a parse's lexical precondition", () => {
-	it.effect(
-		"is proved exactly when the operand's language is inside the form, by its type or by a matches guard",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/scalar/lexical-proved",
-						draw: drawn((source) => ({
-							pattern: `^(?:${source.draw(admittedPatternOver(alphabet))})$`,
-							target: source.draw(element(checkTargets)),
-							route: source.draw(element<Route>(["type", "guard"]))
-						})),
-						literal: Formatter.format,
-						coverage: required<CheckFeature>(
-							["type admitted", "type refused", "guard admitted", "guard refused"],
-							{ cases: 600, sense: notesOnly }
-						),
-						kept: [],
-						runs: 600,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang,
-						oracle: {
-							kind: "second-implementation",
-							name: "language inclusion of the pattern in the form (scalar/regex/inclusion.ts)"
-						}
-					},
-					({ pattern, target: [target, build], route }, run) =>
-						Effect.sync(() => {
-							assert.ok(
-								analyzeText([{ source: pattern, flags: "u" }], SourceLoc("str.regex", [])).ok,
-								`${pattern}: an admitted pattern's text analyzes`
-							)
-							const verdict = inclusion([nfaOf(pattern)], [nfaOf(formSource(target))]).kind
-							const checked = checkedIn(schema("Lexical", [build(pattern, route)], []))
-							run.note(`${route} ${checked.ok ? "admitted" : "refused"}`)
-							assert.equal(
-								checked.ok,
-								verdict === "included",
-								`/${pattern}/ as ${Formatter.format(target)}`
-							)
-							if (!checked.ok) {
-								/** A comparison past the analysis bounds decides nothing, which names them, not a missing guard. */
-								const expected: CompileReasonTag =
-									verdict === "bounded" ? "ResourceBound" : "PartialOperation"
-								assert.equal(checked.error.reason._tag, expected, pattern)
-							}
-						})
-				)
-			)
-	)
-})
-
-/** How a decimal case bounds its operand's bytes: not at all, or at a drawn count, by its type or by a guard. */
-type DecimalBound = { readonly kind: "none" } | { readonly kind: "bytes"; readonly bytes: number }
-
-/** What the checker answered a decimal case, by how it stated the operand. */
-type DecimalFeature =
-	| `${Route} admitted`
-	| `${Route} refused by its language`
-	| `${Route} refused by its bytes`
-
-/** A bound of none, a few bytes, or one byte either side of the most the form's members hold. */
-const decimalBoundGen: Gen<DecimalBound> = weighted<DecimalBound>([
-	[2, constant({ kind: "none" })],
-	[3, map(int(-1, 1), (offset) => ({ kind: "bytes", bytes: decimalTextMaxBytes.value + offset }))],
-	[1, map(int(0, 12), (bytes) => ({ kind: "bytes", bytes }))]
-])
-
-/**
- * A decimal case's relation: its text `t` typed by the pattern within the bound (str.bytes), or any text under a matches
- * guard of the pattern and a guard of its bytes at the bound, and a field generated from whether the parse is at
- * least zero.
- */
-const decimalRelation = (pattern: string, route: Route, bound: DecimalBound): AnyRelation => {
-	const no = computeCore.literal(pg.boolean, false)
-	const parsedSign = (t: unknown): unknown =>
-		computeCore.cond(
-			computeCore.ge(computeCore.parseDecimal(t), 0n),
-			computeCore.literal(pg.boolean, true),
-			no
-		)
-	if (route === "type") {
-		const typed = regexField<string>(pattern, [])
-		const t = bound.kind === "none" ? typed : str.bytes(bound.bytes, typed)
-		return relation.generated("R", { id: uuid, t }, ["id"], (r) => ({
-			n: generatedField(pg.boolean, parsedSign(r.t), [])
-		}))
-	}
-	return relation.generated("R", { id: uuid, t: typedText(pattern, route) }, ["id"], (r) => ({
-		n: generatedField(
-			pg.boolean,
-			computeCore.when(
-				computeCore.matches(r.t, computeCore.pattern(pattern)),
-				(t: unknown) =>
-					bound.kind === "none"
-						? parsedSign(t)
-						: computeCore.when(
-								computeCore.within(computeCore.octetLength(t), 0, bound.bytes),
-								() => parsedSign(t),
-								no
-							),
-				no
-			),
-			[]
-		)
-	}))
-}
-
-/**
- * The most characters a member of `nfa`'s language of at most `chars` characters takes, 0 where none is that short, by
- * the host matcher's walk (match.ts closure) over every text at once: the states some text of n characters reaches, a
- * text of n characters a member where a walk of it reached the accepting state before its end, or reaches it at its
- * end. A language inside decimalText is ASCII, a character a byte, so for one it is the most bytes a value of its text
- * within `chars` bytes takes, which the parse compares with the form's bound.
- */
-const longestMember = (nfa: Nfa, chars: number): number => {
-	const mark = new Int32Array(nfa.edges.length).fill(-1)
-	let stamp = 0
-	let seeds: ReadonlyArray<number> = [nfa.start]
-	let early = false
-	let longest = 0
-	for (let n = 0; n <= chars; n += 1) {
-		const atStart = n === 0
-		if (
-			early ||
-			closure(nfa, seeds, { atStart, atEnd: true }, mark, stamp++).includes(nfa.accept)
-		) {
-			longest = n
-		}
-		const walked = closure(nfa, seeds, { atStart, atEnd: false }, mark, stamp++)
-		early ||= walked.includes(nfa.accept)
-		seeds = [
-			...Arr.flatMap(walked, (state) =>
-				Arr.flatMap(defined(nfa.edges[state]), (e) => (e.kind === "set" ? [e.to] : []))
-			),
-			nfa.start
+				assert.equal(scanned !== undefined, c.member, `${label}: scan`)
+				if (c.member) {
+					assert.ok(sameValue(scanned, c.value), `${label}: value ${Formatter.format(scanned)}`)
+				}
+				if (c.target.kind === "date" && c.member) {
+					const [y, m, d] = Arr.map(Str.split("-")(c.text), Number)
+					assert.equal(
+						dayNumber(succeeded(toCalendarDate(c.text))),
+						dateDays(defined(y, "year"), defined(m, "month"), defined(d, "day")),
+						`${label}: day number`
+					)
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "XML Schema's lexical spaces built from their parts, against the form's pattern and its scan"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/lexical.ts",
+				original: '\t\t\t\treturn "true|false|1|0"',
+				replacement: '\t\t\t\treturn "true|false|1|0|yes"',
+				why: 'The boolean form\'s pattern admits "yes", which its scan does not; the second-definition property fails.'
+			}
 		]
-	}
-	return longest
-}
+	})
 
-describe("a decimal's parse", () => {
-	it.effect(
-		"is proved exactly when the operand's language is inside decimalText and its bytes within the form's, by its type or by guards",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/scalar/lexical-decimal-proved",
-						draw: drawn((source) => ({
-							pattern: `^(?:${source.draw(admittedPatternOver(alphabet))})$`,
-							route: source.draw(element<Route>(["type", "guard"])),
-							bound: source.draw(decimalBoundGen)
-						})),
-						literal: Formatter.format,
-						coverage: required<DecimalFeature>(
-							[
-								"type admitted",
-								"type refused by its language",
-								"type refused by its bytes",
-								"guard admitted",
-								"guard refused by its language",
-								"guard refused by its bytes"
-							],
-							{ cases: 600, sense: notesOnly }
-						),
-						kept: [],
-						runs: 600,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang,
-						oracle: {
-							kind: "second-implementation",
-							name: "language inclusion of the pattern in decimalText (scalar/regex/inclusion.ts) and the bytes of its longest member within the bound the text analysis and the str.bytes prove, by the host matcher's walk"
-						}
-					},
-					({ pattern, route, bound }, run) =>
-						Effect.sync(() => {
-							const analyzed = analyzeText(
-								[{ source: pattern, flags: "u" }],
-								SourceLoc("str.regex", [])
-							)
-							if (!analyzed.ok) {
-								return assert.fail(`${pattern}: an admitted pattern's text analyzes`)
-							}
-							const verdict = inclusion([nfaOf(pattern)], [nfaOf(decimalText.source)]).kind
-							const check = analyzed.value.check
-							const patternBytes =
-								check.kind === "tautology" || check.bounds === undefined
-									? Number.POSITIVE_INFINITY
-									: check.bounds.bytes
-							const bytes = Math.min(
-								patternBytes,
-								bound.kind === "bytes" ? bound.bytes : Number.POSITIVE_INFINITY
-							)
-							const withinBytes =
-								bytes <= decimalTextMaxBytes.value ||
-								(verdict === "included" &&
-									bytes < patternBytes &&
-									longestMember(nfaOf(pattern), bytes) <= decimalTextMaxBytes.value)
-							const checked = checkedIn(
-								schema("DecimalLexical", [decimalRelation(pattern, route, bound)], [])
-							)
-							const label = `/${pattern}/ by ${route} within ${Formatter.format(bound)}`
-							if (verdict === "included" && withinBytes) {
-								assert.ok(checked.ok, `${label}: ${checked.ok ? "" : checked.error.message}`)
-								run.note(`${route} admitted`)
-								return
-							}
-							assert.ok(!checked.ok, `${label}: refused`)
-							const reason = checked.error.reason
-							if (verdict === "bounded") {
-								assert.equal(reason._tag, "ResourceBound", label)
-								return
-							}
-							assert.ok(reason._tag === "PartialOperation", `${label}: refused as ${reason._tag}`)
-							assert.equal(reason.precondition, "lexical", label)
-							assert.deepEqual(
-								reason.guard.remedy,
-								verdict === "included"
-									? { kind: "octets", bytes: decimalTextMaxBytes.value }
-									: { kind: "matches", pattern: "decimalText" },
-								label
-							)
-							run.note(
-								verdict === "included"
-									? `${route} refused by its bytes`
-									: `${route} refused by its language`
-							)
-						})
+/** Lexical forms is admitted by the text analysis as a refinement str.regex types a field by, for every typmod in a box. */
+export const lexicalFormsIsAdmittedByTheTextAnalysisAsARefinementStrRegexTypesAFieldByForEveryTypmodInABox =
+	property.exhaust(finite(targetGen(admittedMaxPrecision)), {
+		needs: {},
+		situations: [
+			"integer",
+			"decimal",
+			"double",
+			"boolean",
+			"date",
+			"doubleText",
+			"decimalText"
+		] satisfies ReadonlyArray<Reached<LexicalTarget["kind"]>>,
+		check: (_, c: Case<LexicalTarget["kind"]>) => (t) =>
+			Effect.sync(() => {
+				c.note(t.kind)
+				const analyzed = analyzeText(
+					[{ source: formSource(t), flags: "u" }],
+					SourceLoc("lexicalForm", [])
 				)
-			)
+				assert.equal(
+					analyzed.ok ? analyzed.value.check.kind : "refused",
+					"regex",
+					`${Formatter.format(t)}'s form is an admitted refinement`
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the text analysis's admission (text/refinement.ts)"
+		},
+		box: "every integer carrier, numeric(p, s) for p from 1 to 12 and s from 0 to p, and every other kind",
+		kept: [],
+		kills: []
+	})
+
+/** Language inclusion an included pair admits no member of the inner pattern outside the outer, and a refuted pair's witness separates them. */
+export const languageInclusionAnIncludedPairAdmitsNoMemberOfTheInnerPatternOutsideTheOuterAndARefutedPairsWitnessSeparatesThem =
+	property.explore(
+		(source) => {
+			const pair = source.draw(pairGen)
+			const parsed = parsePattern(pair.inner, "u")
+			return {
+				...pair,
+				walks: parsed.ok
+					? source.draw(array(walkGen(buildNfa(parsed.value)), { min: 1, max: 16 }))
+					: []
+			}
+		},
+		{
+			needs: {},
+			situations: ["included", "refuted"] satisfies ReadonlyArray<Reached<InclusionFeature>>,
+			check:
+				(_, run: Case<InclusionFeature>) =>
+				({ inner, outer, walks }) =>
+					Effect.sync(() => {
+						const a = parsePattern(inner, "u")
+						const b = parsePattern(outer, "u")
+						if (!a.ok || !b.ok) {
+							return assert.fail(`${inner} and ${outer}: admitted patterns parse`)
+						}
+						const innerNfa = buildNfa(a.value)
+						const outerNfa = buildNfa(b.value)
+						const result = inclusion([innerNfa], [outerNfa])
+						run.note(result.kind)
+						const label = `/${inner}/ in /${outer}/`
+						switch (result.kind) {
+							case "included":
+								for (const w of walks) {
+									if (w !== undefined) {
+										assert.ok(matches(innerNfa, w), `${label}: a walk is a member`)
+										assert.ok(
+											matches(outerNfa, w),
+											`${label}: ${Formatter.format(w)} is in the outer`
+										)
+									}
+								}
+								return
+							case "refuted":
+								assert.ok(
+									matches(innerNfa, result.witness),
+									`${label}: the witness is in the inner`
+								)
+								assert.ok(
+									!matches(outerNfa, result.witness),
+									`${label}: the witness is not in the outer`
+								)
+								return
+							case "bounded":
+								return
+						}
+					}),
+			oracle: {
+				kind: "second-implementation",
+				name: "the host NFA's membership (scalar/regex/nfa.ts)"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/scalar/regex/inclusion.ts",
+					original: '\t\t\treturn { kind: "refuted", witness: witness(at) }',
+					replacement: '\t\t\treturn { kind: "included" }',
+					why: "The inclusion walk calls every pair it reaches included, never refuted; the inclusion walk's refutation property fails, and the parse properties with it."
+				}
+			]
+		}
 	)
-})
+
+/** A parse's lexical precondition is proved exactly when the operand's language is inside the form, by its type or by a matches guard. */
+export const aParsesLexicalPreconditionIsProvedExactlyWhenTheOperandsLanguageIsInsideTheFormByItsTypeOrByAMatchesGuard =
+	property.explore(
+		(source) => ({
+			pattern: `^(?:${source.draw(admittedPatternOver(alphabet))})$`,
+			target: source.draw(element(checkTargets)),
+			route: source.draw(element<Route>(["type", "guard"]))
+		}),
+		{
+			needs: {},
+			situations: [
+				"type admitted",
+				"type refused",
+				"guard admitted",
+				"guard refused"
+			] satisfies ReadonlyArray<Reached<CheckFeature>>,
+			check:
+				(_, run: Case<CheckFeature>) =>
+				({ pattern, target: [target, build], route }) =>
+					Effect.sync(() => {
+						assert.ok(
+							analyzeText([{ source: pattern, flags: "u" }], SourceLoc("str.regex", [])).ok,
+							`${pattern}: an admitted pattern's text analyzes`
+						)
+						const verdict = inclusion([nfaOf(pattern)], [nfaOf(formSource(target))]).kind
+						const checked = checkedIn(schema("Lexical", [build(pattern, route)], []))
+						run.note(`${route} ${checked.ok ? "admitted" : "refused"}`)
+						assert.equal(
+							checked.ok,
+							verdict === "included",
+							`/${pattern}/ as ${Formatter.format(target)}`
+						)
+						if (!checked.ok) {
+							/** A comparison past the analysis bounds decides nothing, which names them, not a missing guard. */
+							const expected: CompileReasonTag =
+								verdict === "bounded" ? "ResourceBound" : "PartialOperation"
+							assert.equal(checked.error.reason._tag, expected, pattern)
+						}
+					}),
+			oracle: {
+				kind: "second-implementation",
+				name: "language inclusion of the pattern in the form (scalar/regex/inclusion.ts)"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/scalar/regex/inclusion.ts",
+					original: '\t\t\treturn { kind: "refuted", witness: witness(at) }',
+					replacement: '\t\t\treturn { kind: "included" }',
+					why: "The inclusion walk calls every pair it reaches included, never refuted; the inclusion walk's refutation property fails, and the parse properties with it."
+				}
+			]
+		}
+	)
+
+/** A decimal's parse is proved exactly when the operand's language is inside decimalText and its bytes within the form's, by its type or by guards. */
+export const aDecimalsParseIsProvedExactlyWhenTheOperandsLanguageIsInsideDecimalTextAndItsBytesWithinTheFormsByItsTypeOrByGuards =
+	property.explore(
+		(source) => ({
+			pattern: `^(?:${source.draw(admittedPatternOver(alphabet))})$`,
+			route: source.draw(element<Route>(["type", "guard"])),
+			bound: source.draw(decimalBoundGen)
+		}),
+		{
+			needs: {},
+			situations: [
+				"type admitted",
+				"type refused by its language",
+				"type refused by its bytes",
+				"guard admitted",
+				"guard refused by its language",
+				"guard refused by its bytes"
+			] satisfies ReadonlyArray<Reached<DecimalFeature>>,
+			check:
+				(_, run: Case<DecimalFeature>) =>
+				({ pattern, route, bound }) =>
+					Effect.sync(() => {
+						const analyzed = analyzeText(
+							[{ source: pattern, flags: "u" }],
+							SourceLoc("str.regex", [])
+						)
+						if (!analyzed.ok) {
+							return assert.fail(`${pattern}: an admitted pattern's text analyzes`)
+						}
+						const verdict = inclusion([nfaOf(pattern)], [nfaOf(decimalText.source)]).kind
+						const check = analyzed.value.check
+						const patternBytes =
+							check.kind === "tautology" || check.bounds === undefined
+								? Number.POSITIVE_INFINITY
+								: check.bounds.bytes
+						const bytes = Math.min(
+							patternBytes,
+							bound.kind === "bytes" ? bound.bytes : Number.POSITIVE_INFINITY
+						)
+						const withinBytes =
+							bytes <= decimalTextMaxBytes.value ||
+							(verdict === "included" &&
+								bytes < patternBytes &&
+								longestMember(nfaOf(pattern), bytes) <= decimalTextMaxBytes.value)
+						const checked = checkedIn(
+							schema("DecimalLexical", [decimalRelation(pattern, route, bound)], [])
+						)
+						const label = `/${pattern}/ by ${route} within ${Formatter.format(bound)}`
+						if (verdict === "included" && withinBytes) {
+							assert.ok(checked.ok, `${label}: ${checked.ok ? "" : checked.error.message}`)
+							run.note(`${route} admitted`)
+							return
+						}
+						assert.ok(!checked.ok, `${label}: refused`)
+						const reason = checked.error.reason
+						if (verdict === "bounded") {
+							assert.equal(reason._tag, "ResourceBound", label)
+							return
+						}
+						assert.ok(reason._tag === "PartialOperation", `${label}: refused as ${reason._tag}`)
+						assert.equal(reason.precondition, "lexical", label)
+						assert.deepEqual(
+							reason.guard.remedy,
+							verdict === "included"
+								? { kind: "octets", bytes: decimalTextMaxBytes.value }
+								: { kind: "matches", pattern: "decimalText" },
+							label
+						)
+						run.note(
+							verdict === "included"
+								? `${route} refused by its bytes`
+								: `${route} refused by its language`
+						)
+					}),
+			oracle: {
+				kind: "second-implementation",
+				name: "language inclusion of the pattern in decimalText (scalar/regex/inclusion.ts) and the bytes of its longest member within the bound the text analysis and the str.bytes prove, by the host matcher's walk"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/scalar/regex/inclusion.ts",
+					original: '\t\t\treturn { kind: "refuted", witness: witness(at) }',
+					replacement: '\t\t\treturn { kind: "included" }',
+					why: "The inclusion walk calls every pair it reaches included, never refuted; the inclusion walk's refutation property fails, and the parse properties with it."
+				},
+				{
+					file: "packages/engine/src/scalar/compute/lower.ts",
+					original:
+						'\treturn formIncludes(regex.patterns, lexical, patterns).kind === "included"\n\t\t? { kind: "octets", bytes: octets }',
+					replacement:
+						'\treturn formIncludes(regex.patterns, lexical, patterns).kind === "included"\n\t\t? { kind: "octets", bytes: octets + 1 }',
+					why: "A decimal parse's remedy bounds the operand's bytes one past the form's bound; the parse precondition's remedy property fails."
+				}
+			]
+		}
+	)

@@ -6,7 +6,7 @@
  * triggers, serialization and settings; the reading each must read back; its text as PostgreSQL prints it, keys no
  * reader reads among them; and faults PostgreSQL never prints, planted in it.
  */
-import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { array, boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type {
@@ -41,7 +41,7 @@ interface Sketch {
 }
 
 /** A generated EXPLAIN (ANALYZE, BUFFERS, ...) result: the plan, and the statement's own figures. */
-interface CaptureSketch {
+export interface CaptureSketch {
 	readonly plan: Sketch
 	readonly planningMs: number
 	readonly executionMs: number
@@ -295,26 +295,49 @@ const leaf = (wal: boolean): Gen<Sketch> =>
 		]
 	])
 
+/** The node types a node over children has. */
+type InnerKind =
+	| "Nested Loop"
+	| "Hash Join"
+	| "Hash"
+	| "Sort"
+	| "Aggregate"
+	| "Memoize"
+	| "Gather"
+	| "Append"
+	| "Subquery Scan"
+	| "ModifyTable"
+
+/** How a node over children is drawn: its type, and whether a cache's lookups are counted. */
+interface InnerDraw {
+	readonly kind: Gen<InnerKind>
+	readonly counted: Gen<boolean>
+}
+
+/** Any node over children, a cache's lookups counted or not. */
+const anyInner: InnerDraw = {
+	kind: element([
+		"Nested Loop",
+		"Hash Join",
+		"Hash",
+		"Sort",
+		"Aggregate",
+		"Memoize",
+		"Gather",
+		"Append",
+		"Subquery Scan",
+		"ModifyTable"
+	] as const),
+	counted: boolean
+}
+
 /** A node over children: a join, a hash, a sort, an aggregate, a cache, a subquery scan or a write. */
 const inner =
-	(wal: boolean, depth: number): Gen<Sketch> =>
+	(wal: boolean, depth: number, drawn: InnerDraw): Gen<Sketch> =>
 	(source) => {
 		const below = (count: number): ReadonlyArray<Sketch> =>
 			source.draw(array(planGen(wal, depth - 1), { min: count, max: count }))
-		const kind = source.draw(
-			element([
-				"Nested Loop",
-				"Hash Join",
-				"Hash",
-				"Sort",
-				"Aggregate",
-				"Memoize",
-				"Gather",
-				"Append",
-				"Subquery Scan",
-				"ModifyTable"
-			] as const)
-		)
+		const kind = source.draw(drawn.kind)
 		const fields = source.draw(nodeOf(kind, wal))
 		switch (kind) {
 			case "Nested Loop":
@@ -388,7 +411,7 @@ const inner =
 						...fields,
 						cache: Option.some({
 							key: "e1.dst",
-							lookups: source.draw(boolean)
+							lookups: source.draw(drawn.counted)
 								? {
 										kind: "counted",
 										hits: source.draw(small),
@@ -441,52 +464,64 @@ const planGen = (wal: boolean, depth: number): Gen<Sketch> =>
 		? leaf(wal)
 		: weighted<Sketch>([
 				[2, leaf(wal)],
-				[3, inner(wal, depth)]
+				[3, inner(wal, depth, anyInner)]
 			])
 
-/** A capture: its plan, and the statement's planning, triggers, serialization and settings. */
-export const captureGen: Gen<CaptureSketch> = (source) => {
-	const wal = source.draw(boolean)
-	return {
-		plan: source.draw(planGen(wal, 3)),
-		planningMs: source.draw(figure),
-		executionMs: source.draw(figure),
-		planningBuffers: source.draw(buffersGen),
-		triggers: source.draw(
-			array(
-				(s): TriggerCalls => ({
-					name: s.draw(
-						element(["RI_ConstraintTrigger_c_18918", "RI_ConstraintTrigger_a_2"] as const)
-					),
-					constraint: s.draw(optional(element(["d_p_fkey", "fam_copy"] as const))),
-					relation: s.draw(relationGen),
-					calls: s.draw(int(0, 100))
-				}),
-				{ min: 0, max: 2 }
-			)
-		),
-		serialization: source.draw(boolean)
-			? {
-					kind: "captured",
-					outputKb: source.draw(small),
-					format: source.draw(element(["text", "binary"] as const)),
-					buffers: source.draw(buffersGen)
-				}
-			: { kind: "notCaptured" },
-		settings: Rec.fromEntries(
-			source.draw(
+/** A capture of the plan `plan` draws: its plan, and the statement's planning, triggers, serialization and settings. */
+const captureOf =
+	(plan: (wal: boolean) => Gen<Sketch>): Gen<CaptureSketch> =>
+	(source) => {
+		const wal = source.draw(boolean)
+		return {
+			plan: source.draw(plan(wal)),
+			planningMs: source.draw(figure),
+			executionMs: source.draw(figure),
+			planningBuffers: source.draw(buffersGen),
+			triggers: source.draw(
 				array(
-					(s) =>
-						[
-							s.draw(element(["random_page_cost", "work_mem", "jit"] as const)),
-							s.draw(element(["1.1", "64MB", "off"] as const))
-						] as const,
+					(s): TriggerCalls => ({
+						name: s.draw(
+							element(["RI_ConstraintTrigger_c_18918", "RI_ConstraintTrigger_a_2"] as const)
+						),
+						constraint: s.draw(optional(element(["d_p_fkey", "fam_copy"] as const))),
+						relation: s.draw(relationGen),
+						calls: s.draw(int(0, 100))
+					}),
 					{ min: 0, max: 2 }
 				)
+			),
+			serialization: source.draw(boolean)
+				? {
+						kind: "captured",
+						outputKb: source.draw(small),
+						format: source.draw(element(["text", "binary"] as const)),
+						buffers: source.draw(buffersGen)
+					}
+				: { kind: "notCaptured" },
+			settings: Rec.fromEntries(
+				source.draw(
+					array(
+						(s) =>
+							[
+								s.draw(element(["random_page_cost", "work_mem", "jit"] as const)),
+								s.draw(element(["1.1", "64MB", "off"] as const))
+							] as const,
+						{ min: 0, max: 2 }
+					)
+				)
 			)
-		)
+		}
 	}
-}
+
+/** A capture: its plan, and the statement's planning, triggers, serialization and settings. */
+export const captureGen: Gen<CaptureSketch> = captureOf((wal) => planGen(wal, 3))
+
+/**
+ * A capture whose plan is a node of `kind` over children, a cache's lookups counted: a capture with a place for what only
+ * a node of that type holds.
+ */
+export const capturedAt = (kind: InnerKind): Gen<CaptureSketch> =>
+	captureOf((wal) => inner(wal, 3, { kind: constant(kind), counted: constant(true) }))
 
 /** The plan the reader must return for a sketch. */
 const planOf = (s: Sketch): PlanNode => ({ ...s.fields, children: Arr.map(s.children, planOf) })
@@ -666,7 +701,7 @@ export const sketchNodes = (s: Sketch): ReadonlyArray<Sketch> => [
 ]
 
 /** A fault planted in a capture's printed output, each one PostgreSQL never prints and the reader must refuse. */
-type PlanFault =
+export type PlanFault =
 	| "no result"
 	| "two results"
 	| "a lone object"

@@ -217,9 +217,10 @@
 							"test/support/memory-tls.ts",
 							"test/unit/dev/consumer.ts",
 							"test/support/wire-tap.ts",
-							"test/unit/adapter/bind.test.ts",
+							"test/unit/adapter/bind.fixtures.ts",
 							"test/unit/adapter/flight-bound.test.ts",
-							"test/unit/adapter/pool.test.ts"
+							"test/unit/adapter/flight-bound.fixtures.ts",
+							"test/unit/adapter/pool.fixtures.ts"
 						],
 						"options": {
 							"diagnosticSeverity": {

@@ -1,0 +1,124 @@
+/** What the properties of compile.test.ts read: its spaces, models and helpers. */
+
+import { type Aimed, aimed, constant, type Gen, map } from "@bjornpagen/testing/gen"
+import { Array as Arr } from "effect"
+import type * as Engine from "#compiler/core/result.ts"
+import { additionsOf } from "#test/support/worlds/features.ts"
+import { defaultScope } from "#test/support/worlds/generate/enumerate.ts"
+import { installGen } from "#test/support/worlds/generate/install.ts"
+import {
+	everyActionWorth,
+	type Weights,
+	zeroWeights
+} from "#test/support/worlds/generate/weights.ts"
+import { docsBase, docsVisitsInstall } from "#test/support/worlds/model/bases/docs.ts"
+import { serialHead, writtenOf } from "#test/support/worlds/model/session/writes.ts"
+import type {
+	Action,
+	AdditionFeature,
+	Allowed,
+	InstallSpec,
+	ModelState,
+	RoleSpec
+} from "#test/support/worlds/model/types.ts"
+
+export type CompileFeature = "compiled" | "compile-refused" | AdditionFeature
+
+/** The additions the suite requires. */
+const additions: Arr.NonEmptyReadonlyArray<AdditionFeature> = [
+	"addition:complete:entry:unit",
+	"addition:generated:entry:unit",
+	"addition:complete:whole:unit",
+	"addition:generated:whole:unit",
+	"addition:generated:entry:carried",
+	"addition:generated:whole:carried"
+]
+
+export const situations: Arr.NonEmptyReadonlyArray<CompileFeature> = [
+	"compiled",
+	"compile-refused",
+	...additions
+]
+
+/** What a case writes under: a drawn installation, or the addition it aims at. */
+type CompileSketch =
+	| Readonly<{ kind: "drawn"; install: InstallSpec }>
+	| Readonly<{ kind: "aimed"; addition: AdditionFeature }>
+
+/** The sketch of a case writing under a drawn installation of the documents base. */
+const drawnSketchGen: Gen<CompileSketch> = map(installGen(docsBase), (install): CompileSketch => ({
+	kind: "drawn",
+	install
+}))
+
+/**
+ * A case's sketch: a drawn installation; and where a witness's turn aims at an addition no witness reached yet, that
+ * addition, which the case aims its action at.
+ */
+export const sketchSpace: Aimed<CompileSketch, CompileFeature> = aimed(
+	drawnSketchGen,
+	Arr.map(
+		additions,
+		(addition) => [addition, constant<CompileSketch>({ kind: "aimed", addition })] as const
+	)
+)
+
+/**
+ * The installation a case writes under: an aimed case's, the documents base's worlds whose roles write Visit whole (the
+ * admin), through a query entry whose every carried field is serial, one filtering on a serial field and one fixing one
+ * (docsVisitsInstall), beside the member's notes, whose number is serial; the drawn one otherwise, whose roles hold
+ * those shapes too rarely to rely on.
+ */
+export const installOf = (sketch: CompileSketch): InstallSpec => {
+	switch (sketch.kind) {
+		case "drawn":
+			return sketch.install
+		case "aimed":
+			return docsVisitsInstall
+	}
+}
+
+/** The weights a case's action is drawn under: `weights`, aimed for an aimed case at the addition it aims at. */
+export const aimedWeights = (sketch: CompileSketch, weights: Weights): Weights => {
+	switch (sketch.kind) {
+		case "drawn":
+			return weights
+		case "aimed":
+			return {
+				...weights,
+				aims: {
+					kind: "every",
+					features: [sketch.addition],
+					read: compiledAdditions,
+					worth: everyActionWorth,
+					scope: defaultScope
+				}
+			}
+	}
+}
+
+/**
+ * Whether a role writes a relation, whole or through a query entry, with a serial field a fact may leave out
+ * (model/session/writes.ts serialHead): a role whose writes reach a generated addition of either target.
+ */
+export const leavesOutSerials = (install: InstallSpec, role: RoleSpec): boolean =>
+	Arr.some(writtenOf(install.base, role), (w) => serialHead(install.base, w).classed.length > 0)
+
+/** What an apply notes where the model admits it past its compile: its additions (features.ts additionsOf). */
+const compiledAdditions =
+	(state: ModelState, action: Action) =>
+	({ observation }: Allowed): ReadonlyArray<string> =>
+		action.kind === "apply" && observation.kind !== "compile-refused"
+			? additionsOf(state, action)
+			: []
+
+/** A compile's refusal; none when it compiles. */
+export const refusalOf = <A, E>(compiled: Engine.Result<A, E>): E | undefined =>
+	compiled.ok ? undefined : compiled.error
+
+/** A run's weights cut to applies: every other kind off, its validity shares as drawn. */
+export const appliesOnly = (weights: Weights): Weights => ({
+	...weights,
+	actions: { ...zeroWeights.actions, apply: 1 },
+	kinds: ["apply"]
+})

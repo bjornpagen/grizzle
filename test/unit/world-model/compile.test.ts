@@ -13,25 +13,19 @@
  * itself and then refuses (the class of a generated addition through an entry whose every carried field is serial)
  * is caught on every seed of the unit tier. Required: both verdicts, and the additions the model admits whose every
  * carried field is serial (through a query entry, and into the base's every-serial relation written whole), complete
- * and generated, and generated ones beside carried fields. A witness's sketch aims at the additions no witness reached
- * yet (sketchDraw).
+ * and generated, and generated ones beside carried fields. A witness whose turn aims at an addition no witness reached
+ * yet writes under the installation that holds it, its action aimed at it (sketchSpace).
  *
  * The oracle is a second implementation: the worlds model's compile rules against grizzle's compile of the write the
  * executor serves.
  */
-import { explore, steered } from "@bjornpagen/testing/explore"
-import { required, type Situations } from "@bjornpagen/testing/features"
-import { boolean, element, type Gen, map } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
+import { element } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
-import type * as Engine from "#compiler/core/result.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { atDeclaredName } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { messageOf } from "#test/support/message.ts"
 import { buildInstall } from "#test/support/worlds/execute/build.ts"
 import { namesOfBuilt } from "#test/support/worlds/execute/names.ts"
@@ -40,238 +34,108 @@ import { plannedWrite } from "#test/support/worlds/execute/session.ts"
 import { additionsOf } from "#test/support/worlds/features.ts"
 import { actionGen } from "#test/support/worlds/generate/action.ts"
 import { contextsRead } from "#test/support/worlds/generate/entries.ts"
-import { defaultScope } from "#test/support/worlds/generate/enumerate.ts"
-import { installGen } from "#test/support/worlds/generate/install.ts"
 import { realityGen } from "#test/support/worlds/generate/reality.ts"
-import {
-	everyActionWorth,
-	type Weights,
-	weightsGen,
-	zeroWeights
-} from "#test/support/worlds/generate/weights.ts"
+import { weightsGen } from "#test/support/worlds/generate/weights.ts"
 import { liveFactsGen } from "#test/support/worlds/invalid/tokens.ts"
-import { docsBase, docsVisitsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import { hostSchemaOf } from "#test/support/worlds/model/host.ts"
-import { serialHead, writtenOf } from "#test/support/worlds/model/session/writes.ts"
 import { initialState, settle, step } from "#test/support/worlds/model/step.ts"
-import type {
-	Action,
-	AdditionFeature,
-	Allowed,
-	DbSessionState,
-	InstallSpec,
-	ModelState,
-	RoleSpec
-} from "#test/support/worlds/model/types.ts"
+import type { DbSessionState, ModelState } from "#test/support/worlds/model/types.ts"
+import {
+	aimedWeights,
+	appliesOnly,
+	type CompileFeature,
+	installOf,
+	leavesOutSerials,
+	refusalOf,
+	situations,
+	sketchSpace
+} from "#test/unit/world-model/compile.fixtures.ts"
 
-type CompileFeature = "compiled" | "compile-refused" | AdditionFeature
-
-/** The additions the suite requires. */
-const additions: Arr.NonEmptyReadonlyArray<AdditionFeature> = [
-	"addition:complete:entry:unit",
-	"addition:generated:entry:unit",
-	"addition:complete:whole:unit",
-	"addition:generated:whole:unit",
-	"addition:generated:entry:carried",
-	"addition:generated:whole:carried"
-]
-
-const situations: Situations<CompileFeature> = ["compiled", "compile-refused", ...additions]
-
-/** What a case writes under: a drawn installation, or the additions it aims at (sketchDraw). */
-type CompileSketch =
-	| Readonly<{ kind: "drawn"; install: InstallSpec }>
-	| Readonly<{ kind: "aimed"; additions: Arr.NonEmptyReadonlyArray<AdditionFeature> }>
-
-/** The sketch of a case writing under a drawn installation of the documents base. */
-const drawnSketchGen: Gen<CompileSketch> = map(installGen(docsBase), (install): CompileSketch => ({
-	kind: "drawn",
-	install
-}))
-
-/**
- * A case's sketch, drawn under its steering: for a witness, in half its cases by a draw of its own, the additions no
- * witness reached yet, which it aims at; a drawn installation otherwise, and always for a rotating case.
- */
-const sketchDraw = steered<CompileSketch, CompileSketch, CompileFeature>(
-	(steering) =>
-		Arr.match(
-			Option.match(steering, {
-				onNone: (): ReadonlyArray<AdditionFeature> => [],
-				onSome: (p) => Arr.filter(additions, (f) => p.has(f))
-			}),
-			{
-				onEmpty: () => drawnSketchGen,
-				onNonEmpty:
-					(pending: Arr.NonEmptyReadonlyArray<AdditionFeature>): Gen<CompileSketch> =>
-					(source) =>
-						source.draw(boolean)
-							? { kind: "aimed", additions: pending }
-							: source.draw(drawnSketchGen)
-			}
-		),
-	(sketch) => sketch
-)
-
-/**
- * The installation a case writes under: an aimed case's, the documents base's worlds whose roles write Visit whole (the
- * admin), through a query entry whose every carried field is serial, one filtering on a serial field and one fixing one
- * (docsVisitsInstall), beside the member's notes, whose number is serial; the drawn one otherwise, whose roles hold
- * those shapes too rarely to rely on.
- */
-const installOf = (sketch: CompileSketch): InstallSpec => {
-	switch (sketch.kind) {
-		case "drawn":
-			return sketch.install
-		case "aimed":
-			return docsVisitsInstall
-	}
-}
-
-/** The weights a case's action is drawn under: `weights`, aimed for an aimed case at every addition it aims at. */
-const aimedWeights = (sketch: CompileSketch, weights: Weights): Weights => {
-	switch (sketch.kind) {
-		case "drawn":
-			return weights
-		case "aimed":
-			return {
-				...weights,
-				aims: {
-					kind: "every",
-					features: sketch.additions,
-					read: compiledAdditions,
-					worth: everyActionWorth,
-					scope: defaultScope
+/** The worlds model's compile rules compile a write exactly where the model admits it past its compile. */
+export const theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsItPastItsCompile =
+	property.explore(sketchSpace, {
+		needs: {},
+		situations: situations,
+		check: (_, c: Case<CompileFeature>) => (sketch) =>
+			Effect.gen(function* () {
+				const install = installOf(sketch)
+				const built = yield* Effect.orDie(buildInstall(install, install.base.name))
+				const names = yield* namesOfBuilt(install, built, atDeclaredName)
+				const host = hostSchemaOf(install.base, names)
+				const loaded = initialState(install, names, c.draw(realityGen(install.base, host)))
+				const writers = Arr.filter(install.roles, (r) => r.write.length > 0)
+				const leaving = Arr.filter(writers, (r) => leavesOutSerials(install, r))
+				const role = c.draw(
+					element(
+						sketch.kind === "aimed" && Arr.isReadonlyArrayNonEmpty(leaving)
+							? leaving
+							: Arr.isReadonlyArrayNonEmpty(writers)
+								? writers
+								: install.roles
+					)
+				)
+				const login = defined(
+					Option.getOrUndefined(Arr.findFirst(install.logins, (l) => l.roles.includes(role.name))),
+					`a login holding ${role.name}`
+				)
+				const session: DbSessionState = {
+					kind: "db",
+					login: login.name,
+					role: role.name,
+					facts: c.draw(liveFactsGen(loaded, contextsRead(install.base, role))),
+					claims: "admitted",
+					connection: 0,
+					snapshot: { version: loaded.version, install, names, host },
+					guard: "held"
 				}
-			}
-	}
-}
-
-/**
- * Whether a role writes a relation, whole or through a query entry, with a serial field a fact may leave out
- * (model/session/writes.ts serialHead): a role whose writes reach a generated addition of either target.
- */
-const leavesOutSerials = (install: InstallSpec, role: RoleSpec): boolean =>
-	Arr.some(writtenOf(install.base, role), (w) => serialHead(install.base, w).classed.length > 0)
-
-/** What an apply notes where the model admits it past its compile: its additions (features.ts additionsOf). */
-const compiledAdditions =
-	(state: ModelState, action: Action) =>
-	({ observation }: Allowed): ReadonlyArray<string> =>
-		action.kind === "apply" && observation.kind !== "compile-refused"
-			? additionsOf(state, action)
-			: []
-
-/** A compile's refusal; none when it compiles. */
-const refusalOf = <A, E>(compiled: Engine.Result<A, E>): E | undefined =>
-	compiled.ok ? undefined : compiled.error
-
-/** A run's weights cut to applies: every other kind off, its validity shares as drawn. */
-const appliesOnly = (weights: Weights): Weights => ({
-	...weights,
-	actions: { ...zeroWeights.actions, apply: 1 },
-	kinds: ["apply"]
-})
-
-describe("the worlds model's compile rules", () => {
-	it.effect("compile a write exactly where the model admits it past its compile", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "second-implementation",
-						name: "the worlds model's compile rules, against grizzle's served compile of the write"
-					},
-					suite: "unit/world-model/compile",
-					draw: sketchDraw,
-					literal: Formatter.format,
-					coverage: required<CompileFeature>(situations, { cases: 120, sense: notesOnly }),
-					kept: [],
-					runs: 80,
-					shrink: { kind: "bounded", candidates: 200 },
-					steerEvery: 16,
-					caseHang
-				},
-				(sketch, c) =>
-					Effect.gen(function* () {
-						const install = installOf(sketch)
-						const built = yield* Effect.orDie(buildInstall(install, install.base.name))
-						const names = yield* namesOfBuilt(install, built, atDeclaredName)
-						const host = hostSchemaOf(install.base, names)
-						const loaded = initialState(install, names, c.draw(realityGen(install.base, host)))
-						const writers = Arr.filter(install.roles, (r) => r.write.length > 0)
-						const leaving = Arr.filter(writers, (r) => leavesOutSerials(install, r))
-						const role = c.draw(
-							element(
-								sketch.kind === "aimed" && Arr.isReadonlyArrayNonEmpty(leaving)
-									? leaving
-									: Arr.isReadonlyArrayNonEmpty(writers)
-										? writers
-										: install.roles
+				const state: ModelState = { ...loaded, sessions: [session] }
+				const weights = appliesOnly(c.draw(weightsGen))
+				const action = c.draw(actionGen(state, aimedWeights(sketch, weights)))
+				if (action.kind !== "apply") {
+					return assert.fail(`an apply, not ${action.kind}`)
+				}
+				const branches = Arr.map(step(state, action), (s) => settle(s, () => names))
+				const refused = Arr.filter(branches, (b) => b.observation.kind === "compile-refused")
+				assert.ok(
+					refused.length === 0 || refused.length === branches.length,
+					`the model refuses ${Formatter.format(action)} when it compiles on some branches only`
+				)
+				const value = defined(built.roles[role.name], `the role ${role.name} as built`)
+				const write = yield* plannedWrite(
+					install.base,
+					{ role, value },
+					action.strata,
+					action.reads
+				)
+				const refusal: CompileError | UnservedMember | undefined = Result.isFailure(write)
+					? write.failure
+					: refusalOf(
+							offlineServed(
+								value,
+								parsedChange(write.success.changes),
+								new Set(Rec.keys(session.facts))
 							)
 						)
-						const login = defined(
-							Option.getOrUndefined(
-								Arr.findFirst(install.logins, (l) => l.roles.includes(role.name))
-							),
-							`a login holding ${role.name}`
+				if (refused.length === 0) {
+					if (refusal !== undefined) {
+						return assert.fail(
+							`the model admits ${Formatter.format(action)} past its compile, and grizzle refuses it: ${messageOf(refusal)}`
 						)
-						const session: DbSessionState = {
-							kind: "db",
-							login: login.name,
-							role: role.name,
-							facts: c.draw(liveFactsGen(loaded, contextsRead(install.base, role))),
-							claims: "admitted",
-							connection: 0,
-							snapshot: { version: loaded.version, install, names, host },
-							guard: "held"
-						}
-						const state: ModelState = { ...loaded, sessions: [session] }
-						const weights = appliesOnly(c.draw(weightsGen))
-						const action = c.draw(actionGen(state, aimedWeights(sketch, weights)))
-						if (action.kind !== "apply") {
-							return assert.fail(`an apply, not ${action.kind}`)
-						}
-						const branches = Arr.map(step(state, action), (s) => settle(s, () => names))
-						const refused = Arr.filter(branches, (b) => b.observation.kind === "compile-refused")
-						assert.ok(
-							refused.length === 0 || refused.length === branches.length,
-							`the model refuses ${Formatter.format(action)} when it compiles on some branches only`
-						)
-						const value = defined(built.roles[role.name], `the role ${role.name} as built`)
-						const write = yield* plannedWrite(
-							install.base,
-							{ role, value },
-							action.strata,
-							action.reads
-						)
-						const refusal: CompileError | UnservedMember | undefined = Result.isFailure(write)
-							? write.failure
-							: refusalOf(
-									offlineServed(
-										value,
-										parsedChange(write.success.changes),
-										new Set(Rec.keys(session.facts))
-									)
-								)
-						if (refused.length === 0) {
-							if (refusal !== undefined) {
-								return assert.fail(
-									`the model admits ${Formatter.format(action)} past its compile, and grizzle refuses it: ${messageOf(refusal)}`
-								)
-							}
-							c.note("compiled")
-							c.noteAll(additionsOf(state, action))
-							return
-						}
-						assert.ok(
-							refusal !== undefined,
-							`the model refuses ${Formatter.format(action)} when it compiles, and grizzle compiles it`
-						)
-						c.note("compile-refused")
-					})
-			)
-		)
-	)
-})
+					}
+					c.note("compiled")
+					c.noteAll(additionsOf(state, action))
+					return
+				}
+				assert.ok(
+					refusal !== undefined,
+					`the model refuses ${Formatter.format(action)} when it compiles, and grizzle compiles it`
+				)
+				c.note("compile-refused")
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the worlds model's compile rules, against grizzle's served compile of the write"
+		},
+		kept: [],
+		kills: []
+	})

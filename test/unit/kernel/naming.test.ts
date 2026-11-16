@@ -1,3 +1,6 @@
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 /**
  * Production names from src: the test kit's naming (test/support/kernel/naming.ts) agrees with src's own records, and
  * every name the law model mints keeps the naming door's rule (core/identity.ts).
@@ -26,51 +29,15 @@
  * row check, a hashed law column, an empty level above, a rule's trigger; a conjunction under a disjunction and a
  * singleton conjunction.
  */
-import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
-import { required, requiredInSpace } from "@bjornpagen/testing/features"
-import {
-	boolean,
-	codePoint,
-	element,
-	type Gen,
-	map,
-	recursive,
-	string,
-	uniqueKeys,
-	weighted
-} from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
 import { maxIdentifierBytes } from "@grizzle/limits"
-import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
-import { indices } from "#compiler/core/array.ts"
+import { Array as Arr, Effect, Record as Rec } from "effect"
 import { conversionOf, identifierOf } from "#compiler/core/identity.ts"
-import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
-import { sha256Hex } from "#compiler/core/sha256.ts"
-import type { FieldDesc, SchemaDesc, SideDesc, StatementDesc } from "#compiler/ir/desc.ts"
+import type { LawId } from "#compiler/core/ids.ts"
 import { expandAlternatives } from "#compiler/ir/desc.ts"
-import type { OpenExpr } from "#compiler/ir/open.ts"
 import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
-import { constraintLawMap, type LawModel } from "#compiler/laws/model/model.ts"
-import { pg } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import {
-	type AnySchema,
-	check,
-	derived,
-	key,
-	on,
-	relation,
-	type Statement,
-	schema
-} from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import type { Owned } from "#compiler/schema/own.ts"
-import type { Predicate } from "#compiler/types/core/phantom.ts"
-import type { RowScalars } from "#compiler/types/schema/statements.ts"
-import { assert, defined, nonEmpty } from "#test/support/assert.ts"
+import { constraintLawMap } from "#compiler/laws/model/model.ts"
+import { schema } from "#compiler/public/schema.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import {
 	constraintOwner,
 	installationNamesOf,
@@ -79,629 +46,289 @@ import {
 	lawNamesOf
 } from "#test/support/kernel/naming.ts"
 import {
-	alternativesBox,
-	compositeAlternatives,
-	type Family,
-	queueFamily,
-	spanCoverage,
-	timekeepingFamily
-} from "#test/support/laws/boxes.ts"
-import { lawBox } from "#test/support/laws/generated.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { argumentsOf } from "#test/support/list.ts"
-import { pickFrom, pickGen, pickIndex } from "#test/support/pick.ts"
-import { rawContract } from "#test/unit/schema/support.ts"
+	alternativesStatements,
+	bytesOf,
+	checkOf,
+	declaredColumn,
+	foreignKeysInto,
+	handlesOf,
+	hashedName,
+	Item,
+	levelStatements,
+	type NamingFeature,
+	namingCaseGen,
+	type ShapeFeature,
+	shapeFeatures,
+	shapeGen,
+	subjectOf
+} from "#test/unit/kernel/naming.fixtures.ts"
 
-/** Every statement of a schema description, at every level. */
-const levelStatements = (desc: SchemaDesc): ReadonlyArray<StatementDesc> => [
-	...desc.statements,
-	...(desc.extends === undefined ? [] : levelStatements(desc.extends))
-]
-
-type Alternatives = Extract<StatementDesc, { readonly kind: "alternatives" }>
-
-/** The alternatives statements among a schema's statements. */
-const alternativesStatements = (
-	statements: ReadonlyArray<StatementDesc>
-): ReadonlyArray<Alternatives> =>
-	Arr.flatMap(statements, (s) => (s.kind === "alternatives" ? [s] : []))
-
-/**
- * The handles an expansion's selected parent side fixes its discriminator to: one by `eq`, several, an arm relation's,
- * by `in`.
- */
-const handlesOf = (side: SideDesc): Arr.NonEmptyReadonlyArray<string> => {
-	const [predicate, ...more] = side.selection.conjuncts
-	if (more.length === 0 && predicate?.kind === "in" && predicate.arg.kind === "field") {
-		const handles = Arr.flatMap(predicate.values, (v) => (typeof v === "string" ? [v] : []))
-		if (Arr.isReadonlyArrayNonEmpty(handles) && handles.length === predicate.values.length) {
-			return handles
-		}
-	}
-	if (
-		more.length > 0 ||
-		predicate?.kind !== "compare" ||
-		predicate.op !== "eq" ||
-		predicate.left.kind !== "field" ||
-		predicate.right.kind !== "literal" ||
-		typeof predicate.right.value !== "string"
-	) {
-		return assert.fail(`${side.relation}'s side selects no handle of its discriminator`)
-	}
-	return [predicate.right.value]
-}
-
-/**
- * The foreign keys from an alternatives arm into its parent, among the law model's natives: into the parent's key and
- * discriminator through the arm's constant law column where the arm relation is one handle's, or into its key alone.
- */
-const foreignKeysInto = (
-	model: LawModel,
-	arm: string,
-	parent: string
-): ReadonlyArray<{ readonly owner: ConstraintOwner; readonly ident: ConstraintName }> =>
-	Arr.flatMap(model.natives, (n) =>
-		n.namespace === "constraint" &&
-		n.object.kind === "ForeignKey" &&
-		n.object.relation.name === arm &&
-		n.object.target.name === parent
-			? [{ owner: { kind: "table", name: n.owner } as const, ident: identifierOf(n.named) }]
-			: []
-	)
-
-/** The declared relation, field and field description of an installed table and column, as ownership registered them. */
-const declaredColumn = (
-	owned: Owned,
-	table: string,
-	column: string
-): Readonly<{ relation: string; field: string; desc: FieldDesc }> => {
-	const [found] = Arr.flatMap(Rec.values(owned.relations), (owner) =>
-		owner.kind === "relation" && identifierOf(owner.named) === table
-			? Arr.flatMap(Rec.values(owner.fields), (field) =>
-					field.column === column
-						? [{ relation: owner.name, field: field.name, desc: field.desc }]
-						: []
+/** Production names from src agree with src's records at every named native, key, alternatives expansion, checked contract and text domain, each named by the door's rule. */
+export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlternativesExpansionCheckedContractAndTextDomainEachNamedByTheDoorsRule =
+	property.explore(namingCaseGen, {
+		needs: {},
+		situations: [
+			"named native",
+			"alternatives expansion",
+			"checked contract",
+			"text domain",
+			"a key statement",
+			"a readable row check",
+			"a hashed law column",
+			"an empty level above",
+			"a rule's trigger"
+		] satisfies ReadonlyArray<Reached<NamingFeature>>,
+		check: (_, k: Case<NamingFeature>) => (c) =>
+			Effect.sync(() => {
+				const { base, subject } = subjectOf(c)
+				if (c.extended) {
+					k.note("an empty level above")
+				}
+				const L = lawNamesOf(subject)
+				const N = installationNamesOf(installationOf(subject, { kind: "declared" }))
+				const theory = new Set<LawId>(Arr.map(L.model.theory.laws, (l) => l.id))
+				const named: Array<readonly [string, string]> = []
+				for (const native of L.model.natives) {
+					if (native.namespace !== "constraint" && native.namespace !== "column") {
+						continue
+					}
+					const id = native.named
+					named.push([`${native.namespace} ${native.owner}`, identifierOf(id)])
+					assert.ok(
+						bytesOf(identifierOf(id)) <= maxIdentifierBytes.value,
+						`${identifierOf(id)} fits an identifier`
+					)
+					if (id.kind === "check") {
+						k.note("a readable row check")
+						assert.equal(id.form, "readable")
+						const declared = id.parts[1]
+						assert.ok(
+							typeof declared === "string",
+							"a row check's identity holds its declared name"
+						)
+						assert.equal<string>(identifierOf(id), conversionOf(declared))
+					} else {
+						if (id.kind === "lawColumn") {
+							k.note("a hashed law column")
+						}
+						assert.equal(id.form, "hashed", `${id.display} is hashed`)
+						assert.equal<string>(identifierOf(id), hashedName(id.stem, id.canonical))
+					}
+					if (native.namespace !== "constraint") {
+						continue
+					}
+					k.note("named native")
+					const owner: ConstraintOwner = { kind: "table", name: native.owner }
+					const ident = identifierOf(native.named)
+					const law = L.lawOfConstraint(owner, ident)
+					assert.ok(theory.has(law), `${ident} reports ${law}, which is no law of the theory`)
+					assert.ok(
+						L.constraintsOf(law, native.object.kind).includes(ident),
+						`${ident} is among the ${native.object.kind} constraints reporting ${law}`
+					)
+				}
+				assert.equal(
+					new Set(Arr.map(named, ([space, ident]) => `${space} ${ident}`)).size,
+					named.length,
+					"no two natives of one namespace share a name"
 				)
-			: []
-	)
-	return found ?? assert.fail(`no owned field is installed as ${table}.${column}`)
-}
-
-type CrossCheck = "named native" | "alternatives expansion" | "checked contract" | "text domain"
-
-/**
- * A row check's predicate shape over two leaves (t <> '' and t IN ('ca')): a connective over an optional leaf and a
- * nested chain of up to two unary connectives over a leaf, so ownership's canonical operand order (schema/own.ts) differs
- * from the written one, and a singleton conjunction sits under a disjunction.
- */
-type Leaf = "ne" | "in"
-type Connective = "and" | "or"
-type Shape =
-	| { readonly kind: "leaf"; readonly leaf: Leaf }
-	| { readonly kind: Connective; readonly args: readonly [Shape] | readonly [Shape, Shape] }
-
-const leafGen: Gen<Shape> = map(boolean, (inSet): Shape => ({
-	kind: "leaf",
-	leaf: inSet ? "in" : "ne"
-}))
-
-/** Every shape of at most two levels of connectives over the leaves, each connective of one or two operands. */
-const shapeGen: Gen<Shape> = recursive(
-	leafGen,
-	(inner) =>
-		(source): Shape => {
-			const kind: Connective = source.draw(boolean) ? "or" : "and"
-			return source.draw(boolean)
-				? { kind, args: [source.draw(inner), source.draw(inner)] }
-				: { kind, args: [source.draw(inner)] }
-		},
-	2
-)
-
-type ShapeFeature = "and under or" | "singleton and"
-
-/** The features of a shape, `underOr` whether its parent is a disjunction. */
-const shapeFeatures = (shape: Shape, underOr: boolean): ReadonlyArray<ShapeFeature> => {
-	if (shape.kind === "leaf") {
-		return []
-	}
-	const own: ReadonlyArray<ShapeFeature> = [
-		...(shape.kind === "and" && underOr ? (["and under or"] as const) : []),
-		...(shape.kind === "and" && shape.args.length === 1 ? (["singleton and"] as const) : [])
-	]
-	return [...own, ...Arr.flatMap(shape.args, (arg) => shapeFeatures(arg, shape.kind === "or"))]
-}
-
-const Item = relation("Item", { id: pg.integer, t: str.regex("^[a-c]{0,3}$") }, ["id"])
-
-/** A row check has no parameters, so its predicate's parameter map is unknown. */
-const predicateOf = (shape: Shape, r: RowScalars<typeof Item>): Predicate => {
-	if (shape.kind === "leaf") {
-		return shape.leaf === "ne" ? r.ne(r.t, "") : r.in(r.t, ["ca"])
-	}
-	const [first, ...rest] = shape.args
-	return r[shape.kind](
-		predicateOf(first, r),
-		...argumentsOf(Arr.map(rest, (arg) => predicateOf(arg, r)))
-	)
-}
-const checkOf = (shape: Shape): Statement => check("H", Item, (r) => predicateOf(shape, r))
-
-/** A law family's whole parameter space, each schema declared under one name, by the position of its variant. */
-interface Space {
-	readonly label: string
-	readonly variants: number
-	readonly schemaAt: (variant: number) => AnySchema
-}
-
-const spaceOf = <P>(family: Family<P>): Space => ({
-	label: family.label,
-	variants: family.variants.length,
-	schemaAt: (variant) =>
-		family.schema(defined(family.variants[variant], `${family.label} ${variant}`))("Naming")
-})
-
-/** The law families (test/support/laws), whose boxes span keys over selected sides, checks, alternatives and spans. */
-const spaces: Arr.NonEmptyReadonlyArray<Space> = [
-	spaceOf(lawBox),
-	spaceOf(alternativesBox),
-	spaceOf(compositeAlternatives),
-	spaceOf(spanCoverage),
-	spaceOf(queueFamily),
-	spaceOf(timekeepingFamily)
-]
-
-/**
- * The contracts a case declares beside: each under a drawn name, over bigint, its predicate one of two definitions, so
- * contracts of one definition share one domain.
- */
-interface ContractSketch {
-	readonly name: string
-	readonly atLeastZero: boolean
-}
-
-/** A statement over a derived relation: a rule over a query, which its deferred constraint triggers hold. */
-type RuleStatement = "check" | "key"
-
-/**
- * A case: a schema of a law family's box by its picks, a relation of drawn contracts, or a rule over a derived relation,
- * read at its own level or at an empty level above it.
- */
-interface NamingCase {
-	readonly subject:
-		| { readonly kind: "family"; readonly space: number; readonly variant: number }
-		| { readonly kind: "contracts"; readonly contracts: Arr.NonEmptyReadonlyArray<ContractSketch> }
-		| { readonly kind: "rule"; readonly statement: RuleStatement }
-	readonly extended: boolean
-}
-
-const contractNameGen: Gen<string> = map(
-	string(codePoint(0x61, 0x63), { min: 0, max: 2 }),
-	(rest) => `C${rest}`
-)
-
-const namingCaseGen: Gen<NamingCase> = (source) => ({
-	subject: source.draw(
-		weighted<NamingCase["subject"]>([
-			[3, (s) => ({ kind: "family", space: s.draw(pickGen), variant: s.draw(pickGen) })],
-			[
-				1,
-				(s) => ({
-					kind: "contracts",
-					contracts: nonEmpty(
-						Arr.map(s.draw(uniqueKeys(contractNameGen, { min: 1, max: 3 })), (name) => ({
-							name,
-							atLeastZero: s.draw(boolean)
-						})),
-						"the contracts"
+				const constraintLaws = constraintLawMap(L.model.constraints)
+				for (const entry of L.model.constraints) {
+					if (entry.kind === "trigger") {
+						k.note("a rule's trigger")
+					}
+					const laws = Arr.map(entry.laws, (l) => l.law)
+					const found = constraintLaw(constraintLaws, constraintOwner(entry), entry.name)
+					assert.ok(
+						found !== undefined && laws.includes(found),
+						`${entry.name} of ${entry.owner} is found under the owner the kit names it by, reporting one of its laws`
 					)
-				})
-			],
-			[1, (s) => ({ kind: "rule", statement: s.draw(element(["check", "key"] as const)) })]
-		])
-	),
-	extended: source.draw(boolean)
-})
-
-/** A contract predicate VALUE >= 0 or VALUE <= 100, as Compute's comparisons record them. */
-const boundOf = (atLeastZero: boolean): OpenExpr => ({
-	kind: "compare",
-	op: atLeastZero ? "ge" : "le",
-	left: { kind: "value" },
-	right: { kind: "literal", value: atLeastZero ? 0n : 100n }
-})
-
-/** The schema of a family's box at a variant, both by their picks. */
-const familySchema = (spacePick: number, variantPick: number): AnySchema => {
-	const space = pickFrom(spaces, spacePick)
-	return space.schemaAt(pickIndex(variantPick, space.variants))
-}
-
-/** A stored relation, and the level that holds it alone. */
-const Reading = relation("Reading", { id: pg.integer, n: pg.integer }, ["id"])
-const RuleBase = schema("Rules", [Reading], [])
-
-/** Every Reading, as a derived relation of the level above: a statement over it is a rule over a query. */
-const Kept = derived(
-	"Kept",
-	query(RuleBase).rule((r) => {
-		const { id, n } = v(Reading, "reading")
-		return r.match(Reading, { id, n }).find({ id, n })
-	})
-)
-
-/** The level above Rules that derives Kept and states one rule over it, a check or a key. */
-const ruleSchema = (statement: RuleStatement): AnySchema =>
-	schema.extend(
-		RuleBase,
-		"RulesTop",
-		[Kept],
-		[
-			statement === "check"
-				? check("Nonzero", Kept, (x) => x.not(x.eq(x.n, 0)))
-				: key(on(Kept, "n"))
-		]
-	)
-
-/**
- * The schema a case reads: the family's schema, the contracts', or the rule's level, and its subject, it or an empty
- * level over it.
- */
-const subjectOf = (c: NamingCase): { readonly base: AnySchema; readonly subject: AnySchema } => {
-	const sub = c.subject
-	const base =
-		sub.kind === "family"
-			? familySchema(sub.space, sub.variant)
-			: sub.kind === "rule"
-				? ruleSchema(sub.statement)
-				: schema(
-						"Contracts",
-						[
-							relation(
-								"Line",
-								{
-									id: pg.integer,
-									...Rec.fromEntries(
-										Arr.map(
-											sub.contracts,
-											(k, i) =>
-												[`f${i}`, rawContract(k.name, pg.bigint, boundOf(k.atLeastZero))] as const
-										)
-									)
-								},
-								["id"]
+				}
+				for (const statement of Arr.filter(base.statements, (s) => s.kind === "key")) {
+					k.note("a key statement")
+					const law = lawIdOf(subject, statement)
+					const reporting = Arr.filter(
+						L.model.constraints,
+						(entry) =>
+							constraintLaw(
+								constraintLawMap(L.model.constraints),
+								constraintOwner(entry),
+								entry.name
+							) === law
+					)
+					assert.ok(reporting.length > 0, `a constraint reports the key's law ${law}`)
+				}
+				for (const statement of alternativesStatements(levelStatements(L.model.owned.desc))) {
+					k.note("alternatives expansion")
+					const laws = L.alternativesOfDesc([statement])
+					const expansion = expandAlternatives(statement)
+					const all = [...new Set(Rec.values(laws.arms)), ...Rec.values(laws.reverse)]
+					assert.equal(new Set(all).size, all.length, "arm and reverse laws are distinct")
+					for (const forward of Arr.filter(
+						expansion,
+						(s) => s.right.selection.conjuncts.length > 0
+					)) {
+						const parent = forward.right.relation
+						const fks = foreignKeysInto(L.model, forward.left.relation, parent)
+						for (const handle of handlesOf(forward.right)) {
+							assert.ok(
+								Arr.some(fks, (fk) => L.lawOfConstraint(fk.owner, fk.ident) === laws.arms[handle]),
+								`${handle}'s arm is contained in its parents through a foreign key into them`
 							)
-						],
-						[]
+						}
+					}
+					for (const reverse of Arr.filter(
+						expansion,
+						(s) => s.left.selection.conjuncts.length > 0
+					)) {
+						const handle = Arr.headNonEmpty(handlesOf(reverse.left))
+						const law = defined(laws.reverse[handle], `${handle}'s reverse law`)
+						assert.ok(theory.has(law), `${handle}'s reverse is a law of the theory`)
+						assert.equal(
+							L.lawOfConstraint(
+								{ kind: "table", name: N.tableIdent({ name: reverse.left.relation }) },
+								L.constraintOf(law, "ForeignKey")
+							),
+							law,
+							`${handle}'s reverse is its own native foreign key`
+						)
+					}
+				}
+				for (const contractName of Rec.keys(N.model.owned.contracts)) {
+					const contract = N.contract(contractName)
+					if (contract.kind === "brand") {
+						continue
+					}
+					k.note("checked contract")
+					const stored = Arr.flatMap(N.installation.constraintLaws, (c) =>
+						c.kind === "domainConstraint" &&
+						c.owner === contract.domain &&
+						c.name === contract.constraint
+							? c.uses
+							: []
 					)
-	return { base, subject: c.extended ? schema.extend(base, "Above", [], []) : base }
-}
-
-/**
- * A hashed name as the naming door's rule spells it, restated: `__`, the stem, `_` and the first fifty bits of the
- * SHA-256 of the identity's canonical encoding as ten characters of lowercase RFC 4648 base32.
- */
-const hashedName = (stem: string, canonical: string): string => {
-	const bits = BigInt(`0x${Str.slice(0, 13)(sha256Hex(canonical))}`) >> 2n
-	const alphabet = Str.split("abcdefghijklmnopqrstuvwxyz234567", "")
-	const digest = Arr.join(
-		Arr.map(Arr.reverse(indices(10)), (i) =>
-			Arr.getUnsafe(alphabet, Number((bits >> BigInt(5 * i)) & 31n))
-		),
-		""
-	)
-	return `__${stem}_${digest}`
-}
-
-/** The bytes of a text in UTF-8. */
-const bytesOf = (text: string): number => new TextEncoder().encode(text).length
-
-type NamingFeature =
-	| CrossCheck
-	| "a key statement"
-	| "a readable row check"
-	| "a hashed law column"
-	| "an empty level above"
-	| "a rule's trigger"
-
-describe("production names from src", () => {
-	it.effect(
-		"agree with src's records at every named native, key, alternatives expansion, checked contract and text domain, each named by the door's rule",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/kernel/naming",
-						draw: drawn(namingCaseGen),
-						literal: Formatter.format,
-						oracle: {
-							kind: "specification",
-							name: "src's law model and installation records, and the naming door's rule restated: readable a row check's conversion, hashed __stem_digest of its identity"
-						},
-						coverage: required<NamingFeature>(
-							[
-								"named native",
-								"alternatives expansion",
-								"checked contract",
-								"text domain",
-								"a key statement",
-								"a readable row check",
-								"a hashed law column",
-								"an empty level above",
-								"a rule's trigger"
-							],
-							{ cases: 100, sense: notesOnly }
-						),
-						kept: [
-							{
-								note: "two contracts of one definition, the first column's named after the second's: the domain's CHECK reports its first use's law, not the first name's",
-								sketch: {
-									subject: {
-										kind: "contracts",
-										contracts: [
-											{ name: "Ca", atLeastZero: true },
-											{ name: "C", atLeastZero: true }
-										]
-									},
-									extended: false
-								},
-								draws: "",
-								reaches: ["named native", "checked contract"]
-							}
-						],
-						runs: 40,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(c, k) =>
-						Effect.sync(() => {
-							const { base, subject } = subjectOf(c)
-							if (c.extended) {
-								k.note("an empty level above")
-							}
-							const L = lawNamesOf(subject)
-							const N = installationNamesOf(installationOf(subject, { kind: "declared" }))
-							const theory = new Set<LawId>(Arr.map(L.model.theory.laws, (l) => l.id))
-							const named: Array<readonly [string, string]> = []
-							for (const native of L.model.natives) {
-								if (native.namespace !== "constraint" && native.namespace !== "column") {
-									continue
-								}
-								const id = native.named
-								named.push([`${native.namespace} ${native.owner}`, identifierOf(id)])
-								assert.ok(
-									bytesOf(identifierOf(id)) <= maxIdentifierBytes.value,
-									`${identifierOf(id)} fits an identifier`
-								)
-								if (id.kind === "check") {
-									k.note("a readable row check")
-									assert.equal(id.form, "readable")
-									const declared = id.parts[1]
-									assert.ok(
-										typeof declared === "string",
-										"a row check's identity holds its declared name"
-									)
-									assert.equal<string>(identifierOf(id), conversionOf(declared))
-								} else {
-									if (id.kind === "lawColumn") {
-										k.note("a hashed law column")
-									}
-									assert.equal(id.form, "hashed", `${id.display} is hashed`)
-									assert.equal<string>(identifierOf(id), hashedName(id.stem, id.canonical))
-								}
-								if (native.namespace !== "constraint") {
-									continue
-								}
-								k.note("named native")
-								const owner: ConstraintOwner = { kind: "table", name: native.owner }
-								const ident = identifierOf(native.named)
-								const law = L.lawOfConstraint(owner, ident)
-								assert.ok(theory.has(law), `${ident} reports ${law}, which is no law of the theory`)
-								assert.ok(
-									L.constraintsOf(law, native.object.kind).includes(ident),
-									`${ident} is among the ${native.object.kind} constraints reporting ${law}`
+					const unstored = Arr.flatMap(N.installation.constraintLaws, (c) =>
+						c.kind === "unstoredDomainConstraint" &&
+						c.owner === contract.domain &&
+						c.name === contract.constraint
+							? c.laws
+							: []
+					)
+					const reported = N.lawOfConstraint(
+						{ kind: "domain", name: contract.domain },
+						contract.constraint
+					)
+					const [first] = stored
+					if (first === undefined) {
+						assert.ok(
+							Arr.some(unstored, (l) => l.law === contract.law),
+							`${contractName}'s domain, typing no stored column, carries its law`
+						)
+						assert.ok(
+							Arr.some(unstored, (l) => l.law === reported),
+							`${contractName}'s domain reports one of the laws it carries`
+						)
+					} else {
+						for (const use of stored) {
+							const typed = declaredColumn(N.model.owned, use.table, use.column)
+							if (typed.desc.kind !== "contract") {
+								return assert.fail(
+									`${typed.relation}.${typed.field} uses ${contract.domain} with no contract`
 								)
 							}
+							const owner = N.contract(typed.desc.name)
+							assert.equal(owner.domain, contract.domain, `${typed.relation}.${typed.field}`)
 							assert.equal(
-								new Set(Arr.map(named, ([space, ident]) => `${space} ${ident}`)).size,
-								named.length,
-								"no two natives of one namespace share a name"
+								use.law.law,
+								owner.law,
+								`${typed.relation}.${typed.field} states its own contract's law under the domain's CHECK`
 							)
-							const constraintLaws = constraintLawMap(L.model.constraints)
-							for (const entry of L.model.constraints) {
-								if (entry.kind === "trigger") {
-									k.note("a rule's trigger")
-								}
-								const laws = Arr.map(entry.laws, (l) => l.law)
-								const found = constraintLaw(constraintLaws, constraintOwner(entry), entry.name)
-								assert.ok(
-									found !== undefined && laws.includes(found),
-									`${entry.name} of ${entry.owner} is found under the owner the kit names it by, reporting one of its laws`
-								)
-							}
-							for (const statement of Arr.filter(base.statements, (s) => s.kind === "key")) {
-								k.note("a key statement")
-								const law = lawIdOf(subject, statement)
-								const reporting = Arr.filter(
-									L.model.constraints,
-									(entry) =>
-										constraintLaw(
-											constraintLawMap(L.model.constraints),
-											constraintOwner(entry),
-											entry.name
-										) === law
-								)
-								assert.ok(reporting.length > 0, `a constraint reports the key's law ${law}`)
-							}
-							for (const statement of alternativesStatements(levelStatements(L.model.owned.desc))) {
-								k.note("alternatives expansion")
-								const laws = L.alternativesOfDesc([statement])
-								const expansion = expandAlternatives(statement)
-								const all = [...new Set(Rec.values(laws.arms)), ...Rec.values(laws.reverse)]
-								assert.equal(new Set(all).size, all.length, "arm and reverse laws are distinct")
-								for (const forward of Arr.filter(
-									expansion,
-									(s) => s.right.selection.conjuncts.length > 0
-								)) {
-									const parent = forward.right.relation
-									const fks = foreignKeysInto(L.model, forward.left.relation, parent)
-									for (const handle of handlesOf(forward.right)) {
-										assert.ok(
-											Arr.some(
-												fks,
-												(fk) => L.lawOfConstraint(fk.owner, fk.ident) === laws.arms[handle]
-											),
-											`${handle}'s arm is contained in its parents through a foreign key into them`
-										)
-									}
-								}
-								for (const reverse of Arr.filter(
-									expansion,
-									(s) => s.left.selection.conjuncts.length > 0
-								)) {
-									const handle = Arr.headNonEmpty(handlesOf(reverse.left))
-									const law = defined(laws.reverse[handle], `${handle}'s reverse law`)
-									assert.ok(theory.has(law), `${handle}'s reverse is a law of the theory`)
-									assert.equal(
-										L.lawOfConstraint(
-											{ kind: "table", name: N.tableIdent({ name: reverse.left.relation }) },
-											L.constraintOf(law, "ForeignKey")
-										),
-										law,
-										`${handle}'s reverse is its own native foreign key`
-									)
-								}
-							}
-							for (const contractName of Rec.keys(N.model.owned.contracts)) {
-								const contract = N.contract(contractName)
-								if (contract.kind === "brand") {
-									continue
-								}
-								k.note("checked contract")
-								const stored = Arr.flatMap(N.installation.constraintLaws, (c) =>
-									c.kind === "domainConstraint" &&
-									c.owner === contract.domain &&
-									c.name === contract.constraint
-										? c.uses
-										: []
-								)
-								const unstored = Arr.flatMap(N.installation.constraintLaws, (c) =>
-									c.kind === "unstoredDomainConstraint" &&
-									c.owner === contract.domain &&
-									c.name === contract.constraint
-										? c.laws
-										: []
-								)
-								const reported = N.lawOfConstraint(
-									{ kind: "domain", name: contract.domain },
-									contract.constraint
-								)
-								const [first] = stored
-								if (first === undefined) {
-									assert.ok(
-										Arr.some(unstored, (l) => l.law === contract.law),
-										`${contractName}'s domain, typing no stored column, carries its law`
-									)
-									assert.ok(
-										Arr.some(unstored, (l) => l.law === reported),
-										`${contractName}'s domain reports one of the laws it carries`
-									)
-								} else {
-									for (const use of stored) {
-										const typed = declaredColumn(N.model.owned, use.table, use.column)
-										if (typed.desc.kind !== "contract") {
-											return assert.fail(
-												`${typed.relation}.${typed.field} uses ${contract.domain} with no contract`
-											)
-										}
-										const owner = N.contract(typed.desc.name)
-										assert.equal(owner.domain, contract.domain, `${typed.relation}.${typed.field}`)
-										assert.equal(
-											use.law.law,
-											owner.law,
-											`${typed.relation}.${typed.field} states its own contract's law under the domain's CHECK`
-										)
-									}
-									assert.equal(
-										reported,
-										first.law.law,
-										`${contractName}'s domain reports its first use's law`
-									)
-								}
-							}
-							for (const domain of N.installation.textDomains) {
-								for (const use of domain.uses) {
-									k.note("text domain")
-									const { relation: owner, field } = declaredColumn(
-										N.model.owned,
-										use.table,
-										use.column
-									)
-									const textNames = N.textDomain({ name: owner }, field)
-									assert.equal(textNames.domain, domain.name, `${owner}.${field}`)
-									const law = N.patternLaw({ name: owner }, field)
-									/** The law src's installation records for the column under the domain's CHECK. */
-									const recorded = Arr.flatMap(N.installation.constraintLaws, (c) =>
-										c.kind === "domainConstraint" &&
-										c.owner === textNames.domain &&
-										c.name === textNames.constraint
-											? Arr.filter(c.uses, (u) => u.table === use.table && u.column === use.column)
-											: []
-									)
-									assert.deepEqual(
-										Arr.map(recorded, (u) => u.law.law),
-										[law],
-										`${owner}.${field}'s column states its own pattern law under its domain's CHECK`
-									)
-									const described = N.described(law)
-									assert.ok(
-										described.kind === "pattern" &&
-											described.relation === owner &&
-											described.field === field,
-										`${owner}.${field}'s law names its relation and field`
-									)
-								}
-							}
-						})
-				)
-			)
-	)
+						}
+						assert.equal(
+							reported,
+							first.law.law,
+							`${contractName}'s domain reports its first use's law`
+						)
+					}
+				}
+				for (const domain of N.installation.textDomains) {
+					for (const use of domain.uses) {
+						k.note("text domain")
+						const { relation: owner, field } = declaredColumn(N.model.owned, use.table, use.column)
+						const textNames = N.textDomain({ name: owner }, field)
+						assert.equal(textNames.domain, domain.name, `${owner}.${field}`)
+						const law = N.patternLaw({ name: owner }, field)
+						/** The law src's installation records for the column under the domain's CHECK. */
+						const recorded = Arr.flatMap(N.installation.constraintLaws, (c) =>
+							c.kind === "domainConstraint" &&
+							c.owner === textNames.domain &&
+							c.name === textNames.constraint
+								? Arr.filter(c.uses, (u) => u.table === use.table && u.column === use.column)
+								: []
+						)
+						assert.deepEqual(
+							Arr.map(recorded, (u) => u.law.law),
+							[law],
+							`${owner}.${field}'s column states its own pattern law under its domain's CHECK`
+						)
+						const described = N.described(law)
+						assert.ok(
+							described.kind === "pattern" &&
+								described.relation === owner &&
+								described.field === field,
+							`${owner}.${field}'s law names its relation and field`
+						)
+					}
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "src's law model and installation records, and the naming door's rule restated: readable a row check's conversion, hashed __stem_digest of its identity"
+		},
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/kernel/naming.test.ts#productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlternativesExpansionCheckedContractAndTextDomainEachNamedByTheDoorsRule:-:3.2.1.0.0.1.1.0"
+				),
+				reason:
+					"two contracts of one definition, the first column's named after the second's: the domain's CHECK reports its first use's law, not the first name's",
+				since: "2026-11-11"
+			}
+		],
+		kills: [
+			{
+				file: "packages/engine/src/core/identity.ts",
+				original: `\tlet bits = BigInt(\`0x\${sha256Hex(canonical).slice(0, digestHexChars)}\`) >> digestDropped`,
+				replacement: `\tlet bits = BigInt(\`0x\${sha256Hex(canonical).slice(0, digestHexChars)}\`)`,
+				why: "A hashed name's digest is read from the low bits of its hex digits, none dropped, so it is not the first 5 * digestChars bits of the SHA-256; the production-names property fails."
+			}
+		]
+	})
 
-	it.effect(
-		"name a row check's law by a statement rebuilt in its written operand order, which ownership reorders",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/kernel/naming-owned-form",
-						generator: shapeGen,
-						literal: Formatter.format,
-						box: "every predicate over the two leaves of at most two levels of connectives, each of one or two operands",
-						oracle: {
-							kind: "specification",
-							name: "the one law of the schema's one row check"
-						},
-						coverage: requiredInSpace<ShapeFeature>(["and under or", "singleton and"]),
-						caseHang
-					},
-					(shape, c) =>
-						Effect.sync(() => {
-							c.noteAll(shapeFeatures(shape, false))
-							const L = lawNamesOf(schema("S", [Item], [checkOf(shape)]))
-							const theory = Arr.filter(
-								L.model.theory.laws,
-								(l) => l.detail.kind === "check" && l.detail.name === "H"
-							)
-							const [declared, ...more] = theory
-							if (declared === undefined || more.length > 0) {
-								return assert.fail("the schema's one row check is one law")
-							}
-							assert.equal(L.lawOf(checkOf(shape)), declared.id)
-						})
+/** Production names from src name a row check's law by a statement rebuilt in its written operand order, which ownership reorders. */
+export const productionNamesFromSrcNameARowChecksLawByAStatementRebuiltInItsWrittenOperandOrderWhichOwnershipReorders =
+	property.exhaust(finite(shapeGen), {
+		needs: {},
+		situations: ["and under or", "singleton and"] satisfies ReadonlyArray<Reached<ShapeFeature>>,
+		check: (_, c: Case<ShapeFeature>) => (shape) =>
+			Effect.sync(() => {
+				c.noteAll(shapeFeatures(shape, false))
+				const L = lawNamesOf(schema("S", [Item], [checkOf(shape)]))
+				const theory = Arr.filter(
+					L.model.theory.laws,
+					(l) => l.detail.kind === "check" && l.detail.name === "H"
 				)
-			)
-	)
-})
+				const [declared, ...more] = theory
+				if (declared === undefined || more.length > 0) {
+					return assert.fail("the schema's one row check is one law")
+				}
+				assert.equal(L.lawOf(checkOf(shape)), declared.id)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the one law of the schema's one row check"
+		},
+		box: "every predicate over the two leaves of at most two levels of connectives, each of one or two operands",
+		kept: [],
+		kills: []
+	})
