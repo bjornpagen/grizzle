@@ -17,9 +17,8 @@ declare global {
 /**
  * The process's session counting every function's calls, V8's precise coverage at function granularity, started once
  * and never stopped: only that mode counts a call TurboFan inlined into its caller, which block coverage drops, and it
- * counts exactly when it starts before the code under test runs hot, since no optimized code or optimization in flight
- * then predates it. Stopping it would end counting for the whole process, so nothing does; the session lives as long
- * as the process.
+ * counts exactly only over code optimized after it started. Stopping it would end counting for the whole process, so
+ * nothing does; the session lives as long as the process.
  */
 const counting: Effect.Effect<Session> = Effect.suspend(() => {
 	const running = globalThis.grizzleCallCounts
@@ -44,15 +43,30 @@ const take = Effect.flatMap(counting, (session) =>
 )
 
 /**
+ * Counting from cold: precise coverage started again, which V8 does in full each time it is asked (Coverage::SelectMode):
+ * it deoptimizes every function and clears every invocation count. A process may run the code under test hot before
+ * its counting starts (a runner's worker is warm across properties, and an optimization of that code may still be in
+ * flight when the session starts), and code optimized before counting began counts no call inlined into it, so each
+ * count starts here, over code that runs or is optimized again under counting.
+ */
+const restart = Effect.flatMap(counting, (session) =>
+	Effect.promise(() =>
+		session.post("Profiler.startPreciseCoverage", { callCount: true, detailed: false })
+	)
+)
+
+/**
  * How many times each site's functions were called while `effect` ran, with its value: work counted, never time, so a
- * guard over it never depends on the machine. The counts are V8's, process-wide, so the effect runs alone; taking them
- * resets them, so the counts are the effect's own. A site matches every function of its name in its module.
+ * guard over it never depends on the machine. The counts are V8's, process-wide, so the effect runs alone; each count
+ * starts from cold (restart) and taking them resets them, so the counts are the effect's own, whatever the process ran
+ * before. A site matches every function of its name in its module.
  */
 export const callCounts = <A, E, R, K extends string>(
 	effect: Effect.Effect<A, E, R>,
 	sites: Readonly<Record<K, CallSite>>
 ): Effect.Effect<readonly [A, Readonly<Record<K, number>>], E, R> =>
 	Effect.gen(function* () {
+		yield* restart
 		yield* take
 		const value = yield* effect
 		const scripts = yield* take
@@ -87,6 +101,7 @@ export const everyCallCount = <A, E, R>(
 	kept: (file: string) => boolean
 ): Effect.Effect<readonly [A, ReadonlyMap<string, number>], E, R> =>
 	Effect.gen(function* () {
+		yield* restart
 		yield* take
 		const value = yield* effect
 		const scripts = yield* take
