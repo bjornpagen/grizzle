@@ -930,7 +930,8 @@ const endpoint = (
  *   result's range, `powerRange`; width_bucket its operand and bounds `finite`, facts their types state as min_scale's
  *   operand's are, then its `bucketDomain`;
  * - money / money is double precision;
- * - comparisons: every carrier with equality has = and <>, every ordered carrier the four orderings;
+ * - comparisons: every carrier with equality has = and <>, and every one a Compute call compares, all but bytea, IN,
+ *   composed of its =; every ordered carrier the four orderings;
  * - a set over a roster's union (bitor), intersection (bitand) and cardinality (bit_count(bit)), its difference, subset
  *   and disjointness composed of them, and a set with one more handle (set_bit(bit,integer,integer) at a live code),
  *   all total; bitnot only inside those, since it sets the hole and padding bits;
@@ -1261,6 +1262,7 @@ const catalogOverloads = {
 	"greatest:code": extreme("greatest", "code", opId("code:int2gt")),
 	biteq: comparison("eq", "bits"),
 	bitne: comparison("ne", "bits"),
+	"in:bits": membership("bits", opId("biteq")),
 	bitor: setInfix("union", "|"),
 	bitand: setInfix("intersection", "&"),
 	bitnot: setComplement,
