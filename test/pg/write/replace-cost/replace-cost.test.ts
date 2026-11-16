@@ -24,9 +24,10 @@
  * of this law: a node re-inserted after its siblings were removed meets them only as dead index entries, which the
  * rows read do not count. The pages the statements read and
  * the temp they wrote are reported beside the rows, unjudged. Every size is measured on a fresh installation that no
- * ANALYZE has run on when the write begins, which the case checks (pg_stat_user_tables): the unit a case stores first is
- * committed, which autovacuum may analyze later, after the write it measures. Every statement of the write passes the
- * structural audit (test/support/write-audit.ts), which refuses NULL and outer joins.
+ * ANALYZE has run on when the write begins: autovacuum is off on each of its tables before the unit a case stores first
+ * is committed, so no analyze races the write however long the case waits, and the case checks that the installation
+ * and the store ran none of their own (pg_stat_user_tables). Every statement of the write passes the structural audit
+ * (test/support/write-audit.ts), which refuses NULL and outer joins.
  *
  * The box, exhausted: each situation in each tree at a smallest size n of 100 and of 200 rows, the unit stored beside a
  * second unit of 3,200 rows a family that the write leaves alone (`beside`). Each size's write is applied once, its
@@ -236,8 +237,9 @@ const deletes = (plan: PlanNode): boolean =>
 	)
 
 /**
- * The cost of replacing a unit of `rows` rows a family, stored first through the Db, on a fresh installation, with the
- * times PostgreSQL had analyzed its tables when the write began, which a never-analyzed installation holds at none.
+ * The cost of replacing a unit of `rows` rows a family, stored first through the Db, on a fresh installation whose
+ * tables autovacuum leaves alone, with the times PostgreSQL had analyzed its tables when the write began, which a
+ * never-analyzed installation holds at none.
  */
 const costOf = (situation: Situation, tree: TreeShape, rows: number) =>
 	Effect.scoped(
@@ -247,6 +249,13 @@ const costOf = (situation: Situation, tree: TreeShape, rows: number) =>
 				logins: []
 			})
 			const S: Schema = build(fx.installed.declared)
+			const substrate = yield* Substrate
+			yield* Effect.forEach(
+				fx.tables,
+				(table) =>
+					substrate.admin.query(`ALTER TABLE ${table} SET (autovacuum_enabled = false)`, []),
+				{ discard: true }
+			)
 			const db = yield* openFull(fx, S)
 			const stored = yield* observedChange(
 				db,
@@ -262,7 +271,6 @@ const costOf = (situation: Situation, tree: TreeShape, rows: number) =>
 			const write = insertOf(S, [{ doc: 1n, rows, changed: situation, tree }]).delete(Doc, [
 				{ id: 1n, note: 0n }
 			])
-			const substrate = yield* Substrate
 			const analyzed = yield* substrate.admin.queryValues(
 				`SELECT coalesce(sum(analyze_count + autoanalyze_count), 0)::text FROM pg_catalog.pg_stat_user_tables WHERE relid IN (${Arr.join(
 					Arr.map(fx.tables, (table) => `'${table}'::pg_catalog.regclass`),
