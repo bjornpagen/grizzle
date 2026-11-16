@@ -1,8 +1,8 @@
 /** What the properties of attnums.test.ts read: its spaces, models and helpers. */
 
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, Formatter, Record as Rec } from "effect"
-import { canonicalTextOf } from "#compiler/core/canonical.ts"
+import type { Need } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { draftMigration, type MigrationDraft } from "#compiler/deploy/render/generate.ts"
 import {
@@ -108,19 +108,8 @@ const declaredOf = (m: Model, c: Command): Declarations => {
 			}
 }
 
-/** A draft from its previous snapshot to its target, made once in a search: `drafts` is the search's own cache of them,
- * keyed by both. */
-const draft = (
-	drafts: Map<string, MigrationDraft>,
-	previous: DeploySnapshot,
-	m: Model,
-	declared: Declarations
-): MigrationDraft => {
-	const key = canonicalTextOf([previous.fingerprint, m.fields, declared])
-	const known = drafts.get(key)
-	if (known !== undefined) {
-		return known
-	}
+/** A migration drafted from its previous snapshot to its target. */
+const draft = (previous: DeploySnapshot, m: Model, declared: Declarations): MigrationDraft => {
 	const owned = owning(descOf(m))
 	const rosters = rostersOf(owned)
 	const codes = draftCodebook(
@@ -141,11 +130,75 @@ const draft = (
 			completeInstallOptions(owned, installationsOf(owned), [], [], codes.value)
 		)
 	)
-	const drafted = succeeded(
+	return succeeded(
 		draftMigration({ previous, installation, workload: noWorkload, declared, abandoned: [] })
 	)
-	drafts.set(key, drafted)
-	return drafted
+}
+
+/** A program's state after a prefix of its applied commands: the model, and the draft that reached it. */
+interface Drafted {
+	readonly model: Model
+	readonly drafted: MigrationDraft
+}
+
+/** Every command, in the order a prefix tries them. */
+const commands: ReadonlyArray<Command> = ["add", "drop", "rename"]
+
+/**
+ * A prefix of applied commands by its key: the commands in order, each after a space, the table's creation the empty
+ * key.
+ */
+const createdKey = ""
+
+/** The key of `prefix` followed by `c`. */
+const extendedKey = (prefix: string, c: Command): string =>
+	prefix === createdKey ? c : `${prefix} ${c}`
+
+/** The most commands a program of the box holds (boxGen), so the longest prefix of applied commands. */
+const longestProgram = 6
+
+/**
+ * Every migration the box drafts, by the key of the prefix of applied commands that reaches it (extendedKey): the table's creation,
+ * then each command that applies after each prefix, through every program of up to six commands. Programs and limits
+ * share their prefixes, so the box's 5,460 cases draft the same prefixes again and again; built once, when a worker
+ * readies the box (the need's open, outside every case's deadline), each prefix is drafted once and a case walks its
+ * program's prefixes through it. A draft that fails fails the need's open, and so the property.
+ */
+export const draftsByPrefix: Need<ReadonlyMap<string, Drafted>> = {
+	key: "test/unit/deploy/attnums.fixtures.ts draftsByPrefix",
+	open: Effect.sync(() => {
+		const created: Drafted = {
+			model: initial,
+			drafted: draft(emptySnapshot({ schemaName: "Attnums", schema: "attnums" }), initial, {
+				renames: [],
+				drops: []
+			})
+		}
+		const below = (
+			prefix: string,
+			length: number,
+			at: Drafted
+		): ReadonlyArray<readonly [string, Drafted]> =>
+			length === longestProgram
+				? []
+				: Arr.flatMap(
+						Arr.filter(commands, (c) => applies(at.model, c)),
+						(c: Command): ReadonlyArray<readonly [string, Drafted]> => {
+							const next = step(at.model, c)
+							const reached: Drafted = {
+								model: next,
+								drafted: draft(at.drafted.snapshot, next, declaredOf(at.model, c))
+							}
+							const key = extendedKey(prefix, c)
+							return [[key, reached] as const, ...below(key, length + 1, reached)]
+						}
+					)
+		const drafts: ReadonlyMap<string, Drafted> = new Map([
+			[createdKey, created] as const,
+			...below(createdKey, 0, created)
+		])
+		return Effect.succeed(drafts)
+	})
 }
 
 const attnumsOf = (s: DeploySnapshot): number => {
@@ -154,20 +207,15 @@ const attnumsOf = (s: DeploySnapshot): number => {
 }
 
 export const judge = (
-	drafts: Map<string, MigrationDraft>,
+	drafts: ReadonlyMap<string, Drafted>,
 	box: Box,
 	note: (f: Feature) => void
 ): void => {
+	const draftOf = (prefix: string): Drafted =>
+		drafts.get(prefix) ?? assert.fail(`the box drafts the prefix "${prefix}"`)
 	let model = initial
-	let snapshot = draft(
-		drafts,
-		emptySnapshot({ schemaName: "Attnums", schema: "attnums" }),
-		initial,
-		{
-			renames: [],
-			drops: []
-		}
-	).snapshot
+	let applied = createdKey
+	let snapshot = draftOf(applied).drafted.snapshot
 	assert.equal(attnumsOf(snapshot), initial.attnums, "a new table uses one number per column")
 	for (const c of box.commands) {
 		if (!applies(model, c)) {
@@ -175,7 +223,8 @@ export const judge = (
 		}
 		note(c)
 		const next = step(model, c)
-		const drafted = draft(drafts, snapshot, next, declaredOf(model, c))
+		applied = extendedKey(applied, c)
+		const drafted = draftOf(applied).drafted
 		const at = `${Formatter.format(box)} at ${c}`
 		assert.equal(
 			attnumsOf(drafted.snapshot),

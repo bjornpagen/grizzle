@@ -13,19 +13,21 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { type MigrationDraft } from "#compiler/deploy/render/generate.ts"
-import { boxGen, type Feature, FEATURES, judge } from "#test/unit/deploy/attnums.fixtures.ts"
+import {
+	boxGen,
+	draftsByPrefix,
+	type Feature,
+	FEATURES,
+	judge
+} from "#test/unit/deploy/attnums.fixtures.ts"
 
 /** A table's attribute numbers grow by one per added column and never shrink, every program of at most six adds, drops and renames, an addition past a small bound refused. */
 export const aTablesAttributeNumbersGrowByOnePerAddedColumnAndNeverShrinkEveryProgramOfAtMostSixAddsDropsAndRenamesAnAdditionPastASmallBoundRefused =
 	property.exhaust(finite(boxGen), {
-		needs: {},
+		needs: { drafts: draftsByPrefix },
 		situations: FEATURES satisfies ReadonlyArray<Reached<Feature>>,
-		check: (_, c: Case<Feature>) => (box) =>
-			Effect.gen(function* () {
-				const drafts = new Map<string, MigrationDraft>()
-				return yield* Effect.sync(() => judge(drafts, box, (feature) => c.note(feature)))
-			}),
+		check: (resources, c: Case<Feature>) => (box) =>
+			Effect.map(resources.drafts, (drafts) => judge(drafts, box, (feature) => c.note(feature))),
 		oracle: {
 			kind: "second-implementation",
 			name: "a model of pg_attribute's attribute numbers"
