@@ -267,7 +267,7 @@ const role = attached.part.role
 export const keyCount = role.kind === "attachment" ? role.parentKey.length : 0
 
 /** The columns a part's statement outputs. */
-export const outputOf = (record: typeof root) =>
+export const statementHeadingOf = (record: typeof root) =>
 	statementOutput(record.part.role, record.part.heading, record.part.fused).heading
 
 /** What a case plants among the fetched rows: nothing, a repeat of the first, the first two swapped, or one row more. */

@@ -424,7 +424,7 @@ const write: Transaction = { access: "readWrite", isolation: "serializable", end
 const readOnly: Uncommitting = { access: "readOnly", deferrable: false, end: "COMMIT" }
 
 /** The case's call on `session`. */
-export const callOf = (
+export const boundCallOf = (
 	c: FlightCase,
 	session: Session
 ): Effect.Effect<void, FlightFailure | ApartFailure> => {
@@ -513,7 +513,7 @@ export const historied: Effect.Effect<
 })
 
 /** The typed failure of a call that failed, or none for one that succeeded; a defect or an interruption fails the case. */
-export const failureOf = (
+export const typedFailureOf = (
 	exit: Exit.Exit<void, FlightFailure | ApartFailure>
 ): Option.Option<FlightFailure | ApartFailure> => {
 	if (Exit.isSuccess(exit)) {
@@ -527,18 +527,18 @@ export const failureOf = (
 	return failure
 }
 
-export type FlightFeature =
+export type BoundFeature =
 	| `${Runner}: refused`
 	| `${Runner}: admitted`
 	| "admitted at exactly the bound"
 	| "refused one byte past the bound"
 	| "refused at the second flight"
 
-export const features: Arr.NonEmptyReadonlyArray<FlightFeature> = [
+export const features: Arr.NonEmptyReadonlyArray<BoundFeature> = [
 	"admitted at exactly the bound",
 	"refused one byte past the bound",
 	"refused at the second flight",
-	...Arr.flatMap(runners, (r): ReadonlyArray<FlightFeature> => [`${r}: refused`, `${r}: admitted`])
+	...Arr.flatMap(runners, (r): ReadonlyArray<BoundFeature> => [`${r}: refused`, `${r}: admitted`])
 ]
 
 /**

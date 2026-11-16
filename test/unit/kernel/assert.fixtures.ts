@@ -151,7 +151,7 @@ export type ThunkOutcome = (typeof thunkOutcomes)[number]
  * The value a thunk of that outcome throws: a located refusal and a look-alike at the located reason drawn, and the
  * collision variant, the one CompileError of the reason IdentifierCollision.
  */
-export const thrownOf = (
+export const thunkOutcomeOf = (
 	outcome: ThunkOutcome,
 	located: ProseTag
 ): { readonly kind: "returns" } | { readonly kind: "throws"; readonly value: unknown } => {

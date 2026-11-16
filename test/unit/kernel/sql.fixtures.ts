@@ -77,10 +77,10 @@ export const admitted = (statement: SqlStatement): void => {
 }
 
 /** What a generated statement notes: its kind, and its shape's features. */
-export type StatementFeature = ShapeFeature | `statement ${SqlStatement["kind"]}`
+export type AuditedStatementFeature = ShapeFeature | `statement ${SqlStatement["kind"]}`
 
 /** The forms the statement generator must reach: every statement kind, and the constructs each audit rule watches. */
-export const requiredStatementFeatures: Arr.NonEmptyReadonlyArray<StatementFeature> = [
+export const requiredStatementFeatures: Arr.NonEmptyReadonlyArray<AuditedStatementFeature> = [
 	"statement select",
 	"statement insert",
 	"statement update",

@@ -78,7 +78,7 @@ export const Sitting = relation(
 const Edu = schema("Edu", [Sitting], [])
 
 /** A role value's Description, as Db.open parses it. */
-export const declaredOf = (value: unknown): RoleDesc =>
+export const roleDeclaredOf = (value: unknown): RoleDesc =>
 	defined(roleDescOf(value), "a role built by role(...)")
 
 /**

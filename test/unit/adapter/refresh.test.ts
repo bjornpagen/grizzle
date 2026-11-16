@@ -29,7 +29,7 @@ import {
 	built,
 	C,
 	type Declared,
-	declaredOf,
+	roleDeclaredOf,
 	definitionOf,
 	type Detail,
 	detailGen,
@@ -318,7 +318,7 @@ export const howARefreshEndsAsItsOneSERIALIZABLEFlightsAnswersSayCommittedInRefr
 			Effect.gen(function* () {
 				const targets = succeeded(
 					refreshTargets(
-						declaredOf(Refresher),
+						roleDeclaredOf(Refresher),
 						reports,
 						Arr.map(c.named, (name) => (name === "A" ? A : name === "B" ? B : C))
 					)

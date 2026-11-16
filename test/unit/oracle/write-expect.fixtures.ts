@@ -62,7 +62,7 @@ export const groupLaws = (group: WGroup, laws: WriteLawNames): ReadonlyArray<Law
 /** A native violation's witness: PostgreSQL states its key only in its message. */
 export const unreported: OutcomeWitness = { kind: "unreported" }
 
-export const refused = (
+export const refusedOutcome = (
 	law: LawId,
 	witness: OutcomeWitness
 ): Result.Result<WriteOutcome, unknown> =>

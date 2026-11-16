@@ -74,7 +74,7 @@ interface Reading {
 }
 
 /** Every finite double, and now and then NaN or an infinity, as a float8 column holds. */
-export const anyDouble = weighted([
+const anyDouble = weighted([
 	[9, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
 	[1, element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])]
 ])
@@ -83,7 +83,7 @@ export const anyDouble = weighted([
  * A value of numeric(5,2), a reading's value: a count of hundredths, which the type holds as it is. A value PostgreSQL's
  * coercion would round is no value of the type: the input boundary refuses it (numericScale).
  */
-export const hundredths: Gen<Decimal> = map(int(-99999, 99999), (n) => Decimal.of(`${n}e-2`))
+const hundredths: Gen<Decimal> = map(int(-99999, 99999), (n) => Decimal.of(`${n}e-2`))
 
 /** The reading of an id: its value and its raw double drawn. */
 const readingOf =
@@ -108,7 +108,7 @@ const arrayCell = string(
 )
 
 /** Up to six rows of `width` texts each. */
-export const cellRows = (width: number): Gen<ReadonlyArray<ReadonlyArray<string>>> =>
+const cellRows = (width: number): Gen<ReadonlyArray<ReadonlyArray<string>>> =>
 	array(array(arrayCell, { min: width, max: width }), { min: 0, max: 6 })
 
 /** Where a bound falls against the longest literal: the situations its count of the literal's length must get right. */
@@ -119,7 +119,7 @@ export type LiteralFeature =
 	| "far past the bound"
 
 /** How far the bound sits from the longest literal's length. */
-export const boundOffset: Gen<number> = weighted([
+const boundOffset: Gen<number> = weighted([
 	[2, int(2, 40)],
 	[3, constant(0)],
 	[3, constant(-1)],

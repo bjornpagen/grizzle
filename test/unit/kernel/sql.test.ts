@@ -34,7 +34,7 @@ import {
 	renamed,
 	requiredStatementFeatures,
 	rootHoleFirst,
-	type StatementFeature,
+	type AuditedStatementFeature,
 	statementCatalog
 } from "#test/unit/kernel/sql.fixtures.ts"
 
@@ -87,7 +87,7 @@ export const generatedStatementsPassBothAuditsAndReachEveryStatementKindAndEvery
 	property.explore(statementGen(statementCatalog), {
 		needs: {},
 		situations: requiredStatementFeatures,
-		check: (_, c: Case<StatementFeature>) => (statement) =>
+		check: (_, c: Case<AuditedStatementFeature>) => (statement) =>
 			Effect.sync(() => {
 				admitted(statement)
 				const shape = shapeOf(statement)
@@ -117,8 +117,8 @@ export const theOneHoleWalkerListsTheRootStatementsRewritesFirst = property.expl
 			"statement update",
 			"statement delete",
 			"statement merge"
-		] satisfies ReadonlyArray<Reached<StatementFeature>>,
-		check: (_, c: Case<StatementFeature>) => (statement) =>
+		] satisfies ReadonlyArray<Reached<AuditedStatementFeature>>,
+		check: (_, c: Case<AuditedStatementFeature>) => (statement) =>
 			Effect.sync(() => {
 				rootHoleFirst(statement)
 				c.note(`statement ${shapeOf(statement).statement}`)

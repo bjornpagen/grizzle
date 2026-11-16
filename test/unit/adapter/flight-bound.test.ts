@@ -40,12 +40,12 @@ import { controlText, type Session } from "#adapter/wire/session.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import {
-	callOf,
+	boundCallOf,
 	caseGen,
-	failureOf,
+	typedFailureOf,
 	features,
 	firstFlightOf,
-	type FlightFeature,
+	type BoundFeature,
 	historied,
 	lengthOf,
 	newConnectionBytesOf,
@@ -63,12 +63,12 @@ import {
 export const theFlightBoundRefusesAFlightLongerThanOneWriteCarriesBeforeAnyByteOfItIsWrittenAndWritesEveryOtherWhole =
 	property.explore(caseGen, {
 		needs: {},
-		situations: features satisfies ReadonlyArray<Reached<FlightFeature>>,
-		check: (_, k: Case<FlightFeature>) => (c) =>
+		situations: features satisfies ReadonlyArray<Reached<BoundFeature>>,
+		check: (_, k: Case<BoundFeature>) => (c) =>
 			Effect.scoped(
 				Effect.gen(function* () {
 					const twin = yield* historied
-					yield* callOf(c, twin.session)
+					yield* boundCallOf(c, twin.session)
 					const wire = twin.server.read.slice(twin.mark)
 					const flights =
 						c.runner === "framedTwice"
@@ -87,8 +87,8 @@ export const theFlightBoundRefusesAFlightLongerThanOneWriteCarriesBeforeAnyByteO
 								: measured + c.distance
 					const subject = yield* historied
 					const bounded: Session = { ...subject.session, flightMaxBytes: limit }
-					const exit = yield* Effect.exit(callOf(c, bounded))
-					const failure = failureOf(exit)
+					const exit = yield* Effect.exit(boundCallOf(c, bounded))
+					const failure = typedFailureOf(exit)
 					const read = subject.server.read.slice(subject.mark)
 					const refusedAt = Arr.findFirstIndex(
 						flights,
@@ -128,7 +128,7 @@ export const theFlightBoundRefusesAFlightLongerThanOneWriteCarriesBeforeAnyByteO
 							[],
 							"a refused flight writes nothing, and no ROLLBACK follows it"
 						)
-						yield* callOf(c, subject.session)
+						yield* boundCallOf(c, subject.session)
 						assert.deepEqual(
 							subject.server.read.slice(subject.mark),
 							wire,
@@ -205,10 +205,10 @@ export const aFlightWhoseConnectionIsResetIsALostConnectionWhenItsWriteFailedBef
 										subject.server.resetAt = "commit"
 										break
 								}
-								return callOf(c, subject.session)
+								return boundCallOf(c, subject.session)
 							})
 						)
-						const failure = failureOf(exit)
+						const failure = typedFailureOf(exit)
 						const outcome: Outcome = Option.match(failure, {
 							onNone: (): Outcome => "answered",
 							onSome: (f): Outcome => {
@@ -267,7 +267,7 @@ export const aStatementsParseMessageIsRefusedBeforeAnyByteOfItsFlightIsWrittenEx
 			Effect.scoped(
 				Effect.gen(function* () {
 					const twin = yield* historied
-					yield* callOf(c, twin.session)
+					yield* boundCallOf(c, twin.session)
 					const wire = twin.server.read.slice(twin.mark)
 					const parses = Arr.filter(wire, (m) => m.type === "P")
 					const longest = Arr.reduce(parses, 0, (most, m) => Math.max(most, lengthOf(m)))
@@ -279,8 +279,8 @@ export const aStatementsParseMessageIsRefusedBeforeAnyByteOfItsFlightIsWrittenEx
 								: longest + c.distance
 					const subject = yield* historied
 					const bounded: Session = { ...subject.session, messageMaxBytes: limit }
-					const exit = yield* Effect.exit(callOf(c, bounded))
-					const failure = failureOf(exit)
+					const exit = yield* Effect.exit(boundCallOf(c, bounded))
+					const failure = typedFailureOf(exit)
 					const read = subject.server.read.slice(subject.mark)
 					const refused = Arr.findFirst(parses, (m) => lengthOf(m) > limit)
 					if (Option.isNone(refused)) {

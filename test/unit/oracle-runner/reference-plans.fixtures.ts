@@ -113,9 +113,9 @@ export const agree = (generator: Gen<QueryCase>) =>
 		kills: []
 	})
 
-export const int2 = scalarOfSpec({ carrier: "int2" })
-export const text = scalarOfSpec({ carrier: "text" })
-export const uuid = scalarOfSpec({ carrier: "uuid" })
+const int2 = scalarOfSpec({ carrier: "int2" })
+const text = scalarOfSpec({ carrier: "text" })
+const uuid = scalarOfSpec({ carrier: "uuid" })
 export const handles = closedIdType({ name: "Color", handles: ["red", "green"] })
 const samples: Arr.NonEmptyReadonlyArray<readonly [ScalarType, Arr.NonEmptyReadonlyArray<Value>]> =
 	[

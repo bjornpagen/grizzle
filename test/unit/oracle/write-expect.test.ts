@@ -54,7 +54,7 @@ import {
 	groupLaws,
 	otherKey,
 	plantedAimed,
-	refused,
+	refusedOutcome,
 	situations,
 	someKey,
 	unreported,
@@ -122,7 +122,7 @@ export const theWriteOraclesJudgementPassesAFaithfulRealizationAndRefusesEveryPl
 								n.note("applied: a typmod cast")
 							}
 							if (anyLaw !== undefined) {
-								mutant("mutant: refused where applied", refused(anyLaw, unreported))
+								mutant("mutant: refused where applied", refusedOutcome(anyLaw, unreported))
 							}
 							return
 						case "outsideDomain": {
@@ -140,7 +140,7 @@ export const theWriteOraclesJudgementPassesAFaithfulRealizationAndRefusesEveryPl
 							if (laws.length > 1) {
 								mutant(
 									"mutant: one of a domain's several laws",
-									refused(Arr.headNonEmpty(laws), unreported)
+									refusedOutcome(Arr.headNonEmpty(laws), unreported)
 								)
 							}
 							mutant(
@@ -184,7 +184,10 @@ export const theWriteOraclesJudgementPassesAFaithfulRealizationAndRefusesEveryPl
 								Result.succeed({ kind: "no-change", reads: {} })
 							)
 							if (anyLaw !== undefined) {
-								mutant("mutant: a law's refusal where refused at bind", refused(anyLaw, unreported))
+								mutant(
+									"mutant: a law's refusal where refused at bind",
+									refusedOutcome(anyLaw, unreported)
+								)
 							}
 							mutant(
 								"mutant: a parameter's refusal unclassified",
@@ -207,31 +210,43 @@ export const theWriteOraclesJudgementPassesAFaithfulRealizationAndRefusesEveryPl
 							const [law, refusal] = first
 							const [other] = Arr.filter(groupLaws(group, laws), (l) => !expected.refusals.has(l))
 							if (other !== undefined) {
-								mutant("mutant: an unacceptable law", refused(other, unreported))
+								mutant("mutant: an unacceptable law", refusedOutcome(other, unreported))
 							}
 							n.note("faithful refusal")
 							switch (refusal.kind) {
 								case "key": {
-									assert.deepEqual(verdict(refused(law, violatingKey(refusal.violations))), [])
+									assert.deepEqual(
+										verdict(refusedOutcome(law, violatingKey(refusal.violations))),
+										[]
+									)
 									const at = otherKey(group, refusal.violations)
 									if (at !== undefined) {
-										mutant("mutant: a non-violating key", refused(law, at))
+										mutant("mutant: a non-violating key", refusedOutcome(law, at))
 									}
-									mutant("mutant: a keyless witness of a keyed law", refused(law, unreported))
+									mutant(
+										"mutant: a keyless witness of a keyed law",
+										refusedOutcome(law, unreported)
+									)
 									return
 								}
 								case "keyOrUnreported": {
-									assert.deepEqual(verdict(refused(law, violatingKey(refusal.violations))), [])
-									assert.deepEqual(verdict(refused(law, unreported)), [])
+									assert.deepEqual(
+										verdict(refusedOutcome(law, violatingKey(refusal.violations))),
+										[]
+									)
+									assert.deepEqual(verdict(refusedOutcome(law, unreported)), [])
 									const at = otherKey(group, refusal.violations)
 									if (at !== undefined) {
-										mutant("mutant: a non-violating key", refused(law, at))
+										mutant("mutant: a non-violating key", refusedOutcome(law, at))
 									}
 									return
 								}
 								case "unreported":
-									assert.deepEqual(verdict(refused(law, unreported)), [])
-									mutant("mutant: a keyed witness of a native law", refused(law, someKey(group)))
+									assert.deepEqual(verdict(refusedOutcome(law, unreported)), [])
+									mutant(
+										"mutant: a keyed witness of a native law",
+										refusedOutcome(law, someKey(group))
+									)
 									return
 							}
 						}

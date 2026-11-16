@@ -61,7 +61,7 @@ type Verdict =
 	| { readonly kind: "unmade" }
 	| { readonly kind: "commitRefused" }
 
-export const expected = (c: TwoFlights): Verdict => {
+export const expectedVerdict = (c: TwoFlights): Verdict => {
 	switch (c.fault.kind) {
 		case "none":
 			return { kind: "committed" }

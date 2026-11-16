@@ -51,14 +51,14 @@ import {
 	plantedFolders,
 	type PlanVerdict,
 	recordedOf,
-	review,
+	reviewedText,
 	reviewedSource,
 	type RunVerdict,
 	shop,
 	shopChain,
 	source,
 	statementGen,
-	statementText,
+	drawnStatementText,
 	stemsInstallation,
 	underDraft,
 	unedited,
@@ -92,7 +92,7 @@ export const transactionControlInAMigrationFileRefusesExactlyTheStatementsPostgr
 		] satisfies ReadonlyArray<Reached<ControlFeature>>,
 		check: (_, c: Case<ControlFeature>) => (d) =>
 			Effect.sync(() => {
-				const text = statementText(d)
+				const text = drawnStatementText(d)
 				assert.equal(transactionControl(text), d.form.control, inspect(text))
 				c.note(d.form.name)
 				const pieces = gaps(d).flat()
@@ -144,7 +144,7 @@ export const theInputCheckBeforeAnyConnectionOrdersTheFoldersByNameAndTheFilesBy
 				const drafts = Arr.take(shopChain, c.versions)
 				const handed = Arr.map(c.order, (i) => {
 					const g = defined(drafts[i], "a version's draft")
-					return source(g.folder, c.reviewed[i] === true ? review : unedited)
+					return source(g.folder, c.reviewed[i] === true ? reviewedText : unedited)
 				})
 				const snapshot = Option.match(Arr.last(drafts), {
 					onNone: () => emptyShop,

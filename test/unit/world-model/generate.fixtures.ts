@@ -232,7 +232,7 @@ const baseNames = (base: BaseSpec): InstalledNames => {
 }
 
 /** The installations the generators are tried over, with the names their base's compilation gives them. */
-export const fixtures: Arr.NonEmptyReadonlyArray<{
+const fixtures: Arr.NonEmptyReadonlyArray<{
 	readonly install: InstallSpec
 	readonly state: ModelState
 }> = knownNonEmpty(

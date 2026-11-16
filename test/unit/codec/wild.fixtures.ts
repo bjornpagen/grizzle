@@ -69,7 +69,7 @@ export const decoded = (written: Written): Carried => {
 
 const caps = capabilitySet(["storage", "equality"])
 
-export const int32 = int(int4Min.value, int4Max.value)
+const int32 = int(int4Min.value, int4Max.value)
 const int64 = bigint(int8Min.value, int8Max.value)
 
 /**
@@ -289,7 +289,7 @@ export const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Writt
 	]
 }
 
-export const everyCarried: Arr.NonEmptyReadonlyArray<Carried> = Arr.map(
+const everyCarried: Arr.NonEmptyReadonlyArray<Carried> = Arr.map(
 	Arr.flatten(nonEmpty(Record.values(written), "the carriers")),
 	decoded
 )

@@ -44,7 +44,7 @@ import {
 	heading,
 	keyCount,
 	numerics,
-	outputOf,
+	statementHeadingOf,
 	type PageAnswer,
 	pageCases,
 	type PageFeature,
@@ -167,13 +167,13 @@ export const aStatementsRowsAreASetARowTheAnswerHoldsTwiceInAnySpellingIsUnreada
 					const postId = (p: number) => defined(uuids[p], "a post id")
 					const commentId = (k: number) => defined(uuids[posts + k], "a comment id")
 					const rootRows = upTo(posts, (p) =>
-						Arr.map(outputOf(root), (col) =>
+						Arr.map(statementHeadingOf(root), (col) =>
 							cellText(col.type, postId(p), defined(numeric[p], "n"), false)
 						)
 					)
 					/** A comment's row: its parent key and its post field the post's id, its own id, and its value. */
 					const childRows = Arr.map(comments, (p, k) =>
-						Arr.map(outputOf(attached), (col, at) =>
+						Arr.map(statementHeadingOf(attached), (col, at) =>
 							cellText(
 								col.type,
 								at < keyCount || col.name === "post" ? postId(p) : commentId(k),
@@ -191,7 +191,7 @@ export const aStatementsRowsAreASetARowTheAnswerHoldsTwiceInAnySpellingIsUnreada
 							return rows
 						}
 						const again = Arr.map(first, (text, i) => {
-							const type = defined(outputOf(record)[i], "a column").type
+							const type = defined(statementHeadingOf(record)[i], "a column").type
 							const spelled = Option.getOrUndefined(
 								Arr.findFirst(numerics, (pair) => pair[0] === text)
 							)

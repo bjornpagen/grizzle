@@ -59,7 +59,7 @@ import {
 	plantedGen,
 	proseTags,
 	sameCounts,
-	thrownOf,
+	thunkOutcomeOf,
 	type ThunkOutcome,
 	thunkOutcomes
 } from "#test/unit/kernel/assert.fixtures.ts"
@@ -303,7 +303,7 @@ export const theAssertionDoorHoldsThrowsRefusedExactlyForAThunkThatThrowsACompil
 							outcome === "a collision" ? "IdentifierCollision" : located
 						/** The reason thrown is named half the time: other reasons are many. */
 						const reason = same ? thrownReason : named
-						const thrown = thrownOf(outcome, located)
+						const thrown = thunkOutcomeOf(outcome, located)
 						const thunk = (): number => {
 							if (thrown.kind === "throws") {
 								throw thrown.value

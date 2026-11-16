@@ -34,7 +34,7 @@ import {
 	refusedSlot,
 	Sample,
 	slotColumn,
-	uuid,
+	uuidScalar,
 	uuidAt
 } from "#test/unit/adapter/reader.fixtures.ts"
 
@@ -152,12 +152,12 @@ export const aReadsRelationInputIsItsDistinctFactsInArraysOfEveryColumnOrderASlo
 					id: ParamId("p1"),
 					name: "ids",
 					kind: "relation",
-					heading: Arr.map(heading, (name) => ({ name, type: uuid }))
+					heading: Arr.map(heading, (name) => ({ name, type: uuidScalar }))
 				}
 				const account = uuidAt(c.account)
 				const declared = [
 					ids,
-					{ id: ParamId("p2"), name: "account", kind: "scalar", type: uuid } as const
+					{ id: ParamId("p2"), name: "account", kind: "scalar", type: uuidScalar } as const
 				]
 				const facts = factsOf(c)
 				const value = delivered(c, plantedFacts(c, facts))

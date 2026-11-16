@@ -48,7 +48,7 @@ import { pickFrom } from "#test/support/pick.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	FakeServer,
-	failureOf,
+	typedFailureOf,
 	type Held,
 	idleMillis,
 	leaseCount,
@@ -312,7 +312,7 @@ export const theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInt
 								const exit = yield* Effect.exit(Scope.provide(pool.lease, scope))
 								yield* Scope.close(scope, Exit.void)
 								assert.equal<Startup>(server.next, "ready", "the lease opened a connection")
-								const failure = failureOf(exit)
+								const failure = typedFailureOf(exit)
 								if (step.startup === "refused") {
 									assert.equal(failure._tag, "StartupRefused")
 									c.note("a refused connection")

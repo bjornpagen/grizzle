@@ -37,7 +37,7 @@ import {
 } from "#test/support/flight/scripted.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
-	expected,
+	expectedVerdict,
 	read,
 	readSql,
 	refusedSql,
@@ -123,7 +123,7 @@ export const aWriteThatReadsBeforeItWritesRunsTwoFlightsInOneTransactionAllOfItC
 					allTexts.includes(sql)
 				)
 				assert.equal(session.open(), false, "no transaction is left open")
-				const verdict = expected(c)
+				const verdict = expectedVerdict(c)
 				switch (verdict.kind) {
 					case "committed": {
 						assertVariant(ran, "_tag", "Success", "the call succeeds")

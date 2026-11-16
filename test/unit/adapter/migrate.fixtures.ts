@@ -81,7 +81,7 @@ const leavingLosses = ({ text }: FileText): string =>
 		Str.replaceAll("__GRIZZLE_PLACEHOLDER__", "'0'")
 	)
 
-export const review = (file: FileText): string => {
+export const reviewedText = (file: FileText): string => {
 	const lines = Str.split(leavingLosses(file), "\n")
 	return Arr.join(
 		Arr.map(lines, (l, i) =>
@@ -376,7 +376,7 @@ export const gaps = (d: StatementDraw): ReadonlyArray<ReadonlyArray<Piece>> =>
 		return i > 0 && pieces.length === 0 ? [{ kind: "space", text: " " }] : pieces
 	})
 
-export const statementText = (d: StatementDraw): string => {
+export const drawnStatementText = (d: StatementDraw): string => {
 	const before = gaps(d)
 	return `${Arr.join(
 		Arr.map(
@@ -867,10 +867,10 @@ export const reviewedSource = (c: PlanCase, folder: MigrationFolder, i: number):
 		folder,
 		c.chain === "the shop"
 			? c.reviewed[i] === true
-				? review
+				? reviewedText
 				: unedited
 			: c.reviewed[i] === true
-				? review
+				? reviewedText
 				: leavingLosses
 	)
 

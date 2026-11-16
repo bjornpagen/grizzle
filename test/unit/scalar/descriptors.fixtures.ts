@@ -202,7 +202,7 @@ export const dimensionBounds = [
  * numerictypmodin's rule: precision 1-numericMaxPrecision and scale numericMinScale-numericMaxScale, both integers and
  * both given: no numeric is without its scale. -0 is the integer 0.
  */
-export const numericTypmodOf = (
+export const admittedNumericTypmod = (
 	precision: unknown,
 	scale: unknown
 ): { readonly precision: number; readonly scale: number } | undefined =>

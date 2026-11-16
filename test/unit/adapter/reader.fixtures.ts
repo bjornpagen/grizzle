@@ -52,7 +52,7 @@ export const refusalOf = (failure: ReadFailure): Refusal =>
 		: { kind: "stage", stage: failure.stage }
 
 /** A uuid column's type, as the registry builds it. */
-export const uuid = scalarOf(f.uuid, {})
+export const uuidScalar = scalarOf(f.uuid, {})
 
 /**
  * A read with a rule the optimizer proves empty: an interior pinned to one roster handle, matched at another. That rule
@@ -341,7 +341,7 @@ export const refusedSlot = (c: InputCase): string | undefined => {
 /** A statement slot's column `name`, of type uuid, under the generated name `column`. */
 export const slotColumn = (name: string, column: string): RelationColumn => ({
 	name,
-	type: uuid,
+	type: uuidScalar,
 	definition: columnDefinition(column, types.uuid),
 	check: baseCheck
 })

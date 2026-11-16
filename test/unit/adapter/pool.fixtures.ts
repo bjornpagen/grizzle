@@ -366,7 +366,7 @@ export const wallClock = (millis: number): Effect.Effect<void> =>
 export const settle: Effect.Effect<void> = Effect.andThen(wallClock(0), wallClock(0))
 
 /** The typed failure an exit ended with; any other end fails the property. */
-export const failureOf = <A, E>(exit: Exit.Exit<A, E>): E => {
+export const typedFailureOf = <A, E>(exit: Exit.Exit<A, E>): E => {
 	const error = Exit.isFailure(exit) ? Exit.findError(exit) : Result.fail(undefined)
 	assert.ok(Result.isSuccess(error), "the wait fails with a typed error")
 	return error.success

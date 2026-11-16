@@ -65,7 +65,7 @@ import {
 	kindFeatures,
 	type NumericTypmodFeature,
 	numericTypmodSpace,
-	numericTypmodOf,
+	admittedNumericTypmod,
 	plainPairGen,
 	precisionBounds,
 	type SpanWidthFeature,
@@ -207,7 +207,7 @@ export const typmodValidationAgreesWithTheCarriersNumericTypmodRuleOnEveryIntege
 					}
 					const args: ReadonlyArray<unknown> =
 						arity === 0 ? [] : arity === 1 ? [p] : arity === 2 ? [p, s] : [p, s, 1]
-					const expected = arity === 2 ? numericTypmodOf(p, s) : undefined
+					const expected = arity === 2 ? admittedNumericTypmod(p, s) : undefined
 					if (expected === undefined) {
 						c.note("refused")
 						throwsRefused(() => pgDescriptors.numeric(...argumentsOf(args)), "MalformedDescription")
