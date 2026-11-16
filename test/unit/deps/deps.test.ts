@@ -32,7 +32,7 @@ import {
 	isArk,
 	planted,
 	plantedLines,
-	probe,
+	probedEntries,
 	show,
 	trappedUnder
 } from "#test/unit/deps/deps.fixtures.ts"
@@ -81,17 +81,16 @@ export const srcHasNoRegExpAndNoArkregexRuntimeAuditsEverySrcModuleNoRegExpConst
 export const runtimeRunsUnderHardenedNodeAndLoadsEveryEntryPointEachReachingNoArkregexModuleAndNoRegExpFromSrcAndDrivesEveryTextParserSo =
 	property.exhaust(finite(word(entryPoints)), {
 		box: "every entry point the packages' package.json exports and bins name",
-		needs: { checkout: Checkout.dir },
+		needs: { checkout: Checkout.dir, probed: probedEntries },
 		situations: [],
 		check: (resources) => (entry) =>
 			Effect.gen(function* () {
-				const root = `${yield* resources.checkout}/`
+				const { root, out } = yield* resources.probed
 				assert.equal(
 					Object.getOwnPropertyDescriptor(Object.prototype, "__proto__"),
 					undefined,
 					"this test process has Object.prototype.__proto__: the runner did not apply --disable-proto=delete"
 				)
-				const out = yield* probe(root, [entry, planted])
 				assert.equal(
 					out.protoAccessor,
 					false,

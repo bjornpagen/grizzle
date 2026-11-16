@@ -1,5 +1,7 @@
 /** What the properties of deps.test.ts read: its spaces, models and helpers. */
 
+import { Checkout } from "@bjornpagen/testing/checkout"
+import type { Need } from "@bjornpagen/testing/property"
 import {
 	Array as Arr,
 	Effect,
@@ -121,6 +123,30 @@ export const probe = (root: string, modules: ReadonlyArray<string>) =>
 		)
 		return trustedJson<ProbeOutput>(last)
 	})
+
+/**
+ * The runtime probe's one run, in the directory the worker runs from (Checkout.dir's: a mutant's worker tree under the
+ * mutator, so the mutant on disk is what it loads): one child Node under the RegExp trap loads every entry point the
+ * packages name and the planted module, and drives every text parser, as the search's one probe did before the
+ * conversion. Run once on each worker that readies the property (the need's open, outside every case's deadline); a
+ * case reads its entry's load and the run's controls from it, where each case used to start a child Node of its own for
+ * one entry point. A probe that fails fails the need's open, and so the property.
+ */
+export const probedEntries: Need<Readonly<{ root: string; out: ProbeOutput }>> = {
+	key: "test/unit/deps/deps.fixtures.ts probedEntries",
+	open: Effect.orDie(
+		Effect.map(
+			Effect.gen(function* () {
+				const dir = yield* Effect.flatten(Checkout.dir.open)
+				const root = `${dir}/`
+				const entries = yield* entryListing
+				const out = yield* probe(root, [...entries, planted])
+				return { root, out }
+			}),
+			(probed) => Effect.succeed(probed)
+		)
+	)
+}
 
 /**
  * The trapped calls made from modules under a directory of the repository at `root`: the one filter every check
