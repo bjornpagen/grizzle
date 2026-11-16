@@ -1221,8 +1221,8 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 	 */
 	static readonly oneOf = <K extends string, T, A>(
 		templates: Readonly<Record<K, SubstrateTemplate<T>>>,
-		form: (template: SubstrateTemplate<T>) => Need<A>
-	): Readonly<Record<K, Need<A>>> => Rec.map(templates, form)
+		form: (template: SubstrateTemplate<T>) => TemplateNeed<A>
+	): Readonly<Record<K, TemplateNeed<A>>> => Rec.map(templates, form)
 	/** A shared database: build this layer once per file. It reads the initialised cluster once, as it builds. */
 	static readonly layer = Layer.effect(Substrate, makeSubstrate).pipe(
 		Layer.provide(Layer.mergeAll(nodeSpawner, InitializedCluster.layer))

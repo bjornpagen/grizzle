@@ -1185,6 +1185,12 @@ export const programDraw = <F extends string>(
 	resolve: (pc) => pc
 })
 
+/** The features of a required situation: its feature, or both of a pair. */
+export const featuresOfSituation = <F extends string>(
+	situation: Reached<F>
+): Arr.NonEmptyReadonlyArray<F> =>
+	typeof situation === "string" ? [situation] : [situation[0], situation[1]]
+
 /** A world brought to a case's start: the real world and the model's state of it. */
 export interface Staged {
 	readonly world: RealWorld
@@ -1873,7 +1879,7 @@ const serialPool = 1
  * opened under a snapshot other than the current one is laid over a layer of its own), and a direct writer for each
  * transaction it may begin directly.
  */
-export interface WorldDemand {
+interface WorldDemand {
 	readonly opens: number
 	readonly directs: number
 }
@@ -1885,7 +1891,7 @@ export interface WorldDemand {
  * each closes before the action ends; a pool for each open it may perform, which holds its connections from the open on
  * (execute/index.ts openedDb); and its direct writers. A migration, a tamper or a drift holds nothing past its action.
  */
-export const worldWidth = (poolSize: number, demand: WorldDemand): number =>
+const worldWidth = (poolSize: number, demand: WorldDemand): number =>
 	caseSubstrateSessions + 1 + poolSize * demand.opens + demand.directs
 
 /**

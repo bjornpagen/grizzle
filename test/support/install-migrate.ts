@@ -79,6 +79,7 @@ import { type SqlError, wireSession } from "#test/support/pg.ts"
 import { schemaDescIn } from "#test/support/policy.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
+import type { TemplateNames } from "#test/support/substrate/names.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { Credentials, SubstrateWorld } from "#test/support/substrate/session.ts"
 import {
@@ -759,14 +760,14 @@ export const installMigratedThrough = (
 		const substrate = yield* Substrate
 		const name = yield* substrate.schema({ create: false, label: options.label })
 		const history = yield* draftedHistory(versions, options, name, substrate.owner.role)
-		return yield* appliedHistory(history, name, options)
+		return yield* appliedHistory(history, name, options, new Map())
 	})
 
 /**
  * Every version of `versions` drafted under the name `name`, owned by `owner` (draftVersion): the first from the empty
  * snapshot, each later one from the snapshot the one before it reached. Pure: what installMigratedThrough applies.
  */
-const draftedHistory = (
+export const draftedHistory = (
 	versions: Arr.NonEmptyReadonlyArray<InstallVersion>,
 	options: DraftOptions,
 	name: string,
@@ -787,12 +788,14 @@ const draftedHistory = (
 /**
  * A drafted history (draftedHistory) applied under `name` in the substrate's database, as installMigratedThrough
  * describes: its owner login under `options.ambient`, each version's migration in turn, the fresh install's catalog
- * compared with the last, every login given its password, and the installed-catalog posture checked.
+ * compared with the last, every login and the decoder login the served files `files` name given its password
+ * (loginCredentials), and the installed-catalog posture checked.
  */
-const appliedHistory = (
+export const appliedHistory = (
 	history: Arr.NonEmptyReadonlyArray<DraftedVersion>,
 	name: string,
-	options: HistoryOptions
+	options: HistoryOptions,
+	files: ReadonlyMap<string, unknown>
 ): Effect.Effect<
 	Installed,
 	CompileError | SqlError | TransactionRolledBack,
@@ -813,8 +816,8 @@ const appliedHistory = (
 			folders,
 			snapshot: last.snapshot,
 			ambientOwner: owner,
-			files: new Map(),
-			credentials: yield* loginCredentials(last.plan, new Map(), new Map())
+			files,
+			credentials: yield* loginCredentials(last.plan, files, new Map())
 		})
 		yield* checkInstallation(installed)
 		return installed
@@ -844,27 +847,39 @@ export const migratedTemplate = (spec: {
 				(history) => ({ names, history })
 			),
 		install: ({ names, history }) =>
-			Effect.asVoid(appliedHistory(history, names.schema, spec.options)),
+			Effect.asVoid(appliedHistory(history, names.schema, spec.options, new Map())),
 		reset: (installed) => installationGroup(namesOf(installed)),
-		bind: ({ names, history }, binding) => {
-			const last = Arr.lastNonEmpty(history)
-			return installedAt(
-				{
-					plan: last.plan,
-					declared: names.schema,
-					folders: Arr.map(history, (d) => d.folder),
-					snapshot: last.snapshot,
-					ambientOwner: templateAmbientOwner(
-						spec.options.ambient,
-						templateLogin(binding, names.ownerLogin)
-					),
-					files: new Map(),
-					credentials: templateCredentials(binding, loginRoles(last.plan, new Map()))
-				},
-				binding
-			)
-		}
+		bind: ({ names, history }, binding) =>
+			templateInstalled(names, history, spec.options.ambient, new Map(), binding)
 	})
+
+/**
+ * A template's installation of `history` (draftedHistory under the template's names), as a case over a clone of it sees
+ * it in `binding`'s database: the last version's, migrated by every version's folder as the template's owner login,
+ * whose sessions start under `ambient`, every login and the decoder login the served files `files` name logging in
+ * with the password the template derived for it (templateCredentials), as appliedHistory gave it in the build.
+ */
+export const templateInstalled = (
+	names: TemplateNames,
+	history: Arr.NonEmptyReadonlyArray<DraftedVersion>,
+	ambient: AmbientSession,
+	files: ReadonlyMap<string, unknown>,
+	binding: TemplateBinding
+): Installed => {
+	const last = Arr.lastNonEmpty(history)
+	return installedAt(
+		{
+			plan: last.plan,
+			declared: names.schema,
+			folders: Arr.map(history, (d) => d.folder),
+			snapshot: last.snapshot,
+			ambientOwner: templateAmbientOwner(ambient, templateLogin(binding, names.ownerLogin)),
+			files,
+			credentials: templateCredentials(binding, loginRoles(last.plan, files))
+		},
+		binding
+	)
+}
 
 /**
  * Installs `schema` through its first migration (installMigratedThrough), planned as `grizzle generate` composes it

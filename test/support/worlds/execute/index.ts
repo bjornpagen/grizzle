@@ -24,7 +24,7 @@ import type { FolderSource } from "#adapter/migrate/input.ts"
 import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
 import { served } from "#adapter/public/layer.ts"
 import type { DbLayerOf, DbLayerService, ServedLogin, ServedRole } from "#adapter/types/layer.ts"
-import { identity } from "#compiler/core/identity.ts"
+import { type Identity, identity } from "#compiler/core/identity.ts"
 import { codebookOf, noWorkload, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { namedRole, roleReadNames, worldNames } from "#compiler/physical/ddl/names.ts"
@@ -37,14 +37,19 @@ import type { LoginRole } from "#compiler/types/schema/world.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
 import { defined, succeeded } from "#test/support/assert.ts"
 import { installedCodes, type TestCompileOptions, testCompile } from "#test/support/compile.ts"
-import { installMigrated as install } from "#test/support/install-migrate.ts"
+import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import {
 	type InstalledAt,
 	installationNamesOf,
 	installationOf,
 	parsedSchemaName
 } from "#test/support/kernel/naming.ts"
-import { decodersIn, type SourcedLayer, servedSourcedLayer } from "#test/support/live-layer.ts"
+import {
+	type DecoderCredential,
+	decodersIn,
+	type SourcedLayer,
+	servedSourcedLayer
+} from "#test/support/live-layer.ts"
 import { fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import type { RealInstallPlan } from "#test/support/oracle/install/real.ts"
@@ -54,6 +59,7 @@ import type { PsqlWriter } from "#test/support/substrate/psql.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { Credentials } from "#test/support/substrate/session.ts"
 import { rolePsql, Substrate } from "#test/support/substrate/substrate.ts"
+import { templatePassword } from "#test/support/substrate/templates.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	type Built,
@@ -211,10 +217,11 @@ type Session =
 	| { readonly kind: "closed"; readonly was: "db" | "direct" }
 
 /**
- * One installed version: its spec, its values under the installed schema name, its names, plan and snapshot, the JSON
- * value of its snapshot.json, which each login's served file is compiled under, and each login's layer.
+ * One version's pure part: its spec, its values under the installed schema name, its names, plan and snapshot, the JSON
+ * value of its snapshot.json, and each login's served file compiled under it (servedOver), by the login's name, as a
+ * served login and as the JSON generate writes (`files`), whose decoder logins an install gives their passwords.
  */
-interface Version {
+interface VersionPlan {
 	readonly spec: InstallSpec
 	readonly built: Built
 	readonly names: InstalledNames
@@ -222,6 +229,12 @@ interface Version {
 	readonly installation: Installation
 	readonly snapshot: DeploySnapshot
 	readonly snapshotJson: { readonly fingerprint: string }
+	readonly served: Readonly<Record<string, ServedLogin<BuiltLogin>>>
+	readonly files: ReadonlyMap<string, unknown>
+}
+
+/** One installed version (VersionPlan), each login's credentials and its layer over its served file. */
+interface Version extends VersionPlan {
 	readonly credentials: Readonly<Record<string, Credentials>>
 	readonly layers: Readonly<Record<string, LoginLayer>>
 }
@@ -338,6 +351,144 @@ const servedOver = (
 		(json) => served<BuiltLogin>(json, login.name)
 	)
 
+/**
+ * One version's pure part (VersionPlan) of `spec`, installed under the declared name `declared` by `plan` at
+ * `snapshot`: its values under that name (buildInstall), its names, and each login's served file compiled under the
+ * snapshot's JSON value (servedOver), whose refusal is a defect of the run, as a layer's is.
+ */
+const versionPlanOf = (
+	spec: InstallSpec,
+	declared: string,
+	plan: RealInstallPlan,
+	snapshot: DeploySnapshot
+): Effect.Effect<VersionPlan, RealizeRefused> =>
+	Effect.gen(function* () {
+		const built = yield* buildInstall(spec, declared)
+		const at: InstalledAt = {
+			kind: "installed",
+			installation: identity.schema(parsedSchemaName(declared))
+		}
+		const names = yield* namesOfBuiltAt(spec, built, at, codebookOf(snapshot))
+		const snapshotJson = snapshotValue(snapshot, plan.installation)
+		const compiled = yield* Effect.forEach(spec.logins, (l) =>
+			Effect.flatMap(get(built.logins, l.name, "login"), (value) =>
+				Effect.map(
+					Effect.orDie(Effect.suspend(() => compileServed(value, snapshotJson, value.workload))),
+					(json) => [l.name, json] as const
+				)
+			)
+		)
+		return {
+			spec,
+			built,
+			names,
+			plan,
+			installation: plan.installation,
+			snapshot,
+			snapshotJson,
+			served: Rec.fromEntries(
+				Arr.map(compiled, ([login, json]) => [login, served<BuiltLogin>(json, login)] as const)
+			),
+			files: new Map(compiled)
+		}
+	})
+
+/**
+ * The snapshot.json of a release of `base` alone, without its worlds and logins, drafted for the installation
+ * `installation` as `name` at `timestamp`: what no ledger target of a realization is.
+ */
+const releaseSnapshot = (
+	base: Built["base"],
+	installation: Identity<"schema">,
+	name: string,
+	timestamp: string
+): Effect.Effect<{ readonly fingerprint: string }> => {
+	const draft = generate({
+		installation: installationOf(base, { kind: "installed", installation }),
+		name,
+		timestamp,
+		previous: fromEmpty,
+		workload: noWorkload,
+		declared: noDeclarations
+	})
+	return draft.ok
+		? Effect.sync(() =>
+				snapshotJson(
+					succeeded(
+						writeRuntimeSnapshot(draft.value.snapshot, draft.value.derived),
+						"snapshot.json"
+					)
+				)
+			)
+		: Effect.die(draft.error)
+}
+
+/**
+ * A world's installation as planned, before it holds a session: its first version (VersionPlan), the snapshot.json of
+ * the release before the first (the base alone, drafted for the installed schema, which the ledger has moved past) and
+ * another schema's (foreign), and the served file of a login no installed role is in (the stranger's), which serves no
+ * role. Pure: a case that installs its own world plans it after its install, and a template's world (worldTemplate) is
+ * planned once per worker under the template's names.
+ */
+export interface WorldPlan {
+	readonly first: VersionPlan
+	readonly earlier: { readonly fingerprint: string }
+	readonly foreign: { readonly fingerprint: string }
+	readonly stranger: ServedLogin<BuiltLogin>
+}
+
+/**
+ * The world `spec` installs as `installed` says it was installed (WorldPlan): its first version under the installed
+ * name, each login installed as the role its names give it, a mismatch being a defect of the run.
+ */
+export const worldPlanOf = (
+	spec: InstallSpec,
+	installed: Pick<Installed, "declared" | "plan" | "snapshot">
+): Effect.Effect<WorldPlan, RealizeRefused> =>
+	Effect.gen(function* () {
+		const declared = yield* baseBuild(spec)
+		const first = yield* versionPlanOf(spec, installed.declared, installed.plan, installed.snapshot)
+		for (const l of spec.logins) {
+			const planned = yield* get(installed.plan.logins, l.name, "planned login")
+			if (planned.role !== first.names.logins[l.name]) {
+				return yield* Effect.die(
+					new Error(
+						`the login ${l.name} is installed as ${planned.role}, not ${String(first.names.logins[l.name])}`
+					)
+				)
+			}
+		}
+		const [firstRelation] = spec.base.relations
+		const strangerWhole = yield* get(first.built.relations, firstRelation.name, "relation")
+		const strangerRole = yield* Effect.sync(() =>
+			roleBuilder(first.built.base, "executorStranger", { [firstRelation.name]: strangerWhole })
+		)
+		const strangerLogin: BuiltLogin = yield* Effect.sync(() =>
+			loginBuilder(first.built.base, "executorStrangerLogin", [strangerRole])
+		)
+		return {
+			first,
+			earlier: yield* releaseSnapshot(
+				declared.base,
+				identity.schema(parsedSchemaName(installed.declared)),
+				"earlier",
+				"20261012000000"
+			),
+			foreign: yield* releaseSnapshot(
+				declared.base,
+				identity.schema(parsedSchemaName(`${installed.declared}_foreign`)),
+				"foreign",
+				"20261013000000"
+			),
+			stranger: yield* Effect.orDie(servedOver(strangerLogin, first.snapshotJson))
+		}
+	})
+
+/**
+ * Realizes `installSpec` in the substrate, its own install under the ambient session `ambient` (install-migrate.ts
+ * installMigrated), planned after it (worldPlanOf), its decoder logins issued by the substrate as a layer first asks
+ * (live-layer.ts decodersIn), every login's pool `poolSize` connections or the cluster pool's (worldOver).
+ */
 const realizeWith = (
 	installSpec: InstallSpec,
 	ambient: AmbientSession,
@@ -358,6 +509,25 @@ const realizeWith = (
 				TransactionRolledBack: (rolledBack) => Effect.die(rolledBack)
 			})
 		)
+		const plan = yield* worldPlanOf(installSpec, installed)
+		const scope = yield* Effect.scope
+		const decoderOf = yield* decodersIn(substrate, scope)
+		return yield* worldOver(plan, installed, decoderOf, poolSize)
+	})
+
+/**
+ * The world of `plan`, installed as `installed` in the substrate's database, each login's decoder login's password
+ * `decoderOf`'s, every login's pool, the stranger's among them, `poolSize` connections or the cluster pool's: see
+ * RealWorld.
+ */
+const worldOver = (
+	plan: WorldPlan,
+	installed: Installed,
+	decoderOf: DecoderCredential,
+	poolSize: Option.Option<number>
+) =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
 		/** The token the open in flight hands verify, none between opens (token.ts Handed). */
 		const verifying: { handed: Option.Option<Handed> } = { handed: Option.none() }
 		/** The verify calls of every login layer since the realization began. */
@@ -368,8 +538,6 @@ const realizeWith = (
 			onNone: () => clusterPool,
 			onSome: (size) => ({ ...clusterPool, max: size })
 		})
-		/** The installation's decoder login's credential, issued once, the first time a layer's file holds a live source. */
-		const decoderOf = yield* decodersIn(substrate, scope)
 
 		/** The verify of every login layer that takes one: it reads the token, and counts its calls. */
 		const verify = worldVerify(
@@ -380,10 +548,24 @@ const realizeWith = (
 		)
 
 		/**
-		 * A login's layer, its served file compiled under `snapshot` as generate compiles it (layerOver): verify is given
-		 * exactly when a role of the login reads a context, as README "Permissions" requires it, so a login whose roles read
-		 * none turns no token into claims.
+		 * A login's layer over its served file `file`, as an application serves the file it imports: verify is given
+		 * exactly when a role of the login reads a context, as README "Permissions" requires it, so a login whose roles
+		 * read none turns no token into claims.
 		 */
+		const layerOver = (
+			spec: InstallSpec,
+			login: string,
+			credentials: Credentials,
+			file: ServedLogin<BuiltLogin>
+		): SourcedLayer<BuiltLogin> =>
+			servedSourcedLayer(decoderOf, {
+				...clusterConnection(substrate.cluster, substrate.database, credentials.password),
+				pool,
+				login: file,
+				...(loginVerifies(spec, login) ? { verify } : {})
+			})
+
+		/** A login's layer, its served file compiled under `snapshot` as generate compiles it (layerOver). */
 		const layerOf = (
 			spec: InstallSpec,
 			built: Built,
@@ -400,99 +582,35 @@ const realizeWith = (
 			Effect.flatMap(get(built.logins, login, "login"), (value) =>
 				Effect.map(servedOver(value, snapshot), (file) => ({
 					served: file,
-					layer: servedSourcedLayer(decoderOf, {
-						...clusterConnection(substrate.cluster, substrate.database, credentials.password),
-						pool,
-						login: file,
-						...(loginVerifies(spec, login) ? { verify } : {})
-					})
+					layer: layerOver(spec, login, credentials, file)
 				}))
 			)
 
-		const versionOf = (
-			spec: InstallSpec,
-			plan: RealInstallPlan,
-			installation: Installation,
-			snapshot: DeploySnapshot,
+		/** A version (VersionPlan) with its logins' `credentials`, each login's layer built in the realization's scope. */
+		const versionOver = (
+			v: VersionPlan,
 			credentials: Readonly<Record<string, Credentials>>
-		): Effect.Effect<Version, RealizeRefused> =>
+		): Effect.Effect<Version> =>
 			Effect.gen(function* () {
-				const built = yield* buildInstall(spec, installed.declared)
-				const at: InstalledAt = {
-					kind: "installed",
-					installation: identity.schema(parsedSchemaName(installed.declared))
-				}
-				const names = yield* namesOfBuiltAt(spec, built, at, codebookOf(snapshot))
-				/** Each login's layer, its served file compiled under the version's snapshot, built in the realization's scope. */
-				const json = snapshotValue(snapshot, installation)
 				const layers: Record<string, LoginLayer> = {}
-				for (const l of spec.logins) {
+				for (const l of v.spec.logins) {
 					const loginCredentials = yield* get(credentials, l.name, "credentials of")
-					const made = yield* Effect.orDie(layerOf(spec, built, l.name, loginCredentials, json))
-					const context = yield* Effect.orDie(Scope.provide(Layer.build(made.layer), scope))
-					layers[l.name] = { served: made.served, snapshot: json, context }
+					const file = yield* get(v.served, l.name, "served file of")
+					const context = yield* Effect.orDie(
+						Scope.provide(Layer.build(layerOver(v.spec, l.name, loginCredentials, file)), scope)
+					)
+					layers[l.name] = { served: file, snapshot: v.snapshotJson, context }
 				}
-				return {
-					spec,
-					built,
-					names,
-					plan,
-					installation,
-					snapshot,
-					snapshotJson: json,
-					credentials,
-					layers
-				}
+				return { ...v, credentials, layers }
 			})
 
-		const loginEntries = yield* Effect.forEach(installSpec.logins, (l) =>
+		const firstCredentials = yield* Effect.forEach(plan.first.spec.logins, (l) =>
 			Effect.map(
-				get(declared.logins, l.name, "login"),
+				get(plan.first.built.logins, l.name, "login"),
 				(value) => [l.name, installed.as(value)] as const
 			)
 		)
-		const firstCredentials = Rec.fromEntries(loginEntries)
-		const first = yield* versionOf(
-			installSpec,
-			installed.plan,
-			installed.installation,
-			installed.snapshot,
-			firstCredentials
-		)
-		const crossChecked = installed.plan.logins
-		for (const l of installSpec.logins) {
-			const planned = yield* get(crossChecked, l.name, "planned login")
-			if (planned.role !== first.names.logins[l.name]) {
-				return yield* Effect.die(
-					new Error(
-						`the login ${l.name} is installed as ${planned.role}, not ${String(first.names.logins[l.name])}`
-					)
-				)
-			}
-		}
-		/**
-		 * The release before the first: the base alone, without its worlds and logins, drafted for the installed schema
-		 * as its snapshot.json, which no ledger target of the realization is.
-		 */
-		const earlierDraft = generate({
-			installation: installationOf(declared.base, {
-				kind: "installed",
-				installation: identity.schema(parsedSchemaName(installed.declared))
-			}),
-			name: "earlier",
-			timestamp: "20261012000000",
-			previous: fromEmpty,
-			workload: noWorkload,
-			declared: noDeclarations
-		})
-		const earlier = earlierDraft.ok
-			? snapshotJson(
-					succeeded(
-						writeRuntimeSnapshot(earlierDraft.value.snapshot, earlierDraft.value.derived),
-						"snapshot.json"
-					)
-				)
-			: yield* Effect.die(earlierDraft.error)
+		const first = yield* versionOver(plan.first, Rec.fromEntries(firstCredentials))
 		/**
 		 * The current version, and the snapshot.json an older release of the installation had, which the ledger has
 		 * moved past: the latest version's whose fingerprint is not the current one's, or, before any, the release
@@ -504,26 +622,17 @@ const realizeWith = (
 			directory: Directory
 		} = {
 			current: first,
-			stale: earlier,
+			stale: plan.earlier,
 			directory: { applied: installed.folders, pending: [] }
 		}
 		/** The layer of a login no installed role is in: what serves no role, where no other login is left. */
-		const [firstRelation] = installSpec.base.relations
-		const strangerWhole = yield* get(first.built.relations, firstRelation.name, "relation")
-		const strangerRole = yield* Effect.sync(() =>
-			roleBuilder(first.built.base, "executorStranger", { [firstRelation.name]: strangerWhole })
-		)
-		const strangerLogin: BuiltLogin = yield* Effect.sync(() =>
-			loginBuilder(first.built.base, "executorStrangerLogin", [strangerRole])
-		)
-		const strangerServed = yield* Effect.orDie(servedOver(strangerLogin, first.snapshotJson))
 		const stranger = yield* Effect.orDie(
 			Scope.provide(
 				Layer.build(
 					servedSourcedLayer(decoderOf, {
 						...clusterConnection(substrate.cluster, substrate.database, Redacted.make("")),
 						pool,
-						login: strangerServed
+						login: plan.stranger
 					})
 				),
 				scope
@@ -533,27 +642,6 @@ const realizeWith = (
 		/** The scope of the case that last reset the world (reset), which each direct writer it begins lives in. */
 		const caseScope = yield* Ref.make(Option.none<Scope.Scope>())
 		const inFlight = yield* Ref.make<ReadonlyMap<number, Fiber.Fiber<Seen>>>(new Map())
-
-		const foreignInstallation = installationOf(declared.base, {
-			kind: "installed",
-			installation: identity.schema(parsedSchemaName(`${installed.declared}_foreign`))
-		})
-		const foreignDraft = generate({
-			installation: foreignInstallation,
-			name: "foreign",
-			timestamp: "20261013000000",
-			previous: fromEmpty,
-			workload: noWorkload,
-			declared: noDeclarations
-		})
-		const foreign = foreignDraft.ok
-			? snapshotJson(
-					succeeded(
-						writeRuntimeSnapshot(foreignDraft.value.snapshot, foreignDraft.value.derived),
-						"snapshot.json"
-					)
-				)
-			: yield* Effect.die(foreignDraft.error)
 
 		/**
 		 * The snapshot the opening role's login layer is given (DbConfig), each the JSON value an import of its
@@ -568,7 +656,7 @@ const realizeWith = (
 				case "stale":
 					return Effect.succeed(state.stale)
 				case "foreign":
-					return Effect.succeed(foreign)
+					return Effect.succeed(plan.foreign)
 			}
 		}
 
@@ -1282,9 +1370,10 @@ const realizeWith = (
 						)
 					}
 				}
-				const version = yield* Effect.orDie(
-					versionOf(next.spec, next.plan, next.plan.installation, next.snapshot, credentials)
+				const nextPlan = yield* Effect.orDie(
+					versionPlanOf(next.spec, installed.declared, next.plan, next.snapshot)
 				)
+				const version = yield* versionOver(nextPlan, credentials)
 				if (version.snapshot.fingerprint !== state.current.snapshot.fingerprint) {
 					state.stale = state.current.snapshotJson
 				}
@@ -1715,3 +1804,21 @@ export const realizeRace = (
 	poolSize: number
 ): Effect.Effect<RacingWorld, RealizeRefused | SqlError, Scope.Scope | Substrate> =>
 	realizeWith(installSpec, ambient, Option.some(poolSize))
+
+/**
+ * The world of a planned installation already installed in the substrate's database, as a case over a clone of a
+ * template's world has it (template.ts worldTemplate): every login's and decoder login's password the one the template
+ * derived for it (templates.ts templatePassword), every login's pool, the stranger's among them, `poolSize`
+ * connections at most, or the cluster pool's.
+ */
+export const realizeInstalled = (
+	plan: WorldPlan,
+	installed: Installed,
+	poolSize: Option.Option<number>
+): Effect.Effect<RacingWorld, RealizeRefused | SqlError, Scope.Scope | Substrate> =>
+	worldOver(
+		plan,
+		installed,
+		(role) => Effect.succeed(Redacted.make(templatePassword(installed.cluster, role))),
+		poolSize
+	)
