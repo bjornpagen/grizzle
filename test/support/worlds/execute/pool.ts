@@ -1,4 +1,4 @@
-import { Effect, Option, Ref, Result } from "effect"
+import { Effect, Option, Ref, Result, type Scope } from "effect"
 import { Pool, type PoolClient } from "pg"
 import type { ConnectionPool } from "#adapter/types/layer.ts"
 import { oneShotStatement } from "#adapter/wire/batch.ts"
@@ -58,6 +58,44 @@ export const leaseRecording = (
 		return session
 	})
 })
+
+/**
+ * The backend a lease of `pool` holds now, none between its leases, read while the scope lasts: pg's Pool names each
+ * lease's client in its `acquire` event just before it answers that lease and each return in its `release` event, so a
+ * connection the pool opened in place of one it dropped (as it drops one whose call was interrupted mid-statement) is
+ * the one read once a lease holds it. For a pool only one Db leases from, one call at a time: a grizzle actor's, whose
+ * Db opens a DbLayer of its own.
+ */
+export const heldBackend = (
+	pool: Pick<SessionPool, "native">
+): Effect.Effect<Effect.Effect<Option.Option<number>>, never, Scope.Scope> =>
+	Effect.suspend(() => {
+		const native = pool.native
+		if (!isNativePool(native)) {
+			return Effect.die(new Error("a login's pool is not node-postgres's Pool"))
+		}
+		const held: { pid: Option.Option<number> } = { pid: Option.none() }
+		const onAcquire = (client: PoolClient): void => {
+			held.pid = Option.fromNullishOr(leasedBackend(client))
+		}
+		const onRelease = (): void => {
+			held.pid = Option.none()
+		}
+		return Effect.as(
+			Effect.acquireRelease(
+				Effect.sync(() => {
+					native.on("acquire", onAcquire)
+					native.on("release", onRelease)
+				}),
+				() =>
+					Effect.sync(() => {
+						native.off("acquire", onAcquire)
+						native.off("release", onRelease)
+					})
+			),
+			Effect.sync(() => held.pid)
+		)
+	})
 
 /** A pooled connection in an aborted transaction, which refuses every statement. */
 const aborted: Probe = { transaction: "aborted" }

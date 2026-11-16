@@ -641,17 +641,26 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 				/**
 				 * Whether a call's backend `waiter` waited for `holder` before the call ended, polled from the admin session
 				 * until its fiber ends or pg_locks shows it blocked by `holder`: a wait that never comes ends the poll with
-				 * the call, so it fails the case where it happens, never by the hang guard.
+				 * the call, so it fails the case where it happens, never by the hang guard. Each backend is read at every
+				 * poll, a grizzle actor's being the connection its call holds then, none before it leases one.
 				 */
-				const waitedOrEnded = (fiber: Fiber.Fiber<Ran>, waiter: number, holder: number) =>
+				const waitedOrEnded = (
+					fiber: Fiber.Fiber<Ran>,
+					waiter: Effect.Effect<Option.Option<number>>,
+					holder: Effect.Effect<Option.Option<number>>
+				) =>
 					Effect.gen(function* () {
 						for (;;) {
 							if (fiber.pollUnsafe() !== undefined) {
 								return "ended" as const
 							}
-							const wait = yield* lockWaitOf(s.admin, waiter)
-							if (wait?.blockedBy.includes(holder) === true) {
-								return "waited" as const
+							const backends = Option.all([yield* waiter, yield* holder])
+							if (Option.isSome(backends)) {
+								const [waiting, holding] = backends.value
+								const wait = yield* lockWaitOf(s.admin, waiting)
+								if (wait?.blockedBy.includes(holding) === true) {
+									return "waited" as const
+								}
 							}
 							yield* Effect.yieldNow
 						}
@@ -768,7 +777,7 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 							const fiberA = yield* Effect.forkChild(held(c.form, c.a), { startImmediately: true })
 							/** In `concurrent`, A reaches Gate holding its sittings, or ends before it, which departs. */
 							const atGate = together
-								? yield* waitedOrEnded(fiberA, a.actor.pid, holderPid)
+								? yield* waitedOrEnded(fiberA, a.actor.backend, Effect.succeedSome(holderPid))
 								: "ended"
 							const ranA = atGate === "ended" ? yield* Fiber.join(fiberA) : undefined
 							const holding = together && atGate === "waited"
@@ -777,7 +786,7 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 								: judge(c.form, c.b, afterA, [])
 							const fiberB = yield* Effect.forkChild(start(c.form, c.b), { startImmediately: true })
 							const observed = holding
-								? yield* waitedOrEnded(fiberB, b.actor.pid, a.actor.pid)
+								? yield* waitedOrEnded(fiberB, b.actor.backend, a.actor.backend)
 								: "ended"
 							if (together) {
 								yield* holder.perform({ _tag: "Commit" })

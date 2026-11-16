@@ -897,7 +897,11 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 									),
 									backendOf
 								)
-								const m: GrizzleActor = { name: "m", role: x.s.owner.role, pid }
+								const m: GrizzleActor = {
+									name: "m",
+									role: x.s.owner.role,
+									backend: Effect.succeedSome(pid)
+								}
 								const env = yield* exploreEnv(x.s)
 								const assignment = names.table(Assignment)
 								const insertOf = (w: "w1" | "w2") =>

@@ -170,7 +170,7 @@ const historyInstall = <P>(
 
 /**
  * The history environment of an installation of `schema`: `app` opened as `g` and then as `h`, each writer's actor
- * the one session its Db's pool leases and then holds idle, named by that session's own backend (grizzleActor).
+ * the backend its Db's call holds (grizzleActor).
  */
 const historyEnv = <P>(
 	i: HistoryInstall<P>,

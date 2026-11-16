@@ -63,8 +63,8 @@ export interface Rig<W extends RigWorlds> {
 	/**
 	 * Builds a DbLayer of the served login `server` of its own, opens a role's Db over it with `open` (the caller's
 	 * openServed(served.roles.<role>, {}), provided the layer's context), as an application opens it, runs `first` on
-	 * the Db, one call of its workload (the empty ChangeSet the schedule's login serves), which leases the Db's session,
-	 * and names the writer's grizzle actor `name` by that session, which its pool then holds idle (grizzleActor).
+	 * the Db, one call of its workload (the empty ChangeSet the schedule's login serves), and names the writer's grizzle
+	 * actor `name` over the Db's pool, the backend its calls hold (grizzleActor).
 	 */
 	readonly servedWriter: <R, P, E>(
 		name: string,
@@ -83,7 +83,7 @@ export interface Rig<W extends RigWorlds> {
  * role runs at the level its served workload certifies, and each table keeps its guard by those levels), and rebuilt
  * under the installed name, so the Dbs, their ChangeSets and their queries are typed by the schema and its roles
  * themselves. Each grizzle writer opens its role's Db through a DbLayer of its own over the login
- * `server`, exactly as an application does, and its grizzle actor is the one session that Db's pool holds. Direct SQL
+ * `server`, exactly as an application does, and its grizzle actor is the backend that Db's call holds. Direct SQL
  * actors take on the role `direct` through a login of their own, so no direct session is ever mistaken for a writer's.
  * Seeds and constraint rebuilds name tables through the installation, so a caller runs them with `owner` after openRig
  * and before its writers open.

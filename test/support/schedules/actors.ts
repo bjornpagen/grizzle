@@ -1,8 +1,6 @@
 import { Array as Arr, Effect, Formatter, Option, Predicate, Record, type Scope } from "effect"
 import type { SessionPool } from "#adapter/wire/session.ts"
-import { rowsOn } from "#test/pg/adapter/support.ts"
 import { defined } from "#test/support/assert.ts"
-import { ownPidOf, ownPidQuery } from "#test/support/kernel/sanitize.ts"
 import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
 import type { DirectAction, ScheduleOutcome } from "#test/support/schedules/types.ts"
 import {
@@ -26,6 +24,7 @@ import {
 	worldPsql,
 	worldSession
 } from "#test/support/substrate/substrate.ts"
+import { heldBackend } from "#test/support/worlds/execute/pool.ts"
 
 /** A direct SQL writer's session: a pinned raw session or a psql child, logged in as `role`. */
 export interface DirectActor {
@@ -38,16 +37,18 @@ export interface DirectActor {
 }
 
 /**
- * A grizzle writer: its steps are operations the runner (or the explorer) runs itself; the lock barrier watches `pid`.
+ * A grizzle writer: its steps are operations the runner (or the explorer) runs itself; the lock barrier watches
+ * `backend`.
  */
 export interface GrizzleActor {
 	readonly name: string
 	readonly role: string
 	/**
-	 * The backend of the one session its Db's pool holds, as that session answered pg_backend_pid() when the actor was
-	 * named (grizzleActor): its pool takes it back idle for each later call, one at a time.
+	 * The backend its Db's call holds now, none between its calls (worlds/execute/pool.ts heldBackend): read at every
+	 * look, never remembered, since the pool holds no one connection for good: it drops one whose call was interrupted
+	 * mid-statement and opens another for the next call.
 	 */
-	readonly pid: number
+	readonly backend: Effect.Effect<Option.Option<number>>
 }
 
 /**
@@ -252,28 +253,11 @@ const openActor = (
 			)
 
 /**
- * The actor of a Db whose pool is `pool`, named by its own session: the pool leases the session it then holds idle for
- * the Db's later calls, one at a time (Db.open contacts nothing, so the lease opens it, or takes back the one an earlier
- * call of the Db left idle), and the actor is that session's backend, as the session answers pg_backend_pid()
- * (kernel/sanitize.ts ownPidQuery), under the login role it logged in as. A die when the lease or its answer fails.
+ * The actor of a Db whose pool is `pool`, the Db's own (a DbLayer of its own, so every lease of the pool is one of the
+ * Db's calls): its login role and the backend its call holds, for as long as the scope lasts.
  */
 export const grizzleActor = (
 	name: string,
-	pool: Pick<SessionPool, "lease">
-): Effect.Effect<GrizzleActor> =>
-	Effect.orDie(
-		Effect.scoped(
-			Effect.flatMap(pool.lease, (session) =>
-				Effect.flatMap(rowsOn(session, ownPidQuery, []), (rows) =>
-					Option.match(ownPidOf(rows), {
-						onNone: () =>
-							Effect.die(
-								new Error(`${name}'s session answered no backend pid: ${Formatter.format(rows)}`)
-							),
-						onSome: (pid): Effect.Effect<GrizzleActor> =>
-							Effect.succeed({ name, role: session.role, pid })
-					})
-				)
-			)
-		)
-	)
+	pool: Pick<SessionPool, "role" | "native">
+): Effect.Effect<GrizzleActor, never, Scope.Scope> =>
+	Effect.map(heldBackend(pool), (backend) => ({ name, role: pool.role, backend }))

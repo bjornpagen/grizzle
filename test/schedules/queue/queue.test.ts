@@ -205,7 +205,7 @@ const runRace = (
 		) => Effect.scoped(Effect.flatMap(workerDb, body))
 		const env = yield* exploreEnv(s)
 		const names = namesOf(f.installed)
-		/** A worker's actor, named by the session its Db's first call leased, which its pool then holds idle. */
+		/** A worker's actor, named after its Db's first call: the backend its calls hold (grizzleActor). */
 		const worker = (name: string, opened: Effect.Success<typeof workerDb>) =>
 			Effect.andThen(
 				Effect.orDie(answered(opened.db.workload.noop.once({ params: {}, facts: {} }))),

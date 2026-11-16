@@ -39,7 +39,7 @@ import { requiredInSpace } from "@bjornpagen/testing/features"
 import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Fiber, Formatter, Order, Result } from "effect"
+import { Array as Arr, Effect, Fiber, Formatter, Option, Order, Result } from "effect"
 import { openServed } from "#adapter/db/served.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -172,16 +172,27 @@ layer(Substrate.layer)("a query entry's insertion racing a commit at its key", (
 					),
 					(rows) => Arr.map(rows, (row) => Arr.join(Arr.map(row, String), ","))
 				)
-				/** Whether a backend `waiter` waited for `holder` before `fiber` ended (collisions.test.ts). */
-				const waitedOrEnded = <A>(fiber: Fiber.Fiber<A>, waiter: number, holder: number) =>
+				/**
+				 * Whether a backend `waiter` waited for `holder` before `fiber` ended (collisions.test.ts), each read at every
+				 * poll, a grizzle actor's being the connection its call holds then.
+				 */
+				const waitedOrEnded = <A>(
+					fiber: Fiber.Fiber<A>,
+					waiter: Effect.Effect<Option.Option<number>>,
+					holder: Effect.Effect<Option.Option<number>>
+				) =>
 					Effect.gen(function* () {
 						for (;;) {
 							if (fiber.pollUnsafe() !== undefined) {
 								return "ended" as const
 							}
-							const wait = yield* lockWaitOf(s.admin, waiter)
-							if (wait?.blockedBy.includes(holder) === true) {
-								return "waited" as const
+							const backends = Option.all([yield* waiter, yield* holder])
+							if (Option.isSome(backends)) {
+								const [waiting, holding] = backends.value
+								const wait = yield* lockWaitOf(s.admin, waiting)
+								if (wait?.blockedBy.includes(holding) === true) {
+									return "waited" as const
+								}
 							}
 							yield* Effect.yieldNow
 						}
@@ -226,7 +237,11 @@ layer(Substrate.layer)("a query entry's insertion racing a commit at its key", (
 								),
 								{ startImmediately: true }
 							)
-							const atGate = yield* waitedOrEnded(fiberW, w.actor.pid, owner.pid)
+							const atGate = yield* waitedOrEnded(
+								fiberW,
+								w.actor.backend,
+								Effect.succeedSome(owner.pid)
+							)
 							assert.equal(atGate, "waited", "W writes its seat and waits at Gate")
 							const fiberA = yield* Effect.forkChild(
 								a.db.workload.take
@@ -234,7 +249,7 @@ layer(Substrate.layer)("a query entry's insertion racing a commit at its key", (
 									.pipe(answered, untilAnswered, Effect.result),
 								{ startImmediately: true }
 							)
-							const waited = yield* waitedOrEnded(fiberA, a.actor.pid, w.actor.pid)
+							const waited = yield* waitedOrEnded(fiberA, a.actor.backend, w.actor.backend)
 							yield* owner.perform({ _tag: "Commit" })
 							const ranW = yield* Fiber.join(fiberW)
 							const ranA = yield* Fiber.join(fiberA)

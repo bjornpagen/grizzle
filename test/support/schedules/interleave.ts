@@ -84,8 +84,8 @@ export interface ActionStep {
  * The backend a world move runs on:
  *
  * - `watched`: a pooled connection, which the driver watches in pg_locks while the move runs, its pid read at every
- *   poll: the backend the move's own Db holds by its lease (worlds/execute/session.ts DbSession.backend), none before
- *   the step leases one;
+ *   poll: the backend the move's own Db holds by its lease (worlds/execute/session.ts DbSession.backend, a grizzle
+ *   actor's backend), none before the step leases one;
  * - `opens`: a direct session's BEGIN, which opens the session's connection and takes no snapshot, so it cannot wait on
  *   a lock another session holds; once it has run, `pid` reads the backend it opened, none when it opened no session;
  * - `opened`: a later move of a direct session, on the backend its BEGIN opened, which the driver knows from the BEGIN
@@ -444,9 +444,9 @@ const compact = (text: string): string => {
 }
 
 /**
- * The backend a move runs on, as the driver knows it: its session's own, the one backend a direct or grizzle actor
- * opened before the exploration, which holds the session's transaction between its moves and is known from the start;
- * or a world move's (Backend).
+ * The backend a move runs on, as the driver knows it: its session's own, the one backend a direct actor opened before
+ * the exploration, which holds the session's transaction between its moves and is known from the start; or a pooled
+ * one, a grizzle or a world move's (Backend).
  */
 type MoveBackend = { readonly kind: "own"; readonly pid: number } | Backend
 
@@ -494,8 +494,9 @@ const isDeadlockVictim = (outcome: StepOutcome): boolean =>
 	outcome._tag === "PgError" && outcome.fields.code === "40P01"
 
 /**
- * Each direct, scripted and grizzle session's own backend, read once from its actor, which opened it before the
- * exploration. A session with no actor of its kind is a defect of the exploration.
+ * Each direct and scripted session's own backend, read once from its actor, which opened it before the exploration. A
+ * grizzle session has none: its operations run on whichever connection its Db's pool leases them, watched as they run.
+ * A session with no actor of its kind is a defect of the exploration.
  */
 const ownBackends = (
 	actors: Actors<string, string>,
@@ -505,11 +506,8 @@ const ownBackends = (
 		Arr.flatMap(txns, (t): ReadonlyArray<readonly [string, number]> => {
 			switch (t.kind) {
 				case "world":
-					return []
 				case "grizzle":
-					return [
-						[t.session, defined(actors.grizzle[t.session], `the grizzle actor of ${t.session}`).pid]
-					]
+					return []
 				case "scripted":
 				case "direct":
 					return [
@@ -519,7 +517,7 @@ const ownBackends = (
 		})
 	)
 
-/** A direct, scripted or grizzle session's own backend, which ownBackends read for every such session. */
+/** A direct or scripted session's own backend, which ownBackends read for every such session. */
 const ownBackend = (owned: ReadonlyMap<string, number>, session: string): MoveBackend => ({
 	kind: "own",
 	pid: defined(owned.get(session), `the backend of ${session}`)
@@ -542,18 +540,20 @@ const movesOfTxn = (
 		return [defined(first, `${t.session}'s first move`), ...rest]
 	}
 	switch (t.kind) {
-		case "grizzle":
+		case "grizzle": {
+			const actor = defined(actors.grizzle[t.session], `the grizzle actor of ${t.session}`)
 			return withMoves(
 				Arr.map(t.steps, (s): Move => ({
 					label: s.label,
 					run: s.outcome,
-					backend: ownBackend(owned, t.session),
+					backend: { kind: "watched", pid: actor.backend },
 					blocked: "wait",
 					footprint: s.footprint,
 					ends: "commit",
 					kind: "grizzle"
 				}))
 			)
+		}
 		case "world":
 			return withMoves(
 				Arr.map(t.steps, (s): Move => ({
@@ -658,10 +658,11 @@ const releaseOf = (actors: Actors<string, string>, t: Txn): Effect.Effect<void> 
 /**
  * PostgreSQL behind the library's driver. A move runs as its step runs; a move in flight waits when its backend waits
  * on a heavyweight lock another session's backend holds, read from pg_locks on the observer (never one of the
- * sessions). A wait is on the sessions whose backends hold the lock: every direct, scripted and grizzle session's own
- * backend is known from the start (`owned`), and a world direct session's from its BEGIN until its last move ends it,
- * so a session that took its locks in a move the driver never saw in flight is still known for holding them; a pooled
- * world move's backend is re-read at every poll, since a pooled connection is known only once a step leases it. The
+ * sessions). A wait is on the sessions whose backends hold the lock: every direct and scripted session's own backend
+ * is known from the start (`owned`), and a world direct session's from its BEGIN until its last move ends it, so a
+ * session that took its locks in a move the driver never saw in flight is still known for holding them; a pooled
+ * grizzle or world move's backend is re-read at every poll, since a pooled connection is known only once a step leases
+ * it, and the next step may lease another. The
  * system has decided every wait once each waiting backend's deadlock check is past; a direct transaction's failure ends
  * it, and the library releases it at once (`releases`, releaseOf), while any other session's failure leaves it running
  * to meet what the failure left; a move interrupted where it waited is `Interrupted`; and each reset forgets the
