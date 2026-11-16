@@ -1,33 +1,12 @@
-import {
-	type Case,
-	drawn,
-	type Explored,
-	explore,
-	type Kept,
-	type Run,
-	type SearchFailure
-} from "@bjornpagen/testing/explore"
+import type { Case } from "@bjornpagen/testing/explore"
 import { failureText } from "@bjornpagen/testing/failure"
-import type { Coverage } from "@bjornpagen/testing/features"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
-import { boundedShrink } from "@bjornpagen/testing/shrink"
-import { Array as Arr, Cause, Effect, Formatter, Option, type Scope } from "effect"
+import { Array as Arr, Cause, Effect, Option, type Scope } from "effect"
 import { appendAll } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { type AmbientSession, ambientFeatures, ambientSessionGen } from "#test/support/ambient.ts"
-import { caseHang } from "#test/support/limits.ts"
-import {
-	CurrentRestorage,
-	type Restorage,
-	restorageGen
-} from "#test/support/oracle/gen/restorage.ts"
-import {
-	CurrentPerturbation,
-	isPerturbed,
-	type Perturbation,
-	perturbationGen,
-	printPerturbation
-} from "#test/support/oracle/perturb.ts"
+import { type Restorage, restorageGen } from "#test/support/oracle/gen/restorage.ts"
+import { type Perturbation, perturbationGen } from "#test/support/oracle/perturb.ts"
 import { plantedArms, type WChangeSet } from "#test/support/oracle/write/changeset.ts"
 import { unorderableStrata } from "#test/support/oracle/write/expect.ts"
 import {
@@ -88,7 +67,7 @@ export const writeRunGen: Gen<WriteRun> = (source) => ({
  */
 export type WriteSketch = readonly [WriteRun, Perturbation, Restorage]
 
-const perturbedRunGen: Gen<WriteSketch> = (source) =>
+export const perturbedRunGen: Gen<WriteSketch> = (source) =>
 	[source.draw(writeRunGen), source.draw(perturbationGen), source.draw(restorageGen)] as const
 
 /**
@@ -348,71 +327,3 @@ const runResolved = (
 		const installation = yield* installRun(run, resolved)
 		yield* withTarget(installation, (t) => runCases(run, resolved, t, note))
 	})
-
-/** The most shrink candidates a failing write run tries (see exploreWrite). */
-const shrinkCandidates = 300
-
-export interface WriteSuite {
-	/** The suite's label in reports and the residual line; the library derives its floor stream from it. */
-	readonly suite: string
-	/** The runs of the rotating stream. */
-	readonly runs: number
-	/**
-	 * The features the suite's population must reach, judged on its floor stream and its steered phase, which grows the
-	 * floor's finds toward what it missed.
-	 */
-	readonly coverage: Coverage<WriteOracleFeature>
-	/** The counterexamples the suite keeps by value, each replayed before any stream. */
-	readonly kept: ReadonlyArray<Kept<WriteSketch, WriteOracleFeature>>
-}
-
-/**
- * The write oracle: generated write schemas, facts and ChangeSets, the brute-force expectation, the database side, and
- * the three-way harness, explored by write runs.
- *
- * A write run is one case of the exploration: a generated schema (schema.ts), whether its tables carry planner
- * statistics, a plan perturbation (../perturb.ts), how each case's second reading stores its facts
- * (../gen/restorage.ts), one to twelve write cases and, where the schema holds the planted group, the planted cases
- * after them (harness.ts). The run's sketch is the case's generated value, and the swarm
- * decisions its schema and ChangeSets thin by are the property's own draws, so they replay and shrink with it. The run
- * installs its schema once, opens it as one Db, checks the installation's privileges, and runs its cases in order on
- * that Db, so the Db's server statements outlive each program: two programs that read back relations sharing field
- * names with other types meet their statement text again on one session. A failing run shrinks its schema and drops
- * its cases down to the one that fails. A suite is a label, its runs and the coverage its population must reach; the
- * library derives its floor and steered streams from the label, and nothing is written into the tree.
- *
- * Explores a write suite (see the header), every run under its perturbation, each case noting its features through its
- * own Case; the suite must reach its required features, and a failure fails. Runs go one at a time, since every run
- * installs a schema on the file's database. Shrinking stops after shrinkCandidates candidates, each a whole write run
- * on PostgreSQL: a schema installed and its cases applied.
- */
-export const exploreWrite = (
-	s: WriteSuite
-): Effect.Effect<Explored, SearchFailure, Run | Substrate> =>
-	explore(
-		{
-			oracle: { kind: "unstated" },
-			suite: s.suite,
-			draw: drawn(perturbedRunGen),
-			literal: Formatter.format,
-			coverage: s.coverage,
-			kept: s.kept,
-			runs: s.runs,
-			shrink: boundedShrink(shrinkCandidates),
-			steerEvery: 16,
-			caseHang
-		},
-		([w, perturbation, restorage], c) =>
-			Effect.scoped(
-				runWrite(w, c).pipe(
-					Effect.provideService(CurrentPerturbation, perturbation),
-					Effect.provideService(CurrentRestorage, restorage)
-				)
-			).pipe(
-				Effect.mapError((e) =>
-					isPerturbed(perturbation)
-						? new CaseFailed({ report: `${e.report}\n${printPerturbation(perturbation)}` })
-						: e
-				)
-			)
-	)

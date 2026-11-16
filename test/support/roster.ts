@@ -13,6 +13,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/substrate/orphan.test.ts",
 	"test/pg/substrate/stopped.test.ts",
 	"test/pg/substrate/substrate.test.ts",
+	"test/pg/write/oracle/oracle.test.ts",
 	"test/unit/adapter/**/*.test.ts",
 	"test/unit/allen/**/*.test.ts",
 	"test/unit/bench/**/*.test.ts",
