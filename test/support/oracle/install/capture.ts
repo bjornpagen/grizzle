@@ -108,7 +108,7 @@ const columnsSql = (sql: string): string => `SELECT * FROM (${trimStatement(sql)
  *
  * A quote, or an escaped literal's backslash, stands for itself only doubled.
  */
-export const unquoteLiteral = (quoted: string): string | undefined => {
+const unquoteLiteral = (quoted: string): string | undefined => {
 	const escaped = Str.startsWith("E'")(quoted)
 	const start = escaped ? 2 : 1
 	if (

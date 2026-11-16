@@ -259,7 +259,7 @@ export type AppliedEdit = {
 }
 
 /** What each applied edit says after its file's path, with its fix. */
-export const appliedEditPhrase: Readonly<Record<AppliedEdit["kind"], string>> = {
+const appliedEditPhrase: Readonly<Record<AppliedEdit["kind"], string>> = {
 	edited: "was edited after it was applied; restore it from git",
 	missing: "was applied but is missing; restore it from git",
 	added:

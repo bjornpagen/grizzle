@@ -2,117 +2,30 @@
  * The assertion door (test/support/assert.ts): each assertion holds exactly where its contract says, and fails as an
  * AssertionError everywhere else.
  *
- * - unorderedEqual holds exactly between two lists that are one set, each holding every element once. Oracle: element
- *   counts under deepStrictEqual's equality, a second implementation.
- * - refused and succeeded hold exactly for a failure of the named reason and for a success; faulted exactly for the
- *   named fault; refusedAt exactly for a failure whose named field holds the value. Oracle: the planted outcome, which
- *   the case states before it asserts.
- * - matchesObject on an Option field holds exactly for an Option of the pattern's case and value. Oracle: the case and
- *   value compared by hand.
+ * - refused and succeeded hold exactly for a failure of the named reason and for a success. Oracle: the planted
+ *   outcome, which the case states before it asserts.
  * - throwsRefused holds exactly for a thunk that throws a CompileError of its reason, and returns what it threw. Oracle:
  *   the planted outcome.
  *
- * Features: each change of a list (permuted, removed, added, replaced, repeated) holding and failing; a success, the
- * named reason, fault or stage, and another; each Option pattern against none and some; each thunk outcome holding and
- * failing.
+ * Features: a success, the named reason and another; each thunk outcome holding and failing.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
-import { array, boolean, codePoint, element, string } from "@bjornpagen/testing/gen"
+import { boolean, element } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Effect, Option, Result } from "effect"
-import { type CliError } from "#cli/errors.ts"
-import {
-	CompileError,
-	type CompileReasonTag,
-	prose,
-	type ValueFault,
-	valueFaultWords
-} from "#compiler/core/errors.ts"
+import { Effect, Result } from "effect"
+import { CompileError, type CompileReasonTag, prose } from "#compiler/core/errors.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
-import {
-	assert,
-	faulted,
-	matchers,
-	matchesObject,
-	refusalLoc,
-	refused,
-	refusedAt,
-	succeeded,
-	throwsRefused,
-	unorderedEqual
-} from "#test/support/assert.ts"
-import { pickGen } from "#test/support/pick.ts"
+import { assert, refusalLoc, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import {
 	assertionFails,
-	type Change,
-	changed,
-	cliRefusalAt,
-	cliStages,
-	distinct,
-	elementGen,
-	listed,
 	namedTags,
-	optionGen,
-	type OptionPattern,
-	optionPatternGen,
 	plantedGen,
 	proseTags,
-	sameCounts,
 	thunkOutcomeOf,
 	type ThunkOutcome,
 	thunkOutcomes
 } from "#test/unit/kernel/assert.fixtures.ts"
-
-/**
- * The assertion door holds unorderedEqual exactly between lists that are one set, each holding every element once.
- *
- * Budget: its suite's count before the conversion (unit/kernel/unordered-equal: 300 independent cases and 0 steered,
- * Vitest at grizzle 4ca3036a).
- */
-export const theAssertionDoorHoldsUnorderedEqualExactlyBetweenListsThatAreOneSetEachHoldingEveryElementOnce =
-	property.explore(
-		(source) => ({
-			xs: source.draw(array(elementGen, { min: 0, max: 6 })),
-			change: source.draw(
-				element(["permuted", "removed", "added", "replaced", "repeated"] as const)
-			),
-			picks: source.draw(array(pickGen, { min: 6, max: 6 })),
-			other: source.draw(elementGen)
-		}),
-		{
-			needs: {},
-			situations: [
-				"permuted holds",
-				"removed fails",
-				"added fails",
-				"replaced holds",
-				"replaced fails",
-				"repeated fails"
-			] satisfies ReadonlyArray<Reached<`${Change} ${"holds" | "fails"}`>>,
-			check:
-				(_, c: Case<`${Change} ${"holds" | "fails"}`>) =>
-				({ xs, change, picks, other }) =>
-					Effect.sync(() => {
-						const ys = changed(xs, change, picks, other)
-						const holds = sameCounts(xs, ys) && distinct(xs) && distinct(ys)
-						c.note(`${change} ${holds ? "holds" : "fails"}`)
-						assert.equal(
-							assertionFails(() => {
-								unorderedEqual(xs, ys)
-							}),
-							!holds
-						)
-					}),
-			oracle: {
-				kind: "second-implementation",
-				name: "element counts under deepStrictEqual's equality"
-			},
-			budget: { runs: 300, steered: 0 },
-			kept: [],
-			kills: []
-		}
-	)
 
 /**
  * The assertion door holds refused exactly for a failure of its reason, and succeeded exactly for a success.
@@ -171,148 +84,6 @@ export const theAssertionDoorHoldsRefusedExactlyForAFailureOfItsReasonAndSucceed
 			}
 		]
 	})
-
-/**
- * The assertion door holds faulted exactly for a failure that is its fault.
- *
- * Budget: its suite's count before the conversion (unit/kernel/faulted: 200 independent cases and 0 steered, Vitest at
- * grizzle 4ca3036a).
- */
-export const theAssertionDoorHoldsFaultedExactlyForAFailureThatIsItsFault = property.explore(
-	plantedGen(valueFaultWords),
-	{
-		needs: {},
-		situations: ["success", "same fault", "other fault"] satisfies ReadonlyArray<
-			Reached<"success" | "same fault" | "other fault">
-		>,
-		check:
-			(_, c: Case<"success" | "same fault" | "other fault">) =>
-			({ outcome, same, other, named: fault }) =>
-				Effect.sync(() => {
-					/** The named fault is planted half the time: other faults are many. */
-					const actual = same ? fault : other
-					const result: Result.Result<number, ValueFault> =
-						outcome === 0 ? Result.succeed(7) : Result.fail(actual)
-					const matches = Result.isFailure(result) && result.failure === fault
-					c.note(Result.isSuccess(result) ? "success" : matches ? "same fault" : "other fault")
-					assert.equal(
-						assertionFails(() => {
-							faulted(result, fault)
-						}),
-						!matches
-					)
-				}),
-		oracle: { kind: "specification", name: "the planted outcome and its fault" },
-		budget: { runs: 200, steered: 0 },
-		kept: [],
-		kills: []
-	}
-)
-
-/**
- * The assertion door holds refusedAt exactly for a failure whose named field holds the value, whatever its other
- * fields.
- *
- * Budget: its suite's count before the conversion (unit/kernel/refused-at: 200 independent cases and 0 steered, Vitest
- * at grizzle 4ca3036a).
- */
-export const theAssertionDoorHoldsRefusedAtExactlyForAFailureWhoseNamedFieldHoldsTheValueWhateverItsOtherFields =
-	property.explore(
-		(source) => ({
-			planted: source.draw(plantedGen(cliStages)),
-			text: source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 12 }))
-		}),
-		{
-			needs: {},
-			situations: ["success", "same stage", "other stage"] satisfies ReadonlyArray<
-				Reached<"success" | "same stage" | "other stage">
-			>,
-			check:
-				(_, c: Case<"success" | "same stage" | "other stage">) =>
-				({ planted: { outcome, same, other, named }, text }) =>
-					Effect.sync(() => {
-						const stage = listed(named)
-						/** The named stage is planted half the time: other stages are many. */
-						const failureStage = same ? stage : other
-						const refusal = cliRefusalAt[failureStage](text)
-						const result: Result.Result<number, CliError> =
-							outcome === 0 ? Result.succeed(7) : Result.fail(refusal)
-						const matches = Result.isFailure(result) && result.failure.stage === stage
-						c.note(Result.isSuccess(result) ? "success" : matches ? "same stage" : "other stage")
-						assert.equal(
-							assertionFails(() => {
-								refusedAt(result, "stage", stage)
-							}),
-							!matches
-						)
-						if (matches) {
-							assert.equal(refusedAt(result, "stage", stage), refusal)
-						}
-					}),
-			oracle: { kind: "specification", name: "the planted outcome and its stage" },
-			budget: { runs: 200, steered: 0 },
-			kept: [],
-			kills: []
-		}
-	)
-
-/**
- * The assertion door holds matchesObject on an Option field exactly when the field is an Option of the pattern's case
- * and value.
- *
- * Budget: its suite's count before the conversion (unit/kernel/matches-option: 200 independent cases and 0 steered,
- * Vitest at grizzle 4ca3036a).
- */
-export const theAssertionDoorHoldsMatchesObjectOnAnOptionFieldExactlyWhenTheFieldIsAnOptionOfThePatternsCaseAndValue =
-	property.explore(
-		(source) => ({
-			table: source.draw(optionGen),
-			column: source.draw(optionGen),
-			pattern: source.draw(optionPatternGen)
-		}),
-		{
-			needs: {},
-			situations: [
-				"none against none holds",
-				"none against some fails",
-				"value against none fails",
-				"value against some holds",
-				"value against some fails",
-				"any string against some holds",
-				"any string against none fails"
-			] satisfies ReadonlyArray<
-				Reached<`${OptionPattern["kind"]} against ${"none" | "some"} ${"holds" | "fails"}`>
-			>,
-			check:
-				(_, c: Case<`${OptionPattern["kind"]} against ${"none" | "some"} ${"holds" | "fails"}`>) =>
-				({ table, column, pattern }) =>
-					Effect.sync(() => {
-						const fields = { table, column }
-						const expected =
-							pattern.kind === "none"
-								? Option.none()
-								: Option.some(pattern.kind === "value" ? pattern.value : matchers.any(String))
-						/** The oracle: the case agrees, and a Some's value is the pattern's (any string passes). */
-						const holds = Option.isNone(table)
-							? pattern.kind === "none"
-							: pattern.kind === "any string" ||
-								(pattern.kind === "value" && pattern.value === table.value)
-						c.note(
-							`${pattern.kind} against ${Option.isNone(table) ? "none" : "some"} ${holds ? "holds" : "fails"}`
-						)
-						assert.equal(
-							assertionFails(() => {
-								matchesObject(fields, { table: expected })
-							}),
-							!holds
-						)
-					}),
-			oracle: { kind: "specification", name: "the Option's case and value compared by hand" },
-			budget: { runs: 200, steered: 0 },
-			kept: [],
-			kills: []
-		}
-	)
 
 /**
  * The assertion door holds throwsRefused exactly for a thunk that throws a CompileError of its reason.

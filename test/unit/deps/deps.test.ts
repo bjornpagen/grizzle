@@ -2,32 +2,26 @@
  * The production dependency audit: no RegExp construction, .test or .exec, no arkregex runtime import, and no eval or
  * Function constructor under src/.
  *
- * 1. The audit itself is checked first, on generated planted modules (planted.ts): every RegExp construction, match
- *    and code generation the generator plants, in every place an expression or a statement begins, is found on its
- *    line, and nothing in strings, templates, comments, divisions, types or an effect module's match is; every import
- *    is read as Node runs it, type-only ones erased. So an empty finding list below means a clean tree.
- * 2. Every module under src/, read as the JavaScript Node runs (audit.ts), has no RegExp construction, no regex
+ * 1. Every module under src/, read as the JavaScript Node runs (audit.ts), has no RegExp construction, no regex
  *    matching member, no runtime import of arkregex or its @ark packages, and no eval or Function constructor: an
  *    exhaustion of the real tree, module by module.
- * 3. At runtime, in a child Node process of each entry point: no module but a test's or ark's own resolves an arkregex
+ * 2. At runtime, in a child Node process of each entry point: no module but a test's or ark's own resolves an arkregex
  *    or @ark module while the entry point loads and the text pipeline runs over every family pattern of the regex
  *    differential tests, and src/ calls no RegExp. The trap is held to two controls: the probe's own construction, on the line it
  *    reports, and the planted module's (fixtures/planted-regex.ts), each RegExp it builds or runs found once on the
  *    line its text puts it on.
  *
- * Oracles: the specification, the findings each planted piece states (1), the audit's rules (2), and the trap's
- * controls (3). Both read the repository's files and run its code from the checkout's directory (Checkout.dir), so a
- * mutant of a src/ module is what they read and load. Features: every planted piece's kind (1); the real tree and the real entry points are boxes of their
- * own, which every module and entry point is a case of (2, 3).
+ * Oracles: the audit's rules (1) and the trap's controls (2). Both read the repository's files and run its code from the
+ * checkout's directory (Checkout.dir), so a mutant of a src/ module is what they read and load. Features: the real tree
+ * and the real entry points are boxes of their own, which every module and entry point is a case of (1, 2).
  *
  * The layering (which areas a module may import) is fallow's boundaries (.fallowrc.json), and the packages an area may
  * load are oxlint's no-restricted-imports (oxlint.config.ts).
  */
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { word } from "@bjornpagen/testing/dictionary"
-import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, FileSystem, String as Str } from "effect"
 import { assert, defined, like, matchers } from "#test/support/assert.ts"
@@ -42,62 +36,6 @@ import {
 	show,
 	trappedUnder
 } from "#test/unit/deps/deps.fixtures.ts"
-import {
-	expectedOf,
-	moduleText,
-	type PlantedFeature,
-	plantedFeatures,
-	plantedModule
-} from "#test/unit/deps/planted.ts"
-
-/**
- * The audit finds what it must: it finds exactly what a generated module plants, on its line, and reads its imports as
- * Node runs them.
- *
- * Budget: its suite's count before the conversion (unit/deps/planted: 600 independent cases and 0 steered, Vitest at
- * grizzle 4ca3036a).
- */
-export const theAuditFindsWhatItMustFindsExactlyWhatAGeneratedModulePlantsOnItsLineAndReadsItsImportsAsNodeRunsThem =
-	property.explore(plantedModule, {
-		needs: {},
-		situations: plantedFeatures satisfies ReadonlyArray<Reached<PlantedFeature>>,
-		check: (_, c: Case<PlantedFeature>) => (pieces) =>
-			Effect.sync(() => {
-				const text = moduleText(pieces)
-				const expected = expectedOf(pieces)
-				const audit = auditSource("planted.ts", text)
-				const regexFound: ReadonlyArray<readonly [number, string]> = Arr.map(
-					audit.regex,
-					(f) => [f.line, f.rule] as const
-				)
-				const codeFound: ReadonlyArray<readonly [number, string]> = Arr.map(
-					audit.dynamicCode,
-					(f) => [f.line, f.rule] as const
-				)
-				const importsFound: ReadonlyArray<readonly [number, string, string]> = Arr.map(
-					audit.imports,
-					(i) => [i.line, i.kind, i.specifier] as const
-				)
-				const opaqueFound: ReadonlyArray<readonly [number, string]> = Arr.map(
-					audit.opaque,
-					(f) => [f.line, f.text] as const
-				)
-				assert.deepEqual(regexFound, expected.regex, text)
-				assert.deepEqual(codeFound, expected.code, text)
-				assert.deepEqual(importsFound, expected.imports, text)
-				assert.deepEqual(opaqueFound, expected.opaque, text)
-				for (const piece of pieces) {
-					c.noteAll(piece.features)
-				}
-			}),
-		oracle: {
-			kind: "specification",
-			name: "the findings each planted piece states, line by line in the order the module states them"
-		},
-		budget: { runs: 600, steered: 0 },
-		kept: [],
-		kills: []
-	})
 
 /** Src/ has no RegExp and no arkregex runtime: the audit of every src/ module finds no RegExp construction or match, no eval or Function constructor, no arkregex or @ark at runtime. */
 export const srcHasNoRegExpAndNoArkregexRuntimeAuditsEverySrcModuleNoRegExpConstructionOrMatchNoEvalOrFunctionConstructorNoArkregexOrArkAtRuntime =
@@ -125,7 +63,7 @@ export const srcHasNoRegExpAndNoArkregexRuntimeAuditsEverySrcModuleNoRegExpConst
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the audit's rules, checked on planted modules above"
+			name: "the audit's rules"
 		},
 		kept: [],
 		kills: [

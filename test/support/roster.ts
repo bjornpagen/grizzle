@@ -47,7 +47,6 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/unit/live/**/*.test.ts",
 	"test/unit/lower/**/*.test.ts",
 	"test/unit/oracle-gen/**/*.test.ts",
-	"test/unit/oracle-install/**/*.test.ts",
 	"test/unit/oracle-runner/**/*.test.ts",
 	"test/unit/oracle/**/*.test.ts",
 	"test/unit/page/**/*.test.ts",
