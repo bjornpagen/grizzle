@@ -47,6 +47,26 @@ import { queryWireForm, redactedPlaceholder } from "#runtime/redact.ts"
 import { mapClientError } from "#runtime/response.ts"
 
 /**
+ * The base of the jittered exponential wait before a retry when the server names none (runtime/client.ts backoff,
+ * design D-AD7): the first retry waits about this long, each later one about twice the one before.
+ *
+ * @limitKind provisional
+ * @owner the generated CLI's retry policy (runtime/client.ts, backoff)
+ * @unit milliseconds
+ * @scope the base of the jittered exponential wait before each retry one run of a generated CLI makes under --retries,
+ *   when the response names no Retry-After
+ * @guards with no wait between attempts, --retries resends at once into a server that has just failed, refused or
+ *   throttled the request, so a run spends its retries in milliseconds and each lands on the same outage
+ * @measure against the corpus APIs' published retry guidance (Stripe's, GitHub's, OpenAI's and Cloudflare's documented
+ *   backoff for 429 and 5xx) and the SDKs that follow it, take the base most of them state and cite it as published;
+ *   failing a common one, time how long the 503s and 429s of a few real APIs take to clear and keep the base under
+ *   which the first retry mostly succeeds
+ * @origin design D-AD7 (docs/project.md), written with no evidence
+ * @recorded 2026-11-16
+ */
+export const retryBackoffMillis = 500
+
+/**
  * A whole number the operator typed: ASCII digits only, decoded to a safe integer. Each caller
  * adds its own bounds and maps a failure to its own `UsageError`, which never carries the text.
  */
@@ -601,10 +621,10 @@ export const retryUnsafeSetting = GlobalFlag.Setting("retry-unsafe")({
 })
 
 /**
- * Exponential from 500 ms, jittered (design D-AD7): the wait before a retry when the server names
- * none.
+ * Exponential from `retryBackoffMillis`, jittered (design D-AD7): the wait before a retry when
+ * the server names none.
  */
-const backoff = Schedule.jittered(Schedule.exponential("500 millis"))
+const backoff = Schedule.jittered(Schedule.exponential(Duration.millis(retryBackoffMillis)))
 
 /**
  * One run's retries, shared by every retry the command makes, whatever failed: how many of

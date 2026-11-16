@@ -19,11 +19,9 @@ import { specSectionUrl } from "#model/spec-section.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { docsOf } from "#normalize/docs.ts"
 import { childKey, follow, nodeIn, referenceIn } from "#normalize/document-set.ts"
-import { appliesDynamicKeyword, budgetOf, charge, schemaKeyAt } from "#normalize/schemas.ts"
-import type { Budget, SchemaLimits } from "#normalize/schemas.ts"
+import { appliesDynamicKeyword, schemaKeyAt } from "#normalize/schemas.ts"
 import { keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
-import { defaultLimits } from "#resolve/index.ts"
 import type { Resolution, ResolvedReference } from "#resolve/index.ts"
 
 /**
@@ -1031,23 +1029,17 @@ const CompositionSchema = Schema.Struct({
 })
 
 /**
- * One `objectOnly` walk: each resolved schema is decided once (`memo`), a schema already on the
- * current path is a cycle, and every schema decided is charged to the call's node budget. `arrays`
- * says whether an array counts with the objects, as it does for PRM-27, whose nested test refuses it.
+ * One `objectOnly` walk: each resolved schema is decided once (`memo`), and a schema already on the
+ * current path is a cycle, so the walk ends. `arrays` says whether an array counts with the objects,
+ * as it does for PRM-27, whose nested test refuses it.
  */
 interface ObjectWalk {
 	readonly arrays: boolean
-	readonly budget: Budget
 	readonly memo: Map<string, boolean>
 	readonly path: Set<string>
 }
 
-const walkOf = (limits: SchemaLimits, arrays: boolean): ObjectWalk => ({
-	arrays,
-	budget: budgetOf(limits),
-	memo: new Map(),
-	path: new Set()
-})
+const walkOf = (arrays: boolean): ObjectWalk => ({ arrays, memo: new Map(), path: new Set() })
 
 /**
  * What one resolved schema says on its own about admitting only objects (and arrays, when the walk
@@ -1084,8 +1076,8 @@ const ownVerdict = Effect.fnUntraced(function* ownVerdict(
 
 /**
  * Whether the schema at `key`, through `$ref`, admits only objects: its own verdict, or every
- * anyOf and oneOf member's. A cycle or a spent budget fails closed (not object-only); a result
- * reached through either is false, so memoizing it is sound.
+ * anyOf and oneOf member's. A cycle fails closed (not object-only); a result reached through one
+ * is false, so memoizing it is sound.
  */
 const objectOnly = Effect.fnUntraced(function* admitsOnlyObjects(
 	resolution: Resolution,
@@ -1099,7 +1091,7 @@ const objectOnly = Effect.fnUntraced(function* admitsOnlyObjects(
 		return known
 	}
 
-	if (walk.path.has(id) || !charge(walk.budget)) {
+	if (walk.path.has(id)) {
 		return false
 	}
 
@@ -1123,21 +1115,20 @@ const objectOnly = Effect.fnUntraced(function* admitsOnlyObjects(
  * The value traits of one schema site, through `$ref`, that the style table's applicability checks
  * read (`inapplicable`): `primitive` when it declares types and none of them is an array or object
  * (an untyped schema is not primitive), and, for a `deepObject` value only, `nonObject` when it
- * admits a value that is not an object (PRM-27). `limits` bounds that walk, which fails closed. No
- * schema has neither trait. Parameters and form Encoding entries share it.
+ * admits a value that is not an object (PRM-27). No schema has neither trait. Parameters and form
+ * Encoding entries share it.
  */
 const valueTraits = Effect.fnUntraced(function* valueTraits(
 	resolution: Resolution,
 	schema: CanonicalKey | undefined,
-	deepObject: boolean,
-	limits: SchemaLimits
+	deepObject: boolean
 ): Effect.fn.Return<Pick<Traits, "nonObject" | "primitive">> {
 	if (schema === undefined) {
 		return { nonObject: false, primitive: false }
 	}
 
 	const types = yield* typesAt(resolution, schema)
-	const objects = deepObject ? yield* objectOnly(resolution, schema, walkOf(limits, true)) : true
+	const objects = deepObject ? yield* objectOnly(resolution, schema, walkOf(true)) : true
 
 	return { nonObject: !objects, primitive: types.length > 0 && !compound(types) }
 })
@@ -1153,17 +1144,13 @@ const schemaOf = (source: Source): CanonicalKey | undefined =>
  * only objects, by `type: object`, by `properties` with no type, or by anyOf and oneOf members that
  * all do. Emit reads it to take the value as JSON.
  */
-const objectValued = (
-	resolution: Resolution,
-	source: Source,
-	limits: SchemaLimits
-): Effect.Effect<boolean> => {
+const objectValued = (resolution: Resolution, source: Source): Effect.Effect<boolean> => {
 	const { node, target } = source
 	if (node.schema === undefined) {
 		return Effect.succeed(false)
 	}
 
-	return objectOnly(resolution, childKey(target, "schema"), walkOf(limits, false))
+	return objectOnly(resolution, childKey(target, "schema"), walkOf(false))
 }
 
 /**
@@ -1171,16 +1158,15 @@ const objectValued = (
  * (`flat`, the standard rule), an object with nested members or an array (`nested`, the bracket
  * switch's), a scalar (`scalar`, the scalar switch's), an object with a member whose union mixes
  * objects with other values (`mixed`, which neither switch defines), or anything else (`other`:
- * `null`, untyped, unresolved, a cycle or a spent budget).
+ * `null`, untyped, unresolved, or a cycle).
  */
 type Branch = "flat" | "mixed" | "nested" | "other" | "scalar"
 
 /**
- * One branch walk: each resolved schema is classified once (`memo`), a schema already on the
- * current path is a cycle, and every schema classified is charged to the call's node budget.
+ * One branch walk: each resolved schema is classified once (`memo`), and a schema already on the
+ * current path is a cycle, so the walk ends.
  */
 interface BranchWalk {
-	readonly budget: Budget
 	readonly memo: Map<string, ReadonlySet<Branch>>
 	readonly path: Set<string>
 }
@@ -1362,8 +1348,8 @@ const objectBranch = (members: readonly Branch[]): Branch => {
 }
 
 /**
- * The branches the schema at `key` admits, through `$ref`. A cycle or a spent budget is `other`,
- * which refuses the entry, so memoizing a result reached through either is sound.
+ * The branches the schema at `key` admits, through `$ref`. A cycle is `other`, which refuses the
+ * entry, so memoizing a result reached through one is sound.
  */
 const branchesOf = Effect.fnUntraced(function* branches(
 	resolution: Resolution,
@@ -1377,7 +1363,7 @@ const branchesOf = Effect.fnUntraced(function* branches(
 		return known
 	}
 
-	if (walk.path.has(id) || !charge(walk.budget)) {
+	if (walk.path.has(id)) {
 		return new Set<Branch>(["other"])
 	}
 
@@ -1414,21 +1400,19 @@ const branchesOf = Effect.fnUntraced(function* branches(
 
 /**
  * Classifies the `deepObject` schema at `schema` branch by branch, through `$ref`, `anyOf`,
- * `oneOf`, a `type` list, `enum` and `const`, memoized and bounded by `limits` (failing closed),
- * and decides it under the author config's `switches`. Query parameters and form Encoding entries
- * share it (design 6.1, 6.3).
+ * `oneOf`, a `type` list, `enum` and `const`, memoized, and decides it under the author config's
+ * `switches`. Query parameters and form Encoding entries share it (design 6.1, 6.3).
  */
 export const scalarCover = Effect.fnUntraced(function* scalarCover(
 	resolution: Resolution,
 	schema: CanonicalKey,
-	switches: AuthorConfig["nonStandard"],
-	limits: SchemaLimits
+	switches: AuthorConfig["nonStandard"]
 ): Effect.fn.Return<ScalarCover> {
 	if (switches?.deepObjectScalars !== true) {
 		return "strict"
 	}
 
-	const walk: BranchWalk = { budget: budgetOf(limits), memo: new Map(), path: new Set() }
+	const walk: BranchWalk = { memo: new Map(), path: new Set() }
 	const kinds = yield* branchesOf(resolution, schema, walk)
 	if (!kinds.has("scalar") || kinds.has("other")) {
 		return "strict"
@@ -1448,15 +1432,14 @@ export const scalarCover = Effect.fnUntraced(function* scalarCover(
 const scalarsOf = (
 	resolution: Resolution,
 	site: ParameterSite,
-	source: Source,
-	limits: SchemaLimits
+	source: Source
 ): Effect.Effect<ScalarCover> => {
 	const { node, target } = source
 	if (node.in !== "query" || node.style !== "deepObject" || node.schema === undefined) {
 		return Effect.succeed("strict")
 	}
 
-	return scalarCover(resolution, childKey(target, "schema"), site.nonStandard, limits)
+	return scalarCover(resolution, childKey(target, "schema"), site.nonStandard)
 }
 
 /**
@@ -1464,9 +1447,9 @@ const scalarsOf = (
  * `explode` and `allowReserved` apply as for query parameters), by the checks query parameters use:
  * STY-18/20/22/24 explode not applicable, STY-17/21 a delimited style over a primitive, and PRM-27
  * a deepObject over a schema that admits non-objects. `given` holds the entry's explicit fields;
- * the query defaults fill the rest. `schema` is the property's schema site, through `$ref`;
- * `limits` bounds the PRM-27 walk, which fails closed. `None` means the table does not refuse
- * the entry, or its style is outside the query table and is not decided here.
+ * the query defaults fill the rest. `schema` is the property's schema site, through `$ref`. `None`
+ * means the table does not refuse the entry, or its style is outside the query table and is not
+ * decided here.
  */
 export const formStyleRefusal = Effect.fnUntraced(function* formStyleRefusal(
 	resolution: Resolution,
@@ -1475,8 +1458,7 @@ export const formStyleRefusal = Effect.fnUntraced(function* formStyleRefusal(
 		readonly allowReserved?: boolean
 		readonly explode?: boolean
 		readonly style?: StyleName
-	},
-	limits: SchemaLimits
+	}
 ): Effect.fn.Return<Option.Option<Finding>> {
 	const style = given.style ?? "form"
 	const allowReserved = given.allowReserved === true
@@ -1488,7 +1470,7 @@ export const formStyleRefusal = Effect.fnUntraced(function* formStyleRefusal(
 		return Option.none()
 	}
 
-	const traits = yield* valueTraits(resolution, schema, style === "deepObject", limits)
+	const traits = yield* valueTraits(resolution, schema, style === "deepObject")
 
 	return inapplicable(found.value, style, traits)
 })
@@ -1559,14 +1541,13 @@ const build = Effect.fnUntraced(function* build(
 	site: ParameterSite,
 	source: Source,
 	plan: ContentPlan | StylePlan,
-	limits: SchemaLimits,
 	mark: SensitiveMark
 ) {
 	const { node, reference, target } = source
 	const origin = { document: resolution.document, pointer: site.pointer }
 	const schemaKey =
 		plan.kind === "content" ? plan.schemaKey : schemaKeyAt(resolution, childKey(target, "schema"))
-	const objectValue = plan.kind === "style" && (yield* objectValued(resolution, source, limits))
+	const objectValue = plan.kind === "style" && (yield* objectValued(resolution, source))
 
 	return yield* Schema.decodeEffect(Parameter)({
 		deprecated: node.deprecated ?? false,
@@ -1611,13 +1592,11 @@ const branchKeys = ["allOf", "anyOf", "oneOf"] as const
  * Whether the schema at `key` carries `x-sensitive: true` on any node the password reading walks
  * (names `isPassword`): each node of its `$ref` chain with its sibling keywords, each `allOf`
  * member and each `anyOf` or `oneOf` branch. A node already on the walk is not read twice, so a
- * cycle ends; past the node budget the answer is yes, so a secret never prints by exhaustion. An
- * unreadable node is not marked.
+ * cycle ends. An unreadable node is not marked.
  */
 const schemaMarked = Effect.fnUntraced(function* marked(
 	resolution: Resolution,
 	key: CanonicalKey,
-	budget: Budget,
 	seen: Set<string>
 ): Effect.fn.Return<boolean> {
 	const id = keyOf(key)
@@ -1626,9 +1605,6 @@ const schemaMarked = Effect.fnUntraced(function* marked(
 	}
 
 	seen.add(id)
-	if (!charge(budget)) {
-		return true
-	}
 
 	const decoded = yield* nodeIn(resolution, key).pipe(
 		Effect.flatMap(Schema.decodeUnknownEffect(MarkedSchema)),
@@ -1650,7 +1626,7 @@ const schemaMarked = Effect.fnUntraced(function* marked(
 		)
 	]
 	for (const at of next) {
-		if (yield* schemaMarked(resolution, at, budget, seen)) {
+		if (yield* schemaMarked(resolution, at, seen)) {
 			return true
 		}
 	}
@@ -1664,21 +1640,19 @@ interface SensitiveMark {
 
 /**
  * The `sensitive` mark of a Parameter or Header Object: present when `x-sensitive: true` sits on
- * the object itself or anywhere `schemaMarked` walks its schema. `limits.maxNodes` bounds the walk.
+ * the object itself or anywhere `schemaMarked` walks its schema.
  */
 const sensitiveOf = Effect.fnUntraced(function* sensitiveOf(
 	resolution: Resolution,
-	source: Source,
-	limits: SchemaLimits
+	source: Source
 ): Effect.fn.Return<SensitiveMark> {
 	if (source.node["x-sensitive"] === true) {
 		return { sensitive: true }
 	}
 
-	const budget = budgetOf(limits)
 	const seen = new Set<string>()
 	for (const at of schemaSitesOf(resolution, source)) {
-		if (yield* schemaMarked(resolution, at, budget, seen)) {
+		if (yield* schemaMarked(resolution, at, seen)) {
 			return { sensitive: true }
 		}
 	}
@@ -1690,13 +1664,10 @@ const sensitiveOf = Effect.fnUntraced(function* sensitiveOf(
  * Normalizes one Parameter Object into a `Parameter`, a notice-only ignore, or an element-scope
  * refusal (design 2.2, 6.1, 6.2). Defaults come from the line's text, never from a schema
  * `default`. A site the earlier stages should have stopped fails with `ParameterNotReadable`.
- * `limits.maxNodes` bounds each schema walk behind the PRM-27 object test and the `objectValued`
- * fact, which fail closed when it is spent.
  */
 export const normalizeParameter = Effect.fnUntraced(function* normalizeParameter(
 	resolution: Resolution,
-	site: ParameterSite,
-	limits: SchemaLimits
+	site: ParameterSite
 ): Effect.fn.Return<ParameterOutcome, ParameterNotReadable> {
 	const source = yield* read(resolution, site)
 	const reason = contractReason(source.node, resolution.line)
@@ -1705,11 +1676,11 @@ export const normalizeParameter = Effect.fnUntraced(function* normalizeParameter
 	}
 
 	const deepObject = source.node.in === "query" && source.node.style === "deepObject"
-	const values = yield* valueTraits(resolution, schemaOf(source), deepObject, limits)
+	const values = yield* valueTraits(resolution, schemaOf(source), deepObject)
 	const media = yield* mediaOf(resolution, source)
 	const multiple = yield* carriesMultiple(resolution, source)
 	const nested = yield* nestsDeeply(resolution, source)
-	const scalars = yield* scalarsOf(resolution, site, source, limits)
+	const scalars = yield* scalarsOf(resolution, site, source)
 	const decision = decide(source.node, resolution.line, media, {
 		brackets: site.nonStandard?.deepObjectBrackets === true,
 		multiple,
@@ -1735,17 +1706,13 @@ export const normalizeParameter = Effect.fnUntraced(function* normalizeParameter
 		})
 	}
 
-	if (
-		Arr.some(schemaSitesOf(resolution, source), (at) =>
-			appliesDynamicKeyword(resolution, at, defaultLimits)
-		)
-	) {
+	if (Arr.some(schemaSitesOf(resolution, source), (at) => appliesDynamicKeyword(resolution, at))) {
 		return ParameterOutcome.Refused({ diagnostics: [], required: source.node.required ?? false })
 	}
 
 	const implemented = yield* diagnostics(decision.findings)
-	const mark = yield* sensitiveOf(resolution, source, limits)
-	const parameter = yield* build(resolution, site, source, decision.plan, limits, mark)
+	const mark = yield* sensitiveOf(resolution, source)
+	const parameter = yield* build(resolution, site, source, decision.plan, mark)
 
 	return ParameterOutcome.Implemented({ diagnostics: implemented, parameter })
 })
@@ -1787,8 +1754,7 @@ export const partHeader = Effect.fnUntraced(function* partHeader(
 	resolution: Resolution,
 	site: CanonicalKey,
 	name: string,
-	origin: Related,
-	limits: SchemaLimits
+	origin: Related
 ): Effect.fn.Return<PartHeaderOutcome> {
 	const target = follow(resolution, site)
 	const decoded = yield* nodeIn(resolution, target).pipe(
@@ -1810,7 +1776,7 @@ export const partHeader = Effect.fnUntraced(function* partHeader(
 
 	const source: Source = { node, reference: referenceIn(resolution, site), related: [], target }
 	const nested = yield* nestsDeeply(resolution, source)
-	const values = yield* valueTraits(resolution, schemaOf(source), false, limits)
+	const values = yield* valueTraits(resolution, schemaOf(source), false)
 	const traits: Traits = {
 		brackets: false,
 		multiple: false,
@@ -1832,16 +1798,12 @@ export const partHeader = Effect.fnUntraced(function* partHeader(
 		return unsupported("The header parameter rules ignore this header.")
 	}
 
-	if (
-		Arr.some(schemaSitesOf(resolution, source), (at) =>
-			appliesDynamicKeyword(resolution, at, defaultLimits)
-		)
-	) {
+	if (Arr.some(schemaSitesOf(resolution, source), (at) => appliesDynamicKeyword(resolution, at))) {
 		return unsupported("The header's schema applies a dynamic keyword.")
 	}
 
 	const { plan } = decision
-	const objectValue = plan.kind === "style" && (yield* objectValued(resolution, source, limits))
+	const objectValue = plan.kind === "style" && (yield* objectValued(resolution, source))
 
 	return PartHeaderOutcome.Typed({
 		schema: {
@@ -1850,7 +1812,7 @@ export const partHeader = Effect.fnUntraced(function* partHeader(
 					? plan.schemaKey
 					: schemaKeyAt(resolution, childKey(target, "schema"))
 		},
-		...(yield* sensitiveOf(resolution, source, limits)),
+		...(yield* sensitiveOf(resolution, source)),
 		serialization: serializationOf(node, plan, resolution.line, origin, objectValue)
 	})
 })

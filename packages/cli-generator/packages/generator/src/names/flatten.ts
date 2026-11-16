@@ -1,5 +1,6 @@
 import {
 	Array as Arr,
+	Equal,
 	Option,
 	Order,
 	Predicate,
@@ -8,7 +9,7 @@ import {
 	Schema,
 	String as Str
 } from "effect"
-import { defsKeyOf, defsRefPrefix, maxDefsRefHops } from "#model/defs-ref.ts"
+import { defsKeyOf, defsRefPrefix } from "#model/defs-ref.ts"
 import type { MediaAlternative } from "#model/entities.ts"
 import { formatPointer } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
@@ -94,19 +95,12 @@ class UnresolvedBodyRef extends Schema.TaggedError<
 >()("UnresolvedBodyRef", { ref: Schema.String }) {}
 
 /**
- * The shared node-visit budget for one `flattenBody` call ran out: the schema graph is larger
- * or more entangled than generation will follow.
+ * How deep body fields flatten into dotted flags (docs/project.md, Interface: "Body fields flatten to depth 2 as dotted
+ * flags such as `--address.city`"); a deeper field is reached through `--body` or `--body-file`.
+ *
+ * @formatConstant the generated CLI's dotted body-field flag: at most two names, `--address.city`
  */
-class BodyBudgetExceeded extends Schema.TaggedError<
-	BodyBudgetExceeded,
-	{ readonly brand: unique symbol }
->()("BodyBudgetExceeded", { budget: Schema.Int }) {}
-
-type FlattenError = BodyBudgetExceeded | UnresolvedBodyRef
-
 const maxDepth = 2
-
-const maxVisits = 10_000
 
 interface JsonObject {
 	readonly [key: string]: Schema.Json
@@ -192,8 +186,9 @@ type Defs = Readonly<Record<string, Schema.Json>>
 const inProgress = Symbol("inProgress")
 
 /**
- * Per-call state: each `$defs` key is classified once (an in-progress marker makes a cycle an
- * `UnresolvedBodyRef`), and every node visit spends from one shared budget.
+ * Per-call state: each `$defs` key is classified once, and an in-progress marker makes a cycle an
+ * `UnresolvedBodyRef`, so classification ends on every finite store; each `$defs` key's one value
+ * is read once too, so a store whose definitions share each other costs its size.
  */
 interface Ctx {
 	readonly defs: Defs
@@ -242,8 +237,8 @@ interface Ctx {
 	 * it (SCH-51).
 	 */
 	readonly readOnlyOmitted: boolean
-	readonly memo: Map<string, Result.Result<Classified, FlattenError> | typeof inProgress>
-	visits: number
+	readonly memo: Map<string, Result.Result<Classified, UnresolvedBodyRef> | typeof inProgress>
+	readonly oneValues: Map<string, Result.Result<Option.Option<Schema.Json>, UnresolvedBodyRef>>
 }
 
 /** The property parts of a multipart alternative whose rule declares a transfer encoding. */
@@ -303,11 +298,11 @@ const newCtx = (
 	fileParts: codec === "multipart",
 	memo: new Map(),
 	nestedParts: codec === "multipart" ? nestedPartsOf(encoding) : new Set(),
+	oneValues: new Map(),
 	positionalParts: codec === "multipart" ? positionalPartsOf(encoding) : new Set(),
 	readOnlyOmitted: line === "3.0",
 	refusedFields: new Set(refusedFields),
-	scalarFields: codec === "form" ? scalarFieldsOf(encoding) : new Set(),
-	visits: 0
+	scalarFields: codec === "form" ? scalarFieldsOf(encoding) : new Set()
 })
 
 const below = (site: Site, ...tokens: readonly string[]): Site => ({
@@ -345,68 +340,6 @@ const sourcePointer = ({ key, tokens }: Site): string => {
 		onNone: () => `${formatPointer(["components", "schemas", key])}${rest}`,
 		onSome: (hash) => `${Str.slice(hash + 1)(key)}${rest}`
 	})
-}
-
-const exceeded = (): Result.Result<never, BodyBudgetExceeded> =>
-	Result.fail(BodyBudgetExceeded.make({ budget: maxVisits }))
-
-/**
- * Deep JSON equality that spends one visit per node pair and one per child it queues, from the
- * call's shared budget. Identical references are equal for free.
- */
-const equalWithin = (
-	ctx: Ctx,
-	left: Schema.Json,
-	right: Schema.Json
-): Result.Result<boolean, BodyBudgetExceeded> => {
-	const pending: [Schema.Json, Schema.Json][] = [[left, right]]
-	for (let pair = pending.pop(); pair !== undefined; pair = pending.pop()) {
-		const [one, two] = pair
-		if (one === two) {
-			continue
-		}
-
-		ctx.visits += 1
-		if (ctx.visits > maxVisits) {
-			return exceeded()
-		}
-
-		if (isJsonArray(one) && isJsonArray(two) && one.length === two.length) {
-			ctx.visits += one.length
-			if (ctx.visits > maxVisits) {
-				return exceeded()
-			}
-
-			for (let index = 0; index < one.length; index += 1) {
-				pending.push([one[index] ?? null, two[index] ?? null])
-			}
-
-			continue
-		}
-
-		if (!isObject(one) || !isObject(two)) {
-			return Result.succeed(false)
-		}
-
-		const keys = Record.keys<string, Schema.Json>(one)
-		if (
-			keys.length !== Record.keys<string, Schema.Json>(two).length ||
-			!Arr.every(keys, (key) => Record.has<string, Schema.Json>(two, key))
-		) {
-			return Result.succeed(false)
-		}
-
-		ctx.visits += keys.length
-		if (ctx.visits > maxVisits) {
-			return exceeded()
-		}
-
-		for (const key of keys) {
-			pending.push([one[key] ?? null, two[key] ?? null])
-		}
-	}
-
-	return Result.succeed(true)
 }
 
 const scalarKinds: ReadonlySet<string> = new Set(["boolean", "integer", "number", "string"])
@@ -455,18 +388,15 @@ const isBase64 = (ctx: Ctx, schema: SchemaNode, type: SchemaNode["type"]): boole
 		(ctx.byteIsBase64 && schema.contentEncoding === undefined && schema.format === "byte"))
 
 /**
- * The `allOf` merge: every member an object, and a key two members declare equal in both (its
- * first declaration kept). The equality checks spend from the call's budget.
+ * The `allOf` merge: every member an object, and a key two members declare equal in both, as JSON
+ * (its first declaration kept).
  */
-const mergeObjects = (
-	ctx: Ctx,
-	members: readonly Classified[]
-): Result.Result<Classified, BodyBudgetExceeded> => {
+const mergeObjects = (members: readonly Classified[]): Classified => {
 	const merged = new Map<string, Property>()
 	const required = new Set<string>()
 	for (const member of members) {
 		if (member._tag !== "Object") {
-			return Result.succeed(opaque)
+			return opaque
 		}
 
 		for (const name of member.required) {
@@ -480,18 +410,13 @@ const mergeObjects = (
 				continue
 			}
 
-			const equal = equalWithin(ctx, existing.schema, property.schema)
-			if (Result.isFailure(equal)) {
-				return Result.fail(equal.failure)
-			}
-
-			if (!equal.success) {
-				return Result.succeed(opaque)
+			if (!Equal.equals(existing.schema, property.schema)) {
+				return opaque
 			}
 		}
 	}
 
-	return Result.succeed({ _tag: "Object", properties: merged, required })
+	return { _tag: "Object", properties: merged, required }
 }
 
 /**
@@ -516,24 +441,22 @@ const shapeKeywords: ReadonlySet<string> = new Set([
 
 /**
  * The schemas a node asserts in place: itself, then each target its `$ref` chain reaches in the
- * body's `$defs`, as far as references are followed anywhere here (`maxDefsRefHops`). A reference
- * the chain cannot follow ends it, and is left to `classify`, which names it.
+ * body's `$defs`. A reference the chain cannot follow, or one back to a schema already on it (a
+ * cycle), ends it, and is left to `classify`, which names it; so the chain ends.
  */
 const inPlace = (ctx: Ctx, json: Schema.Json): readonly Schema.Json[] => {
 	const chain: Schema.Json[] = [json]
-	for (let node = json; chain.length <= maxDefsRefHops;) {
+	for (let node = json; ;) {
 		const ref = isObject(node) ? node["$ref"] : undefined
 		const key = Predicate.isString(ref) ? defsKeyOf(ref) : undefined
 		const target = key === undefined ? undefined : ctx.defs[key]
-		if (target === undefined) {
+		if (target === undefined || Arr.contains(chain, target)) {
 			return Predicate.isString(ref) ? [...chain, true] : chain
 		}
 
 		chain.push(target)
 		node = target
 	}
-
-	return [...chain, true]
 }
 
 /** Whether a node, with the targets its `$ref` chain reaches, shapes a flag (`shapeKeywords`). */
@@ -550,14 +473,10 @@ const shapes = (ctx: Ctx, json: Schema.Json): boolean =>
  * or their objects merged (`mergeObjects`) with the names the unshaped members require. Anything
  * else, a member mix or no shaped member at all, is opaque.
  */
-const intersect = (
-	ctx: Ctx,
-	members: readonly Classified[],
-	required: ReadonlySet<string>
-): Result.Result<Classified, BodyBudgetExceeded> => {
+const intersect = (members: readonly Classified[], required: ReadonlySet<string>): Classified => {
 	const [first, ...rest] = members
 	if (first === undefined) {
-		return Result.succeed(opaque)
+		return opaque
 	}
 
 	if (first._tag === "Scalar") {
@@ -567,29 +486,29 @@ const intersect = (
 				member._tag === "Scalar" && member.kind === first.kind && member.repeated === first.repeated
 		)
 
-		return Result.succeed(agree ? first : opaque)
+		return agree ? first : opaque
 	}
 
-	return Result.map(mergeObjects(ctx, members), (merged) =>
-		merged._tag === "Object"
-			? { ...merged, required: new Set([...merged.required, ...required]) }
-			: merged
-	)
+	const merged = mergeObjects(members)
+
+	return merged._tag === "Object"
+		? { ...merged, required: new Set([...merged.required, ...required]) }
+		: merged
 }
 
 type RefLookup =
-	| { readonly _tag: "Cached"; readonly result: Result.Result<Classified, FlattenError> }
+	| { readonly _tag: "Cached"; readonly result: Result.Result<Classified, UnresolvedBodyRef> }
 	| { readonly _tag: "Fresh"; readonly name: string; readonly target: Schema.Json }
 
-const lookupRef = (
-	ctx: Ctx,
-	ref: string,
-	hops: number
-): Result.Result<RefLookup, UnresolvedBodyRef> => {
+/**
+ * The definition a `$ref` names: classified already, or fresh. A definition still being classified
+ * is a cycle, unresolved, so each definition is classified once and `classify` ends.
+ */
+const lookupRef = (ctx: Ctx, ref: string): Result.Result<RefLookup, UnresolvedBodyRef> => {
 	const name = defsKeyOf(ref)
 	const target = name === undefined ? undefined : ctx.defs[name]
 	const seen = name === undefined ? undefined : ctx.memo.get(name)
-	if (name === undefined || target === undefined || hops >= maxDefsRefHops || seen === inProgress) {
+	if (name === undefined || target === undefined || seen === inProgress) {
 		return Result.fail(UnresolvedBodyRef.make({ ref }))
 	}
 
@@ -626,14 +545,8 @@ const repeatedKind = (ctx: Ctx, kind: Scalar): Scalar =>
 const classify = (
 	ctx: Ctx,
 	json: Schema.Json,
-	site: Site,
-	hops: number
-): Result.Result<Classified, FlattenError> => {
-	ctx.visits += 1
-	if (ctx.visits > maxVisits) {
-		return exceeded()
-	}
-
+	site: Site
+): Result.Result<Classified, UnresolvedBodyRef> => {
 	const node = decodeNode(json)
 	if (Option.isNone(node)) {
 		return Result.succeed(opaque)
@@ -641,7 +554,7 @@ const classify = (
 
 	const schema = node.value
 	if (schema.$ref !== undefined) {
-		const found = lookupRef(ctx, schema.$ref, hops)
+		const found = lookupRef(ctx, schema.$ref)
 		if (Result.isFailure(found)) {
 			return Result.fail(found.failure)
 		}
@@ -653,7 +566,7 @@ const classify = (
 		const { name, target } = found.success
 		ctx.memo.set(name, inProgress)
 
-		const resolved = classify(ctx, target, { key: name, tokens: [] }, hops + 1)
+		const resolved = classify(ctx, target, { key: name, tokens: [] })
 		ctx.memo.set(name, resolved)
 
 		return resolved
@@ -686,9 +599,10 @@ const classify = (
 			)
 		)
 
-		return Result.all(
-			Arr.map(shaped, (member) => classify(ctx, member.schema, member.site, hops + 1))
-		).pipe(Result.flatMap((classified) => intersect(ctx, classified, required)))
+		return Result.map(
+			Result.all(Arr.map(shaped, (member) => classify(ctx, member.schema, member.site))),
+			(classified) => intersect(classified, required)
+		)
 	}
 
 	const type = schema.type ?? (schema.properties === undefined ? undefined : "object")
@@ -708,7 +622,7 @@ const classify = (
 	}
 
 	if (type === "array" && schema.items !== undefined) {
-		return Result.map(classify(ctx, schema.items, below(site, "items"), hops + 1), (item) => {
+		return Result.map(classify(ctx, schema.items, below(site, "items")), (item) => {
 			if (item._tag !== "Scalar" || item.repeated) {
 				return opaque
 			}
@@ -772,18 +686,15 @@ const closedObjectKeywords: ReadonlySet<string> = new Set([
  * The one value a schema admits, when it admits exactly one, after its `$ref` chain: its `const`; the member of a
  * one-member `enum`; or a closed object (`additionalProperties: false`, nothing beside its shape but annotations) whose
  * every property is required and admits one value itself, so a closed object with no properties admits `{}` alone.
- * Every node visited spends from the call's budget.
+ * `path` holds the `$defs` keys whose references led here: a reference back to one of them is a value that holds itself,
+ * which no finite value is, so it admits none, and the walk ends. A definition that reaches such a reference admits
+ * none from wherever it is read, so each definition's answer is kept (`oneValues`) and read once.
  */
 const oneValue = (
 	ctx: Ctx,
 	json: Schema.Json,
-	hops: number
-): Result.Result<Option.Option<Schema.Json>, FlattenError> => {
-	ctx.visits += 1
-	if (ctx.visits > maxVisits) {
-		return exceeded()
-	}
-
+	path: ReadonlySet<string>
+): Result.Result<Option.Option<Schema.Json>, UnresolvedBodyRef> => {
 	if (!isObject(json)) {
 		return Result.succeed(Option.none())
 	}
@@ -800,10 +711,23 @@ const oneValue = (
 	if (Predicate.isString($ref)) {
 		const name = defsKeyOf($ref)
 		const target = name === undefined ? undefined : ctx.defs[name]
+		if (name === undefined || target === undefined) {
+			return Result.fail(UnresolvedBodyRef.make({ ref: $ref }))
+		}
 
-		return target === undefined || hops >= maxDefsRefHops
-			? Result.fail(UnresolvedBodyRef.make({ ref: $ref }))
-			: oneValue(ctx, target, hops + 1)
+		if (path.has(name)) {
+			return Result.succeed(Option.none())
+		}
+
+		const known = ctx.oneValues.get(name)
+		if (known !== undefined) {
+			return known
+		}
+
+		const found = oneValue(ctx, target, new Set([...path, name]))
+		ctx.oneValues.set(name, found)
+
+		return found
 	}
 
 	const node = decodeNode(json)
@@ -831,7 +755,7 @@ const oneValue = (
 
 	const value: Record<string, Schema.Json> = {}
 	for (const [key, child] of properties) {
-		const one = oneValue(ctx, child, hops)
+		const one = oneValue(ctx, child, path)
 		if (Result.isFailure(one)) {
 			return one
 		}
@@ -863,16 +787,11 @@ const walkProperties = (
 		readonly names: readonly string[]
 		readonly tokens: readonly string[]
 	}
-): Result.Result<Walk, FlattenError> => {
+): Result.Result<Walk, UnresolvedBodyRef> => {
 	const constants: BodyConstant[] = []
 	const flags: BodyFlag[] = []
 	const skipped: SkippedProperty[] = []
 	for (const [key, { schema: child, site }] of object.properties) {
-		ctx.visits += 1
-		if (ctx.visits > maxVisits) {
-			return exceeded()
-		}
-
 		if ((at.depth === 1 && ctx.refusedFields.has(key)) || omitted(ctx, child)) {
 			continue
 		}
@@ -880,7 +799,7 @@ const walkProperties = (
 		const tokens = [...at.tokens, key]
 		const pointer = formatPointer(tokens)
 		if (object.required.has(key)) {
-			const one = oneValue(ctx, child, 0)
+			const one = oneValue(ctx, child, new Set())
 			if (Result.isFailure(one)) {
 				return Result.fail(one.failure)
 			}
@@ -909,7 +828,7 @@ const walkProperties = (
 			continue
 		}
 
-		const classified = classify(ctx, child, site, 0)
+		const classified = classify(ctx, child, site)
 		if (Result.isFailure(classified)) {
 			return Result.fail(classified.failure)
 		}
@@ -997,15 +916,10 @@ const nestedFlags = (
 	},
 	key: string,
 	folded: { readonly name: string; readonly notes: readonly FoldNote[] }
-): Result.Result<Option.Option<Walk>, FlattenError> => {
+): Result.Result<Option.Option<Walk>, UnresolvedBodyRef> => {
 	const flags: BodyFlag[] = []
 	const skipped: SkippedProperty[] = []
 	for (const [member, { schema: child, site }] of part.properties) {
-		ctx.visits += 1
-		if (ctx.visits > maxVisits) {
-			return exceeded()
-		}
-
 		if (omitted(ctx, child)) {
 			continue
 		}
@@ -1021,7 +935,7 @@ const nestedFlags = (
 			continue
 		}
 
-		const classified = classify(ctx, child, site, 0)
+		const classified = classify(ctx, child, site)
 		if (Result.isFailure(classified)) {
 			return Result.fail(classified.failure)
 		}
@@ -1062,15 +976,10 @@ const nestedFlags = (
 const walkParts = (
 	ctx: Ctx,
 	properties: ReadonlyMap<string, Property>
-): Result.Result<Walk, FlattenError> => {
+): Result.Result<Walk, UnresolvedBodyRef> => {
 	const flags: BodyFlag[] = []
 	const skipped: SkippedProperty[] = []
 	for (const [key, { schema: child, site }] of properties) {
-		ctx.visits += 1
-		if (ctx.visits > maxVisits) {
-			return exceeded()
-		}
-
 		if (ctx.refusedFields.has(key) || omitted(ctx, child)) {
 			continue
 		}
@@ -1094,7 +1003,7 @@ const walkParts = (
 			continue
 		}
 
-		const classified = classify(ctx, child, site, 0)
+		const classified = classify(ctx, child, site)
 		if (Result.isFailure(classified)) {
 			return Result.fail(classified.failure)
 		}
@@ -1193,9 +1102,8 @@ const clashesOf = (flag: BodyFlag): readonly ReservedClash[] => [
  * top-level part and no whole-body flag (design 6.3, D-ENC1 a), except a positional
  * `multipart/mixed` body, whose one flag is the repeated `--part`; any other codec both whole-body
  * flags and no field flags. A multipart part reads its transfer encoding from
- * `alternative.encoding` (absent: no rules), never from its schema. Work is bounded: each `$defs`
- * key is classified once per call, and node visits, including every property entry, share one
- * budget (`BodyBudgetExceeded`). On the 3.0 `line`, a property or part whose schema is
+ * `alternative.encoding` (absent: no rules), never from its schema. Each `$defs` key is classified
+ * once per call, and fields nest at most `maxDepth` names deep. On the 3.0 `line`, a property or part whose schema is
  * `readOnly: true`, directly or through one `$ref`, gets no flag and no skip notice (S30-31,
  * D-SCH2); `--body` and `--body-file` still send it as given. On 3.1 and 3.2 a read-only property
  * keeps its flag (SCH-51). `format: byte` makes a JSON or form property a base64 `file` flag on 3.0
@@ -1218,7 +1126,7 @@ export const flattenBody = (
 			>
 		>,
 	line: SpecLine
-): Result.Result<FlattenedBody, FlattenError> => {
+): Result.Result<FlattenedBody, UnresolvedBodyRef> => {
 	const { codec, mediaType } = alternative
 	if (mediaType !== undefined && isPositionalBody({ ...alternative, mediaType })) {
 		return Result.succeed({ constants: [], flags: [wholeBody("part")], reserved: [], skipped: [] })
@@ -1255,7 +1163,7 @@ export const flattenBody = (
 		return Result.fail(UnresolvedBodyRef.make({ ref: `${defsRefPrefix}${key}` }))
 	}
 
-	const classified = classify(ctx, root, { key, tokens: [] }, 0)
+	const classified = classify(ctx, root, { key, tokens: [] })
 	if (Result.isFailure(classified)) {
 		return Result.fail(classified.failure)
 	}

@@ -157,7 +157,7 @@ describe("a secret-file field flag", () => {
 		const exit = await runInput(
 			merge({ fields: { "/password": secret("-") } }).pipe(
 				Effect.andThen(recorded),
-				Effect.map((entries) => Output.boundedExcerpt(`echo=${SECRET};`, 4096, entries))
+				Effect.map((entries) => Output.scrubbedAndSanitized(`echo=${SECRET};`, entries))
 			),
 			FILE_TEXT
 		)
@@ -199,13 +199,13 @@ describe("a secret-file field flag", () => {
 		expect(Exit.isSuccess(absent) ? absent.value.length : -1).toBe(0)
 	})
 
-	test("an excerpt echoing the value raw or JSON-escaped renders the label", async () => {
+	test("an error body echoing the value raw or JSON-escaped renders the label", async () => {
 		const exit = await runInput(
 			merge({ fields: { "/password": secret("-") } }).pipe(
 				Effect.andThen(recorded),
 				Effect.map((entries) => [
-					Output.boundedExcerpt(`raw=${SECRET};`, 4096, entries),
-					Output.boundedExcerpt(`{"echo":"${ESCAPED}"}`, 4096, entries)
+					Output.scrubbedAndSanitized(`raw=${SECRET};`, entries),
+					Output.scrubbedAndSanitized(`{"echo":"${ESCAPED}"}`, entries)
 				])
 			),
 			SECRET
@@ -221,7 +221,7 @@ describe("a secret-file field flag", () => {
 					Effect.andThen(recorded),
 					Effect.map((entries) =>
 						["pa55 w0rd", "pa55+w0rd", "pa55%20w0rd"].map((echo) =>
-							Output.boundedExcerpt(`echo=${echo};`, 4096, entries)
+							Output.scrubbedAndSanitized(`echo=${echo};`, entries)
 						)
 					)
 				)
@@ -276,7 +276,7 @@ const request = Serialize.request("POST", {
 // The leak case (audit ad9f808b F3): a secret recorded before `send` survives it, and the 500 body
 // that echoes it raw and JSON-escaped never carries the value out.
 describe("a secret recorded before send", () => {
-	test("is scrubbed from the ApiResponseError excerpt and by finalCatch", async () => {
+	test("is scrubbed from the ApiResponseError body and by finalCatch", async () => {
 		const stderr: Buffer[] = []
 		const client = HttpClient.make((sent) =>
 			Effect.succeed(
@@ -308,7 +308,6 @@ describe("a secret recorded before send", () => {
 			}),
 			Layer.succeed(Output.OutputPath, Option.none()),
 			Layer.succeed(Output.Force, false),
-			Layer.succeed(Output.MaxErrorBytes, Output.defaultMaxErrorBytes),
 			Layer.succeed(BaseUrl.baseUrlSetting, Option.none()),
 			Layer.succeed(BaseUrl.serverSetting, Option.none()),
 			Layer.succeed(BaseUrl.serverVariableSetting, []),
@@ -322,11 +321,11 @@ describe("a secret recorded before send", () => {
 		)
 		const exit = await Effect.runPromise(Effect.exit(program).pipe(Effect.provide(environment)))
 		const error = errorOf(exit)
-		const excerpt = error?._tag === "ApiResponseError" ? error.bodyExcerpt : ""
+		const body = error?._tag === "ApiResponseError" ? error.body : ""
 		const text = joined(stderr)
 
 		expect(error?._tag).toBe("ApiResponseError")
-		expect(excerpt).toBe(`raw=${LABEL} json={"password":"${LABEL}"}`)
+		expect(body).toBe(`raw=${LABEL} json={"password":"${LABEL}"}`)
 		expect(text).toContain(LABEL)
 		expect(text).not.toContain("pa55")
 	})

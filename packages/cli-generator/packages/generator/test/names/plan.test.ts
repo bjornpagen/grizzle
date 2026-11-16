@@ -7,7 +7,6 @@ import { Api } from "#model/entities.ts"
 import { fixedNamespaces } from "#names/domain.ts"
 import { planNames } from "#names/index.ts"
 import type { NamePlan, PlannedCommand } from "#names/index.ts"
-import { defaultLimits } from "#resolve/index.ts"
 
 type Json = Schema.Json
 
@@ -960,12 +959,7 @@ describe("planNames: domain names", () => {
 		const modules = [result.root, ...result.groups.map((group) => group.commands)]
 		const imported = modules.flatMap((commands) => imports(commands, result.domain))
 		const file = await Effect.runPromise(
-			emitDomainSchemas(
-				new Map(Object.entries({ ...defs })),
-				bodyKeys,
-				result.domain,
-				defaultLimits
-			)
+			emitDomainSchemas(new Map(Object.entries({ ...defs })), bodyKeys, result.domain)
 		)
 
 		expect(Arr.sort(imported, Order.String)).toEqual([
@@ -1106,7 +1100,7 @@ describe("planNames: bounded schema walks", () => {
 		expect(flagNames(commandOf(result, "deep"))).toEqual(["body", "body-file", "nested.leaf"])
 	})
 
-	test("a body over the node budget is REF-18/node-budget at operation scope", () => {
+	test("a body of more than ten thousand properties gets a flag for each, refused by no count", () => {
 		const wide = Object.fromEntries(
 			Array.from({ length: 10_001 }, (_, index) => [`p${index}`, { type: "string" }])
 		)
@@ -1122,10 +1116,8 @@ describe("planNames: bounded schema walks", () => {
 			]
 		})
 
-		expect(allCommands(result)).toEqual([])
-		expect(codes(result)).toEqual([
-			{ code: "REF-18/node-budget", scope: "operation", severity: "refusal" }
-		])
+		expect(codes(result)).toEqual([])
+		expect(flagNames(commandOf(result, "wide"))).toHaveLength(10_003)
 	})
 
 	test("an unresolved body reference is a defect", () => {

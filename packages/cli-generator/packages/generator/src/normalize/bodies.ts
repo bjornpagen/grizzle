@@ -15,7 +15,7 @@ import {
 	UndefinedOr
 } from "effect"
 import { HeaderName, MediaRange, stripUnsafeText } from "#model/brands.ts"
-import { Diagnostic, diagnosticOf, makeDiagnostic } from "#model/diagnostic.ts"
+import { Diagnostic, diagnosticOf } from "#model/diagnostic.ts"
 import type { DiagnosticOperation } from "#model/diagnostic.ts"
 import { Body, EncodingRule } from "#model/entities.ts"
 import type { DiscriminatorHint } from "#model/entities.ts"
@@ -46,12 +46,11 @@ import {
 	typeNames
 } from "#normalize/parameters.ts"
 import type { ScalarCover, StyleName } from "#normalize/parameters.ts"
-import { appliesDynamicKeyword, budgetOf, charge, schemaKeyAt } from "#normalize/schemas.ts"
-import type { Budget } from "#normalize/schemas.ts"
+import { appliesDynamicKeyword, schemaKeyAt } from "#normalize/schemas.ts"
 import { keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
 import { allOfReferrers, implicitComponent } from "#resolve/index.ts"
-import type { ResolveLimits, Resolution, ResolvedReference } from "#resolve/index.ts"
+import type { Resolution, ResolvedReference } from "#resolve/index.ts"
 import { mediaEssence } from "#runtime-src/runtime/sequential.ts"
 
 /**
@@ -95,14 +94,6 @@ export class BodyNotReadable extends Schema.TaggedError<
 	pointer: Schema.String,
 	reason: Schema.Literals(["media-type-not-an-object", "not-a-request-body"])
 }) {}
-
-/**
- * Schema inspection visited more nodes than the node budget allows.
- */
-export class BodyNodeBudget extends Schema.TaggedError<
-	BodyNodeBudget,
-	{ readonly brand: unique symbol }
->()("BodyNodeBudget", { diagnostic: Diagnostic }) {}
 
 const ObjectValue = Schema.Record(Schema.String, Schema.Unknown)
 
@@ -348,27 +339,12 @@ const nodeAt = (resolution: Resolution, at: CanonicalKey): Effect.Effect<SchemaN
 	)
 
 /**
- * What one body spends on schema inspection: every visit of an `allOf` member is charged to
- * `budget`, the resolution limits' node budget (design 9 I5).
+ * One body's schema inspection: the resolution it reads and the body's use site.
  */
 interface Walk {
-	readonly budget: Budget
 	readonly resolution: Resolution
 	readonly site: BodySite
 }
-
-const budgetFailure = (walk: Walk): Effect.Effect<never, BodyNodeBudget> =>
-	makeDiagnostic({
-		code: "REF-18/node-budget",
-		document: walk.resolution.document,
-		element: "Schema inspection",
-		message: "Inspecting the request body schemas visits more nodes than the node budget allows.",
-		openapi: walk.site.openapi,
-		pointer: walk.site.pointer,
-		scope: "document",
-		severity: "refusal",
-		specSection: specSectionUrl(walk.resolution.line, "reference-object")
-	}).pipe(Effect.flatMap((diagnostic) => Effect.fail(BodyNodeBudget.make({ diagnostic }))))
 
 /**
  * The schema and its `allOf` members in document order, each distinct schema once, so a graph
@@ -377,17 +353,13 @@ const budgetFailure = (walk: Walk): Effect.Effect<never, BodyNodeBudget> =>
 const flatten = Effect.fnUntraced(function* flatten(
 	walk: Walk,
 	start: CanonicalKey
-): Effect.fn.Return<readonly Located[], BodyNodeBudget> {
+): Effect.fn.Return<readonly Located[]> {
 	const seen = new Set<string>()
 	const found: Located[] = []
 	const pending = [start]
 	let next = pending.pop()
 	while (next !== undefined) {
 		const at = settle(walk.resolution, next)
-		if (!charge(walk.budget)) {
-			return yield* budgetFailure(walk)
-		}
-
 		if (!seen.has(keyOf(at))) {
 			seen.add(keyOf(at))
 
@@ -434,7 +406,7 @@ const noMembers: Members = { items: undefined, prefixItems: [], properties: [] }
 const membersOf = Effect.fnUntraced(function* membersOf(
 	walk: Walk,
 	schema: CanonicalKey
-): Effect.fn.Return<Members, BodyNodeBudget> {
+): Effect.fn.Return<Members> {
 	const nodes = yield* flatten(walk, schema)
 	const seen = new Set<string>()
 	const properties: (readonly [string, CanonicalKey])[] = []
@@ -492,7 +464,7 @@ const requiredStrings = Schema.decodeUnknownOption(Schema.Array(Schema.String))
 const requirementOf = Effect.fnUntraced(function* requirementOf(
 	walk: Walk,
 	schema: CanonicalKey
-): Effect.fn.Return<Requirement, BodyNodeBudget> {
+): Effect.fn.Return<Requirement> {
 	const names = new Set<string>()
 	const done = new Set<string>()
 	const path = new Set<string>()
@@ -501,14 +473,8 @@ const requirementOf = Effect.fnUntraced(function* requirementOf(
 	 * A schema already on the path is a cycle, and a reference `settle` left unfollowed is not
 	 * resolved: either leaves the walk unsure. A schema reached twice otherwise is read once.
 	 */
-	const visit = Effect.fnUntraced(function* member(
-		start: CanonicalKey
-	): Effect.fn.Return<void, BodyNodeBudget> {
+	const visit = Effect.fnUntraced(function* member(start: CanonicalKey): Effect.fn.Return<void> {
 		const at = settle(walk.resolution, start)
-		if (!charge(walk.budget)) {
-			return yield* budgetFailure(walk)
-		}
-
 		const key = keyOf(at)
 		if (path.has(key) || referenceIn(walk.resolution, at)?.kind === "schema") {
 			sure = false
@@ -559,7 +525,7 @@ const factsOf = Effect.fnUntraced(function* facts(
 	walk: Walk,
 	schema: CanonicalKey | undefined,
 	depth: number
-): Effect.fn.Return<Facts, BodyNodeBudget> {
+): Effect.fn.Return<Facts> {
 	if (schema === undefined) {
 		return noFacts
 	}
@@ -842,7 +808,7 @@ const isObjectPart = Effect.fnUntraced(function* isObjectPart(
 	walk: Walk,
 	schema: CanonicalKey | undefined,
 	facts: Facts
-): Effect.fn.Return<boolean, BodyNodeBudget> {
+): Effect.fn.Return<boolean> {
 	if (schema === undefined) {
 		return false
 	}
@@ -875,8 +841,8 @@ const typingOf = Effect.fnUntraced(function* typingOf(
 	ctx: Context,
 	input: RuleInput,
 	node: EncodingNode,
-	facts: Effect.Effect<Facts, BodyNodeBudget>
-): Effect.fn.Return<Typing, BodyNodeBudget> {
+	facts: Effect.Effect<Facts>
+): Effect.fn.Return<Typing> {
 	const given = explicitStyle(node)
 	const hasStyle = Struct.keys(given).length > 0
 	const findings: Finding[] = []
@@ -939,7 +905,7 @@ const partTypingOf = Effect.fnUntraced(function* partTypingOf(
 	input: RuleInput,
 	node: EncodingNode,
 	facts: Facts
-): Effect.fn.Return<Typing, BodyNodeBudget> {
+): Effect.fn.Return<Typing> {
 	const typing = yield* typingOf(ctx, input, node, Effect.succeed(facts))
 	const xml = Arr.some(typing.contentType, isXmlType)
 	if (typing.refused || !xml) {
@@ -1040,7 +1006,7 @@ const headersOf = Effect.fnUntraced(function* headersOf(
 			continue
 		}
 
-		const typed = yield* partHeader(resolution, at, name, at, { maxNodes: ctx.walk.budget.limit })
+		const typed = yield* partHeader(resolution, at, name, at)
 		if (PartHeaderOutcome.$is("Unsupported")(typed)) {
 			findings.push(
 				dropping(
@@ -1166,7 +1132,7 @@ interface Batch {
 	readonly rules: readonly PlainRule[]
 }
 
-type BuildAll = (ctx: Context, inputs: readonly RuleInput[]) => Effect.Effect<Batch, BodyNodeBudget>
+type BuildAll = (ctx: Context, inputs: readonly RuleInput[]) => Effect.Effect<Batch>
 
 const nestedRows = (node: EncodingNode): readonly string[] => [
 	...(node.encoding === undefined ? [] : ["ENC-07"]),
@@ -1184,7 +1150,7 @@ const nestingOf = Effect.fnUntraced(function* nestingOf(
 	input: RuleInput,
 	node: EncodingNode,
 	buildAll: BuildAll
-): Effect.fn.Return<Nesting, BodyNodeBudget> {
+): Effect.fn.Return<Nesting> {
 	const nests =
 		Record.keys(node.encoding ?? {}).length > 0 || (node.prefixEncoding ?? []).length > 0
 	if (input.depth === 1 && (nests || node.itemEncoding !== undefined)) {
@@ -1426,7 +1392,7 @@ const buildRule = Effect.fnUntraced(function* buildRule(
 	ctx: Context,
 	input: RuleInput,
 	buildAll: BuildAll
-): Effect.fn.Return<RuleResult, BodyNodeBudget> {
+): Effect.fn.Return<RuleResult> {
 	const node: EncodingNode = input.node ?? {}
 	const facts = yield* factsOf(ctx.walk, input.schema, 0)
 	const typing = yield* partTypingOf(ctx, input, node, facts)
@@ -1499,7 +1465,7 @@ const buildRule = Effect.fnUntraced(function* buildRule(
 const buildAll: BuildAll = Effect.fnUntraced(function* all(
 	ctx: Context,
 	inputs: readonly RuleInput[]
-): Effect.fn.Return<Batch, BodyNodeBudget> {
+): Effect.fn.Return<Batch> {
 	const findings: Finding[] = []
 	const rules: PlainRule[] = []
 	for (const input of inputs) {
@@ -1682,10 +1648,7 @@ const refusedParts = (findings: readonly Finding[]): Parts => ({
 /**
  * The schema-valued additionalProperties of a multipart root, found through `$ref` and `allOf`.
  */
-const extraFields = (
-	ctx: Context,
-	schema: CanonicalKey
-): Effect.Effect<readonly Finding[], BodyNodeBudget> =>
+const extraFields = (ctx: Context, schema: CanonicalKey): Effect.Effect<readonly Finding[]> =>
 	flatten(ctx.walk, schema).pipe(
 		Effect.map((nodes) => {
 			const found = firstLocated(nodes, (node) =>
@@ -1881,7 +1844,7 @@ const isArrayBody = Effect.fnUntraced(function* isArrayBody(
 	walk: Walk,
 	schema: CanonicalKey,
 	members: Members
-): Effect.fn.Return<boolean, BodyNodeBudget> {
+): Effect.fn.Return<boolean> {
 	if (
 		members.properties.length === 0 &&
 		(members.items !== undefined || members.prefixItems.length > 0)
@@ -1901,7 +1864,7 @@ const isObjectBody = Effect.fnUntraced(function* isObjectBody(
 	walk: Walk,
 	schema: CanonicalKey,
 	members: Members
-): Effect.fn.Return<boolean, BodyNodeBudget> {
+): Effect.fn.Return<boolean> {
 	if (yield* isArrayBody(walk, schema, members)) {
 		return false
 	}
@@ -1931,7 +1894,7 @@ const partStyles = Effect.fnUntraced(function* partStyles(
 	schema: CanonicalKey | undefined,
 	inputs: readonly RuleInput[],
 	findings: readonly Finding[]
-): Effect.fn.Return<PartStyles, BodyNodeBudget> {
+): Effect.fn.Return<PartStyles> {
 	const named = new Map(
 		Arr.flatMap(inputs, (input): readonly (readonly [string, string])[] =>
 			input.target.kind === "property" ? [[keyOf(input.actual), input.target.name]] : []
@@ -1967,7 +1930,7 @@ const multipartParts = Effect.fnUntraced(function* multipartParts(
 	ctx: Context,
 	media: Media,
 	base: string
-): Effect.fn.Return<Parts, BodyNodeBudget> {
+): Effect.fn.Return<Parts> {
 	const { line } = ctx
 	const blocker = partsBlocker(line, media)
 	if (blocker !== undefined) {
@@ -2104,7 +2067,7 @@ const formContentTypeRefusal = (input: RuleInput, expected: string): Finding =>
 const isNested = Effect.fnUntraced(function* isNested(
 	walk: Walk,
 	schema: CanonicalKey | undefined
-): Effect.fn.Return<boolean, BodyNodeBudget> {
+): Effect.fn.Return<boolean> {
 	if (schema === undefined) {
 		return false
 	}
@@ -2169,9 +2132,7 @@ const scalarCoverOf = (
 ): Effect.Effect<ScalarCover> =>
 	serialization?.style !== "deepObject" || input.schema === undefined
 		? Effect.succeed("strict")
-		: scalarCover(ctx.resolution, input.schema, ctx.site.nonStandard, {
-				maxNodes: ctx.walk.budget.limit
-			})
+		: scalarCover(ctx.resolution, input.schema, ctx.site.nonStandard)
 
 /**
  * The query style table's refusal for a form property's explicit style fields (design 6.3, through
@@ -2184,9 +2145,7 @@ const styleRefusalOf = (
 ): Effect.Effect<Option.Option<Finding>> =>
 	serialization === undefined
 		? Effect.succeedNone
-		: formStyleRefusal(ctx.resolution, input.schema, serialization, {
-				maxNodes: ctx.walk.budget.limit
-			}).pipe(
+		: formStyleRefusal(ctx.resolution, input.schema, serialization).pipe(
 				Effect.map(
 					Option.map((found) =>
 						dropping({
@@ -2233,7 +2192,7 @@ const deepObjectOf = Effect.fnUntraced(function* deepObjectOf(
 	ctx: Context,
 	input: RuleInput,
 	serialization: PlainSerialization | undefined
-): Effect.fn.Return<DeepObjectAction, BodyNodeBudget> {
+): Effect.fn.Return<DeepObjectAction> {
 	if (serialization?.style !== "deepObject" || !(yield* isNested(ctx.walk, input.schema))) {
 		return "none"
 	}
@@ -2251,7 +2210,7 @@ const coveredDeepObject = (
 	input: RuleInput,
 	serialization: PlainSerialization | undefined,
 	cover: ScalarCover
-): Effect.Effect<DeepObjectAction, BodyNodeBudget> => {
+): Effect.Effect<DeepObjectAction> => {
 	switch (cover) {
 		case "scalars": {
 			return Effect.succeed("none")
@@ -2278,7 +2237,7 @@ const coveredDeepObject = (
 const formRule = Effect.fnUntraced(function* formRule(
 	ctx: Context,
 	input: RuleInput
-): Effect.fn.Return<RuleResult, BodyNodeBudget> {
+): Effect.fn.Return<RuleResult> {
 	const node: EncodingNode = input.node ?? {}
 	const typing = yield* typingOf(ctx, input, node, factsOf(ctx.walk, input.schema, 0))
 	if (typing.refused) {
@@ -2398,7 +2357,7 @@ const formParts = Effect.fnUntraced(function* formParts(
 	ctx: Context,
 	media: Media,
 	fields: boolean
-): Effect.fn.Return<Parts, BodyNodeBudget> {
+): Effect.fn.Return<Parts> {
 	const schema = media.node.schema === undefined ? undefined : childKey(media.home, "schema")
 	const members = schema === undefined ? noMembers : yield* membersOf(ctx.walk, schema)
 	const keys = unknownKeys(ctx.line, media, members)
@@ -2465,12 +2424,7 @@ const ignoredParts = (line: SpecLine, media: Media): Parts => {
  * The part rules of an alternative: multipart and form-urlencoded read their encoding fields; any
  * other codec ignores them.
  */
-const partsOf = (
-	ctx: Context,
-	media: Media,
-	base: string,
-	codec: Codec
-): Effect.Effect<Parts, BodyNodeBudget> => {
+const partsOf = (ctx: Context, media: Media, base: string, codec: Codec): Effect.Effect<Parts> => {
 	if (codec === "multipart") {
 		return multipartParts(ctx, media, base)
 	}
@@ -2484,7 +2438,7 @@ const normalizeAlternative = Effect.fnUntraced(function* normalizeAlternative(
 	ctx: Context,
 	body: CanonicalKey,
 	key: string
-): Effect.fn.Return<AlternativeResult, BodyNodeBudget | BodyNotReadable> {
+): Effect.fn.Return<AlternativeResult, BodyNotReadable> {
 	const { line, resolution } = ctx
 	const mediaSite = childKey(body, "content", key)
 	if (Option.isNone(decodeMediaRange(key))) {
@@ -2509,8 +2463,7 @@ const normalizeAlternative = Effect.fnUntraced(function* normalizeAlternative(
 		: Arr.flatMap(["schema", "itemSchema"] as const, (field) =>
 				node[field] === undefined ? [] : [childKey(home, field)]
 			)
-	const limits = { maxNodes: ctx.walk.budget.limit }
-	if (Arr.some(schemaSites, (site) => appliesDynamicKeyword(resolution, site, limits))) {
+	if (Arr.some(schemaSites, (site) => appliesDynamicKeyword(resolution, site))) {
 		return stopAlternative([])
 	}
 
@@ -2822,9 +2775,8 @@ export const hintDiscriminators: (
  */
 export const normalizeBody = Effect.fnUntraced(function* normalizeBody(
 	resolution: Resolution,
-	site: BodySite,
-	limits: ResolveLimits
-): Effect.fn.Return<BodyOutcome, BodyNodeBudget | BodyNotReadable> {
+	site: BodySite
+): Effect.fn.Return<BodyOutcome, BodyNotReadable> {
 	const use = { document: resolution.document, pointer: site.pointer }
 	const reference = referenceIn(resolution, use)
 	const target = follow(resolution, use)
@@ -2834,7 +2786,7 @@ export const normalizeBody = Effect.fnUntraced(function* normalizeBody(
 			BodyNotReadable.make({ pointer: site.pointer, reason: "not-a-request-body" })
 		)
 	)
-	const walk: Walk = { budget: budgetOf({ maxNodes: limits.maxNodes }), resolution, site }
+	const walk: Walk = { resolution, site }
 	const ctx: Context = { line: resolution.line, reference, resolution, site, walk }
 	const required = node.required ?? false
 	const keys = Record.keys(node.content)
@@ -2895,16 +2847,15 @@ export const FormContentOutcome = Data.taggedEnum<FormContentOutcome>()
 export const formContentRules = Effect.fnUntraced(function* formContentRules(
 	resolution: Resolution,
 	site: BodySite,
-	mediaType: string,
-	limits: ResolveLimits
-): Effect.fn.Return<FormContentOutcome, BodyNodeBudget | BodyNotReadable> {
+	mediaType: string
+): Effect.fn.Return<FormContentOutcome, BodyNotReadable> {
 	if (codecOf(mediaEssence(mediaType)) !== "form") {
 		return FormContentOutcome.Implemented({ diagnostics: [], encoding: [] })
 	}
 
 	const use = { document: resolution.document, pointer: site.pointer }
 	const reference = referenceIn(resolution, use)
-	const walk: Walk = { budget: budgetOf({ maxNodes: limits.maxNodes }), resolution, site }
+	const walk: Walk = { resolution, site }
 	const ctx: Context = { line: resolution.line, reference, resolution, site, walk }
 	const mediaSite = childKey(follow(resolution, use), "content", mediaType)
 	const media = yield* readMedia(resolution, mediaSite)

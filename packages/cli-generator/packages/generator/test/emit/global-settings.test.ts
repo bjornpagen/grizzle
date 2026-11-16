@@ -42,7 +42,7 @@ const emit = (value: Schema.Json) =>
 const contentOf = (output: CliEmitOutput, path: string) =>
 	output.files.find((file) => file.path === path)?.content ?? ""
 
-// The root's settings in registration order: the Milestone 2 eight, then the Milestone 3 eight in
+// The root's settings in registration order: the Milestone 2 seven, then the Milestone 3 eight in
 // the order the slice list fixes (m3-wi1a), then the file settings the root mints once.
 const registered = [
 	"BaseUrl.baseUrlSetting",
@@ -51,7 +51,6 @@ const registered = [
 	"Auth.allowCredentialsForBaseUrl",
 	"Output.OutputPath",
 	"Output.Force",
-	"Output.MaxErrorBytes",
 	"Describe.describeFlag",
 	"Client.timeoutSetting",
 	"Client.retriesSetting",

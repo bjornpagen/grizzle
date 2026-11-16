@@ -659,17 +659,13 @@ const composePairs = (
 const isEmptyCompound = (value: Nested) =>
 	isNestedList(value) ? value.length === 0 : !isScalar(value) && Rec.isEmptyReadonlyRecord(value)
 
-/**
- * Bracket paths stop here (design 6.1): deeper is refused, so the walk is bounded.
- */
-const maxBracketDepth = 32
-
 type Leaf = readonly [keys: readonly string[], text: string]
 
 /**
  * Every leaf below `value` with its path of member names and indexes, in document order. An
  * undefined member is omitted, as in the one-level form; a `null` member, an undefined or `null`
- * item and a lone surrogate are refused. Depth is checked before descending.
+ * item and a lone surrogate are refused. The walk is an Effect, whose fiber keeps its own stack, so a value as deep as
+ * the operator gives it is walked.
  */
 const bracketLeaves = (
 	name: string,
@@ -677,10 +673,6 @@ const bracketLeaves = (
 	keys: readonly string[]
 ): Effect.Effect<readonly Leaf[], UsageError> =>
 	Effect.gen(function* bracketWalk() {
-		if (keys.length > maxBracketDepth) {
-			return yield* refuse(`parameter ${name} nests deeper than ${maxBracketDepth} levels`)
-		}
-
 		if (isScalar(value)) {
 			const text = yield* itemText(name, value)
 

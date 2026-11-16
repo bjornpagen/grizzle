@@ -18,8 +18,7 @@ import {
 	typeKeyword,
 	typeName,
 	typeReadonlyArray,
-	typeRef,
-	typeUnion
+	typeRef
 } from "#emit/printer.ts"
 import type { Expr, Import, Module, Param, PrinterError, Statement } from "#emit/printer.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
@@ -128,12 +127,11 @@ const mainModule = (config: AuthorConfig): Module => {
  * The client-certificate part of `bin.ts` (design 4.3, 6.5 `mutualTLS` row, D-SEC3), emitted only
  * for a package with a `mutualTLS` scheme. At start-up it reads each `mutualTLS` scheme of
  * `api/security.ts` through the runtime's `Auth.clientCertificatePaths` (the names the scheme
- * carries are the one derivation) and reads each configured path into bytes (design 9 I5): a path
- * that cannot be read, is not a regular file (a directory, FIFO or device is never opened) or holds
- * more than `Auth.maxCertificateBytes` is a `UsageError` naming its environment variable and never
- * the path, exit 2, rendered once by `Output.finalCatch`, which reads `<PREFIX>_ERROR_FORMAT` as
- * for a parse-time error (design 7.4). The read itself stops at the bound, so a file swapped after
- * the `stat` cannot exceed it. Over the first configured scheme's PEM text it builds the
+ * carries are the one derivation) and reads each configured path whole (design 9 I5): a path
+ * that cannot be read or is not a regular file (a directory, FIFO or device is never opened) is a
+ * `UsageError` naming its environment variable and never the path, exit 2, rendered once by
+ * `Output.finalCatch`, which reads `<PREFIX>_ERROR_FORMAT` as for a parse-time error (design 7.4).
+ * Over the first configured scheme's PEM text it builds the
  * certified clients: a direct pool that presents `{ cert, key, ca? }` to the host it connects to,
  * and a proxy-environment pool that presents it to the host through the tunnel (`requestTls`) and
  * never to the proxy. The runtime sends a hop through them only on the operation's bound origins,
@@ -145,7 +143,7 @@ const clientCertificateStatements = (): readonly Statement[] => {
 		[
 			{
 				name: I("parts"),
-				type: typeReadonlyArray(typeUnion([typeKeyword("number"), typeKeyword("string")]))
+				type: typeReadonlyArray(typeKeyword("string"))
 			}
 		],
 		newExpr(path("UsageError"), [obj([["message", fn("parts.join", str(""))]])])
@@ -156,19 +154,8 @@ const clientCertificateStatements = (): readonly Statement[] => {
 		[],
 		fn("unreadable", arr([str("cannot read the file named by "), path("name")]))
 	)
-	const bounded = piped(
+	const whole = piped(
 		fn("Stream.mapError", fn("fs.stream", path("path")), cannotRead),
-		fn(
-			"Stream.limitBytes",
-			path("Auth.maxCertificateBytes"),
-			arrow(
-				[],
-				fn(
-					"Stream.fail",
-					fileNamed([str(" is larger than "), path("Auth.maxCertificateBytes"), str(" bytes")])
-				)
-			)
-		),
 		path("Stream.decodeText"),
 		path("Stream.mkString")
 	)
@@ -176,7 +163,7 @@ const clientCertificateStatements = (): readonly Statement[] => {
 		[{ name: I("info") }],
 		piped(
 			fn("Match.value", path("info")),
-			fn("Match.when", obj([["type", str("File")]]), arrow([], bounded)),
+			fn("Match.when", obj([["type", str("File")]]), arrow([], whole)),
 			fn("Match.orElse", arrow([], fn("Effect.fail", fileNamed([str(" is not a regular file")]))))
 		)
 	)

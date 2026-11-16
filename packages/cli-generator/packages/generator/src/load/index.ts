@@ -1,27 +1,18 @@
 import { Effect, Option, String as Str } from "effect"
 import type { FileSystem, PlatformError, Stream } from "effect"
-import {
-	defaultLoadLimits,
-	readFileBounded,
-	readStreamBounded,
-	refuse,
-	wholeInput
-} from "#load/budget.ts"
-import type { LoadLimits, LoadRefusal } from "#load/budget.ts"
 import { parseStrictJson } from "#load/json.ts"
+import { readOperatorFile, readStreamBytes, refuse, wholeInput } from "#load/read.ts"
+import type { LoadRefusal } from "#load/read.ts"
 import { parseStrictYaml } from "#load/yaml.ts"
 import type { DocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
 
-export { LoadRefusal } from "#load/budget.ts"
-
-export type { LoadLimits } from "#load/budget.ts"
+export { LoadRefusal } from "#load/read.ts"
 
 type Document = typeof DocumentUri.Type
 
 export interface LoadOptions {
 	readonly document: Document
-	readonly limits?: Partial<LoadLimits>
 }
 
 export interface Loaded {
@@ -29,8 +20,6 @@ export interface Loaded {
 	readonly format: "json" | "yaml"
 	readonly value: Json
 }
-
-const limitsOf = (options: LoadOptions): LoadLimits => ({ ...defaultLoadLimits, ...options.limits })
 
 const hasBom = (bytes: Uint8Array): boolean =>
 	bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
@@ -50,46 +39,41 @@ export const loadBytes = Effect.fn("load.loadBytes")(function* loadBytes(
 	bytes: Uint8Array,
 	options: LoadOptions
 ): Effect.fn.Return<Loaded, LoadRefusal> {
-	const limits = limitsOf(options)
 	const { document } = options
-
-	if (bytes.length > limits.maxBytes) {
-		return yield* refuse(document, "DOC-14/too-large", wholeInput)
-	}
 
 	return yield* Option.match(decodeUtf8(bytes), {
 		onNone: () => refuse(document, "DOC-14/invalid-encoding", wholeInput),
 		onSome: (text) =>
 			Str.startsWith("{")(Str.trimStart(text))
-				? parseStrictJson(text, limits, document, hasBom(bytes) ? 3 : 0).pipe(
+				? parseStrictJson(text, document, hasBom(bytes) ? 3 : 0).pipe(
 						Effect.map((value): Loaded => ({ document, format: "json", value }))
 					)
-				: parseStrictYaml(text, limits, document, hasBom(bytes) ? 3 : 0).pipe(
+				: parseStrictYaml(text, document, hasBom(bytes) ? 3 : 0).pipe(
 						Effect.map((value): Loaded => ({ document, format: "yaml", value }))
 					)
 	})
 })
 
 /**
- * Loads one document from a file through a bounded stream, so `maxBytes` caps the bytes read.
+ * Loads one document from a file the operator named, read whole from the handle it checked.
  */
 export const loadFile = Effect.fn("load.loadFile")(function* loadFile(
 	path: string,
 	options: LoadOptions
 ): Effect.fn.Return<Loaded, LoadRefusal, FileSystem.FileSystem> {
-	const bytes = yield* readFileBounded(path, limitsOf(options), options.document)
+	const bytes = yield* readOperatorFile(path, options.document)
 
 	return yield* loadBytes(bytes, options)
 })
 
 /**
- * Loads one document from a byte stream (stdin) through `Stream.limitBytes`.
+ * Loads one document from a byte stream (stdin), read whole.
  */
 export const loadStream = Effect.fn("load.loadStream")(function* loadStream(
 	stream: Stream.Stream<Uint8Array, PlatformError.PlatformError>,
 	options: LoadOptions
 ): Effect.fn.Return<Loaded, LoadRefusal> {
-	const bytes = yield* readStreamBounded(stream, limitsOf(options), options.document)
+	const bytes = yield* readStreamBytes(stream, options.document)
 
 	return yield* loadBytes(bytes, options)
 })

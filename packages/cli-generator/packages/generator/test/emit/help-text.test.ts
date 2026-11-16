@@ -10,11 +10,11 @@
  * default and read-only mark, and `deprecated` last when it applies; REQUEST names the method, path, body media types
  * and operation id; AUTH names each alternative's schemes with their markers, credential sources, flows, scopes and
  * roles; RESPONSES names each case in order; REFUSED names each refused element of this operation and nothing else.
- * `sanitizeProse`, which every help field goes through, keeps exactly the safe code points of its input, in order, up
- * to its cap.
+ * `stripUnsafeText`, which every help field goes through, keeps exactly the safe code points of its input, in order,
+ * however long it is.
  *
- * An operation's docs are drawn as normalization holds them, sanitized and so never past the cap: a description at the
- * cap is one the cap cut.
+ * An operation's docs are drawn as normalization holds them, sanitized and whole: a long description is kept to its
+ * end.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -68,7 +68,7 @@ import {
 	PathTemplate,
 	SafeText,
 	WireName,
-	sanitizeProse
+	stripUnsafeText
 } from "#model/brands.ts"
 import { Diagnostic } from "#model/diagnostic.ts"
 import {
@@ -118,7 +118,7 @@ const TEXT_CHARS: Arr.NonEmptyReadonlyArray<string> = [
 const text: Gen<string> = string(characterOf(TEXT_CHARS), { min: 1, max: 8 })
 
 /** Text the model already holds as safe: sanitized at normalization, LF and TAB kept. */
-const safeText: Gen<typeof SafeText.Type> = map(text, sanitizeProse)
+const safeText: Gen<typeof SafeText.Type> = map(text, stripUnsafeText)
 
 const WIRE_CHARS: Arr.NonEmptyReadonlyArray<string> = [
 	"a",
@@ -501,12 +501,11 @@ const METHODS: Arr.NonEmptyReadonlyArray<string> = ["GET", "POST", "PATCH", "DEL
 
 const PATHS: Arr.NonEmptyReadonlyArray<string> = ["/users/{id}", "/pets", "/a/{b}/c"]
 
-/** The code points prose keeps (src/model/brands.ts `maxProseLength`). */
-const MAX_PROSE = 2000
+/** How many code points past its start a long description draws, longer than any one help line. */
+const LONG_PROSE = 2100
 
 /**
- * An operation's docs as normalization holds them: sanitized, so a description longer than the cap was cut to it, and
- * the model never holds one past it.
+ * An operation's docs as normalization holds them: sanitized and whole, a long description included.
  */
 const docsGen: Gen<Operation["docs"]> = (s) => {
 	const long = s.draw(
@@ -516,7 +515,7 @@ const docsGen: Gen<Operation["docs"]> = (s) => {
 		])
 	)
 	const prose = long
-		? map(text, (start) => sanitizeProse(`${start}${Str.repeat(MAX_PROSE + 100)("x")}`))
+		? map(text, (start) => stripUnsafeText(`${start}${Str.repeat(LONG_PROSE)("x")}`))
 		: safeText
 	return {
 		...Option.match(s.draw(option(prose)), {
@@ -616,7 +615,7 @@ const helpInputGen: Gen<HelpInput> = (s) => {
 const lineBreaks = regex("[\\n\\t]+", "gu")
 
 /** A single-line field as help's contract states it: sanitized, each run of LF and TAB folded to one space. */
-const line = (value: string): string => Str.replaceAll(lineBreaks, " ")(sanitizeProse(value))
+const line = (value: string): string => Str.replaceAll(lineBreaks, " ")(stripUnsafeText(value))
 
 const unsafe = regex("[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}\\p{Cs}]", "u")
 
@@ -692,7 +691,7 @@ const tableLineOf = (docs: HelpInput["operation"]["docs"]): string => {
 		onSome: (at) => Arr.join(Arr.take(characters, at + 1), "")
 	})
 
-	return folded(sanitizeProse(docs.summary ?? sentence))
+	return folded(stripUnsafeText(docs.summary ?? sentence))
 }
 
 const isArgument = (flag: HelpFlag): boolean =>
@@ -1019,7 +1018,7 @@ type Feature =
 	| "a description"
 	| "a summary alone"
 	| "no prose"
-	| "a description at the cap"
+	| "a long description"
 	| "a path argument"
 	| "a negatable flag"
 	| "a body field with choices"
@@ -1077,8 +1076,8 @@ const featuresOf = (input: HelpInput): ReadonlyArray<Feature> => {
 			"no prose"
 		),
 		...when(
-			Arr.fromIterable(operation.docs.description ?? "").length === MAX_PROSE,
-			"a description at the cap"
+			Arr.fromIterable(operation.docs.description ?? "").length >= LONG_PROSE,
+			"a long description"
 		),
 		...when(Arr.some(input.flags, isArgument), "a path argument"),
 		...when(
@@ -1272,7 +1271,7 @@ describe("emit: help", () => {
 								"a description",
 								"a summary alone",
 								"no prose",
-								"a description at the cap",
+								"a long description",
 								"a path argument",
 								"a negatable flag",
 								"a body field with choices",
@@ -1328,7 +1327,7 @@ describe("emit: help", () => {
 									findings: helpFindings(input, help)
 								},
 								{
-									description: sanitizeProse(
+									description: stripUnsafeText(
 										operation.docs.description ?? operation.docs.summary ?? ""
 									),
 									summary: tableLineOf(operation.docs),
@@ -1352,7 +1351,7 @@ describe("emit: help", () => {
 			)
 	)
 
-	it.effect("sanitizing prose keeps exactly its safe code points, in order, up to the cap", (ctx) =>
+	it.effect("sanitizing prose keeps exactly its safe code points, in order, however many", (ctx) =>
 		searched(
 			ctx,
 			explore(
@@ -1360,7 +1359,7 @@ describe("emit: help", () => {
 					suite: "sanitize prose",
 					oracle: {
 						kind: "second-implementation",
-						name: "the prose's safe code points, filtered in order and taken up to the cap"
+						name: "the prose's safe code points, filtered in order"
 					},
 					draw: drawn(
 						weighted<string>([
@@ -1368,14 +1367,16 @@ describe("emit: help", () => {
 							[
 								1,
 								(s) =>
-									Str.repeat(s.draw(int(1990, 2010)))(s.draw(element(["a", "中", "😀", "\u200e"])))
+									Str.repeat(s.draw(int(LONG_PROSE, LONG_PROSE + 20)))(
+										s.draw(element(["a", "中", "😀", "\u200e"]))
+									)
 							]
 						])
 					),
 					literal: Formatter.format,
 					coverage: required<
-						"a removed code point" | "past the cap" | "a kept line break" | "an astral character"
-					>(["a removed code point", "past the cap", "a kept line break", "an astral character"], {
+						"a removed code point" | "a long text" | "a kept line break" | "an astral character"
+					>(["a removed code point", "a long text", "a kept line break", "an astral character"], {
 						cases: 500,
 						sense: notesOnly
 					}),
@@ -1391,7 +1392,7 @@ describe("emit: help", () => {
 						const kept = Arr.filter(points, isKept)
 						k.noteAll([
 							...(kept.length < points.length ? (["a removed code point"] as const) : []),
-							...(kept.length > MAX_PROSE ? (["past the cap"] as const) : []),
+							...(kept.length >= LONG_PROSE ? (["a long text"] as const) : []),
 							...(Arr.some(kept, (char) => char === "\n" || char === "\t")
 								? (["a kept line break"] as const)
 								: []),
@@ -1399,7 +1400,7 @@ describe("emit: help", () => {
 								? (["an astral character"] as const)
 								: [])
 						])
-						deepStrictEqual(sanitizeProse(prose), Arr.join(Arr.take(kept, MAX_PROSE), ""))
+						deepStrictEqual(stripUnsafeText(prose), Arr.join(kept, ""))
 					})
 			)
 		)

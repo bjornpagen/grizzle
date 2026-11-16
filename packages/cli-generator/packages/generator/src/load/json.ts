@@ -1,8 +1,8 @@
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, Schema, String as Str } from "effect"
-import { refuse, wholeInput } from "#load/budget.ts"
-import type { LoadLimits, LoadRefusal, Position } from "#load/budget.ts"
 import { byteOffset } from "#load/offset.ts"
+import { refuse, wholeInput } from "#load/read.ts"
+import type { LoadRefusal, Position } from "#load/read.ts"
 import type { DocumentUri } from "#model/brands.ts"
 import { formatPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
@@ -132,11 +132,6 @@ interface Finding {
 	readonly pointer: string
 }
 
-interface Scan {
-	readonly limit?: "DOC-14/depth-limit" | "DOC-14/node-budget"
-	readonly finding?: Finding
-}
-
 const rootContext: Context = { data: false, nameMap: false, opaque: false }
 
 const valueContext = (frame: Frame | undefined): Context => {
@@ -179,20 +174,9 @@ const tokenEnd = (text: string, start: number): number => {
 
 interface State {
 	readonly frames: Frame[]
-	readonly limits: LoadLimits
 	readonly text: string
 	cursor: number
 	finding: Finding | undefined
-	limit: Scan["limit"]
-	nodes: number
-}
-
-const spend = (state: State): void => {
-	state.nodes += 1
-
-	if (state.nodes > state.limits.maxNodes) {
-		state.limit = "DOC-14/node-budget"
-	}
 }
 
 const record = (state: State, code: Finding["code"], index: number): void => {
@@ -200,14 +184,6 @@ const record = (state: State, code: Finding["code"], index: number): void => {
 }
 
 const open = (state: State, char: string): void => {
-	spend(state)
-
-	if (state.frames.length + 1 > state.limits.maxDepth) {
-		state.limit = "DOC-14/depth-limit"
-
-		return
-	}
-
 	state.frames.push({
 		...valueContext(state.frames.at(-1)),
 		array: char === "[",
@@ -237,9 +213,7 @@ const string = (state: State): void => {
 	const top = state.frames.at(-1)
 	const end = stringEnd(state.text, state.cursor)
 
-	if (top === undefined || top.array || !top.expectKey) {
-		spend(state)
-	} else {
+	if (top !== undefined && !top.array && top.expectKey) {
 		const raw = Str.slice(state.cursor + 1, end)(state.text)
 
 		top.key = Str.includes("\\")(raw) ? unescapeKey(raw) : raw
@@ -257,8 +231,6 @@ const string = (state: State): void => {
 const token = (state: State): void => {
 	const end = tokenEnd(state.text, state.cursor)
 
-	spend(state)
-
 	if (
 		valueContext(state.frames.at(-1)).data &&
 		isUnsafeNumber(Str.slice(state.cursor, end)(state.text))
@@ -270,21 +242,19 @@ const token = (state: State): void => {
 }
 
 /**
- * One iterative pass over the text: depth, node budget, duplicate keys, and unsafe integers at
- * `default`/`enum`/`const` sites. It tolerates malformed input; `JSON.parse` judges syntax.
+ * One iterative pass over the text, its own stack of open objects and arrays standing in for recursion, so no nesting
+ * the text holds overflows it: the first repeated key, or unsafe integer at a `default`/`enum`/`const` site. It
+ * tolerates malformed input; `JSON.parse` judges syntax.
  */
-const scan = (text: string, limits: LoadLimits): Scan => {
+const scan = (text: string): Finding | undefined => {
 	const state: State = {
 		cursor: 0,
 		finding: undefined,
 		frames: [],
-		limit: undefined,
-		limits,
-		nodes: 0,
 		text
 	}
 
-	while (state.cursor < text.length && state.limit === undefined) {
+	while (state.cursor < text.length) {
 		const char = text[state.cursor] ?? ""
 
 		if (char === "{" || char === "[") {
@@ -303,11 +273,7 @@ const scan = (text: string, limits: LoadLimits): Scan => {
 		}
 	}
 
-	if (state.limit !== undefined) {
-		return { limit: state.limit }
-	}
-
-	return state.finding === undefined ? {} : { finding: state.finding }
+	return state.finding
 }
 
 const codePointCount = (text: string): number => Arr.fromIterable(text).length
@@ -328,25 +294,17 @@ const locate = (text: string, index: number, byteBase: number): Position => {
  */
 export const parseStrictJson: (
 	text: string,
-	limits: LoadLimits,
 	document: Document,
 	byteBase: number
 ) => Effect.Effect<Json, LoadRefusal> = Effect.fnUntraced(function* strictJson(
 	text: string,
-	limits: LoadLimits,
 	document: Document,
 	byteBase: number
 ) {
-	const scanned = scan(text, limits)
-
-	if (scanned.limit !== undefined) {
-		return yield* refuse(document, scanned.limit, wholeInput)
-	}
-
 	const value = yield* decodeJson(text).pipe(
 		Effect.catchTag("SchemaError", () => refuse(document, "DOC-14/invalid-json", wholeInput))
 	)
-	const { finding } = scanned
+	const finding = scan(text)
 
 	if (finding !== undefined) {
 		return yield* refuse(document, finding.code, {

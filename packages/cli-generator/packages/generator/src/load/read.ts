@@ -6,33 +6,11 @@ import { Diagnostic, makeDiagnostic } from "#model/diagnostic.ts"
 
 type Document = typeof DocumentUri.Type
 
-/**
- * Limits on what the loader reads into memory (design 3.1, 9 I5). Every number is a proposal to
- * calibrate on the corpus.
- */
-export interface LoadLimits {
-	readonly maxBytes: number
-	readonly maxDepth: number
-	readonly maxNodes: number
-}
-
-/**
- * The limits every document a run loads is read under.
- */
-export const defaultLoadLimits: LoadLimits = {
-	maxBytes: 64 * 1024 * 1024,
-	maxDepth: 256,
-	maxNodes: 10_000_000
-}
-
 const messages = {
-	"DOC-14/depth-limit": "The document nests deeper than the depth limit.",
 	"DOC-14/duplicate-key": "An object repeats a key.",
 	"DOC-14/invalid-encoding": "The document is not valid UTF-8.",
 	"DOC-14/invalid-json": "The document is not valid JSON.",
 	"DOC-14/invalid-yaml": "The document is not valid YAML 1.2.",
-	"DOC-14/node-budget": "The document has more values than the node budget allows.",
-	"DOC-14/too-large": "The document is larger than the size limit.",
 	"DOC-14/unreadable": "The document could not be read.",
 	"DOC-14/unsafe-integer": "An integer in default, enum or const is beyond 2^53.",
 	"DOC-14/yaml-alias-cycle": "A YAML alias refers to a node that contains it.",
@@ -119,18 +97,13 @@ export const refuse = (
 }
 
 /**
- * Collects a byte stream through `Stream.limitBytes`; the chunk that crosses the limit refuses.
+ * Every byte of a stream (stdin), collected whole: the document is the operator's own, so what it holds is read.
  */
-export const readStreamBounded = (
+export const readStreamBytes = (
 	stream: Stream.Stream<Uint8Array, PlatformError.PlatformError>,
-	limits: LoadLimits,
 	document: Document
 ): Effect.Effect<Uint8Array, LoadRefusal> =>
 	stream.pipe(
-		Stream.limitBytes<PlatformError.PlatformError | LoadRefusal, never>(
-			ByteSize.bytes(limits.maxBytes),
-			() => Stream.fromEffect(refuse(document, "DOC-14/too-large", wholeInput))
-		),
 		Stream.runCollect,
 		Effect.map(Bytes.concat),
 		Effect.catchTag("PlatformError", () => refuse(document, "DOC-14/unreadable", wholeInput))
@@ -144,21 +117,22 @@ export type VerifyOpened = (
 	opened: FileSystem.File.Info
 ) => Effect.Effect<void, LoadRefusal, FileSystem.FileSystem>
 
-const chunkSize = 64 * 1024
-
 /**
  * One read of a handle: the chunks it yields, and the handle again while bytes remain.
  */
 type Page = readonly [chunks: readonly Uint8Array[], next: Option.Option<FileSystem.File>]
 
 /**
- * The handle's bytes, chunk by chunk, until end of file.
+ * The handle's bytes until end of file, each read as large as the file the opened handle's `stat` reports, so a file
+ * that holds what it reports is read in one read, and one that grew since is read on to its end. A file that reports
+ * no bytes reads nothing: a read of none answers end of file at once.
  */
 const handleStream = (
-	file: FileSystem.File
+	file: FileSystem.File,
+	size: number
 ): Stream.Stream<Uint8Array, PlatformError.PlatformError> =>
 	Stream.paginate(file, (handle) =>
-		handle.readAlloc(chunkSize).pipe(
+		handle.readAlloc(size).pipe(
 			Effect.map(
 				Option.match({
 					onNone: (): Page => [[], Option.none()],
@@ -170,17 +144,9 @@ const handleStream = (
 
 const checkRegular = (
 	info: FileSystem.File.Info,
-	limits: LoadLimits,
 	document: Document
-): Effect.Effect<void, LoadRefusal> => {
-	if (info.type !== "File") {
-		return refuse(document, "DOC-14/unreadable", wholeInput)
-	}
-
-	return ByteSize.toBigInt(info.size) > BigInt(limits.maxBytes)
-		? refuse(document, "DOC-14/too-large", wholeInput)
-		: Effect.void
-}
+): Effect.Effect<void, LoadRefusal> =>
+	info.type === "File" ? Effect.void : refuse(document, "DOC-14/unreadable", wholeInput)
 
 /**
  * Whether two `stat` results name the same file: equal `dev` and `ino`. Where the platform reports
@@ -199,18 +165,16 @@ type VerifyAgainst = (
 
 /**
  * Opens `path` without following a symlink at its final component, checks the open handle (a
- * regular file within `maxBytes`, then `verify` against the `stat` taken before the open), and
- * reads that same handle through `Stream.limitBytes`, so the bytes read are the bytes checked and
- * `maxBytes` bounds what is actually read. The `stat` before the open refuses a special file
+ * regular file, then `verify` against the `stat` taken before the open), and reads that same
+ * handle to its end, so the bytes read are the bytes checked. The `stat` before the open refuses a special file
  * already in place without opening it; one swapped in after that `stat` is refused by the handle
  * check, but the open itself can block, since the FileSystem service cannot open non-blocking
  * (accepted risk). `noFollow` refuses a symlink at the final component only; a parent directory
  * swapped before the open is not detected here, so what `verify` can prove is limited to the
  * window between the pre-open `stat` and the open.
  */
-const readOpened = Effect.fnUntraced(function* readBounded(
+const readOpened = Effect.fnUntraced(function* readOpened(
 	path: string,
-	limits: LoadLimits,
 	document: Document,
 	verify: VerifyAgainst
 ): Effect.fn.Return<Uint8Array, LoadRefusal, FileSystem.FileSystem | Scope.Scope> {
@@ -219,17 +183,20 @@ const readOpened = Effect.fnUntraced(function* readBounded(
 
 	const before = yield* fs.stat(path).pipe(Effect.catchTag("PlatformError", unreadable))
 
-	yield* checkRegular(before, limits, document)
+	yield* checkRegular(before, document)
 
 	const file = yield* fs
 		.open(path, { flag: "r", noFollow: true })
 		.pipe(Effect.catchTag("PlatformError", unreadable))
 	const opened = yield* file.stat.pipe(Effect.catchTag("PlatformError", unreadable))
 
-	yield* checkRegular(opened, limits, document)
+	yield* checkRegular(opened, document)
 	yield* verify(before, opened)
 
-	return yield* readStreamBounded(handleStream(file), limits, document)
+	return yield* readStreamBytes(
+		handleStream(file, Number(ByteSize.toBigInt(opened.size))),
+		document
+	)
 }, Effect.scoped)
 
 /**
@@ -240,9 +207,8 @@ const readOpened = Effect.fnUntraced(function* readBounded(
  * a file or final-component link swapped in there is refused, not read. A swap between
  * `realPath` and the `stat` is not detected.
  */
-export const readFileBounded = Effect.fnUntraced(function* readOperatorPath(
+export const readOperatorFile = Effect.fnUntraced(function* readOperatorFile(
 	path: string,
-	limits: LoadLimits,
 	document: Document
 ): Effect.fn.Return<Uint8Array, LoadRefusal, FileSystem.FileSystem> {
 	const fs = yield* FileSystem.FileSystem
@@ -250,7 +216,7 @@ export const readFileBounded = Effect.fnUntraced(function* readOperatorPath(
 		.realPath(path)
 		.pipe(Effect.catchTag("PlatformError", () => refuse(document, "DOC-14/unreadable", wholeInput)))
 
-	return yield* readOpened(real, limits, document, (before, opened) =>
+	return yield* readOpened(real, document, (before, opened) =>
 		sameFile(before, opened) ? Effect.void : refuse(document, "DOC-14/unreadable", wholeInput)
 	)
 })
@@ -261,10 +227,9 @@ export const readFileBounded = Effect.fnUntraced(function* readOperatorPath(
  * is still the file the boundary admitted. What `verify` can prove is bounded by what it checks:
  * the `--ref-root` check is path-based after the open (see `sameCheckedFile`).
  */
-export const readMemberBounded = (
+export const readMemberFile = (
 	path: string,
-	limits: LoadLimits,
 	document: Document,
 	verify: VerifyOpened
 ): Effect.Effect<Uint8Array, LoadRefusal, FileSystem.FileSystem> =>
-	readOpened(path, limits, document, (_before, opened) => verify(opened))
+	readOpened(path, document, (_before, opened) => verify(opened))

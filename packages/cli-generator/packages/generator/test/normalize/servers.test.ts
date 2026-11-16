@@ -415,15 +415,15 @@ describe("server variables and the bound origin set", () => {
 		see(result.servers.map((s) => s.variables.map((v) => v.name))).toEqual([["a", "b"]])
 	})
 
-	test("an expansion count above the cap is refused with SRV-05", () => {
+	test("an accepted server expands to every origin its enums give, however many", () => {
 		const members = Array.from({ length: 20 }, (_, index) => `h${index}`)
 		const variable = { default: "h0", enum: members }
 		const result = normalize(
 			[url("https://{a}.{b}.example.com", { variables: { a: variable, b: variable } })],
 			context(accepting("https://{a}.{b}.example.com"))
 		)
-		see(codes(result.diagnostics)).toEqual(["SRV-05/too-many-origins"])
-		see(result.servers.map((s) => s.origins)).toEqual([[]])
+		see(result.diagnostics).toEqual([])
+		see(result.servers.map((s) => s.origins.length)).toEqual([members.length ** 2])
 	})
 
 	test("the bound set adds acceptedOrigins, drops duplicates and sorts", () => {

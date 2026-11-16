@@ -47,10 +47,10 @@ describe("request id from the declared header (design 7.1, DM2-5)", () => {
 		expect(error.requestId).toBe("req-1")
 	})
 
-	test("a value over 256 is cut to 256", async () => {
+	test("a long value is kept whole", async () => {
 		const error = await fail(scripted(404, { "x-request-id": "r".repeat(400) }))
 
-		expect(error.requestId).toBe("r".repeat(256))
+		expect(error.requestId).toBe("r".repeat(400))
 	})
 
 	test("a configured credential value is scrubbed", async () => {

@@ -14,7 +14,6 @@ const runtimeFlags: readonly string[] = [
 	"follow",
 	"force",
 	"idle-timeout",
-	"max-error-bytes",
 	"max-record-bytes",
 	"output",
 	"raw",

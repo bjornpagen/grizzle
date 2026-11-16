@@ -7,8 +7,8 @@ import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
-import { defaultLimits, implicitComponent, referenceAt, resolveWithin } from "#resolve/index.ts"
-import type { Resolution, ResolvedReference, ResolveLimits, ResolveMember } from "#resolve/index.ts"
+import { implicitComponent, referenceAt, resolve } from "#resolve/index.ts"
+import type { Resolution, ResolvedReference, ResolveMember } from "#resolve/index.ts"
 
 type Document = typeof DocumentUri.Type
 
@@ -37,23 +37,11 @@ const input = (line: SpecLine, value: Json, members: readonly ResolveMember[]) =
 	value
 })
 
-const resolved = (
-	line: SpecLine,
-	value: Json,
-	members: readonly ResolveMember[],
-	limits: Partial<ResolveLimits> = {}
-): Resolution =>
-	Effect.runSync(resolveWithin(input(line, value, members), { ...defaultLimits, ...limits }))
+const resolved = (line: SpecLine, value: Json, members: readonly ResolveMember[]): Resolution =>
+	Effect.runSync(resolve(input(line, value, members)))
 
-const refusal = (
-	line: SpecLine,
-	value: Json,
-	members: readonly ResolveMember[],
-	limits: Partial<ResolveLimits> = {}
-) =>
-	Effect.runSync(
-		Effect.flip(resolveWithin(input(line, value, members), { ...defaultLimits, ...limits }))
-	).diagnostic
+const refusal = (line: SpecLine, value: Json, members: readonly ResolveMember[]) =>
+	Effect.runSync(Effect.flip(resolve(input(line, value, members)))).diagnostic
 
 const at = (resolution: Resolution, site: CanonicalKey): ResolvedReference | undefined =>
 	resolution.references.get(keyOf(site))
@@ -252,8 +240,8 @@ describe("budgets span the document set", () => {
 		expect(diagnostic.scope).toBe("document")
 	})
 
-	test("REF-18 a chain alternating between documents counts every hop", () => {
-		const hops = 8
+	test("a chain alternating between documents follows every hop, past any count", () => {
+		const hops = 200
 		const link = (index: number, here: Document): Json =>
 			index === hops ? { in: "query", name: "p" } : { $ref: `${here === a ? b : a}#/P${index + 1}` }
 		const doc = (here: Document) =>
@@ -267,10 +255,9 @@ describe("budgets span the document set", () => {
 		const value = spec("3.1", usesParameter("a.json#/P0"))
 
 		expect(referenceAt(resolved("3.1", value, members), parameterAt)?.via).toHaveLength(hops)
-		expect(refusal("3.1", value, members, { maxHops: hops }).code).toBe("REF-18/hop-limit")
 	})
 
-	test("a schema cycle across two documents resolves; the node budget counts both", () => {
+	test("a schema cycle across two documents resolves", () => {
 		const levels = 2000
 		const schemas = (here: Document) =>
 			Object.fromEntries(
@@ -293,7 +280,6 @@ describe("budgets span the document set", () => {
 
 		expect(resolution.defs.get(keyOf({ document: b, pointer: "/S1" }))).toBe(`${b}#/S1`)
 		expect(resolution.defs.get(keyOf({ document: a, pointer: "/S0" }))).toBe(`${a}#/S0`)
-		expect(refusal("3.1", value, members, { maxNodes: levels }).code).toBe("REF-18/node-budget")
 	})
 })
 
@@ -358,14 +344,5 @@ describe("every member's $id and $anchor is indexed before a reference is judged
 			unreached,
 			"/$defs/Pet"
 		])
-	})
-
-	test("REF-18 the node budget counts an unreached member's nodes", () => {
-		const wide = { $defs: Object.fromEntries(Array.from({ length: 50 }, (_, i) => [`S${i}`, {}])) }
-		const members = [{ document: unreached, value: wide }]
-		const value = spec("3.1", {})
-
-		expect(resolved("3.1", value, members, { maxNodes: 60 }).diagnostics).toEqual([])
-		expect(refusal("3.1", value, members, { maxNodes: 40 }).code).toBe("REF-18/node-budget")
 	})
 })

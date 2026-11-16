@@ -161,18 +161,13 @@ describe("credential sources", () => {
 		expect(succeeded(result)).toEqual([["bearerAuth", secret]])
 	})
 
-	test("an over-limit file is refused without the value", async () => {
-		const big = `${secret}${"x".repeat(Auth.maxCredentialBytes)}`
+	test("a large file is read whole, refused by no size", async () => {
+		const big = `${secret}${"x".repeat(1_048_576)}`
 		const result = await run({ files: { "/big": big }, given: { bearerAuth: "/big" } }, [
 			["bearerAuth"]
 		])
-		const error = failure(result)
 
-		expect(error).toMatchObject({ _tag: "UsageError", flag: "bearer-auth-file" })
-		expect(error).toMatchObject({
-			message: `the credential for bearerAuth is over ${Auth.maxCredentialBytes} bytes`
-		})
-		expect(JSON.stringify(error)).not.toContain(secret)
+		expect(succeeded(result)).toEqual([["bearerAuth", big]])
 	})
 
 	test("an unreadable credential file is refused with its scheme named", async () => {

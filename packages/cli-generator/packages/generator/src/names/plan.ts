@@ -12,7 +12,7 @@ import {
 	String as Str
 } from "effect"
 import type { AuthorConfig } from "#model/author-config.ts"
-import { defsKeyOf, maxDefsRefHops } from "#model/defs-ref.ts"
+import { defsKeyOf } from "#model/defs-ref.ts"
 import type {
 	MediaAlternative,
 	NamingAlias,
@@ -404,7 +404,8 @@ const parameterName = (
 
 /**
  * A `$ref` chain in the schema store could not be followed: the target is missing, the form is not
- * `#/$defs/<key>`, or it exceeds 64 hops. Earlier stages refuse such inputs, so this is a defect.
+ * `#/$defs/<key>`, or the chain returns to a key it has passed, a cycle schema normalization breaks.
+ * Earlier stages refuse such inputs, so this is a defect.
  */
 class UnresolvedSchemaRef extends Schema.TaggedError<
 	UnresolvedSchemaRef,
@@ -420,7 +421,8 @@ const decodeTyped = Schema.decodeUnknownOption(
 
 /**
  * Whether a stored schema is `type: "boolean"` after its `$ref` chain. Each key is settled once per
- * memo, so total work is bounded by the store size; a chain stops at 64 hops (design 3.3).
+ * memo, so total work is bounded by the store size; a chain that returns to a key it has passed is
+ * a cycle, `UnresolvedSchemaRef`, so the chain ends.
  */
 export const isBooleanSchema = (
 	defs: Readonly<Record<string, Schema.Json>>,
@@ -437,10 +439,14 @@ export const isBooleanSchema = (
 	}
 
 	let current = key
-	for (let hop = 0; hop <= maxDefsRefHops; hop += 1) {
+	for (;;) {
 		const known = memo.get(current)
 		if (known !== undefined) {
 			return settle(known)
+		}
+
+		if (Arr.contains(chain, current)) {
+			return Result.fail(UnresolvedSchemaRef.make({ key: current }))
 		}
 
 		chain.push(current)
@@ -462,8 +468,6 @@ export const isBooleanSchema = (
 
 		current = next
 	}
-
-	return Result.fail(UnresolvedSchemaRef.make({ key }))
 }
 
 const runtimeScheme = (
@@ -942,8 +946,6 @@ const sameFlag = (left: PlannedBodyFlag, right: PlannedBodyFlag): boolean =>
 const isWholeBody = (kind: BodyKind): boolean =>
 	kind === "body" || kind === "body-file" || kind === "part"
 
-const maxSchemaVisits = 10_000
-
 type JsonObject = Readonly<Record<string, Schema.Json>>
 
 const isJsonObject = (json: Schema.Json): json is JsonObject => Predicate.isObject(json)
@@ -973,39 +975,42 @@ const refTarget = (defs: DraftContext["defs"], node: JsonObject): Option.Option<
 	})
 
 /**
- * Follows a `$ref` chain into `defs`; a reference outside `#/$defs/`, a missing key or a chain
- * past the hop budget ends the search.
+ * Follows a `$ref` chain into `defs`; a reference outside `#/$defs/`, a missing key or a node the
+ * chain has passed (a cycle) ends the search.
  */
 const dereference = (
 	defs: DraftContext["defs"],
 	json: Schema.Json,
-	hops: number
+	passed: ReadonlySet<Schema.Json>
 ): Option.Option<JsonObject> => {
-	if (!isJsonObject(json) || hops > maxDefsRefHops) {
+	if (!isJsonObject(json) || passed.has(json)) {
 		return Option.none()
 	}
 
 	return Option.isNone(memberOf(json, "$ref"))
 		? Option.some(json)
-		: Option.flatMap(refTarget(defs, json), (target) => dereference(defs, target, hops + 1))
+		: Option.flatMap(refTarget(defs, json), (target) =>
+				dereference(defs, target, new Set([...passed, json]))
+			)
 }
 
 /**
  * The schema of member `key` of an object schema, found the way the body walk merged it: through
- * `$ref`, own `properties`, then `allOf` members. `budget` counts the nodes a hostile `allOf`
- * graph may make the search visit; a schema the search could not locate counts one visit.
+ * `$ref`, own `properties`, then `allOf` members. `seen` holds the nodes the search has read, each
+ * read once, so a cycle of `allOf` members ends it.
  */
 const memberSchema = (
 	defs: DraftContext["defs"],
 	json: Option.Option<Schema.Json>,
 	key: string,
-	budget: { visits: number }
+	seen: Set<Schema.Json>
 ): Option.Option<Schema.Json> => {
-	budget.visits += 1
-	const node = Option.flatMap(json, (schema) => dereference(defs, schema, 0))
-	if (Option.isNone(node) || budget.visits > maxSchemaVisits) {
+	const node = Option.flatMap(json, (schema) => dereference(defs, schema, new Set()))
+	if (Option.isNone(node) || seen.has(node.value)) {
 		return Option.none()
 	}
+
+	seen.add(node.value)
 
 	const found = Option.flatMap(memberOf(node.value, "properties"), (properties) =>
 		isJsonObject(properties) ? memberOf(properties, key) : Option.none()
@@ -1015,7 +1020,7 @@ const memberSchema = (
 	}
 
 	for (const member of branchesOf(node.value, "allOf")) {
-		const inMember = memberSchema(defs, Option.some(member), key, budget)
+		const inMember = memberSchema(defs, Option.some(member), key, seen)
 		if (Option.isSome(inMember)) {
 			return inMember
 		}
@@ -1039,73 +1044,62 @@ const nextNodes = (
 /**
  * Whether a flag's own schema carries `format: password` on any node the flattener reads (each node
  * of a `$ref` chain with its sibling keywords, each `allOf` member) or in any `anyOf` or `oneOf`
- * branch. It never descends into `properties` or `items`. It fails closed: past the hop or visit
- * budget the answer is yes, so a secret never falls back to an argv flag (design invariant I4). A
- * `$ref` that names no store entry still counts one visit.
+ * branch. It never descends into `properties` or `items`. `seen` holds the nodes read so far, each
+ * read once: a node met again adds nothing a first reading did not, so a cycle ends the walk and a
+ * secret is still found wherever it sits (design invariant I4).
  */
 const isPassword = (
 	defs: DraftContext["defs"],
 	json: Option.Option<Schema.Json>,
-	budget: { visits: number },
-	hops: number
+	seen: Set<Schema.Json>
 ): boolean => {
-	budget.visits += 1
-	if (hops > maxDefsRefHops || budget.visits > maxSchemaVisits) {
-		return true
-	}
-
-	if (Option.isNone(json) || !isJsonObject(json.value)) {
+	if (Option.isNone(json) || !isJsonObject(json.value) || seen.has(json.value)) {
 		return false
 	}
 
 	const node = json.value
+	seen.add(node)
 	if (node["format"] === "password") {
 		return true
 	}
 
-	return Arr.some(nextNodes(defs, node), (next) => isPassword(defs, next, budget, hops + 1))
+	return Arr.some(nextNodes(defs, node), (next) => isPassword(defs, next, seen))
 }
 
 /**
  * Whether an array schema's `items` is a password string on any node the flattener reads: each
  * node of a `$ref` chain with its sibling keywords, each `allOf` member, and any `anyOf` or `oneOf`
- * branch. Like `isPassword`, it fails closed past the hop or visit budget.
+ * branch. Like `isPassword`, it reads each node once, so a cycle ends it; each `items` is read by
+ * `isPassword` from scratch, since a node it has read as a container is unread as an item.
  */
 const hasPasswordItems = (
 	defs: DraftContext["defs"],
 	json: Option.Option<Schema.Json>,
-	budget: { visits: number },
-	hops: number
+	seen: Set<Schema.Json>
 ): boolean => {
-	budget.visits += 1
-	if (hops > maxDefsRefHops || budget.visits > maxSchemaVisits) {
-		return true
-	}
-
-	if (Option.isNone(json) || !isJsonObject(json.value)) {
+	if (Option.isNone(json) || !isJsonObject(json.value) || seen.has(json.value)) {
 		return false
 	}
 
 	const node = json.value
+	seen.add(node)
 	const items = memberOf(node, "items")
-	if (Option.isSome(items) && isPassword(defs, items, budget, 0)) {
+	if (Option.isSome(items) && isPassword(defs, items, new Set())) {
 		return true
 	}
 
-	return Arr.some(nextNodes(defs, node), (next) => hasPasswordItems(defs, next, budget, hops + 1))
+	return Arr.some(nextNodes(defs, node), (next) => hasPasswordItems(defs, next, seen))
 }
 
 /**
  * Whether the schema at store key `key` is a `format: password` schema or an array of password
  * strings, by the readings that make a body property a secret-file flag (`isPassword`) or give it
- * no flag (`hasPasswordItems`); output redacts a header whose schema it is. Both fail closed: past
- * the hop or visit budget the answer is yes.
+ * no flag (`hasPasswordItems`); output redacts a header whose schema it is.
  */
 export const isPasswordSchema = (defs: DraftContext["defs"], key: string): boolean => {
-	const budget = { visits: 0 }
 	const schema = Record.get(defs, key)
 
-	return isPassword(defs, schema, budget, 0) || hasPasswordItems(defs, schema, budget, 0)
+	return isPassword(defs, schema, new Set()) || hasPasswordItems(defs, schema, new Set())
 }
 
 /**
@@ -1115,7 +1109,7 @@ export const isPasswordSchema = (defs: DraftContext["defs"], key: string): boole
  * property inside a JSON-valued flag has no flag of its own and gets none (m3 open question 6). A
  * property whose array items are password strings, as a repeated flag or a JSON flag, has no flag
  * at all (`undefined`) and is reached through --body-file (design 4.5, FMT-05/password-array). A
- * property the walk cannot locate within the budget fails closed. Multipart parts are unchanged
+ * property the walk cannot locate fails closed. Multipart parts are unchanged
  * (m3-pw1m).
  */
 const secretFile = (
@@ -1131,17 +1125,16 @@ const secretFile = (
 			return flag
 		}
 
-		const budget = { visits: 0 }
 		const tokens = yield* Effect.orDie(parsePointer(flag.pointer))
 		const property = Arr.reduce(tokens, Record.get(defs, key), (schema, token) =>
-			memberSchema(defs, schema, token, budget)
+			memberSchema(defs, schema, token, new Set())
 		)
 
-		if (!flag.repeated && (Option.isNone(property) || isPassword(defs, property, budget, 0))) {
+		if (!flag.repeated && (Option.isNone(property) || isPassword(defs, property, new Set()))) {
 			return { ...flag, kind: "secret-file", name: `${flag.name}-file` }
 		}
 
-		return Option.isNone(property) || hasPasswordItems(defs, property, budget, 0) ? undefined : flag
+		return Option.isNone(property) || hasPasswordItems(defs, property, new Set()) ? undefined : flag
 	})
 
 /**
@@ -1384,8 +1377,7 @@ const draftPartHeaders = (
 
 /**
  * Every media alternative's body flags merged by name, with the part option and header flags of its
- * multipart parts. A refused alternative's fields are unknown, so its operation's `fields` keys are
- * not judged. `--part` is no reserved name, so a field or parameter flag of that name collides with
+ * multipart parts. `--part` is no reserved name, so a field or parameter flag of that name collides with
  * it rather than shadowing it; the flag cannot be renamed, so only a skip resolves it.
  */
 const draftBody = (
@@ -1399,24 +1391,11 @@ const draftBody = (
 		const merged = new Map<string, Merged>()
 		const fields = new Set<string>()
 		const passwordArrays = new Set<string>()
-		let flattenedAll = true
 		for (const alternative of operation.body?.alternatives ?? []) {
 			const { pointer } = alternative.origin
 			const flattened = flattenBody(context.defs, alternative, context.line)
 			if (Result.isFailure(flattened)) {
-				if (flattened.failure._tag === "UnresolvedBodyRef") {
-					return yield* Effect.die(flattened.failure)
-				}
-
-				collector.report(
-					operation,
-					"REF-18/node-budget",
-					"Request body",
-					"The body schema exceeds the node budget.",
-					{ pointer }
-				)
-				flattenedAll = false
-				continue
+				return yield* Effect.die(flattened.failure)
 			}
 
 			for (const skipped of flattened.success.skipped) {
@@ -1469,7 +1448,7 @@ const draftBody = (
 			}
 		}
 
-		for (const field of flattenedAll ? Record.keys(site.override?.fields ?? {}) : []) {
+		for (const field of Record.keys(site.override?.fields ?? {})) {
 			if (!fields.has(field)) {
 				collector.unmatched(
 					`${site.configPointer}/fields/${escapeToken(field)}`,

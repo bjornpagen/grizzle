@@ -59,7 +59,6 @@ import { emitDomainSchemas } from "#emit/domain.ts"
 import type { Json } from "#model/pointer.ts"
 import { domainIdentifiers } from "#names/domain.ts"
 import { SafeIdentifier } from "#names/fold.ts"
-import { defaultLimits } from "#resolve/index.ts"
 
 const FORMAT_OPTIONS: FormatConfig = {
 	jsdoc: { commentLineStrategy: "multiline", lineWrappingStyle: "balance" }
@@ -311,7 +310,7 @@ const emitted = (
 	definitions: ReadonlyArray<readonly [string, Json]>,
 	roots: ReadonlyArray<string>,
 	identifiers: ReturnType<typeof domainIdentifiers>
-) => emitDomainSchemas(new Map(definitions), roots, identifiers, defaultLimits)
+) => emitDomainSchemas(new Map(definitions), roots, identifiers)
 
 type Feature =
 	| "the empty module"
@@ -648,9 +647,7 @@ describe("emit: the domain module", () => {
 									Exit.match(exit, {
 										onSuccess: () => Option.none<string>(),
 										onFailure: (cause) =>
-											Option.map(Cause.findErrorOption(cause), (error) =>
-												error._tag === "DomainEmitError" ? error.reason : error._tag
-											)
+											Option.map(Cause.findErrorOption(cause), (error) => error.reason)
 									}),
 									Option.some(planted.reason)
 								)

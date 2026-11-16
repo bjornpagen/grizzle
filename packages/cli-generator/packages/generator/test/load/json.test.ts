@@ -3,7 +3,16 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { NodeFileSystem } from "@effect/platform-node"
-import { ByteSize, Effect, FileSystem, Option, Schema, Stream } from "effect"
+import {
+	Array as Arr,
+	ByteSize,
+	Effect,
+	FileSystem,
+	Option,
+	Schema,
+	Stream,
+	String as Str
+} from "effect"
 import { describe, expect, test } from "vitest"
 import { loadFile, loadStream } from "#load/index.ts"
 import type { LoadOptions, LoadRefusal } from "#load/index.ts"
@@ -13,29 +22,22 @@ const fixture = (name: string) => path.join(import.meta.dirname, "..", "fixtures
 
 const document = Schema.decodeUnknownSync(DocumentUri)("file:///spec.json")
 
-const options = (limits?: LoadOptions["limits"]): LoadOptions =>
-	limits === undefined ? { document } : { document, limits }
+const options: LoadOptions = { document }
 
 const encode = (text: string) => new TextEncoder().encode(text)
 
-const file = (name: string, limits?: LoadOptions["limits"]) =>
-	loadFile(fixture(name), options(limits)).pipe(Effect.provide(NodeFileSystem.layer))
+const file = (name: string) =>
+	loadFile(fixture(name), options).pipe(Effect.provide(NodeFileSystem.layer))
 
 const refusal = <A>(effect: Effect.Effect<A, LoadRefusal>) => Effect.runPromise(Effect.flip(effect))
 
 describe("load: strict JSON", () => {
-	test("a file over the limit is refused from its size before it is read", async () => {
-		const error = await refusal(file("duplicate-key.json", { maxBytes: 16 }))
-		expect(error.diagnostic.code).toBe("DOC-14/too-large")
-	})
-
-	test("a stream over the limit is refused", async () => {
-		const chunks = Stream.make(encode('{"a":"'), encode("x".repeat(64)), encode('"}'))
-		const error = await refusal(loadStream(chunks, options({ maxBytes: 32 })))
-		expect(error.diagnostic.code).toBe("DOC-14/too-large")
-
-		const within = await Effect.runPromise(loadStream(chunks, options()))
-		expect(within.format).toBe("json")
+	test("a stream is read whole, across its chunks", async () => {
+		const filler = Str.repeat(64)("x")
+		const chunks = Stream.make(encode('{"a":"'), encode(filler), encode('"}'))
+		const loaded = await Effect.runPromise(loadStream(chunks, options))
+		expect(loaded.format).toBe("json")
+		expect(loaded.value).toEqual({ a: filler })
 	})
 
 	test("anything not starting with a brace is routed to YAML", async () => {
@@ -60,7 +62,7 @@ describe("load: strict JSON", () => {
 			symlinkSync(fixture("spec.yaml"), link)
 
 			const loaded = await Effect.runPromise(
-				loadFile(link, options()).pipe(Effect.provide(NodeFileSystem.layer))
+				loadFile(link, options).pipe(Effect.provide(NodeFileSystem.layer))
 			)
 			expect(loaded.format).toBe("yaml")
 			expect(loaded.document).toBe(document)
@@ -71,7 +73,7 @@ describe("load: strict JSON", () => {
 })
 
 const withFs = (overrides: Partial<FileSystem.FileSystem>) =>
-	loadFile("/virtual/spec.json", options({ maxBytes: 1024, maxDepth: 256, maxNodes: 10_000 })).pipe(
+	loadFile("/virtual/spec.json", options).pipe(
 		Effect.provide(
 			FileSystem.layerNoop({ realPath: (given) => Effect.succeed(given), ...overrides })
 		)
@@ -95,17 +97,21 @@ const info = (size: number, type: FileSystem.File.Type): FileSystem.File.Info =>
 })
 
 describe("load: bytes actually read", () => {
-	test("a file that reports a small size but streams past the cap is refused at the cap", async () => {
-		let served = 0
-		const chunk = new Uint8Array(512).fill(0x20)
-		const endless: FileSystem.File = {
+	test("a file that holds more than its size reports is read on to its end", async () => {
+		const filler = Str.repeat(100)("x")
+		const text = encode(`{"a":"${filler}"}`)
+		const asked: Array<number> = []
+		let at = 0
+		const growing: FileSystem.File = {
 			[FileSystem.FileTypeId]: FileSystem.FileTypeId,
 			read: () => Effect.succeed(0),
-			readAlloc: () =>
+			readAlloc: (size) =>
 				Effect.sync(() => {
-					served += chunk.length
+					asked.push(size)
+					const chunk = text.subarray(at, at + size)
+					at += chunk.length
 
-					return Option.some(chunk)
+					return chunk.length === 0 ? Option.none() : Option.some(chunk)
 				}),
 			seek: () => Effect.succeed(0n),
 			stat: Effect.succeed(info(10, "File")),
@@ -114,14 +120,14 @@ describe("load: bytes actually read", () => {
 			write: () => Effect.succeed(0),
 			writeAll: () => Effect.void
 		}
-		const error = await refusal(
+		const loaded = await Effect.runPromise(
 			withFs({
-				open: () => Effect.succeed(endless),
+				open: () => Effect.succeed(growing),
 				stat: () => Effect.succeed(info(10, "File"))
 			})
 		)
-		expect(error.diagnostic.code).toBe("DOC-14/too-large")
-		expect(served).toBeLessThanOrEqual(1024 + 512 * 2)
+		expect(loaded.value).toEqual({ a: filler })
+		expect(Arr.dedupe(asked)).toEqual([10])
 	})
 
 	test("a non-regular file is refused without being opened", async () => {
@@ -155,7 +161,7 @@ describe("load: bytes actually read", () => {
 			execFileSync("mkfifo", [fifo])
 
 			const error = await refusal(
-				loadFile(fifo, options()).pipe(Effect.provide(NodeFileSystem.layer))
+				loadFile(fifo, options).pipe(Effect.provide(NodeFileSystem.layer))
 			)
 			expect(error.diagnostic.code).toBe("DOC-14/unreadable")
 		} finally {

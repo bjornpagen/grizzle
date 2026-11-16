@@ -1,12 +1,13 @@
 import { readFileSync } from "node:fs"
 import path from "node:path"
 import { NodeFileSystem } from "@effect/platform-node"
-import { Effect, Schema } from "effect"
+import { Array as Arr, Effect, Schema, String as Str } from "effect"
 import { describe, expect, test } from "vitest"
 import { loadBytes, loadFile } from "#load/index.ts"
 import type { LoadOptions, LoadRefusal } from "#load/index.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { RowId } from "#model/entities.ts"
+import type { Json } from "#model/pointer.ts"
 
 const fixture = (name: string) => path.join(import.meta.dirname, "..", "fixtures", "yaml", name)
 
@@ -14,16 +15,14 @@ const document = Schema.decodeUnknownSync(DocumentUri)("file:///spec.yaml")
 
 const rowId = Schema.decodeUnknownSync(RowId)
 
-const options = (limits?: LoadOptions["limits"]): LoadOptions =>
-	limits === undefined ? { document } : { document, limits }
+const options: LoadOptions = { document }
 
 const encode = (text: string) => new TextEncoder().encode(text)
 
-const file = (name: string, limits?: LoadOptions["limits"]) =>
-	loadFile(fixture(name), options(limits)).pipe(Effect.provide(NodeFileSystem.layer))
+const file = (name: string) =>
+	loadFile(fixture(name), options).pipe(Effect.provide(NodeFileSystem.layer))
 
-const text = (source: string, limits?: LoadOptions["limits"]) =>
-	loadBytes(encode(source), options(limits))
+const text = (source: string) => loadBytes(encode(source), options)
 
 const refusal = <A>(effect: Effect.Effect<A, LoadRefusal>) => Effect.runPromise(Effect.flip(effect))
 
@@ -39,7 +38,6 @@ describe("load: strict YAML hazards", () => {
 	const hazards = [
 		["duplicate-key.yaml", "DOC-14/duplicate-key"],
 		["multi-document.yaml", "DOC-14/yaml-multi-document"],
-		["alias-bomb.yaml", "DOC-14/node-budget"],
 		["cyclic-anchor.yaml", "DOC-14/yaml-alias-cycle"],
 		["non-scalar-key-seq.yaml", "DOC-14/yaml-non-string-key"],
 		["non-scalar-key-map.yaml", "DOC-14/yaml-non-string-key"],
@@ -101,7 +99,7 @@ describe("load: strict YAML positions", () => {
 
 	test("offsets count bytes and include a byte order mark", async () => {
 		const bytes = new Uint8Array([0xef, 0xbb, 0xbf, ...encode("é: 1\né: 2\n")])
-		const error = await refusal(loadBytes(bytes, options()))
+		const error = await refusal(loadBytes(bytes, options))
 		expect(error.diagnostic.code).toBe("DOC-14/duplicate-key")
 		expect(error.diagnostic.line).toBe(2)
 		expect(error.offset).toBe(3 + 6)
@@ -116,7 +114,7 @@ describe("load: strict YAML positions", () => {
 		expect(plain.diagnostic.column).toBe(11)
 
 		const withBom = await refusal(
-			loadBytes(new Uint8Array([0xef, 0xbb, 0xbf, ...encode(source)]), options())
+			loadBytes(new Uint8Array([0xef, 0xbb, 0xbf, ...encode(source)]), options)
 		)
 		expect(withBom.offset).toBe(3 + 18)
 		expect(withBom.diagnostic.line).toBe(2)
@@ -139,24 +137,25 @@ describe("load: strict YAML values", () => {
 		expect(Reflect.has({}, "polluted")).toBe(false)
 	})
 
-	test("an alias inside the node budget loads as the anchored value", async () => {
+	test("an alias loads as the anchored value", async () => {
 		const loaded = await Effect.runPromise(text("a: &a [1, 2]\nb: *a\nc: *a\n"))
 		expect(loaded.value).toEqual({ a: [1, 2], b: [1, 2], c: [1, 2] })
 	})
 
-	test("a document past the node budget is refused", async () => {
-		const error = await refusal(text("a: [1, 2, 3, 4]\n", { maxNodes: 4 }))
-		expect(error.diagnostic.code).toBe("DOC-14/node-budget")
+	test("an alias bomb loads with each alias sharing its anchor's one value, never a copy", async () => {
+		const loaded = await Effect.runPromise(file("alias-bomb.yaml"))
+		const root = loaded.value as Readonly<Record<string, ReadonlyArray<unknown>>>
+		expect(root["i"]?.length).toBe(10)
+		expect(root["b"]?.[0]).toBe(root["a"])
+		expect(root["i"]?.[9]).toBe(root["h"])
 	})
 
-	test("alias expansion counts against the node budget", async () => {
-		const error = await refusal(text("a: &a [1, 2, 3]\nb: *a\nc: *a\n", { maxNodes: 10 }))
-		expect(error.diagnostic.code).toBe("DOC-14/node-budget")
-	})
-
-	test("nesting past the depth limit is refused", async () => {
-		const error = await refusal(text(`a: ${"[".repeat(300)}${"]".repeat(300)}\n`))
-		expect(error.diagnostic.code).toBe("DOC-14/depth-limit")
+	test("nesting 300 deep loads, refused by no depth", async () => {
+		const loaded = await Effect.runPromise(
+			text(`a: ${Str.repeat(300)("[")}${Str.repeat(300)("]")}\n`)
+		)
+		const nested = Arr.reduce(Arr.range(2, 300), Arr.empty<Json>(), (inner): Json => [inner])
+		expect(loaded.value).toEqual({ a: nested })
 	})
 
 	test("very deep nesting is refused, not crashed", async () => {

@@ -65,12 +65,6 @@ type JsonPointer = typeof JsonPointerSchema.Type
 
 type ServerLevel = Server["level"]
 
-/**
- * Most origins one accepted server may expand to. A proposal, not a design value: it bounds the
- * product of enumerated authority variables (design 9 I5).
- */
-const maxExpansions = 256
-
 const rawServer = Schema.Struct({
 	name: Schema.optionalKey(Schema.String),
 	url: Schema.String,
@@ -141,12 +135,6 @@ const rules = {
 		element: "Accepted server",
 		hint: "Keep path variable values to path text that stays under the server's origin.",
 		message: "A path variable value moves an accepted server to another origin.",
-		scope: "document"
-	},
-	"SRV-05/too-many-origins": {
-		element: "Accepted server",
-		hint: "Narrow the enums, or list the origins in acceptedOrigins.",
-		message: "An accepted server expands to more origins than the generator allows.",
 		scope: "document"
 	},
 	"SRV-05/variable-needs-enum": {
@@ -383,16 +371,6 @@ const expandOrigins = (
 
 	if (Arr.some(names, (name) => variables[name]?.enum === undefined)) {
 		return Result.fail("SRV-05/variable-needs-enum")
-	}
-
-	const count = Arr.reduce(
-		names,
-		1,
-		(product, name) => product * domainOf(variables[name] ?? { default: "" }).length
-	)
-
-	if (count > maxExpansions) {
-		return Result.fail("SRV-05/too-many-origins")
 	}
 
 	const verdicts = Arr.map(assignments(names, variables), (assignment) =>

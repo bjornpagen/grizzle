@@ -15,11 +15,11 @@ import { Argument, CliError, Command, Flag } from "effect/cli"
 import { checkSpecText } from "#check/index.ts"
 import { generate, otherDocumentPathItems, setMembers, versionRefused } from "#generate.ts"
 import type { GenerateError, GenerateInput, GenerateResult, SpecSource } from "#generate.ts"
-import { defaultLoadLimits, readFileBounded, readStreamBounded } from "#load/budget.ts"
 import { makeDocumentSet, parseDocumentPair } from "#load/document-set.ts"
 import type { DocumentSet } from "#load/document-set.ts"
 import { loadBytes } from "#load/index.ts"
 import type { LoadRefusal } from "#load/index.ts"
+import { readOperatorFile, readStreamBytes } from "#load/read.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { isDocumentRefusal, sortDiagnostics } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
@@ -196,8 +196,8 @@ const refRootFlag = Flag.String("ref-root").pipe(
 const loadRefused = (refusal: LoadRefusal) => exit([humanLine(refusal.diagnostic)])
 
 /**
- * The document set the flags name (design 3.3). The entry holds one slot of the budget, and a
- * member spelling its retrieval URI differently is refused at load.
+ * The document set the flags name (design 3.3). The entry is one of its members, and a member
+ * spelling its retrieval URI differently is refused at load.
  */
 const documentSetOf = (
 	entry: Document,
@@ -286,8 +286,8 @@ const check = (spec: Spec, documents: DocumentSet) =>
 			)
 		const bytes = yield* (
 			spec.source._tag === "File"
-				? readFileBounded(spec.source.path, defaultLoadLimits, document)
-				: readStreamBounded(spec.source.stream, defaultLoadLimits, document)
+				? readOperatorFile(spec.source.path, document)
+				: readStreamBytes(spec.source.stream, document)
 		).pipe(Effect.catch(loadRefused))
 		const loaded = yield* loadBytes(bytes, { document }).pipe(Effect.catch(loadRefused))
 		const { diagnosis, line } = yield* Effect.all({

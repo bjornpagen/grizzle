@@ -12,7 +12,7 @@ import {
 	Struct
 } from "effect"
 import type { Types } from "effect"
-import { sanitizeProse } from "#model/brands.ts"
+import { stripUnsafeText } from "#model/brands.ts"
 import { JsonPointer, MethodToken, PathTemplate } from "#model/brands.ts"
 import { makeDiagnostic, pointerOrder } from "#model/diagnostic.ts"
 import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"
@@ -31,7 +31,7 @@ import {
 	hintDiscriminators,
 	normalizeBody
 } from "#normalize/bodies.ts"
-import type { BodyNodeBudget, BodyNotReadable, BodySite } from "#normalize/bodies.ts"
+import type { BodyNotReadable, BodySite } from "#normalize/bodies.ts"
 import { follow, nodeOption } from "#normalize/document-set.ts"
 import { authorChoiceCodes, normalizeParameter, ParameterOutcome } from "#normalize/parameters.ts"
 import type { ParameterNotReadable, ParameterSite } from "#normalize/parameters.ts"
@@ -41,7 +41,7 @@ import type { SchemeNormalization } from "#normalize/security.ts"
 import { effectiveServers } from "#normalize/servers.ts"
 import type { ServerSource, ServersContext } from "#normalize/servers.ts"
 import { referenceAt } from "#resolve/index.ts"
-import type { ResolveLimits, Resolution } from "#resolve/index.ts"
+import type { Resolution } from "#resolve/index.ts"
 
 /**
  * The operations of the entry document and the diagnostics found assembling them. An operation
@@ -54,9 +54,9 @@ export interface OperationAssembly {
 
 /**
  * Assembly fails only where a stage below it does: a site validation or resolution should have
- * stopped, or a schema walk past its budget.
+ * stopped.
  */
-export type OperationsError = BodyNodeBudget | BodyNotReadable | ParameterNotReadable
+export type OperationsError = BodyNotReadable | ParameterNotReadable
 
 type DiagnosticOperationValue = typeof DiagnosticOperation.Type
 
@@ -390,7 +390,6 @@ interface Shared {
 	readonly cache: Map<string, ParameterOutcome>
 	readonly checkFindings: readonly Diagnostic[]
 	readonly context: ServersContext
-	readonly limits: ResolveLimits
 	readonly resolution: Resolution
 	readonly schemes: SchemeNormalization
 }
@@ -409,7 +408,7 @@ const withFormRules = Effect.fnUntraced(function* withFormRules(
 	shared: Shared,
 	site: ParameterSite,
 	outcome: ParameterOutcome
-): Effect.fn.Return<ParameterOutcome, BodyNodeBudget | BodyNotReadable> {
+): Effect.fn.Return<ParameterOutcome, BodyNotReadable> {
 	if (
 		!ParameterOutcome.$is("Implemented")(outcome) ||
 		outcome.parameter.location !== "querystring"
@@ -429,12 +428,7 @@ const withFormRules = Effect.fnUntraced(function* withFormRules(
 		bodySite.nonStandard = nonStandard
 	}
 
-	const decided = yield* formContentRules(
-		shared.resolution,
-		bodySite,
-		serialization.mediaType,
-		shared.limits
-	)
+	const decided = yield* formContentRules(shared.resolution, bodySite, serialization.mediaType)
 	const diagnostics = [...outcome.diagnostics, ...decided.diagnostics]
 	if (FormContentOutcome.$is("Refused")(decided)) {
 		return ParameterOutcome.Refused({ diagnostics, required: parameter.required })
@@ -458,7 +452,7 @@ const parameterOutcome = Effect.fnUntraced(function* parameterOutcome(
 	shared: Shared,
 	raw: RawOperation,
 	entry: ParameterEntry
-): Effect.fn.Return<ParameterOutcome, BodyNodeBudget | BodyNotReadable | ParameterNotReadable> {
+): Effect.fn.Return<ParameterOutcome, BodyNotReadable | ParameterNotReadable> {
 	const site: ParameterSite =
 		entry.level === "operation"
 			? {
@@ -477,7 +471,7 @@ const parameterOutcome = Effect.fnUntraced(function* parameterOutcome(
 		return cached
 	}
 
-	const normalized = yield* normalizeParameter(shared.resolution, site, shared.limits)
+	const normalized = yield* normalizeParameter(shared.resolution, site)
 	const outcome = yield* withFormRules(shared, site, normalized)
 	shared.cache.set(entry.pointer, outcome)
 
@@ -488,7 +482,7 @@ const assembleParameters = Effect.fnUntraced(function* assembleParameters(
 	shared: Shared,
 	raw: RawOperation,
 	merged: Merged
-): Effect.fn.Return<Assembled, BodyNodeBudget | BodyNotReadable | ParameterNotReadable> {
+): Effect.fn.Return<Assembled, BodyNotReadable | ParameterNotReadable> {
 	const outcomes = yield* Effect.forEach(merged.entries, (entry) =>
 		parameterOutcome(shared, raw, entry)
 	)
@@ -541,7 +535,7 @@ const diagnose = (
 const assembleBody = Effect.fnUntraced(function* assembleBody(
 	shared: Shared,
 	raw: RawOperation
-): Effect.fn.Return<BodyResult, BodyNodeBudget | BodyNotReadable> {
+): Effect.fn.Return<BodyResult, BodyNotReadable> {
 	if (raw.fields.requestBody === undefined) {
 		return { body: Option.none(), diagnostics: [], refusedRequired: false }
 	}
@@ -563,7 +557,7 @@ const assembleBody = Effect.fnUntraced(function* assembleBody(
 		site.nonStandard = nonStandard
 	}
 
-	const outcome = yield* normalizeBody(shared.resolution, site, shared.limits)
+	const outcome = yield* normalizeBody(shared.resolution, site)
 	if (BodyOutcome.$is("Refused")(outcome)) {
 		return {
 			body: Option.none(),
@@ -607,11 +601,11 @@ const docsOf = (
 ): Types.Mutable<typeof Operation.Encoded.docs> => {
 	const docs: Types.Mutable<typeof Operation.Encoded.docs> = {}
 	if (fields.description !== undefined) {
-		docs.description = sanitizeProse(fields.description)
+		docs.description = stripUnsafeText(fields.description)
 	}
 
 	if (fields.summary !== undefined) {
-		docs.summary = sanitizeProse(fields.summary)
+		docs.summary = stripUnsafeText(fields.summary)
 	}
 
 	return docs
@@ -924,7 +918,7 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 		rows: rowsOf(shared, raw, merged, { body: body.body, declared: policy.policy.declared }),
 		security: policy.policy,
 		servers: servers.servers,
-		tags: Arr.map(raw.fields.tags ?? [], sanitizeProse)
+		tags: Arr.map(raw.fields.tags ?? [], stripUnsafeText)
 	}).pipe(Effect.orDie)
 
 	return { diagnostics, operation: Option.some(operation) }
@@ -980,14 +974,12 @@ export const assembleOperations = Effect.fnUntraced(function* assembleOperations
 	resolution: Resolution,
 	schemes: SchemeNormalization,
 	context: ServersContext,
-	checkFindings: readonly Diagnostic[],
-	limits: ResolveLimits
+	checkFindings: readonly Diagnostic[]
 ): Effect.fn.Return<OperationAssembly, OperationsError> {
 	const shared: Shared = {
 		cache: new Map(),
 		checkFindings,
 		context,
-		limits,
 		resolution,
 		schemes
 	}

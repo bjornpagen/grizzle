@@ -1,7 +1,7 @@
 import { Array as Arr, Effect, Option, Order, Record, Schema } from "effect"
 import type { Types } from "effect"
 import type { AuthorConfig } from "#model/author-config.ts"
-import { sanitizeProse } from "#model/brands.ts"
+import { stripUnsafeText } from "#model/brands.ts"
 import { JsonPointer } from "#model/brands.ts"
 import type { DocumentUri } from "#model/brands.ts"
 import { sortDiagnostics } from "#model/diagnostic.ts"
@@ -12,11 +12,10 @@ import { collectInformational } from "#normalize/informational.ts"
 import { assembleOperations, distinctDiagnostics } from "#normalize/operations.ts"
 import type { OperationsError } from "#normalize/operations.ts"
 import { normalizeSchemas } from "#normalize/schemas.ts"
-import type { SchemaBudgetExceeded, SchemaImportDefect } from "#normalize/schemas.ts"
+import type { SchemaImportDefect } from "#normalize/schemas.ts"
 import { normalizeSecurityPolicy, normalizeSecuritySchemes } from "#normalize/security.ts"
 import { effectiveServers } from "#normalize/servers.ts"
 import type { ServersContext } from "#normalize/servers.ts"
-import { defaultLimits } from "#resolve/index.ts"
 import type { Resolution } from "#resolve/index.ts"
 
 /**
@@ -37,7 +36,7 @@ export interface Normalization {
 	readonly diagnostics: readonly Diagnostic[]
 }
 
-export type NormalizeError = OperationsError | SchemaBudgetExceeded | SchemaImportDefect
+export type NormalizeError = OperationsError | SchemaImportDefect
 
 /**
  * The root `servers` site, a constant, decoded once.
@@ -70,11 +69,11 @@ const decodeRoot = Schema.decodeUnknownOption(Root)
 const docsOf = (fields: typeof Described.Type): Types.Mutable<typeof Api.Encoded.info> => {
 	const docs: Types.Mutable<typeof Api.Encoded.info> = {}
 	if (fields.description !== undefined) {
-		docs.description = sanitizeProse(fields.description)
+		docs.description = stripUnsafeText(fields.description)
 	}
 
 	if (fields.summary !== undefined) {
-		docs.summary = sanitizeProse(fields.summary)
+		docs.summary = stripUnsafeText(fields.summary)
 	}
 
 	return docs
@@ -140,14 +139,8 @@ export const normalize = Effect.fn("normalize.normalize")(function* normalize(
 		{ config: context.config, configDocument: context.configDocument },
 		context.checkFindings
 	)
-	const schemas = yield* normalizeSchemas(resolution, { maxNodes: defaultLimits.maxNodes })
-	const assembly = yield* assembleOperations(
-		resolution,
-		schemes,
-		servers,
-		context.checkFindings,
-		defaultLimits
-	)
+	const schemas = yield* normalizeSchemas(resolution)
+	const assembly = yield* assembleOperations(resolution, schemes, servers, context.checkFindings)
 	const policy = yield* normalizeSecurityPolicy(resolution, schemes, Option.none())
 	const rootServers = effectiveServers(
 		{

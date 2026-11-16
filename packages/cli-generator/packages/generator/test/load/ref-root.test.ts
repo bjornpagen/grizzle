@@ -16,13 +16,7 @@ import { NodeCrypto, NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Effect, FileSystem, Layer, Schema } from "effect"
 import { describe, expect, onTestFinished, test } from "vitest"
 import { setMembers } from "#generate.ts"
-import {
-	makeDocumentSet,
-	maxDocuments,
-	maxWalkDepth,
-	maxWalkEntries,
-	resolveUnderRoot
-} from "#load/document-set.ts"
+import { makeDocumentSet, resolveUnderRoot } from "#load/document-set.ts"
 import type { DocumentPair, DocumentSetOptions } from "#load/document-set.ts"
 import { DocumentUri } from "#model/brands.ts"
 
@@ -219,26 +213,21 @@ describe("document set: --ref-root", () => {
 		])
 	})
 
-	test("the budget counts both sources and the entry outside the root", async () => {
+	test("both sources load whole, 40 pairs beside the root's files, refused by no count", async () => {
 		const { root } = workspace()
-		const fits = await Effect.runPromise(run(numbered(maxDocuments - 3), root))
-		const error = await refusal(numbered(maxDocuments - 2), root)
+		const set = await Effect.runPromise(run(numbered(40), root))
 
-		expect(fits.documents.size).toBe(maxDocuments - 1)
-		expect(error.diagnostic.code).toBe("REF-16/document-limit")
-		expect(error.diagnostic.scope).toBe("document")
+		expect(set.documents.size).toBe(42)
 	})
 
-	test("an entry inside the root is one of the 32 documents, not a second slot", async () => {
+	test("an entry inside the root is the root's file, never a second document", async () => {
 		const { root } = workspace()
 		const entry = Schema.decodeUnknownSync(DocumentUri)(
 			pathToFileURL(path.join(root, "a.json")).href
 		)
-		const fits = await Effect.runPromise(run(numbered(maxDocuments - 2), root, { entry }))
-		const error = await refusal(numbered(maxDocuments - 1), root, { entry })
+		const set = await Effect.runPromise(run(numbered(40), root, { entry }))
 
-		expect(fits.documents.size).toBe(maxDocuments)
-		expect(error.diagnostic.code).toBe("REF-16/document-limit")
+		expect(set.documents.size).toBe(42)
 	})
 
 	test("a --document URI spelling a preloaded file's URI differently is refused", async () => {
@@ -373,41 +362,29 @@ describe("document set: --ref-root", () => {
 		])
 	})
 
-	test(`the walk enters ${maxWalkDepth} levels below the root and refuses one more`, async () => {
+	test("the walk enters 40 levels below the root, refused by no depth", async () => {
 		const { root } = workspace()
-		const levels = (count: number) =>
-			path.join(root, ...Array.from({ length: count }, (_, index) => `d${index}`))
+		const deep = path.join(root, ...Array.from({ length: 40 }, (_, index) => `d${index}`))
 
-		mkdirSync(levels(maxWalkDepth), { recursive: true })
-		writeFileSync(path.join(levels(maxWalkDepth), "deep.json"), "{}")
+		mkdirSync(deep, { recursive: true })
+		writeFileSync(path.join(deep, "deep.json"), "{}")
 
 		const set = await Effect.runPromise(run([], root))
 
-		expect(uris(set)).toContain(pathToFileURL(path.join(levels(maxWalkDepth), "deep.json")).href)
-
-		mkdirSync(levels(maxWalkDepth + 1))
-
-		const error = await refusal([], root)
-
-		expect(error.diagnostic.code).toBe("REF-16/walk-limit")
-		expect(error.diagnostic.scope).toBe("document")
-		expect(error.diagnostic.hint).toBe(levels(maxWalkDepth + 1))
+		expect(uris(set)).toContain(pathToFileURL(path.join(deep, "deep.json")).href)
 	})
 
-	test(`the walk refuses past ${maxWalkEntries} entries`, async () => {
+	test("a directory link back up the tree ends the walk where it closes", async () => {
 		const { root } = workspace()
-		const many = path.join(root, "many")
 
-		mkdirSync(many)
+		symlinkSync(root, path.join(root, "sub", "up"))
+		symlinkSync(path.join(root, "sub"), path.join(root, "sub", "self"))
 
-		for (let index = 0; index < maxWalkEntries; index += 1) {
-			writeFileSync(path.join(many, `n${index}`), "")
-		}
+		const set = await Effect.runPromise(run([], root))
 
-		const error = await refusal([], root)
-
-		expect(error.diagnostic.code).toBe("REF-16/walk-limit")
-		expect(error.diagnostic.scope).toBe("document")
-		expect(error.diagnostic.hint).toBe(many)
+		expect(uris(set)).toEqual([
+			pathToFileURL(path.join(root, "a.json")).href,
+			pathToFileURL(path.join(root, "sub", "b.yaml")).href
+		])
 	})
 })

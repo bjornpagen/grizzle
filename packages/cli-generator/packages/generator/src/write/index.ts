@@ -64,11 +64,6 @@ export interface WriteNotice {
 	readonly path: string
 }
 
-/**
- * The largest previous manifest the writer reads (4 MiB); a larger file is reported, not read.
- */
-const maxPreviousManifestBytes = 4 * 1024 * 1024
-
 type Services = FileSystem.FileSystem | Path.Path | Digest.Digest
 
 const fold = (path: string): string => Str.toLowerCase(Str.normalize("NFC")(path))
@@ -262,7 +257,7 @@ const unreadable: WriteNotice = { path: manifestFileName, reason: "manifest-unre
 
 /**
  * The previous manifest's entries; a missing manifest is empty, and one that is a symlink, not a
- * file, over the size bound, unreadable or not the manifest shape yields a notice and no entries.
+ * file, unreadable or not the manifest shape yields a notice and no entries.
  */
 const readPrevious = (
 	outputDir: string
@@ -283,7 +278,7 @@ const readPrevious = (
 			return none
 		}
 
-		if (info.value.type !== "File" || Number(info.value.size) > maxPreviousManifestBytes) {
+		if (info.value.type !== "File") {
 			return skipped
 		}
 

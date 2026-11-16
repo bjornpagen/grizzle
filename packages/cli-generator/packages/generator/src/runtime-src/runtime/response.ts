@@ -18,11 +18,6 @@ export interface ResponseTable {
 	readonly responses: Readonly<Record<string, readonly string[]>>
 }
 
-/**
- * Bound on a request id read from a response header, matching the error class (design 7.1).
- */
-const maxRequestIdLength = 256
-
 const declares = (responses: ResponseTable["responses"], key: string): boolean =>
 	Rec.has(responses, key)
 
@@ -70,26 +65,8 @@ const mediaTypeOf = (response: HttpClientResponse.HttpClientResponse): string | 
 const requestIdUnsafeText: Readonly<RegExp> = regex("[\\p{Cc}\\p{Cf}\\p{Cs}\\u2028\\u2029]", "gu")
 
 /**
- * A high surrogate at the end of a cut: the cut split a pair. Not a lone-surrogate test.
- */
-const trailingHighSurrogate: Readonly<RegExp> = regex("[\\uD800-\\uDBFF]$", "u")
-
-/**
- * The first `maxRequestIdLength` UTF-16 units of `text`, never ending in half a surrogate pair.
- */
-const boundRequestId = (text: string): string => {
-	const head = Str.slice(0, maxRequestIdLength)(text)
-
-	return trailingHighSurrogate.test(head) && text.length > maxRequestIdLength
-		? Str.slice(0, -1)(head)
-		: head
-}
-
-/**
- * The declared request-id header, the run's recorded values scrubbed, sanitized and scrubbed
- * again (design 7.1, audit S2), then bounded (audit F6): bounding first could cut a value so that
- * the remaining prefix no longer matches. `scrubbed` is the full recorded list, credentials and
- * secret-file values alike (design 9 I4; audit F2): the final catch cannot match a cut prefix.
+ * The declared request-id header, whole, the run's recorded values scrubbed, sanitized and scrubbed again (design 7.1,
+ * audit S2). `scrubbed` is the full recorded list, credentials and secret-file values alike (design 9 I4; audit F2).
  */
 const requestIdOf = (
 	table: ResponseTable,
@@ -104,7 +81,7 @@ const requestIdOf = (
 
 	return header === undefined
 		? undefined
-		: boundRequestId(scrubAround(header, scrubbed, Str.replaceAll(requestIdUnsafeText, "")))
+		: scrubAround(header, scrubbed, Str.replaceAll(requestIdUnsafeText, ""))
 }
 
 const locationNote = (response: HttpClientResponse.HttpClientResponse): string => {
@@ -116,17 +93,17 @@ const locationNote = (response: HttpClientResponse.HttpClientResponse): string =
 /**
  * Build the error for a final non-2xx response. `Location` is redacted with the redacted-name list
  * of the running fiber (`UrlParams.CurrentRedactedNames`, which the runtime extends with every spec
- * `apiKey` name); outside a fiber only Effect's defaults apply. The body excerpt is bounded and
- * rendered elsewhere (RT-6), so the caller passes it in. A 3xx with no excerpt carries its redacted
+ * `apiKey` name); outside a fiber only Effect's defaults apply. The body is read and scrubbed
+ * elsewhere (RT-6), so the caller passes it in. A 3xx with no body carries its redacted
  * `Location` there instead. `scrubbed`, the run's full recorded list, is scrubbed from the request
- * id before it is bounded; it is required so a caller cannot silently skip the scrub.
+ * id; it is required so a caller cannot silently skip the scrub.
  * `retryAfterSeconds` is the server's `Retry-After` delay when retrying stopped at the cap (design
  * D-AD7, 7.1; m3 P14), and sets `ApiResponseError.retryAfterSeconds`; `None` leaves it unset.
  */
 export const toApiResponseError = (
 	table: ResponseTable,
 	response: HttpClientResponse.HttpClientResponse,
-	bodyExcerpt: string,
+	body: string,
 	scrubbed: readonly ScrubEntry[],
 	retryAfterSeconds: Option.Option<number>
 ): ApiResponseError => {
@@ -136,7 +113,7 @@ export const toApiResponseError = (
 	const redirect = response.status >= 300 && response.status < 400 ? locationNote(response) : ""
 
 	const base = {
-		bodyExcerpt: bodyExcerpt === "" ? redirect : bodyExcerpt,
+		body: body === "" ? redirect : body,
 		matched: key,
 		operation: table.operation,
 		status: response.status
@@ -188,17 +165,17 @@ const CauseLinkSchema = Schema.Struct({
 
 const decodeCauseLink = Schema.decodeUnknownOption(CauseLinkSchema)
 
-const maxCauseDepth = 8
-
 /**
- * The cause, its own `cause`, and so on. Each link is decoded on its own, with the depth bound
- * checked before every decode, so a cyclic chain terminates without recursion.
+ * The cause, its own `cause`, and so on, each value once. Each link is decoded on its own, and a value met again ends
+ * the chain, so a cyclic chain terminates without recursion.
  */
 const causeChain = (cause: unknown): readonly CauseLink[] => {
 	const chain: CauseLink[] = []
+	const seen = new Set<unknown>()
 	let current = cause
 
-	while (current !== undefined && chain.length < maxCauseDepth) {
+	while (current !== undefined && !seen.has(current)) {
+		seen.add(current)
 		const link = Option.getOrUndefined(decodeCauseLink(current))
 
 		if (link === undefined) {

@@ -6,7 +6,7 @@ import { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
-import { defaultLimits, resolve } from "#resolve/index.ts"
+import { resolve } from "#resolve/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
@@ -36,9 +36,7 @@ const resolved = (line: SpecLine, members: Members) =>
 
 const check = (line: SpecLine, members: Members) =>
 	Effect.runSync(
-		resolved(line, members).pipe(
-			Effect.flatMap((resolution) => checkGrammar(resolution, defaultLimits))
-		)
+		resolved(line, members).pipe(Effect.flatMap((resolution) => checkGrammar(resolution)))
 	)
 
 const checkAll = (line: SpecLine, members: Members) =>
@@ -893,19 +891,6 @@ describe("requires() on a reused schema graph", () => {
 			})
 		).toEqual([])
 	})
-
-	test("past the step budget the only finding is a document-scope refusal", () => {
-		const found = Effect.runSync(
-			resolved("3.1", diamond(20, "allOf")).pipe(
-				Effect.flatMap((resolution) => checkGrammar(resolution, { maxNodes: 10 }))
-			)
-		)
-
-		expect(found.map((diagnostic) => [diagnostic.code, diagnostic.scope])).toEqual([
-			["REF-18/node-budget", "document"]
-		])
-		expect(pointers(found)).toEqual([""])
-	}, 2000)
 })
 
 describe("the check entry", () => {

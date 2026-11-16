@@ -381,9 +381,6 @@ export const encoder = new TextEncoder()
 const largest = (values: readonly number[]): number =>
 	Arr.reduce(values, 0, (most, value) => Math.max(most, value))
 
-export const longestFormBytes = (credentials: readonly ScrubEntry[]): number =>
-	largest(Arr.map(Arr.flatMap(credentials, wireForms), (form) => encoder.encode(form).length))
-
 /**
  * The length of the longest proper prefix of `form` that `text` ends with (Knuth-Morris-Pratt, so
  * a long credential costs linear time). Only the last `form.length - 1` characters can hold a
@@ -428,8 +425,8 @@ const tailKeeping = (text: string, kept: number, strip: (text: string) => string
 }
 
 /**
- * Drop the trailing partial match of any credential form (audit F1). A read cut at its budget can
- * end inside a credential; that fragment never matches, so scrubbing would leave it, and a shorter
+ * Drop the trailing partial match of any credential form (audit F1). A chunk of a stream can end
+ * inside a credential; that fragment never matches, so scrubbing would leave it, and a shorter
  * placeholder earlier in the text would pull it into the visible window. The fragment is also
  * matched as `strip` leaves the text, against each form both as sent and as `strip` leaves it
  * (audit S2), so a credential that removed characters split is dropped too.

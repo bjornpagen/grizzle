@@ -37,12 +37,9 @@ import {
 	dryRunSetting,
 	Force,
 	InternalError,
-	defaultMaxErrorBytes,
-	MaxErrorBytes,
 	OutputPath,
-	boundedExcerpt,
 	finalCatch,
-	readExcerpt,
+	readErrorBody,
 	renderError,
 	sanitize,
 	send,
@@ -366,16 +363,12 @@ const chunked = (text: string, size: number): Stream.Stream<Uint8Array> => {
 	return Stream.fromIterable(chunks)
 }
 
-const excerptOf = (text: string, max: number, chunkSize = 1000) =>
-	Effect.runPromise(
-		readExcerpt(chunked(text, chunkSize), [bearer]).pipe(
-			Effect.provide(Layer.succeed(MaxErrorBytes, max))
-		)
-	)
+const bodyOf = (text: string, chunkSize = 1000) =>
+	Effect.runPromise(readErrorBody(chunked(text, chunkSize), [bearer]))
 
 const responseError = (fields: Partial<ConstructorParameters<typeof ApiResponseError>[0]> = {}) =>
 	new ApiResponseError({
-		bodyExcerpt: "",
+		body: "",
 		matched: "404",
 		operation: "users.get",
 		status: 404,
@@ -400,52 +393,38 @@ const runCatch = <A, E>(program: Effect.Effect<A, E, Stdio.Stdio>, credentials =
 	).then((exit) => ({ exit, stderr: Buffer.concat(stderr).toString("utf-8") }))
 }
 
-describe("readExcerpt bounds", () => {
-	test("the default is 4 KiB, even when one chunk crosses the limit", async () => {
-		const text = await excerptOf("a".repeat(10_000), defaultMaxErrorBytes, 10_000)
+describe("readErrorBody reads the body whole", () => {
+	test("a body across many chunks is read to its end", async () => {
+		const text = await bodyOf("a".repeat(100_000), 7000)
 
-		expect(text.length).toBe(4096)
+		expect(text).toBe("a".repeat(100_000))
 	})
 
-	test("--max-error-bytes sets the bound and 0 reads nothing", async () => {
-		const bounded = await excerptOf("a".repeat(10_000), 100, 300)
+	test("a character split across chunks is decoded whole", async () => {
+		const text = await bodyOf("é".repeat(5000), 7)
 
-		expect(bounded.length).toBe(100)
-		expect(await excerptOf("a".repeat(10_000), 0)).toBe("")
-	})
-
-	test("the 64 KiB ceiling holds", async () => {
-		const text = await excerptOf("a".repeat(100_000), 65_536, 7000)
-
-		expect(text.length).toBe(65_536)
-	})
-
-	test("the bound counts bytes, never splitting a character", async () => {
-		const text = await excerptOf("é".repeat(5000), 101, 7)
-
-		expect(utf8Length(text)).toBeLessThanOrEqual(101)
-		expect(text).toBe("é".repeat(50))
+		expect(utf8Length(text)).toBe(10_000)
+		expect(text).toBe("é".repeat(5000))
 	})
 
 	test("a short body is returned whole", async () => {
-		expect(await excerptOf("not found", defaultMaxErrorBytes)).toBe("not found")
+		expect(await bodyOf("not found")).toBe("not found")
 	})
 })
 
 describe("credential scrubbing", () => {
 	test("a canary echoed in the body is absent and marked", async () => {
 		const body = JSON.stringify({ echo: { authorization: `Bearer ${canary}` } })
-		const text = await excerptOf(body, defaultMaxErrorBytes, 5)
+		const text = await bodyOf(body, 5)
 
 		expect(text).not.toContain(canary)
 		expect(text).toContain("<redacted:bearer>")
 	})
 
-	test("a canary straddling the truncation point leaves no prefix", async () => {
-		const text = await excerptOf(`0123456789${canary}-tail`, 20, 4)
+	test("a canary split across chunks leaves no part of it", async () => {
+		const text = await bodyOf(`0123456789${canary}-tail`, 4)
 
-		expect(text).not.toContain("CANA")
-		expect(utf8Length(text)).toBeLessThanOrEqual(20)
+		expect(text).toBe("0123456789<redacted:bearer>-tail")
 	})
 
 	test("the longest credential is scrubbed first", () => {
@@ -458,16 +437,6 @@ describe("credential scrubbing", () => {
 		const empty: Credential = { ...bearer, value: Redacted.make("") }
 
 		expect(scrub("text", [empty])).toBe("text")
-	})
-
-	test("the bound applies after scrubbing, which can lengthen text (audit F6)", () => {
-		const short: Credential = { ...bearer, scheme: "bearer", value: Redacted.make("x") }
-		const text = boundedExcerpt("x".repeat(70_000), 65_536, [short])
-
-		expect(utf8Length(text)).toBeLessThanOrEqual(65_536)
-		expect(() => {
-			responseError({ bodyExcerpt: text })
-		}).not.toThrow()
 	})
 })
 
@@ -487,12 +456,8 @@ const queryKey: Credential = {
 	value: Redacted.make("key/with+plus=CANARY&")
 }
 
-const excerptWith = (text: string, max: number, credentials: readonly Credential[]) =>
-	Effect.runPromise(
-		readExcerpt(chunked(text, 7), credentials).pipe(
-			Effect.provide(Layer.succeed(MaxErrorBytes, max))
-		)
-	)
+const bodyWith = (text: string, credentials: readonly Credential[]) =>
+	Effect.runPromise(readErrorBody(chunked(text, 7), credentials))
 
 /**
  * The longest non-empty prefix of `secret` that `text` ends with, or "" when there is none.
@@ -530,21 +495,20 @@ const queryProbes = [
 	{ raw: "x'y z", searchParams: "x%27y+z", wire: "x%27y%20z" }
 ] as const
 
-describe("credential scrubbing at the read budget (audit F1)", () => {
-	test("a credential longer than its placeholder cut by the read budget leaves no prefix", async () => {
+describe("credential scrubbing across chunks (audit F1)", () => {
+	test("a credential longer than its placeholder, split across chunks, leaves no prefix", async () => {
 		const body = `${longSecret}${"x".repeat(61)}${longSecret}tail`
-		const text = await excerptWith(body, 100, [longBearer])
+		const text = await bodyWith(body, [longBearer])
 
 		expect(text).toContain("<redacted:bearer>")
 		expect(text).not.toContain("SECRETTOKEN")
 		expect(trailingPrefix(text, longSecret)).toBe("")
-		expect(utf8Length(text)).toBeLessThanOrEqual(100)
 	})
 
-	test("a basic token cut by the read budget leaves no prefix of it", async () => {
+	test("a basic token split across chunks leaves no prefix of it", async () => {
 		const token = basicHeader().slice("Basic ".length)
 		const body = `Basic ${token} ${"y".repeat(40)} Basic ${token}`
-		const text = await excerptWith(body, 60, [basic])
+		const text = await bodyWith(body, [basic])
 
 		expect(text).not.toContain(token.slice(0, 4))
 		expect(trailingPrefix(text, token)).toBe("")
@@ -552,11 +516,11 @@ describe("credential scrubbing at the read budget (audit F1)", () => {
 })
 
 describe("every wire form of a credential is scrubbed (audit F2)", () => {
-	test("the I4 Authorization echo of a basic credential is scrubbed in excerpt and render", async () => {
+	test("the I4 Authorization echo of a basic credential is scrubbed in the body and render", async () => {
 		const echo = basicHeader()
 		const token = echo.slice("Basic ".length)
-		const text = await excerptWith(echo, defaultMaxErrorBytes, [basic])
-		const rendered = renderError(responseError({ bodyExcerpt: echo, status: 401 }), [basic])
+		const text = await bodyWith(echo, [basic])
+		const rendered = renderError(responseError({ body: echo, status: 401 }), [basic])
 
 		for (const output of [text, rendered]) {
 			expect(output).not.toContain(token)
@@ -573,7 +537,7 @@ describe("every wire form of a credential is scrubbed (audit F2)", () => {
 
 	test("a percent-encoded query key echoed in a URL is scrubbed", async () => {
 		const url = `https://api.example.com/users?${queryWire()}`
-		const text = await excerptWith(`redirected to ${url}`, defaultMaxErrorBytes, [queryKey])
+		const text = await bodyWith(`redirected to ${url}`, [queryKey])
 		const rendered = renderError(new TransportError({ reason: "connect", url }), [queryKey])
 
 		expect(queryWire()).toContain("%2F")
@@ -589,11 +553,11 @@ describe("every echoed form of a query credential is scrubbed (audit M F1)", () 
 		const credential: Credential = { ...queryKey, value: Redacted.make(probe.raw) }
 
 		for (const form of ["raw", "searchParams", "wire"] as const) {
-			test(`${JSON.stringify(probe.raw)} echoed as its ${form} form in an excerpt and request id`, async () => {
+			test(`${JSON.stringify(probe.raw)} echoed as its ${form} form in a body and request id`, async () => {
 				const echo = `api_key=${probe[form]}`
-				const text = await excerptWith(`echo ${echo} end`, defaultMaxErrorBytes, [credential])
+				const text = await bodyWith(`echo ${echo} end`, [credential])
 				const rendered = renderError(
-					responseError({ bodyExcerpt: `echo ${echo} end`, requestId: `id-${probe[form]}` }),
+					responseError({ body: `echo ${echo} end`, requestId: `id-${probe[form]}` }),
 					[credential]
 				)
 
@@ -635,9 +599,9 @@ describe("sanitize", () => {
 })
 
 describe("renderError", () => {
-	test("an ApiResponseError shows its line, request id and scrubbed excerpt", () => {
+	test("an ApiResponseError shows its line, request id and scrubbed body", () => {
 		const text = renderError(
-			responseError({ bodyExcerpt: `echo ${canary}\u001B[31m`, requestId: "req-1" }),
+			responseError({ body: `echo ${canary}\u001B[31m`, requestId: "req-1" }),
 			[bearer]
 		)
 
@@ -649,7 +613,7 @@ describe("renderError", () => {
 		expect(text).not.toContain("\u001B")
 	})
 
-	test("an empty excerpt prints no body section", () => {
+	test("an empty body prints no body section", () => {
 		expect(renderError(responseError(), [bearer]).trimEnd().split("\n")).toHaveLength(1)
 	})
 
@@ -664,12 +628,11 @@ describe("renderError", () => {
 		expect(transport).not.toContain(canary)
 	})
 
-	test("an oversized excerpt is bounded at the ceiling after scrubbing", () => {
-		const short: Credential = { ...bearer, value: Redacted.make("x") }
-		const text = renderError(responseError({ bodyExcerpt: "x".repeat(65_536) }), [short])
+	test("a long body prints whole", () => {
+		const body = "y".repeat(100_000)
+		const text = renderError(responseError({ body }), [bearer])
 
-		expect(utf8Length(text)).toBeLessThan(65_536 + 512)
-		expect(text).not.toContain("xxxx")
+		expect(text.split("\n").at(-1)).toBe(body)
 	})
 })
 
@@ -751,7 +714,7 @@ describe("finalCatch", () => {
 	})
 
 	test("a known error is rendered once and keeps its tag and exit code", async () => {
-		const original = responseError({ bodyExcerpt: `echo ${canary}`, matched: "401", status: 401 })
+		const original = responseError({ body: `echo ${canary}`, matched: "401", status: 401 })
 		const { exit, stderr } = await runCatch(Effect.fail(original))
 		const error = Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined
 
@@ -834,16 +797,15 @@ describe("finalCatch", () => {
 
 describe("a credential split by invisible characters is scrubbed (security review)", () => {
 	test.each(["\u202E", "\u200B", "\u0001"])(
-		"renderError and the excerpt redact a credential split by %#",
+		"renderError and the error body redact a credential split by %#",
 		async (split) => {
 			const echo = `x CANARY-SECRET${split}-123 y`
-			const rendered = renderError(
-				responseError({ bodyExcerpt: echo, requestId: echo, status: 401 }),
-				[bearer]
-			)
-			const excerpt = await excerptWith(echo, defaultMaxErrorBytes, [bearer])
+			const rendered = renderError(responseError({ body: echo, requestId: echo, status: 401 }), [
+				bearer
+			])
+			const body = await bodyWith(echo, [bearer])
 
-			for (const output of [rendered, excerpt]) {
+			for (const output of [rendered, body]) {
 				expect(output).not.toContain("CANARY")
 				expect(output).toContain("<redacted:bearer>")
 			}
@@ -860,15 +822,15 @@ const strippableBearer: Credential = { ...bearer, value: Redacted.make(strippabl
 const strippableEcho = `x ${strippable} y CANARY\u202E\u00AD\u0085\u0001SECRET z`
 
 describe("credentials are scrubbed before the text is sanitized (audit S2, design 7.4)", () => {
-	test("the body excerpt", async () => {
-		const excerpt = await excerptWith(strippableEcho, defaultMaxErrorBytes, [strippableBearer])
+	test("the error body", async () => {
+		const body = await bodyWith(strippableEcho, [strippableBearer])
 
-		expect(excerpt).toBe("x <redacted:bearer> y <redacted:bearer> z")
+		expect(body).toBe("x <redacted:bearer> y <redacted:bearer> z")
 	})
 
-	test("the request id line and the excerpt of a rendered error", () => {
+	test("the request id line and the body of a rendered error", () => {
 		const rendered = renderError(
-			responseError({ bodyExcerpt: strippableEcho, requestId: strippableEcho }),
+			responseError({ body: strippableEcho, requestId: strippableEcho }),
 			[strippableBearer]
 		)
 
@@ -897,16 +859,17 @@ describe("credentials are scrubbed before the text is sanitized (audit S2, desig
 	})
 })
 
-// Audit S2 residual: an earlier echo of the credential turns into a shorter placeholder and pulls
-// the read's last bytes into the visible window; those bytes hold the credential, split by a
-// stripped character and cut at the read budget.
-describe("a credential split by a stripped character and cut at the budget (audit S2)", () => {
+// Audit S2 residual: an earlier echo of the credential turns into a shorter placeholder; the echo
+// after it holds the credential split by a stripped character.
+describe("a credential split by a stripped character after an earlier echo (audit S2)", () => {
 	for (const split of ["\u00AD", "\u0085", "\u0001"]) {
 		test(`split by ${JSON.stringify(split)}`, async () => {
 			const cut = `${longSecret.slice(0, 6)}${split}${longSecret.slice(6)}`
-			const excerpt = await excerptWith(`${longSecret}${cut}-tail`, longSecret.length, [longBearer])
+			const body = await bodyWith(`${longSecret}${cut}-tail`, [longBearer])
 
-			expect(excerpt).toBe("<redacted:bearer>")
+			expect(body).not.toContain("SECRETTOKEN")
+			expect(body).toContain("<redacted:bearer>")
+			expect(body.endsWith("-tail")).toBe(true)
 		})
 	}
 })
@@ -978,7 +941,6 @@ const sendTo = async (
 		Layer.succeed(OutputPath, Option.some(target)),
 		Layer.succeed(Force, settings.force ?? false),
 		Layer.succeed(dryRunSetting, settings.dryRun ?? false),
-		Layer.succeed(MaxErrorBytes, defaultMaxErrorBytes),
 		Layer.succeed(BaseUrl.baseUrlSetting, Option.none()),
 		Layer.succeed(BaseUrl.serverSetting, Option.none()),
 		Layer.succeed(BaseUrl.serverVariableSetting, []),

@@ -195,7 +195,6 @@ const run = async (meta: Output.OperationMeta, world: World = {}) => {
 		}),
 		Layer.succeed(Output.OutputPath, Option.none()),
 		Layer.succeed(Output.Force, false),
-		Layer.succeed(Output.MaxErrorBytes, Output.defaultMaxErrorBytes),
 		Layer.succeed(BaseUrl.baseUrlSetting, Option.none()),
 		Layer.succeed(BaseUrl.serverSetting, Option.fromNullishOr(world.server)),
 		Layer.succeed(BaseUrl.serverVariableSetting, []),

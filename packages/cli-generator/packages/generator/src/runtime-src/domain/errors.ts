@@ -3,25 +3,11 @@ import { Runtime, Schema } from "effect"
 import { CliError } from "effect/cli"
 
 /**
- * Ceiling for `--max-error-bytes` (design 7.1), counted in UTF-16 code units.
- */
-const maxBodyExcerptLength = 65_536
-
-/**
- * Bound on the request id read from a response header (design 7.1).
- */
-const maxRequestIdLength = 256
-
-/**
  * An OpenAPI response key (a status code 100-599, a range 1XX-5XX, or `default`), or `undeclared`.
  */
 const MatchedResponse = Schema.String.pipe(
 	Schema.check(Schema.isPattern(/^(?:[1-5]\d\d|[1-5]XX|default|undeclared)$/u))
 )
-
-const BodyExcerpt = Schema.String.pipe(Schema.check(Schema.isMaxLength(maxBodyExcerptLength)))
-
-const RequestId = Schema.String.pipe(Schema.check(Schema.isMaxLength(maxRequestIdLength)))
 
 /**
  * Flag or `--body` validation, mutually exclusive inputs, a refused header or cookie value,
@@ -56,14 +42,15 @@ export class CredentialMissing extends Schema.TaggedError<CredentialMissing>()(
 }
 
 /**
- * The final status was not 2xx. Exits 3 for 401 and 403, otherwise 1.
+ * The final status was not 2xx. Exits 3 for 401 and 403, otherwise 1. `body` is the response body, read whole and
+ * scrubbed of the run's recorded values; `requestId` is the declared request-id header's value, scrubbed and sanitized.
  */
 export class ApiResponseError extends Schema.TaggedError<ApiResponseError>()("ApiResponseError", {
-	bodyExcerpt: BodyExcerpt,
+	body: Schema.String,
 	matched: MatchedResponse,
 	mediaType: Schema.optionalKey(Schema.String),
 	operation: Schema.String,
-	requestId: Schema.optionalKey(RequestId),
+	requestId: Schema.optionalKey(Schema.String),
 	retryAfterSeconds: Schema.optionalKey(Schema.Int),
 	status: Schema.Int
 }) {
@@ -78,16 +65,15 @@ export class ApiResponseError extends Schema.TaggedError<ApiResponseError>()("Ap
 
 /**
  * A 2xx event stream ended at an event its contract names a failure, after printing it: exit 1, the API-error exit.
- * `dataExcerpt` is the event's data, bounded and scrubbed as an error body excerpt is; `dataJson` is the same data as
- * one compact JSON text, scrubbed, when the event's contract says its data is JSON and the text fits the bound whole,
- * which `--error-format json` prints as a JSON value; `retrySafe` is the event's own word that the request took no
- * effect, so running the command again is safe.
+ * `data` is the event's data, scrubbed and sanitized as an error body is; `dataJson` is the same data as one compact JSON
+ * text, scrubbed, when the event's contract says its data is JSON, which `--error-format json` prints as a JSON value;
+ * `retrySafe` is the event's own word that the request took no effect, so running the command again is safe.
  */
 export class StreamEventError extends Schema.TaggedError<
 	StreamEventError,
 	{ readonly brand: unique symbol }
 >()("StreamEventError", {
-	dataExcerpt: BodyExcerpt,
+	data: Schema.String,
 	dataJson: Schema.Option(Schema.String),
 	event: Schema.String,
 	itemIndex: Schema.Int,

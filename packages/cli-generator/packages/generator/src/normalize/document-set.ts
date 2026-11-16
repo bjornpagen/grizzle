@@ -60,22 +60,19 @@ export const childKey = (key: CanonicalKey, ...tokens: readonly string[]): Canon
 })
 
 /**
- * How many schema references `settle` follows before it stops where it is.
- */
-const maxHops = 16
-
-/**
  * The schema a schema use site stands for: the end of its chain of schema references, in whichever document of the set
- * holds it, followed at most `maxHops` references.
+ * holds it. A chain that returns to a schema it has passed (an alias cycle, which schema normalization refuses as
+ * DOC-23) stops at the schema that closes it, so every chain ends.
  */
 export const settle = (resolution: Resolution, start: CanonicalKey): CanonicalKey => {
+	const passed = new Set<string>()
 	let current = start
-	for (let hop = 0; hop < maxHops; hop += 1) {
-		const reference = referenceIn(resolution, current)
-		if (reference?.kind !== "schema") {
-			return current
-		}
-
+	for (
+		let reference = referenceIn(resolution, current);
+		reference?.kind === "schema" && !passed.has(keyOf(current));
+		reference = referenceIn(resolution, current)
+	) {
+		passed.add(keyOf(current))
 		current = reference.target
 	}
 

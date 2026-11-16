@@ -63,10 +63,10 @@ const digitNine = 0x39
 const byteOrderMark: ReadonlyArray<number> = [0xef, 0xbb, 0xbf]
 
 /**
- * The longest prefix a `data` line carries before its value: a line may pass the record bound by this much, so a `data`
- * line whose value is within the bound is.
+ * The longest prefix a `data` line carries before its value, `data: `, in bytes: a line may pass the record bound by
+ * this much, so a `data` line whose value is within the bound is.
  */
-const dataPrefixBytes = 6
+const dataPrefixBytes = encoder.encode("data: ").length
 
 /**
  * The bytes of an ASCII field name.

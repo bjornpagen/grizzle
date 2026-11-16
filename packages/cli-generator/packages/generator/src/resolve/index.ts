@@ -57,17 +57,6 @@ export interface ResolveInput {
 }
 
 /**
- * Resolution budgets (design 3.3, 9 I5): hops per reference chain, and nodes visited plus hops
- * followed across the whole walk. The node budget is a proposal to calibrate on the corpus.
- */
-export interface ResolveLimits {
-	readonly maxHops: number
-	readonly maxNodes: number
-}
-
-export const defaultLimits: ResolveLimits = { maxHops: 64, maxNodes: 10_000_000 }
-
-/**
  * The object a reference stands for, fixed by the position of its use site.
  */
 export type ReferenceKind =
@@ -243,20 +232,6 @@ const rules = {
 		anchor: "reference-object",
 		element: "Reference to a remote URI",
 		message: "The reference names a URI outside the document set; nothing is fetched.",
-		scope: "document",
-		severity: "refusal"
-	},
-	"REF-18/hop-limit": {
-		anchor: "reference-object",
-		element: "Reference chain",
-		message: "The reference chain is longer than the hop limit.",
-		scope: "document",
-		severity: "refusal"
-	},
-	"REF-18/node-budget": {
-		anchor: "reference-object",
-		element: "Reference resolution",
-		message: "Resolution visits more nodes than the node budget allows.",
 		scope: "document",
 		severity: "refusal"
 	},
@@ -762,10 +737,6 @@ class Resolver {
 	readonly all: readonly Member[]
 	readonly anchors = new Map<string, Place>()
 	readonly byDocument: ReadonlyMap<Document, Member>
-	/**
-	 * Nodes already charged to the node budget, so a node indexed and then walked costs once.
-	 */
-	readonly charged = new Set<string>()
 	readonly defs = new Map<string, string>()
 	/**
 	 * Every resource URI a member is known by (its retrieval URI and its base) to that member.
@@ -774,7 +745,10 @@ class Resolver {
 	readonly entry: Member
 	readonly findings: Finding[] = []
 	readonly ids = new Map<string, Place>()
-	readonly limits: ResolveLimits
+	/**
+	 * Every node the index has read, so a node reached twice while indexing is read once.
+	 */
+	readonly indexed = new Set<string>()
 	readonly operationIds = new Map<string, CanonicalKey>()
 	readonly references = new Map<string, ResolvedReference>()
 	/**
@@ -787,9 +761,8 @@ class Resolver {
 	 */
 	readonly typed = new Map<string, { readonly by: CanonicalKey; readonly kind: Kind }>()
 	readonly visited = new Set<string>()
-	nodes = 0
 
-	constructor(entry: Member, others: readonly Member[], limits: ResolveLimits) {
+	constructor(entry: Member, others: readonly Member[]) {
 		this.entry = entry
 		this.all = [entry, ...others]
 		const byDocument = new Map<Document, Member>()
@@ -800,31 +773,6 @@ class Resolver {
 		}
 
 		this.byDocument = byDocument
-		this.limits = limits
-	}
-
-	/**
-	 * Charges the node `seen` names to the node budget, once however often it is reached.
-	 */
-	spendOnce(seen: string): Failure | undefined {
-		if (this.charged.has(seen)) {
-			return undefined
-		}
-
-		this.charged.add(seen)
-
-		return this.spend()
-	}
-
-	/**
-	 * Charges one step, a node or a reference attempt, to the node budget.
-	 */
-	spend(): Failure | undefined {
-		this.nodes += 1
-
-		return this.nodes > this.limits.maxNodes
-			? failure("REF-18/node-budget", { document: this.entry.document, pointer: "" })
-			: undefined
 	}
 
 	/**
@@ -852,11 +800,6 @@ class Resolver {
 		}
 
 		this.visited.add(seen)
-
-		const spent = this.spendOnce(seen)
-		if (spent !== undefined) {
-			return spent
-		}
 
 		const place: Place = { member, pointer }
 		const conflict = this.typeOnce(item)
@@ -940,7 +883,7 @@ class Resolver {
 	/**
 	 * Indexes every $id and $anchor at a schema position of every member before any reference is
 	 * judged (design 3.3: resolution happens only after every supplied document is parsed). Each
-	 * node is charged to the node budget once, here or in the walk.
+	 * node is read once, however many positions reach it.
 	 */
 	index(): Failure | undefined {
 		for (const member of this.all) {
@@ -976,14 +919,11 @@ class Resolver {
 	indexNode(item: Visit, stack: Visit[]): Failure | undefined {
 		const { kind, member, node } = item
 		const seen = visitKey(item)
-		if (!isObject(node) || this.charged.has(seen)) {
+		if (!isObject(node) || this.indexed.has(seen)) {
 			return undefined
 		}
 
-		const spent = this.spendOnce(seen)
-		if (spent !== undefined) {
-			return spent
-		}
+		this.indexed.add(seen)
 
 		const place: Place = { member, pointer: item.pointer }
 		let { base } = item
@@ -1193,17 +1133,13 @@ class Resolver {
 	}
 
 	/**
-	 * Resolves one schema reference, or names the resource it waits on. Every attempt, retries
-	 * included, is charged to the node budget. A reference to an OpenAPI document's root is no schema
+	 * Resolves one schema reference, or names the resource it waits on. A waiting site is tried again
+	 * only when its resource gains an $id or $anchor, which the index and the walk each declare at most once a
+	 * place, so the tries are finite. A reference to an OpenAPI document's root is no schema
 	 * (D-AD12): the use site keeps a reference with no `$defs` key, nothing is lifted and the root is
 	 * not walked as a schema; schema normalization refuses the site.
 	 */
 	schemaSite(site: Site): Failure | { readonly waitOn: string } | undefined {
-		const spent = this.spend()
-		if (spent !== undefined) {
-			return spent
-		}
-
 		const outcome = this.lookup(site.ref, site.base, true, site.member.line)
 		if (!("found" in outcome)) {
 			return outcome.waitOn === undefined
@@ -1250,8 +1186,10 @@ class Resolver {
 	}
 
 	/**
-	 * Follows a non-schema chain to its end, at most `maxHops` references, across documents. Each
-	 * hop resolves against the base of the document that holds its Reference Object.
+	 * Follows a non-schema chain to its end, across documents. Each hop resolves against the base of
+	 * the document that holds its Reference Object. The chain ends because every hop it follows is
+	 * new to it: a hop already on the chain closes a cycle, refused as DOC-23, and a document set
+	 * holds finitely many nodes.
 	 */
 	chainSite(site: Site): Failure | undefined {
 		const siteKey = keyAt(site)
@@ -1260,12 +1198,7 @@ class Resolver {
 		const overrides = site.member.line !== "3.0" && site.kind !== "pathItem"
 		let docs = overrides ? docsOf(site.node) : {}
 		let { member, ref } = site
-		for (let hops = 1; hops <= this.limits.maxHops; hops += 1) {
-			const spent = this.spend()
-			if (spent !== undefined) {
-				return spent
-			}
-
+		for (;;) {
 			const outcome = this.lookup(ref, member.base, false, member.line)
 			if (!("found" in outcome)) {
 				return lookupFailure({ ...site, ref }, outcome)
@@ -1288,12 +1221,7 @@ class Resolver {
 			const known = this.references.get(keyOf(hop))
 			const next = stringMember(found.node, "$ref")
 			if (known?.kind === site.kind) {
-				const total = [...via, hop, ...known.via]
-				if (total.length >= this.limits.maxHops) {
-					return failure("REF-18/hop-limit", siteKey)
-				}
-
-				this.settle(site, known.target, total, nearest(docs, known))
+				this.settle(site, known.target, [...via, hop, ...known.via], nearest(docs, known))
 
 				return undefined
 			}
@@ -1309,8 +1237,6 @@ class Resolver {
 			ref = next
 			;({ member } = found)
 		}
-
-		return failure("REF-18/hop-limit", siteKey)
 	}
 
 	settle(site: Site, target: CanonicalKey, via: readonly CanonicalKey[], docs: Docs): void {
@@ -1602,13 +1528,11 @@ const referrersOf = (
 
 /**
  * Resolves every reference reachable from the entry document across the document set (design
- * 3.3) within `limits`: canonical keys, base URIs per document and line, sibling rules, hop and
- * node budgets over the whole set, cycles, and `$defs` keys for schema targets. A URI outside the
- * set is refused, never fetched.
+ * 3.3): canonical keys, base URIs per document and line, sibling rules, cycles, and `$defs` keys
+ * for schema targets. A URI outside the set is refused, never fetched.
  */
-export const resolveWithin = Effect.fn("resolve.resolve")(function* resolveWithin(
-	input: ResolveInput,
-	limits: ResolveLimits
+export const resolve = Effect.fn("resolve.resolve")(function* resolve(
+	input: ResolveInput
 ): Effect.fn.Return<Resolution, ResolveRefusal> {
 	const head = prepare(input, input.line, true)
 	const rest = Arr.map(input.members ?? [], (member) =>
@@ -1617,7 +1541,7 @@ export const resolveWithin = Effect.fn("resolve.resolve")(function* resolveWithi
 	const set = [head, ...rest]
 	const entry = head.member
 	const others = Arr.map(rest, (prepared) => prepared.member)
-	const resolver = new Resolver(entry, others, limits)
+	const resolver = new Resolver(entry, others)
 	const invalid = Arr.findFirst(set, (prepared) => prepared.invalidBase)
 	const failed = Option.match(invalid, {
 		onNone: () => resolver.run(),
@@ -1649,12 +1573,6 @@ export const resolveWithin = Effect.fn("resolve.resolve")(function* resolveWithi
 		value: input.value
 	}
 })
-
-/**
- * `resolveWithin` the resolver's own limits, `defaultLimits`.
- */
-export const resolve = (input: ResolveInput): Effect.Effect<Resolution, ResolveRefusal> =>
-	resolveWithin(input, defaultLimits)
 
 /**
  * The resolved reference whose use site is `pointer` in the entry document.

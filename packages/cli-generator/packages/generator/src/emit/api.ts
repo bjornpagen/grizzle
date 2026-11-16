@@ -139,8 +139,6 @@ type JsonNode = Readonly<Record<string, Schema.Json>>
 
 const refPrefix = "#/$defs/"
 
-const maxRefHops = 64
-
 const scalarTypes: ReadonlySet<string> = new Set(["boolean", "integer", "number", "string"])
 
 const own = (record: JsonNode, key: string): Schema.Json | undefined =>
@@ -150,18 +148,17 @@ const isNode = (json: Schema.Json | undefined): json is JsonNode =>
 	Predicate.isObject(json) && !Array.isArray(json)
 
 // The node a schema reaches after its `$ref` chain through the store, or the key that does not
-// resolve. A chain stops at 64 hops, as `isBooleanSchema` does (design 3.3).
+// resolve; a chain back to a node it has passed is a cycle, which resolves to none, so it ends.
 const settle = (
 	defs: Defs,
 	start: Schema.Json | undefined,
 	subject: string
 ): Result.Result<JsonNode, string> => {
+	const passed = new Set<JsonNode>()
 	let current = start
 	let key = subject
-	for (let hop = 0; hop <= maxRefHops; hop += 1) {
-		if (!isNode(current)) {
-			return Result.fail(key)
-		}
+	while (isNode(current) && !passed.has(current)) {
+		passed.add(current)
 
 		const ref = own(current, "$ref")
 		if (ref === undefined) {
@@ -531,8 +528,6 @@ interface ObjectSchemas {
 	readonly required: ReadonlySet<string>
 }
 
-const maxPartNodes = 1024
-
 // The properties and `required` names of an object root (a multipart or form body, a form
 // querystring): its own, then those of its `allOf` members, in document order, each node read once.
 const objectSchemas = (defs: Defs, key: string): ObjectSchemas => {
@@ -540,7 +535,7 @@ const objectSchemas = (defs: Defs, key: string): ObjectSchemas => {
 	const required = new Set<string>()
 	const seen = new Set<JsonNode>()
 	const pending: (Schema.Json | undefined)[] = [own(defs, key)]
-	while (pending.length > 0 && seen.size < maxPartNodes) {
+	while (pending.length > 0) {
 		const node = settle(defs, pending.pop(), key)
 		if (Result.isFailure(node) || seen.has(node.success)) {
 			continue
@@ -1372,7 +1367,7 @@ const partBounds = (defs: Defs, key: string | undefined): PartBounds => {
 		const known = bounds[field]
 		bounds[field] = known === undefined ? value : pick(known, value)
 	}
-	while (pending.length > 0 && seen.size < maxPartNodes) {
+	while (pending.length > 0) {
 		const node = settle(defs, pending.pop(), key ?? "")
 		if (Result.isFailure(node) || seen.has(node.success)) {
 			continue

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { defsKeyOf, defsRefPrefix, maxDefsRefHops } from "#model/defs-ref.ts"
+import { defsKeyOf, defsRefPrefix } from "#model/defs-ref.ts"
 
 describe("defsKeyOf", () => {
 	test("unescapes ~1 and ~0 in the key", () => {
@@ -18,8 +18,7 @@ describe("defsKeyOf", () => {
 		expect(defsKeyOf("#/components/x")).toBeUndefined()
 	})
 
-	test("exposes the prefix and hop limit", () => {
+	test("exposes the prefix", () => {
 		expect(defsRefPrefix).toBe("#/$defs/")
-		expect(maxDefsRefHops).toBe(64)
 	})
 })

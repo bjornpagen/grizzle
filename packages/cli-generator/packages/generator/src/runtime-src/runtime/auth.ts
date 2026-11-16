@@ -23,7 +23,7 @@ import {
 	StdinClaim,
 	decodeUtf8,
 	printStderr,
-	readBounded,
+	readAll,
 	stdinOrFile,
 	stripLineEnd
 } from "#runtime/input.ts"
@@ -125,18 +125,6 @@ export interface Credential {
 }
 
 /**
- * Ceiling for a credential read from a file or stdin, in bytes. A runtime choice: design 6.5 says
- * only "bounded".
- */
-export const maxCredentialBytes = 65_536
-
-/**
- * Ceiling for a `mutualTLS` certificate, key or CA file, in bytes: room for a CA bundle, which
- * `maxCredentialBytes` is too small for. `bin.ts` reads each file through it (design 9 I5).
- */
-export const maxCertificateBytes = 1_048_576
-
-/**
  * The global setting `--<scheme>-file <path|->` of one scheme.
  */
 type FileSetting = GlobalFlag.Setting<string, Option.Option<string>>
@@ -236,14 +224,10 @@ const credentialFromSource = (
 	scheme: string,
 	source: Stream.Stream<Uint8Array, unknown>
 ): Effect.Effect<string, UsageError> =>
-	readBounded(source, maxCredentialBytes).pipe(
-		Effect.catchTags({
-			OverLimit: () =>
-				Effect.fail(
-					usage(scheme, `the credential for ${scheme} is over ${maxCredentialBytes} bytes`)
-				),
-			ReadFailed: () => Effect.fail(usage(scheme, `cannot read the credential for ${scheme}`))
-		}),
+	readAll(source).pipe(
+		Effect.catchTag("ReadFailed", () =>
+			Effect.fail(usage(scheme, `cannot read the credential for ${scheme}`))
+		),
 		Effect.flatMap((joined) =>
 			decodeUtf8(joined, usage(scheme, `the credential for ${scheme} is not valid UTF-8`))
 		),
@@ -254,9 +238,9 @@ const fromFile = (
 	scheme: string,
 	path: string
 ): Effect.Effect<string, UsageError, FileSystem.FileSystem | Stdio.Stdio | StdinClaim> =>
-	stdinOrFile(`${schemeSlug(scheme)}-file`, path, (fs) =>
-		Effect.succeed(fs.stream(path, { bytesToRead: maxCredentialBytes + 1 }))
-	).pipe(Effect.flatMap((source) => credentialFromSource(scheme, source)))
+	stdinOrFile(`${schemeSlug(scheme)}-file`, path, (fs) => Effect.succeed(fs.stream(path))).pipe(
+		Effect.flatMap((source) => credentialFromSource(scheme, source))
+	)
 
 const fromEnv = (
 	scheme: string,

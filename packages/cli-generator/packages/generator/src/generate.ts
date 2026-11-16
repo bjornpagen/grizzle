@@ -14,11 +14,11 @@ import { emitScaffold } from "#emit/index.ts"
 import { PackageEmitError } from "#emit/package.ts"
 import type { EmittedFile } from "#emit/package.ts"
 import type { PrinterError } from "#emit/printer.ts"
-import { defaultLoadLimits, readFileBounded, readStreamBounded } from "#load/budget.ts"
 import { duplicateUri } from "#load/document-set.ts"
 import type { DocumentSet } from "#load/document-set.ts"
 import { loadBytes } from "#load/index.ts"
 import type { LoadRefusal } from "#load/index.ts"
+import { readOperatorFile, readStreamBytes } from "#load/read.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
 import type { DocumentUri } from "#model/brands.ts"
@@ -41,7 +41,7 @@ import { normalize } from "#normalize/index.ts"
 import type { NormalizeError } from "#normalize/index.ts"
 import { distinctDiagnostics } from "#normalize/operations.ts"
 import { normalizeSchemas } from "#normalize/schemas.ts"
-import type { SchemaBudgetExceeded, SchemaImportDefect } from "#normalize/schemas.ts"
+import type { SchemaImportDefect } from "#normalize/schemas.ts"
 import { boundOrigins } from "#normalize/servers.ts"
 import generatorManifest from "#package.json" with { type: "json" }
 import {
@@ -51,7 +51,7 @@ import {
 	skippedEntries
 } from "#report/index.ts"
 import type { GenerationReportValue } from "#report/index.ts"
-import { defaultLimits, resolve } from "#resolve/index.ts"
+import { resolve } from "#resolve/index.ts"
 import type { Resolution, ResolveMember } from "#resolve/index.ts"
 import { lineOf, versionRefusal } from "#validate/dispatch.ts"
 import type { UnsupportedOpenApiVersion } from "#validate/dispatch.ts"
@@ -136,7 +136,6 @@ export type GenerateError =
 	| PrinterError
 	| RunLockHeld
 	| RunLockUnavailable
-	| SchemaBudgetExceeded
 	| SchemaImportDefect
 	| SchemaManifestError
 	| Schema.SchemaError
@@ -174,8 +173,8 @@ const readSpec = (
 	input: GenerateInput
 ): Effect.Effect<Uint8Array, LoadRefusal, FileSystem.FileSystem> =>
 	input.source._tag === "File"
-		? readFileBounded(input.source.path, defaultLoadLimits, input.document)
-		: readStreamBounded(input.source.stream, defaultLoadLimits, input.document)
+		? readOperatorFile(input.source.path, input.document)
+		: readStreamBytes(input.source.stream, input.document)
 
 const readConfig = (
 	config: GenerateConfig
@@ -185,7 +184,7 @@ const readConfig = (
 	FileSystem.FileSystem
 > =>
 	Effect.gen(function* read() {
-		const bytes = yield* readFileBounded(config.path, defaultLoadLimits, config.document)
+		const bytes = yield* readOperatorFile(config.path, config.document)
 		const loaded = yield* loadBytes(bytes, { document: config.document })
 
 		return { bytes, json: loaded.value }
@@ -620,12 +619,11 @@ export const generate = (
 			return yield* refused("document")(planned)
 		}
 
-		const schemas = yield* normalizeSchemas(resolution, defaultLimits)
+		const schemas = yield* normalizeSchemas(resolution)
 		const domain = yield* emitDomainSchemas(
 			schemas.validation.definitions,
 			[...requestRoots(api), ...eventRoots(api)],
-			plan.domain,
-			defaultLimits
+			plan.domain
 		)
 		const apiFiles = yield* emitApi({
 			api,

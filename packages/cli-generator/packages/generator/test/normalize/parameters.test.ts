@@ -6,7 +6,7 @@ import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { normalizeParameter } from "#normalize/parameters.ts"
 import type { ParameterOutcome } from "#normalize/parameters.ts"
-import { defaultLimits, resolve } from "#resolve/index.ts"
+import { resolve } from "#resolve/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
@@ -43,9 +43,7 @@ const normalize = (line: SpecLine, parameter: Json, components: Members = {}): P
 	}
 	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
 
-	return Effect.runSync(
-		normalizeParameter(resolution, { openapi: openapi[line], pointer: site }, defaultLimits)
-	)
+	return Effect.runSync(normalizeParameter(resolution, { openapi: openapi[line], pointer: site }))
 }
 
 const implemented = (line: SpecLine, parameter: Json, components: Members = {}) => {
@@ -145,9 +143,7 @@ const reasonOf = (line: SpecLine, parameter: Json): string => {
 	}
 	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
 	const failure = Effect.runSync(
-		Effect.flip(
-			normalizeParameter(resolution, { openapi: openapi[line], pointer: site }, defaultLimits)
-		)
+		Effect.flip(normalizeParameter(resolution, { openapi: openapi[line], pointer: site }))
 	)
 
 	return `${failure._tag}:${failure.reason}`
@@ -914,21 +910,6 @@ describe("PRM-27 the object test's schema walk is bounded", () => {
 		expect(codes(outcome)).toEqual(["PRM-27/non-object-schema"])
 		expect(elapsed).toBeLessThan(1000)
 	})
-
-	test("PRM-27 a spent node budget fails closed", () => {
-		const value: Json = {
-			components: fanOut(flat),
-			info: { title: "t", version: "1" },
-			openapi: openapi["3.2"],
-			paths: { "/a": { get: { parameters: [top], responses: { "200": { description: "ok" } } } } }
-		}
-		const resolution = Effect.runSync(resolve({ document: entry, line: "3.2", value }))
-		const outcome = Effect.runSync(
-			normalizeParameter(resolution, { openapi: openapi["3.2"], pointer: site }, { maxNodes: 5 })
-		)
-
-		expect(codes(outcome)).toEqual(["PRM-27/non-object-schema"])
-	})
 })
 
 const objectValued = (parameter: Json, components: Members = {}) => {
@@ -1039,11 +1020,7 @@ const switched = (parameter: Json, nonStandard: Switches): ParameterOutcome => {
 	const resolution = Effect.runSync(resolve({ document: entry, line: "3.2", value }))
 
 	return Effect.runSync(
-		normalizeParameter(
-			resolution,
-			{ nonStandard, openapi: openapi["3.2"], pointer: site },
-			defaultLimits
-		)
+		normalizeParameter(resolution, { nonStandard, openapi: openapi["3.2"], pointer: site })
 	)
 }
 

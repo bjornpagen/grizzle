@@ -29,19 +29,6 @@ import type { Secret } from "#runtime/redact.ts"
 import { RunCredentials, encoder } from "#runtime/redact.ts"
 
 /**
- * Ceiling for a body read from `--body-file`, a file or stdin, in bytes. A runtime choice: design
- * I5 says only "bounded". It matches the 64 MiB the generator proposes for a specification (§3).
- */
-export const maxBodyBytes = 67_108_864
-
-/**
- * Ceiling for a secret-file field value, in bytes: the credential file bound (`auth.ts`
- * `maxCredentialBytes`), because the value is scrubbed like one and every error excerpt read
- * budgets for its longest form.
- */
-export const maxSecretBytes = 65_536
-
-/**
  * Writes one line to stderr and ignores a failure to write it: a diagnostic never fails the run.
  * The one stderr writer of the runtime.
  */
@@ -114,37 +101,27 @@ const usage = (flag: string, cause: string): UsageError =>
 
 const cannotReadIn = (flag: string): UsageError => usage(flag, "cannot read the file or stdin")
 
-/**
- * What a bounded read of a flag's file refuses past: `limit` bytes, named as `subject`.
- */
-interface ReadBound {
-	readonly limit: number
-	readonly subject: string
-}
-
-const bodyBound: ReadBound = { limit: maxBodyBytes, subject: "the body" }
-
-const overLimitIn = (flag: string, bound: ReadBound): UsageError =>
-	usage(flag, `${bound.subject} is over ${bound.limit} bytes`)
-
 const cannotRead = (): UsageError => cannotReadIn(bodyFileName)
 
+/**
+ * A binary body past the `maxLength` its schema declares (MED-21): the API's own bound, named as the schema states it.
+ */
 const overLimit = (limit: number): UsageError =>
-	overLimitIn(bodyFileName, { limit, subject: bodyBound.subject })
+	usage(bodyFileName, `the body is over ${limit} bytes, the schema's maxLength`)
 
 const notAFile = (): UsageError =>
 	usage(bodyFileName, `is not a regular file; for a pipe use --${bodyFileName} -`)
 
 /**
- * A bounded read stopped at its limit.
+ * A body past the `maxLength` its schema declares stopped there.
  */
-export class OverLimit extends Schema.TaggedError<OverLimit, { readonly brand: unique symbol }>()(
+class OverLimit extends Schema.TaggedError<OverLimit, { readonly brand: unique symbol }>()(
 	"OverLimit",
 	{}
 ) {}
 
 /**
- * A bounded read whose source failed; the cause stays out of the message.
+ * A read whose source failed; the cause stays out of the message.
  */
 export class ReadFailed extends Schema.TaggedError<ReadFailed, { readonly brand: unique symbol }>()(
 	"ReadFailed",
@@ -155,7 +132,7 @@ export class ReadFailed extends Schema.TaggedError<ReadFailed, { readonly brand:
  * `source` bounded to `limit` bytes: a source failure becomes `ReadFailed`, and the chunk that
  * crosses the limit becomes `OverLimit`.
  */
-export const bounded = (
+const bounded = (
 	source: Stream.Stream<Uint8Array, unknown>,
 	limit: number
 ): Stream.Stream<Uint8Array, OverLimit | ReadFailed> =>
@@ -167,13 +144,13 @@ export const bounded = (
 	)
 
 /**
- * The bytes of `source` read under `limit`, joined. The caller maps `OverLimit` and `ReadFailed`
- * to its own messages with `Effect.catchTags`.
+ * Every byte of `source`, joined: a value the operator gives as a file or on stdin, read to its end. A source failure
+ * becomes `ReadFailed`, which the caller maps to its own message.
  */
-export const readBounded = (
-	source: Stream.Stream<Uint8Array, unknown>,
-	limit: number
-): Effect.Effect<Uint8Array, OverLimit | ReadFailed> => Stream.mkUint8Array(bounded(source, limit))
+export const readAll = (
+	source: Stream.Stream<Uint8Array, unknown>
+): Effect.Effect<Uint8Array, ReadFailed> =>
+	Stream.mkUint8Array(source.pipe(Stream.mapError(() => ReadFailed.make({}))))
 
 /**
  * Decodes `bytes` as UTF-8, failing with `invalid` when they are not.
@@ -190,7 +167,7 @@ export const decodeUtf8 = (
 /**
  * The source behind a `--<flag> <path|->` value: stdin for `-`, after claiming it for `flag`, or
  * whatever `openFile` returns for a path. Callers differ in what a path needs (`multipart.ts`
- * checks it first, the bounded reads cap the stream) and in what follows (collect or stream).
+ * checks it first) and in what follows (collect or stream).
  */
 export const stdinOrFile = (
 	flag: string,
@@ -211,42 +188,31 @@ export const stdinOrFile = (
 			)
 		: Effect.flatMap(Effect.service(FileSystem.FileSystem), openFile)
 
-const collect = (
-	source: Stream.Stream<Uint8Array, unknown>,
-	flag: string,
-	bound: ReadBound
-): Effect.Effect<Uint8Array, UsageError> =>
-	readBounded(source, bound.limit).pipe(
-		Effect.catchTags({
-			OverLimit: () => Effect.fail(overLimitIn(flag, bound)),
-			ReadFailed: () => Effect.fail(cannotReadIn(flag))
-		})
-	)
-
 /**
- * A bounded read of a path, or of stdin for `-` under the one stdin claim, failing in `flag`.
+ * A path read whole, or stdin for `-` under the one stdin claim, failing in `flag`.
  */
 const readFlagFile = (
 	path: string,
-	flag: string,
-	bound: ReadBound
+	flag: string
 ): Effect.Effect<Uint8Array, UsageError, FileSystem.FileSystem | Stdio.Stdio | StdinClaim> =>
-	stdinOrFile(flag, path, (fs) =>
-		Effect.succeed(fs.stream(path, { bytesToRead: bound.limit + 1 }))
-	).pipe(Effect.flatMap((source) => collect(source, flag, bound)))
+	stdinOrFile(flag, path, (fs) => Effect.succeed(fs.stream(path))).pipe(
+		Effect.flatMap((source) =>
+			readAll(source).pipe(Effect.catchTag("ReadFailed", () => Effect.fail(cannotReadIn(flag))))
+		)
+	)
 
 /**
- * Reads `--body-file` into memory, bounded: a file by path, or stdin for `-` (which takes the one
- * stdin claim). Failures name the flag, never the path or the file-system cause (design 4.6).
+ * Reads `--body-file` into memory whole, for a body the runtime parses (JSON, form): a file by path, or stdin for `-`
+ * (which takes the one stdin claim). Failures name the flag, never the path or the file-system cause (design 4.6).
  */
 export const readBodyFile = (
 	path: string
 ): Effect.Effect<Uint8Array, UsageError, FileSystem.FileSystem | Stdio.Stdio | StdinClaim> =>
-	readFlagFile(path, bodyFileName, bodyBound)
+	readFlagFile(path, bodyFileName)
 
 /**
- * A body stream that counts the bytes it yields, so a file that grows past its stat size still
- * stops at the limit; the send step sees a `UsageError`.
+ * A body stream that counts the bytes it yields against its schema's `maxLength`, so a file that grows past its stat
+ * size still stops there; the send step sees a `UsageError`.
  */
 const limited = (
 	body: HttpBody.HttpBody,
@@ -277,8 +243,7 @@ const limited = (
  * read permission fails at flag time, then streamed with its size as `Content-Length`. A directory
  * is refused, and so is a pipe or device (a FIFO, `<(cmd)`): it has no size to trust, and the
  * platform file system reads by position, which a pipe refuses. Such input goes through `-`
- * instead. `limit` is the in-memory ceiling the file is counted against; none streams it
- * unguarded.
+ * instead. `limit` is the schema's `maxLength` the file is counted against; none streams it whole.
  */
 const openFile = (
 	path: string,
@@ -323,12 +288,11 @@ const stdinBody: Effect.Effect<HttpBody.HttpBody, UsageError, Stdio.Stdio | Stdi
 /**
  * A binary request body from `--body-file` only (design 6.3 Binary). A regular file streams through
  * its size as `Content-Length`; stdin (`-`) streams chunked under the one stdin claim, with no
- * `Content-Length`. Both count their bytes against the limit as they stream, so an over-limit or
- * unreadable stdin fails the send with a `UsageError` naming `--body-file`. `--body` is refused,
- * and so is `--body` together with `--body-file`. With neither flag a required body is a
- * `UsageError` naming `--body-file` and an optional one is empty. `maxBytes`, the body schema's
- * `maxLength` (MED-21), lowers the limit and never raises it; the failure names the limit, never
- * the content or the path.
+ * `Content-Length`. Neither is held in memory. Where the body schema states a `maxLength` (`maxBytes`, MED-21), both
+ * count their bytes against it as they stream, so a longer body fails the send with a `UsageError` naming
+ * `--body-file` and that bound, never the content or the path; an unreadable stdin fails the same way. `--body` is
+ * refused, and so is `--body` together with `--body-file`. With neither flag a required body is a `UsageError` naming
+ * `--body-file` and an optional one is empty.
  */
 export const binaryBody = (options: {
 	readonly body: Option.Option<string>
@@ -357,19 +321,21 @@ export const binaryBody = (options: {
 			: Effect.succeed(HttpBody.empty)
 	}
 
-	const limit = Math.min(options.maxBytes ?? maxBodyBytes, maxBodyBytes)
+	const limit = Option.fromUndefinedOr(options.maxBytes)
 
 	return options.bodyFile.value === "-"
-		? stdinBody.pipe(Effect.flatMap((body) => limited(body, limit)))
-		: openFile(options.bodyFile.value, Option.some(limit))
+		? Option.match(limit, {
+				onNone: () => stdinBody,
+				onSome: (bound) => Effect.flatMap(stdinBody, (body) => limited(body, bound))
+			})
+		: openFile(options.bodyFile.value, limit)
 }
 
 /**
  * A sequential request body (NDJSON, JSON Lines, JSON-seq; design 6.3 Sequential uploads) or a text
  * body, exactly as the operator gives it: `--body` is the text as given; a `--body-file` regular
  * file streams with its size as `Content-Length`; `-` streams stdin chunked under the one stdin
- * claim. The bytes are never parsed, re-framed, buffered whole, asserted against a schema or
- * counted against the in-memory read limit, which bounds only reads into memory (design I5). The
+ * claim. The bytes are never parsed, re-framed, buffered whole or asserted against a schema. The
  * caller sets the declared media type as `Content-Type`. `--body` together with `--body-file` is
  * refused. With neither flag a required body is a `UsageError` and an optional one is empty.
  */
@@ -453,35 +419,76 @@ export type JsonValue =
 	| { readonly [key: string]: JsonValue }
 
 /**
- * The compact JSON text of `value`, as `JSON.stringify` writes it, with a `JsonNumber` as its
- * digit text and `JsonNull` as `null`. Effect writes JSON only through `JSON.stringify`, which has
- * no raw number of its own, so the runtime composes the text and writes each name and leaf through
- * `Formatter.formatJson`; members keep their own-key order.
+ * One step of writing a JSON text: a value still to write, or text already composed.
  */
-export const jsonText = (value: JsonValue): string => {
+type JsonStep = Readonly<{ value: JsonValue }> | Readonly<{ text: string }>
+
+/**
+ * A container's steps in order, each child after the separator and name before it, between its brackets.
+ */
+const childSteps = (value: JsonValue): Option.Option<readonly JsonStep[]> => {
+	if (Arr.isArray<JsonValue>(value)) {
+		return Option.some([
+			{ text: "[" },
+			...Arr.flatMap(value, (item, index): readonly JsonStep[] =>
+				index === 0 ? [{ value: item }] : [{ text: "," }, { value: item }]
+			),
+			{ text: "]" }
+		])
+	}
+
+	if (Predicate.isObject(value) && !(value instanceof JsonNumber) && !(value instanceof JsonNull)) {
+		return Option.some([
+			{ text: "{" },
+			...Arr.flatMap(Rec.toEntries(value), ([key, member], index): readonly JsonStep[] => [
+				{ text: `${index === 0 ? "" : ","}${Formatter.formatJson(key)}:` },
+				{ value: member }
+			]),
+			{ text: "}" }
+		])
+	}
+
+	return Option.none()
+}
+
+/**
+ * A scalar's JSON text: a `JsonNumber` as its digits, `JsonNull` as `null`, anything else as `Formatter.formatJson`
+ * writes it.
+ */
+const leafText = (value: JsonValue): string => {
 	if (value instanceof JsonNumber) {
 		return value.text
 	}
 
-	if (value instanceof JsonNull) {
-		return "null"
+	return value instanceof JsonNull ? "null" : Formatter.formatJson(value)
+}
+
+/**
+ * The compact JSON text of `value`, as `JSON.stringify` writes it, with a `JsonNumber` as its
+ * digit text and `JsonNull` as `null`. Effect writes JSON only through `JSON.stringify`, which has
+ * no raw number of its own, so the runtime composes the text and writes each name and leaf through
+ * `Formatter.formatJson`; members keep their own-key order. The walk keeps its own stack, so no
+ * nesting the parse admitted overflows it.
+ */
+export const jsonText = (value: JsonValue): string => {
+	const parts: string[] = []
+	const pending: JsonStep[] = [{ value }]
+	for (let step = pending.pop(); step !== undefined; step = pending.pop()) {
+		if ("text" in step) {
+			parts.push(step.text)
+		} else {
+			const children = childSteps(step.value)
+			if (Option.isSome(children)) {
+				for (const child of Arr.reverse(children.value)) {
+					pending.push(child)
+				}
+			} else {
+				parts.push(leafText(step.value))
+			}
+		}
 	}
 
-	if (Arr.isArray<JsonValue>(value)) {
-		return `[${Arr.join(Arr.map(value, jsonText), ",")}]`
-	}
-
-	if (Predicate.isObject(value)) {
-		return `{${Arr.join(
-			Arr.map(
-				Rec.toEntries(value),
-				([key, member]) => `${Formatter.formatJson(key)}:${jsonText(member)}`
-			),
-			","
-		)}}`
-	}
-
-	return Formatter.formatJson(value)
+	return Arr.join(parts, "")
 }
 
 /**
@@ -524,7 +531,7 @@ export class FileField {
 
 /**
  * A secret-file field flag's value (design 13.1 R4): a path, or `-` for stdin, to the value of a
- * `format: password` string property. The runtime reads it, bounded, holds it `Redacted` until the
+ * `format: password` string property. The runtime reads it whole, holds it `Redacted` until the
  * body is serialized, and records it so every error path scrubs it. `flag` is the flag's name: the
  * only thing a failure names, and the label its placeholder carries.
  */
@@ -599,71 +606,40 @@ type Reviver = (
 ) => JsonNode
 
 /**
- * Whether `value` is a revived JSON value: what a reviver returns at every level.
+ * Whether `value` is a revived JSON leaf: `JsonNull`, a boolean, a number, a string or a `JsonNumber`.
+ */
+const isJsonLeaf = (value: unknown): boolean =>
+	value instanceof JsonNull ||
+	Predicate.isBoolean(value) ||
+	Predicate.isNumber(value) ||
+	Predicate.isString(value) ||
+	value instanceof JsonNumber
+
+/**
+ * Whether `value` is a revived JSON value: what a reviver returns at every level. The walk keeps its own stack, so no
+ * nesting the parse admitted overflows it.
  */
 const isJsonNode = (value: unknown): value is JsonNode => {
-	if (
-		value instanceof JsonNull ||
-		Predicate.isBoolean(value) ||
-		Predicate.isNumber(value) ||
-		Predicate.isString(value) ||
-		value instanceof JsonNumber
-	) {
-		return true
+	const pending: unknown[] = [value]
+	while (pending.length > 0) {
+		const current = pending.pop()
+		if (!isJsonLeaf(current)) {
+			if (!Predicate.isObjectOrArray(current)) {
+				return false
+			}
+
+			for (const child of Arr.isArray(current) ? current : Rec.values(current)) {
+				pending.push(child)
+			}
+		}
 	}
 
-	if (Arr.isArray(value)) {
-		return Arr.every(value, isJsonNode)
-	}
-
-	return Predicate.isObject(value) && Arr.every(Rec.values(value), isJsonNode)
+	return true
 }
 
 const JsonNodeSchema = Schema.declare(isJsonNode)
 
 const int64Digits: Readonly<RegExp> = regex("^-?(?:0|[1-9]\\d*)$", "u")
-
-/**
- * Deepest array and object nesting accepted in operator JSON (`--body`, `--body-file`, a JSON field
- * flag, a field value). A runtime choice: no real request body nests this deep, and past a few
- * thousand levels the engine's recursive reviver and every recursive walk overflow the stack.
- */
-export const maxJsonDepth = 128
-
-/**
- * Whether JSON text nests deeper than `maxJsonDepth`: an iterative scan, so the bound holds before
- * any recursive parse or walk runs. A bracket inside a string never counts; malformed text is left
- * for the parser to refuse.
- */
-const nestsTooDeep = (text: string): boolean => {
-	let depth = 0
-	let inString = false
-	let escaped = false
-
-	for (const char of text) {
-		if (inString) {
-			if (escaped) {
-				escaped = false
-			} else if (char === "\\") {
-				escaped = true
-			} else if (char === '"') {
-				inString = false
-			}
-		} else if (char === '"') {
-			inString = true
-		} else if (char === "[" || char === "{") {
-			depth += 1
-
-			if (depth > maxJsonDepth) {
-				return true
-			}
-		} else if (char === "]" || char === "}") {
-			depth -= 1
-		}
-	}
-
-	return false
-}
 
 /**
  * An `int64` field flag's value as a `JsonNumber`, checked against the same digit pattern a merged
@@ -852,13 +828,13 @@ const decodePlain = Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))
 const parsedJson =
 	(failure: () => CliError.CliError) =>
 	(raw: string): Effect.Effect<JsonNode, CliError.CliError> =>
-		nestsTooDeep(raw) ? Effect.fail(failure()) : Effect.mapError(decodeIntegers(raw), failure)
+		Effect.mapError(decodeIntegers(raw), failure)
 
 /**
  * The flag for a JSON-valued field: its text parsed with the number-preserving parse `mergeBody`
  * uses (digits past 2^53 stay a `JsonNumber`, objects have no prototype). A text that is not JSON,
- * holds a number that is not finite, or nests deeper than `maxJsonDepth` fails the flag with an
- * error that names `--name` and never the text.
+ * holds a number that is not finite, or nests deeper than the engine's parse can follow fails the flag with an error
+ * that names `--name` and never the text.
  */
 export const jsonFlag = (name: string) =>
 	Flag.String(name).pipe(
@@ -929,56 +905,79 @@ const isFieldObject = (value: FieldValue): value is Readonly<Record<string, Fiel
 	!(value instanceof JsonNull)
 
 /**
- * Walks a field value with an explicit stack, so a deep value cannot overflow it. A `JsonNumber`
- * is checked against the JSON number grammar only: whether it is an integer is the flag's check
- * (`int64Flag`, `numericFlag`). After a "fine" verdict `toNode` recurses at most `maxJsonDepth`
- * levels.
+ * Whether every `JsonNumber` of a field value is a JSON number, walked with an explicit stack, so a deep value cannot
+ * overflow it. A `JsonNumber` is checked against the JSON number grammar only: whether it is an integer is the flag's
+ * check (`int64Flag`, `numericFlag`).
  */
-const inspectField = (root: FieldValue): "badNumber" | "fine" | "tooDeep" => {
-	const pending: { readonly depth: number; readonly value: FieldValue }[] = [
-		{ depth: 0, value: root }
-	]
+const hasValidNumbers = (root: FieldValue): boolean => {
+	const pending: FieldValue[] = [root]
 
-	for (let item = pending.pop(); item !== undefined; item = pending.pop()) {
-		const { depth, value } = item
-
+	for (let value = pending.pop(); value !== undefined; value = pending.pop()) {
 		if (value instanceof JsonNumber) {
 			if (!isJsonNumberText(value.text)) {
-				return "badNumber"
+				return false
 			}
 		} else if (Arr.isArray<FieldValue>(value) || isFieldObject(value)) {
-			if (depth >= maxJsonDepth) {
-				return "tooDeep"
-			}
-
 			for (const child of Arr.isArray<FieldValue>(value) ? value : Rec.values(value)) {
-				pending.push({ depth: depth + 1, value: child })
+				pending.push(child)
 			}
 		}
 	}
 
-	return "fine"
+	return true
 }
 
 /**
- * A field value as it enters the body: a deep copy whose objects have no prototype, so a later
- * field flag that writes `__proto__` beneath it sets an own key, as it does everywhere else.
+ * A container of a field value with the empty copy its members are written into.
  */
-const toNode = (value: FieldValue): JsonNode => {
+type Copying =
+	| Readonly<{ _tag: "Array"; source: readonly FieldValue[]; target: JsonNode[] }>
+	| Readonly<{ _tag: "Object"; source: { readonly [key: string]: FieldValue }; target: JsonObject }>
+
+/**
+ * A container's empty copy (an array, or an object with no prototype), its members left to `pending`, or a scalar
+ * itself.
+ */
+const copyOf = (value: FieldValue, pending: Copying[]): JsonNode => {
 	if (Arr.isArray<FieldValue>(value)) {
-		return Arr.map(value, (item) => toNode(item))
+		const target: JsonNode[] = []
+		pending.push({ _tag: "Array", source: value, target })
+
+		return target
 	}
 
 	if (!isFieldObject(value)) {
 		return value
 	}
 
-	const copy = bare()
-	for (const [key, entry] of Rec.toEntries(value)) {
-		copy[key] = toNode(entry)
+	const target = bare()
+	pending.push({ _tag: "Object", source: value, target })
+
+	return target
+}
+
+/**
+ * A field value as it enters the body: a deep copy whose objects have no prototype, so a later
+ * field flag that writes `__proto__` beneath it sets an own key, as it does everywhere else. The copy keeps its own
+ * stack, so a deep value cannot overflow it.
+ */
+const toNode = (root: FieldValue): JsonNode => {
+	const pending: Copying[] = []
+	const top = copyOf(root, pending)
+
+	for (let item = pending.pop(); item !== undefined; item = pending.pop()) {
+		if (item._tag === "Array") {
+			for (const child of item.source) {
+				item.target.push(copyOf(child, pending))
+			}
+		} else {
+			for (const [key, child] of Rec.toEntries(item.source)) {
+				item.target[key] = copyOf(child, pending)
+			}
+		}
 	}
 
-	return copy
+	return top
 }
 
 const encodeBytes = (bytes: Uint8Array, encoding: FieldEncoding): string =>
@@ -987,7 +986,7 @@ const encodeBytes = (bytes: Uint8Array, encoding: FieldEncoding): string =>
 const readEncoded = (
 	field: FileField
 ): Effect.Effect<string, UsageError, FileSystem.FileSystem | Stdio.Stdio | StdinClaim> =>
-	readFlagFile(field.path, field.flag, bodyBound).pipe(
+	readFlagFile(field.path, field.flag).pipe(
 		Effect.map((bytes) => encodeBytes(bytes, field.encoding))
 	)
 
@@ -1022,14 +1021,14 @@ const lineEnd: Readonly<RegExp> = regex("\r?\n$", "u")
 export const stripLineEnd = (text: string): string => Str.replace(lineEnd, "")(text)
 
 /**
- * A secret-file value: the text, bounded and UTF-8, with one trailing line end stripped (as a
+ * A secret-file value: the text, read whole and UTF-8, with one trailing line end stripped (as a
  * credential file), recorded for the run before anything else can fail, and held `Redacted` until
  * the merge writes it.
  */
 const readSecret = (
 	field: SecretField
 ): Effect.Effect<Redacted.Redacted, UsageError, FileSystem.FileSystem | Stdio.Stdio | StdinClaim> =>
-	readFlagFile(field.path, field.flag, { limit: maxSecretBytes, subject: "the value" }).pipe(
+	readFlagFile(field.path, field.flag).pipe(
 		Effect.flatMap((bytes) => decodeText(bytes, field.flag)),
 		Effect.map((text) => Redacted.make(stripLineEnd(text))),
 		Effect.tap((value) => record({ kind: "secret", label: field.flag, value }))
@@ -1174,7 +1173,7 @@ type Merged =
 
 /**
  * The merge `mergeBody` and `structuredBody` share; `flag` names the source a failure blames, and
- * `parse` is the bounded, number-preserving parse that blames it.
+ * `parse` is the number-preserving parse that blames it.
  */
 const mergeSources = (
 	options: BodyOptions
@@ -1195,9 +1194,7 @@ const mergeSources = (
 		const guarded =
 			<A>(decode: (text: string) => Effect.Effect<A, Schema.SchemaError>) =>
 			(text: string): Effect.Effect<A, UsageError> =>
-				nestsTooDeep(text)
-					? Effect.fail(usage(flag, `is nested over ${maxJsonDepth} levels`))
-					: Effect.mapError(decode(text), () => usage(flag, "is not valid JSON"))
+				Effect.mapError(decode(text), () => usage(flag, "is not valid JSON"))
 		const parse = guarded(decodeRevived)
 		const settled = (merged: Merged) => ({ merged, parse })
 		const assert = (text: string) =>
@@ -1243,14 +1240,8 @@ const mergeSources = (
 			}
 
 			const value = given instanceof FileField ? yield* readEncoded(given) : given
-			const verdict = inspectField(value)
-
-			if (verdict === "badNumber") {
+			if (!hasValidNumbers(value)) {
 				return yield* usage(flag, "a number field is not a JSON number")
-			}
-
-			if (verdict === "tooDeep") {
-				return yield* usage(flag, `a field value is nested over ${maxJsonDepth} levels`)
 			}
 
 			yield* setAt(base, pointer, toNode(value))

@@ -33,7 +33,7 @@ import { childPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
 import { normalizeResponses } from "#normalize/responses.ts"
 import { normalizeSchemas } from "#normalize/schemas.ts"
-import { defaultLimits, resolve } from "#resolve/index.ts"
+import { resolve } from "#resolve/index.ts"
 
 /** How a branch is written: inline in the union, behind a `$ref` to a component, or through an `allOf` member. */
 type Placement = "inline" | "reference" | "composed"
@@ -473,7 +473,7 @@ const resolutionOf = (schema: ItemSchema) =>
 const unstoredKeys = (schema: ItemSchema, expected: Expected) =>
 	Effect.gen(function* () {
 		const resolution = yield* resolutionOf(schema)
-		const stored = (yield* normalizeSchemas(resolution, defaultLimits)).definitions
+		const stored = (yield* normalizeSchemas(resolution)).definitions
 		const named =
 			expected.kind === "contract"
 				? Option.match(expected.contract, {

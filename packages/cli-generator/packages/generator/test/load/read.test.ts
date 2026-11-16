@@ -9,17 +9,10 @@ import {
 } from "node:fs"
 import path from "node:path"
 import { NodeFileSystem } from "@effect/platform-node"
-import { ByteSize, Effect, FileSystem, Option, Schema } from "effect"
+import { ByteSize, Effect, FileSystem, Option, Schema, String as Str } from "effect"
 import { describe, expect, onTestFinished, test } from "vitest"
-import {
-	defaultLoadLimits,
-	LoadRefusal,
-	readFileBounded,
-	readMemberBounded,
-	refuse,
-	wholeInput
-} from "#load/budget.ts"
-import type { VerifyOpened } from "#load/budget.ts"
+import { LoadRefusal, readMemberFile, readOperatorFile, refuse, wholeInput } from "#load/read.ts"
+import type { VerifyOpened } from "#load/read.ts"
 import { DocumentUri } from "#model/brands.ts"
 
 const scratch = path.join(import.meta.dirname, "..", "..", "work")
@@ -27,7 +20,7 @@ const scratch = path.join(import.meta.dirname, "..", "..", "work")
 const directory = () => {
 	mkdirSync(scratch, { recursive: true })
 
-	const base = realpathSync(mkdtempSync(path.join(scratch, "budget-")))
+	const base = realpathSync(mkdtempSync(path.join(scratch, "read-")))
 
 	onTestFinished(() => {
 		rmSync(base, { force: true, recursive: true })
@@ -38,18 +31,12 @@ const directory = () => {
 
 const document = Schema.decodeUnknownSync(DocumentUri)("https://example.com/doc.json")
 
-const read = (
-	file: string,
-	verify: VerifyOpened = () => Effect.void,
-	maxBytes = defaultLoadLimits.maxBytes
-) =>
-	readMemberBounded(file, { ...defaultLoadLimits, maxBytes }, document, verify).pipe(
-		Effect.provide(NodeFileSystem.layer)
-	)
+const read = (file: string, verify: VerifyOpened = () => Effect.void) =>
+	readMemberFile(file, document, verify).pipe(Effect.provide(NodeFileSystem.layer))
 
 const refusal = (effect: ReturnType<typeof read>) => Effect.runPromise(Effect.flip(effect))
 
-describe("readMemberBounded", () => {
+describe("readMemberFile", () => {
 	test("reads a regular file's bytes from the handle it checked", async () => {
 		const file = path.join(directory(), "a.json")
 		let seen: FileSystem.File.Info | undefined
@@ -89,25 +76,25 @@ describe("readMemberBounded", () => {
 		expect(error.diagnostic.code).toBe("DOC-14/unreadable")
 	})
 
-	test("the open handle's size is checked against maxBytes before reading", async () => {
+	test("a large file reads whole", async () => {
 		const file = path.join(directory(), "big.json")
-		let verified = false
+		const text = `{"a":"${Str.repeat(1024 * 1024)("x")}"}`
 
-		writeFileSync(file, "{}".padEnd(64, " "))
+		writeFileSync(file, text)
 
-		const error = await refusal(
-			read(
-				file,
-				() =>
-					Effect.sync(() => {
-						verified = true
-					}),
-				32
-			)
-		)
+		const bytes = await Effect.runPromise(read(file))
 
-		expect(error.diagnostic.code).toBe("DOC-14/too-large")
-		expect(verified).toBe(false)
+		expect(new TextDecoder().decode(bytes)).toBe(text)
+	})
+
+	test("an empty file reads as no bytes", async () => {
+		const file = path.join(directory(), "empty.json")
+
+		writeFileSync(file, "")
+
+		const bytes = await Effect.runPromise(read(file))
+
+		expect(bytes.length).toBe(0)
 	})
 
 	test("a verify refusal leaves the file unread", async () => {
@@ -134,12 +121,12 @@ const readOperator = (file: string, hook?: (path: string) => void) =>
 				})
 		}
 
-		return yield* readFileBounded(file, defaultLoadLimits, document).pipe(
+		return yield* readOperatorFile(file, document).pipe(
 			Effect.provideService(FileSystem.FileSystem, hooked)
 		)
 	}).pipe(Effect.provide(NodeFileSystem.layer))
 
-describe("readFileBounded: an operator's path", () => {
+describe("readOperatorFile: an operator's path", () => {
 	test("a symlinked path loads the file it names", async () => {
 		const base = directory()
 		const target = path.join(base, "target.json")

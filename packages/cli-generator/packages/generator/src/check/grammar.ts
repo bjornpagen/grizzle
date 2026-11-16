@@ -31,7 +31,7 @@ import type { Json } from "#model/pointer.ts"
 import { specSectionUrl, patchVersion } from "#model/spec-section.ts"
 import { keyOf } from "#resolve/canonical.ts"
 import { allOfReferrers, implicitComponent } from "#resolve/index.ts"
-import type { Resolution, ResolveLimits } from "#resolve/index.ts"
+import type { Resolution } from "#resolve/index.ts"
 
 interface Rule {
 	readonly anchor: string
@@ -117,14 +117,6 @@ const rules = {
 		hint: "Name the header with an RFC 9110 token.",
 		message: "A header parameter name is not an RFC 9110 token.",
 		scope: "element",
-		severity: "refusal"
-	},
-	"REF-18/node-budget": {
-		anchor: "reference-object",
-		element: "Schema graph",
-		hint: "Reduce how often schemas reuse each other through allOf, oneOf and anyOf.",
-		message: "The schema graph needs more steps to check than the node budget allows.",
-		scope: "document",
 		severity: "refusal"
 	},
 	"RSP-09/invalid-header-name": {
@@ -327,25 +319,17 @@ const mappingResolves = (resolution: Resolution, value: string): boolean =>
 	})
 
 /**
- * One checkGrammar call's walk through allOf, oneOf and anyOf: answers already settled, the
- * schemas being walked (by depth) and the steps left. Reuse across members is a DAG, so each
- * (schema, name) pair is settled once; the budget bounds a hostile graph that stays large anyway.
+ * One checkGrammar call's walk through allOf, oneOf and anyOf: answers already settled, and the
+ * schemas being walked (by depth). Reuse across members is a DAG, so each (schema, name) pair is
+ * settled once; a pair already being walked is a cycle, and counts as no, so no path repeats a
+ * pair and every walk ends.
  */
 interface Search {
 	readonly active: Map<string, number>
-	readonly budget: number
-	exhausted: boolean
 	readonly memo: Map<string, boolean>
-	steps: number
 }
 
-const startSearch = (budget: number): Search => ({
-	active: new Map(),
-	budget,
-	exhausted: false,
-	memo: new Map(),
-	steps: 0
-})
+const startSearch = (): Search => ({ active: new Map(), memo: new Map() })
 
 interface Answer {
 	readonly found: boolean
@@ -373,7 +357,6 @@ const requiresAt = (
 	const key = `${place.document}#${place.pointer}\u0000${name}`
 	const known = search.memo.get(key)
 	const walking = search.active.get(key)
-	search.steps += 1
 
 	if (known !== undefined) {
 		return settled(known)
@@ -381,12 +364,6 @@ const requiresAt = (
 
 	if (walking !== undefined) {
 		return { found: false, low: walking }
-	}
-
-	if (search.steps > search.budget) {
-		search.exhausted = true
-
-		return { found: false, low: -1 }
 	}
 
 	search.active.set(key, depth)
@@ -1309,16 +1286,12 @@ const toDiagnostic = (resolution: Resolution, finding: Finding) => {
  * `writeOnly`, a Responses Object of `x-` keys alone and Header `allowEmptyValue` or
  * `allowReserved`. Pure over the resolved document; findings are refusals except the 3.0 server
  * default and the pattern notices.
- * Walking allOf, oneOf and anyOf is bounded by `limits.maxNodes` steps; past it the only finding
- * is a document-scope refusal (design 9 I5).
  */
 export const checkGrammar = Effect.fnUntraced(function* checkGrammar(
-	resolution: Resolution,
-	limits: Pick<ResolveLimits, "maxNodes">
+	resolution: Resolution
 ): Effect.fn.Return<readonly Diagnostic[]> {
-	const search = startSearch(limits.maxNodes)
+	const search = startSearch()
 	const findings = [...elementFindings(resolution, search), ...operationFindingsOf(resolution)]
-	const reported = search.exhausted ? [at("REF-18/node-budget", "")] : findings
 
-	return yield* Effect.forEach(reported, (finding) => toDiagnostic(resolution, finding))
+	return yield* Effect.forEach(findings, (finding) => toDiagnostic(resolution, finding))
 })

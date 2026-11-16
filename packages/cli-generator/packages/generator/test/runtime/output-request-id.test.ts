@@ -34,7 +34,7 @@ const bearer: Credential = {
 
 const fail = (fields: Partial<ConstructorParameters<typeof ApiResponseError>[0]> = {}) =>
 	new ApiResponseError({
-		bodyExcerpt: "",
+		body: "",
 		matched: "404",
 		operation: "users.get",
 		status: 404,
@@ -67,28 +67,28 @@ const stderrOf = async (error: ApiResponseError): Promise<string> => {
 const statusLine = "Error: users.get returned 404 (matched 404)"
 
 describe("text error output prints the Request ID line (design 7.4)", () => {
-	test("the line sits between the Error line and the body excerpt", async () => {
-		const text = await stderrOf(fail({ bodyExcerpt: "no such user", requestId: "req_123" }))
+	test("the line sits between the Error line and the body", async () => {
+		const text = await stderrOf(fail({ body: "no such user", requestId: "req_123" }))
 
 		expect(text.trimEnd().split("\n")).toEqual([statusLine, "Request ID: req_123", "no such user"])
 	})
 
 	test("without a request id the output equals the M1 bytes", async () => {
-		const text = await stderrOf(fail({ bodyExcerpt: "no such user" }))
+		const text = await stderrOf(fail({ body: "no such user" }))
 
 		expect(text).not.toContain("Request ID")
 		expect(text.trimEnd().split("\n")).toEqual([statusLine, "no such user"])
 	})
 
-	test("an empty excerpt (--max-error-bytes 0) keeps the Request ID line", async () => {
-		const text = await stderrOf(fail({ bodyExcerpt: "", requestId: "req_123" }))
+	test("an empty body keeps the Request ID line", async () => {
+		const text = await stderrOf(fail({ body: "", requestId: "req_123" }))
 
 		expect(text.trimEnd().split("\n")).toEqual([statusLine, "Request ID: req_123"])
 	})
 })
 
-// A secret-file value the run recorded is scrubbed from the request id before it is bounded
-// (design 9 I4, 7.5; audit F2): a cut prefix would no longer match the final catch's scrub.
+// A secret-file value the run recorded is scrubbed from the request id, however long the id
+// (design 9 I4, 7.5; audit F2).
 describe("Output.send scrubs the request id with the run's recorded values", () => {
 	const PASSWORD = "Zq9-PASSWORD-FILE-VALUE"
 	const padding = "r".repeat(250)
@@ -157,7 +157,6 @@ describe("Output.send scrubs the request id with the run's recorded values", () 
 			}),
 			Layer.succeed(Output.OutputPath, Option.none()),
 			Layer.succeed(Output.Force, false),
-			Layer.succeed(Output.MaxErrorBytes, Output.defaultMaxErrorBytes),
 			Layer.succeed(BaseUrl.baseUrlSetting, Option.none()),
 			Layer.succeed(BaseUrl.serverSetting, Option.none()),
 			Layer.succeed(BaseUrl.serverVariableSetting, []),
@@ -179,7 +178,7 @@ describe("Output.send scrubs the request id with the run's recorded values", () 
 	}
 
 	test.each(["text", "json"] as const)(
-		"a secret straddling the 256-unit bound leaves no prefix in %s",
+		"a secret after a long request id leaves no prefix in %s",
 		async (format) => {
 			const text = await sendStderr(format)
 

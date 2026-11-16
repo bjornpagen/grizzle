@@ -32,7 +32,7 @@ import type { SpecLine } from "#model/spec-section.ts"
 import { nodeIn, nodeOption, referenceIn } from "#normalize/document-set.ts"
 import { defsKey, keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
-import type { ReferenceKind, Resolution, ResolveLimits } from "#resolve/index.ts"
+import type { ReferenceKind, Resolution } from "#resolve/index.ts"
 import { isJsonFamily } from "#runtime-src/runtime/sequential.ts"
 
 type Document = typeof DocumentUri.Type
@@ -98,53 +98,6 @@ export class SchemaImportDefect extends Schema.TaggedError<
 	SchemaImportDefect,
 	{ readonly brand: unique symbol }
 >()("SchemaImportDefect", { key: Schema.String, message: Schema.String }) {}
-
-/**
- * A schema walk visited more nodes than the node budget allows (design 3.3, 9 I5).
- */
-export class SchemaBudgetExceeded extends Schema.TaggedError<
-	SchemaBudgetExceeded,
-	{ readonly brand: unique symbol }
->()("SchemaBudgetExceeded", { limit: Schema.Finite }) {}
-
-/**
- * The node budget of one call: `maxNodes` from the resolution limits.
- */
-export type SchemaLimits = Pick<ResolveLimits, "maxNodes">
-
-/**
- * The node budget one call's walks share: every schema or OpenAPI object a walk visits is charged
- * once; past the limit, walks stop descending and the call fails (or, for a predicate, fails
- * closed).
- */
-export interface Budget {
-	readonly limit: number
-	spent: number
-}
-
-/**
- * A fresh budget of `maxNodes` from the limits.
- */
-export const budgetOf = (limits: SchemaLimits): Budget => ({ limit: limits.maxNodes, spent: 0 })
-
-/**
- * Charges `cost` visits; false once the budget is spent.
- */
-const spend = (budget: Budget, cost: number): boolean => {
-	budget.spent += cost
-
-	return budget.spent <= budget.limit
-}
-
-/**
- * Charges one visit; false once the budget is spent.
- */
-export const charge = (budget: Budget): boolean => spend(budget, 1)
-
-const within = <A>(budget: Budget, value: A): Effect.Effect<A, SchemaBudgetExceeded> =>
-	budget.spent > budget.limit
-		? Effect.fail(SchemaBudgetExceeded.make({ limit: budget.limit }))
-		: Effect.succeed(value)
 
 const member = (node: JsonObject, key: string): Option.Option<Json> => Record.get(node, key)
 
@@ -237,21 +190,21 @@ type Visit = (node: JsonObject, path: readonly string[]) => JsonObject
 
 /**
  * Rebuilds a schema node: `visit` rewrites the node itself, then its subschemas are transformed.
- * Objects are rebuilt with `Record.map`, so a `__proto__` member stays an own key.
+ * Objects are rebuilt with `Record.map`, so a `__proto__` member stays an own key. A JSON value is
+ * a finite tree, and `$ref` is a string it never follows, so the walk ends.
  */
 const transformSchema = (
-	budget: Budget,
 	node: Json,
 	path: readonly string[],
 	where: Positions,
 	visit: Visit
 ): Json => {
-	if (!isObject(node) || !charge(budget)) {
+	if (!isObject(node)) {
 		return node
 	}
 
 	const child = (value: Json, tokens: readonly string[]): Json =>
-		transformSchema(budget, value, [...path, ...tokens], where, visit)
+		transformSchema(value, [...path, ...tokens], where, visit)
 
 	return Record.map(visit(node, path), (value, key): Json => {
 		if (where.one.has(key)) {
@@ -271,13 +224,12 @@ const transformSchema = (
 }
 
 const forEachSchema = (
-	budget: Budget,
 	node: Json,
 	where: Positions,
 	visit: (node: JsonObject, path: readonly string[]) => void,
 	start: readonly string[]
 ): void => {
-	transformSchema(budget, node, start, where, (current, path) => {
+	transformSchema(node, start, where, (current, path) => {
 		visit(current, path)
 
 		return current
@@ -358,7 +310,6 @@ const layoutFields: ReadonlyMap<Kind, readonly Field[]> = new Map<Kind, readonly
 ])
 
 interface Layout {
-	readonly budget: Budget
 	readonly roots: string[]
 	readonly structural: Set<string>
 }
@@ -377,7 +328,7 @@ const walkLayout = (layout: Layout, kind: Kind | "schema", node: Json, pointer: 
 		return
 	}
 
-	if (!isObject(node) || !charge(layout.budget)) {
+	if (!isObject(node)) {
 		return
 	}
 
@@ -414,8 +365,8 @@ const walkLayout = (layout: Layout, kind: Kind | "schema", node: Json, pointer: 
 	}
 }
 
-const layoutOf = (budget: Budget, value: Json): Layout => {
-	const layout: Layout = { budget, roots: [], structural: new Set() }
+const layoutOf = (value: Json): Layout => {
+	const layout: Layout = { roots: [], structural: new Set() }
 	walkLayout(layout, "root", value, "")
 
 	return layout
@@ -438,7 +389,7 @@ const targetKinds: Readonly<Partial<Record<ReferenceKind, Kind>>> = {
  * The layout of each other document of the set, walked from the objects references reach there,
  * so only the schema roots a reference brings into the entry's operations are stored.
  */
-const memberLayouts = (budget: Budget, resolution: Resolution): ReadonlyMap<Document, Layout> => {
+const memberLayouts = (resolution: Resolution): ReadonlyMap<Document, Layout> => {
 	const layouts = new Map<Document, Layout>()
 	for (const { kind, target } of resolution.references.values()) {
 		const start = targetKinds[kind]
@@ -447,7 +398,7 @@ const memberLayouts = (budget: Budget, resolution: Resolution): ReadonlyMap<Docu
 			continue
 		}
 
-		const layout = layouts.get(target.document) ?? { budget, roots: [], structural: new Set() }
+		const layout = layouts.get(target.document) ?? { roots: [], structural: new Set() }
 		layouts.set(target.document, layout)
 		const node = Result.getSuccess(evaluatePointerResult(value, target.pointer))
 		if (Option.isSome(node)) {
@@ -469,19 +420,14 @@ const messageOf = (cause: unknown): string =>
  * `$id`s set, so once every `$ref` names a stored key no reference reads a base URI, and an
  * embedded resource is flattened into the store's `$defs` as Effect's importer requires.
  */
-const rewriteReferences = (
-	budget: Budget,
-	resolution: Resolution,
-	node: Json,
-	at: CanonicalKey
-): Json => {
+const rewriteReferences = (resolution: Resolution, node: Json, at: CanonicalKey): Json => {
 	const where = resolution.line === "3.0" ? positions30 : positions2020
 	const tokens = tokensOf(at.pointer)
 	if (tokens === undefined) {
 		return node
 	}
 
-	return transformSchema(budget, node, tokens, where, (current, path) => {
+	return transformSchema(node, tokens, where, (current, path) => {
 		const site = { document: at.document, pointer: formatPointer(path) }
 		const flattened = Record.filter(current, (_, key) => key !== "$id")
 		const reference =
@@ -561,15 +507,10 @@ const factsOf = (node: Json): SchemaFacts => {
  * the schema carries as a string, such as an SSE event's data, which the runtime checks that text against. sitesOf
  * decides which of them are roots of the store.
  */
-const jsonContentSites = (
-	budget: Budget,
-	node: Json,
-	at: CanonicalKey
-): ReadonlyArray<CanonicalKey> => {
+const jsonContentSites = (node: Json, at: CanonicalKey): ReadonlyArray<CanonicalKey> => {
 	const found: Array<CanonicalKey> = []
 	const start = Result.getOrElse(parsePointerResult(at.pointer), (): readonly string[] => [])
 	forEachSchema(
-		budget,
 		node,
 		copyPositions,
 		(current, path) => {
@@ -594,10 +535,10 @@ const jsonContentSites = (
  * or later `$ref` with an asserting sibling. A bare `$ref` is its target's key, which the targets
  * above already store.
  */
-const sitesOf = (budget: Budget, resolution: Resolution): ReadonlyMap<string, CanonicalKey> => {
+const sitesOf = (resolution: Resolution): ReadonlyMap<string, CanonicalKey> => {
 	const entry: Document = resolution.document
-	const layout = layoutOf(budget, resolution.value)
-	const members = memberLayouts(budget, resolution)
+	const layout = layoutOf(resolution.value)
+	const members = memberLayouts(resolution)
 	const roots = [
 		...Arr.map(layout.roots, (pointer): CanonicalKey => ({ document: entry, pointer })),
 		...Arr.flatMap([...members], ([document, found]) =>
@@ -619,7 +560,7 @@ const sitesOf = (budget: Budget, resolution: Resolution): ReadonlyMap<string, Ca
 	for (const at of Arr.fromIterable(sites.values())) {
 		const node = nodeOption(resolution, at)
 		if (Option.isSome(node)) {
-			for (const site of jsonContentSites(budget, node.value, at)) {
+			for (const site of jsonContentSites(node.value, at)) {
 				const key = defsKey(entry, site)
 				if (schemaKeyAt(resolution, site) === key) {
 					sites.set(key, site)
@@ -632,29 +573,24 @@ const sitesOf = (budget: Budget, resolution: Resolution): ReadonlyMap<string, Ca
 }
 
 const storeFrom = (
-	budget: Budget,
 	resolution: Resolution,
 	sites: ReadonlyMap<string, CanonicalKey>
-): Effect.Effect<StoredSchemas, SchemaBudgetExceeded | SchemaImportDefect> =>
+): Effect.Effect<StoredSchemas, SchemaImportDefect> =>
 	Effect.forEach(sortedKeys(sites), (key) => {
 		const at = sites.get(key) ?? { document: resolution.document, pointer: "" }
 
 		return Effect.option(nodeIn(resolution, at)).pipe(
 			Effect.map(Option.getOrElse((): Json => ({}))),
 			Effect.flatMap((node) =>
-				convert(resolution.line, key, rewriteReferences(budget, resolution, node, at))
+				convert(resolution.line, key, rewriteReferences(resolution, node, at))
 			),
 			Effect.map((converted): [string, Json] => [key, converted])
 		)
 	}).pipe(
-		Effect.flatMap((entries) =>
-			within(budget, {
-				definitions: new Map(entries),
-				facts: new Map(
-					Arr.map(entries, ([key, node]): [string, SchemaFacts] => [key, factsOf(node)])
-				)
-			})
-		)
+		Effect.map((entries): StoredSchemas => ({
+			definitions: new Map(entries),
+			facts: new Map(Arr.map(entries, ([key, node]): [string, SchemaFacts] => [key, factsOf(node)]))
+		}))
 	)
 
 /**
@@ -786,7 +722,6 @@ const refusedCode = (line: SpecLine, keyword: string): string | undefined =>
  * keyword sits. The copy removes the ones it stores; these are reported at their schema.
  */
 const refusedInSource = (
-	budget: Budget,
 	resolution: Resolution,
 	sites: ReadonlyMap<string, CanonicalKey>
 ): readonly (readonly [code: string, at: CanonicalKey])[] => {
@@ -808,7 +743,7 @@ const refusedInSource = (
 				}
 			}
 		}
-		forEachSchema(budget, node, where, visit, tokens)
+		forEachSchema(node, where, visit, tokens)
 	}
 
 	return found
@@ -823,11 +758,7 @@ interface DynamicScan {
  * Whether the schema at `at` holds a dynamic or recursive keyword in place (subschemas included,
  * nested `$defs` not), with the targets of its `$ref`s in visit order.
  */
-const holdsDynamicKeyword = (
-	budget: Budget,
-	resolution: Resolution,
-	at: CanonicalKey
-): DynamicScan => {
+const holdsDynamicKeyword = (resolution: Resolution, at: CanonicalKey): DynamicScan => {
 	const tokens = tokensOf(at.pointer)
 	const node = Option.getOrUndefined(nodeOption(resolution, at))
 	if (tokens === undefined || node === undefined) {
@@ -838,7 +769,6 @@ const holdsDynamicKeyword = (
 	const targets: CanonicalKey[] = []
 	let found = false
 	forEachSchema(
-		budget,
 		node,
 		where,
 		(current, path) => {
@@ -865,12 +795,7 @@ const holdsDynamicKeyword = (
  * `$defs` member applies only through a reference. A body schema that does cannot be checked, so
  * it is refused like any other refused body schema, and a required one raises to operation scope.
  */
-export const appliesDynamicKeyword = (
-	resolution: Resolution,
-	site: CanonicalKey,
-	limits: SchemaLimits
-): boolean => {
-	const budget = budgetOf(limits)
+export const appliesDynamicKeyword = (resolution: Resolution, site: CanonicalKey): boolean => {
 	const seen = new Set<string>()
 	const pending = [site]
 	for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
@@ -880,7 +805,7 @@ export const appliesDynamicKeyword = (
 
 		seen.add(keyOf(at))
 
-		const scan = holdsDynamicKeyword(budget, resolution, at)
+		const scan = holdsDynamicKeyword(resolution, at)
 		if (scan.found) {
 			return true
 		}
@@ -1196,11 +1121,10 @@ interface Edge {
 	readonly to: string
 }
 
-const edgesOf = (budget: Budget, definitions: ReadonlyMap<string, Json>): readonly Edge[] => {
+const edgesOf = (definitions: ReadonlyMap<string, Json>): readonly Edge[] => {
 	const edges: Edge[] = []
 	for (const key of sortedKeys(definitions)) {
 		forEachSchema(
-			budget,
 			definitions.get(key) ?? {},
 			inPlace,
 			(node, path) => {
@@ -1247,8 +1171,8 @@ interface EditedCopy {
  * instance (D-AD12 refused tier, DOC-23/alias-cycle): each such site becomes `{}`, the schema that
  * admits any value, in the store and so in every copy of it.
  */
-const breakAliasCycles = (budget: Budget, initial: ReadonlyMap<string, Json>): EditedCopy => {
-	const edges = edgesOf(budget, initial)
+const breakAliasCycles = (initial: ReadonlyMap<string, Json>): EditedCopy => {
+	const edges = edgesOf(initial)
 	/**
 	 * The strongly connected components of the in-place reference graph. Graph's search keeps an
 	 * explicit stack, so a long reference chain cannot exhaust the call stack.
@@ -1449,18 +1373,16 @@ const importEdit = (
 /**
  * Imports through `importSchemas`; each rejected node becomes `{}` under the code of its class,
  * at its deepest existing schema ancestor, until the import succeeds. The importer stops at its
- * first failure, so repairs cannot be batched: each pass is charged the number of definitions it
- * imports, and the budget caps the passes.
+ * first failure, so repairs cannot be batched. The passes end: an edit that changes nothing is a
+ * defect (`importEdit`), so each pass replaces a node that is not `{}` with `{}`, removing at least
+ * one of the finitely many JSON values the definitions hold.
  */
 const importCopy = Effect.fnUntraced(function* importCopy(
-	budget: Budget,
 	line: SpecLine,
 	initial: ReadonlyMap<string, Json>
-): Effect.fn.Return<EditedCopy, SchemaBudgetExceeded | SchemaImportDefect> {
+): Effect.fn.Return<EditedCopy, SchemaImportDefect> {
 	const definitions = new Map(initial)
 	const edits: SchemaEdit[] = []
-	spend(budget, definitions.size)
-	yield* within(budget, definitions)
 	let failure = yield* importOnce(definitions)
 	while (Option.isSome(failure)) {
 		const found = importEdit(line, definitions, failure.value)
@@ -1471,8 +1393,6 @@ const importCopy = Effect.fnUntraced(function* importCopy(
 		const edit = found.value
 		edits.push(edit)
 		definitions.set(edit.key, replaceAt(definitions.get(edit.key) ?? {}, edit.path))
-		spend(budget, definitions.size)
-		yield* within(budget, definitions)
 		failure = yield* importOnce(definitions)
 	}
 
@@ -1495,19 +1415,17 @@ const importCopy = Effect.fnUntraced(function* importCopy(
  */
 const validationCopy = Effect.fnUntraced(function* validationCopy(
 	line: SpecLine,
-	definitions: ReadonlyMap<string, Json>,
-	limits: SchemaLimits
-): Effect.fn.Return<ValidationCopy, SchemaBudgetExceeded | SchemaImportDefect> {
-	const budget = budgetOf(limits)
+	definitions: ReadonlyMap<string, Json>
+): Effect.fn.Return<ValidationCopy, SchemaImportDefect> {
 	const edits: SchemaEdit[] = []
 	const filtered = new Map(
 		Arr.map(sortedKeys(definitions), (key): [string, Json] => {
 			const visit = filterNode({ definitions, edits, key, line })
 
-			return [key, transformSchema(budget, definitions.get(key) ?? {}, [], copyPositions, visit)]
+			return [key, transformSchema(definitions.get(key) ?? {}, [], copyPositions, visit)]
 		})
 	)
-	const imported = yield* importCopy(budget, line, filtered)
+	const imported = yield* importCopy(line, filtered)
 
 	return {
 		definitions: imported.definitions,
@@ -1791,13 +1709,11 @@ const diagnosticsOf = (
  * from it read the cycle one way, and no later stage meets a reference that never reaches a schema.
  */
 export const normalizeSchemas = Effect.fnUntraced(function* normalizeSchemas(
-	resolution: Resolution,
-	limits: SchemaLimits
-): Effect.fn.Return<SchemaNormalization, SchemaBudgetExceeded | SchemaImportDefect> {
-	const budget = budgetOf(limits)
-	const sites = yield* within(budget, sitesOf(budget, resolution))
-	const converted = yield* storeFrom(budget, resolution, sites)
-	const acyclic = yield* within(budget, breakAliasCycles(budget, converted.definitions))
+	resolution: Resolution
+): Effect.fn.Return<SchemaNormalization, SchemaImportDefect> {
+	const sites = sitesOf(resolution)
+	const converted = yield* storeFrom(resolution, sites)
+	const acyclic = breakAliasCycles(converted.definitions)
 	const stored: StoredSchemas = {
 		definitions: acyclic.definitions,
 		facts: new Map(
@@ -1807,10 +1723,8 @@ export const normalizeSchemas = Effect.fnUntraced(function* normalizeSchemas(
 			])
 		)
 	}
-	const refused = yield* within(budget, refusedInSource(budget, resolution, sites))
-	const validation = yield* validationCopy(resolution.line, stored.definitions, {
-		maxNodes: budget.limit - budget.spent
-	})
+	const refused = refusedInSource(resolution, sites)
+	const validation = yield* validationCopy(resolution.line, stored.definitions)
 	const diagnostics = yield* diagnosticsOf(
 		resolution,
 		sites,
@@ -1840,10 +1754,9 @@ const forCodeGeneration: Visit = (node) =>
 		}
 	)
 
-const referencedKeys = (budget: Budget, node: Json): readonly string[] => {
+const referencedKeys = (node: Json): readonly string[] => {
 	const keys: string[] = []
 	forEachSchema(
-		budget,
 		node,
 		copyPositions,
 		(current) => {
@@ -1866,10 +1779,8 @@ const referencedKeys = (budget: Budget, node: Json): readonly string[] => {
  */
 export const codeGenerationCopy = (
 	validation: ReadonlyMap<string, Json>,
-	roots: readonly string[],
-	limits: SchemaLimits
-): Effect.Effect<ReadonlyMap<string, Json>, SchemaBudgetExceeded> => {
-	const budget = budgetOf(limits)
+	roots: readonly string[]
+): ReadonlyMap<string, Json> => {
 	const reached = new Set<string>()
 	const pending = Arr.filter(roots, (root) => validation.has(root))
 	let key = pending.pop()
@@ -1877,7 +1788,7 @@ export const codeGenerationCopy = (
 		if (!reached.has(key)) {
 			reached.add(key)
 
-			for (const ref of referencedKeys(budget, validation.get(key) ?? {})) {
+			for (const ref of referencedKeys(validation.get(key) ?? {})) {
 				if (validation.has(ref) && !reached.has(ref)) {
 					pending.push(ref)
 				}
@@ -1887,12 +1798,10 @@ export const codeGenerationCopy = (
 		key = pending.pop()
 	}
 
-	const copy = new Map(
+	return new Map(
 		Arr.map(Arr.sort([...reached], byString), (name): [string, Json] => [
 			name,
-			transformSchema(budget, validation.get(name) ?? {}, [], copyPositions, forCodeGeneration)
+			transformSchema(validation.get(name) ?? {}, [], copyPositions, forCodeGeneration)
 		])
 	)
-
-	return within(budget, copy)
 }

@@ -10,7 +10,7 @@ import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { normalizeBody } from "#normalize/bodies.ts"
 import { normalizeResponses } from "#normalize/responses.ts"
-import { defaultLimits, resolve } from "#resolve/index.ts"
+import { resolve } from "#resolve/index.ts"
 
 // Media type fixes found by the body witness: MED-26 (array form-data body refused), MED-10
 // (response encoding noticed), MED-09 (3.2 Media Type description noticed), MED-24 (reported once).
@@ -41,9 +41,7 @@ const bodyOf = (line: SpecLine, requestBody: Json) => {
 	}
 	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
 
-	return Effect.runSync(
-		normalizeBody(resolution, { openapi: openapi[line], pointer: body }, defaultLimits)
-	)
+	return Effect.runSync(normalizeBody(resolution, { openapi: openapi[line], pointer: body }))
 }
 
 const responsesOf = (line: SpecLine, responses: Json) => {

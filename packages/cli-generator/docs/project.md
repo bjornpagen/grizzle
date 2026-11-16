@@ -28,7 +28,7 @@ Labels: decided; the JSON and YAML parsers are measured.
 
 The OpenAPI adapter runs one stage per directory under `src/`:
 
-1. **load**: JSON through `JSON.parse` plus a scanner that rejects duplicate keys, or strict YAML 1.2 through `yaml` plus a check after parsing. Both run under size, depth and node budgets.
+1. **load**: JSON through `JSON.parse` plus a scanner that rejects duplicate keys, or strict YAML 1.2 through `yaml` plus a check after parsing. A document is its own user's choice, so neither refuses one for its size, its nesting or its count of values.
 2. **validate**: against the OpenAPI Initiative's official JSON Schema for the document's line (3.0, 3.1 or 3.2). Where that schema and the specification text disagree, the text wins. Each such disagreement is listed, with its reason, in a table the validator owns.
 3. **resolve**: `$ref` resolution over the document set, without network access.
 4. **check**: the rules in the specification text that no JSON Schema expresses.
@@ -46,7 +46,7 @@ Label: decided.
 
 Effect owns commands and flags (`effect/cli`), validation and typed errors (`Schema`), files and standard streams (`FileSystem`, `Stdio`), streams (`Stream`, `Sse.makeParser`), retries (`Schedule` and `HttpClient.transform`), timeouts, configuration and credentials (`Config`, `Redacted`), wiring (`Layer`) and the HTTP client (`effect/http` over `@effect/platform-node`'s undici client).
 
-The generated `runtime/` modules add only what Effect lacks, each with a written reason: OpenAPI parameter serialization, a streamed multipart writer, NDJSON line and JSON-seq record framing that never re-parses values, retries that respect idempotency, credentials bound to origins across redirects, standard input and bounded inputs, and the output, exit-code and error-rendering policy.
+The generated `runtime/` modules add only what Effect lacks, each with a written reason: OpenAPI parameter serialization, a streamed multipart writer, NDJSON line and JSON-seq record framing that never re-parses values, retries that respect idempotency, credentials bound to origins across redirects, standard input and inputs read whole, and the output, exit-code and error-rendering policy.
 
 `@effect/openapi-generator` is a reference only. Schema code comes from Effect core `JsonSchema` and `SchemaRepresentation`.
 
@@ -104,7 +104,7 @@ Labels: decided; the redirect mechanism is measured.
 
 - Spec servers become defaults only when the API author accepts them in the author config. The bound origin set is the concrete origins of their expansions. A scheme or authority variable needs an `enum`, or the author lists `acceptedOrigins`.
 - Base URL precedence is `--base-url`, then the environment, then `--server`, then the accepted default. The environment value counts as chosen by the operator, like `--base-url`. A `--server` URL whose origin is outside the bound set is a usage error.
-- Credentials come from a file flag, the environment (default name `<PREFIX>_<SCHEME>`, overridable per scheme in the author config) or a terminal prompt. They are never taken from the command line by default. They stay `Redacted`, are attached only to bound origins, and their values are removed from every rendered excerpt, URL and summary.
+- Credentials come from a file flag, the environment (default name `<PREFIX>_<SCHEME>`, overridable per scheme in the author config) or a terminal prompt. They are never taken from the command line by default. They stay `Redacted`, are attached only to bound origins, and their values are removed from every rendered error body, URL and summary.
 - A `mutualTLS` client certificate is bound the same way: it is presented only to bound origins, never on a cross-origin redirect or to an unbound base URL.
 - The runtime follows redirects with its own loop and attaches credentials on each hop only to bound origins. A redirect to a request the chain already sent, the same method and URL, is a loop and is refused before it is sent; a chain of new URLs ends only at the attempt's `--timeout`. A `Location` must be `http` or `https` without userinfo. A cross-origin body re-send, a 307 or 308 re-send of a body that can be read only once, and a move from `https` to `http` are refused.
 - No flag value, `--base-url` included, is echoed in an error message.
@@ -126,7 +126,7 @@ Label: decided.
 - Binary output never goes to a terminal unless the operator passes `--output -`. `--force` only lets `--output` replace an existing file.
 - Response precedence is an explicit status code, then a range, then `default`. Success is decided by the 2xx status class.
 - Errors are shared tagged classes in `domain/` that carry the matched response key. One class per operation and status exceeded the 4 GiB type-check memory ceiling on the Cloudflare specification (measured).
-- Errors render on stderr as text or JSON. Error-body excerpts default to 4 KiB, `--max-error-bytes 0` omits them, and excerpts are always sanitized. Under `--error-format json`, a failure event whose contract says its data is JSON prints that data as `data`, the JSON value itself with its numbers and key order as sent, when it fits the bound whole; otherwise as the `body` excerpt. Retry hints appear only for methods the retry policy would retry.
+- Errors render on stderr as text or JSON. An error body prints whole, and always sanitized. Under `--error-format json`, a failure event whose contract says its data is JSON prints that data as `data`, the JSON value itself with its numbers and key order as sent, when it is still one JSON text after scrubbing; otherwise as the `body` text. Retry hints appear only for methods the retry policy would retry.
 - Exit codes: 0 success, 1 API error, 2 usage, 3 authentication, 4 transport, 5 response or output handling, 70 internal, 130 interrupted.
 
 ## Retries and timeouts

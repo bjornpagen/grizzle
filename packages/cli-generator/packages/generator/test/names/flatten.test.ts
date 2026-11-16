@@ -1,4 +1,4 @@
-import { Result, Schema } from "effect"
+import { Array as Arr, Option, Result, Schema } from "effect"
 import { describe, expect, test } from "vitest"
 import { WireName } from "#model/brands.ts"
 import { EncodingRule } from "#model/entities.ts"
@@ -228,13 +228,10 @@ describe("flattenBody", () => {
 		expect(run(fanOut(20)).flags.map(({ name }) => name)).toEqual(["body", "body-file", "leaf"])
 	}, 5000)
 
-	test("a diamond fan-out resolves at depth 30 and is a cheap typed failure past the 64-hop cap", () => {
-		expect(
-			Result.isSuccess(flattenBody(fanOut(30), alternative("json", "Root"), defaultLine))
-		).toBe(true)
-
-		const deep = flattenBody(fanOut(64), alternative("json", "Root"), defaultLine)
-		expect(Result.isFailure(deep) && deep.failure._tag).toBe("UnresolvedBodyRef")
+	test("a diamond fan-out resolves at depth 30 and at depth 200, past any hop count", () => {
+		const names = (depth: number) => Arr.map(run(fanOut(depth)).flags, ({ name }) => name)
+		expect(names(30)).toEqual(["body", "body-file", "leaf"])
+		expect(names(200)).toEqual(["body", "body-file", "leaf"])
 	}, 5000)
 
 	test("each field flag names the source pointer of the property that declares it", () => {
@@ -285,44 +282,34 @@ describe("flattenBody", () => {
 		)
 	})
 
-	test("duplicate allOf keys over large equal subtrees charge their equality to the budget", () => {
+	test("duplicate allOf keys over large equal subtrees merge, however large", () => {
 		const members = Array.from({ length: 4 }, (_, index): [string, Schema.Json] => [
 			`M${index}`,
 			object({ big: bigEnum() })
 		])
-		const result = flattenBody(
-			{
-				...Object.fromEntries(members),
-				Root: { allOf: members.map(([key]) => ({ $ref: `#/$defs/${key}` })) }
-			},
-			alternative("json", "Root"),
-			defaultLine
-		)
-		expect(Result.isFailure(result) && result.failure._tag).toBe("BodyBudgetExceeded")
-
-		const small = flattenBody(
-			{
-				M0: object({ big: bigEnum() }),
-				M1: object({ big: bigEnum() }),
-				Root: { allOf: [{ $ref: "#/$defs/M0" }, { $ref: "#/$defs/M1" }] }
-			},
-			alternative("json", "Root"),
-			defaultLine
-		)
-		expect(Result.isSuccess(small)).toBe(true)
+		const { flags } = run({
+			...Object.fromEntries(members),
+			Root: { allOf: members.map(([key]) => ({ $ref: `#/$defs/${key}` })) }
+		})
+		expect(
+			Option.map(
+				Arr.findFirst(flags, ({ name }) => name === "big"),
+				({ schemaPointer }) => schemaPointer
+			)
+		).toEqual(Option.some("/components/schemas/M0/properties/big"))
 	}, 5000)
 
-	test("a body that exceeds the shared visit budget is a typed BodyBudgetExceeded", () => {
+	test("an allOf of twenty thousand members is classified whole", () => {
 		const members = Array.from({ length: 20_000 }, () => ({ type: "string" }))
 		const result = flattenBody(
 			{ Root: { allOf: members } },
 			alternative("json", "Root"),
 			defaultLine
 		)
-		expect(Result.isFailure(result) && result.failure._tag).toBe("BodyBudgetExceeded")
+		expect(Result.isSuccess(result)).toBe(true)
 	}, 5000)
 
-	test("many empty-folding keys under a shared def hit the budget instead of growing memory", () => {
+	test("many empty-folding keys under a shared def are each skipped, refused by no count", () => {
 		const empties = Object.fromEntries(
 			Array.from({ length: 300 }, (_, index): [string, Schema.Json] => [
 				`\u4E00${String.fromCodePoint(20_000 + index)}`,
@@ -340,7 +327,7 @@ describe("flattenBody", () => {
 			alternative("json", "Root"),
 			defaultLine
 		)
-		expect(Result.isFailure(result) && result.failure._tag).toBe("BodyBudgetExceeded")
+		expect(Result.isSuccess(result) && result.success.skipped.length).toBe(300 * 300)
 	}, 5000)
 })
 

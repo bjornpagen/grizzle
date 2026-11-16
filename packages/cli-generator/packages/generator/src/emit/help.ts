@@ -1,7 +1,7 @@
 import { jsonTextOf } from "@superstarter/json"
 import { regex } from "arkregex"
 import { Array as Arr, JsonPointer, Option, Predicate, Record, String as Str } from "effect"
-import { SafeText, sanitizeProse } from "#model/brands.ts"
+import { SafeText, stripUnsafeText } from "#model/brands.ts"
 import { isRefusal } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { DiscriminatorHint, Operation, Parameter, SecurityScheme } from "#model/entities.ts"
@@ -110,7 +110,7 @@ const lineBreaks = regex("[\\n\\t]+", "gu")
 /**
  * A single-line generated field: sanitized, with LF and TAB runs folded to one space.
  */
-const line = (text: string): string => Str.replaceAll(lineBreaks, " ")(sanitizeProse(text))
+const line = (text: string): string => Str.replaceAll(lineBreaks, " ")(stripUnsafeText(text))
 
 /** A sentence's end: a `.`, `!` or `?` with a space or the end of the text after it. */
 const sentenceEnd = regex("[.!?](?=\\s|$)", "u")
@@ -678,8 +678,8 @@ export const operationHelp = (input: HelpInput): OperationHelp => {
 
 	return {
 		arguments: record(Arr.map(Arr.filter(input.flags, isArgument), noted(operation))),
-		description: sanitizeProse(operation.docs.description ?? operation.docs.summary ?? ""),
-		summary: sanitizeProse(
+		description: stripUnsafeText(operation.docs.description ?? operation.docs.summary ?? ""),
+		summary: stripUnsafeText(
 			line(operation.docs.summary ?? firstSentence(operation.docs.description ?? ""))
 		),
 		flags: record(

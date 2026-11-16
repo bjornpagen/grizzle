@@ -128,17 +128,6 @@ export const stripUnsafeText = (text: string): typeof SafeText.Type =>
 	SafeText.make(Str.replaceAll(unsafeCharacter, "")(text))
 
 /**
- * The most code points one piece of source prose keeps in help and the report.
- */
-const maxProseLength = 2000
-
-/**
- * Source prose made help-safe: `stripUnsafeText`, then the first `maxProseLength` code points.
- */
-export const sanitizeProse = (text: string): typeof SafeText.Type =>
-	SafeText.make(Arr.join(Arr.take(Arr.fromIterable(stripUnsafeText(text)), maxProseLength), ""))
-
-/**
  * An absolute URI with ASCII characters only.
  */
 export const DocumentUri = pattern(uriPattern).pipe(Schema.brand("DocumentUri"))
@@ -152,7 +141,7 @@ export const JsonPointer = Schema.String.pipe(
 )
 
 /**
- * A finite JSON value. Resource bounds belong to the stage budgets, not the brand.
+ * A finite JSON value.
  */
 export const JsonLiteral = Schema.Json.pipe(Schema.brand("JsonLiteral"))
 

@@ -1,4 +1,4 @@
-import { Effect, Runtime } from "effect"
+import { Effect, Runtime, String as Str } from "effect"
 import { describe, expect, test } from "vitest"
 import { UsageError } from "#runtime-src/domain/errors.ts"
 import { jsonNull } from "#runtime-src/runtime/input.ts"
@@ -64,15 +64,9 @@ describe("query deepObject with brackets", () => {
 		await expectUsage(Serialize.deepObject("a", { b: {} }, { ...brackets, required: true }).expand)
 	})
 
-	test("32 levels are sent and 33 are refused, naming the parameter and not the value", async () => {
+	test("a value of any depth is sent, its every level a bracket pair", async () => {
 		expect(await query(nestedTo(32, "leaf"))).toBe(`a${"%5Bk%5D".repeat(32)}=leaf`)
-
-		const message = await expectUsage(
-			Serialize.deepObject("filter", nestedTo(33, "secret-leaf"), brackets).expand
-		)
-
-		expect(message).toContain("filter")
-		expect(message).not.toContain("secret-leaf")
+		expect(await query(nestedTo(2000, "leaf"))).toBe(`a${Str.repeat(2000)("%5Bk%5D")}=leaf`)
 	})
 
 	test("two leaves with one bracketed name are refused", async () => {
@@ -102,16 +96,8 @@ describe("form deepObject with brackets", () => {
 		expect(await encode({ a: { b: {} } })).toBe("")
 	})
 
-	test("depth 33 is refused, naming the property and not the value", async () => {
-		const message = await expectUsage(
-			Serialize.urlEncode(
-				{ filter: nestedTo(33, "secret-leaf") },
-				{ properties: [["filter", { brackets: true, style: "deepObject" }]] }
-			)
-		)
-
-		expect(message).toContain("filter")
-		expect(message).not.toContain("secret-leaf")
+	test("a property of any depth is encoded, its every level a bracket pair", async () => {
+		expect(await encode({ a: nestedTo(2000, "leaf") })).toBe(`a${Str.repeat(2000)("%5Bk%5D")}=leaf`)
 	})
 
 	test("a bracket pair named like a declared property is refused", async () => {

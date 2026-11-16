@@ -5,15 +5,10 @@ import { DocumentUri } from "#model/brands.ts"
 import type { EncodingRule, MediaAlternative } from "#model/entities.ts"
 import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
-import {
-	BodyNodeBudget,
-	BodyNotReadable,
-	hintDiscriminators,
-	normalizeBody
-} from "#normalize/bodies.ts"
+import { BodyNotReadable, hintDiscriminators, normalizeBody } from "#normalize/bodies.ts"
 import type { BodyOutcome } from "#normalize/bodies.ts"
 import { deepObjectExplodeText } from "#normalize/parameters.ts"
-import { defaultLimits, resolve } from "#resolve/index.ts"
+import { resolve } from "#resolve/index.ts"
 
 const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 
@@ -50,9 +45,7 @@ const normalize = (line: SpecLine, requestBody: Json, components: Members = {}):
 	const value = documentOf(line, requestBody, components)
 	const resolution = Effect.runSync(resolve({ document: entry, line, value }))
 
-	return Effect.runSync(
-		normalizeBody(resolution, { openapi: openapi[line], pointer: site }, defaultLimits)
-	)
+	return Effect.runSync(normalizeBody(resolution, { openapi: openapi[line], pointer: site }))
 }
 
 const implemented = (line: SpecLine, requestBody: Json, components: Members = {}) => {
@@ -1106,9 +1099,7 @@ describe("BodyNotReadable a site the earlier stages should have stopped", () => 
 		const value = documentOf("3.1", { content: { "text/plain": {} } })
 		const resolution = Effect.runSync(resolve({ document: entry, line: "3.1", value }))
 		const failure = Effect.runSync(
-			Effect.flip(
-				normalizeBody(resolution, { openapi: openapi["3.1"], pointer: "/info" }, defaultLimits)
-			)
+			Effect.flip(normalizeBody(resolution, { openapi: openapi["3.1"], pointer: "/info" }))
 		)
 
 		expect(failure).toBeInstanceOf(BodyNotReadable)
@@ -1136,7 +1127,7 @@ const diamond = (depth: number, width: number): Members => ({
 	)
 })
 
-describe("REF-18 node-budget: allOf members shared by many parents are expanded once", () => {
+describe("allOf members shared by many parents are expanded once", () => {
 	const body: Json = multipart({ $ref: "#/components/schemas/L0" })
 
 	test("a depth-20 diamond finishes within 2 s and still finds the property", () => {
@@ -1161,27 +1152,6 @@ describe("REF-18 node-budget: allOf members shared by many parents are expanded 
 
 		expect(only(outcome.body.alternatives).encoding.map(targetOf)).toEqual(["a"])
 	}, 2000)
-
-	test("a spent node budget fails with the shared REF-18 code", () => {
-		const value = documentOf("3.1", body, diamond(20, 5))
-		const resolution = Effect.runSync(resolve({ document: entry, line: "3.1", value }))
-		const failure = Effect.runSync(
-			Effect.flip(
-				normalizeBody(
-					resolution,
-					{ openapi: openapi["3.1"], pointer: site },
-					{ maxHops: 64, maxNodes: 50 }
-				)
-			)
-		)
-
-		expect(failure._tag).toBe("BodyNodeBudget")
-		expect(failure).toBeInstanceOf(BodyNodeBudget)
-		if (failure._tag === "BodyNodeBudget") {
-			expect(failure.diagnostic.code).toBe("REF-18/node-budget")
-			expect(failure.diagnostic.scope).toBe("document")
-		}
-	})
 })
 
 const schemaRef = (name: string): Json => ({ $ref: `#/components/schemas/${name}` })
@@ -1203,7 +1173,7 @@ describe("DSC-01 DSC-07 DSC-09 DSC-11 the discriminator hint", () => {
 		const resolution = Effect.runSync(resolve({ document: entry, line, value }))
 		const findings = Effect.runSync(checkSpecText(resolution))
 		const outcome = Effect.runSync(
-			normalizeBody(resolution, { openapi: openapi[line], pointer: site }, defaultLimits)
+			normalizeBody(resolution, { openapi: openapi[line], pointer: site })
 		)
 		if (outcome._tag !== "Implemented") {
 			throw new Error(`expected Implemented, got ${outcome._tag}`)

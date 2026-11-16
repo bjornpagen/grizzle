@@ -91,7 +91,6 @@ import type { ScrubEntry } from "#runtime/redact.ts"
 import {
 	dropTrailingFragment,
 	encoder,
-	longestFormBytes,
 	queryWireForm,
 	redactedPlaceholder,
 	RunCredentials,
@@ -109,11 +108,29 @@ import {
 	compactJsonText,
 	jsonSeqRecords,
 	ndjsonRecords,
-	sequentialCodecOf,
-	utf8Bytes
+	sequentialCodecOf
 } from "#runtime/sequential.ts"
 import type { EventContract, EventFailed, EventTable, StopAt } from "#runtime/sse.ts"
 import { eventStream, hasLifecycle, openContract, readsState, StopPoint } from "#runtime/sse.ts"
+
+/**
+ * The default of `--max-record-bytes` (runtime/output.ts MaxRecordBytes): the most UTF-8 bytes one record of a
+ * sequential response (an SSE event, an NDJSON or JSON Lines line, a JSON text sequence item) may hold before the run
+ * fails with exit 5. The operator sets another with the flag.
+ *
+ * @limitKind provisional
+ * @owner the generated CLI's sequential response reader (runtime/sequential.ts, runtime/sse.ts)
+ * @unit bytes
+ * @scope the default bound on one record of one sequential response a generated CLI reads, held in memory until the
+ *   record ends
+ * @guards a server that never ends a record (no newline, no blank line) would grow the one record's buffer until the
+ *   CLI runs out of memory, worst under --follow, which reads a live stream for as long as it lasts
+ * @measure record the largest single records the corpus APIs' streams send (OpenAI's and Stripe's streamed events, a
+ *   Kubernetes watch, GitHub's event stream) and keep a bound with its headroom over the largest stated
+ * @origin planner choice P6 (docs/project.md names no number), written with no evidence
+ * @recorded 2026-11-16
+ */
+export const defaultMaxRecordBytes = 16 * 1024 * 1024
 
 /**
  * `--output <path>` writes the response body to a file; `-` writes it to stdout.
@@ -136,33 +153,6 @@ export const Force = GlobalFlag.Setting("force")({
 })
 
 /**
- * Default `--max-error-bytes` (design 7.4).
- */
-export const defaultMaxErrorBytes = 4096
-
-/**
- * Ceiling for `--max-error-bytes` (design 7.4).
- */
-export const maxErrorBytesCeiling = 65_536
-
-const inErrorBytesRange = (n: number): boolean => n >= 0 && n <= maxErrorBytesCeiling
-
-const errorBytesRangeMessage = (): string => `must be between 0 and ${maxErrorBytesCeiling}`
-
-/**
- * `--max-error-bytes` bounds the error-body excerpt; 0 omits it.
- */
-export const MaxErrorBytes = GlobalFlag.Setting("max-error-bytes")({
-	flag: Flag.Int("max-error-bytes").pipe(
-		// Flag.filter takes (predicate, onFalse); it is not an array method with a thisArg.
-		// oxlint-disable-next-line unicorn/no-array-method-this-argument
-		Flag.filter(inErrorBytesRange, errorBytesRangeMessage),
-		Flag.withDescription("Bytes of an error response body to print; 0 prints none"),
-		Flag.withDefault(defaultMaxErrorBytes)
-	)
-})
-
-/**
  * `--raw` writes a sequential response (SSE, NDJSON/JSONL, JSON-seq) as the bytes received
  * instead of one JSON value per line (design 4.6).
  */
@@ -173,17 +163,13 @@ export const Raw = GlobalFlag.Setting("raw")({
 	)
 })
 
-/**
- * Default `--max-record-bytes`: 16 MiB per record (planner choice P6; the design names no number).
- */
-export const defaultMaxRecordBytes = 16 * 1024 * 1024
-
 const isPositive = (n: number): boolean => n >= 1
 
 const recordBytesRangeMessage = (): string => "must be 1 or more"
 
 /**
- * `--max-record-bytes` bounds one record of a sequential response, in UTF-8 bytes.
+ * `--max-record-bytes` bounds one record of a sequential response, in UTF-8 bytes; its default is the runtime's
+ * `defaultMaxRecordBytes`.
  */
 export const MaxRecordBytes = GlobalFlag.Setting("max-record-bytes")({
 	flag: Flag.Int("max-record-bytes").pipe(
@@ -532,103 +518,30 @@ export const sanitize = (text: string): string => text.replaceAll(unsafeText, ""
 
 /**
  * Credential values scrubbed, then the text sanitized, then scrubbed again (design 7.4, audit
- * S2), so neither a credential holding a removed character nor one split by them survives.
+ * S2), so neither a credential holding a removed character nor one split by them survives: an error body as it is
+ * printed, whole.
  */
-const scrubbedAndSanitized = (text: string, credentials: readonly ScrubEntry[]): string =>
+export const scrubbedAndSanitized = (text: string, credentials: readonly ScrubEntry[]): string =>
 	scrubAround(text, credentials, sanitize)
 
 /**
- * The longest prefix of `text` that fits `maxBytes` of UTF-8, never splitting a character.
- */
-const truncateUtf8 = (text: string, maxBytes: number): string => {
-	let used = 0
-	let end = 0
-
-	for (const character of text) {
-		used += utf8Bytes(character)
-
-		if (used > maxBytes) {
-			break
-		}
-
-		end += character.length
-	}
-
-	return text.slice(0, end)
-}
-
-/**
- * The excerpt of an error body: credential values scrubbed, sanitized and scrubbed again, then
- * bounded to `maxBytes` of UTF-8. The bound comes last because scrubbing can lengthen text and
- * `ApiResponseError` refuses an excerpt over 64 KiB (audit F6).
- */
-export const boundedExcerpt = (
-	text: string,
-	maxBytes: number,
-	credentials: readonly ScrubEntry[]
-): string => truncateUtf8(scrubbedAndSanitized(text, credentials), maxBytes)
-
-/**
  * A failure event's JSON data as `--error-format json` prints it, a JSON value: the compact text scrubbed and sanitized
- * as an excerpt is, when the result is still one JSON text and fits `maxBytes` whole; none otherwise, where only the
- * excerpt is printed, since a JSON text cut short is no JSON value.
+ * as an error body is, when the result is still one JSON text; none otherwise, where only the data's text is printed.
  */
-const boundedJson = (
-	text: string,
-	maxBytes: number,
-	credentials: readonly ScrubEntry[]
-): Option.Option<string> => {
-	const scrubbed = scrubbedAndSanitized(text, credentials)
-
-	return truncateUtf8(scrubbed, maxBytes) === scrubbed ? compactJsonText(scrubbed) : Option.none()
-}
-
-// Stream.limitBytes drops the chunk that crosses the limit, which would lose a whole first chunk
-// larger than the limit, so each chunk is cut at the remaining budget instead.
-const takeBytes = <E, R>(
-	body: Stream.Stream<Uint8Array, E, R>,
-	budget: number
-): Stream.Stream<Uint8Array, E, R> =>
-	body.pipe(
-		Stream.mapAccum(
-			() => budget,
-			(remaining, chunk: Uint8Array) =>
-				[remaining - Math.min(remaining, chunk.length), [chunk.subarray(0, remaining)]] as const
-		),
-		Stream.takeWhile((chunk) => chunk.length > 0)
-	)
+const jsonData = (text: string, credentials: readonly ScrubEntry[]): Option.Option<string> =>
+	compactJsonText(scrubbedAndSanitized(text, credentials))
 
 /**
- * Read the excerpt of an error response body for `ApiResponseError.bodyExcerpt`, bounded by
- * `--max-error-bytes` (0 reads nothing). It reads that many bytes plus the longest credential
- * form, so a credential cut by the limit is still found and scrubbed. When the read stops at that
- * budget, an incomplete character and any trailing partial credential are dropped first; then the
- * text is scrubbed, sanitized, scrubbed again and bounded.
+ * Read an error response body whole for `ApiResponseError.body`, as text, scrubbed, sanitized and scrubbed again. An
+ * error body is the server's answer to this run, read to its end as the success body is, and printed in full.
  */
-export const readExcerpt = <E, R>(
+export const readErrorBody = <E, R>(
 	body: Stream.Stream<Uint8Array, E, R>,
 	credentials: readonly ScrubEntry[]
-): Effect.Effect<string, E, R | GlobalFlag.Setting.Identifier<"max-error-bytes">> =>
-	Effect.gen(function* step5() {
-		const maxBytes = yield* MaxErrorBytes
-
-		if (maxBytes === 0) {
-			return ""
-		}
-
-		const budget = maxBytes + longestFormBytes(credentials)
-		const read = yield* Stream.mkUint8Array(takeBytes(body, budget))
-		const text =
-			read.length < budget
-				? new TextDecoder().decode(read)
-				: dropTrailingFragment(
-						new TextDecoder().decode(read, { stream: true }),
-						credentials,
-						sanitize
-					)
-
-		return boundedExcerpt(text, maxBytes, credentials)
-	})
+): Effect.Effect<string, E, R> =>
+	Effect.map(Stream.mkUint8Array(body), (read) =>
+		scrubbedAndSanitized(new TextDecoder().decode(read), credentials)
+	)
 
 /**
  * The errors the runtime raises by design (design 7.1), each rendered through `renderError`.
@@ -701,24 +614,22 @@ const hintOf = (error: KnownError, methodRetried: boolean): Option.Option<string
 }
 
 /**
- * The body excerpt a known error carries: an `ApiResponseError`'s body or a `StreamEventError`'s event data, bounded,
- * scrubbed and sanitized; empty for every other error.
+ * The body a known error carries: an `ApiResponseError`'s body or a `StreamEventError`'s event data, scrubbed and
+ * sanitized; empty for every other error.
  */
-const excerptOf = (error: KnownError, credentials: readonly ScrubEntry[]): string => {
+const errorBodyOf = (error: KnownError, credentials: readonly ScrubEntry[]): string => {
 	if (error._tag === "ApiResponseError") {
-		return boundedExcerpt(error.bodyExcerpt, maxErrorBytesCeiling, credentials)
+		return scrubbedAndSanitized(error.body, credentials)
 	}
 
-	return error._tag === "StreamEventError"
-		? boundedExcerpt(error.dataExcerpt, maxErrorBytesCeiling, credentials)
-		: ""
+	return error._tag === "StreamEventError" ? scrubbedAndSanitized(error.data, credentials) : ""
 }
 
 /**
  * The text printed on stderr for a known error (design 7.4): `Error: <message>`; for an
  * `ApiResponseError` whose retrying stopped at the cap, the sentence naming the server's
  * `Retry-After`; its hint (`hintOf`); for an `ApiResponseError` then `Request ID: <id>` when set;
- * then the excerpt (`excerptOf`, omitted when empty). Every part is scrubbed and sanitized again
+ * then the body (`errorBodyOf`, omitted when empty). Every part is scrubbed and sanitized again
  * here, because the error may come from anywhere.
  */
 export const renderError = (
@@ -734,7 +645,7 @@ export const renderError = (
 		error._tag === "ApiResponseError" && error.requestId !== undefined
 			? [`Request ID: ${singleLine(error.requestId, credentials)}`]
 			: []
-	const excerpt = excerptOf(error, credentials)
+	const body = errorBodyOf(error, credentials)
 
 	return Arr.join(
 		[
@@ -742,7 +653,7 @@ export const renderError = (
 			...capped,
 			...Option.toArray(hintOf(error, methodRetried)),
 			...requestId,
-			...(excerpt === "" ? [] : [excerpt])
+			...(body === "" ? [] : [body])
 		],
 		"\n"
 	)
@@ -787,11 +698,6 @@ export class InternalError extends Schema.TaggedError<InternalError>()("Internal
 
 	readonly [Runtime.errorReported] = false
 }
-
-/**
- * Longest message a defect line may carry. A runtime choice: the design says only "one line".
- */
-const maxDefectLineLength = 512
 
 const Described = Schema.Union([Schema.String, Schema.Struct({ message: Schema.String })])
 
@@ -954,11 +860,11 @@ const recordedCredentials: Effect.Effect<readonly ScrubEntry[], never, RunCreden
 
 /**
  * The fields of the `--error-format json` object (design 7.4), in alphabetical order; an `undefined` field is left out.
- * The excerpt is printed as `body`, a string, or, for a failure event whose contract says its data is JSON, as `data`,
- * that JSON text printed as the value it is, never both.
+ * The error's body is printed as `body`, a string, or, for a failure event whose contract says its data is JSON, as
+ * `data`, that JSON text printed as the value it is, never both.
  */
 interface ErrorFields {
-	readonly excerpt?:
+	readonly carried?:
 		| Readonly<{ key: "body"; text: string }>
 		| Readonly<{ key: "data"; json: string }>
 		| undefined
@@ -977,9 +883,9 @@ interface ErrorFields {
  * JSON text, is written as it is, first, so its numbers and key order stay as the server sent them.
  */
 const jsonLine = (fields: ErrorFields): string => {
-	const excerpt = fields.excerpt
+	const { carried } = fields
 	const text = JSON.stringify({
-		body: excerpt?.key === "body" ? excerpt.text : undefined,
+		body: carried?.key === "body" ? carried.text : undefined,
 		kind: fields.kind,
 		matched: fields.matched,
 		message: fields.message,
@@ -989,8 +895,8 @@ const jsonLine = (fields: ErrorFields): string => {
 		status: fields.status
 	})
 
-	return excerpt?.key === "data"
-		? `{"error":{"data":${excerpt.json},${Str.slice(1)(text)}}`
+	return carried?.key === "data"
+		? `{"error":{"data":${carried.json},${Str.slice(1)(text)}}`
 		: `{"error":${text}}`
 }
 
@@ -1006,8 +912,8 @@ const withHint = (message: string, hint: Option.Option<string>): string =>
 	})
 
 /**
- * The JSON object for a known error: `operation` only for the classes that carry one, the excerpt
- * (`excerptOf`, when not empty) or, for a failure event whose data is JSON, that data as `data`, and for an
+ * The JSON object for a known error: `operation` only for the classes that carry one, the body
+ * (`errorBodyOf`, when not empty) or, for a failure event whose data is JSON, that data as `data`, and for an
  * `ApiResponseError` its status, matched key, request id and capped `Retry-After` (design 7.4, m3 P14, P15).
  */
 const renderErrorJson = (
@@ -1016,7 +922,7 @@ const renderErrorJson = (
 	methodRetried: boolean
 ): string => {
 	const api = error._tag === "ApiResponseError" ? error : undefined
-	const excerpt = excerptOf(error, credentials)
+	const body = errorBodyOf(error, credentials)
 	const operation =
 		error._tag === "ApiResponseError" ||
 		error._tag === "CredentialMissing" ||
@@ -1027,8 +933,8 @@ const renderErrorJson = (
 	const data = error._tag === "StreamEventError" ? error.dataJson : Option.none()
 
 	return jsonLine({
-		excerpt: Option.match(data, {
-			onNone: () => (excerpt === "" ? undefined : { key: "body", text: excerpt }),
+		carried: Option.match(data, {
+			onNone: () => (body === "" ? undefined : { key: "body", text: body }),
 			onSome: (json) => ({ key: "data", json })
 		}),
 		kind: error._tag,
@@ -1119,7 +1025,7 @@ const renderCause = <E>(
 	const line = singleLine(
 		isDescribed(squashed) ? defectMessage(squashed) : "unknown failure",
 		credentials
-	).slice(0, maxDefectLineLength)
+	)
 	const rendered = json
 		? jsonLine({ kind: "Internal", message: `${line}; internal error, please report` })
 		: `Error: ${line}\ninternal error, please report`
@@ -1248,11 +1154,21 @@ interface HelpRow {
 	readonly note: string | undefined
 }
 
+/**
+ * @formatConstant effect/cli 4.1.4's help table (CliOutput.ts renderTable): each row starts two spaces in.
+ */
 const indent = 2
 
+/**
+ * @formatConstant effect/cli 4.1.4's help table (CliOutput.ts renderTable): its first column is its widest cell plus
+ * four.
+ */
 const columnGap = 4
 
-// effect's ARGUMENTS table caps its first column here; its FLAGS table does not.
+/**
+ * @formatConstant effect/cli 4.1.4's help table (CliOutput.ts, `renderTable(argRows, 25)`): the ARGUMENTS table caps
+ * its first column at 25 columns; the FLAGS table does not.
+ */
 const argumentColumnCap = 25
 
 const cellWidth = CliOutput.displayWidth
@@ -1638,19 +1554,18 @@ const eventPlanOf = (
 })
 
 /**
- * The `StreamEventError` of a stream that ended at a failure event: its data bounded by
- * `--max-error-bytes` and scrubbed of the run's recorded values, as an error body excerpt is, and, where its contract
- * says the data is JSON, that data as a JSON text (`boundedJson`).
+ * The `StreamEventError` of a stream that ended at a failure event: its data scrubbed of the run's recorded values and
+ * sanitized, as an error body is, and, where its contract says the data is JSON, that data as a JSON text
+ * (`jsonData`).
  */
 const streamEventError = (
 	operation: string,
 	failed: EventFailed,
-	scrubbed: readonly ScrubEntry[],
-	maxBytes: number
+	scrubbed: readonly ScrubEntry[]
 ): StreamEventError =>
 	StreamEventError.make({
-		dataExcerpt: boundedExcerpt(failed.data, maxBytes, scrubbed),
-		dataJson: Option.flatMap(failed.json, (text) => boundedJson(text, maxBytes, scrubbed)),
+		data: scrubbedAndSanitized(failed.data, scrubbed),
+		dataJson: Option.flatMap(failed.json, (text) => jsonData(text, scrubbed)),
 		event: failed.event,
 		itemIndex: failed.itemIndex,
 		operation,
@@ -1739,10 +1654,6 @@ const undeclaredMediaNotice = (
 const crlf = encoder.encode("\r\n")
 
 const headEnd = encoder.encode("\r\n\r\n")
-
-// The longest part head the dry-run summary holds while it looks for the head's end. The writer's
-// heads are a few lines; a longer one ends the summary (`MultipartSummary`), so memory stays bound.
-const maxPartHeadBytes = 65_536
 
 // Whether `needle` occurs in `haystack` at `at`.
 const matchesAt = (haystack: Uint8Array, needle: Uint8Array, at: number): boolean =>
@@ -1851,7 +1762,7 @@ class MultipartSummary {
 	private readonly boundaries: string[]
 	private counted = 0
 	private first = true
-	private mode: "content" | "epilogue" | "head" | "opaque" = "content"
+	private mode: "content" | "epilogue" | "head" = "content"
 	private readonly names: readonly (string | RegExp)[]
 	private pending: Uint8Array = crlf
 	private readonly recorded: readonly ScrubEntry[]
@@ -1929,16 +1840,6 @@ class MultipartSummary {
 			return false
 		}
 
-		if (this.mode === "opaque") {
-			this.counted += this.pending.length
-			this.pending = new Uint8Array(0)
-			if (final) {
-				out.push(encoder.encode(`<multipart body, ${this.counted} more bytes>`))
-			}
-
-			return false
-		}
-
 		return this.mode === "head" ? this.head(final, out) : this.body(final, out)
 	}
 
@@ -1948,10 +1849,6 @@ class MultipartSummary {
 			if (final) {
 				this.content(this.pending, out)
 				this.pending = new Uint8Array(0)
-			} else if (this.pending.length > maxPartHeadBytes) {
-				this.mode = "opaque"
-
-				return true
 			}
 
 			return false
@@ -2216,8 +2113,8 @@ const printDryRun = (
  * bodiless one, `isBodiless`, writes nothing and reads nothing), after the `--verbose` notice for
  * an undeclared media type; an SSE body is read under the event contract the operation's meta
  * names for its response and media keys (`eventPlanOf`), and a failure event it ends at fails
- * with `StreamEventError` after the event is written; any other status fails with `ApiResponseError` carrying the body
- * excerpt, bounded and scrubbed of every value the run recorded (its credentials, added to the
+ * with `StreamEventError` after the event is written; any other status fails with `ApiResponseError` carrying the body,
+ * read whole and scrubbed of every value the run recorded (its credentials, added to the
  * record, and its secret-file values), and the server's `Retry-After` when retrying stopped at the
  * cap.
  *
@@ -2231,7 +2128,7 @@ const printDryRun = (
  * request before the attach step, so its `Idempotency-Key` test sees only a header parameter the
  * operation declares and the operator supplied, never a credential (design D-AD7). Every line the
  * transforms print passes through the run's scrubber (`scrubbedAndSanitized` over the recorded
- * values). Every body read, the excerpt's included, is bounded by the stream idle timeout
+ * values). Every body read, the error body's included, is bounded by the stream idle timeout
  * (`effectiveIdleTimeoutSeconds`, read before anything is sent). The request and every body read
  * run in one scope. Before the client runs, `send` adds the retry-hint input (the method and
  * whether an `Idempotency-Key` header was sent) to `RunRecord`, when one is provided. An existing
@@ -2278,7 +2175,7 @@ export const send =
 				: { credentials: yield* evaluate(operation, meta.security), placeholders: [] }
 			const { credentials } = chosen
 			// Merged, never replaced: a secret-file value the body recorded before `send` stays
-			// recorded, and the error excerpt below scrubs it (audit ad9f808b F3).
+			// recorded, and the error body below scrubs it (audit ad9f808b F3).
 			const recorded = yield* Effect.service(RunCredentials)
 			const scrubbed = yield* Ref.updateAndGet(recorded, (entries) => [...entries, ...credentials])
 
@@ -2363,15 +2260,15 @@ export const send =
 				Effect.flatMap((response) =>
 					classify(table, response, scrubbed).pipe(
 						Effect.catchTag("ApiResponseError", () =>
-							readExcerpt(bodyOf(response, idleSeconds), scrubbed).pipe(
+							readErrorBody(bodyOf(response, idleSeconds), scrubbed).pipe(
 								Effect.catchIf(
 									(error) => error.reason !== "idleTimeout",
 									() => Effect.succeed("")
 								),
-								Effect.flatMap((excerpt) =>
+								Effect.flatMap((body) =>
 									Ref.get(cap).pipe(
 										Effect.flatMap((capped) =>
-											Effect.fail(toApiResponseError(table, response, excerpt, scrubbed, capped))
+											Effect.fail(toApiResponseError(table, response, body, scrubbed, capped))
 										)
 									)
 								)
@@ -2396,7 +2293,6 @@ export const send =
 					)
 				})
 			const label = retryLabel(built, scrub)
-			const maxErrorBytes = yield* MaxErrorBytes
 			/**
 			 * The operation called again after its stream failed, its new stream read as a fresh call's, when `decision`
 			 * says to go again, after its delay; otherwise a stream that fails with `failure`.
@@ -2425,11 +2321,7 @@ export const send =
 			 */
 			const retrying = <R>(
 				bytes: Stream.Stream<Uint8Array, SendError | EventFailed, R>
-			): Stream.Stream<
-				Uint8Array,
-				SendError,
-				R | GlobalFlag.Setting.Identifier<"max-error-bytes"> | Scope.Scope | Stdio.Stdio
-			> =>
+			): Stream.Stream<Uint8Array, SendError, R | Scope.Scope | Stdio.Stdio> =>
 				Stream.catchTags(bytes, {
 					EventFailed: (failed) =>
 						Stream.unwrap(
@@ -2443,8 +2335,7 @@ export const send =
 											Option.map(failed.reconnect, (digits) => Duration.millis(Number(digits)))
 										)
 									: Effect.succeed(stopRetrying),
-								(decision) =>
-									again(decision, streamEventError(operation, failed, scrubbed, maxErrorBytes))
+								(decision) => again(decision, streamEventError(operation, failed, scrubbed))
 							)
 						),
 					ResponseStreamError: (cut) =>

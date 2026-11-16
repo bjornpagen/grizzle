@@ -1,5 +1,5 @@
 import { Array as Arr, Option, Predicate, Record as Rec, Schema } from "effect"
-import { defsKeyOf, maxDefsRefHops } from "#model/defs-ref.ts"
+import { defsKeyOf } from "#model/defs-ref.ts"
 import type { Parameter } from "#model/entities.ts"
 
 /**
@@ -21,12 +21,14 @@ const decodeScalar = Schema.decodeUnknownOption(
 
 /**
  * The one value a stored schema admits, after its `$ref` chain: its `const`, or the member of a
- * one-member `enum`, when that value is a string, a number or a boolean.
+ * one-member `enum`, when that value is a string, a number or a boolean. `passed` holds the keys
+ * the chain has passed: a reference back to one of them is a cycle, which admits none, so the
+ * chain ends.
  */
 const admitsOne = (
 	defs: Readonly<Record<string, Schema.Json>>,
 	key: string,
-	hops: number
+	passed: ReadonlySet<string>
 ): Option.Option<ConstantValue> =>
 	Option.flatMap(
 		Option.flatMap(Rec.get(defs, key), (node) =>
@@ -45,9 +47,9 @@ const admitsOne = (
 
 			const next = node.$ref === undefined ? undefined : defsKeyOf(node.$ref)
 
-			return next === undefined || hops >= maxDefsRefHops
+			return next === undefined || passed.has(next)
 				? Option.none()
-				: admitsOne(defs, next, hops + 1)
+				: admitsOne(defs, next, new Set([...passed, next]))
 		}
 	)
 
@@ -64,5 +66,5 @@ export const constantOf = (
 	parameter.required &&
 	parameter.serialization.kind === "style" &&
 	parameter.location !== "querystring"
-		? admitsOne(defs, parameter.schema.key, 0)
+		? admitsOne(defs, parameter.schema.key, new Set([parameter.schema.key]))
 		: Option.none()

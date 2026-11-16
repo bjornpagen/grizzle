@@ -9,16 +9,10 @@ import {
 	String as Str
 } from "effect"
 import type { Digest } from "effect/crypto"
-import {
-	defaultLoadLimits,
-	LoadRefusal,
-	readFileBounded,
-	readMemberBounded,
-	sameFile
-} from "#load/budget.ts"
-import type { VerifyOpened } from "#load/budget.ts"
 import { loadBytes } from "#load/index.ts"
 import type { Loaded } from "#load/index.ts"
+import { LoadRefusal, readMemberFile, readOperatorFile, sameFile } from "#load/read.ts"
+import type { VerifyOpened } from "#load/read.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { Diagnostic, makeDiagnostic } from "#model/diagnostic.ts"
 import { sha256Hex } from "#model/digest.ts"
@@ -50,29 +44,11 @@ export interface DocumentSet {
 	readonly documents: ReadonlyMap<Document, SetMember>
 }
 
-/**
- * Most documents one set holds, the entry included (design 3.3 budgets).
- */
-export const maxDocuments = 32
-
-/**
- * Most directory entries one `--ref-root` walk visits, counting every name it reads.
- */
-export const maxWalkEntries = 10_000
-
-/**
- * Deepest directory below the reference root that the walk enters; the root is depth 0.
- */
-export const maxWalkDepth = 32
-
 const messages = {
-	"REF-16/document-limit": "The document set holds more documents than the limit allows.",
 	"REF-16/duplicate-uri": "Two documents in the set share a retrieval URI.",
 	"REF-16/outside-root": "A reference-root entry resolves outside the reference root.",
 	"REF-16/relative-uri": "A document's retrieval URI is not an absolute URI.",
-	"REF-16/unreadable-root": "The reference root or one of its entries cannot be read.",
-	"REF-16/walk-limit":
-		"The reference root has more entries or deeper directories than the walk allows."
+	"REF-16/unreadable-root": "The reference root or one of its entries cannot be read."
 } as const
 
 const decodeUri = Schema.decodeUnknownOption(DocumentUri)
@@ -163,17 +139,6 @@ const isDuplicate = ({ documents, entry }: Loading, uri: Document): boolean =>
 	Arr.some(Arr.fromIterable(documents.keys()), (known) => sameResource(uri, known))
 
 /**
- * Whether one more document under `uri` overflows the budget. The entry always holds a slot: its
- * own when it is already a member, a reserved one otherwise. With no entry named, the slot is
- * reserved anyway, so the set never exceeds the budget.
- */
-const overflows = ({ documents, entry }: Loading, uri: string): boolean => {
-	const entrySlot = entry !== undefined && documents.has(entry) ? 0 : 1
-
-	return uri !== entry && documents.size + entrySlot >= maxDocuments
-}
-
-/**
  * How a pair's file is read: as a path the operator named, or as a member a trust boundary
  * admitted, which `verify` checks once it is open.
  */
@@ -182,13 +147,12 @@ type ReadPair = (
 	document: Document
 ) => Effect.Effect<Uint8Array, LoadRefusal, FileSystem.FileSystem>
 
-const readOperatorPair: ReadPair = (pair, document) =>
-	readFileBounded(pair.path, defaultLoadLimits, document)
+const readOperatorPair: ReadPair = (pair, document) => readOperatorFile(pair.path, document)
 
 const readAdmittedPair =
 	(verify: VerifyOpened): ReadPair =>
 	(pair, document) =>
-		readMemberBounded(pair.path, defaultLoadLimits, document, verify)
+		readMemberFile(pair.path, document, verify)
 
 /**
  * Reads, parses and hashes the file of `pair` under `document`; a refusal names the pair's path.
@@ -209,9 +173,9 @@ const readMember = Effect.fnUntraced(
 )
 
 /**
- * Adds `pair` to `loading`. The duplicate and budget checks read `loading` when the Effect runs,
- * and the caller runs pairs in order, so each check sees every member loaded before it; no `Ref`
- * or `Effect.reduce` is needed.
+ * Adds `pair` to `loading`. The duplicate check reads `loading` when the Effect runs, and the
+ * caller runs pairs in order, so each check sees every member loaded before it; no `Ref` or
+ * `Effect.reduce` is needed.
  */
 const loadPair = Effect.fnUntraced(function* loadPair(
 	loading: Loading,
@@ -228,10 +192,6 @@ const loadPair = Effect.fnUntraced(function* loadPair(
 		return yield* duplicateUri(pair)
 	}
 
-	if (overflows(loading, uri.value)) {
-		return yield* refusePair("REF-16/document-limit", pair)
-	}
-
 	const member = yield* readMember(pair, uri.value, read)
 
 	loading.documents.set(uri.value, member)
@@ -241,9 +201,8 @@ const loadPair = Effect.fnUntraced(function* loadPair(
 
 export interface DocumentSetOptions {
 	/**
-	 * The entry document's retrieval URI. It holds one slot of the budget, which a member under the
-	 * same URI shares, and a member spelling it differently is a duplicate. Without it a slot is
-	 * still reserved for the entry, so a `--ref-root` holding the entry admits one document fewer.
+	 * The entry document's retrieval URI: a member under the same URI is the entry itself, and a
+	 * member spelling it differently is a duplicate.
 	 */
 	readonly entry?: Document
 	/**
@@ -257,8 +216,6 @@ const refRootExtensions: ReadonlySet<string> = new Set([".json", ".yaml", ".yml"
 const unreadable = (path: string) => refusePair("REF-16/unreadable-root", { path, uri: "" })
 
 const outsideRoot = (path: string) => refusePair("REF-16/outside-root", { path, uri: "" })
-
-const walkLimit = (path: string) => refusePair("REF-16/walk-limit", { path, uri: "" })
 
 /**
  * Resolves `relative` beneath `root` and returns the real path of the result. The lexical
@@ -341,25 +298,24 @@ const preloadRoot = Effect.fnUntraced(function* preloadRoot(
 	const realRoot = yield* resolveUnderRoot(root, ".")
 	const seenDirectories = new Set<string>([realRoot])
 	const seenFiles = new Set<string>()
-	let visited = 0
 
 	const isSpecName = (name: string) => refRootExtensions.has(Str.toLowerCase(path.extname(name)))
 
 	type Step = Effect.Effect<void, LoadRefusal, FileSystem.FileSystem | Path.Path | Digest.Digest>
 
-	const walk = (directory: string, depth: number): Step => {
+	/**
+	 * Walks one directory. A directory is entered once by its real path, so a directory link back
+	 * up the tree (a cycle) ends where it closes, and the walk is bounded by the tree itself.
+	 */
+	const walk = (directory: string): Step => {
 		const enter = (real: string): Step => {
 			if (seenDirectories.has(real)) {
 				return Effect.void
 			}
 
-			if (depth + 1 > maxWalkDepth) {
-				return walkLimit(real)
-			}
-
 			seenDirectories.add(real)
 
-			return walk(real, depth + 1)
+			return walk(real)
 		}
 
 		const settle = (real: string, info: FileSystem.File.Info, specNamed: boolean): Step => {
@@ -424,30 +380,20 @@ const preloadRoot = Effect.fnUntraced(function* preloadRoot(
 		return fs.readDirectory(directory).pipe(
 			Effect.catchTag("PlatformError", () => unreadable(directory)),
 			Effect.flatMap((names) =>
-				Effect.forEach(
-					Arr.sort(names, Order.String),
-					(name) =>
-						Effect.suspend(() => {
-							visited += 1
-
-							return visited > maxWalkEntries ? walkLimit(directory) : visitEntry(name)
-						}),
-					{ discard: true }
-				)
+				Effect.forEach(Arr.sort(names, Order.String), (name) => visitEntry(name), { discard: true })
 			)
 		)
 	}
 
-	yield* walk(realRoot, 0)
+	yield* walk(realRoot)
 })
 
 /**
- * Loads every pair through the bounded loader, in order, then the files under `options.refRoot`
- * (sorted, each keyed by the `file:` URL of its real path), into a set keyed by retrieval URI. All
- * documents, the entry included, count toward one budget of `maxDocuments` and share one duplicate
- * check that compares retrieval URIs in normal form. The first refusal ends the load; every
- * refusal is a document-scope diagnostic whose `hint` is the offending pair's path, never the
- * file's content.
+ * Loads every pair through the loader, in order, then the files under `options.refRoot` (sorted,
+ * each keyed by the `file:` URL of its real path), into a set keyed by retrieval URI. All
+ * documents, the entry included, share one duplicate check that compares retrieval URIs in normal
+ * form. The first refusal ends the load; every refusal is a document-scope diagnostic whose `hint`
+ * is the offending pair's path, never the file's content.
  */
 export const makeDocumentSet = Effect.fnUntraced(function* makeDocumentSet(
 	pairs: readonly DocumentPair[],

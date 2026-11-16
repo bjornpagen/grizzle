@@ -45,7 +45,7 @@ import {
 } from "#emit/printer.ts"
 import type { Expr, Import, PrinterError, Statement } from "#emit/printer.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
-import { sanitizeProse } from "#model/brands.ts"
+import { stripUnsafeText } from "#model/brands.ts"
 import type { Api, MediaAlternative, Operation, Parameter } from "#model/entities.ts"
 import { formatPointer } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
@@ -201,7 +201,7 @@ const isFieldFlag = (flag: PlannedFlag): boolean =>
 	flag.source._tag === "Body" && !isWholeBody(flag)
 
 const describedBy = (description: string): readonly Expr[] => {
-	const text = sanitizeProse(description)
+	const text = stripUnsafeText(description)
 
 	return text === "" ? [] : [str(text)]
 }
@@ -219,12 +219,10 @@ const secretDescription = (description: string): Expr => {
 // ---------------------------------------------------------------------------------------------
 // Body field schemas: the property a field flag writes, for its description and `int64` check.
 // The walk follows `$ref`, `properties`, `allOf` members and an array's `items`, each node once
-// per pointer token (so a cycle ends), under one visit budget per field. A node is read
-// shallowly: only the keywords below, never its subtree.
+// per pointer token (so a cycle ends). A node is read shallowly: only the keywords below, never
+// its subtree.
 
 const refPrefix = "#/$defs/"
-
-const maxVisits = 10_000
 
 type JsonObject = Readonly<Record<string, Schema.Json>>
 
@@ -316,7 +314,7 @@ const fieldNode = (
  * Which flag an integer field takes: `int64` (`Input.int64Flag`) when a node on its scalar's `$ref`
  * chain (an array's `items` for a repeated flag) is `int64` or has an unsafe bound, `safe`
  * (`Input.numericFlag`) otherwise, and `unsettled` when the walk cannot reach that scalar (an
- * unreadable node, a cycle, an exhausted budget).
+ * unreadable node or a cycle).
  */
 type IntegerWidth = "int64" | "safe" | "unsettled"
 
@@ -382,14 +380,12 @@ const fieldSchema = (
 	pointer: string,
 	repeated: boolean
 ): FieldSchema => {
-	let visits = 0
 	const chain = (start: Schema.Json | undefined): Chain => {
 		const nodes: FieldNode[] = []
 		const seen = new Set<Schema.Json>()
 		let current = start
-		while (current !== undefined && !seen.has(current) && visits < maxVisits) {
+		while (current !== undefined && !seen.has(current)) {
 			seen.add(current)
-			visits += 1
 
 			const node = fieldNode(current, refusedDefaults)
 			if (Option.isNone(node)) {
@@ -2279,7 +2275,6 @@ const globalSettings: readonly string[] = [
 	"Auth.allowCredentialsForBaseUrl",
 	"Output.OutputPath",
 	"Output.Force",
-	"Output.MaxErrorBytes",
 	"Describe.describeFlag",
 	"Client.timeoutSetting",
 	"Output.idleTimeoutSetting",

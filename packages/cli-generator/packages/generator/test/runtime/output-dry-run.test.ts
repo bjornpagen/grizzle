@@ -155,7 +155,6 @@ const run = async (world: World) => {
 		}),
 		Layer.succeed(Output.OutputPath, Option.none()),
 		Layer.succeed(Output.Force, false),
-		Layer.succeed(Output.MaxErrorBytes, Output.defaultMaxErrorBytes),
 		Layer.succeed(BaseUrl.baseUrlSetting, Option.none()),
 		Layer.succeed(BaseUrl.serverSetting, Option.none()),
 		Layer.succeed(BaseUrl.serverVariableSetting, []),

@@ -129,7 +129,7 @@ describe("classify", () => {
 		expect(Runtime.getErrorExitCode(error)).toBe(3)
 	})
 
-	test("the request id comes from the declared header and is bounded", async () => {
+	test("the request id comes from the declared header, whole", async () => {
 		const found = await apiError(respond(404, { "X-Request-Id": "req-1" }))
 		const long = await apiError(respond(404, { "x-request-id": "r".repeat(300) }))
 		const absent = await apiError(respond(404))
@@ -139,12 +139,12 @@ describe("classify", () => {
 		})
 
 		expect(found.requestId).toBe("req-1")
-		expect(long.requestId).toHaveLength(256)
+		expect(long.requestId).toHaveLength(300)
 		expect(absent).not.toHaveProperty("requestId")
 		expect(undeclared).not.toHaveProperty("requestId")
 	})
 
-	test("the request id is scrubbed before it is bounded (audit F6)", () => {
+	test("the request id is scrubbed (audit F6)", () => {
 		const secret = "SECRETTOKEN-abcdefghijklmnopqrstuvwxyz01"
 		const credential: Credential = {
 			definition: { kind: "http", scheme: "bearer" },
@@ -165,7 +165,7 @@ describe("classify", () => {
 		expect(rendered).not.toContain("SECRETTOKEN")
 	})
 
-	test("a secret-file value is scrubbed from the request id before it is bounded (audit F2)", () => {
+	test("a secret-file value is scrubbed from the request id (audit F2)", () => {
 		const secret: ScrubEntry = {
 			kind: "secret",
 			label: "password-file",
@@ -180,7 +180,7 @@ describe("classify", () => {
 			Option.none()
 		)
 
-		expect(error.requestId).toBe(`${"r".repeat(250)}<redac`)
+		expect(error.requestId).toBe(`${"r".repeat(250)}<redacted:password-file>`)
 	})
 
 	test("a credential holding characters sanitize removes is scrubbed from the request id (audit S2)", () => {
@@ -210,9 +210,9 @@ describe("classify", () => {
 
 		expect(error).toBeInstanceOf(ApiResponseError)
 		expect(error.status).toBe(302)
-		expect(error.bodyExcerpt).toContain("access_token=REDACTED")
-		expect(error.bodyExcerpt).toContain("state=ok")
-		expect(error.bodyExcerpt).not.toContain("SECRET")
+		expect(error.body).toContain("access_token=REDACTED")
+		expect(error.body).toContain("state=ok")
+		expect(error.body).not.toContain("SECRET")
 		expect(Runtime.getErrorExitCode(error)).toBe(1)
 	})
 
@@ -220,7 +220,7 @@ describe("classify", () => {
 		const error = await apiError(respond(304))
 
 		expect(error.status).toBe(304)
-		expect(error.bodyExcerpt).toBe("")
+		expect(error.body).toBe("")
 		expect(Runtime.getErrorExitCode(error)).toBe(1)
 	})
 
@@ -235,10 +235,10 @@ describe("classify", () => {
 		expect(toApiResponseError(declared, respond(401), "", [], Option.none()).matched).toBe("401")
 	})
 
-	test("toApiResponseError keeps the excerpt it is given", () => {
-		expect(
-			toApiResponseError(table, respond(404), "not found", [], Option.none()).bodyExcerpt
-		).toBe("not found")
+	test("toApiResponseError keeps the body it is given", () => {
+		expect(toApiResponseError(table, respond(404), "not found", [], Option.none()).body).toBe(
+			"not found"
+		)
 	})
 })
 

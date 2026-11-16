@@ -20,7 +20,6 @@ import { textWidth } from "#emit/printer.ts"
 import type { Json } from "#model/pointer.ts"
 import type { SafeIdentifierValue } from "#names/fold.ts"
 import { codeGenerationCopy, importSchemas } from "#normalize/schemas.ts"
-import type { SchemaBudgetExceeded, SchemaLimits } from "#normalize/schemas.ts"
 
 /**
  * The code-generation copy cannot become `domain/schemas.ts`. `identifier-mismatch`: a copy key
@@ -1946,16 +1945,14 @@ const emptyModule = "export {};\n"
  * `identifiers` is the names plan's map (`domainIdentifiers`). The copy is rekeyed to it, with its
  * references, before import, so every export and its `identifier` annotation carry the folded
  * name, not the schema key; an export Effect names differently fails `identifier-mismatch`.
- * `limits` bounds the walk that builds the copy.
  */
 export const emitDomainSchemas = (
 	validation: ReadonlyMap<string, Json>,
 	roots: readonly string[],
-	identifiers: ReadonlyMap<string, SafeIdentifierValue>,
-	limits: SchemaLimits
-): Effect.Effect<EmittedFile, DomainEmitError | SchemaBudgetExceeded> =>
+	identifiers: ReadonlyMap<string, SafeIdentifierValue>
+): Effect.Effect<EmittedFile, DomainEmitError> =>
 	Effect.gen(function* emit() {
-		const copy = yield* codeGenerationCopy(validation, roots, limits)
+		const copy = codeGenerationCopy(validation, roots)
 		if (copy.size === 0) {
 			return { content: emptyModule, path: modulePath }
 		}

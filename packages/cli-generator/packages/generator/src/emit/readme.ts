@@ -115,7 +115,7 @@ const certificates = (input: ReadmeInput): string | undefined => {
 							`- \`${certificate.certEnv}\`, \`${certificate.keyEnv}\` and \`${certificate.caEnv}\``
 					)
 					.join("\n"),
-				`The files are read once at start-up, before the command line is parsed. A file that cannot be read, is not a regular file or is too large fails with exit code 2 before any flag is read, so its error follows \`${envPrefixOf(input.config)}_ERROR_FORMAT\` alone, never \`--error-format\`, and names the environment variable, never the path.`,
+				`The files are read once at start-up, before the command line is parsed. A file that cannot be read or is not a regular file fails with exit code 2 before any flag is read, so its error follows \`${envPrefixOf(input.config)}_ERROR_FORMAT\` alone, never \`--error-format\`, and names the environment variable, never the path.`,
 				"The certificate is presented only to the origins this package accepts. It is never presented on a cross-origin redirect, or to an origin `--base-url` or its environment variable names outside them, even with `--allow-credentials-for-base-url`: such a request is sent without it, and stderr says so."
 			].join("\n\n")
 }

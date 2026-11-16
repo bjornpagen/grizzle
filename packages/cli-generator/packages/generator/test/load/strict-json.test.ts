@@ -2,9 +2,9 @@
  * The strict JSON loader against an oracle that reads the same document from the tree it was rendered from: a generated
  * document, written with generated whitespace and escapes, loads as its own value, and when it breaks a rule the loader
  * refuses it with the code, pointer and position the oracle derives from the tree and the rendering. The rules, in the
- * loader's order: the size limit; then, in document order, the depth limit and the node budget; then JSON syntax; then,
- * in document order, a repeated key (compared after unescaping) and an unsafe number literal at a `default`, `enum` or
- * `const` site (never inside `example`/`examples`, never as a name under a name map such as `properties`).
+ * loader's order: UTF-8; then JSON syntax; then, in document order, a repeated key (compared after unescaping) and an
+ * unsafe number literal at a `default`, `enum` or `const` site (never inside `example`/`examples`, never as a name under
+ * a name map such as `properties`). No size, depth or count refuses a document: it is its own user's.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -34,7 +34,6 @@ import {
 	String as Str
 } from "effect"
 import { loadBytes } from "#load/index.ts"
-import type { LoadLimits } from "#load/index.ts"
 import { DocumentUri } from "#model/brands.ts"
 import { formatPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
@@ -56,15 +55,13 @@ type Node =
 type Member = Readonly<{ key: ReadonlyArray<Char>; value: Node }>
 
 /** A document: its root object, the whitespace between its tokens, whether it starts with a byte order mark, whether
- * a trailing comma breaks its syntax, whether a byte no UTF-8 sequence holds follows its text, and the limits it is
- * loaded under. */
+ * a trailing comma breaks its syntax, and whether a byte no UTF-8 sequence holds follows its text. */
 type Document = Readonly<{
 	root: ReadonlyArray<Member>
 	gaps: ReadonlyArray<string>
 	bom: boolean
 	trailingComma: boolean
 	badByte: boolean
-	limits: LoadLimits
 }>
 
 /** The keys the loader's site rules turn on, beside plain names and names that need escaping. */
@@ -207,27 +204,7 @@ const documentGen: Gen<Document> = (s) => ({
 			[9, () => false],
 			[1, () => true]
 		])
-	),
-	limits: {
-		maxBytes: s.draw(
-			weighted([
-				[9, () => 64 * 1024 * 1024],
-				[1, (t) => t.draw(int(1, 200))]
-			])
-		),
-		maxDepth: s.draw(
-			weighted([
-				[3, () => 256],
-				[1, (t) => t.draw(int(1, 4))]
-			])
-		),
-		maxNodes: s.draw(
-			weighted([
-				[3, () => 10_000_000],
-				[1, (t) => t.draw(int(1, 20))]
-			])
-		)
-	}
+	)
 })
 
 /** The text of a character as the document spells it. */
@@ -266,8 +243,6 @@ type Site = Readonly<{ index: number; pointer: ReadonlyArray<string> }>
 /** What rendering a document records beside its text: in document order, every key's site with its object's keys so
  * far, and every number's site with whether it sits at a data site. */
 type Event =
-	| Readonly<{ kind: "open"; depth: number }>
-	| Readonly<{ kind: "scalar" }>
 	| Readonly<{
 			kind: "key"
 			site: Site
@@ -317,14 +292,12 @@ const render = (doc: Document): Rendered => {
 		write(doc.gaps[gap % doc.gaps.length] ?? "")
 		gap += 1
 	}
-	const value = (node: Node, place: Place, pointer: ReadonlyArray<string>, depth: number): void => {
+	const value = (node: Node, place: Place, pointer: ReadonlyArray<string>): void => {
 		switch (node.kind) {
 			case "null":
-				events.push({ kind: "scalar" })
 				write("null")
 				return
 			case "boolean":
-				events.push({ kind: "scalar" })
 				write(node.value ? "true" : "false")
 				return
 			case "number":
@@ -338,24 +311,21 @@ const render = (doc: Document): Rendered => {
 				write(node.literal.text)
 				return
 			case "string":
-				events.push({ kind: "scalar" })
 				write(`"${Arr.join(Arr.map(node.chars, spell), "")}"`)
 				return
 			case "array":
-				events.push({ kind: "open", depth: depth + 1 })
 				write("[")
 				Arr.forEach(node.items, (item, index) => {
 					if (index > 0) {
 						write(",")
 					}
 					space()
-					value(item, itemPlace(place), Arr.append(pointer, String(index)), depth + 1)
+					value(item, itemPlace(place), Arr.append(pointer, String(index)))
 				})
 				write("]")
 				return
 			case "object":
-				events.push({ kind: "open", depth: depth + 1 })
-				object(node.members, place, pointer, depth + 1, false)
+				object(node.members, place, pointer, false)
 				return
 		}
 	}
@@ -363,7 +333,6 @@ const render = (doc: Document): Rendered => {
 		members: ReadonlyArray<Member>,
 		place: Place,
 		pointer: ReadonlyArray<string>,
-		depth: number,
 		trailing: boolean
 	): void => {
 		write("{")
@@ -389,7 +358,7 @@ const render = (doc: Document): Rendered => {
 			space()
 			write(":")
 			space()
-			value(member.value, memberPlace(place, key), at, depth)
+			value(member.value, memberPlace(place, key), at)
 		})
 		if (trailing && Arr.isReadonlyArrayNonEmpty(members)) {
 			write(",")
@@ -397,8 +366,7 @@ const render = (doc: Document): Rendered => {
 		space()
 		write("}")
 	}
-	events.push({ kind: "open", depth: 1 })
-	object(doc.root, { data: false, opaque: false, nameMap: false }, [], 1, doc.trailingComma)
+	object(doc.root, { data: false, opaque: false, nameMap: false }, [], doc.trailingComma)
 	return { text: Arr.join(parts, ""), events }
 }
 
@@ -483,25 +451,8 @@ const allFinite = (node: Node): boolean => {
 
 /** The oracle: the outcome the loader must give, read from the tree and the rendering. */
 const expected = (doc: Document, rendered: Rendered): Outcome => {
-	const bytes = encoder.encode(rendered.text).length + (doc.bom ? 3 : 0) + (doc.badByte ? 1 : 0)
-	if (bytes > doc.limits.maxBytes) {
-		return refused("DOC-14/too-large", [], Option.none())
-	}
 	if (doc.badByte) {
 		return refused("DOC-14/invalid-encoding", [], Option.none())
-	}
-	let nodes = 0
-	for (const event of rendered.events) {
-		if (event.kind === "key") {
-			continue
-		}
-		nodes += 1
-		if (event.kind === "open" && event.depth > doc.limits.maxDepth) {
-			return refused("DOC-14/depth-limit", [], Option.none())
-		}
-		if (nodes > doc.limits.maxNodes) {
-			return refused("DOC-14/node-budget", [], Option.none())
-		}
 	}
 	if (
 		(doc.trailingComma && Arr.isReadonlyArrayNonEmpty(doc.root)) ||
@@ -524,13 +475,11 @@ const expected = (doc: Document, rendered: Rendered): Outcome => {
 						event.site.pointer,
 						Option.some(positionAt(rendered.text, event.site.index, doc.bom))
 					)
-				: event.kind === "number"
-					? refused(
-							"DOC-14/unsafe-integer",
-							event.site.pointer,
-							Option.some(positionAt(rendered.text, event.site.index, doc.bom))
-						)
-					: refused("unreachable", [], Option.none())
+				: refused(
+						"DOC-14/unsafe-integer",
+						event.site.pointer,
+						Option.some(positionAt(rendered.text, event.site.index, doc.bom))
+					)
 	})
 }
 
@@ -546,7 +495,7 @@ const actual = (doc: Document, rendered: Rendered) =>
 					...encoder.encode(rendered.text),
 					...(doc.badByte ? [0xff] : [])
 				]),
-				{ document, limits: doc.limits }
+				{ document }
 			)
 		),
 		(exit): Outcome =>
@@ -571,9 +520,6 @@ const actual = (doc: Document, rendered: Rendered) =>
 
 type Feature =
 	| "loaded"
-	| "too large"
-	| "deeper than the limit"
-	| "past the node budget"
 	| "invalid syntax"
 	| "not UTF-8"
 	| "a repeated key"
@@ -586,10 +532,7 @@ type Feature =
 
 /** The feature each refusal code is. */
 const REFUSALS: Readonly<Record<string, Feature>> = {
-	"DOC-14/too-large": "too large",
 	"DOC-14/invalid-encoding": "not UTF-8",
-	"DOC-14/depth-limit": "deeper than the limit",
-	"DOC-14/node-budget": "past the node budget",
 	"DOC-14/invalid-json": "invalid syntax",
 	"DOC-14/duplicate-key": "a repeated key",
 	"DOC-14/unsafe-integer": "an unsafe number at a data site"
@@ -642,9 +585,6 @@ describe("load: strict JSON", () => {
 						coverage: required<Feature>(
 							[
 								"loaded",
-								"too large",
-								"deeper than the limit",
-								"past the node budget",
 								"invalid syntax",
 								"not UTF-8",
 								"a repeated key",

@@ -119,7 +119,6 @@ const sendLayer = Layer.mergeAll(
 	}),
 	Layer.succeed(Output.OutputPath, Option.none()),
 	Layer.succeed(Output.Force, false),
-	Layer.succeed(Output.MaxErrorBytes, Output.defaultMaxErrorBytes),
 	Layer.succeed(BaseUrl.baseUrlSetting, Option.none()),
 	Layer.succeed(BaseUrl.serverSetting, Option.none()),
 	Layer.succeed(BaseUrl.serverVariableSetting, []),
@@ -223,7 +222,7 @@ const unknownFlag = () =>
 
 const notFound = (fields: Partial<ConstructorParameters<typeof ApiResponseError>[0]> = {}) =>
 	new ApiResponseError({
-		bodyExcerpt: '{"error":"no such user"}',
+		body: '{"error":"no such user"}',
 		matched: "404",
 		operation: "users-get",
 		status: 404,
@@ -359,8 +358,8 @@ describe("--error-format json renders each design 7.1 error as one object", () =
 		expect(rendered.code).toBe(text.code)
 	})
 
-	test("an empty excerpt has no body key", async () => {
-		const rendered = await runCatch(Effect.fail(notFound({ bodyExcerpt: "" })), json)
+	test("an empty body has no body key", async () => {
+		const rendered = await runCatch(Effect.fail(notFound({ body: "" })), json)
 
 		expect(jsonOf(rendered.stderr)).not.toHaveProperty("body")
 	})
@@ -431,7 +430,7 @@ describe("--error-format json renders each design 7.1 error as one object", () =
 
 	test("credentials and recorded secrets are scrubbed in every field", async () => {
 		const echo = notFound({
-			bodyExcerpt: `token ${SECRET} password ${SECRET_FILE_VALUE}`,
+			body: `token ${SECRET} password ${SECRET_FILE_VALUE}`,
 			requestId: `req-${SECRET}`
 		})
 		const rendered = await runCatch(Effect.fail(echo), { ...json, recorded: [secretEntry] })
@@ -445,10 +444,7 @@ describe("--error-format json renders each design 7.1 error as one object", () =
 	})
 
 	test("control characters in the body are removed, and the line stays one object", async () => {
-		const rendered = await runCatch(
-			Effect.fail(notFound({ bodyExcerpt: 'a\u001B[31m"b‮c\nd' })),
-			json
-		)
+		const rendered = await runCatch(Effect.fail(notFound({ body: 'a\u001B[31m"b‮c\nd' })), json)
 
 		expect(jsonOf(rendered.stderr).body).toBe('a[31m"bc\nd')
 	})
@@ -462,8 +458,8 @@ describe("retryAfter and requestId (design 7.4, m3 P14)", () => {
 	})
 
 	test("the text form adds one line naming the Retry-After value and the --timeout cap", async () => {
-		const plain = await runCatch(Effect.fail(notFound({ bodyExcerpt: "" })))
-		const capped = await runCatch(Effect.fail(notFound({ bodyExcerpt: "", retryAfterSeconds: 2 })))
+		const plain = await runCatch(Effect.fail(notFound({ body: "" })))
+		const capped = await runCatch(Effect.fail(notFound({ body: "", retryAfterSeconds: 2 })))
 		const added = capped.stderr.trimEnd().split("\n").slice(1)
 
 		expect(plain.stderr.trimEnd().split("\n")).toHaveLength(1)

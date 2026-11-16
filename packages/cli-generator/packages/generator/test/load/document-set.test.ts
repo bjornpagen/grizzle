@@ -5,7 +5,7 @@ import { pathToFileURL } from "node:url"
 import { NodeCrypto, NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Effect, Layer, Schema } from "effect"
 import { describe, expect, test } from "vitest"
-import { makeDocumentSet, maxDocuments } from "#load/document-set.ts"
+import { makeDocumentSet } from "#load/document-set.ts"
 import type { DocumentPair, DocumentSetOptions } from "#load/document-set.ts"
 import { DocumentUri } from "#model/brands.ts"
 
@@ -133,24 +133,12 @@ describe("document set: --document pairs", () => {
 
 	test.each([
 		["no entry named", {}],
-		["an entry outside the pairs", { entry: uri("https://example.com/entry.json") }]
-	])("with %s, 31 pairs load and the 32nd is refused", async (_, options) => {
-		const set = await Effect.runPromise(run(numbered(maxDocuments - 1), options))
-		const error = await refusal(numbered(maxDocuments), options)
+		["an entry outside the pairs", { entry: uri("https://example.com/entry.json") }],
+		["the entry among the pairs", { entry: uri("https://example.com/doc-0.json") }]
+	])("with %s, every one of 40 pairs loads, refused by no count", async (_, options) => {
+		const set = await Effect.runPromise(run(numbered(40), options))
 
-		expect(set.documents.size).toBe(31)
-		expect(error.diagnostic.code).toBe("REF-16/document-limit")
-		expect(error.diagnostic.scope).toBe("document")
-		expect(error.diagnostic.hint).toBe(pet)
-	})
-
-	test("a pair under the entry's own retrieval URI spends no second slot", async () => {
-		const entry = uri("https://example.com/doc-0.json")
-		const set = await Effect.runPromise(run(numbered(maxDocuments), { entry }))
-		const error = await refusal(numbered(maxDocuments + 1), { entry })
-
-		expect(set.documents.size).toBe(32)
-		expect(error.diagnostic.code).toBe("REF-16/document-limit")
+		expect(set.documents.size).toBe(40)
 	})
 
 	test("a relative URI is refused under the file URL of a path with a space, % and #", async () => {
