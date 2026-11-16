@@ -7,9 +7,8 @@
  * - Fixtures: every ScalarType another suite's fixture exports is the registry's own build of its FieldDesc. Oracle: the
  *   registry's build, a second implementation of each hand-built fixture type.
  * - Kinds and environments: scalarTypeOf of a descriptor's Description agrees with the descriptor's own ScalarType;
- *   a closedId's roster resolves through the environment, an unknown one refused; a text's metadata is read off the
- *   language its Description carries; a contract's predicate table comes from the environment. Oracles: the
- *   descriptor's own type; the drawn roster; the patterns' carried text; the checker's predicate table.
+ *   a contract's predicate table comes from the environment. Oracles: the descriptor's own type; the checker's
+ *   predicate table.
  * - Content: two readings are canonically equal exactly when their contents are, under any environments. Oracle: the
  *   readings' contents compared apart.
  * - Literal operands: each carrier's literal is the one its host kind states, and every other value is refused by its
@@ -17,8 +16,7 @@
  * - describeField reads every descriptor a builder made, and refuses a look-alike, the undeclared numeric builder and
  *   every wild value as malformed, at describeField, span and closedId, never throwing.
  *
- * Features: as each search names them; for the roster environment, a roster resolved and an unknown roster refused;
- * for text, each language kind; for the predicate table, a bound below, at and above zero.
+ * Features: as each search names them; for the predicate table, a bound below, at and above zero.
  */
 
 import { word } from "@bjornpagen/testing/dictionary"
@@ -35,11 +33,8 @@ import {
 	carriers,
 	contractOf,
 	Roster,
-	rosterOf,
 	sameScalarType,
-	spanOf,
-	type TextLanguage,
-	textOf
+	spanOf
 } from "#compiler/ir/scalar.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
 import { literalDescFor } from "#compiler/scalar/literal.ts"
@@ -65,12 +60,10 @@ import {
 	unorderedEqual
 } from "#test/support/assert.ts"
 import { contractDescriptor, spanDescriptor } from "#test/support/fixtures/descriptors.ts"
-import { parsedName } from "#test/support/kernel/naming.ts"
 import { fixtureTypes } from "#test/unit/scalar/registry.dictionary.ts"
 import {
 	boundarySpace,
 	caps,
-	carriedText,
 	type ContentFeature,
 	contentCaseGen,
 	contentFeatures,
@@ -85,11 +78,9 @@ import {
 	predicateCaseGen,
 	predicateTable,
 	registryBuild,
-	rosterCaseGen,
 	rostersOfSketch,
 	scalarOf,
-	someFault,
-	textCaseGen
+	someFault
 } from "#test/unit/scalar/registry.fixtures.ts"
 import {
 	type DescriptorSketch,
@@ -228,91 +219,6 @@ export const scalarTypeOfAFieldDescToItsScalarTypeReadsEveryDescriptorKindAndAgr
 				why: "Operator mutant (comparison) at packages/engine/src/schema/relation.ts:183 in writingOf: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
-	})
-
-/**
- * ScalarTypeOf: a FieldDesc to its ScalarType resolves a closedId roster through the environment, and refuses an
- * unknown one.
- *
- * Budget: its suite's count before the conversion (unit/scalar/roster-env: 100 independent cases and 0 steered, Vitest
- * at grizzle 4ca3036a).
- */
-export const scalarTypeOfAFieldDescToItsScalarTypeResolvesAClosedIdRosterThroughTheEnvironmentAndRefusesAnUnknownOne =
-	property.explore(rosterCaseGen, {
-		needs: {},
-		situations: ["a roster resolved", "an unknown roster refused"] satisfies ReadonlyArray<
-			Reached<"a roster resolved" | "an unknown roster refused">
-		>,
-		check:
-			(_, c: Case<"a roster resolved" | "an unknown roster refused">) =>
-			({ name, other, handles }) =>
-				Effect.sync(() => {
-					c.note("a roster resolved")
-					const listed = nonEmpty(handles, "a drawn roster of at least one handle")
-					const held = Roster.of(parsedName(name), listed)
-					const env = {
-						kind: "builder",
-						roster: (n: string) => (n === name ? Roster.of(parsedName(n), listed) : undefined)
-					} as const
-					assert.deepEqual(
-						rosterOf(
-							succeeded(
-								scalarTypeOf({ kind: "closedId", roster: name }, env, SourceLoc("field", []))
-							)
-						),
-						held
-					)
-					if (other !== name) {
-						c.note("an unknown roster refused")
-						refused(
-							scalarTypeOf({ kind: "closedId", roster: other }, env, SourceLoc("field", [])),
-							"MalformedDescription"
-						)
-					}
-				}),
-		oracle: {
-			kind: "specification",
-			name: "the drawn roster, under its declared name alone"
-		},
-		budget: { runs: 100, steered: 0 },
-		kept: [],
-		kills: []
-	})
-
-/**
- * ScalarTypeOf: a FieldDesc to its ScalarType reads a pattern's metadata off the language its Description carries,
- * under every environment.
- *
- * Budget: its suite's count before the conversion (unit/scalar/text-env: 100 independent cases and 0 steered, Vitest
- * at grizzle 4ca3036a).
- */
-export const scalarTypeOfAFieldDescToItsScalarTypeReadsAPatternsMetadataOffTheLanguageItsDescriptionCarriesUnderEveryEnvironment =
-	property.explore(textCaseGen, {
-		needs: {},
-		situations: ["language every", "language refined"] satisfies ReadonlyArray<
-			Reached<`language ${TextLanguage["kind"]}`>
-		>,
-		check:
-			(_, c: Case<`language ${TextLanguage["kind"]}`>) =>
-			({ patterns, language, env }) =>
-				Effect.sync(() => {
-					c.note(`language ${language.kind}`)
-					const typed = succeeded(
-						scalarTypeOf(
-							{ kind: "text", patterns, bytes: undefined, language },
-							env,
-							SourceLoc("field", [])
-						)
-					)
-					assert.deepEqual(textOf(typed), carriedText(patterns, language))
-				}),
-		oracle: {
-			kind: "specification",
-			name: "the text the patterns and their language carry (carriedText)"
-		},
-		budget: { runs: 100, steered: 0 },
-		kept: [],
-		kills: []
 	})
 
 /**

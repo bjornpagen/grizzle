@@ -9,7 +9,6 @@ import {
 	type Gen,
 	int,
 	map,
-	uniqueKeys,
 	weighted
 } from "@bjornpagen/testing/gen"
 import {
@@ -157,20 +156,6 @@ const rostersOf = (t: ScalarType): Readonly<Record<string, Arr.NonEmptyReadonlyA
 	const roster = rosterOf(t)
 	return roster === undefined ? {} : { [roster.closed]: roster.handles }
 }
-
-/** A roster's declared name, another name, and a roster of handles. */
-export const rosterCaseGen = (source: Source) => ({
-	name: source.draw(matching(regex("^[A-Z][a-z]{1,6}$"))),
-	other: source.draw(matching(regex("^[A-Z][a-z]{1,6}$"))),
-	handles: source.draw(uniqueKeys(matching(regex("^[A-Za-z]{1,5}$")), { min: 1, max: 4 }))
-})
-
-/** A text Description's patterns and language, and an environment to read it under. */
-export const textCaseGen = (source: Source) => ({
-	patterns: source.draw(patternsGen(["^.*$", "^[a-z]*$", "^.+$", ""])),
-	language: source.draw(languageGen),
-	env: source.draw(readingEnvGen)
-})
 
 /** A contract's name and the bound its predicate holds its bigint value to. */
 export const predicateCaseGen = (source: Source) => ({
@@ -340,7 +325,7 @@ const languageGen: Gen<TextLanguage> = weighted<TextLanguage>([
  * else the patterns as declared with the language's key and enforcement, and its bounds where the enforcement proves
  * them.
  */
-export const carriedText = (patterns: Patterns, language: TextLanguage): TextInfo => {
+const carriedText = (patterns: Patterns, language: TextLanguage): TextInfo => {
 	if (language.kind === "every") {
 		return { regex: "wildcard", lengthBound: undefined, byteBound: undefined }
 	}

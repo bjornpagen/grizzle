@@ -494,7 +494,7 @@ export const formAims: ReadonlyArray<
 export const formFeatures: ReadonlyArray<FormFeature> = Arr.flatMap(carriedNames, reachable)
 
 /** The output grammars the scanners implement, as references. Tests may use RegExp; src may not. */
-export const integerGrammar = regex("^-?(?:0|[1-9]\\d{0,18})$")
+const integerGrammar = regex("^-?(?:0|[1-9]\\d{0,18})$")
 export const spanGrammar = regex("^\\[(-?\\d{1,19}),(-?\\d{1,19})\\)$")
 export const int8Text = (t: string): bigint | undefined => {
 	if (!integerGrammar.test(t) || t === "-0") {
@@ -503,14 +503,6 @@ export const int8Text = (t: string): bigint | undefined => {
 	const n = BigInt(t)
 	return n >= int8Min && n <= int8Max ? n : undefined
 }
-
-/** The int8 codec. */
-export const int8 = codecOf(types.int8, kindCodes)
-/** An int8 text: any text of its characters, or the digits of a whole number past its range either way. */
-export const int8Texts = weighted([
-	[1, string(element(Str.split("0123456789-+. ", "")), { min: 0, max: 22 })],
-	[1, map(bigint(int8Min * 2n, int8Max * 2n), String)]
-])
 
 /** The int8range codec. */
 export const r8 = codecOf(types.range8, kindCodes)

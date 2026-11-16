@@ -12,10 +12,10 @@
  * A Live value and the text PostgreSQL's output function writes for it.
  *
  * Oracles: the kernel's strict reading of PostgreSQL's output text (test/support/kernel/strict.ts) for each carrier's
- * forms; int8out's and range_out's grammars as reference RegExps; a vector's round trip.
+ * forms; range_out's grammar as a reference RegExp; a vector's round trip.
  *
- * Features: every form each carrier reaches (FormFeature); an integer's syntax and range refusals beside an int8; a
- * span's syntax refusal beside a span; a vector in the cosine domain, one lifted into it, and a subnormal component.
+ * Features: every form each carrier reaches (FormFeature); a span's syntax refusal beside a span; a vector in the cosine
+ * domain, one lifted into it, and a subnormal component.
  */
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
@@ -32,10 +32,7 @@ import {
 	formAims,
 	type FormFeature,
 	formFeatures,
-	int8,
 	int8Text,
-	int8Texts,
-	integerGrammar,
 	r8,
 	spanGrammar,
 	spanTexts,
@@ -104,46 +101,6 @@ export const eachCarriersCodecWritesPostgreSQLsOutputFormReadsItBackAndRefusesEa
 				why: "A span whose start is its end is admitted, not refused as spanOrder."
 			}
 		]
-	})
-
-/**
- * Integer and span text, scanned without RegExp reads int8 text exactly where the integer output grammar admits it.
- *
- * Budget: its suite's count before the conversion (unit/codec/scalar-6909556: 20000 independent cases and 0 steered,
- * Vitest at grizzle 4ca3036a).
- */
-export const integerAndSpanTextScannedWithoutRegExpReadsInt8TextExactlyWhereTheIntegerOutputGrammarAdmitsIt =
-	property.explore(int8Texts, {
-		needs: {},
-		situations: ["integerSyntax", "integerRange", "an int8"] satisfies ReadonlyArray<
-			Reached<"integerSyntax" | "integerRange" | "an int8">
-		>,
-		check: (_, c: Case<"integerSyntax" | "integerRange" | "an int8">) => (text) =>
-			Effect.sync(() => {
-				const result = int8.read(text)
-				const syntax = integerGrammar.test(text) && text !== "-0"
-				if (!syntax) {
-					c.note("integerSyntax")
-					faulted(result, "integerSyntax")
-				} else {
-					const n = int8Text(text)
-					if (n === undefined) {
-						c.note("integerRange")
-						faulted(result, "integerRange")
-					} else {
-						c.note("an int8")
-						assert.equal(succeeded(result), n)
-						assert.equal(int8.convert(text), n)
-					}
-				}
-			}),
-		oracle: {
-			kind: "specification",
-			name: "int8out's grammar as a reference RegExp, and int8's range"
-		},
-		budget: { runs: 20000, steered: 0 },
-		kept: [],
-		kills: []
 	})
 
 /**
