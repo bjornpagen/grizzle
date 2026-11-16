@@ -1,0 +1,369 @@
+/** What the properties of role-name.test.ts read: its spaces, models and helpers. */
+
+import { type Case } from "@bjornpagen/testing/explore"
+import {
+	array,
+	boolean,
+	codePoint,
+	element,
+	type Gen,
+	option,
+	string
+} from "@bjornpagen/testing/gen"
+import { maxIdentifierBytes } from "@grizzle/limits"
+import { regex } from "arkregex"
+import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
+import { served } from "#adapter/public/layer.ts"
+import { roleNameOf } from "#adapter/served/served.ts"
+import type { DecoderLogin, ServedLogin } from "#adapter/types/layer.ts"
+import {
+	conversionOf,
+	identifierOf,
+	identity,
+	roleInSpace,
+	type RoleInstallation,
+	roleSpaceOf
+} from "#compiler/core/identity.ts"
+import { utf8Length } from "#compiler/core/sha256.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
+import { uuid } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
+import {
+	type AnyLogin,
+	login,
+	relation,
+	role,
+	schema,
+	wholeEntriesOf
+} from "#compiler/public/schema.ts"
+import { workload } from "#compiler/public/workload.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
+import { assert, throwsRefused } from "#test/support/assert.ts"
+import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { compiledLogin } from "#test/support/served-login.ts"
+
+/** How a letter segment of a declared name is written: each converts to the segment in lowercase. */
+type Spelling = "lowercase" | "capitalized" | "capitals"
+
+const spelled: { readonly [S in Spelling]: (segment: string) => string } = {
+	lowercase: (segment) => segment,
+	capitalized: Str.capitalize,
+	capitals: Str.toUpperCase
+}
+
+/** Lowercase words joined by single underscores, each segment spelled as drawn. */
+const wordsGen: Gen<string> = (source) => {
+	const words = [
+		`${source.draw(string(codePoint(0x61, 0x7a), { min: 1, max: 5 }))}x`,
+		...source.draw(array(string(codePoint(0x61, 0x7a), { min: 1, max: 5 }), { min: 0, max: 2 }))
+	]
+	return Arr.join(
+		Arr.map(words, (w) =>
+			spelled[source.draw(element<Spelling>(["lowercase", "capitalized", "capitals"]))](w)
+		),
+		"_"
+	)
+}
+
+/**
+ * A role prefix as a connection gives one, used verbatim: lowercase words and digit runs joined by single underscores,
+ * a letter first and never the reserved `pg` segment, so `qti_pie_v2` is drawn as it is written.
+ */
+const prefixGen: Gen<string> = (source) =>
+	Arr.join(
+		[
+			`${source.draw(string(codePoint(0x61, 0x7a), { min: 1, max: 4 }))}x${source.draw(string(codePoint(0x30, 0x39), { min: 0, max: 2 }))}`,
+			...source.draw(
+				array(string(element(["a", "q", "z", "0", "8", "9"]), { min: 1, max: 4 }), {
+					min: 0,
+					max: 2
+				})
+			)
+		],
+		"_"
+	)
+
+/** A login's or a role's name: lowercase letters, then maybe a capitalized word, which the naming door converts with `_`. */
+const nameGen: Gen<string> = (source) => {
+	const head = source.draw(string(codePoint(0x61, 0x7a), { min: 1, max: 8 }))
+	const tail = source.draw(option(string(codePoint(0x61, 0x7a), { min: 1, max: 5 })))
+	return Option.match(tail, { onNone: () => head, onSome: (t) => `${head}${Str.capitalize(t)}` })
+}
+
+/**
+ * A schema name in the test substrate's allocation grammar (test/support/substrate/names.ts uniqueSchemaName):
+ * `gz_<label>_<pid>_<n>_<ten digits>`, its parts drawn, perhaps padded with `_` and `s`s to a drawn length
+ * (uniqueSchemaNameOfLength), short enough that a login of a short name fits beside it.
+ */
+const allocatedGen: Gen<string> = (source) => {
+	const digits = (min: number, max: number) => string(codePoint(0x30, 0x39), { min, max })
+	const allocated = `gz_${source.draw(string(codePoint(0x61, 0x7a), { min: 1, max: 8 }))}_${source.draw(
+		digits(1, 7)
+	)}_${source.draw(digits(1, 2))}_${source.draw(digits(10, 10))}`
+	const padding = source.draw(option(string(element(["s"]), { min: 1, max: 12 })))
+	return Option.match(padding, { onNone: () => allocated, onSome: (s) => `${allocated}_${s}` })
+}
+
+/** A role space as drawn: none, or a prefix. */
+type Drawn = Option.Option<string>
+
+interface Names {
+	readonly schema: string
+	readonly login: string
+	readonly roles: Arr.NonEmptyReadonlyArray<string>
+	/** Whether the login's workload holds a read of the relation, by its first role. */
+	readonly reads: boolean
+	readonly spaces: readonly [Drawn, Drawn]
+	readonly bound: boolean
+}
+
+const converted = (name: string): string => conversionOf(parsedName(name))
+
+export const namesGen: Gen<Names> = (source) => {
+	const loginName = source.draw(nameGen)
+	const drawnRoles = source.draw(array(nameGen, { min: 1, max: 2 }))
+	const roles = Arr.reduce(drawnRoles, Arr.empty<string>(), (kept, name) =>
+		Arr.some([loginName, ...kept], (other) => converted(other) === converted(name))
+			? kept
+			: [...kept, name]
+	)
+	const firstSpace = source.draw(option(prefixGen))
+	const secondSpace = source.draw(option(prefixGen))
+	const apart =
+		Option.isSome(firstSpace) &&
+		Option.isSome(secondSpace) &&
+		firstSpace.value === secondSpace.value
+			? Option.none<string>()
+			: secondSpace
+	return {
+		schema: source.draw(boolean) ? source.draw(allocatedGen) : source.draw(wordsGen),
+		login: loginName,
+		roles: Arr.isReadonlyArrayNonEmpty(roles) ? roles : [`${loginName}x`],
+		reads: source.draw(boolean),
+		spaces: [
+			firstSpace,
+			Option.isNone(firstSpace) && Option.isNone(apart) ? Option.some("seat") : apart
+		],
+		bound: source.draw(boolean)
+	}
+}
+
+export type NameFeature =
+	| "a prefix and none"
+	| "two prefixes"
+	| "a capitalized spelling"
+	| "a camel-case name"
+	| "a prefix at the limit"
+	| "a prefix one byte past"
+	| "a prefix past the budget"
+	| "a login that reads"
+	| "a login that reads nothing"
+	| "an allocator's schema name"
+	| "a decoder under a prefix at the budget"
+
+/**
+ * The most bytes a role prefix takes, by the specification: what the longest hashed role name the naming door mints,
+ * `__aside_` and a ten-character digest, leaves of PostgreSQL's 63 after `__`.
+ */
+const prefixBudget = 63 - "__".length - "__aside_".length - 10
+
+/** The installation a drawn space names. */
+const installationOf = (space: Drawn): RoleInstallation =>
+	Option.match(space, { onNone: () => ({}), onSome: (rolePrefix) => ({ rolePrefix }) })
+
+/** The specification of a role space: the naming door's stem, under `<conversion of the prefix>__` when there is one. */
+const specified = (space: Drawn, stem: string): string =>
+	Option.match(space, { onNone: () => stem, onSome: (p) => `${p}__${stem}` })
+
+/**
+ * A connection builder over an authoring login, a served login or a decoder login, naming its role by the one
+ * roleNameOf.
+ */
+const connectionOf = <L>(
+	named: AnyLogin | ServedLogin<L> | DecoderLogin,
+	installation: RoleInstallation
+): { readonly user: string } => ({ user: roleNameOf(named, installation) })
+
+/**
+ * The bound of a role space for the roles of `stems`, each named by `name` under a prefix of `q`s: the longest the
+ * prefix may be, the budget or what 63 bytes leave the longest role, whichever is less, or one byte past it where
+ * `past`. Past the budget, every name is refused as the prefix's (MalformedDescription); within it, each stem is named,
+ * or refused (RoleNameTooLong) past 63 bytes. None where no prefix leaves the longest room.
+ */
+const boundOf = (
+	stems: ReadonlyArray<readonly [string, (installation: RoleInstallation) => string]>,
+	past: boolean
+): Option.Option<"at" | "past" | "budget"> => {
+	const longest = Arr.reduce(stems, 0, (most, [s]) => Math.max(most, utf8Length(s)))
+	const room = Math.min(prefixBudget, maxIdentifierBytes.value - 2 - longest)
+	if (room < 1) {
+		return Option.none()
+	}
+	const length = room + (past ? 1 : 0)
+	const prefix = Str.repeat(length)("q")
+	if (length > prefixBudget) {
+		for (const [stem, name] of stems) {
+			throwsRefused(() => name({ rolePrefix: prefix }), "MalformedDescription", `${stem}'s prefix`)
+		}
+		return Option.some("budget")
+	}
+	for (const [stem, name] of stems) {
+		const bytes = length + 2 + utf8Length(stem)
+		if (bytes > maxIdentifierBytes.value) {
+			throwsRefused(() => name({ rolePrefix: prefix }), "RoleNameTooLong", `${stem} past the limit`)
+		} else {
+			assert.equal(utf8Length(name({ rolePrefix: prefix })), bytes, `${stem} under the prefix`)
+		}
+	}
+	return Option.some(past ? "past" : "at")
+}
+
+/** The feature a bound reached notes. */
+const boundNotes: { readonly [B in "at" | "past" | "budget"]: NameFeature } = {
+	at: "a prefix at the limit",
+	past: "a prefix one byte past",
+	budget: "a prefix past the budget"
+}
+
+export const nameCase = (n: Names, c: Case<NameFeature>) =>
+	Effect.gen(function* () {
+		const base = schema(n.schema, [relation("Item", { id: uuid }, ["id"])], [])
+		const roles = Arr.map(n.roles, (name) => role(base, name, wholeEntriesOf(base)))
+		const reader = Arr.headNonEmpty(roles)
+		const items = query(reader).rule((r) => {
+			const { id } = v(reader.relations.Item, "item")
+			return r.match(reader.relations.Item, { id }).find({ id })
+		})
+		const desk = n.reads
+			? login(base, n.login, roles, { workload: [workload(reader, { items })] })
+			: login(base, n.login, roles)
+		const installation = identity.schema(parsedSchemaName(n.schema))
+		const loginStem = identifierOf(identity.login(installation, parsedName(n.login)))
+		const roleStems = Arr.map(n.roles, (name) =>
+			identifierOf(identity.role(installation, parsedName(name)))
+		)
+		const decoderStem = identifierOf(identity.liveSource(identifierOf(installation)))
+		const compiled = yield* Effect.result(
+			compiledLogin(desk, (owned) => firstCodebook(rostersOf(owned)))
+		)
+		if (Result.isFailure(compiled)) {
+			return assert.fail(`the login compiles: ${Formatter.format(compiled.failure)}`)
+		}
+		const servedDesk = served<typeof desk>(compiled.success.json, desk.name)
+		const decoder = servedDesk.decoder
+		assert.equal(
+			decoder.kind === "decoderLogin",
+			n.reads,
+			"the served login names a decoder login exactly when its workload reads"
+		)
+		c.note(n.reads ? "a login that reads" : "a login that reads nothing")
+		if (n.schema !== Str.toLowerCase(n.schema)) {
+			c.note("a capitalized spelling")
+		}
+		if (Arr.some([n.login, ...n.roles], (name) => converted(name) !== name)) {
+			c.note("a camel-case name")
+		}
+		c.note(
+			Option.isSome(n.spaces[0]) && Option.isSome(n.spaces[1])
+				? "two prefixes"
+				: "a prefix and none"
+		)
+		const namesUnder = (space: Drawn): ReadonlyArray<string> => {
+			const at = installationOf(space)
+			const fitting = (stem: string): boolean =>
+				utf8Length(specified(space, stem)) <= maxIdentifierBytes.value
+			if (!Arr.every([loginStem, ...roleStems], fitting)) {
+				throwsRefused(
+					() => Arr.map([desk, ...roles], (w) => roleNameOf(w, at)),
+					"RoleNameTooLong",
+					"a role past 63 bytes under the space"
+				)
+				return decoder.kind === "none" ? [] : [roleNameOf(decoder, at)]
+			}
+			const loginRole = roleNameOf(desk, at)
+			assert.equal(
+				loginRole,
+				specified(space, loginStem),
+				"the login's role is the door's under the space"
+			)
+			assert.equal(
+				connectionOf(desk, at).user,
+				loginRole,
+				"a connection of the authoring login names it"
+			)
+			assert.equal(
+				connectionOf(servedDesk, at).user,
+				loginRole,
+				"a connection of the served login names it"
+			)
+			const roleNames = Arr.zipWith(roles, roleStems, (value, stem) => {
+				const name = roleNameOf(value, at)
+				assert.equal(name, specified(space, stem), "a role's role is the door's under the space")
+				return name
+			})
+			for (const r of compiled.success.back.roles) {
+				const parsed = roleSpaceOf(Option.getOrUndefined(space))
+				const stemmed = parsed.ok ? roleInSpace(parsed.value, r.installed) : parsed
+				assert.ok(
+					stemmed.ok && roleNames.includes(stemmed.value),
+					`the served role ${r.name} takes on the role roleNameOf names`
+				)
+			}
+			if (decoder.kind === "none") {
+				return [loginRole, ...roleNames]
+			}
+			const decoderRole = roleNameOf(decoder, at)
+			assert.equal(
+				decoderRole,
+				specified(space, decoderStem),
+				"the decoder login's role is the door's live source under the space, which fits wherever the ordinary roles do"
+			)
+			assert.equal(
+				connectionOf(decoder, at).user,
+				decoderRole,
+				"a connection of the decoder login names it"
+			)
+			return [loginRole, ...roleNames, decoderRole]
+		}
+		const [firstSpace, secondSpace] = n.spaces
+		assert.deepEqual(
+			Arr.intersection(namesUnder(firstSpace), namesUnder(secondSpace)),
+			[],
+			"the two role spaces share no role"
+		)
+		const worlds = Arr.zip(
+			[loginStem, ...roleStems],
+			Arr.map(
+				[desk, ...roles],
+				(w) =>
+					(at: RoleInstallation): string =>
+						roleNameOf(w, at)
+			)
+		)
+		const bound = boundOf(worlds, n.bound)
+		if (Option.isSome(bound)) {
+			c.note(boundNotes[bound.value])
+		}
+		if (regex("^gz_").test(n.schema)) {
+			c.note("an allocator's schema name")
+		}
+		const atBudget = Str.repeat(prefixBudget)("q")
+		const budgetSpace = roleSpaceOf(atBudget)
+		assert.ok(budgetSpace.ok, "a prefix at the budget is a prefix")
+		for (const stem of [loginStem, ...roleStems]) {
+			const aside = identifierOf(identity.roleAside(stem))
+			assert.ok(
+				roleInSpace(budgetSpace.value, aside).ok,
+				`${stem} set aside, ${aside}, fits under a prefix at the budget`
+			)
+		}
+		if (decoder.kind === "none") {
+			return
+		}
+		assert.equal(
+			utf8Length(roleNameOf(decoder, { rolePrefix: atBudget })),
+			prefixBudget + 2 + utf8Length(decoderStem),
+			"the decoder login's role fits under a prefix at the budget, whatever the schema's name"
+		)
+		c.note("a decoder under a prefix at the budget")
+	})

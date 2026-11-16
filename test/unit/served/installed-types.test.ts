@@ -25,656 +25,93 @@
  *   parameters (physical/ddl/domains.ts addParamDomains), and PostgreSQL still reports the parameter's own domain when
  *   it refuses.
  */
-import { explore, steered } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { boolean, type Gen } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Result as Answered, Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
-import { type ServedRefusal, snapshotCompiled } from "#adapter/served/compile.ts"
-import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"
-import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
-import { isCompileError } from "#compiler/core/errors.ts"
-import { identifierOf } from "#compiler/core/identity.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { aimed } from "@bjornpagen/testing/gen"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import { mapNonEmpty } from "#compiler/core/nonempty.ts"
-import { servedSnapshot } from "#compiler/deploy/snapshot/served.ts"
-import type { ParamDecl } from "#compiler/ir/products.ts"
-import { contractOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { paramDomainIdentity, paramDomainUses } from "#compiler/physical/ddl/domains.ts"
-import { levelChain } from "#compiler/plan/common.ts"
-import { ownBuilt } from "#compiler/schema/own.ts"
-import type { CreateDomain } from "#compiler/sql/ast.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { compiledInstallation, compiledSnapshot } from "#test/support/compiled-served.ts"
-import { caseHang } from "#test/support/limits.ts"
+import { resolveCase } from "#test/support/oracle/public/generate.ts"
+import { drawnSchema, liveLoginGen } from "#test/support/served-login.ts"
 import {
-	type CaseSketch,
-	caseSketchGen,
-	resolveCase
-} from "#test/support/oracle/public/generate.ts"
-import { type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"
-import { printCase } from "#test/support/oracle/public/print.ts"
-import {
-	compiledLogin,
-	drawnLogin,
-	drawnSchema,
-	type DrawnSchema,
-	liveLoginGen,
-	type RoleShape,
-	rolesOf
-} from "#test/support/served-login.ts"
-import { declaredBy } from "#test/support/served-reach.ts"
+	aimsAt,
+	castsInstalled,
+	type Feature,
+	keptOf,
+	sketchGen
+} from "#test/unit/served/installed-types.fixtures.ts"
 
-type Feature =
-	| "an uninstalled pattern domain refused"
-	| "an uninstalled contract refused"
-	| "a dropped program whose parameter types the installation installs, compiled"
-	| "a pattern parameter installed, compiled"
-	| "a contract parameter outside the base installed, compiled"
-	| "a parameter's pattern domain over a field's structural domain"
-
-/** Which of a role's programs the dropped installation keeps (see the header). */
-interface Kept {
-	readonly clocked: boolean
-	readonly reads: boolean
-	readonly world: boolean
-}
-
-const keptGen: Gen<Kept> = (source) => ({
-	clocked: source.draw(boolean),
-	reads: source.draw(boolean),
-	world: source.draw(boolean)
-})
-
-/**
- * What a case aimed at a pending feature keeps of every role: every program, for a parameter type installed and
- * compiled; all but the clocked reads, whose `now` is the one contract outside the base, for an uninstalled contract;
- * the clocked reads alone, for an uninstalled pattern domain, a pattern parameter being a read's.
- */
-const aims: ReadonlyArray<readonly [Feature, Kept]> = [
-	["a pattern parameter installed, compiled", { clocked: true, reads: true, world: true }],
-	[
-		"a contract parameter outside the base installed, compiled",
-		{ clocked: true, reads: true, world: true }
-	],
-	["an uninstalled contract refused", { clocked: false, reads: true, world: true }],
-	["an uninstalled pattern domain refused", { clocked: true, reads: false, world: false }]
-]
-
-/** What the dropped installation keeps of a case's roles: each role's own, drawn, or one `Kept` for every role. */
-type Keeping = Readonly<{ kind: "drawn" }> | Readonly<{ kind: "every role"; kept: Kept }>
-
-/** A case's sketch: its schema's, its law level, and what its installation keeps of its roles. */
-type Sketch = readonly [CaseSketch, LawLevel, Keeping]
-
-/**
- * A case's sketch, drawn under its steering: where some feature `aims` names is pending, the first of them sets what
- * every role keeps, so the case is aimed at it; otherwise each role's is drawn.
- */
-const sketchDraw = steered<Sketch, Sketch, Feature>(
-	(steering) => (source) => [
-		source.draw(caseSketchGen),
-		source.draw(lawLevelGen),
-		Option.match(
-			Option.flatMap(steering, (pending) =>
-				Arr.findFirst(aims, ([feature]) => pending.has(feature))
-			),
-			{
-				onNone: (): Keeping => ({ kind: "drawn" }),
-				onSome: ([, kept]): Keeping => ({ kind: "every role", kept })
-			}
-		)
-	],
-	(sketch) => sketch
-)
-
-/** What the dropped installation keeps of one role, as its case's sketch says. */
-const keptOf = (keeping: Keeping, draw: <A>(generator: Gen<A>) => A): Kept => {
-	switch (keeping.kind) {
-		case "drawn":
-			return draw(keptGen)
-		case "every role":
-			return keeping.kept
-	}
-}
-
-/** A drawn role and which of its programs the dropped installation keeps. */
-interface DrawnRole {
-	readonly shape: RoleShape
-	readonly kept: Kept
-}
-
-/** A role's shape with only the programs its installation keeps. */
-const keptShape = ({ shape, kept }: DrawnRole): RoleShape => ({
-	...shape,
-	clocked: shape.clocked && kept.clocked,
-	reads: kept.reads ? shape.reads : [],
-	worldReads: kept.world ? shape.worldReads : []
-})
-
-/** Whether the dropped installation drops a program of the role. */
-const drops = ({ shape, kept }: DrawnRole): boolean =>
-	(shape.clocked && !kept.clocked) ||
-	(!kept.reads && shape.reads.length > 0) ||
-	(!kept.world && shape.worldReads.length > 0)
-
-/** The contracts a value of `type` is checked under, outermost first. */
-const contractsOf = (type: ScalarType): ReadonlyArray<string> => {
-	const contract = contractOf(type)
-	return contract === undefined ? [] : [contract.name, ...contractsOf(contract.base)]
-}
-
-/** The types of the columns a parameter binds: a relation's heading's, a scalar's or a clock reading's one. */
-const paramTypes = (param: ParamDecl): ReadonlyArray<ScalarType> =>
-	param.kind === "relation" ? Arr.map(param.heading, (c) => c.type) : [param.type]
-
-/** The parameter types a set of declarations casts to, in installed terms: pattern domains and outside contracts. */
-interface Needed {
-	readonly domains: ReadonlySet<string>
-	readonly contracts: ReadonlySet<string>
-}
-
-/** What the parameters `params` are cast to (Needed), the contracts outside the base `declared` names. */
-const neededBy = (params: ReadonlyArray<ParamDecl>, declared: ReadonlySet<string>): Needed => ({
-	domains: new Set(
-		Arr.map(paramDomainUses(params), (use) =>
-			identifierOf(paramDomainIdentity(use.place, use.regex))
-		)
-	),
-	contracts: new Set(
-		Arr.filter(Arr.flatMap(Arr.flatMap(params, paramTypes), contractsOf), (c) => !declared.has(c))
-	)
-})
-
-/** A domain's body: its base, its collation and its CHECKs' predicates, its names aside. */
-const bodyOf = (d: CreateDomain) => ({
-	base: d.base,
-	collation: d.collation,
-	checks: Arr.map(d.constraints, (c) => c.predicate)
-})
-
-/** Whether a compile's refusal is UninstalledDomain. */
-const uninstalled = (refusal: ServedRefusal): boolean =>
-	isCompileError(refusal.error) && refusal.error.reason._tag === "UninstalledDomain"
-
-const property = (
-	schema: DrawnSchema,
-	level: LawLevel,
-	roles: Arr.NonEmptyReadonlyArray<DrawnRole>,
-	note: (feature: Feature) => void
-) =>
-	Effect.gen(function* () {
-		const printed = () =>
-			`${printCase(schema.case)}\n${Formatter.format(level)}\n${Formatter.format(roles)}`
-		const login = drawnLogin(
-			schema,
-			mapNonEmpty(roles, (r) => r.shape)
-		)
-		const full = yield* Effect.result(compiledLogin(login, schema.laws.codes))
-		if (Answered.isFailure(full)) {
-			assert.ok(
-				!uninstalled(full.failure),
-				`a login compiles under its own snapshot as far as its parameter types go: ${Formatter.format(full.failure)}\n${printed()}`
-			)
-			return
-		}
-		const built = defined(builtLogin(login), "the drawn login")
-		const base = succeeded(ownBuilt(built.base), "the login's base")
-		const owned = succeeded(ownLoginOver(built, base), "the login over its base")
-		const needed = neededBy(
-			Arr.flatMap(rolesOf(full.success), (r) => declaredBy(r.served, r.compiled)),
-			new Set(Rec.keys(base.contracts))
-		)
-		const { installation } = yield* compiledInstallation(built, base, schema.laws.codes(base))
-		const checked = Arr.filter(
-			Arr.flatMap(installation.statements, (st) => (st.kind === "createDomain" ? [st] : [])),
-			(d) => d.constraints.length > 0
-		)
-		for (const [i, d] of checked.entries()) {
-			const twin = Arr.findFirst(Arr.drop(checked, i + 1), (e) =>
-				canonicalEquals(bodyOf(d), bodyOf(e), everyProperty)
-			)
-			assert.ok(
-				Option.isNone(twin),
-				`no two installed domains share a CHECK body: ${d.name.name} and ${Option.match(twin, { onNone: () => "", onSome: (e) => e.name.name })}\n${printed()}`
-			)
-		}
-		if (
-			Arr.some(
-				installation.statements,
-				(st) =>
-					st.kind === "createDomain" &&
-					needed.domains.has(st.name.name) &&
-					st.constraints.length === 0
-			)
-		) {
-			note("a parameter's pattern domain over a field's structural domain")
-		}
-		const dropped = defined(
-			builtLogin(drawnLogin(schema, mapNonEmpty(roles, keptShape))),
-			"the dropped login"
-		)
-		const snapshot = yield* Effect.result(compiledSnapshot(dropped, base, schema.laws.codes(base)))
-		if (Answered.isFailure(snapshot)) {
-			return
-		}
-		const installed = succeeded(
-			servedSnapshot(snapshot.success, levelChain(built.base.desc).length - 1),
-			"the dropped installation's snapshot"
-		).derived.params
-		const installedDomains = new Set(installed.domains)
-		const installedContracts = new Set<string>(Arr.map(installed.contracts, (c) => c.name))
-		const missingDomains = Arr.filter([...needed.domains], (d) => !installedDomains.has(d))
-		const missingContracts = Arr.filter([...needed.contracts], (c) => !installedContracts.has(c))
-		const compiled = yield* Effect.result(
-			snapshotCompiled({ login: built, owned }, snapshot.success)
-		)
-		if (missingDomains.length > 0 || missingContracts.length > 0) {
-			assert.ok(
-				Answered.isFailure(compiled) && uninstalled(compiled.failure),
-				`a login casting a parameter to ${Formatter.format([...missingDomains, ...missingContracts])}, which the installation does not install, is refused as UninstalledDomain\n${printed()}`
-			)
-			if (missingContracts.length === 0) {
-				note("an uninstalled pattern domain refused")
-			}
-			if (missingDomains.length === 0) {
-				note("an uninstalled contract refused")
-			}
-			return
-		}
-		assert.ok(
-			Answered.isSuccess(compiled) || !uninstalled(compiled.failure),
-			`a login casting its parameters only to installed types is not refused as UninstalledDomain\n${printed()}`
-		)
-		if (Answered.isFailure(compiled)) {
-			return
-		}
-		if (Arr.some(roles, drops)) {
-			note("a dropped program whose parameter types the installation installs, compiled")
-		}
-		if (needed.domains.size > 0) {
-			note("a pattern parameter installed, compiled")
-		}
-		if (needed.contracts.size > 0) {
-			note("a contract parameter outside the base installed, compiled")
-		}
-	})
-
-/**
- * GREENTRUNK's red at 8e3d66bc (TEST_SEED=1569938684, rotating case 5): a read whose filter is the constant false,
- * r.or(), binds a relation parameter its logic then never reads, of a pattern field. The installation the login drops
- * that read from installs no domain of the parameter, and the compile under its snapshot still compiled the login,
- * since its statement cast the parameter nowhere: a call would have been answered whatever the parameter held.
- */
-const neverTrueRead = {
-	note: "a relation parameter of a pattern field that a read's constant false filter leaves unread",
-	sketch: [
-		{
-			population: "forms",
-			swarm: {
-				"bind fresh": 1,
-				"bind existential": 1,
-				"bind param": 3,
-				"bind parent": 1,
-				where: 3,
-				"compare literal": 1,
-				"compare var": 1,
-				"compare param": 3,
-				aggregate: 3,
-				union: 3,
-				"attached take": 1,
-				ordered: 1,
-				attach: 3,
-				nested: 1,
-				roster: 3,
-				dense: 1,
-				"candidate key": 1,
-				probe: 1,
-				spelled: 1,
-				"stated delivery": 1,
-				"keyed child": 1,
-				"reflexive child": 1,
-				"arm child": 1,
-				"handle field": 3,
-				import: 3,
-				"import bound": 3,
-				interior: 3,
-				named: 3,
-				"computed head": 3,
-				"computed group key": 3,
-				between: 3,
-				"in set": 3,
-				connective: 3,
-				"relation param": 3,
-				recursive: 3,
-				"contract param": 3,
-				"typmod param": 3,
-				allen: 3,
-				"point in": 3,
-				"literal head": 3
-			},
-			perturbation: { settings: [], multiplier: 1 },
-			ambient: { path: { kind: "default" }, settings: [] },
-			restorage: { shift: 0, respell: 0 },
-			roster: 0,
-			span: 0,
-			relations: [
-				{
-					name: 0,
-					fields: [
-						{ name: 0, kind: 0, key: 0 },
-						{ name: 0, kind: 0, key: 0 },
-						{ name: 0, kind: 28672, key: 0 },
-						{ name: 0, kind: 0, key: 0 }
-					],
-					candidate: 0,
-					facts: []
-				}
-			],
-			reads: [
-				{
-					rule: {
-						matches: [
-							{
-								source: 0,
-								derived: 0,
-								attached: 0,
-								binds: [
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
-								]
-							},
-							{
-								source: 0,
-								derived: 0,
-								attached: 0,
-								binds: [
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
-								]
-							},
-							{
-								source: 21846,
-								derived: 32768,
-								attached: 0,
-								binds: [
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
-								]
-							}
-						],
-						where: [],
-						between: [
-							{
-								left: 0,
-								low: { pick: 0, value: { cls: 0, sp: 0 } },
-								high: { pick: 0, value: { cls: 0, sp: 0 } }
-							}
-						],
-						inSet: [],
-						allen: [],
-						pointIn: [],
-						connective: [{ kind: 32768, args: [] }],
-						computed: [],
-						negation: { source: 0, picks: [0, 0] },
-						head: {
-							vars: [],
-							names: [0, 0, 0, 0, 0, 0],
-							folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
-						},
-						interior: {
-							matches: [
-								{
-									source: 0,
-									derived: 0,
-									attached: 0,
-									binds: [
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
-									]
-								}
-							],
-							where: [],
-							negation: { source: 0, picks: [0, 0] },
-							head: {
-								vars: [],
-								names: [0, 0, 0, 0, 0, 0],
-								folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
-							}
-						}
-					},
-					take: { rotate: 0, dirs: [0, 0, 0], size: 0, ties: 0 },
-					literalHead: { name: 0, kind: 0, arms: 0, values: [0, 0, 0] },
-					importable: 0,
-					bindImport: 0,
-					named: 0,
-					relationParam: { relation: 0, facts: [] },
-					closure: { relation: 0, pair: 0, name: 0 },
-					attachments: [],
-					order: { rotate: 0, dirs: [0, 0, 0], size: 0 },
-					probe: { kind: 0, pick: 0 },
-					key: { relation: 0, which: 0, fact: 0, absent: 0, roster: 0 }
-				},
-				{
-					rule: {
-						matches: [
-							{
-								source: 0,
-								derived: 0,
-								attached: 0,
-								binds: [
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
-								]
-							}
-						],
-						where: [],
-						between: [],
-						inSet: [],
-						allen: [],
-						pointIn: [],
-						connective: [],
-						computed: [],
-						negation: { source: 0, picks: [0, 0] },
-						head: {
-							vars: [],
-							names: [0, 0, 0, 0, 0, 0],
-							folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
-						},
-						interior: {
-							matches: [
-								{
-									source: 0,
-									derived: 0,
-									attached: 0,
-									binds: [
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
-									]
-								}
-							],
-							where: [],
-							negation: { source: 0, picks: [0, 0] },
-							head: {
-								vars: [],
-								names: [0, 0, 0, 0, 0, 0],
-								folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
-							}
-						}
-					},
-					take: { rotate: 0, dirs: [0, 0, 0], size: 0, ties: 0 },
-					literalHead: { name: 0, kind: 0, arms: 0, values: [0, 0, 0] },
-					importable: 0,
-					bindImport: 0,
-					named: 0,
-					relationParam: { relation: 0, facts: [] },
-					closure: { relation: 0, pair: 0, name: 0 },
-					attachments: [],
-					order: { rotate: 0, dirs: [0, 0, 0], size: 0 },
-					probe: { kind: 0, pick: 0 },
-					key: { relation: 0, which: 0, fact: 0, absent: 0, roster: 0 }
-				},
-				{
-					rule: {
-						matches: [
-							{
-								source: 0,
-								derived: 0,
-								attached: 0,
-								binds: [
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
-								]
-							}
-						],
-						where: [],
-						between: [],
-						inSet: [],
-						allen: [],
-						pointIn: [],
-						connective: [],
-						computed: [],
-						negation: { source: 0, picks: [0, 0] },
-						head: {
-							vars: [],
-							names: [0, 0, 0, 0, 0, 0],
-							folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
-						},
-						interior: {
-							matches: [
-								{
-									source: 0,
-									derived: 0,
-									attached: 0,
-									binds: [
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ how: 0, pick: 0, value: { cls: 0, sp: 0 } }
-									]
-								}
-							],
-							where: [],
-							negation: { source: 0, picks: [0, 0] },
-							head: {
-								vars: [],
-								names: [0, 0, 0, 0, 0, 0],
-								folds: [{ fn: 0, arg: 0, padded: 0, scale: 0 }]
-							}
-						}
-					},
-					take: { rotate: 0, dirs: [0, 0, 0], size: 0, ties: 0 },
-					literalHead: { name: 0, kind: 0, arms: 0, values: [0, 0, 0] },
-					importable: 0,
-					bindImport: 0,
-					named: 0,
-					relationParam: { relation: 0, facts: [] },
-					closure: { relation: 0, pair: 0, name: 0 },
-					attachments: [],
-					order: { rotate: 0, dirs: [0, 0, 0], size: 0 },
-					probe: { kind: 0, pick: 0 },
-					key: { relation: 0, which: 0, fact: 0, absent: 0, roster: 0 }
-				}
-			],
-			planted: {
-				names: [
-					0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-					0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-				],
-				value: { cls: 0, sp: 0 },
-				handle: 0,
-				padding: 0,
-				side: { kind: 0, values: [0, 0, 0] }
-			}
+/** A served compile under a snapshot casts a parameter only to a type the snapshot's installation installs. */
+export const aServedCompileUnderASnapshotCastsAParameterOnlyToATypeTheSnapshotsInstallationInstalls =
+	property.explore(aimed(sketchGen({ kind: "drawn" }), aimsAt), {
+		needs: {},
+		situations: [
+			"an uninstalled pattern domain refused",
+			"an uninstalled contract refused",
+			"a dropped program whose parameter types the installation installs, compiled",
+			"a pattern parameter installed, compiled",
+			"a contract parameter outside the base installed, compiled",
+			"a parameter's pattern domain over a field's structural domain"
+		] satisfies ReadonlyArray<Reached<Feature>>,
+		check:
+			(_, notes: Case<Feature>) =>
+			([sketch, level, keeping]) =>
+				Effect.suspend(() => {
+					const schema = drawnSchema(notes.draw(resolveCase(sketch)), level)
+					const roles = mapNonEmpty(notes.draw(liveLoginGen(schema)), (shape) => ({
+						shape,
+						kept: keptOf(keeping, notes.draw)
+					}))
+					return castsInstalled(schema, level, roles, notes.note)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "the parameter types the login declares against those snapshot.json records (derived.params)"
 		},
-		{ holes: [0], trailing: 0, key: "id", least: [0, 0], generated: false, check: false },
-		{ kind: "drawn" }
-	],
-	draws:
-		"0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0",
-	reaches: ["an uninstalled pattern domain refused"]
-} as const
-
-describe("a served compile under a snapshot", () => {
-	it.effect("casts a parameter only to a type the snapshot's installation installs", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "specification",
-						name: "the parameter types the login declares against those snapshot.json records (derived.params)"
-					},
-					suite: "unit/served/installed-types",
-					draw: sketchDraw,
-					literal: Formatter.format,
-					coverage: required<Feature>(
-						[
-							"an uninstalled pattern domain refused",
-							"an uninstalled contract refused",
-							"a dropped program whose parameter types the installation installs, compiled",
-							"a pattern parameter installed, compiled",
-							"a contract parameter outside the base installed, compiled",
-							"a parameter's pattern domain over a field's structural domain"
-						],
-						{ cases: 60, sense: notesOnly }
-					),
-					kept: [neverTrueRead],
-					runs: 60,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				([sketch, level, keeping], notes) =>
-					Effect.suspend(() => {
-						const schema = drawnSchema(notes.draw(resolveCase(sketch)), level)
-						const roles = mapNonEmpty(notes.draw(liveLoginGen(schema)), (shape) => ({
-							shape,
-							kept: keptOf(keeping, notes.draw)
-						}))
-						return property(schema, level, roles, notes.note)
-					})
-			)
-		)
-	)
-})
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/served/installed-types.test.ts#aServedCompileUnderASnapshotCastsAParameterOnlyToATypeTheSnapshotsInstallationInstalls:-:c.1.0.0.1.0.0.1.0.1.0.1.0.0.1.2.0.1.0.1.0.1.2.1.0.1.2.1.0.1.0.1.0.1.0.0.1.0.0.1.0.1.0.1.0.1.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.4.0.0.0.0.0.0.0.m4g.0.0.0.0.0.0.3.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.guu.pa8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.1.pa8.3.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0"
+				),
+				reason:
+					"a relation parameter of a pattern field that a read's constant false filter leaves unread",
+				since: "2026-11-15"
+			}
+		],
+		kills: [
+			{
+				file: "packages/engine/src/physical/install/plan.ts",
+				original: '\t\t\t\tparams.kind === "unserved"',
+				replacement: '\t\t\t\tparams.kind === "unserved" || params.kind === "recorded"',
+				why: "A parameter's pattern domain is named under a recorded installation whatever it installs, so a missing pattern domain compiles; the oracle's property fails."
+			},
+			{
+				file: "packages/engine/src/deploy/snapshot/build.ts",
+				original: "\tparams: installation.installedParams",
+				replacement: "\tparams: { domains: [], contracts: [] }",
+				why: "snapshot.json records no parameter type, so a login does not compile under its own snapshot; the own-workload property fails."
+			},
+			{
+				file: "packages/engine/src/lower/conservative/admission.ts",
+				original: "\tconst entry = admissionEntry(cx)",
+				replacement:
+					'\tconst entry = cx.options.subject.kind === "query" ? undefined : admissionEntry(cx)',
+				why: "A read's statement holds no admission of a parameter its logic leaves unread, so the kept case's login, whose read's constant false filter leaves its relation parameter unread, compiles under a snapshot that installs no domain of it."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/domains.ts",
+				original:
+					"\t\tconst ddl = paramDomainDdl(structural, { schema: b.names.types, name: b.name(named) })",
+				replacement:
+					"\t\tconst ddl = {\n\t\t\t...paramDomainDdl(structural, { schema: b.names.types, name: b.name(named) }),\n\t\t\tconstraints: textDomainDdl(regex.check, {\n\t\t\t\tschema: b.names.types,\n\t\t\t\tname: b.name(named),\n\t\t\t\tconstraint: b.name(identity.domainCheck(structural))\n\t\t\t}).constraints\n\t\t}",
+				why: "Every parameter's pattern domain gets its own CHECK, a second copy of its structural domain's; the property fails, no case reaching a parameter's pattern domain over a field's structural domain with no CHECK of its own."
+			},
+			{
+				file: "packages/engine/src/physical/install/plan.ts",
+				original: "\t\tconst outside = outsideContracts(owned, fields.value, planned.contracts)",
+				replacement:
+					"\t\tconst outside = outsideContracts(owned, fields.value, planned.contracts.slice(0, 0))",
+				why: "The contracts outside the base a served parameter is typed by are left out of the installation's outside contracts (physical/install/plan.ts planInstallation), so no domain of them is installed or recorded; the own-workload property fails, a login refused as UninstalledDomain under its own snapshot."
+			}
+		]
+	})

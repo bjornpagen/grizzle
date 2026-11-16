@@ -1,77 +1,3 @@
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, constant, element, type Gen, int, oneOf } from "@bjornpagen/testing/gen"
-import { agree, exact, set, structuralHash } from "@bjornpagen/testing/oracle"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { float, uuid } from "@bjornpagen/testing/values"
-import { searched } from "@bjornpagen/testing/vitest"
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import {
-	Result as Answered,
-	Array as Arr,
-	Effect,
-	Exit,
-	FileSystem,
-	Formatter,
-	Layer,
-	Record as Rec,
-	String as Str
-} from "effect"
-import { served } from "#adapter/public/layer.ts"
-import { roleNameOf } from "#adapter/served/served.ts"
-import { appendAll } from "#compiler/core/array.ts"
-import { type Json, writeCanonicalJson } from "#compiler/core/canonical.ts"
-import { isList, isRecord } from "#compiler/core/record.ts"
-import type * as Result from "#compiler/core/result.ts"
-import { trusted, trustedJson } from "#compiler/core/trusted.ts"
-import { firstCodebook } from "#compiler/ir/codes.ts"
-import { workload } from "#compiler/program/workload/value.ts"
-import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
-import { rostersOf } from "#compiler/schema/own.ts"
-import { servedDifference } from "#compiler/served/difference.ts"
-import type { ServedFile } from "#compiler/served/forms.ts"
-import { servedFile, servedText } from "#compiler/served/json.ts"
-import type { UnservedMember } from "#compiler/served/unserved.ts"
-import { changeSetOver } from "#compiler/write/changeset/value.ts"
-import { offlineConnection } from "#test/pg/cli/support.ts"
-import { artifactRefusal, assert, failed } from "#test/support/assert.ts"
-import { documentDimensions, Search, scoredDocuments } from "#test/support/fixtures/api/search.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
-import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
-import { type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"
-import { printCase } from "#test/support/oracle/public/print.ts"
-import type { ProgramCase } from "#test/support/oracle/public/program.ts"
-import {
-	buildChangeSet,
-	changeSetSketchGen,
-	printChangeSet,
-	resolveChangeSet,
-	type WChangeSet
-} from "#test/support/oracle/write/changeset.ts"
-import { factsSketchGen, resolveFacts } from "#test/support/oracle/write/facts.ts"
-import {
-	buildWSchema,
-	printGroup,
-	resolveSchema,
-	schemaSketchGen,
-	type WGroup,
-	type WSchema
-} from "#test/support/oracle/write/schema.ts"
-import { clusterPool } from "#test/support/pg.ts"
-import { pickFrom, pickGen } from "#test/support/pick.ts"
-import { compiledLogin, drawnLogin, drawnSchema, loginGen } from "#test/support/served-login.ts"
-import {
-	editedAt,
-	firstSql,
-	memberPaths,
-	runtimeDifference,
-	without
-} from "#test/support/served.ts"
-import { testVerify } from "#test/support/worlds.ts"
-
 /**
  * A served file reads back as the runtime reads it: a login's compiled file, written by servedText and read by
  * servedFile from the JSON value an import of the file yields, is the file the compile served, member by member (Maps
@@ -115,686 +41,244 @@ import { testVerify } from "#test/support/worlds.ts"
  * The oracle is the file the compile served, compared as the runtime reads it.
  */
 
-type Feature =
-	| "a shape shared"
-	| "a file without its table refused"
-	| "a table cut short refused"
-	| "a read"
-	| "a paged read"
-	| "an attachment"
-	| "a change"
-	| "a roster with a hole"
-	| "a dropped member that does not read back"
-	| "a file a host reads that loads"
-	| "a stale program named"
-	| "a list holding a Map"
+import { type Reached } from "@bjornpagen/testing/features"
+import { array, int } from "@bjornpagen/testing/gen"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
+import { Scratch } from "@bjornpagen/testing/resources"
+import { float, uuid } from "@bjornpagen/testing/values"
+import { Array as Arr, Effect } from "effect"
+import { documentDimensions } from "#test/support/fixtures/api/search.ts"
+import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
+import { lawLevelGen } from "#test/support/oracle/public/laws.ts"
+import { changeSetSketchGen, resolveChangeSet } from "#test/support/oracle/write/changeset.ts"
+import { factsSketchGen, resolveFacts } from "#test/support/oracle/write/facts.ts"
+import { resolveSchema, schemaSketchGen } from "#test/support/oracle/write/schema.ts"
+import { pickFrom, pickGen } from "#test/support/pick.ts"
+import {
+	type BoundFeature,
+	boundTrip,
+	type ChangeFeature,
+	changeTrip,
+	component,
+	type Feature,
+	float32Max,
+	loginTrip,
+	servedShape
+} from "#test/unit/served/file.fixtures.ts"
 
-type ChangeFeature =
-	| "a shape shared"
-	| "a file without its table refused"
-	| "a table cut short refused"
-	| "a served write"
-	| "an array member"
-	| "a query member"
-	| "a read-back"
-	| "more than one stratum"
-	| "a dropped member that does not read back"
-	| "a file a host reads that loads"
-	| "a stale program named"
-
-type BoundFeature =
-	| "a vector served bit for bit"
-	| "a vector component of -0"
-	| "a vector written after it was bound"
-	| "a vector that is not finite refused"
-	| "a vector not finite when bound and finite after"
-	| "a dropped member that does not read back"
-	| "a file a host reads that loads"
-
-const ok = <A, E extends { readonly message: string }>(
-	r: Result.Result<A, E>,
-	what: string,
-	printed: () => string
-): A => {
-	if (!r.ok) {
-		throw new Error(`${what}: ${r.error.message}\n${printed()}`)
-	}
-	return r.value
-}
-
-/** A JSON value's canonical text. */
-const canonicalText = (value: unknown): string => {
-	const text = writeCanonicalJson(trusted<Json>(value))
-	if (!text.ok) {
-		throw new Error(`a served file's value with a canonical text: ${text.error.message}`)
-	}
-	return text.value
-}
-
-/**
- * Every record, array, Map and Set at and under a value of a served file's JSON form, as the file's grammar reads its
- * values (served/json.ts): a record's members but its `~` marker list, a revived array's items, a Map's keys and values
- * (its entry pairs are the format's), a Set's members.
- */
-const servedValues = (value: unknown): ReadonlyArray<unknown> => {
-	if (isList(value)) {
-		return [value, ...Arr.flatMap(value, servedValues)]
-	}
-	if (!isRecord(value)) {
-		return []
-	}
-	const entries = value["~map"]
-	if (isList(entries)) {
-		return [
-			value,
-			...Arr.flatMap(entries, (entry) => (isList(entry) ? Arr.flatMap(entry, servedValues) : []))
-		]
-	}
-	const members = value["~set"] ?? value["~a"]
-	if (isList(members)) {
-		return [value, ...Arr.flatMap(members, servedValues)]
-	}
-	return [
-		value,
-		...Arr.flatMap(Rec.toEntries(value), ([key, member]) =>
-			key === "~" ? [] : servedValues(member)
-		)
-	]
-}
-
-/**
- * The canonical texts, cut short, of the values a served file's JSON form holds at two places or more that are longer
- * than a reference to its table's next entry: every value of its members but its rosters and its table, and of each
- * entry of its table.
- */
-const repeatedShapes = (json: unknown): ReadonlyArray<string> => {
-	if (!isRecord(json)) {
-		return ["a served file's JSON form is a record"]
-	}
-	const table = json["shared"]
-	const entries = isList(table) ? table : []
-	const bound = `"~s:${entries.length}"`.length
-	const counts = new Map<string, number>()
-	const values = [
-		...Arr.flatMap(Rec.toEntries(json), ([key, member]) =>
-			key === "rosters" || key === "shared" || key === "~" ? [] : servedValues(member)
-		),
-		...Arr.flatMap(entries, servedValues)
-	]
-	for (const value of values) {
-		const text = canonicalText(value)
-		counts.set(text, (counts.get(text) ?? 0) + 1)
-	}
-	return Arr.map(
-		Arr.filter(Arr.fromIterable(counts), ([text, count]) => count > 1 && text.length > bound),
-		([text]) => Str.slice(0, 200)(text)
-	)
-}
-
-/** The file `json` reads back as, or none where the reader refuses it: a file missing a member its reader needs. */
-const readsBack = (json: unknown): ServedFile | undefined => {
-	const read = servedFile(json)
-	return read.ok ? read.value : undefined
-}
-
-/**
- * The reader's refusal of `json`, a served file's JSON value it must not read (see the header), as a malformed served
- * file: where in the file it refused.
- */
-const unreadAt = (
-	json: unknown,
-	what: string,
-	printed: () => string
-): ReadonlyArray<string | number> => {
-	const refusal = artifactRefusal(
-		failed(servedFile(json), `${what} does not read back\n${printed()}`)
-	)
-	assert.equal(
-		refusal.artifact,
-		"served",
-		`${what} is refused as a malformed served file\n${printed()}`
-	)
-	return refusal.at
-}
-
-/** Whether a served value holds a Map at some depth: a value a load rebuilds, not one it reads as it is. */
-const holdsMap = (value: unknown): boolean => {
-	const pending: Array<unknown> = [value]
-	for (let next = pending.pop(); next !== undefined; next = pending.pop()) {
-		if (next instanceof Map) {
-			return true
-		}
-		if (isList(next)) {
-			appendAll(pending, next)
-		} else if (isRecord(next)) {
-			appendAll(pending, Rec.values(next))
-		}
-	}
-	return false
-}
-
-/**
- * `text`, the file `file` was written as, read as a host reads it (see the header): written to disk, and its bytes read
- * and parsed; served, its roles named and its login's role read, and the layer over it built with no database, which
- * loads it.
- */
-const hostReads = (file: ServedFile, text: string, printed: () => string) =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const dir = yield* fs.makeTempDirectoryScoped()
-		const path = `${dir}/${file.login}.json`
-		yield* fs.writeFileString(path, text)
-		const bytes = yield* fs.readFileString(path)
-		const login = served(trustedJson<unknown>(bytes), file.login)
-		yield* agree(
+/** A served file reads back every drawn login's file as the runtime reads it, and no member is dropped unseen. */
+export const aServedFileReadsBackEveryDrawnLoginsFileAsTheRuntimeReadsItAndNoMemberIsDroppedUnseen =
+	property.explore(
+		(source) =>
 			[
-				["the file's roles", Arr.map(file.roles, (role) => role.name)],
-				["the roles served names", Rec.keys(login.roles)]
-			],
-			set(structuralHash, exact)
-		)
-		assert.equal(roleNameOf(login, {}), file.role, `roleNameOf reads the file's role\n${printed()}`)
-		const built = yield* Effect.exit(
-			Effect.scoped(
-				Layer.build(
-					servedSourcedLayer(offlineDecoders, {
-						...offlineConnection,
-						pool: clusterPool,
-						login,
-						verify: testVerify
-					})
-				)
-			)
-		)
-		assert.ok(
-			Exit.isSuccess(built),
-			`the layer over the file a host reads builds and loads it: ${Formatter.format(built)}\n${printed()}`
-		)
-	})
-
-/**
- * A stale copy of `file`, written as `text`: the first SQL text of the program at `pick` among those stating one edited,
- * and the file written as generate writes one, which check's difference finder names at that program. Whether `file`
- * holds a program to edit.
- */
-const staleNamed = (
-	file: ServedFile,
-	text: string,
-	pick: number,
-	printed: () => string
-): boolean => {
-	const programs = Arr.flatMap(file.roles, (role, i) =>
-		Arr.flatMap(role.members, (member, j) => {
-			const sql = firstSql(member, ["roles", i, "members", j])
-			return sql === undefined ? [] : [{ role: role.name, program: member.name, sql }]
-		})
-	)
-	const target = programs[pick % Math.max(programs.length, 1)]
-	if (target === undefined) {
-		return false
-	}
-	const stale = trusted<ServedFile>(editedAt(file, target.sql, (sql) => `${sql} `))
-	const staleText = ok(servedText(stale), "the stale file's text", printed)
-	assert.deepEqual(
-		servedDifference(text, staleText),
-		{ kind: "program", role: target.role, program: target.program },
-		`check names the stale program ${target.program}\n${printed()}`
-	)
-	return true
-}
-
-/**
- * `file` written and read back as the runtime reads it (see the header): the forms read back are the forms written; the
- * file without the member of its JSON value at `pick`, among all of them, reads back otherwise or not at all; a host's
- * read loads it; and a stale copy is named at its program. The file read back, whether a member was left out and
- * whether a program was made stale.
- */
-const readsBackWhole = (file: ServedFile, pick: number, printed: () => string) =>
-	Effect.gen(function* () {
-		const text = ok(servedText(file), "the served file's text", printed)
-		const json = trustedJson<unknown>(text)
-		const back = ok(servedFile(json), "the served file read back", printed)
-		const differs = runtimeDifference(file, back)
-		assert.equal(differs, undefined, `the file reads back otherwise at ${differs}\n${printed()}`)
-		assert.deepEqual(
-			repeatedShapes(json),
-			[],
-			`no shape longer than a reference into the file's table stands at two places\n${printed()}`
-		)
-		const table = isRecord(json) ? json["shared"] : undefined
-		assert.deepEqual(
-			unreadAt(without(json, ["shared"]), "the file without its table", printed),
-			["shared"],
-			`the file without its table is refused at its table\n${printed()}`
-		)
-		const cut = isList(table) && table.length > 0
-		if (cut) {
-			unreadAt(
-				without(json, ["shared", table.length - 1]),
-				"the file with its table cut short",
-				printed
-			)
+				source.draw(caseSketchGen),
+				source.draw(lawLevelGen),
+				source.draw(int(0, 1_000_000))
+			] as const,
+		{
+			needs: { dir: Scratch.dir },
+			situations: [
+				"a shape shared",
+				"a file without its table refused",
+				"a table cut short refused",
+				"a read",
+				"a paged read",
+				"an attachment",
+				"a change",
+				"a roster with a hole",
+				"a dropped member that does not read back",
+				"a file a host reads that loads",
+				"a stale program named",
+				"a list holding a Map"
+			] satisfies ReadonlyArray<Reached<Feature>>,
+			check:
+				(resources, notes: Case<Feature>) =>
+				([sketch, level, pick]) =>
+					Effect.flatMap(resources.dir, (dir) =>
+						loginTrip(dir, notes.draw(resolveCase(sketch)), level, pick, notes.draw, notes.note)
+					).pipe(Effect.scoped, Effect.orDie),
+			oracle: {
+				kind: "specification",
+				name: "the file the compile served, compared as the runtime reads it"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/served/json.ts",
+					original:
+						'\t\t\tconst written = shareRepeated([new ServedWriter().record(members)], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, "a served file\'s members")),',
+					replacement:
+						'\t\t\tconst unshared = new ServedWriter().record(members)\n\t\t\tconst written = shareRepeated([unshared], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, "a served file\'s members")),\n\t\t\t\troles: defined(unshared["roles"], "the roles as the writer wrote them"),',
+					why: "The file's roles are written as the writer wrote them, outside the table; each shape once fails."
+				},
+				{
+					file: "packages/engine/src/served/json.ts",
+					original: '\t\t\treturn { frame: "M", slots: entries.flatMap(entryOf) }',
+					replacement: "\t\t\treturn undefined",
+					why: "No Map is ever an entry of the table; each shape once fails."
+				},
+				{
+					file: "packages/engine/src/served/json.ts",
+					original: "\tif (!isList(shared)) {",
+					replacement: "\tif (shared === null) {",
+					why: "The reader iterates `shared` without reading it as a list; the table's refusal fails."
+				},
+				{
+					file: "packages/engine/src/served/json.ts",
+					original: `\t\t\t\t\t(String(Number(payload)) === payload ? this.#shared[Number(payload)] : undefined) ??\n\t\t\t\t\tunread(\n\t\t\t\t\t\twithin,\n\t\t\t\t\t\t\`a reference to an entry of the file's table read before it, one of \${this.#shared.length}, not ~\${tag}:\${payload}\`\n\t\t\t\t\t)`,
+					replacement: "\t\t\t\t\tthis.#shared[Number(payload)]",
+					why: "A reference is read as whatever the table holds at its index, an entry not read yet included; the table cut short is read rather than refused."
+				}
+			]
 		}
-		const paths = memberPaths(json, [])
-		const dropped = paths[pick % paths.length]
-		if (dropped !== undefined) {
-			const planted = readsBack(without(json, dropped))
-			assert.ok(
-				planted === undefined || runtimeDifference(file, planted) !== undefined,
-				`the file without ${Arr.join(Arr.map(dropped, String), ".")} reads back as the file\n${printed()}`
-			)
-		}
-		yield* hostReads(file, text, printed)
-		return {
-			back,
-			dropped: dropped !== undefined,
-			stale: staleNamed(back, text, pick, printed),
-			shared: cut
-		}
-	})
-
-/**
- * `c` as a served call supplies it: every array member's facts the call's, none written in the ChangeSet and none a
- * Stream, every other member a query, and its parameters the call's.
- */
-const servedShape = (c: WChangeSet): WChangeSet => ({
-	...c,
-	strata: Arr.map(c.strata, (stratum) =>
-		Arr.map(stratum, (m): WChangeSet["strata"][number][number] =>
-			m.source.kind === "array" ? { ...m, source: { kind: "array", facts: [], stream: false } } : m
-		)
-	),
-	binding: "passed"
-})
-
-/** The largest finite 32-bit float. */
-const float32Max = 3.4028234663852886e38
-
-/** A vector's component: a 32-bit float of any scale, -0, or one that is not finite. */
-const component = oneOf<number>([
-	float(-float32Max, float32Max),
-	constant(-0),
-	element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])
-])
-
-/** The value the first change member of `file`'s first role binds under `name`, as the file holds it. */
-const boundOf = (file: ServedFile, name: string): unknown => {
-	const member = file.roles[0]?.members[0]
-	return member?.kind === "change" && member.variants.kind === "change"
-		? member.variants.change.bound.get(name)
-		: undefined
-}
-
-/**
- * A drawn login over the case `c`'s schema extended by its law level, compiled under the level's codes, its file read
- * back whole (readsBackWhole); a login the served compile refuses is no case of this property.
- */
-const loginTrip = (
-	c: ProgramCase,
-	level: LawLevel,
-	pick: number,
-	draw: <A>(generator: Gen<A>) => A,
-	note: (feature: Feature) => void
-) =>
-	Effect.gen(function* () {
-		const schema = drawnSchema(c, level)
-		const shapes = draw(loginGen(schema))
-		const printed = () => `${printCase(c)}\n${Formatter.format(level)}\n${Formatter.format(shapes)}`
-		const compiled = yield* Effect.result(
-			compiledLogin(drawnLogin(schema, shapes), schema.laws.codes)
-		)
-		if (Answered.isFailure(compiled)) {
-			return
-		}
-		const file = compiled.success.entry.file
-		for (const member of Arr.flatMap(file.roles, (r) => r.members)) {
-			note(
-				member.kind === "paged" ? "a paged read" : member.kind === "change" ? "a change" : "a read"
-			)
-		}
-		if (Arr.some(shapes, (s) => Arr.some(s.reads, (r) => r.query.attachments.length > 0))) {
-			note("an attachment")
-		}
-		if (
-			Arr.some([...file.rosters.values()], (codes) =>
-				Arr.some(codes, (slot) => slot.kind === "hole")
-			)
-		) {
-			note("a roster with a hole")
-		}
-		const reached = yield* readsBackWhole(file, pick, printed)
-		note("a file without its table refused")
-		if (reached.shared) {
-			note("a shape shared")
-			note("a table cut short refused")
-		}
-		if (reached.dropped) {
-			note("a dropped member that does not read back")
-		}
-		if (holdsMap(reached.back.roles)) {
-			note("a list holding a Map")
-		}
-		note("a file a host reads that loads")
-		if (reached.stale) {
-			note("a stale program named")
-		}
-	})
-
-/** A fresh installation's codes: each roster's first. */
-const firstCodes = (owned: Parameters<typeof rostersOf>[0]) => firstCodebook(rostersOf(owned))
-
-/**
- * A drawn ChangeSet over a drawn group, as a served call supplies it (servedShape), served by the full writer of its
- * schema in a login of its own and compiled as generate compiles it, its file read back whole (readsBackWhole); a
- * ChangeSet that does not compile, or that no served file holds, is no case of this property.
- */
-const changeTrip = (
-	group: WGroup,
-	schema: WSchema,
-	c: WChangeSet,
-	pick: number,
-	note: (feature: ChangeFeature) => void
-) =>
-	Effect.gen(function* () {
-		const printed = () => `${printGroup(group)}\n${printChangeSet(c)}`
-		const built = buildWSchema(schema, "Wo")
-		const { changes } = buildChangeSet(built.value, built.relations, group, c)
-		const writer = role(built.value, "writer", wholeEntriesOf(built.value), {
-			write: writableNamesOf(built.value)
-		})
-		const compiled = yield* Effect.result(
-			compiledLogin(
-				login(built.value, "server", [writer], {
-					workload: [workload(built.value, { w: changes })]
-				}),
-				firstCodes
-			)
-		)
-		if (Answered.isFailure(compiled)) {
-			return
-		}
-		const file = compiled.success.entry.file
-		const change = Arr.flatMap(file.roles, (r) =>
-			Arr.flatMap(r.members, (m) =>
-				m.kind === "change" && m.variants.kind === "change" ? [m.variants.change] : []
-			)
-		)
-		note("a served write")
-		if (Arr.some(change, (ch) => ch.members.length > 0)) {
-			note("an array member")
-		}
-		if (Arr.some(Arr.flatten(c.strata), (m) => m.source.kind !== "array")) {
-			note("a query member")
-		}
-		if (Arr.some(change, (ch) => ch.readBacks.length > 0)) {
-			note("a read-back")
-		}
-		if (c.strata.length > 1) {
-			note("more than one stratum")
-		}
-		const reached = yield* readsBackWhole(file, pick, printed)
-		note("a file without its table refused")
-		if (reached.shared) {
-			note("a shape shared")
-			note("a table cut short refused")
-		}
-		if (reached.dropped) {
-			note("a dropped member that does not read back")
-		}
-		note("a file a host reads that loads")
-		if (reached.stale) {
-			note("a stale program named")
-		}
-	})
-
-/**
- * The scoring read-back bound to `components` and `account`, the caller's buffer written at `at` with `later` after the
- * bind, served by Search's writer in a login of its own and compiled as generate compiles it: read back whole
- * (readsBackWhole), its bound vector the vector bound, bit for bit, -0 as 0; or, where a component is not finite, the
- * compile's refusal of it by name.
- */
-const boundTrip = (
-	components: ReadonlyArray<number>,
-	at: number,
-	later: number,
-	pick: number,
-	account: string,
-	note: (feature: BoundFeature) => void
-) =>
-	Effect.gen(function* () {
-		const printed = () => Formatter.format({ components, at, later, account })
-		const buffer = Float32Array.from(components)
-		const bound = Float32Array.from(components, (x) => (x === 0 ? 0 : x))
-		const changes = changeSetOver
-			.empty(Search)
-			.read("scored", () => scoredDocuments)
-			.bind({ account, vector: buffer })
-		buffer[at % buffer.length] = later
-		if (Arr.some(components, (x) => Object.is(x, -0))) {
-			note("a vector component of -0")
-		}
-		if (!Arr.every(Arr.fromIterable(buffer), (x, i) => Object.is(x, bound[i]))) {
-			note("a vector written after it was bound")
-		}
-		const writer = role(Search, "writer", wholeEntriesOf(Search), {
-			write: writableNamesOf(Search)
-		})
-		const compiled = yield* Effect.result(
-			compiledLogin(
-				login(Search, "server", [writer], { workload: [workload(Search, { scored: changes })] }),
-				firstCodes
-			)
-		)
-		if (!Arr.every(components, Number.isFinite)) {
-			if (Arr.every(Arr.fromIterable(buffer), Number.isFinite)) {
-				note("a vector not finite when bound and finite after")
-			}
-			const refusal: UnservedMember = {
-				_tag: "UnservedMember",
-				reasons: [{ kind: "opaqueBinding", name: "vector" }]
-			}
-			assert.ok(
-				Answered.isFailure(compiled),
-				`a vector that is not finite is refused\n${printed()}`
-			)
-			assert.deepEqual<unknown>(
-				Answered.isFailure(compiled) ? compiled.failure.error : undefined,
-				refusal,
-				`a vector that is not finite is refused by name\n${printed()}`
-			)
-			note("a vector that is not finite refused")
-			return
-		}
-		if (Answered.isFailure(compiled)) {
-			return assert.fail(`the bound vector's read-back serves\n${printed()}`)
-		}
-		const reached = yield* readsBackWhole(compiled.success.entry.file, pick, printed)
-		assert.deepEqual<unknown>(
-			boundOf(reached.back, "vector"),
-			bound,
-			`the bound vector reads back as bound, bit for bit\n${printed()}`
-		)
-		note("a vector served bit for bit")
-		if (reached.dropped) {
-			note("a dropped member that does not read back")
-		}
-		note("a file a host reads that loads")
-	})
-
-layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) => {
-	it.effect(
-		"reads back every drawn login's file as the runtime reads it, and no member is dropped unseen",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "the file the compile served, compared as the runtime reads it"
-						},
-						suite: "unit/served/file",
-						draw: drawn(
-							(source) =>
-								[
-									source.draw(caseSketchGen),
-									source.draw(lawLevelGen),
-									source.draw(int(0, 1_000_000))
-								] as const
-						),
-						literal: Formatter.format,
-						coverage: required<Feature>(
-							[
-								"a shape shared",
-								"a file without its table refused",
-								"a table cut short refused",
-								"a read",
-								"a paged read",
-								"an attachment",
-								"a change",
-								"a roster with a hole",
-								"a dropped member that does not read back",
-								"a file a host reads that loads",
-								"a stale program named",
-								"a list holding a Map"
-							],
-							{ cases: 60, sense: notesOnly }
-						),
-						kept: [],
-						runs: 60,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					([sketch, level, pick], notes) =>
-						Effect.suspend(() =>
-							loginTrip(notes.draw(resolveCase(sketch)), level, pick, notes.draw, notes.note)
-						).pipe(Effect.scoped, Effect.orDie)
-				)
-			)
 	)
 
-	it.effect(
-		"reads back every served ChangeSet as the runtime reads it, and no member is dropped unseen",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "the served change forms, compared as the runtime reads them"
-						},
-						suite: "unit/served/change",
-						draw: drawn(
-							(source) =>
-								[
-									source.draw(schemaSketchGen),
-									source.draw(pickGen),
-									source.draw(factsSketchGen(5)),
-									source.draw(changeSetSketchGen),
-									source.draw(int(0, 1_000_000))
-								] as const
-						),
-						literal: Formatter.format,
-						coverage: required<ChangeFeature>(
-							[
-								"a shape shared",
-								"a file without its table refused",
-								"a table cut short refused",
-								"a served write",
-								"an array member",
-								"a query member",
-								"a read-back",
-								"more than one stratum",
-								"a dropped member that does not read back",
-								"a file a host reads that loads",
-								"a stale program named"
-							],
-							{ cases: 60, sense: notesOnly }
-						),
-						kept: [],
-						runs: 60,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					([schemaSketch, groupPick, factsSketch, changesSketch, pick], notes) =>
-						Effect.gen(function* () {
-							const schema = notes.draw(resolveSchema(schemaSketch))
-							const [first, ...rest] = Arr.filter(schema.groups, (g) => g.role === "drawn")
-							if (first === undefined) {
-								return
-							}
-							const group = pickFrom([first, ...rest], groupPick)
-							const c = notes.draw(
-								resolveChangeSet(group, resolveFacts(group, factsSketch), changesSketch)
-							)
-							yield* changeTrip(group, schema, servedShape(c), pick, notes.note)
-						}).pipe(Effect.scoped, Effect.orDie)
-				)
-			)
-	)
-
-	it.effect(
-		"reads back every vector a served ChangeSet binds bit for bit as it was bound, and refuses one that is not finite by name",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "the vector bound, bit for bit with -0 as 0, or its refusal by name where it is not finite"
-						},
-						suite: "unit/served/bound-vector",
-						draw: drawn(
-							(source) =>
-								[
-									source.draw(
-										array(component, { min: documentDimensions, max: documentDimensions })
-									),
-									source.draw(int(0, documentDimensions - 1)),
-									source.draw(float(-float32Max, float32Max)),
-									source.draw(int(0, 1_000_000)),
-									source.draw(uuid(4))
-								] as const
-						),
-						literal: Formatter.format,
-						coverage: required<BoundFeature>(
-							[
-								"a vector served bit for bit",
-								"a vector component of -0",
-								"a vector written after it was bound",
-								"a vector that is not finite refused",
-								"a vector not finite when bound and finite after",
-								"a dropped member that does not read back",
-								"a file a host reads that loads"
-							],
-							{ cases: 60, sense: notesOnly }
-						),
-						kept: [
-							{
-								note: "a vector bound with NaN and written finite after: its bind read it with no text",
-								sketch: [[Number.NaN, 0, 0, 0], 0, 0, 0, "00000000-0000-4000-8000-000000000000"],
-								draws: "",
-								reaches: [
-									"a vector that is not finite refused",
-									"a vector not finite when bound and finite after"
-								]
-							}
-						],
-						runs: 60,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					([components, at, later, pick, account], notes) =>
-						boundTrip(components, at, later, pick, account, notes.note).pipe(
-							Effect.scoped,
-							Effect.orDie
+/** A served file reads back every served ChangeSet as the runtime reads it, and no member is dropped unseen. */
+export const aServedFileReadsBackEveryServedChangeSetAsTheRuntimeReadsItAndNoMemberIsDroppedUnseen =
+	property.explore(
+		(source) =>
+			[
+				source.draw(schemaSketchGen),
+				source.draw(pickGen),
+				source.draw(factsSketchGen(5)),
+				source.draw(changeSetSketchGen),
+				source.draw(int(0, 1_000_000))
+			] as const,
+		{
+			needs: { dir: Scratch.dir },
+			situations: [
+				"a shape shared",
+				"a file without its table refused",
+				"a table cut short refused",
+				"a served write",
+				"an array member",
+				"a query member",
+				"a read-back",
+				"more than one stratum",
+				"a dropped member that does not read back",
+				"a file a host reads that loads",
+				"a stale program named"
+			] satisfies ReadonlyArray<Reached<ChangeFeature>>,
+			check:
+				(resources, notes: Case<ChangeFeature>) =>
+				([schemaSketch, groupPick, factsSketch, changesSketch, pick]) =>
+					Effect.gen(function* () {
+						const schema = notes.draw(resolveSchema(schemaSketch))
+						const [first, ...rest] = Arr.filter(schema.groups, (g) => g.role === "drawn")
+						if (first === undefined) {
+							return
+						}
+						const group = pickFrom([first, ...rest], groupPick)
+						const c = notes.draw(
+							resolveChangeSet(group, resolveFacts(group, factsSketch), changesSketch)
 						)
-				)
-			)
+						const dir = yield* resources.dir
+						yield* changeTrip(dir, group, schema, servedShape(c), pick, notes.note)
+					}).pipe(Effect.scoped, Effect.orDie),
+			oracle: {
+				kind: "specification",
+				name: "the served change forms, compared as the runtime reads them"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/served/json.ts",
+					original:
+						'\t\t\tconst written = shareRepeated([new ServedWriter().record(members)], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, "a served file\'s members")),',
+					replacement:
+						'\t\t\tconst unshared = new ServedWriter().record(members)\n\t\t\tconst written = shareRepeated([unshared], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, "a served file\'s members")),\n\t\t\t\troles: defined(unshared["roles"], "the roles as the writer wrote them"),',
+					why: "The file's roles are written as the writer wrote them, outside the table; each shape once fails."
+				},
+				{
+					file: "packages/engine/src/served/json.ts",
+					original: '\t\t\treturn { frame: "M", slots: entries.flatMap(entryOf) }',
+					replacement: "\t\t\treturn undefined",
+					why: "No Map is ever an entry of the table; each shape once fails."
+				},
+				{
+					file: "packages/engine/src/served/json.ts",
+					original: "\tif (!isList(shared)) {",
+					replacement: "\tif (shared === null) {",
+					why: "The reader iterates `shared` without reading it as a list; the table's refusal fails."
+				},
+				{
+					file: "packages/engine/src/served/json.ts",
+					original: `\t\t\t\t\t(String(Number(payload)) === payload ? this.#shared[Number(payload)] : undefined) ??\n\t\t\t\t\tunread(\n\t\t\t\t\t\twithin,\n\t\t\t\t\t\t\`a reference to an entry of the file's table read before it, one of \${this.#shared.length}, not ~\${tag}:\${payload}\`\n\t\t\t\t\t)`,
+					replacement: "\t\t\t\t\tthis.#shared[Number(payload)]",
+					why: "A reference is read as whatever the table holds at its index, an entry not read yet included; the table cut short is read rather than refused."
+				}
+			]
+		}
 	)
-})
+
+/** A served file reads back every vector a served ChangeSet binds bit for bit as it was bound, and refuses one that is not finite by name. */
+export const aServedFileReadsBackEveryVectorAServedChangeSetBindsBitForBitAsItWasBoundAndRefusesOneThatIsNotFiniteByName =
+	property.explore(
+		(source) =>
+			[
+				source.draw(array(component, { min: documentDimensions, max: documentDimensions })),
+				source.draw(int(0, documentDimensions - 1)),
+				source.draw(float(-float32Max, float32Max)),
+				source.draw(int(0, 1_000_000)),
+				source.draw(uuid(4))
+			] as const,
+		{
+			needs: { dir: Scratch.dir },
+			situations: [
+				"a vector served bit for bit",
+				"a vector component of -0",
+				"a vector written after it was bound",
+				"a vector that is not finite refused",
+				"a vector not finite when bound and finite after",
+				"a dropped member that does not read back",
+				"a file a host reads that loads"
+			] satisfies ReadonlyArray<Reached<BoundFeature>>,
+			check:
+				(resources, notes: Case<BoundFeature>) =>
+				([components, at, later, pick, account]) =>
+					Effect.flatMap(resources.dir, (dir) =>
+						boundTrip(dir, components, at, later, pick, account, notes.note)
+					).pipe(Effect.scoped, Effect.orDie),
+			oracle: {
+				kind: "specification",
+				name: "the vector bound, bit for bit with -0 as 0, or its refusal by name where it is not finite"
+			},
+			kept: [
+				{
+					token: ReplayToken(
+						"test/unit/served/file.test.ts#aServedFileReadsBackEveryVectorAServedChangeSetBindsBitForBitAsItWasBoundAndRefusesOneThatIsNotFiniteByName:-:2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+					),
+					reason: "a vector bound with NaN and written finite after: its bind read it with no text",
+					since: "2026-11-10"
+				}
+			],
+			kills: [
+				{
+					file: "packages/engine/src/served/json.ts",
+					original:
+						'\t\t\tconst written = shareRepeated([new ServedWriter().record(members)], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, "a served file\'s members")),',
+					replacement:
+						'\t\t\tconst unshared = new ServedWriter().record(members)\n\t\t\tconst written = shareRepeated([unshared], servedSharing)\n\t\t\tconst wire: RostersWire = Object.fromEntries(\n\t\t\t\tArray.from(rosters, ([roster, codes]) => [roster, rosterWire(codes)])\n\t\t\t)\n\t\t\tconst [root] = written.roots\n\t\t\treturn {\n\t\t\t\t...membersRecord(defined(root, "a served file\'s members")),\n\t\t\t\troles: defined(unshared["roles"], "the roles as the writer wrote them"),',
+					why: "The file's roles are written as the writer wrote them, outside the table; each shape once fails."
+				},
+				{
+					file: "packages/engine/src/served/json.ts",
+					original: '\t\t\treturn { frame: "M", slots: entries.flatMap(entryOf) }',
+					replacement: "\t\t\treturn undefined",
+					why: "No Map is ever an entry of the table; each shape once fails."
+				},
+				{
+					file: "packages/engine/src/served/json.ts",
+					original: "\tif (!isList(shared)) {",
+					replacement: "\tif (shared === null) {",
+					why: "The reader iterates `shared` without reading it as a list; the table's refusal fails."
+				},
+				{
+					file: "packages/engine/src/served/json.ts",
+					original: `\t\t\t\t\t(String(Number(payload)) === payload ? this.#shared[Number(payload)] : undefined) ??\n\t\t\t\t\tunread(\n\t\t\t\t\t\twithin,\n\t\t\t\t\t\t\`a reference to an entry of the file's table read before it, one of \${this.#shared.length}, not ~\${tag}:\${payload}\`\n\t\t\t\t\t)`,
+					replacement: "\t\t\t\t\tthis.#shared[Number(payload)]",
+					why: "A reference is read as whatever the table holds at its index, an entry not read yet included; the table cut short is read rather than refused."
+				}
+			]
+		}
+	)

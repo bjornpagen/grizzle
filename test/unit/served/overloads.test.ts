@@ -8,73 +8,52 @@
  * servedText, spells it `~op:<code>:<carrier>`; the JSON value an import of that file yields, read by servedFile, holds
  * that very instance; and the file read back writes as the same text again.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { isRecord } from "#compiler/core/record.ts"
-import { trusted, trustedJson } from "#compiler/core/trusted.ts"
-import { type RangeOpCode, rangeOp, rangeOpCodes } from "#compiler/ir/expr.ts"
-import { type SpanCarrier, spanCarriers } from "#compiler/ir/scalar.ts"
-import type { ServedFile } from "#compiler/served/forms.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, String as Str } from "effect"
+import { trustedJson } from "#compiler/core/trusted.ts"
+import { rangeOp } from "#compiler/ir/expr.ts"
+import { spanCarriers } from "#compiler/ir/scalar.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
+import {
+	type Feature,
+	fileHolding,
+	overloadGen,
+	probeOf
+} from "#test/unit/served/overloads.fixtures.ts"
 
-type Overload = readonly [RangeOpCode, SpanCarrier]
-
-type Feature = `over ${SpanCarrier}`
-
-const overloadGen: Gen<Overload> = (source) =>
-	[source.draw(element(rangeOpCodes)), source.draw(element(spanCarriers))] as const
-
-/**
- * A served file holding `op` as its member `probe` and nothing besides, no roster among them: the writer walks a file's
- * members as values of any shape, so one member is a file it writes.
- */
-const fileHolding = (op: unknown): ServedFile =>
-	trusted<ServedFile>({ rosters: new Map(), probe: op })
-
-/** The member `probe` of a served file read back, as the file's value holds it. */
-const probeOf = (file: object): unknown => (isRecord(file) ? file["probe"] : undefined)
-
-describe("a range overload in a served file", () => {
-	it.effect(
-		"reads back as its one instance, which the registry knows it by, and writes as itself again",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/served/overloads",
-						generator: overloadGen,
-						literal: Formatter.format,
-						box: "every range overload, each code over each span carrier",
-						oracle: {
-							kind: "specification",
-							name: "ir/expr.ts rangeOp, the overload's one instance"
-						},
-						coverage: requiredInSpace<Feature>(Arr.map(spanCarriers, (c): Feature => `over ${c}`)),
-						caseHang
-					},
-					([code, carrier], c) =>
-						Effect.sync(() => {
-							const op = rangeOp(code, carrier)
-							const tag = `~op:${code}:${carrier}`
-							const text = succeeded(servedText(fileHolding(op)), "the file's text")
-							assert.ok(Str.includes(`"${tag}"`)(text), `the overload writes as ${tag}`)
-							const read = succeeded(servedFile(trustedJson<unknown>(text)), "the file read back")
-							assert.ok(probeOf(read) === op, `${tag} reads back as the overload's one instance`)
-							assert.equal(
-								succeeded(servedText(read), "the file read back, written again"),
-								text,
-								`the file holding ${tag}, read back, writes as itself again`
-							)
-							c.note(`over ${carrier}`)
-						})
-				)
-			)
-	)
-})
+/** A range overload in a served file reads back as its one instance, which the registry knows it by, and writes as itself again. */
+export const aRangeOverloadInAServedFileReadsBackAsItsOneInstanceWhichTheRegistryKnowsItByAndWritesAsItselfAgain =
+	property.exhaust(finite(overloadGen), {
+		needs: {},
+		situations: Arr.map(spanCarriers, (c): Feature => `over ${c}`) satisfies ReadonlyArray<
+			Reached<Feature>
+		>,
+		check:
+			(_, c: Case<Feature>) =>
+			([code, carrier]) =>
+				Effect.sync(() => {
+					const op = rangeOp(code, carrier)
+					const tag = `~op:${code}:${carrier}`
+					const text = succeeded(servedText(fileHolding(op)), "the file's text")
+					assert.ok(Str.includes(`"${tag}"`)(text), `the overload writes as ${tag}`)
+					const read = succeeded(servedFile(trustedJson<unknown>(text)), "the file read back")
+					assert.ok(probeOf(read) === op, `${tag} reads back as the overload's one instance`)
+					assert.equal(
+						succeeded(servedText(read), "the file read back, written again"),
+						text,
+						`the file holding ${tag}, read back, writes as itself again`
+					)
+					c.note(`over ${carrier}`)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "ir/expr.ts rangeOp, the overload's one instance"
+		},
+		box: "every range overload, each code over each span carrier",
+		kept: [],
+		kills: []
+	})

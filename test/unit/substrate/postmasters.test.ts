@@ -17,203 +17,69 @@
  *
  * Features: each verdict, by the reason for it.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Effect, FileSystem, Formatter, Layer, Result } from "effect"
-import { ChildProcess } from "effect/process"
-import { postmastersOf } from "#pg/installation.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Scratch } from "@bjornpagen/testing/resources"
+import { Effect, Formatter, Result } from "effect"
 import { assert } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
+import {
+	caseOf,
+	type PostmasterFeature,
+	predicted,
+	sketchGen
+} from "#test/unit/substrate/postmasters.fixtures.ts"
 
-/** The binary a case's process runs: its tree's, its tree's replaced after the process started, or another tree's. */
-const binaries = ["the tree's", "the tree's, replaced", "another tree's"] as const
-type Binary = (typeof binaries)[number]
-
-/** What the data directory's postmaster.pid holds: the process, another process, nothing, or text of no lock file. */
-const locks = ["naming it", "naming another process", "absent", "malformed"] as const
-type Lock = (typeof locks)[number]
-
-/** Whether the process's data directory is the selected cluster's, which is no foreign postmaster. */
-const directories = ["another cluster's", "the selected cluster's"] as const
-type Directory = (typeof directories)[number]
-
-/** A case: one process, by the binary it runs, its lock file and its data directory. */
-interface Sketch {
-	readonly binary: Binary
-	readonly lock: Lock
-	readonly directory: Directory
-}
-
-const sketchGen: Gen<Sketch> = (source) => ({
-	binary: source.draw(element(binaries)),
-	lock: source.draw(element(locks)),
-	directory: source.draw(element(directories))
-})
-
-/** What postmastersOf finds of a case's process: it, nothing, or a lock file it refuses. */
-type Verdict = "listed" | "unlisted" | "unparsed"
-
-/** The reason for a case's verdict, as the search must reach each. */
-type PostmasterFeature =
-	| "a postmaster of the tree listed"
-	| "a postmaster of a replaced binary listed"
-	| "another tree's process unlisted"
-	| "a backend's directory unlisted"
-	| "a process without a lock file unlisted"
-	| "the selected cluster's postmaster unlisted"
-	| "a malformed lock file refused"
-
-/** The model: what postmastersOf finds of a case's process, and why. */
-const predicted = (s: Sketch): readonly [Verdict, PostmasterFeature] => {
-	if (s.binary === "another tree's") {
-		return ["unlisted", "another tree's process unlisted"]
-	}
-	switch (s.lock) {
-		case "malformed":
-			return ["unparsed", "a malformed lock file refused"]
-		case "absent":
-			return ["unlisted", "a process without a lock file unlisted"]
-		case "naming another process":
-			return ["unlisted", "a backend's directory unlisted"]
-		case "naming it":
-			return s.directory === "the selected cluster's"
-				? ["unlisted", "the selected cluster's postmaster unlisted"]
-				: [
-						"listed",
-						s.binary === "the tree's"
-							? "a postmaster of the tree listed"
-							: "a postmaster of a replaced binary listed"
-					]
-	}
-}
-
-/** The port a case's lock file records. */
-const port = 5999
-
-/** The kernel's suffix to the name of an executable replaced or removed after its process started. */
-const deleted = " (deleted)"
-
-/**
- * A case's process and its verdict: under a directory of its own, a tree and another tree whose bin/postgres are hard
- * links of `binary`, the process running the chosen one in its data directory until the case ends, the lock file
- * written once its pid is known, and the binary replaced when the case asks.
- */
-const caseOf = (binary: string, s: Sketch) =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const root = yield* fs.makeTempDirectoryScoped({ prefix: "grizzle-postmasters-" })
-		const tree = `${root}/tree`
-		const other = `${root}/other`
-		const data = `${root}/data`
-		const selected = s.directory === "the selected cluster's" ? data : `${root}/selected`
-		yield* Effect.forEach(
-			[`${tree}/bin`, `${other}/bin`, data, `${root}/selected`],
-			(path) => fs.makeDirectory(path, { recursive: true }),
-			{ discard: true }
-		)
-		yield* fs.link(binary, `${tree}/bin/postgres`)
-		yield* fs.link(binary, `${other}/bin/postgres`)
-		const executable = `${s.binary === "another tree's" ? other : tree}/bin/postgres`
-		const child = yield* ChildProcess.make(executable, ["-e", "setInterval(() => {}, 2 ** 30)"], {
-			cwd: data,
-			stdin: "ignore",
-			stdout: "ignore",
-			stderr: "ignore",
-			killSignal: "SIGKILL"
-		})
-		const pid = Number(child.pid)
-		const holder = s.lock === "naming another process" ? process.pid : pid
-		if (s.lock !== "absent") {
-			yield* fs.writeFileString(
-				`${data}/postmaster.pid`,
-				s.lock === "malformed" ? "no lock file\n" : `${holder}\n${data}\n0\n${port}\n`
-			)
-		}
-		if (s.binary === "the tree's, replaced") {
-			yield* fs.remove(`${tree}/bin/postgres`)
-			yield* fs.link(binary, `${tree}/bin/postgres`)
-		}
-		const found = yield* Effect.result(postmastersOf([tree], selected))
-		return {
-			found,
-			listed: {
-				pid,
-				data,
-				port,
-				executable: s.binary === "the tree's, replaced" ? `${executable}${deleted}` : executable
-			}
-		}
-	})
-
-const nodeLayer = Layer.mergeAll(
-	NodeChildProcessSpawner.layer.pipe(
-		Layer.provide(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer))
-	),
-	NodeFileSystem.layer
-)
-
-layer(nodeLayer, { excludeTestServices: true })("the postmasters running a tree's build", (it) => {
-	it.effect(
-		"are every process running the tree's bin/postgres whose lock file names it, wherever its data directory lies, but the selected cluster's",
-		(ctx) =>
+/** The postmasters running a tree's build are every process running the tree's bin/postgres whose lock file names it, wherever its data directory lies, but the selected cluster's. */
+export const thePostmastersRunningATreesBuildAreEveryProcessRunningTheTreesBinPostgresWhoseLockFileNamesItWhereverItsDataDirectoryLiesButTheSelectedClusters =
+	property.exhaust(finite(sketchGen), {
+		needs: { dir: Scratch.dir },
+		situations: [
+			"a postmaster of the tree listed",
+			"a postmaster of a replaced binary listed",
+			"another tree's process unlisted",
+			"a backend's directory unlisted",
+			"a process without a lock file unlisted",
+			"the selected cluster's postmaster unlisted",
+			"a malformed lock file refused"
+		] satisfies ReadonlyArray<Reached<PostmasterFeature>>,
+		check: (resources, c: Case<PostmasterFeature>) => (s) =>
 			Effect.scoped(
 				Effect.gen(function* () {
-					const fs = yield* FileSystem.FileSystem
-					const copies = yield* fs.makeTempDirectoryScoped({ prefix: "grizzle-postmaster-binary-" })
-					const binary = `${copies}/postgres`
-					yield* fs.copyFile(process.execPath, binary)
-					return yield* searched(
-						ctx,
-						exhaust(
-							{
-								suite: "unit/substrate/postmasters",
-								generator: sketchGen,
-								literal: Formatter.format,
-								box: "one process a case, each binary it runs (the tree's, the tree's replaced since it started, another tree's), each lock file its data directory holds (naming it, naming another process, absent, malformed), its data directory the selected cluster's or another",
-								oracle: {
-									kind: "specification",
-									name: "a process of the tree's binary whose lock file names it is a postmaster, unless its directory is the selected cluster's"
-								},
-								coverage: requiredInSpace<PostmasterFeature>([
-									"a postmaster of the tree listed",
-									"a postmaster of a replaced binary listed",
-									"another tree's process unlisted",
-									"a backend's directory unlisted",
-									"a process without a lock file unlisted",
-									"the selected cluster's postmaster unlisted",
-									"a malformed lock file refused"
-								]),
-								caseHang
-							},
-							(s, c) =>
-								Effect.scoped(
-									Effect.gen(function* () {
-										const [verdict, feature] = predicted(s)
-										const { found, listed } = yield* caseOf(binary, s)
-										switch (verdict) {
-											case "unparsed":
-												assert.ok(
-													Result.isFailure(found) && found.failure._tag === "LockFileUnparsed",
-													`a malformed lock file is refused: ${Formatter.format(found)}`
-												)
-												break
-											case "listed":
-												assert.deepEqual(Result.getOrThrow(found), [listed])
-												break
-											case "unlisted":
-												assert.deepEqual(Result.getOrThrow(found), [])
-												break
-										}
-										c.note(feature)
-									})
-								)
-						)
-					)
+					const dir = yield* resources.dir
+					const [verdict, feature] = predicted(s)
+					const { found, listed } = yield* caseOf(dir, s)
+					switch (verdict) {
+						case "unparsed":
+							assert.ok(
+								Result.isFailure(found) && found.failure._tag === "LockFileUnparsed",
+								`a malformed lock file is refused: ${Formatter.format(found)}`
+							)
+							break
+						case "listed":
+							assert.deepEqual(Result.getOrThrow(found), [listed])
+							break
+						case "unlisted":
+							assert.deepEqual(Result.getOrThrow(found), [])
+							break
+					}
+					c.note(feature)
 				})
-			)
-	)
-})
+			),
+		oracle: {
+			kind: "specification",
+			name: "a process of the tree's binary whose lock file names it is a postmaster, unless its directory is the selected cluster's"
+		},
+		box: "one process a case, each binary it runs (the tree's, the tree's replaced since it started, another tree's), each lock file its data directory holds (naming it, naming another process, absent, malformed), its data directory the selected cluster's or another",
+		kept: [],
+		kills: [
+			{
+				file: "packages/pg/src/installation.ts",
+				original:
+					'\t\tconst pids = yield* Effect.mapError(\n\t\t\tfs.readDirectory("/proc"),\n\t\t\t(cause) => new Unreadable({ path: "/proc", cause })',
+				replacement: `\t\tconst stateRoot = \`\${process.env["HOME"]}/.local/var/grizzle\`\n\t\tconst states = yield* Effect.orElseSucceed(fs.readDirectory(stateRoot), () => [])\n\t\tconst pids = yield* Effect.forEach(states, (state) =>\n\t\t\tEffect.orElseSucceed(\n\t\t\t\tEffect.map(\n\t\t\t\t\tfs.readFileString(\`\${stateRoot}/\${state}/data/postmaster.pid\`),\n\t\t\t\t\t(text) => text.split("\\n")[0] ?? ""\n\t\t\t\t),\n\t\t\t\t() => ""\n\t\t\t)`,
+				why: "The postmasters are read from the lock files of the clusters' state directories under ~/.local/var/grizzle, not from the processes, so a postmaster whose data directory lies elsewhere is never found; the property fails at the first case that lists one."
+			}
+		]
+	})

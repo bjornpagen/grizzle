@@ -15,11 +15,16 @@ const { active, lintConfig } = standard(toolchain)
 /**
  * The dictionary doors that mint (@bjornpagen/testing/dictionary's dictionary, which import-doors lets no other module
  * import): each holds the vocabularies of the test module beside it that are the domain itself, never cases a person
- * chose. The bench catalog's gate ids; the scalar namespace's plain descriptors and the ScalarTypes the test fixtures
- * export; the world model's invalid kinds.
+ * chose. The bench catalog's gate ids; the texts the grizzle skill documents; the repository's src modules and its
+ * packages' entry points; the SQLSTATEs and failure sources a live call's error reads, and the live model's key forms;
+ * the scalar namespace's plain descriptors and the ScalarTypes the test fixtures export; the world model's invalid kinds.
  */
 const DICTIONARY_MINTS = [
 	"test/unit/bench/harness.dictionary.ts",
+	"test/unit/cli/skill.dictionary.ts",
+	"test/unit/deps/deps.dictionary.ts",
+	"test/unit/live/call-error.dictionary.ts",
+	"test/unit/live/values.dictionary.ts",
 	"test/unit/scalar/descriptors.dictionary.ts",
 	"test/unit/scalar/registry.dictionary.ts",
 	"test/unit/world-model/generate.dictionary.ts"

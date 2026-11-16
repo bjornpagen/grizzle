@@ -9,47 +9,43 @@
  *
  * Features: none; the box is every text.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { noCoverage } from "@bjornpagen/testing/features"
-import { element } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Effect, FileSystem, Formatter } from "effect"
-import { containsText, nonEmpty } from "#test/support/assert.ts"
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
+import { property } from "@bjornpagen/testing/property"
+import { Effect, FileSystem } from "effect"
+import { containsText } from "#test/support/assert.ts"
 import { repoRoot } from "#test/support/files.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { documentedTexts } from "#test/support/refusals.ts"
+import { documented } from "#test/unit/cli/skill.dictionary.ts"
 
-layer(NodeServices.layer, { excludeTestServices: true })("the grizzle skill", (it) => {
-	it.effect("documents every refusal and every stage's fix word for word", (ctx) =>
-		searched(
-			ctx,
+/** The grizzle skill documents every refusal and every stage's fix word for word. */
+export const theGrizzleSkillDocumentsEveryRefusalAndEveryStagesFixWordForWord = property.exhaust(
+	finite(word(documented)),
+	{
+		box: "every text of the refusal table: each refusal's problem and fix, each applied-edit phrase and each stage's fix",
+		needs: {},
+		situations: [],
+		check: () => (text) =>
 			Effect.gen(function* () {
 				const fs = yield* FileSystem.FileSystem
 				const skill = yield* fs.readFileString(
 					`${repoRoot}packages/grizzle/skills/grizzle/SKILL.md`
 				)
-				const texts = nonEmpty(documentedTexts(), "the refusal table documents texts")
-				return yield* exhaust(
-					{
-						suite: "unit/cli/skill",
-						generator: element(texts),
-						literal: Formatter.format,
-						coverage: noCoverage,
-						caseHang,
-						box: "every text of the refusal table: each refusal's problem and fix, each applied-edit phrase and each stage's fix",
-						oracle: {
-							kind: "specification",
-							name: "the shipped skill, which quotes every refusal"
-						}
-					},
-					(text) =>
-						Effect.sync(() => {
-							containsText(skill, text, "the skill quotes the text word for word")
-						})
-				)
-			})
-		)
-	)
-})
+				containsText(skill, text, "the skill quotes the text word for word")
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the shipped skill, which quotes every refusal"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/grizzle/src/cli/refusals.ts",
+				original:
+					'\t\tproblem: "the schemas or their logins differ from snapshot.json (an ungenerated change)",\n\t\tfix: "run grizzle generate"',
+				replacement:
+					'\t\tproblem: "the schemas or their logins differ from snapshot.json (an ungenerated change)",\n\t\tfix: "rerun grizzle generate"',
+				why: "A refusal's fix reworded where the skill is not."
+			}
+		]
+	}
+)

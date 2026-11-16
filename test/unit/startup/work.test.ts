@@ -32,450 +32,102 @@
  * The oracle is the specification: the counts above, each stated by the module it names, and the linear law. The box
  * is exhausted: every dimension at 2, 4 and 6, every other at its least. Features: every dimension.
  */
-import net from "node:net"
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, FileSystem, Formatter, Layer, Record as Rec } from "effect"
-import { served } from "#adapter/public/layer.ts"
-import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
-import { resolveConfig } from "#cli/config.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
-import { login } from "#compiler/program/workload/login.ts"
-import { workload } from "#compiler/program/workload/value.ts"
-import { closedId, pg } from "#compiler/public/fields.ts"
-import {
-	type AnySchema,
-	closed,
-	contained,
-	key,
-	on,
-	relation,
-	schema,
-	type Statement
-} from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import { roleBuilder as role } from "#compiler/schema/world.ts"
-import { servedPath } from "#compiler/served/forms.ts"
-import type { FieldBase } from "#compiler/types/fields/field.ts"
-import type { AnyClosed, AnyRelation, Relation } from "#compiler/types/schema/relation.ts"
-import type { EntryValue } from "#compiler/types/schema/world.ts"
-import { defineConfig } from "#index.ts"
-import {
-	cliClock,
-	cliOver,
-	configName,
-	offlineConnection,
-	offlineOwner,
-	workspace
-} from "#test/pg/cli/support.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Scratch } from "@bjornpagen/testing/resources"
+import { Array as Arr, Effect } from "effect"
 import { assert, defined } from "#test/support/assert.ts"
 import { incrementsDoNotGrow } from "#test/support/growth.ts"
-import { type CallSite, callCounts } from "#test/support/kernel/calls.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
-import { nonEmptyList } from "#test/support/oracle/pick.ts"
-import { clusterPool } from "#test/support/pg.ts"
-import { upTo } from "#test/support/up-to.ts"
+import {
+	type Dimension,
+	dimensions,
+	exactly,
+	pointGen,
+	siteNames,
+	sizeOf,
+	stepNames,
+	type Steps,
+	stepsAt
+} from "#test/unit/startup/work.fixtures.ts"
 
-/**
- * The functions whose calls the guard counts: each the one entry of a whole-schema pass, called a handful of times, so
- * no optimizing compiler folds one call into another. The canonical encoder's own calls are no such entry: a schema's
- * content is levelContent's, a content read again from a description is contentOfDesc's, a
- * description's identity text is descText's, which no builder over a built schema reads, and a literal held to its
- * type's base is literalProblem's, which no closed cell meets at compile.
- */
-const sites = Object.freeze({
-	descText: { file: "packages/engine/src/ir/desc.ts", name: "descText" },
-	literalProblem: { file: "packages/engine/src/ir/expr.ts", name: "literalProblem" },
-	levelContent: { file: "packages/engine/src/schema/levels.ts", name: "levelContent" },
-	contentOfDesc: { file: "packages/engine/src/schema/levels.ts", name: "contentOfDesc" },
-	own: { file: "packages/engine/src/schema/own.ts", name: "ownWith" },
-	schemaLevel: { file: "packages/engine/src/core/fingerprint.ts", name: "schemaLevel" },
-	compileLaws: { file: "packages/engine/src/laws/model/model.ts", name: "compileLaws" },
-	installBasis: { file: "packages/engine/src/physical/install/plan.ts", name: "installBasis" },
-	planBasis: { file: "packages/engine/src/physical/install/plan.ts", name: "planBasis" },
-	planClosed: { file: "packages/engine/src/physical/ddl/constants.ts", name: "planClosed" },
-	plan: { file: "packages/engine/src/physical/install/plan.ts", name: "planInstallation" },
-	installation: {
-		file: "packages/engine/src/physical/install/compile.ts",
-		name: "installationOver"
-	},
-	plannedLoginRoles: {
-		file: "packages/grizzle/src/adapter/served/login.ts",
-		name: "plannedLoginRoles"
-	},
-	connect: {
-		file: "packages/grizzle/src/adapter/migrate/session.ts",
-		name: "openMigrationSession"
-	}
-} satisfies Readonly<Record<string, CallSite>>)
-
-type Site = keyof typeof sites
-type Counts = Readonly<Record<Site, number>>
-
-type Dimension = "relations" | "closed rows" | "roles" | "programs"
-
-const dimensions: Arr.NonEmptyReadonlyArray<Dimension> = [
-	"relations",
-	"closed rows",
-	"roles",
-	"programs"
-]
-
-/** A point of the box: a dimension, measured at 2·half, 4·half and 6·half. */
-interface Point {
-	readonly dimension: Dimension
-	readonly half: number
-}
-
-const pointGen: Gen<Point> = (s) => ({
-	dimension: s.draw(element(dimensions)),
-	half: 1
-})
-
-/** The size of a generated installation: its relations, its closed relation's rows, its roles and its programs. */
-interface Size {
-	readonly relations: number
-	readonly rows: number
-	readonly roles: number
-	readonly programs: number
-}
-
-/** The installation at `n` of a dimension, every other dimension at its least. */
-const sizeOf = (dimension: Dimension, n: number): Size => {
-	const least: Size = { relations: 2, rows: 2, roles: 1, programs: 1 }
-	switch (dimension) {
-		case "relations":
-			return { ...least, relations: n }
-		case "closed rows":
-			return { ...least, rows: n }
-		case "roles":
-			return { ...least, roles: n }
-		case "programs":
-			return { ...least, relations: n, programs: n }
-	}
-}
-
-type Generated = Relation<string, Record<string, FieldBase>, readonly [string, ...Array<string>]>
-
-/** The schema of a size: its relations keyed by one text pattern, each contained in the one before it, and a closed
- * relation of `rows` rows a relation's rows are held to. */
-const schemaOf = (size: Size) => {
-	const Ident = str.regex("^[a-z0-9_]{1,64}$")
-	const A = closed("GuardA", ["a0", ...upTo(size.rows - 1, (i) => `a${i + 1}`)])
-	const B = closed("GuardB", ["b0"])
-	const Weight = closed.relation(
-		"Weight",
-		{ a: closedId(A), b: closedId(B), w: pg.integer },
-		["a", "b"],
-		upTo(size.rows, (i) => ({ a: `a${i}`, b: "b0" as const, w: i }))
-	)
-	const fields: Record<string, FieldBase> = { id: Ident, parent: Ident, code: Ident }
-	const primary: readonly [string, ...Array<string>] = ["id"]
-	const ordinary: ReadonlyArray<Generated> = upTo(size.relations, (i) =>
-		relation(`G${i}`, fields, primary)
-	)
-	const Pick = relation("Pick", { id: Ident, a: closedId(A), b: closedId(B) }, ["id"])
-	const declared: Record<string, AnyRelation | AnyClosed> = { GuardA: A, GuardB: B, Weight, Pick }
-	for (const r of ordinary) {
-		declared[r.name] = r
-	}
-	const statements: ReadonlyArray<Statement> = [
-		contained(on(Pick, "a", "b"), on(Weight, "a", "b")),
-		...Arr.flatMap(ordinary, (r, i): ReadonlyArray<Statement> => {
-			const below = i === 0 ? undefined : ordinary[i - 1]
-			return [
-				key(on(r, "code")),
-				...(below === undefined ? [] : [contained(on(r, "parent"), on(below, "id"))])
-			]
-		})
-	]
-	const entries: Record<string, EntryValue> = { GuardA: A, GuardB: B, Pick }
-	for (const r of ordinary) {
-		entries[r.name] = r
-	}
-	const written = [...Arr.map(ordinary, (r) => r.name), "Pick"]
-	return { declared, statements, ordinary, entries, written }
-}
-
-/** The login of a size over its built schema: its full roles, and a workload over the first of keyed lookups. */
-const loginOf = (size: Size, base: AnySchema, made: ReturnType<typeof schemaOf>) => {
-	const [first, ...rest] = nonEmptyList(
-		upTo(size.roles, (i) =>
-			role(base, `guard${i}`, made.entries, { write: made.written, refresh: [] })
-		),
-		"the login's roles"
-	)
-	const programs = workload(
-		first,
-		Rec.fromEntries(
-			Arr.map(Arr.take(made.ordinary, size.programs), (r) => [`by${r.name}`, r] as const)
-		)
-	)
-	return login(base, "server", [first, ...rest], { workload: [programs] })
-}
-
-/** A socket whose connect fails at once, so a command that connects is refused before anything leaves the process. */
-class Unreachable extends net.Socket {
-	override connect(): this {
-		queueMicrotask(() => this.destroy(new Error("unreachable")))
-		return this
-	}
-}
-
-/** The migration identity's connection over an unreachable socket: migrate and drift stop where they connect. */
-const unreachable: MigrationConnectionConfig = {
-	...offlineOwner,
-	transport: { ...offlineOwner.transport, open: () => new Unreachable() }
-}
-
-const nextNow = cliClock()
-
-/** What each step of an installation's life counted: the builders, each command, and the layer. */
-interface Steps {
-	readonly schema: Counts
-	readonly builders: Counts
-	readonly generate: Counts
-	readonly check: Counts
-	readonly migrate: Counts
-	readonly drift: Counts
-	readonly layer: Counts
-}
-
-/** Each step at a size, counted, in a workspace of its own: the builders, generate, check, migrate, drift, the layer. */
-const stepsAt = (size: Size) =>
-	Effect.scoped(
-		Effect.gen(function* () {
-			const fs = yield* FileSystem.FileSystem
-			const made = schemaOf(size)
-			const [base, schemaCounts] = yield* callCounts(
-				Effect.sync((): AnySchema => schema("Guard", Rec.values(made.declared), made.statements)),
-				sites
-			)
-			const [server, builders] = yield* callCounts(
-				Effect.sync(() => loginOf(size, base, made)),
-				sites
-			)
-			const config = defineConfig({
-				schemas: [base],
-				logins: [server],
-				migrations: "migrations",
-				connection: () => unreachable
-			})
-			const ws = yield* workspace("startup")
-			const command = (name: "check" | "migrate" | "drift") =>
-				callCounts(cliOver(ws, config, [name, configName], nextNow()), sites)
-			const [generated, generate] = yield* callCounts(
-				cliOver(ws, config, ["generate", configName, "--name", "init"], nextNow()),
-				sites
-			)
-			assert.equal(generated.code, 0, generated.stderr)
-			const [checked, check] = yield* command("check")
-			assert.equal(checked.code, 0, checked.stderr)
-			const [, migrate] = yield* command("migrate")
-			const [, drift] = yield* command("drift")
-			const resolved = yield* resolveConfig(config, `${ws}/${configName}`)
-			const directory = defined(resolved.schemas[0], "the configured schema").directory
-			const text = yield* fs.readFileString(`${directory}/${servedPath("server")}`)
-			const file = served<typeof server>(trustedJson<unknown>(text), "server")
-			const [, layer] = yield* callCounts(
-				Effect.scoped(
-					Layer.build(
-						servedSourcedLayer(offlineDecoders, {
-							...offlineConnection,
-							pool: clusterPool,
-							login: file
-						})
-					)
-				),
-				sites
-			)
-			const steps: Steps = {
-				schema: schemaCounts,
-				builders,
-				generate,
-				check,
-				migrate,
-				drift,
-				layer
-			}
-			return steps
-		})
-	)
-
-/**
- * The plans generate and check make over the installation's basis, each once (cli/generate.ts plannedLogins,
- * draftInput), since each is planned from what the one before it compiled: the workload's check pass, which no
- * installation stands behind (ParamSource unserved) because the workload's parameter types are its output; the
- * artifacts every served file compiles over, planned from those types, which name the parameters' domains and join
- * their contracts' laws (98340dcf), and which an executor's compile requires (an installation stands behind it); and
- * the draft's installation, under its settings and extensions, among them the served workload compiled over the
- * second.
- */
-const commandPlans = [
-	"the workload's check pass",
-	"the served artifacts",
-	"the draft's installation"
-] as const
-
-/** The counts a step must make exactly, whatever the size: each site it names, at its count. */
-const exactly: { readonly [S in keyof Steps]: Partial<Counts> } = {
-	schema: { levelContent: 1, contentOfDesc: 0, own: 0 },
-	builders: { descText: 0, levelContent: 0, contentOfDesc: 0, own: 0, compileLaws: 0 },
-	generate: {
-		levelContent: 0,
-		contentOfDesc: 0,
-		own: 1,
-		schemaLevel: 1,
-		compileLaws: 1,
-		installBasis: 1,
-		planBasis: 0,
-		planClosed: 1,
-		plan: commandPlans.length,
-		installation: 1,
-		plannedLoginRoles: 1
-	},
-	check: {
-		levelContent: 0,
-		contentOfDesc: 0,
-		own: 1,
-		schemaLevel: 1,
-		compileLaws: 1,
-		installBasis: 1,
-		planBasis: 0,
-		planClosed: 1,
-		plan: commandPlans.length,
-		installation: 1,
-		plannedLoginRoles: 1
-	},
-	migrate: {
-		levelContent: 0,
-		contentOfDesc: 0,
-		own: 0,
-		compileLaws: 0,
-		installBasis: 0,
-		planBasis: 0,
-		planClosed: 0,
-		plan: 0,
-		installation: 0,
-		plannedLoginRoles: 0,
-		descText: 0,
-		connect: 1
-	},
-	drift: {
-		levelContent: 0,
-		contentOfDesc: 0,
-		own: 0,
-		compileLaws: 0,
-		installBasis: 0,
-		planBasis: 0,
-		planClosed: 0,
-		plan: 0,
-		installation: 0,
-		plannedLoginRoles: 0,
-		descText: 0,
-		connect: 1
-	},
-	layer: {
-		levelContent: 0,
-		contentOfDesc: 0,
-		own: 0,
-		schemaLevel: 0,
-		compileLaws: 0,
-		installBasis: 0,
-		planBasis: 0,
-		planClosed: 0,
-		plan: 0,
-		installation: 0,
-		plannedLoginRoles: 0
-	}
-}
-
-const stepNames: ReadonlyArray<keyof Steps> = [
-	"schema",
-	"builders",
-	"generate",
-	"check",
-	"migrate",
-	"drift",
-	"layer"
-]
-
-const siteNames: ReadonlyArray<Site> = Rec.keys(sites)
-
-layer(NodeServices.layer, { excludeTestServices: true })("startup work", (it) => {
-	it.effect(
-		"reads a schema's content once, compiles it once per command, nothing for migrate, drift or the served layer, and grows linearly",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						box: "every dimension of the schema and its worlds at 2, 4 and 6, every other at its least",
-						oracle: {
-							kind: "specification",
-							name: "each step's counts as its modules state them, and no count whose second step adds more than its first"
-						},
-						suite: "unit/startup/work",
-						generator: pointGen,
-						literal: Formatter.format,
-						coverage: requiredInSpace<Dimension>(dimensions),
-						caseHang
-					},
-					(point, c) =>
-						Effect.gen(function* () {
-							c.note(point.dimension)
-							const sizes = [2 * point.half, 4 * point.half, 6 * point.half] as const
-							const measured = yield* Effect.forEach(sizes, (n) =>
-								stepsAt(sizeOf(point.dimension, n))
-							)
-							const bySize = new Map(
-								Arr.map(measured, (steps, i) => [2 * point.half * (i + 1), steps] as const)
-							)
-							const stepsOf = (n: number): Steps => defined(bySize.get(n), `the steps at ${n}`)
-							const [first] = measured
-							const at = `${point.dimension} at ${Arr.join(Arr.map(sizes, String), ", ")}`
-							for (const step of stepNames) {
-								for (const site of siteNames) {
-									const want = exactly[step][site]
-									for (const steps of measured) {
-										if (want !== undefined) {
-											assert.equal(steps[step][site], want, `${at}: ${step} calls ${site}`)
-										}
-									}
-									incrementsDoNotGrow(
-										(n) => stepsOf(n)[step][site],
-										point.half,
-										`${at}: ${step}'s calls of ${site}`
-									)
-								}
-							}
-							if (point.dimension === "closed rows") {
-								for (const step of ["generate", "check", "layer"] as const) {
-									for (const steps of measured) {
-										assert.equal(
-											steps[step].literalProblem,
-											first[step].literalProblem,
-											`${at}: ${step} holds no closed cell to its base type again`
-										)
-									}
-								}
-							}
-							for (const steps of measured) {
-								for (const step of ["generate", "check", "layer"] as const) {
-									assert.equal(
-										steps[step].descText,
-										steps.schema.descText,
-										`${at}: ${step} reads no statement's text its statements carry from their build, as schema(...) reads none, and no description's text beside`
-									)
-								}
-							}
-						})
+/** Startup work reads a schema's content once, compiles it once per command, nothing for migrate, drift or the served layer, and grows linearly. */
+export const startupWorkReadsASchemasContentOnceCompilesItOncePerCommandNothingForMigrateDriftOrTheServedLayerAndGrowsLinearly =
+	property.exhaust(finite(pointGen), {
+		needs: { dir: Scratch.dir },
+		situations: dimensions satisfies ReadonlyArray<Reached<Dimension>>,
+		check: (resources, c: Case<Dimension>) => (point) =>
+			Effect.gen(function* () {
+				const dir = yield* resources.dir
+				c.note(point.dimension)
+				const sizes = [2 * point.half, 4 * point.half, 6 * point.half] as const
+				const measured = yield* Effect.forEach(sizes, (n) =>
+					stepsAt(dir)(sizeOf(point.dimension, n))
 				)
-			)
-	)
-})
+				const bySize = new Map(
+					Arr.map(measured, (steps, i) => [2 * point.half * (i + 1), steps] as const)
+				)
+				const stepsOf = (n: number): Steps => defined(bySize.get(n), `the steps at ${n}`)
+				const [first] = measured
+				const at = `${point.dimension} at ${Arr.join(Arr.map(sizes, String), ", ")}`
+				for (const step of stepNames) {
+					for (const site of siteNames) {
+						const want = exactly[step][site]
+						for (const steps of measured) {
+							if (want !== undefined) {
+								assert.equal(steps[step][site], want, `${at}: ${step} calls ${site}`)
+							}
+						}
+						incrementsDoNotGrow(
+							(n) => stepsOf(n)[step][site],
+							point.half,
+							`${at}: ${step}'s calls of ${site}`
+						)
+					}
+				}
+				if (point.dimension === "closed rows") {
+					for (const step of ["generate", "check", "layer"] as const) {
+						for (const steps of measured) {
+							assert.equal(
+								steps[step].literalProblem,
+								first[step].literalProblem,
+								`${at}: ${step} holds no closed cell to its base type again`
+							)
+						}
+					}
+				}
+				for (const steps of measured) {
+					for (const step of ["generate", "check", "layer"] as const) {
+						assert.equal(
+							steps[step].descText,
+							steps.schema.descText,
+							`${at}: ${step} reads no statement's text its statements carry from their build, as schema(...) reads none, and no description's text beside`
+						)
+					}
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "each step's counts as its modules state them, and no count whose second step adds more than its first"
+		},
+		box: "every dimension of the schema and its worlds at 2, 4 and 6, every other at its least",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/physical/install/plan.ts",
+				original:
+					'\tResult.flatMap(compileLaws(owned, slice, { kind: "planned" }), (model) =>\n\t\tbasisOver(owned, codes, model)',
+				replacement:
+					'\tResult.flatMap(\n\t\tResult.flatMap(compileLaws(owned, slice, { kind: "planned" }), () =>\n\t\t\tcompileLaws(owned, slice, { kind: "planned" })\n\t\t),\n\t\t(model) => basisOver(owned, codes, model)',
+				why: "The installation basis compiles its law model twice."
+			},
+			{
+				file: "packages/grizzle/src/cli/generate.ts",
+				original: "\t\t\t\t? Effect.succeed(servedArtifacts)",
+				replacement:
+					'\t\t\t\t? Effect.mapError(fromEngine(artifactsOver(basis, params)), refusedAt("workload"))',
+				why: "generate plans each login's served artifacts again over the basis at the configured level, where it reuses the installation's (cli/generate.ts plannedLogins); the count of plans fails."
+			}
+		]
+	})
