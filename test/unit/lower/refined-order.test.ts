@@ -15,221 +15,106 @@
  *
  * Features: ordered by a cast output, ordered by two outputs, the tag alone.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { element, finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Option } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import { canonicalEquals, everyProperty } from "#compiler/core/canonical.ts"
-import { identity } from "#compiler/core/identity.ts"
-import { type Direction, directions } from "#compiler/core/order.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { directions } from "#compiler/core/order.ts"
 import { queryInput } from "#compiler/program/compile.ts"
-import { uuid } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import { derived, relation, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import type { Expr, OrderItem, SqlStatement, Target } from "#compiler/sql/ast.ts"
-import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
+import type { Expr } from "#compiler/sql/ast.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { allocatedLevels, lowerAligned, programAsts, servingParams } from "#test/support/compile.ts"
-import { installedCatalog } from "#test/support/evidence.ts"
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { checking, checkOptions, owning } from "#test/support/policy.ts"
+import { lowerAligned, programAsts } from "#test/support/compile.ts"
+import { checking, checkOptions } from "#test/support/policy.ts"
+import {
+	catalog,
+	type Feature,
+	installation,
+	orderedCores,
+	Refined,
+	tagged
+} from "#test/unit/lower/refined-order.fixtures.ts"
 
-const Slug = str.regex("^[a-z][a-z0-9-]*$")
-const Prose = str.regex("^.*$", "su")
-const Article = relation("Article", { id: uuid, slug: Slug, title: Prose }, ["id"])
-const Stored = schema("RefinedOrder", [Article], [])
-const Listed = derived.materialized(
-	"Listed",
-	query(Stored).rule((r) => {
-		const { id, slug, title } = v(Article, "article")
-		return r.match(Article, { id, slug, title }).find({ id, slug, title })
-	})
-)
-const Refined = schema.extend(Stored, "Refined", [Listed], [])
-
-type Source = "a derived relation's column" | "a declared parameter"
-type Shape =
-	| "the tag alone"
-	| "the title and the tag, by the tag"
-	| "the title and the tag, by both"
-
-/**
- * Each listed article's slug, a derived relation's column, alone or with its title, deduplicated and ordered as drawn.
- */
-const listedTags = (shape: Shape, direction: Direction) => {
-	if (shape === "the tag alone") {
-		return query(Refined)
-			.rule((r) => {
-				const { slug } = v(Listed, "listed")
-				return r.match(Listed, { slug }).find({ tag: slug })
-			})
-			.orderBy(["tag", direction])
-	}
-	const read = query(Refined).rule((r) => {
-		const { slug, title } = v(Listed, "listed")
-		return r.match(Listed, { slug, title }).find({ title, tag: slug })
-	})
-	return shape === "the title and the tag, by the tag"
-		? read.orderBy(["tag", direction])
-		: read.orderBy(["title", direction], ["tag", direction])
-}
-
-/**
- * The tag the caller passes, a declared parameter, alone or with each listed article's title, deduplicated and ordered
- * as drawn.
- */
-const passedTags = (shape: Shape, direction: Direction) => {
-	if (shape === "the tag alone") {
-		return query(Refined)
-			.rule((r) => {
-				const { title } = v(Listed, "listed")
-				return r.match(Listed, { title }).find({ tag: r.param("tag", Slug) })
-			})
-			.orderBy(["tag", direction])
-	}
-	const read = query(Refined).rule((r) => {
-		const { title } = v(Listed, "listed")
-		return r.match(Listed, { title }).find({ title, tag: r.param("tag", Slug) })
-	})
-	return shape === "the title and the tag, by the tag"
-		? read.orderBy(["tag", direction])
-		: read.orderBy(["title", direction], ["tag", direction])
-}
-
-/** The query each source of the tag reads. */
-const tagged = Object.freeze({
-	"a derived relation's column": listedTags,
-	"a declared parameter": passedTags
-} satisfies Record<Source, (shape: Shape, direction: Direction) => unknown>)
-
-const owned = owning(Refined)
-/** The installation the queries are compiled over, serving the parameter's program, so its pattern domain is
- * installed (physical/install/plan.ts ParamSource `planned`). */
-const installation = succeeded(
-	compileInstallation(
-		owned,
-		servingParams(
-			{
-				...installOptions(owned, "grizzle_dev"),
-				levels: allocatedLevels(identity.schema(parsedSchemaName("refined_order")), owned.levels)
-			},
-			Refined,
-			{ passedTags: passedTags("the tag alone", "asc") }
-		)
-	)
-)
-const catalog = installedCatalog(installation)
-
-/** A query over a core: its ORDER BY, the core's targets, and whether the core is SELECT DISTINCT. */
-interface OrderedCore {
-	readonly orderBy: ReadonlyArray<OrderItem>
-	readonly targets: ReadonlyArray<Target>
-	readonly distinct: boolean
-}
-
-/** Every query of a statement, at any depth, whose body is a core. */
-const orderedCores = (statement: SqlStatement): ReadonlyArray<OrderedCore> => {
-	const found: Array<OrderedCore> = []
-	transformStatement(statement, {
-		...identityHooks,
-		select: (s) => {
-			if (s.body.kind === "core") {
-				found.push({
-					orderBy: s.orderBy,
-					targets: s.body.targets,
-					distinct: s.body.distinct === true
-				})
-			}
-			return s
-		}
-	})
-	return found
-}
-
-type Feature = "ordered by a cast output" | "ordered by two outputs" | "the tag alone"
-
-describe("a refined output the delivery casts", () => {
-	it.effect("is ordered by its cast, the expression the output list holds", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/lower/refined-order",
-					generator: (source) => ({
-						source: source.draw(
-							element(["a derived relation's column", "a declared parameter"] as const)
-						),
-						shape: source.draw(
-							element([
-								"the tag alone",
-								"the title and the tag, by the tag",
-								"the title and the tag, by both"
-							] as const)
-						),
-						direction: source.draw(element(directions))
-					}),
-					literal: Formatter.format,
-					coverage: requiredInSpace<Feature>([
-						"ordered by a cast output",
-						"ordered by two outputs",
-						"the tag alone"
-					]),
-					caseHang,
-					box: "a refined derived column or parameter emitted alone or beside a key-less projected field, ordered by it alone or after the field, either direction",
-					oracle: {
-						kind: "specification",
-						name: "an ORDER BY item reads a cast output's cast, and under SELECT DISTINCT one of the outputs (42P10)"
-					}
-				},
-				(box, c) =>
-					Effect.sync(() => {
-						const input = succeeded(queryInput(tagged[box.source](box.shape, box.direction)))
-						const checked = succeeded(
-							checkQuery(checking(Refined), input.desc, checkOptions("query"))
+/** A refined output the delivery casts is ordered by its cast, the expression the output list holds. */
+export const aRefinedOutputTheDeliveryCastsIsOrderedByItsCastTheExpressionTheOutputListHolds =
+	property.exhaust(
+		finite((source) => ({
+			source: source.draw(
+				element(["a derived relation's column", "a declared parameter"] as const)
+			),
+			shape: source.draw(
+				element([
+					"the tag alone",
+					"the title and the tag, by the tag",
+					"the title and the tag, by both"
+				] as const)
+			),
+			direction: source.draw(element(directions))
+		})),
+		{
+			needs: {},
+			situations: [
+				"ordered by a cast output",
+				"ordered by two outputs",
+				"the tag alone"
+			] satisfies ReadonlyArray<Reached<Feature>>,
+			check: (_, c: Case<Feature>) => (box) =>
+				Effect.sync(() => {
+					const input = succeeded(queryInput(tagged[box.source](box.shape, box.direction)))
+					const checked = succeeded(
+						checkQuery(checking(Refined), input.desc, checkOptions("query"))
+					)
+					const program = succeeded(
+						lowerAligned(checked, "query", {
+							names: installation.names,
+							context: "snapshot",
+							catalog
+						})
+					)
+					for (const q of Arr.flatMap(programAsts(program), orderedCores)) {
+						const uncast = Arr.flatMap(q.targets, (t) =>
+							t.expr.kind === "cast" ? [t.expr.expr] : []
 						)
-						const program = succeeded(
-							lowerAligned(checked, "query", {
-								names: installation.names,
-								context: "snapshot",
-								catalog
-							})
-						)
-						for (const q of Arr.flatMap(programAsts(program), orderedCores)) {
-							const uncast = Arr.flatMap(q.targets, (t) =>
-								t.expr.kind === "cast" ? [t.expr.expr] : []
+						for (const item of q.orderBy) {
+							const same = (e: Expr) => canonicalEquals(e, item.expr, everyProperty)
+							assert.ok(
+								!Arr.some(uncast, same),
+								"no ORDER BY item reads a cast output's uncast value"
 							)
-							for (const item of q.orderBy) {
-								const same = (e: Expr) => canonicalEquals(e, item.expr, everyProperty)
+							const output = Arr.findFirst(q.targets, (t) => same(t.expr))
+							if (q.distinct) {
 								assert.ok(
-									!Arr.some(uncast, same),
-									"no ORDER BY item reads a cast output's uncast value"
+									Option.isSome(output),
+									"each ORDER BY item under SELECT DISTINCT is one of its outputs"
 								)
-								const output = Arr.findFirst(q.targets, (t) => same(t.expr))
-								if (q.distinct) {
-									assert.ok(
-										Option.isSome(output),
-										"each ORDER BY item under SELECT DISTINCT is one of its outputs"
-									)
-								}
-								if (Option.isSome(output) && output.value.expr.kind === "cast") {
-									c.note("ordered by a cast output")
-								}
 							}
-							if (q.orderBy.length > 1) {
-								c.note("ordered by two outputs")
+							if (Option.isSome(output) && output.value.expr.kind === "cast") {
+								c.note("ordered by a cast output")
 							}
 						}
-						if (box.shape === "the tag alone") {
-							c.note("the tag alone")
+						if (q.orderBy.length > 1) {
+							c.note("ordered by two outputs")
 						}
-					})
-			)
-		)
+					}
+					if (box.shape === "the tag alone") {
+						c.note("the tag alone")
+					}
+				}),
+			oracle: {
+				kind: "specification",
+				name: "an ORDER BY item reads a cast output's cast, and under SELECT DISTINCT one of the outputs (42P10)"
+			},
+			box: "a refined derived column or parameter emitted alone or beside a key-less projected field, ordered by it alone or after the field, either direction",
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/lower/shapes/refined/index.ts",
+					original: "\treturn { ...query, body, orderBy }",
+					replacement: "\treturn { ...query, body, orderBy: query.orderBy }",
+					why: "castOutputs leaves the ORDER BY item of a cast output uncast; the search fails."
+				}
+			]
+		}
 	)
-})

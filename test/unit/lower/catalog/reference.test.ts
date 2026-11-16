@@ -16,70 +16,39 @@
  *
  * Oracle: the reference evaluator, a second implementation. Features: each entry judged.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import { rewriteCatalog } from "#compiler/lower/shapes/catalog/rewrite.ts"
-import * as Q from "#test/pg/catalog/queries.ts"
 import { factsGen, labOptions, oracleCase } from "#test/pg/catalog/support.ts"
 import { succeeded } from "#test/support/assert.ts"
-import type { QueryDesc } from "#test/support/fixtures/ir/desc.ts"
-import { caseHang } from "#test/support/limits.ts"
+import { entries, judged, type JudgedFeature } from "#test/unit/lower/catalog/reference.fixtures.ts"
 import { agrees } from "#test/unit/lower/rewrite/support.ts"
 
-/** The entries, one per target form the catalog lowers to. */
-const entries: Arr.NonEmptyReadonlyArray<readonly [label: string, desc: QueryDesc]> = [
-	["ordinal asc", Q.ordinal(["asc", "asc"])],
-	["ordinal day desc, id asc", Q.ordinal(["desc", "asc"])],
-	["running aggregates", Q.running(Q.plainSelfMatch)],
-	["successor bound", Q.boundNeighbor("next", [])],
-	["as-of le bound", Q.boundAsOf("le", [], "day")],
-	["grouped share", Q.groupedShare("Sitting", false)],
-	["keyed share", Q.keyedShare(false)],
-	["discrete percentile", Q.discretePercentile([0.5], Q.ordinalStage)],
-	["continuous percentile", Q.continuousPercentile(0.5, "score")],
-	["mode of days", Q.modeOfDays("asc", Q.plainMode)]
-]
-
-type JudgedFeature = `judged: ${string}`
-
-const judged: Arr.NonEmptyReadonlyArray<JudgedFeature> = Arr.map(
-	entries,
-	([label]): JudgedFeature => `judged: ${label}`
-)
-
-describe("the catalog's rewrites against their compositions, by the reference", () => {
-	it.effect("deliver one keyed set of rows over drawn lab facts", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					suite: "unit/lower/catalog/reference",
-					draw: drawn(factsGen),
-					literal: Formatter.format,
-					coverage: required<JudgedFeature>(judged, { cases: 60, sense: notesOnly }),
-					kept: [],
-					runs: 60,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang,
-					oracle: { kind: "second-implementation", name: "the reference evaluator" }
-				},
-				(facts, c) =>
-					Effect.sync(() => {
-						for (const [label, desc] of entries) {
-							const original = oracleCase(label, desc, facts)
-							const rewritten = succeeded(rewriteCatalog(original.query.dag, labOptions), label)
-							if (agrees(original, { dag: rewritten.dag, params: [] }) === "agree") {
-								c.note(`judged: ${label}`)
-							}
-						}
-					})
-			)
-		)
-	)
-})
+/** The catalog's rewrites against their compositions, by the reference deliver one keyed set of rows over drawn lab facts. */
+export const theCatalogsRewritesAgainstTheirCompositionsByTheReferenceDeliverOneKeyedSetOfRowsOverDrawnLabFacts =
+	property.explore(factsGen, {
+		needs: {},
+		situations: judged satisfies ReadonlyArray<Reached<JudgedFeature>>,
+		check: (_, c: Case<JudgedFeature>) => (facts) =>
+			Effect.sync(() => {
+				for (const [label, desc] of entries) {
+					const original = oracleCase(label, desc, facts)
+					const rewritten = succeeded(rewriteCatalog(original.query.dag, labOptions), label)
+					if (agrees(original, { dag: rewritten.dag, params: [] }) === "agree") {
+						c.note(`judged: ${label}`)
+					}
+				}
+			}),
+		oracle: { kind: "second-implementation", name: "the reference evaluator" },
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/shapes/catalog/mode.ts",
+				original: '\t\torder: { keys: [{ column: value, dir: "asc" }] },',
+				replacement: '\t\torder: { keys: [{ column: value, dir: "desc" }] },',
+				why: "R31's rewrite (mode.ts) takes the mode's ordered-set aggregate over the value descending; the search fails."
+			}
+		]
+	})

@@ -22,7 +22,8 @@
 		"#index.ts": "./packages/grizzle/src/index.ts",
 		"#pg/*": "./packages/pg/src/*",
 		"#oxlint.config.ts": "./oxlint.config.ts",
-		"#toolchain.config.ts": "./toolchain.config.ts"
+		"#toolchain.config.ts": "./toolchain.config.ts",
+		"#test.config.ts": "./test.config.ts"
 	},
 	"scripts": {
 		"prepare": "effect-tsgo patch && lefthook install",
@@ -38,6 +39,7 @@
 		"architecture": "fallow architecture",
 		"dedupe": "pnpm dedupe --check",
 		"test": "NODE_OPTIONS=\"$NODE_OPTIONS --disable-proto=delete --disable-sigusr1 --throw-deprecation --pending-deprecation --force-context-aware --no-global-search-paths --unhandled-rejections=strict\" node node_modules/vitest/vitest.mjs run",
+		"test:properties": "toolchain-test run",
 		"test:network": "NODE_OPTIONS=\"$NODE_OPTIONS --disable-proto=delete --disable-sigusr1 --throw-deprecation --pending-deprecation --force-context-aware --no-global-search-paths --unhandled-rejections=strict\" node node_modules/vitest/vitest.mjs run --config vitest.network.config.ts",
 		"fuzz": "node vendor/toolchain/packages/testing/scripts/fuzz.ts",
 		"mutate": "node scripts/dev/mutate/main.ts",

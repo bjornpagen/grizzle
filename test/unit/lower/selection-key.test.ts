@@ -14,227 +14,73 @@
  *
  * Features: each relation probed, and read by its fields.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import { Compute } from "#compiler/public/compute.ts"
-import { Bits, bits, uuid } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import { closed, key, on, relation, schema, select } from "#compiler/public/schema.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
-import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
-import { Note, Plans, Task } from "#test/pg/plans/fixture.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
 import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
-import { installationOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
+import {
+	caseGen,
+	type Feature,
+	lawColumnOf,
+	probes,
+	queryOf,
+	schemaOf
+} from "#test/unit/lower/selection-key.fixtures.ts"
 
-type Relation = "Note" | "Task" | "Badge"
-type Guard = "held" | "absent" | "other"
-
-const Tier = closed("Tier", ["bronze", "silver", "gold"])
-const Badge = relation("Badge", { id: uuid, holder: uuid, tiers: bits(Tier) }, ["id"])
-
-/** The badge tiers a guard and a read combine: {bronze}, as a term of the field's type, and {silver}. */
-const bronze = () => Compute.literal(Badge.fields.tiers, Bits.of(Tier, ["bronze"]))
-const silver = Bits.of(Tier, ["silver"])
-
-/** At most one badge of bronze and silver alone per holder: a selection key whose guard computes its value. */
-const Badges = schema(
-	"Badges",
-	[Tier, Badge],
-	[
-		key(
-			on(
-				select(Badge, (x) => x.eq(x.tiers, Compute.union(bronze(), silver))),
-				"holder"
-			)
-		)
-	]
-)
-
-const schemaOf = (relation: Relation) => (relation === "Badge" ? Badges : Plans)
-
-interface Case {
-	readonly relation: Relation
-	readonly guard: Guard
-	readonly term: boolean
-}
-
-const caseGen: Gen<Case> = (source) => ({
-	relation: source.draw(element(["Note", "Task", "Badge"] as const)),
-	guard: source.draw(element(["held", "absent", "other"] as const)),
-	term: source.draw(element([true, false]))
-})
-
-/** Each case's query: its relation matched with the case's constants, its id found. */
-const queryOf = (c: Case) => {
-	if (c.relation === "Badge") {
-		return query(Badges).rule((r) => {
-			const { id } = v(Badge, "badge")
-			const fixed = c.term ? { holder: r.param("holder", Badge.fields.holder) } : {}
-			switch (c.guard) {
-				case "held":
-					return r
-						.match(Badge, { id, ...fixed, tiers: Compute.union(bronze(), silver) })
-						.find({ id })
-				case "other":
-					return r
-						.match(Badge, { id, ...fixed, tiers: Compute.intersection(bronze(), silver) })
-						.find({ id })
-				case "absent":
-					return r.match(Badge, { id, ...fixed }).find({ id })
-			}
-		})
-	}
-	const q = query(Plans)
-	if (c.relation === "Note") {
-		const ticket = { ticket: Note.fields.ticket }
-		return q.rule((r) => {
-			const { id } = v(Note, "note")
-			const fixed = c.term ? { ticket: r.param("ticket", ticket.ticket) } : {}
-			switch (c.guard) {
-				case "held":
-					return r.match(Note, { id, ...fixed, open: true }).find({ id })
-				case "other":
-					return r.match(Note, { id, ...fixed, open: false }).find({ id })
-				case "absent":
-					return r.match(Note, { id, ...fixed }).find({ id })
-			}
-		})
-	}
-	return q.rule((r) => {
-		const { id } = v(Task, "task")
-		const fixed = c.term ? { account: r.param("account", Task.fields.account) } : {}
-		switch (c.guard) {
-			case "held":
-				return r.match(Task, { id, ...fixed, kind: "Automatic" }).find({ id })
-			case "other":
-				return r.match(Task, { id, ...fixed, kind: "Manual" }).find({ id })
-			case "absent":
-				return r.match(Task, { id, ...fixed }).find({ id })
-		}
-	})
-}
-
-/** Each relation's selection key's law column, as its schema's installation names it. */
-const installations = Object.freeze({
-	Plans: installationOf(Plans, { kind: "declared" }),
-	Badges: installationOf(Badges, { kind: "declared" })
-})
-const lawColumnOf = (relation: Relation): string => {
-	const installation = relation === "Badge" ? installations.Badges : installations.Plans
-	const [selection, ...more] = installation.names.selectionKeys(relation)
-	assert.equal(more.length, 0, `${relation} has one selection key`)
-	return defined(selection, `${relation}'s selection key`).column
-}
-
-/**
- * Whether a statement probes the law column `column`: a derived table's scan reads the column among its targets, and
- * an equality compares that derived column with a parameter, as the key's index reads it.
- */
-const probes = (ast: SqlStatement, column: string): boolean => {
-	if (ast.kind !== "select") {
-		return false
-	}
-	const law = new Set<string>()
-	const equalities: Array<readonly [string, string]> = []
-	visitSelect(ast, {
-		...inertVisitor,
-		fromItem: (item) => {
-			if (item.kind !== "derived" || item.query.body.kind !== "core") {
-				return
-			}
-			for (const [i, t] of item.query.body.targets.entries()) {
-				const named = item.columns[i]
-				if (t.expr.kind === "column" && t.expr.column === column && named !== undefined) {
-					law.add(`${item.alias}.${named}`)
-				}
-			}
-		},
-		expr: (e) => {
-			if (e.kind !== "binary" || e.op !== "=") {
-				return
-			}
-			for (const [a, b] of [
-				[e.left, e.right],
-				[e.right, e.left]
-			] as const) {
-				const value = b.kind === "cast" ? b.expr : b
-				if (a.kind === "column" && a.table !== undefined && value.kind === "param") {
-					equalities.push([a.table, a.column])
-				}
-			}
-		}
-	})
-	return Arr.some(equalities, ([table, c]) => law.has(`${table}.${c}`))
-}
-
-type Feature = `${Relation} probed` | `${Relation} read by its fields`
-
-describe("a selection key's probe", () => {
-	it.effect(
-		"reads the key's law column exactly when the read holds its selection and fixes its term, in both lowerings",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/lower/selection-key",
-						generator: caseGen,
-						literal: Formatter.format,
-						box: "Note's, Task's and Badge's selection keys, the guard held, absent or contradicted, the term fixed or not",
-						oracle: {
-							kind: "specification",
-							name: "the law column is read exactly when every guard conjunct holds and the term is fixed"
-						},
-						coverage: requiredInSpace<Feature>([
-							"Note probed",
-							"Note read by its fields",
-							"Task probed",
-							"Task read by its fields",
-							"Badge probed",
-							"Badge read by its fields"
-						]),
-						caseHang
-					},
-					(c, seen) =>
-						Effect.sync(() => {
-							const template = succeeded(
-								compileTemplate(queryOf(c), schemaOf(c.relation), testCompile),
-								Formatter.format(c)
-							)
-							const column = lawColumnOf(c.relation)
-							const probed = c.guard === "held" && c.term
-							for (const [path, statements] of [
-								["optimized", programAsts(template.programs.optimized)],
-								[
-									"conservative",
-									Arr.map(flight(template.programs.conservative.roots), (s) => s.ast)
-								]
-							] as const) {
-								assert.ok(statements.length > 0, `${path} lowers`)
-								for (const ast of statements) {
-									assert.deepEqual(
-										auditStatementViolations(ast),
-										[],
-										`${path} ${Formatter.format(c)}`
-									)
-								}
-								assert.equal(
-									Arr.some(statements, (ast) => probes(ast, column)),
-									probed,
-									`${path} compares ${column} with its parameter exactly when probed: ${Formatter.format(c)}`
-								)
-							}
-							seen.note(probed ? `${c.relation} probed` : `${c.relation} read by its fields`)
-						})
+/** A selection key's probe reads the key's law column exactly when the read holds its selection and fixes its term, in both lowerings. */
+export const aSelectionKeysProbeReadsTheKeysLawColumnExactlyWhenTheReadHoldsItsSelectionAndFixesItsTermInBothLowerings =
+	property.exhaust(finite(caseGen), {
+		needs: {},
+		situations: [
+			"Note probed",
+			"Note read by its fields",
+			"Task probed",
+			"Task read by its fields",
+			"Badge probed",
+			"Badge read by its fields"
+		] satisfies ReadonlyArray<Reached<Feature>>,
+		check: (_, seen: CaseOf<Feature>) => (c) =>
+			Effect.sync(() => {
+				const template = succeeded(
+					compileTemplate(queryOf(c), schemaOf(c.relation), testCompile),
+					Formatter.format(c)
 				)
-			)
-	)
-})
+				const column = lawColumnOf(c.relation)
+				const probed = c.guard === "held" && c.term
+				for (const [path, statements] of [
+					["optimized", programAsts(template.programs.optimized)],
+					["conservative", Arr.map(flight(template.programs.conservative.roots), (s) => s.ast)]
+				] as const) {
+					assert.ok(statements.length > 0, `${path} lowers`)
+					for (const ast of statements) {
+						assert.deepEqual(auditStatementViolations(ast), [], `${path} ${Formatter.format(c)}`)
+					}
+					assert.equal(
+						Arr.some(statements, (ast) => probes(ast, column)),
+						probed,
+						`${path} compares ${column} with its parameter exactly when probed: ${Formatter.format(c)}`
+					)
+				}
+				seen.note(probed ? `${c.relation} probed` : `${c.relation} read by its fields`)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the law column is read exactly when every guard conjunct holds and the term is fixed"
+		},
+		box: "Note's, Task's and Badge's selection keys, the guard held, absent or contradicted, the term fixed or not",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/conservative/match-region/index.ts",
+				original:
+					"\t\t.filter((k) => fixed.has(k.field) && k.guard.every((g) => holdsAsConstant(g, fixed)))",
+				replacement: "\t\t.filter((k) => fixed.has(k.field))",
+				why: "probeKeys probes a key in every occurrence that fixes its term, whatever its guard; the search fails."
+			}
+		]
+	})

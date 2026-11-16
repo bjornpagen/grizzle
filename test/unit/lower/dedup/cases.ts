@@ -1,8 +1,10 @@
 /**
  * The parent key sets' kept cases, shared by the key-set suite (test/unit/lower/dedup/key-sets.test.ts), the page
  * runtime suite (test/pg/page/generated.ts) and the optimized differential's per-evaluation population
- * (test/pg/oracle/optimized/per-evaluation.test.ts), so each reads the same IR and facts.
+ * (test/pg/oracle/optimized/per-evaluation.test.ts), so each reads the same IR and facts; and the generator of their
+ * shape the key-set suite aims at (perParentNestedGen).
  */
+import { type Gen, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
 import type { QueryCase } from "#test/support/oracle/gen/case.ts"
@@ -120,3 +122,16 @@ export const acrossParentsCase = (): QueryCase =>
 		["a", "a"],
 		["a_2", "b"]
 	])
+
+/** The pairs nested0 may be correlated on: a with a, and a_2, the column that fixes nested1's parent, with b. */
+const nestedPairs: ReadonlyArray<readonly [string, string]> = [
+	["a", "a"],
+	["a_2", "b"]
+]
+
+/**
+ * perParentNested with nested0 correlated on a drawn non-empty subset of nestedPairs: on a alone it is
+ * withinOneParentCase, on both acrossParentsCase, and on a_2 alone it reads its parent's column only.
+ */
+export const perParentNestedGen: Gen<QueryCase> = (source) =>
+	perParentNested(source.draw(subset(nestedPairs, { min: 1, max: 2 })))

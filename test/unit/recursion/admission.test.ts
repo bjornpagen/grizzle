@@ -8,126 +8,50 @@
  * Oracle: the factoring's statement (check/recursion/factor.ts) as a checker over every set of the two arms: one
  * feedback read, exactly the parameters the arms read, and a conservative lowering. Features: each arm, and both.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { subarray } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite, subarray } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import { assert, succeeded } from "#test/support/assert.ts"
-import type { QueryDesc, RuleDesc } from "#test/support/fixtures/ir/desc.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
-import {
-	match,
-	param,
-	plainVar,
-	ref,
-	relationSource,
-	rule,
-	varRef,
-	vars
-} from "#test/unit/check/dsl.ts"
+import { type Arm, pairs } from "#test/unit/recursion/admission.fixtures.ts"
 import { Graph, lower, reads, theRecursive } from "#test/unit/recursion/fixtures.ts"
 
-const uuidField: FieldDesc = { kind: "uuid" }
-
-/** The pairs (a, b) of the transitive closure of Edge, and the arms beside the transitive one. */
-type Arm = "b repeating a" | "b fixed to a parameter"
-
-const s = (column: string) => varRef(`self.${column}`)
-
-const transitive: RuleDesc = rule({
-	vars: [plainVar("self.a"), plainVar("self.b"), ...vars("Edge", "to")],
-	matches: [
-		match({ kind: "self" }, { a: s("a"), b: s("b") }),
-		match(relationSource("Edge"), { from: s("b"), to: ref("Edge", "to") })
-	],
-	where: [],
-	head: { a: s("a"), b: ref("Edge", "to") },
-	interiors: [],
-	attach: []
-})
-
-const armOf = (arm: Arm): RuleDesc =>
-	rule({
-		vars: [plainVar("self.a")],
-		matches: [
-			match(
-				{ kind: "self" },
-				{ a: s("a"), b: arm === "b repeating a" ? s("a") : param("start", uuidField) }
-			)
-		],
-		where: [],
-		head: { a: s("a"), b: s("a") },
-		interiors: [],
-		attach: []
-	})
-
-const pairs = (arms: ReadonlyArray<Arm>): QueryDesc => ({
-	stage: {
-		kind: "recursive",
-		recursive: {
-			name: "Pairs",
-			row: { a: uuidField, b: uuidField },
-			base: [
-				rule({
-					vars: vars("Edge", "from", "to"),
-					matches: [
-						match(relationSource("Edge"), { from: ref("Edge", "from"), to: ref("Edge", "to") })
-					],
-					where: [],
-					head: { a: ref("Edge", "from"), b: ref("Edge", "to") },
-					interiors: [],
-					attach: []
-				})
-			],
-			rec: [transitive, ...Arr.map(arms, armOf)]
-		}
-	}
-})
-
-describe("factoring transition arms into one feedback scan", () => {
-	it.effect(
-		"factors arms that fix or repeat state columns as equalities on the current state, one feedback read, and lowers them",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						box: "every set of the two arms beside the transitive one: b repeating a, b fixed to a parameter",
-						oracle: {
-							kind: "specification",
-							name: "factor.ts: arms that fix or repeat a state column read the current state through equalities, one feedback read"
-						},
-						suite: "unit/recursion/factoring-equalities",
-						generator: subarray<Arm>(["b repeating a", "b fixed to a parameter"]),
-						literal: Formatter.format,
-						coverage: requiredInSpace<Arm | "both">([
-							"b repeating a",
-							"b fixed to a parameter",
-							"both"
-						]),
-						caseHang
-					},
-					(arms, c) =>
-						Effect.sync(() => {
-							c.noteAll(arms)
-							if (arms.length === 2) {
-								c.note("both")
-							}
-							const q = succeeded(
-								checkAuthored(checking(Graph), pairs(arms), checkOptions("query"))
-							)
-							assert.equal(reads(q, theRecursive(q).self), 1, "one feedback read")
-							assert.deepEqual(
-								Arr.map(q.params, (p) => p.name),
-								arms.includes("b fixed to a parameter") ? ["start"] : []
-							)
-							lower(q)
-						})
+/** Factoring transition arms into one feedback scan factors arms that fix or repeat state columns as equalities on the current state, one feedback read, and lowers them. */
+export const factoringTransitionArmsIntoOneFeedbackScanFactorsArmsThatFixOrRepeatStateColumnsAsEqualitiesOnTheCurrentStateOneFeedbackReadAndLowersThem =
+	property.exhaust(finite(subarray<Arm>(["b repeating a", "b fixed to a parameter"])), {
+		needs: {},
+		situations: ["b repeating a", "b fixed to a parameter", "both"] satisfies ReadonlyArray<
+			Reached<Arm | "both">
+		>,
+		check: (_, c: Case<Arm | "both">) => (arms) =>
+			Effect.sync(() => {
+				c.noteAll(arms)
+				if (arms.length === 2) {
+					c.note("both")
+				}
+				const q = succeeded(checkAuthored(checking(Graph), pairs(arms), checkOptions("query")))
+				assert.equal(reads(q, theRecursive(q).self), 1, "one feedback read")
+				assert.deepEqual(
+					Arr.map(q.params, (p) => p.name),
+					arms.includes("b fixed to a parameter") ? ["start"] : []
 				)
-			)
-	)
-})
+				lower(q)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "factor.ts: arms that fix or repeat a state column read the current state through equalities, one feedback read"
+		},
+		box: "every set of the two arms beside the transitive one: b repeating a, b fixed to a parameter",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/check/recursion/factor.ts",
+				original: "\t\t\t\t...substBindings(self.bindings, s),",
+				replacement:
+					'\t\t\t\t...Object.fromEntries(\n\t\t\t\t\tObject.entries(substBindings(self.bindings, s)).filter(([, e]) => e.kind === "var")\n\t\t\t\t),',
+				why: "Factoring keeps only the self match's variable bindings, so an arm's state column fixed to a parameter is dropped from its current-state match; the factoring-equalities search fails."
+			}
+		]
+	})

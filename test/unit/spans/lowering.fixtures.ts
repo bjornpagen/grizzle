@@ -1,0 +1,114 @@
+/** What the properties of lowering.test.ts read: its spaces, models and helpers. */
+
+import { Array as Arr } from "effect"
+import { identity } from "#compiler/core/identity.ts"
+import type { QueryDesc } from "#compiler/ir/desc.ts"
+import { flight } from "#compiler/lower/conservative/types.ts"
+import { ALLEN } from "#compiler/public/allen.ts"
+import { contract, pg, span, uuid } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { relation, schema } from "#compiler/public/schema.ts"
+import type { SqlStatement } from "#compiler/sql/ast.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
+import type { OracleTemplate } from "#test/support/conservative.ts"
+import { decodedQuery } from "#test/support/fixtures/ir/desc.ts"
+import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+
+const Instant = contract("Instant", pg.bigint)
+
+export const Slot = relation(
+	"Slot",
+	{ id: pg.integer, room: uuid, during: span(pg.integer), at: pg.integer },
+	["id"]
+)
+
+const Visit = relation("Visit", { id: uuid, stay: span(Instant), at: Instant }, ["id"])
+
+export const Spans = schema("Spans", [Slot, Visit], [])
+
+const compiled = (q: unknown): OracleTemplate =>
+	succeeded(
+		compileTemplate(q, undefined, {
+			...testCompile,
+			installation: identity.schema(parsedSchemaName("spans"))
+		}),
+		"the span query compiles"
+	)
+
+/** The ASTs of every statement of both artifacts. */
+export const statements = (t: OracleTemplate): ReadonlyArray<SqlStatement> => [
+	...programAsts(t.programs.optimized),
+	...Arr.map(flight(t.programs.conservative.roots), (s) => s.ast)
+]
+
+const Shift = relation("Shift", { id: pg.integer, slot: span(pg.integer, 15), at: pg.integer }, [
+	"id"
+])
+
+const Shifts = schema("Shifts", [Shift, Visit], [])
+
+/** The endpoint types a span parameter is declared over, by the pg type its description names. */
+export const endpoints = ["integer", "bigint"] as const
+
+type Endpoint = (typeof endpoints)[number]
+
+export type PointInFeature = "admitted" | "refused"
+
+/** A query over Slot whose one predicate is pointIn of a point parameter and a window parameter, as a description. */
+export const pointInDescription = (pointType: Endpoint, endpoint: Endpoint): QueryDesc =>
+	decodedQuery({
+		kind: "rules",
+		arms: [
+			{
+				vars: [{ id: "i", origin: { relation: "Slot", field: "id" } }],
+				matches: [
+					{
+						source: { kind: "relation", name: "Slot" },
+						bindings: { id: { kind: "var", var: "i" } }
+					}
+				],
+				where: [
+					{
+						kind: "pointIn",
+						point: { kind: "param", name: "point", type: { kind: "pg", type: pointType } },
+						span: {
+							kind: "param",
+							name: "window",
+							type: { kind: "span", endpoint: { kind: "pg", type: endpoint }, width: undefined }
+						}
+					}
+				],
+				head: { i: { kind: "var", var: "i" } },
+				interiors: [],
+				attach: []
+			}
+		]
+	})
+
+/** The encoder of a template's only parameter, in both artifacts. */
+export const encoders = (t: OracleTemplate) =>
+	Arr.map([...t.optimized, ...t.conservative], (s) => {
+		const slot = s.paramSlots[0]
+		if (slot === undefined || s.paramSlots.length !== 1 || slot.kind !== "scalar") {
+			throw new Error("one scalar parameter slot")
+		}
+		return slot.encode
+	})
+
+export const window = compiled(
+	query(Shifts).rule((r) => {
+		const { id, slot } = v(Shift, "shift")
+		return r
+			.match(Shift, { id, slot })
+			.where(r.allen(slot, ALLEN.intersects, r.param("w", Shift.fields.slot)))
+			.find({ id })
+	})
+)
+
+export const equated = compiled(
+	query(Shifts).rule((r) => {
+		const { id } = v(Shift, "shift")
+		return r.match(Shift, { id, slot: r.param("s", Shift.fields.slot) }).find({ id })
+	})
+)

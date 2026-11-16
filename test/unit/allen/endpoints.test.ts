@@ -9,177 +9,107 @@
  * Oracle: the specification, the endpoints compared as integers. Features, required in the space: every relation of
  * each type; every endpoint predicate held and failed.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen, map, oneOf } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { type EndpointComparison, endpointMask, pointInMask } from "#compiler/allen/endpoints.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
+import { endpointMask, pointInMask } from "#compiler/allen/endpoints.ts"
+import { allenPlaces } from "#compiler/allen/mask.ts"
+import { allenRelations } from "#compiler/core/allen.ts"
+import { assert } from "#test/support/assert.ts"
+import { rangeTypes, spanText } from "#test/support/oracle/allen.ts"
 import {
-	type AllenMask,
-	type AllenPlace,
-	allenMaskOf,
-	allenPlaces,
-	type SpanEndpoint
-} from "#compiler/allen/mask.ts"
-import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
-import {
-	type HalfOpen,
-	type PairFacts,
-	type RangeType,
-	rangeTypes,
-	spanText,
-	universe,
-	universePairs
-} from "#test/support/oracle/allen.ts"
+	bound,
+	compares,
+	ends,
+	holds,
+	type PlaceFeature,
+	pointPlaceOf,
+	type PredicateFeature,
+	predicates,
+	predicateSituations,
+	typedPairs
+} from "#test/unit/allen/endpoints.fixtures.ts"
 
-const ends: Arr.NonEmptyReadonlyArray<SpanEndpoint> = ["lower", "upper"]
-const comparisons: Arr.NonEmptyReadonlyArray<EndpointComparison> = [
-	"eq",
-	"ne",
-	"lt",
-	"le",
-	"gt",
-	"ge"
-]
-/** Every endpoint predicate: an endpoint of A, a comparison, an endpoint of B. */
-const predicates = Object.freeze(
-	Arr.flatMap(ends, (x) =>
-		Arr.flatMap(comparisons, (cmp) => Arr.map(ends, (y) => [x, cmp, y] as const))
-	)
-)
+/** The relations' places are where every pair's endpoints lie among the other's, over every ordered pair of both universes. */
+export const theRelationsPlacesAreWhereEveryPairsEndpointsLieAmongTheOthersOverEveryOrderedPairOfBothUniverses =
+	property.exhaust(finite(typedPairs), {
+		needs: {},
+		situations: Arr.flatMap(rangeTypes, (type) =>
+			Arr.map(allenRelations, (r): PlaceFeature => `${type} ${r}`)
+		) satisfies ReadonlyArray<Reached<PlaceFeature>>,
+		check:
+			(_, c: Case<PlaceFeature>) =>
+			({ type, pair }) =>
+				Effect.sync(() => {
+					c.note(`${type} ${pair.relation}`)
+					const where = `${spanText(pair.a)} ${pair.relation} ${spanText(pair.b)}`
+					assert.equal(
+						allenPlaces[pair.relation].lower,
+						pointPlaceOf(pair.a.lo, pair.b),
+						`${where}: a0's place`
+					)
+					assert.equal(
+						allenPlaces[pair.relation].upper,
+						pointPlaceOf(pair.a.hi, pair.b),
+						`${where}: a1's place`
+					)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "where each endpoint of A lies among B's bounds, by integer comparison"
+		},
+		box: "every ordered pair of spans of both verification universes",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/allen/mask.ts",
+				original: "\tmeets: { lower: 0, upper: 1 },",
+				replacement: "\tmeets: { lower: 0, upper: 0 },",
+				why: "meets places A's upper end before B (allen/mask.ts allenPlaces); the places property fails."
+			}
+		]
+	})
 
-/** Every ordered pair of both universes, with its type. */
-const typedPairs: Gen<{ readonly type: RangeType; readonly pair: PairFacts }> = oneOf(
-	Arr.map(rangeTypes, (type) =>
-		map(element(nonEmpty(universePairs(universe(type)), `the ${type} pairs`)), (pair) => ({
-			type,
-			pair
-		}))
-	)
-)
-
-/** A span's endpoint, its bound as PostgreSQL's lower() and upper() return it for the stored half-open value. */
-const bound = (span: HalfOpen, endpoint: SpanEndpoint): bigint =>
-	endpoint === "lower" ? span.lo : span.hi
-
-const compares: { readonly [C in EndpointComparison]: (x: bigint, y: bigint) => boolean } = {
-	eq: (x, y) => x === y,
-	ne: (x, y) => x !== y,
-	lt: (x, y) => x < y,
-	le: (x, y) => x <= y,
-	gt: (x, y) => x > y,
-	ge: (x, y) => x >= y
-}
-
-/** Where a point lies among a span's bounds, by arithmetic: before, at, inside, at the end of, or after [lo, hi). */
-const placeOf = (point: bigint, span: HalfOpen): AllenPlace =>
-	point < span.lo ? 0 : point === span.lo ? 1 : point < span.hi ? 2 : point === span.hi ? 3 : 4
-
-const holds = (mask: AllenMask, relation: AllenRelation): boolean =>
-	(mask & allenMaskOf([relation])) !== 0
-
-type PlaceFeature = `${RangeType} ${AllenRelation}`
-type PredicateFeature =
-	| `${SpanEndpoint} ${EndpointComparison} ${SpanEndpoint} ${"held" | "failed"}`
-	| `point ${SpanEndpoint} ${"held" | "failed"}`
-
-describe("the relations' places", () => {
-	it.effect(
-		"are where every pair's endpoints lie among the other's, over every ordered pair of both universes",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						box: "every ordered pair of spans of both verification universes",
-						oracle: {
-							kind: "specification",
-							name: "where each endpoint of A lies among B's bounds, by integer comparison"
-						},
-						suite: "unit/allen/places",
-						generator: typedPairs,
-						literal: Formatter.format,
-						coverage: requiredInSpace<PlaceFeature>(
-							Arr.flatMap(rangeTypes, (type) =>
-								Arr.map(allenRelations, (r): PlaceFeature => `${type} ${r}`)
-							)
-						),
-						caseHang
-					},
-					({ type, pair }, c) =>
-						Effect.sync(() => {
-							c.note(`${type} ${pair.relation}`)
-							const where = `${spanText(pair.a)} ${pair.relation} ${spanText(pair.b)}`
-							assert.equal(
-								allenPlaces[pair.relation].lower,
-								placeOf(pair.a.lo, pair.b),
-								`${where}: a0's place`
-							)
-							assert.equal(
-								allenPlaces[pair.relation].upper,
-								placeOf(pair.a.hi, pair.b),
-								`${where}: a1's place`
-							)
-						})
-				)
-			)
-	)
-})
-
-describe("the endpoint masks", () => {
-	it.effect(
-		"hold exactly for the pairs whose endpoints satisfy the predicate, over every ordered pair of both universes",
-		(ctx) => {
-			const situations: Arr.NonEmptyReadonlyArray<PredicateFeature> = [
-				...Arr.flatMap(predicates, ([x, cmp, y]): Arr.NonEmptyReadonlyArray<PredicateFeature> => [
-					`${x} ${cmp} ${y} held`,
-					`${x} ${cmp} ${y} failed`
-				]),
-				...Arr.flatMap(ends, (x): ReadonlyArray<PredicateFeature> => [
-					`point ${x} held`,
-					`point ${x} failed`
-				])
-			]
-			return searched(
-				ctx,
-				exhaust(
-					{
-						box: "every ordered pair of spans of both verification universes",
-						oracle: {
-							kind: "specification",
-							name: "each endpoint predicate evaluated on the pair's bounds as integers"
-						},
-						suite: "unit/allen/endpoint-masks",
-						generator: typedPairs,
-						literal: Formatter.format,
-						coverage: requiredInSpace<PredicateFeature>(situations),
-						caseHang
-					},
-					({ pair }, c) =>
-						Effect.sync(() => {
-							const where = `${spanText(pair.a)} ${pair.relation} ${spanText(pair.b)}`
-							for (const [x, cmp, y] of predicates) {
-								const truth = compares[cmp](bound(pair.a, x), bound(pair.b, y))
-								c.note(`${x} ${cmp} ${y} ${truth ? "held" : "failed"}`)
-								assert.equal(
-									holds(endpointMask(x, cmp, y), pair.relation),
-									truth,
-									`${where}: ${x} ${cmp} ${y}`
-								)
-							}
-							for (const x of ends) {
-								const p = bound(pair.a, x)
-								const truth = pair.b.lo <= p && p < pair.b.hi
-								c.note(`point ${x} ${truth ? "held" : "failed"}`)
-								assert.equal(holds(pointInMask(x), pair.relation), truth, `${where}: ${x}(A) in B`)
-							}
-						})
-				)
-			)
-		}
-	)
-})
+/** The endpoint masks hold exactly for the pairs whose endpoints satisfy the predicate, over every ordered pair of both universes. */
+export const theEndpointMasksHoldExactlyForThePairsWhoseEndpointsSatisfyThePredicateOverEveryOrderedPairOfBothUniverses =
+	property.exhaust(finite(typedPairs), {
+		needs: {},
+		situations: predicateSituations satisfies ReadonlyArray<Reached<PredicateFeature>>,
+		check:
+			(_, c: Case<PredicateFeature>) =>
+			({ pair }) =>
+				Effect.sync(() => {
+					const where = `${spanText(pair.a)} ${pair.relation} ${spanText(pair.b)}`
+					for (const [x, cmp, y] of predicates) {
+						const truth = compares[cmp](bound(pair.a, x), bound(pair.b, y))
+						c.note(`${x} ${cmp} ${y} ${truth ? "held" : "failed"}`)
+						assert.equal(
+							holds(endpointMask(x, cmp, y), pair.relation),
+							truth,
+							`${where}: ${x} ${cmp} ${y}`
+						)
+					}
+					for (const x of ends) {
+						const p = bound(pair.a, x)
+						const truth = pair.b.lo <= p && p < pair.b.hi
+						c.note(`point ${x} ${truth ? "held" : "failed"}`)
+						assert.equal(holds(pointInMask(x), pair.relation), truth, `${where}: ${x}(A) in B`)
+					}
+				}),
+		oracle: {
+			kind: "specification",
+			name: "each endpoint predicate evaluated on the pair's bounds as integers"
+		},
+		box: "every ordered pair of spans of both verification universes",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/allen/endpoints.ts",
+				original: "\tle: (order) => order <= 0,",
+				replacement: "\tle: (order) => order < 0,",
+				why: "≤ read as < (allen/endpoints.ts); the endpoint masks property fails."
+			}
+		]
+	})

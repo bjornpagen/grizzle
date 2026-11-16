@@ -1,4 +1,6 @@
 import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
+import { Array as Arr } from "effect"
+import properties from "#test.config.ts"
 import { networkExamples } from "#test/support/examples.ts"
 import { includeOf, tiers } from "#test/support/tiers.ts"
 
@@ -18,10 +20,11 @@ import { includeOf, tiers } from "#test/support/tiers.ts"
  * what the build does once it holds its lease is bounded by the hang limit (substrate/substrate.ts heldBuild). The
  * library runs one file per worker, testWorkers of them, one per core, and the setup clones a database for each
  * (substrate/shared.ts). Every test case runs a search, outside the files test/support/examples.ts exempts, each set
- * with its reason.
+ * with its reason. A test module converted to properties runs under toolchain-test instead (test.config.ts), and is
+ * left out here.
  */
 export default defineTestConfig({
-	include: includeOf(tiers.network),
+	include: [...includeOf(tiers.network), ...Arr.map(properties.include, (glob) => `!${glob}`)],
 	guided: ["test/pg/world-model/random.test.ts"],
 	setup: ["test/support/pg-global-setup.ts"],
 	conditions: [],

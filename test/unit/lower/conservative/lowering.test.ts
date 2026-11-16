@@ -24,720 +24,408 @@
  * Features: every outcome under each subject; every consumer of the union; a lone arm, an arm of several, or none
  * attached; a reference resolved and one refused; a bound parameter.
  */
-import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
-import { required, requiredInSpace } from "@bjornpagen/testing/features"
-import { element, int, map, oneOf } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
-import type { CompileError } from "#compiler/core/errors.ts"
-import { makeIdSupply, type ParamId } from "#compiler/core/ids.ts"
-import { type Direction, directions } from "#compiler/core/order.ts"
-import type * as Result from "#compiler/core/result.ts"
-import { topoOrder } from "#compiler/ir/dag.ts"
-import { type PhysicalNames } from "#compiler/ir/physical.ts"
-import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
-import {
-	type CompletedOrder,
-	conservativeMeta,
-	exprsOf,
-	inputsOf,
-	type RelNode
-} from "#compiler/ir/rel.ts"
-import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { element, finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Record as Rec } from "effect"
+import { conservativeMeta } from "#compiler/ir/rel.ts"
+import { sameScalarType, type ScalarType } from "#compiler/ir/scalar.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
-import {
-	conservativeInput,
-	type ConservativeOptions,
-	type ConservativeProgram,
-	flight
-} from "#compiler/lower/conservative/types.ts"
-import { nativeOp } from "#compiler/scalar/compute/registry.ts"
-import type { OperandSelect, Select } from "#compiler/sql/ast.ts"
-import { freshNames } from "#compiler/sql/naming.ts"
+import { flight } from "#compiler/lower/conservative/types.ts"
 import { printStatement } from "#compiler/sql/print.ts"
-import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
-import { breachGuard } from "#compiler/write/refusal.ts"
 import { assert, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
-import { closed, decodedSchema, f, relation } from "#test/support/fixtures/ir/desc.ts"
-import {
-	installationOf,
-	localVectorSchema,
-	productionNames,
-	standInNames
-} from "#test/support/kernel/naming.ts"
 import { featureCount, has, shapeOf } from "#test/support/kernel/shape.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { defaultGenConfig, type QueryCase, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { genParamDecls } from "#test/support/oracle/gen/query.ts"
-import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { auditStatementViolations, auditTextViolations } from "#test/support/oracle/verify/sql.ts"
-import { unitCarrierName } from "#test/support/sql.ts"
 import { upTo } from "#test/support/up-to.ts"
-import { everyKind, fixtureCodes } from "#test/unit/ir/fixture.ts"
 import {
 	Account,
 	Posting,
 	Q,
 	type RelationSpec,
-	T,
 	Task
 } from "#test/unit/lower/conservative/fixtures.ts"
-import * as Cases from "#test/unit/lower/conservative/queries.ts"
+import {
+	type ArmFeature,
+	attachedArms,
+	bounded,
+	boundedQueries,
+	boundParams,
+	type Consumer,
+	consumers,
+	dag,
+	heterogeneousRead,
+	type KindOutcome,
+	kindOutcome,
+	lowered,
+	lowerGenerated,
+	nodes,
+	optionsFor,
+	orderBy,
+	params,
+	readsOf,
+	regionReads,
+	type Resolution,
+	type Subject
+} from "#test/unit/lower/conservative/lowering.fixtures.ts"
 import { present } from "#test/unit/lower/support.ts"
 
-/**
- * The names a hand-built DAG lowers under: production's stand-ins for its relations, under Kind's codes, and the domain
- * of the fixtures' Cents contract as an installation declaring it names it, by its definition's digest, which only an
- * installation holds.
- */
-const centsDomain = installationOf(
-	decodedSchema({
-		name: "Ledger",
-		relations: [
-			closed("Kind", ["Automatic", "Manual"]),
-			relation("Ledger", { id: f.uuid, cents: f.contract("Cents", f.bigint, undefined) }, ["id"])
-		],
-		statements: [],
-		extends: undefined
-	}),
-	{ kind: "declared" }
-).names.contractDomain
-const names: PhysicalNames = {
-	...productionNames("Ledger", { kind: "declared" }, localVectorSchema, fixtureCodes),
-	contractDomain: centsDomain
-}
-
-type Subject = "query" | "readBack"
-
-/**
- * What production passes to lower a query: its declared parameters and the subject; a write program's read back
- * supplies the deltas it reads as a carrier.
- */
-const optionsFor = (params: ReadonlyArray<ParamDecl>, subject: Subject): ConservativeOptions => ({
-	names,
-	params,
-	subject:
-		subject === "query"
-			? { kind: "query" }
-			: {
-					kind: "readBack",
-					deltas: () => ({
-						kind: "carrier",
-						carrier: unitCarrierName(1),
-						columns: ["c1", "c2", "c3", "c4"]
-					}),
-					breach: breachGuard("Ledger"),
-					start: freshNames
-				}
-})
-
-const lowered = (query: LogicalQuery): Result.Result<ConservativeProgram, CompileError> =>
-	lowerConservative(conservativeInput(query), optionsFor(query.params, "query"))
-
-/**
- * What a node reads that the conservative lowering refuses, by the rule it breaks: read by walking its inputs, the
- * feedback reference counted only outside the recursion whose step reads it.
- */
-interface Reads {
-	readonly feedbackOutside: boolean
-	readonly rewrite: boolean
-	/** An operator of no native overload, which the lowering cannot spell; a search's exact top-k it lowers. */
-	readonly unresolvedSearch: boolean
-	readonly delta: boolean
-}
-
-const readsOf = (root: RelNode): Reads => {
-	/** Each node with whether it was visited inside a recursion: the walk's seen-set. */
-	const seen = new Map<RelNode, Set<boolean>>()
-	const reads = { feedbackOutside: false, rewrite: false, unresolvedSearch: false, delta: false }
-	const visit = (node: RelNode, inRecursion: boolean): void => {
-		const known = seen.get(node)
-		if (known?.has(inRecursion) === true) {
-			return
-		}
-		seen.set(node, new Set([...(known ?? []), inRecursion]))
-		if (node.kind === "SelfRef" && !inRecursion) {
-			reads.feedbackOutside = true
-		}
-		if (node.kind === "Window" || node.kind === "OrderedSetAggregate") {
-			reads.rewrite = true
-		}
-		if (node.kind === "Delta") {
-			reads.delta = true
-		}
-		for (const expr of exprsOf(node)) {
-			if (expr.kind === "op" && nativeOp(expr.op) === undefined) {
-				reads.unresolvedSearch = true
-			}
-		}
-		for (const input of inputsOf(node)) {
-			visit(input, inRecursion || node.kind === "Recursive")
-		}
-	}
-	visit(root, false)
-	return reads
-}
-
-type KindOutcome = "lowered" | "MalformedDescription" | "UnsupportedOperation"
-
-const kindOutcome = (reads: Reads, subject: Subject): KindOutcome =>
-	reads.feedbackOutside
-		? "MalformedDescription"
-		: reads.rewrite || reads.unresolvedSearch || (reads.delta && subject === "query")
-			? "UnsupportedOperation"
-			: "lowered"
-
-describe("the kind table", () => {
-	it.effect(
-		"lowers every node of the every-kind fixture, audited, unless it reads what the lowering refuses",
-		(ctx) => {
-			const { dag, nodes, params } = everyKind(makeIdSupply())
-			return searched(
-				ctx,
-				exhaust(
-					{
-						box: "every node of the every-kind fixture as a root, under a query and a read back",
-						oracle: {
-							kind: "specification",
-							name: "the refusal a node's reads call for: a feedback reference outside its recursion, a rewrite's node, an unresolved search, a delta in a query"
-						},
-						suite: "unit/lower/conservative/kinds",
-						literal: Formatter.format,
-						generator: (source) =>
-							[
-								source.draw(
-									element(nonEmpty(Rec.toEntries(nodes), "the every-kind fixture's nodes"))
-								),
-								source.draw(element<Subject>(["query", "readBack"]))
-							] as const,
-						coverage: requiredInSpace<`${KindOutcome} ${Subject}`>([
-							"lowered query",
-							"lowered readBack",
-							"MalformedDescription query",
-							"UnsupportedOperation query",
-							"UnsupportedOperation readBack"
-						]),
-						caseHang
-					},
-					([[key, root], subject], c) =>
-						Effect.sync(() => {
-							const expected = kindOutcome(readsOf(root), subject)
-							const r = lowerConservative({ dag, root }, optionsFor(params, subject))
-							c.note(`${expected} ${subject}`)
-							if (expected !== "lowered") {
-								refused(r, expected, key)
-								return
-							}
-							for (const statement of flight(succeeded(r, key).roots)) {
-								assert.deepEqual(auditStatementViolations(statement.ast), [], key)
-								assert.deepEqual(auditTextViolations(statement.sql.text), [], key)
-								assert.equal(printStatement(statement.ast), statement.sql.text, key)
-							}
-						})
-				)
-			)
-		}
-	)
-})
-
-/** What reads the union of automatic tasks (kind, account, amount) and manual ones (kind, account), told apart by kind. */
-type Consumer =
-	| { readonly kind: "delivered" }
-	| { readonly kind: "filtered" }
-	| { readonly kind: "bounded"; readonly take: Direction; readonly k: bigint }
-	| {
-			readonly kind: "bounded and reordered"
-			readonly take: Direction
-			readonly delivery: Direction
-	  }
-	| { readonly kind: "matched in a region" }
-	| { readonly kind: "semi-joined" }
-	| { readonly kind: "filtered above a bound" }
-	| { readonly kind: "attached" }
-
-const orderBy = (direction: Direction): CompletedOrder => ({
-	keys: [
-		{ column: "account", dir: direction },
-		{ column: "kind", dir: "asc" }
-	]
-})
-
-const heterogeneousRead = (consumer: Consumer): LogicalQuery => {
-	const q = new Q()
-	const kind = (handle: "Automatic" | "Manual") => q.lit({ kind: "handle", handle }, T.kind)
-	const auto = q.region([
+/** The kind table lowers every node of the every-kind fixture, audited, unless it reads what the lowering refuses. */
+export const theKindTableLowersEveryNodeOfTheEveryKindFixtureAuditedUnlessItReadsWhatTheLoweringRefuses =
+	property.exhaust(
+		finite(
+			(source) =>
+				[
+					source.draw(element(nonEmpty(Rec.toEntries(nodes), "the every-kind fixture's nodes"))),
+					source.draw(element<Subject>(["query", "readBack"]))
+				] as const
+		),
 		{
-			source: q.base(Task, conservativeMeta),
-			bind: { account: "account", amount: "amount" },
-			constants: {}
-		}
-	])
-	const manual = q.region([
-		{ source: q.base(Task, conservativeMeta), bind: { account: "account" }, constants: {} }
-	])
-	const u = q.union(
-		[
-			q.project(
-				auto,
-				[
-					["kind", [kind("Automatic"), T.kind]],
-					["account", "account"],
-					["amount", "amount"]
-				],
-				conservativeMeta
-			),
-			q.project(
-				manual,
-				[
-					["kind", [kind("Manual"), T.kind]],
-					["account", "account"]
-				],
-				conservativeMeta
-			)
-		],
-		["kind"]
-	)
-	const accounts = () =>
-		q.project(
-			q.region([{ source: q.base(Account, conservativeMeta), bind: { id: "id" }, constants: {} }]),
-			[["id", "id"]],
-			conservativeMeta
-		)
-	const notA = (input: RelNode) =>
-		q.filter(
-			input,
-			q.op(
-				"uuid_ne",
-				[q.col(input, "account"), q.lit({ kind: "uuid", value: Cases.A }, T.uuid)],
-				T.bool
-			)
-		)
-	switch (consumer.kind) {
-		case "delivered":
-			return q.build(u)
-		case "filtered":
-			return q.build(notA(u))
-		case "bounded":
-			return q.build(
-				q.take(u, orderBy(consumer.take), { kind: "literal", k: consumer.k }, [], conservativeMeta)
-			)
-		case "bounded and reordered":
-			return q.build(
-				q.ordered(
-					q.take(u, orderBy(consumer.take), { kind: "literal", k: 1n }, [], conservativeMeta),
-					orderBy(consumer.delivery)
-				)
-			)
-		case "matched in a region":
-			return q.build(
-				q.region([{ source: u, bind: { kind: "kind", account: "account" }, constants: {} }])
-			)
-		case "semi-joined":
-			return q.build(q.semi(u, accounts(), [["account", "id"]]))
-		case "filtered above a bound":
-			return q.build(
-				notA(q.take(u, orderBy("asc"), { kind: "literal", k: 1n }, [], conservativeMeta))
-			)
-		case "attached":
-			return q.build(q.attach(accounts(), u, "tasks", [["id", "account"]], "array", undefined))
-	}
-}
-
-const directionGen = element(directions)
-const consumers = oneOf<Consumer>([
-	element<Consumer>([
-		{ kind: "delivered" },
-		{ kind: "filtered" },
-		{ kind: "matched in a region" },
-		{ kind: "semi-joined" },
-		{ kind: "filtered above a bound" },
-		{ kind: "attached" }
-	]),
-	map(
-		(source) => [source.draw(directionGen), source.draw(element([1n, 2n]))] as const,
-		([take, k]): Consumer => ({ kind: "bounded", take, k })
-	),
-	map(
-		(source) => [source.draw(directionGen), source.draw(directionGen)] as const,
-		([take, delivery]): Consumer => ({
-			kind: "bounded and reordered",
-			take,
-			delivery
-		})
-	)
-])
-
-/** The queries nested in a statement that carry a LIMIT: the bounds below its delivery. */
-const boundedQueries = (statement: Select): ReadonlyArray<OperandSelect> => {
-	const out: Array<OperandSelect> = []
-	transformStatement(statement, {
-		...identityHooks,
-		select: (s) => {
-			if (s !== statement && s.limit !== undefined) {
-				out.push(s)
-			}
-			return s
-		}
-	})
-	return out
-}
-
-describe("heterogeneous unions", () => {
-	it.effect(
-		"are delivered per heading group, merged under the take's order and then the delivery's, or read as a UNION inside a statement, and refused under any other node",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						box: "every consumer of one heterogeneous union of two heading groups: delivered, filtered, bounded by either direction and one or two, bounded and reordered, matched, semi-joined, filtered above a bound, attached",
-						oracle: {
-							kind: "specification",
-							name: "the delivery and merge each consumer of a heterogeneous union calls for"
-						},
-						suite: "unit/lower/conservative/heterogeneous",
-						literal: Formatter.format,
-						generator: consumers,
-						coverage: requiredInSpace<Consumer["kind"]>([
-							"delivered",
-							"filtered",
-							"bounded",
-							"bounded and reordered",
-							"matched in a region",
-							"semi-joined",
-							"filtered above a bound",
-							"attached"
-						]),
-						caseHang
-					},
-					(consumer, c) =>
-						Effect.sync(() => {
-							const r = lowered(heterogeneousRead(consumer))
-							c.note(consumer.kind)
-							switch (consumer.kind) {
-								case "semi-joined":
-								case "filtered above a bound":
-								case "attached":
-									refused(r, "UnsupportedOperation", consumer.kind)
-									return
-								case "matched in a region": {
-									const p = succeeded(r)
-									assert.equal(p.delivery.kind, "rows")
-									assert.equal(flight(p.roots).length, 1)
-									const shape = shapeOf(flight(p.roots)[0].ast)
-									assert.ok(has(shape, "union"))
-									assert.equal(featureCount(shape, "union all"), 0)
-									return
-								}
-								case "delivered":
-								case "filtered":
-								case "bounded":
-								case "bounded and reordered": {
-									const p = succeeded(r)
-									const delivery = p.delivery
-									assert.ok(delivery.kind === "headingGroups", consumer.kind)
-									assert.deepEqual(delivery.discriminant, ["kind"])
-									assert.equal(flight(p.roots).length, 2, "one statement per heading group")
-									assert.deepEqual(
-										delivery.merge,
-										consumer.kind === "bounded"
-											? {
-													kind: "take",
-													bound: { kind: "literal" as const, k: consumer.k },
-													take: orderBy(consumer.take)
-												}
-											: consumer.kind === "bounded and reordered"
-												? consumer.delivery === consumer.take
-													? {
-															kind: "take",
-															bound: { kind: "literal" as const, k: 1n },
-															take: orderBy(consumer.take)
-														}
-													: {
-															kind: "takeThenOrder",
-															bound: { kind: "literal" as const, k: 1n },
-															take: orderBy(consumer.take),
-															order: orderBy(consumer.delivery)
-														}
-												: { kind: "concat" }
-									)
-									if (consumer.kind === "bounded" || consumer.kind === "bounded and reordered") {
-										for (const s of flight(p.roots)) {
-											/** Each group keeps its first k under the take's order. */
-											const bounded = boundedQueries(s.ast)
-											assert.ok(bounded.length > 0)
-											for (const b of bounded) {
-												assert.equal(b.orderBy[0]?.direction === "DESC", consumer.take === "desc")
-											}
-										}
-									}
-								}
-							}
-						})
-				)
-			)
-	)
-
-	it.effect(
-		"refuse an attachment on an arm of a group of several arms, and deliver one on a lone arm",
-		(ctx) => {
-			type ArmFeature = "a lone arm attached" | "an arm of several attached" | "no arm attached"
-			return searched(
-				ctx,
-				exhaust(
-					{
-						box: "one to three arms of one heading group, every subset of them attached",
-						oracle: {
-							kind: "specification",
-							name: "an attachment statement per attached lone arm, a refusal for an attached arm of several"
-						},
-						suite: "unit/lower/conservative/union-attachments",
-						literal: Formatter.format,
-						/** One to three arms of one heading group, `attached` holding a bit per arm whose parent carries tasks. */
-						generator: (source) => {
-							const arms = source.draw(int(1, 3))
-							return { arms, attached: source.draw(int(0, 2 ** arms - 1)) }
-						},
-						coverage: requiredInSpace<ArmFeature>([
-							"a lone arm attached",
-							"an arm of several attached",
-							"no arm attached"
-						]),
-						caseHang
-					},
-					({ arms, attached }, c) =>
-						Effect.sync(() => {
-							const q = new Q()
-							const ids = (relation: RelationSpec, column: string) =>
-								q.project(
-									q.region([
-										{
-											source: q.base(relation, conservativeMeta),
-											bind: { [column]: "id" },
-											constants: {}
-										}
-									]),
-									[["id", "id"]],
-									conservativeMeta
-								)
-							const isAttached = (arm: number) => (attached & (1 << arm)) !== 0
-							const built = upTo(arms, (arm) =>
-								isAttached(arm)
-									? q.attach(
-											ids(Account, "id"),
-											q.project(
-												q.region([
-													{
-														source: q.base(Task, conservativeMeta),
-														bind: { account: "account" },
-														constants: {}
-													}
-												]),
-												[["account", "account"]],
-												conservativeMeta
-											),
-											"tasks",
-											[["id", "account"]],
-											"array",
-											undefined
-										)
-									: ids(Posting, "account")
-							)
-							const r = lowered(q.build(q.union(built, [])))
-							const carrying = Arr.filter(
-								upTo(arms, (arm) => arm),
-								isAttached
-							).length
-							if (carrying === 0) {
-								c.note("no arm attached")
-							} else {
-								c.note(arms === 1 ? "a lone arm attached" : "an arm of several attached")
-							}
-							if (carrying > 0 && arms > 1) {
-								refused(r, "UnsupportedOperation")
-								return
-							}
-							assert.equal(
-								Arr.filter(flight(succeeded(r).roots), (s) => s.role.kind === "attachment").length,
-								carrying
-							)
-						})
-				)
-			)
-		}
-	)
-})
-
-/**
- * Outer references: a constant of a region's occurrence reading a column of another occurrence's source, resolved to the
- * occurrence that reads it. The checker states every reference to a source one occurrence reads; one to a source two
- * occurrences share names no occurrence alone, and the lowering refuses it. A correlated take's reference to its
- * region's variable is the generated soundness population's, which the conservative oracle lowers on PostgreSQL.
- */
-type Resolution = "resolved" | "refused"
-
-describe("regions", () => {
-	it.effect("resolve an outer reference only to a source one occurrence reads", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					box: "two or three occurrences over two sources, the last fixing its amount to every earlier occurrence's source",
-					oracle: {
-						kind: "specification",
-						name: "the occurrences that read the referenced source: one resolves, several are ambiguous"
-					},
-					suite: "unit/lower/conservative/outer-references",
-					literal: Formatter.format,
-					/**
-					 * Two or three occurrences, each over the postings' or the tasks' projection of (account, amount), one
-					 * node each however many occurrences read it; the last fixes its amount to the amount of the source the
-					 * `read`th earlier occurrence reads.
-					 */
-					generator: (source) => {
-						const count = source.draw(int(2, 3))
-						return {
-							sources: upTo(count, () => source.draw(int(0, 1))),
-							read: source.draw(int(0, count - 2))
-						}
-					},
-					coverage: requiredInSpace<Resolution>(["resolved", "refused"]),
-					caseHang
-				},
-				({ sources, read }, c) =>
+			needs: {},
+			situations: [
+				"lowered query",
+				"lowered readBack",
+				"MalformedDescription query",
+				"UnsupportedOperation query",
+				"UnsupportedOperation readBack"
+			] satisfies ReadonlyArray<Reached<`${KindOutcome} ${Subject}`>>,
+			check:
+				(_, c: Case<`${KindOutcome} ${Subject}`>) =>
+				([[key, root], subject]) =>
 					Effect.sync(() => {
-						const q = new Q()
-						const projected = (relation: RelationSpec) =>
-							q.project(
-								q.region([
-									{
-										source: q.base(relation, conservativeMeta),
-										bind: { account: "account", amount: "amount" },
-										constants: {}
+						const expected = kindOutcome(readsOf(root), subject)
+						const r = lowerConservative({ dag, root }, optionsFor(params, subject))
+						c.note(`${expected} ${subject}`)
+						if (expected !== "lowered") {
+							refused(r, expected, key)
+							return
+						}
+						for (const statement of flight(succeeded(r, key).roots)) {
+							assert.deepEqual(auditStatementViolations(statement.ast), [], key)
+							assert.deepEqual(auditTextViolations(statement.sql.text), [], key)
+							assert.equal(printStatement(statement.ast), statement.sql.text, key)
+						}
+					}),
+			oracle: {
+				kind: "specification",
+				name: "the refusal a node's reads call for: a feedback reference outside its recursion, a rewrite's node, an unresolved search, a delta in a query"
+			},
+			box: "every node of the every-kind fixture as a root, under a query and a read back",
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/lower/conservative/delta/index.ts",
+					original: `\t\treturn refuse(\n\t\t\t"UnsupportedOperation",\n\t\t\tat,\n\t\t\t\`delta.\${node.side}(\${node.relation}) outside a write program that supplies its delta relation\`\n\t\t)`,
+					replacement: "\t\treturn emptyRelation(cx, node.heading, node.id)",
+					why: "A delta read in a query is lowered as the empty relation instead of refused; the kind table's search fails."
+				},
+				{
+					file: "packages/engine/src/lower/conservative/context.ts",
+					original: '\t\tif (p === undefined || p.kind === "relation") {',
+					replacement:
+						'\t\tif (p === undefined || p.kind === "relation" || (p.kind === "scalar" && p.type.carrier === "vector")) {',
+					why: "A declared vector parameter is refused as undeclared; the kind table's search fails at its scored projection, whose fixture declares every parameter its nodes read."
+				}
+			]
+		}
+	)
+
+/** Heterogeneous unions are delivered per heading group, merged under the take's order and then the delivery's, or read as a UNION inside a statement, and refused under any other node. */
+export const heterogeneousUnionsAreDeliveredPerHeadingGroupMergedUnderTheTakesOrderAndThenTheDeliverysOrReadAsAUNIONInsideAStatementAndRefusedUnderAnyOtherNode =
+	property.exhaust(finite(consumers), {
+		needs: {},
+		situations: [
+			"delivered",
+			"filtered",
+			"bounded",
+			"bounded and reordered",
+			"matched in a region",
+			"semi-joined",
+			"filtered above a bound",
+			"attached"
+		] satisfies ReadonlyArray<Reached<Consumer["kind"]>>,
+		check: (_, c: Case<Consumer["kind"]>) => (consumer) =>
+			Effect.sync(() => {
+				const r = lowered(heterogeneousRead(consumer))
+				c.note(consumer.kind)
+				switch (consumer.kind) {
+					case "semi-joined":
+					case "filtered above a bound":
+					case "attached":
+						refused(r, "UnsupportedOperation", consumer.kind)
+						return
+					case "matched in a region": {
+						const p = succeeded(r)
+						assert.equal(p.delivery.kind, "rows")
+						assert.equal(flight(p.roots).length, 1)
+						const shape = shapeOf(flight(p.roots)[0].ast)
+						assert.ok(has(shape, "union"))
+						assert.equal(featureCount(shape, "union all"), 0)
+						return
+					}
+					case "delivered":
+					case "filtered":
+					case "bounded":
+					case "bounded and reordered": {
+						const p = succeeded(r)
+						const delivery = p.delivery
+						assert.ok(delivery.kind === "headingGroups", consumer.kind)
+						assert.deepEqual(delivery.discriminant, ["kind"])
+						assert.equal(flight(p.roots).length, 2, "one statement per heading group")
+						assert.deepEqual(
+							delivery.merge,
+							consumer.kind === "bounded"
+								? {
+										kind: "take",
+										bound: { kind: "literal" as const, k: consumer.k },
+										take: orderBy(consumer.take)
 									}
-								]),
-								[
-									["account", "account"],
-									["amount", "amount"]
-								],
-								conservativeMeta
-							)
-						const projections = [projected(Posting), projected(Task)] as const
-						const sourceOf = (pick: number) => (pick === 0 ? projections[0] : projections[1])
-						const target = sourceOf(present(sources[read], "the read occurrence's source"))
-						const last = sources.length - 1
-						const r = lowered(
-							q.build(
-								q.region(
-									Arr.map(sources, (pick, i) => ({
-										source: sourceOf(pick),
-										bind: { account: `a${i}` },
-										constants: i === last ? { amount: q.col(target, "amount") } : {}
-									}))
+								: consumer.kind === "bounded and reordered"
+									? consumer.delivery === consumer.take
+										? {
+												kind: "take",
+												bound: { kind: "literal" as const, k: 1n },
+												take: orderBy(consumer.take)
+											}
+										: {
+												kind: "takeThenOrder",
+												bound: { kind: "literal" as const, k: 1n },
+												take: orderBy(consumer.take),
+												order: orderBy(consumer.delivery)
+											}
+									: { kind: "concat" }
+						)
+						if (consumer.kind === "bounded" || consumer.kind === "bounded and reordered") {
+							for (const s of flight(p.roots)) {
+								/** Each group keeps its first k under the take's order. */
+								const bounded = boundedQueries(s.ast)
+								assert.ok(bounded.length > 0)
+								for (const b of bounded) {
+									assert.equal(b.orderBy[0]?.direction === "DESC", consumer.take === "desc")
+								}
+							}
+						}
+					}
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the delivery and merge each consumer of a heterogeneous union calls for"
+		},
+		box: "every consumer of one heterogeneous union of two heading groups: delivered, filtered, bounded by either direction and one or two, bounded and reordered, matched, semi-joined, filtered above a bound, attached",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/conservative/deliver.ts",
+				original:
+					'\t\t\treturn { kind: "takeThenOrder", bound: b.take.bound, take: b.take.order, order: b.order }',
+				replacement: '\t\t\treturn { kind: "take", bound: b.take.bound, take: b.take.order }',
+				why: "A take delivered in another order is merged by its take alone; the heterogeneous unions' delivery and merge search fails."
+			}
+		]
+	})
+
+/** Heterogeneous unions refuse an attachment on an arm of a group of several arms, and deliver one on a lone arm. */
+export const heterogeneousUnionsRefuseAnAttachmentOnAnArmOfAGroupOfSeveralArmsAndDeliverOneOnALoneArm =
+	property.exhaust(attachedArms, {
+		needs: {},
+		situations: [
+			"a lone arm attached",
+			"an arm of several attached",
+			"no arm attached"
+		] satisfies ReadonlyArray<Reached<ArmFeature>>,
+		check:
+			(_, c: Case<ArmFeature>) =>
+			({ arms, attached }) =>
+				Effect.sync(() => {
+					const q = new Q()
+					const ids = (relation: RelationSpec, column: string) =>
+						q.project(
+							q.region([
+								{
+									source: q.base(relation, conservativeMeta),
+									bind: { [column]: "id" },
+									constants: {}
+								}
+							]),
+							[["id", "id"]],
+							conservativeMeta
+						)
+					const isAttached = (arm: number) => (attached & (1 << arm)) !== 0
+					const built = upTo(arms, (arm) =>
+						isAttached(arm)
+							? q.attach(
+									ids(Account, "id"),
+									q.project(
+										q.region([
+											{
+												source: q.base(Task, conservativeMeta),
+												bind: { account: "account" },
+												constants: {}
+											}
+										]),
+										[["account", "account"]],
+										conservativeMeta
+									),
+									"tasks",
+									[["id", "account"]],
+									"array",
+									undefined
 								)
+							: ids(Posting, "account")
+					)
+					const r = lowered(q.build(q.union(built, [])))
+					const carrying = Arr.filter(
+						upTo(arms, (arm) => arm),
+						isAttached
+					).length
+					if (carrying === 0) {
+						c.note("no arm attached")
+					} else {
+						c.note(arms === 1 ? "a lone arm attached" : "an arm of several attached")
+					}
+					if (carrying > 0 && arms > 1) {
+						refused(r, "UnsupportedOperation")
+						return
+					}
+					assert.equal(
+						Arr.filter(flight(succeeded(r).roots), (s) => s.role.kind === "attachment").length,
+						carrying
+					)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "an attachment statement per attached lone arm, a refusal for an attached arm of several"
+		},
+		box: "one to three arms of one heading group, every subset of them attached",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/conservative/deliver.ts",
+				original:
+					"\t\tthis.#refuseArmAttachments(s)\n\t\treturn { nodes: s.nodes, attachments: s.attachments.map((a) => a.attach) }",
+				replacement:
+					"\t\tconst armed = [...s.attachments, ...(s.arms?.spines.flatMap((arm) => arm.attachments) ?? [])]\n\t\treturn { nodes: s.nodes, attachments: armed.map((a) => a.attach) }",
+				why: "An attachment on an arm of a union of several arms is delivered instead of refused; the union attachments search fails."
+			}
+		]
+	})
+
+/** Regions resolve an outer reference only to a source one occurrence reads. */
+export const regionsResolveAnOuterReferenceOnlyToASourceOneOccurrenceReads = property.exhaust(
+	regionReads,
+	{
+		needs: {},
+		situations: ["resolved", "refused"] satisfies ReadonlyArray<Reached<Resolution>>,
+		check:
+			(_, c: Case<Resolution>) =>
+			({ sources, read }) =>
+				Effect.sync(() => {
+					const q = new Q()
+					const projected = (relation: RelationSpec) =>
+						q.project(
+							q.region([
+								{
+									source: q.base(relation, conservativeMeta),
+									bind: { account: "account", amount: "amount" },
+									constants: {}
+								}
+							]),
+							[
+								["account", "account"],
+								["amount", "amount"]
+							],
+							conservativeMeta
+						)
+					const projections = [projected(Posting), projected(Task)] as const
+					const sourceOf = (pick: number) => (pick === 0 ? projections[0] : projections[1])
+					const target = sourceOf(present(sources[read], "the read occurrence's source"))
+					const last = sources.length - 1
+					const r = lowered(
+						q.build(
+							q.region(
+								Arr.map(sources, (pick, i) => ({
+									source: sourceOf(pick),
+									bind: { account: `a${i}` },
+									constants: i === last ? { amount: q.col(target, "amount") } : {}
+								}))
 							)
 						)
-						const readers = Arr.filter(sources, (pick) => sourceOf(pick) === target).length
-						if (readers === 1) {
-							succeeded(r)
-							c.note("resolved")
-						} else {
-							refused(r, "MalformedDescription")
-							c.note("refused")
-						}
-					})
-			)
-		)
-	)
-})
-
-const boundParams = (c: QueryCase): ReadonlyArray<ParamId> =>
-	Arr.flatMap(topoOrder(c.query.dag), (n) =>
-		n.kind === "Take" && n.bound.kind === "param" ? [n.bound.param] : []
-	)
-
-describe("take bound parameters", () => {
-	/**
-	 * Generated queries whose takes are frequent and draw parameter bounds, which the generator types bigint: wider than
-	 * the integer a bound parameter no other use widens.
-	 */
-	const bounded = queryCaseGen({
-		...defaultGenConfig,
-		query: {
-			...defaultGenConfig.query,
-			weights: {
-				...defaultGenConfig.query.weights,
-				take: 6
-			}
+					)
+					const readers = Arr.filter(sources, (pick) => sourceOf(pick) === target).length
+					if (readers === 1) {
+						succeeded(r)
+						c.note("resolved")
+					} else {
+						refused(r, "MalformedDescription")
+						c.note("refused")
+					}
+				}),
+		oracle: {
+			kind: "specification",
+			name: "the occurrences that read the referenced source: one resolves, several are ambiguous"
 		},
-		swarm: false
-	})
-	const lowered = (c: QueryCase, params: ReadonlyArray<ParamDecl>) =>
-		lowerConservative(conservativeInput(c.query), {
-			names: standInNames(c.schema.name, schemaCodes(c.schema)),
-			params,
-			subject: { kind: "query" }
-		})
+		box: "two or three occurrences over two sources, the last fixing its amount to every earlier occurrence's source",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/conservative/match-region/index.ts",
+				original: "\treturn shared",
+				replacement: "\treturn new Set<NodeId>()",
+				why: "A reference to a source several occurrences share is resolved instead of refused; the regions search fails."
+			}
+		]
+	}
+)
 
-	it.effect(
-		"binds a bound parameter at its declared type, and refuses one the query does not declare",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "the declared type of each take's bound parameter, and MalformedDescription for an undeclared one"
-						},
-						suite: "unit/lower/conservative/bound-param-type",
-						literal: Formatter.format,
-						kept: [],
-						draw: drawn(bounded),
-						runs: 60,
-						shrink: completeShrink,
-						coverage: required<"a bound parameter">(["a bound parameter"], {
-							cases: 60,
-							sense: notesOnly
-						}),
-						steerEvery: 16,
-						caseHang
-					},
-					(c, notes) =>
-						Effect.sync(() => {
-							const params = genParamDecls(c.query)
-							const program = succeeded(lowered(c, params), "a generated query lowers")
-							for (const p of boundParams(c)) {
-								notes.note("a bound parameter")
-								const declared = present(
-									Arr.flatMap(params, (d) =>
-										d.id === p && d.kind === "scalar" ? [d.type] : []
-									)[0],
-									`the declaration of ${p}`
-								)
-								const bound: ReadonlyArray<ScalarType> = Arr.flatMap(flight(program.roots), (s) =>
-									Arr.flatMap(s.params, (slot) =>
-										slot.kind === "scalar" && slot.param === p ? [slot.type] : []
-									)
-								)
-								assert.ok(bound.length > 0, `a placeholder of ${p}`)
-								for (const type of bound) {
-									assert.ok(sameScalarType(type, declared), p)
-								}
-								refused(
-									lowered(
-										c,
-										Arr.filter(params, (d) => d.id !== p)
-									),
-									"MalformedDescription",
-									p
-								)
-							}
-						})
-				)
-			)
-	)
-})
+/** Take bound parameters binds a bound parameter at its declared type, and refuses one the query does not declare. */
+export const takeBoundParametersBindsABoundParameterAtItsDeclaredTypeAndRefusesOneTheQueryDoesNotDeclare =
+	property.explore(bounded, {
+		needs: {},
+		situations: ["a bound parameter"] satisfies ReadonlyArray<Reached<"a bound parameter">>,
+		check: (_, notes: Case<"a bound parameter">) => (c) =>
+			Effect.sync(() => {
+				const params = genParamDecls(c.query)
+				const program = succeeded(lowerGenerated(c, params), "a generated query lowers")
+				for (const p of boundParams(c)) {
+					notes.note("a bound parameter")
+					const declared = present(
+						Arr.flatMap(params, (d) => (d.id === p && d.kind === "scalar" ? [d.type] : []))[0],
+						`the declaration of ${p}`
+					)
+					const bound: ReadonlyArray<ScalarType> = Arr.flatMap(flight(program.roots), (s) =>
+						Arr.flatMap(s.params, (slot) =>
+							slot.kind === "scalar" && slot.param === p ? [slot.type] : []
+						)
+					)
+					assert.ok(bound.length > 0, `a placeholder of ${p}`)
+					for (const type of bound) {
+						assert.ok(sameScalarType(type, declared), p)
+					}
+					refused(
+						lowerGenerated(
+							c,
+							Arr.filter(params, (d) => d.id !== p)
+						),
+						"MalformedDescription",
+						p
+					)
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the declared type of each take's bound parameter, and MalformedDescription for an undeclared one"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/conservative/context.ts",
+				original:
+					"\t\t\t\treturn this.params.scalar(bound.param, p.type, this.baseTypeRef(p.type))",
+				replacement:
+					'\t\t\t\treturn this.params.scalar(bound.param, { carrier: "int4", caps: p.type.caps, contract: undefined }, types.integer)',
+				why: "A take's bound parameter is bound as int4 whatever its declaration; the bound parameter search fails."
+			}
+		]
+	})

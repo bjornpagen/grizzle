@@ -15,306 +15,148 @@
  *
  * Features: carried and inline; shared and inline; fed and sent.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { int } from "@bjornpagen/testing/gen"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite, int } from "@bjornpagen/testing/gen"
 import { agree, exact, set, structuralHash } from "@bjornpagen/testing/oracle"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { indices } from "#compiler/core/array.ts"
-import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
 import {
 	planStatementShares,
 	ShareIndex,
 	statementCtes
 } from "#compiler/lower/shapes/share/statements.ts"
-import { pg } from "#compiler/public/fields.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
-import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
-import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { assert, succeeded, unorderedEqual } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
-import { asc, Q, T, Task } from "#test/unit/lower/conservative/fixtures.ts"
-
-import { caseHang } from "#test/support/limits.ts"
-import { upTo } from "#test/support/up-to.ts"
+import {
+	attachedJobs,
+	attachmentFilters,
+	expectedAnswers,
+	Jobs,
+	program,
+	repeated
+} from "#test/unit/lower/shapes/share-statements.fixtures.ts"
 import { present } from "#test/unit/lower/support.ts"
 
-/**
- * The work queue's shape in miniature: `first` bounds a projection of one account's tasks to its first id, `pick` is a
- * union of two projections each over its own import of `first`, and each statement imports `pick` again.
- */
-const program = (statements: number) => {
-	const q = new Q()
-	const first = () => {
-		const m = q.region([
+/** Sub-queries carried across a stratum's statements carry pick once, every copy through the carrier, exactly when enough statements read it. */
+export const subQueriesCarriedAcrossAStratumsStatementsCarryPickOnceEveryCopyThroughTheCarrierExactlyWhenEnoughStatementsReadIt =
+	property.exhaust(finite(int(1, 4)), {
+		needs: {},
+		situations: ["carried", "inline"] satisfies ReadonlyArray<Reached<"carried" | "inline">>,
+		check: (_, c: Case<"carried" | "inline">) => (statements) =>
+			Effect.sync(() => {
+				const p = program(statements)
+				const shares = succeeded(planStatementShares(new ShareIndex(p.dag), p.roots))
+				if (statements < 2) {
+					assert.deepEqual(shares, [])
+					c.note("inline")
+					return
+				}
+				const [pick] = p.picks
+				assert.equal(shares.length, 1)
+				const share = present(shares[0], "the carried share")
+				assert.equal(share.key, succeeded(shareKey(p.dag, present(pick, "a pick"))))
+				unorderedEqual([...share.copies], p.picks)
+				c.note("carried")
+			}),
+		oracle: {
+			kind: "specification",
+			name: "pick carried once, every copy through the carrier, exactly when more than one statement reads it"
+		},
+		box: "one to four statements each reading pick",
+		kept: [],
+		kills: [
 			{
-				source: q.base(Task, conservativeMeta),
-				bind: { id: "id", account: "account" },
-				constants: { account: q.param("a", T.uuid, "compare") }
+				file: "packages/engine/src/lower/shapes/share/statements.ts",
+				original: "\t\t\t\tif (statements.size < 2) {",
+				replacement: "\t\t\t\tif (statements.size < 4) {",
+				why: "A sub-query is carried only when more than three statements read it; the carried search fails."
 			}
-		])
-		return q.take(
-			q.project(m, [["id", "id"]], conservativeMeta),
-			asc("id"),
-			{ kind: "literal", k: 1n },
-			[],
-			conservativeMeta
-		)
-	}
-	const arms: Array<RelNode> = []
-	const pick = () => {
-		const [x, y] = [
-			q.project(first(), [["id", "id"]], conservativeMeta),
-			q.project(first(), [["id", "id"]], conservativeMeta)
 		]
-		arms.push(x, y)
-		return q.union([x, y], [])
-	}
-	const picks: Array<RelNode> = []
-	/** Each statement reads `pick` under its own name, so the statements themselves differ. */
-	const roots = Arr.map(indices(statements), (i) => {
-		const p = pick()
-		picks.push(p)
-		return q.project(p, [[`id${i}`, "id"]], conservativeMeta)
 	})
-	const built = q.build(
-		q.union(
-			Arr.map(roots, (root, i) => q.project(root, [["id", `id${i}`]], conservativeMeta)),
-			[]
-		)
-	)
-	return { dag: built.dag, roots, picks, arms }
-}
 
-/**
- * A statement reading r copies of the union of two projections of tasks: an unbounded sub-query, which the CTE policy
- * shares only by its reads.
- */
-const repeated = (reads: number) => {
-	const q = new Q()
-	const all = () =>
-		q.union(
-			[
-				q.project(
-					q.region([{ source: q.base(Task, conservativeMeta), bind: { id: "id" }, constants: {} }]),
-					[["id", "id"]],
-					conservativeMeta
-				),
-				q.project(
-					q.region([
-						{
-							source: q.base(Task, conservativeMeta),
-							bind: { id: "id", account: "account" },
-							constants: {}
-						}
-					]),
-					[["id", "id"]],
-					conservativeMeta
+/** Sub-queries repeated inside one statement compute an unbounded sub-query once exactly when it is read more than once. */
+export const subQueriesRepeatedInsideOneStatementComputeAnUnboundedSubQueryOnceExactlyWhenItIsReadMoreThanOnce =
+	property.exhaust(finite(int(1, 4)), {
+		needs: {},
+		situations: ["shared", "inline"] satisfies ReadonlyArray<Reached<"shared" | "inline">>,
+		check: (_, c: Case<"shared" | "inline">) => (reads) =>
+			Effect.gen(function* () {
+				const { built, copies } = repeated(reads)
+				const ctes = statementCtes(new ShareIndex(built.dag), built.dag.roots[0], () => false)
+				const expected =
+					reads > 1 ? [succeeded(shareKey(built.dag, present(copies[0], "a copy")))] : []
+				yield* agree(
+					[
+						["the share keys the statement computes once", [...new Set(ctes.values())]],
+						["the copies' share key", expected]
+					],
+					set(structuralHash, exact)
 				)
-			],
-			[]
-		)
-	/** Each read is a projection of its own copy: the highest node the copies share. */
-	const copies = Array.from({ length: reads }, () =>
-		q.project(all(), [["id", "id"]], conservativeMeta)
-	)
-	const built = q.build(q.union(copies, []))
-	return { built, copies }
-}
+				unorderedEqual([...ctes.keys()], reads > 1 ? Arr.map(copies, (copy) => copy.id) : [])
+				c.note(reads > 1 ? "shared" : "inline")
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the union computed once as a CTE exactly when it is read more than once"
+		},
+		box: "one statement reading one to four copies of an unbounded union",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/shapes/share/statements.ts",
+				original: "\t\t\tif ((byKey.get(key) ?? 0) < 2) {",
+				replacement: "\t\t\tif ((byKey.get(key) ?? 0) < 4) {",
+				why: "A statement computes a sub-query once as a CTE only when it reads it more than three times; the CTE search fails."
+			}
+		]
+	})
 
-describe("sub-queries carried across a stratum's statements", () => {
-	it.effect(
-		"carry pick once, every copy through the carrier, exactly when enough statements read it",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						box: "one to four statements each reading pick",
-						oracle: {
-							kind: "specification",
-							name: "pick carried once, every copy through the carrier, exactly when more than one statement reads it"
-						},
-						suite: "unit/lower/shapes/share-statements/carried",
-						literal: Formatter.format,
-						generator: int(1, 4),
-						coverage: requiredInSpace<"carried" | "inline">(["carried", "inline"]),
-						caseHang
-					},
-					(statements, c) =>
-						Effect.sync(() => {
-							const p = program(statements)
-							const shares = succeeded(planStatementShares(new ShareIndex(p.dag), p.roots))
-							if (statements < 2) {
-								assert.deepEqual(shares, [])
-								c.note("inline")
-								return
-							}
-							const [pick] = p.picks
-							assert.equal(shares.length, 1)
-							const share = present(shares[0], "the carried share")
-							assert.equal(share.key, succeeded(shareKey(p.dag, present(pick, "a pick"))))
-							unorderedEqual([...share.copies], p.picks)
-							c.note("carried")
-						})
+/** Attachment parts fed from an earlier one feed a later attachment from the first earlier part computing its sub-query, and place every other. */
+export const attachmentPartsFedFromAnEarlierOneFeedALaterAttachmentFromTheFirstEarlierPartComputingItsSubQueryAndPlaceEveryOther =
+	property.exhaust(attachmentFilters, {
+		needs: {},
+		situations: ["fed", "sent"] satisfies ReadonlyArray<Reached<"fed" | "sent">>,
+		check: (_, c: Case<"fed" | "sent">) => (filters) =>
+			Effect.sync(() => {
+				const optimized = succeeded(compileTemplate(attachedJobs(filters), Jobs, testCompile))
+					.programs.optimized
+				const [main] = optimized.roots
+				const filterOf = new Map<string, number>(
+					Arr.map(filters, (filter, i) => [`jobs${i}`, filter])
 				)
-			)
-	)
-})
-
-describe("sub-queries repeated inside one statement", () => {
-	it.effect("compute an unbounded sub-query once exactly when it is read more than once", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					box: "one statement reading one to four copies of an unbounded union",
-					oracle: {
-						kind: "specification",
-						name: "the union computed once as a CTE exactly when it is read more than once"
-					},
-					suite: "unit/lower/shapes/share-statements/ctes",
-					literal: Formatter.format,
-					generator: int(1, 4),
-					coverage: requiredInSpace<"shared" | "inline">(["shared", "inline"]),
-					caseHang
-				},
-				(reads, c) =>
-					Effect.gen(function* () {
-						const { built, copies } = repeated(reads)
-						const ctes = statementCtes(new ShareIndex(built.dag), built.dag.roots[0], () => false)
-						const expected =
-							reads > 1 ? [succeeded(shareKey(built.dag, present(copies[0], "a copy")))] : []
-						yield* agree(
-							[
-								["the share keys the statement computes once", [...new Set(ctes.values())]],
-								["the copies' share key", expected]
-							],
-							set(structuralHash, exact)
+				assert.equal(main.attachments.length, filters.length)
+				const answers: ReadonlyArray<number> = [
+					main.statement.answer,
+					...Arr.map(main.attachments, (a) => a.statement.answer)
+				]
+				assert.deepEqual(
+					answers,
+					expectedAnswers(
+						Arr.map(main.attachments, (a) =>
+							present(filterOf.get(a.attach.name), `the filter of ${a.attach.name}`)
 						)
-						unorderedEqual([...ctes.keys()], reads > 1 ? Arr.map(copies, (copy) => copy.id) : [])
-						c.note(reads > 1 ? "shared" : "inline")
-					})
-			)
-		)
-	)
-})
-
-/**
- * Attachments of one parent over five fields each, so none is fused, each its jobs unfiltered, those past a least `a`,
- * or those below a most `b`: two attachments of one filter compute one sub-query, under one parameter.
- */
-const Account = relation("Account", { id: pg.bigint, region: pg.integer }, ["id"])
-const Job = relation(
-	"Job",
-	{ id: pg.bigint, account: pg.bigint, a: pg.integer, b: pg.integer, c: pg.integer, d: pg.integer },
-	["id"]
-)
-const Jobs = schema("Jobs", [Account, Job], [])
-
-/** The accounts of a region a parameter names. */
-const accounts = queryOver(Jobs).rule((r: RuleValue) => {
-	const { id, region } = varsOver(Account, "account")
-	return r
-		.match(Account, { id, region })
-		.where(r.eq(region, r.param("region", pg.integer)))
-		.find({ id })
-})
-
-/** The accounts with one attachment per filter of `filters` (0 none, 1 a least `a`, 2 a most `b`), in order. */
-const attachedJobs = (filters: ReadonlyArray<number>): QueryValue =>
-	Arr.reduce(filters, accounts, (q, filter, i) =>
-		q.attach(
-			`jobs${i}`,
-			(p: Readonly<Record<string, unknown>>) =>
-				queryOver(Jobs).rule((r: RuleValue) => {
-					const { id, a, b, c, d } = varsOver(Job, "job")
-					const jobs = r.match(Job, { id, account: p["id"], a, b, c, d })
-					return filter === 0
-						? jobs.find({ id, a, b, c, d })
-						: filter === 1
-							? jobs.where(r.gt(a, r.param("least", pg.integer))).find({ id, a, b, c, d })
-							: jobs.where(r.lt(b, r.param("most", pg.integer))).find({ id, a, b, c, d })
-				}),
-			"array"
-		)
-	)
-
-/**
- * The fixed rule as the oracle: the parent's rows are the statement's first part; each attachment, in the order the
- * program holds them, is fed the rows of the first earlier attachment of its filter, and is a part of its own
- * otherwise, the parts in that order: each one's answer, the position of the rows it reads among the parts'.
- */
-const expectedAnswers = (filters: ReadonlyArray<number>): ReadonlyArray<number> => {
-	const answers: Array<number> = [0]
-	const firstOf = new Map<number, number>()
-	for (const filter of filters) {
-		const feeder = firstOf.get(filter)
-		if (feeder === undefined) {
-			const own = firstOf.size + 1
-			firstOf.set(filter, own)
-			answers.push(own)
-		} else {
-			answers.push(feeder)
-		}
-	}
-	return answers
-}
-
-describe("attachment parts fed from an earlier one", () => {
-	it.effect(
-		"feed a later attachment from the first earlier part computing its sub-query, and place every other",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						box: "one to three attachments of one parent, each of three filters",
-						oracle: {
-							kind: "specification",
-							name: "each attachment fed from the first earlier part of its filter, every other a part of its own"
-						},
-						suite: "unit/lower/shapes/share-statements/feeds",
-						literal: Formatter.format,
-						/** One to three attachments, each of one of the three filters. */
-						generator: (source) => {
-							const count = source.draw(int(1, 3))
-							return upTo(count, () => source.draw(int(0, 2)))
-						},
-						coverage: requiredInSpace<"fed" | "sent">(["fed", "sent"]),
-						caseHang
-					},
-					(filters, c) =>
-						Effect.sync(() => {
-							const optimized = succeeded(compileTemplate(attachedJobs(filters), Jobs, testCompile))
-								.programs.optimized
-							const [main] = optimized.roots
-							const filterOf = new Map<string, number>(
-								Arr.map(filters, (filter, i) => [`jobs${i}`, filter])
-							)
-							assert.equal(main.attachments.length, filters.length)
-							const answers: ReadonlyArray<number> = [
-								main.statement.answer,
-								...Arr.map(main.attachments, (a) => a.statement.answer)
-							]
-							assert.deepEqual(
-								answers,
-								expectedAnswers(
-									Arr.map(main.attachments, (a) =>
-										present(filterOf.get(a.attach.name), `the filter of ${a.attach.name}`)
-									)
-								)
-							)
-							const placed = new Set<number>()
-							for (const answer of Arr.drop(answers, 1)) {
-								c.note(placed.has(answer) ? "fed" : "sent")
-								placed.add(answer)
-							}
-						})
+					)
 				)
-			)
-	)
-})
+				const placed = new Set<number>()
+				for (const answer of Arr.drop(answers, 1)) {
+					c.note(placed.has(answer) ? "fed" : "sent")
+					placed.add(answer)
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "each attachment fed from the first earlier part of its filter, every other a part of its own"
+		},
+		box: "one to three attachments of one parent, each of three filters",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/shapes/index.ts",
+				original: "\t\t\tconst feeder = siblings.find((s) => this.#sameRows(s, attach, parentKey))",
+				replacement: "\t\t\tconst feeder = siblings.find(() => false)",
+				why: "No attachment part is fed from an earlier one, each placed as a part of its own; the feeding search fails."
+			}
+		]
+	})

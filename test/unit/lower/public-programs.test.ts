@@ -23,404 +23,171 @@
  *
  * Features: an option or bare child, and a take, over an identity projection's input; each roster form.
  */
-import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
-import { required, requiredInSpace } from "@bjornpagen/testing/features"
-import { boolean, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
-import { checkQuery } from "#compiler/check/index.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
-import type { NodeId } from "#compiler/core/ids.ts"
-import type * as Result from "#compiler/core/result.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { boolean, element, finite, shuffled } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter } from "effect"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import type { LogicalQuery } from "#compiler/ir/products.ts"
-import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
-import { queryEvidence } from "#compiler/logical/annotate.ts"
-import { lowerConservative } from "#compiler/lower/conservative/index.ts"
-import { conservativeInput } from "#compiler/lower/conservative/types.ts"
-import {
-	lowerOptimized,
-	type OptimizedProgram,
-	optimizedInput
-} from "#compiler/lower/optimize/pipeline.ts"
-import { queryInput } from "#compiler/program/compile.ts"
-import { closedId, pg, uuid } from "#compiler/public/fields.ts"
+import { closedId, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, relation, schema } from "#compiler/public/schema.ts"
-import { queryOver, varsOver } from "#compiler/query/build/query.ts"
-import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
-import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { messageOf } from "#test/support/message.ts"
-import { validateDag } from "#test/support/oracle/dag-validate.ts"
+import { assert } from "#test/support/assert.ts"
 import { buildRoot, buildSchema } from "#test/support/oracle/public/build.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
-import { checkedLowering } from "#test/support/oracle/verify/index.ts"
-import { checking, checkOptions } from "#test/support/policy.ts"
-import { upTo } from "#test/support/up-to.ts"
-import { present } from "#test/unit/lower/support.ts"
+import {
+	type HandleName,
+	handleNames,
+	type IdentityFeature,
+	lowered,
+	lowersValid,
+	plantedGen,
+	plantedRead,
+	type RosterFeature
+} from "#test/unit/lower/public-programs.fixtures.ts"
 
-/** The handle names a drawn roster takes. */
-const handleNames = ["Red", "Green", "Blue", "Amber", "Teal"] as const
-type HandleName = (typeof handleNames)[number]
-
-/** The roster forms R07 decides: the import alone binding the roster's variable, and a plain match beside it. */
-type RosterFeature =
-	| "an import bound to a variable only a roster match binds"
-	| "roster match dropped beside a plain binder"
-
-/** The readers of the input an identity projection was redirected onto that check the projection's evidence. */
-type IdentityFeature =
-	| "an option or bare child over an identity projection's input"
-	| "a take over an identity projection's input"
-
-/**
- * One read lowered as a template compiles it: refused before the optimized lowering (by the checker or the conservative
- * lowering, which are not this property's subject), or the annotated DAG and the optimized lowering's outcome.
- */
-type Lowered =
-	| { readonly kind: "refused before" }
-	| {
-			readonly kind: "lowered"
-			readonly rewritten: LogicalQuery
-			readonly optimized: Result.Result<OptimizedProgram, CompileError>
-	  }
-
-const lowered = (schemaValue: FixtureSchema, read: unknown): Lowered => {
-	const artifacts = succeeded(testArtifacts(schemaValue, testCompile))
-	const input = succeeded(queryInput(read))
-	const checked = checkQuery(checking(schemaValue), input.desc, checkOptions("query"))
-	if (!checked.ok) {
-		return { kind: "refused before" }
-	}
-	const conservative = lowerConservative(conservativeInput(checked.value), {
-		names: artifacts.names,
-		params: checked.value.params,
-		subject: { kind: "query" }
+/** The optimized lowering of checked public programs builds no DAG that breaks a rule for a generated read. */
+export const theOptimizedLoweringOfCheckedPublicProgramsBuildsNoDAGThatBreaksARuleForAGeneratedRead =
+	property.explore(caseSketchGen, {
+		needs: {},
+		situations: [
+			"an option or bare child over an identity projection's input"
+		] satisfies ReadonlyArray<Reached<IdentityFeature>>,
+		check: (_, n: Case<IdentityFeature>) => (sketch) =>
+			Effect.sync(() => {
+				const c = n.draw(resolveCase(sketch))
+				const built = buildSchema(c.schema)
+				for (const read of c.reads) {
+					if (read.kind === "query") {
+						lowersValid(built.schema, buildRoot(built, built.schema, read.query), n, () =>
+							printCase(c)
+						)
+					}
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the strict DAG re-reader and the lowering's audit (checkedLowering)"
+		},
+		kept: [],
+		kills: []
 	})
-	if (!conservative.ok) {
-		return { kind: "refused before" }
-	}
-	const rewritten = succeeded(optimizedInput(checked.value, queryEvidence))
-	const catalog = evidenceCatalog(artifacts)
-	const optimized = lowerOptimized(rewritten, {
-		names: artifacts.names,
-		subject: { kind: "query" },
-		catalog,
-		context: "snapshot"
-	})
-	if (optimized.ok) {
-		validateDag(optimized.value.query.dag)
-		checkedLowering({
-			optimized: optimized.value,
-			alignment: { kind: "aligned", conservative: conservative.value },
-			context: "snapshot",
-			catalog
-		})
-	}
-	return { kind: "lowered", rewritten, optimized }
-}
 
-/**
- * Lowers one read of `schemaValue`, and notes the readers of a redirected identity projection's input; a DAG the
- * optimized lowering builds that breaks a rule is the defect the validator raises, which fails with `context`.
- */
-const lowersValid = (
-	schemaValue: FixtureSchema,
-	read: unknown,
-	n: Case<IdentityFeature>,
-	context: () => string
-): void => {
-	let l: Lowered
-	try {
-		l = lowered(schemaValue, read)
-	} catch (caught) {
-		throw new Error(
-			`the optimized lowering built a DAG that breaks a rule: ${messageOf(caught)}\n${context()}`,
+/** The optimized lowering of checked public programs builds no DAG that breaks a rule for a planted read. */
+export const theOptimizedLoweringOfCheckedPublicProgramsBuildsNoDAGThatBreaksARuleForAPlantedRead =
+	property.exhaust(finite(plantedGen), {
+		needs: {},
+		situations: [
+			"an option or bare child over an identity projection's input",
+			"a take over an identity projection's input"
+		] satisfies ReadonlyArray<Reached<IdentityFeature>>,
+		check: (_, n: Case<IdentityFeature>) => (p) =>
+			Effect.sync(() => {
+				const { schema: planted, read } = plantedRead(p)
+				lowersValid(planted, read, n, () => Formatter.format(p))
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the strict DAG re-reader and the lowering's audit (checkedLowering)"
+		},
+		box: "takes of the first one to three items over every found column set, filtered or not, ordered by each found column either way; and routes with one to three scans of Stop in a child that finds nothing",
+		kept: [],
+		kills: [
 			{
-				cause: caught
+				file: "packages/engine/src/lower/optimize/simplify/rules.ts",
+				original:
+					"\t\treturn overDemand(({ demand }) =>\n\t\t\tcollapseInto(cx, demand, cell, node, inputCell, () => {\n\t\t\t\tcertify(cx, simplifyRules.identityProjection, [inputCell.id], node.heading, [inputCell.id])\n\t\t\t})\n\t\t)",
+				replacement:
+					"\t\treturn overDemand(({ demand }) => {\n\t\t\tif (!exclusive(cx, demand, inputCell)) {\n\t\t\t\treturn false\n\t\t\t}\n\t\t\tcertify(cx, simplifyRules.identityProjection, [inputCell.id], node.heading, [inputCell.id])\n\t\t\tcx.editor.redirect(cell, inputCell)\n\t\t\treturn true\n\t\t})",
+				why: "An identity projection removed while its input keeps its own metadata, not the projection's evidence, so an option's child over it states no card; the public-programs-planted search fails."
 			}
-		)
-	}
-	if (l.kind === "refused before" || !l.optimized.ok) {
-		return
-	}
-	/** The inputs identity projections were redirected onto, each its certificate's output. */
-	const identityProjections = Arr.filter(
-		l.optimized.value.certificates,
-		(cert) => cert.rule === "simplify.identityProjection"
-	)
-	const redirected = new Set<NodeId>(Arr.flatMap(identityProjections, (cert) => cert.outputs))
-	for (const node of topoOrder(l.optimized.value.query.dag)) {
-		if (node.kind === "Attach" && node.delivered !== "array" && redirected.has(node.child.id)) {
-			n.note("an option or bare child over an identity projection's input")
-		}
-		if (node.kind === "Take" && redirected.has(node.input.id)) {
-			n.note("a take over an identity projection's input")
-		}
-	}
-}
-
-/**
- * The reads the generator's orders over every column rarely bring to an identity: takes over a projection of Item the
- * demand pass narrows to an identity, and an attachment whose child projects nothing over its scans of Stop, the unit
- * relation per parent.
- */
-const Item = relation("Item", { id: uuid, x: pg.integer, y: pg.integer }, ["id"])
-const Items = schema("Items", [Item], [])
-const Route = closed("Route", ["Red", "Green", "Blue"])
-const Stop = relation("Stop", { route: closedId(Route) }, ["route"])
-const Routes = schema("Routes", [Route, Stop], [])
-
-/**
- * A take of the first `k` items, each finding its id and x and y where drawn, filtered on x where drawn, ordered by the
- * `first`th column it finds in either direction, then by its key; or the routes, each with the child of `scans` scans
- * of Stop, the first on the parent's route, finding nothing.
- */
-type PlantedRead =
-	| {
-			readonly kind: "take"
-			readonly x: boolean
-			readonly y: boolean
-			readonly filtered: boolean
-			readonly first: number
-			readonly descending: boolean
-			readonly k: number
-	  }
-	| { readonly kind: "child"; readonly scans: number }
-
-/** The columns a planted take finds: the key, then x and y where drawn. */
-const foundOf = (x: boolean, y: boolean): ReadonlyArray<"id" | "x" | "y"> => [
-	"id",
-	...(x ? ["x" as const] : []),
-	...(y ? ["y" as const] : [])
-]
-
-const plantedGen: Gen<PlantedRead> = oneOf<PlantedRead>([
-	(source) => {
-		const x = source.draw(boolean)
-		const y = source.draw(boolean)
-		return {
-			kind: "take",
-			x,
-			y,
-			filtered: source.draw(boolean),
-			first: source.draw(int(0, foundOf(x, y).length - 1)),
-			descending: source.draw(boolean),
-			k: source.draw(int(1, 3))
-		}
-	},
-	(source) => ({ kind: "child", scans: source.draw(int(1, 3)) })
-])
-
-/** A planted read and the schema it is built over. */
-const plantedRead = (
-	p: PlantedRead
-): { readonly schema: FixtureSchema; readonly read: unknown } => {
-	if (p.kind === "child") {
-		return {
-			schema: Routes,
-			read: queryOver(Routes)
-				.rule((r: RuleValue) => {
-					const { route } = varsOver(Stop, "stop")
-					return r.match(Stop, { route }).find({ route })
-				})
-				.attach(
-					"stops",
-					(parent: Readonly<Record<string, unknown>>) =>
-						queryOver(Routes).rule((r: RuleValue) =>
-							Arr.reduce(
-								upTo(p.scans - 1, (i) => varsOver(Stop, `stop${i}`)),
-								r.match(Stop, { route: parent["route"] }),
-								(matched, { route }) => matched.match(Stop, { route })
-							).find({})
-						),
-					"array"
-				)
-		}
-	}
-	const found = foundOf(p.x, p.y)
-	const first = present(found[p.first], "the first order column")
-	const items = queryOver(Items).rule((r: RuleValue) => {
-		const vars = varsOver(Item, "item")
-		const matched = r.match(Item, vars)
-		return (p.filtered ? matched.where(r.lt(vars["x"], 3)) : matched).find(
-			Rec.fromEntries(Arr.map(found, (name) => [name, vars[name]]))
-		)
+		]
 	})
-	const leading = [first, p.descending ? "desc" : "asc"]
-	return {
-		schema: Items,
-		read: (first === "id" ? items.orderBy(leading) : items.orderBy(leading, ["id", "asc"])).take(
-			p.k
-		)
-	}
-}
 
-describe("the optimized lowering of checked public programs", () => {
-	it.effect("builds no DAG that breaks a rule for a generated read", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "specification",
-						name: "the strict DAG re-reader and the lowering's audit (checkedLowering)"
-					},
-					suite: "unit/lower/public-programs",
-					draw: drawn(caseSketchGen),
-					literal: Formatter.format,
-					coverage: required<IdentityFeature>(
-						["an option or bare child over an identity projection's input"],
-						{ cases: 300, sense: notesOnly }
-					),
-					kept: [],
-					/**
-					 * Each read compiles once without a database; an option child over an identity projection's input is
-					 * about one read in fifteen, so 300 rotating cases meet it many times.
-					 */
-					runs: 300,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				(sketch, n) =>
-					Effect.sync(() => {
-						const c = n.draw(resolveCase(sketch))
-						const built = buildSchema(c.schema)
-						for (const read of c.reads) {
-							if (read.kind === "query") {
-								lowersValid(built.schema, buildRoot(built, built.schema, read.query), n, () =>
-									printCase(c)
-								)
-							}
-						}
-					})
-			)
-		)
-	)
-
-	it.effect("builds no DAG that breaks a rule for a planted read", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					box: "takes of the first one to three items over every found column set, filtered or not, ordered by each found column either way; and routes with one to three scans of Stop in a child that finds nothing",
-					oracle: {
-						kind: "specification",
-						name: "the strict DAG re-reader and the lowering's audit (checkedLowering)"
-					},
-					suite: "unit/lower/public-programs-planted",
-					generator: plantedGen,
-					literal: Formatter.format,
-					coverage: requiredInSpace<IdentityFeature>([
-						"an option or bare child over an identity projection's input",
-						"a take over an identity projection's input"
-					]),
-					caseHang
-				},
-				(p, n) =>
-					Effect.sync(() => {
-						const { schema: planted, read } = plantedRead(p)
-						lowersValid(planted, read, n, () => Formatter.format(p))
-					})
-			)
-		)
-	)
-
-	it.effect(
-		"lowers a roster match an import bound to its variable reads, and drops one a plain match also binds",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "R07: a roster match a plain match also binds is dropped, one an import alone reads is lowered"
-						},
-						suite: "unit/lower/public-programs-roster",
-						draw: drawn((source) => {
-							/** Two to four distinct handles in any order: one, and one to three of the others. */
-							const first = source.draw(element(handleNames))
-							const handles: readonly [HandleName, ...HandleName[]] = [
-								first,
-								...source.draw(
-									shuffled(
-										Arr.filter(handleNames, (h) => h !== first),
-										{ min: 1, max: 3 }
-									)
-								)
-							]
-							return { handles, twin: source.draw(boolean) }
-						}),
-						literal: Formatter.format,
-						coverage: required<RosterFeature>(
-							[
-								"an import bound to a variable only a roster match binds",
-								"roster match dropped beside a plain binder"
-							],
-							{ cases: 40, sense: notesOnly }
-						),
-						kept: [],
-						/** The rotating stream's sample, each case one read lowered and a coin deciding the twin. */
-						runs: 40,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					({ handles, twin }, n) =>
-						Effect.sync(() => {
-							const Tier = closed("Tier", handles)
-							const Item = relation("Item", { id: uuid, tier: closedId(Tier) }, ["id"])
-							const Plant = schema("Plant", [Tier, Item], [])
-							/** The items of the tier a parameter names, by their tier. */
-							const ofTier = query(Plant).rule((r) => {
-								const { tier } = v(Item, "item")
-								return r
-									.match(Item, { tier })
-									.where(r.eq(tier, r.param("k", closedId(Tier))))
-									.find({ tier })
-							})
-							const read = query(Plant).rule((r) => {
-								const { id: x } = v(Tier, "tier")
-								const matched = r.match(Tier, { id: x })
-								const { id } = v(Item, "item")
-								return (twin ? matched.match(Item, { id, tier: x }) : matched)
-									.match(ofTier.bind({ k: x }), { tier: x })
-									.find({ x })
-							})
-							const l = lowered(Plant, read)
-							assert.ok(
-								l.kind === "lowered",
-								"the checker and the conservative lowering admit the read"
-							)
-							if (!l.optimized.ok) {
-								assert.fail(`the optimized lowering refused: ${l.optimized.error.message}`)
-							}
-							if (!twin) {
-								n.note("an import bound to a variable only a roster match binds")
-								return
-							}
-							const dag = l.optimized.value.query.dag
-							const closedSources = Arr.flatMap(topoOrder(dag), (node) =>
-								node.kind === "MatchRegion"
-									? Arr.filter(node.occurrences, (o) => o.source.kind === "Closed")
-									: []
-							)
-							assert.deepEqual(
-								closedSources,
-								[],
-								"R07 drops the roster match a plain match also binds"
-							)
-							n.note("roster match dropped beside a plain binder")
-						})
+/** The optimized lowering of checked public programs lowers a roster match an import bound to its variable reads, and drops one a plain match also binds. */
+export const theOptimizedLoweringOfCheckedPublicProgramsLowersARosterMatchAnImportBoundToItsVariableReadsAndDropsOneAPlainMatchAlsoBinds =
+	property.explore(
+		(source) => {
+			/** Two to four distinct handles in any order: one, and one to three of the others. */
+			const first = source.draw(element(handleNames))
+			const handles: readonly [HandleName, ...HandleName[]] = [
+				first,
+				...source.draw(
+					shuffled(
+						Arr.filter(handleNames, (h) => h !== first),
+						{ min: 1, max: 3 }
+					)
 				)
-			)
+			]
+			return { handles, twin: source.draw(boolean) }
+		},
+		{
+			needs: {},
+			situations: [
+				"an import bound to a variable only a roster match binds",
+				"roster match dropped beside a plain binder"
+			] satisfies ReadonlyArray<Reached<RosterFeature>>,
+			check:
+				(_, n: Case<RosterFeature>) =>
+				({ handles, twin }) =>
+					Effect.sync(() => {
+						const Tier = closed("Tier", handles)
+						const Item = relation("Item", { id: uuid, tier: closedId(Tier) }, ["id"])
+						const Plant = schema("Plant", [Tier, Item], [])
+						/** The items of the tier a parameter names, by their tier. */
+						const ofTier = query(Plant).rule((r) => {
+							const { tier } = v(Item, "item")
+							return r
+								.match(Item, { tier })
+								.where(r.eq(tier, r.param("k", closedId(Tier))))
+								.find({ tier })
+						})
+						const read = query(Plant).rule((r) => {
+							const { id: x } = v(Tier, "tier")
+							const matched = r.match(Tier, { id: x })
+							const { id } = v(Item, "item")
+							return (twin ? matched.match(Item, { id, tier: x }) : matched)
+								.match(ofTier.bind({ k: x }), { tier: x })
+								.find({ x })
+						})
+						const l = lowered(Plant, read)
+						assert.ok(
+							l.kind === "lowered",
+							"the checker and the conservative lowering admit the read"
+						)
+						if (!l.optimized.ok) {
+							assert.fail(`the optimized lowering refused: ${l.optimized.error.message}`)
+						}
+						if (!twin) {
+							n.note("an import bound to a variable only a roster match binds")
+							return
+						}
+						const dag = l.optimized.value.query.dag
+						const closedSources = Arr.flatMap(topoOrder(dag), (node) =>
+							node.kind === "MatchRegion"
+								? Arr.filter(node.occurrences, (o) => o.source.kind === "Closed")
+								: []
+						)
+						assert.deepEqual(
+							closedSources,
+							[],
+							"R07 drops the roster match a plain match also binds"
+						)
+						n.note("roster match dropped beside a plain binder")
+					}),
+			oracle: {
+				kind: "specification",
+				name: "R07: a roster match a plain match also binds is dropped, one an import alone reads is lowered"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/lower/optimize/closed/index.ts",
+					original: "\t\tevidence === undefined ||",
+					replacement: '\t\tevidence === undefined ||\n\t\tevidence.kind === "roster" ||',
+					why: "R07 takes no roster occurrence for a membership, so a roster match a plain match also binds is kept; the public-programs-roster search fails."
+				}
+			]
+		}
 	)
-})

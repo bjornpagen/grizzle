@@ -562,13 +562,6 @@ export default defineConfig(
 				})
 			},
 			{
-				files: ["test/unit/lower/dedup/key-sets.test.ts"],
-				rules: active({
-					/** Its billing search exhausts the reads of the platform fixture's workload (test/support/fixtures/api/platform.ts), a real workload compiled as billing compiles it, beside the file's search over generated programs; the fixture is that search's box until the conversion draws it or drops it. */
-					"devtools/no-case-list": "off"
-				})
-			},
-			{
 				files: ["test/unit/scalar/registry.test.ts"],
 				rules: active({
 					/** Its fixtures search holds the ScalarTypes the test fixture modules export to the registry: the fixtures are what it checks, so its space is every one of them, not inputs chosen for a property. */
