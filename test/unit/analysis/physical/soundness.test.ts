@@ -17,42 +17,20 @@
  * correlated node evaluated per outer tuple, a node read by two consumers, a constant read laterally; a filter of two
  * conjuncts and a column fixed to two values for the conjunct order.
  */
-import { type Case, type Draw, drawn, explore } from "@bjornpagen/testing/explore"
-import { noCoverage, required } from "@bjornpagen/testing/features"
-import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { boolean } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import { type PhysicalEnv, unplaced } from "#compiler/analysis/physical/analyze.ts"
-import type { Realization } from "#compiler/analysis/physical/props.ts"
-import { topoOrder } from "#compiler/ir/dag.ts"
-import { inputsOf, type RelDag, type RelKind, type RelNode } from "#compiler/ir/rel.ts"
 import { assert } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import {
 	defaultGenConfig,
-	type QueryCase,
 	queryCaseGen,
 	soundnessGenConfig
 } from "#test/support/oracle/gen/case.ts"
-
-import { caseHang } from "#test/support/limits.ts"
-import {
-	existsOverTakeRoot,
-	fanoutJoinRoot,
-	groupRoot,
-	keyedJoinRoot,
-	noninjectiveKeyCaseGen,
-	projectGroupRoot,
-	projectRoot,
-	rootedCaseGen,
-	taggedUnionRoot,
-	untaggedUnionRoot,
-	witnessRoot
-} from "#test/support/oracle/mutants/cases.ts"
-import { type ReferenceInput, unobserved } from "#test/support/oracle/reference/evaluate.ts"
+import { noninjectiveKeyCaseGen } from "#test/support/oracle/mutants/cases.ts"
 import {
 	claimsOf,
 	fixedTwice,
@@ -61,345 +39,174 @@ import {
 	twiceFixed
 } from "#test/unit/analysis/physical/order.ts"
 import {
-	FragmentReference,
-	owedOf,
-	physical,
-	propsOf,
-	soundness
-} from "#test/unit/analysis/physical/support.ts"
+	check,
+	claimFeatures,
+	type CounterexampleRoot,
+	counterexampleRoots,
+	inputOf,
+	type OrderFeature,
+	rootedCases,
+	type SoundnessFeature
+} from "#test/unit/analysis/physical/soundness.fixtures.ts"
 
-/** What a case's analysis claimed and its evaluation reached. */
-const claimFeatures = [
-	"a key claimed",
-	"nothing owed",
-	"an obligation discharged",
-	"a bound claimed"
-] as const
-
-type SoundnessFeature =
-	| (typeof claimFeatures)[number]
-	| `evaluated ${RelKind}`
-	| `a correlated ${RelKind} evaluated per outer tuple`
-	| "a node read by two consumers"
-	| "a constant read laterally"
-
-/**
- * Every claim the analysis makes holds on every relation the fragment evaluator computes. A case the reference cannot
- * evaluate is a gap of the oracle, never a pass: it fails.
- */
-const check = (
-	dag: RelDag,
-	input: ReferenceInput,
-	all: Realization | undefined,
-	c: Case<SoundnessFeature>
-): void => {
-	const analysis = physical(dag, {
-		context: "snapshot",
-		catalog: genCatalog(input.schema),
-		realization: () => all,
-		roots: "result"
+/** Every physical claim holds on the delivered rows generated cases, plain realization. */
+export const everyPhysicalClaimHoldsOnTheDeliveredRowsGeneratedCasesPlainRealization =
+	property.explore(queryCaseGen(defaultGenConfig), {
+		needs: {},
+		situations: claimFeatures satisfies ReadonlyArray<Reached<SoundnessFeature>>,
+		check: (_, c: Case<SoundnessFeature>) => (q) =>
+			Effect.sync(() => {
+				check(q.query.dag, inputOf(q), undefined, c)
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the fragment evaluator: what each node's plain SQL delivers"
+		},
+		kept: [],
+		kills: []
 	})
-	const fragments = FragmentReference.delivered(dag, input, (node) => analysis.of(node).realization)
-	const violations = soundness(analysis, fragments)
-	if (violations.length > 0) {
-		throw new Error(`unsound claims: ${Formatter.format(violations)}`)
-	}
-	const readers = new Map<RelNode, number>()
-	for (const node of topoOrder(dag)) {
-		for (const read of inputsOf(node)) {
-			readers.set(read, (readers.get(read) ?? 0) + 1)
-		}
-	}
-	for (const node of analysis.order) {
-		const p = propsOf(analysis, node)
-		c.note(`evaluated ${node.kind}`)
-		if (fragments.evaluations.correlated(node)) {
-			c.note(`a correlated ${node.kind} evaluated per outer tuple`)
-		}
-		if ((readers.get(node) ?? 0) > 1) {
-			c.note("a node read by two consumers")
-		}
-		if (
-			node.kind === "MatchRegion" &&
-			Arr.some(node.occurrences, (o) => Arr.some(o.constants, (k) => k.expr.kind === "column"))
-		) {
-			c.note("a constant read laterally")
-		}
-		if (p.uniqueness.kind !== "none") {
-			c.note("a key claimed")
-		}
-		if (p.maxCard.kind === "atMost") {
-			c.note("a bound claimed")
-		}
-		if (owedOf(analysis, node).kind === "none") {
-			c.note("nothing owed")
-		}
-	}
-	if (Arr.some(analysis.obligations, (o) => o.discharged)) {
-		c.note("an obligation discharged")
-	}
-}
 
-const inputOf = (c: {
-	readonly schema: ReferenceInput["schema"]
-	readonly facts: ReferenceInput["facts"]
-	readonly query: { readonly params: ReferenceInput["params"] }
-}): ReferenceInput => ({
-	schema: c.schema,
-	facts: c.facts,
-	params: c.query.params,
-	observer: unobserved
-})
+/** Every physical claim holds on the delivered rows generated cases, every node deduplicated. */
+export const everyPhysicalClaimHoldsOnTheDeliveredRowsGeneratedCasesEveryNodeDeduplicated =
+	property.explore(queryCaseGen(defaultGenConfig), {
+		needs: {},
+		situations: claimFeatures satisfies ReadonlyArray<Reached<SoundnessFeature>>,
+		check: (_, c: Case<SoundnessFeature>) => (q) =>
+			Effect.sync(() => {
+				check(q.query.dag, inputOf(q), "distinct", c)
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the fragment evaluator: what each node's plain SQL delivers"
+		},
+		kept: [],
+		kills: []
+	})
 
-/**
- * The noninjective key cases (test/support/oracle/mutants/cases.ts), whose property notes the soundness features it
- * reaches (check) though their suite requires none, so the case it notes them through is a case of those features.
- */
-const noninjectiveCases: Draw<QueryCase, QueryCase, SoundnessFeature> =
-	drawn(noninjectiveKeyCaseGen)
-
-/** The counterexample roots of the mutant suite, by what each builds. */
-type CounterexampleRoot =
-	| "a projection"
-	| "a keyed join"
-	| "a fanout join"
-	| "a witness"
-	| "a group"
-	| "a projected group"
-	| "a tagged union"
-	| "an untagged union"
-	| "a bound under EXISTS"
-
-const counterexampleRoots: Arr.NonEmptyReadonlyArray<
-	readonly [CounterexampleRoot, Gen<QueryCase>]
-> = [
-	["a projection", rootedCaseGen(projectRoot, defaultGenConfig)],
-	["a keyed join", rootedCaseGen(keyedJoinRoot, defaultGenConfig)],
-	["a fanout join", rootedCaseGen(fanoutJoinRoot, defaultGenConfig)],
-	["a witness", rootedCaseGen(witnessRoot, defaultGenConfig)],
-	["a group", rootedCaseGen(groupRoot, defaultGenConfig)],
-	["a projected group", rootedCaseGen(projectGroupRoot, defaultGenConfig)],
-	["a tagged union", rootedCaseGen(taggedUnionRoot, defaultGenConfig)],
-	["an untagged union", rootedCaseGen(untaggedUnionRoot, defaultGenConfig)],
-	["a bound under EXISTS", rootedCaseGen(existsOverTakeRoot, defaultGenConfig)]
-]
-
-/** A case rooted at one of the counterexample roots, each equally often. */
-const rootedCases: Gen<readonly [CounterexampleRoot, QueryCase]> = (source) => {
-	const [root, cases] = source.draw(element(counterexampleRoots))
-	return [root, source.draw(cases)] as const
-}
-
-describe("every physical claim holds on the delivered rows", () => {
-	it.effect("generated cases, plain realization", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "second-implementation",
-						name: "the fragment evaluator: what each node's plain SQL delivers"
-					},
-					suite: "unit/analysis/physical/soundness-plain",
-					draw: drawn(queryCaseGen(defaultGenConfig)),
-					literal: Formatter.format,
-					coverage: required<SoundnessFeature>(claimFeatures, { cases: 400, sense: notesOnly }),
-					kept: [],
-					runs: 400,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				(q, c) =>
+/** Every physical claim holds on the delivered rows the soundness population, both realizations: lateral sources, correlated variables and takes, shared nodes, windows and approximate searches. */
+export const everyPhysicalClaimHoldsOnTheDeliveredRowsTheSoundnessPopulationBothRealizationsLateralSourcesCorrelatedVariablesAndTakesSharedNodesWindowsAndApproximateSearches =
+	property.explore(
+		(source) => [source.draw(queryCaseGen(soundnessGenConfig)), source.draw(boolean)] as const,
+		{
+			needs: {},
+			situations: [
+				...claimFeatures,
+				"a constant read laterally",
+				"a correlated MatchRegion evaluated per outer tuple",
+				"a correlated Take evaluated per outer tuple",
+				"a node read by two consumers",
+				"evaluated Window",
+				"evaluated ApproximateNearest"
+			] satisfies ReadonlyArray<Reached<SoundnessFeature>>,
+			check:
+				(_, c: Case<SoundnessFeature>) =>
+				([q, distinct]) =>
 					Effect.sync(() => {
-						check(q.query.dag, inputOf(q), undefined, c)
-					})
-			)
-		)
-	)
-
-	it.effect("generated cases, every node deduplicated", (ctx) =>
-		searched(
-			ctx,
-			explore(
+						check(q.query.dag, inputOf(q), distinct ? "distinct" : undefined, c)
+					}),
+			oracle: {
+				kind: "second-implementation",
+				name: "the fragment evaluator: what each node's plain SQL delivers"
+			},
+			kept: [],
+			kills: [
 				{
-					oracle: {
-						kind: "second-implementation",
-						name: "the fragment evaluator: what each node's plain SQL delivers"
-					},
-					suite: "unit/analysis/physical/soundness-distinct",
-					draw: drawn(queryCaseGen(defaultGenConfig)),
-					literal: Formatter.format,
-					coverage: required<SoundnessFeature>(claimFeatures, { cases: 200, sense: notesOnly }),
-					kept: [],
-					runs: 200,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				(q, c) =>
-					Effect.sync(() => {
-						check(q.query.dag, inputOf(q), "distinct", c)
-					})
-			)
-		)
+					file: "packages/engine/src/analysis/physical/rules.ts",
+					original: "\t\tif (new Set(values).size === values.length && rows.length > 0) {",
+					replacement:
+						"\t\tif ((new Set(values).size === values.length || new Set(values).size === 1) && rows.length > 0) {",
+					why: "A closed relation's column of one repeated value claimed a key (analysis/physical/rules.ts closedProps); the evaluator suites fail."
+				}
+			]
+		}
 	)
 
-	it.effect(
-		"the soundness population, both realizations: lateral sources, correlated variables and takes, shared nodes, windows and approximate searches",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "second-implementation",
-							name: "the fragment evaluator: what each node's plain SQL delivers"
-						},
-						suite: "unit/analysis/physical/soundness-population",
-						draw: drawn(
-							(source) =>
-								[source.draw(queryCaseGen(soundnessGenConfig)), source.draw(boolean)] as const
-						),
-						literal: Formatter.format,
-						coverage: required<SoundnessFeature>(
-							[
-								...claimFeatures,
-								"a constant read laterally",
-								"a correlated MatchRegion evaluated per outer tuple",
-								"a correlated Take evaluated per outer tuple",
-								"a node read by two consumers",
-								"evaluated Window",
-								"evaluated ApproximateNearest"
-							],
-							{ cases: 400, sense: notesOnly }
-						),
-						kept: [],
-						runs: 400,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					([q, distinct], c) =>
-						Effect.sync(() => {
-							check(q.query.dag, inputOf(q), distinct ? "distinct" : undefined, c)
-						})
-				)
-			)
-	)
+/** Every physical claim holds on the delivered rows the counterexample roots: projections, joins, witnesses, groups, unions, bounds under EXISTS. */
+export const everyPhysicalClaimHoldsOnTheDeliveredRowsTheCounterexampleRootsProjectionsJoinsWitnessesGroupsUnionsBoundsUnderEXISTS =
+	property.explore(rootedCases, {
+		needs: {},
+		situations: Arr.map(
+			counterexampleRoots,
+			([root]): `root ${CounterexampleRoot}` => `root ${root}`
+		) satisfies ReadonlyArray<Reached<SoundnessFeature | `root ${CounterexampleRoot}`>>,
+		check:
+			(_, c: Case<SoundnessFeature | `root ${CounterexampleRoot}`>) =>
+			([root, q]) =>
+				Effect.sync(() => {
+					c.note(`root ${root}`)
+					check(q.query.dag, inputOf(q), undefined, c)
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the fragment evaluator: what each node's plain SQL delivers"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/physical/rules.ts",
+				original: "\t\tif (new Set(values).size === values.length && rows.length > 0) {",
+				replacement:
+					"\t\tif ((new Set(values).size === values.length || new Set(values).size === 1) && rows.length > 0) {",
+				why: "A closed relation's column of one repeated value claimed a key (analysis/physical/rules.ts closedProps); the evaluator suites fail."
+			}
+		]
+	})
 
-	it.effect(
-		"the counterexample roots: projections, joins, witnesses, groups, unions, bounds under EXISTS",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "second-implementation",
-							name: "the fragment evaluator: what each node's plain SQL delivers"
-						},
-						suite: "unit/analysis/physical/soundness-roots",
-						draw: drawn(rootedCases),
-						literal: Formatter.format,
-						coverage: required<SoundnessFeature | `root ${CounterexampleRoot}`>(
-							Arr.map(
-								counterexampleRoots,
-								([root]): `root ${CounterexampleRoot}` => `root ${root}`
-							),
-							{ cases: 80 * counterexampleRoots.length, sense: notesOnly }
-						),
-						kept: [],
-						runs: 80 * counterexampleRoots.length,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					([root, q], c) =>
-						Effect.sync(() => {
-							c.note(`root ${root}`)
-							check(q.query.dag, inputOf(q), undefined, c)
-						})
-				)
-			)
-	)
+/** Every physical claim holds on the delivered rows noninjective key expressions. */
+export const everyPhysicalClaimHoldsOnTheDeliveredRowsNoninjectiveKeyExpressions = property.explore(
+	noninjectiveKeyCaseGen,
+	{
+		needs: {},
+		situations: [],
+		check: (_, c: Case<string>) => (q) =>
+			Effect.sync(() => {
+				check(q.query.dag, inputOf(q), undefined, c)
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the fragment evaluator: what each node's plain SQL delivers"
+		},
+		kept: [],
+		kills: []
+	}
+)
 
-	it.effect("noninjective key expressions", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "second-implementation",
-						name: "the fragment evaluator: what each node's plain SQL delivers"
-					},
-					suite: "unit/analysis/physical/soundness-noninjective",
-					draw: noninjectiveCases,
-					literal: Formatter.format,
-					coverage: noCoverage,
-					kept: [],
-					runs: 100,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				(q, c) =>
-					Effect.sync(() => {
-						check(q.query.dag, inputOf(q), undefined, c)
-					})
-			)
-		)
-	)
-})
-
-/**
- * What a case's filters reached: two conjuncts to reverse, and a column they fix to two values. Each generated case's
- * equalities of a column to a value fixed per evaluation are doubled by a twin over a parameter of their own
- * (twiceFixed), so the cases hold such columns wherever their filters fix one.
- */
-type OrderFeature = "a filter of two conjuncts" | "a column fixed to two values"
-
-describe("neither analysis reads the order of a filter's conjuncts", () => {
-	it.effect("generated cases, every filter's conjuncts reversed", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "universal",
-						name: "metamorphic: both analyses claim the same of a DAG and of it with every filter's conjuncts reversed"
-					},
-					suite: "unit/analysis/physical/conjunct-order",
-					draw: drawn(queryCaseGen(soundnessGenConfig)),
-					literal: Formatter.format,
-					coverage: required<OrderFeature>(
-						["a filter of two conjuncts", "a column fixed to two values"],
-						{ cases: 400, sense: notesOnly }
-					),
-					kept: [],
-					runs: 400,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				(q, c) =>
-					Effect.sync(() => {
-						const dag = twiceFixed(q.query.dag)
-						const env: PhysicalEnv = {
-							context: "snapshot",
-							catalog: genCatalog(q.schema),
-							realization: unplaced,
-							roots: "result"
-						}
-						if (hasTwoConjuncts(dag)) {
-							c.note("a filter of two conjuncts")
-						}
-						if (fixedTwice(dag, env)) {
-							c.note("a column fixed to two values")
-						}
-						assert.deepEqual(claimsOf(reversedConjuncts(dag), env), claimsOf(dag, env))
-					})
-			)
-		)
-	)
-})
+/** Neither analysis reads the order of a filter's conjuncts generated cases, every filter's conjuncts reversed. */
+export const neitherAnalysisReadsTheOrderOfAFiltersConjunctsGeneratedCasesEveryFiltersConjunctsReversed =
+	property.explore(queryCaseGen(soundnessGenConfig), {
+		needs: {},
+		situations: [
+			"a filter of two conjuncts",
+			"a column fixed to two values"
+		] satisfies ReadonlyArray<Reached<OrderFeature>>,
+		check: (_, c: Case<OrderFeature>) => (q) =>
+			Effect.sync(() => {
+				const dag = twiceFixed(q.query.dag)
+				const env: PhysicalEnv = {
+					context: "snapshot",
+					catalog: genCatalog(q.schema),
+					realization: unplaced,
+					roots: "result"
+				}
+				if (hasTwoConjuncts(dag)) {
+					c.note("a filter of two conjuncts")
+				}
+				if (fixedTwice(dag, env)) {
+					c.note("a column fixed to two values")
+				}
+				assert.deepEqual(claimsOf(reversedConjuncts(dag), env), claimsOf(dag, env))
+			}),
+		oracle: {
+			kind: "universal",
+			name: "metamorphic: both analyses claim the same of a DAG and of it with every filter's conjuncts reversed"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/physical/rules.ts",
+				original: "\tconst held = heldPoints(conjuncts(node.pred))",
+				replacement: "\tconst held = heldPoints(conjuncts(node.pred).slice(0, 1))",
+				why: "A filter's first conjunct alone fixes a column (analysis/physical/rules.ts filterProps); the conjunct order fails."
+			}
+		]
+	})

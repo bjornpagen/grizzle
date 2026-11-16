@@ -18,1603 +18,187 @@
  *   literal, a parameter, or a column the node reads from outside it (ir/dag.ts nodeScopes, read apart from the
  *   analysis). Oracle: the reference evaluator, a second implementation; the kernel; and the scope, universal. A
  *   column a node binds holds one value per row, not per evaluation, so it is no value the kernel reads off a
- *   derivation (kept: lateralFixedThroughBoundSibling) and no name of a fixed column (kept: boundHandleNamed). The
+ *   derivation (a kept case) and no name of a fixed column (a kept case). The
  *   bare children's schemas may key a relation by a span key, so a containment into one is a span coverage (a PERIOD
  *   foreign key, coverage in the analysis's evidence), and the proving shapes may narrow its source facts inside their
- *   target's spans, where a bare child would find none (kept: spanCoverageNarrowed).
+ *   target's spans, where a bare child would find none (a kept case).
  * - Idempotence (generated cases, and the proving shapes' bare children): annotating an annotated DAG states what the
  *   first annotation did, node for node. Oracle: universal.
  *
  * Features: each claim checked (EvidenceFeature), each execution and containment context, an orphaned containment and
  * a span coverage's fact covered apart from its target's spans; each claim and delivered type for idempotence.
  */
-import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
-import { required, type Situations } from "@bjornpagen/testing/features"
-import { array, boolean, element, type Gen, map } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
-import type { TestContext } from "vitest"
-import { makeIdSupply } from "#compiler/core/ids.ts"
-import { DagBuilder } from "#compiler/ir/builder.ts"
-import type { EvidenceContext, TemplateContext } from "#compiler/ir/evidence.ts"
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { ReplayToken } from "@bjornpagen/testing/property"
+import { defaultGenConfig, soundnessGenConfig } from "#test/support/oracle/gen/case.ts"
 import {
-	conservativeMeta,
-	type Heading,
-	type HeadingColumn,
-	headingOrder,
-	type RelNode,
-	type VarDecl
-} from "#compiler/ir/rel.ts"
-import { typeLabel } from "#compiler/ir/scalar.ts"
-import { analyzeLogical, type LogicalEnv } from "#compiler/logical/annotate.ts"
-import type { ContainmentFact } from "#compiler/logical/attach.ts"
-import { assert, defined } from "#test/support/assert.ts"
-import { toTable } from "#test/support/dag.ts"
-import { parsedName } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { validateDag } from "#test/support/oracle/dag-validate.ts"
-import {
-	defaultGenConfig,
-	type GenConfig,
-	type QueryCase,
-	type QueryCaseSketch,
-	queryCaseSketchGen,
-	resolveQueryCase,
-	soundnessGenConfig
-} from "#test/support/oracle/gen/case.ts"
-import { bool, canonicallySpelled, literalRowKey } from "#test/support/oracle/gen/domain.ts"
-import { type GenFacts, rowValues, type StoredRow } from "#test/support/oracle/gen/facts.ts"
-import { compareOpId, notOp } from "#test/support/oracle/gen/ops.ts"
-import { printQueryCase } from "#test/support/oracle/gen/print.ts"
-import { undrawn } from "#test/support/oracle/gen/query.ts"
-import {
-	closedHeading,
-	type GenContainment,
-	type GenRelation,
-	keyIndices,
-	relationHeading,
-	relationNamed,
-	spanCoverage
-} from "#test/support/oracle/gen/schema.ts"
-import { nonEmptyList } from "#test/support/oracle/pick.ts"
-import { unobserved } from "#test/support/oracle/reference/evaluate.ts"
-import { pickFrom, pickGen } from "#test/support/pick.ts"
-import {
-	fixedNamesUnscoped,
-	kernelRefusesCorruptions,
-	type LogicalFeature,
-	logicalUnsound
-} from "#test/unit/analysis/logical/support.ts"
+	attachmentRooted,
+	holdsOn,
+	idempotentOn,
+	narrowedProvingCases,
+	orphanedCases,
+	provingCases,
+	sketchedCases
+} from "#test/unit/analysis/logical/evidence.fixtures.ts"
 
-const runs = 1500
-
-const both = [false, true] as const
-
-/**
- * Shapes the generated queries do not reach, over a generated case's schema and facts: along each declared
- * containment, the target relation's plain scan attached by its key to a parent that reads the source's fields from one
- * fact of it, the attachment the containment proof types bare, or from one fact of another relation with fields of the
- * same names and types, which the containment says nothing about; and a filter directly over each closed relation,
- * which may drop the one fact it has. Along a span coverage (a PERIOD foreign key into a span key), a variant narrows
- * every source fact's span to its first point where it has another (narrowedFacts): the target fact still covers it,
- * and none has its span, so its parent has no child. Each pick chooses among a shape's variants; the case's own query
- * is replaced, and kept when its schema offers neither shape.
- */
-const provingCase = (c: QueryCase, picks: ReadonlyArray<number>): QueryCase => {
-	const b = new DagBuilder(makeIdSupply())
-	const pick = (i: number) => picks[i % picks.length] ?? 0
-	const column = (node: RelNode, h: HeadingColumn): ScalarExpr =>
-		b.expr({
-			kind: "column",
-			column: { node: node.id, name: h.name },
-			args: [],
-			type: h.type,
-			nonNull: "storage"
-		})
-	/** A plain scan: one occurrence binding every column, every column kept or projected onto the named ones. */
-	type Kept =
-		| { readonly kind: "every column" }
-		| { readonly kind: "only"; readonly columns: ReadonlyArray<string> }
-	const scan = (relation: GenRelation, keep: Kept): RelNode => {
-		const heading = relationHeading(relation)
-		const base = b.node({
-			kind: "Base",
-			relation: relation.name,
-			occurrence: b.ids.occurrence(),
-			primaryKey: nonEmptyList(relation.primaryKey, "a primary key"),
-			keys: Arr.map(relation.keys, (k) => nonEmptyList(k, "a candidate key")),
-			relationKind: "relation",
-			heading,
-			loc: undefined,
-			meta: conservativeMeta
-		})
-		const vars = Arr.map(heading, (h): VarDecl => ({ id: b.ids.var(), name: h.name, type: h.type }))
-		const regionHeading: Heading = Arr.map(vars, (v) => ({ name: v.name, type: v.type }))
-		const region = b.node({
-			kind: "MatchRegion",
-			scope: b.ids.scope(),
-			vars,
-			occurrences: [
-				{
-					id: b.ids.occurrence(),
-					source: base,
-					bindings: Arr.map(vars, (v) => ({ column: v.name, var: v })),
-					constants: []
-				}
-			],
-			equalities: [],
-			correlated: [],
-			heading: regionHeading,
-			loc: undefined,
-			meta: conservativeMeta
-		})
-		if (keep.kind === "every column") {
-			return region
-		}
-		const out = Arr.filter(regionHeading, (h) => keep.columns.includes(h.name))
-		return b.node({
-			kind: "ProjectSet",
-			input: region,
-			out: Arr.map(out, (h) => ({ name: h.name, expr: column(region, h) })),
-			heading: Arr.map(out, (h) => ({ name: h.name, type: h.type })),
-			loc: undefined,
-			meta: conservativeMeta
-		})
-	}
-	const roots: Array<RelNode> = []
-	/** Another relation holding the source's fields under their names and types, which no containment may cover. */
-	const lookalike = (k: (typeof c.schema.containments)[number]): Option.Option<GenRelation> => {
-		const from = relationNamed(c.schema, k.from.relation)
-		const typeOf = (r: GenRelation, f: string) =>
-			Option.map(
-				Arr.findFirst(r.columns, (col) => col.name === f),
-				(col) => col.type
-			)
-		return Arr.findFirst(
-			c.schema.relations,
-			(r) =>
-				r.name !== from.name &&
-				Arr.every(k.from.fields, (f) =>
-					Option.exists(
-						Option.all([typeOf(r, f), typeOf(from, f)]),
-						([mine, theirs]) => typeLabel(mine) === typeLabel(theirs)
-					)
-				)
-		)
-	}
-	/** The span coverages whose source facts the case narrows. */
-	const narrowed: Array<GenContainment> = []
-	for (const [i, k] of c.schema.containments.entries()) {
-		const declared = relationNamed(c.schema, k.from.relation)
-		const variant = {
-			lookalike: pickFrom([false, false, false, true], pick(4 * i)),
-			projectParent: pickFrom(both, pick(4 * i + 1)),
-			projectChild: pickFrom(both, pick(4 * i + 2)),
-			narrowed: pickFrom(both, pick(4 * i + 3))
-		}
-		if (variant.narrowed && spanCoverage(c.schema, k)) {
-			narrowed.push(k)
-		}
-		const from = variant.lookalike ? Option.getOrElse(lookalike(k), () => declared) : declared
-		const to = relationNamed(c.schema, k.to.relation)
-		const every = { kind: "every column" } as const
-		const parent = scan(
-			from,
-			variant.projectParent ? { kind: "only", columns: k.from.fields } : every
-		)
-		const child = scan(
-			to,
-			variant.projectChild
-				? { kind: "only", columns: Arr.map(to.columns, (col) => col.name) }
-				: every
-		)
-		roots.push(
-			b.node({
-				kind: "Attach",
-				parent,
-				child,
-				name: `contained${i}`,
-				correlation: Arr.map(k.from.fields, (f, j) => ({
-					parent: f,
-					child: defined(k.to.fields[j])
-				})),
-				judged: "array",
-				delivered: "array",
-				heading: parent.heading,
-				order: headingOrder(child.heading),
-				loc: undefined,
-				meta: conservativeMeta
-			})
-		)
-	}
-	const offset = 4 * c.schema.containments.length
-	for (const [i, closed] of c.schema.closed.entries()) {
-		const [firstRow, ...restRows] = closed.rows
-		if (firstRow === undefined) {
-			continue
-		}
-		const heading = closedHeading(closed)
-		const facts = b.node({
-			kind: "Closed",
-			closed: closed.name,
-			rows: closed.rows,
-			heading,
-			loc: undefined,
-			meta: conservativeMeta
-		})
-		const id = defined(heading[0], "the closed relation's id column")
-		const handle = defined(pickFrom([firstRow, ...restRows], pick(offset + 3 * i))[0], "a handle")
-		const other = pickFrom(both, pick(offset + 3 * i + 1))
-			? column(facts, id)
-			: b.expr({
-					kind: "literal",
-					value: handle,
-					args: [],
-					type: id.type,
-					nonNull: "literal"
-				})
-		const eq = b.expr({
-			kind: "op",
-			op: compareOpId(id.type, "eq"),
-			args: [column(facts, id), other],
-			type: bool,
-			nonNull: "strict",
-			volatility: "immutable"
-		})
-		const pred = pickFrom(both, pick(offset + 3 * i + 2))
-			? b.expr({
-					kind: "op",
-					op: notOp,
-					args: [eq],
-					type: bool,
-					nonNull: "strict",
-					volatility: "immutable"
-				})
-			: eq
-		roots.push(
-			b.node({
-				kind: "Filter",
-				input: facts,
-				pred,
-				heading,
-				loc: undefined,
-				meta: conservativeMeta
-			})
-		)
-	}
-	if (!Arr.isArrayNonEmpty(roots)) {
-		return c
-	}
-	return {
-		...c,
-		facts: narrowedFacts(c, narrowed),
-		query: { dag: validateDag(b.build(roots)), params: {} }
-	}
-}
-
-/**
- * The case's facts with every source fact of each span coverage of `narrowed` covering the first point of its span
- * alone, where its span holds another. The target fact it copied still covers it, so the containment holds, and no
- * target fact of its scalar fields has its span: target spans of one scalar value never overlap.
- */
-const narrowedFacts = (c: QueryCase, narrowed: ReadonlyArray<GenContainment>): GenFacts =>
-	Arr.reduce(narrowed, c.facts, (facts, k) => {
-		const source = relationNamed(c.schema, k.from.relation)
-		const [span] = keyIndices(source, k.from.fields.slice(-1))
-		const rows = facts[source.name] ?? []
-		return {
-			...facts,
-			[source.name]: Arr.map(rows, (row) =>
-				Arr.map(row, (v, i) =>
-					i === span && v.literal.kind === "span" && v.literal.end - v.literal.start > 1n
-						? canonicallySpelled({
-								kind: "span",
-								start: v.literal.start,
-								end: v.literal.start + 1n
-							})
-						: v
-				)
-			)
-		}
+/** The logical analysis's claims hold on the facts keys and cardinality bounds over generated cases. */
+export const theLogicalAnalysissClaimsHoldOnTheFactsKeysAndCardinalityBoundsOverGeneratedCases =
+	holdsOn(sketchedCases(defaultGenConfig), {
+		situations: [
+			"claimed at most one row",
+			"claimed one row",
+			"delivered option",
+			"execution transaction"
+		],
+		aims: [],
+		kept: [],
+		kills: []
 	})
 
-/**
- * Whether a span coverage holds a source fact that a target fact of its scalar fields covers and none equals on the
- * whole key: the parent reading it along the containment has no child.
- */
-const coveredApart = (c: QueryCase, k: GenContainment): boolean => {
-	const source = relationNamed(c.schema, k.from.relation)
-	const target = relationNamed(c.schema, k.to.relation)
-	const scalars = k.from.fields.length - 1
-	const keyOf = (r: GenRelation, fields: ReadonlyArray<string>, row: StoredRow) =>
-		literalRowKey(rowValues(row), keyIndices(r, fields))
-	const targets = c.facts[target.name] ?? []
-	const whole = new Set(Arr.map(targets, (t) => keyOf(target, k.to.fields, t)))
-	const met = new Set(Arr.map(targets, (t) => keyOf(target, k.to.fields.slice(0, scalars), t)))
-	return Arr.some(
-		c.facts[source.name] ?? [],
-		(f) =>
-			met.has(keyOf(source, k.from.fields.slice(0, scalars), f)) &&
-			!whole.has(keyOf(source, k.from.fields, f))
-	)
-}
-
-/**
- * A case under its contexts: the execution context the analysis proves for, each containment's validity context, and,
- * inside a transaction, which containments the in-transaction facts break by losing their target's facts.
- */
-interface Contexted {
-	readonly c: QueryCase
-	readonly execution: TemplateContext
-	readonly containments: ReadonlyArray<ContainmentFact>
-	readonly orphaned: ReadonlyArray<string>
-}
-
-interface ContextSketch {
-	readonly transaction: boolean
-	/** Per containment: its context and, where the transaction admits breaking it, whether its target loses its facts. */
-	readonly containments: ReadonlyArray<{
-		readonly context: EvidenceContext
-		readonly orphan: boolean
-	}>
-}
-
-const containmentContexts: readonly [EvidenceContext, EvidenceContext] = [
-	"immediate",
-	"committedSnapshot"
-]
-
-const contextSketchGen: Gen<ContextSketch> = (source) => ({
-	transaction: source.draw(boolean),
-	containments: source.draw(
-		array(
-			(containment) => ({
-				context: containment.draw(element(containmentContexts)),
-				orphan: containment.draw(boolean)
-			}),
-			{ min: 0, max: 4 }
-		)
-	)
-})
-
-/**
- * The containments a generated schema declares, each a native foreign key, immediate or checked at commit; inside a
- * transaction, the facts may break one checked at commit, whose target then holds none of its facts.
- */
-const contexted = (c: QueryCase, s: ContextSketch): Contexted => {
-	const execution: TemplateContext = s.transaction ? "transaction" : "snapshot"
-	const placed = Arr.map(c.schema.containments, (k, i) => {
-		const sketch = s.containments[i]
-		const context = sketch === undefined ? "immediate" : sketch.context
-		return {
-			k,
-			context,
-			orphan: execution === "transaction" && context !== "immediate" && sketch?.orphan === true
-		}
-	})
-	/**
-	 * A target loses its facts only when no immediate containment reads it, since an immediate one holds at every
-	 * statement.
-	 */
-	const kept = new Set(
-		Arr.map(
-			Arr.filter(placed, (d) => d.context === "immediate"),
-			(d) => d.k.to.relation
-		)
-	)
-	const orphaned = [
-		...new Set(
-			Arr.map(
-				Arr.filter(placed, (d) => d.orphan && !kept.has(d.k.to.relation)),
-				(d) => d.k.to.relation
-			)
-		)
-	]
-	const facts = {
-		...c.facts,
-		...Rec.fromEntries(Arr.map(orphaned, (relation) => [relation, []] as const))
-	}
-	return {
-		c: { ...c, facts },
-		execution,
-		containments: Arr.map(placed, ({ k, context }) => ({
-			from: {
-				relation: k.from.relation,
-				fields: nonEmptyList(k.from.fields, "a containment's fields"),
-				selection: []
-			},
-			to: {
-				relation: k.to.relation,
-				fields: nonEmptyList(k.to.fields, "a containment's referenced fields"),
-				selection: []
-			},
-			coverage: spanCoverage(c.schema, k),
-			statement: "contained",
-			context
-		})),
-		orphaned
-	}
-}
-
-/**
- * What a case of this suite reaches: the logical claims the evaluation checked, the execution context, each
- * containment's context, and an orphaned containment.
- */
-type EvidenceFeature =
-	| LogicalFeature
-	| `execution ${TemplateContext}`
-	| `${EvidenceContext} containment`
-	| "an orphaned containment inside a transaction"
-	| "a span coverage's fact covered apart from its target's spans"
-
-/**
- * What a suite draws: a sketch and the contexts drawn for it, and how the property resolves the sketch to its case,
- * drawing the swarms' thinning decisions from the case's tape. A failure reports the sketch to keep.
- */
-interface CaseDraw<S> {
-	readonly generator: Gen<readonly [S, ContextSketch]>
-	readonly resolve: (sketch: S) => Gen<QueryCase>
-}
-
-/** The cases of `config`, each under drawn contexts, sketched so a failure reports the sketch to keep. */
-const sketchedCases = (config: GenConfig): CaseDraw<QueryCaseSketch> => {
-	const sketch = queryCaseSketchGen(config)
-	return {
-		generator: (source) => [source.draw(sketch), source.draw(contextSketchGen)] as const,
-		resolve: (drawnSketch) => resolveQueryCase(drawnSketch, config)
-	}
-}
-
-/**
- * The proving shapes' population: the generator's own, whose relations may be keyed by a span key, so a containment
- * into one is a span coverage (a PERIOD foreign key).
- */
-const provingConfig: GenConfig = {
-	...defaultGenConfig,
-	schema: { ...defaultGenConfig.schema, keys: "spanKeys" }
-}
-
-const provingSketch = queryCaseSketchGen(provingConfig)
-
-/** A proving case's sketch: its generated case's sketch and the picks among its shapes' variants. */
-type ProvingSketch = readonly [QueryCaseSketch, ReadonlyArray<number>]
-
-/**
- * The proving shapes over generated cases of the proving configuration, each under drawn contexts, sketched so a
- * failure reports the sketch to keep.
- */
-const provingCases: CaseDraw<ProvingSketch> = {
-	generator: (source) =>
-		[
-			[source.draw(provingSketch), source.draw(array(pickGen, { min: 1, max: 12 }))] as const,
-			source.draw(contextSketchGen)
-		] as const,
-	resolve: ([sketch, picks]) =>
-		map(resolveQueryCase(sketch, provingConfig), (c) => provingCase(c, picks))
-}
-
-/**
- * A take of one row over a closed relation of one fact, correlated on a
- * column of an outer scan no fact of it matches, so it has no row for that outer tuple. A correlated take filters its
- * input per outer row, so its input's exactly one row bounds it to at most one, never exactly one.
- */
-const correlatedTakeOverOneRow: Kept<readonly [QueryCaseSketch, ContextSketch], EvidenceFeature> = {
-	note: "a correlated take over one fact was claimed exactly one row and had none",
-	sketch: [
-		{
-			schema: {
-				palette: [2, 0],
-				closed: [
-					{
-						/** One code, live: the roster of one handle. */
-						pattern: {
-							closed: parsedName("K"),
-							slots: [{ kind: "live", handle: "Open" }],
-							spellings: { plain: 3 }
-						},
-						payload: [
-							{
-								type: 10,
-								values: [
-									{ cls: 0, sp: 0 },
-									{ cls: 0, sp: 0 },
-									{ cls: 0, sp: 0 }
-								]
-							}
-						]
-					}
-				],
-				relations: [
-					{
-						columns: [0],
-						pkMask: 0,
-						pure: false,
-						keyMasks: [],
-						mutable: false,
-						fk: { enabled: false, target: 0, typed: false },
-						spanKey: false
-					}
-				]
-			},
-			facts: [
-				[
-					{
-						values: [
-							{ cls: 1, sp: 0 },
-							{ cls: 0, sp: 0 },
-							{ cls: 0, sp: 0 },
-							{ cls: 0, sp: 0 },
-							{ cls: 0, sp: 0 },
-							{ cls: 0, sp: 0 },
-							{ cls: 0, sp: 0 },
-							{ cls: 0, sp: 0 }
-						],
-						target: 0
-					}
-				],
-				[],
-				[],
-				[]
-			],
-			/** Picks a parameter name only under the dictionary spelling of names, which the soundness population leaves off. */
-			paramNames: [0, 0, 0, 0, 0, 0, 0, 0],
-			root: {
-				tag: "plain",
-				body: {
-					tag: "filter",
-					input: {
-						tag: "project",
-						input: {
-							tag: "match",
-							occurrences: [
-								{
-									source: { tag: "relation", pick: 0 },
-									columns: [
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-									]
-								},
-								{
-									source: { tag: "closed", pick: 0 },
-									columns: [
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-									]
-								},
-								{
-									source: { tag: "relation", pick: 0 },
-									columns: [
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-									]
-								}
-							],
-							equalities: [],
-							lateral: { kind: "drawn", value: 0 }
-						},
-						out: [{ literal: true, pick: 0, value: { cls: 0, sp: 0 }, term: undrawn }]
-					},
-					pred: {
-						tag: "compare",
-						column: 0,
-						op: 0,
-						rhs: { tag: "literal", value: { cls: 0, sp: 0 } }
-					}
-				},
-				order: undrawn
-			},
-			swarm: { closed: 3 },
-			data: { closed: 1 },
-			rewrite: {},
-			soundness: { "correlated take": 1 }
-		},
-		{ transaction: false, containments: [] }
-	],
-	/** The swarm's thinning decision: "correlated take" kept at the one place it can appear, the take over the closed relation. */
-	draws: "2",
-	/**
-	 * Its one outer fact evaluates the take once, which the reference counts as no correlated evaluation; the take's
-	 * claim, at most one row, is what the case reaches.
-	 */
-	reaches: ["claimed at most one row"]
-}
-
-/**
- * A region (n#2) over an outer scan and a lateral source (n#7) of takes correlated on that scan's key: the analysis proves
- * the source's column equal to the scan's (lateralFixed), by the take that fixes the column to it (per[a=n#6.a]). Deeper
- * in the source, an inner region (n#13) binds a sibling (n#16) whose take fixes its column to the inner region's own
- * column (per[b=n#15.b]); the kernel read that column as a value of the inner region, carried it out as the source's
- * value, and refused the proof. A column a region binds holds one value per row of the region, and is no value of it.
- */
-const lateralFixedThroughBoundSibling: Kept<
-	readonly [QueryCaseSketch, ContextSketch],
-	EvidenceFeature
-> = {
-	note: "the key kernel refused a lateral equality, reading a column an inner region binds as the value of a column carried out of it",
-	sketch: [
-		{
-			schema: {
-				palette: [0],
-				closed: [],
-				relations: [
-					{
-						columns: [0],
-						pkMask: 0,
-						pure: false,
-						keyMasks: [],
-						mutable: true,
-						fk: { enabled: false, target: 0, typed: false },
-						spanKey: false
-					},
-					{
-						columns: [0],
-						pkMask: 0,
-						pure: false,
-						keyMasks: [],
-						mutable: true,
-						fk: { enabled: false, target: 0, typed: false },
-						spanKey: false
-					},
-					{
-						columns: [0, 0, 0],
-						pkMask: 0,
-						pure: false,
-						keyMasks: [],
-						mutable: false,
-						fk: { enabled: false, target: 0, typed: false },
-						spanKey: false
-					}
-				]
-			},
-			facts: [[], [], [], []],
-			root: {
-				tag: "plain",
-				body: {
-					tag: "semi",
-					left: {
-						tag: "project",
-						input: {
-							tag: "match",
-							occurrences: [
-								{
-									source: { tag: "relation", pick: 0 },
-									columns: [
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-									]
-								},
-								{
-									source: { tag: "relation", pick: 2 },
-									columns: [
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 5, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-									]
-								},
-								{
-									source: { tag: "relation", pick: 2 },
-									columns: [
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 5, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-										{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-									]
-								}
-							],
-							equalities: [],
-							lateral: { kind: "drawn", value: 0 }
-						},
-						out: [{ literal: false, pick: 0, value: { cls: 0, sp: 0 }, term: undrawn }]
-					},
-					right: {
-						tag: "match",
-						occurrences: [
-							{
-								source: { tag: "input", columns: [0], rows: [] },
-								columns: [
-									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-								]
-							},
-							{
-								source: {
-									tag: "query",
-									query: {
-										tag: "take",
-										input: {
-											tag: "match",
-											occurrences: [
-												{
-													source: { tag: "relation", pick: 0 },
-													columns: [
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-													]
-												},
-												{
-													source: { tag: "relation", pick: 2 },
-													columns: [
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-													]
-												},
-												{
-													source: { tag: "relation", pick: 2 },
-													columns: [
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 5, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 5, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 5, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-													]
-												}
-											],
-											equalities: [],
-											lateral: { kind: "drawn", value: 36409 }
-										},
-										rotate: 0,
-										dirs: [],
-										stated: { kind: "drawn", value: 0 },
-										k: 0,
-										param: false,
-										lateral: { kind: "drawn", value: 8192 }
-									}
-								},
-								columns: [
-									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-									{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-								]
-							}
-						],
-						equalities: [],
-						lateral: { kind: "drawn", value: 0 }
-					},
-					on: [],
-					shared: { kind: "drawn", value: 0 }
-				},
-				order: {
-					kind: "drawn",
-					value: { rotate: 0, dirs: [], stated: { kind: "drawn", value: 0 } }
-				}
-			},
-			paramNames: [0, 0, 0, 0, 0, 0, 0, 0],
-			swarm: { filter: 1, semi: 1, take: 2, imported: 1, joins: 1 },
-			data: { closed: 1, mutable: 1 },
-			rewrite: { stated: 3 },
-			soundness: { lateral: 1, correlated: 2, "correlated take": 3 }
-		},
-		{ transaction: false, containments: [] }
-	],
-	/** The swarms' thinning decisions, as the shrunk case drew them. */
-	draws: "0.0.2.1.0.0.0.2.1.1.1.2.0.0.0.1",
-	reaches: ["execution snapshot"]
-}
-
-/**
- * A region (n#4) over a closed relation of one fact (n#6) and a lateral region (n#7) whose correlated variable copies
- * that fact's id (corr[v#5=n#6.id]): n#4 fixes id_2, and the analysis named it by n#6.id, a column n#4 binds, carried
- * from n#7, where it is an outer value. At n#4 that column holds one value per row; a parent region binding n#6 again
- * would read the name as its own variable's.
- */
-const boundHandleNamed: Kept<readonly [QueryCaseSketch, ContextSketch], EvidenceFeature> = {
-	note: "a region named a fixed column by a column of its own occurrence source, carried from a lateral source",
-	sketch: [
-		{
-			schema: {
-				palette: [0],
-				closed: [
-					{
-						pattern: {
-							closed: parsedName("K"),
-							slots: [{ kind: "live", handle: "Open" }],
-							spellings: { plain: 3 }
-						},
-						payload: []
-					}
-				],
-				relations: [
-					{
-						columns: [0],
-						pkMask: 0,
-						pure: false,
-						keyMasks: [],
-						mutable: false,
-						fk: { enabled: false, target: 0, typed: false },
-						spanKey: false
-					}
-				]
-			},
-			facts: [[], [], [], []],
-			root: {
-				tag: "hetero",
-				groups: [
-					{
-						arms: [
-							{
-								tag: "union",
-								arms: [
-									{
-										tag: "project",
-										input: {
-											tag: "match",
-											occurrences: [
-												{
-													source: { tag: "relation", pick: 0 },
-													columns: [
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-													]
-												}
-											],
-											equalities: [],
-											lateral: { kind: "drawn", value: 0 }
-										},
-										out: [{ literal: false, pick: 0, value: { cls: 0, sp: 0 }, term: undrawn }]
-									},
-									{
-										tag: "semi",
-										left: {
-											tag: "match",
-											occurrences: [
-												{
-													source: { tag: "input", columns: [0], rows: [] },
-													columns: [
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-													]
-												}
-											],
-											equalities: [],
-											lateral: { kind: "drawn", value: 0 }
-										},
-										right: {
-											tag: "match",
-											occurrences: [
-												{
-													source: { tag: "relation", pick: 0 },
-													columns: [
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-													]
-												}
-											],
-											equalities: [],
-											lateral: { kind: "drawn", value: 0 }
-										},
-										on: [],
-										shared: { kind: "drawn", value: 0 }
-									}
-								],
-								width: 1,
-								picks: [0],
-								tagged: false
-							}
-						],
-						width: 1,
-						picks: [0]
-					},
-					{
-						arms: [
-							{
-								tag: "group",
-								input: {
-									tag: "semi",
-									left: {
-										tag: "match",
-										occurrences: [
-											{
-												source: { tag: "closed", pick: 0 },
-												columns: [
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-												]
-											},
-											{
-												source: { tag: "relation", pick: 0 },
-												columns: [
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-												]
-											}
-										],
-										equalities: [],
-										lateral: { kind: "drawn", value: 0 }
-									},
-									right: {
-										tag: "match",
-										occurrences: [
-											{
-												source: { tag: "relation", pick: 0 },
-												columns: [
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-												]
-											}
-										],
-										equalities: [],
-										lateral: { kind: "drawn", value: 0 }
-									},
-									on: [],
-									shared: { kind: "drawn", value: 0 }
-								},
-								full: false,
-								boundMask: 0,
-								keyMask: 0,
-								aggs: [{ fn: 0, column: 0 }]
-							}
-						],
-						width: 1,
-						picks: [0]
-					}
-				]
-			},
-			paramNames: [0, 0, 0, 0, 0, 0, 0, 0],
-			swarm: { filter: 1, hetero: 1, closed: 3 },
-			data: { closed: 1 },
-			rewrite: { stated: 1 },
-			soundness: { lateral: 1, correlated: 1 }
-		},
-		{ transaction: false, containments: [] }
-	],
-	/** The swarms' thinning decisions, as the shrunk case drew them. */
-	draws: "2.2",
-	reaches: ["execution snapshot"]
-}
-
-/**
- * A case whose schema offers no proving shape, so its own query stands: a filter of a sum over bigint, a computed
- * numeric, compared with a parameter bound as numeric(161, 40). The sum's values hold the infinities and that type does
- * not, so the parameter is drawn among the values both hold; drawn among the sum's alone, it was Infinity.
- */
-const sumParameterOfInfinity: Kept<readonly [ProvingSketch, ContextSketch], EvidenceFeature> = {
-	note: "a parameter compared with a sum was drawn as Infinity, which its numeric(161, 40) cannot hold",
-	sketch: [
-		[
-			{
-				schema: {
-					palette: [6],
-					closed: [],
-					relations: [
-						{
-							columns: [0],
-							pkMask: 0,
-							pure: false,
-							keyMasks: [],
-							mutable: false,
-							fk: { enabled: false, target: 0, typed: false },
-							spanKey: false
-						},
-						{
-							columns: [0, 0, 0],
-							pkMask: 3,
-							pure: false,
-							keyMasks: [],
-							mutable: false,
-							fk: { enabled: true, target: 0, typed: false },
-							spanKey: false
-						}
-					]
-				},
-				facts: [
-					[],
-					[
-						{
-							values: [
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 }
-							],
-							target: 0
-						}
-					],
-					[],
-					[]
-				],
-				root: {
-					tag: "plain",
-					body: {
-						tag: "filter",
-						input: {
-							tag: "filter",
-							input: {
-								tag: "group",
-								input: {
-									tag: "match",
-									occurrences: [
-										{
-											source: { tag: "relation", pick: 1 },
-											columns: [
-												{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-												{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-												{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-												{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-												{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-												{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-											]
-										}
-									],
-									equalities: [],
-									lateral: undrawn
-								},
-								full: false,
-								boundMask: 1,
-								keyMask: 0,
-								aggs: [{ fn: 15, column: 0 }]
-							},
-							pred: {
-								tag: "compare",
-								column: 0,
-								op: 1,
-								rhs: { tag: "literal", value: { cls: 3, sp: 0 } }
-							}
-						},
-						pred: {
-							tag: "and",
-							args: [
-								{ tag: "compare", column: 0, op: 0, rhs: { tag: "column", pick: 0 } },
-								{
-									tag: "compare",
-									column: 0,
-									op: 0,
-									rhs: { tag: "param", value: { cls: 6, sp: 0 } }
-								}
-							]
-						}
-					},
-					order: undrawn
-				},
-				paramNames: [0, 0, 0, 0, 0, 0, 0, 0],
-				swarm: { filter: 3, project: 1, group: 1, params: 3 },
-				data: { containments: 1, compositeKeys: 1 },
-				rewrite: { stated: 3, follow: 3, equate: 3, rooted: 3, regions: 3, groupFilter: 3 },
-				soundness: {
-					lateral: 3,
-					correlated: 3,
-					"correlated take": 3,
-					shared: 3,
-					window: 3,
-					approximate: 3
-				}
-			},
-			[0]
+/** The logical analysis's claims hold on the facts keys, cardinality and determinism over cases with lateral sources, shared nodes, windows and approximate searches. */
+export const theLogicalAnalysissClaimsHoldOnTheFactsKeysCardinalityAndDeterminismOverCasesWithLateralSourcesSharedNodesWindowsAndApproximateSearches =
+	holdsOn(sketchedCases(soundnessGenConfig), {
+		situations: [
+			"claimed at most one row",
+			"a correlated MatchRegion evaluated per outer tuple",
+			"a correlated Take evaluated per outer tuple",
+			"an approximate search"
 		],
-		{ transaction: false, containments: [] }
-	],
-	/** The swarms' thinning decisions: the containment and the composite key dropped, the group kept. */
-	draws: "0.0.2",
-	reaches: ["execution snapshot"]
-}
-
-/**
- * A span coverage, R1(a, b) into R0's span key (b, a), whose one source fact the proving case narrowed to [1,2) inside
- * its target's [1,3): the attachment along it finds no child for that parent, so the containment proves no bare child.
- */
-const spanCoverageNarrowed: Kept<readonly [ProvingSketch, ContextSketch], EvidenceFeature> = {
-	note: "a span coverage typed a bare child, and a parent covered apart from its target's span had none",
-	sketch: [
-		[
+		aims: [],
+		kept: [
 			{
-				schema: {
-					palette: [13],
-					closed: [],
-					relations: [
-						{
-							columns: [0, 0],
-							pkMask: 0,
-							pure: false,
-							keyMasks: [],
-							mutable: false,
-							fk: { enabled: false, target: 0, typed: false },
-							spanKey: true
-						},
-						{
-							columns: [0, 0],
-							pkMask: 0,
-							pure: false,
-							keyMasks: [],
-							mutable: false,
-							fk: { enabled: true, target: 0, typed: false },
-							spanKey: false
-						}
-					]
-				},
-				facts: [
-					[
-						{
-							values: [
-								{ cls: 1, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 }
-							],
-							target: 0
-						}
-					],
-					[
-						{
-							values: [
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 },
-								{ cls: 0, sp: 0 }
-							],
-							target: 0
-						}
-					],
-					[],
-					[]
-				],
-				root: {
-					tag: "plain",
-					body: {
-						tag: "union",
-						arms: [
-							{
-								tag: "project",
-								input: {
-									tag: "semi",
-									left: {
-										tag: "match",
-										occurrences: [
-											{
-												source: { tag: "relation", pick: 0 },
-												columns: [
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-												]
-											}
-										],
-										equalities: [],
-										lateral: undrawn
-									},
-									right: {
-										tag: "match",
-										occurrences: [
-											{
-												source: { tag: "relation", pick: 0 },
-												columns: [
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-													{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-												]
-											}
-										],
-										equalities: [],
-										lateral: undrawn
-									},
-									on: [],
-									shared: undrawn
-								},
-								out: []
-							},
-							{
-								tag: "group",
-								input: {
-									tag: "union",
-									arms: [
-										{
-											tag: "match",
-											occurrences: [
-												{
-													source: { tag: "relation", pick: 0 },
-													columns: [
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-													]
-												}
-											],
-											equalities: [],
-											lateral: undrawn
-										},
-										{
-											tag: "match",
-											occurrences: [
-												{
-													source: { tag: "relation", pick: 0 },
-													columns: [
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } },
-														{ mode: 0, pick: 0, value: { cls: 0, sp: 0 } }
-													]
-												}
-											],
-											equalities: [],
-											lateral: undrawn
-										}
-									],
-									width: 1,
-									picks: [0],
-									tagged: false
-								},
-								full: false,
-								boundMask: 0,
-								keyMask: 0,
-								aggs: []
-							}
-						],
-						width: 1,
-						picks: [0],
-						tagged: false
-					},
-					order: undrawn
-				},
-				paramNames: [0, 0, 0, 0, 0, 0, 0, 0],
-				swarm: { filter: 1 },
-				data: { closed: 1, containments: 1 },
-				rewrite: { stated: 3, follow: 3, equate: 3, rooted: 3, regions: 3, groupFilter: 3 },
-				soundness: {
-					lateral: 3,
-					correlated: 3,
-					"correlated take": 3,
-					shared: 3,
-					window: 3,
-					approximate: 3
-				}
-			},
-			[32768]
-		],
-		{ transaction: false, containments: [] }
-	],
-	/** The swarm's thinning decision, as the shrunk case drew it. */
-	draws: "2",
-	reaches: ["a span coverage's fact covered apart from its target's spans"]
-}
-
-/**
- * The evidence a contexted case is annotated under: its containments under their drawn contexts, and the execution
- * context. Its sources' declared keys are their nodes' own.
- */
-const envOf = (contexted: Pick<Contexted, "execution" | "containments">): LogicalEnv => ({
-	context: contexted.execution,
-	containments: contexted.containments,
-	keyedViews: false
-})
-
-/** What an idempotence case reaches: the claims and delivered types its annotation states. */
-type IdempotenceFeature =
-	| "claimed at most one row"
-	| "claimed one row"
-	| "claimed a logical key"
-	| "delivered array"
-	| "delivered option"
-	| "delivered one"
-
-/** Every case of `draw`, annotated and checked against its facts, `kept` replayed first. */
-const holdsOn = <S>(
-	ctx: TestContext,
-	suite: string,
-	draw: CaseDraw<S>,
-	kept: ReadonlyArray<Kept<readonly [S, ContextSketch], EvidenceFeature>>,
-	situations: Situations<EvidenceFeature>
-) =>
-	searched(
-		ctx,
-		explore(
-			{
-				oracle: {
-					kind: "second-implementation",
-					name: "the reference evaluator's every evaluation of every node, each claim judged on every relation it denoted"
-				},
-				suite,
-				draw: drawn(draw.generator),
-				literal: Formatter.format,
-				coverage: required<EvidenceFeature>(situations, { cases: runs, sense: notesOnly }),
-				kept,
-				runs,
-				shrink: completeShrink,
-				steerEvery: 16,
-				caseHang
-			},
-			([drawnSketch, sketch], c) =>
-				Effect.sync(() => {
-					const generated = c.draw(draw.resolve(drawnSketch))
-					const {
-						c: contextedCase,
-						execution,
-						containments,
-						orphaned
-					} = contexted(generated, sketch)
-					c.note(`execution ${execution}`)
-					for (const k of containments) {
-						c.note(`${k.context} containment`)
-					}
-					if (orphaned.length > 0) {
-						c.note("an orphaned containment inside a transaction")
-					}
-					if (
-						Arr.some(
-							contextedCase.schema.containments,
-							(k) => spanCoverage(contextedCase.schema, k) && coveredApart(contextedCase, k)
-						)
-					) {
-						c.note("a span coverage's fact covered apart from its target's spans")
-					}
-					const env = envOf({ execution, containments })
-					const analysis = analyzeLogical(contextedCase.query.dag, env)
-					if (!analysis.ok) {
-						throw new Error(`annotation refused: ${analysis.error.message}`)
-					}
-					const scoped = fixedNamesUnscoped(contextedCase.query.dag, analysis.value.of)
-					if (scoped.kind === "unsound") {
-						throw new Error(`${scoped.why}\n${printQueryCase(contextedCase)}`)
-					}
-					const soundness = logicalUnsound(
-						analysis.value.dag,
-						{
-							schema: contextedCase.schema,
-							facts: contextedCase.facts,
-							params: contextedCase.query.params,
-							observer: unobserved
-						},
-						c.note,
-						env
-					)
-					if (soundness.kind === "unsound") {
-						throw new Error(`${soundness.why}\n${printQueryCase(contextedCase)}`)
-					}
-					const refuses = kernelRefusesCorruptions(analysis.value.dag, env)
-					if (refuses.kind === "unsound") {
-						throw new Error(`${refuses.why}\n${printQueryCase(contextedCase)}`)
-					}
-				})
-		)
-	)
-
-describe("the logical analysis's claims hold on the facts", () => {
-	it.effect("keys and cardinality bounds over generated cases", (ctx) =>
-		holdsOn(
-			ctx,
-			"unit/analysis/logical/evidence-keys",
-			sketchedCases(defaultGenConfig),
-			[],
-			["claimed at most one row", "claimed one row", "delivered option", "execution transaction"]
-		)
-	)
-
-	it.effect(
-		"keys, cardinality and determinism over cases with lateral sources, shared nodes, windows and approximate searches",
-		(ctx) =>
-			holdsOn(
-				ctx,
-				"unit/analysis/logical/evidence-soundness",
-				sketchedCases(soundnessGenConfig),
-				[correlatedTakeOverOneRow, lateralFixedThroughBoundSibling, boundHandleNamed],
-				[
-					"claimed at most one row",
-					"a correlated MatchRegion evaluated per outer tuple",
-					"a correlated Take evaluated per outer tuple",
-					"an approximate search"
-				]
-			)
-	)
-
-	it.effect("delivered types over cases rooted at attachments, under every context", (ctx) =>
-		holdsOn(
-			ctx,
-			"unit/analysis/logical/evidence-attachments",
-			sketchedCases({
-				...defaultGenConfig,
-				query: {
-					...defaultGenConfig.query,
-					roots: {
-						...defaultGenConfig.query.roots,
-						plain: 0,
-						attach: 1,
-						hetero: 0
-					}
-				}
-			}),
-			[],
-			[
-				"delivered option",
-				"committedSnapshot containment",
-				"an orphaned containment inside a transaction"
-			]
-		)
-	)
-
-	it.effect("bare children along declared containments and filters over one fact", (ctx) =>
-		holdsOn(
-			ctx,
-			"unit/analysis/logical/evidence-bare-children",
-			provingCases,
-			[sumParameterOfInfinity, spanCoverageNarrowed],
-			[
-				"delivered one",
-				"a filter over one row",
-				"an orphaned containment inside a transaction",
-				"a span coverage's fact covered apart from its target's spans"
-			]
-		)
-	)
-})
-
-/** Every case of `draw` annotated twice under the evidence it draws: the second annotation states what the first did. */
-const idempotentOn = <S>(
-	ctx: TestContext,
-	suite: string,
-	draw: CaseDraw<S>,
-	situations: Situations<IdempotenceFeature>
-) =>
-	searched(
-		ctx,
-		explore(
-			{
-				oracle: { kind: "universal", name: "a second annotation states what the first did" },
-				suite,
-				draw: drawn(draw.generator),
-				literal: Formatter.format,
-				coverage: required<IdempotenceFeature>(situations, { cases: runs, sense: notesOnly }),
-				kept: [],
-				runs,
-				shrink: completeShrink,
-				steerEvery: 16,
-				caseHang
-			},
-			([drawnSketch, sketch], c) =>
-				Effect.sync(() => {
-					const generated = c.draw(draw.resolve(drawnSketch))
-					const env = envOf(contexted(generated, sketch))
-					const once = analyzeLogical(generated.query.dag, env)
-					if (!once.ok) {
-						throw new Error(`annotation refused: ${once.error.message}`)
-					}
-					const twice = analyzeLogical(once.value.dag, env)
-					if (!twice.ok) {
-						throw new Error(`a second annotation refused: ${twice.error.message}`)
-					}
-					const onceTable = toTable(once.value.dag)
-					const twiceTable = toTable(twice.value.dag)
-					if (!onceTable.ok || !twiceTable.ok) {
-						throw new Error("an annotated DAG with one node per label")
-					}
-					for (const node of Rec.values(onceTable.value.nodes)) {
-						if (node.meta.card !== "many") {
-							c.note("claimed at most one row")
-						}
-						if (node.meta.card === "one") {
-							c.note("claimed one row")
-						}
-						if (node.meta.logicalKeys.length > 0) {
-							c.note("claimed a logical key")
-						}
-						if (node.kind === "Attach") {
-							c.note(`delivered ${node.delivered}`)
-						}
-						assert.deepEqual(
-							Rec.get(twiceTable.value.nodes, node.id),
-							Option.some(node),
-							`${node.id} (${node.kind}) annotated again`
-						)
-					}
-				})
-		)
-	)
-
-describe("the logical analysis is idempotent", () => {
-	it.effect(
-		"annotating twice states what annotating once states, over cases rooted at plain rows, attachments and unions, and the proving shapes",
-		(ctx) =>
-			Effect.andThen(
-				idempotentOn(
-					ctx,
-					"unit/analysis/logical/evidence-idempotent",
-					sketchedCases({
-						...defaultGenConfig,
-						query: {
-							...defaultGenConfig.query,
-							roots: {
-								...defaultGenConfig.query.roots,
-								plain: 1,
-								attach: 2,
-								hetero: 1
-							}
-						}
-					}),
-					[
-						"claimed at most one row",
-						"claimed one row",
-						"claimed a logical key",
-						"delivered array",
-						"delivered option"
-					]
+				token: ReplayToken(
+					"test/unit/analysis/logical/evidence.test.ts#theLogicalAnalysissClaimsHoldOnTheFactsKeysCardinalityAndDeterminismOverCasesWithLateralSourcesSharedNodesWindowsAndApproximateSearches:-:2.2.0.1.0.1.a.0.0.1.1.0.0.0.0.0.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.6.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.6.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.4.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.c.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.2"
 				),
-				idempotentOn(ctx, "unit/analysis/logical/evidence-idempotent-bare", provingCases, [
-					"delivered one"
-				])
-			)
+				reason: "a correlated take over one fact was claimed exactly one row and had none",
+				since: "2026-10-29"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/analysis/logical/evidence.test.ts#theLogicalAnalysissClaimsHoldOnTheFactsKeysCardinalityAndDeterminismOverCasesWithLateralSourcesSharedNodesWindowsAndApproximateSearches:-:1.0.0.3.1.0.0.0.0.1.0.0.1.0.0.0.0.1.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.9.6.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.2.8.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.9.l.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.5.0.0.0.5.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.s3d.0.0.0.0.0.6bk.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.g.0.0.0.0.0.f.f.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.2.0.0.0.0.0.0.0.0.g.h.0.0.0.0.0.0.0.2.1.0.0.0.2.1.1.1.2.0.0.0.1"
+				),
+				reason:
+					"the key kernel refused a lateral equality, reading a column an inner region binds as the value of a column carried out of it",
+				since: "2026-11-14"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/analysis/logical/evidence.test.ts#theLogicalAnalysissClaimsHoldOnTheFactsKeysCardinalityAndDeterminismOverCasesWithLateralSourcesSharedNodesWindowsAndApproximateSearches:-:1.0.1.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.8.2.1.e.2.6.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.9.1.8.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.1.i.9.2.6.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.h.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.2.2"
+				),
+				reason:
+					"a region named a fixed column by a column of its own occurrence source, carried from a lateral source",
+				since: "2026-11-14"
+			}
+		],
+		kills: [
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original:
+					'\tname.kind !== "outer" || props.outer.get(name.node)?.has(name.column) === true ? name : undefined',
+				replacement: '\tname.kind !== "outer" || props.outer.size >= 0 ? name : undefined',
+				why: "A node names a fixed column by a column it binds (logical/props.ts nameAt reads no scope): a region carries a lateral source's name of an earlier source's column as a value of its own; the soundness property fails on boundHandleNamed."
+			}
+		]
+	})
+
+/** The logical analysis's claims hold on the facts delivered types over cases rooted at attachments, under every context. */
+export const theLogicalAnalysissClaimsHoldOnTheFactsDeliveredTypesOverCasesRootedAtAttachmentsUnderEveryContext =
+	holdsOn(sketchedCases(attachmentRooted), {
+		situations: [
+			"delivered option",
+			"committedSnapshot containment",
+			"an orphaned containment inside a transaction"
+		],
+		aims: [["an orphaned containment inside a transaction", orphanedCases(attachmentRooted)]],
+		kept: [],
+		kills: []
+	})
+
+/** The logical analysis's claims hold on the facts bare children along declared containments and filters over one fact. */
+export const theLogicalAnalysissClaimsHoldOnTheFactsBareChildrenAlongDeclaredContainmentsAndFiltersOverOneFact =
+	holdsOn(provingCases, {
+		situations: [
+			"delivered one",
+			"a filter over one row",
+			"an orphaned containment inside a transaction",
+			"a span coverage's fact covered apart from its target's spans"
+		],
+		aims: [["a span coverage's fact covered apart from its target's spans", narrowedProvingCases]],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/analysis/logical/evidence.test.ts#theLogicalAnalysissClaimsHoldOnTheFactsBareChildrenAlongDeclaredContainmentsAndFiltersOverOneFact:-:1.6.0.2.1.0.0.0.0.0.0.0.0.3.0.0.0.3.0.0.0.1.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.3.h.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.1.f.0.0.0.1.0.4.0.4.0.2.0.0.0.3.0.0.0.0.5.6.0.0.0.0.0.0.0.0.0.0.7.0.h.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.h.0.0.2.0.0.0.0.0.0.f.0.1.0.0.0.0.0.2"
+				),
+				reason:
+					"a parameter compared with a sum was drawn as Infinity, which its numeric(161, 40) cannot hold",
+				since: "2026-11-08"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/analysis/logical/evidence.test.ts#theLogicalAnalysissClaimsHoldOnTheFactsBareChildrenAlongDeclaredContainmentsAndFiltersOverOneFact:-:1.d.0.2.2.0.0.0.0.0.0.0.0.1.2.0.0.0.0.0.0.1.0.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.d.2.6.9.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.8.h.d.2.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.8.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.1.pa8.0.0.2"
+				),
+				reason:
+					"a span coverage typed a bare child, and a parent covered apart from its target's span had none",
+				since: "2026-11-14"
+			}
+		],
+		kills: [
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: "\t\t\t\t...rest,\n\t\t\t\texactlyOne: false,",
+				replacement: '\t\t\t\t...rest,\n\t\t\t\texactlyOne: input.card === "one",',
+				why: "A filter over an input of exactly one row claims exactly one, though it may drop it (logical/props.ts); the soundness property fails."
+			},
+			{
+				file: "packages/engine/src/logical/attach.ts",
+				original:
+					"\t\tif (fact.coverage || fact.to.relation !== scan.relation || fact.to.selection.length > 0) {",
+				replacement:
+					"\t\tif (fact.to.relation !== scan.relation || fact.to.selection.length > 0) {",
+				why: "A span coverage proves a bare child (logical/attach.ts containmentOne), which a parent covered apart from its target's span refutes; the bare-children property fails on spanCoverageNarrowed."
+			}
+		]
+	})
+
+/** The logical analysis is idempotent: annotating twice states what annotating once states, over cases rooted at plain rows, attachments and unions. */
+export const theLogicalAnalysisIsIdempotentAnnotatingTwiceStatesWhatAnnotatingOnceStatesOverCasesRootedAtPlainRowsAttachmentsAndUnions =
+	idempotentOn(
+		sketchedCases({
+			...defaultGenConfig,
+			query: {
+				...defaultGenConfig.query,
+				roots: {
+					...defaultGenConfig.query.roots,
+					plain: 1,
+					attach: 2,
+					hetero: 1
+				}
+			}
+		}),
+		{
+			situations: [
+				"claimed at most one row",
+				"claimed one row",
+				"claimed a logical key",
+				"delivered array",
+				"delivered option"
+			],
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/logical/annotate.ts",
+					original: "\t\t: relNode(node.id, { ...body, meta: claims })",
+					replacement:
+						"\t\t: relNode(node.id, {\n\t\t\t\t...body,\n\t\t\t\tmeta: { ...claims, logicalKeys: [...node.meta.logicalKeys, ...claims.logicalKeys] }\n\t\t\t})",
+					why: "A node's claimed keys gather its earlier claims beside the new ones (logical/annotate.ts rebuilt); the idempotence property fails."
+				}
+			]
+		}
 	)
-})
+
+/** The logical analysis is idempotent: annotating twice states what annotating once states, over the proving shapes. */
+export const theLogicalAnalysisIsIdempotentAnnotatingTwiceStatesWhatAnnotatingOnceStatesOverTheProvingShapes =
+	idempotentOn(provingCases, {
+		situations: ["delivered one"],
+		kept: [],
+		kills: []
+	})
