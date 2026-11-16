@@ -27,19 +27,19 @@ import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { folded, identityOf } from "#test/support/families/fold.ts"
 import {
 	caseGen,
-	type Compiled,
+	compiledFills,
 	expectedAt,
-	fillOf,
 	type FoldFeature,
 	foldMonoid,
 	nestingOf,
+	shapeKey,
 	planesAt
 } from "#test/unit/write/family-fold.fixtures.ts"
 
 /** The host fold, exhaustively fills every fold's accumulators and ends as the reference fold does, and starts every base at its monoid's identity. */
 export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheReferenceFoldDoesAndStartsEveryBaseAtItsMonoidsIdentity =
 	property.exhaust(finite(caseGen), {
-		needs: {},
+		needs: { fills: compiledFills },
 		situations: [
 			"monoid count",
 			"monoid sum",
@@ -51,91 +51,88 @@ export const theHostFoldExhaustivelyFillsEveryFoldsAccumulatorsAndEndsAsTheRefer
 			"hidden accumulators",
 			"a counted family"
 		] satisfies ReadonlyArray<Reached<FoldFeature>>,
-		check: (_, note: Case<FoldFeature>) => (c) =>
-			Effect.gen(function* () {
-				const compiledFills = new Map<string, Compiled | undefined>()
-				return yield* Effect.sync(() => {
-					const fills = fillOf(compiledFills, c.shape)
-					if (fills === undefined) {
-						return
-					}
-					note.note(`monoid ${c.shape.monoid}`)
-					const filled = succeeded(
-						fills.fill(nestingOf(c), { kind: "top" }),
-						"a family of admitted values fills"
+		check: (resources, note: Case<FoldFeature>) => (c) =>
+			Effect.map(resources.fills, (compiled) => {
+				const fills = compiled.get(shapeKey(c.shape))
+				if (fills === undefined) {
+					return
+				}
+				note.note(`monoid ${c.shape.monoid}`)
+				const filled = succeeded(
+					fills.fill(nestingOf(c), { kind: "top" }),
+					"a family of admitted values fills"
+				)
+				const m = foldMonoid(c.shape)
+				const steps = Arr.map(c.members, (member) => ({
+					x: member.x,
+					selected: !c.shape.selected || member.flag
+				}))
+				const expected = folded(m, steps)
+				const [fold] = fills.family.folds
+				const plain = defined(fold, "the family's one fold")
+				const befores = Arr.map(plain.planes, (p) => columnKey(p.before))
+				const afters = Arr.map(plain.planes, (p) => columnKey(p.after))
+				const ends = Arr.map(plain.planes, (p) => fieldKey(p.end.name))
+				const members = defined(filled.families[0], "the owner's family").members
+				assert.equal(members.length, c.members.length, "every member is filled")
+				assert.equal(
+					filled.values.get(fieldKey("n")),
+					BigInt(c.members.length),
+					"the count is drawn"
+				)
+				for (const [slot, row] of members.entries()) {
+					const reference = defined(expected.slots[slot], "a reference slot")
+					assert.deepEqual(
+						planesAt(row, befores),
+						expectedAt(c.shape.carrier, reference.before),
+						`slot ${slot}'s before`
 					)
-					const m = foldMonoid(c.shape)
-					const steps = Arr.map(c.members, (member) => ({
-						x: member.x,
-						selected: !c.shape.selected || member.flag
-					}))
-					const expected = folded(m, steps)
-					const [fold] = fills.family.folds
-					const plain = defined(fold, "the family's one fold")
-					const befores = Arr.map(plain.planes, (p) => columnKey(p.before))
-					const afters = Arr.map(plain.planes, (p) => columnKey(p.after))
-					const ends = Arr.map(plain.planes, (p) => fieldKey(p.end.name))
-					const members = defined(filled.families[0], "the owner's family").members
-					assert.equal(members.length, c.members.length, "every member is filled")
+					assert.deepEqual(
+						planesAt(row, afters),
+						expectedAt(c.shape.carrier, reference.after),
+						`slot ${slot}'s after`
+					)
 					assert.equal(
-						filled.values.get(fieldKey("n")),
-						BigInt(c.members.length),
-						"the count is drawn"
+						row.values.get(columnKey(fills.family.index)),
+						BigInt(slot),
+						"the index is the slot"
 					)
-					for (const [slot, row] of members.entries()) {
-						const reference = defined(expected.slots[slot], "a reference slot")
-						assert.deepEqual(
-							planesAt(row, befores),
-							expectedAt(c.shape.carrier, reference.before),
-							`slot ${slot}'s before`
-						)
-						assert.deepEqual(
-							planesAt(row, afters),
-							expectedAt(c.shape.carrier, reference.after),
-							`slot ${slot}'s after`
-						)
-						assert.equal(
-							row.values.get(columnKey(fills.family.index)),
-							BigInt(slot),
-							"the index is the slot"
-						)
-						assert.equal(
-							row.values.get(`law:${fills.family.copy}`),
-							BigInt(c.members.length),
-							"every member copies its owner's count"
-						)
-						if (c.shape.selected && c.members[slot]?.flag === false) {
-							note.note("a member stepped over")
-						}
+					assert.equal(
+						row.values.get(`law:${fills.family.copy}`),
+						BigInt(c.members.length),
+						"every member copies its owner's count"
+					)
+					if (c.shape.selected && c.members[slot]?.flag === false) {
+						note.note("a member stepped over")
 					}
+				}
+				assert.deepEqual(
+					planesAt(filled, ends),
+					expectedAt(c.shape.carrier, expected.end),
+					"the end is the last after"
+				)
+				const identity = identityOf(m)
+				const first = members[0]
+				if (first === undefined) {
+					note.note("an empty family")
 					assert.deepEqual(
 						planesAt(filled, ends),
-						expectedAt(c.shape.carrier, expected.end),
-						"the end is the last after"
+						expectedAt(c.shape.carrier, identity),
+						"an empty family ends at the identity"
 					)
-					const identity = identityOf(m)
-					const first = members[0]
-					if (first === undefined) {
-						note.note("an empty family")
-						assert.deepEqual(
-							planesAt(filled, ends),
-							expectedAt(c.shape.carrier, identity),
-							"an empty family ends at the identity"
-						)
-					} else {
-						assert.deepEqual(
-							planesAt(first, befores),
-							expectedAt(c.shape.carrier, identity),
-							"the first before is the identity"
-						)
-					}
-					if (c.shape.accumulators === "hidden") {
-						note.note("hidden accumulators")
-					}
-					if (c.shape.order === "counted") {
-						note.note("a counted family")
-					}
-				})
+				} else {
+					assert.deepEqual(
+						planesAt(first, befores),
+						expectedAt(c.shape.carrier, identity),
+						"the first before is the identity"
+					)
+				}
+				if (c.shape.accumulators === "hidden") {
+					note.note("hidden accumulators")
+				}
+				if (c.shape.order === "counted") {
+					note.note("a counted family")
+				}
 			}),
 		oracle: {
 			kind: "second-implementation",

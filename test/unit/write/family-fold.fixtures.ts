@@ -1,7 +1,8 @@
 /** What the properties of family-fold.test.ts read: its spaces, models and helpers. */
 
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, Record as Rec } from "effect"
+import type { Need } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Record as Rec } from "effect"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { FieldDesc, LiteralDesc, MonoidName } from "#compiler/ir/desc.ts"
@@ -258,19 +259,15 @@ export interface Compiled {
 	readonly fill: Filler
 }
 
-/** A shape's compiled fill, built once in a search: `compiledFills` is the search's own cache of them, by shape. */
-export const fillOf = (
-	compiledFills: Map<string, Compiled | undefined>,
-	s: Shape
-): Compiled | undefined => {
-	const key = `${s.monoid} ${s.carrier} ${s.order} ${s.accumulators} ${String(s.selected)}`
-	if (compiledFills.has(key)) {
-		return compiledFills.get(key)
-	}
+/** A shape's key: its monoid, carrier, order, accumulators and selection, which decide its fill. */
+export const shapeKey = (s: Shape): string =>
+	`${s.monoid} ${s.carrier} ${s.order} ${s.accumulators} ${String(s.selected)}`
+
+/** A shape's compiled fill: its family and its filler; none for a fold its typing refuses. */
+const fillOf = (s: Shape): Compiled | undefined => {
 	const desc = schemaOf(s)
 	const model = compiledModel(desc)
 	if (!model.ok) {
-		compiledFills.set(key, undefined)
 		return undefined
 	}
 	const codes = firstCodebook(rostersOf(succeeded(own(decodedSchema(desc)))))
@@ -282,9 +279,22 @@ export const fillOf = (
 		codes,
 		hostEvaluator(codes, closedLeaf(new Map()), model.value.patterns)
 	)
-	const built = { family, fill }
-	compiledFills.set(key, built)
-	return built
+	return { family, fill }
+}
+
+/**
+ * Every shape's compiled fill, by its key (shapeKey): the box's 23,160 cases fold over the 84 shapes, so the fills are
+ * compiled once, when a worker readies the box (the need's open, outside every case's deadline), and every case reads
+ * its shape's. A compile that fails fails the need's open, and so the property.
+ */
+export const compiledFills: Need<ReadonlyMap<string, Compiled | undefined>> = {
+	key: "test/unit/write/family-fold.fixtures.ts compiledFills",
+	open: Effect.sync(() => {
+		const fills: ReadonlyMap<string, Compiled | undefined> = new Map(
+			Arr.map(SHAPES, (s) => [shapeKey(s), fillOf(s)] as const)
+		)
+		return Effect.succeed(fills)
+	})
 }
 
 /** One case: a fold's shape and one owner's members, each its value and whether its row is selected. */
