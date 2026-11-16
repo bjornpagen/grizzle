@@ -21,13 +21,10 @@
  *
  * Features: a constant only a written table's casts reach, a role that writes nothing, and two roles.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Order } from "effect"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
@@ -42,82 +39,66 @@ import {
 	installedRole,
 	reachableConstants
 } from "#test/support/executes.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { owning } from "#test/support/policy.ts"
+import { type Feature, sorted } from "#test/unit/physical/executes.fixtures.ts"
 
-type Feature =
-	| "a constant only a written table's casts reach"
-	| "a role that writes nothing"
-	| "two roles"
-
-const sorted = (xs: Iterable<string>): ReadonlyArray<string> => Arr.sort(xs, Order.String)
-
-describe("the EXECUTE grants of a role", () => {
-	it.effect(
-		"are exactly the constants its statements evaluate, through constants' bodies and domains' casts and CHECKs",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "second-implementation",
-							name: "the constants a role's statements evaluate, restated over the installation (reachableConstants)"
-						},
-						suite: "unit/physical/executes",
-						draw: drawn(executesWorldGen),
-						literal: Formatter.format,
-						coverage: required<Feature>(
-							[
-								"a constant only a written table's casts reach",
-								"a role that writes nothing",
-								"two roles"
-							],
-							{ cases: 64, sense: notesOnly }
-						),
-						kept: [],
-						runs: 128,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(world, c) =>
-						Effect.sync(() => {
-							const built = buildExecutesWorld(world, "Grants")
-							const owned = owning(built.schema)
-							const own = ownLogin(defined(loginDescOf(built.login), "a login built by login(...)"))
-							const compiled = compileInstallation(
-								owned,
-								completeInstallOptions(
-									owned,
-									installationsOf(owned),
-									[own.ok ? own.value : assert.fail(own.error.message)],
-									[],
-									firstCodebook(rostersOf(owned))
-								)
-							)
-							const i = compiled.ok ? compiled.value : assert.fail(compiled.error.message)
-							if (world.roles.length === 2) {
-								c.note("two roles")
-							}
-							for (const r of world.roles) {
-								const installed = installedRole(i, r.name)
-								const every = reachableConstants(i, installed, "every type")
-								assert.deepEqual(
-									sorted(grantedConstants(i, installed.role)),
-									sorted(every),
-									`the constants ${r.name} is granted EXECUTE on`
-								)
-								if (r.writes.length === 0) {
-									c.note("a role that writes nothing")
-								}
-								const own = reachableConstants(i, installed, "no written table's types")
-								if (Arr.some([...every], (name) => !own.has(name))) {
-									c.note("a constant only a written table's casts reach")
-								}
-							}
-						})
+/** The EXECUTE grants of a role are exactly the constants its statements evaluate, through constants' bodies and domains' casts and CHECKs. */
+export const theEXECUTEGrantsOfARoleAreExactlyTheConstantsItsStatementsEvaluateThroughConstantsBodiesAndDomainsCastsAndCHECKs =
+	property.explore(executesWorldGen, {
+		needs: {},
+		situations: [
+			"a constant only a written table's casts reach",
+			"a role that writes nothing",
+			"two roles"
+		] satisfies ReadonlyArray<Reached<Feature>>,
+		check: (_, c: Case<Feature>) => (world) =>
+			Effect.sync(() => {
+				const built = buildExecutesWorld(world, "Grants")
+				const owned = owning(built.schema)
+				const own = ownLogin(defined(loginDescOf(built.login), "a login built by login(...)"))
+				const compiled = compileInstallation(
+					owned,
+					completeInstallOptions(
+						owned,
+						installationsOf(owned),
+						[own.ok ? own.value : assert.fail(own.error.message)],
+						[],
+						firstCodebook(rostersOf(owned))
+					)
 				)
-			)
-	)
-})
+				const i = compiled.ok ? compiled.value : assert.fail(compiled.error.message)
+				if (world.roles.length === 2) {
+					c.note("two roles")
+				}
+				for (const r of world.roles) {
+					const installed = installedRole(i, r.name)
+					const every = reachableConstants(i, installed, "every type")
+					assert.deepEqual(
+						sorted(grantedConstants(i, installed.role)),
+						sorted(every),
+						`the constants ${r.name} is granted EXECUTE on`
+					)
+					if (r.writes.length === 0) {
+						c.note("a role that writes nothing")
+					}
+					const own = reachableConstants(i, installed, "no written table's types")
+					if (Arr.some([...every], (name) => !own.has(name))) {
+						c.note("a constant only a written table's casts reach")
+					}
+				}
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the constants a role's statements evaluate, restated over the installation (reachableConstants)"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/physical/ddl/roles.ts",
+				original:
+					"\t\tstatements: [...written.flatMap((relation) => b.evaluatedOn(relation)), ...views],",
+				replacement: "\t\tstatements: [...views],",
+				why: "A role's reach skips the tables it writes, reading its views alone."
+			}
+		]
+	})

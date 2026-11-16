@@ -13,255 +13,89 @@
  * relation it reaches and both levels, exactly where the oracle refuses it; every other statement owns.
  * An admitted statement's levels each install in the PostgreSQL schema their own declared name converts to.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { conversionOf, identifierOf } from "#compiler/core/identity.ts"
-import { drawn, natural, uuid } from "#compiler/public/fields.ts"
-import { key, on, relation, schema } from "#compiler/public/schema.ts"
-import { own } from "#compiler/schema/own.ts"
-import { schemaDescOf } from "#compiler/schema/schema.ts"
+import { assert } from "#test/support/assert.ts"
 import {
-	checkBuilder,
-	containedBuilder,
-	countedBuilder,
-	finBuilder,
-	keyBuilder,
-	mutableBuilder,
-	onBuilder,
-	raceBuilder,
-	selectBuilder
-} from "#compiler/schema/statements.ts"
-import type { AnySchema } from "#compiler/types/schema/schema.ts"
-import type { Statement } from "#compiler/types/schema/statements.ts"
-import { assert, defined } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
+	ownedUp,
+	levelRefusedAt,
+	shapeGen,
+	shapeText,
+	type Situation,
+	statementOf
+} from "#test/unit/schema/levels.fixtures.ts"
 
-const A = relation("A", { id: uuid, x: uuid, y: uuid, n: natural }, ["id"])
-const L = relation("L", { id: uuid, owner: uuid }, ["id"])
-const Lo = schema("Lo", [A, L], [key(on(A, "x"))])
-
-const C = relation("C", { id: uuid, a: uuid, n: natural }, ["id"])
-const U = relation("U", { id: uuid, count: drawn(natural) }, ["id"])
-const UM = relation("UM", { id: uuid, owner: uuid }, ["id"])
-
-/** Where a side reads: an upper or a lower relation. */
-const places = ["upper", "lower"] as const
-type Place = (typeof places)[number]
-
-/** The fields of A a lower target names: its primary key, its candidate key, and a field no key holds. */
-const targetFields = ["id", "x", "y"] as const
-type TargetField = (typeof targetFields)[number]
-
-/** The statements a shape states, each a kind of law. */
-const kinds = ["key", "check", "mutable", "race", "counted", "contained"] as const
-
-type Situation =
-	| "admitted"
-	| "refused"
-	| "a lower source admitted"
-	| "a lower target admitted"
-	| "a lower check admitted"
-
-type Shape =
-	| { readonly kind: "key" | "check" | "mutable" | "race" | "counted"; readonly place: Place }
-	| {
-			readonly kind: "contained"
-			readonly source: { readonly place: Place; readonly selected: boolean }
-			readonly target:
-				| { readonly place: "lower"; readonly selected: boolean; readonly field: TargetField }
-				| { readonly place: "upper" }
-	  }
-
-/**
- * A shape drawn: a law of each kind over either level, and a containment from C.a or A.x, every fact or a selection,
- * into A at each of its three fields, every fact or a selection, or into C's primary key.
- */
-const shapeGen: Gen<Shape> = (source) => {
-	const kind = source.draw(element(kinds))
-	switch (kind) {
-		case "key":
-		case "check":
-		case "mutable":
-		case "race":
-		case "counted":
-			return { kind, place: source.draw(element(places)) }
-		case "contained": {
-			const from = { place: source.draw(element(places)), selected: source.draw(boolean) }
-			const into = source.draw(element(places))
-			return {
-				kind,
-				source: from,
-				target:
-					into === "upper"
-						? { place: into }
-						: {
-								place: into,
-								selected: source.draw(boolean),
-								field: source.draw(element(targetFields))
-							}
+/** A level's laws over the levels below it reach a lower relation only by a containment of fields into a key or a row check, every other reach LevelRefused. */
+export const aLevelsLawsOverTheLevelsBelowItReachALowerRelationOnlyByAContainmentOfFieldsIntoAKeyOrARowCheckEveryOtherReachLevelRefused =
+	property.exhaust(finite(shapeGen), {
+		needs: {},
+		situations: [
+			"admitted",
+			"refused",
+			"a lower source admitted",
+			"a lower target admitted",
+			"a lower check admitted"
+		] satisfies ReadonlyArray<Reached<Situation>>,
+		check: (_, c: Case<Situation>) => (shape) =>
+			Effect.sync(() => {
+				const owned = ownedUp(statementOf(shape))
+				const expected = levelRefusedAt(shape)
+				if (expected === undefined) {
+					assert.equal(owned.ok, true, `${shapeText(shape)} owns`)
+					if (owned.ok) {
+						assert.deepEqual<ReadonlyArray<string>>(
+							Arr.map(owned.value.levels, (l) => identifierOf(l.installation)),
+							[conversionOf("Lo"), conversionOf("Up")],
+							"each level installs in the schema its own name converts to"
+						)
+					}
+					c.note("admitted")
+					if (shape.kind === "contained" && shape.source.place === "lower") {
+						c.note("a lower source admitted")
+					}
+					if (shape.kind === "contained" && shape.target.place === "lower") {
+						c.note("a lower target admitted")
+					}
+					if (shape.kind === "check" && shape.place === "lower") {
+						c.note("a lower check admitted")
+					}
+					return
+				}
+				assert.equal(owned.ok, false, `${shapeText(shape)} is refused`)
+				if (owned.ok) {
+					return
+				}
+				const reason = owned.error.reason
+				assert.equal(reason._tag, "LevelRefused", shapeText(shape))
+				if (reason._tag === "LevelRefused") {
+					assert.equal(reason.relation, expected)
+					assert.equal(reason.level, "Up")
+					assert.equal(reason.below, "Lo")
+				}
+				c.note("refused")
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the rule of what a level may state below it, restated per shape"
+		},
+		box: "a key, a check, mutable and a counted family over each level; every containment of four sources into seven targets",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/schema/own.ts",
+				original: "\t\t\tfor (const relation of relations) {",
+				replacement: "\t\t\tfor (const relation of relations.slice(1)) {",
+				why: "A statement reaching one lower relation admitted (schema/own.ts checkLevels reads past its first relation)."
+			},
+			{
+				file: "packages/engine/src/schema/own.ts",
+				original: '\t\t\tcase "check":\n\t\t\t\treturn',
+				replacement: '\t\t\tcase "check":\n\t\t\t\treturn reach([d.relation])\n',
+				why: "A row check over a lower relation refused as LevelRefused."
 			}
-		}
-	}
-}
-
-const shapeText = (s: Shape): string => {
-	switch (s.kind) {
-		case "key":
-		case "check":
-		case "mutable":
-		case "race":
-		case "counted":
-			return `${s.kind} over the ${s.place} level`
-		case "contained":
-			return `contained ${s.source.selected ? "selected " : ""}${s.source.place === "upper" ? "C.a" : "A.x"} into ${
-				s.target.place === "upper"
-					? "C.id"
-					: `${s.target.selected ? "selected " : ""}A.${s.target.field}`
-			}`
-	}
-}
-
-/** A relation's side over `field`, every fact or its facts with n at most 3. */
-const sideOf = (r: typeof A | typeof C, selected: boolean, field: string) =>
-	onBuilder(selected ? selectBuilder(r, (row: SmallRow) => row.le(row.n, 3n)) : r, [field])
-
-/** A row of A or C as a selection reads it: its n. */
-interface SmallRow {
-	readonly n: unknown
-	readonly le: (a: unknown, b: bigint) => unknown
-}
-
-/**
- * The statement a shape states at Up, built through the runtime builders a JavaScript caller reaches, so every shape,
- * the refused ones among them, is the description ownership judges.
- */
-const statementOf = (s: Shape): Statement => {
-	switch (s.kind) {
-		case "key":
-			return keyBuilder(onBuilder(s.place === "lower" ? A : C, ["n"]))
-		case "check":
-			return checkBuilder("Small", s.place === "lower" ? A : C, (row: SmallRow) =>
-				row.le(row.n, 10n)
-			)
-		case "mutable":
-			return mutableBuilder(s.place === "lower" ? A : C)
-		case "race":
-			return raceBuilder(s.place === "lower" ? A : C)
-		case "counted":
-			return countedBuilder(
-				onBuilder(s.place === "lower" ? L : UM, ["owner"]),
-				finBuilder(U, "count")
-			)
-		case "contained": {
-			const source =
-				s.source.place === "upper"
-					? sideOf(C, s.source.selected, "a")
-					: sideOf(A, s.source.selected, "x")
-			return containedBuilder(
-				source,
-				s.target.place === "upper"
-					? sideOf(C, false, "id")
-					: sideOf(A, s.target.selected, s.target.field)
-			)
-		}
-	}
-}
-
-/** The oracle: the lower relation the statement reaches against the rule, none where it is admitted. */
-const refusedAt = (s: Shape): string | undefined => {
-	switch (s.kind) {
-		case "check":
-			return undefined
-		case "key":
-		case "mutable":
-		case "race":
-			return s.place === "lower" ? "A" : undefined
-		case "counted":
-			return s.place === "lower" ? "L" : undefined
-		case "contained": {
-			const { source, target } = s
-			if (source.place === "lower") {
-				return target.place === "lower" || source.selected ? "A" : undefined
-			}
-			return target.place === "lower" && (target.selected || target.field === "y") ? "A" : undefined
-		}
-	}
-}
-
-/** The upper level over Lo stating `statement`, owned. */
-const ownedUp = (statement: Statement) => {
-	const Up: AnySchema = schema.extend(Lo, "Up", [C, U, UM], [statement])
-	return own(defined(schemaDescOf(Up), "Up's description"))
-}
-
-describe("a level's laws over the levels below it", () => {
-	it.effect(
-		"reach a lower relation only by a containment of fields into a key or a row check, every other reach LevelRefused",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/schema/levels/reach",
-						generator: shapeGen,
-						literal: shapeText,
-						box: "a key, a check, mutable and a counted family over each level; every containment of four sources into seven targets",
-						oracle: {
-							kind: "second-implementation",
-							name: "the rule of what a level may state below it, restated per shape"
-						},
-						coverage: requiredInSpace<Situation>([
-							"admitted",
-							"refused",
-							"a lower source admitted",
-							"a lower target admitted",
-							"a lower check admitted"
-						]),
-						caseHang
-					},
-					(shape, c) =>
-						Effect.sync(() => {
-							const owned = ownedUp(statementOf(shape))
-							const expected = refusedAt(shape)
-							if (expected === undefined) {
-								assert.equal(owned.ok, true, `${shapeText(shape)} owns`)
-								if (owned.ok) {
-									assert.deepEqual<ReadonlyArray<string>>(
-										Arr.map(owned.value.levels, (l) => identifierOf(l.installation)),
-										[conversionOf("Lo"), conversionOf("Up")],
-										"each level installs in the schema its own name converts to"
-									)
-								}
-								c.note("admitted")
-								if (shape.kind === "contained" && shape.source.place === "lower") {
-									c.note("a lower source admitted")
-								}
-								if (shape.kind === "contained" && shape.target.place === "lower") {
-									c.note("a lower target admitted")
-								}
-								if (shape.kind === "check" && shape.place === "lower") {
-									c.note("a lower check admitted")
-								}
-								return
-							}
-							assert.equal(owned.ok, false, `${shapeText(shape)} is refused`)
-							if (owned.ok) {
-								return
-							}
-							const reason = owned.error.reason
-							assert.equal(reason._tag, "LevelRefused", shapeText(shape))
-							if (reason._tag === "LevelRefused") {
-								assert.equal(reason.relation, expected)
-								assert.equal(reason.level, "Up")
-								assert.equal(reason.below, "Lo")
-							}
-							c.note("refused")
-						})
-				)
-			)
-	)
-})
+		]
+	})

@@ -18,207 +18,81 @@
  *
  * Features: a shared domain, two domains, a shared checked domain, and a base shared with predicates apart.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Option } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
-import { firstCodebook } from "#compiler/ir/codes.ts"
-import {
-	admitLoginRoles,
-	type ExprDesc,
-	type FieldDesc,
-	type LiteralDesc
-} from "#compiler/ir/desc.ts"
-import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { installationsOf } from "#compiler/schema/own.ts"
-import { fullRoleDesc, ownLogin, rostersOf } from "#compiler/schema/own.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
-import { decodedSchema, f, ge, literal, relation, value } from "#test/support/fixtures/ir/desc.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { owning } from "#test/support/policy.ts"
+import {
+	type DedupFeature,
+	domainsOf,
+	featuresOf,
+	installationOf,
+	pairGen,
+	same
+} from "#test/unit/physical/domain-dedup.fixtures.ts"
 
-const bases = ["integer", "bigint", "text"] as const
-type Base = (typeof bases)[number]
-const predicates = ["none", "nonnegative"] as const
-type Predicate = (typeof predicates)[number]
-
-/** A contract's definition as the case states it. */
-interface Definition {
-	readonly base: Base
-	readonly predicate: Predicate
-}
-
-interface Pair {
-	readonly a: Definition
-	readonly b: Definition
-}
-
-const definitionGen: Gen<Definition> = (source) => ({
-	base: source.draw(element(bases)),
-	predicate: source.draw(element(predicates))
-})
-
-const pairGen: Gen<Pair> = (source) => ({
-	a: source.draw(definitionGen),
-	b: source.draw(definitionGen)
-})
-
-const baseDesc: { readonly [B in Base]: FieldDesc } = {
-	integer: f.integer,
-	bigint: f.bigint,
-	text: f.wildcard
-}
-
-/** The zero of each base, a literal of its own type: the bound a predicate compares VALUE with. */
-const zero: { readonly [B in Base]: LiteralDesc } = { integer: 0, bigint: 0n, text: "" }
-
-/** VALUE >= zero, its base's own literal. */
-const predicateDesc = (d: Definition): ExprDesc | undefined =>
-	d.predicate === "none" ? undefined : ge(value, literal(zero[d.base]))
-
-const contractDesc = (name: string, d: Definition): FieldDesc =>
-	f.contract(name, baseDesc[d.base], predicateDesc(d))
-
-const same = (x: Definition, y: Definition): boolean =>
-	x.base === y.base && x.predicate === y.predicate
-
-const loc = SourceLoc("domain dedup case", [])
-
-const installationOf = (p: Pair): Installation => {
-	const owned = owning(
-		decodedSchema({
-			name: "Dedup",
-			relations: [
-				relation("Item", { id: f.uuid, a: contractDesc("A", p.a), b: contractDesc("B", p.b) }, [
-					"id"
-				])
-			],
-			statements: [],
-			extends: undefined
-		})
-	)
-	const app = succeeded(fullRoleDesc(owned.desc, "app", loc))
-	const login = succeeded(
-		Result.flatMap(admitLoginRoles(owned.desc, { name: "desk", roles: [app], loc }), ownLogin)
-	)
-	return succeeded(
-		compileInstallation(
-			owned,
-			completeInstallOptions(
-				owned,
-				installationsOf(owned),
-				[login],
-				[],
-				firstCodebook(rostersOf(owned))
-			)
-		)
-	)
-}
-
-type DedupFeature =
-	| "a shared domain"
-	| "two domains"
-	| "a shared checked domain"
-	| "a base shared, predicates apart"
-
-const featuresOf = (p: Pair): ReadonlyArray<DedupFeature> => [
-	same(p.a, p.b) ? "a shared domain" : "two domains",
-	...(same(p.a, p.b) && p.a.predicate === "nonnegative"
-		? ["a shared checked domain" as const]
-		: []),
-	...(p.a.base === p.b.base && p.a.predicate !== p.b.predicate
-		? ["a base shared, predicates apart" as const]
-		: [])
-]
-
-/** The contract domains a case's installation creates: every CREATE DOMAIN but the roster and text ones, which this
- * schema has none of. */
-const domainsOf = (
-	i: Installation
-): ReadonlyArray<Extract<SqlStatement, { readonly kind: "createDomain" }>> =>
-	Arr.filter(
-		i.statements,
-		(s): s is Extract<SqlStatement, { readonly kind: "createDomain" }> => s.kind === "createDomain"
-	)
-
-describe("contract domains by definition (W6.Q10)", () => {
-	it.effect("share one domain exactly when their definitions are equal", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					box: "two contracts, each over integer, bigint or wildcard text, with no predicate or VALUE >= 0",
-					oracle: {
-						kind: "specification",
-						name: "two contracts share a domain exactly when their bases and predicates are equal"
-					},
-					suite: "unit/physical/domain-dedup",
-					generator: pairGen,
-					literal: Formatter.format,
-					coverage: requiredInSpace<DedupFeature>([
-						"a shared domain",
-						"two domains",
-						"a shared checked domain",
-						"a base shared, predicates apart"
-					]),
-					caseHang
-				},
-				(p, c) =>
-					Effect.sync(() => {
-						for (const feature of featuresOf(p)) {
-							c.note(feature)
-						}
-						const i = installationOf(p)
-						const a = i.names.contractDomain(succeeded(parseDeclaredName("A")))
-						const b = i.names.contractDomain(succeeded(parseDeclaredName("B")))
-						assert.equal(
-							a.name === b.name,
-							same(p.a, p.b),
-							"one domain exactly for equal definitions"
-						)
-						assert.equal(
-							domainsOf(i).length,
-							same(p.a, p.b) ? 1 : 2,
-							"each distinct definition's domain is created once"
-						)
-						const usage = Arr.flatMap(i.statements, (s) =>
-							s.kind === "grant" && s.on.kind === "DOMAIN" ? Arr.map(s.on.names, (n) => n.name) : []
-						)
-						assert.equal(new Set(usage).size, usage.length, "USAGE once per domain")
-						if (same(p.a, p.b) && p.a.predicate === "nonnegative") {
-							const entry = defined(
-								Arr.findFirst(
-									i.constraintLaws,
-									(cl) => cl.kind === "domainConstraint" && cl.owner === a.name
-								).pipe(Option.getOrUndefined),
-								"the shared domain's constraint"
-							)
-							assertVariant(
-								entry,
-								"kind",
-								"domainConstraint",
-								"the shared domain types both columns"
-							)
-							assert.equal(
-								entry.uses.length,
-								2,
-								"each contract's column is a use of the shared domain"
-							)
-							assert.equal(
-								new Set(Arr.map(entry.uses, (u) => u.law.law)).size,
-								2,
-								"each column names its own contract's law, so the shared constraint's laws, its uses', are both contracts'"
-							)
-						}
-					})
-			)
-		)
-	)
-})
+/** Contract domains by definition (W6.Q10) share one domain exactly when their definitions are equal. */
+export const contractDomainsByDefinitionW6Q10ShareOneDomainExactlyWhenTheirDefinitionsAreEqual =
+	property.exhaust(finite(pairGen), {
+		needs: {},
+		situations: [
+			"a shared domain",
+			"two domains",
+			"a shared checked domain",
+			"a base shared, predicates apart"
+		] satisfies ReadonlyArray<Reached<DedupFeature>>,
+		check: (_, c: Case<DedupFeature>) => (p) =>
+			Effect.sync(() => {
+				for (const feature of featuresOf(p)) {
+					c.note(feature)
+				}
+				const i = installationOf(p)
+				const a = i.names.contractDomain(succeeded(parseDeclaredName("A")))
+				const b = i.names.contractDomain(succeeded(parseDeclaredName("B")))
+				assert.equal(a.name === b.name, same(p.a, p.b), "one domain exactly for equal definitions")
+				assert.equal(
+					domainsOf(i).length,
+					same(p.a, p.b) ? 1 : 2,
+					"each distinct definition's domain is created once"
+				)
+				const usage = Arr.flatMap(i.statements, (s) =>
+					s.kind === "grant" && s.on.kind === "DOMAIN" ? Arr.map(s.on.names, (n) => n.name) : []
+				)
+				assert.equal(new Set(usage).size, usage.length, "USAGE once per domain")
+				if (same(p.a, p.b) && p.a.predicate === "nonnegative") {
+					const entry = defined(
+						Arr.findFirst(
+							i.constraintLaws,
+							(cl) => cl.kind === "domainConstraint" && cl.owner === a.name
+						).pipe(Option.getOrUndefined),
+						"the shared domain's constraint"
+					)
+					assertVariant(entry, "kind", "domainConstraint", "the shared domain types both columns")
+					assert.equal(entry.uses.length, 2, "each contract's column is a use of the shared domain")
+					assert.equal(
+						new Set(Arr.map(entry.uses, (u) => u.law.law)).size,
+						2,
+						"each column names its own contract's law, so the shared constraint's laws, its uses', are both contracts'"
+					)
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "two contracts share a domain exactly when their bases and predicates are equal"
+		},
+		box: "two contracts, each over integer, bigint or wildcard text, with no predicate or VALUE >= 0",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/physical/ddl/domains.ts",
+				original:
+					'\tdefinitionDigest(\n\t\tcontractDomainDdl(\n\t\t\tnames,\n\t\t\t{ name: contract, base: source.base, check: source.check },\n\t\t\t{ schema: "", name: "", constraint: "" }\n\t\t)',
+				replacement:
+					'\tdomainDigest(\n\t\t{\n\t\t\tcontract,\n\t\t\tdefinition: definitionDigest(\n\t\t\t\tcontractDomainDdl(\n\t\t\t\t\tnames,\n\t\t\t\t\t{ name: contract, base: source.base, check: source.check },\n\t\t\t\t\t{ schema: "", name: "", constraint: "" }\n\t\t\t\t)\n\t\t\t)\n\t\t},\n\t\teveryProperty',
+				why: "A contract's domain is named by its contract as well as its definition, so two contracts of one definition never share one."
+			}
+		]
+	})

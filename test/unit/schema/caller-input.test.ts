@@ -11,239 +11,113 @@
  * That a context's claims are scalar fields its caller writes is the worlds suite's (test/unit/schema/worlds.test.ts,
  * context admission), over every drawn field type, serial forms included.
  *
- * Features: each pair of carriers the rule tells apart, a meeting and a refusal.
+ * Features: each pair of carriers the rule tells apart, closed ids of two rosters among them, a meeting and a refusal.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, codePoint, type Gen, int, string, weighted } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { constantColumn } from "#compiler/core/decoder.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { aimed } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import { closed } from "#compiler/schema/api.ts"
 import { carrierUnion } from "#compiler/schema/record.ts"
 import type { Carrier } from "#compiler/types/core/phantom.ts"
 import { throwsRefused } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
-	type SketchedField,
-	fieldOf,
-	fieldSketchGen,
-	type DrawnRoster
-} from "#test/unit/schema/field-sketch.ts"
+	type CarrierSketch,
+	closedIdsOfTwoRostersGen,
+	kindOf,
+	literalCarrier,
+	meet,
+	rosterName,
+	type UnionCase,
+	unionCaseGen,
+	type UnionFeature
+} from "#test/unit/schema/caller-input.fixtures.ts"
+import { type DrawnRoster, fieldOf } from "#test/unit/schema/field-sketch.ts"
 
-interface RosterSketch {
-	readonly name: number
-	readonly handles: number
-}
-
-type CarrierSketch =
-	| { readonly kind: "field"; readonly field: SketchedField }
-	| { readonly kind: "literal"; readonly text: string }
-
-interface UnionCase {
-	readonly rosters: Arr.NonEmptyReadonlyArray<RosterSketch>
-	readonly x: CarrierSketch
-	readonly y: CarrierSketch
-}
-
-/** What the column rule reads of a carrier: a closed id's code or a set over a roster by its name, a literal, or other. */
-type CarrierKind =
-	| { readonly kind: "code"; readonly roster: string }
-	| { readonly kind: "bits"; readonly roster: string }
-	| { readonly kind: "plain" }
-	| { readonly kind: "literal" }
-
-const rosterName = (r: RosterSketch): string => `Kind${r.name}`
-
-const carrierGen =
-	(rosters: number): Gen<CarrierSketch> =>
-	(source) =>
-		source.draw(
-			weighted<CarrierSketch>([
-				[
-					3,
-					(s) => ({
-						kind: "field",
-						field: s.draw(fieldSketchGen(rosters, (n) => `C${n.draw(int(0, 1))}`))
-					})
-				],
-				[
-					1,
-					(s) => ({
-						kind: "field",
-						field: { kind: "closedId", roster: s.draw(int(0, rosters - 1)) }
-					})
-				],
-				[
-					1,
-					(s) => ({ kind: "field", field: { kind: "bits", roster: s.draw(int(0, rosters - 1)) } })
-				],
-				[
-					1,
-					(s) => ({
-						kind: "literal",
-						text: s.draw(string(codePoint(0x61, 0x63), { min: 0, max: 2 }))
-					})
-				]
-			])
-		)
-
-const unionCaseGen: Gen<UnionCase> = (source) => {
-	const first: RosterSketch = { name: source.draw(int(0, 1)), handles: source.draw(int(1, 3)) }
-	const rest = source.draw(
-		array((s) => ({ name: s.draw(int(0, 1)), handles: s.draw(int(1, 3)) }), { min: 0, max: 1 })
-	)
-	const rosters: Arr.NonEmptyReadonlyArray<RosterSketch> = [first, ...rest]
-	return {
-		rosters,
-		x: source.draw(carrierGen(rosters.length)),
-		y: source.draw(carrierGen(rosters.length))
-	}
-}
-
-/** The kind of a carrier: a contract's is its base's. */
-const kindOf = (
-	c: CarrierSketch,
-	rosters: Arr.NonEmptyReadonlyArray<RosterSketch>
-): CarrierKind => {
-	if (c.kind === "literal") {
-		return { kind: "literal" }
-	}
-	const f = c.field
-	const roster = (at: number): string => rosterName(Arr.getUnsafe(rosters, at))
-	switch (f.kind) {
-		case "closedId":
-			return { kind: "code", roster: roster(f.roster) }
-		case "bits":
-			return { kind: "bits", roster: roster(f.roster) }
-		case "contract":
-			return f.base.kind === "closedId"
-				? { kind: "code", roster: roster(f.base.roster) }
-				: { kind: "plain" }
-		case "pg":
-		case "numeric":
-		case "uuid":
-		case "text":
-		case "span":
-		case "vector":
-			return { kind: "plain" }
-	}
-}
-
-/** The rule as a checker: whether two carrier kinds meet in one union field. */
-const meet = (x: CarrierKind, y: CarrierKind): boolean => {
-	if (x.kind === "bits" || y.kind === "bits") {
-		return x.kind === "bits" && y.kind === "bits" && x.roster === y.roster
-	}
-	if (x.kind === "literal" || y.kind === "literal") {
-		return true
-	}
-	if (x.kind === "code" || y.kind === "code") {
-		return x.kind === "code" && y.kind === "code" && x.roster === y.roster
-	}
-	return true
-}
-
-/** A head literal's carrier: the constant column a union's literal arm delivers. */
-const literalCarrier = (text: string): Carrier =>
-	Object.freeze({
-		column: constantColumn(text, { carrier: "text" }),
-		sql: "text"
-	})
-
-type UnionFeature =
-	| "united"
-	| "refused"
-	| "a set meets a set of its roster's name"
-	| "a closed id meets a head literal"
-	| "a contract over a closed id"
-	| "two rosters of one name"
-
-describe("caller input", () => {
-	it.effect("refuses a union of carriers that meet no column, and unites every other pair", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					suite: "unit/schema/caller-input-union",
-					draw: drawn(unionCaseGen),
-					literal: Formatter.format,
-					oracle: {
-						kind: "specification",
-						name: "a set meets only a set of its roster, a closed id only one of its roster or a head literal, any other pair here"
-					},
-					coverage: required<UnionFeature>(
-						[
-							"united",
-							"refused",
-							"a set meets a set of its roster's name",
-							"a closed id meets a head literal",
-							"a contract over a closed id",
-							"two rosters of one name"
-						],
-						{ cases: 200, sense: notesOnly }
-					),
-					kept: [],
-					runs: 200,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				(c, k) =>
-					Effect.sync(() => {
-						const rosters: Arr.NonEmptyReadonlyArray<DrawnRoster> = Arr.map(c.rosters, (r) =>
-							closed(
-								rosterName(r),
-								Arr.prepend(
-									Arr.map(
-										upTo(r.handles - 1, (i) => i + 1),
-										(h) => `h${h}`
-									),
-									"h0"
-								)
+/** Caller input refuses a union of carriers that meet no column, and unites every other pair. */
+export const callerInputRefusesAUnionOfCarriersThatMeetNoColumnAndUnitesEveryOtherPair =
+	property.explore(
+		aimed<UnionCase, UnionFeature>(unionCaseGen, [
+			["closed ids of two rosters", closedIdsOfTwoRostersGen]
+		]),
+		{
+			needs: {},
+			situations: [
+				"united",
+				"refused",
+				"a set meets a set of its roster's name",
+				"a closed id meets a head literal",
+				"a contract over a closed id",
+				"two rosters of one name",
+				"closed ids of two rosters"
+			] satisfies ReadonlyArray<Reached<UnionFeature>>,
+			check: (_, k: Case<UnionFeature>) => (c) =>
+				Effect.sync(() => {
+					const rosters: Arr.NonEmptyReadonlyArray<DrawnRoster> = Arr.map(c.rosters, (r) =>
+						closed(
+							rosterName(r),
+							Arr.prepend(
+								Arr.map(
+									upTo(r.handles - 1, (i) => i + 1),
+									(h) => `h${h}`
+								),
+								"h0"
 							)
 						)
-						const carrierOf = (s: CarrierSketch): Carrier =>
-							s.kind === "literal" ? literalCarrier(s.text) : fieldOf(s.field, rosters)
-						const [x, y] = [kindOf(c.x, c.rosters), kindOf(c.y, c.rosters)]
+					)
+					const carrierOf = (s: CarrierSketch): Carrier =>
+						s.kind === "literal" ? literalCarrier(s.text) : fieldOf(s.field, rosters)
+					const [x, y] = [kindOf(c.x, c.rosters), kindOf(c.y, c.rosters)]
+					if (x.kind === "code" && y.kind === "code" && x.roster !== y.roster) {
+						k.note("closed ids of two rosters")
+					}
+					if (
+						c.rosters.length > 1 &&
+						Arr.every(c.rosters, (r) => r.name === Arr.headNonEmpty(c.rosters).name)
+					) {
+						k.note("two rosters of one name")
+					}
+					for (const s of [c.x, c.y]) {
 						if (
-							c.rosters.length > 1 &&
-							Arr.every(c.rosters, (r) => r.name === Arr.headNonEmpty(c.rosters).name)
+							s.kind === "field" &&
+							s.field.kind === "contract" &&
+							s.field.base.kind === "closedId"
 						) {
-							k.note("two rosters of one name")
+							k.note("a contract over a closed id")
 						}
-						for (const s of [c.x, c.y]) {
-							if (
-								s.kind === "field" &&
-								s.field.kind === "contract" &&
-								s.field.base.kind === "closedId"
-							) {
-								k.note("a contract over a closed id")
-							}
+					}
+					const united = () => carrierUnion({ v: carrierOf(c.x) }, { v: carrierOf(c.y) })
+					if (meet(x, y)) {
+						k.note("united")
+						if (x.kind === "bits") {
+							k.note("a set meets a set of its roster's name")
 						}
-						const united = () => carrierUnion({ v: carrierOf(c.x) }, { v: carrierOf(c.y) })
-						if (meet(x, y)) {
-							k.note("united")
-							if (x.kind === "bits") {
-								k.note("a set meets a set of its roster's name")
-							}
-							if (
-								(x.kind === "code" && y.kind === "literal") ||
-								(x.kind === "literal" && y.kind === "code")
-							) {
-								k.note("a closed id meets a head literal")
-							}
-							united()
-							return
+						if (
+							(x.kind === "code" && y.kind === "literal") ||
+							(x.kind === "literal" && y.kind === "code")
+						) {
+							k.note("a closed id meets a head literal")
 						}
-						k.note("refused")
-						throwsRefused(united, "MalformedDescription")
-					})
-			)
-		)
+						united()
+						return
+					}
+					k.note("refused")
+					throwsRefused(united, "MalformedDescription")
+				}),
+			oracle: {
+				kind: "specification",
+				name: "a set meets only a set of its roster, a closed id only one of its roster or a head literal, any other pair here"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/schema/record.ts",
+					original: '\t\treturn x.kind === "code" && y.kind === "code" && x.roster === y.roster',
+					replacement: '\t\treturn x.kind === "code" && y.kind === "code"',
+					why: "Two closed ids of different rosters meet (schema/record.ts columnsMeet)."
+				}
+			]
+		}
 	)
-})

@@ -654,7 +654,7 @@ export default defineConfig(
 					"test/pg/values/money.test.ts",
 					"test/pg/values/numeric.test.ts",
 					"test/pg/vector/exact/distance.test.ts",
-					"test/unit/schema/constructors.test.ts",
+					"test/unit/schema/constructors.fixtures.ts",
 					"test/unit/values/decimal.test.ts"
 				],
 				rules: active({

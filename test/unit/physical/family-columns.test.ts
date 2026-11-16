@@ -35,432 +35,54 @@
  * entry; a cascading and a deferred foreign key; a decoding view; a relation written whole; a tree's relation written
  * through a query entry refused when declared.
  */
-import { type Case, explore, sketched } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, boolean, type Gen, int } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
-import { identifierOf } from "#compiler/core/identity.ts"
-import { firstCodebook } from "#compiler/ir/codes.ts"
-import type { NativeOf } from "#compiler/ir/law.ts"
-import { completeInstallOptions } from "#compiler/physical/complete.ts"
-import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import { closedId, uuid } from "#compiler/public/fields.ts"
-import { closed, login, relation, schema } from "#compiler/public/schema.ts"
-import { queryOver, varsOver } from "#compiler/query/build/query.ts"
-import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { installationsOf } from "#compiler/schema/own.ts"
-import { ownLogin, rostersOf } from "#compiler/schema/own.ts"
-import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
-import type { SqlStatement, TableConstraint } from "#compiler/sql/ast.ts"
-import type { AnyRelation } from "#compiler/types/schema/relation.ts"
-import { assert, defined, nonEmpty, succeeded, throwsRefused } from "#test/support/assert.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property as propertyOf } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import {
-	admittedFillSpecGen,
-	buildFill,
-	type FillSpec,
-	treeOn
-} from "#test/support/families/fill.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { checkedStatements } from "#test/support/oracle/verify/index.ts"
-import { owning } from "#test/support/policy.ts"
+	familyCaseGen,
+	type FamilyFeature,
+	property,
+	resolve
+} from "#test/unit/physical/family-columns.fixtures.ts"
 
-const Flag = closed("Flag", ["on", "off"])
-const Item = relation("Item", { id: uuid, kind: closedId(Flag) }, ["id"])
-
-/** How a login's roles write one relation of the family schema: not at all, whole, or through a query entry. */
-type Writing = "none" | "whole" | "entry"
-
-interface FamilyCase {
-	readonly spec: FillSpec
-	/** Each relation's writing, by its index: as many as the specification may draw relations. */
-	readonly writings: ReadonlyArray<Writing>
-	readonly viewer: boolean
-}
-
-const writingGen: Gen<Writing> = (source) => {
-	switch (source.draw(int(0, 2))) {
-		case 0:
-			return "none"
-		case 1:
-			return "whole"
-		default:
-			return "entry"
-	}
-}
-
-/** The most relations a drawn specification holds. */
-const relationsAtMost = 3
-
-const familyCaseGen: Gen<FamilyCase> = (source) => ({
-	spec: source.draw(admittedFillSpecGen({ relations: relationsAtMost, families: 3, copies: 2 })),
-	writings: source.draw(array(writingGen, { min: relationsAtMost, max: relationsAtMost })),
-	viewer: source.draw(boolean)
-})
-
-/**
- * A case resolved: the schema built, its relations, and the relations each role writes: the writer's whole, and the
- * clerk's through a query entry, each relation drawn so whose key holds no field its family draws. A tree's relation
- * drawn so is keyed by its root fields and its drawn start (fill.ts keyOfRelation), which no fact through an entry
- * states, so a clerk declared with its entry is refused.
- */
-interface Resolved {
-	readonly c: FamilyCase
-	readonly built: ReturnType<typeof buildFill>
-	readonly relations: ReadonlyArray<AnyRelation>
-	readonly whole: ReadonlyArray<string>
-	readonly entries: ReadonlyArray<string>
-	readonly treeEntries: ReadonlyArray<string>
-}
-
-const resolve = (c: FamilyCase): Resolved => {
-	const built = buildFill(c.spec)
-	const relations = Rec.values(built.relations)
-	const writtenAs = (w: Writing, keyed: (r: number) => boolean) =>
-		Arr.flatMap(relations, (r, i) =>
-			defined(c.writings[i], `${r.name}'s writing`) === w && keyed(i) ? [r.name] : []
-		)
-	const tree = (r: number): boolean => treeOn(c.spec, r) !== undefined
-	return {
-		c,
-		built,
-		relations,
-		whole: writtenAs("whole", () => true),
-		entries: writtenAs("entry", (r) => !tree(r)),
-		treeEntries: writtenAs("entry", tree)
-	}
-}
-
-/** Whether the login holds the viewer: drawn, or as its one role when no role writes. */
-const viewedBy = (r: Resolved): boolean =>
-	r.c.viewer || (r.whole.length === 0 && r.entries.length === 0)
-
-/** The entry name of a relation a query entry writes. */
-const entryName = (relationName: string): string => `${relationName}Entry`
-
-/** A case's schema: its family relations beside Flag and Item. */
-const familiesOf = (r: Resolved) =>
-	schema("Families", [...Rec.values(r.built.relations), Flag, Item], r.built.statements)
-
-/** The relation of the case named `name`. */
-const relationNamed = (r: Resolved, name: string): AnyRelation =>
-	defined(Option.getOrUndefined(Arr.findFirst(r.relations, (x) => x.name === name)), name)
-
-/** The clerk over `Families`: a query entry of every field of each relation of `written`, each in its write list. */
-const clerkOf = (
-	Families: ReturnType<typeof familiesOf>,
-	r: Resolved,
-	written: ReadonlyArray<string>
-) =>
-	role(
-		Families,
-		"clerk",
-		Rec.fromEntries(
-			Arr.map(written, (name) => {
-				const relation = relationNamed(r, name)
-				return [
-					entryName(name),
-					queryOver(Families).rule((rule: RuleValue) => {
-						const vars = varsOver(relation, "written")
-						return rule.match(relation, vars).find(vars)
-					})
-				] as const
-			})
-		),
-		{ write: Arr.map(written, entryName), refresh: [] }
-	)
-
-/** The installation of a case's schema with its login. */
-const installationOf = (r: Resolved): Installation => {
-	const Families = familiesOf(r)
-	const byName = (name: string): AnyRelation => relationNamed(r, name)
-	const writer = () =>
-		role(
-			Families,
-			"writer",
-			Rec.fromEntries(Arr.map(r.whole, (name) => [name, byName(name)] as const)),
-			{ write: r.whole, refresh: [] }
-		)
-	const clerk = () => clerkOf(Families, r, r.entries)
-	const viewer = () =>
-		role(
-			Families,
-			"viewer",
-			{
-				Kinds: queryOver(Families).rule((rule: RuleValue) => {
-					const vars = varsOver(Item, "item")
-					return rule.match(Item, vars).find(vars)
-				})
-			},
-			{ write: [], refresh: [] }
-		)
-	const roles = nonEmpty(
-		[
-			...(r.whole.length > 0 ? [writer()] : []),
-			...(r.entries.length > 0 ? [clerk()] : []),
-			...(viewedBy(r) ? [viewer()] : [])
-		],
-		"the login's roles"
-	)
-	const desk = login(Families, "desk", roles)
-	const owned = owning(Families)
-	return succeeded(
-		compileInstallation(
-			owned,
-			completeInstallOptions(
-				owned,
-				installationsOf(owned),
-				[succeeded(ownLogin(defined(loginDescOf(desk), "a login built by login(...)")))],
-				[],
-				firstCodebook(rostersOf(owned))
-			)
-		)
-	)
-}
-
-type CreateTable = Extract<SqlStatement, { readonly kind: "createTable" }>
-
-const tableOf = (i: Installation, relationName: string): CreateTable =>
-	defined(
-		Option.getOrUndefined(
-			Arr.findFirst(
-				i.statements,
-				(s): s is CreateTable =>
-					s.kind === "createTable" && s.table.name === i.names.relation(relationName).name
-			)
-		),
-		`the table of ${relationName}`
-	)
-
-/** Every foreign key the installation adds, by its constraint's name. */
-const foreignKeysOf = (
-	i: Installation
-): ReadonlyMap<string, Extract<TableConstraint, { readonly kind: "foreignKey" }>> =>
-	new Map(
-		Arr.flatMap(i.statements, (s) =>
-			s.kind === "alterTable"
-				? Arr.flatMap(s.actions, (a) =>
-						a.kind === "addConstraint" && a.constraint.kind === "foreignKey"
-							? [[a.constraint.name, a.constraint] as const]
-							: []
-					)
-				: []
-		)
-	)
-
-type FamilyFeature =
-	| "a drawn law column"
-	| "a drawn law column a query entry writes"
-	| "a generated field"
-	| "a generated field a query entry writes"
-	| "a cascading foreign key"
-	| "a deferred foreign key"
-	| "a decoding view"
-	| "a relation written whole"
-	| "a tree's relation written through a query entry refused when declared"
-
-/**
- * A clerk declared with a query entry of every relation the case draws written so, in relation order, is refused
- * exactly where one writes a tree's relation: at the first such entry, whose relation's key holds its drawn start.
- * Where none does, the installation's clerk is that clerk.
- */
-const treeEntryRefused = (r: Resolved, k: Case<FamilyFeature>): void => {
-	const [first] = r.treeEntries
-	if (first === undefined) {
-		return
-	}
-	const Families = familiesOf(r)
-	const drawn = Arr.filter(
-		Arr.map(r.relations, (x) => x.name),
-		(name) => Arr.contains(r.entries, name) || Arr.contains(r.treeEntries, name)
-	)
-	const error = throwsRefused(
-		() => clerkOf(Families, r, drawn),
-		"RoleRefused",
-		`a clerk writing ${first} through a query entry`
-	)
-	assert.deepEqual(
-		error.reason._tag === "RoleRefused"
-			? { role: error.reason.role, rule: error.reason.rule }
-			: undefined,
-		{
-			role: "clerk",
-			rule: {
-				kind: "writeUnwritable",
-				entry: entryName(first),
-				why: { kind: "keyHoldsFamily", field: "start" }
-			}
+/** A family's columns and references keep the emission discipline, and drawn law columns, generated fields and foreign key actions follow their natives, whatever roles write them. */
+export const aFamilysColumnsAndReferencesKeepTheEmissionDisciplineAndDrawnLawColumnsGeneratedFieldsAndForeignKeyActionsFollowTheirNativesWhateverRolesWriteThem =
+	propertyOf.explore(familyCaseGen, {
+		needs: {},
+		situations: [
+			"a drawn law column",
+			"a drawn law column a query entry writes",
+			"a generated field",
+			"a generated field a query entry writes",
+			"a cascading foreign key",
+			"a deferred foreign key",
+			"a decoding view",
+			"a relation written whole",
+			"a tree's relation written through a query entry refused when declared"
+		] satisfies ReadonlyArray<Reached<FamilyFeature>>,
+		check: (_, c: Case<FamilyFeature>) => (sketch) =>
+			Effect.gen(function* () {
+				const value = resolve(sketch)
+				return yield* property(value, c)
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the law model's natives, and the emission audit"
 		},
-		"the clerk is refused at its first entry over a tree's relation, whose key holds the drawn start"
-	)
-	k.note("a tree's relation written through a query entry refused when declared")
-}
-
-const property = (r: Resolved, k: Case<FamilyFeature>) =>
-	Effect.sync(() => {
-		treeEntryRefused(r, k)
-		const i = installationOf(r)
-		checkedStatements(i.statements, "installation statement")
-		if (viewedBy(r)) {
-			k.note("a decoding view")
-			const decoded = `${i.names.column("Item", "kind")}_name`
-			assert.ok(
-				Arr.some(i.statements, (s) => s.kind === "createView" && Arr.contains(s.columns, decoded)),
-				"the viewer's view decodes Item's closed id"
-			)
-		}
-		if (r.whole.length > 0) {
-			k.note("a relation written whole")
-		}
-		const natives = i.laws.natives
-		const columnGrants = Arr.filter(
-			i.statements,
-			(s): s is Extract<SqlStatement, { readonly kind: "grantColumns" }> =>
-				s.kind === "grantColumns" && s.privilege === "INSERT"
-		)
-		for (const relationName of [...Arr.map(r.relations, (x) => x.name), "Item"]) {
-			const table = tableOf(i, relationName)
-			assert.equal(
-				Arr.some(columnGrants, (g) => g.table.name === table.table.name),
-				Arr.contains(r.entries, relationName),
-				`${relationName}'s table holds INSERT column grants exactly where a query entry writes it`
-			)
-		}
-		const drawnColumns = Arr.flatMap(natives, (n) =>
-			n.object.kind === "LawColumn" && n.object.value.kind === "drawn" ? [n.object] : []
-		)
-		for (const o of drawnColumns) {
-			k.note("a drawn law column")
-			const table = tableOf(i, o.relation.name)
-			assert.ok(
-				!Arr.some(table.columns, (col) => col.name === o.column),
-				`${o.column} is no column of ${o.relation.name}'s CREATE TABLE`
-			)
-			const object = defined(
-				Option.getOrUndefined(
-					Arr.findFirst(
-						i.manifest.objects,
-						(m) => m.kind === "lawColumn" && Str.endsWith(`.${o.column}`)(m.ident)
-					)
-				),
-				`the law column object of ${o.column}`
-			)
-			const [statement, ...more] = object.ddl
-			assert.equal(more.length, 0, `${o.column}'s object is one statement`)
-			const added =
-				statement?.kind === "alterTable" && statement.actions.length === 1
-					? statement.actions[0]
-					: undefined
-			assert.ok(
-				added?.kind === "addColumn" && added.column.name === o.column,
-				`${o.column}'s object is its ALTER TABLE ... ADD COLUMN`
-			)
-			assert.equal(added.column.generated, undefined, `${o.column} is no generated column`)
-			const grants = Arr.filter(columnGrants, (g) => g.table.name === table.table.name)
-			if (grants.length > 0) {
-				k.note("a drawn law column a query entry writes")
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/physical/ddl/tables.ts",
+				original: '\tcascade: "CASCADE",',
+				replacement: "\tcascade: undefined,",
+				why: "No foreign key cascades on update."
+			},
+			{
+				file: "packages/engine/src/schema/entry.ts",
+				original: "\tif (drawnKey !== undefined) {",
+				replacement: '\tif (drawnKey !== undefined && drawnKey !== "start") {',
+				why: "A query entry whose key holds a tree's drawn start is admitted."
 			}
-			for (const g of grants) {
-				assert.ok(Arr.contains(g.columns, o.column), `${g.to} may insert ${o.column}`)
-			}
-		}
-		for (const [index, spec] of r.c.spec.relations.entries()) {
-			if (!spec.generated) {
-				continue
-			}
-			k.note("a generated field")
-			const relationName = defined(r.relations[index], `relation ${index}`).name
-			const table = tableOf(i, relationName)
-			const g = defined(
-				Option.getOrUndefined(
-					Arr.findFirst(table.columns, (col) => col.name === i.names.column(relationName, "g"))
-				),
-				`${relationName}.g`
-			)
-			assert.equal(
-				g.generated?.kind,
-				"stored",
-				"a generated field is GENERATED ALWAYS AS (e) STORED"
-			)
-			for (const grant of Arr.filter(columnGrants, (x) => x.table.name === table.table.name)) {
-				k.note("a generated field a query entry writes")
-				assert.ok(!Arr.contains(grant.columns, g.name), "no role inserts a generated field")
-			}
-		}
-		const installed = foreignKeysOf(i)
-		for (const n of natives) {
-			if (n.namespace !== "constraint") {
-				continue
-			}
-			const o = n.object
-			if (o.kind !== "ForeignKey" && o.kind !== "PeriodForeignKey") {
-				continue
-			}
-			const fk = defined(
-				installed.get(identifierOf(n.named)),
-				`the foreign key ${identifierOf(n.named)}`
-			)
-			if (o.deferrable) {
-				k.note("a deferred foreign key")
-			}
-			assert.equal(
-				fk.deferrable,
-				o.deferrable ? "INITIALLY DEFERRED" : undefined,
-				`${fk.name} defers exactly where its native does`
-			)
-			const action: NativeOf<"ForeignKey">["onUpdate"] =
-				o.kind === "ForeignKey" ? o.onUpdate : "noAction"
-			if (action === "cascade") {
-				k.note("a cascading foreign key")
-			}
-			assert.equal(
-				fk.onUpdate,
-				action === "cascade" ? "CASCADE" : undefined,
-				`${fk.name} cascades exactly where its native does`
-			)
-		}
+		]
 	})
-
-describe("a family's columns and references", () => {
-	it.effect(
-		"keep the emission discipline, and drawn law columns, generated fields and foreign key actions follow their natives, whatever roles write them",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/physical/family-columns",
-						draw: sketched(familyCaseGen, resolve),
-						literal: Formatter.format,
-						oracle: {
-							kind: "second-implementation",
-							name: "the law model's natives, and the emission audit"
-						},
-						coverage: required<FamilyFeature>(
-							[
-								"a drawn law column",
-								"a drawn law column a query entry writes",
-								"a generated field",
-								"a generated field a query entry writes",
-								"a cascading foreign key",
-								"a deferred foreign key",
-								"a decoding view",
-								"a relation written whole",
-								"a tree's relation written through a query entry refused when declared"
-							],
-							{ cases: 200, sense: notesOnly }
-						),
-						kept: [],
-						runs: 60,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					property
-				)
-			)
-	)
-})
