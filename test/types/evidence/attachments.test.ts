@@ -24,7 +24,10 @@ import { agreement } from "#test/types/batch/agreement.ts"
 
 /**
  * Over drawn attachments, the types admit a stated delivery exactly as the engine proves it, and infer the engine's
- * records under it.
+ * records under it. It runs the runner's default budget, not the pre-conversion suite's rotating count (200): at
+ * TEST_SEED=777, run beside it, the default's whole process tree took 107.8 CPU-s against the old count's 109.4, both
+ * reaching every situation and killing its kill
+ * (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets/attachments.*.txt, 2026-11-16, load 470 to 670).
  */
 export const attachments = agreement(attachAimed, {
 	situations: attachRequired,

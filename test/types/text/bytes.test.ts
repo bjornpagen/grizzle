@@ -8,8 +8,15 @@
 import { bytesProgram, featuresOf, meetCaseGen, meetFeatures } from "#test/support/text/bytes.ts"
 import { agreement } from "#test/types/batch/agreement.ts"
 
-/** A text a byte bound refines has its pattern's type, and meets every text its pattern meets. */
+/**
+ * A text a byte bound refines has its pattern's type, and meets every text its pattern meets. Its budget, 24 runs and
+ * the runner's 200 steered cases, is the pre-conversion suite's rotating count (24), restored because it costs no more:
+ * at TEST_SEED=777, run beside the runner's default of 150, the whole run's process tree took 35.9 CPU-s against 37.4,
+ * every situation reached and every kill killed alike (budgets/bytes.*.txt)
+ * (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets, 2026-11-16, load 470 to 670).
+ */
 export const bytes = agreement(meetCaseGen, {
+	budget: { runs: 24, steered: 200 },
 	situations: meetFeatures,
 	notes: featuresOf,
 	checking: "armed",

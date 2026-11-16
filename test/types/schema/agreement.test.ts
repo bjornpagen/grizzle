@@ -16,9 +16,14 @@ import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
 import { schemaKeptBox } from "#test/types/schema/agreement.dictionary.ts"
 
 /**
- * Over drawn schemas and probes, the types infer what the engine describes and refuse exactly what it refuses.
+ * Over drawn schemas and probes, the types infer what the engine describes and refuse exactly what it refuses. Its
+ * budget, 48 runs and the runner's 200 steered cases, is the pre-conversion suite's rotating count (48), restored
+ * because it costs no more: at TEST_SEED=777, run beside the runner's default of 150, the whole run's process tree took
+ * 226.3 CPU-s against 328.9, every situation reached and every kill killed alike (budgets/schemas.*.txt)
+ * (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets, 2026-11-16, load 470 to 670).
  */
 export const schemas = agreement(schemaCases, {
+	budget: { runs: 48, steered: 200 },
 	situations: schemaRequired,
 	notes: (c) => c.notes,
 	checking: "disarmed",

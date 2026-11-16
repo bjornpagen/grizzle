@@ -48,6 +48,32 @@ export type AgreementSpec<C, F extends string> = Omit<
 /** What an agreement's case needs: a directory of its own for its batch's program, and the checkout the compiler reads. */
 const agreementNeeds = { dir: Scratch.dir, checkout: Checkout.dir } as const
 
+/**
+ * How long one agreement case may run: a batch of one (a kept case, a shrink candidate) pays its program's whole fixed
+ * load alone, one tsgo check of the sources its prelude reaches, and a batch of n cases runs n times this long. A check
+ * that stops making progress is the stall guard's (compiler.ts stallWindow), so this bounds only a check still working.
+ *
+ * @limitKind measured
+ * @owner the type tier's agreements (test/types/batch/agreement.ts)
+ * @unit milliseconds
+ * @scope one case of an agreement or a box agreement, a batch of n cases n times it
+ * @evidence ~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets/evidence.default.txt, evidence.old-240.txt and
+ *   faults.old-152.txt (toolchain-test run of one property, eight runs at once); measure/evidence.txt (the access
+ *   program of one login under GNU time)
+ * @observed 2026-11-16, 08:40 to 08:53 UTC; 02:30 UTC
+ * @environment cassowary, Ubuntu 26.04 arm64, 64 cores, Node 26.13, TypeScript 7.1.0-beta (tsgo), toolchain 2fd6250;
+ *   load average 470 to 670 from other sessions and the eight runs
+ * @workload the evidence and faults agreements' kept cases, each replayed alone as a batch of one (three modules of a
+ *   query and its prelude); the access agreement's program of one login
+ * @result each of the three kept cases ran past the runner's 60 s case deadline and was reported hung, its search never
+ *   reaching its streams; at load 317 the access program of one login took 15.2 s of wall for 8.2 s of CPU, its fixed
+ *   load
+ * @decision 300 s: a batch of one's check is about 8 s of CPU, which a machine at load 600 and more stretches past 60 s;
+ *   300 s is five times that, as the stall guard's case deadline is
+ * @revalidate a TypeScript 7 or tsgo upgrade; an agreement whose program of one case passes 20 s of CPU; another machine
+ */
+const agreementCaseDeadline = 300_000
+
 /** How an agreement's case fails: its lines disagree, or its batch's program could not be written or checked. */
 type AgreementFailure = TypesDisagreed | NeedFailed | Effect.Error<ReturnType<typeof checkedBatch>>
 
@@ -105,6 +131,7 @@ export const agreement = <C, const F extends string>(
 	spec: AgreementSpec<C, F>
 ): Property =>
 	property.batched<C, F, typeof agreementNeeds, AgreementFailure>(space, {
+		caseDeadline: agreementCaseDeadline,
 		...spec,
 		size: typeBatchSize,
 		needs: agreementNeeds,
@@ -128,6 +155,7 @@ export const boxAgreement = <C, const F extends string>(
 	spec: BoxSpec<C, F>
 ): Property =>
 	property.exhaustBatched<C, F, typeof agreementNeeds, AgreementFailure>(box, {
+		caseDeadline: agreementCaseDeadline,
 		...spec,
 		size: typeBatchSize,
 		needs: agreementNeeds,

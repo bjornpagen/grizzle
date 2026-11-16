@@ -13,9 +13,13 @@ import { agreement } from "#test/types/batch/agreement.ts"
 
 /**
  * Over drawn recursions, the types admit exactly what the engine compiles, name its refusal, and infer its records and
- * parameters.
+ * parameters. Its budget, 80 runs and the runner's 200 steered cases, is the pre-conversion suite's rotating count
+ * (80), restored because it costs no more: at TEST_SEED=777, run beside the runner's default of 150, the whole run's
+ * process tree took 56.7 CPU-s against 58.5, every situation reached and every kill killed alike
+ * (budgets/recursion.*.txt) (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets, 2026-11-16, load 470 to 670).
  */
 export const recursion = agreement(recursionCases, {
+	budget: { runs: 80, steered: 200 },
 	situations: recursionRequired,
 	notes: (c) => c.notes,
 	checking: "disarmed",

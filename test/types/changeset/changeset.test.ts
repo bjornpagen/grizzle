@@ -20,8 +20,11 @@ import {
 import { agreement } from "#test/types/batch/agreement.ts"
 
 /**
- * Over drawn ChangeSets, the types admit exactly what the engine builds, compiles and binds, name its refusal, and infer
- * its parameters, writes, read-backs and channels.
+ * Over drawn ChangeSets, the types admit exactly what the engine builds, compiles and binds, name its refusal, and
+ * infer its parameters, writes, read-backs and channels. It runs the runner's default budget, not the pre-conversion
+ * suite's rotating count (160): at TEST_SEED=777, run beside it, the default's whole process tree took 474.6 CPU-s
+ * against the old count's 491.6, the old count's floor needing 200 steered cases where the default's needed 150
+ * (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets/r2/changeSet.*.txt, 2026-11-16, load 470 to 670).
  */
 export const changeSet = agreement(changeSetAimed, {
 	situations: [

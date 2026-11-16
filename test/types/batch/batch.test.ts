@@ -50,12 +50,16 @@ import {
 import { guardedRun, readingOf } from "#test/types/batch/compiler.ts"
 
 /**
- * Attributes every diagnostic to the owner of the line it names, through any spelling of the checkout and the
- * program's directory, holds each directive's line to its claim, and fails every case on a diagnostic no line of the
- * program owns.
+ * Attributes every diagnostic to the owner of the line it names, through any spelling of the checkout and the program's
+ * directory, holds each directive's line to its claim, and fails every case on a diagnostic no line of the program
+ * owns. Its budget, 4 runs and the runner's 200 steered cases, is the pre-conversion suite's (runs: 4), restored
+ * because it costs no more: at TEST_SEED=777, run beside the runner's default of 150, the whole process tree took 71.3
+ * CPU-s against 77.4, every situation reached (96 steered cases) and all four kills killed
+ * (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets/batch/attribution.*.txt, 2026-11-16).
  */
 export const attribution = property.explore(plantedProgram, {
 	needs: { dir: Scratch.dir },
+	budget: { runs: 4, steered: 200 },
 	situations: [
 		"an armed program",
 		"a disarmed program",
@@ -110,10 +114,14 @@ export const attribution = property.explore(plantedProgram, {
 
 /**
  * Fails a compiler that makes no CPU progress for its window with CompilerStalled and its goroutines, and never one
- * that checks to its end.
+ * that checks to its end. Its budget, 4 runs and the runner's 200 steered cases, is the pre-conversion suite's (runs:
+ * 4), restored because it costs less: at TEST_SEED=777, run beside the runner's default of 150, the whole process tree
+ * took 66.0 CPU-s against 361.4, each case a tsgo check, every situation reached (16 steered cases) and its kill killed
+ * (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets/batch/stallGuard.*.txt, 2026-11-16).
  */
 export const stallGuard = property.explore(plantedCheck, {
 	needs: { dir: Scratch.dir },
+	budget: { runs: 4, steered: 200 },
 	caseDeadline: stallCaseDeadline,
 	situations: ["stalled", "checked clean", "checked with an error", "worked past its window"],
 	check:
@@ -194,8 +202,10 @@ export const stallGuard = property.explore(plantedCheck, {
 })
 
 /**
- * Reads a process tree as it stands though its processes and threads end mid-reading, never failing for one that
- * ended.
+ * Reads a process tree as it stands though its processes and threads end mid-reading, never failing for one that ended.
+ * It runs the runner's default budget, not the pre-conversion suite's 200 runs: at TEST_SEED=777, run beside it, the
+ * default's whole process tree took 12.5 CPU-s against 12.7, both reaching every situation and killing both kills
+ * (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets/batch/stallReading.*.txt, 2026-11-16).
  */
 export const stallReading = property.explore(plantedTree, {
 	needs: {},

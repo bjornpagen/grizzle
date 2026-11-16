@@ -52,7 +52,10 @@ import { argumentBox, admissionBox } from "#test/types/evidence/agreement.dictio
 
 /**
  * Over drawn queries in two orders, the types accept a query, its records and its parameters exactly as the engine
- * does, and its keys.
+ * does, and its keys. It runs the runner's default budget, not the pre-conversion suite's rotating count (240): at
+ * TEST_SEED=777, run beside it, the default's whole process tree took 208.5 CPU-s against the old count's 272.6, the
+ * old count's floor needing 200 steered cases where the default's needed 150
+ * (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets/r2/evidence.*.txt, 2026-11-16, load 470 to 670).
  */
 export const evidence = agreement(agreementCases, {
 	situations: evidenceRequired,
@@ -99,7 +102,10 @@ export const evidence = agreement(agreementCases, {
 
 /**
  * Over drawn queries each planting one fault, the types refuse exactly the faults the engine refuses, at the fault's
- * site and under the refusal its reason is, and state an admitted one as a clean query is stated.
+ * site and under the refusal its reason is, and state an admitted one as a clean query is stated. It runs the runner's
+ * default budget, not the pre-conversion suite's rotating count (152): at TEST_SEED=777, run beside it, the default's
+ * whole process tree took 95.9 CPU-s against the old count's 104.4, both reaching every situation
+ * (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets/r2/faults.*.txt, 2026-11-16, load 470 to 670).
  */
 export const faults = agreement(faultCases, {
 	situations: faultsRequired,

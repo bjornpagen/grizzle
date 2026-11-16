@@ -11,8 +11,15 @@
 import { agreement } from "#test/types/batch/agreement.ts"
 import { regexCases, regexNotes, regexProgram, regexRequired } from "#test/types/regex/agreement.ts"
 
-/** Over drawn str.regex calls, the types admit exactly what the engine admits and infer what the oracle states. */
+/**
+ * Over drawn str.regex calls, the types admit exactly what the engine admits and infer what the oracle states. Its
+ * budget, 120 runs and the runner's 200 steered cases, is the pre-conversion suite's rotating count (120), restored
+ * because it costs no more: at TEST_SEED=777, run beside the runner's default of 150, the whole run's process tree took
+ * 37.8 CPU-s against 41.9, every situation reached and every kill killed alike (budgets/regex.*.txt)
+ * (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets, 2026-11-16, load 470 to 670).
+ */
 export const regex = agreement(regexCases, {
+	budget: { runs: 120, steered: 200 },
 	situations: regexRequired,
 	notes: regexNotes,
 	checking: "disarmed",

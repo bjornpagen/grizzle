@@ -13,7 +13,10 @@ import { agreement } from "#test/types/batch/agreement.ts"
 
 /**
  * Over drawn workloads, the types admit exactly what the engine builds, plans and compiles, and keep each program's
- * type.
+ * type. It runs the runner's default budget, not the pre-conversion suite's rotating count (120): at TEST_SEED=777, run
+ * beside it, the default's whole process tree took 64.4 CPU-s against the old count's 71.4, its floor of 30 needing 200
+ * steered cases where the default's needed 150
+ * (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets/workload.*.txt, 2026-11-16, load 470 to 670).
  */
 export const workload = agreement(workloadCases, {
 	situations: workloadRequired,

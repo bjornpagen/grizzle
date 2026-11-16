@@ -297,13 +297,14 @@ const declarationsKey =
 	"grizzle type tier: the declarations of packages/engine and packages/grizzle"
 
 /**
- * The checkout's engine and shell as declarations, built once per worker into a directory of its own (removed with the
- * worker): a mirror of the two package directories, each its package.json, its sources and its node_modules linked
- * from the checkout, the checkout's node_modules linked at the mirror's root, and a tsconfig extending the package's own
- * with its output in the mirror, built by the checkout's compiler (tsc -b, the shell's build building the engine's; the
- * build flag comes first, as tsc reads it).
- * No build shares a file with another worker's or with the checkout's own packages/<name>/types, and a mutant's worker
- * tree builds its own.
+ * The checkout's engine and shell as declarations, once per worker: the checkout's own (packages/<name>/types), which
+ * the typecheck builds, where a dry build (tsc -b --dry, which writes nothing) finds both projects up to date, so a run
+ * on a typechecked checkout builds nothing; otherwise built into a directory of the worker's own (removed with the
+ * worker), as a mutant's worker tree, which holds no packages/<name>/types, always is: a mirror of the two package
+ * directories, each its package.json, its sources and its node_modules linked from the checkout, the checkout's
+ * node_modules linked at the mirror's root, and a tsconfig extending the package's own with its output in the mirror,
+ * built by the checkout's compiler (tsc -b, the shell's build building the engine's; the build flag comes first, as
+ * tsc reads it). No build writes a file another worker reads or the checkout's own packages/<name>/types.
  */
 const declarations: Need<Declarations> = {
 	key: declarationsKey,
@@ -313,6 +314,20 @@ const declarations: Need<Declarations> = {
 		const takeCheckout = yield* Checkout.dir.open
 		const checkout = yield* Effect.scoped(takeCheckout)
 		const root = yield* fs.realPath(checkout)
+		const dry = yield* compiled(root, root, [
+			"-b",
+			"packages/grizzle/tsconfig.json",
+			"--dry",
+			"--pretty",
+			"false"
+		])
+		if (dry.status === 0 && !Str.includes("A non-dry build would")(dry.stdout)) {
+			const own: Declarations = {
+				engine: path.join(root, "packages/engine/tsconfig.json"),
+				grizzle: path.join(root, "packages/grizzle/tsconfig.json")
+			}
+			return own
+		}
 		const mirror = yield* fs.makeTempDirectoryScoped({ prefix: "declarations-" })
 		yield* fs.symlink(path.join(root, "node_modules"), path.join(mirror, "node_modules"))
 		for (const declared of declaredPackages) {

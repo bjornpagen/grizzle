@@ -19,8 +19,12 @@ import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
 import { computeKept } from "#test/types/compute/compute.dictionary.ts"
 
 /**
- * Over drawn cases, the types admit exactly what the engine compiles, name its refusal, and infer its types. Its budget:
- * the runner's own 150 runs, and 900 steered cases (computeSteeredCases, measured: its 287 situations need 750).
+ * Over drawn cases, the types admit exactly what the engine compiles, name its refusal, and infer its types. Its
+ * budget: the runner's own 150 runs, and 900 steered cases (computeSteeredCases, measured: its 287 situations need
+ * 750). It runs the runner's default budget, not the pre-conversion suite's rotating count (400): at TEST_SEED=777, run
+ * beside it, the default's whole process tree took 108.0 CPU-s against the old count's 109.2, both reaching every
+ * situation and killing its kill (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets/r2/compute.*.txt,
+ * 2026-11-16, load 470 to 670).
  */
 export const compute = agreement(computeAimed, {
 	situations: computeSituations,
