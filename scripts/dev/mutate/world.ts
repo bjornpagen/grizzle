@@ -35,7 +35,7 @@ import * as ts from "typescript/ast"
  *   so a division, a root or a narrowing is emitted with no proof and can raise on a row, or an exact or IEEE 754 one's
  *   rendering dropped, so integer and money arithmetic overflows and float arithmetic raises at a bound.
  */
-export const worldOperators = [
+const worldOperators = [
 	"world-conjunct",
 	"world-policy-true",
 	"world-barrier",
