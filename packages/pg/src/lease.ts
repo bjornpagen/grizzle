@@ -89,7 +89,7 @@ export const substrateLease = leaseTables("substrate_lease")
 
 /**
  * The substrate lease's tables a cluster of `maxConnections` connections, `superuserReserved` and `reserved` of them
- * reserved, needs: the gate and one for each of its slots (leaseSlots). lease-tables.ts prints them, init.sh
+ * reserved, needs: the gate and one for each of its slots (leaseSlots). lease-facts.ts prints them, init.sh
  * creates them and doctor.sh requires every one.
  */
 export const substrateLeaseNames = (

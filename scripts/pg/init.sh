@@ -185,9 +185,12 @@ create_member() {
 	# A session inside the template would make every clone fail.
 	admin_psql -d postgres -c "ALTER DATABASE $PG_TEMPLATE_DB ALLOW_CONNECTIONS false"
 
+	# What the connection lease asks of the member (lib.sh lease_facts): its live source bound, then its tables.
+	leased_facts="$(lease_facts)"
+
 	# The connection lease's tables (test/support/substrate/shared.ts takeLease), owned by the owner in its own database.
 	# The cluster creates them, once, so no lease ever creates one while another does.
-	leased="$(lease_tables)"
+	leased="$(tail -n +2 <<<"$leased_facts")"
 	tls_psql "$PG_DEV_ROLE" "$PG_DEV_ROLE" <<-SQL
 	SELECT pg_catalog.format('CREATE TABLE public.%I ()', t) FROM pg_catalog.unnest(pg_catalog.string_to_array('${leased//$'\n'/ }', ' ')) AS t
 	\gexec
@@ -195,7 +198,7 @@ create_member() {
 
 	# Each live source's leader holds one slot and one walsender: raise both to the bound where the defaults fall short,
 	# which takes a restart.
-	bound="$(live_slot_bound)"
+	bound="$(head -n 1 <<<"$leased_facts")"
 	raised=0
 	for setting in max_replication_slots max_wal_senders; do
 		if (($(admin_psql -d postgres -At -c "SHOW $setting") < bound)); then

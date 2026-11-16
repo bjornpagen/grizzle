@@ -100,19 +100,13 @@ require_port_free() {
 	fi
 }
 
-# The names of the substrate lease's tables, one per line: packages/pg/src/lease.ts substrateLeaseNames, the one
-# formula, over the running cluster's max_connections, superuser_reserved_connections and reserved_connections.
-lease_tables() {
+# What the connection lease asks of the member whose environment is declared, over its running max_connections,
+# superuser_reserved_connections and reserved_connections: on the first line the most live sources it serves at once,
+# which max_replication_slots and max_wal_senders must each hold (packages/pg/src/lease.ts liveSlotBound), then the
+# names of the substrate lease's tables, one per line (lease.ts substrateLeaseNames): packages/pg/src/lease-facts.ts,
+# the one spelling of both formulas, read in one process.
+lease_facts() {
 	local settings
 	settings="$(admin_psql -d postgres -At -F ' ' -c "SELECT current_setting('max_connections'), current_setting('superuser_reserved_connections'), current_setting('reserved_connections')")"
-	pg_node lease-tables.ts $settings
-}
-
-# The most live sources the cluster serves at once, which max_replication_slots and max_wal_senders must each hold:
-# packages/pg/src/lease.ts liveSlotBound, the one formula, over the running cluster's max_connections,
-# superuser_reserved_connections and reserved_connections.
-live_slot_bound() {
-	local settings
-	settings="$(admin_psql -d postgres -At -F ' ' -c "SELECT current_setting('max_connections'), current_setting('superuser_reserved_connections'), current_setting('reserved_connections')")"
-	pg_node live-slot-bound.ts $settings
+	pg_node lease-facts.ts $settings
 }

@@ -50,36 +50,32 @@ check_member() {
 	check "built with zstd" "zstd" "$(admin_psql -d postgres -At -c "SET wal_compression = zstd" -c "SHOW wal_compression" 2>&1)"
 
 	# Each setting init.sh sizes to this machine holds at least what lib.sh cluster_size gives it, in the setting's own unit.
-	if sized="$(cluster_size)"; then
-		while read -r setting value; do
-			held="$(admin_psql -d postgres -At -c "SELECT setting FROM pg_catalog.pg_settings WHERE name = '$setting'")"
-			if ((held >= value)); then
-				pass "$setting holds $value, sized to this machine"
-			else
-				fail "$setting holds $value, sized to this machine" "it is $held: scripts/pg/init.sh sizes a cluster"
-			fi
-		done <<<"$sized"
-	else
-		fail "the cluster's size for this machine" "scripts/pg/lib.sh cluster_size failed"
-	fi
+	while read -r setting value; do
+		held="$(admin_psql -d postgres -At -c "SELECT setting FROM pg_catalog.pg_settings WHERE name = '$setting'")"
+		if ((held >= value)); then
+			pass "$setting holds $value, sized to this machine"
+		else
+			fail "$setting holds $value, sized to this machine" "it is $held: scripts/pg/init.sh sizes a cluster"
+		fi
+	done <<<"$sized"
 
 	# Each setting every member holds exactly, whatever the machine, holds what lib.sh cluster_settings gives it.
-	if fixed="$(cluster_settings)"; then
-		while read -r setting value; do
-			check "$setting is $value, as every member's" "$value" \
-				"$(admin_psql -d postgres -At -c "SELECT setting FROM pg_catalog.pg_settings WHERE name = '$setting'")"
-		done <<<"$fixed"
-	else
-		fail "the settings every member holds" "scripts/pg/lib.sh cluster_settings failed"
+	while read -r setting value; do
+		check "$setting is $value, as every member's" "$value" \
+			"$(admin_psql -d postgres -At -c "SELECT setting FROM pg_catalog.pg_settings WHERE name = '$setting'")"
+	done <<<"$fixed"
+
+	# What the connection lease asks of the member (lib.sh lease_facts): its live source bound, then its tables.
+	if ! leased_facts="$(lease_facts)"; then
+		fail "what the connection lease asks of the member" "scripts/pg/lib.sh lease_facts failed"
+		return
 	fi
+	leased="$(tail -n +2 <<<"$leased_facts")"
+	bound="$(head -n 1 <<<"$leased_facts")"
 
 	# Every table the connection lease locks exists: the cluster creates them (init.sh), never a lease.
-	if leased="$(lease_tables)"; then
-		check "the connection lease's $(wc -l <<<"$leased") tables exist" "" \
-			"$(dev "$PG_DEV_ROLE" -At -c "SELECT pg_catalog.string_agg(t, ' ') FROM pg_catalog.unnest(pg_catalog.string_to_array('${leased//$'\n'/ }', ' ')) AS t WHERE pg_catalog.to_regclass(pg_catalog.format('public.%I', t)) IS NULL")"
-	else
-		fail "the connection lease's tables" "scripts/pg/lib.sh lease_tables failed"
-	fi
+	check "the connection lease's $(wc -l <<<"$leased") tables exist" "" \
+		"$(dev "$PG_DEV_ROLE" -At -c "SELECT pg_catalog.string_agg(t, ' ') FROM pg_catalog.unnest(pg_catalog.string_to_array('${leased//$'\n'/ }', ' ')) AS t WHERE pg_catalog.to_regclass(pg_catalog.format('public.%I', t)) IS NULL")"
 
 	check "jit is off by default" "off" \
 		"$(dev "$PG_DEV_ROLE" -At -c "SHOW jit")"
@@ -89,7 +85,6 @@ check_member() {
 
 	check "wal_level is logical" "logical" \
 		"$(dev "$PG_DEV_ROLE" -At -c "SHOW wal_level")"
-	bound="$(live_slot_bound)"
 	for setting in max_replication_slots max_wal_senders; do
 		held="$(dev "$PG_DEV_ROLE" -At -c "SHOW $setting")"
 		if ((held >= bound)); then
@@ -153,6 +148,19 @@ check_member() {
 		"$(dev "$scratch" -At -c "INSERT INTO t AS r VALUES (1, 'b') ON CONFLICT (id) DO SELECT WHERE (r.v) <> (EXCLUDED.v) RETURNING r.id, r.v")"
 
 }
+
+# What every member must hold, the same for each: the settings that size it to its share of this machine (lib.sh
+# cluster_size) and those every member holds exactly (lib.sh cluster_settings), each read once for the whole family.
+if ! sized="$(cluster_size)"; then
+	fail "the cluster's size for this machine" "scripts/pg/lib.sh cluster_size failed"
+	echo "doctor: the family's expected settings are unknown"
+	exit 1
+fi
+if ! fixed="$(cluster_settings)"; then
+	fail "the settings every member holds" "scripts/pg/lib.sh cluster_settings failed"
+	echo "doctor: the family's expected settings are unknown"
+	exit 1
+fi
 
 if members="$(family_ports)"; then
 	pass "the family's $(wc -l <<<"$members") member(s) are recorded, ports ${members//$'\n'/ }"

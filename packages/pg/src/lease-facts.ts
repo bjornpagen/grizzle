@@ -1,6 +1,6 @@
 import { NodeRuntime } from "@effect/platform-node"
 import { Console, Effect, Option } from "effect"
-import { substrateLeaseNames } from "#pg/lease.ts"
+import { liveSlotBound, substrateLeaseNames } from "#pg/lease.ts"
 
 import { regex } from "arkregex"
 
@@ -9,11 +9,13 @@ const count = (arg: string | undefined): Option.Option<number> =>
 	arg !== undefined && regex("^[0-9]+$").test(arg) ? Option.some(Number(arg)) : Option.none()
 
 /**
- * Prints the names of the substrate lease's tables (lease.ts substrateLeaseNames), one per line,
- * for a cluster whose max_connections, superuser_reserved_connections and reserved_connections are its three
- * arguments: what scripts/pg/lib.sh lease_tables reads for init.sh, which creates them, and doctor.sh, which requires
- * them, so the shell holds no second spelling of the slots' formula or of the names. Any other arguments are refused,
- * with a failing exit.
+ * Prints what the connection lease asks of a cluster whose max_connections, superuser_reserved_connections and
+ * reserved_connections are its three arguments: on the first line its live source bound (lease.ts liveSlotBound), which
+ * max_replication_slots and max_wal_senders must each hold, then the names of the substrate lease's tables
+ * (lease.ts substrateLeaseNames), one per line. It is what scripts/pg/lib.sh lease_facts reads for init.sh, which
+ * creates the tables and raises the settings, and doctor.sh, which requires both, so the shell holds no second spelling
+ * of the formulas or of the names, and a member's facts cost one process. Any other arguments are refused, with a
+ * failing exit.
  */
 const main = Effect.gen(function* () {
 	const [maxConnections, superuserReserved, reserved, ...rest] = yield* Effect.sync(
@@ -23,11 +25,12 @@ const main = Effect.gen(function* () {
 	if (rest.length > 0 || Option.isNone(settings)) {
 		return yield* Effect.die(
 			new Error(
-				"usage: lease-tables.ts <max_connections> <superuser_reserved_connections> <reserved_connections>"
+				"usage: lease-facts.ts <max_connections> <superuser_reserved_connections> <reserved_connections>"
 			)
 		)
 	}
 	const [connections, superuser, reservedSlots] = settings.value
+	yield* Console.log(liveSlotBound(connections, superuser, reservedSlots))
 	yield* Effect.forEach(
 		substrateLeaseNames(connections, superuser, reservedSlots),
 		(name) => Console.log(name),
