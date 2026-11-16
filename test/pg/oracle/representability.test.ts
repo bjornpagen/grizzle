@@ -106,8 +106,7 @@ export const acceptsTheWidestFact = property.explore(keyGen, {
 	kills: [
 		{
 			file: "packages/engine/src/schema/representability.ts",
-			original:
-				'\t\tMath.max(0, lengthBound("charLength", predicate)) * utf8EncodingMaxBytes.value,',
+			original: '\t\tMath.max(0, lengthBound("charLength", predicate)) * utf8EncodingMaxBytes,',
 			replacement: '\t\tMath.max(0, lengthBound("charLength", predicate)) * 3,',
 			why: "The byte bound counts three bytes a code point (schema/representability.ts), so a key of four-byte code points at its computed maximum overflows the B-tree item limit."
 		}

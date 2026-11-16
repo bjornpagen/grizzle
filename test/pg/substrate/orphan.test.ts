@@ -57,7 +57,7 @@ export const orphanEnds = property.exhaust(finite(formSpace), {
 		},
 		{
 			file: "packages/pg/src/settings.ts",
-			original: '\t["client_connection_check_interval", clientCheckInterval.value],\n',
+			original: '\t["client_connection_check_interval", clientCheckInterval],\n',
 			replacement: "",
 			why: "The cluster declares no client_connection_check_interval (packages/pg/src/settings.ts clusterSettings), so the backend of a client killed mid-statement runs its statement on and keeps its transaction id, and every logical slot's creation on the cluster waits behind it."
 		}
