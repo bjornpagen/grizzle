@@ -210,7 +210,7 @@ interface RunGateOptions {
  * What a record holds before the run's outcome is known: the identity without a server, the file, the scale and the
  * run's phase timings.
  */
-export interface RecordBase {
+interface RecordBase {
 	readonly identity: RunIdentity
 	readonly file: string
 	readonly quick: boolean
@@ -221,7 +221,7 @@ export interface RecordBase {
  * The record of one gate's run, from the run's outcome and its release's, apart: a failed run is a FailedRecord; a run
  * that returned keeps its cases, with every verdict an `error` when the release leaked or the record is incomplete.
  */
-export const recordOf = (
+const recordOf = (
 	gate: Gate,
 	base: RecordBase,
 	run: Exit.Exit<{ readonly server: ServerIdentity; readonly result: GateRun }, unknown>,

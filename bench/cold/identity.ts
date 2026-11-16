@@ -123,7 +123,7 @@ const pinConfig = Config.all({
 /**
  * scripts/pg/pin.env, the one file every script, test and benchmark reads the pin from; every key it needs is set.
  */
-export const readPin: Effect.Effect<PgPin, IdentityUnreadable, FileSystem.FileSystem> = Effect.gen(
+const readPin: Effect.Effect<PgPin, IdentityUnreadable, FileSystem.FileSystem> = Effect.gen(
 	function* () {
 		const provider = yield* ConfigProvider.fromDotEnv({ path: `${repoRoot}/scripts/pg/pin.env` })
 		return yield* pinConfig.pipe(Effect.provideService(ConfigProvider.ConfigProvider, provider))
@@ -219,7 +219,7 @@ const runtimeIdentity: Effect.Effect<RuntimeIdentity, IdentityUnreadable> = Effe
 )
 
 /** The settings a measurement's plan and timing depend on. */
-export const serverSettings = [
+const serverSettings = [
 	"jit",
 	"jit_above_cost",
 	"jit_inline_above_cost",

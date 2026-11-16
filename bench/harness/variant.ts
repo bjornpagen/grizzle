@@ -169,7 +169,7 @@ export interface ResultSet {
 	readonly digest: string
 }
 
-export const resultSet = (rows: ReadonlyArray<TextRow>): ResultSet => {
+const resultSet = (rows: ReadonlyArray<TextRow>): ResultSet => {
 	const sorted = Arr.sort(rows, compareTextRows)
 	const encoded: Array<string> = []
 	let distinct = 0

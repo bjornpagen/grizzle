@@ -660,7 +660,7 @@ export const findNodes = (
 		.filter(typeof test === "string" ? (n) => n.nodeType === test : test)
 		.toArray()
 
-export const nodeTypeCounts = (plan: PlanNode): Readonly<Record<string, number>> => {
+const nodeTypeCounts = (plan: PlanNode): Readonly<Record<string, number>> => {
 	const counts: Record<string, number> = {}
 	for (const n of planNodes(plan)) {
 		const seen = counts[n.nodeType]
@@ -736,17 +736,7 @@ export const rowsTouched = (plan: PlanNode): number =>
 	)
 
 /** Rows the plan generated from functions and VALUES lists, a figure kept apart from the rows it read. */
-export const rowsGenerated = (plan: PlanNode): number =>
-	scanned(planNodes(plan).filter(generatingScan))
-
-/** The stored relations the plan scans, once each. */
-export const relationsRead = (plan: PlanNode): ReadonlyArray<string> => [
-	...new Set(
-		planNodes(plan)
-			.filter((n) => Option.isNone(n.operation))
-			.flatMap((n) => Option.toArray(n.relation))
-	)
-]
+const rowsGenerated = (plan: PlanNode): number => scanned(planNodes(plan).filter(generatingScan))
 
 export interface AccessCondition {
 	readonly nodeType: string
@@ -771,26 +761,6 @@ export const indexAccesses = (plan: PlanNode): ReadonlyArray<AccessCondition> =>
 			}))
 		)
 		.toArray()
-
-/**
- * The totals of one statement: its root's inclusive counters, the planner's buffers, and serialization, each kept
- * apart.
- */
-export interface StatementTotals {
-	readonly buffers: Buffers
-	readonly wal: WalCounters
-	readonly planningBuffers: Buffers
-	readonly serialization: Serialization
-	readonly triggerCalls: number
-}
-
-export const statementTotals = (e: Explained): StatementTotals => ({
-	buffers: e.plan.buffers,
-	wal: e.plan.wal,
-	planningBuffers: e.planningBuffers,
-	serialization: e.serialization,
-	triggerCalls: Arr.reduce(e.triggers, 0, (sum, t) => sum + t.calls)
-})
 
 export interface PlanSummary {
 	readonly samples: number
