@@ -1,6 +1,6 @@
 /** What the properties of tamper.test.ts read: its spaces, models and helpers. */
 
-import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { boolean, type Gen } from "@bjornpagen/testing/gen"
 import {
 	Array as Arr,
 	DateTime,
@@ -66,15 +66,18 @@ interface Case {
 	readonly newest: boolean
 }
 
-/** The rest of a case of one kind: the directory and the folder tampered with. */
-const shapeGen: Gen<Omit<Case, "kind">> = (source) => ({
-	folders: source.draw(element<1 | 2>([1, 2])),
-	newest: source.draw(boolean)
-})
+/** The committed directories a tampering applies to: of one drafted folder, and of two. */
+const folderCounts = [1, 2] as const
 
-/** A case: every kind of tampering, each on a directory and a folder of its own drawing. */
+/**
+ * A case: every kind of tampering on each committed directory, of one folder and of two, the folder tampered with
+ * drawn. Every case holds a chain of two folders under every kind, so what tells a chain's newest folder from its
+ * oldest (a diverged chain's, a removed folder's) is in every case, the floor's first among them.
+ */
 export const casesGen: Gen<ReadonlyArray<Case>> = (source) =>
-	Arr.map(kinds, (kind) => ({ ...source.draw(shapeGen), kind }))
+	Arr.flatMap(kinds, (kind) =>
+		Arr.map(folderCounts, (folders) => ({ folders, kind, newest: source.draw(boolean) }))
+	)
 
 const at = (s: number) =>
 	DateTime.makeUnsafe({

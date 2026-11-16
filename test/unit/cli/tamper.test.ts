@@ -31,9 +31,9 @@ import { casesGen, drafted, type Kind, kinds, tampered } from "#test/unit/cli/ta
  * writes nothing, and check reports it.
  *
  * Budget: its suite's count before the conversion (unit/cli/tamper: 2 independent cases and 0 steered, Vitest at
- * grizzle 4ca3036a). At those counts its kill "A diverged chain names its oldest folder." survived at TEST_SEED=1
- * (toolchain-test run of 2026-11-16 08:55Z); at the runner's 150 runs and 200 steered, which it was landed at, it is
- * killed, so it keeps them.
+ * grizzle 4ca3036a). Every case tampers with both committed directories, of one folder and of two (casesGen), so each
+ * kill turns its floor's one case red: at TEST_SEED=1 to 5 (toolchain-test run, 2026-11-16) every required kind is
+ * reached and its three kills are killed.
  */
 export const aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesByTheReasonNamingTheEntryAndWritesNothingAndCheckReportsIt =
 	property.explore(casesGen, {
@@ -64,7 +64,7 @@ export const aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesBy
 			kind: "specification",
 			name: "the reason and the finding the committed directory's reading gives each tampering"
 		},
-		budget: { runs: 150, steered: 200 },
+		budget: { runs: 2, steered: 0 },
 		kept: [],
 		kills: [
 			{
