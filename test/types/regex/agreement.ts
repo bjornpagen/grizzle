@@ -1,17 +1,15 @@
 import { regexMaxDepth } from "@bjornpagen/grizzle-engine/scalar/regex/space"
 import { typeUnionLimit } from "@bjornpagen/grizzle-engine/types/fields/source"
-import { floorPopulation, type Reached } from "@bjornpagen/testing/features"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
-import { floorSeed, rotatingSeed } from "@bjornpagen/testing/random"
-import { sample } from "@bjornpagen/testing/source"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import type { RegexScan } from "#compiler/types/fields/source.ts"
-import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
+import { identifiers, preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
 import { upTo } from "#test/support/up-to.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
 import { families, type Flags, jsMatcher, patternOver } from "#test/unit/text/generators.ts"
 
 /**
@@ -196,7 +194,7 @@ type RegexNote =
 type Stated = { readonly kind: "typechecks" } | { readonly kind: "refused"; readonly why: string }
 
 /** One case: its call as the program writes it, the engine's verdict, what the program states and claims. */
-interface RegexCase {
+export interface RegexCase {
 	readonly form: RegexForm
 	/** A cross product's band, its count against the union limit. */
 	readonly band: (typeof crossBands)[number] | undefined
@@ -371,7 +369,8 @@ const outsidePattern: Gen<string> = (source) => {
 	return source.draw(element([construct, `^${word}${construct}$`, `${construct}${word}`]))
 }
 
-const caseGen: Gen<RegexCase> = (source) => {
+/** A drawn str.regex call, the engine's verdict on it, and what the program states of it. */
+export const regexCases: Gen<RegexCase> = (source) => {
 	const form = source.draw(element(regexForms))
 	const flags: Flags = source.draw(element(["u", "su"] as const))
 	switch (form) {
@@ -572,7 +571,7 @@ const linesOf = (c: RegexCase, v: string): ReadonlyArray<string> => {
 }
 
 /** What a case reaches. */
-const notesOf = (c: RegexCase): ReadonlyArray<Reached<RegexNote>> => [
+export const regexNotes = (c: RegexCase): ReadonlyArray<RegexNote> => [
 	c.form,
 	c.admission,
 	...(c.declared === undefined ? [] : [c.declared]),
@@ -582,16 +581,7 @@ const notesOf = (c: RegexCase): ReadonlyArray<Reached<RegexNote>> => [
 	...(c.flags === "su" ? ["su" as const] : [])
 ]
 
-/** The cases the run's own stream draws, and the floor's. */
-const regexCount = 120
-
-/** The label both populations are drawn under. */
-const regexLabel = "types/regex agreement"
-
-/** The floor's witnesses: drawn under the label alone, the same on every run. */
-export const regexWitnesses = () => floorPopulation(regexLabel, caseGen, regexCount, notesOf)
-
-/** What the floor's witnesses must reach: every form, every verdict, every declared class and host claim, su. */
+/** What the witnesses must reach: every form, every verdict, every declared class and host claim, su. */
 export const regexRequired: Arr.NonEmptyReadonlyArray<RegexNote> = [
 	...regexForms,
 	...crossBands,
@@ -604,10 +594,6 @@ export const regexRequired: Arr.NonEmptyReadonlyArray<RegexNote> = [
 
 /** The regex program's prelude (test/support/programs/regex.ts), every repository name it reads. */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/regex.ts"))
-
-/** The program's prelude as its directory reaches it, `entry` spelling a repository path from there. */
-export const regexEntriesFrom = (entry: (path: string) => string): PreludeAt =>
-	preludeFrom(prelude, entry)
 
 /** n's prime factors, smallest first. */
 const primeFactors = (n: number, from: number): ReadonlyArray<number> =>
@@ -661,34 +647,43 @@ const unionLimitLines = (): ReadonlyArray<string> => {
 	]
 }
 
-/** The program: the floor's witnesses, then the run's own cases under its seed. */
-export const regexModules = (
-	entries: PreludeAt,
-	seed: number
-): Arr.NonEmptyReadonlyArray<{ readonly file: string; readonly source: string }> => {
-	const cases = [
-		...regexWitnesses().values,
-		...sample(caseGen, rotatingSeed(seed, floorSeed(regexLabel)), regexCount)
-	]
+/**
+ * The program over a batch's calls: the union limit's re-verification, the batch's own, then each call under its
+ * names' prefix, the type identity and its assertion the batch's own where a call reads them.
+ */
+export const regexProgram = (
+	cases: Arr.NonEmptyReadonlyArray<RegexCase>,
+	entry: Entry
+): Program => {
+	const blocks = Arr.map(cases, (c, at) => ({ owner: caseOwned(at), lines: linesOf(c, `c${at}_`) }))
+	const read = identifiers(
+		Arr.join(
+			Arr.flatMap(blocks, (block) => block.lines),
+			"\n"
+		)
+	)
 	return [
-		{
-			file: "index.ts",
-			source: preludeProgram(
-				"// Generated by test/types/regex/agreement.ts: the regex agreement program.",
-				entries,
-				Arr.join(
-					[
-						"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
-						"type Expect<T extends true> = T",
-						"",
+		preludeModule(
+			"index.ts",
+			"// Generated by test/types/regex/agreement.ts: the regex agreement program.",
+			preludeFrom(prelude, entry),
+			[
+				{
+					owner: batchOwned,
+					lines: [
+						...(read.has("Expect")
+							? [
+									"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
+									"type Expect<T extends true> = T",
+									""
+								]
+							: []),
 						...unionLimitLines(),
-						"",
-						...Arr.flatMap(cases, (c, i) => linesOf(c, `c${i}_`)),
 						""
-					],
-					"\n"
-				)
-			)
-		}
+					]
+				},
+				...blocks
+			]
+		)
 	]
 }

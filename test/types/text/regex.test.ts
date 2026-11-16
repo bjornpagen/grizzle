@@ -1,30 +1,63 @@
+import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
+import {
+	containedCases,
+	containedNotes,
+	containedProgram,
+	containedSituations,
+	handwrittenProgram,
+	keptProgram
+} from "#test/types/text/contained.ts"
 /**
- * str.regex's host types are sound (test/types/text/contained.ts), one program the type batch checks armed: every value
- * ECMAScript accepts of an admitted pattern, drawn from each family's strings and walks of the pattern's own NFA,
- * inhabits `Infer` of its str.regex, and of its str.and with the next pattern, the kept patterns among them; the
- * program has no diagnostic. Oracle: ECMAScript's own matcher. Every family contributes a member from the draws its
- * label fixes, so the program proves something of each on every seed.
+ * str.regex's host types are sound (test/types/text/contained.ts): every value ECMAScript accepts of an admitted
+ * pattern, drawn from a family's strings and walks of the pattern's own NFA, inhabits `Infer` of its str.regex, and
+ * every value two admitted patterns of one family both accept inhabits `Infer` of their str.and; and so does every
+ * handwritten pattern's and every kept pattern's, each a box checked whole on every run. Each case is a block of one
+ * program a batch checks armed, which must raise no diagnostic. Oracle: ECMAScript's own matcher. The witnesses
+ * reach every family with a member, and the empty string as a member of a handwritten pattern.
  */
-import { unreachedOf } from "@bjornpagen/testing/features"
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/batch.ts"
-import { typeRun } from "#test/types/batch/provided.ts"
-import { containedProgram } from "#test/types/text/contained.ts"
+import { keptPatterns, handwrittenPatterns } from "#test/types/text/regex.dictionary.ts"
 
-layer(NodeServices.layer, { excludeTestServices: true })("str.regex types", (it) => {
-	it.effect("infers a host type that contains every accepted value", () =>
-		Effect.gen(function* () {
-			/**
-			 * The program the batch checked: the same run draws the same program. It proves nothing of a family that
-			 * contributes no member, so every family contributes one from its witnesses, the draws its labels fix.
-			 */
-			const { families, witnesses } = containedProgram(typeRun().seed)
-			const diagnostics = yield* checked("text/contained")
-			assert.equal(diagnostics.output, "")
-			assert.deepEqual(unreachedOf(families, [witnesses]), [])
-		})
-	)
+/** Infers a host type that contains every accepted value, of a pattern and of two patterns' conjunction. */
+export const contained = agreement(containedCases, {
+	situations: containedSituations,
+	notes: containedNotes,
+	checking: "armed",
+	program: containedProgram,
+	oracle: { kind: "second-implementation", name: "ECMAScript's own matcher" },
+	kept: [],
+	kills: []
+})
+
+/** Infers, for each kept pattern, a host type that contains the members it once refused. */
+export const kept = boxAgreement(keptPatterns, {
+	box: "every kept pattern and the members its host type once refused",
+	situations: [],
+	notes: () => [],
+	checking: "armed",
+	program: keptProgram,
+	oracle: { kind: "second-implementation", name: "ECMAScript's own matcher" },
+	kept: [],
+	kills: []
+})
+
+/**
+ * Infers, for each family's handwritten pattern, a host type that contains the texts it accepts among the empty string
+ * and every text of one or two letters of its family's alphabet.
+ */
+export const handwritten = boxAgreement(handwrittenPatterns, {
+	box: "every handwritten pattern of the regex families the engine admits",
+	situations: [],
+	notes: () => [],
+	checking: "armed",
+	program: handwrittenProgram,
+	oracle: { kind: "second-implementation", name: "ECMAScript's own matcher" },
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/types/fields/regex.ts",
+			original: "\t\t\t\t: OnePlaceholderPerRun<regex.infer<N, F>>",
+			replacement: '\t\t\t\t: Exclude<OnePlaceholderPerRun<regex.infer<N, F>>, "">',
+			why: "The empty string is dropped from every inferred host type (types/fields/regex.ts RegexInfer); the program fails."
+		}
+	]
 })

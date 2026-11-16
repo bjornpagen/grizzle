@@ -1,3 +1,4 @@
+import { growthGate } from "#test/types/batch/measured.ts"
 /**
  * str.regex's type cost (regex/scaling.ts): the inference of the shapes that cost it the most, a finite alternation, a
  * digit template, classes repeated into unions written out and cross products past TypeScript's union limit, the
@@ -8,25 +9,13 @@
  * checker interns, are not judged by the law: test/types/batch/measured.ts): the second step adds no more than the first, so no
  * pattern costs more for the patterns before it. Oracle: the compiler's own counts, compared step against step.
  */
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect } from "effect"
-import { assertClean, assertGrowthLaw, measuredSizes } from "#test/types/batch/measured.ts"
-import { regexScaleSizes, regexScaleSource } from "#test/types/regex/scaling.ts"
+import { regexDimensions } from "#test/types/regex/scaling.dictionary.ts"
 
-layer(NodeServices.layer, { excludeTestServices: true })("the regex-scale program", (it) => {
-	it.effect(
-		`typechecks ${Arr.join(
-			Arr.map(regexScaleSizes.sizes, (n) => `${n}`),
-			", "
-		)} patterns, cross products past the union limit among them, with no diagnostic, its instantiations growing no faster than linearly`,
-		() =>
-			Effect.gen(function* () {
-				const sizes = yield* measuredSizes("test/types/regex", regexScaleSizes, regexScaleSource)
-				for (const s of sizes) {
-					assertClean(s, "regex patterns")
-				}
-				assertGrowthLaw("regex patterns", regexScaleSizes, sizes)
-			})
-	)
+/**
+ * Each dimension's program typechecks at its three sizes with no diagnostic, each step adding types and
+ * instantiations, its instantiations growing no faster than linearly.
+ */
+export const scaling = growthGate(regexDimensions, {
+	box: "the regex-scale program's one dimension, its patterns",
+	kills: []
 })

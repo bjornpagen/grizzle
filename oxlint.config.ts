@@ -19,9 +19,40 @@ const { active, lintConfig } = standard(toolchain)
  * packages' entry points; the SQLSTATEs and failure sources a live call's error reads, and the live model's key forms;
  * the scalar namespace's plain descriptors and the ScalarTypes the test fixtures export; the world model's invalid kinds;
  * the registry's native operations and its operations over two sets; the integer carriers; the declared names the naming
- * door refuses and its alias pairs.
+ * door refuses and its alias pairs; and each type-tier box (test/types): the source's own roster of cells a box agreement
+ * or a cost gate exhausts (every setting a config reader admits, every kind of a builder, every directive the README
+ * states, every probe of a scale program, every dimension a cost gate measures).
  */
 const DICTIONARY_MINTS = [
+	"test/types/api/config.dictionary.ts",
+	"test/types/api/decoder.dictionary.ts",
+	"test/types/api/handle.dictionary.ts",
+	"test/types/api/surface.dictionary.ts",
+	"test/types/api/untyped.dictionary.ts",
+	"test/types/changeset/budget/members.dictionary.ts",
+	"test/types/changeset/delete-where.dictionary.ts",
+	"test/types/changeset/entry-owner.dictionary.ts",
+	"test/types/changeset/nesting.dictionary.ts",
+	"test/types/compute/compute.dictionary.ts",
+	"test/types/evidence/agreement.dictionary.ts",
+	"test/types/evidence/parameter.dictionary.ts",
+	"test/types/examples/blocks.dictionary.ts",
+	"test/types/examples/examples.dictionary.ts",
+	"test/types/executor/boundary.dictionary.ts",
+	"test/types/ir/semi-join.dictionary.ts",
+	"test/types/query/budget/invariance.dictionary.ts",
+	"test/types/query/budget/scaling.dictionary.ts",
+	"test/types/regex/scaling.dictionary.ts",
+	"test/types/schema/agreement.dictionary.ts",
+	"test/types/schema/budget/extension.dictionary.ts",
+	"test/types/schema/budget/families.dictionary.ts",
+	"test/types/schema/budget/invariance.dictionary.ts",
+	"test/types/schema/budget/logins.dictionary.ts",
+	"test/types/schema/budget/roles.dictionary.ts",
+	"test/types/schema/budget/scaling.dictionary.ts",
+	"test/types/schema/generic.dictionary.ts",
+	"test/types/skeleton/budget/invariance.dictionary.ts",
+	"test/types/text/regex.dictionary.ts",
 	"test/unit/bench/harness.dictionary.ts",
 	"test/unit/cli/skill.dictionary.ts",
 	"test/unit/compute/bits.dictionary.ts",
@@ -374,7 +405,9 @@ export default defineConfig(
 				searches: [
 					...CASE_LISTS.searches,
 					{ module: "#test/support/oracle/runner.ts", name: "oracleCheck", space: { argument: 0 } },
-					{ module: "#test/support/oracle/runner.ts", name: "oracleKill", space: { argument: 0 } }
+					{ module: "#test/support/oracle/runner.ts", name: "oracleKill", space: { argument: 0 } },
+					{ module: "#test/types/batch/agreement.ts", name: "agreement", space: { argument: 0 } },
+					{ module: "#test/types/batch/agreement.ts", name: "boxAgreement", space: { argument: 0 } }
 				],
 				generators: CASE_LISTS.generators,
 				mints: CASE_LISTS.mints,
@@ -663,13 +696,12 @@ export default defineConfig(
 			},
 			{
 				files: [
-					"test/types/batch/global-setup.ts",
 					"bench/cold/probe.ts",
 					"bench/harness/runner.ts",
 					"test/unit/deps/runtime-probe.ts"
 				],
 				rules: active({
-					/** The type tier's global setup loads the type-test batch only for a run with type tests, the cold probe times a first load, the bench runner loads the bench files it runs, and the runtime probe loads each module under its trap. */
+					/** The cold probe times a first load, the bench runner loads the bench files it runs, and the runtime probe loads each module under its trap. */
 					"devtools/no-dynamic-imports": "off"
 				})
 			},

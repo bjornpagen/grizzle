@@ -1,60 +1,79 @@
-import { type Situations, unreachedOf } from "@bjornpagen/testing/features"
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect } from "effect"
+/**
+ * The Compute type/engine agreement (test/support/agreement/compute.ts): every drawn term, predicate, aggregate, host
+ * value and member read typechecks exactly when the engine builds and compiles it; a refusal the types name by a
+ * Refusal names the engine's reason, every other refusal is structural; and an admitted case's term type, SQL type,
+ * head and parameters equal the engine's, each asserted exactly. Each case is a block of one program a batch checks
+ * disarmed. Oracle: the engine's construction and compilation of each case. The witnesses reach every construct
+ * admitted and, where the catalogue can refuse it, refused, every Refusal the Compute catalogue names and every
+ * inference the program asserts; the kept cases, a box of their own, reach by construction what a drawn case may miss.
+ */
 import {
-	type ComputeNote,
-	computeCount,
-	computeInferences,
-	computeRefusals,
-	computeRequired,
-	computeWitnesses
+	computeAimed,
+	computeKeptRequired,
+	computeProgram,
+	computeReached,
+	computeSituations,
+	computeSteeredCases
 } from "#test/support/agreement/compute.ts"
-import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/batch.ts"
+import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
+import { computeKept } from "#test/types/compute/compute.dictionary.ts"
 
 /**
- * The Compute type/engine agreement (test/support/agreement/compute.ts), one program the type batch checks disarmed:
- * every drawn term, predicate, aggregate, host value and member read typechecks exactly when the engine builds and
- * compiles it; a refusal the types name by a Refusal names the engine's reason, every other refusal is structural; and an
- * admitted case's term type, SQL type, head and parameters equal the engine's, each asserted exactly.
- *
- * The floor's witnesses, the same in every run, reach every construct admitted and, where the catalogue can refuse it,
- * refused, every Refusal the Compute catalogue names, every inference the program asserts, a translate over a map
- * TypeScript types as string, admitted, and a when whose branch reads its subject outside its parameter, refused by
- * both, since each side proves the guard's facts of the branch's parameter alone, so the program is never vacuous on
- * any seed.
+ * Over drawn cases, the types admit exactly what the engine compiles, name its refusal, and infer its types. Its budget:
+ * the runner's own 150 runs, and 900 steered cases (computeSteeredCases, measured: its 287 situations need 750).
  */
-const required: Situations<ComputeNote> = [
-	"admitted",
-	"refused",
-	"refused: structurally",
-	...computeRefusals,
-	...computeInferences,
-	...computeRequired
-]
+export const compute = agreement(computeAimed, {
+	situations: computeSituations,
+	budget: { runs: 150, steered: computeSteeredCases },
+	notes: computeReached,
+	checking: "disarmed",
+	program: computeProgram,
+	oracle: {
+		kind: "second-implementation",
+		name: "the engine's construction and compilation of each case"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/types/compute/scalar.ts",
+			original:
+				'export type FirstTerm<A> = A extends FirstValue\n\t? Refusal<"a term first: a literal takes its place opposite a term, never first">',
+			replacement: "export type FirstTerm<A> = A extends FirstValue\n\t? unknown",
+			why: "A literal is admitted as an operation's first operand (types/compute/scalar.ts FirstTerm answers unknown for a JavaScript value); the agreement's program fails."
+		}
+	]
+})
 
-layer(NodeServices.layer, { excludeTestServices: true })(
-	"the Compute type/engine agreement",
-	(it) => {
-		it.effect(
-			`over ${computeCount} drawn cases and the floor's, the types admit exactly what the engine compiles, name its refusal, and infer its types`,
-			() =>
-				Effect.gen(function* () {
-					const { expected, actual } = yield* checked("compute/agreement")
-					assert.deepEqual(actual, expected)
-				})
-		)
-
-		it("the floor's witnesses reach every construct under both verdicts, every Refusal and every inference", () => {
-			assert.deepEqual(
-				unreachedOf(
-					required,
-					Arr.map(computeWitnesses(), (stratum) => stratum.tally)
-				),
-				[],
-				"situations no floor witness reached"
-			)
-		})
-	}
-)
+/**
+ * Over the kept cases, the types admit exactly what the engine compiles, name its refusal, and infer its types: a
+ * digest and a byte guard in each of their situations, a translate over a map typed string, a match whose overlap the
+ * engine decides, a branch reading its subject outside its parameter, and the closed reads, the translate, the
+ * arithmetic and the pattern the types and the engine once disagreed on.
+ */
+export const computeKeptCases = boxAgreement(computeKept, {
+	box: "every kept Compute case",
+	situations: computeKeptRequired,
+	notes: computeReached,
+	checking: "disarmed",
+	program: computeProgram,
+	oracle: {
+		kind: "second-implementation",
+		name: "the engine's construction and compilation of each case"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/types/compute/compute.ts",
+			original: "\t\tfrom: Fit<Fr, string>,\n\t\tto: Fit<To, string>",
+			replacement: "\t\tfrom: Fr & string,\n\t\tto: To & string",
+			why: "translate types its map as `Fr & string` and `To & string` again, from which TypeScript infers nothing for a string typed string, so a translate over a map computed at run time, which the engine admits, is typed never; the kept translates over the widened value fail their type assertions and the agreement's program fails."
+		},
+		{
+			file: "packages/engine/src/scalar/compute/lower.ts",
+			original:
+				'\t\t\tconst holds =\n\t\t\t\tscope.kind === "parameter" ? held.includes(scope) : sameExpr(scope.holds.subject, entry)',
+			replacement: "\t\t\tconst holds = sameExpr(scope.holds.subject, entry)",
+			why: "Compute.when's lowering refines every occurrence of the guard's subject inside its branch, not only the branch's parameter (scalar/compute/lower.ts settle matches each enclosing guard by expression alone), so the engine admits the kept power whose exponent reads the subject past the parameter, which the types refuse; the agreement's program fails."
+		}
+	]
+})

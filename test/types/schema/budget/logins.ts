@@ -1,7 +1,7 @@
 import { Array as Arr } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
-import { type EqualSteps, equalSteps } from "#test/types/batch/measured.ts"
+import { type EqualSteps, equalSteps, type GrowthDimension } from "#test/types/batch/measured.ts"
 
 /**
  * The login-scale program (test/types/schema/budget/logins.test.ts): a login over a schema written as qti-pie's pantry
@@ -122,3 +122,8 @@ export const authored = ChangeSet.empty(Author)${Arr.join(
 `
 	)
 }
+
+/** The cells of loginDimensions, minted as a dictionary in its door (test/types/schema/budget/logins.dictionary.ts). */
+export const loginDimensionsItems: readonly [GrowthDimension, ...ReadonlyArray<GrowthDimension>] = [
+	{ name: "the login-scale schema", steps: loginSizes, source: generateLoginSource }
+]

@@ -1,7 +1,9 @@
-import { Array as Arr } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
+import { assertClean, type Measuring, measuredEach } from "#test/types/batch/measured.ts"
 
 /**
  * The ChangeSet-member programs, one per op and member kind, each written over a schema of `relations` relations with
@@ -29,7 +31,8 @@ export type MemberForm =
 	| { readonly op: "delete" | "put" | "insert" | "insertAll"; readonly kind: "query" | "array" }
 	| { readonly op: "deleteWhere"; readonly kind: "selection" }
 
-export const memberForms: ReadonlyArray<MemberForm> = [
+/** The cells of memberForms, minted as a dictionary in its door (test/types/changeset/budget/members.dictionary.ts). */
+export const memberFormsItems: readonly [MemberForm, ...ReadonlyArray<MemberForm>] = [
 	...Arr.flatMap(["delete", "put", "insert", "insertAll"] as const, (op) =>
 		Arr.map(["query", "array"] as const, (kind): MemberForm => ({ op, kind }))
 	),
@@ -134,3 +137,51 @@ export const run = (db: DbOf<typeof Writer, typeof w.programs>) =>
 	db.workload.change.once({ params: { package: "abc" }, facts: ${onceFactsOf(shape)} })
 `
 	)
+
+/**
+ * The members of the first program, and the schemas' sizes. The second program writes twice as many members, each over
+ * a relation of its own, so the small schema holds that many relations; the large one holds four times as many, so a
+ * member that walks the schema walks every relation the large schema adds, three for each relation of the small one,
+ * for each member the second program adds.
+ */
+const members = 5
+const small = 2 * members
+const large = 4 * small
+
+/** The four programs of one op and kind, in order: `members` and twice as many members, over each schema. */
+const memberShapes = [
+	{ relations: small, members },
+	{ relations: small, members: 2 * members },
+	{ relations: large, members },
+	{ relations: large, members: 2 * members }
+] as const
+
+/** How a form prints: its op and kind. */
+export const memberFormName = (form: MemberForm): string => `${form.kind} members of ${form.op}`
+
+/**
+ * The cost of one op and kind's members, measured: its four programs typecheck with no diagnostic, and the members the
+ * second program adds cost exactly as many instantiations over the large schema as over the small one.
+ */
+export const memberCost = (at: Measuring, form: MemberForm) =>
+	Effect.gen(function* () {
+		const { op, kind } = form
+		const measured = yield* measuredEach(
+			at,
+			Arr.map(memberShapes, (shape) => ({
+				size: shape.relations,
+				source: (entries: PreludeAt) => memberSource({ ...shape, ...form }, entries)
+			}))
+		)
+		for (const m of measured) {
+			assertClean(m, `${op} of ${kind} members`)
+		}
+		const count = (i: number): number =>
+			defined(measured[i], `the program of ${op} at ${i}`).instantiations
+		const added = { small: count(1) - count(0), large: count(3) - count(2) }
+		assert.equal(
+			added.large,
+			added.small,
+			`the last ${members} ${kind} members of ${op} cost ${added.large} instantiations over ${large} relations and ${added.small} over ${small}`
+		)
+	})

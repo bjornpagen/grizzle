@@ -1,157 +1,175 @@
-import { type Situations, unreachedOf } from "@bjornpagen/testing/features"
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect } from "effect"
+import { oneOf } from "@bjornpagen/testing/gen"
+import { property, ReplayToken } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import { admissionProgram } from "#test/support/agreement/admission.ts"
+import { argumentProgram } from "#test/support/agreement/arguments.ts"
 import {
-	type AgreementNote,
-	agreementFaults,
-	agreementFeatures,
-	agreementKept,
-	agreementPairs,
-	agreementWitnesses,
-	type FaultNote,
-	faultWitnesses,
+	agreementCases,
+	agreementReached,
+	evidencePrelude,
+	evidenceProgram,
+	evidenceRequired,
+	faultCases,
+	faultProgram,
+	faultsRequired,
 	reorderedVerdicts
 } from "#test/support/agreement/queries.ts"
 import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/batch.ts"
-import { typeRun } from "#test/types/batch/provided.ts"
+import { agreement, boxAgreement } from "#test/types/batch/agreement.ts"
+/**
+ * The type/engine agreements over drawn queries (test/support/agreement/queries.ts), each a program a batch checks
+ * disarmed:
+ *
+ * 1. Evidence (`evidence`): the drawn queries, the engine's verdict on each stated as types: each query's claimed keys
+ *    lie over the engine's, its cardinality is the engine's, and its records, parameters and reads the engine's decoded
+ *    heading and parameters. A refused query raises exactly its directive's refusal, so a claimed key the engine does
+ *    not prove, a cardinality the engine does not state, or a record or parameter the engine does not deliver, fails
+ *    its assertion. Each query no take closes, of one heading, is paged: its page is of that very ordered query, and its
+ *    unordered self is refused a page.
+ * 2. Order invariance, in the same program: the batch's queries again in the other order, as a second module, and
+ *    every query's head and keys asserted equal across the two, so TypeScript's evidence never depends on unrelated
+ *    statements' order.
+ * 3. Admission (`admission`, test/support/agreement/admission.ts): every position a constant stands in against every
+ *    constant kind, each under every value and stage its kind has, a parameter of the column's descriptor and of
+ *    another's among them, a self-join's second scope among them, the program admitting exactly what the engine admits;
+ *    every combinator over every shape of query; and the scope axis: a query matched, as it is and bound, over each
+ *    level against its rule's schema, a relation parameter bound to each kind of source, and a relational negation at
+ *    each place in a rule's filters. Beside it, the argument axis (`arguments`, test/support/agreement/arguments.ts):
+ *    every shape of a query's parameters against every form of argument, through every method that takes one, the
+ *    program admitting exactly what the runtime's reading of an argument admits.
+ * 4. Faults (`faults`): queries of the same generator, each planting one fault at a site whose drawn value the engine
+ *    decides; a query it refuses is stated under the refusal its reason is, at the fault's site, and one it admits as a
+ *    clean query is.
+ * 5. Filter order (`reordered`): every drawn query's verdict, the engine's, is the same with each rule's filters in the
+ *    other order, so a variable two filters fix is fixed to both values, whichever is written first, as the types read
+ *    it.
+ *
+ * The witnesses of the clean space reach every construct the evidence types reason about, and those of the faulted
+ * space every fault refused and each whose site may hold a valid value admitted, so neither program is vacuous; the
+ * admission and argument boxes hold every position, kind, shape and form by construction.
+ */
+import { argumentBox, admissionBox } from "#test/types/evidence/agreement.dictionary.ts"
 
 /**
- * The type/engine agreements, one program the type batch checks:
- *
- * 1. Evidence: the drawn queries (test/support/agreement/queries.ts), the engine's verdict on each stated as types:
- *    each query's claimed keys are asserted to lie over the engine's, its cardinality the engine's, and its records,
- *    parameters and reads the engine's decoded heading and parameters. The batch checks the program disarmed, so it
- *    raises exactly its directives' refusals: a claimed key the engine does not prove, a cardinality the engine does
- *    not state, or a record or parameter the engine does not deliver, fails its assertion. Each query no take closes,
- *    of one heading, is paged: its page is of that very ordered query, and its unordered self is refused a page.
- * 2. Order invariance: the same queries in a second drawn order, as a second module, and every query's head and keys
- *    asserted equal across the two, so TypeScript's evidence never depends on unrelated statements' order.
- * 3. Admission (test/support/agreement/admission.ts): every position a constant stands in against every constant
- *    kind, a parameter of the column's descriptor and of another's among them, a self-join's second scope among them,
- *    the program admitting exactly what the engine admits; every combinator over every shape of query; and the scope
- *    axis: a query matched, as it is and bound, over each level against its rule's schema, a relation parameter bound
- *    to each kind of source, and a relational negation at each place in a rule's filters. Beside it, the argument axis
- *    (test/support/agreement/arguments.ts): every shape of a query's parameters against every form of argument,
- *    through every method that takes one, the program admitting exactly what the runtime's reading of an argument
- *    admits.
- * 4. Faults: queries of the same generator, each planting one fault at a site whose drawn value the engine decides; a
- *    query it refuses is stated under the refusal its reason is, at the fault's site, and one it admits as a clean
- *    query is.
- * 5. Filter order: every drawn query's verdict, the engine's, is the same with each rule's filters in the other order,
- *    so a variable two filters fix is fixed to both values, whichever is written first, as the types read it.
- *
- * The floor's witnesses (agreementWitnesses, faultWitnesses), the same in every run, reach every construct the
- * evidence types reason about, a constant in each position, both cardinalities, a variable two filters fix, a contract
- * in a head, a self-join the engine proves at most one row, which pinnedSelfJoin draws by construction, a span parameter
- * opposite each span predicate and in a producer, a distance to a vector parameter, a search the engine proves at most
- * one row, a closed relation, a roster and a derived relation matched, each span construct over a span of dates, its
- * parameter and its width in days beside an integer span's width, an extension's Db reading a base query and a base Db
- * refused an extension's, a keyed get admitted through each kind of key position and with a name beside its key, and
- * refused for a key field missing, alone or with a name in its place, a union looked up by each field its rules fix to a
- * constant, pinned by one of them and not by another, and every fault refused, each whose site may hold a valid value
- * admitted too, so the program is never vacuous on any seed; the admission matrix holds every position and kind by
- * construction.
+ * Over drawn queries in two orders, the types accept a query, its records and its parameters exactly as the engine
+ * does, and its keys.
  */
-const required: Situations<AgreementNote> = [
-	...agreementFeatures,
-	"at most one row proved",
-	"many rows",
-	"a key below the heading",
-	"a variable two filters fix",
-	"a contract in the head",
-	"an unordered page refused",
-	"a span parameter opposite r.allen",
-	"a span parameter opposite r.pointIn",
-	"a producer over a span parameter",
-	"a distance to a vector parameter",
-	"a search proves at most one row",
-	"a closed relation matched",
-	"r.allen over date spans",
-	"a date's point test",
-	"a producer over date spans",
-	"a date span parameter",
-	"a width in days",
-	"a width over integer endpoints",
-	"a roster matched",
-	"a derived relation's read proved at most one row",
-	"an extension's Db read a base query",
-	"a base Db refused an extension query",
-	"a keyed get admitted",
-	"a keyed get naming a field beside its key admitted",
-	"a keyed get missing a key field refused",
-	"a keyed get naming a field in a key field's place refused",
-	"a keyed get through a candidate key",
-	"a keyed get of a closed relation",
-	"a keyed get of a roster",
-	"a union lookup pinned by one of several separators",
-	"a union of three rules looked up and pinned",
-	...agreementPairs
-]
-
-/**
- * The faults whose site may hold a value the engine admits: a valid name, a field of the source, a key, one type, a
- * cosine distance to a vector of the same dimensions, an order by a field of the heading, spans of one endpoint type,
- * a pack of a span, a search by its distance to a query vector over a head that neither counts nor produces spans.
- */
-const admissible = [
-	"scopeName",
-	"stranger",
-	"unkeyedFold",
-	"unionTypes",
-	"cosineDims",
-	"cosineTerm",
-	"orderHidden",
-	"spanEndpoints",
-	"packTerm",
-	"nearestBy",
-	"nearestSource"
-] as const
-
-const faultsRequired: Situations<AgreementNote | FaultNote> = [
-	...Arr.map(agreementFaults, (fault): FaultNote => `${fault} refused`),
-	...Arr.map(admissible, (fault): FaultNote => `${fault} admitted`),
-	"a contract's span refused against its base's"
-]
-
-layer(NodeServices.layer, { excludeTestServices: true })("the type/engine agreement", (it) => {
-	it(`over drawn queries, the engine's verdict is the same with each rule's filters in the other order`, () => {
-		assert.deepEqual(reorderedVerdicts(typeRun().seed), [], "verdicts the filters' order moves")
-	})
-
-	it("each kept case still draws what it was kept for", () => {
-		for (const { kept, drawn } of agreementKept()) {
-			assert.deepEqual(
-				Arr.filter(kept.reaches, (n) => !drawn.notes.has(n)),
-				[],
-				kept.note
-			)
+export const evidence = agreement(agreementCases, {
+	situations: evidenceRequired,
+	notes: agreementReached,
+	checking: "disarmed",
+	program: evidenceProgram,
+	oracle: { kind: "second-implementation", name: "the engine's verdict on each drawn query" },
+	kept: [
+		{
+			token: ReplayToken(
+				"test/types/evidence/agreement.test.ts#evidence:-:1m.2.3.a.3.b.c.4.7.8.1.a.b.7.2.6.3.d.2.g.7.0.b.1.2.6.7.5.c.e.8.1.f.2.2.4.e.a.4.8.8.7.9.1.5.d.7.h.d.2.7.f.1.h.h.d.f.3.d.8.2.d.4.6.a.1.0.0.6.3.6.3.0.0.2.1.1.2.1.0.1.0.2.6.2.0.2.0.1.0.0.0.6.2.3.1.1.2.3.2.1.2.1.1.2.5.1.1.2.4.1"
+			),
+			reason:
+				"a rule fixing Slot's key by a constant item and r.allen(slot.during, ALLEN.converse(ALLEN.equals), a span parameter): the engine proves get, an equality its equals mask lowers to, where the types read every mask as stating nothing (TEST_SEED=2458598146)",
+			since: "2026-11-16"
+		},
+		{
+			token: ReplayToken(
+				"test/types/evidence/agreement.test.ts#evidence:-:13.2.6.2.6.c.3.2.1.d.6.c.1.7.h.a.6.6.8.g.8.9.f.4.2.3.3.2.b.h.f.f.9.3.a.2.4.f.9.1.f.0.6.h.g.a.a.0.9.6.a.9.c.0.6.5.e.a.9.g.2.6.h.f.h.1.0.2.1.1.0.0.4.1.0.0.0.6.4.0.3.0.0.0.1.1.3.3.0.1.0.0.1.1.2.2.1.4.3.2.1.0.0.1.1.1.1.0.2.2.4.0.0.1.0.1.2.t.1.1.9.c.1.3.1.4.0.0.a.2.2.2.0.2.2.0.0.5.1.0.1.0.0.0.0.0.1.2"
+			),
+			reason:
+				"a union of three rules of constants, h0 low throughout and b y, x, x, two rules alike: the engine keys it by b, the fields its rules do not all fix alike, where the types, which required every two rules told apart, keyed it by its whole heading (TEST_SEED=1635200356)",
+			since: "2026-11-16"
+		},
+		{
+			token: ReplayToken(
+				"test/types/evidence/agreement.test.ts#evidence:-:c.0.a.9.1.h.7.1.7.d.g.8.c.g.2.a.1.5.b.4.a.3.b.4.8.1.b.f.4.3.d.7.b.7.e.6.3.5.g.b.0.f.e.5.e.a.3.7.3.a.5.a.0.1.e.0.3.3.0.d.7.9.b.7.f.0.0.1.2.2.3.3.0.4.1.2.0.1.2.0.2.0.0"
+			),
+			reason:
+				"a union of three rules of constants, d z, y, x and b x, z, z: the engine keeps d alone, which tells all three apart, and drops b, the first separator of two pairs that d tells apart too, so the union is keyed by d, not by b and d",
+			since: "2026-11-16"
 		}
-	})
+	],
+	kills: [
+		{
+			file: "packages/engine/src/types/db/workload.ts",
+			original:
+				'type PagedArgument<O> = O extends OrderedBase ? PageOf<O> : Refusal<"page needs an ordered query">',
+			replacement: "type PagedArgument<O> = O extends OrderedBase ? PageOf<O> : unknown",
+			why: "paged takes a query no orderBy made (types/db/workload.ts PagedArgument answers unknown for it), so a paged query's unordered self is admitted; the agreements' program fails."
+		}
+	]
+})
 
-	it("the floor's witnesses reach every construct, both verdicts and a proved self-join", () => {
-		assert.deepEqual(
-			unreachedOf(required, [agreementWitnesses().tally]),
-			[],
-			"constructs or verdicts no floor witness reached"
-		)
-	})
+/**
+ * Over drawn queries each planting one fault, the types refuse exactly the faults the engine refuses, at the fault's
+ * site and under the refusal its reason is, and state an admitted one as a clean query is stated.
+ */
+export const faults = agreement(faultCases, {
+	situations: faultsRequired,
+	notes: agreementReached,
+	checking: "disarmed",
+	program: faultProgram,
+	oracle: { kind: "second-implementation", name: "the engine's verdict on each faulted query" },
+	kept: [
+		{
+			token: ReplayToken(
+				"test/types/evidence/agreement.test.ts#faults:-:6.h.0.b.2.4.0.9.2.h.f.2.b.c.6.9.d.0.8.7.1.0.3.1.2.1.f.a.c.4.6.2.h.7.f.5.d.9.6.a.4.e.d.2.0.2.9.5.e.4.d.d.e.7.b.h.c.8.e.d.0.7.b.9.b.5.1.0.0.3.0.2.3.0.3.0.3.1.2.1.1.0.3.2.0.1.2.1.1.3.1.1.0.0"
+			),
+			reason:
+				"a union of two rules whose constant heads differ at four fields, three of them roster handles: the types keyed it by each of the four, where the engine keeps the first in heading order, d (TEST_SEED=1635200356)",
+			since: "2026-11-16"
+		}
+	],
+	kills: []
+})
 
-	it("the faulted floor's witnesses reach every fault refused, and each whose site may hold a valid value admitted", () => {
-		assert.deepEqual(
-			unreachedOf(faultsRequired, [faultWitnesses().tally]),
-			[],
-			"faults no floor witness reached"
-		)
-	})
+/**
+ * Every constant kind at every position, under every value and stage of its kind, every combinator over every shape
+ * of query and every cell of the scope axis: the types admit exactly what the engine admits, and name its refusal.
+ */
+export const admission = boxAgreement(admissionBox, {
+	box: "every position against every constant kind, under every value and stage of the kind; every combinator over every shape under every wrapper; every level, relation source and negation place of the scope axis",
+	situations: [],
+	notes: () => [],
+	checking: "disarmed",
+	program: (cells, entry) => admissionProgram(cells, evidencePrelude(entry)),
+	oracle: {
+		kind: "second-implementation",
+		name: "the engine's compilation of each cell's statement"
+	},
+	kept: [],
+	kills: []
+})
 
-	it.effect(
-		`over drawn queries in two orders, faulted ones and the admission cells, the types accept a query, its records and its parameters exactly as the engine does, its keys, and every constant exactly where the engine admits it`,
-		() =>
-			Effect.gen(function* () {
-				const { expected, actual } = yield* checked("evidence/agreement")
-				assert.deepEqual(actual, expected)
-			})
-	)
+/**
+ * Every shape of a query's parameters against every form of argument: the types admit exactly what the runtime's
+ * reading of an argument admits.
+ */
+export const argumentForms = boxAgreement(argumentBox, {
+	box: "every parameter shape against every form of argument it has one of",
+	situations: [],
+	notes: () => [],
+	checking: "disarmed",
+	program: (cells, entry) => argumentProgram(cells, evidencePrelude(entry)),
+	oracle: { kind: "second-implementation", name: "the runtime's reading of each argument" },
+	kept: [],
+	kills: []
+})
+
+/** Over drawn queries, clean and faulted, the engine's verdict is the same with each rule's filters in the other order. */
+export const reordered = property.explore(oneOf([agreementCases, faultCases]), {
+	situations: [],
+	needs: {},
+	check: () => (c) =>
+		Effect.sync(() => {
+			const verdicts = reorderedVerdicts(c)
+			assert.equal(
+				verdicts.reordered,
+				verdicts.written,
+				`the filters' order moves the verdict of\n${c.source}`
+			)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "a rule's filters are a conjunction, whose order is no part of it"
+	},
+	kept: [],
+	kills: []
 })

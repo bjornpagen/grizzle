@@ -3,6 +3,7 @@ import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { defined } from "#test/support/assert.ts"
 import { fileText, joinPath, repoRoot } from "#test/support/files.ts"
+import { batchOwned, type Part, type ProgramModule } from "#test/types/batch/batch.ts"
 
 /**
  * A generated program's prelude (test/support/programs): the one module of real export statements a type
@@ -226,3 +227,35 @@ export const preludeImports = (
  */
 export const preludeProgram = (header: string, at: PreludeAt, body: string): string =>
 	Arr.join([header, ...preludeImports(at, identifiers(body)), "", body], "\n")
+
+/**
+ * A generated program's module `file`: its `header` line and the imports its parts name through its prelude as `at`
+ * reaches it, both the batch's own, then the parts, each owned as it states.
+ */
+export const preludeModule = (
+	file: string,
+	header: string,
+	at: PreludeAt,
+	parts: ReadonlyArray<Part>
+): ProgramModule => ({
+	file,
+	parts: [
+		{
+			owner: batchOwned,
+			lines: [
+				header,
+				...preludeImports(
+					at,
+					identifiers(
+						Arr.join(
+							Arr.flatMap(parts, (part) => part.lines),
+							"\n"
+						)
+					)
+				),
+				""
+			]
+		},
+		...parts
+	]
+})

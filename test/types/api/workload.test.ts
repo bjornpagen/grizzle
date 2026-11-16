@@ -1,32 +1,36 @@
 /**
- * The workload agreement (test/support/agreement/workloads.ts), one program the type batch checks disarmed: over drawn
- * workloads and the floor's, the types admit exactly what the engine builds, plans and compiles, and keep each
- * program's type. Oracle: the engine's build, plan and compile of each drawn workload. The floor's witnesses reach every
- * kind of program under both verdicts and every shape of workload, so the program is never vacuous on any seed.
+ * The workload agreement (test/support/agreement/workloads.ts): over drawn workloads, the types admit exactly what the
+ * engine builds, plans and compiles, and keep each program's type. Each workload is a block of one program a batch
+ * checks disarmed. Oracle: the engine's build, plan and compile of each drawn workload. The witnesses reach every kind
+ * of program under both verdicts and every shape of workload.
  */
-import { unreachedOf } from "@bjornpagen/testing/features"
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Effect } from "effect"
-import { workloadRequired, workloadWitnesses } from "#test/support/agreement/workloads.ts"
-import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/batch.ts"
+import {
+	workloadCases,
+	workloadProgram,
+	workloadRequired
+} from "#test/support/agreement/workloads.ts"
+import { agreement } from "#test/types/batch/agreement.ts"
 
-layer(NodeServices.layer, { excludeTestServices: true })("the workload agreement", (it) => {
-	it.effect(
-		`over drawn workloads and the floor's, the types admit exactly what the engine builds, plans and compiles, and keep each program's type`,
-		() =>
-			Effect.gen(function* () {
-				const { expected, actual } = yield* checked("api/workload")
-				assert.deepEqual(actual, expected)
-			})
-	)
-
-	it("the floor's witnesses reach every kind of program under both verdicts and every shape of workload", () => {
-		assert.deepEqual(
-			unreachedOf(workloadRequired, [workloadWitnesses().tally]),
-			[],
-			"situations no floor witness reached"
-		)
-	})
+/**
+ * Over drawn workloads, the types admit exactly what the engine builds, plans and compiles, and keep each program's
+ * type.
+ */
+export const workload = agreement(workloadCases, {
+	situations: workloadRequired,
+	notes: (c) => c.notes,
+	checking: "disarmed",
+	program: workloadProgram,
+	oracle: {
+		kind: "second-implementation",
+		name: "the engine's build, plan and compile of each drawn workload"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/types/db/workload.ts",
+			original: '\t\t\t: Refusal<"a ChangeSet writes only relations its role\'s write list names">',
+			replacement: "\t\t\t: unknown",
+			why: "A workload over a role takes a ChangeSet writing a relation its role's write list does not name (types/db/workload.ts WritesWithin answers unknown for it); the agreement's program fails."
+		}
+	]
 })

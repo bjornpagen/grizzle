@@ -1,32 +1,33 @@
 /**
- * The recursion agreement (test/support/agreement/recursion.ts), one program the type batch checks disarmed: over drawn
- * recursions and the floor's, the types admit exactly what the engine compiles, name its refusal, and infer its records
- * and parameters. Oracle: the engine's compile of each drawn recursion. The floor's witnesses reach every fault, both
- * declared classes and every admitted shape, so the program is never vacuous on any seed.
+ * The recursion agreement (test/support/agreement/recursion.ts): over drawn recursions, the types admit exactly what the
+ * engine compiles, name its refusal, and infer its records and parameters. Each recursion is a block of one program a
+ * batch checks disarmed. Oracle: the engine's compile of each drawn recursion. The witnesses reach every fault, both
+ * declared classes and every admitted shape.
  */
-import { unreachedOf } from "@bjornpagen/testing/features"
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Effect } from "effect"
-import { recursionRequired, recursionWitnesses } from "#test/support/agreement/recursion.ts"
-import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/batch.ts"
+import {
+	recursionCases,
+	recursionProgram,
+	recursionRequired
+} from "#test/support/agreement/recursion.ts"
+import { agreement } from "#test/types/batch/agreement.ts"
 
-layer(NodeServices.layer, { excludeTestServices: true })("the recursion agreement", (it) => {
-	it.effect(
-		`over drawn recursions and the floor's, the types admit exactly what the engine compiles, name its refusal, and infer its records and parameters`,
-		() =>
-			Effect.gen(function* () {
-				const { expected, actual } = yield* checked("api/recursion")
-				assert.deepEqual(actual, expected)
-			})
-	)
-
-	it("the floor's witnesses reach every fault, both declared classes and every admitted shape", () => {
-		assert.deepEqual(
-			unreachedOf(recursionRequired, [recursionWitnesses().tally]),
-			[],
-			"situations no floor witness reached"
-		)
-	})
+/**
+ * Over drawn recursions, the types admit exactly what the engine compiles, name its refusal, and infer its records and
+ * parameters.
+ */
+export const recursion = agreement(recursionCases, {
+	situations: recursionRequired,
+	notes: (c) => c.notes,
+	checking: "disarmed",
+	program: recursionProgram,
+	oracle: { kind: "second-implementation", name: "the engine's compile of each drawn recursion" },
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/types/query/query.ts",
+			original: "\t\t} & NoInfer<SomeArm<Base, Rec>>",
+			replacement: "\t\t}",
+			why: "The types admit a recursion with no base arm (types/query/query.ts drops SomeArm on the base list); the agreement's program fails."
+		}
+	]
 })

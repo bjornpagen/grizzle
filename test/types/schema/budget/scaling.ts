@@ -51,7 +51,7 @@ interface SchemaDimension {
  * with TS2589 at 1,000; a key's fields and a side's terms, which the same kernel reads, stop at PostgreSQL's 32 columns
  * of one index.
  */
-export const schemaDimensions: ReadonlyArray<SchemaDimension> = [
+const schemaRoster: Arr.NonEmptyReadonlyArray<SchemaDimension> = [
 	{
 		name: "relations",
 		steps: equalSteps(334),
@@ -290,3 +290,10 @@ export const read${k} = query(S).rule((r) => {
 )}`
 	)
 }
+
+/** The cells of schemaDimensions, minted as a dictionary in its door (test/types/schema/budget/scaling.dictionary.ts). */
+export const schemaDimensionsItems = Arr.map(schemaRoster, (dimension) => ({
+	name: dimension.name,
+	steps: dimension.steps,
+	source: (size: number, entries: PreludeAt) => schemaScaleSource(dimension.shape(size), entries)
+}))

@@ -217,10 +217,9 @@ database, `gz_shared_<VITEST_POOL_ID>`, and unique schema names, because roles a
 global setup (`test/support/pg-global-setup.ts`) runs the doctor's quick checks, sweeps what ended runs left behind, and
 clones the worker databases. Once every file has ended, its teardown sweeps again. Nothing drops a database while files
 run: DROP DATABASE holds its transaction id through the checkpoint it forces, which makes PostgreSQL summarize every
-other file's SERIALIZABLE transactions, and their writes then fail with 40001. The type tier's checks are one tsgo
-program, which a builder process its global setup starts builds while the files run (`test/types/batch/global-setup.ts`,
-`build.ts`): drawing a program is one long synchronous computation, so the batch never draws one in Vitest's own
-process, whose timers start every test process.
+other file's SERIALIZABLE transactions, and their writes then fail with 40001. The type tier runs on the toolchain's
+runner (`test.config.ts`, `toolchain-test run test/types`): each type property checks its cases a batch at a time, one
+tsgo program per batch written into the batch's own directory (`test/types/batch/batch.ts`).
 
 Every generated suite draws from one run seed, `TEST_SEED`. The run prints the seed first, and setting it reproduces
 a run; `TEST_REPLAY='<suite>:<steering>:<tape>'` replays one case as its failure printed it, under the steering it was drawn with. Each search runs, in order
@@ -345,13 +344,8 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   test starts, through any helper, and a case that started none is an example (`examples: { kind: "banned" }` in
   `vitest.config.ts` and `vitest.network.config.ts`). A commands program is searched by `explore`, and a hand schedule
   `runSchedule` hands to `interleave` counts. Its named exemptions, each with its reason, are in
-  `test/support/examples.ts`: the README and SKILL mirror, the published-package gate, the performance gates, the type
-  batch's population runners and its cost gates. A type-test file goes on the population runners' exemption only when
-  its cases read a population the type batch typechecks as one program (a group of `test/types/batch/groups.ts`, read
-  through `checked`). The batch's builder draws the population, by the testing library's generators or by exhausting
-  a box of the source's own rosters, and typechecks it at once, so no case can run a search per program. Each case
-  holds the population to the engine as oracle, or holds that its floor's witnesses reach every requirement. Every
-  other file runs its search in its cases. The mutation tester's own config allows examples: the tiers refuse them,
+  `test/support/examples.ts`: the published-package gate and the performance gates. Every other file runs its search in
+  its cases. The mutation tester's own config allows examples: the tiers refuse them,
   and a mutant is judged by its tests' verdicts. The plugin's `no-case-list` refuses a search whose space is a list
   of cases: the `generator` of an `exhaust` or the `draw` of an `explore` that is `element` over a list written in the
   tests (an array literal of a test file or of `test/`, held by a constant or computed from one by a call, read from
@@ -498,7 +492,7 @@ holds it to that. Replay the token to reproduce the case alone.
 Vitest: a choice-stream engine, where every case is a tape of bounded choices that one generator searches at random,
 enumerates exhaustively, replays, mutates and shrinks. grizzle's own primitives, which know its engine and PostgreSQL, live in `test/support`. Use one
 primitive per job; a suite never grows its own runner, coverage counter, seed parser, PRNG, fixed-seed sample or SQL
-text match. A type batch's population judges its requirements on `floorPopulation`, its witnesses, with `unreachedOf`.
+text match. A type agreement's requirements are its property's situations, which the runner's witnesses must reach.
 
 | Job | Primitive |
 | --- | --- |
@@ -666,18 +660,23 @@ text match. A type batch's population judges its requirements on `floorPopulatio
   mutants of the code they target, and gates nothing. A verdict names one mutant of the current
   population by its id, so a verdict whose mutant no longer exists, its code moved or changed, refuses every run until
   it is triaged again or deleted.
-- **Type tests** (`test/types`): fixtures checked under tsgo as one batch, plus a disarmed copy that must fail with
-  exactly the diagnostic each `@ts-expect-error` names, printing `Refusal<"<message>">` exactly where the directive
-  names that refusal. The README's and `packages/grizzle/skills/grizzle/SKILL.md`'s `ts` blocks are checked code: each
-  is mirrored line for line in `test/types/examples/fixtures/readme.ts` or `skill.ts`, which the batch typechecks, and
-  `test/types/examples/blocks.test.ts` holds every block to its fixture, so an edit to a block alone fails.
-  Every tsgo check the batch and the scaling tests run is under a stall guard (test/types/batch/compiler.ts). A check
-  whose process tree makes no CPU progress for `stallWindow` fails with CompilerStalled, carrying the goroutine dump
-  tsgo prints on SIGQUIT. The batch's BatchStalled names the program's units, so a stalled compiler fails every check it
-  holds, never hangs it.
+- **Type tests** (`test/types`): properties on the toolchain's runner whose cases are entries of a generated program.
+  A batch of cases is one program (`test/types/batch/batch.ts`), checked once by tsgo in the batch's own directory,
+  armed or disarmed: disarmed, every `@ts-expect-error` must fail with exactly the diagnostic it names, printing
+  `Refusal<"<message>">` exactly where the directive names that refusal, and no other line may fail. Each diagnostic
+  belongs to whoever answers for its line, one case or the batch, so each case's verdict is its own lines' and a
+  failing case prints, shrinks and replays alone. A drawn population is an `agreement` (a batched search of its
+  generator); a box of the source's own rosters is a `boxAgreement` (an exhaustion of its cells); a type cost gate is an
+  exhaustion of its dimensions, each checked at three sizes under the growth law (`test/support/growth.ts`). The
+  README's and `packages/grizzle/skills/grizzle/SKILL.md`'s `ts` blocks are checked code: each is mirrored line for
+  line in `test/types/examples/fixtures/readme.ts` or `skill.ts`, which `pnpm typecheck` checks, the README's refusals
+  are a box of their own, and `test/types/examples/blocks.test.ts` holds every block to its fixture, so an edit to a
+  block alone fails. Every tsgo check is under a stall guard (test/types/batch/compiler.ts): a check whose process tree
+  makes no CPU progress for `stallWindow` fails with CompilerStalled, carrying the goroutine dump tsgo prints on
+  SIGQUIT, never hangs.
 - **The type/engine agreements** (`test/support/agreement`): drawn schemas, ChangeSets, workloads, roles' access,
-  computations, recursion and configurations, each population rendered as one TypeScript program the type batch
-  checks, and built through the engine. The engine is the oracle (for a configuration, the reader DbLayer.make runs):
+  computations, recursion and configurations, each case rendered as a block of a TypeScript program a batch checks,
+  and built through the engine. The engine is the oracle (for a configuration, the reader DbLayer.make runs):
   a program typechecks exactly when the engine admits it, each refusal under a directive naming its diagnostic, and
   every type the program infers equals what the engine describes. A generated program imports every repository name
   through its prelude (`test/support/programs`, read by `test/support/prelude.ts`), real export statements fallow

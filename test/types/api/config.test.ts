@@ -1,23 +1,38 @@
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
+import { configProgram } from "#test/support/agreement/dbconfig.ts"
 /**
- * The DbConfig agreement (test/support/agreement/dbconfig.ts), one program the type batch checks disarmed: over the
- * reader's every setting left out and given a stranger, and every password, verify and driver channel, the types take
- * exactly what DbLayer.make's reader admits, and every type-only contract holds. Oracle: the reader itself
- * (connection/config.ts, pool/served.ts), over the settings its own rosters name.
+ * The DbConfig agreement (test/support/agreement/dbconfig.ts): over the reader's every setting left out and given a
+ * stranger, and every password, verify and driver channel, the types take exactly what DbLayer.make's reader admits,
+ * and every type-only contract holds. Each block's keys, omission, stranger, channel case and relabelling is a cell of
+ * the box; a batch's cells are one program, checked disarmed. Oracle: the reader itself (connection/config.ts,
+ * pool/served.ts), over the settings its own rosters name.
  */
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Effect } from "effect"
-import { configSize } from "#test/support/agreement/dbconfig.ts"
-import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/batch.ts"
+import { configBox } from "#test/types/api/config.dictionary.ts"
+import { boxAgreement } from "#test/types/batch/agreement.ts"
 
-layer(NodeServices.layer, { excludeTestServices: true })("the DbConfig agreement", (it) => {
-	it.effect(
-		`over the reader's every setting left out and given a stranger, and every password, verify and driver channel (${configSize} configs), the types take exactly what DbLayer.make's reader admits and every type-only contract holds`,
-		() =>
-			Effect.gen(function* () {
-				const { expected, actual } = yield* checked("api/config")
-				assert.deepEqual(actual, expected)
-			})
-	)
+/**
+ * Over the reader's every setting left out and given a stranger, and every password, verify and driver channel, the
+ * types take exactly what DbLayer.make's reader admits and every type-only contract holds.
+ */
+export const config = boxAgreement(finite(word(configBox)), {
+	box: "each block's keys, every setting of the reader's rosters left out and a stranger in each block, for a login whose role reads no context and one whose role reads Session; every password, verify and driver by login; and every config by the login it names",
+	situations: [],
+	notes: () => [],
+	checking: "disarmed",
+	program: configProgram,
+	oracle: {
+		kind: "second-implementation",
+		name: "DbLayer.make's reader (connection/config.ts, pool/served.ts) over its own rosters"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/grizzle/src/adapter/connection/config.ts",
+			original: 'export const poolSettings = ["max", "min", "idleTimeoutMs"] as const',
+			replacement:
+				'export const poolSettings = ["max", "min", "idleTimeoutMs", "maxUses"] as const',
+			why: "The reader's pool roster (connection/config.ts poolSettings) gains a setting the type does not state; the agreement's program fails."
+		}
+	]
 })

@@ -67,7 +67,8 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/unit/vector/**/*.test.ts",
 	"test/unit/workload/**/*.test.ts",
 	"test/unit/world-model/**/*.test.ts",
-	"test/unit/write/**/*.test.ts"
+	"test/unit/write/**/*.test.ts",
+	"test/types/**/*.test.ts"
 ]
 
 /**

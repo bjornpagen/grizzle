@@ -1,3 +1,4 @@
+import { costGate } from "#test/types/batch/measured.ts"
 /**
  * schema.extend's type cost against the base it extends (schema/budget/extension.ts): the derived relations an
  * extension lists, and the laws it states over derived relations, each program checked alone over a base of `small`
@@ -17,82 +18,29 @@
  * program typechecks with no diagnostic. Oracle: the compiler's own counts and diagnostics
  * (test/types/batch/measured.ts), compared across the two bases.
  */
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect } from "effect"
-import { assert, defined } from "#test/support/assert.ts"
-import type { PreludeAt } from "#test/support/prelude.ts"
-import { assertClean, measuredEach } from "#test/types/batch/measured.ts"
-import { type ExtensionShape, extensionSource } from "#test/types/schema/budget/extension.ts"
+import { extensionDimensions } from "#test/types/schema/budget/extension.dictionary.ts"
+import { extensionCost, extensionDimensionName } from "#test/types/schema/budget/extension.ts"
 
-/**
- * The derived relations or laws of the first program, and the bases' sizes. The second program lists or states twice as
- * many; the small base holds twice as many relations as that, each of the derived relations over one of its own, and
- * the large one four times as many as the small, so a derived relation or a law that walks the base walks every relation
- * the large base adds, three for each of the small one's, for each relation or law the second program adds.
- */
-const added = 5
-const derived = 2 * added
-const small = 2 * derived
-const large = 4 * small
-
-/** What one law measures: the shape of its first program over the base of `relations`, and of its second. */
-type Dimension = {
-	readonly what: string
-	readonly shape: (relations: number, count: number) => ExtensionShape
-}
-
-const dimensions: ReadonlyArray<Dimension> = [
-	{
-		what: "derived relation the extension lists",
-		shape: (relations, count) => ({ relations, derived, listed: count, named: 0, laws: 0 })
-	},
-	{
-		what: "law over a derived relation a statement already names",
-		shape: (relations, count) => ({
-			relations,
-			derived,
-			listed: derived,
-			named: derived,
-			laws: count
-		})
-	}
-]
-
-/** The four programs of one dimension, in order: `added` and twice as many, over each base. */
-const shapes = [
-	{ relations: small, count: added },
-	{ relations: small, count: 2 * added },
-	{ relations: large, count: added },
-	{ relations: large, count: 2 * added }
-] as const
-
-layer(NodeServices.layer, { excludeTestServices: true })("the extension programs", (it) => {
-	for (const dimension of dimensions) {
-		it.effect(
-			`each ${dimension.what} costs as many instantiations over ${large} base relations as over ${small}`,
-			() =>
-				Effect.gen(function* () {
-					const measured = yield* measuredEach(
-						"test/types/schema",
-						Arr.map(shapes, (at) => ({
-							size: at.relations,
-							source: (entries: PreludeAt) =>
-								extensionSource(dimension.shape(at.relations, at.count), entries)
-						}))
-					)
-					for (const m of measured) {
-						assertClean(m, `the extension of each ${dimension.what}`)
-					}
-					const count = (i: number): number =>
-						defined(measured[i], `the program of each ${dimension.what} at ${i}`).instantiations
-					const step = { small: count(1) - count(0), large: count(3) - count(2) }
-					assert.equal(
-						step.large,
-						step.small,
-						`the last ${added} of each ${dimension.what} cost ${step.large} instantiations over ${large} base relations and ${step.small} over ${small}`
-					)
-				})
-		)
-	}
+/** Each derived relation an extension lists, and each law over one, costs as many instantiations over the large base as over the small one. */
+export const cost = costGate(extensionDimensions, {
+	box: "every dimension of an extension: its derived relations listed, its laws over them",
+	name: extensionDimensionName,
+	measure: extensionCost,
+	oracle: { kind: "universal", name: "the compiler's own counts, compared across the two bases" },
+	kills: [
+		{
+			file: "packages/engine/src/types/schema/schema.ts",
+			original:
+				"\t\t\t> extends true\n\t\t\t\t? never\n\t\t\t\t: ClashesOf<Boxed<Relations[I]>, Relations, Below>",
+			replacement:
+				"\t\t\t> extends unknown\n\t\t\t\t? ClashesOf<Boxed<Relations[I]>, Relations, Below>\n\t\t\t\t: never",
+			why: "The list's clash check compares every element of a tuple whole with the relations under its name (ClashesOf), the one declaration of its name among them: each derived relation is compared with itself (Identical), which instantiates its definition, the base with it; the derived relations' cost grows with the base."
+		},
+		{
+			file: "packages/engine/src/types/schema/schema.ts",
+			original: '\t? SideNames<Stated<St, "side">>',
+			replacement: "\t? St extends Key<infer S>\n\t\t? SideNames<S>\n\t\t: never",
+			why: "NamedBy reads a key's side by matching the statement (`St extends Key<infer S>`): the key holds the derived relation its side reads, and the test instantiates it whole, the base with it, for each key; the laws' cost grows with the base."
+		}
+	]
 })

@@ -355,11 +355,11 @@ export const guardedRun = (
 		})
 	)
 
-/** The repository's compiler at `root`, run with `args` under the type tier's stall guard. */
-export const compiled = (root: string, args: ReadonlyArray<string>) =>
+/** The repository's compiler at `root`, run in `cwd` with `args` under the type tier's stall guard. */
+export const compiled = (root: string, cwd: string, args: ReadonlyArray<string>) =>
 	guardedRun(
 		process.execPath,
 		[`${root}/node_modules/typescript/bin/tsc`, ...args],
-		root,
+		cwd,
 		compilerStallGuard
 	)

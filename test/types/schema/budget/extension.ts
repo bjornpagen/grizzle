@@ -1,7 +1,9 @@
-import { Array as Arr } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
+import { assertClean, type Measuring, measuredEach } from "#test/types/batch/measured.ts"
 
 /**
  * The extension programs (extension.test.ts), each a schema.extend over a base of `relations` relations, as edullm's
@@ -76,3 +78,86 @@ used(K${i})
 )}export const E = schema.extend(B, "E", [${listedOf(shape)}], [${lawsOf(shape)}])
 `
 	)
+
+/**
+ * The derived relations or laws of the first program, and the bases' sizes. The second program lists or states twice as
+ * many; the small base holds twice as many relations as that, each of the derived relations over one of its own, and
+ * the large one four times as many as the small, so a derived relation or a law that walks the base walks every relation
+ * the large base adds, three for each of the small one's, for each relation or law the second program adds.
+ */
+const added = 5
+const derivedCount = 2 * added
+const small = 2 * derivedCount
+const large = 4 * small
+
+/** What one law measures: the shape of its first program over the base of `relations`, and of its second. */
+export type ExtensionDimension = Readonly<{
+	what: string
+	shape: (relations: number, count: number) => ExtensionShape
+}>
+
+/** The cells of extensionDimensions, minted as a dictionary in its door (test/types/schema/budget/extension.dictionary.ts). */
+export const extensionDimensionsItems: readonly [
+	ExtensionDimension,
+	...ReadonlyArray<ExtensionDimension>
+] = [
+	{
+		what: "derived relation the extension lists",
+		shape: (relations, count) => ({
+			relations,
+			derived: derivedCount,
+			listed: count,
+			named: 0,
+			laws: 0
+		})
+	},
+	{
+		what: "law over a derived relation a statement already names",
+		shape: (relations, count) => ({
+			relations,
+			derived: derivedCount,
+			listed: derivedCount,
+			named: derivedCount,
+			laws: count
+		})
+	}
+]
+
+/** The four programs of one dimension, in order: `added` and twice as many, over each base. */
+const extensionShapes = [
+	{ relations: small, count: added },
+	{ relations: small, count: 2 * added },
+	{ relations: large, count: added },
+	{ relations: large, count: 2 * added }
+] as const
+
+/** How a dimension prints. */
+export const extensionDimensionName = (dimension: ExtensionDimension): string =>
+	`each ${dimension.what} over ${large} base relations and over ${small}`
+
+/**
+ * The cost of one dimension, measured: its four programs typecheck with no diagnostic, and the last `added` of each
+ * cost exactly as many instantiations over the large base as over the small one.
+ */
+export const extensionCost = (at: Measuring, dimension: ExtensionDimension) =>
+	Effect.gen(function* () {
+		const measured = yield* measuredEach(
+			at,
+			Arr.map(extensionShapes, (shape) => ({
+				size: shape.relations,
+				source: (entries: PreludeAt) =>
+					extensionSource(dimension.shape(shape.relations, shape.count), entries)
+			}))
+		)
+		for (const m of measured) {
+			assertClean(m, `the extension of each ${dimension.what}`)
+		}
+		const count = (i: number): number =>
+			defined(measured[i], `the program of each ${dimension.what} at ${i}`).instantiations
+		const step = { small: count(1) - count(0), large: count(3) - count(2) }
+		assert.equal(
+			step.large,
+			step.small,
+			`the last ${added} of each ${dimension.what} cost ${step.large} instantiations over ${large} base relations and ${step.small} over ${small}`
+		)
+	})

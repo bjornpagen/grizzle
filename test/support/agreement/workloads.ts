@@ -1,7 +1,5 @@
-import { floorPopulation, type Situations } from "@bjornpagen/testing/features"
+import type { Situations } from "@bjornpagen/testing/features"
 import { constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { floorSeed, rotatingSeed } from "@bjornpagen/testing/random"
-import { sample } from "@bjornpagen/testing/source"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -41,14 +39,9 @@ import {
 	type FixtureSchema,
 	testCompile
 } from "#test/support/compile.ts"
-import {
-	identifiers,
-	preludeAt,
-	preludeImports,
-	type PreludeAt,
-	preludeFrom
-} from "#test/support/prelude.ts"
+import { identifiers, preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
 import { upTo } from "#test/support/up-to.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
 
 /**
  * The workload agreement: workloads drawn over the values of ./workload-schema.ts, each with the engine's verdict on
@@ -204,7 +197,7 @@ type Verdict =
 	| { readonly kind: "admitted" }
 	| { readonly kind: "refused"; readonly reason: CompileError["reason"] }
 
-interface WorkloadCase {
+export interface WorkloadCase {
 	readonly spec: WorkloadSpec
 	readonly verdict: Verdict
 	/** The role a Db opened through the served workload of a login owning the workload runs it on, where one does. */
@@ -317,19 +310,35 @@ const fittingBy: { readonly [S in SchemaName]: ReadonlyArray<ProgramName> } = {
 }
 
 /**
+ * What a case draws its programs from: the programs that fit its schema, half the cases, so the checks past a program's
+ * level are reached as often as before; any program at all; or one program alone of those its schema refuses (the
+ * complement of fittingBy), the workload whose one refusal is that program's, so every kind of program is refused alone
+ * as often as it is drawn.
+ */
+const poolGen: Gen<"fitting" | "any" | "refused alone"> = weighted([
+	[2, constant("fitting")],
+	[1, constant("any")],
+	[1, constant("refused alone")]
+])
+
+/**
  * A drawn case's schema and programs, and the fault it would plant were its workload admitted. A case draws whether
- * its programs fit its schema (fittingBy) or are any programs at all, so both the level's refusals and those past it
- * are drawn.
+ * its programs fit its schema (fittingBy), are any programs at all, or are one program its schema refuses, so both
+ * the level's refusals and those past it are drawn, and each kind's refusal alone.
  */
 const specGen: Gen<WorkloadSpec> = (source) => {
 	const schema = source.draw(element(schemaNames))
 	const fitting = fittingBy[schema]
+	const refusing = Arr.filter(programNames, (program) => !Arr.contains(fitting, program))
+	const drawnPool = source.draw(poolGen)
 	const pool =
-		source.draw(element([false, true])) && Arr.isReadonlyArrayNonEmpty(fitting)
+		drawnPool === "fitting" && Arr.isReadonlyArrayNonEmpty(fitting)
 			? fitting
-			: programNames
+			: drawnPool === "refused alone" && Arr.isReadonlyArrayNonEmpty(refusing)
+				? refusing
+				: programNames
 	const first = source.draw(element(pool))
-	const extra = source.draw(int(0, 2))
+	const extra = drawnPool === "refused alone" ? 0 : source.draw(int(0, 2))
 	const rest =
 		extra === 0
 			? []
@@ -358,7 +367,7 @@ const specGen: Gen<WorkloadSpec> = (source) => {
  * A case: its drawn workload, with its fault planted where the engine admits the workload clean, so the planted fault
  * is its one refusal, which must be the fault's own.
  */
-const caseGen: Gen<WorkloadCase> = (source) => {
+export const workloadCases: Gen<WorkloadCase> = (source) => {
 	const drawn = specGen(source)
 	const clean: WorkloadSpec = { ...drawn, planted: undefined }
 	const cleanVerdict = verdictOf(clean)
@@ -489,54 +498,44 @@ export const workloadRequired: Situations<WorkloadNote> = [
 	"a program under the empty name"
 ]
 
-/** The workloads the run's own stream draws, beside the floor's witnesses. */
-const workloadCount = 120
-
-const workloadLabel = "types/api workload agreement"
-
-export const workloadWitnesses = () =>
-	floorPopulation(workloadLabel, caseGen, workloadCount, (c) => [...c.notes])
-
-const workloadCases = (seed: number): ReadonlyArray<WorkloadCase> => [
-	...workloadWitnesses().values,
-	...sample(caseGen, rotatingSeed(seed, floorSeed(workloadLabel)), workloadCount)
-]
-
 /** The workload program's prelude (test/support/programs/workloads.ts), every name it reads. */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/workloads.ts"))
 
-export const workloadEntriesFrom = (entry: (path: string) => string): PreludeAt =>
-	preludeFrom(prelude, entry)
-
-/** The program over the run's cases: one module, each case a statement and its assertion, its imports what it reads. */
-export const workloadModule = (entries: PreludeAt, seed: number): string => {
-	const body = Arr.join(Arr.flatMap(workloadCases(seed), blockOf), "\n")
-	const cases = identifiers(body)
+/**
+ * The program over a batch's workloads: one module, each case a statement and its assertion, the declarations its
+ * blocks read the batch's own, its imports what it reads.
+ */
+export const workloadProgram = (
+	cases: Arr.NonEmptyReadonlyArray<WorkloadCase>,
+	entry: Entry
+): Program => {
+	const blocks = Arr.map(cases, (c, at) => ({ owner: caseOwned(at), lines: blockOf(c, at) }))
+	const read = identifiers(
+		Arr.join(
+			Arr.flatMap(blocks, (block) => block.lines),
+			"\n"
+		)
+	)
 	const declarations = [
-		...(cases.has("Expect")
+		...(read.has("Expect")
 			? [
 					"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
 					"type Expect<T extends true> = T"
 				]
 			: []),
-		...(cases.has("served")
+		...(read.has("served")
 			? [
 					"type OpenedAs<X> = X extends LoginRole<infer R, infer P> ? DbOf<R, P> : never",
 					"declare const file: unknown"
 				]
 			: [])
 	]
-	const read = identifiers(Arr.join([...declarations, body], "\n"))
-	return Arr.join(
-		[
+	return [
+		preludeModule(
+			"index.ts",
 			"// Generated by test/support/agreement/workloads.ts: the workload type/engine agreement.",
-			...preludeImports(entries, read),
-			"",
-			...declarations,
-			"",
-			body,
-			""
-		],
-		"\n"
-	)
+			preludeFrom(prelude, entry),
+			[{ owner: batchOwned, lines: [...declarations, ""] }, ...blocks]
+		)
+	]
 }

@@ -1,5 +1,6 @@
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { defined } from "#test/support/assert.ts"
 import {
 	type EntryOwnerCase,
 	entryName,
@@ -10,7 +11,8 @@ import {
 	type Holds,
 	roleName
 } from "#test/support/families/entry-owner.ts"
-import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
+import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
 
 /**
  * The entry-owner program: every case of the entry-owner box (test/support/families/entry-owner.ts) whose role is
@@ -19,7 +21,8 @@ import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/su
  * (test/unit/write/entry-owner.test.ts): a write is refused exactly when its fact states the count, which no fact of
  * the entry states, and its line then stands under the directive the type-test batch disarms; every other write
  * typechecks. The engine also refuses every delete through the entry when it compiles, a whole delete of Store through
- * a query entry, which the types leave to it.
+ * a query entry, which the types leave to it. Each declared case is a cell of the box; the shop and each entry's role
+ * its cells write through are the batch's own, declared once for the cells that write through it.
  */
 
 /** The declared cases: those whose entry's filter reads no family field, which the role builder refuses. */
@@ -27,6 +30,12 @@ const entryOwnerTyped: ReadonlyArray<EntryOwnerCase> = Arr.filter(
 	entryOwnerCases,
 	entryOwnerDeclared
 )
+
+/** The cells of entryOwnerBox, minted as a dictionary in its door (test/types/changeset/entry-owner.dictionary.ts). */
+export const entryOwnerBoxItems: readonly [EntryOwnerCase, ...ReadonlyArray<EntryOwnerCase>] = [
+	defined(entryOwnerTyped[0], "a declared case of the entry-owner box"),
+	...Arr.drop(entryOwnerTyped, 1)
+]
 
 /** The fields an entry's match binds and its head holds, beside `id` and `label`, by what the head holds. */
 const familyFields = (holds: Holds): ReadonlyArray<string> => {
@@ -53,12 +62,13 @@ interface Shape {
 }
 
 /** A declared shape's entry and role. */
-const shapeBlock = (holds: Holds, filter: Filter): string => {
+const shapeBlock = (holds: Holds, filter: Filter): ReadonlyArray<string> => {
 	const entry = entryName(holds, filter)
 	const name = roleName(holds, filter)
 	const held = familyFields(holds)
 	const fields = Arr.join(["id", "label", ...held], ", ")
-	return `export const ${entry} = query(shop).rule((r) => {
+	return Str.split(
+		`export const ${entry} = query(shop).rule((r) => {
 	const { ${fields} } = v(Store, "store")
 	return r.match(Store, { id, region: "north", label${Arr.join(
 		Arr.map(held, (f) => `, ${f}`),
@@ -66,47 +76,58 @@ const shapeBlock = (holds: Holds, filter: Filter): string => {
 	)} })${filterSource(filter)}.find({ ${fields} })
 })
 export const ${name} = role(shop, ${jsonText(name)}, { ${entry} }, { write: [${jsonText(entry)}] })
-`
+`,
+		"\n"
+	)
 }
 
 /** A case's write through its role's entry, under its directive when the types refuse it. */
-const caseBlock = (c: EntryOwnerCase, index: number): string => {
+const caseBlock = (c: EntryOwnerCase, index: number): ReadonlyArray<string> => {
 	const entry = entryName(c.holds, c.filter)
 	const name = roleName(c.holds, c.filter)
 	const fact =
 		c.fact === "stated"
 			? `{ id: "00000000-0000-4000-8000-000000000001", label: "a" }`
 			: `{ id: "00000000-0000-4000-8000-000000000001", label: "a", items: 0n }`
-	return `// ${c.op} of ${c.fact} through ${entry}
+	return Str.split(
+		`// ${c.op} of ${c.fact} through ${entry}
 export const write${index} = ChangeSet.empty(${name}).${c.op}(
 	${name}.relations.${entry},
 ${entryOwnerRefused(c) ? "\t// @ts-expect-error -- refusal: a member fact is not a fact of the relation\n" : ""}	[${fact}]
 )
-`
+`,
+		"\n"
+	)
 }
 
 /** The program's prelude (test/support/programs/entry-owner.ts). */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/entry-owner.ts"))
 
-/** The program's prelude as its directory reaches it, `entry` spelling a repository path from there. */
-export const entryOwnerEntriesFrom = (entry: (path: string) => string): PreludeAt =>
-	preludeFrom(prelude, entry)
-
-/** The program over the declared cases, its imports read through its prelude as `entries` reaches it. */
-export const entryOwnerSource = (entries: PreludeAt): string => {
+/** The program over a batch's cells: the shop, the entry and role of each shape they write through, then each write. */
+export const entryOwnerProgram = (
+	cells: Arr.NonEmptyReadonlyArray<EntryOwnerCase>,
+	entry: Entry
+): Program => {
 	const shapes = Arr.dedupeWith(
-		Arr.map(entryOwnerTyped, (c): Shape => ({ holds: c.holds, filter: c.filter })),
+		Arr.map(cells, (c): Shape => ({ holds: c.holds, filter: c.filter })),
 		(a: Shape, b: Shape) => a.holds === b.holds && a.filter === b.filter
 	)
-	return preludeProgram(
-		`// Generated by test/types/changeset/entry-owner.ts over ${entryOwnerTyped.length} cases.`,
-		entries,
-		`const { shop, Store } = shopOf("Shop")
-
-${Arr.join(
-	Arr.map(shapes, (s) => shapeBlock(s.holds, s.filter)),
-	"\n"
-)}
-${Arr.join(Arr.map(entryOwnerTyped, caseBlock), "\n")}`
-	)
+	return [
+		preludeModule(
+			"index.ts",
+			"// Generated by test/types/changeset/entry-owner.ts: writes through a role's entry over a family's owner.",
+			preludeFrom(prelude, entry),
+			[
+				{
+					owner: batchOwned,
+					lines: [
+						'export const { shop, Store } = shopOf("Shop")',
+						"",
+						...Arr.flatMap(shapes, (s) => shapeBlock(s.holds, s.filter))
+					]
+				},
+				...Arr.map(cells, (c, at) => ({ owner: caseOwned(at), lines: caseBlock(c, at) }))
+			]
+		)
+	]
 }

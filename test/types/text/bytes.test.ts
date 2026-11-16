@@ -1,32 +1,27 @@
 /**
- * str.bytes's types (test/support/text/bytes.ts), one program the type batch checks armed: a text a byte bound refines
- * has its pattern's own type, both ways, and so does a finite language's text under each drawn bound, whose type is no
- * string; and it meets every text its pattern meets, as a containment's source and as a key; the program has no
- * diagnostic. Oracle: the pattern-refined text's own type. The floor's cases, which the label fixes, reach every
- * required situation on every seed.
+ * str.bytes's types (test/support/text/bytes.ts): a text a byte bound refines has its pattern's own type, both ways,
+ * and so does a finite language's text under each drawn bound, whose type is no string; and it meets every text its
+ * pattern meets, as a containment's source and as a key. Each drawn containment is a block of one program a batch
+ * checks armed, which must raise no diagnostic. Oracle: the pattern-refined text's own type. The witnesses reach every
+ * meet situation.
  */
-import { unreachedOf } from "@bjornpagen/testing/features"
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
-import { bytesProgram } from "#test/support/text/bytes.ts"
-import { checked } from "#test/types/batch/batch.ts"
-import { typeRun } from "#test/types/batch/provided.ts"
+import { bytesProgram, featuresOf, meetCaseGen, meetFeatures } from "#test/support/text/bytes.ts"
+import { agreement } from "#test/types/batch/agreement.ts"
 
-layer(NodeServices.layer, { excludeTestServices: true })("str.bytes types", (it) => {
-	it.effect(
-		"a text a byte bound refines has its pattern's type, and meets every text its pattern meets",
-		() =>
-			Effect.gen(function* () {
-				/**
-				 * The program the batch checked: the same run draws the same program, whose floor cases, which its label
-				 * fixes, reach every required situation.
-				 */
-				const { situations, witnesses } = bytesProgram(typeRun().seed)
-				const diagnostics = yield* checked("text/bytes")
-				assert.equal(diagnostics.output, "")
-				assert.deepEqual(unreachedOf(situations, [witnesses]), [])
-			})
-	)
+/** A text a byte bound refines has its pattern's type, and meets every text its pattern meets. */
+export const bytes = agreement(meetCaseGen, {
+	situations: meetFeatures,
+	notes: featuresOf,
+	checking: "armed",
+	program: bytesProgram,
+	oracle: { kind: "second-implementation", name: "the pattern-refined text's own type" },
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/text/field.ts",
+			original: "\ttext: RegexText<Host>\n): RegexText<Host> => {",
+			replacement: "\ttext: RegexText<Host>\n): RegexText<string> => {",
+			why: "str.bytes is typed as a text whose host is string, no pattern's (text/field.ts bytesConstructor), so a finite language's bounded text is no longer its pattern's type; the program fails."
+		}
+	]
 })

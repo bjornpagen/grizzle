@@ -1,7 +1,5 @@
-import { floorPopulation } from "@bjornpagen/testing/features"
-import { constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { floorSeed, rotatingSeed } from "@bjornpagen/testing/random"
-import { sample, type Source } from "@bjornpagen/testing/source"
+import { aimed, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { type Delivery, headingsOf, licenses } from "#compiler/core/decoder.ts"
@@ -20,13 +18,8 @@ import { Deliver, DeliverApart } from "#test/support/agreement/schema.ts"
 import { defined } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { messageOf } from "#test/support/message.ts"
-import {
-	identifiers,
-	preludeAt,
-	type PreludeAt,
-	preludeFrom,
-	preludeProgram
-} from "#test/support/prelude.ts"
+import { identifiers, preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
 
 /**
  * The attachment agreement: a parent query and a child attached to it, drawn over Deliver (./schema.ts), each with the
@@ -640,8 +633,10 @@ const nestedOf = (source: Source, parent: Parent): Attachment => {
  * parent's, with an array of a child of one rule so the name is the case's one refusal), its stated delivery, and, on
  * a child that may hold one, sometimes a nested attachment.
  */
-const specGen: Gen<AttachSpec> = (source) => {
-	const intent = source.draw(intentGen)
+const specGen: Gen<AttachSpec> = (source) => specOf(source, source.draw(intentGen))
+
+/** One case drawn toward `intent`, as specGen draws one (see there). */
+const specOf = (source: Source, intent: Intent): AttachSpec => {
 	const plan = planOf(source, intent)
 	const parent = parentOf(source, plan)
 	const child = childOf(source, plan, parent, intent)
@@ -1337,14 +1332,14 @@ export type AttachNote =
 	| "a foreign child refused"
 	| "a closed relation's facts decide the delivery"
 
-interface AttachCase {
+export interface AttachCase {
 	readonly spec: AttachSpec
 	readonly verdict: AttachVerdict
 	readonly notes: ReadonlySet<AttachNote>
 }
 
-const attachCaseGen: Gen<AttachCase> = (source) => {
-	const spec = specGen(source)
+/** An attachment, the engine's verdict on it, and what it reached. */
+const caseOf = (spec: AttachSpec): AttachCase => {
 	const verdict = attachVerdict(spec)
 	const notes = new Set<AttachNote>()
 	switch (verdict.kind) {
@@ -1402,6 +1397,71 @@ const attachCaseGen: Gen<AttachCase> = (source) => {
 	return { spec, verdict, notes }
 }
 
+/** A drawn attachment, the engine's verdict on it, and what it reached. */
+export const attachCases: Gen<AttachCase> = (source) => caseOf(specGen(source))
+
+/**
+ * How an arm is misstated: under a field other than the parent's discriminator, with its handle widened to a string,
+ * or with a literal handle other than the one the child is the arm of; each the one fault of an arm stated otherwise as
+ * the alternatives law makes it.
+ */
+type Misstated = "field" | "widened" | "handle"
+
+/**
+ * An attachment drawn as an arm of its plan's child, misstated as `misstated` says and otherwise stated as the law
+ * makes it: under the parent's discriminator, where it has one, with the literal handle the child is the arm of. Where
+ * the plan draws the arm's shape, an arm the alternatives law refuses for that misstatement alone.
+ */
+const misstatedArm =
+	(misstated: Misstated): Gen<AttachCase> =>
+	(source) => {
+		const plan = planOf(source, "arm")
+		const parent = parentOf(source, plan)
+		const child = childOf(source, plan, parent, "arm")
+		const discriminator = Arr.findFirst(
+			parent.head,
+			(h) => h.scope === 0 && h.field.name === "kind"
+		)
+		const others = Arr.filter(parent.head, (h) =>
+			Option.match(discriminator, { onNone: () => true, onSome: (d) => h.name !== d.name })
+		)
+		const field =
+			misstated === "field" && Arr.isReadonlyArrayNonEmpty(others)
+				? source.draw(element(others)).name
+				: Option.getOrElse(
+						Option.map(discriminator, (h) => h.name),
+						() => source.draw(element(parent.head)).name
+					)
+		const handle = handleOfArm(child.rel) ?? "Automatic"
+		return caseOf({
+			parent,
+			name: "child",
+			child,
+			stated: {
+				kind: "arm",
+				field,
+				handle: misstated === "handle" ? (handle === "Automatic" ? "Manual" : "Automatic") : handle,
+				spelling: misstated === "widened" ? "widened" : "literal"
+			},
+			nested: undefined
+		})
+	}
+
+/**
+ * The drawn attachments, aimed where it is pending at a closed relation whose facts decide the delivery, drawn toward
+ * that intent, and at each misstated arm: a refusal whose arm the plan's shape and the parent's discriminator must both
+ * meet, which a drawn case rarely does.
+ */
+export const attachAimed = aimed(attachCases, [
+	["a closed relation's facts decide the delivery", (source) => caseOf(specOf(source, "facts"))],
+	[
+		"refused: the arm's field is the parent's head field that holds its discriminator",
+		misstatedArm("field")
+	],
+	["refused: the arm's handle is one literal", misstatedArm("widened")],
+	["refused: the arm's handle is the handle the child is the arm of", misstatedArm("handle")]
+])
+
 /** The refusals the attachment population names, every one of which its witnesses reach. */
 export const attachRefusals: Arr.NonEmptyReadonlyArray<Refused> = [
 	"an Option needs a child the evidence proves at most one per parent",
@@ -1414,60 +1474,70 @@ export const attachRefusals: Arr.NonEmptyReadonlyArray<Refused> = [
 	"an attached heterogeneous union; one attachment statement delivers one heading"
 ]
 
-/** The attachments the run's own stream draws, and the floor's witnesses. */
-const attachCount = 200
-
-const attachLabel = "types/evidence attachments"
-
-export const attachWitnesses = () =>
-	floorPopulation(attachLabel, attachCaseGen, attachCount, (c) => [...c.notes])
-
-const attachCases = (seed: number): ReadonlyArray<AttachCase> => [
-	...attachWitnesses().values,
-	...sample(attachCaseGen, rotatingSeed(seed, floorSeed(attachLabel)), attachCount)
+/**
+ * The situations the witnesses reach: every delivery, refusal, proof of the one child and shape of child, a derived
+ * parent's and a nested attachment's among them, and a child over no level of its parent's schema, which both refuse.
+ */
+export const attachRequired: Arr.NonEmptyReadonlyArray<AttachNote> = [
+	...Arr.map(attachRefusals, (refusal): AttachNote => `refused: ${refusal}`),
+	"array admitted",
+	"option admitted",
+	"one admitted",
+	"arm admitted",
+	"one into an ordinary relation",
+	"one into a closed relation",
+	"one through a composite containment",
+	"one by a reflexive count",
+	"a self-join parent",
+	"a child filter",
+	"an ordered child",
+	"a child taken once",
+	"a child of two rules",
+	"a derived parent",
+	"a nested attachment admitted",
+	"a nested attachment refused",
+	"a foreign child refused",
+	"a closed relation's facts decide the delivery"
 ]
 
 /**
- * The admitted cases whose read-back delivery the engine does not prove in the transaction context: none, since a
- * read inside a write transaction reads the one child and an arm as an Option, which the immediate evidence proves.
+ * Where a case's read-back delivery is one the engine does not prove in the transaction context: nowhere, since a read
+ * inside a write transaction reads the one child and an arm as an Option, which the immediate evidence proves. Each
+ * fault is the attachment's source and why; a refused case has none.
  */
-export const transactionFaults = (seed: number): ReadonlyArray<string> =>
-	Arr.flatMap(attachCases(seed), (c) => {
-		if (c.verdict.kind !== "admitted") {
-			return []
-		}
-		const template = Result.flatMap(
-			catchCompileError(() => builtAttached(c.spec)),
-			(q) => compileTemplate(q, undefined, { ...testCompile, context: "transaction" })
-		)
-		if (!template.ok) {
-			return [
-				`${sourceOf(c.spec)}\n  the transaction context refuses it: ${messageOf(template.error)}`
-			]
-		}
-		const nodes = topoOrder(template.value.analyzed)
-		const stated: ReadonlyArray<readonly [string, Stated]> = [
-			[c.spec.name, c.spec.stated],
-			...(c.spec.nested === undefined ? [] : [[nestedName, c.spec.nested.stated] as const])
+export const transactionFaults = (c: AttachCase): ReadonlyArray<string> => {
+	if (c.verdict.kind !== "admitted") {
+		return []
+	}
+	const template = Result.flatMap(
+		catchCompileError(() => builtAttached(c.spec)),
+		(q) => compileTemplate(q, undefined, { ...testCompile, context: "transaction" })
+	)
+	if (!template.ok) {
+		return [
+			`${sourceOf(c.spec)}\n  the transaction context refuses it: ${messageOf(template.error)}`
 		]
-		return Arr.flatMap(stated, ([name, s]) => {
-			const node = Arr.findFirst(
-				nodes,
-				(n): n is NodeOf<"Attach"> => n.kind === "Attach" && n.name === name
-			)
-			return Option.isSome(node) && licenses(node.value.delivered, readBack(s))
-				? []
-				: [
-						`${sourceOf(c.spec)}\n  a read-back reads ${name} as ${readBack(s)}, which the transaction context does not prove`
-					]
-		})
+	}
+	const nodes = topoOrder(template.value.analyzed)
+	const stated: ReadonlyArray<readonly [string, Stated]> = [
+		[c.spec.name, c.spec.stated],
+		...(c.spec.nested === undefined ? [] : [[nestedName, c.spec.nested.stated] as const])
+	]
+	return Arr.flatMap(stated, ([name, s]) => {
+		const node = Arr.findFirst(
+			nodes,
+			(n): n is NodeOf<"Attach"> => n.kind === "Attach" && n.name === name
+		)
+		return Option.isSome(node) && licenses(node.value.delivered, readBack(s))
+			? []
+			: [
+					`${sourceOf(c.spec)}\n  a read-back reads ${name} as ${readBack(s)}, which the transaction context does not prove`
+				]
 	})
+}
 
 /** The attachment program's prelude (test/support/programs/attachments.ts), every name it reads. */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/attachments.ts"))
-
-export const attachEntriesFrom = (entry: (path: string) => string): PreludeAt =>
-	preludeFrom(prelude, entry)
 
 /** The statements of one case: the attachment, under its refusal's directive at its line, or its records asserted. */
 const attachBlock = (c: AttachCase, i: number): ReadonlyArray<string> => {
@@ -1505,39 +1575,49 @@ const attachBlock = (c: AttachCase, i: number): ReadonlyArray<string> => {
 	}
 }
 
-/** The attachment program over the run's cases, its imports the names its blocks read. */
-export const attachModule = (entries: PreludeAt, seed: number): string => {
-	const blocks = Arr.flatMap(attachCases(seed), attachBlock)
-	const read = identifiers(Arr.join(blocks, "\n"))
+/**
+ * The attachment program over a batch's cases: one module, each case a block of its own, beside the relations of
+ * Deliver, the string handle and the assertions the batch's blocks read.
+ */
+export const attachProgram = (
+	cases: Arr.NonEmptyReadonlyArray<AttachCase>,
+	entry: Entry
+): Program => {
+	const blocks = Arr.map(cases, attachBlock)
+	const read = identifiers(Arr.join(Arr.flatten(blocks), "\n"))
 	const relationsRead = Arr.filter(children, (rel) => read.has(rel))
-	const body = Arr.join(
-		[
-			...(Arr.isReadonlyArrayNonEmpty(relationsRead)
-				? [
-						"/** The relations of Deliver the cases match. */",
-						`const { ${Arr.join(relationsRead, ", ")} } = Deliver.relations`
+	return [
+		preludeModule(
+			"index.ts",
+			"// Generated by test/support/agreement/attachments.ts: the attachment agreement program.",
+			preludeFrom(prelude, entry),
+			[
+				{
+					owner: batchOwned,
+					lines: [
+						...(Arr.isReadonlyArrayNonEmpty(relationsRead)
+							? [
+									"/** The relations of Deliver the cases match. */",
+									`const { ${Arr.join(relationsRead, ", ")} } = Deliver.relations`
+								]
+							: []),
+						...(read.has("anyHandle")
+							? [
+									"/** An arm's handle spelled through a string, which the types refuse. */",
+									"declare const anyHandle: string"
+								]
+							: []),
+						...(read.has("Expect")
+							? [
+									"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
+									"type Expect<T extends true> = T"
+								]
+							: []),
+						""
 					]
-				: []),
-			...(read.has("anyHandle")
-				? [
-						"/** An arm's handle spelled through a string, which the types refuse. */",
-						"declare const anyHandle: string"
-					]
-				: []),
-			...(read.has("Expect")
-				? [
-						"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
-						"type Expect<T extends true> = T"
-					]
-				: []),
-			"",
-			...blocks
-		],
-		"\n"
-	)
-	return preludeProgram(
-		"// Generated by test/support/agreement/attachments.ts: the attachment agreement program.",
-		entries,
-		body
-	)
+				},
+				...Arr.map(blocks, (lines, at) => ({ owner: caseOwned(at), lines }))
+			]
+		)
+	]
 }

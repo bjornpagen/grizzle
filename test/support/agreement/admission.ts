@@ -27,15 +27,17 @@ import {
 	Tone
 } from "#test/support/agreement/schema.ts"
 import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
-import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
+import { type PreludeAt, preludeModule } from "#test/support/prelude.ts"
+import { batchOwned, caseOwned, type Program } from "#test/types/batch/batch.ts"
 
 /**
  * The admission agreement: types against the engine, over every position a constant may stand in and every kind of
  * constant (README "A constant is a JavaScript value or a typed term"). The class it closes is a program the types and
  * the engine disagree on: a position the types refuse though the engine admits it, or admit though it refuses.
  *
- * Every run draws, for each position and each constant kind, one statement over Cell: the constant's value, and the
- * Cell column of its type it meets, are drawn from the run's stream. The oracle is the engine: the statement is built
+ * For each position and each constant kind, the program states one statement over Cell for every value of the kind
+ * and every stage it keeps an arm under, each statement once (matrixLines): the box is every position against every
+ * kind, and each cell its every pick. The oracle is the engine: the statement is built
  * through the builder's JavaScript view (queryOver, varsOver, computeCore, and check over an untyped row) and
  * compiled as the runtime compiles it, with no types. The program states each verdict: plain where the engine admits,
  * under a `@ts-expect-error` where it refuses, naming the refusal the types name. The type batch checks the program
@@ -591,13 +593,13 @@ const ownArmSource = (
 		""
 	)}${as}: ${own} }) }`
 
-/** The statement of one cell of the matrix, named by its index, any stages it keeps an arm under drawn by `draw`. */
+/** The statement of one cell of the matrix, named by `i`, any stages it keeps an arm under drawn by `draw`. */
 const statementOf = (
 	position: AdmissionPosition,
 	c: Constant,
 	other: Constant,
 	draw: number,
-	i: number
+	i: string
 ): Statement => {
 	const col = c.column
 	const name = `m${i}`
@@ -962,14 +964,6 @@ const statementOf = (
 	}
 }
 
-/** One cell of the matrix as the program states it: its position and kind, its lines, and the engine's verdict. */
-export interface AdmissionCell {
-	readonly position: AdmissionPosition
-	readonly kind: ConstantKind
-	readonly admitted: boolean
-	readonly lines: ReadonlyArray<string>
-}
-
 /** The kinds whose value the types carry, a primitive JavaScript value or a handle (see the header). */
 const valued: ReadonlyArray<ConstantKind> = [
 	"text",
@@ -1028,24 +1022,40 @@ const kindsAt = (position: AdmissionPosition): ReadonlyArray<ConstantKind> => {
 }
 
 /**
- * The matrix under a run's picks: every position and kind, its constant the pick-th value of its kind and any stages
- * it keeps an arm under the pick-th, its verdict the engine's, its lines under the directive its refusal raises.
+ * One cell of the matrix as the program states it, named by `id`: its statement under every pick of its kind's values
+ * and of the stages it keeps an arm under, each pick's statement once, its verdict the engine's, its lines under the
+ * directive its refusal raises. The picks run until a statement repeats one already stated: the constant and the
+ * stages each repeat with their roster's length, so the first repeat closes a whole period of both.
  */
-export const admissionCells = (pick: (cell: number) => number): ReadonlyArray<AdmissionCell> =>
-	Arr.map(
-		Arr.flatMap(admissionPositions, (position) =>
-			Arr.map(kindsAt(position), (kind) => ({ position, kind }))
-		),
-		({ position, kind }, i): AdmissionCell => {
-			const at = pick(i)
-			const constant = constantOf(kind, at)
-			const statement = statementOf(position, constant, constantOf(kind, at + 1), at, i)
-			const admitted = statement.verdict()
-			const [first, ...rest] = Arr.reverse(statement.lines)
-			const refused = [...Arr.reverse(rest), directiveOf(position, kind), first]
-			return { position, kind, admitted, lines: admitted ? statement.lines : refused }
+const matrixLines = (
+	position: AdmissionPosition,
+	kind: ConstantKind,
+	id: string
+): ReadonlyArray<string> => {
+	const statementAt = (pick: number, name: string): Statement =>
+		statementOf(position, constantOf(kind, pick), constantOf(kind, pick + 1), pick, name)
+	const sameStatement = (a: Statement, b: Statement): boolean =>
+		Arr.join(a.lines, "\n") === Arr.join(b.lines, "\n")
+	const picks: Array<number> = []
+	const stated: Array<Statement> = []
+	for (let pick = 0; ; pick += 1) {
+		const statement = statementAt(pick, "")
+		if (Arr.some(stated, (earlier) => sameStatement(earlier, statement))) {
+			break
 		}
-	)
+		picks.push(pick)
+		stated.push(statement)
+	}
+	return Arr.flatMap(picks, (pick) => {
+		const statement = statementAt(pick, `${id}_${pick}`)
+		const admitted = statement.verdict()
+		const [first, ...rest] = Arr.reverse(statement.lines)
+		return [
+			`/** ${kind} at ${position}, pick ${pick} of its constant and stages: the engine ${admitted ? "admits" : "refuses"} it. */`,
+			...(admitted ? statement.lines : [...Arr.reverse(rest), directiveOf(position, kind), first])
+		]
+	})
+}
 
 /** The shapes a combinator stands over: one rule, a union of one heading, a union of several, an attached rule. */
 const shapeBases = ["plain", "union", "heterogeneous", "attached"] as const
@@ -1303,39 +1313,30 @@ const combinatorRefusal = (
 	}
 }
 
-/** One cell of the combinator axis: its combinator, shape and wrapper, the engine's verdict, and its lines. */
-export interface CombinatorCell {
-	readonly combinator: Combinator
-	readonly base: ShapeBase
-	readonly wrapper: ShapeWrapper
-	readonly admitted: boolean
-	readonly lines: ReadonlyArray<string>
-}
-
 /**
- * The combinator axis: every combinator over every shape under every wrapper, its verdict the engine's, its line under
- * a directive where the engine refuses.
+ * One cell of the combinator axis, named by `id`: its combinator over its shape under its wrapper, the engine's
+ * verdict, its line under a directive where the engine refuses.
  */
-export const combinatorCells = (): ReadonlyArray<CombinatorCell> =>
-	Arr.map(
-		Arr.flatMap(combinators, (combinator) =>
-			Arr.flatMap(shapeBases, (base) =>
-				Arr.map(shapeWrappers, (wrapper) => ({ combinator, base, wrapper }))
-			)
-		),
-		({ combinator, base, wrapper }, i): CombinatorCell => {
-			const shape = shapeOf(base, wrapper)
-			const combined = applied(combinator, base)
-			const admitted = compiles(() => combined.build(shape.value()), combined.read)()
-			const line = combined.line(`n${i}`, shape.source)
-			const refusal = combinatorRefusal(combinator, base, wrapper)
-			const directive =
-				refusal === undefined
-					? `// @ts-expect-error -- refused: the engine refuses ${combinator} over ${base} under ${wrapper}`
-					: `// @ts-expect-error -- refusal: ${refusal}`
-			return { combinator, base, wrapper, admitted, lines: admitted ? [line] : [directive, line] }
-		}
-	)
+const combinatorLines = (
+	combinator: Combinator,
+	base: ShapeBase,
+	wrapper: ShapeWrapper,
+	id: string
+): ReadonlyArray<string> => {
+	const shape = shapeOf(base, wrapper)
+	const combined = applied(combinator, base)
+	const admitted = compiles(() => combined.build(shape.value()), combined.read)()
+	const line = combined.line(`n${id}`, shape.source)
+	const refusal = combinatorRefusal(combinator, base, wrapper)
+	const directive =
+		refusal === undefined
+			? `// @ts-expect-error -- refused: the engine refuses ${combinator} over ${base} under ${wrapper}`
+			: `// @ts-expect-error -- refusal: ${refusal}`
+	return [
+		`/** ${combinator} over ${base} under ${wrapper}: the engine ${admitted ? "admits" : "refuses"} it. */`,
+		...(admitted ? [line] : [directive, line])
+	]
+}
 
 /**
  * The level a matched query is written over, beside the schema of the rule that matches it: the rule's own, one below
@@ -1412,7 +1413,7 @@ const matchedOf = (
 
 /** Cell's ids keyed by a relation parameter of ids, the query whose parameter the relation cells bind. */
 const byIdsSource =
-	'const byIds = query(Agree).rule((r) => { const ids = r.relation("ids", { id: uuid }); const { id } = v(Cell, "cell"); return r.match(ids, { id }).match(Cell, { id }).find({ id }) })'
+	'export const byIds = query(Agree).rule((r) => { const ids = r.relation("ids", { id: uuid }); const { id } = v(Cell, "cell"); return r.match(ids, { id }).match(Cell, { id }).find({ id }) })'
 const byIds = (): QueryValue =>
 	queryOver(Agree).rule((r: RuleValue) => {
 		const ids = r.relation("ids", { id: uuid })
@@ -1450,7 +1451,7 @@ const relationSourceOf = (
 }
 
 /** One cell of the scope axis: what it reaches, the engine's verdict, and its lines. */
-export interface ScopeCell {
+interface ScopeCell {
 	readonly what: string
 	readonly admitted: boolean
 	readonly lines: ReadonlyArray<string>
@@ -1594,100 +1595,147 @@ const scopeCellOf = (
 }
 
 /**
- * The scope axis: every level a matched query may be written over against its rule's schema, as it is and bound
- * (matchedLevels, matchedForms), and every source a relation parameter of an imported query may be bound to
- * (relationSources), once each, each verdict the engine's, each refusal the one the types name.
+ * One cell of the scope axis, named by `id`: a level a matched query may be written over against its rule's schema, as
+ * it is or bound (matchedLevels, matchedForms), a source a relation parameter of an imported query may be bound to
+ * (relationSources), or a place a relational negation stands (negationPlaces), its verdict the engine's, its refusal the
+ * one the types name.
  */
-export const scopeCells = (): ReadonlyArray<ScopeCell> => [
-	...Arr.flatMap(matchedLevels, (level) =>
-		Arr.map(matchedForms, (form, j): ScopeCell => {
-			const overs = oversOf(level)
-			const matched = matchedOf(overs.query, form)
-			const name = `l${matchedLevels.indexOf(level)}_${j}`
-			return scopeCellOf(
-				"level",
-				`${form === "bound" ? "a bound query" : "a query"} over the ${level} level`,
-				`export const ${name} = query(${overs.rule.source}).rule((r) => { const m = ${matched.source}; const { id } = v(m, "m"); return r.match(m, { id }).find({ id }) })`,
-				() => {
-					const m = matched.value()
-					return queryOver(overs.rule.value).rule((r: RuleValue) => {
-						const vars = varsOver(m, "m")
-						return r.match(m, { id: vars["id"] }).find({ id: vars["id"] })
-					})
-				}
-			)
-		})
-	),
-	...Arr.map(relationSources, (source, j): ScopeCell => {
-		const bound = relationSourceOf(source)
-		return scopeCellOf(
-			"binding",
-			`a relation parameter bound to: ${source}`,
-			`export const b${j} = query(Agree).rule((r) => { const m = byIds.bind({ ids: ${bound.source} }); const { id } = v(m, "m"); return r.match(m, { id }).find({ id }) })`,
-			() => {
-				const imported = byIds()
-				return queryOver(Agree).rule((r: RuleValue) => {
-					const m = imported.bind({ ids: bound.value(r) })
-					const vars = varsOver(m, "m")
-					return r.match(m, { id: vars["id"] }).find({ id: vars["id"] })
-				})
+const scopeLines = (cell: ScopeKey, id: string): ReadonlyArray<string> => {
+	const scoped = ((): ScopeCell => {
+		switch (cell.axis) {
+			case "level": {
+				const overs = oversOf(cell.level)
+				const matched = matchedOf(overs.query, cell.form)
+				return scopeCellOf(
+					"level",
+					`${cell.form === "bound" ? "a bound query" : "a query"} over the ${cell.level} level`,
+					`export const l${id} = query(${overs.rule.source}).rule((r) => { const m = ${matched.source}; const { id } = v(m, "m"); return r.match(m, { id }).find({ id }) })`,
+					() => {
+						const m = matched.value()
+						return queryOver(overs.rule.value).rule((r: RuleValue) => {
+							const vars = varsOver(m, "m")
+							return r.match(m, { id: vars["id"] }).find({ id: vars["id"] })
+						})
+					}
+				)
 			}
-		)
-	}),
-	...Arr.map(negationPlaces, (place, j): ScopeCell => {
-		const filter = negationAt(place)
-		return scopeCellOf(
-			"negation",
-			`a relational negation at: ${place}`,
-			`export const g${j} = query(Agree).rule((r) => { const { id, n } = v(Item, "item"); return r.match(Item, { id, n }).where(${filter.source}).find({ id }) })`,
-			() =>
-				queryOver(Agree).rule((r: RuleValue) => {
-					const vars = varsOver(Item, "item")
-					return r
-						.match(Item, { id: vars["id"], n: vars["n"] })
-						.where(filter.value(r, vars["id"], vars["n"]))
-						.find({ id: vars["id"] })
-				})
-		)
-	})
-]
-
-/**
- * The module holding the matrix and the combinator axis, its imports spelled by `entries`; a page reads through the
- * role of the whole schema.
- */
-export const admissionModule = (
-	entries: PreludeAt,
-	cells: ReadonlyArray<AdmissionCell>,
-	combined: ReadonlyArray<CombinatorCell>,
-	scoped: ReadonlyArray<ScopeCell>
-): string => {
-	const text = Arr.join(
-		[
-			byIdsSource,
-			"",
-			...Arr.flatMap(cells, (c) => [
-				`/** ${c.kind} at ${c.position}: the engine ${c.admitted ? "admits" : "refuses"} it. */`,
-				...c.lines
-			]),
-			...Arr.flatMap(combined, (c) => [
-				`/** ${c.combinator} over ${c.base} under ${c.wrapper}: the engine ${c.admitted ? "admits" : "refuses"} it. */`,
-				...c.lines
-			]),
-			...Arr.flatMap(scoped, (c) => [
-				`/** ${c.what}: the engine ${c.admitted ? "admits" : "refuses"} it. */`,
-				...c.lines
-			]),
-			""
-		],
-		"\n"
-	)
-	return preludeProgram(
-		"// Generated by test/support/agreement/admission.ts: the admission agreement over every position and constant kind.",
-		entries,
-		text
-	)
+			case "binding": {
+				const bound = relationSourceOf(cell.source)
+				return scopeCellOf(
+					"binding",
+					`a relation parameter bound to: ${cell.source}`,
+					`export const b${id} = query(Agree).rule((r) => { const m = byIds.bind({ ids: ${bound.source} }); const { id } = v(m, "m"); return r.match(m, { id }).find({ id }) })`,
+					() => {
+						const imported = byIds()
+						return queryOver(Agree).rule((r: RuleValue) => {
+							const m = imported.bind({ ids: bound.value(r) })
+							const vars = varsOver(m, "m")
+							return r.match(m, { id: vars["id"] }).find({ id: vars["id"] })
+						})
+					}
+				)
+			}
+			case "negation": {
+				const filter = negationAt(cell.place)
+				return scopeCellOf(
+					"negation",
+					`a relational negation at: ${cell.place}`,
+					`export const g${id} = query(Agree).rule((r) => { const { id, n } = v(Item, "item"); return r.match(Item, { id, n }).where(${filter.source}).find({ id }) })`,
+					() =>
+						queryOver(Agree).rule((r: RuleValue) => {
+							const vars = varsOver(Item, "item")
+							return r
+								.match(Item, { id: vars["id"], n: vars["n"] })
+								.where(filter.value(r, vars["id"], vars["n"]))
+								.find({ id: vars["id"] })
+						})
+				)
+			}
+		}
+	})()
+	return [
+		`/** ${scoped.what}: the engine ${scoped.admitted ? "admits" : "refuses"} it. */`,
+		...scoped.lines
+	]
 }
 
-/** Every position's and every kind's cells, so a run's matrix is never short of one. */
-export const admissionSize = Arr.reduce(admissionPositions, 0, (n, p) => n + kindsAt(p).length)
+/** A cell of the scope axis, by the axis it closes and its place on it. */
+type ScopeKey =
+	| Readonly<{ axis: "level"; level: MatchedLevel; form: MatchedForm }>
+	| Readonly<{ axis: "binding"; source: RelationSource }>
+	| Readonly<{ axis: "negation"; place: NegationPlace }>
+
+/**
+ * One cell of the admission agreement's box: a position a constant stands in against a constant kind (the matrix), a
+ * combinator over a shape under a wrapper, or a cell of the scope axis.
+ */
+export type AdmissionCell =
+	| Readonly<{ axis: "matrix"; position: AdmissionPosition; kind: ConstantKind }>
+	| Readonly<{ axis: "combinator"; combinator: Combinator; base: ShapeBase; wrapper: ShapeWrapper }>
+	| Readonly<{ axis: "scope"; cell: ScopeKey }>
+
+/** The cells of admissionBox, minted as a dictionary in its door (test/types/evidence/agreement.dictionary.ts). */
+export const admissionBoxItems: Arr.NonEmptyReadonlyArray<AdmissionCell> = [
+	...Arr.flatMap(combinators, (combinator) =>
+		Arr.flatMap(shapeBases, (base) =>
+			Arr.map(shapeWrappers, (wrapper): AdmissionCell => ({
+				axis: "combinator",
+				combinator,
+				base,
+				wrapper
+			}))
+		)
+	),
+	...Arr.flatMap(admissionPositions, (position) =>
+		Arr.map(kindsAt(position), (kind): AdmissionCell => ({ axis: "matrix", position, kind }))
+	),
+	...Arr.flatMap(matchedLevels, (level) =>
+		Arr.map(matchedForms, (form): AdmissionCell => ({
+			axis: "scope",
+			cell: { axis: "level", level, form }
+		}))
+	),
+	...Arr.map(relationSources, (source): AdmissionCell => ({
+		axis: "scope",
+		cell: { axis: "binding", source }
+	})),
+	...Arr.map(negationPlaces, (place): AdmissionCell => ({
+		axis: "scope",
+		cell: { axis: "negation", place }
+	}))
+]
+
+/** A cell's lines, named by `id`. */
+const cellLines = (cell: AdmissionCell, id: string): ReadonlyArray<string> => {
+	switch (cell.axis) {
+		case "matrix":
+			return matrixLines(cell.position, cell.kind, id)
+		case "combinator":
+			return combinatorLines(cell.combinator, cell.base, cell.wrapper, id)
+		case "scope":
+			return scopeLines(cell.cell, id)
+	}
+}
+
+/**
+ * The program of a batch of the box's cells, each cell's lines owned by it and named by its place among them, after the
+ * imported query a relation parameter is bound from, the batch's own and exported, so a batch that binds none leaves it
+ * unused but stated.
+ */
+export const admissionProgram = (
+	cells: Arr.NonEmptyReadonlyArray<AdmissionCell>,
+	at: PreludeAt
+): Program => [
+	preludeModule(
+		"index.ts",
+		"// Generated by test/support/agreement/admission.ts: the admission agreement over every position and constant kind.",
+		at,
+		[
+			{ owner: batchOwned, lines: [byIdsSource, ""] },
+			...Arr.map(cells, (cell, i) => ({
+				owner: caseOwned(i),
+				lines: [...cellLines(cell, `${i}`), ""]
+			}))
+		]
+	)
+]

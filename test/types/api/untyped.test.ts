@@ -1,26 +1,36 @@
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
 /**
- * A builder's list or record holding a member typed any (test/types/api/untyped.ts), one program the type batch checks
- * disarmed: over the box of every builder that captures a list or a record, by every typing of what it captures, and
- * the kept Object.values leak, a call is refused exactly when a list or record it captures holds a member typed any, at
- * the first argument that holds one, and every other call is admitted with a schema's nestings kept. Oracle: the box's
- * own typing of each captured list and record.
+ * A builder's list or record holding a member typed any (test/types/api/untyped.ts): over the box of every builder that
+ * captures a list or a record, by every typing of what it captures, and the kept Object.values leak, a call is refused
+ * exactly when a list or record it captures holds a member typed any, at the first argument that holds one, and every
+ * other call is admitted with a schema's nestings kept. Each call is a cell of the box; a batch's cells are one
+ * program, checked disarmed. Oracle: the box's own typing of each captured list and record.
  */
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/batch.ts"
+import { untypedBox } from "#test/types/api/untyped.dictionary.ts"
+import { untypedProgram } from "#test/types/api/untyped.ts"
+import { boxAgreement } from "#test/types/batch/agreement.ts"
 
-layer(NodeServices.layer, { excludeTestServices: true })(
-	"a builder's list or record holding a member typed any",
-	(it) => {
-		it.effect(
-			"over every builder by every typing of the lists and records it captures, and the Object.values leak, refuses exactly the calls holding a member typed any, at the first argument that holds one, and admits every other with a schema's nestings kept",
-			() =>
-				Effect.gen(function* () {
-					const { expected, actual } = yield* checked("api/untyped")
-					assert.deepEqual(actual, expected)
-				})
-		)
-	}
-)
+/**
+ * Over every builder by every typing of the lists and records it captures, and the Object.values leak, refuses exactly
+ * the calls holding a member typed any, at the first argument that holds one, and admits every other with a schema's
+ * nestings kept.
+ */
+export const untyped = boxAgreement(finite(word(untypedBox)), {
+	box: "every builder that captures a list or a record (schema, schema.extend, role, login, workload) by every typing of the lists and records it captures, and the Object.values leak",
+	situations: [],
+	notes: () => [],
+	checking: "disarmed",
+	program: untypedProgram,
+	oracle: { kind: "specification", name: "the box's own typing of each captured list and record" },
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/types/core/phantom.ts",
+			original:
+				'\t\t? Refusal<"a member typed any, which every check admits: type each member of the list or record">',
+			replacement: "\t\t? unknown",
+			why: "A member typed any is admitted (types/core/phantom.ts MembersTyped answers unknown for it); the program fails."
+		}
+	]
+})

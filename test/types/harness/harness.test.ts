@@ -1,5 +1,5 @@
 /**
- * The testing library's type contracts, each a generated program the type batch checks disarmed:
+ * The testing library's type contracts, each a generated program a batch checks disarmed:
  *
  * - The vocabulary (harness/vocabulary.ts): a required situation, a note, a pair and a kept case's reaches typecheck
  *   exactly when every name they hold is a member of the suite's closed vocabulary, the situations are one at least, a
@@ -10,48 +10,41 @@
  *   type, with at most one fault planted, the type drawn where the fault stands.
  *
  * A refusal is stated as the contract states it, `refused`: the probe does not compile, whichever diagnostic the checker
- * elaborates it to. The floor's witnesses reach every fault of both contracts, each at both depths, and their admitted
- * cases, so neither program is vacuous on any seed.
+ * elaborates it to. The witnesses reach every fault of both contracts, each at both depths, and their admitted cases.
  */
-import { unreachedOf } from "@bjornpagen/testing/features"
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/batch.ts"
-import { doorRequired, doorWitnesses } from "#test/types/harness/door.ts"
-import { vocabularyRequired, vocabularyWitnesses } from "#test/types/harness/vocabulary.ts"
+import { agreement } from "#test/types/batch/agreement.ts"
+import { doorCases, doorNotes, doorProgram, doorRequired } from "#test/types/harness/door.ts"
+import {
+	vocabularyCases,
+	vocabularyNotes,
+	vocabularyProgram,
+	vocabularyRequired
+} from "#test/types/harness/vocabulary.ts"
 
-layer(NodeServices.layer, { excludeTestServices: true })(
-	"the test harness's type contracts",
-	(it) => {
-		it.effect(
-			`over drawn vocabularies and the floor's, a required situation, a note, a pair and a kept case's reaches typecheck exactly when every name is of the closed vocabulary`,
-			() =>
-				Effect.gen(function* () {
-					const { expected, actual } = yield* checked("harness/vocabulary")
-					assert.deepEqual(actual, expected)
-				})
-		)
+/**
+ * Over drawn vocabularies, a required situation, a note, a pair and a kept case's reaches typecheck exactly when every
+ * name is of the closed vocabulary.
+ */
+export const vocabulary = agreement(vocabularyCases, {
+	situations: vocabularyRequired,
+	notes: vocabularyNotes,
+	checking: "disarmed",
+	program: vocabularyProgram,
+	oracle: { kind: "specification", name: "membership in the drawn vocabulary" },
+	kept: [],
+	kills: []
+})
 
-		it.effect(
-			`over drawn types and values and the floor's, assert.equal and assert.deepEqual typecheck exactly when the expected value conforms to the actual's type`,
-			() =>
-				Effect.gen(function* () {
-					const { expected, actual } = yield* checked("harness/door")
-					assert.deepEqual(actual, expected)
-				})
-		)
-
-		it("the floor's witnesses reach every fault of both contracts and their admitted cases", () => {
-			assert.deepEqual(
-				[
-					...unreachedOf(vocabularyRequired, [vocabularyWitnesses().tally]),
-					...unreachedOf(doorRequired, [doorWitnesses().tally])
-				],
-				[],
-				"situations no floor witness reached"
-			)
-		})
-	}
-)
+/**
+ * Over drawn types and values, assert.equal and assert.deepEqual typecheck exactly when the expected value conforms to
+ * the actual's type.
+ */
+export const door = agreement(doorCases, {
+	situations: doorRequired,
+	notes: doorNotes,
+	checking: "disarmed",
+	program: doorProgram,
+	oracle: { kind: "specification", name: "conformance of a value drawn of the actual's type" },
+	kept: [],
+	kills: []
+})

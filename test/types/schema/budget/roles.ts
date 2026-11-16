@@ -1,7 +1,9 @@
-import { Array as Arr } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { type PreludeAt, preludeProgram } from "#test/support/prelude.ts"
+import { assertClean, type Measuring, measuredEach } from "#test/types/batch/measured.ts"
 
 /**
  * The role programs (roles.test.ts), each over a schema.extend of a base of `relations` relations, as edullm's pantry
@@ -101,3 +103,78 @@ export const read = query(E).rule((q) => {
 used(read)
 ${shape.role ? authorSource : ""}`
 	)
+
+/**
+ * The derived relations or laws of the first program, and the bases' sizes. The second program has twice as many; the
+ * small base holds twice as many relations as the most derived relations, each of them over one of its own, and the
+ * large one four times as many as the small, so a derived relation or a law that walks the base walks every relation
+ * the large base adds, three for each of the small one's, for each relation or law the second program adds.
+ */
+const added = 5
+const derivedCount = 2 * added
+const small = 2 * derivedCount
+const large = 4 * small
+
+/** What one law measures: the shape of its first program over the base of `relations`, and of its second. */
+export type RoleDimension = Readonly<{
+	what: string
+	shape: (relations: number, count: number, role: boolean) => RoleShape
+}>
+
+/** The cells of roleDimensions, minted as a dictionary in its door (test/types/schema/budget/roles.dictionary.ts). */
+export const roleDimensionsItems: readonly [RoleDimension, ...ReadonlyArray<RoleDimension>] = [
+	{
+		what: "derived relation of the role's level, with a key over it",
+		shape: (relations, count, role) => ({ relations, derived: count, laws: 0, role })
+	},
+	{
+		what: "law over a derived relation of the role's level",
+		shape: (relations, count, role) => ({ relations, derived: derivedCount, laws: count, role })
+	}
+]
+
+/** The eight programs of one dimension, in order: `added` and twice as many, over each base, with the role and without. */
+const roleShapes = Arr.flatMap([true, false], (role) =>
+	Arr.map(
+		[
+			{ relations: small, count: added },
+			{ relations: small, count: 2 * added },
+			{ relations: large, count: added },
+			{ relations: large, count: 2 * added }
+		] as const,
+		(at) => ({ ...at, role })
+	)
+)
+
+/** How a dimension prints. */
+export const roleDimensionName = (dimension: RoleDimension): string =>
+	`a full role's cost for each ${dimension.what} over ${large} base relations and over ${small}`
+
+/**
+ * The cost of one dimension, measured: its eight programs typecheck with no diagnostic, and the role and its readers
+ * add exactly as many instantiations for the last `added` of each over the large base as over the small one: (R − C)
+ * at twice as many less (R − C) at as many, R the program with the role and C its control.
+ */
+export const roleCost = (at: Measuring, dimension: RoleDimension) =>
+	Effect.gen(function* () {
+		const measured = yield* measuredEach(
+			at,
+			Arr.map(roleShapes, (shape) => ({
+				size: shape.relations,
+				source: (entries: PreludeAt) =>
+					roleProgram(dimension.shape(shape.relations, shape.count, shape.role), entries)
+			}))
+		)
+		for (const m of measured) {
+			assertClean(m, `the role program of each ${dimension.what}`)
+		}
+		const count = (i: number): number =>
+			defined(measured[i], `the program of each ${dimension.what} at ${i}`).instantiations
+		const role = (i: number): number => count(i) - count(i + 4)
+		const step = { small: role(1) - role(0), large: role(3) - role(2) }
+		assert.equal(
+			step.large,
+			step.small,
+			`the role adds ${step.large} instantiations for the last ${added} of each ${dimension.what} over ${large} base relations and ${step.small} over ${small}`
+		)
+	})

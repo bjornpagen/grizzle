@@ -1,4 +1,6 @@
-import { Array as Arr, Order } from "effect"
+import { Array as Arr, Order, String as Str } from "effect"
+import { type PreludeAt, preludeModule } from "#test/support/prelude.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
 
 /**
  * The scale invariance of a budget program, its oracle a twin: the program declares, beside its schema at scale, a
@@ -37,31 +39,63 @@ export const neighbourhood = (relations: number): ReadonlyArray<number> =>
 /** The twin's prefix. */
 export const twinPrefix = "t_"
 
-/** The identity the probes compare types by, and its assertion. */
+/**
+ * One probe of a program at scale against its twin, a cell of the program's box: a type the program states at scale
+ * exactly as over the twin (`same`), or a refusal it raises at scale exactly as over the twin (`refused`), both lines
+ * the probe's own.
+ */
+export type TwinProbe =
+	| Readonly<{ kind: "same"; probe: Over }>
+	| Readonly<{ kind: "refused"; probe: RefusalProbe }>
+
+/** The probes of a program: each type probe, then each refusal probe. */
+export const twinProbesOf = (
+	types: Arr.NonEmptyReadonlyArray<Over>,
+	refusals: ReadonlyArray<RefusalProbe>
+): Arr.NonEmptyReadonlyArray<TwinProbe> =>
+	Arr.appendAll(
+		Arr.map(types, (probe): TwinProbe => ({ kind: "same", probe })),
+		Arr.map(refusals, (probe): TwinProbe => ({ kind: "refused", probe }))
+	)
+
+/**
+ * The identity the probes compare types by, and its assertion, exported so a batch of refusal probes alone, which reads
+ * neither, raises no unused declaration.
+ */
 const equalsLines: ReadonlyArray<string> = [
-	"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
-	"type Expect<T extends true> = T"
+	"export type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
+	"export type Expect<T extends true> = T"
 ]
 
-/** Each type probe at scale identical to the twin's, then each refusal probe at scale and over the twin as twins. */
-export const twinProbes = (
-	types: ReadonlyArray<Over>,
-	refusals: ReadonlyArray<RefusalProbe>
-): string =>
-	Arr.join(
-		[
-			...equalsLines,
-			...Arr.map(
-				types,
-				(probe, k) => `export type Same${k} = Expect<Equals<${probe("")}, ${probe(twinPrefix)}>>`
-			),
-			...Arr.flatMap(refusals, ({ label, why, line }) => [
+/** A probe's lines at its place among a batch's probes: its type at scale identical to the twin's, or its refusal at scale and over the twin, twins. */
+const probeLines = (probe: TwinProbe, at: number): ReadonlyArray<string> => {
+	switch (probe.kind) {
+		case "same":
+			return [
+				`export type Same${at} = Expect<Equals<${probe.probe("")}, ${probe.probe(twinPrefix)}>>`
+			]
+		case "refused": {
+			const { label, why, line } = probe.probe
+			return [
 				`// @ts-expect-error -- twin ${label}: ${why}`,
 				line(""),
 				`// @ts-expect-error -- twin ${label}: ${why}`,
 				line(twinPrefix)
-			]),
-			""
-		],
-		"\n"
-	)
+			]
+		}
+	}
+}
+
+/**
+ * The program of a batch of a scale program's probes: its declarations at scale and its twin's, which every probe
+ * reads, the batch's own, then each probe's lines, its own; imports read through the gates' prelude as `entries`
+ * gives it for the program's directory.
+ */
+export const twinProgram =
+	(header: string, entries: (entry: Entry) => PreludeAt, declarations: string) =>
+	(probes: Arr.NonEmptyReadonlyArray<TwinProbe>, entry: Entry): Program => [
+		preludeModule("index.ts", header, entries(entry), [
+			{ owner: batchOwned, lines: [...Str.split(declarations, "\n"), ...equalsLines, ""] },
+			...Arr.map(probes, (probe, at) => ({ owner: caseOwned(at), lines: probeLines(probe, at) }))
+		])
+	]

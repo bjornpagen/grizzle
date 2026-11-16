@@ -1,13 +1,6 @@
-import {
-	floorPopulation,
-	keyOf,
-	type Reached,
-	type Tally,
-	tallyOf
-} from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { floorSeed, rotatingSeed } from "@bjornpagen/testing/random"
-import { sample, type Source } from "@bjornpagen/testing/source"
+import type { Reached } from "@bjornpagen/testing/features"
+import { aimed, element, type Gen } from "@bjornpagen/testing/gen"
+import type { Source } from "@bjornpagen/testing/source"
 import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, Record as Rec, Result, String as Str } from "effect"
@@ -46,7 +39,13 @@ import {
 	testCompile
 } from "#test/support/compile.ts"
 import { messageOf } from "#test/support/message.ts"
-import { preludeAt, type PreludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
+import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
+import {
+	batchOwned,
+	caseOwned,
+	type Entry as ProgramEntry,
+	type Program
+} from "#test/types/batch/batch.ts"
 
 /**
  * The Compute population: terms, predicates, aggregates and host values drawn over one relation of every carrier
@@ -1754,18 +1753,6 @@ const termRootOf = (d: Drawing, kind: TermKind): TermRoot =>
 			? { kind: "when", branch: d.from(branches) }
 			: { kind: "term", root: kind }
 
-/** Every term's root. */
-const termRoots: Arr.NonEmptyReadonlyArray<TermRoot> = [
-	...Arr.map(castAims, (aim): TermRoot => ({ kind: "cast", aim })),
-	...Arr.map(branches, (branch): TermRoot => ({ kind: "when", branch })),
-	{ kind: "heading" },
-	{ kind: "contract" },
-	{ kind: "exact literal" },
-	...Arr.flatMap(termKinds, (root): ReadonlyArray<TermRoot> =>
-		root === "cast" || root === "when" ? [] : [{ kind: "term", root }]
-	)
-]
-
 /** The construct a term's root is, which its case reaches, and the name of its stratum. */
 const termRootName = (root: TermRoot): { readonly feature: TermKind; readonly name: string } => {
 	switch (root.kind) {
@@ -1927,10 +1914,19 @@ type Root =
 	| { readonly kind: "closed"; readonly root: "closed read" }
 	| { readonly kind: "lexical"; readonly root: "lexical form" }
 
-/**
- * Every construct, each a root. The floor draws its witnesses root by root (computeWitnesses), so each construct is
- * drawn often enough to meet both verdicts.
- */
+/** Every term's root. */
+const termRoots: Arr.NonEmptyReadonlyArray<TermRoot> = [
+	...Arr.map(castAims, (aim): TermRoot => ({ kind: "cast", aim })),
+	...Arr.map(branches, (branch): TermRoot => ({ kind: "when", branch })),
+	{ kind: "heading" },
+	{ kind: "contract" },
+	{ kind: "exact literal" },
+	...Arr.flatMap(termKinds, (root): ReadonlyArray<TermRoot> =>
+		root === "cast" || root === "when" ? [] : [{ kind: "term", root }]
+	)
+]
+
+/** Every construct, each a root a case may be drawn at. */
 const roots: Arr.NonEmptyReadonlyArray<Root> = [
 	...Arr.map(termRoots, (root): Root => ({ kind: "term", root })),
 	...Arr.map(predKinds, (root): Root => ({ kind: "predicate", root })),
@@ -1943,9 +1939,9 @@ const roots: Arr.NonEmptyReadonlyArray<Root> = [
 	{ kind: "lexical", root: "lexical form" }
 ]
 
-/** The name of a root's stratum. */
-const rootName = (root: Root): string =>
-	root.kind === "term" ? termRootName(root.root).name : root.root
+/** The construct a root is, which a case drawn at it reaches. */
+const featureOfRoot = (root: Root): ComputeFeature =>
+	root.kind === "term" ? termRootName(root.root).feature : root.root
 
 /** A case rooted at one construct. */
 const caseAt = (d: Drawing, root: Root): CaseSpec => {
@@ -2803,8 +2799,7 @@ const computeDecided: Arr.NonEmptyReadonlyArray<DecidedNote> = [
 	"decided: a decimal's digits",
 	"decided: a pattern's values",
 	"decided: a literal's value",
-	"decided: a number's integrality",
-	"decided: a match's overlap"
+	"decided: a number's integrality"
 ]
 
 /**
@@ -3787,7 +3782,7 @@ const standInsOf = (
 }
 
 /** One drawn case: its source lines, the engine's verdict, the names it imports and what it reached. */
-interface ComputeCase {
+export interface ComputeCase {
 	readonly spec: CaseSpec
 	readonly expression: string
 	readonly usesRule: boolean
@@ -4023,11 +4018,9 @@ const expressionOf = (rendering: Rendering, spec: CaseSpec): string => {
 }
 
 /**
- * The situations the floor's witnesses reach beside the verdicts, Refusals, decisions and inferences: every construct,
- * each admitted but a literal standing first, and each refused but the byte guard, whose casts the types always admit;
- * a column read through a heading both ways; each byte guard situation (byteNotes); a translate over a map
- * TypeScript types as string, admitted (mapNotes); and a branch reading its subject outside its parameter, refused by
- * both (capturedNotes).
+ * The situations the drawn cases reach beside the verdicts, Refusals, decisions and inferences: every construct, each
+ * admitted but a literal standing first, and each refused but the byte guard, whose casts the types always admit; and
+ * a column read through a heading both ways. The kept cases reach the rest (computeKeptRequired).
  */
 export const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
 	...computeFeatures,
@@ -4036,10 +4029,6 @@ export const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
 	[headingNote, "refused"],
 	...Arr.map(familyNotes, (n) => [n, "refused"] as const),
 	...exactLiteralNotes,
-	...byteNotes,
-	...digestNotes,
-	...mapNotes,
-	...capturedNotes,
 	...contractNotes,
 	contestedNote,
 	...Arr.map(
@@ -4052,18 +4041,149 @@ export const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
 	)
 ]
 
-/** The cases the run's own stream draws. */
-export const computeCount = 400
-
-const computeLabel = "types/compute agreement"
+/**
+ * The situations the drawn cases reach: both verdicts and a structural refusal, every Refusal the Compute catalogue
+ * names, every inference the program asserts, and every construct under both verdicts (computeRequired).
+ */
+export const computeSituations: ReadonlyArray<Reached<ComputeNote>> = [
+	"admitted",
+	"refused",
+	"refused: structurally",
+	...computeRefusals,
+	...computeInferences,
+	...computeRequired
+]
 
 const caseGen =
 	(root: Option.Option<Root>): Gen<ComputeCase> =>
 	(source) =>
 		caseOf(drawnGen(root)(source))
 
+/**
+ * A drawn term, predicate, aggregate, host value or member read, rooted at a construct its swarm chooses, the engine's
+ * verdict on it, and what it reached.
+ */
+export const computeCases: Gen<ComputeCase> = caseGen(Option.none())
+
+/**
+ * The notes a term root is drawn for beside its construct: a column read through a heading, a partial operation over a
+ * value its contract refuses, and a literal beside an exact branch; none for any other root.
+ */
+const notesOfRoot = (root: Root): ReadonlyArray<ComputeNote> => {
+	if (root.kind !== "term") {
+		return []
+	}
+	switch (root.root.kind) {
+		case "heading":
+			return [headingNote]
+		case "contract":
+			return [...contractNotes, "decided: a contract's value", "decided: a literal's value"]
+		case "exact literal":
+			return exactLiteralNotes
+		case "cast":
+		case "when":
+		case "term":
+			return []
+	}
+}
+
+/**
+ * The constructs a requirement that names none is drawn toward: a Refusal at the operations whose guard or cast it
+ * names, an inference or a decision at the constructs that make it, and a CASE or a LEAST or GREATEST of a family's
+ * exact and plain values at those constructs.
+ */
+const constructsOf: { readonly [N in ComputeNote]?: ReadonlyArray<ComputeFeature> } = {
+	"refused: a divisor": ["div", "quot", "rem", "mod"],
+	"refused: a radicand": ["sqrt"],
+	"refused: a finite value": ["minScale", "cast"],
+	"refused: a power": ["power"],
+	"refused: a cast": ["cast"],
+	"refused: an endpoint": ["width", "lower", "upper"],
+	"exact money": ["add", "sub"],
+	"a guarded partial operation": ["when"],
+	"a guarded parameter": ["when"],
+	"decided: a contract": ["cast"],
+	"decided: a lexical form": ["cast"],
+	"decided: a language": ["byte guard", "digest"],
+	"decided: a power's range": ["power", "when"],
+	"decided: a text function's place": ["octetLength", "replaceWhitespace", "charLength", "concat"],
+	"decided: a decimal's digits": ["quot", "rem", "Decimal.of"],
+	"decided: a pattern's values": ["matches"],
+	"a CASE of an exact branch first beside a plain one": ["cond", "when"],
+	"a CASE of a plain branch first beside an exact one": ["cond", "when"],
+	"LEAST or GREATEST of an exact operand first beside a plain one": ["least", "greatest"],
+	"LEAST or GREATEST of a plain operand first beside an exact one": ["least", "greatest"]
+}
+
+/**
+ * The roots a requirement is reached from: each root whose construct the requirement names, alone or in a pair, whose
+ * own notes it names, or whose construct a note it names is drawn toward (constructsOf).
+ */
+const rootsOf = (situation: Reached<ComputeNote>): ReadonlyArray<Root> => {
+	const named: ReadonlyArray<ComputeNote> = typeof situation === "string" ? [situation] : situation
+	const toward = new Set<ComputeNote>(Arr.flatMap(named, (n) => constructsOf[n] ?? []))
+	return Arr.filter(
+		roots,
+		(root) =>
+			Arr.contains<ComputeNote>(named, featureOfRoot(root)) ||
+			toward.has(featureOfRoot(root)) ||
+			Arr.some(notesOfRoot(root), (n) => Arr.contains(named, n))
+	)
+}
+
+/** A case rooted at one of `at`, drawn. */
+const rootedAt =
+	(at: Arr.NonEmptyReadonlyArray<Root>): Gen<ComputeCase> =>
+	(source) =>
+		caseGen(Option.some(source.draw(element(at))))(source)
+
+/**
+ * How many steered cases the drawn Compute agreement's search may run while a required situation is unreached: its
+ * 287 situations are more than the runner's witnesses reach one each (a floor of 38 and a steered phase of 200), since
+ * an aimed window aims its cases at distinct pending situations.
+ *
+ * @limitKind measured
+ * @owner the Compute type/engine agreement (test/types/compute/compute.test.ts)
+ * @unit steered cases
+ * @scope the steered phase of the drawn Compute agreement's search, aimed by computeAimed, its windows of 150 cases
+ *   (typeBatchSize), on the steered stream its property's identity fixes; the phase ends once every required situation is
+ *   reached
+ * @evidence ~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/compute-steered-run8.txt: toolchain-test run
+ *   test/types/compute/compute.test.ts#compute with this limit set to 3000, its report line naming the steered cases the
+ *   search ran
+ * @observed 2026-11-16, 04:17 to 04:20 UTC
+ * @environment cassowary, Ubuntu 26.04 arm64, 64 cores, Node 26.13.1, toolchain 31fa236 (property.batched over an aimed
+ *   space), grizzle 4ca3036a with the GZ-TYPES conversion and 546f2b80's compute.ts; load average 200 to 470 from other
+ *   sessions
+ * @workload the drawn Compute agreement over computeAimed (each requirement naming a construct aimed at its roots,
+ *   every other at any root), 287 required situations, batches of 150 cases
+ * @result every required situation reached after 750 steered cases, five windows of 150; the same search capped at 300
+ *   (compute-steered-run5-at-300.txt, toolchain 487b28e with batched aims patched in) left 19 unreached. A coverage
+ *   simulation of the same aims over six seeds needed 450 to 750
+ * @decision 900, the 750 the search needs and one window of 150 more: the steered stream is fixed by the property's
+ *   identity, so the need is the same on every run seed, and a window the search does not need never runs, so the margin
+ *   costs nothing while every situation is reached
+ * @revalidate the Compute generator, its aims or its required situations change; typeBatchSize or the runner's steering
+ *   changes; a run that fails unreached under this limit
+ */
+export const computeSteeredCases = 900
+
+/**
+ * The drawn cases aimed at the required situations: a case whose turn aims at a requirement naming a construct is
+ * rooted at one of its roots, and one whose requirement names none (a Refusal, a decision, an inference, an operand's
+ * kind) at any root, as the old floor's strata drew them, so every construct is drawn toward it; an unaimed case is
+ * drawn as the swarm chooses.
+ */
+export const computeAimed = aimed(
+	computeCases,
+	Arr.map(computeSituations, (situation) => {
+		const at = rootsOf(situation)
+		return [situation, rootedAt(Arr.isReadonlyArrayNonEmpty(at) ? at : roots)] as const
+	})
+)
+
 /** The required pairs: every construct an admitted case and a refused case reach. */
-const reachedBy = (c: ComputeCase): ReadonlyArray<Reached<ComputeNote>> => [
+export const computeReached = (c: ComputeCase): ReadonlyArray<Reached<ComputeNote>> => [
 	...c.notes,
 	...Arr.flatMap([...c.notes], (n): ReadonlyArray<Reached<ComputeNote>> =>
 		Arr.contains(computeFeatures, n) ||
@@ -4078,9 +4198,6 @@ const reachedBy = (c: ComputeCase): ReadonlyArray<Reached<ComputeNote>> => [
 			: []
 	)
 ]
-
-/** The cases each root's stratum of the floor draws. */
-const rootCount = 12
 
 /**
  * The translates whose map is the widened value, so the floor reaches mapNotes by construction, whatever its draws: a
@@ -4185,49 +4302,6 @@ const capturedKept: Arr.NonEmptyReadonlyArray<Extract<CaseSpec, { readonly kind:
 ]
 
 /**
- * The floor's kept cases as a stratum of their own, each at its root's feature and tallied by what it reached: the
- * notes a root's twelve draws could miss, and the floor is fixed per label, so a miss would fail every run.
- */
-const keptStratum = (): Readonly<{
-	values: ReadonlyArray<ComputeCase>
-	tally: Tally<"floor">
-}> => {
-	const values = [
-		...Arr.map(digestKept, (spec) => caseOf({ spec, reached: new Set(["digest"]) })),
-		...Arr.map(bytesKept, (spec) => caseOf({ spec, reached: new Set(["byte guard"]) })),
-		...Arr.map(overlapKept, (spec) => caseOf({ spec, reached: new Set(["when", "matches"]) })),
-		...Arr.map(mapKept, (spec) => caseOf({ spec, reached: new Set(["translate"]) })),
-		...Arr.map(capturedKept, (spec) =>
-			caseOf({ spec, reached: new Set(["when", "nonnegative", "power"]) })
-		)
-	]
-	const tally = tallyOf("floor")
-	for (const value of values) {
-		tally.add(new Set(Arr.map(reachedBy(value), keyOf)))
-	}
-	return { values, tally: tally.tally() }
-}
-
-/**
- * The floor's witnesses: one stratum per construct, each drawn under its own label alone with the construct at its
- * root, so the floor is the same in every run and every construct is drawn often enough to meet both verdicts, and the
- * kept cases (keptStratum), which reach the digest's and the byte guard's notes, a match's overlap, a map typed string
- * and a branch reading its subject outside its parameter by construction; they are the only cases whose constructs and
- * verdicts meet the required situations (test/types/compute/compute.test.ts).
- */
-export const computeWitnesses = () => [
-	...Arr.map(roots, (root) =>
-		floorPopulation(
-			`${computeLabel}: ${rootName(root)}`,
-			caseGen(Option.some(root)),
-			rootCount,
-			reachedBy
-		)
-	),
-	keptStratum()
-]
-
-/**
  * The program a query's head refused because the image of its translation names no domain, which the types admit:
  * a word parameter, `^[a-z]{1,8}$`, translated by a map that takes b to a, so its image is `^[ac-z]{1,8}$`, a refinement
  * no stored field declares. Every run holds it.
@@ -4300,21 +4374,48 @@ const patternKept: ReadonlyArray<Extract<CaseSpec, { readonly kind: "term" }>> =
 	}
 ]
 
-/** Every case the program holds: the kept cases, the floor's witnesses, then the label's stream under the run's seed. */
-const computeCases = (seed: number): ReadonlyArray<ComputeCase> => [
-	...Arr.map(closedKept, (spec) => caseOf({ spec, reached: new Set(["closed read"]) })),
-	...Arr.map(domainKept, (spec) => caseOf({ spec, reached: new Set(["translate"]) })),
-	...Arr.map(arithmeticKept, (spec) => caseOf({ spec, reached: new Set(["add"]) })),
-	...Arr.map(patternKept, (spec) => caseOf({ spec, reached: new Set(["cond", "matches"]) })),
-	...Arr.flatMap(computeWitnesses(), (stratum) => stratum.values),
-	...sample(caseGen(Option.none()), rotatingSeed(seed, floorSeed(computeLabel)), computeCount)
+/**
+ * The situations only the kept cases reach, each by construction: every byte guard situation (byteNotes) and digest
+ * situation (digestNotes), a translate over a map TypeScript types as string, admitted (mapNotes), a branch reading its
+ * subject outside its parameter, refused by both (capturedNotes), and a match whose overlap the engine decides.
+ */
+export const computeKeptRequired: Arr.NonEmptyReadonlyArray<ComputeNote> = [
+	...byteNotes,
+	...digestNotes,
+	...mapNotes,
+	...capturedNotes,
+	"decided: a match's overlap"
 ]
+
+/** The cells of computeKept, minted as a dictionary in its door (test/types/compute/compute.dictionary.ts). */
+export const computeKeptItems = Arr.map(
+	Arr.appendAll(
+		Arr.map(digestKept, (spec): Drawn => ({ spec, reached: new Set(["digest"]) })),
+		[
+			...Arr.map(closedKept, (spec): Drawn => ({ spec, reached: new Set(["closed read"]) })),
+			...Arr.map(domainKept, (spec): Drawn => ({ spec, reached: new Set(["translate"]) })),
+			...Arr.map(arithmeticKept, (spec): Drawn => ({ spec, reached: new Set(["add"]) })),
+			...Arr.map(patternKept, (spec): Drawn => ({
+				spec,
+				reached: new Set(["cond", "matches"])
+			})),
+			...Arr.map(bytesKept, (spec): Drawn => ({ spec, reached: new Set(["byte guard"]) })),
+			...Arr.map(overlapKept, (spec): Drawn => ({
+				spec,
+				reached: new Set(["when", "matches"])
+			})),
+			...Arr.map(mapKept, (spec): Drawn => ({ spec, reached: new Set(["translate"]) })),
+			...Arr.map(capturedKept, (spec): Drawn => ({
+				spec,
+				reached: new Set(["when", "nonnegative", "power"])
+			}))
+		]
+	),
+	caseOf
+)
 
 /** The Compute program's prelude (test/support/programs/compute.ts), every name it reads. */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/compute.ts"))
-
-export const computeEntriesFrom = (entry: (path: string) => string): PreludeAt =>
-	preludeFrom(prelude, entry)
 
 /** The directive above a refused case's expression, which the type-test batch disarms. */
 const directiveOf = (verdict: Verdict): ReadonlyArray<string> => {
@@ -4451,37 +4552,41 @@ const blockOf = (c: ComputeCase, i: number): string => {
 	}
 }
 
-/** The program over the run's cases: one module, each case a block. */
-export const computeModules = (
-	entries: PreludeAt,
-	seed: number
-): Arr.NonEmptyReadonlyArray<{ readonly file: string; readonly source: string }> => {
-	const cases = computeCases(seed)
+/**
+ * The program over a batch's cases: one module, each case a block of its own. Its helpers are exported, so a batch
+ * whose cases read none of them raises nothing on them.
+ */
+export const computeProgram = (
+	cases: Arr.NonEmptyReadonlyArray<ComputeCase>,
+	entry: ProgramEntry
+): Program => {
 	const uses = new Set(Arr.flatMap(cases, (c) => [...c.uses]))
-	const text = Arr.join(
-		[
-			"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
-			"type Expect<T extends true> = T",
-			...(uses.has("widened") ? [`declare const ${widened.text}: string`] : []),
-			"type R = Rule<typeof Cells>",
-			'const cellVars = () => v(Cell, "cell")',
-			"type CellVars = ReturnType<typeof cellVars>",
-			'const headVars = () => v(Heads, "head")',
-			"type HeadVars = ReturnType<typeof headVars>",
-			"export type AggregateHost<X> = X extends Aggregate<infer T, never> ? T : never",
-			"",
-			...Arr.map(cases, blockOf)
-		],
-		"\n"
-	)
 	return [
-		{
-			file: "index.ts",
-			source: preludeProgram(
-				"// Generated by test/support/agreement/compute.ts: the Compute type/engine agreement.",
-				entries,
-				text
-			)
-		}
+		preludeModule(
+			"index.ts",
+			"// Generated by test/support/agreement/compute.ts: the Compute type/engine agreement.",
+			preludeFrom(prelude, entry),
+			[
+				{
+					owner: batchOwned,
+					lines: [
+						"export type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
+						"export type Expect<T extends true> = T",
+						...(uses.has("widened") ? [`declare const ${widened.text}: string`] : []),
+						"export type R = Rule<typeof Cells>",
+						'const cellVars = () => v(Cell, "cell")',
+						"export type CellVars = ReturnType<typeof cellVars>",
+						'const headVars = () => v(Heads, "head")',
+						"export type HeadVars = ReturnType<typeof headVars>",
+						"export type AggregateHost<X> = X extends Aggregate<infer T, never> ? T : never",
+						""
+					]
+				},
+				...Arr.map(cases, (c, at) => ({
+					owner: caseOwned(at),
+					lines: Str.split(blockOf(c, at), "\n")
+				}))
+			]
+		)
 	]
 }

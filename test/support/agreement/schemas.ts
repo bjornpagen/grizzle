@@ -1,6 +1,5 @@
-import { floorPopulation, type Reached } from "@bjornpagen/testing/features"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
-import { floorSeed, rotatingSeed } from "@bjornpagen/testing/random"
+import { floorSeed } from "@bjornpagen/testing/random"
 import { sample, type Source } from "@bjornpagen/testing/source"
 import { keep, type Swarm, swarm } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
@@ -105,6 +104,12 @@ import { admitContract, spanDescriptor } from "#test/support/fixtures/descriptor
 import { messageOf } from "#test/support/message.ts"
 import { checking } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
+import {
+	batchOwned,
+	caseOwned,
+	type Program,
+	type Entry as ProgramEntry
+} from "#test/types/batch/batch.ts"
 /**
  * The schema agreement: schemas drawn as data, each with the engine's verdict on it and on probe statements beside it,
  * and the one TypeScript program that states every verdict as types, which the type tier checks
@@ -137,8 +142,8 @@ import { upTo } from "#test/support/up-to.ts"
  * key over the side's projection; and castFits, a cast whose operand's bounds do not prove it fits its target, which
  * compilation refuses (PartialOperation, its fits test). Neither key nor bound is tracked by the types.
  *
- * The draws are two populations of one generator: the floor's witnesses (floorPopulation), the same on every run, which
- * alone meet the required situations, and the run's own stream under the run's seed, new every run.
+ * The cases are drawn by one generator (schemaCases), and the kept faults no drawn probe plants are a box of their own
+ * (schemaKeptBox), each alone on one base.
  */
 /** The constructs a case may hold, each a swarm feature: a part of its base, or a probe beside it. */
 const schemaConstructs = [
@@ -386,11 +391,11 @@ const declaredClasses = ["unkeyedTarget", "castFits"] as const
 type DeclaredClass = (typeof declaredClasses)[number]
 
 /**
- * The kept faults, each a probe of the kept case every run states (keptCase) and never drawn: a side over a selection,
- * by counted, ordered and tree.
+ * The kept faults, each a probe of a kept case every run states (keptFaultCase) and never drawn: a side over a
+ * selection, by counted, ordered and tree.
  */
 const keptFaults = ["selectedCounted", "selectedOrdered", "selectedTree"] as const
-type KeptFault = (typeof keptFaults)[number]
+export type KeptFault = (typeof keptFaults)[number]
 
 /** What a probe plants: a fault the types refuse, a kept one, or a declared class they accept. */
 type Planted = SchemaFault | KeptFault | DeclaredClass
@@ -7714,7 +7719,7 @@ const insertableLines = (
 ]
 
 /** One case: its base's declarations and assertions, its probes' statements, and what it reached. */
-interface SchemaCase {
+export interface SchemaCase {
 	readonly lines: (prefix: string) => ReadonlyArray<string>
 	readonly notes: ReadonlySet<SchemaNote>
 }
@@ -7758,38 +7763,24 @@ const caseOf = ({ base, probes, reached }: Drawn): SchemaCase => {
 	}
 }
 
-/** The cases the run's own stream draws. */
-const schemaCount = 48
-
-/**
- * The floor's witnesses: every construct, fault and refusal schemaRequired names is first reached by the floor stream at
- * case 71 at the latest, atSwapped there, since a serial is drawn among seven spellings, pg.uuidv7 the seventh.
- */
-const floorCount = 72
-
-/** The label both populations are drawn under. */
+/** The label the kept faults' base is drawn under: the old floor stream's first base. */
 const schemaLabel = "types/schema agreement"
 
-const caseGen: Gen<SchemaCase> = (source) => caseOf(drawnGen(source))
+/** A drawn schema with its probes, the engine's description of it, and what it reached. */
+export const schemaCases: Gen<SchemaCase> = (source) => caseOf(drawnGen(source))
+
+/** The cells of schemaKeptBox, minted as a dictionary in its door (test/types/schema/agreement.dictionary.ts). */
+export const schemaKeptBoxItems = keptFaults
 
 /**
- * The floor's witnesses: drawn under the label alone, the same on every run, and the only cases whose notes meet the
- * required situations (test/types/schema/agreement.test.ts).
+ * A kept fault's case: the base the floor stream of the agreement's label drew first, under that fault's probe alone
+ * (selectedMemberProbe).
  */
-export const schemaWitnesses = () =>
-	floorPopulation(schemaLabel, caseGen, floorCount, (c): ReadonlyArray<Reached<SchemaNote>> => [
-		...c.notes
-	])
-
-/**
- * The kept case every run states beside its drawn ones: the floor stream's first base, under the kept faults' probes
- * alone (selectedMemberProbe).
- */
-const keptCase = (): SchemaCase =>
+export const keptFaultCase = (fault: KeptFault): SchemaCase =>
 	caseOf({
 		base: defined(sample(drawnGen, floorSeed(schemaLabel), 1)[0], "the floor stream's first draw")
 			.base,
-		probes: Arr.map(keptFaults, selectedMemberProbe),
+		probes: [selectedMemberProbe(fault)],
 		reached: new Set()
 	})
 
@@ -7831,7 +7822,7 @@ interface SchemaEntries {
  * Each namespace's prelude (test/support/programs/schemas, test/support/prelude.ts) as the program's directory reaches
  * it: the program reads every repository name through these, each a module of the names it reads of one module.
  */
-export const schemaEntriesFrom = (entry: (path: string) => string): SchemaEntries => {
+const schemaEntriesFrom = (entry: (path: string) => string): SchemaEntries => {
 	const prelude = (name: string): string => entry(`test/support/programs/schemas/${name}.ts`)
 	return {
 		schema: prelude("schema"),
@@ -7851,21 +7842,16 @@ export const schemaEntriesFrom = (entry: (path: string) => string): SchemaEntrie
 }
 
 /**
- * The program over the run's cases: the floor's witnesses, then the stream of the agreement's label under the run's
- * seed, so every process of one run draws the same cases and every run new ones. Each case is a module of its own,
- * `case-<i>.ts`, its names prefixed `c<i>_` as before: tsgo's checkers take a program's files round robin
- * (test/types/batch/batch.ts rank), so the cases spread over every checker the batch runs, where one file of every case
- * held one checker. Every module opens with the same imports and helper types, the helpers exported and the imports
- * exported again as types, so a case that reads only some of them leaves none unused.
+ * The program of a batch of cases, each a module of its own, `case-<i>.ts`, its names prefixed `c<i>_`, so tsgo's
+ * checkers, which take a program's files round robin, spread the cases over every checker. Every module opens with the
+ * same imports and helper types, the batch's own, the helpers exported and the imports exported again as types, so a
+ * case that reads only some of them leaves none unused; the rest of the module is the case's.
  */
-export const schemaModules = (
-	entries: SchemaEntries,
-	seed: number
-): Arr.NonEmptyReadonlyArray<{ readonly file: string; readonly source: string }> => {
-	const cases = Arr.appendAll(schemaWitnesses().values, [
-		keptCase(),
-		...sample(caseGen, rotatingSeed(seed, floorSeed(schemaLabel)), schemaCount)
-	])
+export const schemaProgram = (
+	cases: Arr.NonEmptyReadonlyArray<SchemaCase>,
+	entry: ProgramEntry
+): Program => {
+	const entries = schemaEntriesFrom(entry)
 	const header = [
 		"// Generated by test/support/agreement/schemas.ts: the schema agreement program, one module per case.",
 		'import type { Brand } from "effect"',
@@ -7894,6 +7880,9 @@ export const schemaModules = (
 	]
 	return Arr.map(cases, (c, i) => ({
 		file: `case-${i}.ts`,
-		source: Arr.join([...header, ...c.lines(`c${i}`), ""], "\n")
+		parts: [
+			{ owner: batchOwned, lines: header },
+			{ owner: caseOwned(i), lines: [...c.lines(`c${i}`), ""] }
+		]
 	}))
 }

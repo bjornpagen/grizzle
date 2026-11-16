@@ -5,8 +5,6 @@
 		"test/support/programs/**/*.ts",
 		"test/unit/deps/runtime-probe.ts",
 		"test/support/pg-global-setup.ts",
-		"test/types/batch/build.ts",
-		"test/types/batch/global-setup.ts",
 		"bench/**/main.ts",
 		"scripts/dev/mutate/reporter.ts",
 		"scripts/dev/mutate/take-coverage.ts",

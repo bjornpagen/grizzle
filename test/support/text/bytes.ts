@@ -1,12 +1,10 @@
-import { type Situations, type Tally, tallyOf } from "@bjornpagen/testing/features"
 import { boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { floorSeed, rotatingSeed } from "@bjornpagen/testing/random"
-import { sample } from "@bjornpagen/testing/source"
 import { Array as Arr } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { str } from "#compiler/public/text.ts"
 import { regexField } from "#compiler/text/field.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
 
 /**
  * The containments of str.bytes texts, generated, which test/types/text/bytes.test.ts holds the types to and
@@ -19,9 +17,8 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
  * schema over the public API, and states that each str.bytes field's type is its pattern's own, both ways; it must
  * typecheck with no diagnostic. Every pattern a case draws has string for its type, which no bound's type can be told
  * from, so beside each side str.bytes bounds the program bounds a finite language by the same bound (finitePattern),
- * whose type is its members' union, and states that field's type is that pattern's own too. The cases are drawn as
- * test/types/text/contained.ts draws its patterns: those the label fixes (the floor), the same on every run, which
- * must reach every required situation, and those the run's seed draws, new on every run.
+ * whose type is its members' union, and states that field's type is that pattern's own too. A batch of cases is one
+ * program (bytesProgram), each case's declarations its own lines.
  */
 
 /** A side's pattern: every text, at most so many code points, or letters of no bound. */
@@ -133,17 +130,6 @@ export const featuresOf = (c: MeetCase): ReadonlyArray<MeetFeature> => {
 	return [...sides, ...boundFeatures(c.source), ...boundFeatures(c.target)]
 }
 
-/** The cases the label fixes, the same on every run, and those the run's seed draws. */
-const meetCases = (
-	seed: number
-): {
-	readonly floor: ReadonlyArray<MeetCase>
-	readonly rotating: ReadonlyArray<MeetCase>
-} => ({
-	floor: sample(meetCaseGen, floorSeed("text/bytes meets"), 24),
-	rotating: sample(meetCaseGen, rotatingSeed(seed, floorSeed("text/bytes meets")), 24)
-})
-
 /** A pattern as the program spells it. */
 const patternText = (p: BytesPattern): string => {
 	const { source, flags } = patternSource(p)
@@ -181,29 +167,28 @@ const caseLines = (c: MeetCase, at: number): ReadonlyArray<string> => [
 	`export const Schema${at} = schema("Meets${at}", [A${at}, B${at}], [contained(on(A${at}, "t"), on(B${at}, "u"))])`
 ]
 
-/** The program, for a file four directories below the repository root, and the floor's tally of what it reaches. */
-export const bytesProgram = (
-	seed: number
-): {
-	readonly source: string
-	readonly situations: Situations<MeetFeature>
-	readonly witnesses: Tally<"floor">
-} => {
-	const { floor, rotating } = meetCases(seed)
-	const witnesses = tallyOf("floor")
-	for (const c of floor) {
-		witnesses.add(new Set(featuresOf(c)))
+/** The modules a program's header imports the public API from, by repository path. */
+const publicModules = {
+	fields: "packages/engine/src/public/fields.ts",
+	schema: "packages/engine/src/public/schema.ts",
+	text: "packages/engine/src/public/text.ts"
+} as const
+
+/** The program over a batch's cases: its imports and its identity of types, then each case's declarations. */
+export const bytesProgram = (cases: Arr.NonEmptyReadonlyArray<MeetCase>, entry: Entry): Program => [
+	{
+		file: "bytes.ts",
+		parts: [
+			{
+				owner: batchOwned,
+				lines: [
+					`import { uuid } from ${jsonText(entry(publicModules.fields))}`,
+					`import { contained, on, relation, schema } from ${jsonText(entry(publicModules.schema))}`,
+					`import { str } from ${jsonText(entry(publicModules.text))}`,
+					"type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false"
+				]
+			},
+			...Arr.map(cases, (c, at) => ({ owner: caseOwned(at), lines: caseLines(c, at) }))
+		]
 	}
-	const lines = [
-		'import { uuid } from "../../../../packages/engine/src/public/fields.ts"',
-		'import { contained, on, relation, schema } from "../../../../packages/engine/src/public/schema.ts"',
-		'import { str } from "../../../../packages/engine/src/public/text.ts"',
-		"type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false",
-		...Arr.flatMap([...floor, ...rotating], caseLines)
-	]
-	return {
-		source: `${Arr.join(lines, "\n")}\n`,
-		situations: meetFeatures,
-		witnesses: witnesses.tally()
-	}
-}
+]

@@ -193,8 +193,7 @@
 							"packages/pg/src/foreign-postmasters.ts",
 							"packages/pg/src/pin-verdict.ts",
 							"test/pg/cli/config.child.ts",
-							"test/support/pg-global-setup.ts",
-							"test/types/batch/global-setup.ts"
+							"test/support/pg-global-setup.ts"
 						],
 						"options": {
 							"diagnosticSeverity": {

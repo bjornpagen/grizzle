@@ -1,25 +1,30 @@
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
 /**
- * A served member's handle under any login (test/types/api/handle.ts), one program the type batch checks: over
- * the box of every kind of served program, two programs of distinct types each, both served to a role of their level
- * and to a role of a level that extends it, a function over MemberHandle<typeof p> admits exactly the handles of p,
- * off either role's Db, and refuses the other program's. Oracle: the box's own pairing of each handle with its program.
+ * The member-handle program (test/types/api/handle.ts): a function over MemberHandle<typeof p> takes exactly the handle
+ * of its own program, over a role of the program's level and over a role of an extension of it, for every kind of
+ * served program, and each read kind's explain fails with its read's error. Each pairing is a cell of the box, and so is
+ * each explain; a batch's cells are one program, checked armed. Oracle: whether the handle is of the function's own
+ * program.
  */
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Effect } from "effect"
-import { assert } from "#test/support/assert.ts"
-import { checked } from "#test/types/batch/batch.ts"
+import { handleBox } from "#test/types/api/handle.dictionary.ts"
+import { handleProgram } from "#test/types/api/handle.ts"
+import { boxAgreement } from "#test/types/batch/agreement.ts"
 
-layer(NodeServices.layer, { excludeTestServices: true })(
-	"a served member's handle under any login",
-	(it) => {
-		it.effect(
-			"over every kind of served program, a function over MemberHandle<typeof p> admits exactly p's handles off a role of its level and of an extension, and refuses another program's",
-			() =>
-				Effect.gen(function* () {
-					const { expected, actual } = yield* checked("api/handle")
-					assert.deepEqual(actual, expected)
-				})
-		)
-	}
-)
+/**
+ * Over every kind of served program, a function over MemberHandle<typeof p> admits exactly p's handles off a role of its
+ * level and of an extension, and refuses another program's; each read's explain fails with its read's error.
+ */
+export const handle = boxAgreement(finite(word(handleBox)), {
+	box: "every kind of served program (a query, a paged query, a key, a deferrable read, a ChangeSet of query members, one of array members) by a Db of the level and of its extension by the function's own program's handle and the other's, and each read kind's explain",
+	situations: [],
+	notes: () => [],
+	checking: "armed",
+	program: handleProgram,
+	oracle: {
+		kind: "specification",
+		name: "a handle is admitted exactly when its program is the function's own"
+	},
+	kept: [],
+	kills: []
+})

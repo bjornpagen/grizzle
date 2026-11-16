@@ -1,4 +1,6 @@
-import { Array as Arr } from "effect"
+import { Array as Arr, Result, String as Str } from "effect"
+import { identifiers } from "#test/support/prelude.ts"
+import { batchOwned, caseOwned, type Program } from "#test/types/batch/batch.ts"
 
 /**
  * The parameter program: a child query a function builds, its parent's field taken as an input term,
@@ -22,6 +24,9 @@ import { Array as Arr } from "effect"
  * since existence is read only off the comment matched on the parent's own variable, as the box's comments are, which
  * prove it where the schema does (README, "grizzle knows each result's keys"). Only there does a delivery rest on the
  * equality with the input term itself.
+ *
+ * Each schema and delivery is a cell of the box, and so is each schema's keyed comment; the relations and the schemas
+ * are the batch's own.
  */
 
 /** A schema of the box: how the comments relate to the nodes. */
@@ -73,33 +78,30 @@ const appOf = (box: Box, nodes: string): string => `query(${box.name})
 	})
 	.attach("nodes", (doc) => ${nodes}, "array")`
 
-const cellBlock = (box: Box, delivery: Delivery): string => {
+const cellBlock = (box: Box, delivery: Delivery): ReadonlyArray<string> => {
 	const cell = `${box.name}_${delivery}`
-	return Arr.join(
-		[
-			`/** ${box.name}, the comment delivered as ${delivery}: by a function, and inline. */`,
-			`export const scan_${cell} = (document: Term<Uuid, unknown, InputOrigin, "uuid">) =>`,
-			`\t${nodesOf(box, "document")}`,
-			...comment(box, delivery, "node.id"),
-			`export const builder_${cell} = ${appOf(box, `scan_${cell}(doc.id)`)}`,
-			`export const inline_${cell} = query(${box.name})`,
-			"\t.rule((r) => {",
-			'\t\tconst { id } = v(Doc, "doc")',
-			"\t\treturn r.match(Doc, { id }).find({ id })",
-			"\t})",
-			`\t.attach("nodes", (doc) =>`,
-			`\t\t${nodesOf(box, "doc.id")}`,
-			...comment(box, delivery, "node.id"),
-			`\t, "array")`,
-			...(proved(box, delivery)
-				? [
-						`export type Same_${cell} = Expect<Equals<HeadOf<typeof builder_${cell}>, HeadOf<typeof inline_${cell}>>>`
-					]
-				: []),
-			""
-		],
-		"\n"
-	)
+	return [
+		`/** ${box.name}, the comment delivered as ${delivery}: by a function, and inline. */`,
+		`export const scan_${cell} = (document: Term<Uuid, unknown, InputOrigin, "uuid">) =>`,
+		`\t${nodesOf(box, "document")}`,
+		...comment(box, delivery, "node.id"),
+		`export const builder_${cell} = ${appOf(box, `scan_${cell}(doc.id)`)}`,
+		`export const inline_${cell} = query(${box.name})`,
+		"\t.rule((r) => {",
+		'\t\tconst { id } = v(Doc, "doc")',
+		"\t\treturn r.match(Doc, { id }).find({ id })",
+		"\t})",
+		`\t.attach("nodes", (doc) =>`,
+		`\t\t${nodesOf(box, "doc.id")}`,
+		...comment(box, delivery, "node.id"),
+		`\t, "array")`,
+		...(proved(box, delivery)
+			? [
+					`export type Same_${cell} = Expect<Equals<HeadOf<typeof builder_${cell}>, HeadOf<typeof inline_${cell}>>>`
+				]
+			: []),
+		""
+	]
 }
 
 /**
@@ -109,43 +111,103 @@ const cellBlock = (box: Box, delivery: Delivery): string => {
 /** The Refusal of the one child where the evidence proves no comment exists for each node. */
 const oneRefused = "the one child needs a child the evidence proves exactly one per parent"
 
-const keyedBlock = (box: Box): string => {
+const keyedBlock = (box: Box): ReadonlyArray<string> => {
 	const child = (node: string): string =>
 		`query(${box.name}).rule((r) => { const { node: n, value } = v(Comment, "comment"); return r.match(Comment, { node: n, value }).where(r.eq(n, ${node})).find({ value }) })`
 	const nodes = `query(${box.name}).rule((r) => { const { id, document: d } = v(Node, "node"); return r.match(Node, { id, document: d }).find({ id }) })`
-	return Arr.join(
-		[
-			`/** ${box.name}, the comment by an equality with the node's id: by a function, and inline. */`,
-			`export const comment_${box.name} = (node: Term<Uuid, unknown, InputOrigin, "uuid">) => ${child("node")}`,
-			`export const keyed_${box.name} = ${nodes}.attach("comment", (node) => comment_${box.name}(node.id), "option")`,
-			`export const keyedInline_${box.name} = ${nodes}.attach("comment", (node) => ${child("node.id")}, "option")`,
-			`export type SameKeyed_${box.name} = Expect<Equals<HeadOf<typeof keyed_${box.name}>, HeadOf<typeof keyedInline_${box.name}>>>`,
-			`// @ts-expect-error -- refusal: ${oneRefused}`,
-			`export const keyedOne_${box.name} = ${nodes}.attach("comment", (node) => comment_${box.name}(node.id), "one")`,
-			`// @ts-expect-error -- refusal: ${oneRefused}`,
-			`export const keyedInlineOne_${box.name} = ${nodes}.attach("comment", (node) => ${child("node.id")}, "one")`,
-			""
-		],
-		"\n"
-	)
+	return [
+		`/** ${box.name}, the comment by an equality with the node's id: by a function, and inline. */`,
+		`export const comment_${box.name} = (node: Term<Uuid, unknown, InputOrigin, "uuid">) => ${child("node")}`,
+		`export const keyed_${box.name} = ${nodes}.attach("comment", (node) => comment_${box.name}(node.id), "option")`,
+		`export const keyedInline_${box.name} = ${nodes}.attach("comment", (node) => ${child("node.id")}, "option")`,
+		`export type SameKeyed_${box.name} = Expect<Equals<HeadOf<typeof keyed_${box.name}>, HeadOf<typeof keyedInline_${box.name}>>>`,
+		`// @ts-expect-error -- refusal: ${oneRefused}`,
+		`export const keyedOne_${box.name} = ${nodes}.attach("comment", (node) => comment_${box.name}(node.id), "one")`,
+		`// @ts-expect-error -- refusal: ${oneRefused}`,
+		`export const keyedInlineOne_${box.name} = ${nodes}.attach("comment", (node) => ${child("node.id")}, "one")`,
+		""
+	]
 }
 
-/** The program over the box, every name read from the package's public entry. */
-export const parameterSource = (): string =>
-	Arr.join(
-		[
-			"// Generated by test/types/evidence/parameter.ts: a child query a function builds over its parent's field, against the same child inline.",
-			'import { contained, type HeadOf, type InputOrigin, on, pg, query, relation, schema, type Term, uuid, type Uuid, v } from "@bjornpagen/grizzle"',
-			"",
-			"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
-			"type Expect<T extends true> = T",
-			"",
-			'export const Doc = relation("Doc", { id: uuid }, ["id"])',
-			'export const Node = relation("Node", { id: uuid, document: uuid }, ["id"])',
-			'export const Comment = relation("Comment", { node: uuid, value: pg.bigint }, ["node"])',
-			...Arr.map(schemas, schemaBlock),
-			...Arr.flatMap(schemas, (box) => Arr.map(deliveries, (delivery) => cellBlock(box, delivery))),
-			...Arr.map(schemas, keyedBlock)
-		],
-		"\n"
+/** A cell of the box: a schema's comment delivered as one delivery, or the schema's keyed comment. */
+type ParameterCell =
+	| Readonly<{ kind: "delivery"; box: Box; delivery: Delivery }>
+	| Readonly<{ kind: "keyed"; box: Box }>
+
+/** The cells of parameterBox, minted as a dictionary in its door (test/types/evidence/parameter.dictionary.ts). */
+export const parameterBoxItems: Arr.NonEmptyReadonlyArray<ParameterCell> = Arr.appendAll(
+	Arr.flatMap(schemas, (box) =>
+		Arr.map(deliveries, (delivery): ParameterCell => ({ kind: "delivery", box, delivery }))
+	),
+	Arr.map(schemas, (box): ParameterCell => ({ kind: "keyed", box }))
+)
+
+/** The package's public names the program may read, each a value or a type. */
+const publicNames: ReadonlyArray<readonly [string, "value" | "type"]> = [
+	["contained", "value"],
+	["HeadOf", "type"],
+	["InputOrigin", "type"],
+	["on", "value"],
+	["pg", "value"],
+	["query", "value"],
+	["relation", "value"],
+	["schema", "value"],
+	["Term", "type"],
+	["uuid", "value"],
+	["Uuid", "type"],
+	["v", "value"]
+]
+
+/** The relations and schemas every cell reads, the batch's own. */
+const parameterHeader: ReadonlyArray<string> = [
+	"export type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
+	"export type Expect<T extends true> = T",
+	"",
+	'export const Doc = relation("Doc", { id: uuid }, ["id"])',
+	'export const Node = relation("Node", { id: uuid, document: uuid }, ["id"])',
+	'export const Comment = relation("Comment", { node: uuid, value: pg.bigint }, ["node"])',
+	...Arr.flatMap(schemas, (box) => Str.split(schemaBlock(box), "\n")),
+	""
+]
+
+/**
+ * The program over a batch's cells, every name read from the package's public entry, as a reader imports it: the import
+ * names those the program reads.
+ */
+export const parameterProgram = (cells: Arr.NonEmptyReadonlyArray<ParameterCell>): Program => {
+	const parts = [
+		{ owner: batchOwned, lines: parameterHeader },
+		...Arr.map(cells, (cell, at) => ({
+			owner: caseOwned(at),
+			lines: Arr.flatMap(
+				cell.kind === "delivery" ? cellBlock(cell.box, cell.delivery) : keyedBlock(cell.box),
+				(line) => Str.split(line, "\n")
+			)
+		}))
+	]
+	const read = identifiers(
+		Arr.join(
+			Arr.flatMap(parts, (part) => part.lines),
+			"\n"
+		)
 	)
+	const imported = Arr.filterMap(publicNames, ([name, kind]) =>
+		read.has(name) ? Result.succeed(kind === "type" ? `type ${name}` : name) : Result.failVoid
+	)
+	return [
+		{
+			file: "index.ts",
+			parts: [
+				{
+					owner: batchOwned,
+					lines: [
+						"// Generated by test/types/evidence/parameter.ts: a child query a function builds over its parent's field, against the same child inline.",
+						`import { ${Arr.join(imported, ", ")} } from "@bjornpagen/grizzle"`,
+						""
+					]
+				},
+				...parts
+			]
+		}
+	]
+}

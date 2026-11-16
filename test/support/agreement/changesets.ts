@@ -1,9 +1,7 @@
-import { floorPopulation, type Reached } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { floorSeed, rotatingSeed } from "@bjornpagen/testing/random"
-import { forcedChooser, generate, recorder, sample, type Source } from "@bjornpagen/testing/source"
+import type { Reached } from "@bjornpagen/testing/features"
+import { aimed, element, type Gen } from "@bjornpagen/testing/gen"
+import type { Source } from "@bjornpagen/testing/source"
 import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
-import { valuesFromToken } from "@bjornpagen/testing/tape"
 import { Array as Arr, Effect, Option, Record as Rec, Result, Stream, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { readParams } from "#adapter/reader/params.ts"
@@ -66,8 +64,14 @@ import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.
 import { messageOf } from "#test/support/message.ts"
 import { refinedMember } from "#test/support/oracle/refinement.ts"
 import { checking } from "#test/support/policy.ts"
-import { type PreludeAt, preludeAt, preludeFrom, preludeProgram } from "#test/support/prelude.ts"
+import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
 import { upTo } from "#test/support/up-to.ts"
+import {
+	batchOwned,
+	caseOwned,
+	type Entry as ProgramEntry,
+	type Program
+} from "#test/types/batch/batch.ts"
 
 /**
  * The ChangeSet population: ChangeSets drawn over Work (./changeset-schema.ts), each read twice, as TypeScript source
@@ -2749,7 +2753,7 @@ const verdictOf = (spec: CaseSpec): Verdict => {
 }
 
 /** One drawn case: its source lines, the engine's verdict, the names it uses and what it reached. */
-interface ChangeSetCase {
+export interface ChangeSetCase {
 	readonly spec: CaseSpec
 	readonly change: string
 	readonly args: string
@@ -2959,13 +2963,15 @@ const factsText = (
 
 /**
  * The verdict on a call that passes a case's array facts as built (factsText over its groups), the one rule a served
- * call and the case's application call are both judged by: where the ChangeSet is admitted and two facts of one
- * relation an insert or a put passes share a literal key with different literal values (literalConflict), refused at
- * the call by the key law, as the types refuse the call and the engine refuses its binding; the ChangeSet's verdict
- * otherwise.
+ * call and the case's application call are both judged by: where two facts of one relation an insert or a put passes
+ * share a literal key with different literal values (literalConflict), refused at the call by the key law, as the
+ * types refuse the call and the engine refuses its binding, when the ChangeSet is admitted or the engine refuses the
+ * call for a reason no type names (a parameter left unbound, which its binding meets before the key): the call's line
+ * then prints the key law's refusal beside the other, so the line is claimed by the refusal it prints; the ChangeSet's
+ * verdict otherwise.
  */
 const callVerdictOf = (groups: ReadonlyArray<OpGroup>, verdict: Verdict): Verdict =>
-	verdict.kind === "admitted" &&
+	(verdict.kind === "admitted" || (verdict.at === "call" && verdict.claim.kind === "prose")) &&
 	Arr.some(
 		groups,
 		(g) =>
@@ -3251,10 +3257,11 @@ const insertAllFaults = [
 ] as const satisfies ReadonlyArray<ChangeSetFault>
 
 /**
- * The situations the floor's witnesses reach: every construct and fault, each construct admitted and each fault
- * refused; a value outside its field in each of its shapes; a key two facts share and a derived relation written, under
- * each op; a derived relation's delta, added and removed; each fault an insert's member carries, at an insertAll key;
- * and an admitted ChangeSet whose application's call the key law refuses.
+ * The situations the witnesses reach: every construct and fault, each construct admitted and each fault refused; a value
+ * outside its field in each of its shapes; a key conflict beside a fact no literal keys, refused as the engine refuses
+ * it; a key two facts share and a derived relation written, under each op; a derived relation's delta, added and
+ * removed; each fault an insert's member carries, at an insertAll key; and an admitted ChangeSet whose application's
+ * call the key law refuses.
  */
 export const changeSetRequired: ReadonlyArray<Reached<ChangeSetNote>> = [
 	...changeSetFeatures,
@@ -3271,6 +3278,7 @@ export const changeSetRequired: ReadonlyArray<Reached<ChangeSetNote>> = [
 	...Arr.map(changeSetFaults, (f) => [f, "refused"] as const),
 	...Arr.map(outsideShapes, (shape) => ["a fact value outside its field", shape] as const),
 	...Arr.map(conflictShapes, (shape) => ["two facts sharing a key", shape] as const),
+	...Arr.map(conflictShapes, (shape) => [shape, "refused"] as const),
 	...Arr.flatMap(["two facts sharing a key", "a derived relation written"] as const, (f) =>
 		Arr.map(["insert", "delete", "put"] as const, (op) => [f, op] as const)
 	),
@@ -3281,18 +3289,19 @@ export const changeSetRequired: ReadonlyArray<Reached<ChangeSetNote>> = [
 	...Arr.map(insertAllFaults, (f) => [f, "insertAll"] as const)
 ]
 
-/** The cases the run's own stream draws. */
-const changeSetCount = 160
-
-const changeSetLabel = "types/changeset agreement"
-
 const caseGen =
 	(aim: ReadonlySet<ChangeSetFeature>): Gen<ChangeSetCase> =>
 	(source) =>
 		caseOf(drawnGen(aim)(source))
 
+/**
+ * A drawn ChangeSet and, where it is applied, its application: its source lines, the engine's verdict on each, and what
+ * it reached. The generator draws the swarm of constructs and faults itself, aimed at none.
+ */
+export const changeSetCases: Gen<ChangeSetCase> = caseGen(new Set())
+
 /** What a case reached: its notes, each construct with its verdict, and its fault with each of its constructs. */
-const reachedBy = (c: ChangeSetCase): ReadonlyArray<Reached<ChangeSetNote>> => {
+export const changeSetReached = (c: ChangeSetCase): ReadonlyArray<Reached<ChangeSetNote>> => {
 	const fault = c.spec.fault
 	return [
 		...c.notes,
@@ -3308,8 +3317,8 @@ const reachedBy = (c: ChangeSetCase): ReadonlyArray<Reached<ChangeSetNote>> => {
 }
 
 /**
- * The features a witness of a requirement is aimed at: the features it names, and what each needs of its case to be
- * drawn at all (a narrowed value a described member, a family's construct a family member, a write list an
+ * The features a case aimed at a requirement is drawn toward: the features it names, and what each needs of its case
+ * to be drawn at all (a narrowed value a described member, a family's construct a family member, a write list an
  * application). A verdict is no feature: a case aimed at a construct plants no fault, so it is admitted where the
  * engine admits it.
  */
@@ -3339,95 +3348,21 @@ const prerequisites: { readonly [F in ChangeSetFeature]?: ReadonlyArray<ChangeSe
 	"a key conflict at the application's call": ["applied"],
 	"a generated addition": ["insert"],
 	insertAll: ["insert"],
-	bind: ["described member", "a parameter"]
+	bind: ["described member", "a parameter"],
+	"a key conflict beside a fact no literal keys": ["two facts sharing a key"]
 }
 
 /**
- * The floor's witnesses, the same in every run, the only cases that meet the required situations: for each required
- * situation, a population on its own floor stream aimed at it, with the tally it reached.
+ * The drawn ChangeSets aimed at the required situations: a case whose turn aims at a requirement is drawn toward the
+ * features it names (aimOf), every other case from the swarm aimed at none.
  */
-export const changeSetWitnesses = () =>
-	Arr.map(Arr.dedupeWith(Arr.map(changeSetRequired, aimOf), sameAim), (aim) =>
-		floorPopulation(
-			`${changeSetLabel} aimed at ${Arr.join([...aim], ", ")}`,
-			caseGen(aim),
-			aimedCount,
-			reachedBy
-		)
-	)
-
-/** Two aims are one when they name the same features. */
-const sameAim = (a: ReadonlySet<ChangeSetFeature>, b: ReadonlySet<ChangeSetFeature>): boolean =>
-	a.size === b.size && Arr.every([...a], (f) => b.has(f))
-
-/** The witnesses drawn aimed at one requirement. */
-const aimedCount = 2
-
-/**
- * A case a run's own stream drew failing, kept by its tape, the decisions caseGen made for it: every run draws it beside
- * the floor's witnesses and its own cases, the very case while caseGen draws it alike and whatever the tape gives where
- * caseGen changes, which the floor's check then refuses by what the case no longer reaches (`reaches`).
- */
-interface KeptCase {
-	readonly note: string
-	readonly tape: string
-	readonly reaches: Arr.NonEmptyReadonlyArray<ChangeSetNote>
-}
-
-const keptCases: ReadonlyArray<KeptCase> = [
-	{
-		note: "a put whose query reads a parameter, applied with none, beside a tree's node inserted at one key twice with different rows: bind judged the key before it read the parameters, so the engine answered invariant-rejected where the types refuse the call (TEST_SEED=3)",
-		tape: "0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.8.0.0.0.0.0.d.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.1.1.0.1.2.4.2.0.0.0.0.0.4.0.0.0",
-		reaches: ["a parameter left unbound", "a nested tree", "insertAll", "insert"]
-	},
-	{
-		note: "a Ledger fact whose money field holds a bare bigint, beside two Budget facts at one key with different cents: normalization judged Budget's key before it admitted Ledger's facts, so the engine answered invariant-rejected where the types refuse the fact (TEST_SEED=34)",
-		tape: "c.0.0.0.0.0.g.0.0.0.g.g.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.6.2.3.4.1.0.4.0.1.0.0.1.1.0.0",
-		reaches: ["a fact value outside its field", "insertAll", "insert"]
-	},
-	{
-		note: "a delete of Order, a family's owner, applied by the clerk, whose write list names Order and not Line: the delete removes Order's lines whole, which the engine refuses as outside the role, as the types do, where the generator read the clerk's write list as one that holds the delete, so a delete of Bin and one of Cart applied by the clerk were expected admitted (TEST_SEED=133331041)",
-		tape: "0.2.0.d.d.8.8.d.0.8.3.3.8.8.3.d.8.8.3.0.8.3.8.0.3.3.8.d.d.8.8.d.3.0.8.8.8.8.8.3.3.3.0.0.0.0.0.3.0.0.0.0.0.0.0.d.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.1.1u.0.0.0.0.0.0.1",
-		reaches: [
-			"a role that does not write the relation",
-			"a partial write list",
-			"family member",
-			"delete"
-		]
-	},
-	{
-		note: "an append to an owner its stratum does not insert, planted beside a put of Bin and a delete of Bin in that stratum: the types refused the put at the ChangeSet, where the engine answered the append first, at the workload, so the case judged two faults (TEST_SEED=1921410611); a case with a planted fault now puts no owner, and its tape draws an insert of Bin there",
-		tape: "0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.3.3.3.d.0.0.0.0.0.d.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.3.0.0.1.0.0.3.2.0.0.3.1.0.0.0",
-		reaches: ["an append to an owner its stratum does not insert", "insertAll", "delete"]
-	}
-]
-
-/** The kept cases, each drawn from its tape, beside what it was kept for. */
-export const changeSetKept = (): ReadonlyArray<{
-	readonly kept: KeptCase
-	readonly drawn: ChangeSetCase
-}> => {
-	const recorded = recorder()
-	return Arr.map(keptCases, (kept) => {
-		const values = valuesFromToken(kept.tape)
-		return {
-			kept,
-			drawn: generate(recorded, caseGen(new Set()), forcedChooser(values, values.length)).value
-		}
-	})
-}
-
-const changeSetCases = (seed: number): ReadonlyArray<ChangeSetCase> => [
-	...Arr.flatMap(changeSetWitnesses(), (w) => w.values),
-	...Arr.map(changeSetKept(), (k) => k.drawn),
-	...sample(caseGen(new Set()), rotatingSeed(seed, floorSeed(changeSetLabel)), changeSetCount)
-]
+export const changeSetAimed = aimed(
+	changeSetCases,
+	Arr.map(changeSetRequired, (situation) => [situation, caseGen(aimOf(situation))] as const)
+)
 
 /** The ChangeSet program's prelude (test/support/programs/changesets.ts), every name it reads. */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/changesets.ts"))
-
-export const changeSetEntriesFrom = (entry: (path: string) => string): PreludeAt =>
-	preludeFrom(prelude, entry)
 
 const directiveOf = (v: Verdict, at: Site): ReadonlyArray<string> =>
 	v.kind === "refused" && v.at === at
@@ -3616,37 +3551,40 @@ const mappedShapes: ReadonlyArray<string> = [
 	"\th.once({ params: {}, facts: { put: { Ledger: ledgerRows.map((r) => ({ ...r, balance: r.balance + 1n })) }, delete: { Ledger: ledgerRows.map((r) => ({ id: r.id, balance: r.balance, fee: r.fee })) } } })"
 ]
 
-/** The program over the run's cases: one module, each case a block. */
-export const changeSetModules = (
-	entries: PreludeAt,
-	seed: number
-): Arr.NonEmptyReadonlyArray<{ readonly file: string; readonly source: string }> => {
-	const cases = changeSetCases(seed)
+/**
+ * The program over a batch's cases: one module, each case a block of its own, then pantry's import and the mapped served
+ * calls, the batch's own. Its helpers are exported, so a batch whose cases read none of them raises nothing on them.
+ */
+export const changeSetProgram = (
+	cases: Arr.NonEmptyReadonlyArray<ChangeSetCase>,
+	entry: ProgramEntry
+): Program => {
 	const uses = new Set(Arr.flatMap(cases, (c) => [...c.uses]))
-	const text = Arr.join(
-		[
-			"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
-			"type Expect<T extends true> = T",
-			...(uses.has("plain") ? ["declare const plain: string"] : []),
-			...(uses.has("uuidOf") ? ["declare const uuidOf: (n: number) => Uuid"] : []),
-			"export const widen = <R>(_relation: R, facts: ReadonlyArray<Written<R>>): ReadonlyArray<Written<R>> => facts",
-			"type SchemaOf<C> = C extends Phantom<{ readonly schema: Invariant<infer S> }> ? S : never",
-			'export type Hosts = [CalendarDate, Decimal, Money, Uuid, Infer<typeof Cents>, typeof pg, BitsOf<typeof Flag>, Rostered<"Kind">, RegexInfer<"", "u">]',
-			"",
-			...Arr.map(cases, blockOf),
-			...pantryShape(),
-			...mappedShapes
-		],
-		"\n"
-	)
 	return [
-		{
-			file: "index.ts",
-			source: preludeProgram(
-				"// Generated by test/support/agreement/changesets.ts: the ChangeSet type/engine agreement.",
-				entries,
-				text
-			)
-		}
+		preludeModule(
+			"index.ts",
+			"// Generated by test/support/agreement/changesets.ts: the ChangeSet type/engine agreement.",
+			preludeFrom(prelude, entry),
+			[
+				{
+					owner: batchOwned,
+					lines: [
+						"export type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
+						"export type Expect<T extends true> = T",
+						...(uses.has("plain") ? ["declare const plain: string"] : []),
+						...(uses.has("uuidOf") ? ["declare const uuidOf: (n: number) => Uuid"] : []),
+						"export const widen = <R>(_relation: R, facts: ReadonlyArray<Written<R>>): ReadonlyArray<Written<R>> => facts",
+						"export type SchemaOf<C> = C extends Phantom<{ readonly schema: Invariant<infer S> }> ? S : never",
+						'export type Hosts = [CalendarDate, Decimal, Money, Uuid, Infer<typeof Cents>, typeof pg, BitsOf<typeof Flag>, Rostered<"Kind">, RegexInfer<"", "u">]',
+						""
+					]
+				},
+				...Arr.map(cases, (c, at) => ({
+					owner: caseOwned(at),
+					lines: Str.split(blockOf(c, at), "\n")
+				})),
+				{ owner: batchOwned, lines: [...pantryShape(), ...mappedShapes] }
+			]
+		)
 	]
 }

@@ -1,9 +1,7 @@
-import { floorPopulation, type Reached } from "@bjornpagen/testing/features"
-import { array, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
-import { floorSeed, rotatingSeed } from "@bjornpagen/testing/random"
-import { forcedChooser, generate, recorder, sample, type Source } from "@bjornpagen/testing/source"
+import type { Reached } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
+import type { Source } from "@bjornpagen/testing/source"
 import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
-import { valuesFromToken } from "@bjornpagen/testing/tape"
 import { Array as Arr, Effect, Option, pipe, Record as Rec, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { headingsOf } from "#compiler/core/decoder.ts"
@@ -24,15 +22,6 @@ import { keyLookup } from "#compiler/query/build/key.ts"
 import { isQueryValue, queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import {
-	type AdmissionCell,
-	admissionCells,
-	admissionModule,
-	admissionSize,
-	combinatorCells,
-	scopeCells
-} from "#test/support/agreement/admission.ts"
-import { argumentCells, argumentModule } from "#test/support/agreement/arguments.ts"
 import {
 	columnFacts,
 	groupFields,
@@ -76,10 +65,17 @@ import {
 	preludeAt,
 	type PreludeAt,
 	preludeFrom,
-	preludeImports,
-	preludeProgram
+	preludeModule
 } from "#test/support/prelude.ts"
 import { upTo } from "#test/support/up-to.ts"
+import {
+	batchOwned,
+	caseOwned,
+	type Part,
+	type Program,
+	type Entry as ProgramEntry,
+	type ProgramModule
+} from "#test/types/batch/batch.ts"
 
 /**
  * The type/engine agreement: queries drawn over the agreement schema (./schema.ts), each with the engine's verdict on
@@ -96,9 +92,8 @@ import { upTo } from "#test/support/up-to.ts"
  * its heading group's decoded record. Both readings walk one spec construct by construct, so the program and the engine
  * see one query.
  *
- * Two populations share the generator. The clean one plants no fault: the floor's witnesses (floorPopulation), the
- * same in every run, which alone meet the required constructs, and the run's own stream (agreementCases samples it from
- * the run's seed), new every run. The faulted one (faultCases) plants one fault per case at a site the generator draws
+ * Two spaces share the generator. The clean one (agreementCases) plants no fault; the faulted one (faultCases) plants
+ * one fault per case at a site the generator draws
  * (Fault): a scope's name drawn from the declared-name dictionary, or left out, or spelled through a `string`; a
  * binding of a name drawn from every relation's fields and a stranger; a match of Stray, which Agree does not hold; a
  * fold whose match keeps the keys it binds as drawn; a second arm of another heading whose fields are named as the
@@ -3566,7 +3561,7 @@ const sameHeadKeys = (a: RuleSpec, b: RuleSpec): boolean => {
  * One drawn query: its source's lines, the engine's verdict, which the program asserts of the types exactly, a
  * self-join's included, and what it reached.
  */
-interface AgreementCase {
+export interface AgreementCase {
 	readonly spec: QuerySpec
 	readonly lines: Arr.NonEmptyReadonlyArray<Line>
 	readonly source: string
@@ -3975,137 +3970,107 @@ const verdictText = (v: Verdict): string => {
 	}
 }
 
-/** The queries the run's own stream draws. */
-const agreementCount = 240
-
-/**
- * The faulted queries the run's own stream draws, and the floor's witnesses of them: eight per fault, so the floor's
- * draws of each fault meet it refused and, where its site may hold a valid value, admitted.
- */
-const faultCount = 8 * agreementFaults.length
-
-/** The label both clean populations are drawn under. */
-const agreementLabel = "types/evidence agreement"
-
-/** The label both faulted populations are drawn under. */
-const faultLabel = "types/evidence agreement faults"
-
 /** One case: a drawn query and what the engine says of it. */
-const caseGen: Gen<AgreementCase> = (source) => caseOf(drawnGen("clean")(source))
+export const agreementCases: Gen<AgreementCase> = (source) => caseOf(drawnGen("clean")(source))
 
 /** One faulted case: a fault drawn among every fault, then a query planting it. */
-const faultGen: Gen<AgreementCase> = (source) =>
+export const faultCases: Gen<AgreementCase> = (source) =>
 	caseOf(drawnGen(source.draw(element(agreementFaults)))(source))
 
 /** What a case reached: its notes, and each required pair of them it notes together (agreementPairs). */
-const reachedBy = (c: AgreementCase): ReadonlyArray<Reached<AgreementNote | FaultNote>> => [
+export const agreementReached = (
+	c: AgreementCase
+): ReadonlyArray<Reached<AgreementNote | FaultNote>> => [
 	...c.notes,
 	...Arr.filter(agreementPairs, ([a, b]) => c.notes.has(a) && c.notes.has(b))
 ]
 
 /**
- * The floor's witnesses: a quarter of the run's count, drawn under the label alone, the same in every run, and the only
- * cases whose constructs and verdicts meet the required situations (test/types/evidence/agreement.test.ts).
+ * What the clean space's witnesses must reach: every construct the evidence types reason about, a constant in each
+ * position, both cardinalities, a variable two filters fix, a contract in a head, a self-join the engine proves at
+ * most one row, a span parameter opposite each span predicate and in a producer, a distance to a vector parameter, a
+ * search the engine proves at most one row, a closed relation, a roster and a derived relation matched, each span
+ * construct over a span of dates, its parameter and its width in days beside an integer span's width, an extension's
+ * Db reading a base query and a base Db refused an extension's, a keyed get admitted through each kind of key position
+ * and with a name beside its key, and refused for a key field missing, alone or with a name in its place, and a union
+ * looked up by each field its rules fix to a constant, pinned by one of them and not by another.
  */
-export const agreementWitnesses = () =>
-	floorPopulation(agreementLabel, caseGen, agreementCount / 4, reachedBy)
-
-/** The faulted population's witnesses: as many as its run's stream draws, the same in every run. */
-export const faultWitnesses = () => floorPopulation(faultLabel, faultGen, faultCount, reachedBy)
-
-/** A case a run's stream once drew, kept by its tape: its population, why it was kept, and what it must still reach. */
-interface KeptCase {
-	readonly note: string
-	readonly population: "clean" | "faulted"
-	readonly tape: string
-	readonly reaches: Arr.NonEmptyReadonlyArray<AgreementNote | FaultNote>
-}
-
-const keptCases: ReadonlyArray<KeptCase> = [
-	{
-		note: "a union of two rules whose constant heads differ at four fields, three of them roster handles: the types keyed it by each of the four, where the engine keeps the first in heading order, d (TEST_SEED=1635200356)",
-		population: "faulted",
-		tape: "6.h.0.b.2.4.0.9.2.h.f.2.b.c.6.9.d.0.8.7.1.0.3.1.2.1.f.a.c.4.6.2.h.7.f.5.d.9.6.a.4.e.d.2.0.2.9.5.e.4.d.d.e.7.b.h.c.8.e.d.0.7.b.9.b.5.1.0.0.3.0.2.3.0.3.0.3.1.2.1.1.0.3.2.0.1.2.1.1.3.1.1.0.0",
-		reaches: ["unionTypes admitted", "constantHead", "a key below the heading"]
-	},
-	{
-		note: "a rule fixing Slot's key by a constant item and r.allen(slot.during, ALLEN.converse(ALLEN.equals), a span parameter): the engine proves get, an equality its equals mask lowers to, where the types read every mask as stating nothing (TEST_SEED=2458598146)",
-		population: "clean",
-		tape: "1m.2.3.a.3.b.c.4.7.8.1.a.b.7.2.6.3.d.2.g.7.0.b.1.2.6.7.5.c.e.8.1.f.2.2.4.e.a.4.8.8.7.9.1.5.d.7.h.d.2.7.f.1.h.h.d.f.3.d.8.2.d.4.6.a.1.0.0.6.3.6.3.0.0.2.1.1.2.1.0.1.0.2.6.2.0.2.0.1.0.0.0.6.2.3.1.1.2.3.2.1.2.1.1.2.5.1.1.2.4.1",
-		reaches: ["allen", "at most one row proved", "a span parameter opposite r.allen"]
-	},
-	{
-		note: "a union of three rules of constants, h0 low throughout and b y, x, x, two rules alike: the engine keys it by b, the fields its rules do not all fix alike, where the types, which required every two rules told apart, keyed it by its whole heading (TEST_SEED=1635200356)",
-		population: "clean",
-		tape: "13.2.6.2.6.c.3.2.1.d.6.c.1.7.h.a.6.6.8.g.8.9.f.4.2.3.3.2.b.h.f.f.9.3.a.2.4.f.9.1.f.0.6.h.g.a.a.0.9.6.a.9.c.0.6.5.e.a.9.g.2.6.h.f.h.1.0.2.1.1.0.0.4.1.0.0.0.6.4.0.3.0.0.0.1.1.3.3.0.1.0.0.1.1.2.2.1.4.3.2.1.0.0.1.1.1.1.0.2.2.4.0.0.1.0.1.2.t.1.1.9.c.1.3.1.4.0.0.a.2.2.2.0.2.2.0.0.5.1.0.1.0.0.0.0.0.1.2.1.6.3",
-		reaches: [
-			"a union of three rules looked up and pinned",
-			"a union lookup pinned by one of several separators"
-		]
-	},
-	{
-		note: "a union of three rules of constants, d z, y, x and b x, z, z: the engine keeps d alone, which tells all three apart, and drops b, the first separator of two pairs that d tells apart too, so the union is keyed by d, not by b and d",
-		population: "clean",
-		tape: "c.0.a.9.1.h.7.1.7.d.g.8.c.g.2.a.1.5.b.4.a.3.b.4.8.1.b.f.4.3.d.7.b.7.e.6.3.5.g.b.0.f.e.5.e.a.3.7.3.a.5.a.0.1.e.0.3.3.0.d.7.9.b.7.f.0.0.1.2.2.3.3.0.4.1.2.0.1.2.0.2.0.0.0.5.2",
-		reaches: [
-			"a union of three rules looked up and pinned",
-			"a union lookup pinned by one of several separators"
-		]
-	}
-]
-
-/** The kept cases, each drawn from its tape in its population, beside what it was kept for. */
-export const agreementKept = (): ReadonlyArray<{
-	readonly kept: KeptCase
-	readonly drawn: AgreementCase
-}> => {
-	const recorded = recorder()
-	return Arr.map(keptCases, (kept) => {
-		const values = valuesFromToken(kept.tape)
-		return {
-			kept,
-			drawn: generate(
-				recorded,
-				kept.population === "clean" ? caseGen : faultGen,
-				forcedChooser(values, values.length)
-			).value
-		}
-	})
-}
-
-/** The kept cases of one population. */
-const keptOf = (population: KeptCase["population"]): ReadonlyArray<AgreementCase> =>
-	Arr.flatMap(agreementKept(), ({ kept, drawn }) => (kept.population === population ? [drawn] : []))
-
-/**
- * Every case a population's program holds: the floor's witnesses, its kept cases, then the stream of its label under
- * the run's seed (`TEST_SEED`, or the seed the run drew), so every process of one run draws the same cases and every
- * run new ones.
- */
-const agreementCases = (seed: number): ReadonlyArray<AgreementCase> => [
-	...agreementWitnesses().values,
-	...keptOf("clean"),
-	...sample(caseGen, rotatingSeed(seed, floorSeed(agreementLabel)), agreementCount)
-]
-
-const faultCases = (seed: number): ReadonlyArray<AgreementCase> => [
-	...faultWitnesses().values,
-	...keptOf("faulted"),
-	...sample(faultGen, rotatingSeed(seed, floorSeed(faultLabel)), faultCount)
+export const evidenceRequired: ReadonlyArray<Reached<AgreementNote>> = [
+	...agreementFeatures,
+	"at most one row proved",
+	"many rows",
+	"a key below the heading",
+	"a variable two filters fix",
+	"a contract in the head",
+	"an unordered page refused",
+	"a span parameter opposite r.allen",
+	"a span parameter opposite r.pointIn",
+	"a producer over a span parameter",
+	"a distance to a vector parameter",
+	"a search proves at most one row",
+	"a closed relation matched",
+	"r.allen over date spans",
+	"a date's point test",
+	"a producer over date spans",
+	"a date span parameter",
+	"a width in days",
+	"a width over integer endpoints",
+	"a roster matched",
+	"a derived relation's read proved at most one row",
+	"an extension's Db read a base query",
+	"a base Db refused an extension query",
+	"a keyed get admitted",
+	"a keyed get naming a field beside its key admitted",
+	"a keyed get missing a key field refused",
+	"a keyed get naming a field in a key field's place refused",
+	"a keyed get through a candidate key",
+	"a keyed get of a closed relation",
+	"a keyed get of a roster",
+	"a union lookup pinned by one of several separators",
+	"a union of three rules looked up and pinned",
+	...agreementPairs
 ]
 
 /**
- * The run's cases whose verdict moves when each rule's filters are written in the other order (reordered): none, since
- * the order of a rule's filters is no part of what it means, so a value two filters fix a variable to is one value
- * whichever comes first. Each is its source with its two verdicts.
+ * The faults whose site may hold a value the engine admits: a valid name, a field of the source, a key, one type, a
+ * cosine distance to a vector of the same dimensions, an order by a field of the heading, spans of one endpoint type,
+ * a pack of a span, a search by its distance to a query vector over a head that neither counts nor produces spans.
  */
-export const reorderedVerdicts = (seed: number): ReadonlyArray<string> =>
-	Arr.flatMap([...agreementCases(seed), ...faultCases(seed)], (c) => {
-		const moved = verdictOf(reordered(c.spec), c.source)
-		return verdictText(moved) === verdictText(c.verdict)
-			? []
-			: [`${c.source}\n  as written: ${verdictText(c.verdict)}\n  reordered: ${verdictText(moved)}`]
-	})
+const admissibleFaults = [
+	"scopeName",
+	"stranger",
+	"unkeyedFold",
+	"unionTypes",
+	"cosineDims",
+	"cosineTerm",
+	"orderHidden",
+	"spanEndpoints",
+	"packTerm",
+	"nearestBy",
+	"nearestSource"
+] as const satisfies ReadonlyArray<Fault>
+
+/**
+ * What the faulted space's witnesses must reach: every fault refused, each whose site may hold a valid value admitted
+ * too, and a contract's span refused against its base's.
+ */
+export const faultsRequired: ReadonlyArray<Reached<AgreementNote | FaultNote>> = [
+	...Arr.map(agreementFaults, (fault): FaultNote => `${fault} refused`),
+	...Arr.map(admissibleFaults, (fault): FaultNote => `${fault} admitted`),
+	"a contract's span refused against its base's"
+]
+
+/**
+ * A case's verdict as written and with each rule's filters, and every connective's operands, in the other order
+ * (reordered): the two must be one, since the order of a rule's filters is no part of what it means, so a value two
+ * filters fix a variable to is one value whichever comes first.
+ */
+export const reorderedVerdicts = (
+	c: AgreementCase
+): Readonly<{ written: string; reordered: string }> => ({
+	written: verdictText(c.verdict),
+	reordered: verdictText(verdictOf(reordered(c.spec), c.source))
+})
 
 /** The evidence program's prelude (test/support/programs/evidence.ts), every name its modules read. */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/evidence.ts"))
@@ -4130,88 +4095,6 @@ const keysType = (keys: ReadonlyArray<ReadonlyArray<ReadonlyArray<string>>>): st
 				" | "
 			)
 		: "never"
-
-/** The program's prelude as its directory reaches it, `entry` spelling a repository path from there. */
-export const agreementEntriesFrom = (entry: (path: string) => string): PreludeAt =>
-	preludeFrom(prelude, entry)
-
-/**
- * The program over the run's cases, as five modules:
- * - index.ts, every clean case's query in the drawn order, the assertion that every key the types claim lies over one
- *   the engine proves, and its records, parameters, cardinality and reads asserted the engine's;
- * - order.ts, the same in a second order drawn from the run's stream;
- * - invariance.ts, every query's head and keys asserted equal across the two;
- * - admission.ts, the admission agreement over every position and constant kind (./admission.ts), its constants drawn
- *   from the run's stream, and over every combinator on every shape of query;
- * - faults.ts, every faulted case: a refused one under the directive of its refusal, at its fault's site, an admitted
- *   one asserted as a clean one is.
- */
-export const agreementModules = (
-	entries: PreludeAt,
-	seed: number
-): Arr.NonEmptyReadonlyArray<{ readonly file: string; readonly source: string }> => {
-	const cases = agreementCases(seed)
-	const indices = Arr.map(cases, (_c, i) => i)
-	const order = defined(
-		sample(
-			shuffled(indices, { min: indices.length, max: indices.length }),
-			rotatingSeed(seed, floorSeed(`${agreementLabel} order`)),
-			1
-		)[0],
-		"the second order"
-	)
-	const picks = defined(
-		sample(
-			array(int(0, 5), { min: admissionSize, max: admissionSize }),
-			rotatingSeed(seed, floorSeed(`${agreementLabel} admission`)),
-			1
-		)[0],
-		"the admission matrix's picks"
-	)
-	const cells: ReadonlyArray<AdmissionCell> = admissionCells((cell) =>
-		defined(picks[cell], "a pick per cell of the matrix")
-	)
-	const faulted = faultCases(seed)
-	return [
-		{ file: "index.ts", source: programOf(entries, cases, indices, true) },
-		{ file: "order.ts", source: programOf(entries, cases, order, false) },
-		{ file: "invariance.ts", source: invarianceOf(entries, cases) },
-		{
-			file: "admission.ts",
-			source: admissionModule(entries, cells, combinatorCells(), scopeCells())
-		},
-		{ file: "arguments.ts", source: argumentModule(entries, argumentCells()) },
-		{
-			file: "faults.ts",
-			source: programOf(
-				entries,
-				faulted,
-				Arr.map(faulted, (_c, i) => i),
-				false
-			)
-		}
-	]
-}
-
-/** Every query's head and keys equal in the two orders' modules. */
-const invarianceOf = (entries: PreludeAt, cases: ReadonlyArray<AgreementCase>): string =>
-	Arr.join(
-		[
-			"// Generated by test/support/agreement/queries.ts: the evidence is the same whatever the statements' order.",
-			...preludeImports(entries, new Set(["EvidenceOfQuery", "HeadOf"])),
-			'import type * as A from "./index.ts"',
-			'import type * as B from "./order.ts"',
-			"type Equals<X, Y> = (<Z>() => Z extends X ? 1 : 2) extends <Z>() => Z extends Y ? 1 : 2 ? true : false",
-			"type Expect<T extends true> = T",
-			...Arr.map(
-				cases,
-				(_c, i) =>
-					`export type o${i} = [Expect<Equals<HeadOf<typeof A.q${i}>, HeadOf<typeof B.q${i}>>>, Expect<Equals<EvidenceOfQuery<typeof A.q${i}>["keys"], EvidenceOfQuery<typeof B.q${i}>["keys"]>>]`
-			),
-			""
-		],
-		"\n"
-	)
 
 /** The statements of one case: its query, under its fault's directive where the engine refuses it, and its verdicts. */
 const blockOf = (c: AgreementCase, i: number, paged: boolean): ReadonlyArray<string> => {
@@ -4340,12 +4223,12 @@ const pageLines = (
 
 /** The helpers an assertion of a case's verdicts reads. */
 const assertions: ReadonlyArray<string> = [
-	"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
-	"type Expect<T extends true> = T",
+	"export type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
+	"export type Expect<T extends true> = T",
 	"/** A map's entries as one record, however the types join the maps its arms and terms state. */",
-	"type Flat<T> = { readonly [K in keyof T]: T[K] }",
+	"export type Flat<T> = { readonly [K in keyof T]: T[K] }",
 	"/** The keys the types claim of a query: none when its evidence is unknown. */",
-	'type TypeKeys<Q> = EvidenceOfQuery<Q>["keys"] extends infer K',
+	'export type TypeKeys<Q> = EvidenceOfQuery<Q>["keys"] extends infer K',
 	"\t? unknown extends K",
 	"\t\t? never",
 	"\t\t: K extends ReadonlyArray<infer E>",
@@ -4353,55 +4236,120 @@ const assertions: ReadonlyArray<string> = [
 	"\t\t\t: never",
 	"\t: never",
 	"/** Whether a key over the fields F lies over one of the engine's keys E: F holds a column of each of its classes. */",
-	"type Over<F, E> = E extends ReadonlyArray<unknown>",
+	"export type Over<F, E> = E extends ReadonlyArray<unknown>",
 	"\t? false extends { [I in keyof E]: [Extract<E[I], F>] extends [never] ? false : true }[number]",
 	"\t\t? false",
 	"\t\t: true",
 	"\t: false",
 	"/** The keys the types claim of Q that lie over none the engine proves. */",
-	"type Unproved<Q, E> = UnprovedOf<TypeKeys<Q>, E>",
-	"type UnprovedOf<K, E> = K extends ReadonlyArray<infer F> ? (true extends Over<F, E> ? never : K) : never",
+	"export type Unproved<Q, E> = UnprovedOf<TypeKeys<Q>, E>",
+	"export type UnprovedOf<K, E> = K extends ReadonlyArray<infer F> ? (true extends Over<F, E> ? never : K) : never",
 	"/** The facts a variable read from each column of a query's heading has. */",
-	'type HeadingFacts<Q extends Headed<Carriers>> = { readonly [K in keyof VarsOf<Q, "read">]: FactsOf<VarsOf<Q, "read">[K]> }'
+	'export type HeadingFacts<Q extends Headed<Carriers>> = { readonly [K in keyof VarsOf<Q, "read">]: FactsOf<VarsOf<Q, "read">[K]> }'
 ]
 
 /**
- * A module of the cases in `order`: their blocks, after the declarations they read, and the imports the module names;
- * a module states only what its blocks read, since an unused one is a diagnostic of its own.
+ * A module of a batch's cases, each case's block owned by it, in the order `parts` gives them: after the declarations
+ * they read, the batch's own, each exported, so a batch whose cases read only some of them leaves none unused.
  */
-const programOf = (
-	entries: PreludeAt,
-	cases: ReadonlyArray<AgreementCase>,
-	order: ReadonlyArray<number>,
-	paged: boolean
-): string => {
-	const blocks = Arr.flatMap(order, (i) =>
-		blockOf(defined(cases[i], "a case of the drawn order"), i, paged)
+const casesModule = (file: string, at: PreludeAt, parts: ReadonlyArray<Part>): ProgramModule => {
+	const read = identifiers(
+		Arr.join(
+			Arr.flatMap(parts, (part) => part.lines),
+			"\n"
+		)
 	)
-	const read = identifiers(Arr.join(blocks, "\n"))
-	const body = Arr.join(
-		[
-			...(read.has("anyName")
-				? [
-						"/** A scope's name spelled through a string, which the types refuse. */",
-						"declare const anyName: string"
-					]
-				: []),
-			...(read.has("flag")
-				? [
-						"/** A boolean the program does not know, which a flagged filter turns on. */",
-						"declare const flag: boolean"
-					]
-				: []),
-			...(read.has("Unproved") ? assertions : []),
-			"",
-			...blocks
-		],
-		"\n"
-	)
-	return preludeProgram(
+	return preludeModule(
+		file,
 		"// Generated by test/support/agreement/queries.ts: the type/engine agreement program.",
-		entries,
-		body
+		at,
+		[
+			{
+				owner: batchOwned,
+				lines: [
+					...(read.has("anyName")
+						? [
+								"/** A scope's name spelled through a string, which the types refuse. */",
+								"export declare const anyName: string"
+							]
+						: []),
+					...(read.has("flag")
+						? [
+								"/** A boolean the program does not know, which a flagged filter turns on. */",
+								"export declare const flag: boolean"
+							]
+						: []),
+					...(read.has("Unproved") ? assertions : []),
+					""
+				]
+			},
+			...parts
+		]
 	)
 }
+
+/** Each case's block, owned by its place among the batch's cases, paged or not. */
+const blocksOf = (
+	cases: Arr.NonEmptyReadonlyArray<AgreementCase>,
+	paged: boolean
+): ReadonlyArray<Part> =>
+	Arr.map(cases, (c, i) => ({ owner: caseOwned(i), lines: blockOf(c, i, paged) }))
+
+/** Every case's query's head and keys equal in the two orders' modules, each case owning its line. */
+const invarianceModule = (
+	at: PreludeAt,
+	cases: Arr.NonEmptyReadonlyArray<AgreementCase>
+): ProgramModule =>
+	preludeModule(
+		"invariance.ts",
+		"// Generated by test/support/agreement/queries.ts: the evidence is the same whatever the statements' order.",
+		at,
+		[
+			{
+				owner: batchOwned,
+				lines: [
+					'import type * as A from "./index.ts"',
+					'import type * as B from "./order.ts"',
+					"type Equals<X, Y> = (<Z>() => Z extends X ? 1 : 2) extends <Z>() => Z extends Y ? 1 : 2 ? true : false",
+					"type Expect<T extends true> = T"
+				]
+			},
+			...Arr.map(cases, (_c, i) => ({
+				owner: caseOwned(i),
+				lines: [
+					`export type o${i} = [Expect<Equals<HeadOf<typeof A.q${i}>, HeadOf<typeof B.q${i}>>>, Expect<Equals<EvidenceOfQuery<typeof A.q${i}>["keys"], EvidenceOfQuery<typeof B.q${i}>["keys"]>>]`
+				]
+			}))
+		]
+	)
+
+/**
+ * The program of a batch of clean cases, as three modules, each case owning its lines in all three:
+ * - index.ts, every case's query in the batch's order, the assertion that every key the types claim lies over one the
+ *   engine proves, and its records, parameters, cardinality, reads and pages asserted the engine's;
+ * - order.ts, the same queries in the other order, the batch's reversed, so every two cases stand the other way round;
+ * - invariance.ts, every query's head and keys asserted equal across the two.
+ */
+export const evidenceProgram = (
+	cases: Arr.NonEmptyReadonlyArray<AgreementCase>,
+	entry: ProgramEntry
+): Program => {
+	const at = preludeFrom(prelude, entry)
+	return [
+		casesModule("index.ts", at, blocksOf(cases, true)),
+		casesModule("order.ts", at, Arr.reverse(blocksOf(cases, false))),
+		invarianceModule(at, cases)
+	]
+}
+
+/**
+ * The program of a batch of faulted cases: a refused one under the directive of its refusal, at its fault's site, an
+ * admitted one asserted as a clean one is.
+ */
+export const faultProgram = (
+	cases: Arr.NonEmptyReadonlyArray<AgreementCase>,
+	entry: ProgramEntry
+): Program => [casesModule("index.ts", preludeFrom(prelude, entry), blocksOf(cases, false))]
+
+/** The evidence program's prelude, as the admission and argument programs read it too. */
+export const evidencePrelude = (entry: ProgramEntry): PreludeAt => preludeFrom(prelude, entry)

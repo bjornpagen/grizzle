@@ -17,13 +17,8 @@ import { loginDescOf } from "#compiler/schema/world.ts"
 import { PlainLogin, WebLogin } from "#test/support/agreement/access-schema.ts"
 import { compiledServedFile } from "#test/support/compiled-served.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
-import {
-	identifiers,
-	preludeAt,
-	preludeImports,
-	type PreludeAt,
-	preludeFrom
-} from "#test/support/prelude.ts"
+import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
 
 /**
  * The DbConfig agreement: DbLayer.make's config over a served login, as its type states it and as its reader reads it
@@ -47,6 +42,9 @@ import {
  *   language service's restatement of the checker's refusal beside it.
  * - A config is of the login it names: a valid config of one login is taken for its own and never for the other
  *   (Takes).
+ *
+ * Each block's keys, each omission and stranger, each channel case and each relabelling is a cell of the box; the
+ * served logins, the declared channels and the valid configs the cells read are the batch's own.
  */
 const logins = { PlainLogin, WebLogin } as const
 type LoginName = keyof typeof logins
@@ -378,93 +376,120 @@ const channelCases: ReadonlyArray<ChannelCase> = Arr.flatMap(loginNames, (login)
 	)
 )
 
+/** A cell of the box. */
+type ConfigCell =
+	| Readonly<{ kind: "keys"; block: Block }>
+	| Readonly<{ kind: "omission"; login: LoginName; block: Block; key: string; at: number }>
+	| Readonly<{ kind: "stranger"; login: LoginName; block: Block }>
+	| Readonly<{ kind: "channel"; channel: ChannelCase }>
+	| Readonly<{ kind: "relabelled"; given: LoginName; target: LoginName }>
+
+/** The cells of configBox, minted as a dictionary in its door (test/types/api/config.dictionary.ts). */
+export const configBoxItems: Arr.NonEmptyReadonlyArray<ConfigCell> = [
+	...Arr.map(blocks, (block): ConfigCell => ({ kind: "keys", block })),
+	...Arr.flatMap(loginNames, (login) =>
+		Arr.flatMap(blocks, (block) =>
+			Arr.map(rosterOf[block], (key, at): ConfigCell => ({
+				kind: "omission",
+				login,
+				block,
+				key,
+				at
+			}))
+		)
+	),
+	...Arr.flatMap(loginNames, (login) =>
+		Arr.map(blocks, (block): ConfigCell => ({ kind: "stranger", login, block }))
+	),
+	...Arr.map(channelCases, (channel): ConfigCell => ({ kind: "channel", channel })),
+	...Arr.flatMap(loginNames, (given) =>
+		Arr.map(loginNames, (target): ConfigCell => ({ kind: "relabelled", given, target }))
+	)
+]
+
+/** A cell's statement, under its directive where the reader refuses it. */
+const cellOf = (cell: ConfigCell, index: number): Stated => {
+	switch (cell.kind) {
+		case "keys":
+			return {
+				lines: [
+					`export type k_${cell.block} = Expect<Equals<keyof ${
+						{ top: "DbConfigShape<typeof PlainLogin>", transport: "Transport", pool: "PoolBounds" }[
+							cell.block
+						]
+					}, ${union(rosterOf[cell.block])}>>`
+				]
+			}
+		case "omission":
+			return callOf(
+				`o_${cell.login}_${cell.block}_${cell.at}`,
+				cell.login,
+				{ block: cell.block, key: cell.key },
+				undefined,
+				readerAdmits(omitted(cell.login, cell.block, cell.key))
+			)
+		case "stranger": {
+			if (readerAdmits(stranger(cell.login, cell.block))) {
+				throw new Error(`the reader admits a key no roster of ${cell.block} names`)
+			}
+			return callOf(`s_${cell.login}_${cell.block}`, cell.login, undefined, cell.block, false)
+		}
+		case "channel":
+			return channelOf(cell.channel, index)
+		case "relabelled":
+			return {
+				lines: [
+					...(cell.given === cell.target
+						? []
+						: ["// @ts-expect-error -- refused: a config is of the login it names"]),
+					`export type r_${cell.given}_${cell.target} = Expect<Takes<typeof ${cell.target}, typeof v_${cell.given}>>`
+				]
+			}
+	}
+}
+
 /** The DbConfig program's prelude (test/support/programs/dbconfig.ts), every repository name it reads. */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/dbconfig.ts"))
 
-export const configEntriesFrom = (entry: (path: string) => string): PreludeAt =>
-	preludeFrom(prelude, entry)
+/** The driver and the socket module, read as a caller does, the served logins, the channels and the valid configs. */
+const configHeader: ReadonlyArray<string> = [
+	'import net from "node:net"',
+	'import pgDriver, { type Client, type ClientConfig } from "pg"',
+	"",
+	"export type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
+	"export type Expect<T extends true> = T",
+	"/** Whether DbLayer.make takes the config C for the login L: whether C is assignable to its parameter. */",
+	"export type Takes<L, C> = [C] extends [DbConfigShape<L>] ? true : false",
+	"export declare const file: unknown",
+	'export const PlainLoginServed = served<typeof PlainLogin>(file, "plain")',
+	'export const WebLoginServed = served<typeof WebLogin>(file, "web")',
+	"export declare const verifyToken: Verify",
+	"export declare const verifyFailing: (token: string) => Effect.Effect<unknown, Error>",
+	"export declare const credentialPassword: Effect.Effect<Redacted.Redacted, CredentialError>",
+	"export declare const failingPassword: Effect.Effect<Redacted.Redacted, Error>",
+	'export declare const servicedPassword: Effect.Effect<Redacted.Redacted, CredentialError, "Vault">',
+	'export declare const unpipelined: Omit<typeof pgDriver, "Client"> & { readonly Client: new (config: ClientConfig) => Omit<Client, "pipeline"> }',
+	'export const base = { driver: pgDriver, transport: { kind: "sslRequest", host: "localhost", port: 5433, open: () => new net.Socket(), ca: "PEM", servername: "localhost" }, database: "work", connectTimeoutMs: 1000, pool: { max: 1, min: 0, idleTimeoutMs: 1000 } } as const',
+	"export const v_PlainLogin = { ...base, login: PlainLoginServed, password: credentialPassword } as const",
+	"export const v_WebLogin = { ...base, login: WebLoginServed, password: credentialPassword, verify: verifyToken } as const",
+	""
+]
 
-/** The program: the blocks' keys, every omission and stranger, and every channel case. */
-export const configModule = (entries: PreludeAt): string => {
-	const omissions = Arr.flatMap(loginNames, (login) =>
-		Arr.flatMap(blocks, (block) =>
-			Arr.map(rosterOf[block], (key, at) =>
-				callOf(
-					`o_${login}_${block}_${at}`,
-					login,
-					{ block, key },
-					undefined,
-					readerAdmits(omitted(login, block, key))
-				)
-			)
-		)
-	)
-	const strangers = Arr.flatMap(loginNames, (login) =>
-		Arr.map(blocks, (block) => {
-			if (readerAdmits(stranger(login, block))) {
-				throw new Error(`the reader admits a key no roster of ${block} names`)
-			}
-			return callOf(`s_${login}_${block}`, login, undefined, block, false)
-		})
-	)
-	const channels = Arr.map(channelCases, channelOf)
-	const relabelled = Arr.flatMap(loginNames, (given) =>
-		Arr.map(loginNames, (target): Stated => ({
-			lines: [
-				...(given === target
-					? []
-					: ["// @ts-expect-error -- refused: a config is of the login it names"]),
-				`export type r_${given}_${target} = Expect<Takes<typeof ${target}, typeof v_${given}>>`
-			]
-		}))
-	)
-	const text = Arr.join(
+/** The program over a batch's cells, each a statement of its own. */
+export const configProgram = (
+	cells: Arr.NonEmptyReadonlyArray<ConfigCell>,
+	entry: Entry
+): Program => [
+	preludeModule(
+		"index.ts",
+		"// Generated by test/support/agreement/dbconfig.ts: the DbConfig type/reader agreement.",
+		preludeFrom(prelude, entry),
 		[
-			"type Equals<A, B> = (<X>() => X extends A ? 1 : 2) extends <X>() => X extends B ? 1 : 2 ? true : false",
-			"type Expect<T extends true> = T",
-			"/** Whether DbLayer.make takes the config C for the login L: whether C is assignable to its parameter. */",
-			"type Takes<L, C> = [C] extends [DbConfigShape<L>] ? true : false",
-			"declare const file: unknown",
-			'const PlainLoginServed = served<typeof PlainLogin>(file, "plain")',
-			'const WebLoginServed = served<typeof WebLogin>(file, "web")',
-			"declare const verifyToken: Verify",
-			"declare const verifyFailing: (token: string) => Effect.Effect<unknown, Error>",
-			"declare const credentialPassword: Effect.Effect<Redacted.Redacted, CredentialError>",
-			"declare const failingPassword: Effect.Effect<Redacted.Redacted, Error>",
-			'declare const servicedPassword: Effect.Effect<Redacted.Redacted, CredentialError, "Vault">',
-			'declare const unpipelined: Omit<typeof pgDriver, "Client"> & { readonly Client: new (config: ClientConfig) => Omit<Client, "pipeline"> }',
-			'const base = { driver: pgDriver, transport: { kind: "sslRequest", host: "localhost", port: 5433, open: () => new net.Socket(), ca: "PEM", servername: "localhost" }, database: "work", connectTimeoutMs: 1000, pool: { max: 1, min: 0, idleTimeoutMs: 1000 } } as const',
-			"",
-			`export type k_top = Expect<Equals<keyof DbConfigShape<typeof PlainLogin>, ${union(rosterOf.top)}>>`,
-			`export type k_transport = Expect<Equals<keyof Transport, ${union(rosterOf.transport)}>>`,
-			`export type k_pool = Expect<Equals<keyof PoolBounds, ${union(rosterOf.pool)}>>`,
-			"",
-			"const v_PlainLogin = { ...base, login: PlainLoginServed, password: credentialPassword } as const",
-			"const v_WebLogin = { ...base, login: WebLoginServed, password: credentialPassword, verify: verifyToken } as const",
-			"",
-			...Arr.flatMap([...omissions, ...strangers, ...channels, ...relabelled], (s) => [
-				...s.lines,
-				""
-			])
-		],
-		"\n"
+			{ owner: batchOwned, lines: configHeader },
+			...Arr.map(cells, (cell, at) => ({
+				owner: caseOwned(at),
+				lines: [...cellOf(cell, at).lines, ""]
+			}))
+		]
 	)
-	return Arr.join(
-		[
-			"// Generated by test/support/agreement/dbconfig.ts: the DbConfig type/reader agreement.",
-			'import net from "node:net"',
-			'import pgDriver, { type Client, type ClientConfig } from "pg"',
-			...preludeImports(entries, identifiers(text)),
-			"",
-			text
-		],
-		"\n"
-	)
-}
-
-/** The size of the program's space: every omission, stranger, channel case and relabelling. */
-export const configSize =
-	Arr.reduce(blocks, 0, (n, b) => n + rosterOf[b].length) * loginNames.length +
-	blocks.length * loginNames.length +
-	channelCases.length +
-	loginNames.length * loginNames.length
+]

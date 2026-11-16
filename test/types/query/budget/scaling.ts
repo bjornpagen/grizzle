@@ -49,7 +49,7 @@ const fixedRelations = 4 * relationPeriod
  * puts taking turns, and each put round the four mutable relations, so every 60 members repeat; contexts round the
  * first five relations; and relations, with or without their rules and members, every five.
  */
-export const queryDimensions: ReadonlyArray<QueryDimension> = [
+const queryRoster: Arr.NonEmptyReadonlyArray<QueryDimension> = [
 	{
 		name: "query rules and attachments",
 		steps: equalSteps(fixedRelations),
@@ -237,3 +237,10 @@ ${Arr.join(
 		}`
 	)
 }
+
+/** The cells of queryDimensions, minted as a dictionary in its door (test/types/query/budget/scaling.dictionary.ts). */
+export const queryDimensionsItems = Arr.map(queryRoster, (dimension) => ({
+	name: dimension.name,
+	steps: dimension.steps,
+	source: (size: number, entries: PreludeAt) => queryScaleSource(dimension.shape(size), entries)
+}))

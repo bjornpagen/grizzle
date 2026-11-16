@@ -1,14 +1,19 @@
-import { type Situations, type Tally, tallyOf } from "@bjornpagen/testing/features"
-import type { Gen } from "@bjornpagen/testing/gen"
-import { element } from "@bjornpagen/testing/gen"
-import { floorSeed, rotatingSeed } from "@bjornpagen/testing/random"
-import { sample } from "@bjornpagen/testing/source"
-import { Array as Arr } from "effect"
+import { array, element, type Gen, weighted } from "@bjornpagen/testing/gen"
+import { Array as Arr, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { codePointsText } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import {
+	batchOwned,
+	caseOwned,
+	type Entry,
+	type Part,
+	type Program
+} from "#test/types/batch/batch.ts"
+import {
+	type Family,
 	type Flags,
 	families,
 	jsMatcher,
@@ -18,176 +23,309 @@ import {
 } from "#test/unit/text/generators.ts"
 
 /**
- * The generated containment program of test/types/text: for every handwritten family pattern of the regex
- * differential tests and generated ones, it assigns the members ECMAScript accepts, from the family's strings and walks
- * over the pattern's own host NFA, to `Infer<typeof str.regex(...)>`, and for every kept pattern its kept members;
- * and each admitted pattern joined with the next by str.and, the values both accept, to `Infer<typeof str.and(...)>`. It
- * must typecheck with no diagnostic at all, so typed authoring accepts every such admitted source and conjunction. Each draw's label
- * gives a quarter of its patterns, strings and walks from its floor stream (`floorDraws`), the same on every run, and
- * the rest from its rotating stream under the run's seed (`rotatingDraws`), new on every run, so the program is the
- * same wherever one run generates it, in the type-test batch (test/types/batch) and in regex.test.ts. A family's
- * witnesses are the members a pattern the label fixes (a handwritten one, a floor-drawn one, a kept one) takes from
- * floor draws: regex.test.ts requires every family to have one, which no run seed moves.
+ * The containment programs of test/types/text/regex.test.ts: a case is one family of the regex differential tests
+ * (test/unit/text/generators.ts) and two of its patterns, each handwritten or generated, each admitted one with the
+ * members ECMAScript accepts among the case's strings over the family's alphabet and walks over the pattern's own host
+ * NFA, assigned to `Infer<typeof str.regex(...)>`; and, where both are admitted, their conjunction by str.and with the
+ * values both accept, assigned to `Infer<typeof str.and(...)>`. A program must typecheck with no diagnostic at all, so
+ * typed authoring accepts every such admitted source and conjunction. A case reaches its family when an admitted pattern
+ * of it takes a member, and the empty string when a handwritten one takes it.
  *
- * Patterns whose inferred host type once refused members the pattern accepts, each with those members: ArkRegex wrote
- * adjacent placeholders, of which TypeScript makes the first match exactly one code point, or read a literal U+200B,
- * its own marker, as an error ending the source or a class, or as an anchor (TEST_SEED=3860715490).
+ * Beside the drawn cases, the kept patterns (keptPatterns), each with the members its inferred host type once refused:
+ * ArkRegex wrote adjacent placeholders, of which TypeScript makes the first match exactly one code point, or read a
+ * literal U+200B, its own marker, as an error ending the source or a class, or as an anchor (TEST_SEED=3860715490).
  */
-const kept: ReadonlyArray<{
-	readonly source: string
-	readonly flags: Flags
-	readonly members: ReadonlyArray<string>
-}> = [
-	{ source: "(.|)a|b", flags: "su", members: ["a", "a\u{1659b}"] },
-	{ source: "^a+", flags: "u", members: ["a"] },
-	{ source: "\\D?\\.", flags: "u", members: ["."] },
-	{ source: "\\W{0,2}x", flags: "u", members: ["x"] },
-	{ source: "^(?:\\d?){2}$", flags: "u", members: [""] },
-	{ source: "^(?:a|\\d)+$", flags: "u", members: ["1a"] },
-	{ source: "\u200B", flags: "su", members: ["\u200B"] },
-	{ source: "[a\u200B]b", flags: "u", members: ["ab", "\u200Bb"] },
-	{ source: "a<\u200B\\^\u200B>b", flags: "u", members: ["a<\u200B^\u200B>b"] }
+
+/** A pattern as str.regex takes it. */
+type Source = Readonly<{ source: string; flags: Flags }>
+
+/** A pattern of a family: one of its handwritten patterns, or one generated over its alphabet. */
+type Pattern = Source & Readonly<{ origin: "handwritten" | "generated" }>
+
+/** A drawn pattern: admitted, with the members it accepts among the case's draws, or refused, which contains nothing. */
+type Contained =
+	| Readonly<{ kind: "admitted"; pattern: Pattern; members: ReadonlyArray<string> }>
+	| Readonly<{ kind: "refused"; pattern: Pattern }>
+
+/** A case: a family, two of its patterns, and the values both accept where both are admitted. */
+export interface ContainedCase {
+	readonly family: string
+	readonly first: Contained
+	readonly second: Contained
+	readonly both: ReadonlyArray<string>
+}
+
+/** The most distinct walks of a host NFA a pattern takes members from. */
+const walksTaken = 12
+
+/** The most members a pattern takes. */
+const membersTaken = 24
+
+/** The most values a conjunction takes. */
+const bothTaken = 12
+
+/** A pattern of a family: one of its handwritten patterns, or one generated over its alphabet. */
+const patternGen = (family: Family): Gen<Pattern> => {
+	const generated: Gen<Pattern> = (source) => ({
+		source: source.draw(patternOver(family.alphabet)),
+		flags: source.draw(element(["u", "su"] as const)),
+		origin: "generated"
+	})
+	const [first, ...rest] = family.patterns
+	if (first === undefined) {
+		return generated
+	}
+	const handwritten = element([first, ...rest])
+	return weighted<Pattern>([
+		[
+			1,
+			(source) => {
+				const [patternSource, flags] = source.draw(handwritten)
+				return { source: patternSource, flags, origin: "handwritten" }
+			}
+		],
+		[1, generated]
+	])
+}
+
+/** A pattern drawn with its members: those it accepts among `strings` and among walks of its own host NFA. */
+const containedGen =
+	(family: Family, strings: ReadonlyArray<string>): Gen<Contained> =>
+	(source) => {
+		const pattern = source.draw(patternGen(family))
+		const analyzed = analyzeText([pattern], SourceLoc("str.regex", [family.name]))
+		if (!analyzed.ok) {
+			return { kind: "refused", pattern }
+		}
+		const walks = source.draw(
+			array(walkGen(buildNfa(analyzed.value.members[0].ir)), { min: 0, max: walksTaken })
+		)
+		const own = Arr.dedupe(Arr.flatMap(walks, (w) => (w === undefined ? [] : [w])))
+		const accepts = jsMatcher(pattern.source, pattern.flags)
+		return {
+			kind: "admitted",
+			pattern,
+			members: Arr.take(Arr.dedupe(Arr.filter([...strings, ...own], accepts)), membersTaken)
+		}
+	}
+
+/**
+ * A family, two of its patterns over strings of its alphabet, and the values both accept. The empty string, the member
+ * a host type most easily drops, is offered to every pattern beside the drawn strings.
+ */
+export const containedCases: Gen<ContainedCase> = (source) => {
+	const family = source.draw(element(families))
+	const strings = [
+		"",
+		...source.draw(array(stringsOver(element(family.alphabet), 8), { min: 0, max: membersTaken }))
+	]
+	const first = source.draw(containedGen(family, strings))
+	const second = source.draw(containedGen(family, strings))
+	const both =
+		first.kind === "admitted" && second.kind === "admitted"
+			? Arr.take(
+					Arr.filter(
+						Arr.dedupe([...first.members, ...second.members, ...strings]),
+						(v) =>
+							jsMatcher(first.pattern.source, first.pattern.flags)(v) &&
+							jsMatcher(second.pattern.source, second.pattern.flags)(v)
+					),
+					bothTaken
+				)
+			: []
+	return { family: family.name, first, second, both }
+}
+
+/**
+ * The situation of a case whose admitted handwritten pattern takes the empty string, the member a host type most easily
+ * drops: the families' own patterns hold the empty string in finite hosts ("^$", "^a?$"), where a generated one rarely
+ * does.
+ */
+const emptyMember = "the empty string, a member of a handwritten pattern"
+
+/**
+ * The situations: every family, which a witness reaches when an admitted pattern of it takes a member, and the empty
+ * string taken as a member.
+ */
+export const containedSituations: Arr.NonEmptyReadonlyArray<string> = [
+	...Arr.map(families, (family) => family.name),
+	emptyMember
 ]
 
-/** `count` values of `generator` from the floor stream of `label`: the same values on every run. */
-const floorDraws = <A>(label: string, generator: Gen<A>, count: number): ReadonlyArray<A> =>
-	sample(generator, floorSeed(label), count)
-
 /**
- * `count` values of `generator` from the rotating stream of `label` under the run's seed: every process of one run draws
- * the same values, and every run draws new ones.
+ * What a case reaches: its family, when an admitted pattern of it takes a member, and the empty string as a member of a
+ * handwritten pattern.
  */
-const rotatingDraws = <A>(
-	seed: number,
-	label: string,
-	generator: Gen<A>,
-	count: number
-): ReadonlyArray<A> => sample(generator, rotatingSeed(seed, floorSeed(label)), count)
-
-/** A pattern of the program, and whether the suite's labels fix it (a witness) or the run's seed drew it (a sample). */
-type Drawn = Readonly<{ source: string; flags: Flags; origin: "witness" | "sample" }>
-
-/**
- * The containment program, the situations it requires (every family, by name, contributes a witness), and the tally
- * of the families whose witnesses contributed a member: what regex.test.ts judges with unreachedOf.
- */
-export interface Contained {
-	readonly source: string
-	readonly families: Situations<string>
-	readonly witnesses: Tally<"floor">
-}
-
-/** The distinct members of a pattern among drawn values, in the order they were drawn. */
-const acceptedOf = (source: string, flags: Flags, values: ReadonlyArray<string>) =>
-	Arr.dedupe(Arr.filter(values, jsMatcher(source, flags)))
-
-/** The first twelve distinct walks of a host NFA, a walk that got stuck none. */
-const ownOf = (walks: ReadonlyArray<string | undefined>): ReadonlyArray<string> =>
-	Arr.take(Arr.dedupe(Arr.flatMap(walks, (w) => (w === undefined ? [] : [w]))), 12)
-
-/**
- * The program under the run's seed, for a file four directories below the repository root
- * (test/types/text/<scratch>/contained.ts).
- */
-export const containedProgram = (seed: number): Contained => {
-	const lines = [
-		'import { str } from "../../../../packages/engine/src/public/text.ts"',
-		'import type { Infer } from "../../../../packages/engine/src/public/fields.ts"'
+export const containedNotes = (c: ContainedCase): ReadonlyArray<string> => {
+	const admitted = Arr.flatMap([c.first, c.second], (p) => (p.kind === "admitted" ? [p] : []))
+	return [
+		...(Arr.some(admitted, (p) => Arr.isReadonlyArrayNonEmpty(p.members)) ? [c.family] : []),
+		...(Arr.some(admitted, (p) => p.pattern.origin === "handwritten" && Arr.contains(p.members, ""))
+			? [emptyMember]
+			: [])
 	]
-	const witnesses = tallyOf("floor")
-	for (const [fi, family] of families.entries()) {
-		let witnessed = false
-		const stringsLabel = `text/contained ${family.name} strings`
-		const strings = stringsOver(element(family.alphabet), 8)
-		const floorStrings = floorDraws(stringsLabel, strings, 100)
-		const rotatingStrings = rotatingDraws(seed, stringsLabel, strings, 300)
-		const patternsLabel = `text/contained ${family.name} patterns`
-		const generatedFlags = (i: number): Flags => (i % 2 === 0 ? "u" : "su")
-		const drawn: ReadonlyArray<Drawn> = [
-			...Arr.map(family.patterns, ([source, flags]): Drawn => ({
-				source,
-				flags,
-				origin: "witness"
-			})),
-			...Arr.map(
-				floorDraws(patternsLabel, patternOver(family.alphabet), 4),
-				(source, i): Drawn => ({ source, flags: generatedFlags(i), origin: "witness" })
-			),
-			...Arr.map(
-				rotatingDraws(seed, patternsLabel, patternOver(family.alphabet), 12),
-				(source, i): Drawn => ({ source, flags: generatedFlags(i), origin: "sample" })
-			)
-		]
-		/** The family's admitted patterns, each with the drawn members it was assigned, for the conjunctions below. */
-		const admitted: Array<{
-			readonly name: string
-			readonly source: string
-			readonly flags: Flags
-			readonly members: ReadonlyArray<string>
-		}> = []
-		for (const [pi, { source, flags, origin }] of drawn.entries()) {
-			/** Only admitted patterns: a refused one has no host type to contain anything. */
-			const result = analyzeText([{ source, flags }], SourceLoc("str.regex", [family.name, pi]))
-			if (!result.ok) {
-				continue
-			}
-			const walksLabel = `text/contained ${family.name} ${pi} walks`
-			const walks = walkGen(buildNfa(result.value.members[0].ir))
-			const fixed = acceptedOf(source, flags, [
-				...floorStrings,
-				...ownOf(floorDraws(walksLabel, walks, 120))
-			])
-			const sampled = acceptedOf(source, flags, [
-				...rotatingStrings,
-				...ownOf(rotatingDraws(seed, walksLabel, walks, 360))
-			])
-			const members = Arr.take(Arr.dedupe([...fixed, ...sampled]), 24)
-			witnessed = witnessed || (origin === "witness" && Arr.isReadonlyArrayNonEmpty(fixed))
-			const name = `p${fi}_${pi}`
-			lines.push(`export const ${name} = str.regex(${jsonText(source)}, ${jsonText(flags)})`)
-			for (const [i, v] of members.entries()) {
-				lines.push(`export const ${name}_${i}: Infer<typeof ${name}> = ${jsonText(v)}`)
-			}
-			admitted.push({ name, source, flags, members })
-		}
-		for (const [ai, a] of admitted.entries()) {
-			const b = admitted[ai + 1]
-			if (b === undefined) {
-				continue
-			}
-			const ofA = jsMatcher(a.source, a.flags)
-			const ofB = jsMatcher(b.source, b.flags)
-			const both = Arr.take(
-				Arr.filter(
-					Arr.dedupe([...a.members, ...b.members, ...floorStrings]),
-					(v) => ofA(v) && ofB(v)
-				),
-				12
-			)
-			const name = `${a.name}_and`
-			lines.push(`export const ${name} = str.and(${a.name}, ${b.name})`)
-			for (const [i, v] of both.entries()) {
-				lines.push(`export const ${name}_${i}: Infer<typeof ${name}> = ${jsonText(v)}`)
-			}
-		}
-		witnesses.add(new Set(witnessed ? [family.name] : []))
-	}
-	for (const [ki, { source, flags, members }] of kept.entries()) {
-		const ofKept = jsMatcher(source, flags)
-		for (const v of members) {
-			if (!ofKept(v)) {
-				throw new Error(`${source} does not accept ${v}`)
-			}
-		}
-		const name = `kept${ki}`
-		lines.push(`export const ${name} = str.regex(${jsonText(source)}, ${jsonText(flags)})`)
-		for (const [i, v] of members.entries()) {
-			lines.push(`export const ${name}_${i}: Infer<typeof ${name}> = ${jsonText(v)}`)
-		}
-	}
-	return {
-		source: `${Arr.join(lines, "\n")}\n`,
-		families: Arr.map(families, (family) => family.name),
-		witnesses: witnesses.tally()
-	}
 }
+
+/**
+ * A string as a TypeScript literal on one line: JSON's spelling, with the two line terminators JSON leaves bare,
+ * U+2028 and U+2029, escaped, so TypeScript's lines are the program's.
+ */
+const literal = (text: string): string =>
+	Str.replaceAll("\u2029", "\\u2029")(Str.replaceAll("\u2028", "\\u2028")(jsonText(text)))
+
+/** A pattern's declaration under `name` and each member assigned to its host type. */
+const patternLines = (
+	name: string,
+	pattern: Source,
+	members: ReadonlyArray<string>
+): ReadonlyArray<string> => [
+	`export const ${name} = str.regex(${literal(pattern.source)}, ${literal(pattern.flags)})`,
+	...Arr.map(members, (v, i) => `export const ${name}_${i}: Infer<typeof ${name}> = ${literal(v)}`)
+]
+
+/** A case's lines: each admitted pattern with its members, then their conjunction with the values both accept. */
+const caseLines = (c: ContainedCase, at: number): ReadonlyArray<string> => {
+	const first = `p${at}_a`
+	const second = `p${at}_b`
+	const declared = (name: string, p: Contained): ReadonlyArray<string> =>
+		p.kind === "admitted" ? patternLines(name, p.pattern, p.members) : []
+	return [
+		...declared(first, c.first),
+		...declared(second, c.second),
+		...(c.first.kind === "admitted" && c.second.kind === "admitted"
+			? [
+					`export const p${at}_and = str.and(${first}, ${second})`,
+					...Arr.map(
+						c.both,
+						(v, i) => `export const p${at}_and_${i}: Infer<typeof p${at}_and> = ${literal(v)}`
+					)
+				]
+			: [])
+	]
+}
+
+/**
+ * A program's imports, the batch's own: str and Infer, each exported again, so a batch whose cases read neither still
+ * reads them.
+ */
+const headerOf = (entry: Entry): Part => ({
+	owner: batchOwned,
+	lines: [
+		`import { str } from ${jsonText(entry("packages/engine/src/public/text.ts"))}`,
+		`import type { Infer } from ${jsonText(entry("packages/engine/src/public/fields.ts"))}`,
+		"export { str }",
+		"export type { Infer }"
+	]
+})
+
+/** The program over a batch's cases. */
+export const containedProgram = (
+	cases: Arr.NonEmptyReadonlyArray<ContainedCase>,
+	entry: Entry
+): Program => [
+	{
+		file: "contained.ts",
+		parts: [
+			headerOf(entry),
+			...Arr.map(cases, (c, at) => ({ owner: caseOwned(at), lines: caseLines(c, at) }))
+		]
+	}
+]
+
+/** A kept pattern and the members its host type once refused. */
+export type KeptPattern = Readonly<{ pattern: Source; members: ReadonlyArray<string> }>
+
+/** The cells of keptPatterns, minted as a dictionary in its door (test/types/text/regex.dictionary.ts). */
+export const keptPatternsItems: Arr.NonEmptyReadonlyArray<KeptPattern> = [
+	{ pattern: { source: "(.|)a|b", flags: "su" }, members: ["a", "a\u{1659b}"] },
+	{ pattern: { source: "^a+", flags: "u" }, members: ["a"] },
+	{ pattern: { source: "\\D?\\.", flags: "u" }, members: ["."] },
+	{ pattern: { source: "\\W{0,2}x", flags: "u" }, members: ["x"] },
+	{ pattern: { source: "^(?:\\d?){2}$", flags: "u" }, members: [""] },
+	{ pattern: { source: "^(?:a|\\d)+$", flags: "u" }, members: ["1a"] },
+	{ pattern: { source: "\u200B", flags: "su" }, members: ["\u200B"] },
+	{ pattern: { source: "[a\u200B]b", flags: "u" }, members: ["ab", "\u200Bb"] },
+	{ pattern: { source: "a<\u200B\\^\u200B>b", flags: "u" }, members: ["a<\u200B^\u200B>b"] }
+]
+
+/** A kept pattern's lines, each member checked accepted by ECMAScript first: one it refuses is the box's own defect. */
+const keptLines = (kept: KeptPattern, at: number): ReadonlyArray<string> => {
+	const accepts = jsMatcher(kept.pattern.source, kept.pattern.flags)
+	const refused = Arr.filter(kept.members, (v) => !accepts(v))
+	if (Arr.isReadonlyArrayNonEmpty(refused)) {
+		throw new Error(`${kept.pattern.source} does not accept ${Arr.join(refused, ", ")}`)
+	}
+	return patternLines(`kept${at}`, kept.pattern, kept.members)
+}
+
+/** The program over a batch of kept patterns. */
+export const keptProgram = (
+	cases: Arr.NonEmptyReadonlyArray<KeptPattern>,
+	entry: Entry
+): Program => [
+	{
+		file: "contained.ts",
+		parts: [
+			headerOf(entry),
+			...Arr.map(cases, (kept, at) => ({ owner: caseOwned(at), lines: keptLines(kept, at) }))
+		]
+	}
+]
+
+/** A family's handwritten pattern, by its family. */
+export type HandwrittenPattern = Readonly<{ family: Family; pattern: Source }>
+
+/**
+ * Every family's handwritten pattern the engine admits: the regex tests' own roster, each admitted one, since a refused
+ * pattern has no host type to contain anything; refused when none is admitted.
+ */
+const handwritten = (): Arr.NonEmptyReadonlyArray<HandwrittenPattern> => {
+	const roster = Arr.flatMap(families, (family) =>
+		Arr.flatMap(family.patterns, ([source, flags]): ReadonlyArray<HandwrittenPattern> =>
+			analyzeText([{ source, flags }], SourceLoc("str.regex", [family.name])).ok
+				? [{ family, pattern: { source, flags } }]
+				: []
+		)
+	)
+	if (!Arr.isReadonlyArrayNonEmpty(roster)) {
+		throw new Error("the regex families hold no handwritten pattern")
+	}
+	return roster
+}
+
+/** The cells of handwrittenPatterns, minted as a dictionary in its door (test/types/text/regex.dictionary.ts). */
+export const handwrittenPatternsItems = handwritten()
+
+/**
+ * A handwritten pattern's members: the texts it accepts among the empty string and every text of one or two code points
+ * of its family's alphabet, in that order, the first membersTaken of them.
+ */
+const handwrittenMembers = (cell: HandwrittenPattern): ReadonlyArray<string> => {
+	const letters = Arr.map(cell.family.alphabet, (c) => codePointsText([c]))
+	const candidates = [
+		"",
+		...letters,
+		...Arr.flatMap(letters, (first) => Arr.map(letters, (second) => `${first}${second}`))
+	]
+	return Arr.take(
+		Arr.filter(candidates, jsMatcher(cell.pattern.source, cell.pattern.flags)),
+		membersTaken
+	)
+}
+
+/** The program over a batch of handwritten patterns, each with its members. */
+export const handwrittenProgram = (
+	cases: Arr.NonEmptyReadonlyArray<HandwrittenPattern>,
+	entry: Entry
+): Program => [
+	{
+		file: "contained.ts",
+		parts: [
+			headerOf(entry),
+			...Arr.map(cases, (cell, at) => ({
+				owner: caseOwned(at),
+				lines: patternLines(`h${at}`, cell.pattern, handwrittenMembers(cell))
+			}))
+		]
+	}
+]
