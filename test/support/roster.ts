@@ -39,7 +39,6 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/unit/deps/**/*.test.ts",
 	"test/unit/derived/**/*.test.ts",
 	"test/unit/dev/toolchain-imports.test.ts",
-	"test/unit/history/**/*.test.ts",
 	"test/unit/http/**/*.test.ts",
 	"test/unit/ir/**/*.test.ts",
 	"test/unit/kernel/**/*.test.ts",

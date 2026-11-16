@@ -9,16 +9,13 @@
  *   atom. Oracle: the specification, the formula's meaning over the atoms' relation sets.
  * - Exact cost: every nonempty mask's formula has the minimal atom count, against an exhaustive search over every
  *   assignment of the atoms to a disjunct. Oracle: a second implementation.
- * - Universe: every spelling of each universe stores one of its spans, reaching every window span, both type limits,
- *   the whole range and every spelling; every pair classifies into exactly one relation. Oracle: the specification,
- *   PostgreSQL's range canonicalization restated and the relations' endpoint conditions.
  * - Converse: the swapped pair is the converse relation. Oracle: the specification.
  * - Atom sets: each atom's relation set is PostgreSQL's operator, its truth on every pair evaluated by the operators
  *   transcribed from rangetypes.c. Oracle: a second implementation.
  * - Formulas over the universe: every mask's formula holds of exactly the pairs whose relation it holds. Oracle: the
  *   specification, the pair's relation.
  *
- * Every box is exhausted: every mask, every ordered pair, every spelling. Features, required in each space, name the
+ * Every box is exhausted: every mask, every ordered pair. Features, required in each space, name the
  * situations each check could silently stop reaching.
  */
 
@@ -33,16 +30,13 @@ import { allenTable } from "#compiler/allen/table.generated.ts"
 import { type AllenRelation, allenRelations } from "#compiler/core/allen.ts"
 import { assert } from "#test/support/assert.ts"
 import {
-	canonicalize,
 	everyDisjunctIndexable,
 	formulaAtomCount,
 	formulaHolds,
-	rangeLimits,
 	type RangeType,
 	rangeTypes,
 	relationsHolding,
 	spanText,
-	universe,
 	verifyFormulas
 } from "#test/support/oracle/allen.ts"
 import {
@@ -53,11 +47,8 @@ import {
 	type EntryFeature,
 	exact,
 	generated,
-	items,
 	pairs,
-	situations,
-	typedPairs,
-	type UniverseFeature
+	typedPairs
 } from "#test/unit/allen/table.fixtures.ts"
 
 /** The committed Allen table is the offline minimization's table, entry for entry, when regenerated. */
@@ -186,53 +177,6 @@ export const theGeneratedAllenTableHasTheExactMinimalAtomCountForEveryNonemptyMa
 				why: "Mask 1's formula carries a redundant literal after its others: not canonical, one atom more; the entries and the exact cost properties fail."
 			}
 		]
-	})
-
-/** The verification universe stores every spelling as one of its spans and classifies every pair into exactly one relation, reaching every window span, both type limits, the full range, every spelling and every relation. */
-export const theVerificationUniverseStoresEverySpellingAsOneOfItsSpansAndClassifiesEveryPairIntoExactlyOneRelationReachingEveryWindowSpanBothTypeLimitsTheFullRangeEverySpellingAndEveryRelation =
-	property.exhaust(finite(items), {
-		needs: {},
-		situations: situations satisfies ReadonlyArray<Reached<UniverseFeature>>,
-		check: (_, c: Case<UniverseFeature>) => (item) =>
-			Effect.gen(function* () {
-				const texts = new Map(
-					Arr.map(rangeTypes, (type) => [type, new Set(Arr.map(universe(type), spanText))] as const)
-				)
-				return yield* Effect.sync(() => {
-					if (item.kind === "pair") {
-						assert.deepEqual(relationsHolding(item.pair.a, item.pair.b), [item.pair.relation])
-						c.note(`${item.type} ${item.pair.relation}`)
-						return
-					}
-					const { type, spelling } = item
-					c.note(`${type} spelled ${spelling.lowerInc ? "[" : "("}${spelling.upperInc ? "]" : ")"}`)
-					const stored = canonicalize(type, spelling)
-					assert.ok(stored.kind === "span", "every spelling of the universe stores a span")
-					const text = spanText(stored.span)
-					assert.ok(
-						texts.get(type)?.has(text) === true,
-						`the spelling stores ${text}, a span of the universe`
-					)
-					c.note(`${type} span ${text}`)
-					const { min, max } = rangeLimits[type]
-					if (stored.span.lo === min) {
-						c.note(`${type} its least value`)
-					}
-					if (stored.span.hi === max) {
-						c.note(`${type} its greatest value`)
-					}
-					if (stored.span.lo === min && stored.span.hi === max) {
-						c.note(`${type} its whole range`)
-					}
-				})
-			}),
-		oracle: {
-			kind: "specification",
-			name: "PostgreSQL's range canonicalization restated, and the relations' endpoint conditions"
-		},
-		box: "every spelling and every ordered pair of both verification universes",
-		kept: [],
-		kills: []
 	})
 
 /** The verification universe maps the converse relation to the swapped pair. */

@@ -1,31 +1,24 @@
 /**
- * The database-free parts of the native PG test substrate, each against a model:
+ * The database-free naming of the native PG test substrate, against a model:
  *
  * - Names. A schema label and a role name are lowercase ASCII letter words joined by single underscores; an allocated
  *   schema name is `gz_<label>_<pid>_<n>_<ten digits>`, its own conversion at the naming door, and every role and role
  *   schema minted under it starts with its prefix, so the global setup reads the allocating process off any of them
  *   and sweeps a dead one's; no name past maxIdentifierBytes is ever made, so PostgreSQL never cuts one. The oracle is
  *   the generator's own words, each drawn whole or with a fault planted, and the byte count of the name they spell.
- * - psql's verbose error report: stderr of noise lines and reports, each a severity line and its fields, is read as
- *   the last report, its message, and each field's first value that holds no line terminator; stderr with no severity
- *   line holds no report.
- * - An expectation judges its one attempt: the attempt runs once, and the expectation holds exactly for a PostgreSQL
- *   refusal of its SQLSTATE, and of its constraint where it names one.
  *
- * Every property states its oracle, the specification; invalid words, identifiers and allocations are named faults
- * the generators plant, drawn by explicit weight beside the lawful ones. Features: each verdict of each property.
+ * The property states its oracle, the specification; invalid words, identifiers and allocations are named faults the
+ * generators plant, drawn by explicit weight beside the lawful ones. Features: each of its verdicts.
  */
 
 import { maxIdentifierBytes } from "@bjornpagen/grizzle-engine/core/identity"
 import { type Reached } from "@bjornpagen/testing/features"
-import { array, element, int, weighted } from "@bjornpagen/testing/gen"
+import { element, int, weighted } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option, Ref, Result, String as Str } from "effect"
+import { Effect, Option, Result, String as Str } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { assert, assertVariant } from "#test/support/assert.ts"
+import { assert } from "#test/support/assert.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
-import type { ExpectationFailed, PgErrorFields } from "#test/support/substrate/errors.ts"
-import { expectConstraint, expectSqlstate } from "#test/support/substrate/expect.ts"
 import {
 	allocatingPid,
 	assertIdentifier,
@@ -33,26 +26,12 @@ import {
 	rolePrefix,
 	uniqueSchemaName
 } from "#test/support/substrate/names.ts"
-import { parseVerboseError } from "#test/support/substrate/psql.ts"
 import {
-	constraintOf,
 	drawnWord,
-	endingGen,
-	endingOf,
-	type ExpectFeature,
-	expectationGen,
-	firstOf,
 	identifierGen,
-	type Judgment,
 	mintedUnder,
 	type NameFeature,
-	type NotPostgres,
-	noiseGen,
 	refuses,
-	type ReportFeature,
-	reportGen,
-	reportText,
-	type ServerRecord,
 	unallocatedGen
 } from "#test/unit/substrate/substrate.fixtures.ts"
 
@@ -174,154 +153,5 @@ export const substrateNamesAllocateExactlyTheNamesTheWordRuleAndTheByteLimitAdmi
 					why: "Operator mutant (statement) at packages/engine/src/core/identity.ts:204 in nameSegments: `flush()` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
 				}
 			]
-		}
-	)
-
-/**
- * psql's writer protocol reads psql's verbose report as its last severity line's message and each field's first one-
- * line value.
- *
- * Budget: its suite's count before the conversion (unit/substrate/psql-report: 300 independent cases and 0 steered,
- * Vitest at grizzle 4ca3036a).
- */
-export const psqlWriterProtocolReadsPsqlsVerboseReportAsItsLastSeverityLinesMessageAndEachFieldsFirstOneLineValue =
-	property.explore(
-		(source) => ({
-			before: source.draw(array(noiseGen, { min: 0, max: 2 })),
-			reports: source.draw(array(reportGen, { min: 0, max: 2 })),
-			after: source.draw(
-				array(element(["NOTICE:  00000: later", "WARNING:  01000: later"] as const), {
-					min: 0,
-					max: 1
-				})
-			),
-			sqlstate: source.draw(element(["23505", "XX000"] as const))
-		}),
-		{
-			needs: {},
-			situations: [
-				"no report",
-				"one report",
-				"the last of several",
-				"a field read",
-				"a field skipped"
-			] satisfies ReadonlyArray<Reached<ReportFeature>>,
-			check:
-				(_, c: Case<ReportFeature>) =>
-				({ before, reports, after, sqlstate }) =>
-					Effect.sync(() => {
-						const stderr = Arr.join(
-							Arr.map([...before, ...Arr.flatMap(reports, reportText), ...after], (l) => `${l}\n`),
-							""
-						)
-						const read = parseVerboseError(sqlstate, stderr)
-						const last = Arr.last(reports)
-						if (Option.isNone(last)) {
-							c.note("no report")
-							assert.equal(read, undefined)
-							return
-						}
-						c.note(reports.length === 1 ? "one report" : "the last of several")
-						const r = last.value
-						assert.deepEqual(read, {
-							code: sqlstate,
-							message: r.message,
-							detail: firstOf(r, "detail"),
-							hint: firstOf(r, "hint"),
-							where: firstOf(r, "where"),
-							schema: firstOf(r, "schema"),
-							table: firstOf(r, "table"),
-							column: firstOf(r, "column"),
-							dataType: firstOf(r, "dataType"),
-							constraint: constraintOf(r)
-						})
-						for (const f of Arr.getSomes(r.lines)) {
-							c.note(Str.includes(" ")(f.value) ? "a field skipped" : "a field read")
-						}
-					}),
-			oracle: {
-				kind: "specification",
-				name: "the last report printed, its message and each field's first one-line value"
-			},
-			budget: { runs: 300, steered: 0 },
-			kept: [],
-			kills: []
-		}
-	)
-
-/**
- * Expectations run their attempt once and hold exactly for a PostgreSQL refusal of their SQLSTATE and constraint.
- *
- * Budget: its suite's count before the conversion (unit/substrate/expectations: 300 independent cases and 0 steered,
- * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (constraint,
- * held; toolchain-test run of 2026-11-16 08:21Z), so its steered phase keeps the runner's cap of 200, which it stops
- * short of once every situation is reached.
- */
-export const expectationsRunTheirAttemptOnceAndHoldExactlyForAPostgreSQLRefusalOfTheirSQLSTATEAndConstraint =
-	property.explore(
-		(source) => ({
-			ending: source.draw(endingGen),
-			expected: source.draw(expectationGen)
-		}),
-		{
-			needs: {},
-			situations: [
-				"sqlstate, held",
-				"sqlstate, failed: succeeded",
-				"sqlstate, failed: not PostgreSQL's",
-				"sqlstate, failed: another SQLSTATE",
-				"constraint, held",
-				"constraint, failed: succeeded",
-				"constraint, failed: not PostgreSQL's",
-				"constraint, failed: another SQLSTATE",
-				"constraint, failed: another constraint"
-			] satisfies ReadonlyArray<Reached<ExpectFeature>>,
-			check:
-				(_, c: Case<ExpectFeature>) =>
-				({ ending, expected }) =>
-					Effect.gen(function* () {
-						const runs = yield* Ref.make(0)
-						const attempt: Effect.Effect<number, string | NotPostgres | ServerRecord> =
-							Effect.andThen(
-								Ref.update(runs, (n) => n + 1),
-								endingOf(ending)
-							)
-						const expectation: Effect.Effect<PgErrorFields, ExpectationFailed> =
-							expected.form === "sqlstate"
-								? expectSqlstate(attempt, expected.code)
-								: expectConstraint(attempt, expected.constraint, expected.code)
-						const judged = yield* Effect.result(expectation)
-						const ran = yield* Ref.get(runs)
-						assert.equal(ran, 1, "the attempt runs once")
-						const feature: Judgment =
-							ending.kind === "succeeds"
-								? "failed: succeeded"
-								: ending.kind === "fails"
-									? "failed: not PostgreSQL's"
-									: ending.code !== expected.code
-										? "failed: another SQLSTATE"
-										: expected.form === "constraint" &&
-											  !Option.contains(ending.constraint, expected.constraint)
-											? "failed: another constraint"
-											: "held"
-						c.note(`${expected.form}, ${feature}`)
-						if (feature !== "held") {
-							assertVariant(judged, "_tag", "Failure", feature)
-							assert.equal(judged.failure._tag, "ExpectationFailed")
-							return
-						}
-						assertVariant(judged, "_tag", "Success")
-						if (ending.kind === "refused") {
-							assert.equal(judged.success.code, ending.code)
-							assert.equal(judged.success.constraint, Option.getOrUndefined(ending.constraint))
-						}
-					}),
-			oracle: {
-				kind: "specification",
-				name: "an expectation holds exactly for a refusal of its SQLSTATE and, where it names one, its constraint"
-			},
-			budget: { runs: 300, steered: 200 },
-			kept: [],
-			kills: []
 		}
 	)

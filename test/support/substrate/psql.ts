@@ -379,7 +379,7 @@ const fieldKeys: Readonly<
  * reports itself, a client-side error, carries no PostgreSQL report to parse. The SQLSTATE itself comes from psql's
  * :SQLSTATE variable.
  */
-export const parseVerboseError = (sqlstate: string, stderr: string): PgErrorFields | undefined => {
+const parseVerboseError = (sqlstate: string, stderr: string): PgErrorFields | undefined => {
 	const lines = Str.split(stderr, "\n")
 	/**
 	 * The last severity line opens psql's report of the failed statement; its message follows the SQLSTATE. The pattern's
