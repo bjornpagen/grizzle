@@ -21,301 +21,93 @@
  *
  * Features: a key the compiler accepts, and one sized within a word of the item limit.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import {
-	array,
-	boolean,
-	element,
-	type Gen,
-	int,
-	map,
-	oneOf,
-	weighted
-} from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { btreeMaxItemSize, regexMaxRepeat } from "@grizzle/limits"
-import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { btreeMaxItemSize } from "@grizzle/limits"
+import { Array as Arr, Effect } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
-import { wildcardPattern } from "#compiler/ir/scalar.ts"
-import { keyLayout } from "#compiler/schema/representability.ts"
+import {
+	columnSql,
+	filled,
+	keyGen,
+	layoutOf,
+	names,
+	type ReprFeature,
+	widestValue
+} from "#test/pg/oracle/representability.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { textDesc } from "#test/support/fixtures/ir/desc.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { wideOctets, wideText } from "#test/support/wide-text.ts"
 
-/** What a case of the population reached: a key the compiler accepts, and one sized within a word of the item limit. */
-type ReprFeature = "accepted key" | "key at the computed maximum"
-
-/** How a text field's length is bounded: by its pattern, or by a contract's charLength or octetLength predicate. */
-type TextBound = "pattern" | "charLength" | "octetLength"
-
-type FieldSketch =
-	| { readonly kind: "text"; readonly bound: TextBound; readonly length: number }
-	| {
-			readonly kind: "numeric"
-			readonly precision: number
-			readonly scale: number
-			readonly align: number
-	  }
-	| { readonly kind: "uuid" | "int8" | "int4" | "int2" | "bool" }
-
-interface KeySketch {
-	readonly fields: ReadonlyArray<FieldSketch>
-	/** Size the first text field to the largest length the compiler accepts beside the others. */
-	readonly fill: boolean
-	readonly salt: number
-}
-
-const fieldGen: Gen<FieldSketch> = weighted<FieldSketch>([
-	[
-		4,
-		oneOf<FieldSketch>([
-			(source) => ({
-				kind: "text",
-				bound: "pattern",
-				length: source.draw(int(0, regexMaxRepeat.value))
-			}),
-			(source) => ({ kind: "text", bound: "charLength", length: source.draw(int(0, 700)) }),
-			(source) => ({ kind: "text", bound: "octetLength", length: source.draw(int(0, 2800)) })
-		])
-	],
-	[
-		3,
-		(source) => {
-			const precision = source.draw(oneOf([int(1, 40), int(1, 1000)]))
-			const scale = source.draw(int(0, 1000))
-			const align = source.draw(int(0, 3))
-			return { kind: "numeric", precision, scale: scale % (precision + 1), align }
-		}
-	],
-	[
-		2,
-		map(element(["uuid", "int8", "int4", "int2", "bool"] as const), (kind): FieldSketch => ({
-			kind
-		}))
-	]
-])
-
-const keyGen: Gen<KeySketch> = (source) => ({
-	fields: source.draw(array(fieldGen, { min: 1, max: 5 })),
-	fill: source.draw(boolean),
-	salt: source.draw(int(0, 0xffff))
-})
-
-/** A contract over the wildcard pattern bounding its value's `measure` at `length`. */
-const lengthContract = (measure: "charLength" | "octetLength", length: number): FieldDesc => ({
-	kind: "contract",
-	name: "Bounded",
-	base: textDesc(wildcardPattern.source, wildcardPattern.flags),
-	predicate: {
-		kind: "compare",
-		op: "le",
-		left: { kind: "compute", fn: measure, args: [{ kind: "value" }] },
-		right: { kind: "literal", value: length }
-	},
-	facts: []
-})
-
-const boundedText = (bound: TextBound, length: number): FieldDesc => {
-	switch (bound) {
-		case "pattern":
-			return textDesc(`^.{0,${length}}$`, "su")
-		case "charLength":
-		case "octetLength":
-			return lengthContract(bound, length)
-	}
-}
-
-const descOf = (f: FieldSketch): FieldDesc => {
-	switch (f.kind) {
-		case "text":
-			return boundedText(f.bound, f.length)
-		case "numeric":
-			return { kind: "numeric", precision: f.precision, scale: f.scale }
-		case "uuid":
-			return { kind: "uuid" }
-		case "int8":
-			return { kind: "pg", type: "bigint" }
-		case "int4":
-			return { kind: "pg", type: "integer" }
-		case "int2":
-			return { kind: "pg", type: "smallint" }
-		case "bool":
-			return { kind: "pg", type: "boolean" }
-	}
-}
-
-const names = (fields: ReadonlyArray<FieldSketch>): ReadonlyArray<string> =>
-	Arr.map(indices(fields.length), (i) => `f${i}`)
-
-const layoutOf = (fields: ReadonlyArray<FieldSketch>) =>
-	keyLayout(Arr.map(fields, (f, i) => ({ field: `f${i}`, desc: descOf(f) })))
-
-/**
- * The key with its first text field at the largest accepted length, when it has one and the rest fits: a pattern's
- * length within PostgreSQL's repetition limit, which its pattern `^.{0,n}$` states, a contract's within an index entry.
- */
-const filled = (s: KeySketch): ReadonlyArray<FieldSketch> => {
-	const firstText = Arr.findFirstIndex(s.fields, (f) => f.kind === "text")
-	if (!s.fill || Option.isNone(firstText)) {
-		return s.fields
-	}
-	const first = firstText.value
-	const at = (length: number) =>
-		Arr.map(s.fields, (f, i) => (i === first && f.kind === "text" ? { ...f, length } : f))
-	if (!layoutOf(at(0)).ok) {
-		return s.fields
-	}
-	const firstField = s.fields[first]
-	let lo = 0
-	let hi =
-		firstField?.kind === "text" && firstField.bound === "pattern"
-			? regexMaxRepeat.value
-			: btreeMaxItemSize.value
-	while (lo < hi) {
-		const mid = Math.ceil((lo + hi) / 2)
-		if (layoutOf(at(mid)).ok) {
-			lo = mid
-		} else {
-			hi = mid - 1
-		}
-	}
-	return at(lo)
-}
-
-/**
- * The numeric of every digit numeric(p, s) admits, its integer digits shortened by `align` to vary where the
- * base-10000 groups fall, every digit 9 so no group is a stripped zero.
- */
-const wideNumeric = (precision: number, scale: number, align: number): string => {
-	const integer = Math.max(0, precision - scale - align)
-	const whole = integer === 0 ? "0" : Str.repeat(integer)("9")
-	return scale === 0 ? whole : `${whole}.${Str.repeat(scale)("9")}`
-}
-
-const columnSql = (f: FieldSketch): string => {
-	switch (f.kind) {
-		case "text":
-			return "text COLLATE pg_c_utf8"
-		case "numeric":
-			return `numeric(${f.precision}, ${f.scale})`
-		case "uuid":
-			return "uuid"
-		case "int8":
-			return "bigint"
-		case "int4":
-			return "integer"
-		case "int2":
-			return "smallint"
-		case "bool":
-			return "boolean"
-	}
-}
-
-const widestValue = (f: FieldSketch, salt: number): string => {
-	switch (f.kind) {
-		case "text":
-			return f.bound === "octetLength" ? wideOctets(f.length, salt) : wideText(f.length, salt)
-		case "numeric":
-			return wideNumeric(f.precision, f.scale, f.align)
-		case "uuid":
-			return "ffffffff-ffff-ffff-ffff-ffffffffffff"
-		case "int8":
-			return "9223372036854775807"
-		case "int4":
-			return "2147483647"
-		case "int2":
-			return "32767"
-		case "bool":
-			return "true"
-	}
-}
-
-const runs = 150
-
-layer(Substrate.layer)("key representability against PostgreSQL's B-tree item limit", (it) => {
-	it.effect(
-		`accepts the widest fact of each of ${runs} generated keys the compiler accepts`,
-		(ctx) =>
-			searched(
-				ctx,
+/** The widest fact of every generated key the compiler accepts is one PostgreSQL's B-tree accepts. */
+export const acceptsTheWidestFact = property.explore(keyGen, {
+	needs: { substrate: Substrate.fresh },
+	situations: ["accepted key", "key at the computed maximum"] satisfies ReadonlyArray<
+		Reached<ReprFeature>
+	>,
+	check:
+		({ substrate }, k: Case<ReprFeature>) =>
+		(sketch) =>
+			Effect.provideServiceEffect(
 				Effect.gen(function* () {
 					const s = yield* Substrate
 					const schema = yield* s.schema({ create: false, label: "repr" })
 					const session = yield* s.admin.pin
-					return yield* explore(
-						{
-							oracle: {
-								kind: "postgresql",
-								name: "the B-tree item limit of the key's unique index, 54000"
-							},
-							suite: "oracle/representability",
-							draw: drawn(keyGen),
-							literal: Formatter.format,
-							coverage: required<ReprFeature>(["accepted key", "key at the computed maximum"], {
-								cases: runs,
-								sense: notesOnly
-							}),
-							kept: [],
-							runs,
-							shrink: completeShrink,
-							steerEvery: 16,
-							caseHang
-						},
-						(sketch, k) =>
-							Effect.gen(function* () {
-								const fields = filled(sketch)
-								const layout = layoutOf(fields)
-								if (!layout.ok) {
-									return
-								}
-								k.note("accepted key")
-								if (
-									sketch.fill &&
-									Arr.some(fields, (f) => f.kind === "text") &&
-									layout.value.btreeBytes > btreeMaxItemSize.value - 8
-								) {
-									k.note("key at the computed maximum")
-								}
-								const columns = names(fields)
-								const table = `"${schema}"."t"`
-								const ddl = `CREATE TABLE ${table} (${Arr.join(
-									Arr.map(fields, (f, i) => `"${columns[i]}" ${columnSql(f)} NOT NULL`),
-									", "
-								)}, PRIMARY KEY (${Arr.join(
-									Arr.map(columns, (c) => `"${c}"`),
-									", "
-								)}))`
-								const insert = `INSERT INTO ${table} VALUES (${Arr.join(
-									Arr.map(indices(fields.length), (i) => `$${i + 1}`),
-									", "
-								)})`
-								const run = Effect.gen(function* () {
-									yield* session.query("BEGIN", [])
-									yield* session.query(`CREATE SCHEMA "${schema}"`, [])
-									yield* session.query(ddl, [])
-									yield* session.query(
-										insert,
-										Arr.map(fields, (f, i) => widestValue(f, sketch.salt + i))
-									)
-								}).pipe(Effect.ensuring(Effect.ignore(session.query("ROLLBACK", []))))
-								const outcome = yield* Effect.result(run)
-								succeeded(
-									outcome,
-									`the compiler accepts the key (${Arr.join(
-										Arr.map(fields, (f) => columnSql(f)),
-										", "
-									)}) at ${layout.value.btreeBytes} bytes, but PostgreSQL refuses its widest fact\n${ddl}`
-								)
-							})
+					const fields = filled(sketch)
+					const layout = layoutOf(fields)
+					if (!layout.ok) {
+						return
+					}
+					k.note("accepted key")
+					if (
+						sketch.fill &&
+						Arr.some(fields, (f) => f.kind === "text") &&
+						layout.value.btreeBytes > btreeMaxItemSize.value - 8
+					) {
+						k.note("key at the computed maximum")
+					}
+					const columns = names(fields)
+					const table = `"${schema}"."t"`
+					const ddl = `CREATE TABLE ${table} (${Arr.join(
+						Arr.map(fields, (f, i) => `"${columns[i]}" ${columnSql(f)} NOT NULL`),
+						", "
+					)}, PRIMARY KEY (${Arr.join(
+						Arr.map(columns, (c) => `"${c}"`),
+						", "
+					)}))`
+					const insert = `INSERT INTO ${table} VALUES (${Arr.join(
+						Arr.map(indices(fields.length), (i) => `$${i + 1}`),
+						", "
+					)})`
+					const run = Effect.gen(function* () {
+						yield* session.query("BEGIN", [])
+						yield* session.query(`CREATE SCHEMA "${schema}"`, [])
+						yield* session.query(ddl, [])
+						yield* session.query(
+							insert,
+							Arr.map(fields, (f, i) => widestValue(f, sketch.salt + i))
+						)
+					}).pipe(Effect.ensuring(Effect.ignore(session.query("ROLLBACK", []))))
+					const outcome = yield* Effect.result(run)
+					succeeded(
+						outcome,
+						`the compiler accepts the key (${Arr.join(
+							Arr.map(fields, (f) => columnSql(f)),
+							", "
+						)}) at ${layout.value.btreeBytes} bytes, but PostgreSQL refuses its widest fact\n${ddl}`
 					)
-				}).pipe(Effect.scoped)
-			)
-	)
+				}).pipe(Effect.scoped),
+				Substrate,
+				substrate
+			),
+	oracle: { kind: "postgresql", name: "the B-tree item limit of the key's unique index, 54000" },
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/schema/representability.ts",
+			original:
+				'\t\tMath.max(0, lengthBound("charLength", predicate)) * utf8EncodingMaxBytes.value,',
+			replacement: '\t\tMath.max(0, lengthBound("charLength", predicate)) * 3,',
+			why: "The byte bound counts three bytes a code point (schema/representability.ts), so a key of four-byte code points at its computed maximum overflows the B-tree item limit."
+		}
+	]
 })

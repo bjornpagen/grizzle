@@ -24,408 +24,174 @@
  * Features: the text's place in the key, a closed id beside it, the width of the bounding code point, and the tight
  * budget, met in the entry that carries the null bitmap.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import {
-	Array as Arr,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	Record as Rec,
-	String as Str
-} from "effect"
+
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { Compute } from "#compiler/public/compute.ts"
-import { contract, natural, pg, uuid } from "#compiler/public/fields.ts"
+import { contract } from "#compiler/public/fields.ts"
 import { keyTextBytes, str } from "#compiler/public/text.ts"
-import {
-	admittedClosedId,
-	closedBuilder as closed,
-	relationBuilder as relation
-} from "#compiler/schema/relation.ts"
+import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
+import {
+	type BytesFeature,
+	caseGen,
+	descriptorOf,
+	Kind,
+	lastWidth,
+	textOf,
+	textPosition,
+	tight,
+	utf8,
+	widestOf
+} from "#test/pg/oracle/key-text-bytes.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
-/** A key's other field. */
-type Companion = "uuid" | "natural" | "integer" | "smallint" | "boolean" | "closedId"
-
-/** A code point's UTF-8 width, by its class: ASCII, two-byte, CJK and astral. */
-type Width = 1 | 2 | 3 | 4
-
-interface KeyCase {
-	readonly companions: Arr.NonEmptyReadonlyArray<Companion>
-	/** The key's order: each companion's position and the text's, `companions.length`, ranked. */
-	readonly order: ReadonlyArray<number>
-	/** The widths the text's code points are drawn from, and the width of each value's last code point. */
-	readonly widths: Arr.NonEmptyReadonlyArray<Width>
-	readonly last: Width
-	readonly salt: number
-}
-
-const Kind = closed("Kind", ["A", "B"], [])
-
-const descriptorOf = (c: Companion): FieldBase => {
-	switch (c) {
-		case "uuid":
-			return uuid
-		case "natural":
-			return natural
-		case "integer":
-			return pg.integer
-		case "smallint":
-			return pg.smallint
-		case "boolean":
-			return pg.boolean
-		case "closedId":
-			return admittedClosedId(Kind)
-	}
-}
-
-/** Each companion's widest value as SQL writes it: a closed id is its code, the largest Kind numbers. */
-const widestOf = (c: Companion): string => {
-	switch (c) {
-		case "uuid":
-			return "'ffffffff-ffff-ffff-ffff-ffffffffffff'"
-		case "natural":
-			return "9223372036854775807"
-		case "integer":
-			return "2147483647"
-		case "smallint":
-			return "32767"
-		case "boolean":
-			return "true"
-		case "closedId":
-			return "1"
-	}
-}
-
-/** The first code point of each width's range and how many follow it, every one of them that width in UTF-8. */
-const ranges: Readonly<Record<Width, readonly [number, number]>> = {
-	1: [0x21, 0x5e],
-	2: [0xa1, 0x75f],
-	3: [0x4e00, 0x5200],
-	4: [0x20000, 0xa000]
-}
-
 /**
- * A text of exactly `bytes` UTF-8 bytes: code points of `widths`, each fitting what is left, chosen by a generator
- * seeded with `salt` far enough apart that pglz finds no saving, then a last code point of width `last` where it fits.
+ * A key's text bounded by keyTextBytes against PostgreSQL's B-tree item limit: a text of exactly keyTextBytes bytes in a
+ * key beside its companions is inserted, and one byte more is refused by its domain.
  */
-const textOf = (bytes: number, widths: ReadonlyArray<Width>, last: Width, salt: number): string => {
-	let x = (salt * 2654435761) >>> 0
-	const next = (): number => {
-		x = (Math.imul(x, 1103515245) + 12345) >>> 0
-		return x >>> 7
-	}
-	const tail: Width = last <= bytes ? last : 1
-	let out = ""
-	for (let left = bytes - (bytes === 0 ? 0 : tail); left > 0;) {
-		const fits = Arr.filter(widths, (w) => w <= left)
-		const w: Width =
-			fits.length === 0 ? 1 : defined(fits[next() % fits.length], "a width that fits")
-		const [first, count] = ranges[w]
-		out += String.fromCodePoint(first + (next() % count))
-		left -= w
-	}
-	if (bytes > 0) {
-		const [first, count] = ranges[tail]
-		out += String.fromCodePoint(first + (next() % count))
-	}
-	return out
-}
-
-const utf8 = new TextEncoder()
-
-/** The UTF-8 width of a text's last code point; none for the empty text. */
-const lastWidth = (text: string): Width | undefined => {
-	const last = Arr.last(Arr.fromIterable(text))
-	if (Option.isNone(last)) {
-		return undefined
-	}
-	switch (utf8.encode(last.value).length) {
-		case 1:
-			return 1
-		case 2:
-			return 2
-		case 3:
-			return 3
-		default:
-			return 4
-	}
-}
-
-const companionGen: Gen<Companion> = weighted<Companion>([
-	[3, element<Companion>(["uuid", "boolean"])],
-	[2, element<Companion>(["natural", "integer", "smallint", "closedId"])]
-])
-
-/** The key's other fields, and whether the text stands last in the key. */
-interface Fields {
-	readonly companions: Arr.NonEmptyReadonlyArray<Companion>
-	readonly textLast: boolean
-}
-
-/** One to five companions of any type, the text last or anywhere. */
-const freeFieldsGen: Gen<Fields> = (source) => {
-	const companions = source.draw(array(companionGen, { min: 1, max: 5 }))
-	const first = defined(companions[0], "a companion")
-	return { companions: [first, ...Arr.drop(companions, 1)], textLast: source.draw(boolean) }
-}
-
-/**
- * The tight layout (`tight`), by construction: the text last, after uuids and booleans, one or five booleans, so the
- * text starts one past a multiple of four and its own padding is the widest, three bytes.
- */
-const tightFieldsGen: Gen<Fields> = (source) => {
-	const booleans = source.draw(element([1, 5]))
-	const uuids = source.draw(int(0, 5 - booleans))
-	return {
-		companions: [
-			"boolean",
-			...Array.from({ length: booleans - 1 }, (): Companion => "boolean"),
-			...Array.from({ length: uuids }, (): Companion => "uuid")
-		],
-		textLast: true
-	}
-}
-
-const widthGen: Gen<Width> = element<Width>([1, 2, 3, 4])
-
-const caseGen: Gen<KeyCase> = (source) => {
-	const { companions: all, textLast } = source.draw(
-		weighted<Fields>([
-			[3, freeFieldsGen],
-			[1, tightFieldsGen]
-		])
-	)
-	const ranked = Arr.map(indices(all.length + 1), (position) => ({
-		position,
-		rank: textLast && position === all.length ? 0x10000 : source.draw(int(0, 0xffff))
-	}))
-	return {
-		companions: all,
-		order: Arr.map(
-			Arr.sort(
-				ranked,
-				Order.mapInput(Order.Number, (p: { readonly rank: number }) => p.rank)
-			),
-			(p) => p.position
-		),
-		widths: [source.draw(widthGen), ...source.draw(array(widthGen, { min: 0, max: 3 }))],
-		last: source.draw(widthGen),
-		salt: source.draw(int(0, 0xffff))
-	}
-}
-
-/** Where the text stands in the key: its place among the key's fields, `companions.length` its own position. */
-const textPosition = (c: KeyCase): number =>
-	defined(
-		Option.getOrUndefined(Arr.findFirstIndex(c.order, (p) => p === c.companions.length)),
-		"the text's place in the key"
-	)
-
-/**
- * Whether the budget is exactly the most an entry that carries the null bitmap holds in this order: the text last,
- * after companions that each align to one byte and so pad nothing, from the entry's data offset, its 8-byte header and
- * its null bitmap MAXALIGNed to 16, ending at an offset one past a multiple of four, so the text's own padding is the
- * widest, three bytes.
- */
-const tight = (c: KeyCase): boolean => {
-	const textAt = textPosition(c)
-	const before = Arr.map(Arr.take(c.order, textAt), (p) => defined(c.companions[p], "a companion"))
-	const end = Arr.reduce(
-		before,
-		16,
-		(o, comp) => o + (comp === "uuid" ? 16 : comp === "boolean" ? 1 : 0)
-	)
-	return (
-		textAt === c.companions.length &&
-		Arr.every(before, (comp) => comp === "uuid" || comp === "boolean") &&
-		end % 4 === 1
-	)
-}
-
-type BytesFeature =
-	| "tight budget"
-	| "text first"
-	| "text last"
-	| "text between"
-	| "a closed id beside it"
-	| `last code point of ${Width} bytes`
-
-const runs = 40
-
-layer(Substrate.layer)(
-	"key text bounded by bytes, against PostgreSQL's B-tree item limit",
-	(it) => {
-		it.effect(
-			"inserts a text of exactly keyTextBytes bytes in a key beside its companions, and refuses one byte more by its domain",
-			(ctx) =>
-				searched(
-					ctx,
-					explore(
-						{
-							oracle: {
-								kind: "postgresql",
-								name: "the B-tree item limit, 54000, and the contract domain's CHECK, 23514"
-							},
-							suite: "oracle/key-text-bytes",
-							draw: drawn(caseGen),
-							literal: Formatter.format,
-							coverage: required<BytesFeature>(
-								[
-									"text first",
-									"text last",
-									"text between",
-									"tight budget",
-									"a closed id beside it",
-									"last code point of 1 bytes",
-									"last code point of 2 bytes",
-									"last code point of 3 bytes",
-									"last code point of 4 bytes"
-								],
-								{ cases: runs, sense: notesOnly }
-							),
-							kept: [],
-							runs,
-							shrink: { kind: "bounded", candidates: 20 },
-							steerEvery: 8,
-							caseHang
-						},
-						(c, k) =>
-							Effect.gen(function* () {
-								const budget = keyTextBytes(Arr.map(c.companions, descriptorOf))
-								const KeyText = contract("KeyText", str.regex("^.*$", "su"), (v) =>
-									Compute.octetLength(v).le(budget)
-								)
-								const names = [...Arr.map(indices(c.companions.length), (i) => `c${i}`), "t"]
-								const fields = Rec.fromEntries([
-									...Arr.map(c.companions, (comp, i): readonly [string, FieldBase] => [
-										`c${i}`,
-										descriptorOf(comp)
-									]),
-									["t", KeyText] as const
-								])
-								const key = Arr.map(c.order, (p) => defined(names[p], "a key field"))
-								const Keyed = relation("Keyed", fields, key, [])
-								const installed = yield* install(schema("TextBytes", [Kind, Keyed], [], []), {
-									ambient: ordinarySession,
-									label: "textbytes",
-									logins: [],
-									extensions: []
-								})
-								const textAt = textPosition(c)
-								k.note(
-									textAt === 0
-										? "text first"
-										: textAt === c.companions.length
-											? "text last"
-											: "text between"
-								)
-								if (tight(c)) {
-									k.note("tight budget")
-								}
-								if (Arr.contains(c.companions, "closedId")) {
-									k.note("a closed id beside it")
-								}
-								const substrate = yield* Substrate
-								const session = yield* substrate.session({
-									...ownerSession(),
-									label: "text bytes writer"
-								})
-								const relationName = installed.names.relation("Keyed")
-								const table = `${quoteIdent(relationName.schema)}.${quoteIdent(relationName.name)}`
-								const columns = Arr.join(
-									Arr.map(names, (n) => quoteIdent(installed.names.column("Keyed", n))),
-									", "
-								)
-								const values = (text: string): string =>
-									Arr.join(
-										[...Arr.map(c.companions, widestOf), `'${Str.replaceAll("'", "''")(text)}'`],
-										", "
-									)
-								const atBudget = textOf(budget, c.widths, c.last, c.salt)
-								assert.equal(
-									utf8.encode(atBudget).length,
-									budget,
-									"a text of exactly the budget's bytes"
-								)
-								const boundary = lastWidth(atBudget)
-								if (boundary !== undefined) {
-									k.note(`last code point of ${boundary} bytes`)
-								}
-								const stored = yield* Effect.result(
-									session.query(
-										`INSERT INTO ${table} (${columns}) VALUES (${values(atBudget)})`,
-										[]
-									)
-								)
-								assert.equal(
-									stored._tag,
-									"Success",
-									`a text of ${budget} bytes beside ${Formatter.format(c.companions)} in key order ${Formatter.format(key)} is stored: ${stored._tag === "Failure" ? Formatter.format(pgErrorFields(stored.failure)) : ""}`
-								)
-								const probeIndex = Arr.join(
-									[...Arr.map(key, (n) => quoteIdent(installed.names.column("Keyed", n))), "unset"],
-									", "
-								)
-								yield* session.query("BEGIN", [])
-								yield* session.query(
-									`CREATE TEMPORARY TABLE key_text_probe (LIKE ${table}) ON COMMIT DROP`,
-									[]
-								)
-								yield* session.query("ALTER TABLE key_text_probe ADD COLUMN unset boolean", [])
-								yield* session.query(`CREATE UNIQUE INDEX ON key_text_probe (${probeIndex})`, [])
-								const probed = yield* Effect.result(
-									session.query(
-										`INSERT INTO key_text_probe (${columns}) VALUES (${values(atBudget)})`,
-										[]
-									)
-								)
-								yield* session.query("ROLLBACK", [])
-								assert.equal(
-									probed._tag,
-									"Success",
-									`a text of ${budget} bytes beside ${Formatter.format(c.companions)} and a NULL, in key order ${Formatter.format(key)}, is stored in an entry that carries the null bitmap: ${probed._tag === "Failure" ? Formatter.format(pgErrorFields(probed.failure)) : ""}`
-								)
-								const past = textOf(budget + 1, c.widths, c.last, c.salt + 1)
-								assert.equal(
-									utf8.encode(past).length,
-									budget + 1,
-									"a text one byte past the budget"
-								)
-								const refused = yield* Effect.result(
-									session.query(`INSERT INTO ${table} (${columns}) VALUES (${values(past)})`, [])
-								)
-								const error =
-									refused._tag === "Failure" ? pgErrorFields(refused.failure) : undefined
-								const domain = namesOf(installed).contract("KeyText")
-								assert.equal(
-									error?.code,
-									"23514",
-									"one byte past the budget is the domain's to refuse"
-								)
-								assert.equal(
-									error?.constraint,
-									domain.kind === "checked" ? domain.constraint : undefined,
-									"the contract's domain CHECK refuses it"
-								)
-							})
+export const exactlyKeyTextBytes = property.explore(caseGen, {
+	needs: { substrate: Substrate.fresh },
+	situations: [
+		"text first",
+		"text last",
+		"text between",
+		"tight budget",
+		"a closed id beside it",
+		"last code point of 1 bytes",
+		"last code point of 2 bytes",
+		"last code point of 3 bytes",
+		"last code point of 4 bytes"
+	] satisfies ReadonlyArray<Reached<BytesFeature>>,
+	check:
+		({ substrate }, k: Case<BytesFeature>) =>
+		(c) =>
+			Effect.provideServiceEffect(
+				Effect.gen(function* () {
+					const budget = keyTextBytes(Arr.map(c.companions, descriptorOf))
+					const KeyText = contract("KeyText", str.regex("^.*$", "su"), (v) =>
+						Compute.octetLength(v).le(budget)
 					)
-				)
-		)
-	}
-)
+					const names = [...Arr.map(indices(c.companions.length), (i) => `c${i}`), "t"]
+					const fields = Rec.fromEntries([
+						...Arr.map(c.companions, (comp, i): readonly [string, FieldBase] => [
+							`c${i}`,
+							descriptorOf(comp)
+						]),
+						["t", KeyText] as const
+					])
+					const key = Arr.map(c.order, (p) => defined(names[p], "a key field"))
+					const Keyed = relation("Keyed", fields, key, [])
+					const installed = yield* install(schema("TextBytes", [Kind, Keyed], [], []), {
+						ambient: ordinarySession,
+						label: "textbytes",
+						logins: [],
+						extensions: []
+					})
+					const textAt = textPosition(c)
+					k.note(
+						textAt === 0
+							? "text first"
+							: textAt === c.companions.length
+								? "text last"
+								: "text between"
+					)
+					if (tight(c)) {
+						k.note("tight budget")
+					}
+					if (Arr.contains(c.companions, "closedId")) {
+						k.note("a closed id beside it")
+					}
+					const substrate = yield* Substrate
+					const session = yield* substrate.session({
+						...ownerSession(),
+						label: "text bytes writer"
+					})
+					const relationName = installed.names.relation("Keyed")
+					const table = `${quoteIdent(relationName.schema)}.${quoteIdent(relationName.name)}`
+					const columns = Arr.join(
+						Arr.map(names, (n) => quoteIdent(installed.names.column("Keyed", n))),
+						", "
+					)
+					const values = (text: string): string =>
+						Arr.join(
+							[...Arr.map(c.companions, widestOf), `'${Str.replaceAll("'", "''")(text)}'`],
+							", "
+						)
+					const atBudget = textOf(budget, c.widths, c.last, c.salt)
+					assert.equal(utf8.encode(atBudget).length, budget, "a text of exactly the budget's bytes")
+					const boundary = lastWidth(atBudget)
+					if (boundary !== undefined) {
+						k.note(`last code point of ${boundary} bytes`)
+					}
+					const stored = yield* Effect.result(
+						session.query(`INSERT INTO ${table} (${columns}) VALUES (${values(atBudget)})`, [])
+					)
+					assert.equal(
+						stored._tag,
+						"Success",
+						`a text of ${budget} bytes beside ${Formatter.format(c.companions)} in key order ${Formatter.format(key)} is stored: ${stored._tag === "Failure" ? Formatter.format(pgErrorFields(stored.failure)) : ""}`
+					)
+					const probeIndex = Arr.join(
+						[...Arr.map(key, (n) => quoteIdent(installed.names.column("Keyed", n))), "unset"],
+						", "
+					)
+					yield* session.query("BEGIN", [])
+					yield* session.query(
+						`CREATE TEMPORARY TABLE key_text_probe (LIKE ${table}) ON COMMIT DROP`,
+						[]
+					)
+					yield* session.query("ALTER TABLE key_text_probe ADD COLUMN unset boolean", [])
+					yield* session.query(`CREATE UNIQUE INDEX ON key_text_probe (${probeIndex})`, [])
+					const probed = yield* Effect.result(
+						session.query(
+							`INSERT INTO key_text_probe (${columns}) VALUES (${values(atBudget)})`,
+							[]
+						)
+					)
+					yield* session.query("ROLLBACK", [])
+					assert.equal(
+						probed._tag,
+						"Success",
+						`a text of ${budget} bytes beside ${Formatter.format(c.companions)} and a NULL, in key order ${Formatter.format(key)}, is stored in an entry that carries the null bitmap: ${probed._tag === "Failure" ? Formatter.format(pgErrorFields(probed.failure)) : ""}`
+					)
+					const past = textOf(budget + 1, c.widths, c.last, c.salt + 1)
+					assert.equal(utf8.encode(past).length, budget + 1, "a text one byte past the budget")
+					const refused = yield* Effect.result(
+						session.query(`INSERT INTO ${table} (${columns}) VALUES (${values(past)})`, [])
+					)
+					const error = refused._tag === "Failure" ? pgErrorFields(refused.failure) : undefined
+					const domain = namesOf(installed).contract("KeyText")
+					assert.equal(error?.code, "23514", "one byte past the budget is the domain's to refuse")
+					assert.equal(
+						error?.constraint,
+						domain.kind === "checked" ? domain.constraint : undefined,
+						"the contract's domain CHECK refuses it"
+					)
+				}),
+				Substrate,
+				substrate
+			),
+	oracle: {
+		kind: "postgresql",
+		name: "the B-tree item limit, 54000, and the contract domain's CHECK, 23514"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/public/text.ts",
+			original: "\treturn room.value",
+			replacement: "\treturn room.value + 1",
+			why: "keyTextBytes allows one byte past the room the companions leave (public/text.ts), so the tight case's entry that carries the null bitmap overflows the B-tree item limit (54000)."
+		}
+	]
+})

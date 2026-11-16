@@ -13,7 +13,14 @@ import {
 } from "@bjornpagen/testing/explore"
 import { failureText } from "@bjornpagen/testing/failure"
 import type { Coverage } from "@bjornpagen/testing/features"
-import { constant, type Gen } from "@bjornpagen/testing/gen"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Aimed, aimed, constant, type Gen, type Space } from "@bjornpagen/testing/gen"
+import {
+	type Case as PropertyCase,
+	type Kept as KeptToken,
+	type Kill,
+	property
+} from "@bjornpagen/testing/property"
 import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
 import {
 	Array as Arr,
@@ -1307,6 +1314,74 @@ export const oracleCheck = <S, T, F extends string, E, R>(
 	property: (value: T, c: Case<F>) => Effect.Effect<void, E, R>
 ): Effect.Effect<Explored, SearchFailure, SearchRun | Exclude<R, Scope.Scope>> =>
 	checked(draw, options, property)
+
+/**
+ * What an oracle property states (oracleProperty): its space, its required situations, the perturbation its cases draw
+ * ("all": the facts repeated and planner settings; "planner": the settings alone; "none"), the oracle it is checked
+ * against, its kept tokens and kills, how a case prints (its value alone, as the old suites' literal printed it), and
+ * the check of one case, which runs in the case's own
+ * database (Substrate.fresh, provided as the Substrate service, so runOracle and every helper read it as before).
+ */
+export interface OracleSpec<S, F extends string, E> {
+	readonly situations: ReadonlyArray<Reached<F>>
+	readonly perturb: CheckOptions<S, F>["perturb"]
+	readonly oracle: Oracle
+	readonly kept: ReadonlyArray<KeptToken>
+	readonly kills: ReadonlyArray<Kill>
+	readonly show: (value: S) => string
+	readonly check: (
+		c: PropertyCase<F>
+	) => (value: S) => Effect.Effect<void, E, Substrate | Scope.Scope>
+}
+
+/** A space's values, each drawn with the conditions it runs under after it, so the two shrink together. */
+const conditioned =
+	<S>(
+		space: Space<S>,
+		perturb: CheckOptions<S, string>["perturb"]
+	): Space<readonly [S, Conditions]> =>
+	(source) => [
+		source.draw(space),
+		{ perturbation: source.draw(perturbations(perturb)), restorage: source.draw(restorageGen) }
+	]
+
+/** An aimed space conditioned (conditioned), its every aim too, so a case aimed at a situation runs perturbed alike. */
+const conditionedAimed = <S, F extends string>(
+	space: Space<S> | Aimed<S, F>,
+	perturb: CheckOptions<S, string>["perturb"]
+): Space<readonly [S, Conditions]> | Aimed<readonly [S, Conditions], F> =>
+	"aims" in space
+		? aimed(
+				conditioned(space.space, perturb),
+				Arr.map(space.aims, ([situation, aim]) => [situation, conditioned(aim, perturb)] as const)
+			)
+		: conditioned(space, perturb)
+
+/**
+ * An oracle property (the runner's, replacing oracleCheck): `space`'s values, each drawn with its plan perturbation and
+ * its second reading's restorage (they shrink together), each case checked in a database of its own (Substrate.fresh)
+ * under its perturbation (underPerturbation), a failure's report the perturbation appended.
+ */
+export const oracleProperty = <S, const F extends string, E>(
+	space: Space<S> | Aimed<S, F>,
+	spec: OracleSpec<S, F, E>
+) =>
+	property.explore(conditionedAimed(space, spec.perturb), {
+		needs: { substrate: Substrate.fresh },
+		situations: spec.situations,
+		check:
+			({ substrate }, c: PropertyCase<F>) =>
+			([value, conditions]) =>
+				Effect.provideServiceEffect(
+					underPerturbation(spec.check(c)(value), conditions),
+					Substrate,
+					substrate
+				),
+		oracle: spec.oracle,
+		kept: spec.kept,
+		kills: spec.kills,
+		show: ([value]: readonly [S, Conditions]) => spec.show(value)
+	})
 
 /**
  * What a kill search ends with: every case passed, so the population survived; or a case failed, with the library's
