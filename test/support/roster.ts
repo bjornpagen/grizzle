@@ -61,11 +61,11 @@ export const propertyModules: ReadonlyArray<string> = [
 ]
 
 /**
- * The modules that run a second time on workers at about a sixth of Node's default stack (the runner's SMALL_STACK), the
- * runner's and the Vitest small-stack project's alike: the engine's generative suites of the SQL printer and audit, the
- * lowerings, the migration drafter, the write compiler and the text refinements, and the canonical serializer's and the
- * shapes', which read values nested to any depth, so a per-element use of the stack fails at the widths generators
- * reach. The rewrite universe runs once: its plans are a few operators over facts of two rows, which reach no width the
+ * The modules that run on workers at about a sixth of Node's default stack (the runner's SMALL_STACK): the runner runs
+ * them a second time there, and Vitest runs them in its small-stack project alone (vitest.config.ts smallStackOnly). They
+ * are the engine's generative suites of the SQL printer and audit, the lowerings, the migration drafter, the write
+ * compiler and the text refinements, and the canonical serializer's and the shapes', which read values nested to any
+ * depth, so a per-element use of the stack fails at the widths generators reach. The rewrite universe runs once: its plans are a few operators over facts of two rows, which reach no width the
  * stack bounds, and the generated rewrite modules run the same pipeline under the small stack; the runner's globs take
  * only * and **, so the rewrite modules are named one by one.
  */
