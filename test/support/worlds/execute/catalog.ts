@@ -36,7 +36,7 @@ import {
 import { type PgConnection, runAlone, type SqlError, wireSession } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
 import type { SubstrateShape } from "#test/support/substrate/substrate.ts"
-import { buildInstall } from "#test/support/worlds/execute/build.ts"
+import { baseBuild } from "#test/support/worlds/execute/build.ts"
 import { sqlStateOf } from "#test/support/worlds/execute/observe.ts"
 import { RealizeRefused } from "#test/support/worlds/execute/refused.ts"
 import type { Seen } from "#test/support/worlds/execute/session.ts"
@@ -975,8 +975,8 @@ export const draftedPhases = (
 ): Effect.Effect<ReadonlyArray<string>, RealizeRefused> =>
 	Effect.gen(function* () {
 		const owner = `${schema}_owner`
-		const before = yield* buildInstall(from, from.base.name)
-		const after = yield* buildInstall(to, to.base.name)
+		const before = yield* baseBuild(from)
+		const after = yield* baseBuild(to)
 		const first = yield* draftNext(before.base, Rec.values(before.logins), schema, owner, {
 			snapshot: emptySnapshot({ schemaName: from.base.name, schema }),
 			folders: []

@@ -572,6 +572,31 @@ export const buildWorlds = (
 	})
 
 /**
+ * The builds of installations under their own base names, kept by the InstallSpec value each was built from: a suite's
+ * fixed installations are the same values case after case, so each is built once per process and every later case
+ * shares the build (the values the builders return are immutable); a generated installation is a value of its own,
+ * built for its case alone. Keyed by the value's identity, so an entry goes with its value.
+ */
+const baseBuilds = new WeakMap<InstallSpec, Effect.Effect<Built, RealizeRefused>>()
+
+/**
+ * `spec` built under its base's own name (buildInstall), once per process for each InstallSpec value (baseBuilds): the
+ * build every realization, naming and catalog check of an installation reads before it is installed under its case's
+ * name.
+ */
+export const baseBuild = (spec: InstallSpec): Effect.Effect<Built, RealizeRefused> =>
+	Effect.suspend(() =>
+		Option.match(Option.fromUndefinedOr(baseBuilds.get(spec)), {
+			onSome: (held) => held,
+			onNone: () => {
+				const held = Effect.runSync(Effect.cached(buildInstall(spec, spec.base.name)))
+				baseBuilds.set(spec, held)
+				return held
+			}
+		})
+	)
+
+/**
  * Every value of an installation, built through the public builders under the declared schema name `name`: its base and
  * roles (buildWorlds), and its logins, each serving no workload.
  */

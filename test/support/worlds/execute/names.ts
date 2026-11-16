@@ -27,7 +27,7 @@ import {
 	parsedName
 } from "#test/support/kernel/naming.ts"
 import { ownedInput } from "#test/support/policy.ts"
-import { type Built, buildInstall } from "#test/support/worlds/execute/build.ts"
+import { type Built, baseBuild } from "#test/support/worlds/execute/build.ts"
 import { domainLawKey } from "#test/support/worlds/model/session/domains.ts"
 import { roleContexts } from "#test/support/worlds/model/session/state.ts"
 import type {
@@ -361,8 +361,6 @@ export const namesOfBuiltAt = (
 export const installedNames = (spec: InstallSpec): InstalledNames =>
 	Effect.runSync(
 		Effect.orDie(
-			Effect.flatMap(buildInstall(spec, spec.base.name), (built) =>
-				namesOfBuilt(spec, built, { kind: "declared" })
-			)
+			Effect.flatMap(baseBuild(spec), (built) => namesOfBuilt(spec, built, { kind: "declared" }))
 		)
 	)

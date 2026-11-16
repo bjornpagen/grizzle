@@ -59,6 +59,7 @@ import {
 	type Built,
 	type BuiltLogin,
 	type BuiltRole,
+	baseBuild,
 	buildInstall,
 	domainOf
 } from "#test/support/worlds/execute/build.ts"
@@ -344,7 +345,7 @@ const realizeWith = (
 ) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const declared = yield* buildInstall(installSpec, installSpec.base.name)
+		const declared = yield* baseBuild(installSpec)
 		const installed = yield* install(declared.base, {
 			ambient,
 			logins: Rec.values(declared.logins),
@@ -1346,7 +1347,7 @@ const realizeWith = (
 		 */
 		const migrate = (action: Extract<Action, { readonly kind: "migrate" }>): Effect.Effect<Seen> =>
 			Effect.gen(function* () {
-				const built = yield* Effect.result(buildInstall(action.to, action.to.base.name))
+				const built = yield* Effect.result(baseBuild(action.to))
 				if (Result.isFailure(built)) {
 					return refusedWith({ kind: "compile-refused" }, built.failure.refusal)
 				}
