@@ -179,7 +179,7 @@ const awaitLock = (lock: PgConnection, table: string): Effect.Effect<void, SqlEr
  * PlannedStmtRequiresSnapshot), and a lock below ACCESS EXCLUSIVE is logged for no standby, so it assigns no transaction
  * id. So no lease holds back the cluster's vacuum horizon, and none takes part in SSI.
  */
-export const takeLease = (
+const takeLease = (
 	open: Effect.Effect<PgConnection, SqlError, Scope.Scope>,
 	tables: LeaseTables,
 	slots: number

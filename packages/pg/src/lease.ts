@@ -79,7 +79,7 @@ export interface LeaseTables {
 }
 
 /** The lease tables named after `stem`: `<stem>_<index>` for each slot, and `<stem>_gate`. */
-export const leaseTables = (stem: string): LeaseTables => ({
+const leaseTables = (stem: string): LeaseTables => ({
 	slot: (index) => `${stem}_${index}`,
 	gate: `${stem}_gate`
 })
