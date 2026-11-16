@@ -1,8 +1,13 @@
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
-import { type ClosedVocabulary, required, type Situations } from "@bjornpagen/testing/features"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { type ClosedVocabulary, type Reached, type Situations } from "@bjornpagen/testing/features"
+import { aimed } from "@bjornpagen/testing/gen"
+import {
+	type Case,
+	type Kept,
+	type Kill,
+	type Property,
+	property
+} from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { nodesByLabel, rooted, topoOrder } from "#compiler/ir/dag.ts"
@@ -13,7 +18,6 @@ import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { exprsOf, type NodeOf, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
-import { caseHang } from "#test/support/limits.ts"
 import {
 	type GenConfig,
 	type QueryCase,
@@ -26,7 +30,9 @@ import {
 	agrees,
 	caseQuery,
 	lowerConservatively,
+	narrowedTo,
 	passContext,
+	type QueryForm,
 	type Ran,
 	type RewriteAgreement,
 	runPasses
@@ -77,7 +83,7 @@ const freeReads = (node: RelNode): ReadonlySet<NodeId> => {
 }
 
 /** The sources of a region an expression correlates with an outer tuple. */
-const correlatedSources = (region: NodeOf<"MatchRegion">): ReadonlySet<NodeId> =>
+export const correlatedSources = (region: NodeOf<"MatchRegion">): ReadonlySet<NodeId> =>
 	new Set(
 		Arr.flatMap(region.occurrences, (o) => (freeReads(o.source).size > 0 ? [o.source.id] : []))
 	)
@@ -145,6 +151,7 @@ type GuardShape =
 const stageBelow = (node: RelNode): RelNode =>
 	node.kind === "Filter" || node.kind === "ProjectSet" ? stageBelow(node.input) : node
 
+/** The guard shapes a region is: over a correlated source, over a source read laterally, over a group. */
 const regionShapes = (region: NodeOf<"MatchRegion">): ReadonlyArray<GuardShape> => {
 	const shapes: Array<GuardShape> = []
 	if (correlatedSources(region).size > 0) {
@@ -193,59 +200,63 @@ export const rowsAgreeAt = (q: QueryCase, before: RelNode, after: RelNode): Rewr
 		{ dag: rooted([after]), params: [] }
 	)
 
+/** A sequence of rewrite passes. */
 type Passes = ReadonlyArray<Pass<LogicalQuery, LogicalQuery>>
 
 /**
  * Explores the guard population through `passes` in `evidence`'s context: each case's rewritten query delivers what
  * its input delivers by the reference, wherever the reference evaluates both, and lowers conservatively; `holds` states
  * the pass's own guard over the case, its input and what the passes made of it, and notes what it judged. The search
- * must reach `situations`, steered toward them by the notes for up to three times `runs` cases, on `runs` rotating
- * cases.
+ * must reach `situations`, steered toward them by the notes, a case aimed at a pending situation of `aims` drawn from
+ * the population narrowed to the forms beside it (support.ts narrowedTo); `kept` and `kills` are the calling property's.
  */
-export const guardSearch = <F extends string>(spec: {
-	readonly suite: string
+export const guardSearch = <const F extends string>(spec: {
 	readonly passes: Passes
 	readonly evidence: TemplateContext
-	readonly runs: number
 	readonly situations: Situations<ClosedVocabulary<GuardFeature | F>>
+	readonly aims: ReadonlyArray<
+		readonly [Reached<GuardFeature | F>, Arr.NonEmptyReadonlyArray<QueryForm>]
+	>
 	readonly holds: (q: QueryCase, input: LogicalQuery, ran: Ran, c: Case<GuardFeature | F>) => void
-}) =>
-	explore(
+	readonly kept: ReadonlyArray<Kept>
+	readonly kills: ReadonlyArray<Kill>
+}): Property =>
+	property.explore(
+		aimed(
+			queryCaseSketchGen(guardPopulation),
+			Arr.map(
+				spec.aims,
+				([situation, forms]) =>
+					[situation, queryCaseSketchGen(narrowedTo(guardPopulation, forms))] as const
+			)
+		),
 		{
+			needs: {},
+			situations: spec.situations,
+			check: (_, c: Case<GuardFeature | F>) => (sketch) =>
+				Effect.sync(() => {
+					const q = c.draw(resolveQueryCase(sketch, guardPopulation))
+					const input = caseQuery(q)
+					c.noteAll(guardShapesOf(input.dag))
+					const ran = succeeded(
+						runPasses(
+							input,
+							spec.passes,
+							passContext({ catalog: genCatalog(q.schema), evidence: spec.evidence })
+						)
+					)
+					for (const certificate of ran.certificates) {
+						c.note(certificate.rule)
+					}
+					c.note(`reference ${agrees(q, ran.query)}`)
+					succeeded(lowerConservatively(ran.query, schemaCodes(q.schema)))
+					spec.holds(q, input, ran, c)
+				}),
 			oracle: {
 				kind: "second-implementation",
 				name: "the reference evaluator's delivery of the query before the passes, and the pass's own guard"
 			},
-			suite: spec.suite,
-			draw: drawn(queryCaseSketchGen(guardPopulation)),
-			literal: Formatter.format,
-			coverage: required<GuardFeature | F>(spec.situations, {
-				cases: 3 * spec.runs,
-				sense: notesOnly
-			}),
-			kept: [],
-			runs: spec.runs,
-			shrink: completeShrink,
-			steerEvery: 16,
-			caseHang
-		},
-		(sketch, c) =>
-			Effect.sync(() => {
-				const q = c.draw(resolveQueryCase(sketch, guardPopulation))
-				const input = caseQuery(q)
-				c.noteAll(guardShapesOf(input.dag))
-				const ran = succeeded(
-					runPasses(
-						input,
-						spec.passes,
-						passContext({ catalog: genCatalog(q.schema), evidence: spec.evidence })
-					)
-				)
-				for (const certificate of ran.certificates) {
-					c.note(certificate.rule)
-				}
-				c.note(`reference ${agrees(q, ran.query)}`)
-				succeeded(lowerConservatively(ran.query, schemaCodes(q.schema)))
-				spec.holds(q, input, ran, c)
-			})
+			kept: spec.kept,
+			kills: spec.kills
+		}
 	)

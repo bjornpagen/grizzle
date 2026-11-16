@@ -1,28 +1,3 @@
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { noCoverage } from "@bjornpagen/testing/features"
-import { element } from "@bjornpagen/testing/gen"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { collectInputs } from "#adapter/apply/collect.ts"
-import { bindFrame } from "#adapter/wire/batch.ts"
-import { bindWrite } from "#compiler/runtime/write/bind.ts"
-import { inForce } from "#compiler/runtime/write/transport.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
-import type { CompiledWrite } from "#compiler/write/program/compile.ts"
-import { assert, nonEmpty, succeeded } from "#test/support/assert.ts"
-import { parameterNames } from "#test/support/kernel/dict.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
-import {
-	shopCompiled,
-	shopChangeSet,
-	Item,
-	shopCompile,
-	stockFromParam
-} from "#test/unit/write/put/support.ts"
-
 /**
  * A parameter takes any name its declaration gives it: no name is a slot source the runtime reads otherwise. A
  * relation parameter under a name drawn from the parameter-name dictionary (kernel/dict.ts parameterNames: a page's own
@@ -32,63 +7,41 @@ import {
  *
  * Features: none required; the name is the whole draw.
  */
-const membersOf = (program: CompiledWrite, value: unknown) =>
-	collectInputs(program.binding.groups, parsedOf(value).inputs)
 
-const fact = (n: number) => ({ id: uuidOf(n), label: "a", qty: 1n })
+import { element } from "@bjornpagen/testing/gen"
+import { property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import { assert, nonEmpty } from "#test/support/assert.ts"
+import { parameterNames } from "#test/support/kernel/dict.ts"
+import { bound } from "#test/unit/write/program/names.fixtures.ts"
 
-/** The placeholder texts every statement of the optimized artifact binds. */
-const bound = Effect.fn("bound")(function* (name: string) {
-	const value = shopChangeSet().put(Item, stockFromParam(Item, name))
-	const program = shopCompiled(value, shopCompile)
-	assert.ok(
-		Arr.some(program.params, (p) => p.name === name),
-		name
+/** Parameter names bind a relation parameter under any dictionary name as one named items. */
+export const parameterNamesBindARelationParameterUnderAnyDictionaryNameAsOneNamedItems =
+	property.explore(
+		(source) => source.draw(element(nonEmpty(parameterNames, "the parameter names"))),
+		{
+			needs: {},
+			situations: [],
+			check: () => (name) =>
+				Effect.gen(function* () {
+					const items = yield* bound("items")
+					return yield* Effect.map(bound(name), (got) => {
+						assert.deepEqual(got, items, name)
+					})
+				}),
+			oracle: {
+				kind: "universal",
+				name: "renaming a relation parameter changes no placeholder text a statement binds"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/runtime/write/bind.ts",
+					original: "\tconst paramValue = (name: string): unknown => inputs.params[name]",
+					replacement:
+						"\tconst paramValue = (name: string): unknown => inputs.params[name.toLowerCase()]",
+					why: "A parameter's value read under its name lowercased (runtime/write/bind.ts)."
+				}
+			]
+		}
 	)
-	const members = yield* membersOf(program, value)
-	const write = runnableWrite(program, program.frontend.codes)
-	const flight = write.flight
-	const b = succeeded(
-		bindWrite(write, {
-			members,
-			params: { [name]: [fact(1), fact(2)] },
-			transport: inForce(bindFrame)
-		})
-	)
-	if (b.kind !== "bound") {
-		return assert.fail(`${name}: ${b.kind}`)
-	}
-	return Arr.map(flight.statements, (statement) => succeeded(b.values(statement)))
-})
-
-describe("parameter names", () => {
-	it.effect("bind a relation parameter under any dictionary name as one named items", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const items = yield* bound("items")
-				return yield* explore(
-					{
-						suite: "unit/write/program-names",
-						draw: drawn(element(nonEmpty(parameterNames, "the parameter names"))),
-						literal: Formatter.format,
-						coverage: noCoverage,
-						oracle: {
-							kind: "universal",
-							name: "renaming a relation parameter changes no placeholder text a statement binds"
-						},
-						kept: [],
-						runs: 192,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(name) =>
-						Effect.map(bound(name), (got) => {
-							assert.deepEqual(got, items, name)
-						})
-				)
-			})
-		)
-	)
-})

@@ -17,20 +17,13 @@
  *
  * Features: a member refused from its lengths, a member bound, two bytes columns.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { element, type Gen, int } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { messageMaxBytes } from "@grizzle/limits"
-import { Effect, Formatter } from "effect"
+import { Effect } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
-import { byteaElementBytes, byteaHeaderBytes } from "#compiler/codec/bytea.ts"
-import { bytes, pg } from "#compiler/public/fields.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
 import { normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
@@ -39,142 +32,100 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { runnableWrite } from "#compiler/write/program/bind.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
-import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { checking } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
+import {
+	carried,
+	cases,
+	copied,
+	type Feature,
+	Large,
+	notes,
+	One,
+	reality,
+	slack,
+	Two,
+	valueLength
+} from "#test/unit/write/bytes-memory.fixtures.ts"
 import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
-/** The one value every fact of a case holds: 64 MiB, so sixteen facts of one column pass a message. */
-const valueLength = 64 * 1024 * 1024
-
-const One = relation("One", { id: pg.integer, body: bytes }, ["id"])
-const Two = relation("Two", { id: pg.integer, body: bytes, more: bytes }, ["id"])
-const Large = schema("BytesMemory", [One, Two], [])
-
-/** A case: the relation written, by its bytes columns, and how many facts the member holds. */
-interface Drawn {
-	readonly columns: 1 | 2
-	readonly facts: number
-}
-
-const cases: Gen<Drawn> = (s) => {
-	const columns = s.draw(element([1, 2] as const))
-	return { columns, facts: s.draw(int(1, columns === 1 ? 20 : 10)) }
-}
-
-type Feature = "a member refused from its lengths" | "a member bound" | "two bytes columns"
-
-/** The bytes the member's write statement carries at least: its fixed fields, its placeholders, its binary arrays. */
-const carried = (d: Drawn): number => {
-	const frame = bindFrame
-	const array = byteaHeaderBytes(d.facts) + d.facts * byteaElementBytes(valueLength)
-	return frame.statement + (d.columns + 1) * frame.parameter + d.columns * array
-}
-
-/** The binary arrays' bytes a bound member holds: one copy of every value. */
-const copied = (d: Drawn): number => d.columns * d.facts * valueLength
-
-/**
- * What the bind may allocate beside its one copy of every value (texts, maps, the process's own churn): less than one
- * value's length, the least a second copy of any value allocates.
- */
-const slack = valueLength
-
-const notes = (d: Drawn): ReadonlyArray<Feature> => [
-	carried(d) > messageMaxBytes.value ? "a member refused from its lengths" : "a member bound",
-	...(d.columns === 2 ? (["two bytes columns"] as const) : [])
-]
-
-describe("a write of large bytes values", () => {
-	it.effect(
-		"refuses a member past the message from its lengths alone, allocating none of it, and copies a member that fits once",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const reality = realityWrite(succeeded(testArtifacts(Large, testCompile)))
-					const value = new Uint8Array(valueLength).fill(7)
-					return yield* explore(
-						{
-							suite: "unit/write/bytes-memory",
-							draw: drawn(cases),
-							literal: Formatter.format,
-							oracle: {
-								kind: "specification",
-								name: "refused from its lengths with no copy past the message, one copy within it"
-							},
-							coverage: required<Feature>(
-								["a member refused from its lengths", "a member bound", "two bytes columns"],
-								{ cases: 12, sense: notesOnly }
-							),
-							kept: [],
-							runs: 8,
-							shrink: completeShrink,
-							steerEvery: 4,
-							caseHang
-						},
-						(d, c) =>
-							Effect.gen(function* () {
-								for (const feature of notes(d)) {
-									c.note(feature)
-								}
-								const facts = upTo(d.facts, (id) =>
-									d.columns === 1 ? { id, body: value } : { id, body: value, more: value }
-								)
-								const change =
-									d.columns === 1
-										? ChangeSet.empty(Large).insert(One, facts)
-										: ChangeSet.empty(Large).insert(Two, facts)
-								const program = succeeded(compileWrite(checking(Large), descOf(change), reality))
-								const write = runnableWrite(program, program.frontend.codes)
-								const members = yield* collectInputs(
-									program.binding.groups,
-									parsedOf(change).inputs
-								)
-								const before = process.memoryUsage().arrayBuffers
-								const bound = bindWrite(write, {
-									members,
-									params: {},
-									transport: inForce(bindFrame)
-								})
-								const grown = process.memoryUsage().arrayBuffers - before
-								if (carried(d) > messageMaxBytes.value) {
-									assert.ok(
-										!bound.ok && bound.error._tag === "MessageBound",
-										"a member past the message is refused as its MessageBound"
-									)
-									assert.ok(grown < valueLength, `the refusal allocated ${grown} bytes`)
-									return
-								}
-								assert.ok(bound.ok, "a member within the message binds")
-								assert.ok(
-									grown < copied(d) + slack,
-									`a bound member's ${copied(d)} bytes allocated ${grown}: a second copy of some value`
-								)
-								const normalized = normalizeChangeSet(
-									write.flight.prepared.groups,
-									{ fill: write.flight.prepared.fill, codes: write.flight.codes },
-									members,
-									inForce(bindFrame)
-								)
-								if (!normalized.ok || normalized.value.kind !== "normalized") {
-									return assert.fail("a member within the message normalizes")
-								}
-								for (const slot of normalized.value.slots.values()) {
-									for (const fact of slot.facts) {
-										for (const field of d.columns === 1 ? ["body"] : ["body", "more"]) {
-											const held = fact[field]
-											assert.ok(
-												isAdmittedBytes(held) && held.bytes === value,
-												"admission holds the caller's array itself, no copy of it"
-											)
-										}
-									}
-								}
-							})
-					)
+/** A write of large bytes values refuses a member past the message from its lengths alone, allocating none of it, and copies a member that fits once. */
+export const aWriteOfLargeBytesValuesRefusesAMemberPastTheMessageFromItsLengthsAloneAllocatingNoneOfItAndCopiesAMemberThatFitsOnce =
+	property.explore(cases, {
+		needs: {},
+		situations: [
+			"a member refused from its lengths",
+			"a member bound",
+			"two bytes columns"
+		] satisfies ReadonlyArray<Reached<Feature>>,
+		check: (_, c: Case<Feature>) => (d) =>
+			Effect.gen(function* () {
+				const value = new Uint8Array(valueLength).fill(7)
+				for (const feature of notes(d)) {
+					c.note(feature)
+				}
+				const facts = upTo(d.facts, (id) =>
+					d.columns === 1 ? { id, body: value } : { id, body: value, more: value }
+				)
+				const change =
+					d.columns === 1
+						? ChangeSet.empty(Large).insert(One, facts)
+						: ChangeSet.empty(Large).insert(Two, facts)
+				const program = succeeded(compileWrite(checking(Large), descOf(change), reality))
+				const write = runnableWrite(program, program.frontend.codes)
+				const members = yield* collectInputs(program.binding.groups, parsedOf(change).inputs)
+				const before = process.memoryUsage().arrayBuffers
+				const bound = bindWrite(write, {
+					members,
+					params: {},
+					transport: inForce(bindFrame)
 				})
-			)
-	)
-})
+				const grown = process.memoryUsage().arrayBuffers - before
+				if (carried(d) > messageMaxBytes.value) {
+					assert.ok(
+						!bound.ok && bound.error._tag === "MessageBound",
+						"a member past the message is refused as its MessageBound"
+					)
+					assert.ok(grown < valueLength, `the refusal allocated ${grown} bytes`)
+					return
+				}
+				assert.ok(bound.ok, "a member within the message binds")
+				assert.ok(
+					grown < copied(d) + slack,
+					`a bound member's ${copied(d)} bytes allocated ${grown}: a second copy of some value`
+				)
+				const normalized = normalizeChangeSet(
+					write.flight.prepared.groups,
+					{ fill: write.flight.prepared.fill, codes: write.flight.codes },
+					members,
+					inForce(bindFrame)
+				)
+				if (!normalized.ok || normalized.value.kind !== "normalized") {
+					return assert.fail("a member within the message normalizes")
+				}
+				for (const slot of normalized.value.slots.values()) {
+					for (const fact of slot.facts) {
+						for (const field of d.columns === 1 ? ["body"] : ["body", "more"]) {
+							const held = fact[field]
+							assert.ok(
+								isAdmittedBytes(held) && held.bytes === value,
+								"admission holds the caller's array itself, no copy of it"
+							)
+						}
+					}
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "refused from its lengths with no copy past the message, one copy within it"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original: "\treturn new AdmittedBytes(value)",
+				replacement: "\treturn new AdmittedBytes(value.slice())",
+				why: "An admission that copies the caller's array (scalar/values/bytes.ts admitBytes), which the identity check and the allocation bound both refuse."
+			}
+		]
+	})

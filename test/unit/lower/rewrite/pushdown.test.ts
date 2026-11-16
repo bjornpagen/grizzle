@@ -12,50 +12,59 @@
  * shows.
  * Features: each pushdown rule, each guard shape, a take that kept its rows.
  */
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
 import { pushdownPass } from "#compiler/lower/optimize/pushdown/index.ts"
 import { assert } from "#test/support/assert.ts"
 import { guardSearch, rowsAgreeAt } from "#test/unit/lower/rewrite/guarded.ts"
 import { nodesOf } from "#test/unit/lower/rewrite/support.ts"
 
-const pushdownSites = guardSearch<"a take kept its rows">({
-	suite: "unit/lower/rewrite/pushdown-sites",
-	passes: [pushdownPass],
-	evidence: "snapshot",
-	runs: 200,
-	situations: [
-		"pushdown.project",
-		"pushdown.group",
-		"pushdown.union",
-		"pushdown.left",
-		"pushdown.source",
-		"a filter over a take",
-		"a filter over a group",
-		"an occurrence over a correlated source",
-		"a take kept its rows"
-	],
-	holds: (q, input, ran, c) => {
-		const after = nodesByLabel(ran.query.dag)
-		for (const filter of nodesOf(input.dag, "Filter")) {
-			if (filter.input.kind === "Take") {
-				const stays = after.get(filter.id)
-				assert.equal(stays?.kind === "Filter" ? stays.input.id : undefined, filter.input.id)
+/** Legal predicate movement moves a filter exactly where the move keeps its set, and nothing below a take. */
+export const legalPredicateMovementMovesAFilterExactlyWhereTheMoveKeepsItsSetAndNothingBelowATake =
+	guardSearch<"a take kept its rows">({
+		passes: [pushdownPass],
+		evidence: "snapshot",
+		situations: [
+			"pushdown.project",
+			"pushdown.group",
+			"pushdown.union",
+			"pushdown.left",
+			"pushdown.source",
+			"a filter over a take",
+			"a filter over a group",
+			"an occurrence over a correlated source",
+			"a take kept its rows"
+		],
+		aims: [
+			["pushdown.project", ["filterOver"]],
+			["pushdown.group", ["filterOver"]],
+			["pushdown.union", ["filterOver"]],
+			["pushdown.left", ["filterOver"]],
+			["pushdown.source", ["filterOver"]]
+		],
+		holds: (q, input, ran, c) => {
+			const after = nodesByLabel(ran.query.dag)
+			for (const filter of nodesOf(input.dag, "Filter")) {
+				if (filter.input.kind === "Take") {
+					const stays = after.get(filter.id)
+					assert.equal(stays?.kind === "Filter" ? stays.input.id : undefined, filter.input.id)
+				}
 			}
-		}
-		for (const take of nodesOf(input.dag, "Take")) {
-			const kept = after.get(take.id)
-			if (kept !== undefined && rowsAgreeAt(q, take, kept) === "agree") {
-				c.note("a take kept its rows")
+			for (const take of nodesOf(input.dag, "Take")) {
+				const kept = after.get(take.id)
+				if (kept !== undefined && rowsAgreeAt(q, take, kept) === "agree") {
+					c.note("a take kept its rows")
+				}
 			}
-		}
-	}
-})
-
-describe("legal predicate movement", () => {
-	it.effect(
-		"moves a filter exactly where the move keeps its set, and nothing below a take",
-		(ctx) => searched(ctx, pushdownSites)
-	)
-})
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/pushdown/index.ts",
+				original:
+					'\t\t\tcase "Base":\n\t\t\tcase "Closed":\n\t\t\tcase "Context":\n\t\t\tcase "InputSet":\n\t\t\tcase "Delta":\n\t\t\tcase "Filter":\n\t\t\tcase "Take":',
+				replacement:
+					'\t\t\tcase "Take":\n\t\t\t\treturn overDemand(({ demand }) => {\n\t\t\t\t\tif (!exclusive(cx, demand, xCell) || x.correlation.length > 0) {\n\t\t\t\t\t\treturn false\n\t\t\t\t\t}\n\t\t\t\t\tconst moved = filterOver(cx.editor, x.input, cx.editor.copyExpr(m.filter.pred, cx.editor.retarget(xCell, x.input)))\n\t\t\t\t\ttakeOver(cx.editor, m, { ...x, input: moved })\n\t\t\t\t\tcertify(cx, pushdownRules.left, m, xCell.id, [m.cell.id, moved.id])\n\t\t\t\t\treturn true\n\t\t\t\t})\n\t\t\tcase "Base":\n\t\t\tcase "Closed":\n\t\t\tcase "Context":\n\t\t\tcase "InputSet":\n\t\t\tcase "Delta":\n\t\t\tcase "Filter":',
+				why: "A filter moved below an uncorrelated take, so the take ranks other rows; the pushdown-sites search fails."
+			}
+		]
+	})

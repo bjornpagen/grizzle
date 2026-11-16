@@ -19,7 +19,7 @@ import { ownedFixture } from "#test/support/evidence.ts"
 import { sameIdentity, type ValueIdentity } from "#test/support/kernel/identity.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
-import type { QueryCase } from "#test/support/oracle/gen/case.ts"
+import type { GenConfig, QueryCase } from "#test/support/oracle/gen/case.ts"
 import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
 import { type GenParam, genParamDecls } from "#test/support/oracle/gen/query.ts"
 import type { GenSchema } from "#test/support/oracle/gen/schema.ts"
@@ -59,6 +59,28 @@ import { ledgerSchema, type Q, type RelationSpec } from "#test/unit/lower/conser
  * ownership installs it.
  */
 export const ledgerCatalog: EvidenceCatalog = ownedFixture(ledgerSchema).catalog
+
+/** A form an operator of a generated query takes (gen/query.ts QueryConfig weights). */
+export type QueryForm = keyof GenConfig["query"]["weights"]
+
+/**
+ * `config` with every level above its leaf regions drawing its operator from `forms` alone, each at its own weight: the
+ * population a situation those forms make is aimed at. Every sketch it draws is a sketch of `config`, which resolves it,
+ * since a form `config` leaves out stays out; a narrowing to forms `config` leaves out all draws no operator, which the
+ * query generators refuse when they are built.
+ */
+export const narrowedTo = (
+	config: GenConfig,
+	forms: Arr.NonEmptyReadonlyArray<QueryForm>
+): GenConfig => ({
+	...config,
+	query: {
+		...config.query,
+		weights: Rec.map(config.query.weights, (weight, form) =>
+			Arr.contains(forms, form) ? weight : 0
+		)
+	}
+})
 
 /** A fresh pass context over a catalog, in an evidence context. */
 export const passContext = (options: {

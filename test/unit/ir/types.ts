@@ -13,12 +13,12 @@ import {
 import { bigint } from "@bjornpagen/testing/values"
 import {
 	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
 	numericMaxPrecision,
 	numericMaxScale,
 	numericMinScale,
 	vectorMaxDimensions
 } from "@grizzle/limits"
-import { numericMaxIntegerDigits } from "@grizzle/limits"
 import { Option } from "effect"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type FieldDesc, pgScalarNames } from "#compiler/ir/desc.ts"
@@ -125,19 +125,19 @@ const contractBaseGen: Gen<DeclaredSketch> = oneOf<DeclaredSketch>([
 	}))
 ])
 
+/** A set over a drawn roster. */
+const setGen: Gen<DeclaredSketch> = map(rosterGen, (roster) => ({
+	desc: { kind: "bits", roster: roster.name },
+	rosters: { [roster.name]: roster.handles }
+}))
+
 /**
  * A declared type of every kind: a base, a set over a roster, a contract over a base (natural, the builtin contract,
  * among them).
  */
 export const declaredGen: Gen<DeclaredSketch> = weighted<DeclaredSketch>([
 	[6, contractBaseGen],
-	[
-		1,
-		map(rosterGen, (roster) => ({
-			desc: { kind: "bits", roster: roster.name },
-			rosters: { [roster.name]: roster.handles }
-		}))
-	],
+	[1, setGen],
 	[
 		2,
 		(source) => {
@@ -183,3 +183,8 @@ export const scalarTypeGen: Gen<ScalarType> = weighted([
 	[5, declaredTypeGen],
 	[1, computedGen]
 ])
+
+/** A set over a drawn roster, as the registry builds a field's: the rarest kind declaredTypeGen draws. */
+export const setTypeGen: Gen<ScalarType> = map(setGen, (sketch) =>
+	scalarOf(sketch.desc, sketch.rosters)
+)

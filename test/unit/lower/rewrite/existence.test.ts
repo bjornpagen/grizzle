@@ -13,352 +13,214 @@
  * Features: each Account occurrence under each reader, each posting source; each set comparison rewritten and kept; the
  * scoped shapes and a scoped occurrence that stayed.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { assertNone } from "@effect/vitest/utils"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
+
+import { assertNone } from "@bjornpagen/testing/assert"
+import { type Reached } from "@bjornpagen/testing/features"
+import { element, finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Option } from "effect"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
-import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import type { Pass } from "#compiler/ir/pass.ts"
-import type { LogicalQuery } from "#compiler/ir/products.ts"
-import { conservativeMeta, type RelDag } from "#compiler/ir/rel.ts"
+import { conservativeMeta } from "#compiler/ir/rel.ts"
 import { relationalRewrites } from "#compiler/lower/optimize/demand/phases.ts"
 import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 import { prunePass } from "#compiler/lower/optimize/prune/index.ts"
 import { assert, contains, succeeded } from "#test/support/assert.ts"
-import { keyConstraintName } from "#test/support/evidence.ts"
 import {
 	Account as AccountRelation,
-	type OccurrenceSpec,
 	Posting,
-	plainRegion,
 	Q,
-	type RelationSpec,
-	T,
-	uuidOf
+	type RelationSpec
 } from "#test/unit/lower/conservative/fixtures.ts"
-
-import { caseHang } from "#test/support/limits.ts"
+import {
+	type Account,
+	accountKey,
+	databases,
+	type Evidence,
+	existenceOnlyOverCorrelated,
+	type Left,
+	matched,
+	type PostingSource,
+	type Reader,
+	rewritten,
+	shapes
+} from "#test/unit/lower/rewrite/existence.fixtures.ts"
 import { guardSearch, scopedStay } from "#test/unit/lower/rewrite/guarded.ts"
 import {
-	passContext,
 	deliversAlikeOn,
-	factSubsets,
 	ledgerCatalog,
-	lowersConservatively,
+	passContext,
 	queryOf,
-	type Ran,
 	rulesOf,
 	runPasses
 } from "#test/unit/lower/rewrite/support.ts"
 
-const u = (n: number): TypedLiteral => ({ kind: "uuid", value: uuidOf(n) })
-const i8 = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
-const text = (s: string): TypedLiteral => ({ kind: "text", value: s })
-
-/**
- * Every database of these posting and account facts: two postings of account 10, one of account 11, one of account
- * 12, which no account holds, and two accounts named apart.
- */
-const databases = factSubsets({
-	Posting: [
-		[u(1), u(10), i8(5)],
-		[u(2), u(10), i8(5)],
-		[u(3), u(11), i8(7)],
-		[u(4), u(12), i8(7)]
-	],
-	Account: [
-		[u(10), text("a")],
-		[u(11), text("b")]
-	]
-})
-
-/**
- * The Account occurrence of a posting's match: existence only (it binds its id, which the posting binds too), or the
- * same with its name fixed. One that binds a witness of its own, which the query delivers, is never touched: a semi-join's
- * right side delivers nothing, so the generated pass-alone search (generated.test.ts) would see the witness go.
- */
-type Account = "existence only" | "with a constant"
-/**
- * Who reads the region: a projection onto the posting's id, with the region's heading every bound variable or the id
- * alone (the shared account outside it), the query delivering that region as it is, or a fold over the complete bound
- * tuple.
- */
-type Reader =
-	| "projection"
-	| "projection, shared variable outside the heading"
-	| "root, shared variable outside the heading"
-	| "fold"
-
-/**
- * The Posting occurrence's source: the stored relation, or a rule of its own projecting Posting through variables named
- * as the outer region's are, whose column references name the outer region's variables without reading them.
- */
-type PostingSource = "a scan" | "its own rule"
-
-/**
- * A posting matched with the account it names, under the Account occurrence, the reader and the posting's source
- * drawn; the group node when the reader folds.
- */
-const matched = (account: Account, reader: Reader, posting: PostingSource) => {
-	const q = new Q()
-	const postingVariables = { id: "id", account: "acct", amount: "amount" }
-	const postings =
-		posting === "a scan"
-			? q.base(Posting, conservativeMeta)
-			: q.project(
-					q.region([
-						{ source: q.base(Posting, conservativeMeta), bind: postingVariables, constants: {} }
-					]),
-					[
-						["id", "id"],
-						["account", "acct"],
-						["amount", "amount"]
-					],
-					conservativeMeta
-				)
-	const occurrences: ReadonlyArray<OccurrenceSpec> = [
-		{
-			source: postings,
-			bind: postingVariables,
-			constants: {}
-		},
-		account === "with a constant"
-			? {
-					source: q.base(AccountRelation, conservativeMeta),
-					bind: { id: "acct" },
-					constants: { name: q.lit(text("a"), T.text) }
-				}
-			: {
-					source: q.base(AccountRelation, conservativeMeta),
-					bind: { id: "acct" },
-					constants: {}
-				}
-	]
-	if (reader === "fold") {
-		const region = q.region(occurrences)
-		const group = q.group(
-			region,
-			["id", "acct", "amount"],
-			["acct"],
-			[{ name: "total", fn: "sum", op: "sum(bigint)", args: ["amount"], type: T.numeric }],
-			conservativeMeta
-		)
-		return {
-			dag: q.build(q.project(group, [["total", "total"]], conservativeMeta)).dag,
-			group: [group]
-		}
-	}
-	if (reader === "root, shared variable outside the heading") {
-		return {
-			dag: q.build(
-				q.regionWith(occurrences, { ...plainRegion, heading: { kind: "named", names: ["id"] } })
-			).dag,
-			group: []
-		}
-	}
-	const region =
-		reader === "projection"
-			? q.region(occurrences)
-			: q.regionWith(occurrences, { ...plainRegion, heading: { kind: "named", names: ["id"] } })
-	return { dag: q.build(q.project(region, [["id", "id"]], conservativeMeta)).dag, group: [] }
-}
-
-const rewritten = (dag: RelDag, passes: ReadonlyArray<Pass<LogicalQuery, LogicalQuery>>): Ran => {
-	const query = queryOf(dag, [])
-	const ran = succeeded(
-		runPasses(query, passes, passContext({ catalog: ledgerCatalog, evidence: "snapshot" }))
-	)
-	deliversAlikeOn(databases, [Posting, AccountRelation], [], query, ran.query)
-	lowersConservatively(ran.query, emptyCodebook)
-	return ran
-}
-
-const shapes: Gen<readonly [Account, Reader, PostingSource]> = (source) =>
-	[
-		source.draw(element<Account>(["existence only", "with a constant"])),
-		source.draw(
-			element<Reader>([
-				"projection",
-				"projection, shared variable outside the heading",
-				"root, shared variable outside the heading",
-				"fold"
-			])
-		),
-		source.draw(element<PostingSource>(["a scan", "its own rule"]))
-	] as const
-
-describe("an existence-only match becomes a semi-join", () => {
-	it.effect(
-		"an occurrence binding nothing of its own becomes a semi-join, its constants with it, the reader's heading and bound tuple kept",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						box: "each Account occurrence, existence only or with a constant, under each reader, over postings scanned or from a rule of their own",
-						oracle: {
-							kind: "specification",
-							name: "an existence-only occurrence becomes a semi-join, the bound tuple unchanged; the reference's delivery on every database"
-						},
-						suite: "unit/lower/rewrite/existence-semi-join",
-						literal: Formatter.format,
-						generator: shapes,
-						coverage: requiredInSpace<
-							`${Account} under a ${Reader}` | `postings from ${PostingSource}`
-						>([
-							"postings from a scan",
-							"postings from its own rule",
-							"existence only under a projection",
-							"existence only under a projection, shared variable outside the heading",
-							"existence only under a root, shared variable outside the heading",
-							"existence only under a fold",
-							"with a constant under a projection",
-							"with a constant under a projection, shared variable outside the heading",
-							"with a constant under a root, shared variable outside the heading",
-							"with a constant under a fold"
-						]),
-						caseHang
-					},
-					([account, reader, posting], c) =>
-						Effect.sync(() => {
-							c.note(`${account} under a ${reader}`)
-							c.note(`postings from ${posting}`)
-							const { dag, group } = matched(account, reader, posting)
-							const ran = rewritten(dag, [prunePass, existencePass])
-							rewritten(dag, [relationalRewrites])
-							contains(rulesOf(ran.certificates), "R02.semiJoin")
-							for (const g of group) {
-								const after = nodesByLabel(ran.query.dag).get(g.id)
-								assert.deepEqual(after?.kind === "Group" ? after.bound.columns : [], [
-									"id",
-									"acct",
-									"amount"
-								])
-							}
-						})
-				)
-			)
-	)
-})
-
-/**
- * Where the left input's rows come from: the accounts' ids, unique by Account's key, or the postings' accounts, which
- * repeat.
- */
-type Left = "account ids" | "posting accounts"
-type Evidence = "snapshot" | "transaction"
-
-const accountKey = keyConstraintName(ledgerCatalog, "Account", ["id"], "primary")
-
-describe("set comparisons need a physically unique left input", () => {
-	it.effect(
-		"a keyed left input admits the rewrite, its key's premises and context in the certificate",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						box: "an intersection or a difference of account ids and posting accounts, either on the left, in a snapshot or a transaction",
-						oracle: {
-							kind: "specification",
-							name: "a set comparison is rewritten exactly over a physically unique left input, certified by its key"
-						},
-						suite: "unit/lower/rewrite/existence-set-comparison",
-						literal: Formatter.format,
-						generator: (source) => ({
-							op: source.draw(element<"Intersect" | "Difference">(["Intersect", "Difference"])),
-							left: source.draw(element<Left>(["account ids", "posting accounts"])),
-							evidence: source.draw(element<Evidence>(["snapshot", "transaction"]))
-						}),
-						coverage: requiredInSpace<`${"Intersect" | "Difference"} ${"rewritten" | "kept"}`>([
-							"Intersect rewritten",
-							"Intersect kept",
-							"Difference rewritten",
-							"Difference kept"
-						]),
-						caseHang
-					},
-					({ op, left, evidence }, c) =>
-						Effect.sync(() => {
-							const q = new Q()
-							const ids = (relation: RelationSpec, column: string) =>
-								q.project(
-									q.region([
-										{
-											source: q.base(relation, conservativeMeta),
-											bind: { [column]: "id" },
-											constants: {}
-										}
-									]),
-									[["id", "id"]],
-									conservativeMeta
-								)
-							const accounts = ids(AccountRelation, "id")
-							const postings = ids(Posting, "account")
-							const dag = q.build(
-								left === "account ids"
-									? q.setOp(op, accounts, postings)
-									: q.setOp(op, postings, accounts)
-							).dag
-							const query = queryOf(dag, [])
-							const ran = succeeded(
-								runPasses(query, [existencePass], passContext({ catalog: ledgerCatalog, evidence }))
-							)
-							deliversAlikeOn(databases, [Posting, AccountRelation], [], query, ran.query)
-							const rule: CertificateRule = op === "Intersect" ? "R02.semiJoin" : "R02.antiJoin"
-							const unique = left === "account ids"
-							c.note(`${op} ${unique ? "rewritten" : "kept"}`)
-							const cert = Arr.findFirst(ran.certificates, (x) => x.rule === rule)
-							if (!unique) {
-								assertNone(cert)
-								return
-							}
-							const certified = Option.getOrThrowWith(
-								cert,
-								() => new Error("the set comparison's certificate")
-							)
-							assert.deepEqual(
-								Arr.flatMap(certified.premises, (p) =>
-									p.kind === "constraint" ? [p.constraint] : []
-								),
-								[accountKey]
-							)
-							assert.equal(certified.context, "immediate")
-						})
-				)
-			)
-	)
-})
-
-describe("scope", () => {
-	it.effect(
-		"an occurrence over a correlated source, or whose source another occurrence reads laterally, stays in its region",
-		(ctx) =>
-			searched(
-				ctx,
-				guardSearch<"a scoped occurrence stayed in its region">({
-					suite: "unit/lower/rewrite/existence-scope",
-					passes: [existencePass],
-					evidence: "snapshot",
-					runs: 150,
-					situations: [
-						"an occurrence over a correlated source",
-						"an occurrence whose source another occurrence reads laterally",
-						"a scoped occurrence stayed in its region",
-						"R02.semiJoin"
-					],
-					holds: (_q, input, ran, c) => {
-						if (scopedStay(input.dag, ran.query.dag) > 0) {
-							c.note("a scoped occurrence stayed in its region")
-						}
+/** An existence-only match becomes a semi-join an occurrence binding nothing of its own becomes a semi-join, its constants with it, the reader's heading and bound tuple kept. */
+export const anExistenceOnlyMatchBecomesASemiJoinAnOccurrenceBindingNothingOfItsOwnBecomesASemiJoinItsConstantsWithItTheReadersHeadingAndBoundTupleKept =
+	property.exhaust(finite(shapes), {
+		needs: {},
+		situations: [
+			"postings from a scan",
+			"postings from its own rule",
+			"existence only under a projection",
+			"existence only under a projection, shared variable outside the heading",
+			"existence only under a root, shared variable outside the heading",
+			"existence only under a fold",
+			"with a constant under a projection",
+			"with a constant under a projection, shared variable outside the heading",
+			"with a constant under a root, shared variable outside the heading",
+			"with a constant under a fold"
+		] satisfies ReadonlyArray<
+			Reached<`${Account} under a ${Reader}` | `postings from ${PostingSource}`>
+		>,
+		check:
+			(_, c: Case<`${Account} under a ${Reader}` | `postings from ${PostingSource}`>) =>
+			([account, reader, posting]) =>
+				Effect.sync(() => {
+					c.note(`${account} under a ${reader}`)
+					c.note(`postings from ${posting}`)
+					const { dag, group } = matched(account, reader, posting)
+					const ran = rewritten(dag, [prunePass, existencePass])
+					rewritten(dag, [relationalRewrites])
+					contains(rulesOf(ran.certificates), "R02.semiJoin")
+					for (const g of group) {
+						const after = nodesByLabel(ran.query.dag).get(g.id)
+						assert.deepEqual(after?.kind === "Group" ? after.bound.columns : [], [
+							"id",
+							"acct",
+							"amount"
+						])
 					}
-				})
-			)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "an existence-only occurrence becomes a semi-join, the bound tuple unchanged; the reference's delivery on every database"
+		},
+		box: "each Account occurrence, existence only or with a constant, under each reader, over postings scanned or from a rule of their own",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/existence/index.ts",
+				original: "\t\tif (columnRefs(o.constants.map((c) => c.expr)).length > 0) {",
+				replacement: "\t\tif (o.constants.length > 0) {",
+				why: "An occurrence with any constant, a literal among them, is left a match; the existence-semi-join search fails."
+			}
+		]
+	})
+
+/** Set comparisons need a physically unique left input a keyed left input admits the rewrite, its key's premises and context in the certificate. */
+export const setComparisonsNeedAPhysicallyUniqueLeftInputAKeyedLeftInputAdmitsTheRewriteItsKeysPremisesAndContextInTheCertificate =
+	property.exhaust(
+		finite((source) => ({
+			op: source.draw(element<"Intersect" | "Difference">(["Intersect", "Difference"])),
+			left: source.draw(element<Left>(["account ids", "posting accounts"])),
+			evidence: source.draw(element<Evidence>(["snapshot", "transaction"]))
+		})),
+		{
+			needs: {},
+			situations: [
+				"Intersect rewritten",
+				"Intersect kept",
+				"Difference rewritten",
+				"Difference kept"
+			] satisfies ReadonlyArray<Reached<`${"Intersect" | "Difference"} ${"rewritten" | "kept"}`>>,
+			check:
+				(_, c: Case<`${"Intersect" | "Difference"} ${"rewritten" | "kept"}`>) =>
+				({ op, left, evidence }) =>
+					Effect.sync(() => {
+						const q = new Q()
+						const ids = (relation: RelationSpec, column: string) =>
+							q.project(
+								q.region([
+									{
+										source: q.base(relation, conservativeMeta),
+										bind: { [column]: "id" },
+										constants: {}
+									}
+								]),
+								[["id", "id"]],
+								conservativeMeta
+							)
+						const accounts = ids(AccountRelation, "id")
+						const postings = ids(Posting, "account")
+						const dag = q.build(
+							left === "account ids"
+								? q.setOp(op, accounts, postings)
+								: q.setOp(op, postings, accounts)
+						).dag
+						const query = queryOf(dag, [])
+						const ran = succeeded(
+							runPasses(query, [existencePass], passContext({ catalog: ledgerCatalog, evidence }))
+						)
+						deliversAlikeOn(databases, [Posting, AccountRelation], [], query, ran.query)
+						const rule: CertificateRule = op === "Intersect" ? "R02.semiJoin" : "R02.antiJoin"
+						const unique = left === "account ids"
+						c.note(`${op} ${unique ? "rewritten" : "kept"}`)
+						const cert = Arr.findFirst(ran.certificates, (x) => x.rule === rule)
+						if (!unique) {
+							assertNone(cert)
+							return
+						}
+						const certified = Option.getOrThrowWith(
+							cert,
+							() => new Error("the set comparison's certificate")
+						)
+						assert.deepEqual(
+							Arr.flatMap(certified.premises, (p) =>
+								p.kind === "constraint" ? [p.constraint] : []
+							),
+							[accountKey]
+						)
+						assert.equal(certified.context, "immediate")
+					}),
+			oracle: {
+				kind: "specification",
+				name: "a set comparison is rewritten exactly over a physically unique left input, certified by its key"
+			},
+			box: "an intersection or a difference of account ids and posting accounts, either on the left, in a snapshot or a transaction",
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/lower/optimize/existence/index.ts",
+					original: "\t\t\t\t\t\t\tphysical.of(left).props,",
+					replacement: "\t\t\t\t\t\t\tphysical.of(right).props,",
+					why: "A set comparison is rewritten on the uniqueness of its right input rather than its left; the existence-set-comparison search fails."
+				}
+			]
+		}
 	)
-})
+
+/** Scope an occurrence over a correlated source, or whose source another occurrence reads laterally, stays in its region. */
+export const scopeAnOccurrenceOverACorrelatedSourceOrWhoseSourceAnotherOccurrenceReadsLaterallyStaysInItsRegion =
+	guardSearch<
+		| "a scoped occurrence stayed in its region"
+		| "an existence-only occurrence over a correlated source"
+	>({
+		passes: [existencePass],
+		evidence: "snapshot",
+		situations: [
+			"an occurrence over a correlated source",
+			"an occurrence whose source another occurrence reads laterally",
+			"a scoped occurrence stayed in its region",
+			"an existence-only occurrence over a correlated source",
+			"R02.semiJoin"
+		],
+		aims: [["an existence-only occurrence over a correlated source", ["union"]]],
+		holds: (_q, input, ran, c) => {
+			if (scopedStay(input.dag, ran.query.dag) > 0) {
+				c.note("a scoped occurrence stayed in its region")
+			}
+			if (existenceOnlyOverCorrelated(input.dag)) {
+				c.note("an existence-only occurrence over a correlated source")
+			}
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/existence/index.ts",
+				original: "\t\treturn !DagEditor.correlated(o.source) && !cx.cells.feedback.has(o.source)",
+				replacement: "\t\treturn !cx.cells.feedback.has(o.source)",
+				why: "An occurrence over a correlated source is moved into a semi-join; the existence-scope search fails."
+			}
+		]
+	})

@@ -1,0 +1,213 @@
+/** What the properties of delta.test.ts read: its spaces, models and helpers. */
+
+import {
+	array,
+	boolean,
+	element,
+	type Gen,
+	int,
+	option,
+	shuffled,
+	subarray
+} from "@bjornpagen/testing/gen"
+import { Array as Arr, Option, Order, String as Str } from "effect"
+import { scalarCodec } from "#compiler/codec/scalar.ts"
+import { StoredRelationName } from "#compiler/core/ids.ts"
+import { relationIdentity } from "#compiler/runtime/write/net.ts"
+import { type FactIdentity } from "#compiler/scalar/values/identity.ts"
+import { defined } from "#test/support/assert.ts"
+import { Work } from "#test/support/fixtures/api/work.ts"
+import { type Fact, type FactSet, factSetOf, identityOrder } from "#test/support/oracle/delta.ts"
+import { upTo } from "#test/support/up-to.ts"
+import { codesOf, compiled, cs, LedgerSchema } from "#test/unit/write/changeset/fixtures.ts"
+
+/** The fact of a model id. */
+export const fact = (id: string): Fact => ({ id })
+
+/** The facts each relation's states are drawn over. */
+const universe = ["a", "b", "c", "d"] as const
+
+/**
+ * The relation names a ChangeSet writes, among them two whose UTF-16 order is not their code point order: U+FF61 is
+ * below U+10000 by code point, above it by code unit.
+ */
+const relationNames = [
+	StoredRelationName("a"),
+	StoredRelationName("b"),
+	StoredRelationName("\uFF61"),
+	StoredRelationName("\u{10000}")
+] as const
+
+/** The members of one stratum that returned a fact it made present, or absent, in the order their rows came back. */
+const addedBy = element([["insert"], ["put"], ["insert", "put"], ["put", "insert"]] as const)
+
+const removedBy = element([
+	["delete"],
+	["displaced"],
+	["delete", "displaced"],
+	["displaced", "delete"]
+] as const)
+
+/** One step of a relation's sequence: the state after it, and which members returned each fact of the universe. */
+interface Step {
+	readonly after: ReadonlyArray<string>
+	readonly added: ReadonlyArray<ReadonlyArray<"insert" | "put">>
+	readonly removed: ReadonlyArray<ReadonlyArray<"delete" | "displaced">>
+}
+
+const step: Gen<Step> = (source) => ({
+	after: source.draw(subarray(universe)),
+	added: source.draw(array(addedBy, { min: universe.length, max: universe.length })),
+	removed: source.draw(array(removedBy, { min: universe.length, max: universe.length }))
+})
+
+/** A relation's sequence: its start, and per stratum a step, or nothing when the stratum does not change it. */
+interface Sequence {
+	readonly start: ReadonlyArray<string>
+	readonly steps: ReadonlyArray<Option.Option<Step>>
+}
+
+/** Up to three written relations, a name repeated among them, over one to five strata. */
+export const sequences: Gen<{
+	readonly written: ReadonlyArray<StoredRelationName>
+	readonly strata: number
+	readonly relations: ReadonlyArray<Sequence>
+}> = (source) => {
+	const written = source.draw(array(element(relationNames), { min: 1, max: 3 }))
+	const strata = source.draw(int(1, 5))
+	const distinct = [...new Set(written)]
+	return {
+		written,
+		strata,
+		relations: Arr.map(distinct, () => ({
+			start: source.draw(subarray(universe)),
+			steps: upTo(strata, () => source.draw(option(step)))
+		}))
+	}
+}
+
+/** The model's facts of `ids`, each identified by its one text `[id]`. */
+export const setOf = (ids: ReadonlyArray<string>): FactSet =>
+	factSetOf(Arr.map(ids, (id) => [[id], fact(id)] as const))
+
+/** The model's id of an identity, which the model writes as the one text `[id]`. */
+export const modelId = (identity: FactIdentity): string =>
+	defined(identity[0], "a model fact's one text")
+
+/** A fact set's or a change's identities, in canonical order. */
+export const identitiesOf = (keys: Iterable<FactIdentity>): ReadonlyArray<FactIdentity> =>
+	Arr.sort(keys, identityOrder)
+
+/** A change's entries, by identity in canonical order. */
+export const entriesOf = <V>(
+	entries: Iterable<readonly [FactIdentity, V]>
+): ReadonlyArray<readonly [FactIdentity, V]> =>
+	Arr.sort(
+		entries,
+		Order.mapInput(identityOrder, ([identity]: readonly [FactIdentity, V]) => identity)
+	)
+
+/** What a step says of a fact of the universe: one entry per fact, by position. */
+export const tagsOf = <T>(tags: ReadonlyArray<T>, identity: FactIdentity): T => {
+	const id = modelId(identity)
+	return defined(
+		Option.getOrUndefined(
+			Option.flatMap(
+				Arr.findFirstIndex(universe, (u) => u === id),
+				(at) => Option.fromUndefinedOr(tags[at])
+			)
+		),
+		`the tags of ${id}`
+	)
+}
+
+/** Code point order, by the code points themselves. */
+export const byCodePoints: Order.Order<string> = Order.mapInput(
+	Order.Array(Order.Number),
+	(text: string) =>
+		Arr.map(Arr.fromIterable(text), (c) =>
+			defined(Option.getOrUndefined(Str.codePointAt(0)(c)), "a code point")
+		)
+)
+
+export type NettingFeature =
+	| "a fact two members of a stratum made present"
+	| "a fact two members of a stratum made absent"
+	| "a written relation no stratum changed"
+	| "a repeated written relation"
+	| "names out of code unit order"
+
+/** Every item, in a drawn order. */
+export const shuffledAll = <A>(items: ReadonlyArray<A>): Gen<ReadonlyArray<A>> =>
+	shuffled(items, { min: items.length, max: items.length })
+
+/** A bigserial relation's statements over stored facts whose identity sequence lags them. Ticket { id: bigserial key,
+ * note }: the stored facts hold ids 1 to k, the last stored by a direct writer with an explicit value, so the sequence
+ * sits at k, not yet called, unless it was advanced past them. The first stratum holds `delete Ticket [{id: k}]` beside
+ * `insert Ticket [{note}]`, a generated addition: from a lagging sequence it draws the key the delete freed, and the
+ * fact is then removed and added back, identical when its note is the stored one. Later strata delete present facts
+ * and add generated ones, whose keys the sequence draws past every stored one. Each stratum's rows are those its
+ * statements return: a DELETE's for the requested facts present, a generated INSERT's for every fact it made present. */
+export type TicketFact = { readonly id: bigint; readonly note: string }
+
+const notes = ["x", "y"] as const
+
+const laterStratum: Gen<{
+	readonly deletes: ReadonlyArray<number>
+	readonly generated: ReadonlyArray<string>
+}> = (source) => ({
+	deletes: source.draw(array(int(0, 5), { min: 0, max: 2 })),
+	generated: source.draw(array(element(notes), { min: 0, max: 2 }))
+})
+
+/** Up to four stored facts and two later strata: enough for the planted pair beside other stored facts and for a later
+ * stratum that deletes the fact the planted one added, or adds another. */
+export const laggingGen: Gen<{
+	readonly stored: ReadonlyArray<string>
+	readonly lagging: boolean
+	readonly generatedNote: string
+	readonly alsoDeleted: ReadonlyArray<number>
+	readonly later: ReadonlyArray<{
+		readonly deletes: ReadonlyArray<number>
+		readonly generated: ReadonlyArray<string>
+	}>
+}> = (source) => ({
+	stored: source.draw(array(element(notes), { min: 1, max: 4 })),
+	lagging: source.draw(boolean),
+	generatedNote: source.draw(element(notes)),
+	alsoDeleted: source.draw(array(int(0, 3), { min: 0, max: 2 })),
+	later: source.draw(array(laterStratum, { min: 0, max: 2 }))
+})
+
+export type LaggingFeature =
+	| "a fact removed and added back identical"
+	| "a generated fact differing in its key"
+	| "a generated fact differing in its note"
+
+/** Ledger's Ticket relation, as its compiled schema holds it: a bigserial key and a note. */
+export const ticket = defined(
+	compiled(LedgerSchema, cs(LedgerSchema)).schema.relations.get("Ticket"),
+	"Ticket"
+)
+
+/** A Ticket fact's identity, as the runtime keys it. */
+export const identity = relationIdentity(ticket.heading, codesOf(LedgerSchema))
+
+/** Ticket facts as a fact set, keyed by their identities. */
+export const factSet = (facts: Iterable<Fact>): FactSet =>
+	factSetOf(Arr.map([...facts], (f) => [identity(f), f] as const))
+
+/** Work's TaskNote relation, as its compiled schema holds it. */
+const note = defined(compiled(Work, cs(Work)).schema.relations.get("TaskNote"), "TaskNote")
+
+/** Work's codes. */
+const codes = codesOf(Work)
+
+/** A TaskNote fact's identity, as the runtime keys it. */
+export const id = relationIdentity(note.heading, codes)
+
+/** TaskNote's fields with their specs, as the boundary's fact identity reads them. */
+export const fields = Arr.map(note.heading, (c) => ({
+	name: c.name,
+	spec: scalarCodec(c.type, codes).spec
+}))

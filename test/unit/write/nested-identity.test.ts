@@ -1,44 +1,3 @@
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { collectInputs } from "#adapter/apply/collect.ts"
-import { bindFrame } from "#adapter/wire/batch.ts"
-import { appendAll } from "#compiler/core/array.ts"
-import { drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
-import { fin, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import { bindWrite } from "#compiler/runtime/write/bind.ts"
-import { prepareBinding } from "#compiler/runtime/write/binding.ts"
-import { nestedRows, type NestedSet, nestedSet } from "#compiler/runtime/write/nesting.ts"
-import {
-	type InputData,
-	inputSlotsOf,
-	type MemberFacts
-} from "#compiler/runtime/write/normalize.ts"
-import { inForce } from "#compiler/runtime/write/transport.ts"
-import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
-import { DigestBook } from "#compiler/scalar/values/bytes.ts"
-import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
-import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
-import { closedTableOf } from "#compiler/write/program/decide.ts"
-import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
-import {
-	nestedRowsColumn,
-	realityWrite,
-	testArtifacts,
-	testCompile
-} from "#test/support/compile.ts"
-import { lawNamesOf } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { checking } from "#test/support/policy.ts"
-import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
-
 /**
  * A nested write's identities are structural (write/family/nesting.ts NestedSet): a row's identity is its filled
  * columns' texts themselves, and a fact's signature its own texts and the rows it nests, each row the set's one token,
@@ -59,292 +18,176 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  *   length 1. A key joined from texts is longer than each of them, and one spelled per character grows with the
  *   content; neither holds the gate.
  *
- * Features: a fact stated twice, two facts at one id differing in their title alone or in their members, two bodies of
- * one length that differ, an owner with no members.
+ * Features: a fact stated twice, two facts at one id differing in their title alone or in their members, facts at one
+ * id that differ in their members' bodies alone (every fact at an id of one title and one count of members), two bodies
+ * of one length that differ, an owner with no members.
  */
-const Owner = relation(
-	"Owner",
-	{ id: uuid, title: str.regex("^[xy]$"), members: drawnField(natural) },
-	["id"]
-)
-const Member = relation(
-	"Member",
-	{ owner: uuid, at: drawnField(natural), body: str.regex("^[ab]*$") },
-	["owner", "at"]
-)
-const Bodies = schema(
-	"Bodies",
-	[Owner, Member],
-	[ordered(on(Member, "owner", "at"), fin(Owner, "members")), mutable(Owner), mutable(Member)]
-)
 
-const reality = realityWrite(succeeded(testArtifacts(Bodies, testCompile)))
-const lawNames = lawNamesOf(Bodies)
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, String as Str } from "effect"
+import { collectInputs } from "#adapter/apply/collect.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
+import { bindWrite } from "#compiler/runtime/write/bind.ts"
+import { inputSlotsOf, type MemberFacts } from "#compiler/runtime/write/normalize.ts"
+import { inForce } from "#compiler/runtime/write/transport.ts"
+import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
+import { runnableWrite } from "#compiler/write/program/bind.ts"
+import { assert, assertVariant, defined, succeeded } from "#test/support/assert.ts"
+import { nestedRowsColumn } from "#test/support/compile.ts"
+import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import {
+	Bodies,
+	caseGen,
+	factsOf,
+	type IdentityFeature,
+	keyedAt,
+	lawNames,
+	Owner,
+	programOf,
+	sameFact,
+	statedTexts
+} from "#test/unit/write/nested-identity.fixtures.ts"
 
-/** One owner fact as the case states it: its id's and its title's indices, and each member's body letter. */
-interface StatedFact {
-	readonly owner: number
-	readonly title: number
-	readonly bodies: ReadonlyArray<number>
-}
-
-/** A case: its owner facts, and the length every body repeats its letter to. */
-interface IdentityCase {
-	readonly facts: Arr.NonEmptyReadonlyArray<StatedFact>
-	readonly length: number
-}
-
-const factGen: Gen<StatedFact> = (source) => ({
-	owner: source.draw(int(0, 1)),
-	title: source.draw(int(0, 1)),
-	bodies: source.draw(array(int(0, 1), { min: 0, max: 2 }))
-})
-
-const caseGen: Gen<IdentityCase> = (source) => ({
-	facts: [source.draw(factGen), ...source.draw(array(factGen, { min: 0, max: 2 }))],
-	length: source.draw(element([2 ** 10, 2 ** 20] as const))
-})
-
-const titles = ["x", "y"] as const
-const letters = ["a", "b"] as const
-
-/** A body: its letter repeated to `length`, a fresh string each time, so equal bodies are never one object. */
-const bodyOf = (letter: number, length: number): string =>
-	Str.repeat(length)(defined(letters[letter], "a body's letter"))
-
-/** The owner facts as a JavaScript caller states them, every body at `length`. */
-const factsOf = (facts: ReadonlyArray<StatedFact>, length: number) =>
-	Arr.map(facts, (f) => ({
-		id: uuidOf(100 + f.owner),
-		title: defined(titles[f.title], "a title"),
-		members: Arr.map(f.bodies, (b) => ({ body: bodyOf(b, length) }))
-	}))
-
-/** Every text the write states: its owners' ids and titles and its bodies, at `length`. */
-const statedTexts = (facts: ReadonlyArray<StatedFact>, length: number): ReadonlyArray<string> =>
-	Arr.flatMap(factsOf(facts, length), (f) => [f.id, f.title, ...Arr.map(f.members, (m) => m.body)])
-
-/** A fact's whole content in the specification's model: its id, its title and its bodies in order. */
-const sameFact = (a: StatedFact, b: StatedFact): boolean =>
-	a.owner === b.owner &&
-	a.title === b.title &&
-	a.bodies.length === b.bodies.length &&
-	Arr.every(a.bodies, (x, i) => x === b.bodies[i])
-
-/** The program of a case's ChangeSet, an insert of owners. */
-const programOf = (value: unknown): CompiledWrite =>
-	succeeded(compileWrite(checking(Bodies), descOf(value), reality))
-
-/** The program's nested input: its nesting and its one member slot. */
-const nestedInput = (program: CompiledWrite) => {
-	const inputs = Arr.flatMap(program.binding.groups, (g): ReadonlyArray<InputData> => g.inputs)
-	const [input] = Arr.flatMap(
-		inputs,
-		(i): ReadonlyArray<Extract<InputData, { readonly kind: "nested" }>> =>
-			i.kind === "nested" ? [i] : []
-	)
-	const nested = defined(input, "the owners' nested insert")
-	return { nesting: nested.nesting, member: Arr.headNonEmpty(nested.members) }
-}
-
-/** Every text `set` keys a fact or a row by, its relations' names apart: each key's texts, each signature's own texts
- * (its rows are keyed under their relations), and each identity's texts. */
-const keyedTexts = (set: NestedSet): ReadonlyArray<string> => {
-	const out: Array<string> = []
-	for (const byKey of set.tops.values()) {
-		for (const [key, signatures] of byKey) {
-			appendAll(out, key)
-			for (const signature of signatures.keys()) {
-				for (const element of signature) {
-					if (typeof element === "string") {
-						out.push(element)
-					}
-				}
-			}
-		}
-	}
-	for (const byKey of set.rows.values()) {
-		for (const [key, identities] of byKey) {
-			appendAll(out, key)
-			for (const identity of identities.keys()) {
-				appendAll(out, identity)
-			}
-		}
-	}
-	return out
-}
-
-/** The texts the nested set of `facts` at `length` keys by, through the program's nesting. */
-const keyedAt = (program: CompiledWrite, facts: ReadonlyArray<StatedFact>, length: number) => {
-	const { nesting, member } = nestedInput(program)
-	const set = nestedSet()
-	succeeded(
-		nestedRows(
-			nesting,
-			{
-				fill: prepareBinding(
-					program.binding,
-					program.frontend.codes,
-					closedTableOf(program.frontend),
-					new CompilePatterns()
-				).fill,
-				codes: program.frontend.codes
-			},
-			member,
-			factsOf(facts, length),
-			set,
-			new DigestBook(),
-			inForce(bindFrame)
-		)
-	)
-	return keyedTexts(set)
-}
-
-/** An array literal's elements, `{"a","b"}` or `{a,b}`: uuids, which hold no quote or comma, unquoted. */
-
-type IdentityFeature =
-	| "a fact stated twice"
-	| "two facts at one id differing in their title alone"
-	| "two facts at one id differing in their members"
-	| "two bodies of one length that differ"
-	| "an owner with no members"
-	| "accepted with members"
-
-describe("a nested write's identities", () => {
-	it.effect(
-		"dedupe its facts and rows by their whole content, refuse two at one key, and key each by its texts themselves at any content length",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/write/nested-identity",
-						draw: drawn(caseGen),
-						literal: Formatter.format,
-						oracle: {
-							kind: "specification",
-							name: "a nested write's facts are a set by their whole content, keyed by its texts themselves"
-						},
-						coverage: required<IdentityFeature>(
-							[
-								"a fact stated twice",
-								"two facts at one id differing in their title alone",
-								"two facts at one id differing in their members",
-								"two bodies of one length that differ",
-								"an owner with no members",
-								"accepted with members"
-							],
-							{ cases: 200, sense: notesOnly }
-						),
-						kept: [],
-						runs: 200,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(box, c) =>
-						Effect.gen(function* () {
-							const value = ChangeSet.empty(Bodies).insert(Owner, factsOf(box.facts, box.length))
-							const program = programOf(value)
-							const members: MemberFacts = yield* collectInputs(
-								program.binding.groups,
-								parsedOf(value).inputs
-							)
-							const bound = succeeded(
-								bindWrite(runnableWrite(program, program.frontend.codes), {
-									members,
-									params: {},
-									transport: inForce(bindFrame)
-								})
-							)
-							const keyed = keyedAt(program, box.facts, box.length)
-							const longest = Arr.reduce(statedTexts(box.facts, box.length), 0, (n, t) =>
-								Math.max(n, t.length)
-							)
-							for (const t of keyed) {
-								assert.ok(
-									t.length <= longest,
-									`a text the nested set keys by is one column's: ${t.length} units, past the longest stated text's ${longest}`
-								)
-							}
-							assert.equal(
-								keyed.length,
-								keyedAt(program, box.facts, 1).length,
-								"the nested set keys by as many texts at any content length as at length 1"
-							)
-							const distinct = Arr.dedupeWith(box.facts, sameFact)
-							if (distinct.length < box.facts.length) {
-								c.note("a fact stated twice")
-							}
-							if (
-								Arr.some(distinct, (f) =>
-									Arr.some(
-										distinct,
-										(g) =>
-											f.owner === g.owner &&
-											f.title !== g.title &&
-											sameFact(f, { ...g, title: f.title })
-									)
-								)
-							) {
-								c.note("two facts at one id differing in their title alone")
-							}
-							if (
-								Arr.some(distinct, (f) =>
-									Arr.some(
-										distinct,
-										(g) => f.owner === g.owner && !sameFact(f, { ...g, title: f.title })
-									)
-								)
-							) {
-								c.note("two facts at one id differing in their members")
-							}
-							const bodies = Arr.flatMap(distinct, (f) => f.bodies)
-							if (Arr.contains(bodies, 0) && Arr.contains(bodies, 1)) {
-								c.note("two bodies of one length that differ")
-							}
-							if (Arr.some(distinct, (f) => f.bodies.length === 0)) {
-								c.note("an owner with no members")
-							}
-							const ids = Arr.map(distinct, (f) => f.owner)
-							if (Arr.dedupe(ids).length < ids.length) {
-								assertVariant(bound, "kind", "invariant-rejected", "two Owners at one id")
-								assert.equal(
-									bound.law,
-									lawNames.primaryKeyLaw(Owner),
-									"refused by Owner's key law before any SQL"
-								)
-								return
-							}
-							assertVariant(bound, "kind", "bound", "a set with one fact at each id binds")
-							assertVariant(
-								bound.flights,
-								"kind",
-								"write",
-								"a nested write reads nothing first: every group it writes is its own new owner's"
-							)
-							const group = defined(program.binding.groups[0], "the owners' slot group")
-							const [input] = group.inputs
-							const [slot] = inputSlotsOf(input)
-							assert.equal(
-								bound.flights.stated.slot(group, input, slot).length,
-								distinct.length,
-								"each distinct Owner is written once"
-							)
-							const written = nestedRowsColumn(program, bound.flights.chunks, "Member", 0)
-							assert.deepEqual(
-								Arr.sort(written, Str.Order),
-								Arr.sort(
-									Arr.flatMap(distinct, (f) => Arr.map(f.bodies, () => uuidOf(100 + f.owner))),
-									Str.Order
-								),
-								"each member of a distinct fact is written once"
-							)
-							if (bodies.length > 0) {
-								c.note("accepted with members")
-							}
-						})
+/** A nested write's identities dedupe its facts and rows by their whole content, refuse two at one key, and key each by its texts themselves at any content length. */
+export const aNestedWritesIdentitiesDedupeItsFactsAndRowsByTheirWholeContentRefuseTwoAtOneKeyAndKeyEachByItsTextsThemselvesAtAnyContentLength =
+	property.explore(caseGen, {
+		needs: {},
+		situations: [
+			"a fact stated twice",
+			"two facts at one id differing in their title alone",
+			"two facts at one id differing in their members",
+			"facts at one id that differ in their members' bodies alone",
+			"two bodies of one length that differ",
+			"an owner with no members",
+			"accepted with members"
+		] satisfies ReadonlyArray<Reached<IdentityFeature>>,
+		check: (_, c: Case<IdentityFeature>) => (box) =>
+			Effect.gen(function* () {
+				const value = ChangeSet.empty(Bodies).insert(Owner, factsOf(box.facts, box.length))
+				const program = programOf(value)
+				const members: MemberFacts = yield* collectInputs(
+					program.binding.groups,
+					parsedOf(value).inputs
 				)
-			)
-	)
-})
+				const bound = succeeded(
+					bindWrite(runnableWrite(program, program.frontend.codes), {
+						members,
+						params: {},
+						transport: inForce(bindFrame)
+					})
+				)
+				const keyed = keyedAt(program, box.facts, box.length)
+				const longest = Arr.reduce(statedTexts(box.facts, box.length), 0, (n, t) =>
+					Math.max(n, t.length)
+				)
+				for (const t of keyed) {
+					assert.ok(
+						t.length <= longest,
+						`a text the nested set keys by is one column's: ${t.length} units, past the longest stated text's ${longest}`
+					)
+				}
+				assert.equal(
+					keyed.length,
+					keyedAt(program, box.facts, 1).length,
+					"the nested set keys by as many texts at any content length as at length 1"
+				)
+				const distinct = Arr.dedupeWith(box.facts, sameFact)
+				if (distinct.length < box.facts.length) {
+					c.note("a fact stated twice")
+				}
+				if (
+					Arr.some(distinct, (f) =>
+						Arr.some(
+							distinct,
+							(g) =>
+								f.owner === g.owner && f.title !== g.title && sameFact(f, { ...g, title: f.title })
+						)
+					)
+				) {
+					c.note("two facts at one id differing in their title alone")
+				}
+				if (
+					Arr.some(distinct, (f) =>
+						Arr.some(distinct, (g) => f.owner === g.owner && !sameFact(f, { ...g, title: f.title }))
+					)
+				) {
+					c.note("two facts at one id differing in their members")
+				}
+				if (
+					Arr.some(distinct, (f) => Arr.some(distinct, (g) => f !== g && f.owner === g.owner)) &&
+					Arr.every(distinct, (f) =>
+						Arr.every(
+							distinct,
+							(g) =>
+								f.owner !== g.owner || (f.title === g.title && f.bodies.length === g.bodies.length)
+						)
+					)
+				) {
+					c.note("facts at one id that differ in their members' bodies alone")
+				}
+				const bodies = Arr.flatMap(distinct, (f) => f.bodies)
+				if (Arr.contains(bodies, 0) && Arr.contains(bodies, 1)) {
+					c.note("two bodies of one length that differ")
+				}
+				if (Arr.some(distinct, (f) => f.bodies.length === 0)) {
+					c.note("an owner with no members")
+				}
+				const ids = Arr.map(distinct, (f) => f.owner)
+				if (Arr.dedupe(ids).length < ids.length) {
+					assertVariant(bound, "kind", "invariant-rejected", "two Owners at one id")
+					assert.equal(
+						bound.law,
+						lawNames.primaryKeyLaw(Owner),
+						"refused by Owner's key law before any SQL"
+					)
+					return
+				}
+				assertVariant(bound, "kind", "bound", "a set with one fact at each id binds")
+				assertVariant(
+					bound.flights,
+					"kind",
+					"write",
+					"a nested write reads nothing first: every group it writes is its own new owner's"
+				)
+				const group = defined(program.binding.groups[0], "the owners' slot group")
+				const [input] = group.inputs
+				const [slot] = inputSlotsOf(input)
+				assert.equal(
+					bound.flights.stated.slot(group, input, slot).length,
+					distinct.length,
+					"each distinct Owner is written once"
+				)
+				const written = nestedRowsColumn(program, bound.flights.chunks, "Member", 0)
+				assert.deepEqual(
+					Arr.sort(written, Str.Order),
+					Arr.sort(
+						Arr.flatMap(distinct, (f) => Arr.map(f.bodies, () => uuidOf(100 + f.owner))),
+						Str.Order
+					),
+					"each member of a distinct fact is written once"
+				)
+				if (bodies.length > 0) {
+					c.note("accepted with members")
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "a nested write's facts are a set by their whole content, keyed by its texts themselves"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/runtime/write/nesting.ts",
+				original: "\t\t\t\tsignature.push(held)",
+				replacement: '\t\t\t\tsignature.push(held.identity.join(","))',
+				why: "A fact's signature holds each row it nests as one text joined from the row's identity, not the set's row itself; the identity gate fails."
+			},
+			{
+				file: "packages/engine/src/runtime/write/nesting.ts",
+				original: "\t\t\t\tsignature.push(held)\n",
+				replacement: "",
+				why: "A fact's signature is its own row's texts alone, never the rows it nests, so two facts at one owner id differing only in their members are one fact, not a key conflict; the specification oracle fails."
+			}
+		]
+	})

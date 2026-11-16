@@ -253,24 +253,6 @@ export const graphSketchGen: Gen<GraphSketch> = (source) => ({
 	blocked: source.draw(array(int(0, 15), { min: 0, max: 2 }))
 })
 
-/** A sketch with every choice at its first value: the smallest graph of a family, which a hand-built case spreads. */
-export const firstGraphSketch: GraphSketch = {
-	shape: 0,
-	vertexKind: 0,
-	size: 0,
-	offset: 0,
-	keyed: false,
-	contained: false,
-	parents: Array.from({ length: 10 }, () => 0),
-	extra: [],
-	loops: [],
-	parallel: [],
-	missing: 0,
-	second: false,
-	secondEdges: [],
-	blocked: []
-}
-
 /**
  * The value of vertex i: the i-th value class of the type, from the rotating offset. An index past the domain wraps;
  * an index at or past n names a value outside the graph (a root that is no vertex).
@@ -787,29 +769,6 @@ const recursionSketchGen: Gen<RecursionSketch> = (source) => ({
 	endParam: source.draw(boolean),
 	paramNames: source.draw(array(pickGen, { min: 4, max: 4 }))
 })
-
-/** A recursion sketch with every choice at its first value, which a hand-built case spreads. */
-export const firstRecursionSketch: RecursionSketch = {
-	form: 0,
-	roots: 0,
-	rootPicks: [0],
-	origin: false,
-	oneOrMore: false,
-	direction: 0,
-	viaSecond: false,
-	exists: false,
-	blocking: 0,
-	stepFilter: 0,
-	filterPick: 0,
-	hopKind: 0,
-	bound: 0,
-	lower: 0,
-	leftLinear: false,
-	consumer: 0,
-	endPick: 0,
-	endParam: false,
-	paramNames: [0]
-}
 
 interface Built {
 	readonly node: RelNode

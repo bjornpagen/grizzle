@@ -1,0 +1,404 @@
+/** What the properties of readback-placement.test.ts read: its spaces, models and helpers. */
+
+import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
+import { Array as Arr, Option, Order, Record as Rec } from "effect"
+import type { NamedSide, ReadBackCrossing } from "#compiler/core/errors.ts"
+import { identity } from "#compiler/core/identity.ts"
+import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import { pg } from "#compiler/public/fields.ts"
+import { relation, schema } from "#compiler/public/schema.ts"
+import { queryOver, varsOver } from "#compiler/query/build/query.ts"
+import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
+import { removedTag, type WriteStepResult } from "#compiler/runtime/write/steps.ts"
+import {
+	changeSetDesc,
+	changeSetOver,
+	type ChangeSetValue
+} from "#compiler/write/changeset/value.ts"
+import type { DeltaValue } from "#compiler/write/delta/source.ts"
+import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
+import { compileWrite } from "#compiler/write/program/compile.ts"
+import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { parsedSchemaName } from "#test/support/kernel/naming.ts"
+import { checking, owning } from "#test/support/policy.ts"
+
+const M = relation("M", { id: pg.int4, v: pg.int4 }, ["id"])
+
+const A = relation("A", { id: pg.int4, v: pg.int4 }, ["id"])
+
+const Z = relation("Z", { id: pg.int4, v: pg.int4 }, ["id"])
+
+const schemaName = "readback_placement"
+
+const S = schema(schemaName, [M, A, Z], [])
+
+/** M with an id its sequence draws, in a schema of its own beside copies of A and Z. */
+const MD = relation("M", { id: pg.serial, v: pg.int4 }, ["id"])
+
+const AD = relation("A", { id: pg.int4, v: pg.int4 }, ["id"])
+
+const ZD = relation("Z", { id: pg.int4, v: pg.int4 }, ["id"])
+
+const drawnName = "readback_placement_drawn"
+
+const SD = schema(drawnName, [MD, AD, ZD], [])
+
+type Op = "insert" | "delete" | "put"
+
+type Side = NamedSide["side"]
+
+/** A case: M's first-stratum action, the opposite action beside it, a second stratum's insert of M; W, where it is
+ * written; and what the read-back reads beside M's sides. */
+interface Sketch {
+	readonly drawn: boolean
+	readonly op: Op
+	readonly beside: boolean
+	readonly again: boolean
+	readonly sides: "added" | "removed" | "both"
+	readonly other: "A" | "Z"
+	readonly written: "none" | "first" | "second"
+	readonly reads: "nothing" | "delta" | "state"
+}
+
+export const sketchGen: Gen<Sketch> = (source) => ({
+	drawn: source.draw(boolean),
+	op: source.draw(element(["insert", "delete", "put"] as const)),
+	beside: source.draw(boolean),
+	again: source.draw(boolean),
+	sides: source.draw(element(["added", "removed", "both"] as const)),
+	other: source.draw(element(["A", "Z"] as const)),
+	written: source.draw(element(["none", "first", "second"] as const)),
+	reads: source.draw(element(["nothing", "delta", "state"] as const))
+})
+
+/** The kind of write whose statement makes a delta (the statement's result): an insertion's or a put's insert half's,
+ * a deletion's or a put's displacing deletion's. */
+type Maker = "insert" | "put" | "delete" | "displaced"
+
+/** A write the construction implies: the relation and side it makes, its stratum, the statement it is part of, its
+ * kind, and whether it is a generated addition. */
+interface Write {
+	readonly relation: string
+	readonly side: Side
+	readonly stratum: 1 | 2
+	readonly statement: string
+	readonly maker: Maker
+	readonly drawn: boolean
+}
+
+/** The writes a case implies, each in the statement the realization puts it in. */
+const writesOf = (s: Sketch): ReadonlyArray<Write> => {
+	const firstSingle = s.op !== "put" && !s.beside && s.written === "first"
+	const secondSingle = s.again && s.written === "second"
+	const at = (stratum: 1 | 2, own: string): string =>
+		(stratum === 1 && firstSingle) || (stratum === 2 && secondSingle)
+			? `stratum ${stratum}`
+			: `stratum ${stratum}: ${own}`
+	const of = (relation: string, side: Side, stratum: 1 | 2, own: string, maker: Maker): Write => ({
+		relation,
+		side,
+		stratum,
+		statement: at(stratum, own),
+		maker,
+		drawn: s.drawn && relation === "M" && maker === "insert"
+	})
+	const first: ReadonlyArray<Write> =
+		s.op === "insert"
+			? [of("M", "added", 1, "M", "insert")]
+			: s.op === "delete"
+				? [of("M", "removed", 1, "M", "delete")]
+				: [of("M", "removed", 1, "M displaced", "displaced"), of("M", "added", 1, "M put", "put")]
+	const beside: ReadonlyArray<Write> = !s.beside
+		? []
+		: s.op === "delete"
+			? [of("M", "added", 1, "M beside", "insert")]
+			: [of("M", "removed", 1, "M beside", "delete")]
+	const again: ReadonlyArray<Write> = s.again ? [of("M", "added", 2, "M", "insert")] : []
+	const other: ReadonlyArray<Write> =
+		s.written === "none"
+			? []
+			: [of(s.other, "added", s.written === "first" ? 1 : 2, s.other, "insert")]
+	return [...first, ...beside, ...again, ...other]
+}
+
+/** What the model says of a case: the statement the read-back rides, with the relations it writes and the write that
+ * makes the first named side; after the writes; or refused, with every crossing the case holds. */
+type Verdict =
+	| {
+			readonly kind: "rides"
+			readonly relation: string
+			readonly maker: Maker
+			readonly writes: ReadonlyArray<string>
+	  }
+	| { readonly kind: "after" }
+	| { readonly kind: "refused"; readonly crossings: ReadonlyArray<ReadBackCrossing> }
+
+/** The model (the header): the case's writes, the sides the read-back names, and where each is made whole. */
+export const verdictOf = (s: Sketch): Verdict => {
+	const writes = writesOf(s)
+	const makers = (relation: string, side: Side) =>
+		Arr.filter(writes, (w) => w.relation === relation && w.side === side)
+	const wanted: ReadonlyArray<NamedSide> = [
+		...(s.sides === "removed" ? [] : [{ relation: "M", side: "added" as const }]),
+		...(s.sides === "added" ? [] : [{ relation: "M", side: "removed" as const }]),
+		...(s.reads === "delta" ? [{ relation: s.other, side: "added" as const }] : [])
+	]
+	const named = Arr.filter(wanted, (n) => makers(n.relation, n.side).length > 0)
+	const whole = (n: NamedSide): Write | undefined => {
+		const [maker, ...others] = makers(n.relation, n.side)
+		if (maker === undefined || others.length > 0) {
+			return undefined
+		}
+		const netting = Arr.filter(
+			makers(n.relation, n.side === "added" ? "removed" : "added"),
+			(w) => w.stratum !== maker.stratum || w.drawn || maker.drawn
+		)
+		return Arr.isReadonlyArrayEmpty(netting) ? maker : undefined
+	}
+	const [first] = named
+	if (first === undefined) {
+		return { kind: "after" }
+	}
+	const made = Arr.map(named, (n) => ({ side: n, write: whole(n) }))
+	const twice = Arr.flatMap(made, (m): ReadonlyArray<ReadBackCrossing> =>
+		m.write === undefined ? [{ kind: "sideWrittenTwice", ...m.side }] : []
+	)
+	const apart = Arr.flatMap(made, (x) =>
+		Arr.flatMap(made, (y): ReadonlyArray<ReadBackCrossing> =>
+			x.write !== undefined && y.write !== undefined && x.write.statement !== y.write.statement
+				? [{ kind: "sidesApart", first: x.side, second: y.side }]
+				: []
+		)
+	)
+	const [riding] = Arr.flatMap(made, (m) => (m.write === undefined ? [] : [m.write]))
+	const stateAfter =
+		riding !== undefined &&
+		s.reads === "state" &&
+		(s.written === "second" ||
+			(s.written === "first" &&
+				Arr.some(writes, (w) => w.relation === s.other && w.statement === riding.statement)))
+	const after: ReadonlyArray<ReadBackCrossing> = stateAfter
+		? Arr.map(named, (n): ReadBackCrossing => ({ kind: "stateAfter", delta: n, state: s.other }))
+		: []
+	const crossings = [...twice, ...apart, ...after]
+	if (Arr.isReadonlyArrayNonEmpty(crossings) || riding === undefined) {
+		return { kind: "refused", crossings }
+	}
+	return {
+		kind: "rides",
+		relation: riding.relation,
+		maker: riding.maker,
+		writes: Arr.sort(
+			Arr.dedupe(
+				Arr.map(
+					Arr.filter(writes, (w) => w.statement === riding.statement),
+					(w) => w.relation
+				)
+			),
+			Order.String
+		)
+	}
+}
+
+/** What a box's ChangeSets are built and compiled over: a schema, its M and the relations W may be, and its names and
+ * artifacts. */
+const subjectOf = (value: FixtureSchema, name: string, m: unknown, a: unknown, z: unknown) => {
+	const owned = owning(value)
+	return {
+		schema: value,
+		m,
+		a,
+		z,
+		checked: checking(value),
+		names: succeeded(
+			compileInstallation(owned, {
+				...installOptions(owned, "owner"),
+				levels: [identity.schema(parsedSchemaName(name))]
+			})
+		).names,
+		artifacts: succeeded(testArtifacts(value, testCompile))
+	}
+}
+
+type Subject = ReturnType<typeof subjectOf>
+
+/** The box's two subjects, by whether M's id is drawn. */
+interface Subjects {
+	readonly plain: Subject
+	readonly drawn: Subject
+}
+
+/** The subjects, built once when a worker loads the module and read by every case. */
+export const subjects: Subjects = {
+	plain: subjectOf(S, schemaName, M, A, Z),
+	drawn: subjectOf(SD, drawnName, MD, AD, ZD)
+}
+
+/** The read-back's rule: each source it reads matched by id, its payload under a name of its own. */
+const readBackOf = (s: Sketch, at: Subject, other: unknown) => (d: DeltaValue) =>
+	queryOver(at.schema).rule((r: RuleValue): FinishedValue => {
+		const id = defined(varsOver(at.m, "key")["id"], "the id variable")
+		const sources = Arr.map(
+			[
+				...(s.sides === "removed" ? [] : [["added", d.added(at.m)] as const]),
+				...(s.sides === "added" ? [] : [["removed", d.removed(at.m)] as const]),
+				...(s.reads === "delta" ? [["other", d.added(other)] as const] : []),
+				...(s.reads === "state" ? [["state", other] as const] : [])
+			],
+			([name, from]) => ({
+				name,
+				from,
+				payload: defined(varsOver(at.m, name)["v"], "a payload variable")
+			})
+		)
+		const matched = Arr.reduce(sources, r, (rule, x) => rule.match(x.from, { id, v: x.payload }))
+		return matched.find({ id, ...Rec.fromEntries(Arr.map(sources, (x) => [x.name, x.payload])) })
+	})
+
+/** A generated addition of the drawn M: a query over the relation parameter `name` of payloads alone. */
+const generatedOf = (at: Subject, name: string) =>
+	queryOver(at.schema).rule((r: RuleValue): FinishedValue => {
+		const v = defined(varsOver(at.m, name)["v"], "the payload")
+		return r.match(r.relation(name, { v: MD.fields.v }), { v }).find({ v })
+	})
+
+/** A case's ChangeSet, built through the untyped core since its members are drawn: M's insertions arrays and a query of
+ * whole facts, or, M's id drawn, each a generated addition. */
+const changeOf = (s: Sketch, at: Subject): ChangeSetValue => {
+	const other = s.other === "A" ? at.a : at.z
+	const insertM = (value: ChangeSetValue, name: string): ChangeSetValue =>
+		s.drawn ? value.insert(at.m, generatedOf(at, name)) : value.insert(at.m, [])
+	const firstOf = (value: ChangeSetValue): ChangeSetValue => {
+		const own = s.op === "insert" ? insertM(value, "given") : value[s.op](at.m, [])
+		const beside = s.beside
+			? s.op === "delete"
+				? insertM(own, "beside")
+				: own.delete(at.m, [])
+			: own
+		return s.written === "first" ? beside.insert(other, []) : beside
+	}
+	const first = firstOf(changeSetOver.empty(at.schema))
+	const againOf = (value: ChangeSetValue): ChangeSetValue =>
+		!s.again
+			? value
+			: s.drawn
+				? value.insert(at.m, generatedOf(at, "more"))
+				: value.insert(
+						at.m,
+						queryOver(at.schema).rule((r: RuleValue): FinishedValue => {
+							const vars = varsOver(at.m, "more")
+							const all = {
+								id: defined(vars["id"], "the id variable"),
+								v: defined(vars["v"], "the payload")
+							}
+							return r.match(r.relation("more", at.m), all).find(all)
+						})
+					)
+	const second = againOf(changeSetOver.empty(at.schema))
+	const both =
+		s.again || s.written === "second"
+			? changeSetOver.sequence(first, s.written === "second" ? second.insert(other, []) : second)
+			: first
+	return both.read("r", readBackOf(s, at, other))
+}
+
+/** A case's ChangeSet, compiled over reality at SERIALIZABLE. */
+export const compiledSketch = (s: Sketch, subjects: Subjects) => {
+	const at = s.drawn ? subjects.drawn : subjects.plain
+	return compileWrite(at.checked, defined(changeSetDesc(changeOf(s, at)), "a ChangeSet"), {
+		names: at.names,
+		reads: at.names,
+		claims: { kind: "every" },
+		world: { kind: "reality" },
+		laws: at.artifacts.laws,
+		derived: at.artifacts.derived,
+		level: "serializable"
+	})
+}
+
+/** The kind of write a statement's result says made its delta. */
+const makerOf = (result: WriteStepResult): Maker | undefined => {
+	switch (result.kind) {
+		case "insert":
+			return result.of
+		case "delete":
+			return removedTag(result)
+		case "upsert":
+		case "update":
+		case "merge":
+			return undefined
+	}
+}
+
+/** The relations the riding statement at `position` writes, and the maker of its write of `relation`. */
+export const ridden = (
+	artifact: WriteArtifact,
+	position: number,
+	relation: string
+): { readonly writes: ReadonlyArray<string>; readonly maker: Maker | undefined } => {
+	const step = defined(artifact.statements[position], "the ridden statement").step
+	assert.equal(step.kind, "single", "a read-back rides a statement of tagged parts")
+	const parts = step.kind === "single" ? Arr.map(step.parts, (p) => p.step) : []
+	const own = defined(
+		Option.getOrUndefined(Arr.findFirst(parts, (p) => p.relation === relation)),
+		`the ridden statement's write of ${relation}`
+	)
+	return {
+		writes: Arr.sort(
+			Arr.map(parts, (p): string => p.relation),
+			Order.String
+		),
+		maker: makerOf(own.result)
+	}
+}
+
+/** Whether two named sides are one. */
+const sameSide = (x: NamedSide, y: NamedSide): boolean =>
+	x.relation === y.relation && x.side === y.side
+
+/** Whether `got`, a refusal's crossing, is one the model holds: two sides apart in either order. */
+export const holds = (crossings: ReadonlyArray<ReadBackCrossing>, got: ReadBackCrossing): boolean =>
+	Arr.some(crossings, (c) => {
+		switch (c.kind) {
+			case "sideWrittenTwice":
+				return got.kind === "sideWrittenTwice" && sameSide(c, got)
+			case "sidesApart":
+				return (
+					got.kind === "sidesApart" &&
+					((sameSide(c.first, got.first) && sameSide(c.second, got.second)) ||
+						(sameSide(c.first, got.second) && sameSide(c.second, got.first)))
+				)
+			case "stateAfter":
+				return got.kind === "stateAfter" && got.state === c.state && sameSide(c.delta, got.delta)
+		}
+	})
+
+export type Feature =
+	| "rides an insert"
+	| "rides a delete"
+	| "rides a put's insert half"
+	| "rides a put's displacing deletion"
+	| "rides one statement of two writes"
+	| "rides beside the opposite action of M in its stratum"
+	| "rides a generated addition"
+	| "refused: a generated addition beside the opposite action of M"
+	| "rides after state written beside it, named before it"
+	| "rides after state written beside it, named after it"
+	| "runs after the writes"
+	| "refused: a side two statements make"
+	| "refused: two sides apart"
+	| "refused: state after"
+
+export const ridingNotes: { readonly [K in Maker]: Feature } = {
+	insert: "rides an insert",
+	delete: "rides a delete",
+	put: "rides a put's insert half",
+	displaced: "rides a put's displacing deletion"
+}
+
+export const crossingNotes: { readonly [K in ReadBackCrossing["kind"]]: Feature } = {
+	sideWrittenTwice: "refused: a side two statements make",
+	sidesApart: "refused: two sides apart",
+	stateAfter: "refused: state after"
+}

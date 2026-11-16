@@ -1,37 +1,3 @@
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, boolean, type Gen, int } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
-import { collectInputs } from "#adapter/apply/collect.ts"
-import { bindFrame } from "#adapter/wire/batch.ts"
-import { accumulated, drawn as drawnField, natural, pg, uuid } from "#compiler/public/fields.ts"
-import {
-	fin,
-	fold,
-	Monoid,
-	mutable,
-	on,
-	ordered,
-	relation,
-	schema
-} from "#compiler/public/schema.ts"
-import { bindWrite } from "#compiler/runtime/write/bind.ts"
-import { inForce } from "#compiler/runtime/write/transport.ts"
-import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
-import { compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, assertVariant, refused, succeeded } from "#test/support/assert.ts"
-import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
-import { dictionaryNameGenOtherThan } from "#test/support/kernel/dict.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { checking } from "#test/support/policy.ts"
-import { withinMessage } from "#test/support/worlds/execute/offline.ts"
-import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
-
 /**
  * A nested addition's facts, as a JavaScript caller states them, hold the fields their caller writes at every depth, as
  * its type says (AdditionIn): a fact that states a field grizzle draws or accumulates, or one its relation lacks, is
@@ -49,203 +15,101 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * Features: the owner states its accumulated end, a member its drawn index; the owner, or a member, states a field its
  * relation lacks; only a later member states beyond its caller's fields; every fact states its caller's fields alone.
  */
-const Owner = relation(
-	"Owner",
-	{ id: uuid, n: drawnField(natural), total: accumulated(pg.bigint, 0n) },
-	["id"]
-)
-const Item = relation("Item", { owner: uuid, at: drawnField(natural), x: pg.bigint }, [
-	"owner",
-	"at"
-])
-const items = ordered(on(Item, "owner", "at"), fin(Owner, "n"))
-const Sequenced = schema(
-	"Sequenced",
-	[Owner, Item],
-	[
-		items,
-		fold(items, Monoid.sum, on(Item, "owner", "x"), on(Owner, "id", "total")),
-		mutable(Owner),
-		mutable(Item)
-	]
-)
 
-/** Every field either relation declares: a foreign field is none of them. */
-const headings: ReadonlySet<string> = new Set([
-	...Record.keys(Owner.fields),
-	...Record.keys(Item.fields)
-])
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Option } from "effect"
+import { collectInputs } from "#adapter/apply/collect.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
+import { bindWrite } from "#compiler/runtime/write/bind.ts"
+import { inForce } from "#compiler/runtime/write/transport.ts"
+import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
+import { runnableWrite } from "#compiler/write/program/bind.ts"
+import { compileWrite } from "#compiler/write/program/compile.ts"
+import { assert, assertVariant, refused, succeeded } from "#test/support/assert.ts"
+import { checking } from "#test/support/policy.ts"
+import { withinMessage } from "#test/support/worlds/execute/offline.ts"
+import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
+import {
+	additionsGen,
+	additionsOf,
+	beyondAny,
+	type NestedFeature,
+	Owner,
+	reality,
+	Sequenced
+} from "#test/unit/write/nested-facts.fixtures.ts"
 
-/** A field a fact states that its relation lacks, and its value. */
-interface Foreign {
-	readonly name: string
-	readonly value: number
-}
-
-/** What one fact states beyond its caller's fields: its drawn or accumulated field's value, and a foreign field. */
-interface Beyond {
-	readonly written: Option.Option<bigint>
-	readonly foreign: Option.Option<Foreign>
-}
-
-/** One owner's addition: what it states beyond its caller's fields, and its nested members, each a value of x. */
-interface OwnerFact {
-	readonly beyond: Beyond
-	readonly members: Arr.NonEmptyReadonlyArray<Readonly<{ x: bigint; beyond: Beyond }>>
-}
-
-/** A dictionary name neither relation declares, drawn from the dictionary with the headings cut out. */
-const foreignName = dictionaryNameGenOtherThan(headings)
-
-const foreignGen: Gen<Foreign> = (source) => ({
-	name: source.draw(foreignName).declared,
-	value: source.draw(int(-2, 2))
-})
-
-const beyondGen: Gen<Beyond> = (source) => ({
-	written: source.draw(boolean) ? Option.some(BigInt(source.draw(int(0, 3)))) : Option.none(),
-	foreign: source.draw(boolean) ? Option.some(source.draw(foreignGen)) : Option.none()
-})
-
-const memberGen: Gen<Readonly<{ x: bigint; beyond: Beyond }>> = (source) => ({
-	x: BigInt(source.draw(int(-3, 3))),
-	beyond: source.draw(beyondGen)
-})
-
-const ownerGen: Gen<OwnerFact> = (source) => ({
-	beyond: source.draw(beyondGen),
-	members: [source.draw(memberGen), ...source.draw(array(memberGen, { min: 0, max: 2 }))]
-})
-
-const additionsGen: Gen<Arr.NonEmptyReadonlyArray<OwnerFact>> = (source) => [
-	source.draw(ownerGen),
-	...source.draw(array(ownerGen, { min: 0, max: 1 }))
-]
-
-/** A fact's own fields, then the field its relation lacks where it states one. */
-const withForeign = (
-	fields: Readonly<Record<string, unknown>>,
-	foreign: Option.Option<Foreign>
-): Readonly<Record<string, unknown>> =>
-	Option.match(foreign, {
-		onNone: () => fields,
-		onSome: (f) => ({ ...fields, [f.name]: f.value })
-	})
-
-/** The additions as a JavaScript caller states them: each owner by its id, its members nested under its count. */
-const additionsOf = (owners: Arr.NonEmptyReadonlyArray<OwnerFact>) =>
-	Arr.map(owners, (o, i) =>
-		withForeign(
-			{
-				id: uuidOf(i + 1),
-				...Option.match(o.beyond.written, { onNone: () => ({}), onSome: (total) => ({ total }) }),
-				n: Arr.map(o.members, (m) =>
-					withForeign(
-						{
-							x: m.x,
-							...Option.match(m.beyond.written, { onNone: () => ({}), onSome: (at) => ({ at }) })
-						},
-						m.beyond.foreign
-					)
+/** A nested addition's facts bind exactly when every fact states its caller's fields alone, refusing a drawn, accumulated or foreign field at any depth. */
+export const aNestedAdditionsFactsBindExactlyWhenEveryFactStatesItsCallersFieldsAloneRefusingADrawnAccumulatedOrForeignFieldAtAnyDepth =
+	property.explore(additionsGen, {
+		needs: {},
+		situations: [
+			"the owner states its accumulated end",
+			"a member states its drawn index",
+			"the owner states a field its relation lacks",
+			"a member states a field its relation lacks",
+			"only a later member states beyond its caller's fields",
+			"every fact states its caller's fields alone"
+		] satisfies ReadonlyArray<Reached<NestedFeature>>,
+		check: (_, c: Case<NestedFeature>) => (owners) =>
+			Effect.gen(function* () {
+				const value = ChangeSet.empty(Sequenced).insert(Owner, additionsOf(owners))
+				const program = succeeded(compileWrite(checking(Sequenced), descOf(value), reality))
+				const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
+				const bound = withinMessage(
+					bindWrite(runnableWrite(program, program.frontend.codes), {
+						members,
+						params: {},
+						transport: inForce(bindFrame)
+					})
 				)
-			},
-			o.beyond.foreign
-		)
-	)
-
-const beyondAny = (b: Beyond): boolean => Option.isSome(b.written) || Option.isSome(b.foreign)
-
-type NestedFeature =
-	| "the owner states its accumulated end"
-	| "a member states its drawn index"
-	| "the owner states a field its relation lacks"
-	| "a member states a field its relation lacks"
-	| "only a later member states beyond its caller's fields"
-	| "every fact states its caller's fields alone"
-
-describe("a nested addition's facts", () => {
-	it.effect(
-		"bind exactly when every fact states its caller's fields alone, refusing a drawn, accumulated or foreign field at any depth",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const reality = realityWrite(succeeded(testArtifacts(Sequenced, testCompile)))
-					return yield* explore(
-						{
-							suite: "unit/write/nested-facts",
-							draw: drawn(additionsGen),
-							literal: Formatter.format,
-							oracle: {
-								kind: "specification",
-								name: "AdditionIn: a fact states the fields its caller writes, at every depth"
-							},
-							coverage: required<NestedFeature>(
-								[
-									"the owner states its accumulated end",
-									"a member states its drawn index",
-									"the owner states a field its relation lacks",
-									"a member states a field its relation lacks",
-									"only a later member states beyond its caller's fields",
-									"every fact states its caller's fields alone"
-								],
-								{ cases: 200, sense: notesOnly }
-							),
-							kept: [],
-							runs: 200,
-							shrink: completeShrink,
-							steerEvery: 16,
-							caseHang
-						},
-						(owners, c) =>
-							Effect.gen(function* () {
-								const value = ChangeSet.empty(Sequenced).insert(Owner, additionsOf(owners))
-								const program = succeeded(compileWrite(checking(Sequenced), descOf(value), reality))
-								const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
-								const bound = withinMessage(
-									bindWrite(runnableWrite(program, program.frontend.codes), {
-										members,
-										params: {},
-										transport: inForce(bindFrame)
-									})
-								)
-								const memberFacts = Arr.flatMap(owners, (o) => o.members)
-								if (Arr.some(owners, (o) => Option.isSome(o.beyond.written))) {
-									c.note("the owner states its accumulated end")
-								}
-								if (Arr.some(memberFacts, (m) => Option.isSome(m.beyond.written))) {
-									c.note("a member states its drawn index")
-								}
-								if (Arr.some(owners, (o) => Option.isSome(o.beyond.foreign))) {
-									c.note("the owner states a field its relation lacks")
-								}
-								if (Arr.some(memberFacts, (m) => Option.isSome(m.beyond.foreign))) {
-									c.note("a member states a field its relation lacks")
-								}
-								const owned = Arr.some(owners, (o) => beyondAny(o.beyond))
-								const firsts = Arr.some(owners, (o) =>
-									beyondAny(Arr.headNonEmpty(o.members).beyond)
-								)
-								const later = Arr.some(owners, (o) =>
-									Arr.some(Arr.tailNonEmpty(o.members), (m) => beyondAny(m.beyond))
-								)
-								if (!owned && !firsts && later) {
-									c.note("only a later member states beyond its caller's fields")
-								}
-								if (!owned && !firsts && !later) {
-									c.note("every fact states its caller's fields alone")
-									assertVariant(succeeded(bound), "kind", "bound", "the caller's fields bind")
-									return
-								}
-								const failure = refused(
-									bound,
-									"factShape",
-									"a fact holds the fields its caller writes, refused before any SQL"
-								)
-								assert.equal(failure._tag, "EncodingFailure", "the caller's input is refused")
-							})
-					)
-				})
-			)
-	)
-})
+				const memberFacts = Arr.flatMap(owners, (o) => o.members)
+				if (Arr.some(owners, (o) => Option.isSome(o.beyond.written))) {
+					c.note("the owner states its accumulated end")
+				}
+				if (Arr.some(memberFacts, (m) => Option.isSome(m.beyond.written))) {
+					c.note("a member states its drawn index")
+				}
+				if (Arr.some(owners, (o) => Option.isSome(o.beyond.foreign))) {
+					c.note("the owner states a field its relation lacks")
+				}
+				if (Arr.some(memberFacts, (m) => Option.isSome(m.beyond.foreign))) {
+					c.note("a member states a field its relation lacks")
+				}
+				const owned = Arr.some(owners, (o) => beyondAny(o.beyond))
+				const firsts = Arr.some(owners, (o) => beyondAny(Arr.headNonEmpty(o.members).beyond))
+				const later = Arr.some(owners, (o) =>
+					Arr.some(Arr.tailNonEmpty(o.members), (m) => beyondAny(m.beyond))
+				)
+				if (!owned && !firsts && later) {
+					c.note("only a later member states beyond its caller's fields")
+				}
+				if (!owned && !firsts && !later) {
+					c.note("every fact states its caller's fields alone")
+					assertVariant(succeeded(bound), "kind", "bound", "the caller's fields bind")
+					return
+				}
+				const failure = refused(
+					bound,
+					"factShape",
+					"a fact holds the fields its caller writes, refused before any SQL"
+				)
+				assert.equal(failure._tag, "EncodingFailure", "the caller's input is refused")
+			}),
+		oracle: {
+			kind: "specification",
+			name: "AdditionIn: a fact states the fields its caller writes, at every depth"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/runtime/write/addition.ts",
+				original:
+					"\t\tconst own = Object.freeze(\n\t\t\tObject.fromEntries(Object.entries(read.value).filter(([name]) => !counts.has(name)))\n\t\t)",
+				replacement:
+					"\t\tconst stated = Object.entries(read.value).filter(([name]) => !counts.has(name))\n\t\tconst own = Object.freeze(Object.fromEntries(next.at === undefined ? stated : stated.slice(0, 1)))",
+				why: "The split keeps a nested member's first field alone (runtime/write/addition.ts encodeAddition), so a drawn index or a foreign field is dropped unsaid."
+			}
+		]
+	})

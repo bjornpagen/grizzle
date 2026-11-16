@@ -22,50 +22,13 @@
  * Oracle: the reference evaluator's delivery of the query before the passes (a second implementation), and the strict
  * DAG re-reader beside the conservative lowering's audit.
  */
-import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
-import { type Coverage, noCoverage, required } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { fullSwarm } from "@bjornpagen/testing/swarm"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { indices } from "#compiler/core/array.ts"
-import type { NodeId } from "#compiler/core/ids.ts"
-import type { CertificateRule } from "#compiler/ir/certificate.ts"
-import { nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
-import type { Pass } from "#compiler/ir/pass.ts"
-import type { LogicalQuery } from "#compiler/ir/products.ts"
-import type { RelDag, RelKind } from "#compiler/ir/rel.ts"
-import { closedPass } from "#compiler/lower/optimize/closed/index.ts"
-import {
-	relationalRewrites,
-	semanticSimplification
-} from "#compiler/lower/optimize/demand/phases.ts"
-import { eliminatePass } from "#compiler/lower/optimize/eliminate/index.ts"
-import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
-import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { element } from "@bjornpagen/testing/gen"
+import { type Case, family, property, ReplayToken } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Record as Rec } from "effect"
 import { lateFetchPass } from "#compiler/lower/optimize/late-fetch/index.ts"
-import { prunePass } from "#compiler/lower/optimize/prune/index.ts"
-import { pushdownPass } from "#compiler/lower/optimize/pushdown/index.ts"
-import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
-import { succeeded } from "#test/support/assert.ts"
-import { genCatalog } from "#test/support/evidence.ts"
-import { parsedName } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import {
-	defaultGenConfig,
-	fullCaseSwarms,
-	type GenConfig,
-	type QueryCase,
-	type QueryCaseSketch,
-	queryCaseSketchGen,
-	resolveQueryCase,
-	rewriteGenConfig
-} from "#test/support/oracle/gen/case.ts"
-import { type QuerySketch, rewriteFeatures, undrawn } from "#test/support/oracle/gen/query.ts"
-import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
+import { defaultGenConfig, resolveQueryCase } from "#test/support/oracle/gen/case.ts"
 import {
 	existsOverTakeRoot,
 	fanoutJoinRoot,
@@ -79,427 +42,35 @@ import {
 	witnessRoot
 } from "#test/support/oracle/mutants/cases.ts"
 import {
-	type RewriteAgreement,
-	agrees,
-	caseQuery,
-	passContext,
-	lowerConservatively,
-	runPasses
-} from "#test/unit/lower/rewrite/support.ts"
+	exploreCases,
+	exploreSteered,
+	fullPipeline,
+	passNames,
+	pipelineRules,
+	population,
+	preserves,
+	singlePasses,
+	type SinglePassFeature,
+	sketchGen
+} from "#test/unit/lower/rewrite/generated.fixtures.ts"
 import { wideCaseGen } from "#test/unit/lower/rewrite/wide.ts"
 
-/**
- * The optimizer's population for the rewrite passes: wide payload of unbounded text alone (the reference evaluator
- * computes no vector), and filters drawn directly over the stages the pushdown rules move a filter into.
- */
-const population: GenConfig = rewriteGenConfig
-
-type Passes = ReadonlyArray<Pass<LogicalQuery, LogicalQuery>>
-
-const fullPipeline: Passes = [semanticSimplification, relationalRewrites]
-
-/**
- * The rule families the composed pipeline must keep firing on the population, every one but late fetch, which the
- * wide-payload cases must fire, and those the population fires a few times a run, which kept cases plant (keptRules).
- */
-const pipelineRules = [
-	"R01.fusion",
-	"R02.semiJoin",
-	"R02.antiJoin",
-	"prune.heading",
-	"pushdown.left",
-	"pushdown.project",
-	"pushdown.semiGroup",
-	"pushdown.semiSource",
-	"pushdown.source",
-	"pushdown.union",
-	"simplify.fold",
-	"simplify.empty",
-	"simplify.identityProjection",
-	"simplify.mergeFilters"
-] as const satisfies ReadonlyArray<CertificateRule>
-
-/**
- * What a case of the rewrite suites reaches: each kind of node its query holds, each rule a pass fired (alone, and
- * paired with the kind of node it rewrote), and whether the reference judged it.
- */
-type RewriteFeature = `node ${RelKind}` | CertificateRule | `reference ${RewriteAgreement}`
-
-/**
- * The kind of the first of `ids` some DAG defines: the node a certificate's rule met, looked up in the query before the
- * passes and after them, since a pass may replace the node it rewrote.
- */
-const kindOf = (dags: ReadonlyArray<RelDag>, ids: ReadonlyArray<NodeId>): RelKind | undefined => {
-	const labels = Arr.map(dags, (dag) => nodesByLabel(dag))
-	for (const id of ids) {
-		for (const byLabel of labels) {
-			const node = byLabel.get(id)
-			if (node !== undefined) {
-				return node.kind
-			}
-		}
-	}
-	return undefined
-}
-
-/**
- * Runs `passes` over one case and holds them to the contract, noting the case's features: the passes and the
- * conservative lowering of their result never refuse, and the rewrite preserves the delivery.
- */
-const preserves = (
-	q: QueryCase,
-	passes: Passes,
-	evidence: "snapshot" | "transaction",
-	c: Case<RewriteFeature>
-): void => {
-	const query = caseQuery(q)
-	for (const node of topoOrder(query.dag)) {
-		c.note(`node ${node.kind}`)
-	}
-	const ran = succeeded(
-		runPasses(query, passes, passContext({ catalog: genCatalog(q.schema), evidence }))
-	)
-	for (const certificate of ran.certificates) {
-		c.note(certificate.rule)
-		const kind = kindOf([query.dag, ran.query.dag], certificate.inputs)
-		if (kind !== undefined) {
-			c.pair(certificate.rule, `node ${kind}`)
-		}
-	}
-	c.note(`reference ${agrees(q, ran.query)}`)
-	succeeded(lowerConservatively(ran.query, schemaCodes(q.schema)))
-}
-
-/** A case of the population, drawn as its sketch, which a failure prints and a kept case states. */
-const sketchGen: Gen<QueryCaseSketch> = queryCaseSketchGen(population)
-
-/** A search's budget: its rotating stream's cases, and what it must reach, with the steered phase that reaches it. */
-interface Budget {
-	readonly runs: number
-	readonly coverage: Coverage<RewriteFeature>
-}
-
-/**
- * Explores the population through `passes`, each sketch resolved in the property, steered toward what the budget
- * requires.
- */
-const exploreSteered = (
-	suite: string,
-	passes: Passes,
-	evidence: "snapshot" | "transaction",
-	budget: Budget,
-	kept: ReadonlyArray<Kept<QueryCaseSketch, RewriteFeature>>
-) =>
-	explore(
-		{
-			oracle: {
-				kind: "second-implementation",
-				name: "the reference evaluator's delivery of the query before the passes"
-			},
-			suite,
-			draw: drawn(sketchGen),
-			literal: Formatter.format,
-			coverage: budget.coverage,
-			kept,
-			runs: budget.runs,
-			shrink: completeShrink,
-			steerEvery: 16,
-			caseHang
-		},
-		(sketch, c) =>
-			Effect.sync(() => {
-				preserves(c.draw(resolveQueryCase(sketch, population)), passes, evidence, c)
-			})
-	)
-
-/** Explores ready-made cases through `passes`. */
-const exploreCases = (
-	suite: string,
-	cases: Gen<QueryCase>,
-	passes: Passes,
-	evidence: "snapshot" | "transaction",
-	budget: Budget
-) =>
-	explore(
-		{
-			oracle: {
-				kind: "second-implementation",
-				name: "the reference evaluator's delivery of the query before the passes"
-			},
-			suite,
-			draw: drawn(cases),
-			literal: Formatter.format,
-			coverage: budget.coverage,
-			kept: [],
-			runs: budget.runs,
-			shrink: completeShrink,
-			steerEvery: 16,
-			caseHang
-		},
-		(q, c) =>
-			Effect.sync(() => {
-				preserves(q, passes, evidence, c)
-			})
-	)
-
-const column = (pick: number) => ({ literal: false, pick, value: { cls: 0, sp: 0 }, term: undrawn })
-
-/** A fact of `width` values, the classes from `cls` up. */
-const fact = (cls: number, width: number) => ({
-	values: Arr.map(indices(width), (i) => ({ cls: cls + i, sp: 0 })),
-	target: 0
-})
-
-const relation = (
-	columns: ReadonlyArray<number>,
-	contained: boolean
-): QueryCaseSketch["schema"]["relations"][number] => ({
-	columns,
-	pkMask: 0,
-	pure: false,
-	keyMasks: [],
-	mutable: false,
-	fk: { enabled: contained, target: 0, typed: true },
-	spanKey: false
-})
-
-const bind = (mode: number) => ({ mode, pick: 0, value: { cls: 0, sp: 0 } })
-
-/**
- * Planted: the rules the composed pipeline's search fires a few times a run (simplify.equality 3 to 23 times on four
- * seeds). Each is a smallest sketch of the population that fires it, over
- * R0 of one or two integer columns holding three facts (closed membership: of the roster's codes, holding both
- * handles):
- * - closed membership: the roster's occurrence matched with R0 on one variable, the roster first, the roster's
- *   tautology;
- * - a filter equating R0's two variables (simplify.equality);
- * - a projection of R0's (b, a) to its first column (simplify.mergeProjections);
- * - R1 matched through its containment into R0, which the foreign key makes redundant (R03.elimination);
- * - a filter on the key of a group of R0 by a (pushdown.group);
- * - a semi-join against R0 on the key of a region reading a group of R0 by a, the platform's nearCap shape
- *   (pushdown.semiSource onto the group's occurrence, then pushdown.semiGroup below the group), which the population's
- *   semiOver form reaches too;
- * - a filter over R0's take(1), read with no region between them (the regions swarm off), that rejects the one row the
- *   take keeps and passes another of R0's rows: the query delivers nothing, where the filter moved below the take would
- *   deliver that other row. No rule may move a filter below a take, and the population's takes seldom hold a row past
- *   their bound that a filter above them passes, so its delivery rarely shows such a move.
- */
-const keptRules: ReadonlyArray<Kept<QueryCaseSketch, RewriteFeature>> = (() => {
-	type Sketch = QueryCaseSketch["schema"]
-	const facts = (width: number) => [fact(0, width), fact(1, width), fact(2, width)]
-	const read = (width: number): QuerySketch => ({
-		tag: "match",
-		occurrences: [
-			{
-				source: { tag: "relation", pick: 0 },
-				columns: Array.from({ length: width }, () => bind(0))
-			}
-		],
-		equalities: [],
-		lateral: { kind: "none" }
-	})
-	const planted = (
-		rules: readonly [CertificateRule, ...ReadonlyArray<CertificateRule>],
-		note: string,
-		schema: Sketch,
-		rows: QueryCaseSketch["facts"],
-		body: QuerySketch
-	): Kept<QueryCaseSketch, RewriteFeature> => ({
-		note,
-		sketch: {
-			schema,
-			facts: rows,
-			root: { tag: "plain", body, order: undrawn },
-			paramNames: [],
-			...fullCaseSwarms
-		},
-		draws: "",
-		reaches: rules
-	})
-	const pair: Sketch = { palette: [0], closed: [], relations: [relation([0, 0], false)] }
-	/** A group of R0 by its first column, counting. */
-	const grouped: QuerySketch = {
-		tag: "group",
-		input: read(2),
-		full: false,
-		boundMask: 1,
-		keyMask: 1,
-		aggs: [{ fn: 0, column: 1 }]
-	}
-	return [
-		planted(
-			["R07.closedMembership"],
-			"a roster occurrence joined to a relation on its handle",
-			{
-				palette: [0],
-				closed: [
-					{
-						/** Two codes, both live: the roster of two handles. */
-						pattern: {
-							closed: parsedName("K"),
-							slots: [
-								{ kind: "live", handle: "Open" },
-								{ kind: "live", handle: "Done" }
-							],
-							spellings: { plain: 3 }
-						},
-						payload: []
-					}
-				],
-				relations: [relation([1], false)]
-			},
-			[[fact(0, 1), fact(1, 1)]],
-			{
-				tag: "match",
-				occurrences: [
-					{ source: { tag: "closed", pick: 0 }, columns: [bind(0)] },
-					{ source: { tag: "relation", pick: 0 }, columns: [bind(5)] }
-				],
-				equalities: [],
-				lateral: { kind: "none" }
-			}
-		),
-		planted(["simplify.equality"], "a filter equating two variables", pair, [facts(2)], {
-			tag: "filter",
-			input: read(2),
-			pred: { tag: "equate", left: 0, right: 1 }
+/** Each rewrite pass preserves the delivered result on generated cases every pass alone, on cases of the population. */
+export const eachRewritePassPreservesTheDeliveredResultOnGeneratedCasesEveryPassAloneOnCasesOfThePopulation =
+	property.explore(
+		(source) => ({
+			pass: source.draw(element(passNames)),
+			sketch: source.draw(sketchGen)
 		}),
-		planted(["simplify.mergeProjections"], "a projection of a projection", pair, [facts(2)], {
-			tag: "project",
-			input: { tag: "project", input: read(2), out: [column(1), column(0)] },
-			out: [column(0)]
-		}),
-		planted(
-			["R03.elimination"],
-			"a match through a containment its foreign key makes redundant",
-			{ palette: [0], closed: [], relations: [relation([0], false), relation([0], true)] },
-			[[fact(0, 1), fact(1, 1)], [fact(0, 1)]],
-			{
-				tag: "match",
-				occurrences: [
-					{ source: { tag: "relation", pick: 1 }, columns: [bind(0)] },
-					{ source: { tag: "follow", pick: 0 }, columns: [bind(0)] }
-				],
-				equalities: [],
-				lateral: { kind: "none" }
-			}
-		),
-		planted(["pushdown.group"], "a filter on a group's key", pair, [facts(2)], {
-			tag: "filter",
-			input: grouped,
-			pred: { tag: "compare", column: 0, op: 0, rhs: { tag: "literal", value: { cls: 0, sp: 0 } } }
-		}),
-		planted(
-			["pushdown.semiSource", "pushdown.semiGroup"],
-			"a semi-join on the key of a region reading a group",
-			pair,
-			[facts(2)],
-			{
-				tag: "semi",
-				left: {
-					tag: "match",
-					occurrences: [{ source: { tag: "query", query: grouped }, columns: [bind(0), bind(0)] }],
-					equalities: [],
-					lateral: { kind: "none" }
-				},
-				right: read(2),
-				on: [0],
-				shared: undrawn
-			}
-		),
 		{
-			note: "a filter over a take whose bound cuts a row the filter passes",
-			sketch: {
-				schema: pair,
-				facts: [facts(2)],
-				root: {
-					tag: "plain",
-					body: {
-						tag: "filter",
-						input: {
-							tag: "take",
-							input: read(2),
-							k: 0,
-							param: false,
-							lateral: undrawn,
-							rotate: 0,
-							dirs: [],
-							stated: undrawn
-						},
-						pred: {
-							tag: "compare",
-							column: 0,
-							op: 4,
-							rhs: { tag: "literal", value: { cls: 0, sp: 0 } }
-						}
-					},
-					order: undrawn
-				},
-				paramNames: [],
-				...fullCaseSwarms,
-				rewrite: fullSwarm(Arr.filter(rewriteFeatures, (feature) => feature !== "regions"))
-			},
-			draws: "",
-			reaches: ["node Take"]
-		}
-	]
-})()
-
-/** The passes judged alone, by name. */
-const singlePasses = {
-	simplify: [simplifyPass],
-	fuse: [fusePass],
-	prune: [prunePass],
-	eliminate: [prunePass, eliminatePass],
-	existence: [prunePass, existencePass],
-	pushdown: [pushdownPass],
-	closed: [closedPass],
-	lateFetch: [lateFetchPass]
-} as const satisfies Readonly<Record<string, Passes>>
-
-type PassName = keyof typeof singlePasses
-
-const passNames: Arr.NonEmptyReadonlyArray<PassName> = [
-	"simplify",
-	"fuse",
-	"prune",
-	"eliminate",
-	"existence",
-	"pushdown",
-	"closed",
-	"lateFetch"
-]
-
-/** What a case of the single-pass suite reaches: the pass it ran, and what the pass reached on it. */
-type SinglePassFeature = `pass ${PassName}` | RewriteFeature
-
-describe("each rewrite pass preserves the delivered result on generated cases", () => {
-	it.effect("every pass alone, on cases of the population", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "second-implementation",
-						name: "the reference evaluator's delivery of the query before the passes"
-					},
-					suite: "unit/lower/rewrite/pass-alone",
-					draw: drawn((source) => ({
-						pass: source.draw(element(passNames)),
-						sketch: source.draw(sketchGen)
-					})),
-					literal: Formatter.format,
-					coverage: required<SinglePassFeature>(
-						Arr.map(passNames, (name): SinglePassFeature => `pass ${name}`),
-						{ cases: 150 * passNames.length, sense: notesOnly }
-					),
-					kept: [],
-					runs: 150 * passNames.length,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				({ pass, sketch }, c) =>
+			needs: {},
+			situations: Arr.map(
+				passNames,
+				(name): SinglePassFeature => `pass ${name}`
+			) satisfies ReadonlyArray<Reached<SinglePassFeature>>,
+			check:
+				(_, c: Case<SinglePassFeature>) =>
+				({ pass, sketch }) =>
 					Effect.sync(() => {
 						c.note(`pass ${pass}`)
 						preserves(
@@ -508,109 +79,132 @@ describe("each rewrite pass preserves the delivered result on generated cases", 
 							"snapshot",
 							c
 						)
-					})
-			)
-		)
+					}),
+			oracle: {
+				kind: "second-implementation",
+				name: "the reference evaluator's delivery of the query before the passes"
+			},
+			kept: [],
+			kills: []
+		}
 	)
 
-	it.effect("lateFetch over wide payload, where it fires", (ctx) =>
-		Effect.andThen(
-			searched(
-				ctx,
-				exploreCases(
-					"unit/lower/rewrite/late-fetch-wide",
-					wideCaseGen,
-					[lateFetchPass],
-					"snapshot",
-					{
-						runs: 200,
-						coverage: required<RewriteFeature>(["R06.lateFetch"], { cases: 200, sense: notesOnly })
-					}
-				)
-			),
-			searched(
-				ctx,
-				exploreCases(
-					"unit/lower/rewrite/pipeline-wide-transaction",
-					wideCaseGen,
-					fullPipeline,
-					"transaction",
-					{ runs: 100, coverage: noCoverage }
-				)
-			)
-		)
-	)
-})
+/** Each rewrite pass preserves the delivered result on generated cases lateFetch over wide payload, where it fires. */
+export const eachRewritePassPreservesTheDeliveredResultOnGeneratedCasesLateFetchOverWidePayloadWhereItFires =
+	exploreCases({
+		cases: wideCaseGen,
+		passes: [lateFetchPass],
+		evidence: "snapshot",
+		situations: ["R06.lateFetch"],
+		kept: [],
+		kills: []
+	})
 
-describe("the composed rewrite phases preserve the delivered result", () => {
-	it.effect(
-		"demand, semantic simplification and relational rewrites in a snapshot read, firing every rule family",
-		(ctx) =>
-			Effect.andThen(
-				searched(
-					ctx,
-					exploreSteered(
-						"unit/lower/rewrite/pipeline-snapshot",
-						fullPipeline,
-						"snapshot",
-						{
-							runs: 400,
-							coverage: required<RewriteFeature>(pipelineRules, { cases: 400, sense: notesOnly })
-						},
-						[]
-					)
+/** Each rewrite pass preserves the delivered result on generated cases the composed pipeline over wide payload, in a transaction. */
+export const eachRewritePassPreservesTheDeliveredResultOnGeneratedCasesTheComposedPipelineOverWidePayloadInATransaction =
+	exploreCases({
+		cases: wideCaseGen,
+		passes: fullPipeline,
+		evidence: "transaction",
+		situations: [],
+		kept: [],
+		kills: []
+	})
+
+/** The composed rewrite phases preserve the delivered result demand, semantic simplification and relational rewrites in a snapshot read, firing every rule family. */
+export const theComposedRewritePhasesPreserveTheDeliveredResultDemandSemanticSimplificationAndRelationalRewritesInASnapshotReadFiringEveryRuleFamily =
+	exploreSteered({
+		passes: fullPipeline,
+		evidence: "snapshot",
+		situations: [...pipelineRules, "simplify.mergeProjections", "node Take"],
+		aims: [
+			["pushdown.semiSource", ["semiOver"]],
+			["pushdown.semiGroup", ["semiOver"]],
+			["simplify.mergeProjections", ["project"]],
+			["node Take", ["match", "filter", "take"]]
+		],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/lower/rewrite/generated.test.ts#theComposedRewritePhasesPreserveTheDeliveredResultDemandSemanticSimplificationAndRelationalRewritesInASnapshotReadFiringEveryRuleFamily:-:1.0.0.1.1.2.0.1.1.1.0.0.0.0.3.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0.0.0.2.9.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.5.0.0.0.5.0.0.0.5.0.0.0.5.0.0.0.5.0.0.0.5.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.0.0.2.h.h.h.h.h.h.0.0.2.h.h.h.h.h"
 				),
-				searched(
-					ctx,
-					exploreSteered(
-						"unit/lower/rewrite/pipeline-snapshot-planted",
-						fullPipeline,
-						"snapshot",
-						{ runs: 20, coverage: noCoverage },
-						keptRules
-					)
-				)
-			)
-	)
+				reason: "a roster occurrence joined to a relation on its handle",
+				since: "2026-10-29"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/lower/rewrite/generated.test.ts#theComposedRewritePhasesPreserveTheDeliveredResultDemandSemanticSimplificationAndRelationalRewritesInASnapshotReadFiringEveryRuleFamily:-:1.0.0.0.1.2.0.0.0.0.0.0.3.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.0.3.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.4.0.1.0.0.0.0.0.0.0.0.0.0.0.2.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.0.0.2.h.h.h.h.h.h.0.0.2.h.h.h.h.h"
+				),
+				reason: "a filter equating two variables",
+				since: "2026-10-29"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/lower/rewrite/generated.test.ts#theComposedRewritePhasesPreserveTheDeliveredResultDemandSemanticSimplificationAndRelationalRewritesInASnapshotReadFiringEveryRuleFamily:-:1.0.0.0.2.1.0.0.0.0.0.3.0.1.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.6.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.0.0.2.h.h.h.h.h.h.0.0.2.h.h.h.h.h"
+				),
+				reason: "a match through a containment its foreign key makes redundant",
+				since: "2026-10-29"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/lower/rewrite/generated.test.ts#theComposedRewritePhasesPreserveTheDeliveredResultDemandSemanticSimplificationAndRelationalRewritesInASnapshotReadFiringEveryRuleFamily:-:1.0.0.0.1.2.0.0.0.0.0.0.3.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.0.8.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.0.0.2.h.h.h.h.h.h.0.0.2.h.h.h.h.h"
+				),
+				reason: "a filter on a group's key",
+				since: "2026-10-29"
+			},
+			{
+				token: ReplayToken(
+					"test/unit/lower/rewrite/generated.test.ts#theComposedRewritePhasesPreserveTheDeliveredResultDemandSemanticSimplificationAndRelationalRewritesInASnapshotReadFiringEveryRuleFamily:8000.f:1.0.0.0.1.2.0.0.0.0.0.0.3.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.3.0.0.1.0.0.0.1.0.0.0.1.0.0.0.1.0.0.1.0.2.0.1.0.2.0.1.0.2.0.1.0.2.0.0.2.0.3.0.2.0.3.0.2.0.3.0.2.0.3.0.0.0.3.8.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.4.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.h.0.0.2.h.h.h.h.h.h.1.0.0.2.h.h.0.h"
+				),
+				reason: "a filter over a take whose bound cuts a row the filter passes",
+				since: "2026-11-14"
+			}
+		],
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/pushdown/index.ts",
+				original:
+					'\t\t\tcase "Base":\n\t\t\tcase "Closed":\n\t\t\tcase "Context":\n\t\t\tcase "InputSet":\n\t\t\tcase "Delta":\n\t\t\tcase "Filter":\n\t\t\tcase "Take":',
+				replacement:
+					'\t\t\tcase "Take":\n\t\t\t\treturn overDemand(({ demand }) => {\n\t\t\t\t\tif (!exclusive(cx, demand, xCell) || x.correlation.length > 0) {\n\t\t\t\t\t\treturn false\n\t\t\t\t\t}\n\t\t\t\t\tconst moved = filterOver(cx.editor, x.input, cx.editor.copyExpr(m.filter.pred, cx.editor.retarget(xCell, x.input)))\n\t\t\t\t\ttakeOver(cx.editor, m, { ...x, input: moved })\n\t\t\t\t\tcertify(cx, pushdownRules.left, m, xCell.id, [m.cell.id, moved.id])\n\t\t\t\t\treturn true\n\t\t\t\t})\n\t\t\tcase "Base":\n\t\t\tcase "Closed":\n\t\t\tcase "Context":\n\t\t\tcase "InputSet":\n\t\t\tcase "Delta":\n\t\t\tcase "Filter":',
+				why: "A filter moved below an uncorrelated take, so the take ranks other rows; the pipeline-snapshot-planted search fails at its kept filter over a take."
+			}
+		]
+	})
 
-	it.effect("the same in a transaction, where only immediate evidence holds", (ctx) =>
-		searched(
-			ctx,
-			exploreSteered(
-				"unit/lower/rewrite/pipeline-transaction",
-				fullPipeline,
-				"transaction",
-				{ runs: 200, coverage: noCoverage },
-				[]
-			)
-		)
-	)
-})
+/** The composed rewrite phases preserve the delivered result the same in a transaction, where only immediate evidence holds. */
+export const theComposedRewritePhasesPreserveTheDeliveredResultTheSameInATransactionWhereOnlyImmediateEvidenceHolds =
+	exploreSteered({
+		passes: fullPipeline,
+		evidence: "transaction",
+		situations: [],
+		aims: [],
+		kept: [],
+		kills: []
+	})
 
-describe("the mutant suite's counterexample shapes", () => {
-	const roots = [
-		["projections that drop keys", projectRoot],
-		["keyed joins", keyedJoinRoot],
-		["fanout joins", fanoutJoinRoot],
-		["existential witnesses", witnessRoot],
-		["groups", groupRoot],
-		["projections before a fold", projectGroupRoot],
-		["tagged unions", taggedUnionRoot],
-		["untagged unions", untaggedUnionRoot],
-		["bounds under EXISTS", existsOverTakeRoot]
-	] as const
-	for (const [i, [name, root]] of roots.entries()) {
-		it.effect(name, (ctx) =>
-			searched(
-				ctx,
-				exploreCases(
-					`unit/lower/rewrite/root-${i}`,
-					rootedCaseGen(root, defaultGenConfig),
-					fullPipeline,
-					"snapshot",
-					{ runs: 120, coverage: noCoverage }
-				)
-			)
-		)
-	}
-})
+/** The mutant suite's counterexample shapes, each root's cases through the composed pipeline in a snapshot read. */
+export const theMutantSuitesCounterexampleShapes = family(
+	Rec.map(
+		{
+			projectionsThatDropKeys: projectRoot,
+			keyedJoins: keyedJoinRoot,
+			fanoutJoins: fanoutJoinRoot,
+			existentialWitnesses: witnessRoot,
+			groups: groupRoot,
+			projectionsBeforeAFold: projectGroupRoot,
+			taggedUnions: taggedUnionRoot,
+			untaggedUnions: untaggedUnionRoot,
+			boundsUnderEXISTS: existsOverTakeRoot
+		},
+		(root) =>
+			exploreCases({
+				cases: rootedCaseGen(root, defaultGenConfig),
+				passes: fullPipeline,
+				evidence: "snapshot",
+				situations: [],
+				kept: [],
+				kills: []
+			})
+	)
+)

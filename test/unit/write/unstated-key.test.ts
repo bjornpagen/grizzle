@@ -1,25 +1,3 @@
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen, int, subarray } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
-import { collectInputs } from "#adapter/apply/collect.ts"
-import { bindFrame } from "#adapter/wire/batch.ts"
-import { drawn, generated, natural, pg, uuid } from "#compiler/public/fields.ts"
-import { fin, key, mutable, on, ordered, relation, schema } from "#compiler/public/schema.ts"
-import { bindWrite } from "#compiler/runtime/write/bind.ts"
-import { inForce } from "#compiler/runtime/write/transport.ts"
-import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { runnableWrite } from "#compiler/write/program/bind.ts"
-import { compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, assertVariant, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
-import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { checking } from "#test/support/policy.ts"
-import { upTo } from "#test/support/up-to.ts"
-import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
-
 /**
  * A put names each row by its relation's primary key, a delete names each row exactly, at every field a fact carries,
  * the primary key's among them, and a family's edit names each member by its primary key, so a primary key holding a
@@ -41,231 +19,157 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  *
  * Features: each primary key and declared key that holds the index, each write, a generated key that refuses nothing.
  */
-const Owner = relation("Owner", { id: uuid, n: drawn(natural) }, ["id"])
 
-/** The keys a case declares over Member's written fields, by name: each one's fields in the order it declares them. */
-const shapes = {
-	"owner and index": ["owner", "at"],
-	"x and index": ["x", "at"],
-	"id alone": ["id"],
-	"owner and x": ["owner", "x"]
-} as const
-type Shape = keyof typeof shapes
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
+import { collectInputs } from "#adapter/apply/collect.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
+import { fin, mutable, on, ordered, schema } from "#compiler/public/schema.ts"
+import { bindWrite } from "#compiler/runtime/write/bind.ts"
+import { inForce } from "#compiler/runtime/write/transport.ts"
+import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
+import { runnableWrite } from "#compiler/write/program/bind.ts"
+import { compileWrite } from "#compiler/write/program/compile.ts"
+import { assert, assertVariant, refused, succeeded } from "#test/support/assert.ts"
+import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { checking } from "#test/support/policy.ts"
+import { upTo } from "#test/support/up-to.ts"
+import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
+import {
+	boxGen,
+	declaredFields,
+	expectedOf,
+	holdsIndex,
+	memberOf,
+	Owner,
+	sameFields,
+	shapes,
+	type Situation
+} from "#test/unit/write/unstated-key.fixtures.ts"
 
-/** A key a case declares: a written shape, or `owner` and the generated `y`. */
-type Declared = Shape | "owner and generated y"
-
-/** The fields of a declared key, in the order it declares them. */
-const declaredFields = (shape: Declared): ReadonlyArray<string> =>
-	shape === "owner and generated y" ? ["owner", "y"] : shapes[shape]
-
-/** The member under the primary key `primary`, and the declared key over it of each shape. */
-const memberOf = (primary: Shape) => {
-	const Member = relation.generated(
-		"Member",
-		{ id: uuid, owner: uuid, at: drawn(natural), x: pg.bigint },
-		shapes[primary],
-		(r) => ({ y: generated(pg.bigint, r.x) })
-	)
-	const declared = (shape: Declared) => {
-		switch (shape) {
-			case "owner and index":
-				return key(on(Member, "owner", "at"))
-			case "x and index":
-				return key(on(Member, "x", "at"))
-			case "id alone":
-				return key(on(Member, "id"))
-			case "owner and x":
-				return key(on(Member, "owner", "x"))
-			case "owner and generated y":
-				return key(on(Member, "owner", "y"))
-		}
-	}
-	return { Member, declared }
-}
-
-/** A case of the box: the write, Member's primary key, the keys declared beside it in order, and how many facts. */
-interface Box {
-	readonly op: "put" | "delete"
-	readonly primary: Shape
-	readonly declared: ReadonlyArray<Declared>
-	readonly facts: number
-}
-
-/** Every written shape, in the order the record states them. */
-const shapeNames: Arr.NonEmptyReadonlyArray<Shape> = nonEmpty(Record.keys(shapes), "a key shape")
-
-const boxGen: Gen<Box> = (source) => {
-	const op = source.draw(element(["put", "delete"] as const))
-	const primary = source.draw(element(shapeNames))
-	const others: ReadonlyArray<Declared> = [
-		...Arr.filter(shapeNames, (shape) => shape !== primary),
-		"owner and generated y"
-	]
-	return {
-		op,
-		primary,
-		declared: source.draw(subarray(others)),
-		facts: source.draw(int(1, 3))
-	}
-}
-
-/** Whether two keys hold the same fields in the same order. */
-const sameFields = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
-	a.length === b.length && Arr.every(a, (field, i) => b[i] === field)
-
-/** Whether a key holds the drawn index. */
-const holdsIndex = (shape: Declared): boolean =>
-	Arr.some(declaredFields(shape), (field) => field === "at")
-
-/** The refusal the rule names, or none: the primary key first, then, for a put, the declared keys. */
-type Expected =
-	| Readonly<{ kind: "bound" }>
-	| Readonly<{ kind: "primary" }>
-	| Readonly<{ kind: "declared"; among: ReadonlyArray<Declared> }>
-
-const expectedOf = (box: Box): Expected => {
-	if (holdsIndex(box.primary)) {
-		return { kind: "primary" }
-	}
-	const among = Arr.filter(box.declared, holdsIndex)
-	return box.op === "put" && Arr.isReadonlyArrayNonEmpty(among)
-		? { kind: "declared", among }
-		: { kind: "bound" }
-}
-
-type Situation =
-	| "put refused by its primary key"
-	| "put refused by a declared key"
-	| "put bound"
-	| "put bound beside a declared key over a generated field"
-	| "delete refused by its primary key"
-	| "delete bound beside a declared key over the index"
-	| "delete bound"
-
-describe("a write that names rows by a primary key", () => {
-	it.effect(
-		"refuses a put or a delete whose primary key holds a field grizzle writes, and a put whose declared key does, naming the write, the key and the field, and binds every other",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/write/unstated-key",
-						generator: boxGen,
-						literal: Formatter.format,
-						box: "a sequence's member under each of four primary keys, beside every subset of the other three and a key over a generated field declared, put or deleted as one to three facts",
-						oracle: {
-							kind: "specification",
-							name: "the first key a write compares that holds the index refuses it, the primary key's first"
-						},
-						coverage: requiredInSpace<Situation>([
-							"put refused by its primary key",
-							"put refused by a declared key",
-							"put bound",
-							"put bound beside a declared key over a generated field",
-							"delete refused by its primary key",
-							"delete bound beside a declared key over the index",
-							"delete bound"
-						]),
-						caseHang
-					},
-					(box, c) =>
-						Effect.gen(function* () {
-							const { Member, declared } = memberOf(box.primary)
-							const Sequence = schema(
-								"Sequence",
-								[Owner, Member],
-								[
-									ordered(on(Member, "owner", "at"), fin(Owner, "n")),
-									...Arr.map(box.declared, declared),
-									mutable(Owner),
-									mutable(Member)
-								]
-							)
-							const facts = Arr.map(
-								upTo(box.facts, (i) => i + 1),
-								(n) => ({
-									id: uuidOf(n + 1),
-									owner: uuidOf(1),
-									x: BigInt(n)
-								})
-							)
-							const value =
-								box.op === "put"
-									? ChangeSet.empty(Sequence).put(Member, facts)
-									: ChangeSet.empty(Sequence).delete(Member, facts)
-							const compiled = compileWrite(
-								checking(Sequence),
-								descOf(value),
-								realityWrite(succeeded(testArtifacts(Sequence, testCompile)))
-							)
-							const expected = expectedOf(box)
-							if (expected.kind === "bound") {
-								const program = succeeded(compiled, "a write that names its rows by stated fields")
-								const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
-								const bound = succeeded(
-									bindWrite(runnableWrite(program, program.frontend.codes), {
-										members,
-										params: {},
-										transport: inForce(bindFrame)
-									})
-								)
-								assertVariant(bound, "kind", "bound", "a write whose keys hold no index binds")
-								c.note(
-									box.op === "put"
-										? box.declared.includes("owner and generated y")
-											? "put bound beside a declared key over a generated field"
-											: "put bound"
-										: Arr.some(box.declared, holdsIndex)
-											? "delete bound beside a declared key over the index"
-											: "delete bound"
-								)
-								return
-							}
-							const reason = refused(compiled, "UnstatedKey", "a key holds the index").reason
-							if (reason._tag !== "UnstatedKey") {
-								return assert.fail("an UnstatedKey")
-							}
-							assert.deepEqual(
-								{ op: reason.op, relation: reason.relation, unstated: reason.unstated },
-								{ op: box.op, relation: "Member", unstated: ["at"] },
-								"the refusal names the write, the relation and the field no fact states"
-							)
-							const write = Arr.findFirst(
-								Arr.getUnsafe(descOf(value).strata, 0).members,
-								(m) => m.op === box.op && m.relation === "Member"
-							)
-							if (Option.isNone(write)) {
-								return assert.fail("the ChangeSet writes Member")
-							}
-							assert.deepEqual(reason.at, write.value.loc, "the refusal is at the write")
-							switch (expected.kind) {
-								case "primary":
-									assert.deepEqual(
-										reason.key,
-										{ kind: "primary", fields: shapes[box.primary] },
-										"the primary key, read first"
-									)
-									c.note(
-										box.op === "put"
-											? "put refused by its primary key"
-											: "delete refused by its primary key"
-									)
-									return
-								case "declared":
-									assert.ok(
-										reason.key.kind === "declared" &&
-											Arr.some(expected.among, (shape) =>
-												sameFields(reason.key.fields, declaredFields(shape))
-											),
-										`a declared key over the index, not ${Formatter.format(reason.key)}`
-									)
-									c.note("put refused by a declared key")
-									return
-							}
-						})
+/** A write that names rows by a primary key refuses a put or a delete whose primary key holds a field grizzle writes, and a put whose declared key does, naming the write, the key and the field, and binds every other. */
+export const aWriteThatNamesRowsByAPrimaryKeyRefusesAPutOrADeleteWhosePrimaryKeyHoldsAFieldGrizzleWritesAndAPutWhoseDeclaredKeyDoesNamingTheWriteTheKeyAndTheFieldAndBindsEveryOther =
+	property.exhaust(finite(boxGen), {
+		needs: {},
+		situations: [
+			"put refused by its primary key",
+			"put refused by a declared key",
+			"put bound",
+			"put bound beside a declared key over a generated field",
+			"delete refused by its primary key",
+			"delete bound beside a declared key over the index",
+			"delete bound"
+		] satisfies ReadonlyArray<Reached<Situation>>,
+		check: (_, c: Case<Situation>) => (box) =>
+			Effect.gen(function* () {
+				const { Member, declared } = memberOf(box.primary)
+				const Sequence = schema(
+					"Sequence",
+					[Owner, Member],
+					[
+						ordered(on(Member, "owner", "at"), fin(Owner, "n")),
+						...Arr.map(box.declared, declared),
+						mutable(Owner),
+						mutable(Member)
+					]
 				)
-			)
-	)
-})
+				const facts = Arr.map(
+					upTo(box.facts, (i) => i + 1),
+					(n) => ({
+						id: uuidOf(n + 1),
+						owner: uuidOf(1),
+						x: BigInt(n)
+					})
+				)
+				const value =
+					box.op === "put"
+						? ChangeSet.empty(Sequence).put(Member, facts)
+						: ChangeSet.empty(Sequence).delete(Member, facts)
+				const compiled = compileWrite(
+					checking(Sequence),
+					descOf(value),
+					realityWrite(succeeded(testArtifacts(Sequence, testCompile)))
+				)
+				const expected = expectedOf(box)
+				if (expected.kind === "bound") {
+					const program = succeeded(compiled, "a write that names its rows by stated fields")
+					const members = yield* collectInputs(program.binding.groups, parsedOf(value).inputs)
+					const bound = succeeded(
+						bindWrite(runnableWrite(program, program.frontend.codes), {
+							members,
+							params: {},
+							transport: inForce(bindFrame)
+						})
+					)
+					assertVariant(bound, "kind", "bound", "a write whose keys hold no index binds")
+					c.note(
+						box.op === "put"
+							? box.declared.includes("owner and generated y")
+								? "put bound beside a declared key over a generated field"
+								: "put bound"
+							: Arr.some(box.declared, holdsIndex)
+								? "delete bound beside a declared key over the index"
+								: "delete bound"
+					)
+					return
+				}
+				const reason = refused(compiled, "UnstatedKey", "a key holds the index").reason
+				if (reason._tag !== "UnstatedKey") {
+					return assert.fail("an UnstatedKey")
+				}
+				assert.deepEqual(
+					{ op: reason.op, relation: reason.relation, unstated: reason.unstated },
+					{ op: box.op, relation: "Member", unstated: ["at"] },
+					"the refusal names the write, the relation and the field no fact states"
+				)
+				const write = Arr.findFirst(
+					Arr.getUnsafe(descOf(value).strata, 0).members,
+					(m) => m.op === box.op && m.relation === "Member"
+				)
+				if (Option.isNone(write)) {
+					return assert.fail("the ChangeSet writes Member")
+				}
+				assert.deepEqual(reason.at, write.value.loc, "the refusal is at the write")
+				switch (expected.kind) {
+					case "primary":
+						assert.deepEqual(
+							reason.key,
+							{ kind: "primary", fields: shapes[box.primary] },
+							"the primary key, read first"
+						)
+						c.note(
+							box.op === "put"
+								? "put refused by its primary key"
+								: "delete refused by its primary key"
+						)
+						return
+					case "declared":
+						assert.ok(
+							reason.key.kind === "declared" &&
+								Arr.some(expected.among, (shape) =>
+									sameFields(reason.key.fields, declaredFields(shape))
+								),
+							`a declared key over the index, not ${Formatter.format(reason.key)}`
+						)
+						c.note("put refused by a declared key")
+						return
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the first key a write compares that holds the index refuses it, the primary key's first"
+		},
+		box: "a sequence's member under each of four primary keys, beside every subset of the other three and a key over a generated field declared, put or deleted as one to three facts",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original:
+					'\t\t{ kind: "primary", law: primary },\n\t\t...(op === "put" ? declared.map((law) => ({ kind: "declared" as const, law })) : [])',
+				replacement: '\t\t{ kind: "primary", law: primary }',
+				why: "A put's same-key checks read its primary key alone (write/frontend/compile.ts refuseUnstatedKey), so a declared key holding the index refuses nothing."
+			}
+		]
+	})

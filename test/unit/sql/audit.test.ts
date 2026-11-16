@@ -32,686 +32,280 @@
  * required faithful rewrite; each text break and its rule beside the print's leading words; admitted and refused
  * programs.
  */
-import { type Case, type Draw, drawn, exhaust, explore, steered } from "@bjornpagen/testing/explore"
-import {
-	keyOf,
-	type Reached,
-	required,
-	requiredInSpace,
-	type Situations
-} from "@bjornpagen/testing/features"
-import { array, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
-import { decode, encode, everyProperty, noRevivers } from "#compiler/core/canonical.ts"
-import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
-import type { CteBody, Expr, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
-import { builtinType } from "#compiler/sql/build.ts"
-import { emit } from "#compiler/sql/emit.ts"
-import { type CarrierDeclaration, carrierName, emptyNameMap } from "#compiler/sql/naming.ts"
-import { printStatement, printType } from "#compiler/sql/print.ts"
-import {
-	identityHooks,
-	statementParams,
-	transformExpr,
-	transformStatement
-} from "#compiler/sql/transform.ts"
-import { assert, defined, succeeded, unorderedEqual } from "#test/support/assert.ts"
-import { type ShapeFeature, shapeFeatures, shapeOf } from "#test/support/kernel/shape.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { aimed, array, finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
+import { printStatement } from "#compiler/sql/print.ts"
+import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
+import { shapeFeatures, shapeOf } from "#test/support/kernel/shape.ts"
 import { breaks, oneHole } from "#test/support/kernel/sqlgen.ts"
-import { caseHang } from "#test/support/limits.ts"
 import {
 	auditCarrierProgramViolations,
-	auditStatementDetailed,
 	auditStatementViolations,
 	auditTextViolations,
-	meetsStoredRow,
 	violationError
 } from "#test/support/oracle/verify/sql.ts"
-import { pickFrom, pickGen } from "#test/support/pick.ts"
+import { pickFrom } from "#test/support/pick.ts"
+import {
+	type AuditLiveFeature,
+	auditLiveFeatures,
+	breakAims,
+	breakCaseOf,
+	type BreakFeature,
+	breakReaching,
+	breakSituations,
+	candidates,
+	clip,
+	explicit,
+	type FaithfulFeature,
+	faithfulReaching,
+	faithfulSituations,
+	liveSituations,
+	marksMet,
+	noteReached,
+	pickedStatement,
+	type ProgramFeature,
+	programStatement,
+	programStepGen,
+	ruleSet,
+	type TextBreakFeature,
+	textBreakSituations,
+	textReaching,
+	universal,
+	writesWhere,
+	writtenSituations
+} from "#test/unit/sql/audit.fixtures.ts"
 import {
 	breakSketchGen,
-	type Live,
-	type LiveFeature,
-	type LiveSketch,
 	liveSketchGen,
 	resolveLive,
-	type Twinned,
 	writtenSketchGen
 } from "#test/unit/sql/audit/live.ts"
 import {
-	type AuditRule,
 	auditRuleReason,
-	type FaithfulRewrite,
 	faithfulRewrites,
-	leadingWords,
-	requiredFaithfulRewrites,
-	requiredStatementBreaks,
-	type StatementBreak,
-	type StatementBreakName,
 	statementBreaks,
-	type TextBreak,
 	textBreaks
 } from "#test/unit/sql/audit/operators.ts"
 
-const ruleSet = (violations: ReadonlyArray<{ readonly rule: AuditRule }>): string =>
-	Arr.join(Arr.sort([...new Set(Arr.map(violations, (v) => v.rule))], Order.String), ", ")
-
-const clip = (text: string): string =>
-	text.length > 1200 ? `${Str.slice(0, 1200)(text)}...` : text
-
-/**
- * The type every use of each placeholder index is cast to, by its printed form: an expression's placeholder is cast to
- * its type, an input array's, `unnest($n::<type>[])`, to its column's type made an array (bit(n)'s included, which no
- * TypeRef states), and an input count's to bigint.
- */
-const placeholderTypes = (s: SqlStatement): ReadonlyMap<number, ReadonlySet<string>> => {
-	const types = new Map<number, Set<string>>()
-	const use = (index: number, printed: string): void => {
-		const seen = types.get(index) ?? new Set<string>()
-		seen.add(printed)
-		types.set(index, seen)
-	}
-	const arrayOf = (type: TypeRef): string => (type.array ? printType(type) : `${printType(type)}[]`)
-	transformStatement(s, {
-		...identityHooks,
-		expr: (e) => {
-			if (e.kind === "param") {
-				use(e.slot.number, printType(e.type))
-			}
-			return e
-		},
-		fromSource: (item) => {
-			if (item.kind === "arrays") {
-				const source = item.source
-				if (source.kind === "count") {
-					use(source.count.number, printType(builtinType("bigint")))
-				} else {
-					for (const c of source.columns) {
-						use(c.array.number, arrayOf(c.definition.type))
+/** Every Live statement passes both audits, prints as its twin does, survives the snapshot's codec and emit, and lowers deterministically. */
+export const everyLiveStatementPassesBothAuditsPrintsAsItsTwinDoesSurvivesTheSnapshotsCodecAndEmitAndLowersDeterministically =
+	property.explore(liveSketchGen, {
+		needs: {},
+		situations: liveSituations satisfies ReadonlyArray<Reached<AuditLiveFeature>>,
+		check: (_, c: Case<AuditLiveFeature>) => (sketch) =>
+			Effect.sync(() => {
+				const live = resolveLive(sketch)
+				for (const twinned of live.statements) {
+					universal(twinned)
+				}
+				c.noteAll(auditLiveFeatures(live))
+				for (const { ast, text } of live.emitted) {
+					assert.equal(text, printStatement(ast), "the emitted text is its AST's print")
+				}
+				const [first, ...runs] = live.again()
+				if (first !== undefined) {
+					for (const run of runs) {
+						assert.deepEqual(run, first, "lowering the case again emits the same texts")
 					}
 				}
-			}
-			return item
-		}
-	})
-	return types
-}
-
-/** The universal checks every Live statement passes. */
-const universal = (t: Twinned): void => {
-	const s = t.statement
-	const text = printStatement(s)
-	assert.deepEqual(
-		Arr.map(auditStatementViolations(s), (v) => `${v.rule} at ${v.where}: ${v.detail}`),
-		[],
-		clip(text)
-	)
-	assert.deepEqual(
-		Arr.map(auditTextViolations(text), (v) => `${v.rule} at ${v.where}: ${v.detail}`),
-		[],
-		clip(text)
-	)
-	assert.equal(printStatement(t.twin), text, "a twin built apart prints alike")
-	assert.equal(
-		transformStatement(s, identityHooks),
-		s,
-		"a traversal that changes nothing keeps the statement"
-	)
-	const written = succeeded(writeJsonText(s), "the snapshot writer writes an admitted statement")
-	const read = succeeded(decode(written, noRevivers), "the snapshot reader reads its own statement")
-	assert.equal(
-		succeeded(encode(read, everyProperty), "the read statement's canonical text"),
-		succeeded(encode(s, everyProperty), "the statement's canonical text"),
-		"the snapshot stores the statement as itself and reads it back as itself"
-	)
-	const emitted = succeeded(emit(s, emptyNameMap), "emit emits an admitted statement")
-	assert.equal<string>(emitted.text, text, "emit prints the statement")
-	const order: ReadonlyArray<TypeRef> = auditStatementDetailed(s).params
-	const used = placeholderTypes(s)
-	assert.equal(order.length, used.size, "one type per placeholder index")
-	assert.equal(statementParams(s), order.length, "the parameters a Bind of the statement supplies")
-	for (const [i, type] of order.entries()) {
-		unorderedEqual([...(used.get(i + 1) ?? [])], [printType(type)], `$${i + 1}`)
-	}
-}
-
-/** The statement of a Live draw that a break case acts on: one, picked, so a case stays small. */
-interface StatementPick {
-	readonly kind: number
-	readonly statement: number
-}
-
-/** Picks, since the kinds and statements are known only once the draw is resolved. */
-const statementPickGen: Gen<StatementPick> = (source) => ({
-	kind: source.draw(pickGen),
-	statement: source.draw(pickGen)
-})
-
-/** Statements in the order of their kinds' names, so the statements of one kind sit together. */
-const byKind = Order.mapInput(Order.String, (s: SqlStatement) => s.kind)
-
-/** Statements grouped by kind, the kinds in the order of their names, each group in the order the statements came. */
-const groupsOf = (
-	statements: Arr.NonEmptyReadonlyArray<Twinned>
-): Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<SqlStatement>> =>
-	Arr.groupWith(
-		Arr.sort(
-			Arr.map(statements, (t) => t.statement),
-			byKind
-		),
-		(a, b) => a.kind === b.kind
-	)
-
-/**
- * A kind uniformly among the kinds the statements hold, then a statement of it: a DDL kind that is one of sixty
- * statements of an installation is reached as often as SELECT.
- */
-const pickedStatement = (
-	statements: Arr.NonEmptyReadonlyArray<Twinned>,
-	pick: StatementPick
-): SqlStatement => pickFrom(pickFrom(groupsOf(statements), pick.kind), pick.statement)
-
-/**
- * How a suite's operators meet a statement: what the suite reads of a statement, the situations an operator reaches
- * in what it read, and whether the operator has a site there. A property notes exactly what `reaches` names for each
- * operator with a site, and an aimed case picks by the same two, so what is aimed at is what gets noted.
- */
-interface Reaching<V, O, F extends string> {
-	readonly view: (s: SqlStatement) => V
-	readonly operators: ReadonlyArray<O>
-	readonly reaches: (v: V, operator: O) => Arr.NonEmptyReadonlyArray<Reached<F>>
-	readonly applies: (v: V, operator: O) => boolean
-}
-
-/** Notes one situation a case reached: a feature, or a pair of them. */
-const noteReached = <F extends string>(c: Case<F>, situation: Reached<F>): void => {
-	if (typeof situation === "string") {
-		c.note(situation)
-	} else {
-		c.pair(situation[0], situation[1])
-	}
-}
-
-/**
- * The statements a case picks among: those of the draw with a site of an operator that reaches a situation its sketch
- * aims at, when the draw holds one, so a pending situation's site is picked while it is pending rather than left to its
- * share of chance; every statement where it aims at none, or the draw holds no site of one.
- */
-const candidates = <V, O, F extends string>(
-	live: Live,
-	aims: ReadonlyArray<Reached<F>>,
-	reaching: Reaching<V, O, F>
-): Arr.NonEmptyReadonlyArray<Twinned> => {
-	const aimed = new Set(Arr.map(aims, keyOf))
-	return Arr.match(
-		Arr.filter(live.statements, (t) => {
-			const v = reaching.view(t.statement)
-			return Arr.some(
-				reaching.operators,
-				(operator) =>
-					Arr.some(reaching.reaches(v, operator), (situation) => aimed.has(keyOf(situation))) &&
-					reaching.applies(v, operator)
-			)
-		}),
-		{ onEmpty: () => live.statements, onNonEmpty: (picked) => picked }
-	)
-}
-
-/**
- * What a break case draws: the Live source, the statement it acts on, the site each operator picks, and the situations
- * it aims at.
- */
-interface BreakCase<F extends string> {
-	readonly live: LiveSketch
-	readonly statement: StatementPick
-	readonly sites: ReadonlyArray<number>
-	readonly aims: ReadonlyArray<Reached<F>>
-}
-
-/**
- * A break case, drawn under its steering: its Live source and picks, and the situations among `situations` still
- * pending where the case steers, none where it may not, so a rotating case is a plain draw and a kept case picks as its
- * sketch says.
- */
-const breakCaseDraw = <F extends string>(
-	live: Gen<LiveSketch>,
-	operators: number,
-	situations: Situations<F>
-): Draw<BreakCase<F>, BreakCase<F>, F> =>
-	steered(
-		(steering) =>
-			(source): BreakCase<F> => ({
-				live: source.draw(live),
-				statement: source.draw(statementPickGen),
-				sites: source.draw(array(pickGen, { min: operators, max: operators })),
-				aims: Option.match(steering, {
-					onNone: () => [],
-					onSome: (pending) => Arr.filter(situations, pending.has)
-				})
 			}),
-		(breakCase) => breakCase
-	)
+		oracle: {
+			kind: "universal",
+			name: "both audits admit it, its twin prints alike, the codec and emit read it back, lowering again emits the same text"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/sql/emit.ts",
+				original: "\ttext: emitted(printStatement(statement)),",
+				replacement: `\ttext: emitted(\`\${printStatement(statement)} \`),`,
+				why: "An emitted text carries a trailing space (sql/emit.ts); the Live and the written statements' searches fail."
+			}
+		]
+	})
 
-/**
- * What a Live draw reached: its source, each statement's kind and shape, and the float literals the persisted forms
- * once lost (NaN, the infinities and -0).
- */
-type AuditLiveFeature =
-	| LiveFeature
-	| ShapeFeature
-	| `statement ${SqlStatement["kind"]}`
-	| "float literal special"
-	| "float literal negative zero"
-	| "overriding system value"
-	| "old under IS TRUE in an INSERT's RETURNING"
-
-/** What the audit-live suite notes of a draw: its own features, and each statement's kind, shape and float literals. */
-const auditLiveFeatures = (live: Live): ReadonlyArray<AuditLiveFeature> => [
-	...live.features,
-	...Arr.flatMap(live.statements, ({ statement }): ReadonlyArray<AuditLiveFeature> => {
-		const floats: Array<AuditLiveFeature> = []
-		transformStatement(statement, {
-			...identityHooks,
-			expr: (e) => {
-				if (e.kind === "literal" && e.value.kind === "floatSpecial") {
-					floats.push(
-						e.value.value === "-0" ? "float literal negative zero" : "float literal special"
-					)
+/** Every statement a generated write program places passes both audits, prints as its twin does, survives the snapshot's codec and emit, and compiles deterministically. */
+export const everyStatementAGeneratedWriteProgramPlacesPassesBothAuditsPrintsAsItsTwinDoesSurvivesTheSnapshotsCodecAndEmitAndCompilesDeterministically =
+	property.explore(writtenSketchGen, {
+		needs: {},
+		situations: writtenSituations satisfies ReadonlyArray<Reached<AuditLiveFeature>>,
+		check: (_, c: Case<AuditLiveFeature>) => (sketch) =>
+			Effect.sync(() => {
+				const live = resolveLive(sketch)
+				c.noteAll(live.features)
+				for (const twinned of live.statements) {
+					universal(twinned)
+					c.note(`statement ${twinned.statement.kind}`)
+					c.noteAll(shapeFeatures(shapeOf(twinned.statement)))
+					if (writesWhere(twinned.statement, explicit)) {
+						c.note("overriding system value")
+					}
+					if (writesWhere(twinned.statement, marksMet)) {
+						c.note("old under IS TRUE in an INSERT's RETURNING")
+					}
 				}
-				return e
+				for (const { ast, text } of live.emitted) {
+					assert.equal(text, printStatement(ast), "the placed text is its AST's print")
+				}
+				const [first, ...runs] = live.again()
+				if (first !== undefined) {
+					for (const run of runs) {
+						assert.deepEqual(run, first, "compiling the program again places the same texts")
+					}
+				}
+			}),
+		oracle: {
+			kind: "universal",
+			name: "both audits admit it, its twin prints alike, the codec and emit read it back, compiling again places the same text"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/sql/emit.ts",
+				original: "\ttext: emitted(printStatement(statement)),",
+				replacement: `\ttext: emitted(\`\${printStatement(statement)} \`),`,
+				why: "An emitted text carries a trailing space (sql/emit.ts); the Live and the written statements' searches fail."
+			},
+			{
+				file: "packages/engine/src/write/family/scan.ts",
+				original: "\tderived(layer.query, alias, layer.columns, false)",
+				replacement: "\tderived(layer.query, alias, [], false)",
+				why: "A family scan's layer lists no column (write/family/scan.ts), so its derived table names none; the written statements' search fails."
+			},
+			{
+				file: "packages/engine/src/write/insert/protocol.ts",
+				original: "\t\t\t\t\t\t...outFields.map((f) => targetAs(requested(f), retCol(f))),",
+				replacement: "\t\t\t\t\t\t...outFields.map((f) => target(requested(f))),",
+				why: "The same-key pair's arm of an insert's verdict UNION ALL leaves its fact columns unnamed (write/insert/protocol.ts paired); the written statements' search fails."
 			}
-		})
-		return [`statement ${statement.kind}`, ...shapeFeatures(shapeOf(statement)), ...floats]
+		]
 	})
-]
 
-/** Whether a write writes an explicit serial: an INSERT with OVERRIDING SYSTEM VALUE. */
-const explicit = (w: SqlStatement | CteBody): boolean =>
-	w.kind === "insert" && w.overriding !== undefined
-
-/** Whether an expression names a row's old image. */
-const namesOld = (e: Expr): boolean => {
-	const sides: Array<"old" | "new"> = []
-	transformExpr(e, {
-		...identityHooks,
-		expr: (x) => {
-			if (x.kind === "returning") {
-				sides.push(x.side)
-			}
-			return x
-		}
-	})
-	return sides.includes("old")
-}
-
-/**
- * Whether a write is an INSERT whose RETURNING names old under IS TRUE where its ON CONFLICT returns the stored row it
- * meets (`meetsStoredRow`), as write/insert/protocol.ts's met marker does.
- */
-const marksMet = (w: SqlStatement | CteBody): boolean =>
-	w.kind === "insert" &&
-	meetsStoredRow(w) &&
-	Arr.some(w.returning, (t) => t.expr.kind === "isTrue" && namesOld(t.expr.expr))
-
-/** Whether a statement or a data-modifying CTE of its WITH, the only place PostgreSQL admits one, is a write `holds` holds of. */
-const writesWhere = (s: SqlStatement, holds: (w: SqlStatement | CteBody) => boolean): boolean => {
-	const ctes =
-		s.kind === "select" ||
-		s.kind === "insert" ||
-		s.kind === "update" ||
-		s.kind === "delete" ||
-		s.kind === "merge"
-			? (s.with?.ctes ?? [])
-			: []
-	return holds(s) || Arr.some(ctes, (c) => holds(c.query))
-}
-
-/** What a break case reached: each break, each rule, and each rule beside the kind of statement it broke. */
-type BreakFeature =
-	| `break ${StatementBreakName}`
-	| `rule ${AuditRule}`
-	| `statement ${SqlStatement["kind"]}`
-
-type FaithfulFeature = `rewrite ${string}`
-
-/** What a text break case reached: each break, and each rule beside the leading words of the text it broke. */
-type TextBreakFeature = `text break ${string}` | `text rule ${AuditRule}` | `leading ${string}`
-
-/** How a statement break meets a statement: each break with a site, its rule, and its rule beside the kind it breaks. */
-const breakReaching: Reaching<SqlStatement, StatementBreak, BreakFeature> = {
-	view: (s) => s,
-	operators: statementBreaks,
-	reaches: (s, b) => [
-		`break ${b.name}`,
-		`rule ${b.rule}`,
-		[`rule ${b.rule}`, `statement ${s.kind}`]
-	],
-	applies: (s, b) => Arr.isReadonlyArrayNonEmpty(breaks(s, b))
-}
-
-/** How a faithful rewrite meets a statement: each rewrite with a hole in it. */
-const faithfulReaching: Reaching<SqlStatement, FaithfulRewrite, FaithfulFeature> = {
-	view: (s) => s,
-	operators: faithfulRewrites,
-	reaches: (_s, r) => [`rewrite ${r.name}`],
-	applies: (s, r) => Arr.isReadonlyArrayNonEmpty(oneHole(s, r.holes))
-}
-
-/** How a text break meets a statement's print: each break with a site, and its rule beside the print's leading words. */
-const textReaching: Reaching<string, TextBreak, TextBreakFeature> = {
-	view: printStatement,
-	operators: textBreaks,
-	reaches: (printed, b) => [
-		`text break ${b.name}`,
-		[`text rule ${b.rule}`, `leading ${leadingWords(printed)}`]
-	],
-	applies: (printed, b) => Arr.isReadonlyArrayNonEmpty(b.variants(printed))
-}
-
-describe("every Live statement", () => {
-	it.effect(
-		"passes both audits, prints as its twin does, survives the snapshot's codec and emit, and lowers deterministically",
-		(ctx) => {
-			const situations: Situations<AuditLiveFeature> = [
-				"source generated",
-				"source planted",
-				"source lowered",
-				"source installed",
-				"source drafted",
-				"context snapshot",
-				"context transaction",
-				"statement select",
-				"statement insert",
-				"statement update",
-				"statement delete",
-				"statement merge",
-				"statement createTable",
-				"statement createIndex",
-				"statement createDomain",
-				"statement createFunction",
-				"statement grant",
-				"from arrays",
-				"lateral",
-				"with recursive",
-				"float literal special",
-				"float literal negative zero"
-			]
-			return searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "universal",
-							name: "both audits admit it, its twin prints alike, the codec and emit read it back, lowering again emits the same text"
-						},
-						suite: "unit/sql/audit-live",
-						draw: drawn(liveSketchGen),
-						literal: Formatter.format,
-						coverage: required<AuditLiveFeature>(situations, { cases: 120, sense: notesOnly }),
-						kept: [],
-						/** The rotating stream's sample: coverage is the floor's and the steered phase's. */
-						runs: 120,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(sketch, c) =>
-						Effect.sync(() => {
-							const live = resolveLive(sketch)
-							for (const twinned of live.statements) {
-								universal(twinned)
+/** A statement broken at one site is refused by the audit for exactly the rule it breaks, under that rule's reason. */
+export const aStatementBrokenAtOneSiteIsRefusedByTheAuditForExactlyTheRuleItBreaksUnderThatRulesReason =
+	property.explore(
+		aimed(
+			breakCaseOf<BreakFeature>(breakSketchGen, statementBreaks.length, []),
+			breakAims(breakReaching, breakSituations)
+		),
+		{
+			needs: {},
+			situations: breakSituations satisfies ReadonlyArray<Reached<BreakFeature>>,
+			check:
+				(_, c: Case<BreakFeature>) =>
+				({ live: sketch, statement, sites, aims }) =>
+					Effect.sync(() => {
+						const live = resolveLive(sketch)
+						const s = pickedStatement(candidates(live, aims, breakReaching), statement)
+						const problems: Array<string> = []
+						for (const [i, operator] of statementBreaks.entries()) {
+							const [first, ...rest] = breaks(s, operator)
+							if (first === undefined) {
+								continue
 							}
-							c.noteAll(auditLiveFeatures(live))
-							for (const { ast, text } of live.emitted) {
-								assert.equal(text, printStatement(ast), "the emitted text is its AST's print")
-							}
-							const [first, ...runs] = live.again()
-							if (first !== undefined) {
-								for (const run of runs) {
-									assert.deepEqual(run, first, "lowering the case again emits the same texts")
-								}
-							}
-						})
-				)
-			)
-		}
-	)
-})
-
-describe("every statement a generated write program places", () => {
-	it.effect(
-		"passes both audits, prints as its twin does, survives the snapshot's codec and emit, and compiles deterministically",
-		(ctx) => {
-			const situations: Situations<AuditLiveFeature> = [
-				"source written",
-				"a member deleted under a mutable owner",
-				"statement select",
-				"statement insert",
-				"statement createCarrier",
-				"statement analyze",
-				"cte insert",
-				"cte delete",
-				"from arrays",
-				"overriding system value",
-				"old under IS TRUE in an INSERT's RETURNING"
-			]
-			return searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "universal",
-							name: "both audits admit it, its twin prints alike, the codec and emit read it back, compiling again places the same text"
-						},
-						suite: "unit/sql/audit-written",
-						draw: drawn(writtenSketchGen),
-						literal: Formatter.format,
-						coverage: required<AuditLiveFeature>(situations, { cases: 60, sense: notesOnly }),
-						kept: [],
-						/** The rotating stream's sample: coverage is the floor's and the steered phase's. */
-						runs: 60,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(sketch, c) =>
-						Effect.sync(() => {
-							const live = resolveLive(sketch)
-							c.noteAll(live.features)
-							for (const twinned of live.statements) {
-								universal(twinned)
-								c.note(`statement ${twinned.statement.kind}`)
-								c.noteAll(shapeFeatures(shapeOf(twinned.statement)))
-								if (writesWhere(twinned.statement, explicit)) {
-									c.note("overriding system value")
-								}
-								if (writesWhere(twinned.statement, marksMet)) {
-									c.note("old under IS TRUE in an INSERT's RETURNING")
-								}
-							}
-							for (const { ast, text } of live.emitted) {
-								assert.equal(text, printStatement(ast), "the placed text is its AST's print")
-							}
-							const [first, ...runs] = live.again()
-							if (first !== undefined) {
-								for (const run of runs) {
-									assert.deepEqual(run, first, "compiling the program again places the same texts")
-								}
-							}
-						})
-				)
-			)
-		}
-	)
-})
-
-describe("a statement broken at one site", () => {
-	it.effect(
-		"is refused by the audit for exactly the rule it breaks, under that rule's reason",
-		(ctx) => {
-			const situations: Situations<BreakFeature> = Arr.appendAll(
-				Arr.map(requiredStatementBreaks, (b): BreakFeature => `break ${b.name}`),
-				Arr.map(
-					Arr.dedupe(Arr.map(statementBreaks, (b) => b.rule)),
-					(rule): BreakFeature => `rule ${rule}`
-				)
-			)
-			return searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "each break refused for exactly the rule it declares, under that rule's reason"
-						},
-						suite: "unit/sql/audit-breaks",
-						draw: breakCaseDraw(breakSketchGen, statementBreaks.length, situations),
-						literal: Formatter.format,
-						coverage: required<BreakFeature>(situations, { cases: 600, sense: notesOnly }),
-						kept: [],
-						/** The rotating stream's sample: coverage is the floor's and the steered phase's. */
-						runs: 300,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					({ live: sketch, statement, sites, aims }, c) =>
-						Effect.sync(() => {
-							const live = resolveLive(sketch)
-							const s = pickedStatement(candidates(live, aims, breakReaching), statement)
-							const problems: Array<string> = []
-							for (const [i, operator] of statementBreaks.entries()) {
-								const [first, ...rest] = breaks(s, operator)
-								if (first === undefined) {
-									continue
-								}
-								const rewrite = pickFrom(
-									[first, ...rest],
-									defined(sites[i], "a site drawn per break")
+							const rewrite = pickFrom(
+								[first, ...rest],
+								defined(sites[i], "a site drawn per break")
+							)
+							const found = auditStatementViolations(rewrite.statement)
+							const got = ruleSet(found)
+							if (got !== operator.rule) {
+								problems.push(
+									`${operator.name} (${rewrite.kind} ${rewrite.site}): reported [${got}], not [${operator.rule}]\n${clip(printStatement(rewrite.statement))}`
 								)
-								const found = auditStatementViolations(rewrite.statement)
-								const got = ruleSet(found)
-								if (got !== operator.rule) {
-									problems.push(
-										`${operator.name} (${rewrite.kind} ${rewrite.site}): reported [${got}], not [${operator.rule}]\n${clip(printStatement(rewrite.statement))}`
-									)
-									continue
-								}
-								const [violation] = found
-								if (violation === undefined) {
-									problems.push(`${operator.name}: the audit admitted it`)
-									continue
-								}
-								const reason = auditRuleReason[operator.rule]
-								const refused = violationError(violation, "statement").reason._tag
-								if (refused !== reason) {
-									problems.push(`${operator.name}: refused as ${refused}, not ${reason}`)
-								}
-								for (const situation of breakReaching.reaches(s, operator)) {
-									noteReached(c, situation)
-								}
+								continue
 							}
-							assert.deepEqual(problems, [], `${live.label}\n${clip(printStatement(s))}`)
-						})
-				)
-			)
+							const [violation] = found
+							if (violation === undefined) {
+								problems.push(`${operator.name}: the audit admitted it`)
+								continue
+							}
+							const reason = auditRuleReason[operator.rule]
+							const refused = violationError(violation, "statement").reason._tag
+							if (refused !== reason) {
+								problems.push(`${operator.name}: refused as ${refused}, not ${reason}`)
+							}
+							for (const situation of breakReaching.reaches(s, operator)) {
+								noteReached(c, situation)
+							}
+						}
+						assert.deepEqual(problems, [], `${live.label}\n${clip(printStatement(s))}`)
+					}),
+			oracle: {
+				kind: "specification",
+				name: "each break refused for exactly the rule it declares, under that rule's reason"
+			},
+			kept: [],
+			kills: []
 		}
 	)
 
-	it.effect(
-		"is admitted when the rewrite is faithful, and prints as the rewrite declares",
-		(ctx) => {
-			const situations: Situations<FaithfulFeature> = Arr.map(
-				requiredFaithfulRewrites,
-				(r): FaithfulFeature => `rewrite ${r.name}`
-			)
-			return searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "each faithful rewrite admitted, printing as it declares"
-						},
-						suite: "unit/sql/audit-faithful",
-						draw: breakCaseDraw(liveSketchGen, faithfulRewrites.length, situations),
-						literal: Formatter.format,
-						coverage: required<FaithfulFeature>(situations, { cases: 300, sense: notesOnly }),
-						kept: [],
-						/** The rotating stream's sample: coverage is the floor's and the steered phase's. */
-						runs: 300,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					({ live: sketch, statement, sites, aims }, c) =>
-						Effect.sync(() => {
-							const live = resolveLive(sketch)
-							const s = pickedStatement(candidates(live, aims, faithfulReaching), statement)
-							const before = printStatement(s)
-							const problems: Array<string> = []
-							for (const [i, r] of faithfulRewrites.entries()) {
-								const [first, ...rest] = oneHole(s, r.holes)
-								if (first === undefined) {
-									continue
-								}
-								const v = pickFrom(
-									[first, ...rest],
-									defined(sites[i], "a site drawn per rewrite")
-								).statement
-								const found = auditStatementViolations(v)
-								const after = printStatement(v)
-								if (found.length > 0) {
-									problems.push(`${r.name}: refused [${ruleSet(found)}]\n${clip(after)}`)
-								}
-								if (r.print === "different" && after === before) {
-									problems.push(`${r.name}: prints as the statement it rewrote`)
-								}
-								for (const situation of faithfulReaching.reaches(s, r)) {
-									noteReached(c, situation)
-								}
+/** A statement broken at one site is admitted when the rewrite is faithful, and prints as the rewrite declares. */
+export const aStatementBrokenAtOneSiteIsAdmittedWhenTheRewriteIsFaithfulAndPrintsAsTheRewriteDeclares =
+	property.explore(
+		aimed(
+			breakCaseOf<FaithfulFeature>(liveSketchGen, faithfulRewrites.length, []),
+			breakAims(faithfulReaching, faithfulSituations)
+		),
+		{
+			needs: {},
+			situations: faithfulSituations satisfies ReadonlyArray<Reached<FaithfulFeature>>,
+			check:
+				(_, c: Case<FaithfulFeature>) =>
+				({ live: sketch, statement, sites, aims }) =>
+					Effect.sync(() => {
+						const live = resolveLive(sketch)
+						const s = pickedStatement(candidates(live, aims, faithfulReaching), statement)
+						const before = printStatement(s)
+						const problems: Array<string> = []
+						for (const [i, r] of faithfulRewrites.entries()) {
+							const [first, ...rest] = oneHole(s, r.holes)
+							if (first === undefined) {
+								continue
 							}
-							assert.deepEqual(problems, [], `${live.label}\n${clip(before)}`)
-						})
-				)
-			)
+							const v = pickFrom(
+								[first, ...rest],
+								defined(sites[i], "a site drawn per rewrite")
+							).statement
+							const found = auditStatementViolations(v)
+							const after = printStatement(v)
+							if (found.length > 0) {
+								problems.push(`${r.name}: refused [${ruleSet(found)}]\n${clip(after)}`)
+							}
+							if (r.print === "different" && after === before) {
+								problems.push(`${r.name}: prints as the statement it rewrote`)
+							}
+							for (const situation of faithfulReaching.reaches(s, r)) {
+								noteReached(c, situation)
+							}
+						}
+						assert.deepEqual(problems, [], `${live.label}\n${clip(before)}`)
+					}),
+			oracle: {
+				kind: "specification",
+				name: "each faithful rewrite admitted, printing as it declares"
+			},
+			kept: [],
+			kills: []
 		}
 	)
-})
 
-describe("a printed statement broken at one token", () => {
-	it.effect("is refused by the text audit for exactly the rule it breaks", (ctx) => {
-		const situations: Situations<TextBreakFeature> = Arr.appendAll(
-			Arr.map(textBreaks, (b): TextBreakFeature => `text break ${b.name}`),
-			[
-				["text rule null", "leading CREATE TABLE"],
-				["text rule untypedLiteral", "leading CREATE OR"]
-			] as const
-		)
-		return searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "specification",
-						name: "each text break refused by the text audit for exactly the rule it declares"
-					},
-					suite: "unit/sql/audit-text-breaks",
-					draw: breakCaseDraw(breakSketchGen, textBreaks.length, situations),
-					literal: Formatter.format,
-					coverage: required<TextBreakFeature>(situations, { cases: 400, sense: notesOnly }),
-					kept: [],
-					/** The rotating stream's sample: coverage is the floor's and the steered phase's. */
-					runs: 400,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				({ live: sketch, statement, sites, aims }, c) =>
+/** A printed statement broken at one token is refused by the text audit for exactly the rule it breaks. */
+export const aPrintedStatementBrokenAtOneTokenIsRefusedByTheTextAuditForExactlyTheRuleItBreaks =
+	property.explore(
+		aimed(
+			breakCaseOf<TextBreakFeature>(breakSketchGen, textBreaks.length, []),
+			breakAims(textReaching, textBreakSituations)
+		),
+		{
+			needs: {},
+			situations: textBreakSituations satisfies ReadonlyArray<Reached<TextBreakFeature>>,
+			check:
+				(_, c: Case<TextBreakFeature>) =>
+				({ live: sketch, statement, sites, aims }) =>
 					Effect.sync(() => {
 						const live = resolveLive(sketch)
 						const s = pickedStatement(candidates(live, aims, textReaching), statement)
@@ -732,84 +326,48 @@ describe("a printed statement broken at one token", () => {
 							}
 						}
 						assert.deepEqual(problems, [], `${live.label}\n${clip(printed)}`)
-					})
-			)
-		)
-	})
-})
-
-/** One statement of a write program, as far as its carriers go. */
-type ProgramStep =
-	| { readonly kind: "create"; readonly carrier: number }
-	| { readonly kind: "analyze"; readonly carriers: Arr.NonEmptyReadonlyArray<number> }
-
-type ProgramFeature = "admitted" | "refused"
-
-/** The declaration of every carrier a program here creates: one bigint column, no key. */
-const bigintCarrier: CarrierDeclaration = {
-	primaryKey: undefined,
-	columns: [{ name: "c1", type: builtinType("bigint"), collation: undefined, generated: undefined }]
-}
-
-const programStatement = (step: ProgramStep): SqlStatement =>
-	step.kind === "create"
-		? { kind: "createCarrier", name: carrierName(step.carrier, bigintCarrier), ...bigintCarrier }
-		: {
-				kind: "analyze",
-				carriers: Arr.map(step.carriers, (n) => carrierName(n, bigintCarrier))
-			}
-
-/** One step on two carriers: a carrier created, or an ANALYZE of any nonempty subset of them, as ANALYZE needs one. */
-const programStepGen: Gen<ProgramStep> = oneOf<ProgramStep>([
-	map(int(1, 2), (carrier): ProgramStep => ({ kind: "create", carrier })),
-	map(element<Arr.NonEmptyReadonlyArray<number>>([[1], [2], [1, 2]]), (carriers): ProgramStep => ({
-		kind: "analyze",
-		carriers
-	}))
-])
-
-describe("a write program's ANALYZE", () => {
-	it.effect(
-		"names only carriers an earlier statement created, over every program of three statements on two carriers",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						box: "every program of up to three statements on two carriers, each creating one or analyzing a nonempty set of them",
-						oracle: {
-							kind: "specification",
-							name: "an ANALYZE names only carriers an earlier statement created"
-						},
-						suite: "unit/sql/carrier-program",
-						generator: array(programStepGen, { min: 0, max: 3 }),
-						literal: Formatter.format,
-						coverage: requiredInSpace<ProgramFeature>(["admitted", "refused"]),
-						caseHang
-					},
-					(program, c) =>
-						Effect.sync(() => {
-							const created = new Set<number>()
-							const expected: Array<string> = []
-							for (const [i, step] of program.entries()) {
-								if (step.kind === "create") {
-									created.add(step.carrier)
-								} else {
-									for (const carrier of step.carriers) {
-										if (!created.has(carrier)) {
-											expected.push(`context at statement ${i}`)
-										}
-									}
-								}
-							}
-							const got = Arr.map(
-								auditCarrierProgramViolations(Arr.map(program, programStatement)),
-								(v) => `${v.rule} at ${v.where}`
-							)
-							unorderedEqual(Arr.dedupe(got), Arr.dedupe(expected))
-							c.note(expected.length === 0 ? "admitted" : "refused")
-						})
-				)
-			)
+					}),
+			oracle: {
+				kind: "specification",
+				name: "each text break refused by the text audit for exactly the rule it declares"
+			},
+			kept: [],
+			kills: []
+		}
 	)
-})
+
+/** A write program's ANALYZE names only carriers an earlier statement created, over every program of three statements on two carriers. */
+export const aWriteProgramsANALYZENamesOnlyCarriersAnEarlierStatementCreatedOverEveryProgramOfThreeStatementsOnTwoCarriers =
+	property.exhaust(finite(array(programStepGen, { min: 0, max: 3 })), {
+		needs: {},
+		situations: ["admitted", "refused"] satisfies ReadonlyArray<Reached<ProgramFeature>>,
+		check: (_, c: Case<ProgramFeature>) => (program) =>
+			Effect.sync(() => {
+				const created = new Set<number>()
+				const expected: Array<string> = []
+				for (const [i, step] of program.entries()) {
+					if (step.kind === "create") {
+						created.add(step.carrier)
+					} else {
+						for (const carrier of step.carriers) {
+							if (!created.has(carrier)) {
+								expected.push(`context at statement ${i}`)
+							}
+						}
+					}
+				}
+				const got = Arr.map(
+					auditCarrierProgramViolations(Arr.map(program, programStatement)),
+					(v) => `${v.rule} at ${v.where}`
+				)
+				unorderedEqual(Arr.dedupe(got), Arr.dedupe(expected))
+				c.note(expected.length === 0 ? "admitted" : "refused")
+			}),
+		oracle: {
+			kind: "specification",
+			name: "an ANALYZE names only carriers an earlier statement created"
+		},
+		box: "every program of up to three statements on two carriers, each creating one or analyzing a nonempty set of them",
+		kept: [],
+		kills: []
+	})

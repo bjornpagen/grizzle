@@ -20,947 +20,509 @@
  * Features: each break, each decoded form, an own __proto__ key in each process, each unreadable site, each defect
  * site, each refinement admitted and refused, depths within and past a small stack, each cycle length and form.
  */
-import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
-import { required, requiredInSpace } from "@bjornpagen/testing/features"
-import {
-	array,
-	codePoint,
-	constant,
-	element,
-	type Gen,
-	int,
-	map,
-	oneOf,
-	string,
-	uniqueArray,
-	weighted
-} from "@bjornpagen/testing/gen"
+
+import { Checkout } from "@bjornpagen/testing/checkout"
+import { type Reached } from "@bjornpagen/testing/features"
+import { array, constant, element, finite, int, map, weighted } from "@bjornpagen/testing/gen"
 import { type Drawn, passed, wild } from "@bjornpagen/testing/lsw"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { double } from "@bjornpagen/testing/values"
-import { searched } from "@bjornpagen/testing/vitest"
-import { NodeServices } from "@effect/platform-node"
-import { describe, it, layer } from "@effect/vitest"
-import { Array as Arr, Data, Effect, Formatter, Option, Queue, Record as Rec, Stream } from "effect"
-import { ChildProcess } from "effect/process"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
 import * as S from "#compiler/ir/shape.ts"
 import {
 	assert,
 	nonEmpty,
-	type Place,
 	placeOf,
 	refusalLoc,
 	refused,
 	succeeded,
 	unorderedEqual
 } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { pickFrom, pickGen, pickOf } from "#test/support/pick.ts"
-import { runOptions } from "#test/support/process.ts"
+import { pickFrom, pickGen } from "#test/support/pick.ts"
 import type { ConsumerRecord } from "#test/unit/ir/shape-record.child.ts"
+import {
+	type Break,
+	breakNames,
+	breaksOf,
+	built,
+	consumerProcess,
+	containers,
+	CycleReads,
+	cyclic,
+	type Decoded,
+	type DecodedIn,
+	decodedIn,
+	Defect,
+	defective,
+	type DefectKind,
+	type DefectSite,
+	depthFeature,
+	depthOf,
+	edited,
+	entriesGen,
+	formGen,
+	formShape,
+	int4Gen,
+	keysOf,
+	liveGen,
+	type NestingFeature,
+	numberGen,
+	placeAt,
+	placed,
+	shape,
+	sitesOf,
+	stepOf,
+	type UnreadableFeature
+} from "#test/unit/ir/shape.fixtures.ts"
 
-const point = S.structWith({ x: S.integer }, { label: S.nonEmptyString })
-const points = S.array(point)
-/**
- * A case whose own optional field is named like the discriminator, of a text no tag of the case is: the decode reads
- * that member as the discriminator, so a field read in its place would refuse it.
- */
-const mark = S.structWith(
-	{},
-	{ kind: S.refine(S.string, (text) => text !== "mark", "a text other than the case's tag") }
-)
-const shape = S.tagged("kind", { point, list: S.struct({ items: points }), mark })
-
-/**
- * A live value of `shape`: a point, its label stated or not, a list of them, or the case that names a field like the
- * discriminator.
- */
-const integer = int(-(2 ** 31), 2 ** 31 - 1)
-
-const pointGen: Gen<{ readonly x: number; readonly label?: string }> = oneOf<{
-	readonly x: number
-	readonly label?: string
-}>([
-	(source) => ({ x: source.draw(integer) }),
-	(source) => ({
-		x: source.draw(integer),
-		label: source.draw(string(codePoint(0x20, 0x7e), { min: 1, max: 4 }))
-	})
-])
-
-const liveGen: Gen<unknown> = oneOf<unknown>([
-	map(pointGen, (p) => ({ kind: "point", ...p })),
-	map(array(pointGen, { min: 0, max: 4 }), (items) => ({ kind: "list", items })),
-	constant({ kind: "mark" })
-])
-
-type Path = ReadonlyArray<string | number>
-
-const isObject = (v: unknown): v is Readonly<Record<string, unknown>> =>
-	typeof v === "object" && v !== null && !Arr.isArray(v)
-
-/** The own enumerable string keys of a plain object, as Object.keys lists them. */
-const keysOf = (fields: Readonly<Record<string, unknown>>): ReadonlyArray<string> =>
-	Rec.keys(fields)
-
-/** Every path of a plain value a member can be replaced at: the root first, then each member's, depth first. */
-const sitesOf = (value: unknown): readonly [Path, ...Array<Path>] => {
-	const below = (v: unknown, at: Path): ReadonlyArray<Path> =>
-		Arr.isArray(v)
-			? Arr.flatMap(v, (item: unknown, i) => [[...at, i], ...below(item, [...at, i])])
-			: isObject(v)
-				? Arr.flatMap(Rec.toEntries(v), ([key, member]) => [
-						[...at, key],
-						...below(member, [...at, key])
-					])
-				: []
-	return [[], ...below(value, [])]
-}
-
-/** The member of `value` at `path`. */
-const memberAt = (value: unknown, path: Path): unknown =>
-	Arr.reduce(path, value, (v: unknown, step) =>
-		Arr.isArray(v)
-			? v[Number(step)]
-			: isObject(v)
-				? new Map<string | number, unknown>(Rec.toEntries(v)).get(step)
-				: v
-	)
-
-/** `value` with its member at `path` replaced by `edit` of it, every container on the way a fresh copy. */
-const edited = (value: unknown, path: Path, edit: (member: unknown) => unknown): unknown => {
-	const [head, ...rest] = path
-	if (head === undefined) {
-		return edit(value)
-	}
-	if (Arr.isArray(value)) {
-		return Arr.map(value, (item: unknown, i) => (i === head ? edited(item, rest, edit) : item))
-	}
-	if (isObject(value)) {
-		return Rec.fromEntries(
-			Arr.map(
-				Rec.toEntries(value),
-				([key, member]) => [key, key === head ? edited(member, rest, edit) : member] as const
-			)
-		)
-	}
-	return value
-}
-
-/** The place of a refusal at `path` of a value decoded as "v": its label and path. */
-const placeAt = (path: Path): Place => ({ label: "v", path })
-
-/** A plain object's own fields in an instance of a class, whose prototype is no plain object's. */
-class Instance {
-	constructor(fields: object) {
-		Object.assign(this, fields)
-	}
-
-	/** Its prototype's own method, which no plain object has. */
-	label(): string {
-		return "a class instance"
-	}
-}
-
-/**
- * One way to break a live value at one site, and what the decode must answer: a refusal at a path, or, for a symbol
- * key on the tagged root, which a copy of its string keys drops, the live value's decode.
- */
-type Break =
-	| "null"
-	| "unknown key"
-	| "symbol key refused"
-	| "symbol key passed over"
-	| "hole"
-	| "unknown tag"
-	| "missing member"
-	| "class instance"
-type Outcome = { readonly kind: "refused"; readonly at: Path } | { readonly kind: "passed over" }
-interface Broken {
-	readonly break: Break
-	readonly value: unknown
-	readonly outcome: Outcome
-}
-
-const refusedAt = (at: Path): Outcome => ({ kind: "refused", at })
-
-/** Every way to break `live` at one of its sites, by kind: only the kinds the value has a site for. */
-const breaksOf = (live: unknown): ReadonlyArray<Arr.NonEmptyReadonlyArray<Broken>> => {
-	const sites = sitesOf(live)
-	const objects = Arr.flatMap(sites, (path) => {
-		const member = memberAt(live, path)
-		return isObject(member) ? [{ path, member }] : []
-	})
-	const arrays = Arr.flatMap(sites, (path) => {
-		const member = memberAt(live, path)
-		return Arr.isArray(member) ? [{ path, member }] : []
-	})
-	const replaced = (path: Path, by: unknown) => edited(live, path, () => by)
-	const kinds: ReadonlyArray<ReadonlyArray<Broken>> = [
-		Arr.map(sites, (p) => ({ break: "null", value: replaced(p, null), outcome: refusedAt(p) })),
-		Arr.map(objects, ({ path, member }) => ({
-			break: "unknown key",
-			value: replaced(path, { ...member, y: 1 }),
-			outcome: refusedAt([...path, "y"])
-		})),
-		Arr.map(objects, ({ path, member }) => ({
-			break: path.length === 0 ? "symbol key passed over" : "symbol key refused",
-			value: replaced(path, { ...member, [Symbol("s")]: 1 }),
-			outcome: path.length === 0 ? { kind: "passed over" } : refusedAt(path)
-		})),
-		Arr.map(arrays, ({ path, member }) => {
-			const holed: Array<unknown> = [...member]
-			holed.length = member.length + 1
-			return {
-				break: "hole",
-				value: replaced(path, holed),
-				outcome: refusedAt([...path, member.length])
-			}
+/** Shapes decode a live value into an equal fresh copy, and refuse one broken at one site, naming that site. */
+export const shapesDecodeALiveValueIntoAnEqualFreshCopyAndRefuseOneBrokenAtOneSiteNamingThatSite =
+	property.explore(
+		(source) => ({
+			live: source.draw(liveGen),
+			kind: source.draw(pickGen),
+			site: source.draw(pickGen)
 		}),
-		[{ break: "unknown tag", value: replaced(["kind"], "circle"), outcome: refusedAt(["kind"]) }],
-		Arr.flatMap(objects, ({ path, member }) =>
-			Arr.map(
-				Arr.filter(keysOf(member), (key) => key !== "label"),
-				(key): Broken => ({
-					break: "missing member",
-					value: replaced(
-						path,
-						Rec.fromEntries(Arr.filter(Rec.toEntries(member), ([k]) => k !== key))
-					),
-					outcome: refusedAt([...path, key])
-				})
-			)
-		),
-		Arr.map(objects, ({ path, member }) => ({
-			break: "class instance",
-			value: replaced(path, new Instance(member)),
-			outcome: refusedAt(path)
-		}))
-	]
-	return Arr.filter(kinds, Arr.isReadonlyArrayNonEmpty)
-}
-
-/** The case a decoded live value is. */
-type Decoded = "a list of points" | "a point" | "a mark"
-
-type UnreadableFeature =
-	| "proxy at the root"
-	| "proxy nested"
-	| "throwing getter at the root"
-	| "throwing getter nested"
-
-/** A decoder's own throw: one decoder step that throws `defect`, and a value its base shape accepts. */
-class Defect extends Data.Error<{ readonly site: string }> {}
-type DefectKind = "normalize" | "refine" | "brand"
-type DefectSite =
-	| "the root"
-	| "an array item"
-	| "a struct field"
-	| "a union's first alternative"
-	| "a tagged case"
-
-const defective = (
-	kind: DefectKind,
-	defect: Defect
-): { readonly shape: S.Shape<unknown>; readonly value: unknown } => {
-	const thrown = (): never => {
-		throw defect
-	}
-	switch (kind) {
-		case "normalize":
-			return { shape: S.normalized(S.integer, thrown), value: 3 }
-		case "refine":
-			return { shape: S.refine(S.integer, thrown, "an integer its test passes"), value: 3 }
-		case "brand":
-			return { shape: S.branded(thrown, S.string), value: "s" }
-	}
-}
-
-/**
- * The defective decoder placed at `site`, and a value that reaches it there. The union's second alternative accepts the
- * value, so a defect taken for a mismatch would be repaired by it.
- */
-const placed = (
-	site: DefectSite,
-	inner: { readonly shape: S.Shape<unknown>; readonly value: unknown }
-): { readonly shape: S.Shape<unknown>; readonly value: unknown } => {
-	switch (site) {
-		case "the root":
-			return inner
-		case "an array item":
-			return { shape: S.array(inner.shape), value: [inner.value] }
-		case "a struct field":
-			return { shape: S.struct({ n: inner.shape }), value: { n: inner.value } }
-		case "a union's first alternative":
-			return { shape: S.unionShape(inner.shape, S.integer, S.string), value: inner.value }
-		case "a tagged case":
-			return {
-				shape: S.tagged("kind", { a: S.struct({ n: inner.shape }) }),
-				value: { kind: "a", n: inner.value }
-			}
-	}
-}
-
-/**
- * Planted: every break of a list of one labelled point, which holds a site of every kind, its picks the break's group
- * among the kinds and its first site there, since a drawn value and pick meet some breaks a few times a run.
- */
-const plantedLive: unknown = { kind: "list", items: [{ x: 1, label: "a" }] }
-const breakNames: Arr.NonEmptyReadonlyArray<Break> = [
-	"null",
-	"unknown key",
-	"symbol key refused",
-	"symbol key passed over",
-	"hole",
-	"unknown tag",
-	"missing member",
-	"class instance"
-]
-
-const plantedBreak = (
-	name: Break
-): { readonly live: unknown; readonly kind: number; readonly site: number } => {
-	const groups = breaksOf(plantedLive)
-	for (const [g, group] of groups.entries()) {
-		const j = Arr.findFirstIndex(group, (b) => b.break === name)
-		if (Option.isSome(j)) {
-			return {
-				live: plantedLive,
-				kind: pickOf(g, groups.length),
-				site: pickOf(j.value, group.length)
-			}
-		}
-	}
-	throw new Error(`the planted value has no site for ${name}`)
-}
-
-describe("shapes", () => {
-	it.effect(
-		"decode a live value into an equal fresh copy, and refuse one broken at one site, naming that site",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "each break's own site, compared by its label and path"
-						},
-						suite: "unit/ir/shape-broken",
-						literal: Formatter.format,
-						draw: drawn((source) => ({
-							live: source.draw(liveGen),
-							kind: source.draw(pickGen),
-							site: source.draw(pickGen)
-						})),
-						kept: Arr.map(breakNames, (name) => ({
-							note: name,
-							sketch: plantedBreak(name),
-							draws: "",
-							reaches: [name]
-						})),
-						runs: 300,
-						shrink: completeShrink,
-						coverage: required<Break>(breakNames, { cases: 300, sense: notesOnly }),
-						steerEvery: 16,
-						caseHang
-					},
-					({ live, kind, site }, c) =>
-						Effect.sync(() => {
-							const decoded = succeeded(S.decodeWith(shape, live, "v"))
-							assert.deepEqual<unknown>(decoded, structuredClone(live))
-							const broken = pickFrom(
-								pickFrom(nonEmpty(breaksOf(live), "a live value's breaks"), kind),
-								site
+		{
+			needs: {},
+			situations: breakNames satisfies ReadonlyArray<Reached<Break>>,
+			check:
+				(_, c: Case<Break>) =>
+				({ live, kind, site }) =>
+					Effect.sync(() => {
+						const decoded = succeeded(S.decodeWith(shape, live, "v"))
+						assert.deepEqual<unknown>(decoded, structuredClone(live))
+						const broken = pickFrom(
+							pickFrom(nonEmpty(breaksOf(live), "a live value's breaks"), kind),
+							site
+						)
+						c.note(broken.break)
+						const result = S.decodeWith(shape, broken.value, "v")
+						if (broken.outcome.kind === "passed over") {
+							assert.deepEqual(succeeded(result), decoded)
+						} else {
+							assert.deepEqual(
+								placeOf(refusalLoc(refused(result, "MalformedDescription"))),
+								placeAt(broken.outcome.at)
 							)
-							c.note(broken.break)
-							const result = S.decodeWith(shape, broken.value, "v")
-							if (broken.outcome.kind === "passed over") {
-								assert.deepEqual(succeeded(result), decoded)
-							} else {
-								assert.deepEqual(
-									placeOf(refusalLoc(refused(result, "MalformedDescription"))),
-									placeAt(broken.outcome.at)
-								)
-							}
-						})
-				)
-			)
-	)
-
-	it.effect("decode a decoded value again into an equal fresh copy, key order included", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "universal",
-						name: "decode ∘ decode = decode, a fresh copy, key order included"
-					},
-					suite: "unit/ir/shape-idempotent",
-					literal: Formatter.format,
-					draw: drawn(liveGen),
-					runs: 100,
-					shrink: completeShrink,
-					coverage: required<Decoded>(["a list of points", "a point", "a mark"], {
-						cases: 100,
-						sense: notesOnly
+						}
 					}),
-					kept: [],
-					steerEvery: 16,
-					caseHang
-				},
-				(live, c) =>
-					Effect.sync(() => {
-						const out = succeeded(S.decodeWith(shape, live, "v"))
-						c.note(
-							out.kind === "point" ? "a point" : out.kind === "list" ? "a list of points" : "a mark"
-						)
-						const again = succeeded(S.decodeWith(shape, out, "v"))
-						assert.notEqual(again, out)
-						assert.deepEqual(again, out)
-						assert.deepEqual(keysOf({ ...again }), keysOf({ ...out }))
-					})
-			)
-		)
-	)
-
-	it.effect("refuse a value whose reading throws, at its path", (ctx) =>
-		searched(
-			ctx,
-			explore(
+			oracle: {
+				kind: "specification",
+				name: "each break's own site, compared by its label and path"
+			},
+			kept: [
 				{
-					oracle: {
-						kind: "specification",
-						name: "a read that throws is refused at its path"
-					},
-					suite: "unit/ir/shape-unreadable",
-					literal: Formatter.format,
-					draw: drawn((source) => ({
-						live: source.draw(liveGen),
-						site: source.draw(pickGen),
-						wild: source.draw(
-							map(wild(["proxy", "throwing-getter"]), (w): Drawn<never, never> => ({
-								kind: "wild",
-								wild: w
-							}))
-						)
-					})),
-					runs: 200,
-					shrink: completeShrink,
-					coverage: required<UnreadableFeature>(
-						["proxy at the root", "proxy nested", "throwing getter nested"],
-						{ cases: 200, sense: notesOnly }
+					token: ReplayToken(
+						"test/unit/ir/shape.test.ts#shapesDecodeALiveValueIntoAnEqualFreshCopyAndRefuseOneBrokenAtOneSiteNamingThatSite:-:1.1.1.1.1.0.0.0"
 					),
-					kept: [],
-					steerEvery: 16,
-					caseHang
+					reason: "null",
+					since: "2026-10-29"
 				},
-				({ live, site, wild: drawnWild }, c) =>
-					Effect.sync(() => {
-						const path = pickFrom(sitesOf(live), site)
-						const kind =
-							drawnWild.kind === "wild" && drawnWild.wild.kind === "proxy"
-								? "proxy"
-								: "throwing getter"
-						c.note(`${kind} ${path.length === 0 ? "at the root" : "nested"}`)
-						const refusal = refused(
-							S.decodeWith(
-								shape,
-								edited(live, path, () => passed(drawnWild)),
-								"v"
-							),
-							"MalformedDescription"
-						)
-						assert.deepEqual(placeOf(refusalLoc(refusal)), placeAt(path))
-					})
-			)
-		)
+				{
+					token: ReplayToken(
+						"test/unit/ir/shape.test.ts#shapesDecodeALiveValueIntoAnEqualFreshCopyAndRefuseOneBrokenAtOneSiteNamingThatSite:-:1.1.1.1.1.0.783.0"
+					),
+					reason: "unknown key",
+					since: "2026-10-29"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/ir/shape.test.ts#shapesDecodeALiveValueIntoAnEqualFreshCopyAndRefuseOneBrokenAtOneSiteNamingThatSite:-:1.1.1.1.1.0.eg5.pa8"
+					),
+					reason: "symbol key refused",
+					since: "2026-10-29"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/ir/shape.test.ts#shapesDecodeALiveValueIntoAnEqualFreshCopyAndRefuseOneBrokenAtOneSiteNamingThatSite:-:1.1.1.1.1.0.eg5.0"
+					),
+					reason: "symbol key passed over",
+					since: "2026-10-29"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/ir/shape.test.ts#shapesDecodeALiveValueIntoAnEqualFreshCopyAndRefuseOneBrokenAtOneSiteNamingThatSite:-:1.1.1.1.1.0.lo7.0"
+					),
+					reason: "hole",
+					since: "2026-10-29"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/ir/shape.test.ts#shapesDecodeALiveValueIntoAnEqualFreshCopyAndRefuseOneBrokenAtOneSiteNamingThatSite:-:1.1.1.1.1.0.swa.0"
+					),
+					reason: "unknown tag",
+					since: "2026-10-29"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/ir/shape.test.ts#shapesDecodeALiveValueIntoAnEqualFreshCopyAndRefuseOneBrokenAtOneSiteNamingThatSite:-:1.1.1.1.1.0.104c.0"
+					),
+					reason: "missing member",
+					since: "2026-10-29"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/ir/shape.test.ts#shapesDecodeALiveValueIntoAnEqualFreshCopyAndRefuseOneBrokenAtOneSiteNamingThatSite:-:1.1.1.1.1.0.17ce.0"
+					),
+					reason: "class instance",
+					since: "2026-10-29"
+				}
+			],
+			kills: [
+				{
+					file: "packages/engine/src/ir/shape.ts",
+					original:
+						"\t\t}\n\t\tsetOwn(out, key, yield* path.at(key, shapes[key].parse(child, path)))",
+					replacement: "\t\t}\n\t\tsetOwn(out, key, yield* shapes[key].parse(child, path))",
+					why: "A struct's required field is decoded at its container's place, so its refusal is placed at the container; the broken property fails."
+				}
+			]
+		}
 	)
 
-	it.effect("let a decoder's own defect escape", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					box: "each kind of decoder defect at each site a shape decodes",
-					oracle: {
-						kind: "specification",
-						name: "a decoder's own defect escapes decodeWith as itself"
-					},
-					suite: "unit/ir/shape-defect-escapes",
-					literal: Formatter.format,
-					generator: (source) =>
-						[
-							source.draw(element<DefectKind>(["normalize", "refine", "brand"])),
-							source.draw(
-								element<DefectSite>([
-									"the root",
-									"an array item",
-									"a struct field",
-									"a union's first alternative",
-									"a tagged case"
-								])
-							)
-						] as const,
-					coverage: requiredInSpace<DefectSite>([
+/** Shapes decode a decoded value again into an equal fresh copy, key order included. */
+export const shapesDecodeADecodedValueAgainIntoAnEqualFreshCopyKeyOrderIncluded = property.explore(
+	liveGen,
+	{
+		needs: {},
+		situations: ["a list of points", "a point", "a mark"] satisfies ReadonlyArray<Reached<Decoded>>,
+		check: (_, c: Case<Decoded>) => (live) =>
+			Effect.sync(() => {
+				const out = succeeded(S.decodeWith(shape, live, "v"))
+				c.note(
+					out.kind === "point" ? "a point" : out.kind === "list" ? "a list of points" : "a mark"
+				)
+				const again = succeeded(S.decodeWith(shape, out, "v"))
+				assert.notEqual(again, out)
+				assert.deepEqual(again, out)
+				assert.deepEqual(keysOf({ ...again }), keysOf({ ...out }))
+			}),
+		oracle: {
+			kind: "universal",
+			name: "decode ∘ decode = decode, a fresh copy, key order included"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/ir/shape.ts",
+				original: "function* within<A>(value: object, path: DecodePath, step: Step<A>): Step<A> {",
+				replacement:
+					"function* within<A>(value: object, path: DecodePath, step: Step<A>): Step<A> {\n\tif (Object.isFrozen(value)) {\n\t\treturn value\n\t}",
+				why: "A frozen container is returned as decoded, unread; the idempotent property fails."
+			}
+		]
+	}
+)
+
+/** Shapes refuse a value whose reading throws, at its path. */
+export const shapesRefuseAValueWhoseReadingThrowsAtItsPath = property.explore(
+	(source) => ({
+		live: source.draw(liveGen),
+		site: source.draw(pickGen),
+		wild: source.draw(
+			map(wild(["proxy", "throwing-getter"]), (w): Drawn<never, never> => ({
+				kind: "wild",
+				wild: w
+			}))
+		)
+	}),
+	{
+		needs: {},
+		situations: [
+			"proxy at the root",
+			"proxy nested",
+			"throwing getter nested"
+		] satisfies ReadonlyArray<Reached<UnreadableFeature>>,
+		check:
+			(_, c: Case<UnreadableFeature>) =>
+			({ live, site, wild: drawnWild }) =>
+				Effect.sync(() => {
+					const path = pickFrom(sitesOf(live), site)
+					const kind =
+						drawnWild.kind === "wild" && drawnWild.wild.kind === "proxy"
+							? "proxy"
+							: "throwing getter"
+					c.note(`${kind} ${path.length === 0 ? "at the root" : "nested"}`)
+					const refusal = refused(
+						S.decodeWith(
+							shape,
+							edited(live, path, () => passed(drawnWild)),
+							"v"
+						),
+						"MalformedDescription"
+					)
+					assert.deepEqual(placeOf(refusalLoc(refusal)), placeAt(path))
+				}),
+		oracle: {
+			kind: "specification",
+			name: "a read that throws is refused at its path"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/ir/shape.ts",
+				original: "\tconst r = hostRead(unreadable, () => Result.ok(read()))",
+				replacement: "\tconst r = Result.ok(read())",
+				why: "A read of the caller's value runs unguarded, so a throwing proxy or getter escapes; the unreadable property fails."
+			}
+		]
+	}
+)
+
+/** Shapes let a decoder's own defect escape. */
+export const shapesLetADecodersOwnDefectEscape = property.exhaust(
+	finite(
+		(source) =>
+			[
+				source.draw(element<DefectKind>(["normalize", "refine", "brand"])),
+				source.draw(
+					element<DefectSite>([
 						"the root",
 						"an array item",
 						"a struct field",
 						"a union's first alternative",
 						"a tagged case"
-					]),
-					caseHang
-				},
-				([kind, site], c) =>
-					Effect.sync(() => {
-						c.note(site)
-						const defect = new Defect({ site: `a ${kind} defect in ${site}` })
-						const { shape: decoder, value } = placed(site, defective(kind, defect))
-						assert.throws(
-							() => S.decodeWith(decoder, value, "v"),
-							(e) => e === defect
-						)
-					})
-			)
-		)
-	)
-
-	it.effect(
-		"accept exactly the distinct nonempty names, the nonempty lists and the safe and positive integers",
-		(ctx) => {
-			const numberGen = oneOf([
-				element([
-					0,
-					-0,
-					1,
-					-1,
-					1.5,
-					Number.NaN,
-					Number.POSITIVE_INFINITY,
-					Number.NEGATIVE_INFINITY,
-					Number.MAX_SAFE_INTEGER,
-					Number.MAX_SAFE_INTEGER + 1,
-					-Number.MAX_SAFE_INTEGER - 1
-				]),
-				integer,
-				weighted([
-					[8, double(-Number.MAX_VALUE, Number.MAX_VALUE)],
-					[1, element([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])]
-				])
-			])
-			return searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "distinct nonempty names, nonempty lists, safe and positive integers"
-						},
-						suite: "unit/ir/shape-refinements",
-						literal: Formatter.format,
-						draw: drawn((source) => ({
-							names: source.draw(array(element(["", "a", "b", "c"]), { min: 0, max: 4 })),
-							list: source.draw(array(integer, { min: 0, max: 3 })),
-							n: source.draw(numberGen)
-						})),
-						runs: 200,
-						shrink: completeShrink,
-						coverage: required<
-							| "names accepted"
-							| "a repeated name refused"
-							| "an empty name refused"
-							| "an empty list refused"
-							| "an integer refused"
-							| "a positive integer refused"
-							| "a positive integer accepted"
-						>(
-							[
-								"names accepted",
-								"a repeated name refused",
-								"an empty name refused",
-								"an empty list refused",
-								"an integer refused",
-								"a positive integer refused",
-								"a positive integer accepted"
-							],
-							{ cases: 200, sense: notesOnly }
-						),
-						kept: [],
-						steerEvery: 16,
-						caseHang
-					},
-					({ names, list, n }, c) =>
-						Effect.sync(() => {
-							const distinct = new Set(names).size === names.length
-							const nonempty = Arr.every(names, (name) => name.length > 0)
-							const decodedNames = S.decodeWith(
-								S.uniqueStrings("names", S.nonEmptyString),
-								names,
-								"v"
-							)
-							if (distinct && nonempty) {
-								c.note("names accepted")
-								assert.deepEqual(succeeded(decodedNames), names)
-							} else {
-								c.note(nonempty ? "a repeated name refused" : "an empty name refused")
-								refused(decodedNames, "MalformedDescription")
-							}
-							const decodedList = S.decodeWith(S.nonEmptyArray(S.integer), list, "v")
-							if (list.length > 0) {
-								assert.deepEqual<ReadonlyArray<number>>(succeeded(decodedList), list)
-							} else {
-								c.note("an empty list refused")
-								refused(decodedList, "MalformedDescription")
-							}
-							const safe = Number.isSafeInteger(n)
-							const integer = S.decodeWith(S.integer, n, "v")
-							if (safe) {
-								assert.equal(succeeded(integer), n)
-							} else {
-								c.note("an integer refused")
-								refused(integer, "MalformedDescription")
-							}
-							const positive = S.decodeWith(S.positiveInteger, n, "v")
-							if (safe && n > 0) {
-								c.note("a positive integer accepted")
-								assert.equal(succeeded(positive), n)
-							} else {
-								c.note("a positive integer refused")
-								refused(positive, "MalformedDescription")
-							}
-						})
+					])
 				)
-			)
-		}
-	)
-})
-
-/** A chain of links to an end: a recursive tagged union, each link a container of its own. */
-type Chain = { readonly kind: "end" } | { readonly kind: "link"; readonly next: Chain }
-const chainShape: S.Shape<Chain> = S.ref("a chain", () => chainBody)
-
-/** The decoder chainShape refers to (S.ref). */
-const chainBody: S.Shape<Chain> = S.tagged("kind", {
-	end: S.struct({}),
-	link: S.struct({ next: chainShape })
-})
-
-/** Arrays inside arrays around an integer: a recursive union whose first alternative refuses every array. */
-type Nested = number | ReadonlyArray<Nested>
-const nestedShape: S.Shape<Nested> = S.ref("a nested array", () => nestedBody)
-
-/** The decoder nestedShape refers to (S.ref). */
-const nestedBody: S.Shape<Nested> = S.unionShape(S.integer, S.array(nestedShape))
-
-/** The two recursive shapes, read through the shape of any value. */
-type Form = "chain" | "nested array"
-const formShape = (form: Form): S.Shape<unknown> => (form === "chain" ? chainShape : nestedShape)
-
-/** The step each container of a form takes to the next. */
-const stepOf = (form: Form): string | number => (form === "chain" ? "next" : 0)
-
-/** `depth` containers of a form, the innermost around its end. */
-const built = (form: Form, depth: number): unknown => {
-	let v: unknown = form === "chain" ? { kind: "end" } : 1
-	for (let i = 0; i < depth; i++) {
-		v = form === "chain" ? { kind: "link", next: v } : [v]
+			] as const
+	),
+	{
+		needs: {},
+		situations: [
+			"the root",
+			"an array item",
+			"a struct field",
+			"a union's first alternative",
+			"a tagged case"
+		] satisfies ReadonlyArray<Reached<DefectSite>>,
+		check:
+			(_, c: Case<DefectSite>) =>
+			([kind, site]) =>
+				Effect.sync(() => {
+					c.note(site)
+					const defect = new Defect({ site: `a ${kind} defect in ${site}` })
+					const { shape: decoder, value } = placed(site, defective(kind, defect))
+					assert.throws(
+						() => S.decodeWith(decoder, value, "v"),
+						(e) => e === defect
+					)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "a decoder's own defect escapes decodeWith as itself"
+		},
+		box: "each kind of decoder defect at each site a shape decodes",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/ir/shape.ts",
+				original: "\t\t\treturn Result.err(caught.error)\n\t\t}\n\t\tthrow caught",
+				replacement:
+					'\t\t\treturn Result.err(caught.error)\n\t\t}\n\t\treturn Result.err(malformedAt(path.subject, path.keys, "a value its decoder reads"))',
+				why: "A decoder's own defect is refused as malformed instead of escaping; the defects property fails."
+			}
+		]
 	}
-	return v
-}
+)
 
-/** How many containers a decoded value of a form nests, counted down its one path. */
-const depthOf = (form: Form, value: unknown): number => {
-	let depth = 0
-	for (let v = value; ; depth++) {
-		const next: unknown =
-			form === "chain" ? (isObject(v) ? v["next"] : undefined) : Arr.isArray(v) ? v[0] : undefined
-		if (next === undefined) {
-			return depth
-		}
-		v = next
-	}
-}
-
-/**
- * The reads of a cycle's links, against the most a decode that refuses the cycle where it meets itself makes: the link
- * of each of its `length` containers once, on the way in, and the link of the one the cycle meets once more, read
- * before that container is refused. A read past them is a decode going round the cycle with no container on its path
- * refused: it throws, which the decode refuses as unreadable, so such a decode ends one read past the cycle, in the
- * memory one pass takes, rather than going round without end.
- */
-class CycleReads {
-	readonly most: number
-	#made = 0
-
-	constructor(length: number) {
-		this.most = length + 1
-	}
-
-	/** The reads made so far. */
-	get made(): number {
-		return this.#made
-	}
-
-	/** One read of a link, which answers `next`, or throws once past the most a refusing decode makes. */
-	read<A>(next: A): A {
-		this.#made++
-		if (this.#made > this.most) {
-			throw new Error(`a read past the ${this.most} a decode that refuses this cycle makes`)
-		}
-		return next
-	}
-}
-
-/**
- * `length` containers of a form, each holding the next and the last holding the one `back` below the root: the root.
- * Each link is an own enumerable getter, read through `reads`, so a plain object or array still holds it.
- */
-const cyclic = (form: Form, length: number, back: number, reads: CycleReads): unknown => {
-	const linked = <C extends object>(
-		nodes: ReadonlyArray<C>,
-		key: string | number
-	): C | undefined => {
-		for (const [i, container] of nodes.entries()) {
-			const next = nodes[i + 1] ?? nodes[back]
-			Object.defineProperty(container, key, { enumerable: true, get: () => reads.read(next) })
-		}
-		return nodes[0]
-	}
-	return form === "chain"
-		? linked(
-				Arr.map(indices(length), (): Record<string, unknown> => ({ kind: "link" })),
-				"next"
-			)
-		: linked(
-				Arr.map(indices(length), (): Array<unknown> => []),
-				0
-			)
-}
-
-/**
- * The levels a recursion of one frame per container holds on the small stack: at 160 KB, a recursion over a list of
- * 1,000 elements overflows (the testing library's SMALL_STACK).
- */
-const smallStackRecursion = 1_000
-
-/**
- * A count of containers: within the levels a recursion holds on the small stack, or past them up to 100,000; a deeper
- * value costs its depth to build and read, so the deepest are drawn the least.
- */
-const containers: Gen<number> = weighted([
-	[3, int(1, smallStackRecursion)],
-	[2, int(smallStackRecursion + 1, 10_000)],
-	[1, int(10_001, 100_000)]
-])
-
-const formGen = element<Form>(["chain", "nested array"])
-
-/** What a nested or cyclic value's case reached: its form, and its containers against the small stack. */
-type NestingFeature =
-	| Form
-	| "no container"
-	| "within a small stack's recursion"
-	| "past a small stack's recursion"
-	| "a cycle back to its root"
-	| "a cycle back to its last container"
-	| "a cycle back to a container between"
-
-const depthFeature = (n: number): NestingFeature =>
-	n === 0
-		? "no container"
-		: n > smallStackRecursion
-			? "past a small stack's recursion"
-			: "within a small stack's recursion"
-
-/** Where a record is decoded: in this test process, or in a child Node started as a library consumer's is. */
-type DecodedIn = "this process" | "a consumer's process"
-
-/** What the consumer's child answers a record with: its line, or its exit, with what it wrote on stderr. */
-type ConsumerAnswer =
-	| { readonly kind: "answer"; readonly line: string }
-	| { readonly kind: "exited"; readonly stderr: string }
-
-/**
- * A child Node started once per run with no flag and no NODE_OPTIONS, which carries the hardened flags
- * (test/support/process.ts hardenedNode), as a library consumer's is (shape-record.child.ts). The function it gives
- * hands the child a record's entries on a line and takes its answer from the next line it prints, or its exit. The
- * child ends with the scope.
- */
-const consumerProcess = Effect.gen(function* () {
-	const requests = yield* Queue.unbounded<string>()
-	const answers = yield* Queue.unbounded<ConsumerAnswer>()
-	const handle = yield* ChildProcess.make(
-		"env",
-		["-u", "NODE_OPTIONS", process.execPath, `${import.meta.dirname}/shape-record.child.ts`],
+/** Shapes accept exactly the distinct nonempty names, the nonempty lists and the safe and positive integers. */
+export const shapesAcceptExactlyTheDistinctNonemptyNamesTheNonemptyListsAndTheSafeAndPositiveIntegers =
+	property.explore(
+		(source) => ({
+			names: source.draw(array(element(["", "a", "b", "c"]), { min: 0, max: 4 })),
+			list: source.draw(array(int4Gen, { min: 0, max: 3 })),
+			n: source.draw(numberGen)
+		}),
 		{
-			cwd: runOptions.cwd,
-			extendEnv: true,
-			stdin: Stream.encodeText(Stream.fromQueue(requests))
+			needs: {},
+			situations: [
+				"names accepted",
+				"a repeated name refused",
+				"an empty name refused",
+				"an empty list refused",
+				"an integer refused",
+				"a positive integer refused",
+				"a positive integer accepted"
+			] satisfies ReadonlyArray<
+				Reached<
+					| "names accepted"
+					| "a repeated name refused"
+					| "an empty name refused"
+					| "an empty list refused"
+					| "an integer refused"
+					| "a positive integer refused"
+					| "a positive integer accepted"
+				>
+			>,
+			check:
+				(
+					_,
+					c: Case<
+						| "names accepted"
+						| "a repeated name refused"
+						| "an empty name refused"
+						| "an empty list refused"
+						| "an integer refused"
+						| "a positive integer refused"
+						| "a positive integer accepted"
+					>
+				) =>
+				({ names, list, n }) =>
+					Effect.sync(() => {
+						const distinct = new Set(names).size === names.length
+						const nonempty = Arr.every(names, (name) => name.length > 0)
+						const decodedNames = S.decodeWith(
+							S.uniqueStrings("names", S.nonEmptyString),
+							names,
+							"v"
+						)
+						if (distinct && nonempty) {
+							c.note("names accepted")
+							assert.deepEqual(succeeded(decodedNames), names)
+						} else {
+							c.note(nonempty ? "a repeated name refused" : "an empty name refused")
+							refused(decodedNames, "MalformedDescription")
+						}
+						const decodedList = S.decodeWith(S.nonEmptyArray(S.integer), list, "v")
+						if (list.length > 0) {
+							assert.deepEqual<ReadonlyArray<number>>(succeeded(decodedList), list)
+						} else {
+							c.note("an empty list refused")
+							refused(decodedList, "MalformedDescription")
+						}
+						const safe = Number.isSafeInteger(n)
+						const integer = S.decodeWith(S.integer, n, "v")
+						if (safe) {
+							assert.equal(succeeded(integer), n)
+						} else {
+							c.note("an integer refused")
+							refused(integer, "MalformedDescription")
+						}
+						const positive = S.decodeWith(S.positiveInteger, n, "v")
+						if (safe && n > 0) {
+							c.note("a positive integer accepted")
+							assert.equal(succeeded(positive), n)
+						} else {
+							c.note("a positive integer refused")
+							refused(positive, "MalformedDescription")
+						}
+					}),
+			oracle: {
+				kind: "specification",
+				name: "distinct nonempty names, nonempty lists, safe and positive integers"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/ir/shape.ts",
+					original: '\treturn n > 0 ? n : refuse(path, "a positive integer")',
+					replacement: '\treturn n >= 0 ? n : refuse(path, "a positive integer")',
+					why: "positiveInteger admits zero; the refinements property fails."
+				}
+			]
 		}
 	)
-	yield* Effect.forkScoped(
-		Effect.orDie(
-			Effect.gen(function* () {
-				const [, stderr] = yield* Effect.all(
-					[
-						Stream.runForEach(Stream.splitLines(Stream.decodeText(handle.stdout)), (line) =>
-							Queue.offer(answers, { kind: "answer", line })
-						),
-						Stream.mkString(Stream.decodeText(handle.stderr))
-					],
-					{ concurrency: "unbounded" }
-				)
-				yield* Queue.offer(answers, { kind: "exited", stderr })
-			})
-		)
-	)
-	return (entries: ReadonlyArray<readonly [string, number]>) =>
-		Effect.andThen(Queue.offer(requests, `${jsonText(entries)}\n`), Queue.take(answers))
-})
 
-layer(NodeServices.layer, { excludeTestServices: true })("a record's keys", (it) => {
-	it.effect(
-		"keep __proto__ an ordinary key of a record, in this process and where Object.prototype.__proto__ exists",
-		(ctx) =>
-			Effect.scoped(
+/** A record's keys keep __proto__ an ordinary key of a record, in this process and where Object.prototype.__proto__ exists. */
+export const aRecordsKeysKeepProtoAnOrdinaryKeyOfARecordInThisProcessAndWhereObjectPrototypeProtoExists =
+	property.explore((source) => [source.draw(entriesGen), source.draw(decodedIn)] as const, {
+		needs: { checkout: Checkout.dir },
+		situations: [
+			"an own __proto__ key in this process",
+			"an own __proto__ key in a consumer's process"
+		] satisfies ReadonlyArray<Reached<`an own __proto__ key in ${DecodedIn}`>>,
+		check:
+			({ checkout }, c: Case<`an own __proto__ key in ${DecodedIn}`>) =>
+			([entries, where]) =>
 				Effect.gen(function* () {
-					const consumer = yield* consumerProcess
-					const keyGen = oneOf([
-						constant("__proto__"),
-						element(["constructor", "toString", "a"]),
-						string(codePoint(0x20, 0x7e), { min: 1, max: 4 })
-					])
-					/** A record's entries: up to five distinct keys, each with its integer. */
-					const entriesGen: Gen<ReadonlyArray<readonly [string, number]>> = uniqueArray(
-						keyGen,
-						(key) => (source) => [key, source.draw(integer)] as const,
-						{ min: 0, max: 5 }
-					)
-					const decodedIn = weighted<DecodedIn>([
-						[7, constant("this process")],
-						[1, constant("a consumer's process")]
-					])
-					return yield* searched(
-						ctx,
-						explore(
-							{
-								oracle: {
-									kind: "specification",
-									name: "a record's entries are its own keys, __proto__ an ordinary one"
-								},
-								suite: "unit/ir/shape-record-keys",
-								literal: Formatter.format,
-								draw: drawn((source) => [source.draw(entriesGen), source.draw(decodedIn)] as const),
-								runs: 100,
-								shrink: completeShrink,
-								coverage: required<`an own __proto__ key in ${DecodedIn}`>(
-									[
-										"an own __proto__ key in this process",
-										"an own __proto__ key in a consumer's process"
-									],
-									{ cases: 100, sense: notesOnly }
-								),
-								kept: [],
-								steerEvery: 16,
-								caseHang
-							},
-							([entries, where], c) =>
-								Effect.gen(function* () {
-									if (Arr.some(entries, ([key]) => key === "__proto__")) {
-										c.note(`an own __proto__ key in ${where}`)
-									}
-									/** Record.fromEntries, which is Object.fromEntries, defines each key as an own property, as JSON.parse does. */
-									const input = Rec.fromEntries(entries)
-									switch (where) {
-										case "this process": {
-											const out = succeeded(
-												S.decodeWith(S.recordShape(S.integer, S.nonEmptyString), input, "v")
-											)
-											unorderedEqual(Rec.toEntries(out), Rec.toEntries(input))
-											assert.equal(Object.getPrototypeOf(out), Object.prototype)
-											return
-										}
-										case "a consumer's process": {
-											const answered = yield* consumer(entries)
-											assert.equal(
-												answered.kind,
-												"answer",
-												`the consumer's child exited:\n${answered.kind === "exited" ? answered.stderr : ""}`
-											)
-											if (answered.kind !== "answer") {
-												return
-											}
-											const answer = trustedJson<ConsumerRecord>(answered.line)
-											assert.equal(
-												answer.accessor,
-												true,
-												"the consumer's child has Object.prototype.__proto__"
-											)
-											assert.equal(answer.decoded.kind, "decoded", Formatter.format(answer.decoded))
-											if (answer.decoded.kind === "decoded") {
-												unorderedEqual(answer.decoded.entries, Rec.toEntries(input))
-												assert.equal(
-													answer.decoded.plain,
-													true,
-													"the decoded record's prototype is Object.prototype"
-												)
-											}
-											return
-										}
-									}
-								})
-						)
-					)
-				})
-			)
-	)
-})
-
-describe("a value nested through a recursive shape", () => {
-	it.effect("decode at any depth, the call stack no deeper for it: a fresh copy decoded", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					suite: "unit/ir/shape-depth",
-					literal: Formatter.format,
-					draw: drawn(
-						(source) =>
-							[
-								source.draw(
-									weighted([
-										[1, constant(0)],
-										[6, containers]
-									])
-								),
-								source.draw(formGen)
-							] as const
-					),
-					runs: 12,
-					shrink: completeShrink,
-					coverage: required<NestingFeature>(
-						[
-							"chain",
-							"nested array",
-							"no container",
-							"within a small stack's recursion",
-							"past a small stack's recursion"
-						],
-						{ cases: 40, sense: notesOnly }
-					),
-					kept: [],
-					steerEvery: 16,
-					caseHang,
-					oracle: {
-						kind: "specification",
-						name: "the value's own construction: its form and its depth"
+					if (Arr.some(entries, ([key]) => key === "__proto__")) {
+						c.note(`an own __proto__ key in ${where}`)
 					}
-				},
-				([depth, form], c) =>
+					/** Record.fromEntries, which is Object.fromEntries, defines each key as an own property, as JSON.parse does. */
+					const input = Rec.fromEntries(entries)
+					switch (where) {
+						case "this process": {
+							const out = succeeded(
+								S.decodeWith(S.recordShape(S.integer, S.nonEmptyString), input, "v")
+							)
+							unorderedEqual(Rec.toEntries(out), Rec.toEntries(input))
+							assert.equal(Object.getPrototypeOf(out), Object.prototype)
+							return
+						}
+						case "a consumer's process": {
+							const dir = yield* checkout
+							const consumer = yield* consumerProcess(dir)
+							const answered = yield* consumer(entries)
+							assert.equal(
+								answered.kind,
+								"answer",
+								`the consumer's child exited:\n${answered.kind === "exited" ? answered.stderr : ""}`
+							)
+							if (answered.kind !== "answer") {
+								return
+							}
+							const answer = trustedJson<ConsumerRecord>(answered.line)
+							assert.equal(
+								answer.accessor,
+								true,
+								"the consumer's child has Object.prototype.__proto__"
+							)
+							assert.equal(answer.decoded.kind, "decoded", Formatter.format(answer.decoded))
+							if (answer.decoded.kind === "decoded") {
+								unorderedEqual(answer.decoded.entries, Rec.toEntries(input))
+								assert.equal(
+									answer.decoded.plain,
+									true,
+									"the decoded record's prototype is Object.prototype"
+								)
+							}
+							return
+						}
+					}
+				}),
+		oracle: {
+			kind: "specification",
+			name: "a record's entries are its own keys, __proto__ an ordinary one"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/ir/shape.ts",
+				original:
+					"\tObject.defineProperty(target, key, {\n\t\tvalue,\n\t\tenumerable: true,\n\t\twritable: true,\n\t\tconfigurable: true\n\t})",
+				replacement: "\ttarget[key] = value",
+				why: "setOwn assigns every key, so where Object.prototype.__proto__ exists a \"__proto__\" key is lost, or sets the copy's prototype; the record keys property fails in the consumer's process."
+			}
+		]
+	})
+
+/** A value nested through a recursive shape decode at any depth, the call stack no deeper for it: a fresh copy decoded. */
+export const aValueNestedThroughARecursiveShapeDecodeAtAnyDepthTheCallStackNoDeeperForItAFreshCopyDecoded =
+	property.explore(
+		(source) =>
+			[
+				source.draw(
+					weighted([
+						[1, constant(0)],
+						[6, containers]
+					])
+				),
+				source.draw(formGen)
+			] as const,
+		{
+			needs: {},
+			situations: [
+				"chain",
+				"nested array",
+				"no container",
+				"within a small stack's recursion",
+				"past a small stack's recursion"
+			] satisfies ReadonlyArray<Reached<NestingFeature>>,
+			check:
+				(_, c: Case<NestingFeature>) =>
+				([depth, form]) =>
 					Effect.sync(() => {
 						c.note(form)
 						c.note(depthFeature(depth))
@@ -972,85 +534,92 @@ describe("a value nested through a recursive shape", () => {
 							depth === 0 && form === "nested array",
 							"every container decodes to a fresh copy, and an integer to itself"
 						)
-					})
-			)
-		)
+					}),
+			oracle: {
+				kind: "specification",
+				name: "the value's own construction: its form and its depth"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/ir/shape.ts",
+					original: "\t\t\treturn yield* deferred(shape().parse(value, path))",
+					replacement: "\t\t\treturn yield* shape().parse(value, path)",
+					why: "ref reads its part on the call stack, not deferred to the driver; the depth and cycles property fails past a small stack."
+				}
+			]
+		}
 	)
 
-	it.effect(
-		"refuse a value that holds itself as a cycle where it meets itself, however long the cycle",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/ir/shape-cycle",
-						literal: Formatter.format,
-						/** A cycle through drawn containers, back to its root, its last or one between. */
-						draw: drawn((source) => {
-							const length = source.draw(containers)
-							return [
-								length,
-								source.draw(
-									weighted([
-										[1, constant(0)],
-										[1, constant(length - 1)],
-										[1, int(0, length - 1)]
-									])
-								),
-								source.draw(formGen)
-							] as const
-						}),
-						runs: 12,
-						shrink: completeShrink,
-						coverage: required<NestingFeature>(
-							[
-								"chain",
-								"nested array",
-								"within a small stack's recursion",
-								"past a small stack's recursion",
-								"a cycle back to its root",
-								"a cycle back to its last container",
-								"a cycle back to a container between"
-							],
-							{ cases: 60, sense: notesOnly }
-						),
-						kept: [],
-						steerEvery: 16,
-						caseHang,
-						oracle: {
-							kind: "specification",
-							name: "the cycle's own construction: the path from its root back to itself"
-						}
-					},
-					([length, back, form], c) =>
-						Effect.sync(() => {
-							c.note(form)
-							c.note(depthFeature(length))
-							c.note(
-								back === 0
-									? "a cycle back to its root"
-									: back === length - 1
-										? "a cycle back to its last container"
-										: "a cycle back to a container between"
-							)
-							const reads = new CycleReads(length)
-							const value = cyclic(form, length, back, reads)
-							const refusal = refused(
-								S.decodeWith(formShape(form), value, "v"),
-								"MalformedDescription"
-							)
-							assert.equal(
-								reads.made,
-								reads.most,
-								`a decode refusing a cycle of ${length} containers reads each link once and the one it meets again once more, ${reads.most} reads; this one made ${reads.made}, so it went round the cycle with no container on its path refused`
-							)
-							assert.deepEqual(
-								refusalLoc(refusal).path,
-								Arr.map(indices(length), () => stepOf(form))
-							)
-						})
-				)
-			)
+/** A value nested through a recursive shape refuse a value that holds itself as a cycle where it meets itself, however long the cycle. */
+export const aValueNestedThroughARecursiveShapeRefuseAValueThatHoldsItselfAsACycleWhereItMeetsItselfHoweverLongTheCycle =
+	property.explore(
+		(source) => {
+			const length = source.draw(containers)
+			return [
+				length,
+				source.draw(
+					weighted([
+						[1, constant(0)],
+						[1, constant(length - 1)],
+						[1, int(0, length - 1)]
+					])
+				),
+				source.draw(formGen)
+			] as const
+		},
+		{
+			needs: {},
+			situations: [
+				"chain",
+				"nested array",
+				"within a small stack's recursion",
+				"past a small stack's recursion",
+				"a cycle back to its root",
+				"a cycle back to its last container",
+				"a cycle back to a container between"
+			] satisfies ReadonlyArray<Reached<NestingFeature>>,
+			check:
+				(_, c: Case<NestingFeature>) =>
+				([length, back, form]) =>
+					Effect.sync(() => {
+						c.note(form)
+						c.note(depthFeature(length))
+						c.note(
+							back === 0
+								? "a cycle back to its root"
+								: back === length - 1
+									? "a cycle back to its last container"
+									: "a cycle back to a container between"
+						)
+						const reads = new CycleReads(length)
+						const value = cyclic(form, length, back, reads)
+						const refusal = refused(
+							S.decodeWith(formShape(form), value, "v"),
+							"MalformedDescription"
+						)
+						assert.equal(
+							reads.made,
+							reads.most,
+							`a decode refusing a cycle of ${length} containers reads each link once and the one it meets again once more, ${reads.most} reads; this one made ${reads.made}, so it went round the cycle with no container on its path refused`
+						)
+						assert.deepEqual(
+							refusalLoc(refusal).path,
+							Arr.map(indices(length), () => stepOf(form))
+						)
+					}),
+			oracle: {
+				kind: "specification",
+				name: "the cycle's own construction: the path from its root back to itself"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/ir/shape.ts",
+					original: '\tif (path.onPath.has(value)) {\n\t\tabort(path, "an acyclic value")\n\t}\n',
+					replacement: "",
+					why: "A container on the path is not refused as a cycle, so the decode goes round one that holds itself; the depth and cycles property fails one read past the cycle."
+				}
+			]
+		}
 	)
-})

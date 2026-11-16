@@ -1,26 +1,3 @@
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { type Gen, subarray } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { identity } from "#compiler/core/identity.ts"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
-import { ChangeSet } from "#compiler/public/changeset.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import { mutable, relation, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import { changeSetDesc } from "#compiler/write/changeset/value.ts"
-import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
-import { compileWrite } from "#compiler/write/program/compile.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { servingParams, testArtifacts, testCompile } from "#test/support/compile.ts"
-import { conservativeWrite } from "#test/support/conservative.ts"
-import { parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { checking, owning } from "#test/support/policy.ts"
-
 /**
  * A carrier's name fixes its declaration (sql/naming.ts carrierName): a session keeps each served statement under its
  * text, and a statement over a carrier reads the carrier its program's call creates, so two programs one session runs
@@ -39,240 +16,62 @@ import { checking, owning } from "#test/support/policy.ts"
  * otherwise, the situation a name drawn from a carrier's place alone collides at. The feature reads the programs'
  * order, never a carrier name's spelling.
  */
-const layouts = ["text", "bigint", "boolean", "uuid"] as const
-type Layout = (typeof layouts)[number]
 
-/** The schema every layout is compiled under, so its programs name their carriers as one session's programs do. */
-const schemaName = "carrier_names"
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
+import { assert } from "#test/support/assert.ts"
+import {
+	carriers,
+	layoutsGen,
+	placedApart,
+	type Situation
+} from "#test/unit/write/carrier-names.fixtures.ts"
 
-/**
- * A layout's schema and its put of R from a query over the relation parameter `rows`, with a read-back of its added
- * facts: the put is described, so its displacing deletion and its insert both read the query's rows from a carrier of
- * the program's own (write/schedule/plan.ts), declared by R's layout.
- */
-const layoutOf = (layout: Layout) => {
-	switch (layout) {
-		case "text": {
-			const R = relation("R", { id: pg.int4, v: str.regex("^[a-z]*$") }, ["id"])
-			const S = schema(schemaName, [R], [mutable(R)])
-			return {
-				S,
-				changes: ChangeSet.empty(S)
-					.put(
-						R,
-						query(S).rule((r) => {
-							const rows = r.relation("rows", { id: R.fields.id, v: R.fields.v })
-							const { id, v: value } = v(R, "r")
-							return r.match(rows, { id, v: value }).find({ id, v: value })
-						})
+/** A write program's carriers name one declaration each, across every program a session may run. */
+export const aWriteProgramsCarriersNameOneDeclarationEachAcrossEveryProgramASessionMayRun =
+	property.exhaust(finite(layoutsGen), {
+		needs: {},
+		situations: [
+			"one layout",
+			"layouts of one carrier position and two declarations"
+		] satisfies ReadonlyArray<Reached<Situation>>,
+		check: (_, c: Case<Situation>) => (drawnLayouts) =>
+			Effect.sync(() => {
+				const all = Arr.flatMap(drawnLayouts, (layout) => [
+					...carriers[layout].optimized,
+					...carriers[layout].conservative
+				])
+				if (drawnLayouts.length === 1) {
+					c.note("one layout")
+				}
+				const declared = new Map<string, string>()
+				for (const [name, declaration] of all) {
+					const held = declared.get(name)
+					assert.ok(
+						held === undefined || held === declaration,
+						`the carrier ${name} is declared ${held ?? ""} and ${declaration}`
 					)
-					.read("r", (d) =>
-						query(S).rule((r) => {
-							const { id, v: value } = v(R, "added")
-							return r.match(d.added(R), { id, v: value }).find({ id, v: value })
-						})
-					)
+					declared.set(name, declaration)
+				}
+				if (placedApart(drawnLayouts)) {
+					c.note("layouts of one carrier position and two declarations")
+				}
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the CREATE TEMPORARY TABLE text of each carrier, its name set aside"
+		},
+		box: "every set of R's layouts, v text, bigint, boolean or uuid, each a put from a query read back by its added facts, in both realizations",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/sql/naming.ts",
+				original:
+					"\tCarrierName(identifierOf(identity.carrier(ordinal, canonicalTextOf(declaration))))",
+				replacement: '\tCarrierName(identifierOf(identity.carrier(ordinal, "")))',
+				why: "A carrier named by its ordinal alone, never its declaration's digest (sql/naming.ts carrierName)."
 			}
-		}
-		case "bigint": {
-			const R = relation("R", { id: pg.int4, v: pg.bigint }, ["id"])
-			const S = schema(schemaName, [R], [mutable(R)])
-			return {
-				S,
-				changes: ChangeSet.empty(S)
-					.put(
-						R,
-						query(S).rule((r) => {
-							const rows = r.relation("rows", { id: R.fields.id, v: R.fields.v })
-							const { id, v: value } = v(R, "r")
-							return r.match(rows, { id, v: value }).find({ id, v: value })
-						})
-					)
-					.read("r", (d) =>
-						query(S).rule((r) => {
-							const { id, v: value } = v(R, "added")
-							return r.match(d.added(R), { id, v: value }).find({ id, v: value })
-						})
-					)
-			}
-		}
-		case "boolean": {
-			const R = relation("R", { id: pg.int4, v: pg.boolean }, ["id"])
-			const S = schema(schemaName, [R], [mutable(R)])
-			return {
-				S,
-				changes: ChangeSet.empty(S)
-					.put(
-						R,
-						query(S).rule((r) => {
-							const rows = r.relation("rows", { id: R.fields.id, v: R.fields.v })
-							const { id, v: value } = v(R, "r")
-							return r.match(rows, { id, v: value }).find({ id, v: value })
-						})
-					)
-					.read("r", (d) =>
-						query(S).rule((r) => {
-							const { id, v: value } = v(R, "added")
-							return r.match(d.added(R), { id, v: value }).find({ id, v: value })
-						})
-					)
-			}
-		}
-		case "uuid": {
-			const R = relation("R", { id: pg.int4, v: uuid }, ["id"])
-			const S = schema(schemaName, [R], [mutable(R)])
-			return {
-				S,
-				changes: ChangeSet.empty(S)
-					.put(
-						R,
-						query(S).rule((r) => {
-							const rows = r.relation("rows", { id: R.fields.id, v: R.fields.v })
-							const { id, v: value } = v(R, "r")
-							return r.match(rows, { id, v: value }).find({ id, v: value })
-						})
-					)
-					.read("r", (d) =>
-						query(S).rule((r) => {
-							const { id, v: value } = v(R, "added")
-							return r.match(d.added(R), { id, v: value }).find({ id, v: value })
-						})
-					)
-			}
-		}
-	}
-}
-
-/** Every carrier an artifact creates: its name, and its CREATE TEMPORARY TABLE's text with the name set aside. */
-const createdCarriers = (
-	artifact: WriteArtifact
-): ReadonlyArray<readonly [name: string, declaration: string]> =>
-	Arr.flatMap(artifact.statements, (s) =>
-		s.step.kind === "carrier" && s.step.step === "create"
-			? [[s.step.carrier, Str.replaceAll(s.step.carrier, "?")(s.spec.sql)] as const]
-			: []
-	)
-
-/** The carriers a layout's programs create, each realization's in the order its program creates them. */
-interface Created {
-	readonly optimized: ReadonlyArray<readonly [name: string, declaration: string]>
-	readonly conservative: ReadonlyArray<readonly [name: string, declaration: string]>
-}
-
-/** Every carrier a layout's programs create, in both realizations. */
-const carriersOf = (layout: Layout): Created => {
-	const { S, changes } = layoutOf(layout)
-	const owned = owning(S)
-	const names = succeeded(
-		compileInstallation(
-			owned,
-			servingParams(
-				{
-					...installOptions(owned, "owner"),
-					levels: [identity.schema(parsedSchemaName(schemaName))]
-				},
-				S,
-				{ put: changes }
-			)
-		)
-	).names
-	const artifacts = succeeded(testArtifacts(S, testCompile))
-	const program = succeeded(
-		compileWrite(checking(S), defined(changeSetDesc(changes), "a ChangeSet"), {
-			names,
-			reads: names,
-			claims: { kind: "every" },
-			world: { kind: "reality" },
-			laws: artifacts.laws,
-			derived: artifacts.derived,
-			level: "serializable"
-		}),
-		`the ${layout} put compiles`
-	)
-	const conservative = succeeded(
-		conservativeWrite(program, { names, reads: names }),
-		`the ${layout} put's conservative realization`
-	)
-	return {
-		optimized: createdCarriers(program.artifact),
-		conservative: createdCarriers(conservative.artifact)
-	}
-}
-
-/** Each layout's carriers, compiled once. */
-const carriers: { readonly [L in Layout]: Created } = {
-	text: carriersOf("text"),
-	bigint: carriersOf("bigint"),
-	boolean: carriersOf("boolean"),
-	uuid: carriersOf("uuid")
-}
-
-type Situation = "one layout" | "layouts of one carrier position and two declarations"
-
-/** The realizations a layout's carriers are created in. */
-const realizations = ["optimized", "conservative"] as const
-
-/**
- * Whether two of the layouts create, at one position of one realization's program, carriers declared otherwise: where a
- * name drawn from a carrier's place alone would name two declarations.
- */
-const placedApart = (drawnLayouts: ReadonlyArray<Layout>): boolean =>
-	Arr.some(drawnLayouts, (a) =>
-		Arr.some(drawnLayouts, (b) =>
-			Arr.some(realizations, (r) =>
-				Arr.some(carriers[a][r], ([, x], i) => {
-					const other = carriers[b][r][i]
-					return a !== b && other !== undefined && other[1] !== x
-				})
-			)
-		)
-	)
-
-const layoutsGen: Gen<ReadonlyArray<Layout>> = subarray(layouts)
-
-describe("a write program's carriers", () => {
-	it.effect("name one declaration each, across every program a session may run", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/write/carrier-names",
-					generator: layoutsGen,
-					literal: Formatter.format,
-					box: "every set of R's layouts, v text, bigint, boolean or uuid, each a put from a query read back by its added facts, in both realizations",
-					oracle: {
-						kind: "second-implementation",
-						name: "the CREATE TEMPORARY TABLE text of each carrier, its name set aside"
-					},
-					coverage: requiredInSpace<Situation>([
-						"one layout",
-						"layouts of one carrier position and two declarations"
-					]),
-					caseHang
-				},
-				(drawnLayouts, c) =>
-					Effect.sync(() => {
-						const all = Arr.flatMap(drawnLayouts, (layout) => [
-							...carriers[layout].optimized,
-							...carriers[layout].conservative
-						])
-						if (drawnLayouts.length === 1) {
-							c.note("one layout")
-						}
-						const declared = new Map<string, string>()
-						for (const [name, declaration] of all) {
-							const held = declared.get(name)
-							assert.ok(
-								held === undefined || held === declaration,
-								`the carrier ${name} is declared ${held ?? ""} and ${declaration}`
-							)
-							declared.set(name, declaration)
-						}
-						if (placedApart(drawnLayouts)) {
-							c.note("layouts of one carrier position and two declarations")
-						}
-					})
-			)
-		)
-	)
-})
+		]
+	})

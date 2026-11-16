@@ -7,98 +7,56 @@
  * Oracle: the identity law of a traversal that changes nothing, and the visitor's leaves in order (a second
  * traversal). Features: every statement kind.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
-import type { Expr, SqlStatement } from "#compiler/sql/ast.ts"
-import { lit, types } from "#compiler/sql/build.ts"
-import {
-	identityHooks,
-	inertVisitor,
-	transformStatement,
-	visitSelect
-} from "#compiler/sql/transform.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
+import type { SqlStatement } from "#compiler/sql/ast.ts"
+import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { assert } from "#test/support/assert.ts"
 import { statementGen } from "#test/support/kernel/sqlgen.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { sqlCatalog } from "#test/unit/sql/audit/catalog.ts"
+import { leaves, marker } from "#test/unit/sql/transform.fixtures.ts"
 
-const isLeaf = (e: Expr): boolean =>
-	e.kind === "literal" || e.kind === "column" || e.kind === "param"
-
-/** The leaves of a statement in traversal order: the visitor's for a query, the rewrite's own for any other kind. */
-const leaves = (s: SqlStatement): ReadonlyArray<Expr> => {
-	const out: Array<Expr> = []
-	if (s.kind === "select") {
-		visitSelect(s, { ...inertVisitor, expr: (e) => (isLeaf(e) ? void out.push(e) : undefined) })
-	} else {
-		transformStatement(s, {
-			...identityHooks,
-			expr: (e) => {
-				if (isLeaf(e)) {
-					out.push(e)
+/** The SQL AST traversals keep an unchanged statement, and rebuild exactly the changed leaf of every generated statement. */
+export const theSQLASTTraversalsKeepAnUnchangedStatementAndRebuildExactlyTheChangedLeafOfEveryGeneratedStatement =
+	property.explore(statementGen(sqlCatalog), {
+		needs: {},
+		situations: [
+			"statement select",
+			"statement insert",
+			"statement update",
+			"statement delete",
+			"statement merge"
+		] satisfies ReadonlyArray<Reached<`statement ${SqlStatement["kind"]}`>>,
+		check: (_, c: Case<`statement ${SqlStatement["kind"]}`>) => (s) =>
+			Effect.sync(() => {
+				assert.equal(transformStatement(s, identityHooks), s)
+				const before = leaves(s)
+				for (const leaf of new Set(before)) {
+					const rewritten = transformStatement(s, {
+						...identityHooks,
+						expr: (rebuilt, original) => (original === leaf ? marker : rebuilt)
+					})
+					assert.deepEqual(
+						Arr.map(leaves(rewritten), (e) => e === marker),
+						Arr.map(before, (e) => e === leaf)
+					)
 				}
-				return e
+				c.note(`statement ${s.kind}`)
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the visitor's leaves in traversal order, and identity where nothing changes"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/sql/transform.ts",
+				original:
+					"const kept = <L extends ReadonlyArray<unknown>>(list: L, out: L): L =>\n\tout.every((a, i) => a === list[i]) ? list : out",
+				replacement: "const kept = <L extends ReadonlyArray<unknown>>(_list: L, out: L): L => out",
+				why: "Every mapped list is rebuilt, changed or not; the identity law fails."
 			}
-		})
-	}
-	return out
-}
-
-const marker = lit.text("rewritten", types.text)
-
-describe("the SQL AST traversals", () => {
-	it.effect(
-		"keep an unchanged statement, and rebuild exactly the changed leaf of every generated statement",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "second-implementation",
-							name: "the visitor's leaves in traversal order, and identity where nothing changes"
-						},
-						suite: "unit/sql/transform-leaf",
-						draw: drawn(statementGen(sqlCatalog)),
-						literal: Formatter.format,
-						coverage: required<`statement ${SqlStatement["kind"]}`>(
-							[
-								"statement select",
-								"statement insert",
-								"statement update",
-								"statement delete",
-								"statement merge"
-							],
-							{ cases: 200, sense: notesOnly }
-						),
-						kept: [],
-						runs: 200,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(s, c) =>
-						Effect.sync(() => {
-							assert.equal(transformStatement(s, identityHooks), s)
-							const before = leaves(s)
-							for (const leaf of new Set(before)) {
-								const rewritten = transformStatement(s, {
-									...identityHooks,
-									expr: (rebuilt, original) => (original === leaf ? marker : rebuilt)
-								})
-								assert.deepEqual(
-									Arr.map(leaves(rewritten), (e) => e === marker),
-									Arr.map(before, (e) => e === leaf)
-								)
-							}
-							c.note(`statement ${s.kind}`)
-						})
-				)
-			)
-	)
-})
+		]
+	})

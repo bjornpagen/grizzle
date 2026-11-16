@@ -1,21 +1,3 @@
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { maxStringLength } from "@grizzle/limits"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { isRecord } from "#compiler/core/record.ts"
-import { pg } from "#compiler/public/fields.ts"
-import { relation, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
-import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
-import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
-import { assert } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
-
 /**
  * A ChangeSet's bound values are keyed by their canonical tokens (core/canonical.ts canonicalTokens), never by one
  * canonical text (write/changeset/value.ts boundKey): two ChangeSets that bind one name to equal values combine into
@@ -33,114 +15,85 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  *
  * Features: past the longest string, equal values, different values, either order.
  */
-const Note = relation("Note", { id: pg.int4, body: str.regex("^[ab]*$") }, ["id"])
-const Notes = schema("BoundNotes", [Note], [])
 
-/** The notes inserted as the relation parameter `notes` binds them. */
-const inserted = (): ChangeSetValue =>
-	ChangeSet.empty(Notes).insert(
-		Note,
-		query(Notes).rule((r: RuleValue) => {
-			const { id, body } = v(Note, "note")
-			return r.match(r.relation("notes", Note), { id, body }).find({ id, body })
-		})
+import { type Reached } from "@bjornpagen/testing/features"
+import { element, finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { maxStringLength } from "@grizzle/limits"
+import { Array as Arr, Effect, String as Str } from "effect"
+import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
+import { assert } from "#test/support/assert.ts"
+import {
+	type BoundCase,
+	type BoundFeature,
+	count,
+	inserted,
+	lastLetter,
+	lengths,
+	notesOf
+} from "#test/unit/write/changeset/bound-identity.fixtures.ts"
+import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
+
+/** A ChangeSet's bound values are one parameter when equal and two named in their canonical texts' order otherwise, past the longest string too. */
+export const aChangeSetsBoundValuesAreOneParameterWhenEqualAndTwoNamedInTheirCanonicalTextsOrderOtherwisePastTheLongestStringToo =
+	property.exhaust(
+		finite((source): BoundCase => ({
+			length: source.draw(element(lengths)),
+			values: source.draw(element(["equal", "different"] as const)),
+			order: source.draw(element(["a-ending first", "b-ending first"] as const))
+		})),
+		{
+			needs: {},
+			situations: [
+				"past the longest string",
+				"equal values",
+				"different values",
+				"either order"
+			] satisfies ReadonlyArray<Reached<BoundFeature>>,
+			check: (_, c: Case<BoundFeature>) => (box) =>
+				Effect.sync(() => {
+					const shared = Str.repeat(box.length)("a")
+					if (count * box.length > maxStringLength.value) {
+						c.note("past the longest string")
+					}
+					const lesser = notesOf(shared, "a")
+					const greater = box.values === "equal" ? notesOf(shared, "a") : notesOf(shared, "b")
+					const [first, second] =
+						box.order === "a-ending first" ? [lesser, greater] : [greater, lesser]
+					if (box.order === "b-ending first") {
+						c.note("either order")
+					}
+					const combined = ChangeSet.union(
+						inserted().bind({ notes: first }),
+						inserted().bind({ notes: second })
+					)
+					const values = parsedOf(combined).values
+					const bound = Arr.map(descOf(combined).bindings, (name) => lastLetter(values.get(name)))
+					if (box.values === "equal") {
+						c.note("equal values")
+						assert.deepEqual(bound, ["a"], "equal values are one parameter")
+						return
+					}
+					c.note("different values")
+					assert.deepEqual(
+						bound,
+						["a", "b"],
+						"different values are two parameters, the lesser text's first"
+					)
+				}),
+			oracle: {
+				kind: "specification",
+				name: "bound values are one parameter when equal, and otherwise named in their canonical texts' order"
+			},
+			box: "seven notes at a body length of 4 and at the least whose seven bodies pass the longest string, bound to equal or different values, combined in either order",
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/write/changeset/value.ts",
+					original: "\t\t\t? compareCanonicalTokens(a.key.tokens, b.key.tokens)",
+					replacement: "\t\t\t? compareCanonicalTokens(b.key.tokens, a.key.tokens)",
+					why: "Private parameters named against their canonical texts' order (write/changeset/value.ts boundOrder)."
+				}
+			]
+		}
 	)
-
-/** The notes' count, each body's length, and the box's lengths: one small, and the least whose seven bodies pass the
- * longest string. */
-const count = 7
-const lengths = [4, Math.floor(maxStringLength.value / count) + 1] as const
-
-interface BoundCase {
-	readonly length: (typeof lengths)[number]
-	readonly values: "equal" | "different"
-	readonly order: "a-ending first" | "b-ending first"
-}
-
-/** Seven notes at `length`, the last ending in `last`, every other body one shared string of a's. */
-const notesOf = (
-	shared: string,
-	last: "a" | "b"
-): ReadonlyArray<{ readonly id: number; readonly body: string }> =>
-	Arr.makeBy(count, (i) => ({
-		id: i + 1,
-		body: i === count - 1 ? `${Str.slice(1)(shared)}${last}` : shared
-	}))
-
-/** The last letter of the last note's body of a bound relation input. */
-const lastLetter = (value: unknown): string => {
-	if (!Arr.isArray(value)) {
-		return assert.fail("a relation input's notes")
-	}
-	const last: unknown = value.at(-1)
-	const body = isRecord(last) ? last["body"] : undefined
-	return typeof body === "string" ? Str.slice(-1)(body) : assert.fail("a note's body")
-}
-
-type BoundFeature = "past the longest string" | "equal values" | "different values" | "either order"
-
-describe("a ChangeSet's bound values", () => {
-	it.effect(
-		"are one parameter when equal and two named in their canonical texts' order otherwise, past the longest string too",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/write/changeset/bound-identity",
-						generator: (source): BoundCase => ({
-							length: source.draw(element(lengths)),
-							values: source.draw(element(["equal", "different"] as const)),
-							order: source.draw(element(["a-ending first", "b-ending first"] as const))
-						}),
-						literal: Formatter.format,
-						coverage: requiredInSpace<BoundFeature>([
-							"past the longest string",
-							"equal values",
-							"different values",
-							"either order"
-						]),
-						caseHang,
-						box: "seven notes at a body length of 4 and at the least whose seven bodies pass the longest string, bound to equal or different values, combined in either order",
-						oracle: {
-							kind: "specification",
-							name: "bound values are one parameter when equal, and otherwise named in their canonical texts' order"
-						}
-					},
-					(box, c) =>
-						Effect.sync(() => {
-							const shared = Str.repeat(box.length)("a")
-							if (count * box.length > maxStringLength.value) {
-								c.note("past the longest string")
-							}
-							const lesser = notesOf(shared, "a")
-							const greater = box.values === "equal" ? notesOf(shared, "a") : notesOf(shared, "b")
-							const [first, second] =
-								box.order === "a-ending first" ? [lesser, greater] : [greater, lesser]
-							if (box.order === "b-ending first") {
-								c.note("either order")
-							}
-							const combined = ChangeSet.union(
-								inserted().bind({ notes: first }),
-								inserted().bind({ notes: second })
-							)
-							const values = parsedOf(combined).values
-							const bound = Arr.map(descOf(combined).bindings, (name) =>
-								lastLetter(values.get(name))
-							)
-							if (box.values === "equal") {
-								c.note("equal values")
-								assert.deepEqual(bound, ["a"], "equal values are one parameter")
-								return
-							}
-							c.note("different values")
-							assert.deepEqual(
-								bound,
-								["a", "b"],
-								"different values are two parameters, the lesser text's first"
-							)
-						})
-				)
-			)
-	)
-})

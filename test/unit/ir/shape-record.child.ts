@@ -1,9 +1,9 @@
 /**
  * The module shape.test.ts's record-keys property runs in a child Node process started as a library consumer's is,
  * with no flag, so Object.prototype.__proto__ is in place, as --disable-proto=delete leaves it nowhere in a test
- * process. One child serves a whole run: each line it reads spells a record, a JSON array of [key, integer] entries,
- * which it decodes with recordShape, and for each it prints one JSON line: whether this process has the accessor, and
- * what the decode answered. It ends when its input does.
+ * process. Each case that decodes in a consumer's process starts its own child: each line it reads spells a record, a
+ * JSON array of [key, integer] entries, which it decodes with recordShape, and for each it prints one JSON line: whether
+ * this process has the accessor, and what the decode answered. It ends when its input does.
  */
 import { createInterface } from "node:readline"
 import { Record as Rec } from "effect"

@@ -18,396 +18,118 @@
  *
  * Kept: rows past one Bind message in several fills.
  *
- * Planted: a statement with no staged form (`staged` none) sends its rows inline past the bound, and the search fails
- * on the kept case past it, which the second test requires.
- *
  * Features: the inline statement, several fills, a carrier's ANALYZE, a row past the bound.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
-import { noCoverage, required } from "@bjornpagen/testing/features"
-import { array, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { maxStringLength } from "@grizzle/limits"
-import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import { bindFrame } from "#adapter/wire/batch.ts"
-import { StoredRelationName } from "#compiler/core/ids.ts"
-import { prepared } from "#compiler/core/prepared.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import * as Result from "#compiler/core/result.ts"
-import { utf8Length } from "#compiler/core/sha256.ts"
-import type { Param } from "#compiler/core/wire.ts"
-import { capabilitySet, type ScalarType } from "#compiler/ir/scalar.ts"
-import type { MemberCell } from "#compiler/runtime/write/draw.ts"
+import { executionsOf } from "#compiler/runtime/write/staged.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
 import {
-	type Execution,
-	executionsOf,
-	type NestedCells,
-	nestedColumn,
-	type NestedPlaceholder,
-	type NestedRowBound,
-	nestedSource,
-	type StagedAnalyze,
-	type StagedStatement
-} from "#compiler/runtime/write/staged.ts"
-import type { Transport } from "#compiler/runtime/write/transport.ts"
-import { wildcardText } from "#compiler/scalar/compute/types.ts"
-import { plainType } from "#compiler/scalar/native.ts"
-import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { testSql } from "#test/support/sql.ts"
-import { paramText } from "#test/support/wire.ts"
+	bindOf,
+	expected,
+	type Feature,
+	resolved,
+	sketchGen
+} from "#test/unit/write/staged.fixtures.ts"
 
-/** How a nested column's array is written: a text column's binary text[], a bytes column's bytea[], a literal's. */
-type Kind = "text" | "bytes" | "literal"
-
-/**
- * A case's bound on one Bind message: drawn, or exactly the Bind message of one fill carrying every row, which the
- * inline statement passes by its kept value, and never under the least bound a drawn one has (leastLimit).
- */
-type Limit = { readonly kind: "drawn"; readonly bytes: number } | { readonly kind: "one fill" }
-
-/** A case: the nested columns, each row's cell lengths, the text's characters, the kept value, the bound, and whether
- * the staged form counts its carriers. */
-interface Sketch {
-	readonly kinds: ReadonlyArray<Kind>
-	readonly rows: ReadonlyArray<ReadonlyArray<number>>
-	readonly character: string
-	readonly kept: number
-	readonly limit: Limit
-	readonly analyze: StagedAnalyze<unknown>["kind"]
-}
-
-/** The least bound a case draws: a Bind message of four parameters and the longest kept value fits it. */
-const leastLimit = bindFrame.statement + 4 * bindFrame.parameter + 40
-
-const limitGen: Gen<Limit> = weighted<Limit>([
-	[7, (source) => ({ kind: "drawn", bytes: source.draw(int(leastLimit, 1_600)) })],
-	[1, constant({ kind: "one fill" })]
-])
-
-const kindGen: Gen<Kind> = element(["text", "bytes", "literal"] as const)
-
-const sketchGen: Gen<Sketch> = (source) => {
-	const kinds = source.draw(array(kindGen, { min: 1, max: 3 }))
-	return {
-		kinds,
-		rows: source.draw(array((s) => Arr.map(kinds, () => s.draw(int(0, 120))), { min: 0, max: 12 })),
-		character: source.draw(element(["a", "é", "€", "𝄞", '"', ",", "\\"] as const)),
-		kept: source.draw(int(0, 40)),
-		limit: source.draw(limitGen),
-		analyze: source.draw(element(["needed", "absent"] as const))
-	}
-}
-
-type Feature =
-	| "inline"
-	| "staged in one fill"
-	| "staged in several fills"
-	| "a row past one fill alone"
-	| "its carriers counted"
-	| "its carriers uncounted"
-	| "a text column"
-	| "a bytes column"
-	| "a literal column"
-
-const typeOf = (kind: Kind): ScalarType => {
-	switch (kind) {
-		case "text":
-			return wildcardText
-		case "bytes":
-			return { carrier: "bytes", caps: capabilitySet([]) }
-		case "literal":
-			return plainType("int4")
-	}
-}
-
-const cellOf = (kind: Kind, character: string, length: number): MemberCell => {
-	switch (kind) {
-		case "text":
-		case "literal":
-			return paramText(Str.repeat(length)(character))
-		case "bytes":
-			return new AdmittedBytes(new Uint8Array(length).fill(length % 251))
-	}
-}
-
-/** The relation the cases' nested rows are rows of. */
-const entryRelation = StoredRelationName("Entry")
-
-/** The texts of the statement the cases stage, each named as a served write's are. */
-const stagedTexts = Object.freeze({
-	inline: prepared(testSql("inline")),
-	create: prepared(testSql("create")),
-	fill: prepared(testSql("fill")),
-	analyze: prepared(testSql("analyze")),
-	staged: prepared(testSql("staged"))
-})
-
-/** The case's nested rows, its statement, its kept value and its transport. */
-const resolved = (sketch: Sketch) => {
-	const cells: NestedCells = {
-		relation: entryRelation,
-		types: Arr.map(sketch.kinds, typeOf),
-		rows: Arr.map(sketch.rows, (row) =>
-			Arr.map(row, (length, part) =>
-				cellOf(defined(sketch.kinds[part], "a kind"), sketch.character, length)
-			)
-		)
-	}
-	const width = sketch.kinds.length
-	const source = nestedSource(cells)
-	const nested: ReadonlyArray<NestedPlaceholder | undefined> = [
-		...Arr.map(sketch.kinds, (_, part) => ({ part, source })),
-		undefined
-	]
-	const columns = Arr.map(sketch.kinds, (_, part) => part)
-	const [firstColumn, ...restColumns] = columns
-	const statement: StagedStatement = {
-		text: stagedTexts.inline,
-		staged: {
-			kind: "carriers",
-			carriers: [
-				{
-					create: stagedTexts.create,
-					fill: stagedTexts.fill,
-					columns: [defined(firstColumn, "a nested column"), ...restColumns]
-				}
-			],
-			analyze:
-				sketch.analyze === "needed"
-					? { kind: "needed", text: stagedTexts.analyze }
-					: { kind: "absent" },
-			sql: stagedTexts.staged,
-			kept: [width]
-		},
-		nested
-	}
-	const value = paramText(Str.repeat(sketch.kept)("k"))
-	const transport: Transport = {
-		messageBytes:
-			sketch.limit.kind === "drawn"
-				? sketch.limit.bytes
-				: Math.max(
-						leastLimit,
-						bindOf(
-							Arr.map(cells.types, (_, part) =>
-								succeeded(nestedColumn(cells, part, cells.rows), "a column encodes")
-							)
-						)
-					),
-		literalUnits: maxStringLength.value,
-		frame: bindFrame
-	}
-	return { cells, statement, value, transport, width, analyze: sketch.analyze }
-}
-
-type Resolved = ReturnType<typeof resolved>
-
-/** A Bind message's length as the wire counts it: its fields, and each parameter's format, length and bytes. */
-const bindOf = (params: ReadonlyArray<Param>): number =>
-	Arr.reduce(
-		params,
-		bindFrame.statement,
-		(sum, p) => sum + bindFrame.parameter + (typeof p === "string" ? utf8Length(p) : p.byteLength)
-	)
-
-/** Each nested column's array over `rows`, written by its encoder. */
-const written = (r: Resolved, rows: NestedCells["rows"]): ReadonlyArray<Param> =>
-	Arr.map(r.cells.types, (_, part) =>
-		succeeded(nestedColumn(r.cells, part, rows), "a column encodes")
-	)
-
-/** The executions the encoders' own sizes give (the header's oracle), or the bound of the first row no fill carries. */
-const expected = (r: Resolved): Result.Result<ReadonlyArray<Execution>, NestedRowBound> => {
-	const all = r.cells.rows
-	const inline = [...written(r, all), r.value]
-	if (bindOf(inline) <= r.transport.messageBytes) {
-		return Result.ok([{ text: stagedTexts.inline, params: inline, part: "statement" }])
-	}
-	const out: Array<Execution> = [{ text: stagedTexts.create, params: [], part: "create" }]
-	let from = 0
-	while (from < all.length) {
-		const alone = bindOf(written(r, all.slice(from, from + 1)))
-		if (alone > r.transport.messageBytes) {
-			return Result.err({
-				_tag: "NestedRowBound",
-				relation: entryRelation,
-				row: { kind: "message", bytes: alone, limit: r.transport.messageBytes, statement: "insert" }
-			})
-		}
-		let to = from + 1
-		while (
-			to < all.length &&
-			bindOf(written(r, all.slice(from, to + 1))) <= r.transport.messageBytes
-		) {
-			to += 1
-		}
-		out.push({
-			text: stagedTexts.fill,
-			params: written(r, all.slice(from, to)),
-			part: "fill"
-		})
-		from = to
-	}
-	if (r.analyze === "needed") {
-		out.push({ text: stagedTexts.analyze, params: [], part: "analyze" })
-	}
-	out.push({ text: stagedTexts.staged, params: [r.value], part: "statement" })
-	return Result.ok(out)
-}
-
-/** How a statement reaches executionsOf: as it is compiled, or with its staged form planted away. */
-type Staging = (statement: StagedStatement) => StagedStatement
-
-const asCompiled: Staging = (statement) => statement
-
-/** The planted bug: a statement whose staged form is gone, which sends its rows inline past any bound. */
-const unstaged: Staging = (statement) => ({ ...statement, staged: { kind: "none" } })
-
-/** The header's property, over the executions of each case's statement as `staging` hands it over. */
-const property = (staging: Staging) => (sketch: Sketch, c: Case<Feature>) =>
-	Effect.sync(() => {
-		const r = resolved(sketch)
-		for (const kind of sketch.kinds) {
-			c.note(
-				kind === "text" ? "a text column" : kind === "bytes" ? "a bytes column" : "a literal column"
-			)
-		}
-		const got = executionsOf(
-			staging(r.statement),
-			"statement",
-			(position) => {
-				assert.equal(position, r.width, "only the kept placeholder is encoded by its slot")
-				return Result.ok(r.value)
-			},
-			r.transport
-		)
-		const want = expected(r)
-		if (!want.ok) {
-			c.note("a row past one fill alone")
-			assert.deepEqual(got, want, "a row no fill carries alone refuses the write")
-			return
-		}
-		const fills = Arr.filter(want.value, (e) => e.part === "fill").length
-		c.note(
-			want.value.length === 1
-				? "inline"
-				: fills <= 1
-					? "staged in one fill"
-					: "staged in several fills"
-		)
-		if (want.value.length > 1) {
-			c.note(sketch.analyze === "needed" ? "its carriers counted" : "its carriers uncounted")
-		}
-		assert.deepEqual(got, want, "the executions are the encoders' own cut")
-		for (const e of succeeded(got)) {
-			assert.ok(
-				bindOf(e.params) <= r.transport.messageBytes,
-				"every execution's Bind message fits the bound"
-			)
-		}
-	})
-
-/** Rows past one Bind message in several fills, a case the planted bug sends inline past the bound. */
-const pastTheBound: Sketch = {
-	kinds: ["bytes", "text"],
-	rows: [
-		[120, 40],
-		[120, 40],
-		[120, 40],
-		[120, 40]
-	],
-	character: "a",
-	kept: 0,
-	limit: { kind: "drawn", bytes: 400 },
-	analyze: "needed"
-}
-
-describe("nested rows past one Bind message", () => {
-	it.effect(
-		"go inline where they fit and otherwise through a carrier filled in the longest chunks one Bind carries",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/write/staged",
-						draw: drawn(sketchGen),
-						literal: Formatter.format,
-						oracle: {
-							kind: "second-implementation",
-							name: "the inline statement or the greedy cut by the encoders' own arrays"
-						},
-						coverage: required<Feature>(
-							[
-								"inline",
-								"staged in one fill",
-								"staged in several fills",
-								"a row past one fill alone",
-								"its carriers counted",
-								"its carriers uncounted",
-								"a text column",
-								"a bytes column",
-								"a literal column"
-							],
-							{ cases: 64, sense: notesOnly }
-						),
-						kept: [
-							{
-								note: "rows past one Bind message in several fills",
-								sketch: pastTheBound,
-								draws: "",
-								reaches: ["staged in several fills", "a bytes column", "a text column"]
-							}
-						],
-						runs: 400,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					property(asCompiled)
-				)
-			)
-	)
-
-	it.effect(
-		"fails, planted with no staged form, on a statement whose rows are past the bound",
-		(ctx) =>
-			Effect.gen(function* () {
-				const failure = yield* Effect.flip(
-					searched(
-						ctx,
-						explore(
-							{
-								suite: "unit/write/staged, planted",
-								draw: drawn(sketchGen),
-								literal: Formatter.format,
-								oracle: {
-									kind: "second-implementation",
-									name: "the inline statement or the greedy cut by the encoders' own arrays"
-								},
-								coverage: noCoverage,
-								kept: [
-									{
-										note: "rows past one Bind message, which the planted bug sends inline",
-										sketch: pastTheBound,
-										draws: "",
-										reaches: ["staged in several fills"]
-									}
-								],
-								runs: 8,
-								shrink: completeShrink,
-								steerEvery: 4,
-								caseHang
-							},
-							property(unstaged)
-						)
+/** Nested rows past one Bind message go inline where they fit and otherwise through a carrier filled in the longest chunks one Bind carries. */
+export const nestedRowsPastOneBindMessageGoInlineWhereTheyFitAndOtherwiseThroughACarrierFilledInTheLongestChunksOneBindCarries =
+	property.explore(sketchGen, {
+		needs: {},
+		situations: [
+			"inline",
+			"staged in one fill",
+			"staged in several fills",
+			"a row past one fill alone",
+			"its carriers counted",
+			"its carriers uncounted",
+			"a text column",
+			"a bytes column",
+			"a literal column"
+		] satisfies ReadonlyArray<Reached<Feature>>,
+		check: (_, c: Case<Feature>) => (sketch) =>
+			Effect.sync(() => {
+				const r = resolved(sketch)
+				for (const kind of sketch.kinds) {
+					c.note(
+						kind === "text"
+							? "a text column"
+							: kind === "bytes"
+								? "a bytes column"
+								: "a literal column"
 					)
+				}
+				const got = executionsOf(
+					r.statement,
+					"statement",
+					(position) => {
+						assert.equal(position, r.width, "only the kept placeholder is encoded by its slot")
+						return Result.ok(r.value)
+					},
+					r.transport
 				)
-				assert.equal(failure._tag, "PropertyFalsified", "the search catches the planted bug")
-			})
-	)
-})
+				const want = expected(r)
+				if (!want.ok) {
+					c.note("a row past one fill alone")
+					assert.deepEqual(got, want, "a row no fill carries alone refuses the write")
+					return
+				}
+				const fills = Arr.filter(want.value, (e) => e.part === "fill").length
+				c.note(
+					want.value.length === 1
+						? "inline"
+						: fills <= 1
+							? "staged in one fill"
+							: "staged in several fills"
+				)
+				if (want.value.length > 1) {
+					c.note(sketch.analyze === "needed" ? "its carriers counted" : "its carriers uncounted")
+				}
+				assert.deepEqual(got, want, "the executions are the encoders' own cut")
+				for (const e of succeeded(got)) {
+					assert.ok(
+						bindOf(e.params) <= r.transport.messageBytes,
+						"every execution's Bind message fits the bound"
+					)
+				}
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the inline statement or the greedy cut by the encoders' own arrays"
+		},
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/write/staged.test.ts#nestedRowsPastOneBindMessageGoInlineWhereTheyFitAndOtherwiseThroughACarrierFilledInTheLongestChunksOneBindCarries:-:2.1.0.4.3c.14.3c.14.3c.14.3c.14.0.0.0.7a.0"
+				),
+				reason: "rows past one Bind message in several fills",
+				since: "2026-11-09"
+			}
+		],
+		kills: [
+			{
+				file: "packages/engine/src/runtime/write/staged.ts",
+				original:
+					'\t\t\tbind += frame.parameter + paramBytes(defined(values.get(position), "an encoded value"))\n',
+				replacement: "",
+				why: "The cut measures a statement's Bind message without its placeholders that carry no nested rows (runtime/write/staged.ts executionsOf), so a statement past the bound goes inline."
+			},
+			{
+				file: "packages/engine/src/runtime/write/staged.ts",
+				original:
+					'\tif (staged.analyze.kind === "needed") {\n\t\tout.push({ text: staged.analyze.text, params: [], part: "analyze" })\n\t}\n',
+				replacement: "",
+				why: "The staged form's ANALYZE is never sent where it is needed."
+			},
+			{
+				file: "packages/engine/src/runtime/write/staged.ts",
+				original: '\tif (staged.kind === "none") {\n\t\treturn inline()\n\t}\n',
+				replacement:
+					'\tif (staged.kind === "none" || staged.kind === "carriers") {\n\t\treturn inline()\n\t}\n',
+				why: "A statement's staged form is never used (runtime/write/staged.ts executionsOf), so its nested rows go inline past any bound: the old suite's planted search over a statement with no staged form, which had to fail on the kept case past the bound."
+			}
+		]
+	})

@@ -73,8 +73,6 @@ export class Money implements Canonicalizable {
 	}
 
 	static readonly zero: Money = new Money(minting, 0n)
-	static readonly min: Money = new Money(minting, int8Min.value)
-	static readonly max: Money = new Money(minting, int8Max.value)
 
 	/** A Money value from its count of minor units: a bigint within the signed 64-bit range. */
 	static make(minorUnits: unknown): Result.Result<Money, ValueFault> {

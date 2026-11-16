@@ -715,7 +715,7 @@ const twins = <A>(generator: Gen<A>): Gen<readonly [A, A]> =>
 	})
 
 /** A generated statement and a lowered case are drawn twice from the same decisions (gen.ts clone): the twins. */
-const generatedSketchGen: Gen<LiveSketch> = map(
+export const generatedSketchGen: Gen<LiveSketch> = map(
 	twins(statementGen(sqlCatalog)),
 	([statement, twin]): LiveSketch => ({ kind: "generated", statement, twin })
 )
@@ -736,6 +736,12 @@ const draftedSketchGen: Gen<LiveSketch> = map(
 	int(0, realOutput.drafted.length - 1),
 	(index): LiveSketch => ({ kind: "drafted", index })
 )
+
+/** Every entry of the dictionary of real output as a Live draw: each installation, then each drafted migration. */
+export const realSketches: ReadonlyArray<LiveSketch> = [
+	...Arr.map(realOutput.installed, (_, index): LiveSketch => ({ kind: "installed", index })),
+	...Arr.map(realOutput.drafted, (_, index): LiveSketch => ({ kind: "drafted", index }))
+]
 
 /** A generated query with -0 planted in one of its cores, picked: the cores are known only once the query is drawn. */
 const plantedSketchGen: Gen<LiveSketch> = (source) => {

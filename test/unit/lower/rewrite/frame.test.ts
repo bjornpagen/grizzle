@@ -14,23 +14,13 @@
  *
  * Features: the query's root and a later root replaced; a pass that delivered the settled DAG; a pass that changed it.
  */
-import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
-import { noCoverage, required, requiredInSpace } from "@bjornpagen/testing/features"
-import { int } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter } from "effect"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite, int } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
-import { relNode } from "#compiler/ir/dag.ts"
-import {
-	conservativeMeta,
-	metaSpecOf,
-	type Rooted,
-	type Roots,
-	type ValidDag
-} from "#compiler/ir/rel.ts"
+import { conservativeMeta, type Rooted } from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import {
@@ -41,276 +31,236 @@ import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
-import { rebuildDag } from "#test/support/dag.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { standInNames } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { schemaCodes } from "#test/support/oracle/gen/schema.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { Posting, Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 import {
+	type FrameFeature,
+	freshCopy,
+	type RootPosition
+} from "#test/unit/lower/rewrite/frame.fixtures.ts"
+import {
 	caseQuery,
-	passContext,
 	ledgerCatalog,
+	passContext,
 	type Ran,
 	runPasses
 } from "#test/unit/lower/rewrite/support.ts"
 
-/** Where the rewritten root sits among a DAG's roots: first, the query's own, or after it. */
-type RootPosition = "the query's root" | "a later root"
-
-describe("a DAG's roots", () => {
-	it.effect(
-		"a root stays at its position among the DAG's roots when a rewrite replaces it, the query's root first",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						box: "two or three roots, the one simplification replaces at each position",
-						oracle: {
-							kind: "specification",
-							name: "a replaced root stays at its position, every other root as built"
-						},
-						suite: "unit/lower/rewrite/frame-root-position",
-						literal: Formatter.format,
-						/** Two or three roots, the one a rewrite replaces at any position among them. */
-						generator: (source) => {
-							const roots = source.draw(int(2, 3))
-							return { roots, at: source.draw(int(0, roots - 1)) }
-						},
-						coverage: requiredInSpace<RootPosition>(["the query's root", "a later root"]),
-						caseHang
-					},
-					({ roots, at }, c) =>
-						Effect.sync(() => {
-							c.note(at === 0 ? "the query's root" : "a later root")
-							const q = new Q()
-							const occurrence = () => ({
-								source: q.base(Posting, conservativeMeta),
-								bind: { id: "id", account: "account" },
-								constants: {}
-							})
-							/** Each other root a projection of its own region, which simplification keeps. */
-							const built: Rooted = nonEmptyList(
-								upTo(roots, (i) =>
-									i === at
-										? q.filter(
-												q.region([occurrence()]),
-												q.lit({ kind: "bool", value: true }, T.bool)
-											)
-										: q.project(q.region([occurrence()]), [["id", "id"]], conservativeMeta)
-								),
-								"the roots"
+/** A DAG's roots a root stays at its position among the DAG's roots when a rewrite replaces it, the query's root first. */
+export const aDAGsRootsARootStaysAtItsPositionAmongTheDAGsRootsWhenARewriteReplacesItTheQuerysRootFirst =
+	property.exhaust(
+		finite((source) => {
+			const roots = source.draw(int(2, 3))
+			return { roots, at: source.draw(int(0, roots - 1)) }
+		}),
+		{
+			needs: {},
+			situations: ["the query's root", "a later root"] satisfies ReadonlyArray<
+				Reached<RootPosition>
+			>,
+			check:
+				(_, c: Case<RootPosition>) =>
+				({ roots, at }) =>
+					Effect.sync(() => {
+						c.note(at === 0 ? "the query's root" : "a later root")
+						const q = new Q()
+						const occurrence = () => ({
+							source: q.base(Posting, conservativeMeta),
+							bind: { id: "id", account: "account" },
+							constants: {}
+						})
+						/** Each other root a projection of its own region, which simplification keeps. */
+						const built: Rooted = nonEmptyList(
+							upTo(roots, (i) =>
+								i === at
+									? q.filter(q.region([occurrence()]), q.lit({ kind: "bool", value: true }, T.bool))
+									: q.project(q.region([occurrence()]), [["id", "id"]], conservativeMeta)
+							),
+							"the roots"
+						)
+						const ran = succeeded(
+							simplifyPass.run(
+								{ dag: q.b.build(built), params: [] },
+								passContext({ catalog: ledgerCatalog, evidence: "snapshot" })
 							)
-							const ran = succeeded(
-								simplifyPass.run(
-									{ dag: q.b.build(built), params: [] },
-									passContext({ catalog: ledgerCatalog, evidence: "snapshot" })
-								)
-							)
-							assert.equal(ran.dag.roots.length, roots)
-							for (const [i, root] of ran.dag.roots.entries()) {
-								if (i === at) {
-									assert.equal(root.kind, "MatchRegion")
-								} else {
-									assert.equal(root.id, defined(built[i], "the root as built").id)
-								}
+						)
+						assert.equal(ran.dag.roots.length, roots)
+						for (const [i, root] of ran.dag.roots.entries()) {
+							if (i === at) {
+								assert.equal(root.kind, "MatchRegion")
+							} else {
+								assert.equal(root.id, defined(built[i], "the root as built").id)
 							}
-						})
-				)
-			)
-	)
-})
-
-/**
- * A fresh copy of a DAG: every node rebuilt under its own label over its inputs' copies (dag.ts rebuildDag), each shared
- * node copied once, so the copy holds the same content in objects no pass has seen.
- */
-const freshCopy = <R extends Roots>(dag: ValidDag<R>): ValidDag<R> =>
-	rebuildDag(dag, (node, inputs) => relNode(node.id, { ...inputs, meta: metaSpecOf(node.meta) }))
-
-/** What the frame suites reach: a pass that delivered the DAG it was given, and one that changed it. */
-type FrameFeature = "a pass delivered the settled DAG" | "a pass changed the DAG"
-
-describe("determinism", () => {
-	it.effect(
-		"the same input rewrites to the same DAG, certificates and SQL, run after run",
-		(ctx) => {
-			const passes = [semanticSimplification, relationalRewrites]
-			return searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "universal",
-							name: "one input rewrites to one DAG, one certificate list and one SQL text"
-						},
-						suite: "unit/lower/rewrite/frame-determinism",
-						literal: Formatter.format,
-						kept: [],
-						draw: drawn(queryCaseGen(defaultGenConfig)),
-						runs: 120,
-						shrink: completeShrink,
-						coverage: noCoverage,
-						steerEvery: 16,
-						caseHang
-					},
-					(c) =>
-						Effect.sync(() => {
-							const run = () =>
-								succeeded(
-									runPasses(
-										caseQuery(c),
-										passes,
-										passContext({ catalog: genCatalog(c.schema), evidence: "snapshot" })
-									)
-								)
-							const sqlOf = (r: Ran): string =>
-								Arr.join(
-									Arr.map(
-										flight(
-											succeeded(
-												lowerConservative(conservativeInput(r.query), {
-													names: standInNames("s", schemaCodes(c.schema)),
-													params: r.query.params,
-													subject: { kind: "query" }
-												})
-											).roots
-										),
-										(s) => s.sql.text
-									),
-									"\n"
-								)
-							const first = run()
-							for (const again of [run(), run()]) {
-								assert.deepEqual(again.query.dag, first.query.dag)
-								assert.deepEqual(again.certificates, first.certificates)
-								assert.equal(sqlOf(again), sqlOf(first))
-							}
-						})
-				)
-			)
-		}
-	)
-
-	it.effect(
-		"a frame that changes nothing in a DAG a frame delivered delivers it again, as collecting and annotating would",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "universal",
-							name: "a pass that changes nothing delivers its input, and its result is its input's content's"
-						},
-						suite: "unit/lower/rewrite/frame-delivered",
-						literal: Formatter.format,
-						kept: [],
-						draw: drawn(queryCaseGen(defaultGenConfig)),
-						runs: 60,
-						shrink: completeShrink,
-						coverage: required<FrameFeature>(["a pass delivered the settled DAG"], {
-							cases: 60,
-							sense: notesOnly
-						}),
-						steerEvery: 16,
-						caseHang
-					},
-					(q, c) =>
-						Effect.sync(() => {
-							const catalog = genCatalog(q.schema)
-							const settled = succeeded(
-								runPasses(
-									caseQuery(q),
-									[relationalRewrites],
-									passContext({ catalog, evidence: "snapshot" })
-								)
-							).query
-							for (const pass of [simplifyPass, existencePass, relationalRewrites]) {
-								const again = succeeded(
-									pass.run(settled, passContext({ catalog, evidence: "snapshot" }))
-								)
-								/** The same DAG as a fresh table with the same content gives, which no frame delivered. */
-								const fresh = succeeded(
-									pass.run(
-										{ ...settled, dag: freshCopy(settled.dag) },
-										passContext({ catalog, evidence: "snapshot" })
-									)
-								)
-								assert.deepEqual(again.dag, fresh.dag)
-								assert.equal(again.dag.roots[0].id, fresh.dag.roots[0].id)
-								if (again.dag !== settled.dag) {
-									assert.notEqual(
-										succeeded(encode(again.dag, everyProperty)),
-										succeeded(encode(settled.dag, everyProperty))
-									)
-								} else {
-									c.note("a pass delivered the settled DAG")
-								}
-							}
-						})
-				)
-			)
-	)
-
-	it.effect(
-		"a pass computed cold from a fresh copy of a DAG equals the pass computed warm from the cached one",
-		(ctx) => {
-			const chain = [
-				semanticSimplification,
-				relationalRewrites,
-				simplifyPass,
-				existencePass,
-				fusePass,
-				relationalRewrites
+						}
+					}),
+			oracle: {
+				kind: "specification",
+				name: "a replaced root stays at its position, every other root as built"
+			},
+			box: "two or three roots, the one simplification replaces at each position",
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/lower/optimize/demand/editor.ts",
+					original: "\t\tconst done = finishCells(this.base.roots, (root) => this.#rootCell(root))",
+					replacement:
+						"\t\tconst done = finishCells([...this.base.roots].reverse(), (root) => this.#rootCell(root))",
+					why: "The editor finishes a DAG with its roots reversed; the frame-root-position search fails."
+				}
 			]
-			return searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "universal",
-							name: "a pass's result is a function of its input's content: cold from a fresh copy equals warm"
-						},
-						suite: "unit/lower/rewrite/frame-cold",
-						literal: Formatter.format,
-						kept: [],
-						draw: drawn(queryCaseGen(defaultGenConfig)),
-						runs: 150,
-						shrink: completeShrink,
-						/** The chain rewrites: the comparison covers changed DAGs, not only ones every pass delivered again. */
-						coverage: required<FrameFeature>(["a pass changed the DAG"], {
-							cases: 150,
-							sense: notesOnly
-						}),
-						steerEvery: 16,
-						caseHang
-					},
-					(q, c) =>
-						Effect.sync(() => {
-							const catalog = genCatalog(q.schema)
-							let warm = caseQuery(q)
-							for (const pass of chain) {
-								const cold = { ...warm, dag: freshCopy(warm.dag) }
-								const warmCtx = passContext({ catalog, evidence: "snapshot" })
-								const coldCtx = passContext({ catalog, evidence: "snapshot" })
-								const hot = succeeded(pass.run(warm, warmCtx))
-								const fresh = succeeded(pass.run(cold, coldCtx))
-								assert.deepEqual(hot.dag, fresh.dag)
-								assert.equal(hot.dag.roots[0].id, fresh.dag.roots[0].id)
-								assert.deepEqual(warmCtx.certificates.all(), coldCtx.certificates.all())
-								if (hot.dag !== warm.dag) {
-									c.note("a pass changed the DAG")
-								}
-								warm = hot
-							}
-						})
-				)
-			)
 		}
 	)
-})
+
+/** Determinism the same input rewrites to the same DAG, certificates and SQL, run after run. */
+export const determinismTheSameInputRewritesToTheSameDAGCertificatesAndSQLRunAfterRun =
+	property.explore(queryCaseGen(defaultGenConfig), {
+		needs: {},
+		situations: [],
+		check: () => (c) =>
+			Effect.gen(function* () {
+				const passes = [semanticSimplification, relationalRewrites]
+				return yield* Effect.sync(() => {
+					const run = () =>
+						succeeded(
+							runPasses(
+								caseQuery(c),
+								passes,
+								passContext({ catalog: genCatalog(c.schema), evidence: "snapshot" })
+							)
+						)
+					const sqlOf = (r: Ran): string =>
+						Arr.join(
+							Arr.map(
+								flight(
+									succeeded(
+										lowerConservative(conservativeInput(r.query), {
+											names: standInNames("s", schemaCodes(c.schema)),
+											params: r.query.params,
+											subject: { kind: "query" }
+										})
+									).roots
+								),
+								(s) => s.sql.text
+							),
+							"\n"
+						)
+					const first = run()
+					for (const again of [run(), run()]) {
+						assert.deepEqual(again.query.dag, first.query.dag)
+						assert.deepEqual(again.certificates, first.certificates)
+						assert.equal(sqlOf(again), sqlOf(first))
+					}
+				})
+			}),
+		oracle: {
+			kind: "universal",
+			name: "one input rewrites to one DAG, one certificate list and one SQL text"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/demand/editor.ts",
+				original: "\t\t\tthis.#counter += 1",
+				replacement: "\t\t\tthis.#counter += 1 + Math.floor(Math.random() * 3)",
+				why: "Fresh identifiers skip a random count, so labels differ run to run; the frame-determinism search fails."
+			}
+		]
+	})
+
+/** Determinism a frame that changes nothing in a DAG a frame delivered delivers it again, as collecting and annotating would. */
+export const determinismAFrameThatChangesNothingInADAGAFrameDeliveredDeliversItAgainAsCollectingAndAnnotatingWould =
+	property.explore(queryCaseGen(defaultGenConfig), {
+		needs: {},
+		situations: ["a pass delivered the settled DAG"] satisfies ReadonlyArray<Reached<FrameFeature>>,
+		check: (_, c: Case<FrameFeature>) => (q) =>
+			Effect.sync(() => {
+				const catalog = genCatalog(q.schema)
+				const settled = succeeded(
+					runPasses(
+						caseQuery(q),
+						[relationalRewrites],
+						passContext({ catalog, evidence: "snapshot" })
+					)
+				).query
+				for (const pass of [simplifyPass, existencePass, relationalRewrites]) {
+					const again = succeeded(pass.run(settled, passContext({ catalog, evidence: "snapshot" })))
+					/** The same DAG as a fresh table with the same content gives, which no frame delivered. */
+					const fresh = succeeded(
+						pass.run(
+							{ ...settled, dag: freshCopy(settled.dag) },
+							passContext({ catalog, evidence: "snapshot" })
+						)
+					)
+					assert.deepEqual(again.dag, fresh.dag)
+					assert.equal(again.dag.roots[0].id, fresh.dag.roots[0].id)
+					if (again.dag !== settled.dag) {
+						assert.notEqual(
+							succeeded(encode(again.dag, everyProperty)),
+							succeeded(encode(settled.dag, everyProperty))
+						)
+					} else {
+						c.note("a pass delivered the settled DAG")
+					}
+				}
+			}),
+		oracle: {
+			kind: "universal",
+			name: "a pass that changes nothing delivers its input, and its result is its input's content's"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/demand/frame.ts",
+				original: "\teditor.version === 0 ? query : { ...query, dag: editor.finish() }",
+				replacement: "\t({ ...query, dag: editor.finish() })",
+				why: "A pass that changes nothing delivers a rebuilt copy of its DAG; the frame-delivered search fails."
+			}
+		]
+	})
+
+/** Determinism a pass computed cold from a fresh copy of a DAG equals the pass computed warm from the cached one. */
+export const determinismAPassComputedColdFromAFreshCopyOfADAGEqualsThePassComputedWarmFromTheCachedOne =
+	property.explore(queryCaseGen(defaultGenConfig), {
+		needs: {},
+		situations: ["a pass changed the DAG"] satisfies ReadonlyArray<Reached<FrameFeature>>,
+		check: (_, c: Case<FrameFeature>) => (q) =>
+			Effect.gen(function* () {
+				const chain = [
+					semanticSimplification,
+					relationalRewrites,
+					simplifyPass,
+					existencePass,
+					fusePass,
+					relationalRewrites
+				]
+				return yield* Effect.sync(() => {
+					const catalog = genCatalog(q.schema)
+					let warm = caseQuery(q)
+					for (const pass of chain) {
+						const cold = { ...warm, dag: freshCopy(warm.dag) }
+						const warmCtx = passContext({ catalog, evidence: "snapshot" })
+						const coldCtx = passContext({ catalog, evidence: "snapshot" })
+						const hot = succeeded(pass.run(warm, warmCtx))
+						const fresh = succeeded(pass.run(cold, coldCtx))
+						assert.deepEqual(hot.dag, fresh.dag)
+						assert.equal(hot.dag.roots[0].id, fresh.dag.roots[0].id)
+						assert.deepEqual(warmCtx.certificates.all(), coldCtx.certificates.all())
+						if (hot.dag !== warm.dag) {
+							c.note("a pass changed the DAG")
+						}
+						warm = hot
+					}
+				})
+			}),
+		oracle: {
+			kind: "universal",
+			name: "a pass's result is a function of its input's content: cold from a fresh copy equals warm"
+		},
+		kept: [],
+		kills: []
+	})
