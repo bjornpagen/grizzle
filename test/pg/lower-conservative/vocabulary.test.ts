@@ -93,8 +93,7 @@ layer(Substrate.layer)("the conservative vocabulary on PostgreSQL 19", (it) => {
 							name: "pg_operator's operators implemented by the form's function"
 						},
 						coverage: requiredInSpace<FormFeature>(["binary", "negation"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(i, c) =>
 						Effect.gen(function* () {
@@ -134,8 +133,7 @@ layer(Substrate.layer)("the conservative vocabulary on PostgreSQL 19", (it) => {
 								name: "pg_proc's function at the entry's regprocedure signature"
 							},
 							coverage: requiredInSpace<LoweredFeature>(["lowered to its function"]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(i, c) =>
 							Effect.gen(function* () {

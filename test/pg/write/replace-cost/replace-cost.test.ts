@@ -311,19 +311,15 @@ layer(Substrate.layer)("the cost of replacing a stored unit", (it) => {
 						name: "linear growth: a cost of a fixed part and a part per row at most doubles when its rows double, the fixed part not doubling, and a cost above linear more than doubles"
 					},
 					coverage: requiredInSpace<Feature>(features),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				(sketch, c) =>
 					Effect.gen(function* () {
-						const [n, twice, four] = yield* Effect.all(
-							[
-								costOf(sketch.situation, sketch.tree, sketch.n),
-								costOf(sketch.situation, sketch.tree, 2 * sketch.n),
-								costOf(sketch.situation, sketch.tree, 4 * sketch.n)
-							],
-							{ concurrency: 1 }
-						)
+						const [n, twice, four] = yield* Effect.all([
+							costOf(sketch.situation, sketch.tree, sketch.n),
+							costOf(sketch.situation, sketch.tree, 2 * sketch.n),
+							costOf(sketch.situation, sketch.tree, 4 * sketch.n)
+						])
 						c.note(`${sketch.situation} in ${sketch.tree}`)
 						for (const at of [n, twice, four]) {
 							assert.equal(

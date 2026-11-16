@@ -167,7 +167,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a family's bytes members"
 						kept: [],
 						runs: 12,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

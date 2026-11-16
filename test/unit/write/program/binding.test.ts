@@ -186,7 +186,6 @@ describe("a compiled write's binding", () => {
 					kept: [],
 					runs: 60,
 					shrink: boundedShrink(200),
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang,
 					oracle: {

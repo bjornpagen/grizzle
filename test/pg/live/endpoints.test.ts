@@ -197,7 +197,6 @@ layer(Substrate.layer)("every HTTP route", (it) => {
 						kept: [],
 						runs: cases,
 						shrink: { kind: "bounded", candidates: 40 },
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

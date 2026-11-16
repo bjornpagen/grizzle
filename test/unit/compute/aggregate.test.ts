@@ -147,8 +147,7 @@ describe("R24 conditional aggregates", () => {
 								"counted by FILTER",
 								"left composed"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						([shape, then, otherwise], c) =>
 							Effect.sync(() => {
@@ -244,8 +243,7 @@ describe("the overload registry", () => {
 							"word connective",
 							"word cast"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(word, c) =>
 						Effect.sync(() => {
@@ -333,8 +331,7 @@ describe("min, max, LEAST and GREATEST", () => {
 							"each function over each reading"
 						)
 					),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				([k, returning, reading], c) =>
 					Effect.sync(() => {
@@ -407,8 +404,7 @@ describe("a numeric mean's result bound", () => {
 							"rounded to zero",
 							"an argument holding zero alone"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(bound, c) =>
 						Effect.sync(() => {

@@ -541,7 +541,6 @@ describe("the rename declaration reader", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: { kind: "specification", name: "D9's grammar, read as every split at an =" }
@@ -595,7 +594,6 @@ describe("the rename declaration reader", () => {
 					kept: [],
 					runs: 200,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang,
 					oracle: { kind: "specification", name: "D9's grammar of a side" }
@@ -644,7 +642,6 @@ describe("the rename declaration reader", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -696,7 +693,6 @@ describe("the rename declaration reader", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: { kind: "specification", name: "declaredAlike rosters are one roster" }

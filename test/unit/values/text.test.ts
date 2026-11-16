@@ -113,7 +113,6 @@ describe("text validation", () => {
 							kept: [],
 							runs: 1000,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -198,7 +197,6 @@ describe("code point order", () => {
 						kept: [],
 						runs: 5000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -288,7 +286,6 @@ describe("text tuple orders", () => {
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

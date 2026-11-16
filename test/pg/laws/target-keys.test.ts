@@ -717,7 +717,6 @@ layer(Substrate.layer)("which containment targets hold a key on PostgreSQL 19rc2
 						kept: KEPT,
 						runs: 96,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

@@ -377,7 +377,6 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 						kept: [],
 						runs: 16,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -456,7 +455,6 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 							kept: [],
 							runs: 16,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -512,7 +510,6 @@ layer(Substrate.layer)("native PG test substrate", (it) => {
 						kept: [],
 						runs: 4,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 1,
 						caseHang
 					},

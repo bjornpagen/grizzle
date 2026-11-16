@@ -649,7 +649,6 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 32,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -734,7 +733,6 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 36,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -929,7 +927,6 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 48,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -1007,7 +1004,6 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 20,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 8,
 							caseHang
 						},
@@ -1099,7 +1095,6 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 32,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -1247,7 +1242,6 @@ layer(Substrate.layer)("refinement validation sites on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 24,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 8,
 							caseHang
 						},

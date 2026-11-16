@@ -248,7 +248,6 @@ describe("the cluster family", () => {
 						kept: [],
 						runs: 48,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 12,
 						caseHang
 					},
@@ -324,7 +323,6 @@ describe("the cluster family", () => {
 						kept: [],
 						runs: 48,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 12,
 						caseHang
 					},
@@ -395,7 +393,6 @@ describe("the cluster family", () => {
 						kept: [],
 						runs: 24,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

@@ -282,7 +282,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("served refresh members
 							kept: [],
 							runs: 8,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

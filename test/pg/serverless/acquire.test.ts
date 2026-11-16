@@ -119,8 +119,7 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 								kind: "specification",
 								name: "README: a failing password fails a read and a write with credentialRefused, a released layer with unavailable"
 							},
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						([call, unhad], c) =>
 							Effect.scoped(

@@ -533,7 +533,6 @@ layer(Substrate.isolatedLayer)("a login under hostile database defaults", (it) =
 							kept,
 							runs: 16,
 							shrink: { kind: "bounded", candidates: 24 },
-							concurrency: 1,
 							steerEvery: 4,
 							caseHang
 						},

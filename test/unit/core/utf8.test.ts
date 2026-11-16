@@ -156,7 +156,6 @@ describe("the one reader of UTF-8 bytes as text", () => {
 						],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

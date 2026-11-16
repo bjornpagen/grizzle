@@ -563,7 +563,6 @@ layer(Substrate.layer)("the predicate CHECKs of the real installer", (it) => {
 							 */
 							runs: 40,
 							shrink: { kind: "complete" },
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

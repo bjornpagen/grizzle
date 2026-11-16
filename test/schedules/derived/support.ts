@@ -754,7 +754,6 @@ export const derivedRaceSuite = (spec: {
 						kept: spec.kept,
 						runs: derivedRuns,
 						shrink: { kind: "bounded", candidates: 20 },
-						concurrency: 1,
 						steerEvery: derivedRuns,
 						caseHang
 					},

@@ -317,7 +317,6 @@ describe("a pattern no text matches", () => {
 						kept: [],
 						runs: 600,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

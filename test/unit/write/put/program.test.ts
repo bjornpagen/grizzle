@@ -81,7 +81,6 @@ describe("the write program's relation parameters", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: { kind: "specification", name: "every relation parameter a list of facts" }

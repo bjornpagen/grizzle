@@ -212,7 +212,6 @@ describe("an admitted pattern", () => {
 						kept: [],
 						runs: 40,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

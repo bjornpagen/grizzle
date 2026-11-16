@@ -100,8 +100,7 @@ describe("PostgreSQL's integers", () => {
 						name: "Node's typed array of the carrier's width"
 					},
 					coverage: requiredInSpace<IntegerCarrier>(integerCarriers),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				ends
 			)
@@ -149,8 +148,7 @@ describe("PostgreSQL's integers", () => {
 						"the last code",
 						"past the codes"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				numbers
 			)
@@ -193,8 +191,7 @@ describe("a constant's length", () => {
 					generator: int(constantMaxBits.value - 8, constantMaxBits.value + 8),
 					literal: Formatter.format,
 					coverage: requiredInSpace<Length>(["at the bound", "below the bound", "past the bound"]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				rounds
 			)
@@ -237,8 +234,7 @@ describe("a heap page", () => {
 					generator: roundings,
 					literal: Formatter.format,
 					coverage: requiredInSpace<Aligned>(["already aligned", "rounded up", "byte alignment"]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				aligns
 			)
@@ -281,8 +277,7 @@ describe("a heap page", () => {
 						box: "every tuple size within sixteen bytes of heapTupleMaxBytes",
 						oracle: { kind: "specification", name: "PageAddItem's fit test on an empty heap page" },
 						coverage: requiredInSpace<Tuple>(["below the bound", "at the bound", "past the bound"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					fitsPage
 				)

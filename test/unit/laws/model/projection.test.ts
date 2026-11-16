@@ -922,7 +922,6 @@ describe("partial projections lower by §5.1's rules", () => {
 						kept: [],
 						runs: 32,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

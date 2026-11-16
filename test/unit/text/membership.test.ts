@@ -277,7 +277,6 @@ describe("host NFA membership equals ECMAScript", () => {
 						kept: refusals,
 						runs: 6000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -315,7 +314,6 @@ describe("host NFA membership equals ECMAScript", () => {
 					kept,
 					runs: 2000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -383,7 +381,6 @@ describe("host NFA membership equals ECMAScript", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -440,7 +437,6 @@ describe("every claimed fact holds on the samples", () => {
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -515,7 +511,6 @@ describe("every claimed fact holds on the samples", () => {
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -618,7 +613,6 @@ describe("language-equivalent spellings share one canonical key", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

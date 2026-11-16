@@ -206,7 +206,6 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 						/** Each case one round trip of up to 48 rows and two expressions. */
 						runs: 40,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -510,7 +509,6 @@ layer(Substrate.layer)("Compute's translate and lowerAscii on PostgreSQL", (it) 
 							kept: [],
 							runs: 30,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

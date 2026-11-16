@@ -279,7 +279,6 @@ layer(Substrate.layer)("row security across migrations", (it) => {
 						kept: [],
 						runs: 6,
 						shrink: { kind: "bounded", candidates: 8 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

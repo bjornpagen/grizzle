@@ -186,7 +186,6 @@ layer(Substrate.layer)("the cost of rewriting families and trees on PostgreSQL 1
 							kept: [],
 							runs: 2,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 1,
 							caseHang,
 							oracle: {

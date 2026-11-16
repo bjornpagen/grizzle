@@ -127,8 +127,7 @@ describe("demand pruning", () => {
 							"an aggregate dropped",
 							"every aggregate delivered"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(delivered, c) =>
 						Effect.sync(() => {
@@ -351,8 +350,7 @@ describe("a pinned node keeps its form, and its inputs every column that form re
 							"unpinned named region over a filter",
 							"unpinned named region over a region"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([stageKind, reader], c) =>
 						Effect.sync(() => {

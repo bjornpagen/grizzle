@@ -65,7 +65,6 @@ describe("the RelNode family", () => {
 							{ cases: 100, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -137,7 +136,6 @@ describe("the RelNode family", () => {
 						{ cases: 100, sense: notesOnly }
 					),
 					kept: [],
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

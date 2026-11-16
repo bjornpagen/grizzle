@@ -344,7 +344,6 @@ const flightSuite = Effect.gen(function* () {
 			kept: flightKept,
 			runs: 25,
 			shrink: completeShrink,
-			concurrency: 1,
 			steerEvery: 16,
 			caseHang
 		},

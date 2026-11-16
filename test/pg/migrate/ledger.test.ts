@@ -1213,7 +1213,6 @@ const ledgerSearch = Effect.gen(function* () {
 			kept: [],
 			runs,
 			shrink: { kind: "bounded", candidates: 150 },
-			concurrency: 1,
 			steerEvery: 16,
 			caseHang
 		},

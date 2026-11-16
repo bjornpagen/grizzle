@@ -1583,7 +1583,6 @@ describe("generated queries round-trip through their descriptions", () => {
 						kept: keptBreaks,
 						runs: 800,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

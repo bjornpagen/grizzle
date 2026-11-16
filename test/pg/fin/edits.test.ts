@@ -233,8 +233,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										"put of a slot before the last applied as the model states",
 										"a put of the first slot refilled every slot"
 									]),
-									caseHang,
-									concurrency: 1
+									caseHang
 								},
 								(sketch, c) =>
 									Effect.gen(function* () {
@@ -359,7 +358,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									],
 									runs: 24,
 									shrink: boundedShrink(40),
-									concurrency: 1,
 									steerEvery: 8,
 									caseHang,
 									oracle: {

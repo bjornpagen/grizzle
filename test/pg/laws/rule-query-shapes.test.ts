@@ -484,8 +484,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										"a typed href's lom object accepted"
 									])
 								),
-								caseHang,
-								concurrency: 1
+								caseHang
 							},
 							(sketch, c) =>
 								Effect.gen(function* () {

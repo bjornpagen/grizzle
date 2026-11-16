@@ -312,7 +312,6 @@ describe("the failure vocabulary", () => {
 						kept: [],
 						runs: 2_000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

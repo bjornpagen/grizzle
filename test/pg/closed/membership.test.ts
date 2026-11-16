@@ -340,7 +340,6 @@ layer(Substrate.layer, { excludeTestServices: true })("R07 over closed constants
 						kept: [],
 						runs: 48,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {

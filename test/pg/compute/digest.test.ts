@@ -327,7 +327,6 @@ layer(Substrate.layer, { excludeTestServices: true })("Compute.sha256 on Postgre
 							kept: [],
 							runs: 24,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 8,
 							caseHang
 						},
@@ -401,7 +400,6 @@ layer(Substrate.layer, { excludeTestServices: true })("Compute.sha256 on Postgre
 						kept: [],
 						runs: 8,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

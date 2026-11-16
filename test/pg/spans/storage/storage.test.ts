@@ -137,7 +137,6 @@ const exploration = {
 	literal: Formatter.format,
 	runs: 80,
 	shrink: boundedShrink(100),
-	concurrency: 1,
 	steerEvery: 16,
 	caseHang
 } as const

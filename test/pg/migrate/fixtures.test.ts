@@ -456,7 +456,6 @@ layer(Substrate.layer)("the worked examples migrate version by version", (it) =>
 						kept: [],
 						runs: 2,
 						shrink: { kind: "bounded", candidates: 8 },
-						concurrency: 1,
 						steerEvery: 2,
 						caseHang,
 						oracle: {

@@ -223,7 +223,6 @@ const walkSearch = {
 	kept: [],
 	runs: 12,
 	shrink: completeShrink,
-	concurrency: 1,
 	steerEvery: 16,
 	caseHang
 } as const
@@ -481,7 +480,6 @@ layer(Substrate.layer)("counter shapes through the optimized lowering", (it) => 
 							kept: [],
 							runs: 24,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

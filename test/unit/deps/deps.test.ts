@@ -122,7 +122,6 @@ describe("the audit finds what it must", () => {
 						kept: [],
 						runs: 600,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -199,8 +198,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 									kind: "specification",
 									name: "the audit's rules, checked on planted modules above"
 								},
-								caseHang,
-								concurrency: 1
+								caseHang
 							},
 							({ file, source }: SourceModule) =>
 								Effect.sync(() => {
@@ -376,8 +374,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("runtime", (it) => {
 								kind: "specification",
 								name: "what the entry's load resolved and trapped, in a child Node under the RegExp trap"
 							},
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(entry) =>
 							Effect.sync(() => {

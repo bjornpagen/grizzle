@@ -470,7 +470,6 @@ layer(Substrate.layer)("admitted recursions on PostgreSQL 19", (it) => {
 						kept: [],
 						runs: 12,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

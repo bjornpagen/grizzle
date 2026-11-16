@@ -173,8 +173,7 @@ layer(Substrate.layer)(
 									name: "the containment as a checker: every Item's tag an Allowed tag no Closed row holds"
 								},
 								coverage: requiredInSpace<Feature>(FEATURES),
-								caseHang,
-								concurrency: 1
+								caseHang
 							},
 							(s, c) =>
 								Effect.gen(function* () {

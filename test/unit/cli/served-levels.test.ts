@@ -164,7 +164,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("a login's served file"
 						kept: [],
 						runs: 24,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

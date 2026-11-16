@@ -309,7 +309,6 @@ describe("the live leader's reading of a replication stream", () => {
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						coverage: required<Feature>(

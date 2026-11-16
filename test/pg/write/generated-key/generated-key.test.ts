@@ -1402,7 +1402,6 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 									],
 									runs: 80,
 									shrink: { kind: "bounded", candidates: 100 },
-									concurrency: 1,
 									steerEvery: 16,
 									coverage: required<Feature>(
 										[
@@ -1601,7 +1600,6 @@ layer(Substrate.layer)("keys over generated fields, against PostgreSQL 19", (it)
 										kept: [],
 										runs: 60,
 										shrink: { kind: "bounded", candidates: 100 },
-										concurrency: 1,
 										steerEvery: 16,
 										coverage: required<LabelFeature>(
 											[

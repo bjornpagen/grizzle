@@ -372,7 +372,6 @@ describe("the checker's parameter, member and bound rules", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -443,7 +442,6 @@ describe("the checker's parameter, member and bound rules", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -563,7 +561,6 @@ describe("the checker's parameter, member and bound rules", () => {
 						],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -648,7 +645,6 @@ describe("the checker's parameter, member and bound rules", () => {
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -708,7 +704,6 @@ describe("the checker's parameter, member and bound rules", () => {
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

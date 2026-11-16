@@ -259,7 +259,6 @@ describe("the raw NFA PostgreSQL's parser builds", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -435,7 +434,6 @@ describe("PostgreSQL's regex compile limits", () => {
 						kept: [],
 						runs: 32,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},
@@ -565,7 +563,6 @@ describe("the RFC 3986 URI-reference grammar as one pattern", () => {
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

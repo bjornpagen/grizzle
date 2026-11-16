@@ -122,7 +122,6 @@ describe("access indexes over one column list in several directions", () => {
 						/** The rotating stream's sample of 64 vectors in 4 classes per column set, in families of up to five. */
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

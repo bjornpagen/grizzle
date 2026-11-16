@@ -190,7 +190,6 @@ describe("the worlds model's compile rules", () => {
 					kept: [],
 					runs: 80,
 					shrink: { kind: "bounded", candidates: 200 },
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

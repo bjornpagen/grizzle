@@ -136,7 +136,6 @@ describe("carried state columns (shapes/attach-recursive/carried.ts)", () => {
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -568,8 +567,7 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 							"also a root kept",
 							"read by another node kept"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([column, spelling, sharing], c) =>
 						Effect.sync(() => {
@@ -632,8 +630,7 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 							] as const,
 						literal: Formatter.format,
 						coverage: requiredInSpace<`${Conjuncts} moved`>(["one moved", "two moved"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([part, conjuncts], c) =>
 						Effect.sync(() => {
@@ -679,7 +676,6 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 							literal: Formatter.format,
 							runs: 60,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang,
 							coverage: required<GraphFeature>(
@@ -749,7 +745,6 @@ describe("proved root pushdown (graph.seedPushdown)", () => {
 							literal: Formatter.format,
 							runs: 60,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang,
 							coverage: required<RecursiveFeature>(

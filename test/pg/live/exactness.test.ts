@@ -115,7 +115,6 @@ layer(Substrate.layer)("a live subscription", (it) => {
 						kept: [],
 						runs: cases,
 						shrink: { kind: "bounded", candidates: 60 },
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

@@ -280,7 +280,6 @@ layer(Substrate.layer)("the live source", (it) => {
 						kept: [],
 						runs: cases,
 						shrink: { kind: "bounded", candidates: 60 },
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

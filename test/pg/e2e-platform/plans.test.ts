@@ -1701,7 +1701,6 @@ const planSuite = (ctx: TestContext) =>
 					kept: [],
 					runs,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang,
 					coverage: required<PlanFeature>(

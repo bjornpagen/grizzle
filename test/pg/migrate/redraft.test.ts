@@ -640,7 +640,6 @@ layer(Substrate.layer)("a partial folder resumed under a regeneration", (it) => 
 						kept: [],
 						runs,
 						shrink: { kind: "bounded", candidates: 40 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

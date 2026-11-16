@@ -398,7 +398,6 @@ describe("the value carriers' laws", () => {
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -459,7 +458,6 @@ describe("the value carriers' laws", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -506,7 +504,6 @@ describe("the value carriers' laws", () => {
 					kept: [],
 					runs: 3000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

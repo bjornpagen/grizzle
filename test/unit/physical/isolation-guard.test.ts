@@ -129,7 +129,6 @@ describe("the guard trigger per relation", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 32,
 						caseHang
 					},

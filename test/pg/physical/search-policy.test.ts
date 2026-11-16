@@ -301,7 +301,6 @@ layer(Substrate.layer)("the search policy as login defaults", (it) => {
 							kept: [],
 							runs: 8,
 							shrink: { kind: "complete" },
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -365,7 +364,6 @@ layer(Substrate.layer)("the search policy as login defaults", (it) => {
 						kept: [],
 						runs: 4,
 						shrink: { kind: "bounded", candidates: 8 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

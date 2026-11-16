@@ -303,7 +303,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("a role's certificate",
 						kept: [],
 						runs: 12,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

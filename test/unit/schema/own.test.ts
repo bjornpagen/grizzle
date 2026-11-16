@@ -342,7 +342,6 @@ describe("the owned product", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -512,7 +511,6 @@ describe("conflicting declarations", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -623,7 +621,6 @@ describe("closed relations", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -771,7 +768,6 @@ describe("closed relations", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -877,8 +873,7 @@ describe("statements over a derived relation", () => {
 							coverage: requiredInSpace<`${DerivedStatementKind} ${StatementForm["form"]}`>(
 								Arr.map(statementForms, (l) => `${l.kind} ${l.form}` as const)
 							),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						([law, swapped], c) =>
 							Effect.sync(() => {
@@ -1097,7 +1092,6 @@ describe("scope and structure", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -503,7 +503,6 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 								kept: [],
 								runs: 40,
 								shrink: completeShrink,
-								concurrency: 1,
 								steerEvery: 16,
 								coverage: required<ReadCallFeature>(
 									[
@@ -654,7 +653,6 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 								kept: [],
 								runs: 30,
 								shrink: completeShrink,
-								concurrency: 1,
 								steerEvery: 16,
 								coverage: required<WriteCallFeature>(
 									["once", "explain", "a read-back that attaches", "nothing to write"],
@@ -763,7 +761,6 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 								kept: [],
 								runs: 30,
 								shrink: completeShrink,
-								concurrency: 1,
 								steerEvery: 16,
 								coverage: required<FirstCallFeature>([...firstCallKinds, "several Dbs opened"], {
 									cases: 30,
@@ -862,7 +859,6 @@ layer(Substrate.layer, { excludeTestServices: true })("one round trip per public
 										kept: [],
 										runs: 6,
 										shrink: completeShrink,
-										concurrency: 1,
 										steerEvery: 16,
 										coverage: required<RefreshFeature>(
 											["a refresh of an unpopulated view", "a refresh of a populated view"],

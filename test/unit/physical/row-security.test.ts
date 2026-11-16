@@ -330,8 +330,7 @@ describe("row security", () => {
 						generator: pointGen,
 						literal: Formatter.format,
 						coverage: requiredInSpace<RowSecurityFeature>(features),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(p, c) =>
 						Effect.sync(() => {

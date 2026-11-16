@@ -137,7 +137,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							/** Each case installs a schema and makes one call of each member. */
 							runs: 16,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 4,
 							caseHang
 						},

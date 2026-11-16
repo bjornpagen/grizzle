@@ -1553,7 +1553,6 @@ export const raceSuite = <P>(h: HistoryFamily<P>): void => {
 						kept: [],
 						runs: 2 * runsPerTest,
 						shrink: { kind: "bounded", candidates: 300 },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -82,8 +82,7 @@ describe("a DAG's roots", () => {
 							return { roots, at: source.draw(int(0, roots - 1)) }
 						},
 						coverage: requiredInSpace<RootPosition>(["the query's root", "a later root"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					({ roots, at }, c) =>
 						Effect.sync(() => {
@@ -156,7 +155,6 @@ describe("determinism", () => {
 						runs: 120,
 						shrink: completeShrink,
 						coverage: noCoverage,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -219,7 +217,6 @@ describe("determinism", () => {
 							cases: 60,
 							sense: notesOnly
 						}),
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -290,7 +287,6 @@ describe("determinism", () => {
 							cases: 150,
 							sense: notesOnly
 						}),
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -257,8 +257,7 @@ describe("the row-major index", () => {
 							"an empty coordinate",
 							"an aliasing digit"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					bijection
 				)
@@ -337,8 +336,7 @@ describe("a fin coordinate", () => {
 							"several owners with slots",
 							"no owner"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					dense
 				)
@@ -529,8 +527,7 @@ describe("a dependent key space", () => {
 							"an empty space",
 							"an aliasing slot digit"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					theorem
 				)
@@ -623,8 +620,7 @@ describe("a relation's string of cells", () => {
 							"every cell present",
 							"three key coordinates"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					roundTrip
 				)
@@ -760,7 +756,6 @@ describe("a relation's string of cells", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -823,7 +818,6 @@ describe("a cell's width", () => {
 					kept: [],
 					runs: 300,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -935,8 +929,7 @@ describe("a roster's codes", () => {
 							"a trailing hole",
 							"growth past a hole"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					holePattern
 				)
@@ -1143,7 +1136,6 @@ describe("a roster's codes", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1292,8 +1284,7 @@ describe("a side", () => {
 							"a key in another order than the terms",
 							"a projection's repeats are one row"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					keying
 				)
@@ -1435,8 +1426,7 @@ describe("a constant's digest", () => {
 							"a cell moved",
 							"two cells swapped"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					addressed
 				)

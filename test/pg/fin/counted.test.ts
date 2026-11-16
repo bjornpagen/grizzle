@@ -163,8 +163,7 @@ layer(Substrate.layer)(
 										`${l} a slot before the last closure immediate refused predecessor axis`,
 										`${l} the last slot closure immediate committed`
 									]),
-									caseHang,
-									concurrency: 1
+									caseHang
 								},
 								(sketch, c) =>
 									Effect.gen(function* () {

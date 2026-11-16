@@ -1261,7 +1261,6 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 							 * to its few steps.
 							 */
 							shrink: { kind: "bounded", candidates: 150 },
-							concurrency: 1,
 							steerEvery: 16,
 							/**
 							 * One case runs up to 14 command lines, each a generate, check or migrate against PostgreSQL:

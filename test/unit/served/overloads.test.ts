@@ -57,8 +57,7 @@ describe("a range overload in a served file", () => {
 							name: "ir/expr.ts rangeOp, the overload's one instance"
 						},
 						coverage: requiredInSpace<Feature>(Arr.map(spanCarriers, (c): Feature => `over ${c}`)),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([code, carrier], c) =>
 						Effect.sync(() => {

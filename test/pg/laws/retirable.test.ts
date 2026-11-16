@@ -296,7 +296,6 @@ layer(Substrate.layer)("a retirable unit installed on PostgreSQL 19rc2", (it) =>
 							kept: [],
 							runs: 150,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang,
 							oracle: {

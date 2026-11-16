@@ -226,8 +226,7 @@ describe("the complete proof", () => {
 							"held back: no key of the target",
 							"held back: the match does more than match a key"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					({ containment, evidence, match, keyed }, c) =>
 						Effect.sync(() => {

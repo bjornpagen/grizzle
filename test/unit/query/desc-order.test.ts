@@ -108,7 +108,6 @@ describe("a query's Description as its builder makes it", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

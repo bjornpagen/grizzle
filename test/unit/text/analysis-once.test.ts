@@ -149,7 +149,6 @@ describe("the text analysis", () => {
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

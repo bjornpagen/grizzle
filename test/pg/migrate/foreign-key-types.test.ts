@@ -301,8 +301,7 @@ layer(Substrate.layer)("the migration model's foreign key types", (it) => {
 									`${way}: refused` as const
 								])
 							),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						([way, from, to], c) =>
 							Effect.gen(function* () {

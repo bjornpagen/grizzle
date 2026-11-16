@@ -406,7 +406,6 @@ describe("the configuration's connection, generated", () => {
 					kept: [],
 					runs: 200,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -439,7 +438,6 @@ describe("the configuration's connection, generated", () => {
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -477,7 +475,6 @@ describe("the configuration's connection, generated", () => {
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -556,7 +553,6 @@ describe("the migration's process environment, generated", () => {
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

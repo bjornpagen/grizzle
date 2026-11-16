@@ -212,7 +212,6 @@ describe("relation normalization", () => {
 							/** The rotating stream's sample of six plants, each a sixth of the cases. */
 							runs: 300,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -301,7 +300,6 @@ describe("relation normalization", () => {
 							],
 							runs: 300,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -358,7 +356,6 @@ describe("relation normalization", () => {
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -448,7 +445,6 @@ describe("relation normalization", () => {
 							kept: [],
 							runs: 300,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -560,7 +556,6 @@ describe("relation normalization", () => {
 							kept: [],
 							runs: 500,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -616,7 +611,6 @@ describe("relation normalization", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -677,7 +671,6 @@ describe("relation normalization", () => {
 						kept: [bracesPastTheBound],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -820,7 +813,6 @@ describe("the arrays of every field type", () => {
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

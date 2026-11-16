@@ -872,7 +872,6 @@ layer(Substrate.layer, { excludeTestServices: true })("the fill order on the clu
 						],
 						runs: 16,
 						shrink: boundedShrink(40),
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang,
 						oracle: {

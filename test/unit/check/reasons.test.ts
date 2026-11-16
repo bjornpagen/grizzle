@@ -358,7 +358,6 @@ describe("a literal at a typed slot", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -417,7 +416,6 @@ describe("a query's contracts", () => {
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -495,7 +493,6 @@ describe("a fault planted in a generated query", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

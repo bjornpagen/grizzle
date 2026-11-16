@@ -118,7 +118,6 @@ layer(Substrate.layer)("shared domains on PostgreSQL 19rc2", (it) => {
 						kept: [],
 						runs: 8,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

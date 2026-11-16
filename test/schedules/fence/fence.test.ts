@@ -309,7 +309,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							kept: [],
 							runs,
 							shrink: { kind: "bounded", candidates: 40 },
-							concurrency: 1,
 							steerEvery: runs,
 							caseHang
 						},

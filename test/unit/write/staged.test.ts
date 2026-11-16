@@ -365,7 +365,6 @@ describe("nested rows past one Bind message", () => {
 						],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -401,7 +400,6 @@ describe("nested rows past one Bind message", () => {
 								],
 								runs: 8,
 								shrink: completeShrink,
-								concurrency: 1,
 								steerEvery: 4,
 								caseHang
 							},

@@ -400,8 +400,7 @@ layer(Substrate.layer)("a connection failure states its class", (it) => {
 									`${p} through a Db's call`
 								])
 							),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						([plant, path], c) =>
 							Effect.gen(function* () {

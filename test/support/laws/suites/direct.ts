@@ -101,7 +101,6 @@ export const directSuite = <P>(family: Family<P>, cases: number, planted: Plante
 							kept: planted[mode],
 							runs: directCases(cases),
 							shrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

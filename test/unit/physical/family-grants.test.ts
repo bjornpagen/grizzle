@@ -752,7 +752,6 @@ describe("a member writer's hold on its family's owner", () => {
 						kept: [],
 						runs: 160,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

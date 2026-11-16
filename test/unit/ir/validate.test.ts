@@ -321,7 +321,6 @@ describe("validateDag", () => {
 							{ cases: 600, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {

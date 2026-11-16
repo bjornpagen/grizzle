@@ -203,7 +203,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("a role's isolation lev
 						],
 						runs: 24,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

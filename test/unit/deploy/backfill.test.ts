@@ -2009,7 +2009,6 @@ describe("backfilling a family added to stored rows, generated", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -2047,7 +2046,6 @@ describe("backfilling a family added to stored rows, generated", () => {
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -223,8 +223,7 @@ describe("attachments on heading groups", () => {
 								source.draw(element<"optimized" | "conservative">(["optimized", "conservative"]))
 							] as const,
 						coverage: requiredInSpace<"delivered" | "refused">(["delivered", "refused"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([on, lowering], c) =>
 						Effect.sync(() => {
@@ -262,8 +261,7 @@ describe("the bounded union consumed inside a statement", () => {
 						generator: (source) =>
 							[source.draw(int(1, 3)), source.draw(boolean), source.draw(boolean)] as const,
 						coverage: requiredInSpace<"keyed" | "deduplicated">(["keyed", "deduplicated"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([k, keyedArms, overlap], c) =>
 						Effect.sync(() => {
@@ -411,7 +409,6 @@ describe("the runtime merge of heading groups", () => {
 							["every row", "first k", "a NaN", "descending"],
 							{ cases: 200, sense: notesOnly }
 						),
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -542,7 +539,6 @@ describe("the runtime merge of heading groups", () => {
 						["equal at different scales", "ordered"],
 						{ cases: 200, sense: notesOnly }
 					),
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

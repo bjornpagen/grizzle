@@ -2668,7 +2668,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							kept: [],
 							runs: inserterRuns,
 							shrink: { kind: "bounded", candidates: 20 },
-							concurrency: 1,
 							steerEvery: 4,
 							caseHang
 						},
@@ -2713,7 +2712,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							kept: [],
 							runs: inserterRuns,
 							shrink: { kind: "bounded", candidates: 20 },
-							concurrency: 1,
 							steerEvery: 4,
 							caseHang
 						},
@@ -2748,7 +2746,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							kept: [],
 							runs: inserterRuns,
 							shrink: { kind: "bounded", candidates: 20 },
-							concurrency: 1,
 							steerEvery: 4,
 							caseHang
 						},
@@ -2780,7 +2777,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							kept: [],
 							runs,
 							shrink: { kind: "bounded", candidates: 40 },
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

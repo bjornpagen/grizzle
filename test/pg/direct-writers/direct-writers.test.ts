@@ -250,7 +250,6 @@ layer(Substrate.layer, { excludeTestServices: true })("the direct-writer model",
 						 * Each shrink candidate installs a schema of its own: shrinking stops after 300 of them.
 						 */
 						shrink: { kind: "bounded", candidates: 300 },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

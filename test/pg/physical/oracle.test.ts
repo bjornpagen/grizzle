@@ -322,7 +322,6 @@ layer(Substrate.layer)("oracle and real installer", (it) => {
 						 */
 						runs: 400,
 						shrink: { kind: "complete" },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

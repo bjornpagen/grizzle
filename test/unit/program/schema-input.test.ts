@@ -161,8 +161,7 @@ describe("the schema a query compiles against", () => {
 						generator: (source) => [source.draw(subjects), source.draw(subjects)] as const,
 						literal: Formatter.format,
 						coverage: requiredInSpace<LevelFeature>(["the schema itself", "a level", "no level"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([built, named], c) =>
 						Effect.sync(() => {
@@ -242,8 +241,7 @@ describe("the artifacts of a schema", () => {
 						"the built value and its description",
 						"the Owned and its description"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				([s, [first, second]], c) =>
 					Effect.sync(() => {
@@ -559,7 +557,6 @@ describe("a level is its content, not its name", () => {
 						kept: keptContent,
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -722,7 +719,6 @@ describe("a schema the decoder refuses", () => {
 						 */
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -525,8 +525,7 @@ describe("a fold's natives are §2.3's: its copies on two axes, its combine and 
 						oracle: {
 							kind: "universal",
 							name: "metamorphic: every other fold's names with and without the removed fold"
-						},
-						concurrency: 1
+						}
 					},
 					(r, c) =>
 						Effect.sync(() => {
@@ -577,8 +576,7 @@ describe("a fold's natives are §2.3's: its copies on two axes, its combine and 
 					oracle: {
 						kind: "second-implementation",
 						name: "the reference combine in exact bigint arithmetic, and §2.3's pins"
-					},
-					concurrency: 1
+					}
 				},
 				(s, c) =>
 					Effect.sync(() => {

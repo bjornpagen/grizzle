@@ -246,7 +246,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("an installation's live
 					kept: [],
 					runs: 16,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 4,
 					caseHang
 				},

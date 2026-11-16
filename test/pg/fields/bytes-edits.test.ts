@@ -309,7 +309,6 @@ layer(Substrate.layer, { excludeTestServices: true })("bytes edited by their dig
 						kept: [],
 						runs: 24,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

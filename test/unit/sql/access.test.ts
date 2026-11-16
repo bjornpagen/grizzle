@@ -99,7 +99,6 @@ describe("the relations a statement reads and writes (sql/access.ts)", () => {
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -208,7 +207,6 @@ describe("the ANALYZE statement", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

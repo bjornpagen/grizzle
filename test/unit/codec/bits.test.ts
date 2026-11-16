@@ -163,8 +163,7 @@ describe("bit strings at a word's edges", () => {
 							"a bit at a word's last position",
 							"a dense string"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					read
 				)
@@ -211,8 +210,7 @@ describe("bit strings at a word's edges", () => {
 						"past one block",
 						"past two blocks"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				counted
 			)
@@ -306,7 +304,6 @@ describe("bit strings on the host", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -376,7 +373,6 @@ describe("bit strings on the host", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -463,7 +459,6 @@ describe("bit strings on the host", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -561,8 +556,7 @@ describe("bit strings on the host", () => {
 							"past the end",
 							"a negative int4"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					placement
 				)
@@ -624,7 +618,6 @@ describe("bit strings on the host", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

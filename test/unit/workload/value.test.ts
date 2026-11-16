@@ -187,7 +187,6 @@ describe("workload(schema, programs)", () => {
 						],
 						runs: 40,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -253,7 +252,6 @@ describe("workload(schema, programs)", () => {
 						kept: [],
 						runs: 10,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -314,7 +312,6 @@ describe("workload(schema, programs)", () => {
 						kept: [],
 						runs: 20,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -567,7 +564,6 @@ describe("workload()'s signature", () => {
 						],
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -627,7 +623,6 @@ describe("workload()'s signature", () => {
 						kept: [],
 						runs: 40,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

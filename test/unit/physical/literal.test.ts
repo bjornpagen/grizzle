@@ -562,7 +562,6 @@ describe("a drafted migration's bit strings", () => {
 						kept: [],
 						runs: 80,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -713,7 +712,6 @@ describe("a closed constant's hex literal", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1007,7 +1005,6 @@ describe("a changed digit of an installed relation's constant", () => {
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

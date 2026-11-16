@@ -428,7 +428,6 @@ describe("a write over a retirable unit", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: { kind: "specification", name: "the hold rule restated over the drawing" }

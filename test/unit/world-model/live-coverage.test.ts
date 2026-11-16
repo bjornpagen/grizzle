@@ -281,7 +281,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("a login's served reads
 						kept: [],
 						runs: 16,
 						shrink: { kind: "bounded", candidates: 200 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

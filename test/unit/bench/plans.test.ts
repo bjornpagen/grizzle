@@ -163,7 +163,6 @@ describe("the EXPLAIN readers", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -243,7 +242,6 @@ describe("the EXPLAIN readers", () => {
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

@@ -160,8 +160,7 @@ describe("race(R)", () => {
 								Arr.map([false, true], (m) => caseText({ kind: "family", part, mutable: m }))
 							)
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(c, k) =>
 						Effect.sync(() => {

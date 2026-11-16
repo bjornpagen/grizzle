@@ -359,7 +359,6 @@ export const explorePublic: Effect.Effect<Explored, SearchFailure, Substrate | R
 		kept: planted,
 		runs: cases,
 		shrink: { kind: "bounded", candidates: 150 },
-		concurrency: 1,
 		steerEvery: 16,
 		caseHang
 	},

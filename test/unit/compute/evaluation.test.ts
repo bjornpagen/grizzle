@@ -244,7 +244,6 @@ describe("the oracle's classes of evaluation", () => {
 						 */
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -294,8 +293,7 @@ describe("the oracle's classes of evaluation", () => {
 					generator: element(nonEmpty(nativeOps, "the registry's nodes")),
 					literal: Formatter.format,
 					coverage: requiredInSpace<"an exact float node">(["an exact float node"]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				(op, c) =>
 					Effect.sync(() => {

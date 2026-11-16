@@ -66,7 +66,6 @@ const spec = {
 	kept: [],
 	runs: 2,
 	shrink: completeShrink,
-	concurrency: 1,
 	steerEvery: 16,
 	caseHang
 } as const
@@ -365,7 +364,6 @@ layer(Substrate.layer)("span and vector agreement with PostgreSQL", (it) => {
 							kept: [],
 							runs: 60,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 8,
 							caseHang
 						},

@@ -218,7 +218,6 @@ layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent 
 						kept,
 						runs: 6,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

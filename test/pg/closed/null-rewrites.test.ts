@@ -931,7 +931,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 						],
 						runs: 24,
 						shrink: boundedShrink(40),
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

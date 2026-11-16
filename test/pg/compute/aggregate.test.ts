@@ -341,8 +341,7 @@ layer(Substrate.layer)("aggregate typing against PostgreSQL 19", (it) => {
 								"checked max/Cents",
 								"checked min/bool"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(call, c) =>
 							Effect.gen(function* () {

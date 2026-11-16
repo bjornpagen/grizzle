@@ -534,8 +534,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: roles",
 								oracle: {
 									kind: "specification",
 									name: "the writable-entry rule's classification, README's least privilege over it, and the worlds model's Db.open"
-								},
-								concurrency: 1
+								}
 							},
 							(s, c) =>
 								Effect.gen(function* () {

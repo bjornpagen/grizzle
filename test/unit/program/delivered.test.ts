@@ -1129,7 +1129,6 @@ describe("typed rows at bind", () => {
 						kept: restatedKept,
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1161,7 +1160,6 @@ describe("typed rows at bind", () => {
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1193,7 +1191,6 @@ describe("typed rows at bind", () => {
 						kept: [],
 						runs: 40,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1224,7 +1221,6 @@ describe("typed rows at bind", () => {
 					 */
 					runs: 60,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

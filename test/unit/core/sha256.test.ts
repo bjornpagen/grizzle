@@ -123,7 +123,6 @@ describe("utf8", () => {
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -157,7 +156,6 @@ describe("sha256Hex", () => {
 					kept: [],
 					runs: 300,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

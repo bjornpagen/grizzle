@@ -378,8 +378,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									"the containment across the levels",
 									"one contract domain across the levels"
 								]),
-								caseHang,
-								concurrency: 1
+								caseHang
 							},
 							(fact, c) =>
 								Effect.gen(function* () {
@@ -447,7 +446,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								kept: [],
 								runs: 40,
 								shrink: { kind: "bounded", candidates: 30 },
-								concurrency: 1,
 								steerEvery: 8,
 								caseHang
 							},

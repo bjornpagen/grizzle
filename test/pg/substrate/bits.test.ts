@@ -214,7 +214,6 @@ layer(Substrate.layer)("the bit algebra of fin.md §16 on PostgreSQL 19rc2", (it
 							kept: [],
 							runs: 400,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

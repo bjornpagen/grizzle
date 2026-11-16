@@ -212,7 +212,6 @@ describe("real admission", () => {
 						kept: [],
 						runs: 5000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -251,7 +250,6 @@ describe("PostgreSQL's float order", () => {
 					kept: [],
 					runs: 5000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

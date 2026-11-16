@@ -296,8 +296,7 @@ layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 
 								"counted within dropped killed",
 								"counted covers dropped killed"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(sketch, c) => {
 							const end = c.draw(endGen)
@@ -387,7 +386,6 @@ layer(Substrate.layer)("the fin lemmas through grizzle's lowering on PostgreSQL 
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang,
 							oracle: ORACLE

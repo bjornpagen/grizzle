@@ -437,7 +437,6 @@ describe("contract predicate tables", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -513,7 +512,6 @@ describe("the ContractLiteral check", () => {
 						/** The rotating stream's sample: half the literals are negative, and each site is half the cases. */
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

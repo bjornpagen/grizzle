@@ -110,7 +110,6 @@ layer(Substrate.layer)("a guard over a parameter on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 16,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 4,
 							caseHang
 						},

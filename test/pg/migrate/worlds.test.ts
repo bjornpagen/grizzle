@@ -397,7 +397,6 @@ layer(Substrate.layer)("worlds across migrations", (it) => {
 						kept: [],
 						runs: 2,
 						shrink: { kind: "bounded", candidates: 12 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

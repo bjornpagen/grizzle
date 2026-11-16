@@ -392,7 +392,6 @@ layer(NodeServices.layer)("the variables of a drafted migration", (it) => {
 						kept: [],
 						runs: 24,
 						shrink: { kind: "bounded", candidates: 20 },
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

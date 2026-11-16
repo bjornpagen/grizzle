@@ -372,7 +372,6 @@ layer(Substrate.layer)("wire flights", (it) => {
 							kept: [],
 							runs: 8,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -452,7 +451,6 @@ layer(Substrate.layer)("wire flights", (it) => {
 							kept: [],
 							runs: 10,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -532,7 +530,6 @@ layer(Substrate.layer)("wire flights", (it) => {
 							kept: [],
 							runs: 12,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

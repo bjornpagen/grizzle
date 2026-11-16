@@ -329,8 +329,7 @@ describe("indexesOf", () => {
 							"a law column",
 							"a derived key"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(c, k) =>
 						Effect.sync(() => {

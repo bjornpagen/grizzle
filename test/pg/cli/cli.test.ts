@@ -261,7 +261,6 @@ const configurations = (ctx: TestContext) =>
 				kept: [],
 				runs: 3,
 				shrink: { kind: "bounded", candidates: 10 },
-				concurrency: 1,
 				steerEvery: 16,
 				caseHang,
 				coverage: required<CliFeature>(

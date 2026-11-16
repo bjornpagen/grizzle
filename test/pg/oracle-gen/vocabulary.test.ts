@@ -281,8 +281,7 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 							"declined, and defined",
 							"absent from PostgreSQL"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([t, fn], c) =>
 						Effect.gen(function* () {
@@ -347,8 +346,7 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 						generator: element(generatedTypes),
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(t) =>
 						Effect.gen(function* () {
@@ -396,7 +394,6 @@ layer(Substrate.layer)("the generators against PostgreSQL 19", (it) => {
 						/** The rotating stream's 160 cases and the floor's 40. */
 						runs: 160,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

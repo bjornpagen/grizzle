@@ -195,8 +195,7 @@ describe("a tree's law", () => {
 							"a second root",
 							"a row under another tree"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(s, k) =>
 						Effect.sync(() => {

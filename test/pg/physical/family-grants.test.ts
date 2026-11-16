@@ -400,7 +400,6 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 							kept: [],
 							runs: 32,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -626,7 +625,6 @@ layer(Substrate.layer)("a member writer's hold on its family's owner", (it) => {
 										kept: [],
 										runs: 16,
 										shrink: completeShrink,
-										concurrency: 1,
 										steerEvery: 8,
 										caseHang
 									},

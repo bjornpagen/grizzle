@@ -458,7 +458,6 @@ describe("transaction control in a migration file", () => {
 						kept: [],
 						runs: 600,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -714,7 +713,6 @@ describe("the input check before any connection", () => {
 						kept: [],
 						runs: 150,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1127,7 +1125,6 @@ describe("the plan: skip, resume, run, or refuse before any statement", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

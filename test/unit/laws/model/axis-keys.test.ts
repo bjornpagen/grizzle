@@ -200,8 +200,7 @@ describe("a family axis's key", () => {
 							["code points", "an entry at the bound"],
 							["code points", "an entry past the bound"]
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(t: TextType, c: Case<Feature>) =>
 						Effect.sync(() => {
@@ -336,8 +335,7 @@ describe("a carried set's key", () => {
 					generator: int(fittingCodes - live - 8, fittingCodes - live + 8),
 					literal: Formatter.format,
 					coverage: requiredInSpace<SetFeature>(["an entry at the bound", "an entry past it"]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				(holes: number, c: Case<SetFeature>) =>
 					Effect.sync(() => {

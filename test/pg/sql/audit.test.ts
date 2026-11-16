@@ -219,7 +219,6 @@ layer(Substrate.layer)("generated SQL on PostgreSQL 19", (it) => {
 							kept: keptOver(catalog),
 							runs: cases,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

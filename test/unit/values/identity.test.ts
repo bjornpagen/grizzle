@@ -427,7 +427,6 @@ describe("parseValue", () => {
 						kept: [],
 						runs: 3000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -560,7 +559,6 @@ describe("factIdentity", () => {
 					kept: [],
 					runs: 300,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -655,7 +653,6 @@ describe("factIdentity", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

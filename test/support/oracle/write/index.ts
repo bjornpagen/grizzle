@@ -399,7 +399,6 @@ export const exploreWrite = (
 			kept: s.kept,
 			runs: s.runs,
 			shrink: boundedShrink(shrinkCandidates),
-			concurrency: 1,
 			steerEvery: 16,
 			caseHang
 		},

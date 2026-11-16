@@ -1144,7 +1144,6 @@ layer(Substrate.layer)("roster migrations on PostgreSQL 19rc2", (it) => {
 						kept: [],
 						runs: 6,
 						shrink: { kind: "bounded", candidates: 40 },
-						concurrency: 1,
 						steerEvery: 1,
 						caseHang,
 						oracle: {

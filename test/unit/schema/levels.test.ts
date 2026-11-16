@@ -221,8 +221,7 @@ describe("a level's laws over the levels below it", () => {
 							"a lower target admitted",
 							"a lower check admitted"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(shape, c) =>
 						Effect.sync(() => {

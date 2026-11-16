@@ -483,7 +483,6 @@ describe("the index request engine", () => {
 						kept: engineKept,
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

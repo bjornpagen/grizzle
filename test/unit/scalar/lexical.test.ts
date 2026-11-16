@@ -94,7 +94,6 @@ describe("lexical forms", () => {
 						kept: [],
 						runs: 4000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -158,8 +157,7 @@ describe("lexical forms", () => {
 						oracle: {
 							kind: "specification",
 							name: "the text analysis's admission (text/refinement.ts)"
-						},
-						concurrency: 1
+						}
 					},
 					(t, c) =>
 						Effect.sync(() => {
@@ -232,7 +230,6 @@ describe("language inclusion", () => {
 						kept: [],
 						runs: 1500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -387,7 +384,6 @@ describe("a parse's lexical precondition", () => {
 						kept: [],
 						runs: 600,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -539,7 +535,6 @@ describe("a decimal's parse", () => {
 						kept: [],
 						runs: 600,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {

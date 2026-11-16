@@ -112,7 +112,6 @@ describe("host normalization of a span candidate key", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: { kind: "specification", name: "a host interval model of the span key" }

@@ -226,7 +226,6 @@ export const guardSearch = <F extends string>(spec: {
 			kept: [],
 			runs: spec.runs,
 			shrink: completeShrink,
-			concurrency: 1,
 			steerEvery: 16,
 			caseHang
 		},

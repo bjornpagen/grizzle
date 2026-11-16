@@ -2077,7 +2077,6 @@ layer(Substrate.isolatedLayer)("the migrator under the identity cutover's deltas
 						kept: [],
 						runs: 3,
 						shrink: { kind: "bounded", candidates: 40 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},
@@ -2103,7 +2102,6 @@ layer(Substrate.isolatedLayer)("the migrator under the identity cutover's deltas
 						kept: [],
 						runs: 2,
 						shrink: { kind: "bounded", candidates: 30 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

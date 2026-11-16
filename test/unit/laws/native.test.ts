@@ -1157,8 +1157,7 @@ describe("the native constraints grizzle installs", () => {
 							box: "every rule of the partial-projection lowering with each of its selections, over every state of at most two Owner rows and three of every other relation, each varying the fields its laws read over two or three values",
 							oracle: HOST_ORACLE,
 							coverage: requiredInSpace<RuleFeature>([...RULE_KINDS, ...VERDICTS, "a put"]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(b, c) =>
 							Effect.sync(() => {
@@ -1206,7 +1205,6 @@ describe("the native constraints grizzle installs", () => {
 						kept: [],
 						runs: 1_000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1262,8 +1260,7 @@ describe("the native constraints grizzle installs", () => {
 								"refused at a statement",
 								"a removal"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(stored, c) =>
 							Effect.sync(() => {
@@ -1308,7 +1305,6 @@ describe("the native constraints grizzle installs", () => {
 							kept: [],
 							runs: 300,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -1356,8 +1352,7 @@ describe("the native constraints grizzle installs", () => {
 							"breach gap",
 							"an unrestricted closure beside the bound"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([shape, stored], c) =>
 						Effect.sync(() => judgeFamilyState(installed[shape], shape, stored, c))
@@ -1402,7 +1397,6 @@ describe("the native constraints grizzle installs", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1457,8 +1451,7 @@ describe("the native constraints grizzle installs", () => {
 								"a put",
 								"a removal"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(b, c) =>
 							Effect.sync(() => {
@@ -1502,7 +1495,6 @@ describe("the native constraints grizzle installs", () => {
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

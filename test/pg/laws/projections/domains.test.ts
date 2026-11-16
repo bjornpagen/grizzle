@@ -472,7 +472,6 @@ layer(Substrate.layer)("natural and pred against PostgreSQL", (it) => {
 							kept: [],
 							runs: 40,
 							shrink: { kind: "complete" },
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

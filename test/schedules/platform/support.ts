@@ -1709,7 +1709,6 @@ export const raceSuite = <S>(suite: RaceSuite<S>): void => {
 							kept: suite.kept,
 							runs: runsPerTest,
 							shrink: { kind: "bounded", candidates: 200 },
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

@@ -109,7 +109,6 @@ describe("a registered live read's changes", () => {
 						kept: [],
 						runs: 48,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						coverage: required<Feature>(

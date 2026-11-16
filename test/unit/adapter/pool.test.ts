@@ -528,7 +528,6 @@ describe("the session pool", () => {
 						kept: poolKept,
 						runs: 40,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

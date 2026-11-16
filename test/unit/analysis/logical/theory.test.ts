@@ -145,8 +145,7 @@ describe("span laws", () => {
 							"one span field",
 							"several span fields"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([spans, uuids], c) =>
 						Effect.sync(() => {
@@ -309,7 +308,6 @@ describe("field-compatibility classes", () => {
 							{ cases: 1000, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -570,7 +568,6 @@ describe("violation queries mean what their laws say", () => {
 							{ cases: 2000, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -634,8 +631,7 @@ describe("violation queries mean what their laws say", () => {
 							"a self-managed employee",
 							"lawful"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(managers, c) =>
 						Effect.sync(() => {
@@ -700,8 +696,7 @@ describe("violation queries mean what their laws say", () => {
 							"lawful",
 							"labels"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([names, labels], c) =>
 						Effect.sync(() => {
@@ -820,7 +815,6 @@ describe("evidence and its validity context", () => {
 							{ cases: 300, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -897,7 +891,6 @@ describe("evidence and its validity context", () => {
 							sense: notesOnly
 						}),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -987,7 +980,6 @@ describe("law identities", () => {
 						kept: [],
 						runs: 50,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1070,8 +1062,7 @@ describe("law identities", () => {
 							"several declarations",
 							"the reverse undeclared"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(declared, c) =>
 						Effect.sync(() => {

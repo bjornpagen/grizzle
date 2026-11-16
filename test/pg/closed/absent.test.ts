@@ -2032,7 +2032,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a closed read at an absen
 					],
 					runs: 24,
 					shrink: boundedShrink(40),
-					concurrency: 1,
 					steerEvery: 8,
 					caseHang
 				},
@@ -2058,7 +2057,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a closed read at an absen
 						kept: [],
 						runs: 24,
 						shrink: boundedShrink(40),
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

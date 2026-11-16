@@ -96,7 +96,6 @@ layer(Substrate.layer, { excludeTestServices: true })("an interrupted write run"
 					kept: [],
 					runs: 4,
 					shrink: { kind: "bounded", candidates: 20 },
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

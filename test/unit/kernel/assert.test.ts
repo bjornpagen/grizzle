@@ -284,7 +284,6 @@ const spec = {
 	literal: Formatter.format,
 	kept: [],
 	shrink: completeShrink,
-	concurrency: 1,
 	steerEvery: 16,
 	caseHang
 } as const

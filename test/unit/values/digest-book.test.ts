@@ -74,7 +74,6 @@ describe("a write's digest book", () => {
 					kept: [],
 					runs: 200,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

@@ -341,7 +341,6 @@ layer(Substrate.layer)("the deleted host validators against PostgreSQL 19", (it)
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

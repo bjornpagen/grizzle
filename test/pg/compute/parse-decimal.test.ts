@@ -372,7 +372,6 @@ layer(Substrate.layer)("Compute.parseDecimal on PostgreSQL 19", (it) => {
 							],
 							runs: 100,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 8,
 							caseHang
 						},

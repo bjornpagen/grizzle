@@ -359,7 +359,6 @@ layer(Substrate.layer)("Compute.utf16Length on PostgreSQL 19", (it) => {
 						kept: [],
 						runs: 40,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},
@@ -416,7 +415,6 @@ layer(Substrate.layer)("Compute.utf16Length on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 60,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

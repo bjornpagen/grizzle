@@ -442,7 +442,6 @@ describe("the one roleNameOf", () => {
 						kept: [],
 						runs: 64,
 						shrink: { kind: "bounded", candidates: 40 },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

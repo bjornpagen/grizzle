@@ -624,7 +624,6 @@ describe("roles that write by an insert list", () => {
 						],
 						runs: 160,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

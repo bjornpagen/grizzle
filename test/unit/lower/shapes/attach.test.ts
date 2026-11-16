@@ -232,7 +232,6 @@ describe("the fused attachment codec", () => {
 							],
 							{ cases: 200, sense: notesOnly }
 						),
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -303,7 +302,6 @@ describe("the fused attachment codec", () => {
 						cases: 200,
 						sense: notesOnly
 					}),
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

@@ -520,7 +520,6 @@ layer(Substrate.layer)("aggregates against the exact reference on PostgreSQL 19"
 							kept,
 							runs,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

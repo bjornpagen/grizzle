@@ -189,8 +189,7 @@ const suite = Effect.gen(function* () {
 				["never", "apart"],
 				["never", "transaction"]
 			]),
-			caseHang,
-			concurrency: 1
+			caseHang
 		},
 		(c, k) =>
 			Effect.scoped(

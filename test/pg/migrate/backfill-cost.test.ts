@@ -294,8 +294,7 @@ layer(Substrate.isolatedLayer)("the cost of a tree's backfill", (it) => {
 									"the box's situations"
 								)
 							),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(c, k) =>
 							Effect.gen(function* () {

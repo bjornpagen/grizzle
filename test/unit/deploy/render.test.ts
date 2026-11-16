@@ -376,7 +376,6 @@ describe("a migration file's markers, generated", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

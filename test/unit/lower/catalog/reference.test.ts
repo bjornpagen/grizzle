@@ -65,7 +65,6 @@ describe("the catalog's rewrites against their compositions, by the reference", 
 					kept: [],
 					runs: 60,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang,
 					oracle: { kind: "second-implementation", name: "the reference evaluator" }

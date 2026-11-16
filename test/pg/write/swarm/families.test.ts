@@ -2111,7 +2111,6 @@ layer(Substrate.layer, { excludeTestServices: true })("the family writer under a
 						kept: kept,
 						runs: 24,
 						shrink: boundedShrink(60),
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang,
 						oracle: {

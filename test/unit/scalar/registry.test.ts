@@ -186,7 +186,6 @@ describe("the capability registry", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -324,8 +323,7 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 								"a field's carriers"
 							)
 						),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([where, t], c) =>
 						Effect.sync(() => {
@@ -355,7 +353,6 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 					kept: [],
 					runs: 1000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -406,7 +403,6 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -464,7 +460,6 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -506,7 +501,6 @@ describe("scalarTypeOf: a FieldDesc to its ScalarType", () => {
 					kept: [],
 					runs: 50,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -873,7 +867,6 @@ describe("scalarTypeOf builds each type from its content", () => {
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -1287,7 +1280,6 @@ describe("literalDescFor: literal operands adopt the base's host type", () => {
 						/** values/identity.test.ts's admission search over the same carriers. */
 						runs: 3000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1451,7 +1443,6 @@ describe("describeField", () => {
 						/** text/parse's flags search, the nearest generated neighbour of the replaced examples. */
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

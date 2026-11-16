@@ -236,7 +236,6 @@ layer(Substrate.layer)(
 								kept: [],
 								runs: 32,
 								shrink: completeShrink,
-								concurrency: 1,
 								steerEvery: 16,
 								caseHang
 							},

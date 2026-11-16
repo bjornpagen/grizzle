@@ -506,7 +506,6 @@ describe("each carrier's codec", () => {
 						/** The rotating stream's sample of sixteen carriers, each half written and half refused. */
 						runs: 1500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -588,7 +587,6 @@ describe("integer and span text, scanned without RegExp", () => {
 						kept: [],
 						runs: 20000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -651,7 +649,6 @@ describe("integer and span text, scanned without RegExp", () => {
 						kept: [],
 						runs: 20000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -706,7 +703,6 @@ describe("vectors", () => {
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

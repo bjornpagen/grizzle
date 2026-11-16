@@ -203,7 +203,6 @@ const exploreSteered = (
 			kept,
 			runs: budget.runs,
 			shrink: completeShrink,
-			concurrency: 1,
 			steerEvery: 16,
 			caseHang
 		},
@@ -234,7 +233,6 @@ const exploreCases = (
 			kept: [],
 			runs: budget.runs,
 			shrink: completeShrink,
-			concurrency: 1,
 			steerEvery: 16,
 			caseHang
 		},
@@ -498,7 +496,6 @@ describe("each rewrite pass preserves the delivered result on generated cases", 
 					kept: [],
 					runs: 150 * passNames.length,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

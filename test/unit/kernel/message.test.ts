@@ -283,7 +283,6 @@ describe("a failure's message", () => {
 						kept: [],
 						runs: 80,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -353,7 +352,6 @@ describe("a failure's message", () => {
 						kept: [],
 						runs: 80,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -405,7 +403,6 @@ describe("a failure's message", () => {
 					kept: [],
 					runs: 60,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

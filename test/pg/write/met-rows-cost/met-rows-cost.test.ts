@@ -162,19 +162,15 @@ layer(Substrate.layer)("the cost of an arbitrated insert", (it) => {
 						name: "linear growth: a cost of a fixed part and a part per row at most doubles when its rows double, the fixed part not doubling, and a cost above linear more than doubles"
 					},
 					coverage: requiredInSpace<Situation>(situations),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				(sketch, c) =>
 					Effect.gen(function* () {
-						const [n, twice, four] = yield* Effect.all(
-							[
-								costOf(smallest[sketch.situation]),
-								costOf(2 * smallest[sketch.situation]),
-								costOf(4 * smallest[sketch.situation])
-							],
-							{ concurrency: 1 }
-						)
+						const [n, twice, four] = yield* Effect.all([
+							costOf(smallest[sketch.situation]),
+							costOf(2 * smallest[sketch.situation]),
+							costOf(4 * smallest[sketch.situation])
+						])
 						c.note(sketch.situation)
 						for (const at of [n, twice, four]) {
 							assert.equal(

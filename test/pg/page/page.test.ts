@@ -740,7 +740,6 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 										kept: [],
 										runs: 100,
 										shrink: completeShrink,
-										concurrency: 1,
 										steerEvery: 16,
 										caseHang,
 										coverage: required<WalkFeature>(
@@ -1041,7 +1040,6 @@ layer(Substrate.layer)("the page runtime through the readers", (it) => {
 										kept: [],
 										runs: 200,
 										shrink: completeShrink,
-										concurrency: 1,
 										steerEvery: 16,
 										caseHang,
 										coverage: required<InputFeature>(

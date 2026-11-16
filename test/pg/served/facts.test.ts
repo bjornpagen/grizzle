@@ -202,7 +202,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							/** Each case installs a schema over its stored items and makes one call. */
 							runs: 32,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 4,
 							caseHang
 						},

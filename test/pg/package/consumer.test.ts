@@ -218,7 +218,6 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 								kept: [],
 								runs: 2,
 								shrink: completeShrink,
-								concurrency: 1,
 								steerEvery: 16,
 								caseHang
 							},
@@ -355,8 +354,7 @@ layer(NodeServices.layer)(
 								kind: "specification",
 								name: "each command exits cleanly, the checkout holds no node_modules, and grizzle's source finds the project's effect"
 							},
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(layout, c) =>
 							Effect.scoped(

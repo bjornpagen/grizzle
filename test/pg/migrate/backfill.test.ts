@@ -1572,7 +1572,6 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 						kept: [],
 						runs: 3,
 						shrink: { kind: "bounded", candidates: 24 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang,
 						oracle: {
@@ -1662,7 +1661,6 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 						kept: [],
 						runs: 3,
 						shrink: { kind: "bounded", candidates: 24 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang,
 						oracle: {
@@ -1760,7 +1758,6 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 						kept: [],
 						runs: 3,
 						shrink: { kind: "bounded", candidates: 24 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang,
 						oracle: {
@@ -1844,7 +1841,6 @@ layer(Substrate.layer)("backfilling a counted family with a fold on PostgreSQL 1
 						kept: [],
 						runs: 3,
 						shrink: { kind: "bounded", candidates: 24 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang,
 						oracle: {

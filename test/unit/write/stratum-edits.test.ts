@@ -428,7 +428,6 @@ describe("a ChangeSet's family statements", () => {
 					kept: [],
 					runs: 64,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 8,
 					caseHang
 				},

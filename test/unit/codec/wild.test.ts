@@ -412,7 +412,6 @@ describe("the encoders", () => {
 						kept: [],
 						runs: 3000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -481,7 +480,6 @@ describe("the encoders", () => {
 					kept: [],
 					runs: 500,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -536,7 +534,6 @@ describe("admission reads a value once", () => {
 					kept: [],
 					runs: 300,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -614,7 +611,6 @@ describe("fact identity", () => {
 							kept: [],
 							runs: 1000,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -687,7 +683,6 @@ describe("the tuple converter", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

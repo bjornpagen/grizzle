@@ -153,7 +153,6 @@ layer(Substrate.layer)("a stored text's live readers", (it) => {
 						],
 						runs: cases,
 						shrink: { kind: "bounded", candidates: 20 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

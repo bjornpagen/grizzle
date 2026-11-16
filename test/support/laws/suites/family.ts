@@ -385,7 +385,6 @@ export const familySuite = <P>(
 							kept: [...Arr.map(planted, (k) => k.kept), ...kept[mode]],
 							runs: cases,
 							shrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

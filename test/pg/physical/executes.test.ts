@@ -164,7 +164,6 @@ layer(Substrate.layer)("a role's EXECUTE grants on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 16,
 							shrink: { kind: "bounded", candidates: 40 },
-							concurrency: 1,
 							steerEvery: 8,
 							caseHang
 						},

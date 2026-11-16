@@ -315,7 +315,6 @@ describe("a guard over a transformed text", () => {
 						kept: [],
 						runs: 800,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -1146,7 +1145,6 @@ describe("a transformed text's byte bound", () => {
 						],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {

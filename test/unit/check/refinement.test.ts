@@ -423,8 +423,7 @@ describe("languages and guarantees", () => {
 							"two typmods",
 							"another carrier"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([a, b], c) =>
 						Effect.sync(() => {
@@ -515,8 +514,7 @@ describe("union propagation", () => {
 							"two typmods",
 							"incompatible"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([a, b], c) =>
 						Effect.sync(() => {
@@ -712,7 +710,6 @@ describe("refined constants", () => {
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

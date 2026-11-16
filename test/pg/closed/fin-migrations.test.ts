@@ -455,7 +455,6 @@ layer(Substrate.layer)("dependent keys through grizzle's migrations on PostgreSQ
 						kept: [],
 						runs: 3,
 						shrink: { kind: "bounded", candidates: 20 },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

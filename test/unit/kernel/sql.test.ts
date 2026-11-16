@@ -366,7 +366,6 @@ describe("generated queries", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -395,7 +394,6 @@ describe("generated queries", () => {
 					kept: [],
 					runs: 200,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -430,7 +428,6 @@ describe("generated statements", () => {
 						kept: keptStatements,
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -560,7 +557,6 @@ describe("the one-hole walker", () => {
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -595,7 +591,6 @@ describe("the one-hole walker", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

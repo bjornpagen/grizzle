@@ -207,7 +207,6 @@ describe("every physical claim holds on the delivered rows", () => {
 					kept: [],
 					runs: 400,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -235,7 +234,6 @@ describe("every physical claim holds on the delivered rows", () => {
 					kept: [],
 					runs: 200,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -279,7 +277,6 @@ describe("every physical claim holds on the delivered rows", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -315,7 +312,6 @@ describe("every physical claim holds on the delivered rows", () => {
 						kept: [],
 						runs: 80 * counterexampleRoots.length,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -344,7 +340,6 @@ describe("every physical claim holds on the delivered rows", () => {
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -384,7 +379,6 @@ describe("neither analysis reads the order of a filter's conjuncts", () => {
 					kept: [],
 					runs: 400,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

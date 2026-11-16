@@ -369,7 +369,6 @@ describe("isolation facts", () => {
 						kept: [],
 						runs: 120,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

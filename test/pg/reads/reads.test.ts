@@ -388,7 +388,6 @@ const unionCaseGen: Gen<UnionCase> = (source) => ({
 const budget = {
 	literal: Formatter.format,
 	shrink: completeShrink,
-	concurrency: 1,
 	steerEvery: 16,
 	caseHang
 } as const

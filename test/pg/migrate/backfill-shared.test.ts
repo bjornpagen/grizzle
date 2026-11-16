@@ -285,7 +285,6 @@ layer(Substrate.layer)("two families over one member table, backfilled", (it) =>
 						kept: [],
 						runs: 6,
 						shrink: { kind: "bounded", candidates: 20 },
-						concurrency: 1,
 						steerEvery: 2,
 						caseHang
 					},

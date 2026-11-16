@@ -148,8 +148,7 @@ describe("readCallError and applyCallError", () => {
 							"another refusal of a read",
 							"another refusal of a write"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					({ sqlstate, program }, c) =>
 						Effect.sync(() => {
@@ -206,8 +205,7 @@ describe("every source's reading", () => {
 								name: "the classification's own tables (call-error.ts readings) beside the event model's failures"
 							},
 							coverage: requiredInSpace<FailureSource>(sources),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(source, c) =>
 							Effect.sync(() => {
@@ -780,7 +778,6 @@ describe("a session never had", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

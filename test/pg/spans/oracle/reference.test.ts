@@ -125,8 +125,7 @@ describe("the span reference on the host", () => {
 							kind: "second-implementation",
 							name: "the maximal runs of the point sets a ∩ b and a ∖ b"
 						},
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([a, b], c) =>
 						Effect.sync(() => {
@@ -171,7 +170,6 @@ describe("the span reference on the host", () => {
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -308,7 +306,6 @@ describe("the span generators", () => {
 					kept: [],
 					runs: 4 * cases,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

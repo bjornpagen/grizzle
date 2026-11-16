@@ -327,7 +327,6 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 							kept: [],
 							runs: 4,
 							shrink: { kind: "bounded", candidates: 20 },
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

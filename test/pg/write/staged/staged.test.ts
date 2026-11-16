@@ -506,7 +506,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									name: "the same write sent inline: its rows, every column, and its outcome"
 								},
 								shrink: completeShrink,
-								concurrency: 1,
 								steerEvery: 8,
 								caseHang,
 								coverage: required<Feature>(

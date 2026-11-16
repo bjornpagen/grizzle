@@ -213,7 +213,6 @@ describe("the add-wins transition", () => {
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -287,7 +286,6 @@ describe("build-order independence", () => {
 					kept: [],
 					runs: 1000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -361,7 +359,6 @@ describe("put", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -529,7 +526,6 @@ describe("counts across strata, netted over the per-stratum changes", () => {
 						kept: [],
 						runs: 4000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -640,7 +636,6 @@ describe("generated additions", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

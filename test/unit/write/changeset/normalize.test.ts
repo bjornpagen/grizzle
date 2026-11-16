@@ -608,7 +608,6 @@ describe("normalization against the add-wins meaning", () => {
 						kept: [],
 						runs: 1500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: { kind: "second-implementation", name: "the brute-force add-wins calculator" }
@@ -638,7 +637,6 @@ describe("normalization against the add-wins meaning", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: { kind: "specification", name: "the fact shape each relation admits" }

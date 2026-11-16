@@ -543,7 +543,6 @@ layer(Substrate.layer)("rules over queries through migrations on PostgreSQL 19rc
 						kept: [],
 						runs: 24,
 						shrink: { kind: "bounded", candidates: 20 },
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

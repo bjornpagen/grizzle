@@ -245,7 +245,6 @@ describe("build.sh's verdict on a pin", () => {
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -182,8 +182,7 @@ describe("alias identity", () => {
 							"one type, two writings",
 							"two types"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([x, y], c) =>
 						Effect.sync(() => {
@@ -237,7 +236,6 @@ describe("alias identity", () => {
 					kept: [],
 					runs: 1000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -270,7 +268,6 @@ describe("alias identity", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -433,7 +430,6 @@ describe("typmod validation", () => {
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -513,7 +509,6 @@ describe("typmod validation", () => {
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -578,7 +573,6 @@ describe("typmod validation", () => {
 					/** text/parse's flags search, the nearest generated neighbour of the replaced examples. */
 					runs: 1000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -672,7 +666,6 @@ describe("typmod validation", () => {
 							/** text/parse's flags search, the nearest generated neighbour of the replaced examples. */
 							runs: 1000,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -738,7 +731,6 @@ describe("span endpoint eligibility", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -823,7 +815,6 @@ describe("closedId", () => {
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -949,7 +940,6 @@ describe("closedId", () => {
 					/** Nine rules times the one site each breaks at, and the live relation. */
 					runs: 500,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

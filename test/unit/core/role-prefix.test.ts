@@ -176,7 +176,6 @@ describe("the role prefix, used verbatim", () => {
 						kept: [],
 						runs: 256,
 						shrink: { kind: "bounded", candidates: 40 },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -215,7 +214,6 @@ describe("the role prefix, used verbatim", () => {
 						kept: [],
 						runs: 256,
 						shrink: { kind: "bounded", candidates: 40 },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -183,7 +183,6 @@ const reverseProbes = explore(
 		kept: [],
 		runs: 1,
 		shrink: { kind: "bounded", candidates: 60 },
-		concurrency: 1,
 		steerEvery: 16,
 		caseHang
 	},

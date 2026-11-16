@@ -396,7 +396,6 @@ describe("the fresh installation", () => {
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -493,7 +492,6 @@ describe("the fresh installation", () => {
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -562,7 +560,6 @@ describe("the fresh installation", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

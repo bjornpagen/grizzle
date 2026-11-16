@@ -261,8 +261,7 @@ layer(Substrate.layer)("tiny platforms, exhausted", (it) => {
 									"a grant expiring at an event's end",
 									"a tier boundary crossed within one event",
 									"an event split across grants"
-								]),
-								concurrency: 1
+								])
 							},
 							(point, cx) =>
 								Effect.gen(function* () {

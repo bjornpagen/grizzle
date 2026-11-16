@@ -292,8 +292,7 @@ describe("Compute builders", () => {
 						"span width typed",
 						"span width refused"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				(sketch: BuilderCase, c) =>
 					Effect.sync(() => {
@@ -440,7 +439,6 @@ describe("a JavaScript caller's operands", () => {
 						 */
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

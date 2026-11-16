@@ -877,7 +877,6 @@ describe("a containment into a key-shaped conjunction of stored relations", () =
 						],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -941,8 +940,7 @@ describe("a containment into a key-shaped conjunction of stored relations", () =
 							"a superkey",
 							"constants"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(c, k) =>
 						Effect.sync(() => {

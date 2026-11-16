@@ -193,8 +193,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 							generator: element(knownNonEmpty(box, "the small box's transitions")),
 							literal: Formatter.format,
 							coverage: noCoverage,
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(transition, c) =>
 							Effect.gen(function* () {

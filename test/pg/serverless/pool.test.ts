@@ -362,7 +362,6 @@ const cutLeases = Effect.gen(function* () {
 			kept: interleavingKept,
 			runs: 30,
 			shrink: completeShrink,
-			concurrency: 1,
 			steerEvery: 16,
 			caseHang
 		},
@@ -636,8 +635,7 @@ layer(Substrate.layer)("a lease's wait for a pooled session", (it) => {
 							generator: waiters,
 							literal: Formatter.format,
 							coverage: requiredInSpace<WaiterFeature>(situations),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(w, c) =>
 							Effect.gen(function* () {

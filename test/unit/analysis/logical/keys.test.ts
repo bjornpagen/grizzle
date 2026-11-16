@@ -118,7 +118,6 @@ describe("minimal keys", () => {
 					kept: [exchangeOnly],
 					runs: 500,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -260,7 +259,6 @@ describe("keys over classes of equal columns", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -490,7 +488,6 @@ describe("keys of a union", () => {
 					kept: [copiedTwice],
 					runs: 300,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang,
 					coverage: required<UnionFeature>(
@@ -694,7 +691,6 @@ describe("the key kernel's union equalities", () => {
 						kept: [shiftedApart],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						coverage: required<ForgeFeature>(

@@ -316,7 +316,6 @@ layer(Substrate.layer, { excludeTestServices: true })("ApplyError through the pu
 									kept: encodingKept,
 									runs: 200,
 									shrink: completeShrink,
-									concurrency: 1,
 									steerEvery: 16,
 									caseHang,
 									coverage: required<EncodingFeature>(

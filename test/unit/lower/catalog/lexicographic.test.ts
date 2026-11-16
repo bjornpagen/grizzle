@@ -529,7 +529,6 @@ describe("the lexicographic recognizer", () => {
 						kept: [],
 						runs: 600,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -585,7 +584,6 @@ describe("the lexicographic recognizer", () => {
 						kept: [],
 						runs: 40,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -629,7 +627,6 @@ describe("the lexicographic recognizer", () => {
 						kept: [],
 						runs: 24,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

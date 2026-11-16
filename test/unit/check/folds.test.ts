@@ -572,7 +572,6 @@ describe("a fold reads each fact it matches once, by a key", () => {
 						shrink: completeShrink,
 						coverage: required<Feature>(situations, { cases: 2000, sense: notesOnly }),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {

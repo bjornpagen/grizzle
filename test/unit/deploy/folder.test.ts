@@ -278,7 +278,6 @@ describe("migration folders, generated", () => {
 					kept: [],
 					runs: 400,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -313,7 +312,6 @@ describe("migration folders, generated", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -375,7 +373,6 @@ describe("migration folders, generated", () => {
 							kept: [],
 							runs: 400,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -435,7 +432,6 @@ describe("migration folders, generated", () => {
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -779,7 +775,6 @@ describe("meta.json, generated", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

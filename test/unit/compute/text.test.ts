@@ -246,7 +246,6 @@ describe("Compute's text terms", () => {
 					/** Every family drawn about forty times, a quarter of them a dictionary of two. */
 					runs: 400,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -375,7 +374,6 @@ describe("Compute's text terms", () => {
 						kept: [],
 						runs: 600,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -566,7 +564,6 @@ describe("Compute's text terms", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -825,7 +822,6 @@ describe("Compute's text terms", () => {
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

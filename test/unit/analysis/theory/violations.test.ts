@@ -162,8 +162,7 @@ describe("a family's law", () => {
 							"a gap in at",
 							"a count off by one"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(s, k) =>
 						Effect.sync(() => {
@@ -205,8 +204,7 @@ describe("a family's law", () => {
 						coverage: requiredInSpace<
 							Extract<FamilyFault, "lawful" | "an orphan" | "a count off by one">
 						>(["lawful", "an orphan", "a count off by one"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(s, k) =>
 						Effect.sync(() => {
@@ -288,8 +286,7 @@ describe("an accumulated copy's law", () => {
 						coverage: requiredInSpace<"lawful" | "off its start at slot 0" | "a stale predecessor">(
 							["lawful", "off its start at slot 0", "a stale predecessor"]
 						),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(members, k) =>
 						Effect.sync(() => {

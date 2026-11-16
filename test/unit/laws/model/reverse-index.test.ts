@@ -76,7 +76,6 @@ describe("a containment's reverse index", () => {
 						],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

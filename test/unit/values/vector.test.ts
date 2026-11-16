@@ -131,7 +131,6 @@ describe("Vector construction", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -223,7 +222,6 @@ describe("Vector admission of a JavaScript caller's value", () => {
 						/** The rotating stream's sample of fourteen wild kinds beside the live arm. */
 						runs: 500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -306,7 +304,6 @@ describe("Vector in the canonical serializer", () => {
 					kept: [],
 					runs: 300,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -359,7 +356,6 @@ describe("Vector in the canonical serializer", () => {
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

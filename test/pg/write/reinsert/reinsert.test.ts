@@ -856,7 +856,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a stored instance inserte
 						],
 						runs: 16,
 						shrink: boundedShrink(40),
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang,
 						oracle: {

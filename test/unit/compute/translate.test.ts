@@ -222,7 +222,6 @@ describe("Compute's translate and lowerAscii", () => {
 					kept: [],
 					runs: 300,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -391,7 +390,6 @@ describe("Compute's translate and lowerAscii", () => {
 					],
 					runs: 400,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -579,7 +577,6 @@ describe("Compute's translate and lowerAscii", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -923,7 +920,6 @@ describe("Compute's translate and lowerAscii", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1120,7 +1116,6 @@ describe("Compute's translate and lowerAscii", () => {
 					kept: [],
 					runs: 200,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -1237,7 +1232,6 @@ describe("Compute's translate and lowerAscii", () => {
 					kept: [],
 					runs: 400,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

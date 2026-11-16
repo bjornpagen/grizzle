@@ -220,8 +220,7 @@ describe("the kind table", () => {
 							"UnsupportedOperation query",
 							"UnsupportedOperation readBack"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([[key, root], subject], c) =>
 						Effect.sync(() => {
@@ -412,8 +411,7 @@ describe("heterogeneous unions", () => {
 							"filtered above a bound",
 							"attached"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(consumer, c) =>
 						Effect.sync(() => {
@@ -508,8 +506,7 @@ describe("heterogeneous unions", () => {
 							"an arm of several attached",
 							"no arm attached"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					({ arms, attached }, c) =>
 						Effect.sync(() => {
@@ -608,8 +605,7 @@ describe("regions", () => {
 						}
 					},
 					coverage: requiredInSpace<Resolution>(["resolved", "refused"]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				({ sources, read }, c) =>
 					Effect.sync(() => {
@@ -707,7 +703,6 @@ describe("take bound parameters", () => {
 							cases: 60,
 							sense: notesOnly
 						}),
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -390,7 +390,6 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))("the lease's connection 
 							kept: [],
 							runs: 32,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 8,
 							caseHang
 						},

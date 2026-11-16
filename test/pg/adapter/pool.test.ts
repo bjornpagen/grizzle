@@ -169,8 +169,7 @@ const interruptedStatement = Effect.gen(function* () {
 				"lock alone",
 				"lock transaction"
 			]),
-			caseHang,
-			concurrency: 1
+			caseHang
 		},
 		(k, c) =>
 			Effect.gen(function* () {
@@ -293,8 +292,7 @@ const stalledRelease = Effect.gen(function* () {
 			oracle: {
 				kind: "specification",
 				name: "a layer's release awaits nothing, and a statement it cuts fails or delivers its whole answer"
-			},
-			concurrency: 1
+			}
 		},
 		(standing, c) =>
 			Effect.gen(function* () {
@@ -373,7 +371,6 @@ layer(Substrate.layer, { excludeTestServices: true })("adapter session pool", (i
 						kept: [],
 						runs: 20,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

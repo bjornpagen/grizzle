@@ -101,7 +101,6 @@ describe("the live router", () => {
 						kept: [],
 						runs: 600,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						coverage: required<Feature>(

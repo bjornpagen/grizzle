@@ -219,7 +219,6 @@ describe("exact binary32 reading", () => {
 					kept: [],
 					runs: 5000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -267,7 +266,6 @@ describe("exact binary32 reading", () => {
 					 */
 					runs: 300,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -342,7 +340,6 @@ describe("exact binary32 reading", () => {
 							 */
 							runs: 5000,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -433,7 +430,6 @@ describe("the float text grammar, scanned without RegExp", () => {
 						kept: [],
 						runs: 20000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -498,7 +494,6 @@ describe("double precision text", () => {
 					kept: [],
 					runs: 10000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

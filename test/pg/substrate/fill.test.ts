@@ -236,7 +236,6 @@ layer(Substrate.layer)("a volume fill", (it) => {
 							],
 							runs: cases,
 							shrink: { kind: "bounded", candidates: 30 },
-							concurrency: 1,
 							steerEvery: 8,
 							caseHang
 						},

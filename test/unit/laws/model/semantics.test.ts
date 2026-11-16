@@ -96,7 +96,6 @@ describe("a schema that states no law", () => {
 						kept: [],
 						runs: 30,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -363,7 +363,6 @@ layer(Substrate.layer, { excludeTestServices: true })("the worlds model: the lea
 							kept: [],
 							runs: cases,
 							shrink: { kind: "bounded", candidates: 100 },
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

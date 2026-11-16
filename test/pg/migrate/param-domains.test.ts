@@ -148,8 +148,7 @@ layer(Substrate.layer)("parameters' pattern domains across a change of their def
 						literal: (t) =>
 							`Code ${t.code ? "stored" : "not stored"}, Slug ${t.slug ? "stored" : "not stored"}`,
 						coverage: requiredInSpace<Feature>(required),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(t, k) =>
 						Effect.gen(function* () {

@@ -503,7 +503,6 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 						kept: [],
 						runs: 12,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},
@@ -576,7 +575,6 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 						kept: [],
 						runs: 6,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},
@@ -747,7 +745,6 @@ layer(Substrate.layer)("derived relations on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 8,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 4,
 							caseHang
 						},

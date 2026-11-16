@@ -600,7 +600,6 @@ layer(Substrate.layer)("catalog drift", (it) => {
 							kept: [],
 							runs: 64,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -649,8 +648,7 @@ layer(Substrate.layer)("catalog drift", (it) => {
 								kind: "specification",
 								name: "the manifest's projection, differing in that constraint's validation alone"
 							},
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						({ table, key }, c) =>
 							Effect.map(
@@ -968,7 +966,6 @@ layer(Substrate.layer)("catalog drift", (it) => {
 								kept: [],
 								runs: 64,
 								shrink: completeShrink,
-								concurrency: 1,
 								steerEvery: 16,
 								caseHang
 							},

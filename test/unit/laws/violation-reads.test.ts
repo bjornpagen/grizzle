@@ -408,8 +408,7 @@ describe("a law's full violation query", () => {
 							"a join",
 							"a migration check"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(c, k) =>
 						Effect.sync(() => {
@@ -492,8 +491,7 @@ describe("a law's full violation query", () => {
 							"a key attached before the check",
 							"a negated arm"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(c, k) =>
 						Effect.sync(() => {

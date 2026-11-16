@@ -400,7 +400,6 @@ describe("structural obligation verification", () => {
 							cases: 300,
 							sense: notesOnly
 						}),
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -781,7 +780,6 @@ describe("codec and result-channel alignment", () => {
 							name: "each planted break's rule, and no problem in the program the conservative lowering builds"
 						},
 						coverage: required<ChannelBreak>(channelBreakNames, { cases: 300, sense: notesOnly }),
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -829,7 +827,6 @@ describe("codec and result-channel alignment", () => {
 							name: "each planted break is the artifacts rule both ways, and a program is its own twin"
 						},
 						coverage: required<ArtifactBreak>(artifactBreakNames, { cases: 200, sense: notesOnly }),
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

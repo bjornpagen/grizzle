@@ -771,7 +771,6 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 						kept: [],
 						runs: 16,
 						shrink: boundedShrink(40),
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang,
 						oracle: {

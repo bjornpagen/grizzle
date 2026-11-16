@@ -153,8 +153,7 @@ describe("a write that reads before it writes", () => {
 					oracle: {
 						kind: "specification",
 						name: "one transaction over two flights, as a model of each verdict"
-					},
-					concurrency: 1
+					}
 				},
 				(c, note) =>
 					Effect.gen(function* () {

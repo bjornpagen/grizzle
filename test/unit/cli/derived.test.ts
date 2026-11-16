@@ -197,8 +197,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("derived runtime facts"
 								"a foreign fact",
 								"a foreign fact beside every member"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(staling, c) =>
 							Effect.scoped(

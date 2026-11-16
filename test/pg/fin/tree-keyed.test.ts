@@ -708,7 +708,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 									kept: [],
 									runs: 8,
 									shrink: completeShrink,
-									concurrency: 1,
 									steerEvery: 4,
 									caseHang
 								},
@@ -834,7 +833,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								kept: [],
 								runs: 32,
 								shrink: completeShrink,
-								concurrency: 1,
 								steerEvery: 8,
 								caseHang
 							},

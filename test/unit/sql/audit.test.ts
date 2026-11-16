@@ -456,7 +456,6 @@ describe("every Live statement", () => {
 						/** The rotating stream's sample: coverage is the floor's and the steered phase's. */
 						runs: 120,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -516,7 +515,6 @@ describe("every statement a generated write program places", () => {
 						/** The rotating stream's sample: coverage is the floor's and the steered phase's. */
 						runs: 60,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -578,7 +576,6 @@ describe("a statement broken at one site", () => {
 						/** The rotating stream's sample: coverage is the floor's and the steered phase's. */
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -648,7 +645,6 @@ describe("a statement broken at one site", () => {
 						/** The rotating stream's sample: coverage is the floor's and the steered phase's. */
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -712,7 +708,6 @@ describe("a printed statement broken at one token", () => {
 					/** The rotating stream's sample: coverage is the floor's and the steered phase's. */
 					runs: 400,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -790,8 +785,7 @@ describe("a write program's ANALYZE", () => {
 						generator: array(programStepGen, { min: 0, max: 3 }),
 						literal: Formatter.format,
 						coverage: requiredInSpace<ProgramFeature>(["admitted", "refused"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(program, c) =>
 						Effect.sync(() => {

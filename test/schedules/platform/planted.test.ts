@@ -230,8 +230,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							generator: pointGen,
 							literal: Formatter.format,
 							coverage: requiredInSpace<PlantedFeature>(Arr.map(everyPoint, featureOf)),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(p, c) =>
 							Effect.gen(function* () {

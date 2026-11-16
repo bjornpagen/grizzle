@@ -574,7 +574,6 @@ describe("the wire's one table", () => {
 						],
 						runs: 1500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -651,7 +650,6 @@ describe("the wire's one table", () => {
 						],
 						runs: 3000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -721,7 +719,6 @@ describe("the wire's one table", () => {
 						],
 						runs: 2000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

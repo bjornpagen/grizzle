@@ -261,7 +261,6 @@ describe("IEEE 754 forms", () => {
 						/** Half of each level's steps are bindings and half operations, so both features come up within a few cases. */
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

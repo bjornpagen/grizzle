@@ -197,8 +197,7 @@ layer(Substrate.layer)("a SERIALIZABLE insertion's met row", (it) => {
 						oracle: {
 							kind: "specification",
 							name: "the two serial orders of L and D over the stated rows"
-						},
-						concurrency: 1
+						}
 					},
 					(c, k) =>
 						Effect.gen(function* () {

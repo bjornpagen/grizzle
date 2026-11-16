@@ -135,8 +135,7 @@ describe("an HTTP call's body", () => {
 							"a byte order mark before the JSON",
 							"a body that is no UTF-8"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([kind, wrapping], c) =>
 						Effect.gen(function* () {

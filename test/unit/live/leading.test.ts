@@ -108,7 +108,6 @@ describe("the live leadership", () => {
 						kept: [],
 						runs: 64,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						coverage: required<Feature>(

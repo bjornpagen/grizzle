@@ -359,7 +359,6 @@ layer(Substrate.layer)("a query entry's write meets every unique object of its t
 									],
 									runs: 60,
 									shrink: completeShrink,
-									concurrency: 1,
 									steerEvery: 16,
 									caseHang
 								},

@@ -243,8 +243,7 @@ describe("the closed-id and set codecs", () => {
 						oracle: {
 							kind: "second-implementation",
 							name: "a naive positional model of the codes"
-						},
-						concurrency: 1
+						}
 					},
 					roundTrips
 				)

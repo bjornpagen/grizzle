@@ -352,7 +352,6 @@ describe("a fragment's dependency table", () => {
 						],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -548,8 +547,7 @@ describe("a rule region's dependency table", () => {
 							"an unbound column's constant",
 							"a key's constant fixes the row"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(scan, c) =>
 						Effect.sync(() => {

@@ -198,7 +198,6 @@ describe("the worked example's workload in the installation", () => {
 						],
 						runs: 20,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -476,7 +475,6 @@ describe("a workload that cannot install", () => {
 						kept: [],
 						runs: 40,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

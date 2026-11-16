@@ -93,7 +93,6 @@ describe("the query kit's keyed numeric agreement", () => {
 					kept: [],
 					runs: 200,
 					shrink: { kind: "bounded", candidates: 150 },
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -195,7 +194,6 @@ describe("the query kit's delivered agreement", () => {
 						kept: [],
 						runs: 200,
 						shrink: { kind: "bounded", candidates: 150 },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

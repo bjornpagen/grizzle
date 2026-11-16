@@ -286,7 +286,6 @@ describe("the optimized lowering of checked public programs", () => {
 					 */
 					runs: 300,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -323,8 +322,7 @@ describe("the optimized lowering of checked public programs", () => {
 						"an option or bare child over an identity projection's input",
 						"a take over an identity projection's input"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				(p, n) =>
 					Effect.sync(() => {
@@ -373,7 +371,6 @@ describe("the optimized lowering of checked public programs", () => {
 						/** The rotating stream's sample, each case one read lowered and a coin deciding the twin. */
 						runs: 40,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

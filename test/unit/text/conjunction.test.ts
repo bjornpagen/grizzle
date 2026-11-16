@@ -214,7 +214,6 @@ describe("a conjunction's language", () => {
 						kept: [],
 						runs: 1200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -359,7 +358,6 @@ describe("a conjunction's inclusion", () => {
 						],
 						runs: 1500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -494,7 +492,6 @@ describe("a match guard over a refined subject", () => {
 						],
 						runs: 600,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -603,7 +600,6 @@ describe("a conjunction's CHECK", () => {
 					],
 					runs: 400,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

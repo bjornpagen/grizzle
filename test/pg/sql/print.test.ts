@@ -352,7 +352,6 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: casesPerTest,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -401,7 +400,6 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 2 * casesPerTest,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang,
 							coverage: required<RelationalFeature>(
@@ -459,8 +457,7 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							"PUBLIC kept by a schema's reset",
 							"PUBLIC revoked by the global reset"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([scope, on], c) =>
 						Effect.scoped(
@@ -546,7 +543,6 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: casesPerTest,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -597,7 +593,6 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 3 * casesPerTest,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -636,7 +631,6 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 2 * casesPerTest,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -676,7 +670,6 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 24,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -771,7 +764,6 @@ layer(Substrate.layer)("printed SQL on PostgreSQL 19", (it) => {
 						kept: [],
 						runs: casesPerTest,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

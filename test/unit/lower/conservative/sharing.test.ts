@@ -151,8 +151,7 @@ describe("shared nodes", () => {
 							[source.draw(element(placements)), source.draw(int(3, 4))] as const,
 						literal: Formatter.format,
 						coverage: requiredInSpace<Placement>(placements),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([placement, depth], c) =>
 						Effect.sync(() => {

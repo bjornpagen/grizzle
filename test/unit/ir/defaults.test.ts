@@ -195,7 +195,6 @@ describe("the Description boundary's defaults", () => {
 						shrink: completeShrink,
 						coverage: required<Feature>(situations, { cases: 400, sense: notesOnly }),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

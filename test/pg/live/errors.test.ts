@@ -304,7 +304,6 @@ layer(Substrate.layer)("a failing live call", (it) => {
 						kept: [],
 						runs: cases,
 						shrink: { kind: "bounded", candidates: 40 },
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

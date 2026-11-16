@@ -347,7 +347,6 @@ layer(Substrate.layer)("the reference side of the oracle discriminates", (it) =>
 							kept: [],
 							runs: 40,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

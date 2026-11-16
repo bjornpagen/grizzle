@@ -169,8 +169,7 @@ layer(Substrate.layer)("every step of grizzle migrate is one flight", (it) => {
 							"the rest of a history after its start",
 							"nothing pending"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(history, c) =>
 						Effect.gen(function* () {

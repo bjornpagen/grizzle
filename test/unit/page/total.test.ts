@@ -414,7 +414,6 @@ describe("the page compiler and the page runtime template", () => {
 						 */
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -202,8 +202,7 @@ describe("independent families (rows-first §5)", () => {
 							"two folds",
 							"a sequence beside them"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(s, k) =>
 						Effect.sync(() => {
@@ -321,8 +320,7 @@ describe("independent families (rows-first §5)", () => {
 						coverage: requiredInSpace<
 							"both lawful" | "the first alone broken" | "the second alone broken" | "both broken"
 						>(["both lawful", "the first alone broken", "the second alone broken", "both broken"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(s, k) =>
 						Effect.sync(() => {

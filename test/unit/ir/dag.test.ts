@@ -267,7 +267,6 @@ describe("traversals of generated DAGs", () => {
 							{ cases: 300, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -331,7 +330,6 @@ describe("traversals of generated DAGs", () => {
 							{ cases: 12, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -448,7 +446,6 @@ describe("validateDag over a DAG of direct references", () => {
 							sense: notesOnly
 						}),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: { kind: "specification", name: "one node and one expression per label" }
@@ -541,7 +538,6 @@ describe("dagDigest", () => {
 					shrink: completeShrink,
 					coverage: required<Invariance>(invariances, { cases: 100, sense: notesOnly }),
 					kept: [],
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -605,7 +601,6 @@ describe("dagDigest", () => {
 						{ cases: 100, sense: notesOnly }
 					),
 					kept: [],
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -828,7 +823,6 @@ describe("normalizeDag", () => {
 							sense: notesOnly
 						}),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -883,8 +877,7 @@ describe("normalizeDag", () => {
 						literal: Formatter.format,
 						generator: boolean,
 						coverage: requiredInSpace<"y allocated first">(["y allocated first"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(yFirst, c) =>
 						Effect.sync(() => {
@@ -965,8 +958,7 @@ describe("normalizeDag", () => {
 							"an advanced supply",
 							"a spelling not in normal form"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([[root, value, zero], advance], c) =>
 						Effect.sync(() => {

@@ -158,7 +158,6 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 						kept: [],
 						runs: literalRuns,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -203,7 +202,6 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 							kept: [],
 							runs: literalRuns,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -292,7 +290,6 @@ layer(Substrate.layer)("numeric agreement with PostgreSQL", (it) => {
 						kept: [],
 						runs: 2,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -483,7 +483,6 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 						/** Each carrier's 15 batches, as when every carrier searched on its own. */
 						runs: roundTripRuns * cases.length,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -592,7 +591,6 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 						kept: [],
 						runs: 3,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -658,7 +656,6 @@ layer(Substrate.layer)("exact scalar codecs against PostgreSQL", (it) => {
 							kept: [],
 							runs: roundTripRuns * routableCases.length,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang,
 							oracle: {

@@ -262,8 +262,7 @@ describe("arm heads", () => {
 								"rec extra",
 								"both arms broken"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						([baseHead, recHead], c) =>
 							Effect.sync(() => {
@@ -517,8 +516,7 @@ describe("the state heading", () => {
 							"refused unprovedRefinement",
 							"cast by the author"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([d, a, spelled], c) =>
 						Effect.sync(() => {
@@ -839,8 +837,7 @@ describe("the feedback's shape", () => {
 								"refused misplaced self",
 								"several rules refuse"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						([base, extra, m], c) =>
 							Effect.sync(() => {
@@ -975,8 +972,7 @@ describe("r.pack over a recursive arm", () => {
 						generator: boolean,
 						literal: Formatter.format,
 						coverage: requiredInSpace<"packed" | "plain">(["packed", "plain"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(pack, c) =>
 						Effect.sync(() => {
@@ -1054,8 +1050,7 @@ describe("unbounded computed state", () => {
 							"refused integer current below times two",
 							"refused numeric current below plus one"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([carrier, bound, advance], c) =>
 						Effect.sync(() => {
@@ -1132,8 +1127,7 @@ describe("unbounded computed state", () => {
 							generator: (source) => [source.draw(terms), source.draw(terms)] as const,
 							literal: Formatter.format,
 							coverage: requiredInSpace<"a cycle" | "acyclic">(["a cycle", "acyclic"]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						([aTerm, bTerm], c) =>
 							Effect.sync(() => {
@@ -1280,8 +1274,7 @@ describe("unbounded computed state through a correlated import", () => {
 							"refused a counter beside Echo",
 							"unproved a counter beside Echo"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([[via, x], [at, guarded]], c) =>
 						Effect.sync(() => {
@@ -1450,7 +1443,6 @@ describe("the seen-state estimate", () => {
 						kept: [],
 						runs: 64,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

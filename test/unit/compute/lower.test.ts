@@ -193,7 +193,6 @@ describe("lowering in query mode", () => {
 						 */
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -487,7 +486,6 @@ describe("a conversion into a contract", () => {
 					 */
 					runs: 200,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -741,7 +739,6 @@ describe("a combination of two compatible terms", () => {
 						 */
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

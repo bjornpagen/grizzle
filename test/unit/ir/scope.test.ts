@@ -847,7 +847,6 @@ describe("a node's scope", () => {
 							{ cases: 400, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -352,8 +352,7 @@ layer(Substrate.layer)("adapter connections", (it) => {
 								"refused override name",
 								"connected through an override"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(config, c) =>
 							Effect.gen(function* () {
@@ -411,7 +410,6 @@ layer(Substrate.layer)("adapter connections", (it) => {
 							kept: [],
 							runs: 16,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							coverage: required<AnswerFeature>(
 								[
@@ -484,7 +482,6 @@ layer(Substrate.layer)("adapter connections", (it) => {
 							kept: [],
 							runs: 12,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							coverage: required<CredentialFeature>(
 								[

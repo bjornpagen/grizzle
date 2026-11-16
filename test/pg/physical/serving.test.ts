@@ -10962,7 +10962,6 @@ const workloadSuite = (runs: number) => (ctx: TestContext) =>
 				kept: workloadKept,
 				runs,
 				shrink: { kind: "bounded", candidates: 60 },
-				concurrency: 1,
 				steerEvery: 16,
 				caseHang
 			},
@@ -10999,7 +10998,6 @@ const requestSuite = (runs: number) => (ctx: TestContext) =>
 				kept: requestKept,
 				runs,
 				shrink: { kind: "bounded", candidates: 60 },
-				concurrency: 1,
 				steerEvery: 16,
 				caseHang
 			},
@@ -11033,7 +11031,6 @@ const sharedSuite = (runs: number) => (ctx: TestContext) =>
 				kept: [],
 				runs,
 				shrink: { kind: "bounded", candidates: 60 },
-				concurrency: 1,
 				steerEvery: 16,
 				caseHang
 			},

@@ -78,7 +78,6 @@ describe("the EXECUTE grants of a role", () => {
 						kept: [],
 						runs: 128,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

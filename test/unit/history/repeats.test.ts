@@ -187,8 +187,7 @@ describe("the host write models judge a repeated fact by its key", () => {
 							"an exact repeat refused",
 							"an unkeyed host refused"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(c, k) =>
 						Effect.sync(() => {

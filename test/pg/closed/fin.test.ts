@@ -638,8 +638,7 @@ layer(Substrate.layer, { excludeTestServices: true })("dependent keys on Postgre
 							"a closed id before a slot",
 							"R07 read the key set"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(c: FinCase, notes: Case<FinFeature>) =>
 						Effect.gen(function* () {

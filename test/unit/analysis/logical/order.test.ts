@@ -336,7 +336,6 @@ describe("completing an order", () => {
 						kept: [],
 						runs: 3000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -561,8 +560,7 @@ describe("completing an order over a union of different headings", () => {
 								`${w} refused`
 							])
 						),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([keyed, wrapper, userOrder], c) =>
 						Effect.sync(() => {

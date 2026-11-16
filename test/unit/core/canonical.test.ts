@@ -453,7 +453,6 @@ describe("the canonical text", () => {
 					kept: [],
 					runs: 1000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -532,7 +531,6 @@ describe("the canonical text", () => {
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -787,7 +785,6 @@ describe("a value outside the model", () => {
 						 */
 						runs: 600,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -873,8 +870,7 @@ describe("a value outside the model", () => {
 								] as const,
 							literal: Formatter.format,
 							coverage: noCoverage,
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						([depth, container, direction]) =>
 							Effect.sync(() => {
@@ -914,8 +910,7 @@ describe("a value outside the model", () => {
 						},
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([length, back, container, direction]) =>
 						Effect.sync(() => {
@@ -1027,7 +1022,6 @@ describe("the omitted members", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1111,7 +1105,6 @@ describe("the omitted members", () => {
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -1212,7 +1205,6 @@ describe("canonical comparison", () => {
 						],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1428,7 +1420,6 @@ describe("canonical tokens", () => {
 						kept: [],
 						runs: 3000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

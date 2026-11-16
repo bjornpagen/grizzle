@@ -1017,7 +1017,6 @@ describe("the query builder's untyped core", () => {
 						kept: [],
 						runs: 1500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1152,8 +1151,7 @@ describe("named scopes", () => {
 						literal: (c) =>
 							`${c.first.label}@${c.first.column} ${c.second.label}@${c.second.column} ${Arr.join(c.names, "/")}`,
 						coverage: noCoverage,
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(c) =>
 						Effect.sync(() => {

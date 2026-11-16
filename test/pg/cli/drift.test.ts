@@ -556,7 +556,6 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 									kept: [],
 									runs: 4,
 									shrink: { kind: "bounded", candidates: 24 },
-									concurrency: 1,
 									steerEvery: 4,
 									caseHang,
 									oracle: {

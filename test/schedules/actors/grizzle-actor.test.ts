@@ -95,7 +95,6 @@ layer(Substrate.layer, { excludeTestServices: true })("grizzle actors", (it) => 
 								kept: [],
 								runs: 16,
 								shrink: { kind: "bounded", candidates: 50 },
-								concurrency: 1,
 								steerEvery: 16,
 								caseHang
 							},

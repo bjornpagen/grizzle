@@ -186,7 +186,6 @@ layer(Substrate.layer)(
 									kept: [],
 									runs: 40,
 									shrink: { kind: "bounded", candidates: 100 },
-									concurrency: 1,
 									steerEvery: 8,
 									coverage: required<Feature>(
 										[

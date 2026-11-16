@@ -494,8 +494,7 @@ describe("rebuilding from a Description", () => {
 							] as const,
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([from, operation]) =>
 						Effect.sync(() => {
@@ -573,7 +572,6 @@ describe("rebuilding from a Description", () => {
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -621,7 +619,6 @@ describe("generated queries", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -648,7 +645,6 @@ describe("generated queries", () => {
 						kept: [],
 						runs: 150,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

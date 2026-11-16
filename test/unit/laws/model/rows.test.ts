@@ -111,7 +111,6 @@ describe("a relation's rows fit one heap tuple", () => {
 					kept: [],
 					runs: 300,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang,
 					coverage: required<Feature>(features, { cases: 300, sense: notesOnly }),
@@ -163,7 +162,6 @@ describe("a relation's rows fit one heap tuple", () => {
 						kept: [],
 						runs: 40,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						coverage: required<BoundFeature>(

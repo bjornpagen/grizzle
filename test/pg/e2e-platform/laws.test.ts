@@ -939,7 +939,6 @@ layer(Substrate.layer)("the platform's laws refuse exactly what they forbid", (i
 							kept,
 							runs: 20,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

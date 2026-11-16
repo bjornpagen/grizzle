@@ -81,8 +81,7 @@ describe("catalogs", () => {
 							"a key proves the scan",
 							"a key not read"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([context, read], c) =>
 						Effect.sync(() => {

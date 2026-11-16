@@ -574,7 +574,6 @@ const boundAims: ReadonlyArray<readonly [BoundFeature, Gen<BoundCase>]> = [
 const budget = {
 	literal: Formatter.format,
 	shrink: completeShrink,
-	concurrency: 1,
 	steerEvery: 16,
 	caseHang
 } as const

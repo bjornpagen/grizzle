@@ -1168,7 +1168,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								kept: [downstream, pieces],
 								runs: 16,
 								shrink: boundedShrink(40),
-								concurrency: 1,
 								steerEvery: 8,
 								caseHang,
 								oracle: {
@@ -1282,7 +1281,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								kept: [],
 								runs: 16,
 								shrink: boundedShrink(40),
-								concurrency: 1,
 								steerEvery: 8,
 								caseHang,
 								oracle: {

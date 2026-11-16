@@ -363,8 +363,7 @@ describe("a slotted closed relation's planned constants", () => {
 						"a closed id before a slot",
 						"two slots"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				planned
 			)
@@ -711,7 +710,6 @@ describe("a fault planted in a valid slotted declaration", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -766,7 +764,6 @@ describe("a cell read as an integer", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -827,7 +824,6 @@ describe("a cell read as an integer", () => {
 						kept: [],
 						runs: 12,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

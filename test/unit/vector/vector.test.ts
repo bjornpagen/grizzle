@@ -179,7 +179,6 @@ describe("the cosine domain", () => {
 							kept: [],
 							runs: 300,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -270,7 +269,6 @@ describe("the cosine domain", () => {
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {

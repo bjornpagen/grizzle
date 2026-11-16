@@ -168,8 +168,7 @@ describe("contract domains by definition (W6.Q10)", () => {
 						"a shared checked domain",
 						"a base shared, predicates apart"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				(p, c) =>
 					Effect.sync(() => {

@@ -140,8 +140,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("mutation operators", (
 								kind: "specification",
 								name: "each operator's fault, read off the text a mutant replaces and its replacement"
 							},
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(m: Mutant<FamilyOperator>, c) =>
 							Effect.sync(() => {

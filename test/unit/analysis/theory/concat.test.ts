@@ -157,8 +157,7 @@ describe("a concat fold", () => {
 						"a wrong end",
 						"an empty step"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				(s, k) =>
 					Effect.sync(() => {
@@ -216,8 +215,7 @@ describe("a concat fold", () => {
 						"an ordered family's named pair admitted",
 						"refused"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				(d, k) =>
 					Effect.sync(() => {

@@ -437,8 +437,7 @@ layer(Substrate.layer)(
 										])
 									)
 								),
-								caseHang,
-								concurrency: 1
+								caseHang
 							},
 							(sketch, c) =>
 								Effect.gen(function* () {

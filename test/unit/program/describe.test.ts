@@ -69,7 +69,6 @@ describe("describeQuery, queryFromDescription and lowerQuery", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -140,7 +139,6 @@ describe("describeQuery, queryFromDescription and lowerQuery", () => {
 						kept: [],
 						runs: 20,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

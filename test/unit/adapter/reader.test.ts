@@ -165,7 +165,6 @@ describe("every declared parameter admitted at the read boundary", () => {
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -513,7 +512,6 @@ describe("a read's relation input", () => {
 						kept: [],
 						runs: 120,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

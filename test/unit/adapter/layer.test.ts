@@ -691,7 +691,6 @@ describe("DbLayer.make", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -780,7 +779,6 @@ describe("DbLayer.make", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -856,7 +854,6 @@ describe("DbLayer.make", () => {
 						kept: [],
 						runs: 150,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

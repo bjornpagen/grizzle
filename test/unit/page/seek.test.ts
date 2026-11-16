@@ -231,8 +231,7 @@ describe("the seek predicate", () => {
 							"2 keys",
 							"3 keys"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					({ dirs, seek, m }, c) =>
 						Effect.sync(() => {
@@ -268,8 +267,7 @@ describe("window variants", () => {
 						generator: array(element(directions), { min: 1, max: 4 }),
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(dirs) =>
 						Effect.sync(() => {

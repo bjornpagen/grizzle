@@ -357,8 +357,7 @@ describe("riding a family axis (§2.1)", () => {
 							"a carried pred term",
 							"no axis"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(c, k) =>
 						Effect.sync(() => {
@@ -548,7 +547,6 @@ describe("riding a family axis (§2.1)", () => {
 							{ cases: 2000, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: { kind: "specification", name: "§2.1's riding rule and §3.7's one filler" }
@@ -765,7 +763,6 @@ describe("riding a family axis (§2.1)", () => {
 							{ cases: 1000, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -1373,8 +1370,7 @@ describe("resolution and refusals (§3.4, §3.7, rows-first §4)", () => {
 							"named accumulators",
 							...Arr.map(refusals, (r): FamilyFeature => `${r.from} ${r.rule}`)
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(drawnCase, k) =>
 						Effect.sync(() => {

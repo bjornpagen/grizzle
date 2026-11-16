@@ -213,7 +213,6 @@ describe("a nested insert's wire", () => {
 					kept: [],
 					runs: 60,
 					shrink: boundedShrink(200),
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang,
 					oracle: {

@@ -133,7 +133,6 @@ const spec = {
 	literal: Formatter.format,
 	kept: [],
 	shrink: completeShrink,
-	concurrency: 1,
 	steerEvery: 16,
 	caseHang
 } as const
@@ -1084,8 +1083,7 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 								"failed run leaked"
 							]),
 							box: "every run outcome beside every release outcome",
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						([ran, released], c) =>
 							Effect.sync(() => {
@@ -1160,8 +1158,7 @@ layer(NodeServices.layer, { excludeTestServices: true })("the gate catalog", (su
 							kind: "specification",
 							name: "one bench file a gate, in its owner's directory, its sizes alike at both scales"
 						},
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(id, c) =>
 						Effect.sync(() => {

@@ -826,7 +826,6 @@ describe("Descriptions", () => {
 							{ cases: 2000, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: { kind: "universal", name: "a node's location is its path, a stated one kept" }
@@ -974,7 +973,6 @@ describe("Descriptions", () => {
 							}
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1160,7 +1158,6 @@ describe("Descriptions", () => {
 						{ cases: 2000, sense: notesOnly }
 					),
 					kept: [],
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang,
 					oracle: {
@@ -1231,7 +1228,6 @@ describe("Descriptions", () => {
 							sense: notesOnly
 						}),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -1584,7 +1580,6 @@ describe("Descriptions", () => {
 							{ cases: 3000, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -1647,8 +1642,7 @@ describe("Descriptions", () => {
 							"an array cycle",
 							"shared"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(n, c) =>
 						Effect.sync(() => {
@@ -1881,7 +1875,6 @@ describe("Descriptions", () => {
 							{ cases: 500, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1930,7 +1923,6 @@ describe("Descriptions", () => {
 						sense: notesOnly
 					}),
 					kept: [],
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -2025,7 +2017,6 @@ describe("Descriptions", () => {
 							{ cases: 200, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

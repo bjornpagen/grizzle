@@ -522,7 +522,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("served files", (it) =>
 							kept: [],
 							runs: 8,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

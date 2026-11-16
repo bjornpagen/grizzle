@@ -258,7 +258,6 @@ describe("ScalarType", () => {
 							{ cases: 2000, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -568,7 +567,6 @@ describe("literals", () => {
 						],
 						{ cases: 3000, sense: notesOnly }
 					),
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -640,7 +638,6 @@ describe("literals", () => {
 							{ cases: 2000, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -874,8 +871,7 @@ describe("contract predicates", () => {
 							"an allocation normalized",
 							...Arr.map(broken, ([rule]): PredicateFeature => `broken: ${rule}`)
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(c, n) =>
 						Effect.sync(() => {
@@ -926,7 +922,6 @@ describe("money and vector values", () => {
 							{ cases: 100, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -980,7 +975,6 @@ describe("money and vector values", () => {
 							sense: notesOnly
 						}),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1014,7 +1008,6 @@ describe("money and vector values", () => {
 						{ cases: 100, sense: notesOnly }
 					),
 					kept: [],
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -1089,7 +1082,6 @@ describe("decimals", () => {
 							{ cases: 2000, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

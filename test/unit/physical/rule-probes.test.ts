@@ -156,8 +156,7 @@ describe("the set judge", () => {
 						"a block whose probes outnumber its statements",
 						"a block of two statements"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				(shape, c) => Effect.sync(() => judged(shape, c.note))
 			)

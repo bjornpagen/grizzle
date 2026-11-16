@@ -255,7 +255,6 @@ layer(Substrate.layer)("a commit's notifications", (it) => {
 						kept: [],
 						runs: cases,
 						shrink: { kind: "bounded", candidates: 60 },
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

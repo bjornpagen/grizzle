@@ -154,7 +154,6 @@ const agree = (suite: string, generator: Gen<QueryCase>) =>
 			kept: [],
 			runs: 480,
 			shrink: completeShrink,
-			concurrency: 1,
 			steerEvery: 16,
 			caseHang
 		},
@@ -322,8 +321,7 @@ describe("indexIdentity", () => {
 							kind: "second-implementation",
 							name: "the reference's comparison: two keyed values share a key exactly when it finds them equal, and it never meets a keyed value of another carrier"
 						},
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([type, own, a, b], c) =>
 						Effect.sync(() => {

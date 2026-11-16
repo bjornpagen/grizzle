@@ -287,7 +287,6 @@ layer(Substrate.layer, { excludeTestServices: true })("an anchored deletion", (i
 						kept: [],
 						runs: 12,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

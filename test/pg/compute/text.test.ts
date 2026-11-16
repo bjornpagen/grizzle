@@ -197,7 +197,6 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 							/** Each case one round trip of up to 64 rows and six expressions. */
 							runs: 60,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -498,7 +497,6 @@ layer(Substrate.layer)("Compute's text terms on PostgreSQL", (it) => {
 							kept: [],
 							runs: 30,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

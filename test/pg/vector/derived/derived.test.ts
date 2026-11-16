@@ -233,7 +233,6 @@ layer(Substrate.layer)("approximateNearest over a derived relation", (it) => {
 								kept: [],
 								runs: 8,
 								shrink: completeShrink,
-								concurrency: 1,
 								steerEvery: 4,
 								caseHang
 							},

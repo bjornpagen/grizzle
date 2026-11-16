@@ -318,8 +318,7 @@ describe("the closed monoids", () => {
 					]),
 					caseHang,
 					box: "naturals 0 to 4, every subset of a five-code roster with a hole, its live codes, five texts",
-					oracle: { kind: "universal", name: "the monoid laws and the two-plane model" },
-					concurrency: 1
+					oracle: { kind: "universal", name: "the monoid laws and the two-plane model" }
 				},
 				laws
 			)
@@ -348,7 +347,6 @@ describe("the closed monoids", () => {
 							{ cases: 2000, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {

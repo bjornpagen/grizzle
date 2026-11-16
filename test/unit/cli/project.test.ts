@@ -1587,7 +1587,6 @@ layer(NodeServices.layer, { excludeTestServices: true })(
 							kept: [],
 							runs: 16,
 							shrink: { kind: "bounded", candidates: 80 },
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

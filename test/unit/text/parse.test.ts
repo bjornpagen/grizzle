@@ -140,7 +140,6 @@ describe("refusals with location and reason", () => {
 						kept: [],
 						runs: 600,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -195,7 +194,6 @@ describe("refusals with location and reason", () => {
 						kept: [],
 						runs: 30000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -236,7 +234,6 @@ describe("refusals with location and reason", () => {
 					kept: [],
 					runs: 100,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -311,7 +308,6 @@ describe("refusals with location and reason", () => {
 						/** The replaced flags search's own bound. */
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -412,8 +408,7 @@ describe("nesting", () => {
 						depth: source.draw(element([1, 1_000, 100_000]))
 					}),
 					coverage: requiredInSpace<Nesting>(nestings),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				({ nesting, depth }, n) =>
 					Effect.sync(() => {

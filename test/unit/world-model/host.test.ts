@@ -861,7 +861,6 @@ const budget = {
 	literal: Formatter.format,
 	kept: [],
 	shrink: { kind: "complete" },
-	concurrency: 1,
 	steerEvery: 16,
 	caseHang
 } as const

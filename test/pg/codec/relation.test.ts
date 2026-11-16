@@ -169,7 +169,6 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 						kept: [],
 						runs: 20,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -279,7 +278,6 @@ layer(Substrate.layer)("relation inputs against PostgreSQL", (it) => {
 							/** One round trip a case, as before. */
 							runs: 200,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

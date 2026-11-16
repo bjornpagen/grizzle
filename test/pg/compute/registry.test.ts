@@ -242,8 +242,7 @@ layer(Substrate.layer)("the Compute registry against pg_operator, pg_proc and pg
 								"input",
 								"construct"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(i, c) =>
 							Effect.gen(function* () {

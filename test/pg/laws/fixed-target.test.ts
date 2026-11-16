@@ -141,8 +141,7 @@ layer(Substrate.layer)(
 									"refused for a node of another document",
 									"refused for a node deeper"
 								]),
-								caseHang,
-								concurrency: 1
+								caseHang
 							},
 							(s, c) =>
 								Effect.gen(function* () {

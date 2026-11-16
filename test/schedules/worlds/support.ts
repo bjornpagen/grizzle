@@ -174,7 +174,6 @@ export const worldRaceSuite = <C>(spec: {
 						kept: spec.kept,
 						runs: raceRuns,
 						shrink: { kind: "bounded", candidates: 30 },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

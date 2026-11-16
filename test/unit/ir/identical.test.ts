@@ -294,7 +294,6 @@ describe("structural identity", () => {
 							{ cases: 800, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: { kind: "second-implementation", name: "canonical text equality" }

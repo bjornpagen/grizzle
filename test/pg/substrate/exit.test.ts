@@ -85,8 +85,7 @@ layer(spawner, { excludeTestServices: true })(
 								kind: "specification",
 								name: "the leak rule: nothing a closed scope opened is open, and the process exits by itself"
 							},
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(c, k) =>
 							Effect.scoped(

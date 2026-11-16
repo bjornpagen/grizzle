@@ -543,7 +543,6 @@ describe("pattern byte bounds", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -838,7 +837,6 @@ describe("length bounds", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1603,7 +1601,6 @@ describe("keyTextBytes", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1681,7 +1678,6 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 						kept: [],
 						runs: 150,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1752,7 +1748,6 @@ describe("B-tree entries (nbtree.h BTMaxItemSize)", () => {
 						kept: [],
 						runs: 120,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1843,7 +1838,6 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 						],
 						runs: 120,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1973,7 +1967,6 @@ describe("GiST entries for span keys (gist.c gistSplit)", () => {
 						],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -2102,7 +2095,6 @@ describe("a vector field is a key field like any other: every vector has one for
 						 */
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

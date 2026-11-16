@@ -61,8 +61,7 @@ describe("the text bound", () => {
 						"V8's longest string",
 						"past V8's longest string"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				(length, c) =>
 					Effect.sync(() => {
@@ -188,7 +187,6 @@ describe("the text bound", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						coverage: situations
@@ -244,7 +242,6 @@ describe("the text bound", () => {
 						kept: [],
 						runs: 8,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						coverage: required<Past>(["the fewest lines past", "more lines past"], {
@@ -297,7 +294,6 @@ describe("the text bound", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						coverage: situations

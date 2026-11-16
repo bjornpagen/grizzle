@@ -147,8 +147,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										"refused by Within",
 										"refused by several checks"
 									]),
-									caseHang,
-									concurrency: 1
+									caseHang
 								},
 								(flags, c) =>
 									Effect.gen(function* () {

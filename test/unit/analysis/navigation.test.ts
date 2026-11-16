@@ -153,7 +153,6 @@ describe("navigation", () => {
 					kept: [],
 					runs: 400,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -307,8 +306,7 @@ describe("navigation's gate", () => {
 							"a gate declared after a correlated negation",
 							"two gates"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(c, k) =>
 						Effect.sync(() => {

@@ -240,8 +240,7 @@ describe("R26: the lexicographic comparison in any spelling", () => {
 							"negated successor recognized",
 							"conjunctive kept"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([spelling, order, inclusive], c) =>
 						Effect.sync(() => {
@@ -417,8 +416,7 @@ describe("R26 and R41: the self-match's own conditions", () => {
 							"running maximum windowed",
 							"running maximum kept"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(shape, c) =>
 						Effect.sync(() => {
@@ -506,8 +504,7 @@ describe("R29 and R30: percentiles", () => {
 							"a fraction refused",
 							"a stage refused"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([ps, stage], c) =>
 						Effect.sync(() => {
@@ -547,8 +544,7 @@ describe("R29 and R30: percentiles", () => {
 								source.draw(element<"score" | "amount">(["score", "amount"]))
 							] as const,
 						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([p, over], c) =>
 						Effect.sync(() => {
@@ -586,8 +582,7 @@ describe("R31: the mode", () => {
 								source.draw(element<"all" | "conditional">(["all", "conditional"]))
 							] as const,
 						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([tiebreak, k, count], c) =>
 						Effect.sync(() => {
@@ -690,8 +685,7 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 							"attached as-of rewritten",
 							"attached as-of probed"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([n, parents], c) =>
 						Effect.sync(() => {
@@ -734,8 +728,7 @@ describe("R27 and R42: neighbors under the parent-set policy", () => {
 							"the prices' day retyped bigint",
 							"the take's order reversed"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([mode, edit], c) =>
 						Effect.sync(() => {
@@ -830,8 +823,7 @@ describe("R28: shares", () => {
 						literal: Formatter.format,
 						generator: shares,
 						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(share, c) =>
 						Effect.sync(() => {
@@ -890,8 +882,7 @@ describe("determinism and the catalog pass", () => {
 						literal: Formatter.format,
 						generator: compositions,
 						coverage: requiredInSpace<"rewritten" | "kept">(["rewritten", "kept"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(desc, c) =>
 						Effect.sync(() => {

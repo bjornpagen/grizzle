@@ -1152,7 +1152,6 @@ describe("a compile's law model", () => {
 					kept: [ledgerShape, memberAlone, cycleOutside, rosterShared],
 					runs: 200,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -1716,7 +1715,6 @@ describe("a schema's ownership", () => {
 						kept: [],
 						runs: 40,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

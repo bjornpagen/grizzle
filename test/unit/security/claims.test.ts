@@ -541,7 +541,6 @@ describe("the host claims decoder", () => {
 						kept: [],
 						runs: 2000,
 						shrink: { kind: "bounded", candidates: 200 },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -290,8 +290,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a refresh member", (it) =
 										"named against level order",
 										"named twice",
 										"an unpopulated input"
-									]),
-									concurrency: 1
+									])
 								},
 								(names, c) =>
 									Effect.gen(function* () {

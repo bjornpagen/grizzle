@@ -285,7 +285,6 @@ layer(Substrate.layer)("a change member's apply", (it) => {
 										kept: [],
 										runs: 56,
 										shrink: completeShrink,
-										concurrency: 1,
 										steerEvery: 16,
 										caseHang,
 										coverage: required<ApplyFeature>(

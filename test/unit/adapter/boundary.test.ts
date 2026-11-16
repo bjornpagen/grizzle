@@ -325,7 +325,6 @@ describe("the public boundary", () => {
 						kept: [],
 						runs: 2_000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -399,7 +398,6 @@ describe("the public boundary", () => {
 							kept: [],
 							runs: 500,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

@@ -192,8 +192,7 @@ describe("the form a recursion lowers to (packages/engine/src/lower/shapes/recur
 						generator: int(0, 6),
 						literal: Formatter.format,
 						coverage: requiredInSpace<"bounded walk">(["bounded walk"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(below, c) =>
 						Effect.sync(() => {

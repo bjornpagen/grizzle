@@ -140,8 +140,7 @@ describe("generated scalar types", () => {
 								"a type that is its own key type",
 								"a computed numeric"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						([t, edge, keep], c) =>
 							Effect.sync(() => {
@@ -221,7 +220,6 @@ describe("value domains", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

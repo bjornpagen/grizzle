@@ -658,7 +658,6 @@ layer(Substrate.layer)("the rows an insertion met", (it) => {
 							kept: [],
 							runs: 400,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

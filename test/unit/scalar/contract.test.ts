@@ -141,7 +141,6 @@ describe("contract identity", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -321,7 +320,6 @@ describe("contract admission", () => {
 						/** text/parse's flags search, the nearest generated neighbour of the replaced examples. */
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

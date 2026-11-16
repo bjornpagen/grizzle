@@ -347,7 +347,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("TEMPORARY on the datab
 						kept: [],
 						runs: 16,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

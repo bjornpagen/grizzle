@@ -223,8 +223,7 @@ describe("an existence-only match becomes a semi-join", () => {
 							"with a constant under a root, shared variable outside the heading",
 							"with a constant under a fold"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([account, reader, posting], c) =>
 						Effect.sync(() => {
@@ -283,8 +282,7 @@ describe("set comparisons need a physically unique left input", () => {
 							"Difference rewritten",
 							"Difference kept"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					({ op, left, evidence }, c) =>
 						Effect.sync(() => {

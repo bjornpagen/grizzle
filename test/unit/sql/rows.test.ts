@@ -202,8 +202,7 @@ describe("the rows audit (oracle/verify/rows.ts)", () => {
 						}),
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					({ reader, source }) =>
 						Effect.sync(() => {
@@ -235,8 +234,7 @@ describe("the rows audit (oracle/verify/rows.ts)", () => {
 						generator: (s) => ({ body: s.draw(element(bodies)), bound: s.draw(element(bounds)) }),
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					({ body, bound }) =>
 						Effect.sync(() => {
@@ -272,8 +270,7 @@ describe("the rows audit (oracle/verify/rows.ts)", () => {
 					}),
 					literal: Formatter.format,
 					coverage: noCoverage,
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				({ shape, limited }) =>
 					Effect.sync(() => {
@@ -317,8 +314,7 @@ describe("the rows audit (oracle/verify/rows.ts)", () => {
 						"every GROUP BY expression a target",
 						"a GROUP BY expression no target"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				({ targets, groupBy }, c) =>
 					Effect.sync(() => {

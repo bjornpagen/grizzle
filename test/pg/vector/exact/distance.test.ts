@@ -741,7 +741,6 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 							kept: [],
 							runs: 12,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 4,
 							caseHang
 						},
@@ -831,7 +830,6 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 							kept: [],
 							runs: 12,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 4,
 							caseHang
 						},
@@ -912,7 +910,6 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 							kept: [],
 							runs: 24,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 4,
 							caseHang
 						},
@@ -991,7 +988,6 @@ layer(Substrate.layer)("exact cosine distance", (it) => {
 						kept: [],
 						runs: 4,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -207,7 +207,6 @@ describe("a query builder step reads only what it adds", () => {
 					kept: [],
 					runs: 16,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -246,7 +245,6 @@ describe("a query builder step reads only what it adds", () => {
 					kept: [],
 					runs: 200,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

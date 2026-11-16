@@ -202,8 +202,7 @@ layer(Substrate.layer)("a query entry's insertion racing a commit at its key", (
 						oracle: {
 							kind: "specification",
 							name: "the serial order W, then A, over the stated seats, with the SerializationFailure of a call whose snapshot misses W's commit at its key"
-						},
-						concurrency: 1
+						}
 					},
 					(c, k) =>
 						Effect.gen(function* () {

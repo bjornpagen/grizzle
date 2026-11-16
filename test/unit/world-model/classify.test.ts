@@ -424,8 +424,7 @@ describe("the writable-entry rule", () => {
 						generator: shapes,
 						literal: Formatter.format,
 						coverage: requiredInSpace(situations),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(s, c) =>
 						Effect.gen(function* () {

@@ -265,7 +265,6 @@ layer(Substrate.layer)("key representability against PostgreSQL's B-tree item li
 							kept: [],
 							runs,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

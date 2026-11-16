@@ -410,7 +410,6 @@ describe("PL/pgSQL through the line sink", () => {
 						kept: [],
 						runs: 96,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						coverage: required<WriteFeature>(
@@ -478,7 +477,6 @@ describe("dollar quoting", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						coverage: required<DollarTag>(["$$", "$gz$", "$gzN$"], { cases: 300, sense: notesOnly })
@@ -541,7 +539,6 @@ describe("a commented alternative", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						coverage: required<CommentFeature>(
@@ -647,7 +644,6 @@ describe("identifiers, types and literals", () => {
 					kept: [],
 					runs: 400,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -703,7 +699,6 @@ describe("identifiers, types and literals", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

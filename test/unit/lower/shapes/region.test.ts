@@ -227,7 +227,6 @@ describe("a region past the collapse limit is an explicit JOIN chain", () => {
 							["restricted first written", "restricted written later", "longest path"],
 							{ cases: 60, sense: notesOnly }
 						),
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -383,7 +383,6 @@ const populationSuite = (runs: number) => (ctx: TestContext) =>
 				kept,
 				runs,
 				shrink: { kind: "bounded", candidates: 24 },
-				concurrency: 1,
 				steerEvery: 4,
 				caseHang
 			},

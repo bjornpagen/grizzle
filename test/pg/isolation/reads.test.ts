@@ -228,7 +228,6 @@ layer(Substrate.layer, { excludeTestServices: true })("reads in the isolation or
 								kept: [],
 								runs,
 								shrink: { kind: "bounded", candidates: 8 },
-								concurrency: 1,
 								steerEvery: runs,
 								caseHang
 							},
@@ -296,7 +295,6 @@ layer(Substrate.layer, { excludeTestServices: true })("reads in the isolation or
 								kept: [],
 								runs: 1,
 								shrink: { kind: "bounded", candidates: 1 },
-								concurrency: 1,
 								steerEvery: 1,
 								caseHang
 							},

@@ -192,7 +192,6 @@ layer(Substrate.layer)("the write refusal channel on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 300,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang,
 							oracle: { kind: "universal", name: "read ∘ raise = id" }

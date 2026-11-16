@@ -574,7 +574,6 @@ describe("splitting a no-transaction file into its statements, generated", () =>
 					kept: keptSplits,
 					runs: 500,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -859,7 +858,6 @@ describe("a reviewed statement read against its draft", () => {
 						kept: keptDrafts,
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

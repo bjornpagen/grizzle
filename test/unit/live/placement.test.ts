@@ -105,7 +105,6 @@ describe("a decoded transaction placed in the leader's snapshot", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						coverage: required<Feature>(

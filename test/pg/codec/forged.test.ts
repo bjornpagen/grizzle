@@ -68,7 +68,6 @@ layer(Substrate.layer)("forged carrier inputs against PostgreSQL", (it) => {
 							/** One round trip a case. */
 							runs: 150,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

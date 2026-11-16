@@ -220,19 +220,15 @@ layer(Substrate.layer)("the cost of recounting a mutable owner's family", (it) =
 						name: "linear growth: a cost of a fixed part and a part per row at most doubles when its rows double, the fixed part not doubling, and a cost above linear more than doubles"
 					},
 					coverage: requiredInSpace<Situation>(situations),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				(sketch, c) =>
 					Effect.gen(function* () {
-						const [n, twice, four] = yield* Effect.all(
-							[
-								costOf(sketch.situation, sketch.n),
-								costOf(sketch.situation, 2 * sketch.n),
-								costOf(sketch.situation, 4 * sketch.n)
-							],
-							{ concurrency: 1 }
-						)
+						const [n, twice, four] = yield* Effect.all([
+							costOf(sketch.situation, sketch.n),
+							costOf(sketch.situation, 2 * sketch.n),
+							costOf(sketch.situation, 4 * sketch.n)
+						])
 						c.note(sketch.situation)
 						for (const at of [n, twice, four]) {
 							assert.equal(

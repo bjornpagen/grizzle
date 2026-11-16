@@ -412,8 +412,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 								"Account asc",
 								"Account desc"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(c, k) =>
 							Effect.gen(function* () {
@@ -481,7 +480,6 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 							kept: [],
 							runs: 20,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -535,7 +533,6 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 							kept: [],
 							runs: 6,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 4,
 							caseHang
 						},
@@ -616,7 +613,6 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 							kept: [],
 							runs: 20,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -660,8 +656,7 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 								"count of the key",
 								"count of the values"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(c, k) =>
 							Effect.gen(function* () {
@@ -750,7 +745,6 @@ layer(Substrate.layer)("plan properties of the optimized lowering", (it) => {
 							kept: [],
 							runs: 16,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

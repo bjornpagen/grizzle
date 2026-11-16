@@ -87,8 +87,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								"a handle of a payload relation shared",
 								"a handle of a payload relation of its own"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						({ schema, pay, handle, shared }, c) =>
 							Effect.gen(function* () {

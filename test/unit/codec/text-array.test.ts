@@ -145,7 +145,6 @@ describe("a text column's binary array", () => {
 						})),
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

@@ -797,8 +797,7 @@ describe("declared renames and drops", () => {
 							"a caller's field dropped",
 							"a generated field dropped"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(gone, c) =>
 						Effect.sync(() => {
@@ -860,7 +859,6 @@ describe("declared renames and drops", () => {
 						kept: [],
 						runs: 64,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -928,8 +926,7 @@ describe("declared renames and drops", () => {
 							name: "a model of declared identities predicting the target's names and every verdict"
 						},
 						coverage: requiredInSpace<Feature>(FEATURES),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(box, c) => Effect.sync(() => judge(box, (feature) => c.note(feature)))
 				)

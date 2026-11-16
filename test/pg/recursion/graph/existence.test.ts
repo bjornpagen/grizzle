@@ -245,7 +245,6 @@ layer(Substrate.layer)("endpoint existence during deferred violations", (it) => 
 							kept: [],
 							runs: 16,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

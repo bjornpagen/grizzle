@@ -95,8 +95,7 @@ describe("the test layers' verify", () => {
 							"a text refused",
 							"a byte order mark before the JSON"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([kind, wrapping], c) =>
 						Effect.gen(function* () {

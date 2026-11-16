@@ -633,7 +633,6 @@ layer(Substrate.layer)("references into one relation's superkeys in different or
 						kept: [],
 						runs: 12,
 						shrink: { kind: "bounded", candidates: 40 },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -659,8 +658,7 @@ layer(Substrate.layer)("references into one relation's superkeys in different or
 						coverage: requiredInSpace<"a kept foreign key moved off the UNIQUE it landed on">([
 							"a kept foreign key moved off the UNIQUE it landed on"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(second, c) => Effect.scoped(walkCase(second, c.note))
 				)

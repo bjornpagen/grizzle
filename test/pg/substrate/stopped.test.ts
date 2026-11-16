@@ -225,7 +225,6 @@ layer(Substrate.layer)("a stopped case's cleanup", (it) => {
 						kept: [],
 						runs: 12,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

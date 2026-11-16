@@ -418,7 +418,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a call over HTTP", (it) =
 						/** Each case installs the schema over its items and makes its calls. */
 						runs: 24,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

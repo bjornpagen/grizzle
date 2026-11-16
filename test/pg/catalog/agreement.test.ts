@@ -605,7 +605,6 @@ layer(Substrate.layer)("the compile-target catalog against its compositions", (i
 							kept,
 							runs: 10 * agreementRuns,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -710,7 +709,6 @@ layer(Substrate.layer)("the compile-target catalog against its compositions", (i
 							kept: [],
 							runs: agreementRuns,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang,
 							oracle: {

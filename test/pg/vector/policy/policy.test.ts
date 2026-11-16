@@ -125,7 +125,6 @@ layer(Substrate.layer)("the HNSW search policy as login defaults", (it) => {
 									kept: [],
 									runs: 12,
 									shrink: completeShrink,
-									concurrency: 1,
 									steerEvery: 4,
 									caseHang
 								},

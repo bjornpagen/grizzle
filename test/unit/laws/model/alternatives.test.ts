@@ -223,8 +223,7 @@ describe("alternatives lowers to its containments' natives", () => {
 					oracle: {
 						kind: "specification",
 						name: "fin.md §7's forward and reverse containments as a checker"
-					},
-					concurrency: 1
+					}
 				},
 				(a, c) =>
 					Effect.sync(() => {

@@ -658,7 +658,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 						kept: [],
 						runs: violatingRuns,
 						shrink: { kind: "bounded", candidates: 20 },
-						concurrency: 1,
 						steerEvery: violatingRuns,
 						caseHang
 					},
@@ -875,8 +874,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 							"a violation committed before the law",
 							"a violation refused by the law"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(k, c) =>
 						Effect.scoped(

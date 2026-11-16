@@ -349,7 +349,6 @@ describe("keys over a retyped field, and key swaps", () => {
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

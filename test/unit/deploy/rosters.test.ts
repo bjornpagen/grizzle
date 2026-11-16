@@ -1037,8 +1037,7 @@ describe("roster migrations", () => {
 							name: "a model of the roster's codes predicting each step's statements by slot, with the reference evaluator judging the closed law"
 						},
 						coverage: requiredInSpace<Feature>(FEATURES),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(steps, c) =>
 						Effect.gen(function* () {

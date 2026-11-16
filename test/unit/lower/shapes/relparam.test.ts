@@ -84,7 +84,6 @@ describe("a write's enumerated members", () => {
 						kept: [],
 						runs: 2,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

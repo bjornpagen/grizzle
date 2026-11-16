@@ -1392,7 +1392,6 @@ layer(Substrate.layer)("rename histories on PostgreSQL", (it) => {
 						kept: [],
 						runs: 4,
 						shrink: { kind: "bounded", candidates: 60 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

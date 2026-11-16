@@ -137,8 +137,7 @@ describe("span parameters and windows", () => {
 							kind: "specification",
 							name: "nominal compatibility: a point meets a window exactly at the window's endpoint type"
 						},
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([pointType, endpoint], c) =>
 						Effect.sync(() => {
@@ -236,7 +235,6 @@ describe("span parameters and windows", () => {
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

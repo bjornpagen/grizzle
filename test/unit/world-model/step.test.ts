@@ -232,7 +232,6 @@ describe("the worlds model's step", () => {
 					kept: [],
 					runs: 150,
 					shrink: { kind: "bounded", candidates: 200 },
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -385,7 +384,6 @@ describe("the worlds model's migration folders", () => {
 						kept: [],
 						runs: 30,
 						shrink: { kind: "bounded", candidates: 100 },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

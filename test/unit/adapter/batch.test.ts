@@ -282,8 +282,7 @@ describe("a flight", () => {
 						generator: smallCases,
 						literal: Formatter.format,
 						coverage: requiredInSpace<FlightFeature>(smallRequired),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(flightCase, k) =>
 						Effect.sync(() => {
@@ -309,7 +308,6 @@ describe("a flight", () => {
 					kept: [],
 					runs: 500,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -362,7 +360,6 @@ describe("joined flights", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

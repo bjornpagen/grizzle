@@ -312,8 +312,7 @@ describe("castInjective", () => {
 							[source.draw(element(types)), source.draw(element(types))] as const,
 						literal: Formatter.format,
 						coverage: situations,
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([from, to], c) =>
 						Effect.sync(() => {

@@ -304,8 +304,7 @@ describe("literal folding", () => {
 							"compared float8",
 							"compared text"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([[a, b], cmp], c) =>
 						Effect.sync(() => {
@@ -367,8 +366,7 @@ describe("literal folding", () => {
 							"decided false",
 							"a vector membership left to PostgreSQL"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(form, c) =>
 						Effect.sync(() => {
@@ -475,8 +473,7 @@ describe("literal folding", () => {
 							"decided false",
 							"decided undecided"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(shape, c) =>
 						Effect.sync(() => {
@@ -543,8 +540,7 @@ describe("finite folding", () => {
 						"some facts satisfy",
 						"no fact satisfies"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				([facts, op, against], c) =>
 					Effect.sync(() => {
@@ -616,8 +612,7 @@ describe("branch removal", () => {
 						"an empty anti-join right side",
 						"every input empty"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				({ arms, vacuous, anti }, c) =>
 					Effect.sync(() => {
@@ -712,8 +707,7 @@ describe("normalization", () => {
 							"every conjunct an equality",
 							"a conjunct left"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([swapped, extra], c) =>
 						Effect.sync(() => {

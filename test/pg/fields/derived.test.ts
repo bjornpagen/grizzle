@@ -1395,7 +1395,6 @@ layer(Substrate.layer)("generated fields on PostgreSQL 19rc2", (it) => {
 						kept: [],
 						runs: 6,
 						shrink: { kind: "bounded", candidates: 40 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang,
 						oracle: {

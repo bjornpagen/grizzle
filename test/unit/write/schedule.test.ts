@@ -1214,8 +1214,7 @@ describe("a stratum's schedule", () => {
 							"both put, the target named first",
 							"a generated insertion beside its relation's deletion"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(shape, c) =>
 						Effect.sync(() => {
@@ -1368,7 +1367,6 @@ describe("a stratum's schedule", () => {
 						],
 						runs: 300,
 						shrink: boundedShrink(400),
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {

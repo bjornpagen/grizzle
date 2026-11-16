@@ -94,7 +94,6 @@ describe("the workload plan", () => {
 						kept: [],
 						runs: 30,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -220,7 +219,6 @@ describe("mergeStatistics", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

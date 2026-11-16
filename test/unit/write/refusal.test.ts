@@ -218,7 +218,6 @@ describe("the write refusal channel", () => {
 							kept: [],
 							runs: 1000,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang,
 							oracle: { kind: "universal", name: "read ∘ spell = id" }
@@ -311,7 +310,6 @@ describe("the write refusal channel", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: { kind: "specification", name: "a law's DETAIL is the one under its tag" }

@@ -192,16 +192,16 @@ layer(Substrate.layer)("the cost of a family write", (it) => {
 							name: "linear growth: a cost of a fixed part and a part per member grows by exactly twice as much from 2n to 4n as from n to 2n, and a cost above linear by more"
 						},
 						coverage: requiredInSpace<FamilyName>(families),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(sketch, c) =>
 						Effect.gen(function* () {
 							const at = yield* costOf(box[sketch.family], "familycost")
-							const [n, twice, four] = yield* Effect.all(
-								[at(sketch.n, 1), at(2 * sketch.n, 2), at(4 * sketch.n, 3)],
-								{ concurrency: 1 }
-							)
+							const [n, twice, four] = yield* Effect.all([
+								at(sketch.n, 1),
+								at(2 * sketch.n, 2),
+								at(4 * sketch.n, 3)
+							])
 							c.note(sketch.family)
 							assert.ok(
 								four.rows - twice.rows <= 2 * (twice.rows - n.rows),

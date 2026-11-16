@@ -237,7 +237,6 @@ layer(Substrate.layer)("extended statistics on derived relations", (it) => {
 						kept,
 						runs: 4,
 						shrink: { kind: "bounded", candidates: 20 },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

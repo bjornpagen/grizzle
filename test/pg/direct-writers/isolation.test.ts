@@ -404,8 +404,7 @@ layer(Substrate.isolatedLayer, { excludeTestServices: true })(
 								generator: box,
 								literal: Formatter.format,
 								coverage: requiredInSpace<IsolationFeature>(situations),
-								caseHang,
-								concurrency: 1
+								caseHang
 							},
 							([[level, actor, statement], table, readFirst], c) =>
 								Effect.gen(function* () {

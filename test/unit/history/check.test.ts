@@ -494,7 +494,6 @@ describe("the history checker", () => {
 						kept: [],
 						runs: 3000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {

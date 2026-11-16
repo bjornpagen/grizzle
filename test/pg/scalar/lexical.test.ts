@@ -162,7 +162,6 @@ layer(Substrate.layer)("lexical parse: the host and PostgreSQL 19 agree", (it) =
 							kept: [],
 							runs: 300,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 4,
 							caseHang,
 							oracle: {

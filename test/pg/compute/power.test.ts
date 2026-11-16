@@ -276,7 +276,6 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 						kept,
 						runs: 4,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -381,7 +380,6 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 							kept: guardedKept,
 							runs: 4,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -489,7 +487,6 @@ layer(Substrate.layer)("numeric power against PostgreSQL 19", (it) => {
 							kept: floatKept,
 							runs: 4,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

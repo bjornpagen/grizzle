@@ -1288,7 +1288,6 @@ const checked = <S, T, F extends string, E, R>(
 			})),
 			runs: options.runs,
 			shrink: options.shrink,
-			concurrency: 1,
 			steerEvery: 16,
 			caseHang
 		},

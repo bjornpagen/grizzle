@@ -554,7 +554,6 @@ layer(Substrate.layer)(
 							kept: [],
 							runs: 4,
 							shrink: { kind: "bounded", candidates: 30 },
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

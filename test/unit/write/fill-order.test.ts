@@ -1597,7 +1597,6 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 						],
 						runs: 100,
 						shrink: boundedShrink(400),
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {
@@ -1626,8 +1625,7 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 							name: "the reference model of the fill order and the reference writer (families/fill.ts)"
 						},
 						coverage: requiredInSpace<BoxSituation>(boxSituations),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(shape, c) =>
 						Effect.gen(function* () {
@@ -1665,8 +1663,7 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 							name: "the reference's refills (families/fill.ts writesVerdict, refillsOf)"
 						},
 						coverage: requiredInSpace<FillSituation>(staleSituations),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(shape, c) =>
 						Effect.gen(function* () {
@@ -1700,8 +1697,7 @@ describe("the fill order: a schema generate accepts is one every write of fills"
 							name: "the reference model of the fill order and the reference writer (families/fill.ts)"
 						},
 						coverage: requiredInSpace<SiblingSituation>(siblingSituations),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(shape, c) =>
 						Effect.gen(function* () {

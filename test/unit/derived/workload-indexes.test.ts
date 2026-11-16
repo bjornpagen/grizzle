@@ -245,7 +245,6 @@ describe("workload indexes on a derived relation", () => {
 						kept: [],
 						runs: 40,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -337,7 +336,6 @@ describe("workload indexes on a derived relation", () => {
 						kept: [],
 						runs: 30,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

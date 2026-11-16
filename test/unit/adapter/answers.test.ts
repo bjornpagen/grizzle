@@ -196,8 +196,7 @@ describe("an attachment's delivery", () => {
 							"a defect",
 							"a proof that does not license the reader"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					({ reader, proved, n }, c) =>
 						Effect.sync(() => {
@@ -397,7 +396,6 @@ describe("a statement's rows", () => {
 							kept: [],
 							runs: 500,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -560,7 +558,6 @@ describe("a window's rows", () => {
 							kept: [],
 							runs: 500,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

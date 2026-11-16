@@ -248,7 +248,6 @@ const spec = {
 	kept: [],
 	runs: 12,
 	shrink: completeShrink,
-	concurrency: 1,
 	steerEvery: 4,
 	caseHang
 } as const
@@ -361,8 +360,7 @@ layer(Substrate.layer)("approximateNearest on PostgreSQL 19", (it) => {
 								name: "approximateNearest.indexed reads its key with no DISTINCT, approximateNearest.deduplicated keeps one"
 							},
 							coverage: requiredInSpace<"indexed" | "deduplicated">(["indexed", "deduplicated"]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(name, k) =>
 							Effect.sync(() => {

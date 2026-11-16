@@ -268,7 +268,6 @@ layer(Substrate.layer)("boundary values through the page runtime", (it) => {
 										kept: [],
 										runs: 60,
 										shrink: completeShrink,
-										concurrency: 1,
 										steerEvery: 16,
 										caseHang,
 										coverage: required<ValuesFeature>(

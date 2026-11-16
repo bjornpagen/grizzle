@@ -391,7 +391,6 @@ export const historySuite = <P>(h: HistoryFamily<P>): void => {
 							 * history's report within the test's time.
 							 */
 							shrink: { kind: "bounded", candidates: 300 },
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

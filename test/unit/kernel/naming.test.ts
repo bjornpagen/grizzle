@@ -451,7 +451,6 @@ describe("production names from src", () => {
 						],
 						runs: 40,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -685,8 +684,7 @@ describe("production names from src", () => {
 							name: "the one law of the schema's one row check"
 						},
 						coverage: requiredInSpace<ShapeFeature>(["and under or", "singleton and"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(shape, c) =>
 						Effect.sync(() => {

@@ -412,7 +412,6 @@ const contractSearch = (f: Fixture) =>
 				kept: [],
 				runs: domainRuns,
 				shrink: completeShrink,
-				concurrency: 1,
 				steerEvery: 16,
 				caseHang
 			},
@@ -533,7 +532,6 @@ layer(Substrate.layer)("contract predicates against PostgreSQL 19 domains", (it)
 							kept: [],
 							runs: domainRuns,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

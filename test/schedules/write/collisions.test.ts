@@ -734,7 +734,6 @@ layer(Substrate.layer)("colliding generated additions of a certified READ COMMIT
 						kept: doubleStarts,
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

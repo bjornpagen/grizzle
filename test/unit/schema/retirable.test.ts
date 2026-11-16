@@ -204,8 +204,7 @@ describe("a retirable statement at the schema door", () => {
 							"refused: the header is mutable",
 							"refused: a key reads the retirement field"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(d, c) =>
 						Effect.sync(() => {

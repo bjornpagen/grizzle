@@ -178,8 +178,7 @@ describe("the naming door", () => {
 								"one name a prefix of the other",
 								"a hashed object commented"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						([fixture, [a, b]], c) =>
 							Effect.sync(() => {
@@ -279,8 +278,7 @@ describe("the naming door", () => {
 								"a refused relation name",
 								"a refused field name"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						(drawn, c) =>
 							Effect.sync(() => {
@@ -360,7 +358,6 @@ describe("the naming door", () => {
 						kept: [],
 						runs: 200,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -456,7 +453,6 @@ describe("the naming door", () => {
 							kept: [],
 							runs: 300,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

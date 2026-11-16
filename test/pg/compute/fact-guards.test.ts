@@ -374,7 +374,6 @@ layer(Substrate.layer)("a fact guard over a contract on PostgreSQL 19", (it) => 
 							kept: [],
 							runs: 60,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

@@ -623,8 +623,7 @@ describe("the worlds generators", () => {
 						coverage: requiredInSpace<Feature>(
 							Arr.map(everyInvalidKind, (k): Feature => `invalid:${k}`)
 						),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(kind, c) =>
 						Effect.gen(function* () {
@@ -683,7 +682,6 @@ describe("the worlds generators", () => {
 						kept: [],
 						runs: 160,
 						shrink: { kind: "complete" },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -729,7 +727,6 @@ describe("the worlds generators", () => {
 						kept: [],
 						runs: 200,
 						shrink: { kind: "complete" },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -803,7 +800,6 @@ describe("the worlds generators", () => {
 						kept: [],
 						runs: 200,
 						shrink: { kind: "complete" },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -870,7 +866,6 @@ describe("the worlds generators", () => {
 						kept: [],
 						runs: 200,
 						shrink: { kind: "complete" },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -946,7 +941,6 @@ describe("the worlds generators", () => {
 						kept: [],
 						runs: 24,
 						shrink: { kind: "complete" },
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

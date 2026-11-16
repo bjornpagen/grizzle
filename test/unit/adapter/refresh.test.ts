@@ -281,7 +281,6 @@ describe("db.refresh targets", () => {
 						kept: [],
 						runs: 80,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -547,7 +546,6 @@ describe("plain or CONCURRENTLY", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -614,8 +612,7 @@ describe("plain or CONCURRENTLY", () => {
 							"a negative position",
 							"a position after another word"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(detail, c) =>
 						Effect.sync(() => {
@@ -967,7 +964,6 @@ describe("how a refresh ends", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

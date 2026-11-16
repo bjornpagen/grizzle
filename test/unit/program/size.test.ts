@@ -163,8 +163,7 @@ describe("compiled size", () => {
 						generator: (source) => [source.draw(extent), source.draw(extent)] as const,
 						literal: Formatter.format,
 						coverage: noCoverage,
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([width, n]) =>
 						Effect.sync(() => {

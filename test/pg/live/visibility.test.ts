@@ -227,7 +227,6 @@ layer(Substrate.layer)("the live leader's visibility judgment", (it) => {
 						],
 						runs: cases,
 						shrink: { kind: "bounded", candidates: 60 },
-						concurrency: 1,
 						steerEvery: 8,
 						caseHang
 					},

@@ -100,8 +100,7 @@ describe("the seen-state estimate", () => {
 							"two tags",
 							"the widest grid"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([[bx, by], [summed, twoTags], [column, type]], c) =>
 						Effect.sync(() => {
@@ -225,8 +224,7 @@ describe("the seen-state estimate", () => {
 						generator: int(1, 3),
 						literal: Formatter.format,
 						coverage: requiredInSpace<`${number} handles`>(["1 handles", "2 handles", "3 handles"]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(n, c) =>
 						Effect.sync(() => {

@@ -663,7 +663,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) =
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -717,7 +716,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) =
 						kept: [],
 						runs: 60,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -788,7 +786,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("a served file", (it) =
 						],
 						runs: 60,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

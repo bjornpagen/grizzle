@@ -516,8 +516,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 										name: "EXPLAIN of each statement the member sends, sequential, index and index-only scans disabled over unanalyzed relations: no sequential scan of a relation the statement modifies"
 									},
 									coverage: requiredInSpace<Feature>(FEATURES),
-									caseHang,
-									concurrency: 1
+									caseHang
 								},
 								(s, c) =>
 									Effect.gen(function* () {

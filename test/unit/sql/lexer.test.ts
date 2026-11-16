@@ -929,8 +929,7 @@ describe("lex", () => {
 							"a terminator",
 							"a semicolon inside parentheses"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(text, c) =>
 						Effect.sync(() => {
@@ -964,8 +963,7 @@ describe("lex", () => {
 							"an unclosed construct",
 							"a continued string"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(text, c) =>
 						Effect.sync(() => {
@@ -1017,7 +1015,6 @@ describe("lex", () => {
 						kept: [],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1072,7 +1069,6 @@ describe("lex", () => {
 						kept: [],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1113,7 +1109,6 @@ describe("lex", () => {
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1145,7 +1140,6 @@ describe("lex", () => {
 					kept: [],
 					runs: 400,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

@@ -86,7 +86,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a schema of closed relati
 					kept: [],
 					runs: 24,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

@@ -179,8 +179,7 @@ describe("PostgreSQL's limits", () => {
 								`${kind} past`
 							])
 						),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					([kind, offset], c) =>
 						Effect.sync(() => {
@@ -220,7 +219,6 @@ describe("PostgreSQL's limits", () => {
 					kept: [],
 					runs: 4,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

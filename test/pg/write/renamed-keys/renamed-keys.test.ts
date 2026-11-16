@@ -482,7 +482,6 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							],
 							runs: 16,
 							shrink: boundedShrink(40),
-							concurrency: 1,
 							steerEvery: 8,
 							caseHang,
 							oracle: {

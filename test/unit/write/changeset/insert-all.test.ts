@@ -309,7 +309,6 @@ describe("ChangeSet#insertAll", () => {
 							],
 							{ cases: 400, sense: notesOnly }
 						),
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

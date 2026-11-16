@@ -68,7 +68,6 @@ describe("a forged carrier instance", () => {
 						kept: [],
 						runs: 1500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

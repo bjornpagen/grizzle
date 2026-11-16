@@ -202,7 +202,6 @@ describe("netting", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: { kind: "second-implementation", name: "the delta and count calculator" }
@@ -407,7 +406,6 @@ describe("a stratum's change is a set difference", () => {
 							kept: [],
 							runs: 500,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -595,7 +593,6 @@ describe("relation identity", () => {
 							kept: [],
 							runs: 200,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

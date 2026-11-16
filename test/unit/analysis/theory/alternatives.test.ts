@@ -156,8 +156,7 @@ describe("alternatives (fin.md §7)", () => {
 							"an unarmed handle",
 							"a restated containment"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					({ arms, restated }, k) =>
 						Effect.sync(() => {

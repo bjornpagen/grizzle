@@ -221,7 +221,6 @@ describe("constraint loops (scalar/regex/ir.ts repeat)", () => {
 					/** text/parse's flags search, the nearest generated neighbour of the replaced examples. */
 					runs: 1000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -263,7 +262,6 @@ describe("reading a printed ARE back", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -343,7 +341,6 @@ describe("reading a printed ARE back", () => {
 					],
 					runs: 500,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -490,7 +487,6 @@ describe("the enforcement of a finite language", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

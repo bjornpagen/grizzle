@@ -623,7 +623,6 @@ describe("Decimal parsing", () => {
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -658,7 +657,6 @@ describe("Decimal parsing", () => {
 					kept: [],
 					runs: 1000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -702,7 +700,6 @@ describe("Decimal parsing", () => {
 						kept: [],
 						runs: 100,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -748,7 +745,6 @@ describe("Decimal parsing", () => {
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -802,7 +798,6 @@ describe("Decimal parsing", () => {
 						kept: [],
 						runs: 2000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -846,7 +841,6 @@ describe("Decimal identity and order", () => {
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -884,7 +878,6 @@ describe("Decimal in the canonical serializer", () => {
 					kept: [],
 					runs: 1000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -945,7 +938,6 @@ describe("Decimal in the canonical serializer", () => {
 					kept: [],
 					runs: 5000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -982,7 +974,6 @@ describe("numeric(p, s) normalization", () => {
 						kept: [],
 						runs: 1000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1034,7 +1025,6 @@ describe("numeric(p, s) normalization", () => {
 						kept: [],
 						runs: 3000,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -1069,7 +1059,6 @@ describe("Decimal admission of a JavaScript caller's value", () => {
 						kept: [],
 						runs: 500,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

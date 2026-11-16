@@ -323,7 +323,6 @@ layer(Substrate.layer)("the lowering shapes on PostgreSQL 19", (it) => {
 							kept: [],
 							runs: 60,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},

@@ -253,7 +253,6 @@ layer(Substrate.layer, { excludeTestServices: true })("a text column's array par
 								],
 								runs: 40,
 								shrink: completeShrink,
-								concurrency: 1,
 								steerEvery: 8,
 								caseHang
 							},

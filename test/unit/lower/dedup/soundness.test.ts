@@ -247,7 +247,6 @@ describe("placement delivers the reference set with no repeats", () => {
 						runs: 1_000,
 						shrink: completeShrink,
 						coverage: required<DedupFeature>(dedupFeatures, { cases: 1_000, sense: notesOnly }),
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

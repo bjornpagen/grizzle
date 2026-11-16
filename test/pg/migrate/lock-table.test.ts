@@ -221,7 +221,6 @@ layer(Substrate.layer)("a migration that runs out of the server's lock table", (
 							kept: [],
 							runs: 12,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 8,
 							caseHang
 						},

@@ -178,8 +178,7 @@ const exhaustUpTo = (
 			generator,
 			literal: Formatter.format,
 			coverage: requiredInSpace<UniverseFeature>(situations),
-			caseHang,
-			concurrency: 1
+			caseHang
 		},
 		([variant, plan], c) =>
 			Effect.sync(() => {
@@ -218,7 +217,6 @@ const searchDepthThree = (grammar: Grammar, among: Arr.NonEmptyReadonlyArray<Var
 			kept: [],
 			runs: 200,
 			shrink: completeShrink,
-			concurrency: 1,
 			steerEvery: 16,
 			caseHang
 		},

@@ -161,8 +161,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 								"region only",
 								"neither"
 							]),
-							caseHang,
-							concurrency: 1
+							caseHang
 						},
 						([url, region], c) =>
 							Effect.gen(function* () {
@@ -223,7 +222,6 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 							kept: [],
 							runs: 12,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							caseHang
 						},
@@ -343,7 +341,6 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 						kept: [],
 						runs: 4,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

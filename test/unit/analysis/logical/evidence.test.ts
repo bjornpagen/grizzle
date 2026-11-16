@@ -1395,7 +1395,6 @@ const holdsOn = <S>(
 				kept,
 				runs,
 				shrink: completeShrink,
-				concurrency: 1,
 				steerEvery: 16,
 				caseHang
 			},
@@ -1542,7 +1541,6 @@ const idempotentOn = <S>(
 				kept: [],
 				runs,
 				shrink: completeShrink,
-				concurrency: 1,
 				steerEvery: 16,
 				caseHang
 			},

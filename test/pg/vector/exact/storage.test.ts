@@ -215,7 +215,6 @@ layer(Substrate.layer)("vector storage", (it) => {
 							kept: [],
 							runs: 60,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 8,
 							caseHang
 						},
@@ -325,7 +324,6 @@ layer(Substrate.layer)("vector storage", (it) => {
 							kept: [],
 							runs: 24,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 8,
 							caseHang
 						},

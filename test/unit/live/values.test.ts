@@ -456,7 +456,6 @@ describe("the live model's values", () => {
 						],
 						runs: 400,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						coverage: required<Applied>(
@@ -541,7 +540,6 @@ describe("the live model's values", () => {
 					kept: [],
 					runs: 400,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang,
 					coverage: required<Diffed>(
@@ -623,7 +621,6 @@ describe("the live model's values", () => {
 					kept: [],
 					runs: 400,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang,
 					coverage: required<Coalesced>(["a key added then removed", "batches over other keys"], {
@@ -702,7 +699,6 @@ describe("the live model's values", () => {
 					kept: [],
 					runs: 300,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang,
 					coverage: required<Path>(
@@ -832,8 +828,7 @@ describe("the live model's values", () => {
 						"one key, two deliveries",
 						"two keys"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				({ left, right }, c) =>
 					Effect.sync(() => {

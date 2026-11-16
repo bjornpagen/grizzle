@@ -493,7 +493,6 @@ layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
 						kept,
 						runs,
 						shrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -522,7 +521,6 @@ layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
 						kept: keptIntents,
 						runs,
 						shrink,
-						concurrency: 1,
 						steerEvery: 1,
 						caseHang
 					},

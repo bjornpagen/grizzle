@@ -256,8 +256,7 @@ describe("late payload fetch", () => {
 							"held back: no key of the payload's relation",
 							"held back: a lateral reader"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(shape, c) =>
 						Effect.sync(() => {
@@ -318,7 +317,6 @@ describe("late payload fetch", () => {
 					kept: [],
 					runs: 200,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

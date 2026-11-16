@@ -854,7 +854,6 @@ describe("a fixed target's UNIQUE beside the reverse probes out of its selection
 						],
 						runs: 300,
 						shrink: completeShrink,
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},

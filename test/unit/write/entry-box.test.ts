@@ -273,8 +273,7 @@ describe("the write front end over its small box", () => {
 							"facts refused at their shape",
 							"generated facts bound"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(point, c) =>
 						Effect.gen(function* () {

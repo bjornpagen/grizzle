@@ -180,8 +180,7 @@ describe("local cluster names", () => {
 							"another port",
 							...Arr.map(misspellings, (misspelling): NameFeature => `${misspelling} refused`)
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(name, c) =>
 						Effect.map(Effect.result(selectCluster(environmentOf(name))), (selected) => {

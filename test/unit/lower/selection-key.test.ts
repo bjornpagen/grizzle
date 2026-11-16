@@ -201,8 +201,7 @@ describe("a selection key's probe", () => {
 							"Badge probed",
 							"Badge read by its fields"
 						]),
-						caseHang,
-						concurrency: 1
+						caseHang
 					},
 					(c, seen) =>
 						Effect.sync(() => {

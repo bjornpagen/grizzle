@@ -161,7 +161,6 @@ layer(Substrate.layer, { excludeTestServices: true })("plain foreign keys on a c
 								kept: [],
 								runs: 80,
 								shrink: completeShrink,
-								concurrency: 1,
 								steerEvery: 16,
 								caseHang,
 								oracle: { kind: "specification", name: "a host model of containment at COMMIT" }

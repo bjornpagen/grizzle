@@ -60,7 +60,6 @@ describe("Money", () => {
 					kept: [],
 					runs: 2000,
 					shrink: completeShrink,
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},

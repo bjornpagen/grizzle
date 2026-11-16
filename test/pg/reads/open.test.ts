@@ -315,7 +315,6 @@ layer(Substrate.layer)("Db.open", (it) => {
 							kept: [],
 							runs: 16,
 							shrink: completeShrink,
-							concurrency: 1,
 							steerEvery: 16,
 							coverage: required<OpenFeature>(openFeatures, { cases: 64, sense: notesOnly }),
 							caseHang,

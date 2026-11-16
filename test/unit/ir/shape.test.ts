@@ -365,7 +365,6 @@ describe("shapes", () => {
 						runs: 300,
 						shrink: completeShrink,
 						coverage: required<Break>(breakNames, { cases: 300, sense: notesOnly }),
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -411,7 +410,6 @@ describe("shapes", () => {
 						sense: notesOnly
 					}),
 					kept: [],
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -458,7 +456,6 @@ describe("shapes", () => {
 						{ cases: 200, sense: notesOnly }
 					),
 					kept: [],
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang
 				},
@@ -516,8 +513,7 @@ describe("shapes", () => {
 						"a union's first alternative",
 						"a tagged case"
 					]),
-					caseHang,
-					concurrency: 1
+					caseHang
 				},
 				([kind, site], c) =>
 					Effect.sync(() => {
@@ -594,7 +590,6 @@ describe("shapes", () => {
 							{ cases: 200, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang
 					},
@@ -870,7 +865,6 @@ layer(NodeServices.layer, { excludeTestServices: true })("a record's keys", (it)
 									{ cases: 100, sense: notesOnly }
 								),
 								kept: [],
-								concurrency: 1,
 								steerEvery: 16,
 								caseHang
 							},
@@ -959,7 +953,6 @@ describe("a value nested through a recursive shape", () => {
 						{ cases: 40, sense: notesOnly }
 					),
 					kept: [],
-					concurrency: 1,
 					steerEvery: 16,
 					caseHang,
 					oracle: {
@@ -1023,7 +1016,6 @@ describe("a value nested through a recursive shape", () => {
 							{ cases: 60, sense: notesOnly }
 						),
 						kept: [],
-						concurrency: 1,
 						steerEvery: 16,
 						caseHang,
 						oracle: {

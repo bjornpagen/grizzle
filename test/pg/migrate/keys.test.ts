@@ -276,7 +276,6 @@ layer(Substrate.layer)("a primary key moved over stored rows", (it) => {
 						kept: [],
 						runs: 12,
 						shrink: { kind: "bounded", candidates: 20 },
-						concurrency: 1,
 						steerEvery: 4,
 						caseHang
 					},

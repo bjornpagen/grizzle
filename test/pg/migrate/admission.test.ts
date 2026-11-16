@@ -502,7 +502,6 @@ layer(Substrate.layer)("post-apply admission refuses drift", (it) => {
 						kept: [],
 						runs: 6,
 						shrink: { kind: "bounded", candidates: 40 },
-						concurrency: 1,
 						steerEvery: 16,
 						coverage: required<EditFeature>(Arr.map(editKinds, featureOf), {
 							cases: 120,
