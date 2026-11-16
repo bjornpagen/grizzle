@@ -109,7 +109,7 @@ export const plantedLines = (root: string) =>
  * The probe of the repository at `root` (which ends in a slash), loading `modules`: a child of the test, killed if the
  * test is interrupted, and ended only once it has exited.
  */
-export const probe = (root: string, modules: ReadonlyArray<string>) =>
+const probe = (root: string, modules: ReadonlyArray<string>) =>
 	Effect.gen(function* () {
 		const result = yield* run(
 			process.execPath,
