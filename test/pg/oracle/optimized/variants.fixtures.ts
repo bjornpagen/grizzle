@@ -1,0 +1,379 @@
+import {
+	array,
+	constant,
+	element,
+	type Gen,
+	int as intGen,
+	map,
+	oneOf,
+	uniqueArray,
+	weighted
+} from "@bjornpagen/testing/gen"
+import { Array as Arr } from "effect"
+import { type Direction, directions } from "#compiler/core/order.ts"
+import type { TypedLiteral } from "#compiler/ir/expr.ts"
+import {
+	type CompletedOrder,
+	conservativeMeta,
+	type Heading,
+	type RelNode
+} from "#compiler/ir/rel.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { cosineDistance } from "#compiler/scalar/compute/registry.ts"
+import type { OptimizedFeature } from "#test/pg/oracle/optimized/suite.ts"
+import type { QueryCase } from "#test/support/oracle/gen/case.ts"
+import { float8, int4, scalarOfSpec, valueClasses } from "#test/support/oracle/gen/domain.ts"
+import { canonicalFacts } from "#test/support/oracle/gen/facts.ts"
+import { type GenParam, normalQuery } from "#test/support/oracle/gen/query.ts"
+import { type GenRelation, type GenSchema, schemaName } from "#test/support/oracle/gen/schema.ts"
+import { elementAt } from "#test/support/oracle/pick.ts"
+import { plainRegion, Q } from "#test/unit/lower/conservative/fixtures.ts"
+
+const relation = (
+	name: string,
+	columns: ReadonlyArray<readonly [string, ScalarType]>,
+	primaryKey: ReadonlyArray<string>
+): GenRelation => ({
+	name,
+	columns: Arr.map(columns, ([column, type]) => ({ name: column, type })),
+	primaryKey,
+	keys: [],
+	mutable: false
+})
+
+/** An account's embedding, and a probe's: a vector of the generated dimensions (gen/domain.ts). */
+const embedding = scalarOfSpec({ carrier: "vector" })
+
+const P = relation(
+	"P",
+	[
+		["id", int4],
+		["a", int4],
+		["e", embedding]
+	],
+	["id"]
+)
+/**
+ * The wide child's further columns, which only the wide child delivers.
+ */
+const wideColumns = Object.freeze(["w0", "w1", "w2", "w3"])
+const C = relation(
+	"C",
+	Arr.map(["k", "p", "v", ...wideColumns], (column) => [column, int4] as const),
+	["k"]
+)
+const schema: GenSchema = { name: schemaName, relations: [P, C], closed: [], containments: [] }
+
+const relationSpec = (r: GenRelation) => ({
+	name: r.name,
+	heading: Arr.map(r.columns, (c): Heading[number] => ({ name: c.name, type: c.type })),
+	primaryKey: r.primaryKey
+})
+
+const int = (n: number): TypedLiteral => ({ kind: "int", value: BigInt(n) })
+
+/**
+ * Rows with a distinct first column in `key` and the other columns in their small ranges, so values repeat and an
+ * entry may name no account.
+ */
+const rowsGen = (
+	key: readonly [number, number],
+	others: ReadonlyArray<readonly [number, number]>,
+	max: number
+): Gen<ReadonlyArray<ReadonlyArray<TypedLiteral>>> =>
+	map(
+		uniqueArray(
+			intGen(key[0], key[1]),
+			(k) =>
+				(source): readonly [number, ReadonlyArray<number>] => [
+					k,
+					Arr.map(others, ([min, hi]) => source.draw(intGen(min, hi)))
+				],
+			{ min: 0, max }
+		),
+		(rows) => Arr.map(rows, ([k, rest]) => [int(k), ...Arr.map(rest, int)])
+	)
+
+/**
+ * The embeddings an account holds and a probe searches by: the generated domain's vectors, among them two of one
+ * direction, so distances tie.
+ */
+const embeddings = valueClasses(embedding, false)
+
+const embeddingGen: Gen<TypedLiteral> = (source) =>
+	elementAt(embeddings, source.draw(intGen(0, embeddings.length - 1)), "an embedding")
+
+/** Accounts (id, a) with distinct ids, each with an embedding. */
+const accountsGen: Gen<ReadonlyArray<ReadonlyArray<TypedLiteral>>> = (source) =>
+	Arr.map(source.draw(rowsGen([0, 5], [[0, 2]], 5)), (row) => [...row, source.draw(embeddingGen)])
+
+/** The parents an attachment's entries are attached to. */
+type Parents =
+	| { readonly kind: "accounts" }
+	| {
+			readonly kind: "nearest"
+			readonly probe: TypedLiteral
+			readonly take: number
+			/** The account column the candidates keep and the entries correlate on: its key, or its group. */
+			readonly by: "id" | "a"
+	  }
+
+/**
+ * What an attachment's child delivers of each of a parent's first entries: C's first three columns, every column of
+ * C, or only the entry's key.
+ */
+type Child = "narrow" | "wide" | "key"
+
+interface Sketch {
+	/**
+	 * An attachment of each parent's first entries, or a relation parameter's ids, repeats included, of which the runner
+	 * sends the normalized set.
+	 */
+	readonly form:
+		| { readonly kind: "attach"; readonly parents: Parents; readonly child: Child }
+		| { readonly kind: "input"; readonly ids: ReadonlyArray<number> }
+	readonly k: number
+	readonly dir: Direction
+	readonly accounts: ReadonlyArray<ReadonlyArray<TypedLiteral>>
+	readonly entries: ReadonlyArray<ReadonlyArray<TypedLiteral>>
+}
+
+const parentsGen: Gen<Parents> = oneOf<Parents>([
+	constant<Parents>({ kind: "accounts" }),
+	(source) => ({
+		kind: "nearest",
+		probe: source.draw(embeddingGen),
+		take: source.draw(intGen(1, 4)),
+		by: source.draw(element(["id", "a"] as const))
+	})
+])
+
+const formGen: Gen<Sketch["form"]> = weighted<Sketch["form"]>([
+	[
+		2,
+		(source) => ({
+			kind: "attach",
+			parents: source.draw(parentsGen),
+			child: source.draw(element(["narrow", "wide", "key"] as const))
+		})
+	],
+	[1, (source) => ({ kind: "input", ids: source.draw(array(intGen(0, 6), { min: 0, max: 5 })) })]
+])
+
+export const sketchGen: Gen<Sketch> = (source) => ({
+	form: source.draw(formGen),
+	k: source.draw(intGen(1, 3)),
+	dir: source.draw(element(directions)),
+	accounts: source.draw(accountsGen),
+	entries: source.draw(
+		rowsGen([0, 11], [[0, 6], [0, 2], ...Arr.map(wideColumns, () => [0, 2] as const)], 9)
+	)
+})
+
+/**
+ * The accounts nearest the probe by the cosine distance of their embedding, each with the column `by` and its distance:
+ * the source one rule's projection over P, as the checker builds a search (check/approximate/trace.ts).
+ */
+const nearest = (q: Q, parents: Extract<Parents, { readonly kind: "nearest" }>): RelNode => {
+	const region = q.region([
+		{
+			source: q.base(relationSpec(P), conservativeMeta),
+			bind: { id: "id", a: "a", e: "e" },
+			constants: {}
+		}
+	])
+	const distance = q.op(
+		cosineDistance.id,
+		[q.col(region, "e"), q.param("probe", embedding, "compare")],
+		float8
+	)
+	const scored = q.project(
+		region,
+		[
+			[parents.by, parents.by],
+			["distance", [distance, float8]]
+		],
+		conservativeMeta
+	)
+	return q.node({
+		kind: "ApproximateNearest",
+		source: scored,
+		score: "distance",
+		take: BigInt(parents.take),
+		params: scored.meta.paramDeps,
+		sealed: true,
+		heading: scored.heading,
+		loc: undefined,
+		meta: conservativeMeta
+	})
+}
+
+/** An attachment's parents, the column of theirs its entries correlate on, and the parameters they read. */
+const parentsOf = (
+	q: Q,
+	parents: Parents
+): {
+	readonly node: RelNode
+	readonly by: "id" | "a"
+	readonly params: Readonly<Record<string, GenParam>>
+} => {
+	switch (parents.kind) {
+		case "accounts":
+			return {
+				node: q.project(
+					q.region([
+						{
+							source: q.base(relationSpec(P), conservativeMeta),
+							bind: { id: "id", a: "a" },
+							constants: {}
+						}
+					]),
+					[
+						["id", "id"],
+						["a", "a"]
+					],
+					conservativeMeta
+				),
+				by: "id",
+				params: {}
+			}
+		case "nearest":
+			return {
+				node: nearest(q, parents),
+				by: parents.by,
+				params: { probe: { kind: "scalar", type: embedding, value: parents.probe } }
+			}
+	}
+}
+
+/**
+ * The entries a child takes its first k of, in a total order: the narrow child a region delivering (k, p, v) and the
+ * wide one C itself, every column of it, both first by v, ties by the key k; the key child a region delivering (k, p),
+ * first by k.
+ */
+const entriesOf = (
+	q: Q,
+	child: Child,
+	dir: Direction
+): { readonly node: RelNode; readonly order: CompletedOrder } => {
+	const byValue: CompletedOrder = {
+		keys: [
+			{ column: "v", dir },
+			{ column: "k", dir: "asc" }
+		]
+	}
+	switch (child) {
+		case "narrow":
+			return {
+				node: q.region([
+					{
+						source: q.base(relationSpec(C), conservativeMeta),
+						bind: { k: "k", p: "p", v: "v" },
+						constants: {}
+					}
+				]),
+				order: byValue
+			}
+		case "wide":
+			return { node: q.base(relationSpec(C), conservativeMeta), order: byValue }
+		case "key":
+			return {
+				node: q.region([
+					{
+						source: q.base(relationSpec(C), conservativeMeta),
+						bind: { k: "k", p: "p" },
+						constants: {}
+					}
+				]),
+				order: { keys: [{ column: "k", dir }] }
+			}
+	}
+}
+
+/**
+ * The case's root and the parameters it reads: an attachment of each parent's first entries, or, in the input form, a
+ * region over the relation parameter of parent ids, each joined to its first entries.
+ */
+const queryOf = (
+	q: Q,
+	s: Sketch
+): { readonly root: RelNode; readonly params: Readonly<Record<string, GenParam>> } => {
+	const bound = { kind: "literal" as const, k: BigInt(s.k) }
+	switch (s.form.kind) {
+		case "attach": {
+			const entries = entriesOf(q, s.form.child, s.dir)
+			const parents = parentsOf(q, s.form.parents)
+			const first = q.take(
+				entries.node,
+				entries.order,
+				bound,
+				[{ column: "p", expr: q.col(parents.node, parents.by) }],
+				conservativeMeta
+			)
+			return {
+				root: q.attach(parents.node, first, "first", [[parents.by, "p"]], "array", undefined),
+				params: parents.params
+			}
+		}
+		case "input": {
+			const entries = entriesOf(q, "narrow", s.dir)
+			const heading: Heading = [{ name: "id", type: int4 }]
+			const outer = q.b.reserve()
+			const parent = q.b.expr({
+				kind: "column",
+				column: { node: outer, name: "pid" },
+				args: [],
+				type: int4,
+				nonNull: "storage"
+			})
+			const first = q.take(
+				entries.node,
+				entries.order,
+				bound,
+				[{ column: "p", expr: parent }],
+				conservativeMeta
+			)
+			return {
+				root: q.regionWith(
+					[
+						{ source: q.input("ids", heading), bind: { id: "pid" }, constants: {} },
+						{ source: first, bind: { k: "k", p: "pid", v: "v" }, constants: {} }
+					],
+					{ ...plainRegion, id: { kind: "reserved", id: outer } }
+				),
+				params: {
+					ids: { kind: "relation", heading, rows: Arr.map(s.form.ids, (id) => [int(id)]) }
+				}
+			}
+		}
+	}
+}
+
+export const resolve = (s: Sketch): QueryCase => {
+	const q = new Q()
+	const { root, params } = queryOf(q, s)
+	const dag = normalQuery(q.b.build(Arr.of(root)))
+	return {
+		schema,
+		facts: canonicalFacts({ P: s.accounts, C: s.entries }),
+		query: { dag, params },
+		spelling: { mode: "drawn", edge: false }
+	}
+}
+
+/**
+ * The features every case population must reach: a per-execution variant ran, each take shape, rows delivered, an
+ * attachment pipelined over exact parents, and one fused over the nearest accounts, its search both indexed over
+ * candidates the key keeps distinct and deduplicated over candidates that lose it.
+ */
+export const variantSituations = [
+	"form:optimized variant",
+	"R20.lateral",
+	"R20.distinctOn",
+	"R20.rowNumber",
+	"nonempty",
+	"pipelined attachment",
+	"fused attachment",
+	"approximateNearest.indexed",
+	"approximateNearest.deduplicated"
+] as const satisfies ReadonlyArray<OptimizedFeature>

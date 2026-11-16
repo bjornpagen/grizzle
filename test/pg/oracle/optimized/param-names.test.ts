@@ -8,45 +8,32 @@
  *
  * Features: the population's required features (suite.ts and the file's own).
  */
-import { required } from "@bjornpagen/testing/features"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Formatter } from "effect"
+import type { Reached } from "@bjornpagen/testing/features"
+import { Function } from "effect"
 import {
-	casesPerPopulation,
-	differential,
 	type OptimizedFeature,
-	optimizedShrink,
-	resolved
+	differentialProperty,
+	optimizedSpace
 } from "#test/pg/oracle/optimized/suite.ts"
 import { paramNameGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { namedPlacement } from "#test/support/oracle/runner.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 
-layer(Substrate.layer)(
-	"the optimized lowering against the conservative lowering, parameters named from the dictionary",
-	(it) => {
-		it.effect("agrees on cases whose parameters are named from the dictionary", (ctx) =>
-			searched(
-				ctx,
-				differential(resolved(queryCaseGen(paramNameGenConfig)), namedPlacement("optp"), {
-					suite: "optimized/param-names",
-					oracle: {
-						kind: "second-implementation",
-						name: "the conservative lowering's raw text sets, no repeated row on the optimized side"
-					},
-					literal: Formatter.format,
-					coverage: required<OptimizedFeature>(["relation parameter named from the dictionary"], {
-						cases: casesPerPopulation,
-						sense: notesOnly
-					}),
-					kept: [],
-					runs: casesPerPopulation,
-					shrink: optimizedShrink,
-					perturb: "all"
-				})
-			)
-		)
+/** The optimized lowering agrees with the conservative on cases whose parameters are named from the dictionary. */
+export const paramNames = differentialProperty(
+	optimizedSpace(queryCaseGen(paramNameGenConfig)),
+	Function.identity,
+	namedPlacement("optp"),
+	{
+		situations: ["relation parameter named from the dictionary"] satisfies ReadonlyArray<
+			Reached<OptimizedFeature>
+		>,
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/dedup/place.ts",
+				original: "\t\tconst outstanding = a.obligations.flatMap((o) => (o.discharged ? [] : [o]))",
+				replacement: "\t\tconst outstanding = a.obligations.flatMap(() => [])",
+				why: "The dedup placement discharges no obligation (lower/optimize/dedup/place.ts), so a DISTINCT owed is never placed and the optimized artifact repeats rows."
+			}
+		]
 	}
 )

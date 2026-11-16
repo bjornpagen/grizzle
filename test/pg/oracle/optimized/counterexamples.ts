@@ -1,9 +1,7 @@
-import { type Explored, type Run, type SearchFailure, sketched } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { constant, type Gen } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { Array as Arr, Effect, Formatter, type Scope, String as Str } from "effect"
-import { optimizedShrink } from "#test/pg/oracle/optimized/suite.ts"
+import type { Reached } from "@bjornpagen/testing/features"
+import type { Gen } from "@bjornpagen/testing/gen"
+import { type Case as PropertyCase, family } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import {
 	agrees,
 	baselineIsSet,
@@ -25,22 +23,17 @@ import {
 } from "#test/support/oracle/mutants/cases.ts"
 import { mutantLowering, mutationSites } from "#test/support/oracle/mutants/index.ts"
 import { type MutantId, mutants } from "#test/support/oracle/mutants/mutants.ts"
-import { namedPlacement, oracleCheck, PropertyFailed } from "#test/support/oracle/runner.ts"
-import type { SqlError } from "#test/support/pg.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
-
-/** The cases of a population's rotating stream: the mutant suite's kill population. */
-export const within = 500
+import { namedPlacement, oracleProperty, PropertyFailed } from "#test/support/oracle/runner.ts"
 
 /** What a population's case reaches: a case the mutant rewrote, and one on which the mutant was told apart. */
 type NonReproductionFeature = "mutant rewrote" | "mutant killed"
 
-export interface Population {
+interface Population {
 	readonly id: MutantId
 	readonly gen: Gen<QueryCase>
 }
 
-export const populations: ReadonlyArray<Population> = [
+const populations: ReadonlyArray<Population> = [
 	{ id: "I1", gen: rootedCaseGen(projectRoot, defaultGenConfig) },
 	{ id: "I2", gen: rootedCaseGen(fanoutJoinRoot, defaultGenConfig) },
 	{ id: "I3", gen: noninjectiveKeyCaseGen },
@@ -69,56 +62,57 @@ export const populations: ReadonlyArray<Population> = [
  * population's counterexample rests on its facts as drawn. Each artifact is compiled for `snapshot` against the
  * installation's catalog.
  */
-export const nonReproduction = (
-	population: Population
-): Effect.Effect<Explored, SearchFailure | SqlError, Scope.Scope | Substrate | Run> =>
-	Effect.gen(function* () {
-		const placement = yield* namedPlacement("counter")
-		const mutant = mutants[population.id]
-		const lowering = mutantLowering(mutant)
-		return yield* oracleCheck(
-			sketched(population.gen, constant),
+const nonReproduction = (population: Population) => {
+	const mutant = mutants[population.id]
+	const lowering = mutantLowering(mutant)
+	return oracleProperty(population.gen, {
+		situations: ["mutant rewrote", "mutant killed"] satisfies ReadonlyArray<
+			Reached<NonReproductionFeature>
+		>,
+		perturb: "planner",
+		oracle: {
+			kind: "second-implementation",
+			name: "the conservative lowering's raw text sets, the invalid mutant beside the optimized artifact"
+		},
+		kept: [],
+		kills: [
 			{
-				suite: `optimized/non-reproduction-${Str.toLowerCase(population.id)}`,
-				oracle: {
-					kind: "second-implementation",
-					name: "the conservative lowering's raw text sets, the invalid mutant beside the optimized artifact"
-				},
-				literal: Formatter.format,
-				coverage: required<NonReproductionFeature>(["mutant rewrote", "mutant killed"], {
-					cases: within,
-					sense: notesOnly
-				}),
-				kept: [],
-				runs: within,
-				shrink: optimizedShrink,
-				perturb: "planner"
-			},
-			(resolved, k) =>
-				Effect.gen(function* () {
-					const c = k.draw(resolved)
-					const sites = mutationSites(mutant, c)
-					if (sites.kind === "refused") {
-						return yield* new PropertyFailed({
-							report: `mutant ${mutant.id} refused at ${sites.stage}: ${sites.message}`
-						})
-					}
-					const o = yield* differentialCase(c, {
-						...plainDifferential,
-						placement,
-						others: sites.sites > 0 ? [lowering] : []
+				file: "packages/engine/src/lower/optimize/dedup/place.ts",
+				original: "\t\tconst outstanding = a.obligations.flatMap((o) => (o.discharged ? [] : [o]))",
+				replacement: "\t\tconst outstanding = a.obligations.flatMap(() => [])",
+				why: "The dedup placement discharges no obligation (lower/optimize/dedup/place.ts), so a DISTINCT owed is never placed and the optimized artifact repeats rows."
+			}
+		],
+		show: Formatter.format,
+		check: (k: PropertyCase<NonReproductionFeature>) => (c) =>
+			Effect.gen(function* () {
+				const placement = yield* namedPlacement("counter")
+				const sites = mutationSites(mutant, c)
+				if (sites.kind === "refused") {
+					return yield* new PropertyFailed({
+						report: `mutant ${mutant.id} refused at ${sites.stage}: ${sites.message}`
 					})
-					if (sites.sites > 0) {
-						k.note("mutant rewrote")
-						if (Arr.some(o.others, (m) => !m.comparison.equal)) {
-							k.note("mutant killed")
-						}
-					}
-					if (!baselineIsSet(o) || !agrees(o)) {
-						return yield* new PropertyFailed({
-							report: `the optimized lowering reproduces ${mutant.id}'s counterexample\n${printDifferential(o)}`
-						})
-					}
+				}
+				const o = yield* differentialCase(c, {
+					...plainDifferential,
+					placement,
+					others: sites.sites > 0 ? [lowering] : []
 				})
-		)
+				if (sites.sites > 0) {
+					k.note("mutant rewrote")
+					if (Arr.some(o.others, (m) => !m.comparison.equal)) {
+						k.note("mutant killed")
+					}
+				}
+				if (!baselineIsSet(o) || !agrees(o)) {
+					return yield* new PropertyFailed({
+						report: `the optimized lowering reproduces ${mutant.id}'s counterexample\n${printDifferential(o)}`
+					})
+				}
+			})
 	})
+}
+
+/** Every population's non-reproduction (nonReproduction), one member of a family each, keyed by its mutant. */
+export const nonReproductions = () =>
+	family(Rec.fromEntries(Arr.map(populations, (p) => [p.id, nonReproduction(p)] as const)))

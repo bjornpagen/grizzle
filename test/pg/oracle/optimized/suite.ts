@@ -6,9 +6,20 @@ import {
 	type SearchFailure,
 	steered
 } from "@bjornpagen/testing/explore"
-import { array, constant, element, type Gen, int } from "@bjornpagen/testing/gen"
+import type { Reached } from "@bjornpagen/testing/features"
+import {
+	type Aimed,
+	aimed as aimedSpace,
+	array,
+	constant,
+	element,
+	type Gen,
+	int,
+	type Space
+} from "@bjornpagen/testing/gen"
+import type { Case as PropertyCase, Kill, Oracle } from "@bjornpagen/testing/property"
 import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
-import { Array as Arr, Effect, Record, type Scope } from "effect"
+import { Array as Arr, Effect, Formatter, Record, type Scope } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -54,6 +65,7 @@ import { literalOfValue } from "#test/support/oracle/reference/values.ts"
 import {
 	type CheckOptions,
 	oracleCheck,
+	oracleProperty,
 	type Placement,
 	PropertyFailed
 } from "#test/support/oracle/runner.ts"
@@ -420,6 +432,68 @@ export const resolved = (gen: Gen<QueryCase>): Draw<QueryCase, Gen<QueryCase>, O
  * case so far.
  */
 export const optimizedShrink: ShrinkBudget = { kind: "bounded", candidates: 240 }
+
+/** The oracle every optimized differential is checked against. */
+const conservativeSets: Oracle = {
+	kind: "second-implementation",
+	name: "the conservative lowering's raw text sets, no repeated row on the optimized side"
+}
+
+/**
+ * One case of the optimized differential (see differential): `c` run through every optimized form beside the
+ * conservative baseline under `placement`, its outcome's features noted, and the case failed where the baseline
+ * repeats a row, the forms disagree with it, or a key set read without DISTINCT repeats a key.
+ */
+const differentialOf = (c: QueryCase, placement: Placement, k: PropertyCase<OptimizedFeature>) =>
+	Effect.gen(function* () {
+		const o = yield* differentialCase(c, { ...plainDifferential, placement })
+		k.noteAll(outcomeFeatures(o))
+		if (!baselineIsSet(o)) {
+			return yield* new PropertyFailed({
+				report: `the conservative baseline repeats a row\n${printDifferential(o)}`
+			})
+		}
+		if (!agrees(o)) {
+			return yield* new PropertyFailed({ report: printDifferential(o) })
+		}
+		if (o.keySetRepeats.length > 0) {
+			return yield* new PropertyFailed({
+				report: `${Arr.join(o.keySetRepeats, "\n")}\n${printDifferential(o)}`
+			})
+		}
+	})
+
+/**
+ * A population's space aimed at the situations the drawn populations seldom reach (aims): a case whose turn aims at
+ * one draws the case built to reach it.
+ */
+export const optimizedSpace = (gen: Gen<QueryCase>): Aimed<QueryCase, OptimizedFeature> =>
+	aimedSpace(gen, aims)
+
+/**
+ * The optimized differential as a property of the runner (runner.ts oracleProperty): `space`'s values, each resolved
+ * to its case by `resolve` in the check (so a sketch prints and shrinks as itself), placed by `placing` in the case's
+ * own database and run through differentialOf, with `situations` required and `kills`.
+ */
+export const differentialProperty = <S>(
+	space: Space<S> | Aimed<S, OptimizedFeature>,
+	resolve: (sketch: S) => QueryCase,
+	placing: Effect.Effect<Placement, SqlError, Scope.Scope | Substrate>,
+	spec: {
+		readonly situations: ReadonlyArray<Reached<OptimizedFeature>>
+		readonly kills: ReadonlyArray<Kill>
+	}
+) =>
+	oracleProperty(space, {
+		situations: spec.situations,
+		perturb: "all",
+		oracle: conservativeSets,
+		kept: [],
+		kills: spec.kills,
+		show: Formatter.format,
+		check: (k: PropertyCase<OptimizedFeature>) => (sketch) =>
+			Effect.flatMap(placing, (placement) => differentialOf(resolve(sketch), placement, k))
+	})
 
 /**
  * The differential property every optimized suite runs, and the features it notes: optimized and conservative raw sets

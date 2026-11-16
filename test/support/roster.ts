@@ -7,6 +7,11 @@
 export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/oracle/conservative.test.ts",
 	"test/pg/oracle/key-text-bytes.test.ts",
+	"test/pg/oracle/optimized/counterexamples.test.ts",
+	"test/pg/oracle/optimized/dense.test.ts",
+	"test/pg/oracle/optimized/param-names.test.ts",
+	"test/pg/oracle/optimized/valid-rewrites.test.ts",
+	"test/pg/oracle/optimized/variants.test.ts",
 	"test/pg/oracle/representability.test.ts",
 	"test/pg/oracle/union-take.test.ts",
 	"test/pg/substrate/budget.test.ts",
