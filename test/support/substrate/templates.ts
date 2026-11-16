@@ -26,7 +26,7 @@ export const baseTemplate: DatabaseTemplate = Template.database({
 	build: (target) =>
 		Effect.scoped(
 			Effect.gen(function* () {
-				const cluster = yield* target.member.leased
+				const { cluster } = yield* target.member.leased
 				const failed = sqlNeedFailed("grizzle base template", `the settings of ${target.name}`)
 				const admin = yield* Effect.mapError(
 					devSession(cluster, Option.some("grizzle base template")),

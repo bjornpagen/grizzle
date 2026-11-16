@@ -1,124 +1,85 @@
 /**
  * A process whose work over the test substrate and grizzle is done exits by itself, against PostgreSQL 19.
  *
- * Each case runs test/support/substrate/exit-child.ts as a child process under the test flags: it builds an isolated
- * substrate, installs a relation, opens no Db, one or two in turn, each reading through a query or not, closes every
+ * Each case runs test/support/substrate/exit.child.ts as a child process under the flags every process of a run runs
+ * under (the runner's HARDENED_FLAGS), from the checkout its worker runs in (Checkout.dir), in the place the case lends
+ * it (shared.ts lend: the case's own database on its member, and a test pool's permits of the case's budget, since the
+ * worker holds the member's lease): it builds its substrate there (Substrate.lentLayer), installs a relation, opens no Db, one or two in turn, each reading through a query or not, closes every
  * scope, and writes the kinds of the resources still open. The box is every number of Dbs from none to two, each with
  * and without a read; the one with no Db reads nothing. The oracle is the leak rule: once its scopes are closed nothing
  * it opened is open, no socket, connection attempt or timer, which the child reports before the case awaits its exit,
  * and the child then exits by itself with status 0.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Fiber, Formatter, Layer, Option, Stream } from "effect"
+
+import { Checkout } from "@bjornpagen/testing/checkout"
+import type { Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { HARDENED_FLAGS } from "@bjornpagen/testing/runner"
+import { Array as Arr, Effect, Fiber, Formatter, Option, Path, Stream } from "effect"
 import { ChildProcess } from "effect/process"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
+import { testPoolMax } from "#pg/lease.ts"
+import { caseGen, childModule, type Feature, leaked } from "#test/pg/substrate/exit.fixtures.ts"
 import { assert } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
+import { lend } from "#test/support/substrate/shared.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 import { exitedCleanly } from "#test/unit/dev/consumer.ts"
 
-/** The child's case (exit-child.ts ExitCase). */
-interface ExitCase {
-	readonly dbs: 0 | 1 | 2
-	readonly read: boolean
-}
-
-const dbCounts = [0, 1, 2] as const
-
-const caseGen: Gen<ExitCase> = (source) => {
-	const dbs = source.draw(element(dbCounts))
-	return { dbs, read: dbs > 0 && source.draw(boolean) }
-}
-
-/** The kinds of resource that hold a process open and that a closed scope must have ended. */
-const leaked = Object.freeze([
-	"TCPSocketWrap",
-	"TCPWrap",
-	"TCPConnectWrap",
-	"ConnectWrap",
-	"Timeout",
-	"Immediate"
-])
-
-/** The test flags a child runs under, as the network tests' own process does (package.json test:network). */
-const flags = Object.freeze([
-	"--disable-proto=delete",
-	"--disable-sigusr1",
-	"--throw-deprecation",
-	"--unhandled-rejections=strict"
-])
-
-const childPath = new URL("../../support/substrate/exit-child.ts", import.meta.url).pathname
-
-const spawner = NodeChildProcessSpawner.layer.pipe(
-	Layer.provide(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer))
-)
-
-type Feature = `${0 | 1 | 2} Dbs${"" | ", read"}`
-
-layer(spawner, { excludeTestServices: true })(
-	"a process over the substrate and grizzle exits once its scopes close",
-	(it) => {
-		it.effect(
-			"no socket, connection or timer is left once the substrate and every Db are released",
-			(ctx) =>
-				searched(
-					ctx,
-					exhaust(
-						{
-							suite: "substrate/exit",
-							generator: caseGen,
-							literal: Formatter.format,
-							coverage: requiredInSpace<Feature>([
-								"0 Dbs",
-								"1 Dbs",
-								"1 Dbs, read",
-								"2 Dbs",
-								"2 Dbs, read"
-							]),
-							box: "every number of Dbs from none to two, each with and without a read through a query",
-							oracle: {
-								kind: "specification",
-								name: "the leak rule: nothing a closed scope opened is open, and the process exits by itself"
-							},
-							caseHang
-						},
-						(c, k) =>
-							Effect.scoped(
-								Effect.gen(function* () {
-									const child = yield* ChildProcess.make(
-										process.execPath,
-										[...flags, childPath, jsonText({ dbs: c.dbs, read: c.read })],
-										{ cwd: process.cwd(), stdin: "ignore" }
-									)
-									const stderr = yield* Effect.forkScoped(
-										Stream.mkString(Stream.decodeText(child.stderr))
-									)
-									/** The child's report, read before its exit is awaited: a leak never lets it exit. */
-									const report = yield* Stream.runHead(
-										Stream.splitLines(Stream.decodeText(child.stdout))
-									)
-									if (Option.isNone(report)) {
-										const said = yield* Fiber.join(stderr)
-										return assert.fail(`the child reports what is open: ${said}`)
-									}
-									const open = trustedJson<ReadonlyArray<string>>(report.value)
-									assert.deepEqual(
-										Arr.filter(open, (kind) => leaked.includes(kind)),
-										[],
-										`nothing a closed scope opened is open: ${Formatter.format(open)}`
-									)
-									const exitCode = yield* child.exitCode
-									assert.equal(exitCode, exitedCleanly, "the child exits by itself")
-									k.note(`${c.dbs} Dbs${c.read ? ", read" : ""}`)
-								})
-							)
+/** No socket, connection or timer is left once the substrate and every Db are released, and the process exits. */
+export const exitsOnceItsScopesClose = property.exhaust(finite(caseGen), {
+	needs: { checkout: Checkout.dir, substrate: Substrate.fresh },
+	situations: ["0 Dbs", "1 Dbs", "1 Dbs, read", "2 Dbs", "2 Dbs, read"] satisfies ReadonlyArray<
+		Reached<Feature>
+	>,
+	check:
+		({ checkout, substrate }, k: Case<Feature>) =>
+		(c) =>
+			Effect.scoped(
+				Effect.gen(function* () {
+					const root = yield* checkout
+					const s = yield* substrate
+					const lent = yield* lend(s, testPoolMax)
+					const path = yield* Path.Path
+					const child = yield* ChildProcess.make(
+						process.execPath,
+						[
+							...HARDENED_FLAGS,
+							path.join(root, childModule),
+							jsonText({ dbs: c.dbs, read: c.read })
+						],
+						{ cwd: root, stdin: "ignore", env: lent, extendEnv: true }
 					)
-				)
-		)
-	}
-)
+					const stderr = yield* Effect.forkScoped(Stream.mkString(Stream.decodeText(child.stderr)))
+					/** The child's report, read before its exit is awaited: a leak never lets it exit. */
+					const report = yield* Stream.runHead(Stream.splitLines(Stream.decodeText(child.stdout)))
+					if (Option.isNone(report)) {
+						const said = yield* Fiber.join(stderr)
+						return assert.fail(`the child reports what is open: ${said}`)
+					}
+					const open = trustedJson<ReadonlyArray<string>>(report.value)
+					assert.deepEqual(
+						Arr.filter(open, (kind) => leaked.includes(kind)),
+						[],
+						`nothing a closed scope opened is open: ${Formatter.format(open)}`
+					)
+					const exitCode = yield* child.exitCode
+					assert.equal(exitCode, exitedCleanly, "the child exits by itself")
+					k.note(`${c.dbs} Dbs${c.read ? ", read" : ""}`)
+				})
+			),
+	oracle: {
+		kind: "specification",
+		name: "the leak rule: nothing a closed scope opened is open, and the process exits by itself"
+	},
+	box: "every number of Dbs from none to two, each with and without a read through a query",
+	kept: [],
+	kills: [
+		{
+			file: "packages/grizzle/src/adapter/wire/session.ts",
+			original: "\t\tyield* Effect.addFinalizer(() => Effect.sync(end))\n",
+			replacement: "",
+			why: "A DbLayer's scope never ends its session pool (adapter/wire/session.ts, its end no finalizer of the layer), so a closed Db leaves its sockets holding the process open."
+		}
+	]
+})

@@ -3,7 +3,11 @@ import { Array as Arr, Config, Effect, Exit, Option, Scope, String as Str } from
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { InitializedCluster, type InitializedClusterShape } from "#test/support/cluster.ts"
+import {
+	InitializedCluster,
+	type InitializedClusterShape,
+	lentVariable
+} from "#test/support/cluster.ts"
 import {
 	devSession,
 	ensureDatabase,
@@ -215,9 +219,10 @@ export const takeLease = (
  * A lease a substrate holds: the connection that holds its slot, and the cluster with the budget the lease grants its
  * file, of leaseGrant permits, which every connection the file opens after it draws from.
  */
-interface Lease {
-	readonly connection: PgConnection
+export interface Lease {
 	readonly cluster: BudgetedCluster
+	/** The backends that hold the place: the lease's own connection, none for a place a parent lent. */
+	readonly held: ReadonlyArray<number>
 }
 
 /**
@@ -253,7 +258,10 @@ export const leaseOn = (
 			substrateLease,
 			slots
 		)
-		return { connection, cluster: budgeted(initialized, leaseBudget(leaseGrant)) }
+		return {
+			cluster: budgeted(initialized, leaseBudget(leaseGrant)),
+			held: [connection.processId]
+		}
 	})
 
 /**
@@ -262,6 +270,20 @@ export const leaseOn = (
  */
 export const leaseConnections: Effect.Effect<Lease, SqlError, InitializedCluster | Scope.Scope> =
 	Effect.flatMap(InitializedCluster, leaseOn)
+
+/**
+ * A child process's place, lent by a case (substrate.ts Substrate.lentLayer): `width` of the permits of the case's
+ * budget set aside for the current scope (LeaseBudget within), and the environment that names them, the case's member
+ * and its database to the child (cluster.ts lentVariable), whose connections draw from them without a lease of their
+ * own. LeaseBudgetExhausted, a defect, when fewer are free.
+ */
+export const lend = (
+	place: Readonly<{ cluster: BudgetedCluster; database: string }>,
+	width: number
+): Effect.Effect<Readonly<Record<string, string>>, never, Scope.Scope> =>
+	Effect.as(place.cluster.budget.within(width), {
+		[lentVariable]: `${place.cluster.port}:${width}:${place.database}`
+	})
 
 export interface SharedClaim {
 	readonly database: string

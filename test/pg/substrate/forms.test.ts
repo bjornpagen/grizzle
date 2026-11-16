@@ -9,15 +9,23 @@
 import { int } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
+import { Db } from "#adapter/public/db.ts"
 import {
 	firstCaseDeadline,
 	loggedIn,
+	secondWorkTemplate,
+	servedTemplate,
+	servedWorld,
+	oneOfCase,
 	workTemplate,
 	writtenAccounts
 } from "#test/pg/substrate/forms.fixtures.ts"
 import { assert } from "#test/support/assert.ts"
+import { Work } from "#test/support/fixtures/api/work.ts"
+import { Served } from "#test/support/served-db.ts"
 import { leftovers } from "#test/support/substrate/shared.ts"
 import { roleSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { withLayer } from "#test/support/with-layer.ts"
 
 /**
  * A case's own clone of the base template is a clean test database (shared.ts leftovers: the test settings and
@@ -100,6 +108,56 @@ export const rolledBack = property.explore(int(1, 4), {
 				yield* writtenAccounts(connection, value, rows)
 			}),
 	oracle: { kind: "specification", name: "a rolled-back case leaves its clone as its template" },
+	kept: [],
+	kills: []
+})
+
+/**
+ * A login served over a case's own clone of a generated template (Served.of): its served layer connects to the clone
+ * with the password its template derives, and its workload reads what the case wrote.
+ */
+export const served = property.explore(int(1, 4), {
+	needs: { work: Served.of(servedWorld(Work).server, Substrate.freshOf(servedTemplate)) },
+	caseDeadline: firstCaseDeadline,
+	situations: [],
+	check:
+		({ work }) =>
+		(rows) =>
+			Effect.gen(function* () {
+				const { substrate, installed, fixture } = yield* work
+				yield* writtenAccounts(substrate.admin, installed, rows)
+				const read = yield* Effect.scoped(
+					Effect.gen(function* () {
+						const db = yield* Db.open(fixture.login.roles.app, {})
+						return yield* db.workload.accounts.once({ params: {}, facts: {} })
+					})
+				).pipe(withLayer(fixture.layer))
+				assert.equal(read.size, rows, "the served login reads the case's accounts")
+			}),
+	oracle: { kind: "specification", name: "a served login reads its case's own clone" },
+	kept: [],
+	kills: []
+})
+
+/**
+ * A case's choice among a closed set of templates (Substrate.oneOf): each key a need of its own, of which a case takes
+ * only the one it draws, holding that template's installation and no row of another case's.
+ */
+export const oneOfTemplates = property.explore(oneOfCase, {
+	needs: Substrate.oneOf({ first: workTemplate, second: secondWorkTemplate }, Substrate.freshOf),
+	caseDeadline: firstCaseDeadline,
+	situations: [],
+	check:
+		(work) =>
+		([key, rows]) =>
+			Effect.gen(function* () {
+				const { substrate, value } = yield* work[key]
+				yield* writtenAccounts(substrate.admin, value, rows)
+			}),
+	oracle: {
+		kind: "specification",
+		name: "a case takes the one template it draws, as its own clone"
+	},
 	kept: [],
 	kills: []
 })

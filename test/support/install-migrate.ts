@@ -1173,6 +1173,74 @@ export const installGenerated = (
 	)
 
 /**
+ * A generated installation's template (substrate.ts installTemplate): `build`'s schema and logins drafted and served
+ * under the template's names as `grizzle generate` drafts them (generatedHistory) by every worker, applied once per
+ * member by the build as installGenerated applies its first version, and each case's Generated the installation in the
+ * case's clone, every login logging in with the password its template derived, with each login's served file.
+ * `content` is what tells this template from another its module declares: its module's import closure covers the code.
+ */
+export const generatedTemplate = (spec: {
+	readonly declaredIn: ImportMeta
+	readonly name: string
+	readonly content: Content
+	readonly build: (name: string) => {
+		readonly schema: AnySchema
+		readonly logins: ReadonlyArray<AnyLogin>
+	}
+	readonly ambient: AmbientSession
+}): SubstrateTemplate<Generated> =>
+	installTemplate({
+		declaredIn: spec.declaredIn,
+		name: spec.name,
+		content: spec.content,
+		plan: (names) =>
+			Effect.map(
+				generatedHistory(
+					[(name) => ({ ...spec.build(name), declarations: noDeclarations })],
+					names.schema,
+					pgPin.devRole
+				),
+				(history) => ({ names, drafted: Arr.headNonEmpty(history) })
+			),
+		install: ({ names, drafted }) =>
+			Effect.gen(function* () {
+				const substrate = yield* Substrate
+				assert.ok(
+					runsInstallScript([drafted.folder], drafted.plan.installation, substrate.database),
+					"generate's first migration runs the installation's script alone"
+				)
+				const owner = yield* ambientOwner(spec.ambient, installedSchemas(drafted.plan.installation))
+				yield* applyFolders(owner, substrate.database, drafted.snapshot, [drafted.folder])
+				const credentials = yield* loginCredentials(drafted.plan, drafted.served, new Map())
+				yield* generatedAt(drafted, {
+					declared: names.schema,
+					folders: [drafted.folder],
+					ambientOwner: owner,
+					credentials
+				})
+			}),
+		bind: ({ names, drafted }, binding) => ({
+			installed: installedAt(
+				{
+					plan: drafted.plan,
+					declared: names.schema,
+					folders: [drafted.folder],
+					snapshot: drafted.snapshot,
+					ambientOwner: templateAmbientOwner(
+						spec.ambient,
+						templateLogin(binding, names.ownerLogin)
+					),
+					files: drafted.served,
+					credentials: templateCredentials(binding, loginRoles(drafted.plan, drafted.served))
+				},
+				binding
+			),
+			served: drafted.served
+		}),
+		reset: (generated) => installationGroup(namesOf(generated.installed))
+	})
+
+/**
  * Installs an installation once more in another database of the cluster, through the same migration, since Db.open
  * admits a schema only where its ledger and catalog are the snapshot's. Login and world roles are cluster-wide and
  * already exist, so the reviewer deletes the statements that create them; every other statement, the memberships and

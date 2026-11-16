@@ -1,10 +1,17 @@
 import { type Limit, provisional } from "@bjornpagen/limit"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Effect } from "effect"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
+import { query, v } from "#compiler/public/query.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { assert } from "#test/support/assert.ts"
-import { Account, Work, workWorlds } from "#test/support/fixtures/api/work.ts"
-import { type Installed, migratedTemplate } from "#test/support/install-migrate.ts"
+import { Account, Work, type WorkNamed, workWorlds } from "#test/support/fixtures/api/work.ts"
+import {
+	generatedTemplate,
+	type Installed,
+	migratedTemplate
+} from "#test/support/install-migrate.ts"
+import { rebuild } from "#test/support/installed.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
@@ -13,6 +20,7 @@ import {
 	type SubstrateShape,
 	worldSession
 } from "#test/support/substrate/substrate.ts"
+import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * Work installed through its first migration with its server login (test/support/fixtures/api/work.ts): the template the
@@ -44,6 +52,53 @@ export const firstCaseDeadline: Limit = provisional({
 	origin:
 		"GZ-FOUNDATION, 2026-11-16: four times the runner's caseDeadlineMillis. At 64 workers and load 350 a worker's first take of a built template took up to 18.5 s (measure/overhead1.jsonl); at load 500 to 700 with the templates unbuilt every property was cut at 60 s on its workers' first cases",
 	recorded: "2026-11-16"
+})
+
+/**
+ * Work installed once more as a template of its own, its content apart from workTemplate's: the second of the closed
+ * set of templates oneOfTemplates draws from.
+ */
+export const secondWorkTemplate = migratedTemplate({
+	declaredIn: import.meta,
+	name: "work, second",
+	content: { schema: "Work", logins: ["server"], ambient: "ordinary", copy: "second" },
+	versions: [{ schema: Work, logins: [workWorlds(Work).server], declarations: noDeclarations }],
+	options: { label: "work", extensions: [], compile: compileInstallation, ambient: ordinarySession }
+})
+
+/** The keys of the closed set of templates the oneOf property draws a case's from. */
+const templateKeys = ["first", "second"] as const
+
+/** A oneOf case: the template it draws among templateKeys, and the rows it writes. */
+export const oneOfCase: Gen<readonly [(typeof templateKeys)[number], number]> = (source) => [
+	source.draw(element(templateKeys)),
+	source.draw(int(1, 4))
+]
+
+/** Every account, by id and name, over `installed`: the read the served login's workload holds (servedTemplate). */
+const everyAccount = (installed: WorkNamed<string>) =>
+	query(installed).rule((r) => {
+		const { id, name } = v(Account, "account")
+		return r.match(Account, { id, name }).find({ id, name })
+	})
+
+/** Work's full world over the schema it is given (test/support/worlds.ts fullWorld), its login reading every account. */
+export const servedWorld = (installed: WorkNamed<string>) =>
+	fullWorld(installed, { accounts: everyAccount(installed) })
+
+/**
+ * Work drafted and served as `grizzle generate` does, with its full world's server login (servedWorld), which Served.of
+ * serves over each case's clone.
+ */
+export const servedTemplate = generatedTemplate({
+	declaredIn: import.meta,
+	name: "work served",
+	content: { schema: "Work", logins: ["server of the full world, reading every account"] },
+	build: (name) => {
+		const named = rebuild(Work, name)
+		return { schema: named, logins: [servedWorld(named).server] }
+	},
+	ambient: ordinarySession
 })
 
 /** How many accounts `connection` reads in the installation. */

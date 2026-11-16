@@ -1,9 +1,10 @@
-import { type Need, type NeedContext, NeedFailed } from "@bjornpagen/testing/property"
+import { type Need, type NeedContext, NeedFailed, WorkerIndex } from "@bjornpagen/testing/property"
 import {
 	type Content,
 	Database,
 	type DatabaseNeed,
 	type DatabaseTemplate,
+	PgCluster,
 	Template
 } from "@bjornpagen/testing/resources"
 import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from "@effect/platform-node"
@@ -17,6 +18,7 @@ import {
 	HashSet,
 	Layer,
 	Option,
+	Record as Rec,
 	Redacted,
 	Ref,
 	type Scope,
@@ -29,7 +31,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { advisoryKey } from "#compiler/sql/catalog.ts"
 import { quoteIdent, quoteString } from "#compiler/sql/print.ts"
 import { testPoolMax } from "#pg/lease.ts"
-import { InitializedCluster } from "#test/support/cluster.ts"
+import { InitializedCluster, lentPlace, lentVariable } from "#test/support/cluster.ts"
 import { adminUrl, pgPin } from "#test/support/env.ts"
 import {
 	type ClientBackend,
@@ -45,7 +47,8 @@ import { awaitBlockedBy, awaitLockWait, type LockWait } from "#test/support/subs
 import {
 	type BudgetedCluster,
 	budgeted,
-	LeaseBudgetExhausted
+	LeaseBudgetExhausted,
+	leaseBudget
 } from "#test/support/substrate/budget.ts"
 import type { PsqlProcessError } from "#test/support/substrate/errors.ts"
 import {
@@ -78,6 +81,7 @@ import {
 
 import {
 	claimSharedDatabase,
+	type Lease,
 	leaseConnections,
 	leftovers,
 	undoInstallEffects
@@ -820,7 +824,7 @@ const makeSubstrate: Effect.Effect<
 				lease.cluster,
 				claim.database,
 				claim.admin,
-				[lease.connection.processId, claim.claimant],
+				[...lease.held, claim.claimant],
 				processAllocations
 			)
 		})
@@ -846,15 +850,37 @@ const makeIsolatedSubstrate: Effect.Effect<
 				credentials: ownerCredentials(lease.cluster),
 				label: "admin"
 			})
-			return yield* build(
-				lease.cluster,
-				database,
-				admin,
-				[lease.connection.processId],
-				processAllocations
-			)
+			return yield* build(lease.cluster, database, admin, lease.held, processAllocations)
 		})
 	)
+})
+
+/**
+ * The substrate of a child process in the place its parent case lent it (cluster.ts lentPlace, shared.ts lend): the
+ * case's database on the case's member, the permits the case set aside, no lease and no database of its own. Its
+ * allocations are its own, released as its scope closes; the database is the case's, which the case's need drops.
+ */
+const makeLentSubstrate: Effect.Effect<
+	SubstrateShape,
+	SqlError,
+	Scope.Scope | InitializedCluster | ChildProcessSpawner.ChildProcessSpawner
+> = Effect.gen(function* () {
+	const initialized = yield* InitializedCluster
+	const lent = yield* lentPlace
+	const place = yield* Option.match(lent, {
+		onNone: () =>
+			Effect.die(
+				new Error(`a lent substrate in a process no parent lent a place to (${lentVariable})`)
+			),
+		onSome: Effect.succeed
+	})
+	const cluster = budgeted(initialized, leaseBudget(place.width))
+	const admin = yield* connect(cluster, {
+		database: place.database,
+		credentials: ownerCredentials(cluster),
+		label: "admin"
+	})
+	return yield* build(cluster, place.database, admin, [], processAllocations)
 })
 
 /**
@@ -899,7 +925,7 @@ const base: SubstrateTemplate<void> = {
 }
 
 /** A case over a clone of a template: its own substrate over the clone, and the template's value bound to it. */
-interface SubstrateCase<T> {
+export interface SubstrateCase<T> {
 	readonly substrate: SubstrateShape
 	readonly value: T
 }
@@ -987,7 +1013,7 @@ export const installTemplate = <P, T, E1, E2>(
 			Effect.scoped(
 				Effect.gen(function* () {
 					const { digest, plan } = yield* planned(database)
-					const cluster = yield* target.member.leased
+					const { cluster } = yield* target.member.leased
 					const failed = sqlNeedFailed(spec.name, `the install in ${target.name}`)
 					const admin = yield* Effect.mapError(
 						connect(cluster, {
@@ -1037,7 +1063,7 @@ const substrateOver = (
 	spawning: Context.Context<ChildProcessSpawner.ChildProcessSpawner>
 ): Effect.Effect<SubstrateShape, NeedFailed, Scope.Scope> =>
 	Effect.gen(function* () {
-		const cluster = yield* taken.member.leased
+		const { cluster, held } = yield* taken.member.leased
 		const failed = sqlNeedFailed(form, `the substrate in ${taken.name}`)
 		const admin = yield* Effect.mapError(
 			connect(cluster, {
@@ -1048,7 +1074,7 @@ const substrateOver = (
 			failed
 		)
 		return yield* Effect.mapError(
-			Effect.provideContext(build(cluster, taken.name, admin, [], processAllocations), spawning),
+			Effect.provideContext(build(cluster, taken.name, admin, held, processAllocations), spawning),
 			failed
 		)
 	})
@@ -1157,13 +1183,38 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 			open: Effect.map(Effect.all([transaction.open, template.bound]), ([take, bind]) =>
 				Effect.gen(function* () {
 					const taken = yield* take
-					const cluster = yield* taken.database.member.leased
+					const { cluster } = yield* taken.database.member.leased
 					const binding = { cluster, database: taken.database.name }
 					return { ...binding, connection: taken.session.connection, value: bind(binding) }
 				})
 			)
 		}
 	}
+	/**
+	 * The worker's place on its member (runner.ts PgMember leased): its lease's budget and the backend that holds the
+	 * lease, and no database, for a case that opens connections of its own in the owner's database (a lease's own
+	 * tables).
+	 */
+	static readonly member: Need<Lease> = {
+		key: "grizzle Substrate.member",
+		open: Effect.map(
+			Effect.gen(function* () {
+				const cluster = yield* PgCluster
+				const worker = yield* WorkerIndex
+				const member = yield* cluster.memberOf(worker)
+				return yield* member.leased
+			}),
+			Effect.succeed
+		)
+	}
+	/**
+	 * A case's choice among a closed set of templates, each under `form`: one need per key, to spread into a property's
+	 * needs, of which a case takes only the one it draws (`yield* resources[key]`).
+	 */
+	static readonly oneOf = <K extends string, T, A>(
+		templates: Readonly<Record<K, SubstrateTemplate<T>>>,
+		form: (template: SubstrateTemplate<T>) => Need<A>
+	): Readonly<Record<K, Need<A>>> => Rec.map(templates, form)
 	/** A shared database: build this layer once per file. It reads the initialised cluster once, as it builds. */
 	static readonly layer = Layer.effect(Substrate, makeSubstrate).pipe(
 		Layer.provide(Layer.mergeAll(nodeSpawner, InitializedCluster.layer))
@@ -1173,6 +1224,13 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 	 * for a bench. It reads the initialised cluster once, as it builds.
 	 */
 	static readonly isolatedLayer = Layer.effect(Substrate, makeIsolatedSubstrate).pipe(
+		Layer.provide(Layer.mergeAll(nodeSpawner, InitializedCluster.layer))
+	)
+	/**
+	 * A child process's substrate in the place the case that runs it lent it (makeLentSubstrate, shared.ts lend): a case
+	 * holds its member's lease, so its child takes none and works in the case's own database.
+	 */
+	static readonly lentLayer = Layer.effect(Substrate, makeLentSubstrate).pipe(
 		Layer.provide(Layer.mergeAll(nodeSpawner, InitializedCluster.layer))
 	)
 }

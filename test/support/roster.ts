@@ -6,6 +6,13 @@
  */
 export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/substrate/forms.test.ts",
+	"test/pg/substrate/budget.test.ts",
+	"test/pg/substrate/exit.test.ts",
+	"test/pg/substrate/fill.test.ts",
+	"test/pg/substrate/lease.test.ts",
+	"test/pg/substrate/orphan.test.ts",
+	"test/pg/substrate/stopped.test.ts",
+	"test/pg/substrate/substrate.test.ts",
 	"test/unit/adapter/**/*.test.ts",
 	"test/unit/allen/**/*.test.ts",
 	"test/unit/bench/**/*.test.ts",

@@ -12,8 +12,7 @@ import { type LocalCluster, localCluster } from "#pg/local-cluster.ts"
 import { type InitializedClusterShape, readCluster } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { type PgConnection, session, type SqlError } from "#test/support/pg.ts"
-import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
-import { leaseOn } from "#test/support/substrate/shared.ts"
+import { type Lease, leaseOn } from "#test/support/substrate/shared.ts"
 
 /**
  * grizzle's services for the toolchain's runner (`toolchain-test`, test.config.ts): the local cluster family as the
@@ -37,10 +36,10 @@ declare module "@bjornpagen/testing/resources" {
 		/** What scripts/pg/init.sh made of the member: its port, socket, CA certificates and owner password. */
 		readonly initialized: InitializedClusterShape
 		/**
-		 * The worker's lease on the member with the budget it grants (shared.ts leaseOn), taken the first time it is asked
-		 * for and held for the worker's life.
+		 * The worker's lease on the member, with the budget it grants and the backend that holds it (shared.ts leaseOn),
+		 * taken the first time it is asked for and held for the worker's life.
 		 */
-		readonly leased: Effect.Effect<BudgetedCluster, NeedFailedError>
+		readonly leased: Effect.Effect<Lease, NeedFailedError>
 	}
 	interface PgSession {
 		/** The owner's connection the session runs on (ownerSession), for grizzle's code over the same session. */
@@ -82,10 +81,10 @@ const memberOf = (
 ): Effect.Effect<PgMember> =>
 	Effect.map(
 		Effect.cached(
-			Effect.mapBoth(Scope.provide(leaseOn(initialized), scope), {
-				onSuccess: (lease) => lease.cluster,
-				onFailure: clusterFailed(`the connection lease on member ${initialized.port}`)
-			})
+			Effect.mapError(
+				Scope.provide(leaseOn(initialized), scope),
+				clusterFailed(`the connection lease on member ${initialized.port}`)
+			)
 		),
 		(leased): PgMember => ({ name: String(initialized.port), initialized, leased })
 	)
@@ -120,7 +119,7 @@ const ownerSession = (
 	database: string
 ): Effect.Effect<PgSession, NeedFailedError, Scope.Scope> =>
 	Effect.gen(function* () {
-		const cluster = yield* member.leased
+		const { cluster } = yield* member.leased
 		const connection = yield* Effect.mapError(
 			session(cluster, {
 				database,

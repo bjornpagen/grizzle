@@ -1,3 +1,4 @@
+import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Layer, Option, Record as Rec, Result, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { changeApplication, onceCalls, type OnceCalls, variantOf } from "#adapter/db/handles.ts"
@@ -32,6 +33,7 @@ import { type SourcedLayer, sourcedDbLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { type RoleSetupError, servedRoleContext } from "#test/support/served-role.ts"
 import { snapshotValue } from "#test/support/snapshot-json.ts"
+import type { SubstrateCase, SubstrateShape } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
@@ -214,6 +216,36 @@ export const servedFixture = <L extends AnyLogin>(
 	Effect.map(servedJson(installed, login, login.workload), (json) =>
 		servedFixtureOf(installed, login, json)
 	)
+
+/** A case serving a login over its own installation: its substrate, the installation, and the login's fixture over it. */
+interface ServedCase<L> {
+	readonly substrate: SubstrateShape
+	readonly installed: Installed
+	readonly fixture: ServedFixture<L>
+}
+
+/**
+ * The served forms of a property's needs. `Served.of(login, cases)`: each case of `cases` (Substrate.freshOf or
+ * Substrate.seat over a generated template, install-migrate.ts generatedTemplate) with `login` serving the file
+ * `grizzle generate` wrote for it over the case's installation (servedGenerated): the file is the template's plan's, the
+ * same in every case and worker, and each case's layer connects to its own clone with the password its template
+ * derives. A login generate served no file for is a defect of the test.
+ */
+export const Served = {
+	of: <L extends AnyLogin>(
+		login: L,
+		cases: Need<SubstrateCase<Generated>>
+	): Need<ServedCase<L>> => ({
+		key: `grizzle Served.of ${login.name} ${cases.key}`,
+		open: Effect.map(cases.open, (take) =>
+			Effect.map(take, ({ substrate, value }) => ({
+				substrate,
+				installed: value.installed,
+				fixture: servedGenerated(value, login)
+			}))
+		)
+	})
+} as const
 
 /**
  * One Db of a role over an installation: its context, which every member it serves runs over; `load`, which compiles

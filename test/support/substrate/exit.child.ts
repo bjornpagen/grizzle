@@ -1,6 +1,6 @@
 /**
  * A process's whole life over the test substrate, run as a child by test/pg/substrate/exit.test.ts: it builds
- * Substrate.isolatedLayer in a scope, installs a schema of one relation in it and opens `dbs` Dbs over it one after
+ * Substrate.lentLayer in a scope, in the place the case that runs it lent it (its database, its member, its permits), installs a schema of one relation in it and opens `dbs` Dbs over it one after
  * another, each reading the relation through a query when `read` says so, then closes every scope. Once the event
  * loop has settled the closes, it writes the kinds of the resources still holding the process open
  * (process.getActiveResourcesInfo), one JSON line on standard output, and returns: the process must then exit by
@@ -42,7 +42,7 @@ const turn = Effect.callback<void>((resume) => {
 const run = (c: ExitCase) =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			const substrate = yield* Layer.build(Layer.fresh(Substrate.isolatedLayer))
+			const substrate = yield* Layer.build(Layer.fresh(Substrate.lentLayer))
 			yield* Effect.provideContext(work(c), substrate)
 		})
 	)

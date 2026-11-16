@@ -1,6 +1,18 @@
 import { NodeFileSystem } from "@effect/platform-node"
-import { Context, Data, Effect, FileSystem, Layer, Redacted, String as Str } from "effect"
-import { currentWorker, type FamilyUnrecorded, memberOf, readFamily } from "#pg/family.ts"
+import { regex } from "arkregex"
+import {
+	Array as Arr,
+	Config,
+	Context,
+	Data,
+	Effect,
+	FileSystem,
+	Layer,
+	Option,
+	Redacted,
+	String as Str
+} from "effect"
+import { currentWorker, FamilyUnrecorded, memberOf, readFamily } from "#pg/family.ts"
 import { type LocalCluster, localCluster } from "#pg/local-cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 
@@ -65,9 +77,45 @@ export const readCluster = (
 	})
 
 /**
+ * The variable a case's child process is lent its parent's place on the cluster by (shared.ts lend):
+ * `<port>:<width>:<database>`, the member the case runs on, the permits of the case's budget it set aside for the child,
+ * which the child draws from instead of taking a lease of its own (a runner worker holds its member's lease slot for its
+ * life, so a child that leased would wait on its own parent), and the case's database, which the child works in.
+ */
+export const lentVariable = "GRIZZLE_PG_LENT"
+
+/** A place on the cluster a parent lent this process (lentVariable): the member's port, its permits, its database. */
+export interface Lent {
+	readonly port: number
+	readonly width: number
+	readonly database: string
+}
+
+const lentText = regex("^([1-9][0-9]{0,4}):([1-9][0-9]*):([a-z_][a-z0-9_]*)$")
+
+/**
+ * The place this process's parent lent it (lentVariable), read through Config once: none for a process that leases
+ * its own (a Vitest file, a runner worker, a bench), and a defect for a variable that names no place, which only a
+ * broken parent writes.
+ */
+export const lentPlace: Effect.Effect<Option.Option<Lent>> = Effect.map(
+	Effect.orDie(Config.option(Config.String(lentVariable))),
+	Option.map((text) => {
+		const parsed = lentText.exec(text)
+		if (parsed === null) {
+			throw new Error(
+				`${lentVariable}=${text} names no place: <port>:<width>:<database> it must be`
+			)
+		}
+		return { port: Number(parsed[1]), width: Number(parsed[2]), database: parsed[3] }
+	})
+)
+
+/**
  * The member of the family GRIZZLE_PG_CLUSTER names that this process reaches, read once: the family as its family file
- * records it (packages/pg/src/family.ts readFamily), its member for this process's Vitest worker (memberOf, worker w on
- * member (w − 1) mod K; a process outside a worker on the first), and that member's files.
+ * records it (packages/pg/src/family.ts readFamily), and that member's files. A child its parent lent a place to
+ * reaches the parent's member (lentPlace); any other process its Vitest worker's (memberOf, worker w on member (w − 1)
+ * mod K; a process outside a worker on the first). A lent port the family does not list is FamilyUnrecorded.
  */
 export const selectedCluster: Effect.Effect<
 	InitializedClusterShape,
@@ -75,8 +123,20 @@ export const selectedCluster: Effect.Effect<
 	FileSystem.FileSystem
 > = Effect.gen(function* () {
 	const family = yield* readFamily(localCluster)
-	const worker = yield* currentWorker
-	return yield* readCluster(memberOf(family, worker))
+	const lent = yield* lentPlace
+	const member = yield* Option.match(lent, {
+		onNone: () => Effect.map(currentWorker, (worker) => memberOf(family, worker)),
+		onSome: (place) =>
+			Effect.mapError(
+				Effect.fromOption(Arr.findFirst(family.members, (m) => m.port === place.port)),
+				() =>
+					new FamilyUnrecorded({
+						file: localCluster.state,
+						reason: `the lent member ${place.port} is none of the family's`
+					})
+			)
+	})
+	return yield* readCluster(member)
 })
 
 /**
