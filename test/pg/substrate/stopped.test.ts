@@ -38,6 +38,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** A stopped case's allocations leave no schema or role behind once the stop that interrupted them has been awaited. */
 export const stoppedReleases = property.explore(stoppingSpace, {
 	needs: { substrate: Substrate.fresh },
+	/** Its pre-conversion budget: runs 12, coverage cases 40 (stopped.test.ts:223-226 at d55043f1^). */
+	budget: { runs: 12, steered: 40 },
 	situations: stoppedFeatures satisfies ReadonlyArray<Reached<StoppedFeature>>,
 	check:
 		({ substrate }, c: Case<StoppedFeature>) =>
@@ -81,5 +83,12 @@ export const stoppedReleases = property.explore(stoppingSpace, {
 		name: "a clean database (shared.ts leftovers) and none of the allocations' roles on the cluster, once the stopped allocations are awaited"
 	},
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/pg/src/family.ts",
+			original: "\tif (head !== first.port) {",
+			replacement: "\tif (head === first.port) {",
+			why: "Operator mutant (comparison) at packages/pg/src/family.ts:93 in parseFamily: `!==` becomes `===`; the property fails (lane CATCH, grizzle 0baff5d6)."
+		}
+	]
 })

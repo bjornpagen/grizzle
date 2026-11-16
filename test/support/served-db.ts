@@ -1,4 +1,3 @@
-import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Layer, Option, Record as Rec, Result, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { changeApplication, onceCalls, type OnceCalls, variantOf } from "#adapter/db/handles.ts"
@@ -33,7 +32,11 @@ import { type SourcedLayer, sourcedDbLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
 import { type RoleSetupError, servedRoleContext } from "#test/support/served-role.ts"
 import { snapshotValue } from "#test/support/snapshot-json.ts"
-import type { SubstrateCase, SubstrateShape } from "#test/support/substrate/substrate.ts"
+import type {
+	SubstrateCase,
+	SubstrateShape,
+	TemplateNeed
+} from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 import { testVerify, tokenOf } from "#test/support/worlds.ts"
 
@@ -234,9 +237,10 @@ interface ServedCase<L> {
 export const Served = {
 	of: <L extends AnyLogin>(
 		login: L,
-		cases: Need<SubstrateCase<Generated>>
-	): Need<ServedCase<L>> => ({
+		cases: TemplateNeed<SubstrateCase<Generated>>
+	): TemplateNeed<ServedCase<L>> => ({
 		key: `grizzle Served.of ${login.name} ${cases.key}`,
+		template: cases.template,
 		open: Effect.map(cases.open, (take) =>
 			Effect.map(take, ({ substrate, value }) => ({
 				substrate,

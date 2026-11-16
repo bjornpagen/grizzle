@@ -43,6 +43,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /** Generated write runs agree three ways: db.apply, add-wins and the conservative realization. */
 export const writeOracle = property.explore(perturbedRunGen, {
 	needs: { substrate: Substrate.fresh },
+	/** Its pre-conversion budget: four suites of runs 40 and coverage cases 40 each (write/oracle/support.ts runs at f3a70587^). */
+	budget: { runs: 160, steered: 160 },
 	caseDeadline: writeRunDeadline,
 	situations: writeSituations,
 	check:

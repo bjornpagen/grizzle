@@ -17,7 +17,7 @@ import {
 	int,
 	type Space
 } from "@bjornpagen/testing/gen"
-import type { Case as PropertyCase, Kill, Oracle } from "@bjornpagen/testing/property"
+import type { Budget, Case as PropertyCase, Kill, Oracle } from "@bjornpagen/testing/property"
 import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
 import { Array as Arr, Effect, Formatter, Record, type Scope } from "effect"
 import { maxOf } from "#compiler/core/array.ts"
@@ -482,6 +482,7 @@ export const differentialProperty = <S>(
 	spec: {
 		readonly situations: ReadonlyArray<Reached<OptimizedFeature>>
 		readonly kills: ReadonlyArray<Kill>
+		readonly budget: Budget
 	}
 ) =>
 	oracleProperty(space, {
@@ -490,6 +491,7 @@ export const differentialProperty = <S>(
 		oracle: conservativeSets,
 		kept: [],
 		kills: spec.kills,
+		budget: spec.budget,
 		show: Formatter.format,
 		check: (k: PropertyCase<OptimizedFeature>) => (sketch) =>
 			Effect.flatMap(placing, (placement) => differentialOf(resolve(sketch), placement, k))

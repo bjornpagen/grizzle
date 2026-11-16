@@ -75,6 +75,8 @@ const nonReproduction = (population: Population) => {
 			name: "the conservative lowering's raw text sets, the invalid mutant beside the optimized artifact"
 		},
 		kept: [],
+		/** Its pre-conversion budget: runs 500, coverage cases 500 (counterexamples.ts:33 at fe79ac6b2^). */
+		budget: { runs: 500, steered: 500 },
 		kills: [
 			{
 				file: "packages/engine/src/lower/optimize/dedup/place.ts",

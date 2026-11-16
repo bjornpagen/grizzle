@@ -71,7 +71,14 @@ export const freshInstalled = property.explore(int(1, 4), {
 			}),
 	oracle: { kind: "specification", name: "a case's clone holds its template's installation alone" },
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/engine/src/physical/install/compile.ts",
+			original: "\t\tconst level = owned.levels[login.base.levels.length - 1]",
+			replacement: "\t\tconst level = owned.levels[login.base.levels.length - 2]",
+			why: "Operator mutant (bound) at packages/engine/src/physical/install/compile.ts:341 in admittedSettings: `1` becomes `2`; the property fails (lane CATCH, grizzle 0baff5d6)."
+		}
+	]
 })
 
 /** The worker's own clone of an installed template, held across cases, is its template again before every case. */
@@ -88,7 +95,14 @@ export const seated = property.explore(int(1, 4), {
 			}),
 	oracle: { kind: "specification", name: "a seat is reset to its template after every case" },
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/engine/src/physical/install/compile.ts",
+			original: "\t\tconst level = owned.levels[login.base.levels.length - 1]",
+			replacement: "\t\tconst level = owned.levels[login.base.levels.length - 2]",
+			why: "Operator mutant (bound) at packages/engine/src/physical/install/compile.ts:341 in admittedSettings: `1` becomes `2`; the property fails (lane CATCH, grizzle 0baff5d6)."
+		}
+	]
 })
 
 /** One owner transaction a case on the worker's own clone, rolled back after it, so the next finds no row of it. */
@@ -104,7 +118,14 @@ export const rolledBack = property.explore(int(1, 4), {
 			}),
 	oracle: { kind: "specification", name: "a rolled-back case leaves its clone as its template" },
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/engine/src/physical/install/compile.ts",
+			original: "\t\tconst level = owned.levels[login.base.levels.length - 1]",
+			replacement: "\t\tconst level = owned.levels[login.base.levels.length - 2]",
+			why: "Operator mutant (bound) at packages/engine/src/physical/install/compile.ts:341 in admittedSettings: `1` becomes `2`; the property fails (lane CATCH, grizzle 0baff5d6)."
+		}
+	]
 })
 
 /**
@@ -130,7 +151,16 @@ export const served = property.explore(int(1, 4), {
 			}),
 	oracle: { kind: "specification", name: "a served login reads its case's own clone" },
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/engine/src/physical/install/compile.ts",
+			original:
+				"\t\t\t\tconst domains = [\n\t\t\t\t\t...rosters.flatMap((r) =>\n\t\t\t\t\t\tr.bits === undefined ? [r.domain.name] : [r.domain.name, r.bits.domain.name]\n\t\t\t\t\t),\n\t\t\t\t\t...addTextDomains(b, plan.textPlans),\n\t\t\t\t\t...addContractDomains(b),\n\t\t\t\t\t...addOutsideContractDomains(b, plan.outsideContracts)\n\t\t\t\t]",
+			replacement:
+				"\t\t\t\tconst domains = [...addTextDomains(b, plan.textPlans), ...addContractDomains(b), ...addOutsideContractDomains(b, plan.outsideContracts)]",
+			why: "Operator mutant (element) at packages/engine/src/physical/install/compile.ts:440 in installationOver: `[\n\t\t\t\t\t...rosters.flatMap((r) =>\n\t\t\t\t\t\tr.bits === undefined ? [r.domain.name] : ` becomes `[...addTextDomains(b, plan.textPlans), ...addContractDomains(b), ...addOutsideCo`; the property fails (lane CATCH, grizzle 0baff5d6)."
+		}
+	]
 })
 
 /**
@@ -152,5 +182,12 @@ export const oneOfTemplates = property.explore(oneOfCase, {
 		name: "a case takes the one template it draws, as its own clone"
 	},
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/engine/src/physical/install/compile.ts",
+			original: "\t\tconst level = owned.levels[login.base.levels.length - 1]",
+			replacement: "\t\tconst level = owned.levels[login.base.levels.length - 2]",
+			why: "Operator mutant (bound) at packages/engine/src/physical/install/compile.ts:341 in admittedSettings: `1` becomes `2`; the property fails (lane CATCH, grizzle 0baff5d6)."
+		}
+	]
 })

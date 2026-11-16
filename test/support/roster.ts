@@ -9,6 +9,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/pg/oracle/key-text-bytes.test.ts",
 	"test/pg/oracle/optimized/counterexamples.test.ts",
 	"test/pg/oracle/optimized/dense.test.ts",
+	"test/pg/oracle/optimized/optimizer.test.ts",
 	"test/pg/oracle/optimized/param-names.test.ts",
 	"test/pg/oracle/optimized/valid-rewrites.test.ts",
 	"test/pg/oracle/optimized/variants.test.ts",

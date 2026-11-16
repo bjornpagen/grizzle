@@ -18,6 +18,7 @@ import { type Aimed, aimed, constant, type Gen, type Space } from "@bjornpagen/t
 import {
 	type Case as PropertyCase,
 	type Kept as KeptToken,
+	type Budget,
 	type Kill,
 	property
 } from "@bjornpagen/testing/property"
@@ -1328,6 +1329,8 @@ export interface OracleSpec<S, F extends string, E> {
 	readonly oracle: Oracle
 	readonly kept: ReadonlyArray<KeptToken>
 	readonly kills: ReadonlyArray<Kill>
+	/** The property's own search budget: its pre-conversion runs and steered cases, cited where it is stated. */
+	readonly budget: Budget
 	readonly show: (value: S) => string
 	readonly check: (
 		c: PropertyCase<F>
@@ -1380,6 +1383,7 @@ export const oracleProperty = <S, const F extends string, E>(
 		oracle: spec.oracle,
 		kept: spec.kept,
 		kills: spec.kills,
+		budget: spec.budget,
 		show: ([value]: readonly [S, Conditions]) => spec.show(value)
 	})
 

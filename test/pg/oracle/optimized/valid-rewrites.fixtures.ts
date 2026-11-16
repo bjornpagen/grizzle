@@ -194,6 +194,8 @@ export const performed = (
 			name: "the conservative lowering's raw text sets, and each rule's certificate read from the statements' ASTs"
 		},
 		kept: [],
+		/** Its pre-conversion budget: runs 300, coverage cases 300 (valid-rewrites.test.ts:65 at fe79ac6b2^). */
+		budget: { runs: 300, steered: 300 },
 		kills,
 		show: Formatter.format,
 		check: (k: PropertyCase<ValidRule>) => (c) =>

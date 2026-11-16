@@ -899,6 +899,13 @@ export interface TemplateBinding {
 }
 
 /**
+ * A need of a database a template clones: the toolchain's need over it carries the template (DatabaseNeed), which the
+ * runner's collection reads off a property's needs (templatesOf), so the templates a run declares are kept and every
+ * other is collected; grizzle's needs over one carry it on in turn.
+ */
+export type TemplateNeed<A> = Need<A> & Readonly<{ template: DatabaseTemplate }>
+
+/**
  * A database template a grizzle case clones, with its value: the toolchain's template (its database), and the value
  * every case over a clone of it reads, computed once per worker (`bound`) and bound to each case's database.
  */
@@ -1087,8 +1094,9 @@ const substrateCases = <T>(
 	template: SubstrateTemplate<T>,
 	database: DatabaseNeed<Database>,
 	settled: (substrate: SubstrateShape, value: T) => Effect.Effect<void>
-): Need<SubstrateCase<T>> => ({
+): TemplateNeed<SubstrateCase<T>> => ({
 	key: `grizzle ${form} ${database.key}`,
+	template: database.template,
 	open: Effect.map(
 		Effect.all([database.open, Layer.build(nodeSpawner), template.bound]),
 		([take, spawning, bind]) =>
@@ -1148,22 +1156,23 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 	 * baseTemplate) for the case and dropped after it: what a property's needs name, its check providing it as the
 	 * Substrate service to what it runs (`Effect.provideServiceEffect(effect, Substrate, substrate)`).
 	 */
-	static readonly fresh: Need<SubstrateShape> = {
+	static readonly fresh: TemplateNeed<SubstrateShape> = {
 		key: "grizzle Substrate.fresh",
+		template: baseTemplate,
 		open: Effect.map(
 			substrateCases("Substrate.fresh", base, Database.fresh(baseTemplate), dropped).open,
 			(take) => Effect.map(take, (taken) => taken.substrate)
 		)
 	}
 	/** A case's own substrate over a clone of `template`, made for the case and dropped after it, and its value. */
-	static readonly freshOf = <T>(template: SubstrateTemplate<T>): Need<SubstrateCase<T>> =>
+	static readonly freshOf = <T>(template: SubstrateTemplate<T>): TemplateNeed<SubstrateCase<T>> =>
 		substrateCases("Substrate.freshOf", template, Database.fresh(template.database), dropped)
 	/**
 	 * A case's own substrate over the worker's own clone of `template`, held across the worker's cases: after each, the
 	 * case's allocations are released, the template's reset group emptied (SubstrateTemplate reset), every sequence put
 	 * back, and the clone must hold its template's catalog and rows again, or it is replaced and the case fails.
 	 */
-	static readonly seat = <T>(template: SubstrateTemplate<T>): Need<SubstrateCase<T>> =>
+	static readonly seat = <T>(template: SubstrateTemplate<T>): TemplateNeed<SubstrateCase<T>> =>
 		substrateCases(
 			"Substrate.seat",
 			template,
@@ -1174,10 +1183,11 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 	 * One case's owner transaction on the worker's own clone of `template` (RolledBack), rolled back when the case ends;
 	 * a case that ends it, or leaves the clone unlike its template, fails, and the clone is replaced.
 	 */
-	static readonly rolledBack = <T>(template: SubstrateTemplate<T>): Need<RolledBack<T>> => {
+	static readonly rolledBack = <T>(template: SubstrateTemplate<T>): TemplateNeed<RolledBack<T>> => {
 		const transaction = Database.transaction(template.database)
 		return {
 			key: `grizzle Substrate.rolledBack ${transaction.key}`,
+			template: transaction.template,
 			open: Effect.map(Effect.all([transaction.open, template.bound]), ([take, bind]) =>
 				Effect.gen(function* () {
 					const taken = yield* take

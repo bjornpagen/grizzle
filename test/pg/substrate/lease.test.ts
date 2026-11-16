@@ -46,6 +46,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const admitsTheFirstQueued = property.explore(caseGen, {
 	needs: { cluster: Substrate.member },
+	/** Its pre-conversion budget: runs 12, coverage cases 24 (lease.test.ts:315-317 at d55043f1^). */
+	budget: { runs: 12, steered: 24 },
 	situations: leaseFeatures satisfies ReadonlyArray<Reached<LeaseFeature>>,
 	check:
 		({ cluster }, c: Case<LeaseFeature>) =>

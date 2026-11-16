@@ -58,6 +58,8 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const boundedUnion = property.explore(aimed(caseGen, aims), {
 	needs: { substrate: Substrate.fresh },
+	/** Its pre-conversion budget: runs 24, coverage cases 16 (union-take.test.ts:319-322 at 41df7b58^). */
+	budget: { runs: 24, steered: 16 },
 	situations: [
 		"a take below the union's size",
 		"a take past the union's size",

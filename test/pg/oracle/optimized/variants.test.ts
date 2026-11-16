@@ -43,6 +43,8 @@ import { installedPlacement } from "#test/support/oracle/runner.ts"
 /** Correlated-take cases agree with the conservative lowering in the program and every per-execution variant. */
 export const variants = differentialProperty(sketchGen, resolve, installedPlacement("variants"), {
 	situations: variantSituations satisfies ReadonlyArray<Reached<OptimizedFeature>>,
+	/** Its pre-conversion budget: runs 250, coverage cases 250 (variants.test.ts:76 at fe79ac6b2^). */
+	budget: { runs: 250, steered: 250 },
 	kills: [
 		{
 			file: "packages/engine/src/lower/optimize/dedup/place.ts",

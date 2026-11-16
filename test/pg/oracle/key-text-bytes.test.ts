@@ -61,6 +61,8 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const exactlyKeyTextBytes = property.explore(caseGen, {
 	needs: { substrate: Substrate.fresh },
+	/** Its pre-conversion budget: runs 40, coverage cases 40 (key-text-bytes.test.ts:269,300-303 at 41df7b58^). */
+	budget: { runs: 40, steered: 40 },
 	situations: [
 		"text first",
 		"text last",

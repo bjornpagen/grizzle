@@ -62,6 +62,8 @@ import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/su
  */
 export const listsExactlyTheStrays = property.explore(plantingGen, {
 	needs: { substrate: Substrate.fresh },
+	/** Its pre-conversion budget: runs 16, coverage cases 60 (substrate.test.ts:374-378 at d55043f1^). */
+	budget: { runs: 16, steered: 60 },
 	situations: [...strays, "clean"] satisfies ReadonlyArray<Reached<LeftoverFeature>>,
 	check:
 		({ substrate }, c: Case<LeftoverFeature>) =>
@@ -106,6 +108,8 @@ export const listsExactlyTheStrays = property.explore(plantingGen, {
  */
 export const clearsAnOwnedSchema = property.explore(drawnSchemaGen, {
 	needs: { substrate: Substrate.fresh },
+	/** Its pre-conversion budget: runs 16, coverage cases 60 (substrate.test.ts:452-456 at d55043f1^). */
+	budget: { runs: 16, steered: 60 },
 	situations: clearingFeatures satisfies ReadonlyArray<Reached<ClearingFeature>>,
 	check:
 		({ substrate }, c: Case<ClearingFeature>) =>
@@ -150,6 +154,8 @@ export const clearsAnOwnedSchema = property.explore(drawnSchemaGen, {
 /** A schema's release drops every role under its prefix, the ones an installation created among them. */
 export const releasesEveryRoleUnderItsPrefix = property.explore(aimed(releasingGen, releaseAims), {
 	needs: { substrate: Substrate.fresh },
+	/** Its pre-conversion budget: runs 4, coverage cases 8 (substrate.test.ts:509-511 at d55043f1^). */
+	budget: { runs: 4, steered: 8 },
 	situations: releaseFeatures satisfies ReadonlyArray<Reached<ReleaseFeature>>,
 	check: (resources, c: Case<ReleaseFeature>) => (p) =>
 		Effect.provideServiceEffect(
@@ -196,5 +202,14 @@ export const releasesEveryRoleUnderItsPrefix = property.explore(aimed(releasingG
 		name: "no role under a released schema's prefix on the substrate's member, whoever created it"
 	},
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/engine/src/sql/print.ts",
+			original:
+				"\tfor (const line of body) {\n\t\tout.line(line)\n\t}\n\tout.line(tag)\n}\n\n/** A statement of the catalog language (sql/catalog.ts), written into `out`: a read on one line, a DO block nested. */",
+			replacement:
+				"\tfor (const line of body) {\n\t\tout.line(line)\n\t}\n\t{}\n}\n\n/** A statement of the catalog language (sql/catalog.ts), written into `out`: a read on one line, a DO block nested. */",
+			why: "Operator mutant (statement) at packages/engine/src/sql/print.ts:2383 in writeDo: `out.line(tag)` becomes `{}`; the property fails (lane CATCH, grizzle b0d74512)."
+		}
+	]
 })

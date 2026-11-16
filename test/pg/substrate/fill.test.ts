@@ -52,6 +52,8 @@ import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
  */
 export const chunkedFill = property.explore(fillSpace, {
 	needs: { substrate: Substrate.fresh },
+	/** Its pre-conversion budget: runs 24, coverage cases 96 (fill.test.ts:200,224,237 at d55043f1^). */
+	budget: { runs: 24, steered: 96 },
 	situations: fillFeatures satisfies ReadonlyArray<Reached<FillFeature>>,
 	check:
 		({ substrate }, k: Case<FillFeature>) =>

@@ -28,6 +28,8 @@ export const dense = differentialProperty(
 	namedPlacement("dense"),
 	{
 		situations: ["nonempty"] satisfies ReadonlyArray<Reached<OptimizedFeature>>,
+		/** Its pre-conversion budget: runs 1250, coverage cases 1250 (suite.ts casesPerPopulation at fe79ac6b2^). */
+		budget: { runs: 1250, steered: 1250 },
 		kills: [
 			{
 				file: "packages/engine/src/lower/optimize/dedup/place.ts",

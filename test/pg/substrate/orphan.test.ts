@@ -50,6 +50,12 @@ export const orphanEnds = property.exhaust(finite(formSpace), {
 	kept: [],
 	kills: [
 		{
+			file: "packages/pg/src/ports.ts",
+			original: `\t\t\t\tresume(\n\t\t\t\t\tbound === null || typeof bound === "string"\n\t\t\t\t\t\t? Effect.die(new Error(\`a TCP listener at \${address} reported no port\`))\n\t\t\t\t\t\t: Effect.succeed(bound.port)\n\t\t\t\t)`,
+			replacement: "\t\t\t\t{}",
+			why: 'Operator mutant (statement) at packages/pg/src/ports.ts:34 in listened: `resume(\n\t\t\t\t\tbound === null || typeof bound === "string"\n\t\t\t\t\t\t? Effect.die(new ` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6).'
+		},
+		{
 			file: "packages/pg/src/settings.ts",
 			original: '\t["client_connection_check_interval", clientCheckInterval.value],\n',
 			replacement: "",

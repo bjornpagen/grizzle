@@ -19,65 +19,41 @@
  * Features: the population's required features (suite.ts and the file's own), "a fold key correlated with two parent
  * columns" among them, which a case whose turn aims at it reaches by the case built to (suite.ts foldKeyTwiceGen).
  */
-import { required } from "@bjornpagen/testing/features"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Formatter } from "effect"
+import type { Reached } from "@bjornpagen/testing/features"
+import { Function } from "effect"
+import { optimizerSituations } from "#test/pg/oracle/optimized/optimizer.fixtures.ts"
 import {
-	casesPerPopulation,
-	differential,
-	generatedRules,
-	type OptimizedFeature,
-	optimizedShrink,
-	resolved,
-	rewriteFamilies
+	differentialProperty,
+	optimizedSpace,
+	type OptimizedFeature
 } from "#test/pg/oracle/optimized/suite.ts"
 import { optimizerGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import { namedPlacement } from "#test/support/oracle/runner.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/**
- * The features the optimizer's population must reach, beyond the rules: pipelined attachments and heading groups run
- * (no attachment over exact parents fuses; the one that fuses, over approximate parents, is variants.test.ts's),
- * relation parameters also travel by VALUES, computed terms are evaluated, a fold is attached by a key the attachment
- * pairs with two parent columns, and cases deliver rows.
- */
-const situations = [
-	...generatedRules,
-	...rewriteFamilies,
-	"pipelined attachment",
-	"heading groups",
-	"computed term",
-	"nested attachment",
-	"per-parent take over an attachment",
-	"a fold key correlated with two parent columns",
-	"nonempty"
-] as const satisfies ReadonlyArray<OptimizedFeature>
-
-layer(Substrate.layer)(
-	"the optimized lowering against the conservative lowering, the optimizer's population",
-	(it) => {
-		it.effect("agrees on the optimizer's population, raw text sets, with no repeated row", (ctx) =>
-			searched(
-				ctx,
-				differential(resolved(queryCaseGen(optimizerGenConfig)), namedPlacement("opt"), {
-					suite: "optimized/optimizer",
-					oracle: {
-						kind: "second-implementation",
-						name: "the conservative lowering's raw text sets, no repeated row on the optimized side"
-					},
-					literal: Formatter.format,
-					coverage: required<OptimizedFeature>(situations, {
-						cases: casesPerPopulation,
-						sense: notesOnly
-					}),
-					kept: [],
-					runs: casesPerPopulation,
-					shrink: optimizedShrink,
-					perturb: "all"
-				})
-			)
-		)
+/** The optimized lowering agrees with the conservative on the optimizer's population, raw text sets, no repeated row. */
+export const optimizer = differentialProperty(
+	optimizedSpace(queryCaseGen(optimizerGenConfig)),
+	Function.identity,
+	namedPlacement("opt"),
+	{
+		situations: optimizerSituations satisfies ReadonlyArray<Reached<OptimizedFeature>>,
+		/** Its pre-conversion budget: runs 1250, coverage cases 1250 (suite.ts casesPerPopulation at fe79ac6b2^). */
+		budget: { runs: 1250, steered: 1250 },
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/dedup/place.ts",
+				original: "\t\tconst outstanding = a.obligations.flatMap((o) => (o.discharged ? [] : [o]))",
+				replacement: "\t\tconst outstanding = a.obligations.flatMap(() => [])",
+				why: "The dedup placement discharges no obligation (lower/optimize/dedup/place.ts), so a DISTINCT owed is never placed and the optimized artifact repeats rows."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/attach/index.ts",
+				original:
+					"\t\t\t\t\tkeyedGroup(facts, folded, cx, env, correlatedColumns(attach, parentMap)),",
+				replacement:
+					"\t\t\t\t\tkeyedGroup(facts, folded, cx, env, [\n\t\t\t\t\t\t...new Map(correlatedColumns(attach, parentMap).map((e) => [e.column, e])).values()\n\t\t\t\t\t]),",
+				why: "The fold an attachment restricts by its parent's values keeps one equality per key column (lower/shapes/attach/index.ts), so a key paired with two parent columns is restricted by one of them and a parent whose two columns differ receives a group."
+			}
+		]
 	}
 )

@@ -20,15 +20,25 @@ import { conservativeAgreement } from "#test/pg/oracle/conservative.fixtures.ts"
 import { denseQueryCaseGen } from "#test/pg/oracle/support.ts"
 import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 
-/** The conservative lowering agrees with the reference evaluator on generated cases, raw text sets, no repeated row. */
-export const generated = conservativeAgreement(queryCaseGen(defaultGenConfig), [
-	{
-		file: "packages/engine/src/lower/conservative/anti-join/index.ts",
-		original: "\texistenceTest(cx, env, node, nodeLabel(node), true)",
-		replacement: "\texistenceTest(cx, env, node, nodeLabel(node), false)",
-		why: "The conservative AntiJoin lowers as a semi-join (lower/conservative/anti-join/index.ts)."
-	}
-])
+/**
+ * The conservative lowering agrees with the reference evaluator on generated cases, raw text sets, no repeated row. Its
+ * budget is its pre-conversion one: runs 2000, coverage cases 2000 (conservative.test.ts:48 at 41df7b58^), as dense's.
+ */
+export const generated = conservativeAgreement(
+	queryCaseGen(defaultGenConfig),
+	[
+		{
+			file: "packages/engine/src/lower/conservative/anti-join/index.ts",
+			original: "\texistenceTest(cx, env, node, nodeLabel(node), true)",
+			replacement: "\texistenceTest(cx, env, node, nodeLabel(node), false)",
+			why: "The conservative AntiJoin lowers as a semi-join (lower/conservative/anti-join/index.ts)."
+		}
+	],
+	{ runs: 2000, steered: 2000 }
+)
 
 /** The same agreement on generated cases with dense facts, so fewer results are empty. */
-export const dense = conservativeAgreement(denseQueryCaseGen(defaultGenConfig), [])
+export const dense = conservativeAgreement(denseQueryCaseGen(defaultGenConfig), [], {
+	runs: 2000,
+	steered: 2000
+})
