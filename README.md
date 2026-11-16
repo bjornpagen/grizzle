@@ -4199,7 +4199,7 @@ pnpm pg:doctor                    # the go/no-go check of the cluster
 pnpm test                         # the unit and types tiers, which need no network
 pnpm test:network                 # the pg and schedules tiers, against the local cluster
 pnpm test <file>                  # some files
-pnpm types                        # after every edit: the incremental typecheck, which the hooks run too
+pnpm types                        # by hand: the incremental typecheck (main's full check runs every 30 minutes)
 pnpm check                        # before a release (turbo, cached): typecheck, workspace gate, oxlint, format, fallow, dedupe
 ```
 
