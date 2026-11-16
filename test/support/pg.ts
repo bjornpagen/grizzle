@@ -758,7 +758,10 @@ export const testDatabaseSettings: ReadonlyArray<readonly [name: string, value: 
 ]
 
 /** Gives database `name` the test database settings, on `admin`. */
-const configureDatabase = (admin: PgConnection, name: string): Effect.Effect<void, SqlError> =>
+export const configureDatabase = (
+	admin: PgConnection,
+	name: string
+): Effect.Effect<void, SqlError> =>
 	Effect.forEach(
 		testDatabaseSettings,
 		([setting, value]) => admin.query(`ALTER DATABASE "${name}" SET ${setting} TO '${value}'`, []),

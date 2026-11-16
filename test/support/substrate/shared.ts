@@ -3,7 +3,7 @@ import { Array as Arr, Config, Effect, Exit, Option, Scope, String as Str } from
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { quoteIdent } from "#compiler/sql/print.ts"
-import { InitializedCluster } from "#test/support/cluster.ts"
+import { InitializedCluster, type InitializedClusterShape } from "#test/support/cluster.ts"
 import {
 	devSession,
 	ensureDatabase,
@@ -221,25 +221,25 @@ interface Lease {
 }
 
 /**
- * A substrate's lease, held for the current scope: a slot of the cluster's (takeLease over substrateLease, the slots
- * leaseSlots gives the server's settings), whose connection it returns with the budget it grants. The scope's close
- * ends that connection, and so frees the slot. A lease covers one substrate's connections (connectionsPerLease), so
- * each substrate a process builds holds one while it lives, and a process holds none once its substrates are released:
- * nothing of the lease outlives them, so a process whose work is done exits. A substrate waiting for a free slot behind
- * other processes waits as long as they hold the slots, inside its layer build, whose hook the network config leaves
- * unbounded for that reason; a run alone never waits on a cluster init.sh sized, which holds a slot for each of its
- * workers (clusterConnections).
+ * A lease on `initialized`, held for the current scope: a slot of the cluster's (takeLease over substrateLease, the
+ * slots leaseSlots gives the server's settings), whose connection it returns with the budget it grants. The scope's
+ * close ends that connection, and so frees the slot. A lease covers one holder's connections (connectionsPerLease): a
+ * Vitest file's substrate (leaseConnections), or a runner worker for its life (test/support/runner.ts), so a process
+ * holds none once its holders are released: nothing of the lease outlives them, so a process whose work is done exits.
+ * A holder waiting for a free slot behind other processes waits as long as they hold the slots; a run alone never waits
+ * on a cluster init.sh sized, which holds a slot for each of its workers (clusterConnections).
  *
  * The lease's own connections draw from budgets of their own: the read of the settings, one connection; then the
  * lease's, its queued connection and one racer for each slot at most (takeLease), the one it wins held for the scope.
  */
-export const leaseConnections: Effect.Effect<Lease, SqlError, InitializedCluster | Scope.Scope> =
+export const leaseOn = (
+	initialized: InitializedClusterShape
+): Effect.Effect<Lease, SqlError, Scope.Scope> =>
 	Effect.gen(function* () {
-		const cluster = yield* InitializedCluster
 		const name = Option.some("grizzle-substrate lease")
 		const slots = yield* Effect.scoped(
 			Effect.gen(function* () {
-				const settings = yield* devSession(budgeted(cluster, leaseBudget(1)), name)
+				const settings = yield* devSession(budgeted(initialized, leaseBudget(1)), name)
 				const [row] = yield* settings.queryValues(slotSettingsQuery, [])
 				const [maxConnections, superuserReserved, reserved] =
 					trusted<readonly [maxConnections: number, superuserReserved: number, reserved: number]>(
@@ -249,12 +249,19 @@ export const leaseConnections: Effect.Effect<Lease, SqlError, InitializedCluster
 			})
 		)
 		const connection = yield* takeLease(
-			devSession(budgeted(cluster, leaseBudget(slots + 1)), name),
+			devSession(budgeted(initialized, leaseBudget(slots + 1)), name),
 			substrateLease,
 			slots
 		)
-		return { connection, cluster: budgeted(cluster, leaseBudget(leaseGrant)) }
+		return { connection, cluster: budgeted(initialized, leaseBudget(leaseGrant)) }
 	})
+
+/**
+ * A Vitest file's substrate's lease (leaseOn), on the member InitializedCluster names. A substrate waiting for a free
+ * slot waits inside its layer build, whose hook the network config leaves unbounded for that reason.
+ */
+export const leaseConnections: Effect.Effect<Lease, SqlError, InitializedCluster | Scope.Scope> =
+	Effect.flatMap(InitializedCluster, leaseOn)
 
 export interface SharedClaim {
 	readonly database: string

@@ -1,4 +1,5 @@
 import { inspect } from "node:util"
+import type { Content } from "@bjornpagen/testing/resources"
 import {
 	Array as Arr,
 	DateTime,
@@ -7,6 +8,7 @@ import {
 	Path,
 	pipe,
 	Record as Rec,
+	Redacted,
 	type Scope,
 	String as Str
 } from "effect"
@@ -42,10 +44,16 @@ import type { AnyLogin, AnyRole } from "#compiler/types/schema/world.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { installationAbstraction, sameCatalog } from "#test/pg/migrate/support.ts"
-import { type AmbientOwner, type AmbientSession, ambientOwner } from "#test/support/ambient.ts"
+import {
+	type AmbientOwner,
+	type AmbientSession,
+	ambientOwner,
+	templateAmbientOwner
+} from "#test/support/ambient.ts"
 import { assert, defined, nonEmpty } from "#test/support/assert.ts"
 import { checkInstallation } from "#test/support/catalog/installed.ts"
 import { draftedSql, type FixtureSchema, filledSql, migratedSql } from "#test/support/compile.ts"
+import { pgPin } from "#test/support/env.ts"
 import { paths, repoRoot } from "#test/support/files.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
@@ -73,7 +81,13 @@ import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import type { Credentials, SubstrateWorld } from "#test/support/substrate/session.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import {
+	type Binding,
+	installTemplate,
+	Substrate,
+	type SubstrateTemplate
+} from "#test/support/substrate/substrate.ts"
+import { templatePassword } from "#test/support/substrate/templates.ts"
 
 import { regex } from "arkregex"
 /**
@@ -497,6 +511,32 @@ const decoderRoles = (files: ReadonlyMap<string, unknown>): ReadonlyArray<string
 	)
 ]
 
+/** Every login role of `plan`, and the decoder login its served files `files` name (decoderRoles). */
+const loginRoles = (
+	plan: RealInstallPlan,
+	files: ReadonlyMap<string, unknown>
+): ReadonlyArray<string> => [
+	...Arr.map(Rec.values(plan.logins), (l) => l.role),
+	...decoderRoles(files)
+]
+
+/**
+ * The credentials of every login role of a template's installation `plan` and of the decoder login its served files
+ * `files` name, as a case over a clone of the template logs in (substrate.ts installTemplate): each role's password the
+ * member's owner password derives (templates.ts templatePassword), as the template's build gave it.
+ */
+const templateCredentials = (
+	binding: Binding,
+	roles: ReadonlyArray<string>
+): ReadonlyMap<string, Credentials> =>
+	new Map(Arr.map(roles, (role) => [role, templateLogin(binding, role)]))
+
+/** The credentials of `role`, a login of a template's installation (templateCredentials). */
+const templateLogin = (binding: Binding, role: string): Credentials => ({
+	role,
+	password: Redacted.make(templatePassword(binding.cluster, role))
+})
+
 /**
  * The credentials of every login role of `plan` and of the decoder login its served files `files` name (decoderRoles),
  * by PostgreSQL role: each one `kept` holds kept, as a later version of a history keeps every login it continues, whose
@@ -510,24 +550,14 @@ export const loginCredentials = (
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const credentials = new Map(kept)
-		for (const role of [
-			...Arr.map(Rec.values(plan.logins), (l) => l.role),
-			...decoderRoles(files)
-		]) {
+		for (const role of loginRoles(plan, files)) {
 			credentials.set(role, credentials.get(role) ?? (yield* substrate.login(role)))
 		}
 		return credentials
 	})
 
-/**
- * The installation of `plan` under the declared name `declared`, migrated by `folders` to `snapshot` in the
- * substrate's database as `ambientOwner`, each login and the decoder its served files `files` name logging in with its
- * `credentials` (loginCredentials), so a test logs in as it over verify-full TLS, and the lookups of its roles and
- * logins by their values. The one representation of an installation a test migrated, whether by one first migration (installMigrated),
- * a history of versions (installMigratedThrough, test/support/installed.ts migrated) or generate's
- * (installGeneratedThrough).
- */
-export const installedOf = (input: {
+/** What an installation is made of, whichever way it was installed (installedOf, installedAt). */
+interface InstalledParts {
 	readonly plan: RealInstallPlan
 	readonly declared: string
 	readonly folders: Arr.NonEmptyReadonlyArray<FolderSource>
@@ -535,45 +565,60 @@ export const installedOf = (input: {
 	readonly ambientOwner: AmbientOwner
 	readonly files: ReadonlyMap<string, unknown>
 	readonly credentials: ReadonlyMap<string, Credentials>
-}): Effect.Effect<Installed, never, Substrate> =>
+}
+
+/**
+ * The installation of `plan` under the declared name `declared`, migrated by `folders` to `snapshot` in `binding`'s
+ * database as `ambientOwner`, each login and the decoder its served files `files` name logging in with its
+ * `credentials` (loginCredentials), so a test logs in as it over verify-full TLS, and the lookups of its roles and
+ * logins by their values. The one representation of an installation a test migrated, whether by one first migration
+ * (installMigrated), a history of versions (installMigratedThrough, test/support/installed.ts migrated), generate's
+ * (installGeneratedThrough), or a template's, bound to a case's clone of it (migratedTemplate).
+ */
+export const installedAt = (input: InstalledParts, binding: Binding): Installed => {
+	const { plan, credentials } = input
+	const credentialsOf = (role: string): Credentials =>
+		defined(credentials.get(role), `the login role ${role} of ${plan.declared}`)
+	const loginOf = (name: string) =>
+		defined(plan.logins[name], `the login ${name} of ${plan.declared}`)
+	const world = (role: AnyRole | RoleDesc): SubstrateWorld => {
+		for (const login of Rec.values(plan.logins)) {
+			const r = login.roles[role.name]
+			if (r !== undefined) {
+				return { login: credentialsOf(login.role), role: r.role }
+			}
+		}
+		throw new Error(`no role ${role.name} in ${plan.declared}`)
+	}
+	return {
+		cluster: binding.cluster,
+		database: binding.database,
+		schema: plan.schema,
+		declared: input.declared,
+		installation: plan.installation,
+		plan,
+		names: plan.installation.names,
+		folders: input.folders,
+		snapshot: input.snapshot,
+		ambientOwner: input.ambientOwner,
+		role: (role) => world(role).role,
+		as: (login) => credentialsOf(loginOf(login.name).role),
+		decoder: () =>
+			credentialsOf(
+				defined(
+					decoderRoles(input.files)[0],
+					`the decoder login of ${plan.declared}, which a served login that reads names`
+				)
+			),
+		world
+	}
+}
+
+/** The installation of `input` in the substrate's database (installedAt). */
+export const installedOf = (input: InstalledParts): Effect.Effect<Installed, never, Substrate> =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
-		const { plan, credentials } = input
-		const credentialsOf = (role: string): Credentials =>
-			defined(credentials.get(role), `the login role ${role} of ${plan.declared}`)
-		const loginOf = (name: string) =>
-			defined(plan.logins[name], `the login ${name} of ${plan.declared}`)
-		const world = (role: AnyRole | RoleDesc): SubstrateWorld => {
-			for (const login of Rec.values(plan.logins)) {
-				const r = login.roles[role.name]
-				if (r !== undefined) {
-					return { login: credentialsOf(login.role), role: r.role }
-				}
-			}
-			throw new Error(`no role ${role.name} in ${plan.declared}`)
-		}
-		return {
-			cluster: substrate.cluster,
-			database: substrate.database,
-			schema: plan.schema,
-			declared: input.declared,
-			installation: plan.installation,
-			plan,
-			names: plan.installation.names,
-			folders: input.folders,
-			snapshot: input.snapshot,
-			ambientOwner: input.ambientOwner,
-			role: (role) => world(role).role,
-			as: (login) => credentialsOf(loginOf(login.name).role),
-			decoder: () =>
-				credentialsOf(
-					defined(
-						decoderRoles(input.files)[0],
-						`the decoder login of ${plan.declared}, which a served login that reads names`
-					)
-				),
-			world
-		}
+		return installedAt(input, substrate)
 	})
 
 /**
@@ -713,19 +758,48 @@ export const installMigratedThrough = (
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const name = yield* substrate.schema({ create: false, label: options.label })
+		const history = yield* draftedHistory(versions, options, name, substrate.owner.role)
+		return yield* appliedHistory(history, name, options)
+	})
+
+/**
+ * Every version of `versions` drafted under the name `name`, owned by `owner` (draftVersion): the first from the empty
+ * snapshot, each later one from the snapshot the one before it reached. Pure: what installMigratedThrough applies.
+ */
+const draftedHistory = (
+	versions: Arr.NonEmptyReadonlyArray<InstallVersion>,
+	options: DraftOptions,
+	name: string,
+	owner: string
+): Effect.Effect<Arr.NonEmptyReadonlyArray<DraftedVersion>, CompileError> =>
+	Effect.gen(function* () {
 		const installation = identity.schema(parsedSchemaName(name))
 		const drafts: Array<DraftedVersion> = []
 		let previous: Previous = fromEmpty
 		for (const [step, version] of versions.entries()) {
-			const drafted = yield* draftVersion(
-				version,
-				{ installation, owner: substrate.owner.role, previous, step },
-				options
-			)
+			const drafted = yield* draftVersion(version, { installation, owner, previous, step }, options)
 			drafts.push(drafted)
 			previous = fromSnapshot(drafted.snapshot)
 		}
-		const history = nonEmpty(drafts, "a history has its first version")
+		return nonEmpty(drafts, "a history has its first version")
+	})
+
+/**
+ * A drafted history (draftedHistory) applied under `name` in the substrate's database, as installMigratedThrough
+ * describes: its owner login under `options.ambient`, each version's migration in turn, the fresh install's catalog
+ * compared with the last, every login given its password, and the installed-catalog posture checked.
+ */
+const appliedHistory = (
+	history: Arr.NonEmptyReadonlyArray<DraftedVersion>,
+	name: string,
+	options: HistoryOptions
+): Effect.Effect<
+	Installed,
+	CompileError | SqlError | TransactionRolledBack,
+	Substrate | Scope.Scope
+> =>
+	Effect.gen(function* () {
+		const substrate = yield* Substrate
 		const last = Arr.lastNonEmpty(history)
 		const folders = Arr.map(history, (d) => d.folder)
 		const owner = yield* ambientOwner(options.ambient, installedSchemas(last.plan.installation))
@@ -744,6 +818,52 @@ export const installMigratedThrough = (
 		})
 		yield* checkInstallation(installed)
 		return installed
+	})
+
+/**
+ * A history's template (substrate.ts installTemplate): `versions` drafted under the template's names (draftedHistory)
+ * by every worker, applied once per member by the build exactly as installMigratedThrough applies a history
+ * (appliedHistory), and each case's Installed the last version's, in the case's clone, every login logging in with the
+ * password its template derived. `content` is what tells this template from another its module declares (the
+ * versions' and options' data): its module's import closure covers their code.
+ */
+export const migratedTemplate = (spec: {
+	readonly declaredIn: ImportMeta
+	readonly name: string
+	readonly content: Content
+	readonly versions: Arr.NonEmptyReadonlyArray<InstallVersion>
+	readonly options: HistoryOptions
+}): SubstrateTemplate<Installed> =>
+	installTemplate({
+		declaredIn: spec.declaredIn,
+		name: spec.name,
+		content: spec.content,
+		plan: (names) =>
+			Effect.map(
+				draftedHistory(spec.versions, spec.options, names.schema, pgPin.devRole),
+				(history) => ({ names, history })
+			),
+		install: ({ names, history }) =>
+			Effect.asVoid(appliedHistory(history, names.schema, spec.options)),
+		reset: (installed) => installationGroup(namesOf(installed)),
+		bind: ({ names, history }, binding) => {
+			const last = Arr.lastNonEmpty(history)
+			return installedAt(
+				{
+					plan: last.plan,
+					declared: names.schema,
+					folders: Arr.map(history, (d) => d.folder),
+					snapshot: last.snapshot,
+					ambientOwner: templateAmbientOwner(
+						spec.options.ambient,
+						templateLogin(binding, names.ownerLogin)
+					),
+					files: new Map(),
+					credentials: templateCredentials(binding, loginRoles(last.plan, new Map()))
+				},
+				binding
+			)
+		}
 	})
 
 /**

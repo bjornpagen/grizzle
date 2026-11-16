@@ -22,6 +22,13 @@ const allocationLead = "gz"
  */
 const allocation = regex("^[a-z]+(?:_[a-z]+)*_([0-9]+)_[0-9]+_[0-9]{10}(?:_|$)")
 
+/**
+ * A template's allocation (templateSchemaName): the template lead, the template's digest in decimal, then a label word.
+ * It holds one digit run and no pid, so allocatingPid reads none off it and the sweep of ended processes spares every
+ * name under it: the installation of a template database outlives the process that built it.
+ */
+const templateAllocation = regex("^gzt_[0-9]+_[a-z]+(?:_[a-z]+)*(?:_|$)")
+
 /** 32 random bits, from the platform's Web Crypto, as ten decimal digits. */
 const random32 = (): string =>
 	Str.padStart(10, "0")(String(crypto.getRandomValues(new Uint32Array(1))[0] ?? 0))
@@ -66,8 +73,13 @@ export const uniqueSchemaNameOfLength = (
 	label: string,
 	allocationNumber: number,
 	bytes: number
-): string => {
-	const allocated = uniqueSchemaName(label, allocationNumber)
+): string => schemaNameOfLength(uniqueSchemaName(label, allocationNumber), bytes)
+
+/**
+ * The schema name of exactly `bytes` bytes under the allocation `allocated`: `_` and the letter `s` to the length, one
+ * segment more, so the name is still its own conversion and its own installed schema, under the same allocation.
+ */
+export const schemaNameOfLength = (allocated: string, bytes: number): string => {
 	const room = bytes - Buffer.byteLength(allocated, "utf8") - 1
 	if (room < 1) {
 		throw new Error(`the allocation ${allocated} leaves no room for a name of ${bytes} bytes`)
@@ -76,6 +88,40 @@ export const uniqueSchemaNameOfLength = (
 	assertIdentifier(name)
 	return name
 }
+
+/**
+ * The schema name a template's build allocates under `label` (substrate.ts templateAllocations): `gzt_`, the template's
+ * digest in decimal (`digest`, templates.ts templateDigest), and the label, so the same template on any member, built
+ * by any worker, allocates the same names, and a worker that never built it derives them: its installation's schema,
+ * its owner login and every role under them. One build allocates a label once.
+ */
+export const templateSchemaName = (digest: string, label: string): string => {
+	if (!word.test(label)) {
+		throw new Error(`schema label ${Formatter.format(label)} is not a lowercase letter word`)
+	}
+	const name = `gzt_${digest}_${label}`
+	if (!templateAllocation.test(name)) {
+		throw new Error(`template digest ${Formatter.format(digest)} is no run of decimal digits`)
+	}
+	assertIdentifier(name)
+	return name
+}
+
+/**
+ * The names a template's installation is made under and every worker derives from its digest (templateSchemaName): the
+ * installation's schema, labelled `install`, and its owner login's role, `<owner allocation>__login`, which a template
+ * build's substrate gives its one owner login (substrate.ts templateAllocations).
+ */
+export interface TemplateNames {
+	readonly schema: string
+	readonly ownerLogin: string
+}
+
+/** The names of the template of digest `digest` (TemplateNames). */
+export const templateNames = (digest: string): TemplateNames => ({
+	schema: templateSchemaName(digest, "install"),
+	ownerLogin: roleName(templateSchemaName(digest, "owner"), "login")
+})
 
 /**
  * The process that allocated a uniqueSchemaName schema, read off any name the door minted under it with the allocation
@@ -88,7 +134,7 @@ export const allocatingPid = (name: string): Option.Option<number> =>
 
 /** A role a test creates under an allocated `schema`: `<schema>__<name>`, which starts with rolePrefix(schema). */
 export const roleName = (schema: string, name: string): string => {
-	if (!allocation.test(schema)) {
+	if (!allocation.test(schema) && !templateAllocation.test(schema)) {
 		throw new Error(`schema name ${Formatter.format(schema)} is no allocated name`)
 	}
 	if (!word.test(name)) {

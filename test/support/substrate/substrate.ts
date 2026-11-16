@@ -1,11 +1,23 @@
+import { type Need, type NeedContext, NeedFailed } from "@bjornpagen/testing/property"
+import {
+	type Content,
+	Database,
+	type DatabaseNeed,
+	type DatabaseTemplate,
+	Template
+} from "@bjornpagen/testing/resources"
 import { NodeChildProcessSpawner, NodeFileSystem, NodePath } from "@effect/platform-node"
 import {
 	Array as Arr,
+	Cause,
 	Context,
 	Duration,
 	Effect,
+	Function,
+	HashSet,
 	Layer,
 	Option,
+	Record as Rec,
 	Redacted,
 	Ref,
 	type Scope,
@@ -29,6 +41,7 @@ import {
 } from "#test/support/kernel/sanitize.ts"
 import { hangLimit, testExitWait } from "#test/support/limits.ts"
 import { freshDatabase, type PgConnection, type SqlError, sqlErrorOf } from "#test/support/pg.ts"
+import { sqlNeedFailed } from "#test/support/runner.ts"
 import { awaitBlockedBy, awaitLockWait, type LockWait } from "#test/support/substrate/barrier.ts"
 import {
 	type BudgetedCluster,
@@ -42,10 +55,14 @@ import {
 	randomPassword,
 	roleName,
 	rolePrefix,
-	uniqueSchemaName,
-	uniqueSchemaNameOfLength
+	schemaNameOfLength,
+	type TemplateNames,
+	templateNames,
+	templateSchemaName,
+	uniqueSchemaName
 } from "#test/support/substrate/names.ts"
 import { type BackendCancel, openPsql, type PsqlWriter } from "#test/support/substrate/psql.ts"
+import { clearRows, noTables, type ResetGroup } from "#test/support/substrate/replace.ts"
 import {
 	type Credentials,
 	connect,
@@ -54,6 +71,11 @@ import {
 	type RawSession,
 	type SubstrateWorld
 } from "#test/support/substrate/session.ts"
+import {
+	baseTemplate,
+	templateDigest,
+	templatePassword
+} from "#test/support/substrate/templates.ts"
 
 import {
 	claimSharedDatabase,
@@ -516,6 +538,34 @@ export const psqlWriter = (
 	)
 
 /**
+ * How a substrate names and releases what it allocates: its schemas, its owner logins and its roles' passwords. A
+ * case's substrate allocates per process (processAllocations): unique names, random passwords, each dropped when its
+ * scope closes. A template's build allocates per template (templateAllocations): names and passwords every worker
+ * derives from the template alone, and whatever the install still holds when it ends kept as the template's.
+ */
+export interface Allocations {
+	/** The schema name of the substrate's allocation number `n`, under `label`. */
+	readonly schema: (label: string, n: number) => string
+	/** The owner login's role of the substrate's allocation number `n` (SubstrateShape.ownerLogin). */
+	readonly ownerLogin: (n: number) => string
+	/** The password `role` is given as it becomes a login. */
+	readonly password: (role: string) => string
+	/** `drop`, which removes what `name` names, as the release of the allocation when the current scope closes. */
+	readonly released: (
+		name: string,
+		drop: Effect.Effect<void>
+	) => Effect.Effect<void, never, Scope.Scope>
+}
+
+/** A process's allocations: unique names (names.ts), random passwords, every one dropped when its scope closes. */
+export const processAllocations: Allocations = {
+	schema: uniqueSchemaName,
+	ownerLogin: ownerLoginName,
+	password: randomPassword,
+	released: (_name, drop) => Effect.addFinalizer(() => drop)
+}
+
+/**
  * Builds the substrate over `database` of `cluster` in the current scope, with `admin` as its admin connection; its psql
  * writers are spawned by the scope's child-process spawner.
  */
@@ -523,7 +573,8 @@ const build = Effect.fnUntraced(function* (
 	cluster: BudgetedCluster,
 	database: string,
 	admin: PgConnection,
-	held: ReadonlyArray<number>
+	held: ReadonlyArray<number>,
+	names: Allocations
 ): Effect.fn.Return<
 	SubstrateShape,
 	SqlError,
@@ -538,11 +589,11 @@ const build = Effect.fnUntraced(function* (
 
 	/** A role finalizer that fails is a leaked cluster-wide role: surface it as a defect rather than hide it. */
 	const registerRoleCleanup = (role: string) =>
-		Effect.addFinalizer(() => Effect.orDie(releaseRole(cluster, admin, role)))
+		names.released(role, Effect.orDie(releaseRole(cluster, admin, role)))
 
 	const enableLogin = (role: string): Effect.Effect<Credentials, SqlError> =>
 		Effect.gen(function* () {
-			const password = randomPassword()
+			const password = names.password(role)
 			yield* admin.query(`ALTER ROLE ${quoteIdent(role)} PASSWORD ${quoteString(password)}`, [])
 			yield* admin.query(`GRANT ${quoteIdent(role)} TO CURRENT_USER WITH INHERIT TRUE`, [])
 			return { role, password: Redacted.make(password) }
@@ -569,7 +620,8 @@ const build = Effect.fnUntraced(function* (
 	 * created as the owner when `create` says so. */
 	const allocated = (name: string, create: boolean) =>
 		Effect.gen(function* () {
-			yield* Effect.addFinalizer(() =>
+			yield* names.released(
+				name,
 				Effect.orDie(
 					Effect.gen(function* () {
 						yield* dropRoleSchemas(rolePrefix(name))
@@ -608,13 +660,11 @@ const build = Effect.fnUntraced(function* (
 		})
 
 	const schema = (options: SchemaOptions) =>
-		Effect.flatMap(nextAllocation, (n) =>
-			allocated(uniqueSchemaName(options.label, n), options.create)
-		)
+		Effect.flatMap(nextAllocation, (n) => allocated(names.schema(options.label, n), options.create))
 
 	const schemaOfLength = (label: string, bytes: number) =>
 		Effect.flatMap(nextAllocation, (n) =>
-			allocated(uniqueSchemaNameOfLength(label, n, bytes), false)
+			allocated(schemaNameOfLength(names.schema(label, n), bytes), false)
 		)
 
 	const role = (schemaName: string, roleOf: string) =>
@@ -636,10 +686,11 @@ const build = Effect.fnUntraced(function* (
 	): Effect.Effect<Credentials, never, Scope.Scope> =>
 		Effect.gen(function* () {
 			const allocation = yield* nextAllocation
-			const name = ownerLoginName(allocation)
-			const password = randomPassword()
+			const name = names.ownerLogin(allocation)
+			const password = names.password(name)
 			const quoted = quoteIdent(name)
-			yield* Effect.addFinalizer(() =>
+			yield* names.released(
+				name,
 				releasing(
 					cluster,
 					name,
@@ -766,10 +817,13 @@ const makeSubstrate: Effect.Effect<
 					)
 				)
 			)
-			return yield* build(lease.cluster, claim.database, claim.admin, [
-				lease.connection.processId,
-				claim.claimant
-			])
+			return yield* build(
+				lease.cluster,
+				claim.database,
+				claim.admin,
+				[lease.connection.processId, claim.claimant],
+				processAllocations
+			)
 		})
 	)
 })
@@ -793,7 +847,13 @@ const makeIsolatedSubstrate: Effect.Effect<
 				credentials: ownerCredentials(lease.cluster),
 				label: "admin"
 			})
-			return yield* build(lease.cluster, database, admin, [lease.connection.processId])
+			return yield* build(
+				lease.cluster,
+				database,
+				admin,
+				[lease.connection.processId],
+				processAllocations
+			)
 		})
 	)
 })
@@ -805,6 +865,234 @@ const makeIsolatedSubstrate: Effect.Effect<
 const nodeSpawner = NodeChildProcessSpawner.layer.pipe(
 	Layer.provide(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer))
 )
+
+/**
+ * What a template's value is bound to in a case: the case's database and the cluster with the worker's budget, which
+ * every form gives (a case's substrate holds both).
+ */
+export interface Binding {
+	readonly cluster: BudgetedCluster
+	readonly database: string
+}
+
+/**
+ * A database template a grizzle case clones, with its value: the toolchain's template (its database), and the value
+ * every case over a clone of it reads, computed once per worker (`bound`) and bound to each case's database.
+ */
+export interface SubstrateTemplate<T> {
+	readonly database: DatabaseTemplate
+	readonly bound: Effect.Effect<(binding: Binding) => T, NeedFailed, NeedContext>
+	/**
+	 * The tables a case over the worker's own clone (Substrate.seat) writes, by its value: emptied after every case
+	 * (replace.ts clearRows), before the clone is checked against its template.
+	 */
+	readonly reset: (value: T) => ResetGroup
+}
+
+/**
+ * The base template (templates.ts baseTemplate) as a substrate template, whose cases read no value and write no table
+ * of its: what a case makes in it, it makes under its own allocations, which its scope drops.
+ */
+export const base: SubstrateTemplate<void> = {
+	database: baseTemplate,
+	bound: Effect.succeed(Function.constVoid),
+	reset: () => noTables
+}
+
+/** A case over a clone of a template: its own substrate over the clone, and the template's value bound to it. */
+export interface SubstrateCase<T> {
+	readonly substrate: SubstrateShape
+	readonly value: T
+}
+
+/**
+ * What an installed template states: its declaring module, name and content (as Template.database takes them), and its
+ * install in three parts. `plan` is the pure part, what the install makes under the template's names (names.ts
+ * templateNames: its schema and its owner login), which the build and every worker compute alike; `install` makes it
+ * once per member, on a substrate over the template database whose allocations are the template's
+ * (templateAllocations); `bind` reads it as a case over a clone sees it, by the case's database and budget; `reset`
+ * names the tables a seat's case writes (SubstrateTemplate reset).
+ */
+export interface InstallSpec<P, T, E1, E2> {
+	readonly declaredIn: ImportMeta
+	readonly name: string
+	readonly content: Content
+	readonly plan: (names: TemplateNames) => Effect.Effect<P, E1>
+	readonly install: (plan: P) => Effect.Effect<void, E2, Substrate | Scope.Scope>
+	readonly bind: (plan: P, binding: Binding) => T
+	readonly reset: (value: T) => ResetGroup
+}
+
+/** `effect`'s failure as NeedFailed of `need`, with the failure's printed cause. */
+const needFailedBy = <A, E, R>(need: string, effect: Effect.Effect<A, E, R>) =>
+	Effect.mapError(effect, (error) =>
+		NeedFailed.make({ need, message: Cause.pretty(Cause.fail(error)) })
+	)
+
+/**
+ * A template build's allocations (Allocations): every name the template's digest and a label (names.ts
+ * templateSchemaName), the owner login's under the label `owner`, each login's password derived from the member's
+ * owner password (templates.ts templatePassword), so a worker that never built the template derives them all. An
+ * allocation is released when its scope closes, as a process's is, unless `keep` kept it: `keep`, run as the install
+ * ends, keeps every allocation the install still holds, which is the template's installation, and what the install
+ * released on its way (a fresh install it compared with) is gone from the template.
+ */
+const templateAllocations = (
+	digest: string,
+	cluster: BudgetedCluster
+): Effect.Effect<{ readonly allocations: Allocations; readonly keep: Effect.Effect<void> }> =>
+	Effect.map(
+		Effect.all([Ref.make(HashSet.empty<string>()), Ref.make(HashSet.empty<string>())]),
+		([live, kept]) => ({
+			allocations: {
+				schema: (label) => templateSchemaName(digest, label),
+				ownerLogin: () => templateNames(digest).ownerLogin,
+				password: (role) => templatePassword(cluster, role),
+				released: (name, drop) =>
+					Effect.asVoid(
+						Effect.acquireRelease(Ref.update(live, HashSet.add(name)), () =>
+							Effect.andThen(
+								Ref.update(live, HashSet.remove(name)),
+								Effect.flatMap(Ref.get(kept), (k) => (HashSet.has(k, name) ? Effect.void : drop))
+							)
+						)
+					)
+			},
+			keep: Effect.flatMap(Ref.get(live), (held) => Ref.update(kept, HashSet.union(held)))
+		})
+	)
+
+/**
+ * A template of an installation over the base template (InstallSpec): its database is built by planning under the
+ * template's schema name and installing the plan on a substrate over the template database, each worker plans it once
+ * to bind its cases, and its cases clone it by any form (Substrate.freshOf, seat, rolledBack). Its identity is the
+ * toolchain's: the declaring module's import closure, the name and the content, so an install that changes is a new
+ * template, under new names.
+ */
+export const installTemplate = <P, T, E1, E2>(
+	spec: InstallSpec<P, T, E1, E2>
+): SubstrateTemplate<T> => {
+	const planned = (template: DatabaseTemplate) =>
+		Effect.flatMap(templateDigest(template), (digest) =>
+			Effect.map(needFailedBy(spec.name, spec.plan(templateNames(digest))), (plan) => ({
+				digest,
+				plan
+			}))
+		)
+	const database: DatabaseTemplate = Template.database({
+		declaredIn: spec.declaredIn,
+		name: spec.name,
+		content: spec.content,
+		from: baseTemplate,
+		build: (target) =>
+			Effect.scoped(
+				Effect.gen(function* () {
+					const { digest, plan } = yield* planned(database)
+					const cluster = yield* target.member.leased
+					const failed = sqlNeedFailed(spec.name, `the install in ${target.name}`)
+					const admin = yield* Effect.mapError(
+						connect(cluster, {
+							database: target.name,
+							credentials: ownerCredentials(cluster),
+							label: "template admin"
+						}),
+						failed
+					)
+					const { allocations, keep } = yield* templateAllocations(digest, cluster)
+					const spawning = yield* Layer.build(nodeSpawner)
+					const substrate = yield* Effect.mapError(
+						Effect.provideContext(build(cluster, target.name, admin, [], allocations), spawning),
+						failed
+					)
+					yield* needFailedBy(
+						spec.name,
+						Effect.scoped(
+							Effect.andThen(Effect.provideService(spec.install(plan), Substrate, substrate), keep)
+						)
+					)
+				})
+			)
+	})
+	return {
+		database,
+		reset: spec.reset,
+		bound: Effect.map(
+			planned(database),
+			({ plan }) =>
+				(binding) =>
+					spec.bind(plan, binding)
+		)
+	}
+}
+
+/**
+ * The substrate of a case over the database `take` gives it (from a need of the toolchain's resources, which a
+ * runner's worker opens once and each case takes from): an admin connection to it as the owner, and the substrate built
+ * over both (build), every connection drawing from the worker's lease on the database's member (test/support/runner.ts),
+ * its schemas, roles, sessions and psql writers released as the case's scope closes, before the database goes back to
+ * its need.
+ */
+const substrateOver = (
+	form: string,
+	taken: Database,
+	spawning: Context.Context<ChildProcessSpawner.ChildProcessSpawner>
+): Effect.Effect<SubstrateShape, NeedFailed, Scope.Scope> =>
+	Effect.gen(function* () {
+		const cluster = yield* taken.member.leased
+		const failed = sqlNeedFailed(form, `the substrate in ${taken.name}`)
+		const admin = yield* Effect.mapError(
+			connect(cluster, {
+				database: taken.name,
+				credentials: ownerCredentials(cluster),
+				label: "admin"
+			}),
+			failed
+		)
+		return yield* Effect.mapError(
+			Effect.provideContext(build(cluster, taken.name, admin, [], processAllocations), spawning),
+			failed
+		)
+	})
+
+/**
+ * A need of cases over `template`'s clones, each by `database` (a form of it), its substrate and its bound value, and
+ * `settled`, what the form does once the case's own allocations are released, before its substrate's connections
+ * close and the clone goes back to `database`.
+ */
+const substrateCases = <T>(
+	form: string,
+	template: SubstrateTemplate<T>,
+	database: DatabaseNeed<Database>,
+	settled: (substrate: SubstrateShape, value: T) => Effect.Effect<void>
+): Need<SubstrateCase<T>> => ({
+	key: `grizzle ${form} ${database.key}`,
+	open: Effect.map(
+		Effect.all([database.open, Layer.build(nodeSpawner), template.bound]),
+		([take, spawning, bind]) =>
+			Effect.gen(function* () {
+				const taken = yield* take
+				const substrate = yield* substrateOver(form, taken, spawning)
+				const value = bind(substrate)
+				yield* Effect.addFinalizer(() => settled(substrate, value))
+				return { substrate, value }
+			})
+	)
+})
+
+/** What a case over a clone of its own leaves behind: nothing to settle, as its clone is dropped. */
+const dropped = (): Effect.Effect<void> => Effect.void
+
+/**
+ * One case's transaction on the worker's own clone of a template (Substrate.rolledBack): an owner connection inside a
+ * transaction that is rolled back when the case ends, the database and the budget it lives in, and the template's
+ * value. It holds no second session and no allocation: whatever the case makes, it makes inside the transaction.
+ */
+export interface RolledBack<T> {
+	readonly connection: PgConnection
+	readonly cluster: BudgetedCluster
+	readonly database: string
+	readonly value: T
+}
 
 /**
  * The per-file PostgreSQL substrate: a database, unique schemas and roles, sessions, psql writers, a barrier.
@@ -832,6 +1120,59 @@ const nodeSpawner = NodeChildProcessSpawner.layer.pipe(
 export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 	"grizzle-workspace/test/support/substrate/substrate"
 ) {
+	/**
+	 * A case's own substrate, in a database of its own cloned from the base template (substrate/templates.ts
+	 * baseTemplate) for the case and dropped after it: what a property's needs name, its check providing it as the
+	 * Substrate service to what it runs (`Effect.provideServiceEffect(effect, Substrate, substrate)`).
+	 */
+	static readonly fresh: Need<SubstrateShape> = {
+		key: "grizzle Substrate.fresh",
+		open: Effect.map(
+			substrateCases("Substrate.fresh", base, Database.fresh(baseTemplate), dropped).open,
+			(take) => Effect.map(take, (taken) => taken.substrate)
+		)
+	}
+	/** A case's own substrate over a clone of `template`, made for the case and dropped after it, and its value. */
+	static readonly freshOf = <T>(template: SubstrateTemplate<T>): Need<SubstrateCase<T>> =>
+		substrateCases("Substrate.freshOf", template, Database.fresh(template.database), dropped)
+	/**
+	 * A case's own substrate over the worker's own clone of `template`, held across the worker's cases: after each, the
+	 * case's allocations are released, the template's reset group emptied (SubstrateTemplate reset), every sequence put
+	 * back, and the clone must hold its template's catalog and rows again, or it is replaced and the case fails.
+	 */
+	static readonly seat = <T>(template: SubstrateTemplate<T>): Need<SubstrateCase<T>> =>
+		substrateCases(
+			"Substrate.seat",
+			template,
+			Database.seat(template.database, []),
+			(substrate, value) => Effect.orDie(clearRows(substrate.admin, template.reset(value)))
+		)
+	/**
+	 * One case's owner transaction on the worker's own clone of `template` (RolledBack), rolled back when the case ends;
+	 * a case that ends it, or leaves the clone unlike its template, fails, and the clone is replaced.
+	 */
+	static readonly rolledBack = <T>(template: SubstrateTemplate<T>): Need<RolledBack<T>> => {
+		const transaction = Database.transaction(template.database)
+		return {
+			key: `grizzle Substrate.rolledBack ${transaction.key}`,
+			open: Effect.map(Effect.all([transaction.open, template.bound]), ([take, bind]) =>
+				Effect.gen(function* () {
+					const taken = yield* take
+					const cluster = yield* taken.database.member.leased
+					const binding = { cluster, database: taken.database.name }
+					return { ...binding, connection: taken.session.connection, value: bind(binding) }
+				})
+			)
+		}
+	}
+	/**
+	 * A case's choice among a closed set of templates, each under `form`: one need per key, to spread into a property's
+	 * needs, of which a case takes only the one it draws (`yield* resources[key]`).
+	 */
+	static readonly oneOf = <K extends string, T, A>(
+		templates: Readonly<Record<K, SubstrateTemplate<T>>>,
+		form: (template: SubstrateTemplate<T>) => Need<A>
+	): Readonly<Record<K, Need<A>>> => Rec.map(templates, form)
 	/** A shared database: build this layer once per file. It reads the initialised cluster once, as it builds. */
 	static readonly layer = Layer.effect(Substrate, makeSubstrate).pipe(
 		Layer.provide(Layer.mergeAll(nodeSpawner, InitializedCluster.layer))
@@ -899,6 +1240,9 @@ export const caseSubstrates: Effect.Effect<CaseSubstrate, never, Substrate | Sco
 					credentials: ownerCredentials(cluster),
 					label: "admin"
 				})
-				return yield* Effect.provideContext(build(cluster, name, admin, file.held), spawning)
+				return yield* Effect.provideContext(
+					build(cluster, name, admin, file.held, processAllocations),
+					spawning
+				)
 			})
 	})

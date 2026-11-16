@@ -165,6 +165,16 @@ export type AmbientOwner = {
 const AmbientOwner = Brand.nominal<AmbientOwner>()
 
 /**
+ * The owner login a template's installation was made under (substrate.ts installTemplate), as a case over one of the
+ * template's clones logs in as it: its role, which the template's names give (names.ts templateNames), its password,
+ * which the member's owner password derives (templates.ts templatePassword), and the ambient session it was made under.
+ */
+export const templateAmbientOwner = (
+	ambient: AmbientSession,
+	credentials: Credentials
+): AmbientOwner => AmbientOwner({ ambient, credentials })
+
+/**
  * The owner login of an installation under `ambient` for the scope, the grizzle-first path listing `schemas`, the
  * installation's own and each role's: made before its first migration, so every owner session of it starts under
  * `ambient`, and dropped when the scope closes.

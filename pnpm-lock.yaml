@@ -444,6 +444,9 @@ importers:
 
   vendor/toolchain/packages/testing:
     dependencies:
+      '@bjornpagen/limit':
+        specifier: workspace:*
+        version: link:../limit
       '@bjornpagen/limits':
         specifier: workspace:*
         version: link:../limits
@@ -471,6 +474,13 @@ importers:
       vitest:
         specifier: ^5.1.0
         version: 5.1.0(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0))
+    devDependencies:
+      '@types/pg':
+        specifier: 'catalog:'
+        version: 8.23.1
+      pg:
+        specifier: 'catalog:'
+        version: 8.23.1
 
 packages:
 

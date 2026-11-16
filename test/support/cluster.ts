@@ -38,7 +38,7 @@ export interface InitializedClusterShape {
 }
 
 /** The one read of `member`'s files: each once, or ClusterNotInitialized for the first that cannot be read. */
-const readCluster = (
+export const readCluster = (
 	member: LocalCluster
 ): Effect.Effect<InitializedClusterShape, ClusterNotInitialized, FileSystem.FileSystem> =>
 	Effect.gen(function* () {

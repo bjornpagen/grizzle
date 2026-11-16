@@ -39,6 +39,9 @@ export const installationGroup = (names: Names): ResetGroup =>
 export const occupiedGroup = (names: Names): ResetGroup =>
 	ResetGroup({ tables: names.storedTables, emptying: "occupied" })
 
+/** No table: the group of a template whose cases write no table of its own (substrate.ts base). */
+export const noTables: ResetGroup = ResetGroup({ tables: [], emptying: "whole" })
+
 /** Every table a fixture's own DDL creates, which a test builds by hand rather than installs. */
 export const fixtureGroup = (tables: Arr.NonEmptyReadonlyArray<string>): ResetGroup =>
 	ResetGroup({ tables, emptying: "whole" })
