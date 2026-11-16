@@ -115,7 +115,7 @@ class CpuTimeUnreadable extends Data.TaggedError("CpuTimeUnreadable")<{
  * ran, `cpuTicks` the CPU time its tree had spent by its last progress, in clock ticks, none when its process was never
  * read, and `goroutines` what it printed on stderr once asked for its goroutines, the dump an upstream report needs.
  */
-export class CompilerStalled extends Data.TaggedError("CompilerStalled")<{
+class CompilerStalled extends Data.TaggedError("CompilerStalled")<{
 	readonly command: string
 	readonly args: ReadonlyArray<string>
 	readonly idleMillis: number

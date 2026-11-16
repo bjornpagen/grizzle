@@ -160,7 +160,7 @@ import {
  */
 
 /** The constructs a drawn query may use, each a swarm feature. */
-export const agreementFeatures = [
+const agreementFeatures = [
 	"ownVar",
 	"join",
 	"foreignVar",
@@ -231,7 +231,7 @@ export type AgreementFeature = (typeof agreementFeatures)[number]
  * The faults a faulted case plants, one per case: a site whose drawn value the engine may refuse (or, for widenedName,
  * a spelling no engine sees).
  */
-export const agreementFaults = [
+const agreementFaults = [
 	"scopeName",
 	"unnamedScope",
 	"widenedName",
@@ -301,7 +301,7 @@ export type FaultNote = `${Fault} refused` | `${Fault} admitted`
  * The pairs of notes one case must reach together: a self-join whose get the engine proves, which pinnedSelfJoin
  * draws by construction.
  */
-export const agreementPairs: ReadonlyArray<readonly [AgreementNote, AgreementNote]> = [
+const agreementPairs: ReadonlyArray<readonly [AgreementNote, AgreementNote]> = [
 	["repeat", "at most one row proved"]
 ]
 

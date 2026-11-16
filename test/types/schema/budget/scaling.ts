@@ -218,7 +218,7 @@ const handlesSource = (count: number): string =>
 	)
 
 /** A complete program at `shape`, its imports read through the gates' prelude as `entries` reaches it. */
-export const schemaScaleSource = (shape: SchemaShape, entries: PreludeAt): string => {
+const schemaScaleSource = (shape: SchemaShape, entries: PreludeAt): string => {
 	const last = shape.relations - 1
 	const writes = writesSource(shape)
 	const fields = fieldNames(shape.fields)

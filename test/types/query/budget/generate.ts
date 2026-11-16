@@ -24,7 +24,7 @@ import {
  * first and the last relation is the twin's, and every refusal there raises what the twin's raises: a parameter of
  * another type, an order by a field one arm lacks.
  */
-export const largestQuerySize = 200
+const largestQuerySize = 200
 
 const relationDeclaration = (ns: string, i: number): string =>
 	`export const ${ns}R${i} = relation("R${i}", { id: uuid, parent: uuid, amount: pg.bigint, label: ${ns}Label, kind: closedId(${ns}Kind), qty: pg.integer }, ["id"])\n`

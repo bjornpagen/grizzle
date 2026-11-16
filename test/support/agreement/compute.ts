@@ -276,7 +276,7 @@ const refusalNotes = {
 } as const
 type ComputeRefusal = keyof typeof refusalNotes
 type RefusalNote = (typeof refusalNotes)[ComputeRefusal]
-export const computeRefusals: Arr.NonEmptyReadonlyArray<RefusalNote> = [
+const computeRefusals: Arr.NonEmptyReadonlyArray<RefusalNote> = [
 	"refused: a divisor",
 	"refused: a radicand",
 	"refused: a finite value",
@@ -287,7 +287,7 @@ export const computeRefusals: Arr.NonEmptyReadonlyArray<RefusalNote> = [
 ]
 
 /** The inferences the program asserts of an admitted case, by what the engine typed it. */
-export const computeInferences = [
+const computeInferences = [
 	"an exact integer",
 	"exact money",
 	"a contract kept",
@@ -4022,7 +4022,7 @@ const expressionOf = (rendering: Rendering, spec: CaseSpec): string => {
  * admitted but a literal standing first, and each refused but the byte guard, whose casts the types always admit; and
  * a column read through a heading both ways. The kept cases reach the rest (computeKeptRequired).
  */
-export const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
+const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
 	...computeFeatures,
 	...computeDecided,
 	[headingNote, "admitted"],
@@ -4063,7 +4063,7 @@ const caseGen =
  * A drawn term, predicate, aggregate, host value or member read, rooted at a construct its swarm chooses, the engine's
  * verdict on it, and what it reached.
  */
-export const computeCases: Gen<ComputeCase> = caseGen(Option.none())
+const computeCases: Gen<ComputeCase> = caseGen(Option.none())
 
 /**
  * The notes a term root is drawn for beside its construct: a column read through a heading, a partial operation over a

@@ -10,7 +10,7 @@ import { jsonText } from "#compiler/core/trusted.ts"
  * The repository root, three directories above this module, wherever a tool is started from. The dev tools assume
  * POSIX paths: every path they build joins segments with "/".
  */
-export const packageRoot: string = Str.slice(
+const packageRoot: string = Str.slice(
 	0,
 	-1
 )(decodeURIComponent(new URL("../../../", import.meta.url).pathname))

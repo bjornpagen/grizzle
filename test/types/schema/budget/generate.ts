@@ -32,7 +32,7 @@ import { entriesFrom } from "#test/types/query/budget/generate.ts"
  *
  * The relation count the type-test batch checks.
  */
-export const largestStatementSize = 2000
+const largestStatementSize = 2000
 
 /** Whether relation i declares a generated field: every fourth, from the third, so neither the first nor the last. */
 const generates = (i: number): boolean => i % 4 === 2

@@ -1463,7 +1463,7 @@ export const attachAimed = aimed(attachCases, [
 ])
 
 /** The refusals the attachment population names, every one of which its witnesses reach. */
-export const attachRefusals: Arr.NonEmptyReadonlyArray<Refused> = [
+const attachRefusals: Arr.NonEmptyReadonlyArray<Refused> = [
 	"an Option needs a child the evidence proves at most one per parent",
 	"the one child needs a child the evidence proves exactly one per parent",
 	"an arm needs a child that is the arm of one handle of an alternatives law, keyed by the parent's key",

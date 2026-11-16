@@ -98,13 +98,13 @@ export const problemText = (problem: Problem): string => {
 }
 
 /** An error diagnostic tsgo printed: where, its code, and its text, its first line and every continuation line. */
-export type ErrorDiagnostic = FileLine & Readonly<{ code: string; text: string }>
+type ErrorDiagnostic = FileLine & Readonly<{ code: string; text: string }>
 
 /**
  * What one owner's lines came to: every line tsgo printed for them, continuation lines included, the lines its
  * directives promise an error on, the lines its errors stand on, and what its lines contradict.
  */
-export type Judged = Readonly<{
+export type LinesJudged = Readonly<{
 	output: ReadonlyArray<string>
 	expected: ReadonlyArray<string>
 	actual: ReadonlyArray<string>
@@ -112,7 +112,7 @@ export type Judged = Readonly<{
 }>
 
 /** Whether an owner's lines agree: every directive's line raises an error, no other line does, and nothing is contradicted. */
-const agrees = (judged: Judged): boolean =>
+const agrees = (judged: LinesJudged): boolean =>
 	!Arr.isReadonlyArrayNonEmpty(judged.problems) &&
 	Arr.makeEquivalence(Equivalence.String)(judged.expected, judged.actual)
 
@@ -121,9 +121,9 @@ const agrees = (judged: Judged): boolean =>
  * that names no line of the program (a diagnostic in a source file, an option it refused, an abnormal exit), which the
  * batch answers for.
  */
-export type Attributed = Readonly<{
-	cases: ReadonlyArray<Judged>
-	batch: Judged
+type Attributed = Readonly<{
+	cases: ReadonlyArray<LinesJudged>
+	batch: LinesJudged
 	unattributed: ReadonlyArray<string>
 }>
 
@@ -133,14 +133,14 @@ export type Attributed = Readonly<{
  */
 export class TypesDisagreed extends Data.TaggedError("TypesDisagreed")<{
 	readonly lines: ReadonlyArray<string>
-	readonly judged: Judged
-	readonly batch: Judged
+	readonly judged: LinesJudged
+	readonly batch: LinesJudged
 	readonly unattributed: ReadonlyArray<string>
 }> {
 	override get message(): string {
 		const section = (title: string, lines: ReadonlyArray<string>): ReadonlyArray<string> =>
 			Arr.isReadonlyArrayNonEmpty(lines) ? [title, ...Arr.map(lines, (line) => `  ${line}`)] : []
-		const judgedLines = (whose: string, judged: Judged): ReadonlyArray<string> => [
+		const judgedLines = (whose: string, judged: LinesJudged): ReadonlyArray<string> => [
 			...section(`${whose} lines tsgo reported:`, judged.output),
 			...(agrees(judged)
 				? []
@@ -169,7 +169,7 @@ export class TypesDisagreed extends Data.TaggedError("TypesDisagreed")<{
  * Each case's verdict: it passes when its own lines agree and the batch's own lines do, with nothing reported outside
  * the program; otherwise it fails with TypesDisagreed, its program lines beside it.
  */
-export const verdictsOf = (
+const verdictsOf = (
 	program: Program,
 	attributed: Attributed
 ): ReadonlyArray<Effect.Effect<void, TypesDisagreed>> => {
@@ -208,7 +208,7 @@ export const ownedLines = (program: Program, owner: Owner): ReadonlyArray<string
 	)
 
 /** A module's text, its parts' lines in order. */
-export const moduleText = (module: ProgramModule): string => Arr.join(textLines(module), "\n")
+const moduleText = (module: ProgramModule): string => Arr.join(textLines(module), "\n")
 
 /** A part's lines as the module's text holds them: a line its generator wrote with line breaks in it is several. */
 const partLines = (part: Part): ReadonlyArray<string> =>
@@ -349,7 +349,7 @@ type Placed = Readonly<{
  * A directive outside the grammar (directives.ts disarm), which no line can be judged against: the program's own
  * defect, so every case of the batch fails with it.
  */
-export class DirectiveUnreadable extends Data.TaggedError("DirectiveUnreadable")<{
+class DirectiveUnreadable extends Data.TaggedError("DirectiveUnreadable")<{
 	readonly reason: string
 }> {
 	override get message(): string {
@@ -491,7 +491,7 @@ const attribute = (ran: Ran, dir: string, placed: Placed, count: number) =>
 			text: Arr.join(p.lines, "\n")
 		}))
 		const twins = twinProblems(placed.directives, texted)
-		const judgedOf = (owner: Owner): Judged => {
+		const judgedOf = (owner: Owner): LinesJudged => {
 			const own = Arr.filter(texted, (e) => sameOwner(e.owner, owner))
 			const directives = Arr.filterMap(placed.directives, (d) =>
 				sameOwner(d.owner, owner) ? Result.succeed(d.directive) : Result.failVoid

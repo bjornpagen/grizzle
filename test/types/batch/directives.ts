@@ -8,11 +8,6 @@ export interface FileLine {
 	readonly line: number
 }
 
-/** An error diagnostic tsgo reported: where, and its code. */
-export interface Diagnostic extends FileLine {
-	readonly code: string
-}
-
 export const lineKey = (p: FileLine): string => `${p.file}:${p.line}`
 
 /**

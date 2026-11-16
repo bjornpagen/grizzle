@@ -182,7 +182,7 @@ export const inC${j} = query(S).rule((r) => {
 `
 
 /** A complete program at `shape`, its imports read through the gates' prelude as `entries` reaches it. */
-export const queryScaleSource = (shape: QueryShape, entries: PreludeAt): string => {
+const queryScaleSource = (shape: QueryShape, entries: PreludeAt): string => {
 	const names = Arr.join(
 		Arr.map(indices(shape.relations), (i) => `R${i}`),
 		", "

@@ -8,7 +8,7 @@ import { fileText, joinPath, repoRoot } from "#test/support/files.ts"
  */
 
 /** Each document with ts blocks, and the fixture that mirrors its blocks, line for line and in order. */
-export const mirrors = [
+const mirrors = [
 	{ doc: "README.md", fixture: "test/types/examples/fixtures/readme.ts" },
 	{
 		doc: "packages/grizzle/skills/grizzle/SKILL.md",

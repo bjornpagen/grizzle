@@ -33,7 +33,7 @@ const modulePeriod = 10
 const queried = 4
 
 /** The relation counts the scale test checks: the largest is past qti-pie's 370 by more than half again. */
-export const loginSizes: EqualSteps = equalSteps(modulePeriod * 20)
+const loginSizes: EqualSteps = equalSteps(modulePeriod * 20)
 
 /** The j-th relation of module m. */
 const relationName = (m: number, j: number): string => `R${m}x${j}`
@@ -74,7 +74,7 @@ const readSource = (m: number): string => `\tread${m}: query(Author).rule((r) =>
 	})`
 
 /** The program at `relations` relations, a whole number of modules past `queried`, its imports read through `entries`. */
-export const generateLoginSource = (relations: number, entries: PreludeAt): string => {
+const generateLoginSource = (relations: number, entries: PreludeAt): string => {
 	const modules = indices(Math.floor(relations / modulePeriod))
 	const read = indices(queried)
 	const last = relationName(modules.length - 1, 0)

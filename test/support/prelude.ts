@@ -208,10 +208,7 @@ export const preludeFrom = (prelude: Prelude, entry: (path: string) => string): 
  * The import statements of a program whose text names `named`, reading its prelude as `at` reaches it: its values,
  * then its types, each a statement only where the program names one.
  */
-export const preludeImports = (
-	at: PreludeAt,
-	named: ReadonlySet<string>
-): ReadonlyArray<string> => {
+const preludeImports = (at: PreludeAt, named: ReadonlySet<string>): ReadonlyArray<string> => {
 	const statement = (kind: "import" | "import type", names: ReadonlyArray<string>) => {
 		const used = Arr.filter(names, (n) => named.has(n))
 		return Arr.isReadonlyArrayNonEmpty(used)

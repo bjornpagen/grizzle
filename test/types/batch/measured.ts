@@ -233,7 +233,7 @@ export const measuredEach = (at: Measuring, programs: ReadonlyArray<SizedProgram
 	})
 
 /** The program at each of the steps' sizes, every size checked at once (measuredEach). */
-export const measuredSizes = (
+const measuredSizes = (
 	at: Measuring,
 	steps: EqualSteps,
 	source: (size: number, entries: PreludeAt) => string
@@ -260,11 +260,7 @@ export const assertClean = (m: Measured, what: string): void => {
  * measures, and its instantiations grow no faster than linearly (incrementsDoNotGrow); its types are interned, so they
  * are not judged by the law (see the header).
  */
-export const assertGrowthLaw = (
-	what: string,
-	at: EqualSteps,
-	measured: ReadonlyArray<Measured>
-): void => {
+const assertGrowthLaw = (what: string, at: EqualSteps, measured: ReadonlyArray<Measured>): void => {
 	const sized = (size: number): Measured =>
 		defined(
 			Option.getOrUndefined(Arr.findFirst(measured, (m) => m.size === size)),

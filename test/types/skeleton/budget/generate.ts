@@ -23,7 +23,7 @@ import { entriesFrom } from "#test/types/query/budget/generate.ts"
  * role that does not write its relation, and a query's rows inserted into another relation, are refused at scale as
  * over the twin.
  */
-export const largestSkeletonSize = 200
+const largestSkeletonSize = 200
 
 const relationDeclaration = (ns: string, i: number): string =>
 	`export const ${ns}R${i} = relation("R${i}", { id: uuid, parent: uuid, amount: ${ns}Cents, label: ${ns}Label, kind: closedId(${ns}Kind), qty: pg.integer }, ["id"])\n`

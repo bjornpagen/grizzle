@@ -18,7 +18,7 @@ import {
 	type Checking,
 	caseOwned,
 	checkedBatch,
-	type Judged,
+	type LinesJudged,
 	type Owner,
 	type Part,
 	type Problem,
@@ -229,7 +229,7 @@ type JudgedView = Readonly<{
  * A case's verdict as compared: it agrees; it disagrees, with its own lines, the batch's and whether each line no line
  * of the program owns names the file outside it; or it died, a defect, with its cause.
  */
-export type VerdictView =
+type VerdictView =
 	| Readonly<{ kind: "agrees" }>
 	| Readonly<{ kind: "died"; cause: string }>
 	| Readonly<{
@@ -239,7 +239,7 @@ export type VerdictView =
 			unowned: ReadonlyArray<boolean>
 	  }>
 
-const viewOf = (judged: Judged): JudgedView => ({
+const viewOf = (judged: LinesJudged): JudgedView => ({
 	expected: judged.expected,
 	actual: judged.actual,
 	problems: Arr.sort(Arr.map(judged.problems, problemText), Order.String)
@@ -348,7 +348,7 @@ const modelOf = (planted: PlantedProgram) => {
 }
 
 /** What a planted program reaches: its form, its directives' claims, its twins, and its owners' verdicts. */
-export const attributionNotes = (planted: PlantedProgram): ReadonlyArray<AttributionFeature> => {
+const attributionNotes = (planted: PlantedProgram): ReadonlyArray<AttributionFeature> => {
 	const written = writtenOf(planted)
 	const disarmed = planted.checking === "disarmed"
 	const model = modelOf(planted)

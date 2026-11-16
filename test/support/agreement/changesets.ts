@@ -3298,7 +3298,7 @@ const caseGen =
  * A drawn ChangeSet and, where it is applied, its application: its source lines, the engine's verdict on each, and what
  * it reached. The generator draws the swarm of constructs and faults itself, aimed at none.
  */
-export const changeSetCases: Gen<ChangeSetCase> = caseGen(new Set())
+const changeSetCases: Gen<ChangeSetCase> = caseGen(new Set())
 
 /** What a case reached: its notes, each construct with its verdict, and its fault with each of its constructs. */
 export const changeSetReached = (c: ChangeSetCase): ReadonlyArray<Reached<ChangeSetNote>> => {
