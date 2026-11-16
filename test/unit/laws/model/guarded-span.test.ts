@@ -16,96 +16,64 @@
  * Features: a span-alone key over a selection, a span-alone key over every fact, a guarded span key with a scalar, a
  * span key with a scalar over every fact.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { boolean, type Gen, shuffled } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Effect, Formatter } from "effect"
-import { pg, span, uuid } from "#compiler/public/fields.ts"
-import { relationBuilder as relation } from "#compiler/schema/relation.ts"
-import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
-import { keyBuilder, onBuilder, selectBuilder } from "#compiler/schema/statements.ts"
-import type { RowTerm, rowHelpers } from "#compiler/schema/terms.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
-import { caseHang } from "#test/support/limits.ts"
+import { type Feature, schemaOf, spanKeyGen } from "#test/unit/laws/model/guarded-span.fixtures.ts"
 
-/** A span key of T: over every fact or a selection of them, and the scalars it compares beside its span, in order. */
-interface SpanKey {
-	readonly selected: boolean
-	readonly scalars: ReadonlyArray<"a" | "b">
-}
-
-const spanKeyGen: Gen<SpanKey> = (source) => ({
-	selected: source.draw(boolean),
-	scalars: source.draw(shuffled(["a", "b"] as const, { min: 0, max: 2 }))
-})
-
-type TRow = { readonly kind: RowTerm } & typeof rowHelpers
-
-/** The schema whose one relation T states the span key `k`. */
-const schemaOf = (k: SpanKey) => {
-	const T = relation(
-		"T",
-		{ id: uuid, kind: pg.integer, a: uuid, b: pg.integer, during: span(pg.bigint) },
-		["id"],
-		[]
-	)
-	const side = k.selected ? selectBuilder(T, (r: TRow) => r.eq(r.kind, 1)) : T
-	return schema("GuardedSpan", [T], [keyBuilder(onBuilder(side, [...k.scalars, "during"]))], [])
-}
-
-type Feature =
-	| "a span-alone key over a selection"
-	| "a span-alone key over every fact"
-	| "a guarded span key with a scalar"
-	| "a span key with a scalar over every fact"
-
-describe("a span key", () => {
-	it.effect(
-		"is refused as the law model is built exactly when it compares nothing but its span over a selection",
-		(ctx) =>
-			searched(
-				ctx,
-				exhaust(
-					{
-						suite: "unit/laws/model/guarded-span",
-						generator: spanKeyGen,
-						literal: Formatter.format,
-						box: "a span key of T over every fact or over a selection, beside every ordered choice of its two scalars",
-						oracle: {
-							kind: "specification",
-							name: "refused with UnsupportedOperation exactly when its side is selected and it compares no scalar"
-						},
-						coverage: requiredInSpace<Feature>([
-							"a span-alone key over a selection",
-							"a span-alone key over every fact",
-							"a guarded span key with a scalar",
-							"a span key with a scalar over every fact"
-						]),
-						caseHang
-					},
-					(k, c) =>
-						Effect.sync(() => {
-							const built = testArtifacts(schemaOf(k), testCompile)
-							const alone = k.scalars.length === 0
-							c.note(
-								k.selected
-									? alone
-										? "a span-alone key over a selection"
-										: "a guarded span key with a scalar"
-									: alone
-										? "a span-alone key over every fact"
-										: "a span key with a scalar over every fact"
-							)
-							if (k.selected && alone) {
-								refused(built, "UnsupportedOperation", "a span-alone key over a selection")
-								return
-							}
-							succeeded(built, "a span key over every fact, or beside a scalar, compiles")
-						})
+/** A span key is refused as the law model is built exactly when it compares nothing but its span over a selection. */
+export const aSpanKeyIsRefusedAsTheLawModelIsBuiltExactlyWhenItComparesNothingButItsSpanOverASelection =
+	property.exhaust(finite(spanKeyGen), {
+		needs: {},
+		situations: [
+			"a span-alone key over a selection",
+			"a span-alone key over every fact",
+			"a guarded span key with a scalar",
+			"a span key with a scalar over every fact"
+		] satisfies ReadonlyArray<Reached<Feature>>,
+		check: (_, c: Case<Feature>) => (k) =>
+			Effect.sync(() => {
+				const built = testArtifacts(schemaOf(k), testCompile)
+				const alone = k.scalars.length === 0
+				c.note(
+					k.selected
+						? alone
+							? "a span-alone key over a selection"
+							: "a guarded span key with a scalar"
+						: alone
+							? "a span-alone key over every fact"
+							: "a span key with a scalar over every fact"
 				)
-			)
-	)
-})
+				if (k.selected && alone) {
+					refused(built, "UnsupportedOperation", "a span-alone key over a selection")
+					return
+				}
+				succeeded(built, "a span key over every fact, or beside a scalar, compiles")
+			}),
+		oracle: {
+			kind: "specification",
+			name: "refused with UnsupportedOperation exactly when its side is selected and it compares no scalar"
+		},
+		box: "a span key of T over every fact or over a selection, beside every ordered choice of its two scalars",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/laws/model/uniques.ts",
+				original:
+					'\t\t\t\t(o) => o.object.kind === "span" && o.object.equal.length === 0 && o.object.within.length > 0',
+				replacement: '\t\t\t\t(o) => o.object.kind === "span" && o.object.equal.length === 0',
+				why: "A span-alone key over every fact is refused too (laws/model/uniques.ts)."
+			},
+			{
+				file: "packages/engine/src/laws/model/uniques.ts",
+				original:
+					'\t\t\t\t(o) => o.object.kind === "span" && o.object.equal.length === 0 && o.object.within.length > 0',
+				replacement: '\t\t\t\t(o) => o.object.kind === "span" && o.object.within.length > 0',
+				why: "A selected span key is refused beside a scalar too (laws/model/uniques.ts)."
+			}
+		]
+	})

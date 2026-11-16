@@ -10,523 +10,170 @@
  * - Revival: a written payload revives to the value that writes it, and a near miss of it revives, if at all, to a
  *   value writing exactly the near miss. Oracle: universal, fromCanonical ∘ write = id and write ∘ fromCanonical = id.
  *
- * Features: each carrier's equal and unequal pairs, each constructor, and each tag written and refused as a near miss.
+ * Features: each carrier's equal and unequal pairs, two vectors apart in their last component alone, each constructor,
+ * and each tag written, refused as a near miss, and refused with a leading zero.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, element, type Gen, map, oneOf, option } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { bigint } from "@bjornpagen/testing/values"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
-import * as Result from "#compiler/core/result.ts"
-import { type FieldDesc, pgScalarNames } from "#compiler/ir/desc.ts"
-import { type DeclaredType, languageOfText, languageWithin } from "#compiler/ir/scalar.ts"
-import { pg, uuid } from "#compiler/public/fields.ts"
-import { str } from "#compiler/public/text.ts"
-import { Decimal, type DecimalParts, type FiniteParts } from "#compiler/scalar/values/decimal.ts"
-import { Money } from "#compiler/scalar/values/money.ts"
-import { makeSpan } from "#compiler/scalar/values/span.ts"
-import { Vector } from "#compiler/scalar/values/vector.ts"
-import { textLookup } from "#compiler/text/refinement.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
-import { f, textDesc } from "#test/support/fixtures/ir/desc.ts"
-import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { decimalGen, numericText } from "#test/unit/values/support.ts"
 
-/** Groups of spellings of one Decimal value, and values alone. */
-const decimalGroups: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>> = [
-	["0", "-0", "0.000", "+0", "0e5", "-0.0"],
-	["1", "1.0", "1.00", "+1", "1e0", "10e-1", "0.1e1"],
-	["-1.5", "-1.50", "-15e-1"],
-	["120.05", "120.0500", "12005e-2"],
-	["1000", "1e3", "1000.000"],
-	["NaN"],
-	["Infinity", "+Infinity"],
-	["-Infinity"],
-	["0.1"],
-	["0.10000000000000000001"]
-]
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect, Option } from "effect"
+import { assert } from "#test/support/assert.ts"
+import {
+	apartInTheLastAlone,
+	constructedSpace,
+	type Constructor,
+	type EqualityFeature,
+	offeredSpace,
+	pairSpace,
+	reached,
+	type RevivalFeature,
+	rewritten
+} from "#test/unit/values/laws.fixtures.ts"
 
-const decimalOf = (text: string): Decimal => succeeded(Decimal.fromString(text))
-
-/** A value drawn from the dictionary or generated. */
-const dictionaryDecimal: Gen<Decimal> = (source) =>
-	decimalOf(source.draw(element(source.draw(element(decimalGroups)))))
-
-const anyDecimal: Gen<Decimal> = oneOf([dictionaryDecimal, decimalGen])
-
-const signed = (p: FiniteParts): bigint => (p.negative ? -p.coefficient : p.coefficient)
-
-/**
- * The exact rational value of a finite Decimal as a signed coefficient over 10^minScale, compared by cross
- * multiplication, which reads no canonical form; the specials by their kind, NaN equal to NaN.
- */
-const sameDecimal = (a: Decimal, b: Decimal): boolean => {
-	const x = a.parts
-	const y = b.parts
-	if (x.kind !== "finite" || y.kind !== "finite") {
-		return x.kind === y.kind
-	}
-	return signed(x) * 10n ** BigInt(y.minScale) === signed(y) * 10n ** BigInt(x.minScale)
-}
-
-/** Two Decimals' parts field by field: one form means equal values hold identical parts. */
-const sameParts = (a: DecimalParts, b: DecimalParts): boolean =>
-	a.kind === "finite" && b.kind === "finite"
-		? a.negative === b.negative && a.coefficient === b.coefficient && a.minScale === b.minScale
-		: a.kind === b.kind
-
-const minorUnits: Gen<bigint> = oneOf([
-	element([0n, 1n, -1n, 5n, 6n, 2n ** 63n - 1n, -(2n ** 63n)]),
-	bigint(-(2n ** 63n), 2n ** 63n - 1n)
-])
-
-const moneyOf = (units: bigint): Money => succeeded(Money.fromCanonical(units.toString()))
-
-/** Components that equal under binary32: -0 and 0, 0.1 and its binary32 rounding, a subnormal. */
-const components: Gen<number> = element([0, -0, 0.1, Math.fround(0.1), 1, 1.5, -2, 3e-40])
-
-const vectorOf = (xs: ReadonlyArray<number>): Vector =>
-	Vector.make(Float32Array.from(xs), xs.length)
-
-/** The components of a vector, read one by one. */
-const componentsOf = (v: Float32Array): ReadonlyArray<number> => [...v]
-
-const sameVector = (a: Float32Array, b: Float32Array): boolean => {
-	const xs = componentsOf(a)
-	const ys = componentsOf(b)
-	return xs.length === ys.length && Arr.every(xs, (x, i) => x === ys[i])
-}
-
-/** One pair of one carrier, with the oracle's verdict and every implementation's. */
-interface Judged {
-	readonly carrier: "decimal" | "money" | "vector"
-	readonly oracle: boolean
-	readonly sides: ReadonlyArray<readonly [string, boolean]>
-	readonly identities: readonly [string, string]
-}
-
-const judgedDecimal = (a: Decimal, b: Decimal): Judged => ({
-	carrier: "decimal",
-	oracle: sameDecimal(a, b),
-	sides: [
-		["equals", a.equals(b)],
-		["compare", a.compare(b) === 0],
-		["toString", a.toString() === b.toString()],
-		["parts", sameParts(a.parts, b.parts)]
-	],
-	identities: [a.text, b.text]
-})
-
-const judgedMoney = (x: bigint, y: bigint): Judged => {
-	const a = moneyOf(x)
-	const b = moneyOf(y)
-	return {
-		carrier: "money",
-		oracle: x === y,
-		sides: [
-			["equals", a.equals(b)],
-			["compare", a.compare(b) === 0]
-		],
-		identities: [a.minorUnits.toString(), b.minorUnits.toString()]
-	}
-}
-
-const judgedVector = (xs: ReadonlyArray<number>, ys: ReadonlyArray<number>): Judged => {
-	const a = vectorOf(xs)
-	const b = vectorOf(ys)
-	return {
-		carrier: "vector",
-		oracle: sameVector(a, b),
-		sides: [
-			["Vector.equals", Vector.equals(a, b)],
-			["Vector.compare", Vector.compare(a, b) === 0 && a.length === b.length]
-		],
-		identities: [Vector.componentText(a), Vector.componentText(b)]
-	}
-}
-
-const vectorGen = array(components, { min: 1, max: 3 })
-
-const pairGen: Gen<Judged> = oneOf([
-	(source) => judgedDecimal(source.draw(anyDecimal), source.draw(anyDecimal)),
-	(source) => {
-		const members = source.draw(element(decimalGroups))
-		return judgedDecimal(
-			decimalOf(source.draw(element(members))),
-			decimalOf(source.draw(element(members)))
-		)
-	},
-	(source) => judgedMoney(source.draw(minorUnits), source.draw(minorUnits)),
-	map(minorUnits, (x) => judgedMoney(x, x)),
-	(source) => judgedVector(source.draw(vectorGen), source.draw(vectorGen)),
-	map(vectorGen, (xs) =>
-		judgedVector(
-			xs,
-			Arr.map(xs, (x) => (x === 0 ? -0 : Math.fround(x)))
-		)
-	)
-])
-
-/**
- * Every object a value reaches through its own properties, the value first; a typed array's elements are no objects,
- * and a descriptor's column is Effect's.
- */
-const reached = (value: unknown): ReadonlyArray<object> => {
-	const out: Array<object> = []
-	const seen = new Set<object>()
-	const visit = (v: unknown): void => {
-		if (typeof v !== "object" || v === null || seen.has(v)) {
-			return
-		}
-		seen.add(v)
-		out.push(v)
-		if (ArrayBuffer.isView(v)) {
-			return
-		}
-		for (const key of Reflect.ownKeys(v)) {
-			if (key !== "column") {
-				visit(Reflect.get(v, key))
+/** The value carriers' laws equality is value identity, every implementation agrees, and equal values have one identity text. */
+export const theValueCarriersLawsEqualityIsValueIdentityEveryImplementationAgreesAndEqualValuesHaveOneIdentityText =
+	property.explore(pairSpace, {
+		needs: {},
+		situations: [
+			"decimal equal",
+			"decimal unequal",
+			"money equal",
+			"money unequal",
+			"vector equal",
+			"vector unequal",
+			"vector unequal in its last component alone"
+		] satisfies ReadonlyArray<Reached<EqualityFeature>>,
+		check: (_, c: Case<EqualityFeature>) => (j) =>
+			Effect.sync(() => {
+				c.note(`${j.carrier} ${j.oracle ? "equal" : "unequal"}`)
+				if (j.carrier === "vector" && apartInTheLastAlone(j.components)) {
+					c.note("vector unequal in its last component alone")
+				}
+				for (const [side, verdict] of j.sides) {
+					assert.equal(
+						verdict,
+						j.oracle,
+						`${j.carrier}: ${side} says ${verdict}, the value oracle ${j.oracle}`
+					)
+				}
+				if (j.oracle) {
+					assert.equal(
+						j.identities[0],
+						j.identities[1],
+						`${j.carrier}: equal values have different identity texts`
+					)
+				}
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "a Decimal's exact rational by cross multiplication, a Money's count, a Vector's components"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/vector.ts",
+				original: "\tfor (const x of a.subarray(0, b.length)) {",
+				replacement: "\tfor (const x of a.subarray(0, b.length - 1)) {",
+				why: "Vector order skips its last component; the equality property fails."
 			}
-		}
-	}
-	visit(value)
-	return out
-}
-
-/** A text descriptor of `source` cut to `bytes` UTF-8 bytes, its language as str.bytes admits it. */
-const bytesDesc = (source: string, flags: "u" | "su", bytes: number): FieldDesc => ({
-	kind: "text",
-	patterns: [{ source, flags }],
-	bytes,
-	language: languageWithin(succeeded(textLookup([{ source, flags }])), bytes)
-})
-
-/** The roster the closed id and the set descriptors are over. */
-const rosters = { Kind: ["Manual", "Automatic"] } as const
-
-/**
- * A descriptor of every kind, every PostgreSQL scalar among them, and of every text check the analysis makes: a
- * finite language's, a bounded regex's, an unbounded one's past the automaton bound, a byte bound beside a pattern's
- * check and alone, and every text's.
- */
-const fieldDescs: Arr.NonEmptyReadonlyArray<FieldDesc> = [
-	{ kind: "numeric", precision: 10, scale: 2 },
-	...Arr.map(pgScalarNames, (type): FieldDesc => ({ kind: "pg", type })),
-	{ kind: "uuid" },
-	textDesc("^[a-z]{1,8}$", "u"),
-	textDesc("^x$", "u"),
-	textDesc("^(a|b)*a(a|b){12}$", "u"),
-	f.wildcard,
-	bytesDesc("^[a-z]{1,8}$", "u", 4),
-	bytesDesc("^.*$", "su", 4),
-	f.natural,
-	f.closedId("Kind"),
-	{ kind: "bits", roster: "Kind" },
-	{ kind: "span", endpoint: { kind: "pg", type: "bigint" }, width: 10n },
-	{ kind: "span", endpoint: { kind: "pg", type: "integer" }, width: undefined },
-	{ kind: "span", endpoint: { kind: "pg", type: "date" }, width: undefined },
-	{ kind: "vector", dimensions: 3 }
-]
-
-/** A constructed value with the name of its constructor. */
-type Constructor =
-	| "Decimal.fromString"
-	| "Money.fromCanonical"
-	| "makeSpan"
-	| "Vector.canonical"
-	| "scalarTypeOf"
-	| "scalarTypeOf, a finite check"
-	| "scalarTypeOf, a bounded regex check"
-	| "scalarTypeOf, a regex check of no bound"
-	| "scalarTypeOf, a byte bound beside a check"
-	| "scalarTypeOf, a byte bound alone"
-	| "scalarTypeOf, every text"
-	| "a public field descriptor"
-	| "str.regex"
-
-/** What scalarTypeOf made, as its value shows it: a text type by the check its language carries. */
-const typedBy = (type: DeclaredType): Constructor => {
-	if (type.carrier !== "text") {
-		return "scalarTypeOf"
-	}
-	const language = languageOfText(type.text)
-	if (language.kind === "every") {
-		return "scalarTypeOf, every text"
-	}
-	const { check } = language
-	switch (check.kind) {
-		case "finite":
-			return "scalarTypeOf, a finite check"
-		case "regex":
-			return check.bounds === undefined
-				? "scalarTypeOf, a regex check of no bound"
-				: "scalarTypeOf, a bounded regex check"
-		case "octets":
-			return check.check === undefined
-				? "scalarTypeOf, a byte bound alone"
-				: "scalarTypeOf, a byte bound beside a check"
-	}
-}
-
-interface Constructed {
-	readonly by: Constructor
-	readonly value: unknown
-}
-
-const constructedGen: Gen<Constructed> = oneOf<Constructed>([
-	map(numericText, (text): Constructed => ({ by: "Decimal.fromString", value: decimalOf(text) })),
-	map(minorUnits, (units): Constructed => ({ by: "Money.fromCanonical", value: moneyOf(units) })),
-	(source): Constructed => {
-		const start = source.draw(bigint(-10n, 10n))
-		const width = source.draw(bigint(1n, 10n))
-		return { by: "makeSpan", value: succeeded(makeSpan("int8", start, start + width)) }
-	},
-	map(vectorGen, (xs): Constructed => ({
-		by: "Vector.canonical",
-		value: succeeded(Vector.canonical(vectorOf(xs)))
-	})),
-	map(element(fieldDescs), (desc): Constructed => {
-		const type = scalarOf(desc, rosters)
-		return { by: typedBy(type), value: type }
-	}),
-	element<Constructed>([
-		{ by: "a public field descriptor", value: uuid },
-		{ by: "a public field descriptor", value: pg.integer },
-		{ by: "a public field descriptor", value: pg.bigint },
-		{ by: "a public field descriptor", value: pg.numeric(10, 2) },
-		{ by: "str.regex", value: str.regex("^[a-z]{1,8}$") }
-	])
-])
-
-type Tag = "d" | "m" | "v"
-
-/** A payload and the tag it is offered under. */
-interface Offered {
-	readonly tag: Tag
-	readonly payload: string
-	/** Whether it is a written payload, unchanged. */
-	readonly written: boolean
-}
-
-/**
- * The near misses of a payload: a sign, a leading or trailing zero, an exponent, a space, a doubled or dropped
- * separator, a suffix.
- */
-const nearMisses = (payload: string): Arr.NonEmptyReadonlyArray<string> => [
-	`+${payload}`,
-	`0${payload}`,
-	`${payload}0`,
-	`${payload}e0`,
-	` ${payload}`,
-	`${payload} `,
-	`-${payload}`,
-	Str.replace(".", "")(payload),
-	Str.replace(",", ",,")(payload),
-	Str.replace(",", "")(payload),
-	Str.replace("[", "")(payload),
-	`${payload}@`,
-	Str.slice(1)(payload),
-	Str.slice(0, -1)(payload)
-]
-
-const writtenGen: Gen<{ readonly tag: Tag; readonly payload: string }> = oneOf<{
-	readonly tag: Tag
-	readonly payload: string
-}>([
-	map(anyDecimal, (d) => ({ tag: "d" as const, payload: d.toString() })),
-	map(minorUnits, (u) => ({ tag: "m" as const, payload: moneyOf(u).minorUnits.toString() })),
-	map(vectorGen, (xs) => ({ tag: "v" as const, payload: Vector.componentText(vectorOf(xs)) }))
-])
-
-const offeredGen: Gen<Offered> = (source) => {
-	const w = source.draw(writtenGen)
-	return Option.match(source.draw(option(element(nearMisses(w.payload)))), {
-		onNone: (): Offered => ({ ...w, written: true }),
-		onSome: (payload): Offered => ({ tag: w.tag, payload, written: payload === w.payload })
+		]
 	})
-}
 
-/** The payload a revived value writes again, or why the payload was not revived. */
-const rewritten = (tag: Tag, payload: string): Result.Result<string, string> => {
-	switch (tag) {
-		case "d": {
-			const d = Decimal.fromCanonical(payload)
-			return d.ok ? Result.ok(d.value.toString()) : Result.err(d.error.message)
-		}
-		case "m": {
-			const m = Money.fromCanonical(payload)
-			return m.ok ? Result.ok(m.value.minorUnits.toString()) : Result.err(m.error.message)
-		}
-		case "v": {
-			const v = Vector.fromCanonical(payload)
-			return v.ok ? Result.ok(Vector.componentText(v.value)) : Result.err(v.error.message)
-		}
-	}
-}
+/** The value carriers' laws every value a constructor returns is frozen, and so is every object it reaches. */
+export const theValueCarriersLawsEveryValueAConstructorReturnsIsFrozenAndSoIsEveryObjectItReaches =
+	property.explore(constructedSpace, {
+		needs: {},
+		situations: [
+			"Decimal.fromString",
+			"Money.fromCanonical",
+			"makeSpan",
+			"Vector.canonical",
+			"scalarTypeOf",
+			"scalarTypeOf, a finite check",
+			"scalarTypeOf, a bounded regex check",
+			"scalarTypeOf, a regex check of no bound",
+			"scalarTypeOf, a byte bound beside a check",
+			"scalarTypeOf, a byte bound alone",
+			"scalarTypeOf, every text",
+			"a public field descriptor",
+			"str.regex"
+		] satisfies ReadonlyArray<Reached<Constructor>>,
+		check: (_, c: Case<Constructor>) => (made) =>
+			Effect.sync(() => {
+				c.note(made.by)
+				for (const object of reached(made.value)) {
+					if (!ArrayBuffer.isView(object)) {
+						assert.equal(
+							Object.isFrozen(object),
+							true,
+							`${made.by} returns an object reaching an unfrozen one`
+						)
+					}
+				}
+			}),
+		oracle: {
+			kind: "universal",
+			name: "Object.isFrozen over every object a constructed value reaches"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/money.ts",
+				original: "\t\tObject.freeze(this)\n",
+				replacement: "",
+				why: "A Money is left unfrozen; the frozen property fails."
+			}
+		]
+	})
 
-describe("the value carriers' laws", () => {
-	it.effect(
-		"equality is value identity, every implementation agrees, and equal values have one identity text",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "second-implementation",
-							name: "a Decimal's exact rational by cross multiplication, a Money's count, a Vector's components"
-						},
-						suite: "unit/values/laws-equality",
-						draw: drawn(pairGen),
-						literal: Formatter.format,
-						coverage: required<`${Judged["carrier"]} ${"equal" | "unequal"}`>(
-							[
-								"decimal equal",
-								"decimal unequal",
-								"money equal",
-								"money unequal",
-								"vector equal",
-								"vector unequal"
-							],
-							{ cases: 2000, sense: notesOnly }
-						),
-						kept: [],
-						runs: 2000,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(j, c) =>
-						Effect.sync(() => {
-							c.note(`${j.carrier} ${j.oracle ? "equal" : "unequal"}`)
-							for (const [side, verdict] of j.sides) {
-								assert.equal(
-									verdict,
-									j.oracle,
-									`${j.carrier}: ${side} says ${verdict}, the value oracle ${j.oracle}`
-								)
-							}
-							if (j.oracle) {
-								assert.equal(
-									j.identities[0],
-									j.identities[1],
-									`${j.carrier}: equal values have different identity texts`
-								)
-							}
-						})
-				)
-			)
-	)
-
-	it.effect(
-		"every value a constructor returns is frozen, and so is every object it reaches",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "universal",
-							name: "Object.isFrozen over every object a constructed value reaches"
-						},
-						suite: "unit/values/laws-frozen",
-						draw: drawn(constructedGen),
-						literal: Formatter.format,
-						coverage: required<Constructor>(
-							[
-								"Decimal.fromString",
-								"Money.fromCanonical",
-								"makeSpan",
-								"Vector.canonical",
-								"scalarTypeOf",
-								"scalarTypeOf, a finite check",
-								"scalarTypeOf, a bounded regex check",
-								"scalarTypeOf, a regex check of no bound",
-								"scalarTypeOf, a byte bound beside a check",
-								"scalarTypeOf, a byte bound alone",
-								"scalarTypeOf, every text",
-								"a public field descriptor",
-								"str.regex"
-							],
-							{ cases: 400, sense: notesOnly }
-						),
-						kept: [],
-						runs: 400,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(made, c) =>
-						Effect.sync(() => {
-							c.note(made.by)
-							for (const object of reached(made.value)) {
-								if (!ArrayBuffer.isView(object)) {
-									assert.equal(
-										Object.isFrozen(object),
-										true,
-										`${made.by} returns an object reaching an unfrozen one`
-									)
-								}
-							}
-						})
-				)
-			)
-	)
-
-	it.effect("a written payload revives to its value, and only a written payload revives", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "universal",
-						name: "fromCanonical ∘ write = id, and write ∘ fromCanonical = id"
-					},
-					suite: "unit/values/laws-revival",
-					draw: drawn(offeredGen),
-					literal: Formatter.format,
-					coverage: required<`${Tag} ${"written" | "near miss refused"}`>(
-						[
-							"d written",
-							"d near miss refused",
-							"m written",
-							"m near miss refused",
-							"v written",
-							"v near miss refused"
-						],
-						{ cases: 3000, sense: notesOnly }
-					),
-					kept: [],
-					runs: 3000,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				(o, c) =>
-					Effect.sync(() => {
-						const back = rewritten(o.tag, o.payload)
-						if (o.written) {
-							c.note(`${o.tag} written`)
-							assert.ok(back.ok, `the written ${o.tag} payload ${o.payload} is refused`)
-							assert.equal(back.value, o.payload)
-							return
-						}
-						if (back.ok) {
-							assert.equal(
-								back.value,
-								o.payload,
-								`~${o.tag}:${o.payload} revives to a value writing ${back.value}`
-							)
-						} else {
-							c.note(`${o.tag} near miss refused`)
-						}
-					})
-			)
-		)
-	)
-})
+/** The value carriers' laws a written payload revives to its value, and only a written payload revives. */
+export const theValueCarriersLawsAWrittenPayloadRevivesToItsValueAndOnlyAWrittenPayloadRevives =
+	property.explore(offeredSpace, {
+		needs: {},
+		situations: [
+			"d written",
+			"d near miss refused",
+			"m written",
+			"m near miss refused",
+			"v written",
+			"v near miss refused",
+			"d refused, a leading zero",
+			"m refused, a leading zero",
+			"v refused, a leading zero"
+		] satisfies ReadonlyArray<Reached<RevivalFeature>>,
+		check: (_, c: Case<RevivalFeature>) => (o) =>
+			Effect.sync(() => {
+				const back = rewritten(o.tag, o.payload)
+				if (o.written) {
+					c.note(`${o.tag} written`)
+					assert.ok(back.ok, `the written ${o.tag} payload ${o.payload} is refused`)
+					assert.equal(back.value, o.payload)
+					return
+				}
+				if (back.ok) {
+					assert.equal(
+						back.value,
+						o.payload,
+						`~${o.tag}:${o.payload} revives to a value writing ${back.value}`
+					)
+				} else {
+					c.note(`${o.tag} near miss refused`)
+					for (const miss of Option.toArray(o.miss)) {
+						c.note(`${o.tag} refused, ${miss}`)
+					}
+				}
+			}),
+		oracle: {
+			kind: "universal",
+			name: "fromCanonical ∘ write = id, and write ∘ fromCanonical = id"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/money.ts",
+				original: "\treturn text.charCodeAt(start) !== 0x30 || text.length === 1",
+				replacement: "\treturn true",
+				why: "Money's canonical-integer check is dropped, so a payload with a leading zero revives; the revival property fails."
+			}
+		]
+	})

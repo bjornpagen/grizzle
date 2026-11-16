@@ -1,4 +1,4 @@
-import { element, type Gen, weighted } from "@bjornpagen/testing/gen"
+import { constant, element, type Gen, int, proportional, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import type {
@@ -388,13 +388,21 @@ const writesGen =
 		})
 	}
 
+/**
+ * An arm over the target two draws in three, and over any relation of the schema, the target among them, otherwise: one
+ * decision, the target first.
+ */
 const armGen =
 	(s: DrawnSchema, target: number): Gen<MemberArm> =>
 	(source) => {
+		const others = Arr.filter(
+			Arr.map(s.relations, (_, i) => i),
+			(i) => i !== target
+		)
 		const from = source.draw(
-			weighted([
-				[2, element([target])],
-				[1, element(Arr.map(s.relations, (_, i) => i))]
+			proportional<number>([
+				[2 * s.relations.length + 1, constant(target)],
+				...Arr.map(others, (i) => [1, constant(i)] as const)
 			])
 		)
 		return {
@@ -476,6 +484,50 @@ export const memberCaseGen: Gen<MemberCase> = (source) => {
 		)
 	}
 }
+
+/**
+ * A member whose one arm writes the target's key `id` and its field `a` from another relation's of those names, each by
+ * its variable, the two `a`s of two kinds among `kinds`, one family's: a numeric of another typmod, which the target
+ * refuses, or a text of another pattern, which enters as the target's own.
+ */
+export const otherKindCaseGen =
+	(kinds: Arr.NonEmptyReadonlyArray<ColumnKind>): Gen<MemberCase> =>
+	(source) => {
+		const at = source.draw(int(0, kinds.length - 1))
+		const step = source.draw(int(1, kinds.length - 1))
+		const relationOf = (name: string, kind: ColumnKind): DrawnRelation => ({
+			name,
+			fields: [
+				{ name: "id", kind: "int4" },
+				{ name: "a", kind }
+			],
+			key: ["id"],
+			serial: false
+		})
+		return {
+			schema: {
+				relations: [
+					relationOf("R0", Arr.getUnsafe(kinds, at)),
+					relationOf("R1", Arr.getUnsafe(kinds, (at + step) % kinds.length))
+				]
+			},
+			target: 0,
+			op: source.draw(element(["insert", "put", "delete"] as const)),
+			arms: [
+				{
+					source: 1,
+					writes: [
+						{ field: "id", term: "var" },
+						{ field: "a", term: "var" }
+					],
+					extra: false,
+					tag: "none",
+					attached: false
+				}
+			],
+			attached: false
+		}
+	}
 
 /** What a member case reached: the rule a refusal enforced, or the shape of what was admitted, and its op. */
 export type MemberFeature =

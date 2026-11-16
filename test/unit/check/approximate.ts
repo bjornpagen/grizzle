@@ -292,8 +292,10 @@ const strayGen: Gen<string> = matching(regex("^z[a-zA-Z]{0,7}$"))
 export const searchCaseGen: Gen<SearchCase> = (source) => {
 	const score = source.draw(
 		weighted<Score>([
-			[4, element(["query distance"] as const)],
-			[1, element(["a stored weight", "two stored vectors", "an aggregate"] as const)]
+			[12, constant("query distance")],
+			[1, constant("a stored weight")],
+			[1, constant("two stored vectors")],
+			[1, constant("an aggregate")]
 		])
 	)
 	return {
@@ -398,16 +400,24 @@ export const provenanceDesc = (p: Provenance): QueryDesc => {
 	}
 }
 
-/** An admitted search, its vectors indexable, and what reads it. */
-export const provenanceGen: Gen<Provenance> = (source) => ({
-	search: {
+/**
+ * An admitted search read as `reading`: one rule ranking by the query distance, nearest by it, bounded by a positive
+ * take, its vectors indexable, a few dimensions or HNSW's bound.
+ */
+export const admittedGen =
+	(reading: Reading): Gen<SearchCase> =>
+	(source) => ({
 		dimensions: source.draw(element([3, hnswPolicy.maxDimensions.value])),
 		score: "query distance",
 		union: false,
 		by: "distance",
 		take: source.draw(int(1, 10)),
-		reading: "the query"
-	},
+		reading
+	})
+
+/** An admitted search, read as the query, and what reads it. */
+export const provenanceGen: Gen<Provenance> = (source) => ({
+	search: source.draw(admittedGen("the query")),
 	composition: source.draw(
 		element([
 			"the search",

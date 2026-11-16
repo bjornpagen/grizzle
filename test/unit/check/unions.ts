@@ -1,5 +1,6 @@
 import {
 	array,
+	boolean,
 	element,
 	type Gen,
 	int,
@@ -20,6 +21,7 @@ import type {
 } from "#test/support/fixtures/ir/desc.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import {
+	type DrawnRelation,
 	type DrawnSchema,
 	drawnSchemaGen,
 	type ColumnKind,
@@ -687,6 +689,79 @@ const orderableArmsGen = (s: DrawnSchema): Gen<Arr.NonEmptyReadonlyArray<Arm>> =
 		[3, map(freeArmsGen(s, false), (arms) => Arr.dedupeWith(arms, sameHeading(s)))],
 		[2, twinsGen(s)]
 	])
+
+/**
+ * Two arms over one relation of the schema, each binding its `id` and stating a `tag` of its own: the second states a
+ * `k` beside it, so the two headings differ, share `id` and `tag`, hold the relation's key within those, and are told
+ * apart by Kind: a union of several headings its order may complete, ordered or bounded by a take over its common
+ * columns.
+ */
+export const keyedOrderCaseGen: Gen<UnionCase> = (source) => {
+	const schema = source.draw(drawnSchemaGen(3, false))
+	const relation = source.draw(element(Arr.map(schema.relations, (_, i) => i)))
+	const at = source.draw(int(0, handles.length - 1))
+	const step = source.draw(int(1, handles.length - 1))
+	const arm = (tag: Handle, k: Text | "none"): Arm => ({
+		relation,
+		fields: ["id"],
+		tag,
+		k,
+		marks: "none",
+		attached: false
+	})
+	const arms: Arr.NonEmptyReadonlyArray<Arm> = [
+		arm(Arr.getUnsafe(handles, at), "none"),
+		arm(Arr.getUnsafe(handles, (at + step) % handles.length), source.draw(element(texts)))
+	]
+	const order = source.draw(orderGen(["id", "tag"]))
+	return source.draw(boolean)
+		? { schema, arms, consumer: { kind: "ordered", order } }
+		: { schema, arms, consumer: { kind: "taken", order, k: source.draw(int(1, 5)) } }
+}
+
+/** A relation of a drawn schema keyed by its `id` alone, of `kind`. */
+const idOnly = (name: string, kind: ColumnKind): DrawnRelation => ({
+	name,
+	fields: [{ name: "id", kind }],
+	key: ["id"],
+	serial: false
+})
+
+/**
+ * Two arms of two headings over relations whose `id`s are numerics of two typmods, which the union widens to numeric
+ * of no typmod: the first states a `tag`, the second none, and one of them, or both, is attached.
+ */
+export const attachedWidenedCaseGen: Gen<UnionCase> = (source) => {
+	const schema: DrawnSchema = {
+		relations: source.draw(boolean)
+			? [idOnly("R0", "num12"), idOnly("R1", "num10")]
+			: [idOnly("R0", "num10"), idOnly("R1", "num12")]
+	}
+	const attachedFirst = source.draw(boolean)
+	const both = source.draw(boolean)
+	return {
+		schema,
+		arms: [
+			{
+				relation: 0,
+				fields: ["id"],
+				tag: source.draw(element(handles)),
+				k: "none",
+				marks: "none",
+				attached: attachedFirst || both
+			},
+			{
+				relation: 1,
+				fields: ["id"],
+				tag: "none",
+				k: "none",
+				marks: "none",
+				attached: !attachedFirst || both
+			}
+		],
+		consumer: { kind: "delivered" }
+	}
+}
 
 /**
  * A union case: a schema, one to three arms over it, and what reads them. An order is drawn only over arms whose

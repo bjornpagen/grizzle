@@ -9,70 +9,59 @@
  *
  * Features: each way a decimal is refused, past the range and misspelt.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
+
+import { type Reached } from "@bjornpagen/testing/features"
 import { element } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { numericMaxIntegerDigits } from "@grizzle/limits"
+import { regex } from "arkregex"
 import { Effect, Formatter } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { assert, lacksText } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
+import type { Refused } from "#test/unit/values/fault.fixtures.ts"
 
-import { numericMaxIntegerDigits } from "@grizzle/limits"
-import { regex } from "arkregex"
-
-/** A decimal the admission refuses, out of range or misspelt, whose digits are a secret no refusal may repeat. */
-type Refused = "out of range" | "misspelt"
-
-describe("value faults", () => {
-	it.effect("never carry the refused value", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "specification",
-						name: "no text the refusal prints holds the refused digits"
-					},
-					suite: "unit/values/fault-secrets",
-					draw: drawn((source) => ({
-						secret: source.draw(matching(regex("^[1-9]\\d{5,11}$"))),
-						refused: source.draw(element<Refused>(["out of range", "misspelt"]))
-					})),
-					literal: Formatter.format,
-					coverage: required<Refused>(["out of range", "misspelt"], {
-						cases: 100,
-						sense: notesOnly
-					}),
-					kept: [],
-					runs: 100,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				({ secret, refused }, c) =>
-					Effect.sync(() => {
-						c.note(refused)
-						const text =
-							refused === "out of range"
-								? `${secret}.5e${numericMaxIntegerDigits.value}`
-								: `${secret}.5x`
-						assert.throws(
-							() => Decimal.of(text),
-							(error: unknown) => {
-								assert.ok(isCompileError(error))
-								lacksText(Formatter.format(error, { ignoreToString: true }), secret)
-								lacksText(String(error), secret)
-								return true
-							}
-						)
-					})
-			)
-		)
-	)
-})
+/** Value faults never carry the refused value. */
+export const valueFaultsNeverCarryTheRefusedValue = property.explore(
+	(source) => ({
+		secret: source.draw(matching(regex("^[1-9]\\d{5,11}$"))),
+		refused: source.draw(element<Refused>(["out of range", "misspelt"]))
+	}),
+	{
+		needs: {},
+		situations: ["out of range", "misspelt"] satisfies ReadonlyArray<Reached<Refused>>,
+		check:
+			(_, c: Case<Refused>) =>
+			({ secret, refused }) =>
+				Effect.sync(() => {
+					c.note(refused)
+					const text =
+						refused === "out of range"
+							? `${secret}.5e${numericMaxIntegerDigits.value}`
+							: `${secret}.5x`
+					assert.throws(
+						() => Decimal.of(text),
+						(error: unknown) => {
+							assert.ok(isCompileError(error))
+							lacksText(Formatter.format(error, { ignoreToString: true }), secret)
+							lacksText(String(error), secret)
+							return true
+						}
+					)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "no text the refusal prints holds the refused digits"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/decimal.ts",
+				original: '\t\t\tthrow faultError(parsed.error, SourceLoc("Decimal literal", []))',
+				replacement: `\t\t\tthrow faultError(parsed.error, SourceLoc(\`Decimal literal \${String(input)}\`, []))`,
+				why: "Decimal.admit's refusal names the refused input in its location; the secrecy property fails."
+			}
+		]
+	}
+)

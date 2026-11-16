@@ -765,13 +765,6 @@ export default defineConfig(
 					/** A refusal fixture's return is refused by construction: the value is the checker's error type. */
 					"typescript/no-unsafe-return": "off"
 				})
-			},
-			{
-				files: ["test/unit/values/laws.test.ts"],
-				rules: active({
-					/** The canonical text is the subject: equal texts exactly for equal values, which no value comparison states. */
-					"testing/no-serialized-comparison": "off"
-				})
 			}
 		]
 	})

@@ -15,217 +15,144 @@
  * Features: a NULL-able column, a varlena, mixed alignments and no column for the layout; within, at and past the
  * bound, a varlena and mixed alignments for the law model.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, boolean, element, int } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { array, element, int } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { heapTupleMaxBytes } from "@grizzle/limits"
-import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
+import { Array as Arr, Effect, Record as Rec } from "effect"
 import { rowBytes, rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
 import { assert, refused } from "#test/support/assert.ts"
 import { f, relation } from "#test/support/fixtures/ir/desc.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { compiledModel, modelOf } from "#test/unit/laws/model/natives.ts"
-
-/** A column kind with its pg_type storage: typlen and typalign in bytes, or a varlena held as a TOAST pointer. */
-interface Kind {
-	readonly name: "int2" | "int4" | "int8" | "bool" | "uuid" | "closed id" | "text"
-	readonly desc: FieldDesc
-	readonly storage: { readonly typlen: number; readonly typalign: number } | "varlena"
-}
-
-const int8: Kind = { name: "int8", desc: f.bigint, storage: { typlen: 8, typalign: 8 } }
-const uuidKind: Kind = { name: "uuid", desc: f.uuid, storage: { typlen: 16, typalign: 1 } }
-
-/** The kinds a stored relation's field may have here: every kind but the closed id, whose roster no schema here holds. */
-const storedKinds: Arr.NonEmptyReadonlyArray<Kind> = [
-	{ name: "int2", desc: f.smallint, storage: { typlen: 2, typalign: 2 } },
-	{ name: "int4", desc: f.integer, storage: { typlen: 4, typalign: 4 } },
+import {
+	type BoundFeature,
+	type Column,
+	columnGen,
+	type Feature,
+	features,
 	int8,
-	{ name: "bool", desc: f.boolean, storage: { typlen: 1, typalign: 1 } },
-	uuidKind,
-	{ name: "text", desc: f.wildcard, storage: "varlena" }
-]
+	specified,
+	storedKinds,
+	uuidKind
+} from "#test/unit/laws/model/rows.fixtures.ts"
 
-const kinds: Arr.NonEmptyReadonlyArray<Kind> = [
-	...storedKinds,
-	{ name: "closed id", desc: f.closedId("R"), storage: { typlen: 2, typalign: 2 } }
-]
-
-interface Column {
-	readonly kind: Kind
-	readonly nullable: boolean
-}
-
-const columnGen = (source: Parameters<typeof boolean>[0]): Column => ({
-	kind: element(kinds)(source),
-	nullable: boolean(source)
-})
-
-/** The checker's size of a row: heaptuple.c's header and data area, by pg_type's catalog. */
-const specified = (columns: ReadonlyArray<Column>): number => {
-	const align = (n: number, a: number): number => Math.ceil(n / a) * a
-	const hasNull = Arr.some(columns, (c) => c.nullable)
-	const hoff = align(23 + (hasNull ? Math.ceil(columns.length / 8) : 0), 8)
-	const ordered = Arr.sort(columns, (a: Column, b: Column) => {
-		const alignOf = (c: Column) => (c.kind.storage === "varlena" ? 1 : c.kind.storage.typalign)
-		return alignOf(b) - alignOf(a) > 0 ? 1 : alignOf(b) - alignOf(a) < 0 ? -1 : 0
+/** A relation's rows fit one heap tuple a row is refused exactly when it takes more than the limit, at the boundary. */
+export const aRelationsRowsFitOneHeapTupleARowIsRefusedExactlyWhenItTakesMoreThanTheLimitAtTheBoundary =
+	property.explore(array(columnGen, { min: 0, max: 12 }), {
+		needs: {},
+		situations: features satisfies ReadonlyArray<Reached<Feature>>,
+		check: (_, c: Case<Feature>) => (columns) =>
+			Effect.sync(() => {
+				if (Arr.some(columns, (x) => x.nullable)) {
+					c.note("a NULL-able column")
+				}
+				if (Arr.some(columns, (x) => x.kind.storage === "varlena")) {
+					c.note("a varlena")
+				}
+				if (new Set(Arr.map(columns, (x) => x.kind.name)).size > 1) {
+					c.note("mixed alignments")
+				}
+				if (columns.length === 0) {
+					c.note("no column")
+				}
+				const row = Arr.map(columns, (x) => rowColumn(x.kind.desc, x.nullable))
+				const bytes = specified(columns)
+				assert.equal(rowBytes(row), bytes, "the row's size is heaptuple.c's")
+				assert.equal(wideRow("R", row, bytes), undefined, "a row at the limit fits")
+				assert.ok(
+					wideRow("R", row, bytes - 1) !== undefined,
+					"a row one byte over the limit is refused"
+				)
+			}),
+		oracle: { kind: "specification", name: "heaptuple.c's row layout by pg_type's catalog" },
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/laws/model/rows.ts",
+				original: "\tconst header = alignUp(heapTupleHeaderBytes.value + bitmap, maxAlign.value)",
+				replacement: "\tconst header = alignUp(heapTupleHeaderBytes.value, maxAlign.value)",
+				why: "A row's null bitmap uncounted (laws/model/rows.ts rowBytes); the layout fails."
+			}
+		]
 	})
-	return Arr.reduce(ordered, hoff, (offset, c) =>
-		c.kind.storage === "varlena"
-			? offset + 18
-			: align(offset, c.kind.storage.typalign) + c.kind.storage.typlen
-	)
-}
 
-type Feature = "a NULL-able column" | "a varlena" | "mixed alignments" | "no column"
-const features: Arr.NonEmptyReadonlyArray<Feature> = [
-	"a NULL-able column",
-	"a varlena",
-	"mixed alignments",
-	"no column"
-]
-
-/** Where a relation's row falls against MaxHeapTupleSize, and what its other fields hold. */
-type BoundFeature =
-	| "within the bound"
-	| "at the bound"
-	| "past the bound"
-	| "a varlena"
-	| "mixed alignments"
-
-describe("a relation's rows fit one heap tuple", () => {
-	it.effect("a row is refused exactly when it takes more than the limit, at the boundary", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					suite: "unit/laws/model/rows",
-					draw: drawn(array(columnGen, { min: 0, max: 12 })),
-					literal: Formatter.format,
-					kept: [],
-					runs: 300,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang,
-					coverage: required<Feature>(features, { cases: 300, sense: notesOnly }),
-					oracle: { kind: "specification", name: "heaptuple.c's row layout by pg_type's catalog" }
-				},
-				(columns, c) =>
+/** A relation's rows fit one heap tuple the law model admits a relation whose row reaches MaxHeapTupleSize, and refuses one a bigint past it. */
+export const aRelationsRowsFitOneHeapTupleTheLawModelAdmitsARelationWhoseRowReachesMaxHeapTupleSizeAndRefusesOneABigintPastIt =
+	property.explore(
+		(source) =>
+			[
+				source.draw(array(element(storedKinds), { min: 0, max: 6 })),
+				source.draw(int(-1, 1))
+			] as const,
+		{
+			needs: {},
+			situations: [
+				"within the bound",
+				"at the bound",
+				"past the bound",
+				"a varlena",
+				"mixed alignments"
+			] satisfies ReadonlyArray<Reached<BoundFeature>>,
+			check:
+				(_, c: Case<BoundFeature>) =>
+				([prefix, offset]) =>
 					Effect.sync(() => {
-						if (Arr.some(columns, (x) => x.nullable)) {
-							c.note("a NULL-able column")
+						const columns = (k: number): ReadonlyArray<Column> => [
+							{ kind: uuidKind, nullable: false },
+							...Arr.map(prefix, (kind): Column => ({ kind, nullable: false })),
+							...upTo(k, (): Column => ({ kind: int8, nullable: false }))
+						]
+						let fits = 0
+						while (specified(columns(fits + 1)) <= heapTupleMaxBytes.value) {
+							fits += 1
 						}
-						if (Arr.some(columns, (x) => x.kind.storage === "varlena")) {
+						const k = fits + offset
+						const bytes = specified(columns(k))
+						c.note(
+							offset < 0 ? "within the bound" : offset === 0 ? "at the bound" : "past the bound"
+						)
+						if (Arr.some(prefix, (kind) => kind.storage === "varlena")) {
 							c.note("a varlena")
 						}
-						if (new Set(Arr.map(columns, (x) => x.kind.name)).size > 1) {
+						if (new Set(Arr.map(prefix, (kind) => kind.name)).size > 1) {
 							c.note("mixed alignments")
 						}
-						if (columns.length === 0) {
-							c.note("no column")
-						}
-						const row = Arr.map(columns, (x) => rowColumn(x.kind.desc, x.nullable))
-						const bytes = specified(columns)
-						assert.equal(rowBytes(row), bytes, "the row's size is heaptuple.c's")
-						assert.equal(wideRow("R", row, bytes), undefined, "a row at the limit fits")
-						assert.ok(
-							wideRow("R", row, bytes - 1) !== undefined,
-							"a row one byte over the limit is refused"
-						)
-					})
-			)
-		)
-	)
-
-	it.effect(
-		"the law model admits a relation whose row reaches MaxHeapTupleSize, and refuses one a bigint past it",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/laws/model/rows-heap-tuple",
-						draw: drawn(
-							(source) =>
-								[
-									source.draw(array(element(storedKinds), { min: 0, max: 6 })),
-									source.draw(int(-1, 1))
-								] as const
-						),
-						literal: Formatter.format,
-						kept: [],
-						runs: 40,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang,
-						coverage: required<BoundFeature>(
-							[
-								"within the bound",
-								"at the bound",
-								"past the bound",
-								"a varlena",
-								"mixed alignments"
+						const desc = {
+							name: "Wide",
+							relations: [
+								relation(
+									"Wide",
+									{
+										id: f.uuid,
+										...Rec.fromEntries(Arr.map(prefix, (kind, i) => [`p${i}`, kind.desc] as const)),
+										...Rec.fromEntries(upTo(k, (i) => [`c${i}`, f.bigint] as const))
+									},
+									["id"]
+								)
 							],
-							{ cases: 100, sense: notesOnly }
-						),
-						oracle: {
-							kind: "specification",
-							name: "heaptuple.c's row layout by pg_type's catalog, against MaxHeapTupleSize"
+							statements: [],
+							extends: undefined
 						}
-					},
-					([prefix, offset], c) =>
-						Effect.sync(() => {
-							const columns = (k: number): ReadonlyArray<Column> => [
-								{ kind: uuidKind, nullable: false },
-								...Arr.map(prefix, (kind): Column => ({ kind, nullable: false })),
-								...upTo(k, (): Column => ({ kind: int8, nullable: false }))
-							]
-							let fits = 0
-							while (specified(columns(fits + 1)) <= heapTupleMaxBytes.value) {
-								fits += 1
-							}
-							const k = fits + offset
-							const bytes = specified(columns(k))
-							c.note(
-								offset < 0 ? "within the bound" : offset === 0 ? "at the bound" : "past the bound"
-							)
-							if (Arr.some(prefix, (kind) => kind.storage === "varlena")) {
-								c.note("a varlena")
-							}
-							if (new Set(Arr.map(prefix, (kind) => kind.name)).size > 1) {
-								c.note("mixed alignments")
-							}
-							const desc = {
-								name: "Wide",
-								relations: [
-									relation(
-										"Wide",
-										{
-											id: f.uuid,
-											...Rec.fromEntries(
-												Arr.map(prefix, (kind, i) => [`p${i}`, kind.desc] as const)
-											),
-											...Rec.fromEntries(upTo(k, (i) => [`c${i}`, f.bigint] as const))
-										},
-										["id"]
-									)
-								],
-								statements: [],
-								extends: undefined
-							}
-							if (bytes <= heapTupleMaxBytes.value) {
-								modelOf(desc)
-								return
-							}
-							refused(compiledModel(desc), "UnsupportedLawFamily")
-						})
-				)
-			)
+						if (bytes <= heapTupleMaxBytes.value) {
+							modelOf(desc)
+							return
+						}
+						refused(compiledModel(desc), "UnsupportedLawFamily")
+					}),
+			oracle: {
+				kind: "specification",
+				name: "heaptuple.c's row layout by pg_type's catalog, against MaxHeapTupleSize"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/laws/model/rows.ts",
+					original: "\treturn bytes > limit",
+					replacement: "\treturn bytes >= limit",
+					why: "A row of exactly the limit refused (laws/model/rows.ts wideRow); the law model at MaxHeapTupleSize fails."
+				}
+			]
+		}
 	)
-})

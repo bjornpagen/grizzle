@@ -536,12 +536,11 @@ const mirroredItems = (rules: ReadonlyArray<Rule>): ReadonlyArray<Phi> =>
  * when it has one, copying its rank as its code (the superkey's pair), and indexed in its Owner's order (the closure);
  * Profiles naming the ids a mirrors pairs them with, and Seats naming the Profiles. Each variant the swarm turns on
  * breaks that construction where it is drawn: a key repeated, a reference to a stray id, a stray Profile or Seat, a
- * natural below zero, and an index drawn out of its order.
+ * natural below zero, and an index drawn out of its order. A swarm that turns none on breaks nothing.
  */
 const exploredOver =
-	(rules: ReadonlyArray<Rule>): Gen<Explored> =>
+	(rules: ReadonlyArray<Rule>, variants: Swarm<Variant>): Gen<Explored> =>
 	(source) => {
-		const variants = source.draw(swarm(VARIANTS))
 		const applied = new Set<Variant>()
 		const breaks = (variant: Variant) => {
 			const broken = source.draw(keep(variants, variant))
@@ -618,9 +617,23 @@ const exploredOver =
 		}
 	}
 
-/** A schema of drawn rules, and a state built toward its laws (exploredOver). */
-export const exploredGen: Gen<Explored> = (source) =>
-	source.draw(exploredOver(source.draw(rulesGen)))
+/** A schema of drawn rules, and a state built toward its laws (exploredOver) under a drawn swarm of variants. */
+export const exploredGen: Gen<Explored> = (source) => {
+	const rules = source.draw(rulesGen)
+	return source.draw(exploredOver(rules, source.draw(swarm(VARIANTS))))
+}
+
+/** The swarm that turns no variant on: a state built toward its laws that nothing breaks. */
+const UNBROKEN: Swarm<Variant> = {}
+
+/**
+ * A schema of one drawn rule of `kind`, and a state built toward its laws that no variant breaks: where a lawful state
+ * of that kind is drawn, which a schema of several rules, any of them broken, rarely is.
+ */
+export const unbrokenOf =
+	(kind: RuleKind): Gen<Explored> =>
+	(source) =>
+		source.draw(exploredOver([source.draw(ruleGen(kind))], UNBROKEN))
 
 /**
  * A selection restated without changing what it means: each comparison written the other way round under its mirror
@@ -742,7 +755,7 @@ const itemPairGen: Gen<Pair> = (source) => {
 	const stated = source.draw(element(STATED))
 	const first = source.draw(ruleGen(kind))
 	const second = stated === "apart" ? source.draw(ruleGen(kind)) : restatedRule(first)
-	const { state } = source.draw(exploredOver([first, second]))
+	const { state } = source.draw(exploredOver([first, second], source.draw(swarm(VARIANTS))))
 	return { kind, stated, state, on: "items", first, second }
 }
 

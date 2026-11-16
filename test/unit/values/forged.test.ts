@@ -15,13 +15,10 @@
  * Features: each way an input ends (refused at admission, thrown out at construction, admitted as its value), a batch
  * holding one value twice, a buffer written after admission, and every carrier's every forgery.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Result } from "effect"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Result } from "effect"
 import {
 	normalArray,
 	parameterNormalizer,
@@ -31,121 +28,118 @@ import {
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
-import { parseValue, canonicalText } from "#compiler/scalar/values/identity.ts"
+import { canonicalText, parseValue } from "#compiler/scalar/values/identity.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { carriers, type Feature, forgedCases, pairOf, pairs } from "#test/support/forged.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { textOfParam } from "#test/support/wire.ts"
 import { kindCodes } from "#test/unit/codec/support.ts"
 
-describe("a forged carrier instance", () => {
-	it.effect(
-		"is refused, or admitted as the PostgreSQL value it holds, so one value is one fact whatever its caller writes later",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "each input's PostgreSQL text, stated apart from grizzle (test/support/forged.ts)"
-						},
-						suite: "unit/values/forged",
-						draw: drawn(forgedCases(carriers)),
-						literal: Formatter.format,
-						coverage: required<Feature>(
-							[
-								"refused at admission",
-								"thrown out at construction",
-								"admitted as its value",
-								"a batch holding one value twice",
-								"a buffer written after admission",
-								...pairs
-							],
-							{ cases: 3000, sense: notesOnly }
-						),
-						kept: [],
-						runs: 1500,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					({ carrier, type, inputs }, c) =>
-						Effect.sync(() => {
-							const spec = carrierSpecOf(type, kindCodes)
-							const admitted: Array<{ readonly input: unknown; readonly pg: string }> = []
-							for (const one of inputs) {
-								c.note(pairOf(carrier, one.forgery))
-								const made = one.input
-								if (Result.isFailure(made)) {
-									c.note("thrown out at construction")
-									assert.ok(
-										isCompileError(made.failure) &&
-											made.failure.reason._tag === "MalformedDescription",
-										`${carrier}, ${one.forgery}: construction threw something other than MalformedDescription`
-									)
-									assert.notEqual(one.forgery, "honest", "an honest construction threw")
-									continue
-								}
-								const verdict = parseValue(spec, made.success)
-								if (!verdict.ok) {
-									c.note("refused at admission")
-									assert.ok(isValueFault(verdict.error), `refused with ${verdict.error}`)
-									assert.notEqual(one.forgery, "honest", "an honest value was refused")
-									continue
-								}
-								c.note("admitted as its value")
-								assert.equal(
-									canonicalText(spec, verdict.value),
-									one.pg,
-									`${carrier}, ${one.forgery}: admitted as another text than PostgreSQL's`
-								)
-								admitted.push({ input: made.success, pg: one.pg })
-							}
-							const relation: RelationSpec = {
-								relation: "Forged",
-								columns: positionalColumns([{ name: "v", type }]),
-								slot: { kind: "none" },
-								codes: kindCodes
-							}
-							const distinct = new Set(Arr.map(admitted, (a) => a.pg))
-							if (distinct.size < admitted.length) {
-								c.note("a batch holding one value twice")
-							}
-							const normal = succeeded(
-								parameterNormalizer(relation)(Arr.map(admitted, (a) => ({ v: a.input })))
+/** A forged carrier instance is refused, or admitted as the PostgreSQL value it holds, so one value is one fact whatever its caller writes later. */
+export const aForgedCarrierInstanceIsRefusedOrAdmittedAsThePostgreSQLValueItHoldsSoOneValueIsOneFactWhateverItsCallerWritesLater =
+	property.explore(forgedCases(carriers), {
+		needs: {},
+		situations: [
+			"refused at admission",
+			"thrown out at construction",
+			"admitted as its value",
+			"a batch holding one value twice",
+			"a buffer written after admission",
+			...pairs
+		] satisfies ReadonlyArray<Reached<Feature>>,
+		check:
+			(_, c: Case<Feature>) =>
+			({ carrier, type, inputs }) =>
+				Effect.sync(() => {
+					const spec = carrierSpecOf(type, kindCodes)
+					const admitted: Array<{ readonly input: unknown; readonly pg: string }> = []
+					for (const one of inputs) {
+						c.note(pairOf(carrier, one.forgery))
+						const made = one.input
+						if (Result.isFailure(made)) {
+							c.note("thrown out at construction")
+							assert.ok(
+								isCompileError(made.failure) && made.failure.reason._tag === "MalformedDescription",
+								`${carrier}, ${one.forgery}: construction threw something other than MalformedDescription`
 							)
-							assert.equal(normal.count, distinct.size, "one fact per PostgreSQL value")
-							assert.deepEqual<ReadonlySet<string>>(
-								new Set(Arr.flatten(normal.rows)),
-								distinct,
-								"every row carries its value's PostgreSQL text"
-							)
-							const buffers = Arr.filter(
-								Arr.map(admitted, (a) => a.input),
-								(input): input is Float32Array => input instanceof Float32Array
-							)
-							if (buffers.length === 0) {
-								return
-							}
-							c.note("a buffer written after admission")
-							const identities = Arr.map(normal.entries, (e) => e.identity)
-							for (const buffer of buffers) {
-								buffer.fill(7)
-							}
-							assert.deepEqual<ReadonlySet<string | null>>(
-								new Set(readArrayLiteral(textOfParam(succeeded(normalArray(relation)(normal, 0))))),
-								distinct,
-								"the array the facts travel as carries the admitted values"
-							)
-							assert.deepEqual(
-								Arr.map(normal.entries, (e) => e.identity),
-								identities,
-								"the identities stay the admitted ones"
-							)
-						})
-				)
-			)
-	)
-})
+							assert.notEqual(one.forgery, "honest", "an honest construction threw")
+							continue
+						}
+						const verdict = parseValue(spec, made.success)
+						if (!verdict.ok) {
+							c.note("refused at admission")
+							assert.ok(isValueFault(verdict.error), `refused with ${verdict.error}`)
+							assert.notEqual(one.forgery, "honest", "an honest value was refused")
+							continue
+						}
+						c.note("admitted as its value")
+						assert.equal(
+							canonicalText(spec, verdict.value),
+							one.pg,
+							`${carrier}, ${one.forgery}: admitted as another text than PostgreSQL's`
+						)
+						admitted.push({ input: made.success, pg: one.pg })
+					}
+					const relation: RelationSpec = {
+						relation: "Forged",
+						columns: positionalColumns([{ name: "v", type }]),
+						slot: { kind: "none" },
+						codes: kindCodes
+					}
+					const distinct = new Set(Arr.map(admitted, (a) => a.pg))
+					if (distinct.size < admitted.length) {
+						c.note("a batch holding one value twice")
+					}
+					const normal = succeeded(
+						parameterNormalizer(relation)(Arr.map(admitted, (a) => ({ v: a.input })))
+					)
+					assert.equal(normal.count, distinct.size, "one fact per PostgreSQL value")
+					assert.deepEqual<ReadonlySet<string>>(
+						new Set(Arr.flatten(normal.rows)),
+						distinct,
+						"every row carries its value's PostgreSQL text"
+					)
+					const buffers = Arr.filter(
+						Arr.map(admitted, (a) => a.input),
+						(input): input is Float32Array => input instanceof Float32Array
+					)
+					if (buffers.length === 0) {
+						return
+					}
+					c.note("a buffer written after admission")
+					const identities = Arr.map(normal.entries, (e) => e.identity)
+					for (const buffer of buffers) {
+						buffer.fill(7)
+					}
+					assert.deepEqual<ReadonlySet<string | null>>(
+						new Set(readArrayLiteral(textOfParam(succeeded(normalArray(relation)(normal, 0))))),
+						distinct,
+						"the array the facts travel as carries the admitted values"
+					)
+					assert.deepEqual(
+						Arr.map(normal.entries, (e) => e.identity),
+						identities,
+						"the identities stay the admitted ones"
+					)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "each input's PostgreSQL text, stated apart from grizzle (test/support/forged.ts)"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/decimal.ts",
+				original: '\t\treturn typeof value === "object" && value !== null && #minted in value',
+				replacement:
+					'\t\treturn typeof value === "object" && value !== null && Object.getPrototypeOf(value) === Decimal.prototype',
+				why: "A Decimal is recognized by its prototype, so an object built on Decimal.prototype passes as one; the forged-carrier property fails."
+			},
+			{
+				file: "packages/engine/src/scalar/values/decimal.ts",
+				original: "\tconst units = exactUnits(d, typmod.scale)",
+				replacement: "\tconst units = exactUnits(d, typmod.scale - 1)",
+				why: "parseNumeric reads a typmod's scale one less, so a numeric at its column's full scale is refused; the forged-carrier property fails."
+			}
+		]
+	})
