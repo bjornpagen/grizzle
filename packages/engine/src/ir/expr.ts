@@ -35,6 +35,7 @@ import { drive, Fold } from "#compiler/ir/fold.ts"
 import type { NativeProof, OperationProof } from "#compiler/ir/proof.ts"
 import {
 	baseOf,
+	enteredType,
 	type NumericTypmod,
 	type ScalarType,
 	type SpanCarrier,
@@ -1121,24 +1122,35 @@ const entryProblems = (
 }
 
 /**
+ * The types a branch of a conditional of type `type` may have: its own, and its entered type (scalar.ts enteredType),
+ * what a binary coercion into it delivers (scalar/compute/lower.ts castNode), since a coercion drops what only a
+ * domain enforces and never adds it. They are one type where `type` is no pattern's text.
+ */
+const branchTypes = (type: ScalarType): readonly [ScalarType, ScalarType] => [
+	type,
+	enteredType(type)
+]
+
+/**
  * The problems of a conditional of type `type`, given its arguments, a dangling one left out: its condition is boolean
- * and both branches have its own type.
+ * and each branch has one of its branch types (branchTypes).
  */
 export const condProblems = (
 	type: ScalarType,
 	args: ReadonlyArray<{ readonly type: ScalarType }>
 ): ReadonlyArray<string> => {
 	const [p, t, e] = args
+	const typed = branchTypes(type)
 	const branchesTyped =
 		t === undefined ||
 		e === undefined ||
-		(sameScalarType(t.type, type) && sameScalarType(e.type, type))
+		[t, e].every((b) => typed.some((branch) => sameScalarType(b.type, branch)))
 	return [
 		...(p !== undefined && baseOf(p.type).carrier !== "bool" ? ["a boolean condition"] : []),
 		...(branchesTyped
 			? []
 			: [
-					`both branches of the conditional's own type ${typeLabel(type)}, not ${typeLabel(t.type)} and ${typeLabel(e.type)}`
+					`both branches of the conditional's own type ${typeLabel(type)} or its entered type, not ${typeLabel(t.type)} and ${typeLabel(e.type)}`
 				])
 	]
 }
