@@ -12,6 +12,7 @@ import {
 	type Verdict
 } from "@bjornpagen/testing/commands"
 import { constant, element, type Gen, int } from "@bjornpagen/testing/gen"
+import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Result, String as Str } from "effect"
 import { readSnapshot } from "#adapter/boundary/snapshot.ts"
 import { canonicalTextOf, everyProperty } from "#compiler/core/canonical.ts"
@@ -821,26 +822,50 @@ const firstSnapshot = (): DeploySnapshot => {
 	return readBack(drafted.success.draft, "the first state")
 }
 
-/** The real system: the snapshot each step continues, advanced by every step it takes. */
-export const realOf = (prepared: Prepared): Real<Model, Params, Refusal, never, never> => {
-	let snapshot = prepared.first
-	let at = 0
-	const step = (before: Model, after: Model, declared: Declaration) =>
+/** A program's prefix by its key: each step's command and parameter, in order. */
+const pathKey = (path: Program<Params>): string =>
+	Arr.join(
+		Arr.map(path, (s) => `${s.command}(${String(s.parameters)})`),
+		" "
+	)
+
+/** The real system: each step the program takes answered from the box's transitions, by the prefix it ends. */
+export const realOf = (
+	transitions: ReadonlyMap<string, Stepped>
+): Real<Model, Params, Refusal, never, never> => {
+	const taken: Array<CommandStep<Params>> = []
+	const step = (s: CommandStep<Params>) =>
 		Effect.sync(() => {
-			at += 1
-			const stepped = judged(prepared, snapshot, before, after, declared, `step ${at}`)
-			snapshot = stepped.snapshot
-			return stepped.answer
+			taken.push(s)
+			const key = pathKey(taken)
+			return (transitions.get(key) ?? assert.fail(`the box holds the transition ${key}`)).answer
 		})
 	return {
-		grow: (_, before, after) => step(before, after, declarationOf(after)),
-		remove: (h, before, after) => step(before, after, { ...declarationOf(after), drops: [h] }),
-		"re-add": (_, before, after) => step(before, after, declarationOf(after)),
-		reorder: (i, before, after) => step(before, after, reordered(before, i)),
-		"add a set": (_, before, after) => step(before, after, declarationOf(after)),
-		regenerate: (_, before, after) => step(before, after, declarationOf(after)),
-		"change the closed rows": (rows, before, after) =>
-			step(before, after, { ...declarationOf(before), rows })
+		grow: (parameters) => step({ command: "grow", parameters }),
+		remove: (parameters) => step({ command: "remove", parameters }),
+		"re-add": (parameters) => step({ command: "re-add", parameters }),
+		reorder: (parameters) => step({ command: "reorder", parameters }),
+		"add a set": (parameters) => step({ command: "add a set", parameters }),
+		regenerate: (parameters) => step({ command: "regenerate", parameters }),
+		"change the closed rows": (parameters) =>
+			step({ command: "change the closed rows", parameters })
+	}
+}
+
+/** The declaration a step makes the system read: the model after it, with a removal's drop, a reorder or new rows. */
+const declaredFor = (s: CommandStep<Params>, before: Model, after: Model): Declaration => {
+	switch (s.command) {
+		case "grow":
+		case "re-add":
+		case "add a set":
+		case "regenerate":
+			return declarationOf(after)
+		case "remove":
+			return { ...declarationOf(after), drops: [s.parameters] }
+		case "reorder":
+			return reordered(before, s.parameters)
+		case "change the closed rows":
+			return { ...declarationOf(before), rows: s.parameters }
 	}
 }
 
@@ -933,8 +958,41 @@ const boxOf =
 		return [...state.path, step]
 	}
 
-/** What every case reads: the closed law's identity and the first state's snapshot. */
-export const prepared: Prepared = { pairLaw: lawOfPair(), first: firstSnapshot() }
+/** Every state at most DEPTH steps reach, each with the first path that reaches it, breadth first. */
+const reached = explored()
 
 /** The box: every state at most DEPTH steps reach, with every step it can take next. */
-export const boxGen: Gen<Program<Params>> = boxOf(explored())
+export const boxGen: Gen<Program<Params>> = boxOf(reached)
+
+/**
+ * Every transition the box's programs take, by the prefix it ends (pathKey): from each reached state, at the snapshot
+ * its path leaves, each step it can take, drafted and judged once. A program of the box is a reached state's path and
+ * one step, and every prefix of that path is a reached state's path, so the 1,043 programs take only the box's
+ * transitions; built once, when a worker readies the box (the need's open, outside every case's deadline), each is
+ * drafted once, where a case used to draft every step of its path again. A judgement that fails fails the need's open,
+ * and so the property.
+ */
+export const transitions: Need<ReadonlyMap<string, Stepped>> = {
+	key: "test/unit/deploy/rosters.fixtures.ts transitions",
+	open: Effect.sync(() => {
+		const prepared: Prepared = { pairLaw: lawOfPair(), first: firstSnapshot() }
+		const table = new Map<string, Stepped>()
+		for (const r of reached) {
+			const from = pathKey(r.path)
+			const snapshot =
+				r.path.length === 0
+					? prepared.first
+					: (table.get(from) ?? assert.fail(`the box reaches ${from} before its steps`)).snapshot
+			for (const s of stepsFrom(r.model)) {
+				const after = judgedStep(r.model, s)
+				const key = pathKey([...r.path, s])
+				table.set(
+					key,
+					judged(prepared, snapshot, r.model, after, declaredFor(s, r.model, after), key)
+				)
+			}
+		}
+		const taken: ReadonlyMap<string, Stepped> = table
+		return Effect.succeed(taken)
+	})
+}

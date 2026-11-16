@@ -39,19 +39,20 @@ import {
 	FEATURES,
 	type Feature,
 	machine,
-	prepared,
-	realOf
+	realOf,
+	transitions
 } from "#test/unit/deploy/rosters.fixtures.ts"
 
 /** Roster migrations draft exactly the model's statements, slot by slot, for every program of at most six roster commands over four handles, refusing a reorder and a broken closed law. */
 export const rosterMigrationsDraftExactlyTheModelsStatementsSlotBySlotForEveryProgramOfAtMostSixRosterCommandsOverFourHandlesRefusingAReorderAndABrokenClosedLaw =
 	property.exhaust(finite(boxGen), {
 		box: "every state a program of at most five commands (grow, remove, re-add, reorder, add a set, regenerate, change the closed rows) reaches over a roster of at most four handles, from a roster of one handle with no set, with every step it can take next",
-		needs: {},
+		needs: { transitions },
 		situations: FEATURES satisfies ReadonlyArray<Reached<Feature>>,
-		check: (_, c: Case<Feature>) => (steps) =>
+		check: (resources, c: Case<Feature>) => (steps) =>
 			Effect.gen(function* () {
-				const ran = yield* runProgram(machine, realOf(prepared), steps)
+				const table = yield* resources.transitions
+				const ran = yield* runProgram(machine, realOf(table), steps)
 				for (const verdict of ran.verdicts) {
 					c.note(verdict)
 				}
