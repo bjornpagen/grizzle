@@ -22,9 +22,9 @@ import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
 import { assert, defined, nonEmpty, refused, succeeded } from "#test/support/assert.ts"
 import { allocatedLevels } from "#test/support/compile.ts"
 import type { relation } from "#test/support/fixtures/ir/desc.ts"
-import { aliasPairs, refusedNames } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
+import { aliasPairs, refusedNameWords } from "#test/unit/core/identity.dictionary.ts"
 
 /** A fixture with its login: the shop, and the ledger, whose residual law and derived relation install as extensions. */
 type Fixture = "shop" | "ledger"
@@ -160,7 +160,7 @@ export const declaredNamesGen: Gen<Drawn> = oneOf([
 		return { kind: source.draw(boolean) ? "fields alike" : "relations alike", p, q }
 	},
 	(source): Drawn => {
-		const name = source.draw(word(refusedNames))
+		const name = source.draw(word(refusedNameWords))
 		return {
 			kind: source.draw(boolean) ? "a refused field name" : "a refused relation name",
 			p: name.declared,

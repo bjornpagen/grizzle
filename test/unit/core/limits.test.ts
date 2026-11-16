@@ -36,7 +36,7 @@ import { Effect } from "effect"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { IntegerCarrier } from "#compiler/ir/scalar.ts"
 import { assert } from "#test/support/assert.ts"
-import { integerCarriers } from "#test/support/oracle/gen/domain.ts"
+import { integerCarriers } from "#test/unit/core/limits.dictionary.ts"
 import {
 	type Aligned,
 	type Code,

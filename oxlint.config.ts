@@ -17,11 +17,17 @@ const { active, lintConfig } = standard(toolchain)
  * import): each holds the vocabularies of the test module beside it that are the domain itself, never cases a person
  * chose. The bench catalog's gate ids; the texts the grizzle skill documents; the repository's src modules and its
  * packages' entry points; the SQLSTATEs and failure sources a live call's error reads, and the live model's key forms;
- * the scalar namespace's plain descriptors and the ScalarTypes the test fixtures export; the world model's invalid kinds.
+ * the scalar namespace's plain descriptors and the ScalarTypes the test fixtures export; the world model's invalid kinds;
+ * the registry's native operations and its operations over two sets; the integer carriers; the declared names the naming
+ * door refuses and its alias pairs.
  */
 const DICTIONARY_MINTS = [
 	"test/unit/bench/harness.dictionary.ts",
 	"test/unit/cli/skill.dictionary.ts",
+	"test/unit/compute/bits.dictionary.ts",
+	"test/unit/compute/evaluation.dictionary.ts",
+	"test/unit/core/identity.dictionary.ts",
+	"test/unit/core/limits.dictionary.ts",
 	"test/unit/deps/deps.dictionary.ts",
 	"test/unit/live/call-error.dictionary.ts",
 	"test/unit/live/values.dictionary.ts",

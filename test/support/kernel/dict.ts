@@ -1,4 +1,3 @@
-import { type Dictionary, dictionary } from "@bjornpagen/testing/dictionary"
 import { element, type Gen, proportional } from "@bjornpagen/testing/gen"
 import { maxIdentifierBytes } from "@grizzle/limits"
 import { regex } from "arkregex"
@@ -184,13 +183,9 @@ export const admittedNames: ReadonlyArray<Admitted> = Arr.flatMap(
 )
 
 /** The candidates it refuses, with its reasons. */
-export const refusedNames: Dictionary<RefusedName> = dictionary(
-	nonEmpty(
-		Arr.flatMap(classified, ({ candidate, parsed }) =>
-			parsed.ok ? [] : [{ ...candidate, reason: parsed.error }]
-		),
-		"a refused name"
-	)
+export const refusedNames: ReadonlyArray<RefusedName> = Arr.flatMap(
+	classified,
+	({ candidate, parsed }) => (parsed.ok ? [] : [{ ...candidate, reason: parsed.error }])
 )
 
 /**
@@ -215,16 +210,6 @@ export const aliasGroups: ReadonlyArray<Arr.NonEmptyReadonlyArray<string>> = (()
 		}
 	)
 })()
-
-/** Each alias group's first two names: two declared names one scope cannot hold together. */
-export const aliasPairs: Dictionary<readonly [string, string]> = dictionary(
-	nonEmpty(
-		Arr.flatMap(aliasGroups, ([first, second]) =>
-			second === undefined ? [] : [[first, second] as const]
-		),
-		"an alias pair"
-	)
-)
 
 /**
  * The admitted names by feature, each feature that admits a name once: a draw picks a feature first, so the many

@@ -20,7 +20,7 @@ import { describeOp } from "#compiler/ir/expr.ts"
 import { operandCarriers } from "#compiler/scalar/compute/registry.ts"
 import { assert } from "#test/support/assert.ts"
 import { evaluationOf } from "#test/support/oracle/evaluate/catalog.ts"
-import { nativeOperations } from "#test/support/oracle/gen/domain.ts"
+import { nativeOperations } from "#test/unit/compute/evaluation.dictionary.ts"
 import {
 	atLibmEnd,
 	caseGen,
