@@ -1,12 +1,4 @@
-import {
-	int2Max,
-	int2Min,
-	int4Max,
-	int4Min,
-	int8Max,
-	int8Min,
-	moneyFractionDigits
-} from "@grizzle/limits"
+import { moneyFractionDigits } from "@grizzle/limits"
 import { Array as Arr, Option, Order, Result, String as Str } from "effect"
 import { toResult } from "#adapter/engine.ts"
 import type { Delivery } from "#compiler/codec/delivery.ts"
@@ -14,10 +6,12 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { maxOf } from "#compiler/core/array.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { validateText } from "#compiler/core/text.ts"
+import { integerRanges } from "#compiler/ir/carriers.ts"
 import { type Codebook, emptyCodebook, type RosterCodec } from "#compiler/ir/codes.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
 import {
 	type Carrier,
+	type IntegerCarrier,
 	type NumericBound,
 	numericBoundOf,
 	type ScalarType
@@ -91,23 +85,17 @@ const isIntegerText = (text: string): boolean => {
 	return digits === 1 || !codeIs(text, start, 0x30)
 }
 
-const readSmall =
-	(min: number, max: number) =>
-	(text: string): Result.Result<number, StrictFault> => {
+/** int2out's, int4out's or int8out's text as the bigint it spells, in the carrier's range (carriers.ts integerRanges). */
+const readInteger =
+	(carrier: IntegerCarrier) =>
+	(text: string): Result.Result<bigint, StrictFault> => {
 		if (!isIntegerText(text) || text === "-0") {
 			return Result.fail("integerSyntax")
 		}
-		const n = Number(text)
-		return n >= min && n <= max ? Result.succeed(n) : Result.fail("integerRange")
+		const n = BigInt(text)
+		const [least, greatest] = integerRanges[carrier]
+		return n >= least && n <= greatest ? Result.succeed(n) : Result.fail("integerRange")
 	}
-
-const readInt8 = (text: string): Result.Result<bigint, StrictFault> => {
-	if (!isIntegerText(text) || text === "-0") {
-		return Result.fail("integerSyntax")
-	}
-	const n = BigInt(text)
-	return n >= int8Min.value && n <= int8Max.value ? Result.succeed(n) : Result.fail("integerRange")
-}
 
 /**
  * Whether `text` is numeric_out's spelling of a finite value: an optional minus sign, integer digits with no leading
@@ -204,6 +192,28 @@ const readMoney = (text: string): Result.Result<Money, StrictFault> => {
 /** An exact integer's output: numeric_out (or int8out) of a value at scale 0, of any length, never -0. */
 const readExactInteger = (text: string): Result.Result<bigint, StrictFault> =>
 	isNumericOutput(text, 0, "finite") ? Result.succeed(BigInt(text)) : Result.fail("integerSyntax")
+
+/**
+ * The strict reader of each integer carrier's output text, into the bigint the text spells at every width: the
+ * evaluator's one form of an integer (scalar/compute/literal.ts CarrierValue), which a computed integer is compared in.
+ * smallint's and integer's codec value is that bigint's number (readNumber).
+ */
+export const strictIntegers: {
+	readonly [C in IntegerCarrier | "exactInteger"]: (
+		text: string
+	) => Result.Result<bigint, StrictFault>
+} = {
+	int2: readInteger("int2"),
+	int4: readInteger("int4"),
+	int8: readInteger("int8"),
+	exactInteger: readExactInteger
+}
+
+/** smallint's or integer's output text as its codec value, the number of the bigint it spells. */
+const readNumber =
+	(carrier: "int2" | "int4") =>
+	(text: string): Result.Result<number, StrictFault> =>
+		Result.map(strictIntegers[carrier](text), Number)
 
 /** Exact money's output: numeric_out of a finite amount with at most two fractional digits, of any magnitude. */
 const readExactMoney = (text: string): Result.Result<Money, StrictFault> => {
@@ -363,8 +373,8 @@ const endpointReaders: {
 		text: string
 	) => Result.Result<SpanEndpointHost[P], StrictFault>
 } = {
-	int4: readSmall(int4Min.value, int4Max.value),
-	int8: readInt8,
+	int4: readNumber("int4"),
+	int8: strictIntegers.int8,
 	date: (text) => toResult(toCalendarDate(text))
 }
 
@@ -480,9 +490,9 @@ const readers: {
 		spec: SpecOf<C>
 	) => (text: string) => Result.Result<CarrierHost[C], StrictFault>
 } = {
-	int2: () => readSmall(int2Min.value, int2Max.value),
-	int4: () => readSmall(int4Min.value, int4Max.value),
-	int8: () => readInt8,
+	int2: () => readNumber("int2"),
+	int4: () => readNumber("int4"),
+	int8: () => strictIntegers.int8,
 	numeric: (spec) => readNumeric(spec),
 	float4: () => strictReal,
 	float8: () => strictDouble,
@@ -498,7 +508,7 @@ const readers: {
 	range8: () => readSpan("int8"),
 	rangeDate: () => readSpan("date"),
 	vector: (spec) => readVector(spec),
-	exactInteger: () => readExactInteger,
+	exactInteger: () => strictIntegers.exactInteger,
 	exactMoney: () => readExactMoney
 }
 

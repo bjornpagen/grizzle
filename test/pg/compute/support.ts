@@ -9,7 +9,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { canonicalZero } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { assert } from "#test/support/assert.ts"
-import { strictRead } from "#test/support/kernel/strict.ts"
+import { strictIntegers, strictRead } from "#test/support/kernel/strict.ts"
 import { type CatalogResult, declinedOps } from "#test/support/oracle/evaluate/catalog.ts"
 import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -111,9 +111,11 @@ export const runCases = (
 	})
 
 /**
- * Whether PostgreSQL's text is the host value: integers, booleans, numeric and money by the value the strict reader reads
- * (the one form, whatever display scale PostgreSQL prints), floats by value with the one zero, the value
- * grizzle delivers (PostgreSQL's shortest text and JavaScript's differ in exponent spelling, and PostgreSQL prints -0).
+ * Whether PostgreSQL's text is the host value: integers by the bigint the strict reader reads at every width, the
+ * evaluator's form of an integer (kernel/strict.ts strictIntegers), never smallint's or integer's codec number;
+ * booleans, numeric and money by the value the strict reader reads (the one form, whatever display scale PostgreSQL
+ * prints), floats by value with the one zero, the value grizzle delivers (PostgreSQL's shortest text and JavaScript's
+ * differ in exponent spelling, and PostgreSQL prints -0).
  */
 const sameValue = (value: CarrierValue, text: string, type: ScalarType): boolean => {
 	const c = baseOf(type).carrier
@@ -122,7 +124,7 @@ const sameValue = (value: CarrierValue, text: string, type: ScalarType): boolean
 		case "int4":
 		case "int8":
 		case "exactInteger": {
-			const read = strictRead(type, text)
+			const read = strictIntegers[c](text)
 			return typeof value === "bigint" && Result.isSuccess(read) && read.success === value
 		}
 		case "numeric": {
