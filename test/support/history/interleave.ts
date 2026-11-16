@@ -32,7 +32,6 @@ import {
 	noSerialOrderJudgment,
 	refusedJudgment,
 	relationsFootprint,
-	runawayInterleavings,
 	interleaveStep,
 	type Txn,
 	type TxnResult
@@ -384,7 +383,6 @@ export const lawExploration = (
 					}
 					observe(h, i)
 					return allowed
-				}),
-			maxInterleavings: runawayInterleavings
+				})
 		}
 	})

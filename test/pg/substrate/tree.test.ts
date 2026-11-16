@@ -38,7 +38,6 @@
  */
 import { type Case, exhaust, type Oracle } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Data, Effect, Exit, Formatter, Option, Pool } from "effect"
@@ -51,6 +50,7 @@ import {
 	constraintNamed,
 	ddlOf,
 	forestBox,
+	forestMutationGen,
 	forestsOf,
 	fullGen,
 	insertSql,
@@ -60,7 +60,6 @@ import {
 	type Lowering,
 	MUTATION_KINDS,
 	type MutationKind,
-	mutationsOf,
 	placementsOf,
 	type Predicted,
 	predicted,
@@ -570,14 +569,10 @@ layer(Substrate.layer)("trees.md's theorem on PostgreSQL 19rc2", (it) => {
 				Effect.gen(function* () {
 					const lowerings = loweringsOf(["tree", ...MUTANTS])
 					const seats = yield* seatPoolOf(lowerings)
-					const cases = nonEmpty(
-						Arr.flatMap(forestsOf(forestBox.rows), mutationsOf),
-						"a forest has a mutation"
-					)
 					return yield* exhaust(
 						{
 							suite: "substrate/tree-mutations",
-							generator: element(cases),
+							generator: forestMutationGen(forestBox.rows),
 							literal: Formatter.format,
 							box: "every single mutation of every tree, and of every forest of two trees, of one to six rows in all, each named",
 							oracle: THEOREM_ORACLE,

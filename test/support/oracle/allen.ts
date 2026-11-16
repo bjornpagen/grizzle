@@ -1,3 +1,4 @@
+import { element, type Gen, map } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import {
 	type AllenFormula,
@@ -31,6 +32,12 @@ const rangeTypeOf: Readonly<Record<(typeof integerSpanCarriers)[number], RangeTy
 /** The range type of every span carrier over integer endpoints the engine declares, in its order. */
 export const rangeTypes: Arr.NonEmptyReadonlyArray<RangeType> = Arr.map(
 	integerSpanCarriers,
+	(carrier) => rangeTypeOf[carrier]
+)
+
+/** A range type drawn from the engine's roster of span carriers over integer endpoints, in its order, as rangeTypes lists them. */
+export const rangeTypeGen: Gen<RangeType> = map(
+	element(integerSpanCarriers),
 	(carrier) => rangeTypeOf[carrier]
 )
 

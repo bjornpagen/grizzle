@@ -307,8 +307,7 @@ export const runSchedule = <D extends string>(
 					Effect.sync(() => {
 						recorded.run = Option.some(i)
 						return allowed
-					}),
-				maxInterleavings: 1
+					})
 			},
 			{ kind: "script", choices: compiled.choices }
 		).pipe(

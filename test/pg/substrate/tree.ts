@@ -1102,9 +1102,7 @@ const shifted = (
  *   pre-order moved one place down or up, so the one break is at it;
  * - a stale copy: one row's ‹n› or `parentStart` one off.
  */
-export const mutationsOf = (
-	forest: Arr.NonEmptyReadonlyArray<TreeRow>
-): ReadonlyArray<Mutation> => {
+const mutationsOf = (forest: Arr.NonEmptyReadonlyArray<TreeRow>): ReadonlyArray<Mutation> => {
 	const n = forest.length
 	const sameTree = (a: TreeRow, b: TreeRow) => a.root === b.root
 	const descends = (d: TreeRow, x: TreeRow) =>
@@ -1271,6 +1269,13 @@ export const mutationsOf = (
 		)
 	]
 }
+
+/**
+ * A single mutation of a forest of the box its bound defines: every tree, and every forest of two trees, of at most
+ * `rows` rows in all (forestsOf), by each of its mutations (mutationsOf).
+ */
+export const forestMutationGen = (rows: number): Gen<Mutation> =>
+	element(nonEmpty(Arr.flatMap(forestsOf(rows), mutationsOf), "a forest has a mutation"))
 
 /** A forest written one way: its rows in one order within one INSERT, or an order of them split into INSERTs. */
 export type Write =

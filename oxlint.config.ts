@@ -1,9 +1,28 @@
 import { restrictedImports, standard } from "@bjornpagen/devtools/preset"
-import { CLOCK_RULES, EVERY_FILE_RULES, TEST_RULES } from "@bjornpagen/testing/oxlint"
+import {
+	CASE_LISTS,
+	CLOCK_RULES,
+	EVERY_FILE_RULES,
+	MODULE_RULES,
+	TEST_RULES
+} from "@bjornpagen/testing/oxlint"
 import { defineConfig } from "oxlint"
 import toolchain from "#toolchain.config.ts"
 
 const { active, lintConfig } = standard(toolchain)
+
+/**
+ * The dictionary doors of test scope (no-case-list): modules whose exported lists are vocabularies the code branches
+ * on, never cases a person chose, so a search may draw from a list imported from one. test/support/kernel/dict.ts holds
+ * the identifier, literal and parameter-name dictionaries the generators draw beside their own; the oracle generator's
+ * value domain (test/support/oracle/gen/domain.ts) its carriers, type specs, paddings and float specials; and
+ * test/support/worlds/invalid/kinds.ts the world model's roster of invalid kinds, each by the boundary it crosses.
+ */
+const DICTIONARY_DOORS = [
+	"#test/support/kernel/dict.ts",
+	"#test/support/oracle/gen/domain.ts",
+	"#test/support/worlds/invalid/kinds.ts"
+] as const
 
 /** The engine's clock and scheduling ban, one message for every global it names. */
 const NO_CLOCK = "The engine reads no clock and schedules nothing: a time it needs is an argument."
@@ -315,25 +334,28 @@ export default defineConfig(
 			},
 			"no-case-list": {
 				searches: [
-					{ module: "@bjornpagen/testing/explore", name: "exhaust", space: "generator" },
-					{ module: "@bjornpagen/testing/explore", name: "explore", space: "draw" }
+					...CASE_LISTS.searches,
+					{ module: "#test/support/oracle/runner.ts", name: "oracleCheck", space: { argument: 0 } },
+					{ module: "#test/support/oracle/runner.ts", name: "oracleKill", space: { argument: 0 } }
 				],
-				generators: [
-					{ module: "@bjornpagen/testing/gen", names: ["element"], draws: "list" },
-					{ module: "@bjornpagen/testing/gen", names: ["constant"], draws: "value" },
-					{ module: "@bjornpagen/testing/gen", names: ["map", "span"], draws: "each" },
+				generators: CASE_LISTS.generators,
+				mints: CASE_LISTS.mints,
+				cases: [],
+				dictionaries: DICTIONARY_DOORS
+			},
+			"single-permit-owners": {
+				owners: [
 					{
-						module: "@bjornpagen/testing/gen",
-						names: ["oneOf", "weighted", "proportional"],
-						draws: "union"
+						file: "test/support/pg.ts",
+						reason:
+							"A session's turn (connectOnce's `turn`): one connection's wire carries one statement and its answer at a time, so a session's statements take turns on it."
 					},
 					{
-						module: "@bjornpagen/testing/explore",
-						names: ["drawn", "sketched", "aimed"],
-						draws: "each"
+						file: "test/pg/fin/installed.ts",
+						reason:
+							"seatPool makes its seats one at a time: two installations migrating at once into one database fail, one of them with XX000 (tuple concurrently updated) in its publish step."
 					}
-				],
-				cases: ["test/"]
+				]
 			},
 			"no-dynamic-imports": {
 				allowed: [{ file: "packages/grizzle/src/cli/main.ts", specifier: "grizzle:config" }]
@@ -350,6 +372,7 @@ export default defineConfig(
 			library: "installed",
 			jsPlugin: "@bjornpagen/testing/oxlint",
 			rules: TEST_RULES,
+			modules: MODULE_RULES,
 			everyFile: EVERY_FILE_RULES,
 			clock: { files: ["test/**"], rules: CLOCK_RULES }
 		},
@@ -510,6 +533,57 @@ export default defineConfig(
 				})
 			},
 			{
+				files: ["test/pg/laws/families/alternatives.test.ts"],
+				rules: active({
+					/** Its armed-handles search exhausts the handles of the alternatives family's box (test/support/laws/boxes.ts runsBox), the hand-chosen schemas every family suite of the file exhausts; the box is a list of cases until the family suites draw their schemas from a generator, which is their conversion's, not this search's. */
+					"devtools/no-case-list": "off"
+				})
+			},
+			{
+				files: ["test/pg/oracle/mutants/invalid.test.ts"],
+				rules: active({
+					/** Its space is the oracle's seven invalid mutants (test/support/oracle/mutants/mutants.ts), each a hand-made flaw the harness must kill: the list is a kill set, which the conversion states as kills on the oracle's property. */
+					"devtools/no-case-list": "off"
+				})
+			},
+			{
+				files: ["test/unit/lower/dedup/key-sets.test.ts"],
+				rules: active({
+					/** Its billing search exhausts the reads of the platform fixture's workload (test/support/fixtures/api/platform.ts), a real workload compiled as billing compiles it, beside the file's search over generated programs; the fixture is that search's box until the conversion draws it or drops it. */
+					"devtools/no-case-list": "off"
+				})
+			},
+			{
+				files: ["test/unit/scalar/registry.test.ts"],
+				rules: active({
+					/** Its fixtures search holds the ScalarTypes the test fixture modules export to the registry: the fixtures are what it checks, so its space is every one of them, not inputs chosen for a property. */
+					"devtools/no-case-list": "off"
+				})
+			},
+			{
+				files: ["bench/query/support/kit.ts"],
+				rules: active({
+					/** The query bench's kit times a compile and its warm runs: the clock is what a bench measures, and bench is its own tool beside the tests, which the test scope reaches only through its support/ directory's name. */
+					"testing/no-wall-clock-verdict": "off"
+				})
+			},
+			{
+				files: ["bench/write/support/writes.ts"],
+				rules: active({
+					/** The write bench's harness times a run (timed): the clock is what a bench measures, and bench is its own tool beside the tests, which the test scope reaches only through its support/ directory's name. */
+					"testing/no-wall-clock-verdict": "off",
+					/** It samples a role's sessions in pg_stat_activity on an interval while a run goes, and the samples, each an interval apart, are the measurement (lockWaitSessionMs). */
+					"testing/no-sleep-wait": "off"
+				})
+			},
+			{
+				files: ["test/pg/physical/serving.ts"],
+				rules: active({
+					/** loadAtVolume's settle wait observes the horizon's holders (holdersBefore) at PostgreSQL's own step for a wait on another backend (backendWaitStep, published), so it checks the server's state no more often than the server checks its own, where awaitFact would query it back to back. */
+					"testing/no-sleep-wait": "off"
+				})
+			},
+			{
 				files: ["test/support/with-layer.ts"],
 				rules: active({
 					/** withLayer is the one Function.dual kept: 57 pipe uses call it data-last, and a dual's type is two call signatures. */
@@ -613,13 +687,6 @@ export default defineConfig(
 				files: ["test/types/examples/fixtures/readme.ts", "test/types/examples/fixtures/skill.ts"],
 				rules: active({
 					/** The fixture mirrors README.md's code blocks line for line, and the README's app code is a reader's, written with the platform's regex literal. */
-					"devtools/no-raw-regexp": "off"
-				})
-			},
-			{
-				files: ["test/types/regex/matrix.test.ts"],
-				rules: active({
-					/** The development oracle asks ECMAScript itself whether a source and its flags are a syntax error, so it builds the native RegExp from any text. */
 					"devtools/no-raw-regexp": "off"
 				})
 			},

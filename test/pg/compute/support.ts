@@ -111,8 +111,8 @@ export const runCases = (
 	})
 
 /**
- * Whether PostgreSQL's text is the host value: integers and booleans by text, numeric and money by the value the strict
- * reader reads (the one form, whatever display scale PostgreSQL prints), floats by value with the one zero, the value
+ * Whether PostgreSQL's text is the host value: integers, booleans, numeric and money by the value the strict reader reads
+ * (the one form, whatever display scale PostgreSQL prints), floats by value with the one zero, the value
  * grizzle delivers (PostgreSQL's shortest text and JavaScript's differ in exponent spelling, and PostgreSQL prints -0).
  */
 const sameValue = (value: CarrierValue, text: string, type: ScalarType): boolean => {
@@ -121,7 +121,6 @@ const sameValue = (value: CarrierValue, text: string, type: ScalarType): boolean
 		case "int2":
 		case "int4":
 		case "int8":
-			return typeof value === "bigint" && value.toString() === text
 		case "exactInteger": {
 			const read = strictRead(type, text)
 			return typeof value === "bigint" && Result.isSuccess(read) && read.success === value
@@ -154,8 +153,10 @@ const sameValue = (value: CarrierValue, text: string, type: ScalarType): boolean
 				read.success.minorUnits === value.minorUnits
 			)
 		}
-		case "bool":
-			return typeof value === "boolean" && String(value) === text
+		case "bool": {
+			const read = strictRead(type, text)
+			return typeof value === "boolean" && Result.isSuccess(read) && read.success === value
+		}
 		case "code":
 		case "bits":
 			throw new Error(

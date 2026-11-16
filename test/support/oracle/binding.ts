@@ -16,7 +16,7 @@ import { fieldKey } from "#compiler/runtime/write/fill.ts"
 import { endColumns, rowLayout } from "#compiler/write/family/statements.ts"
 import type { EnumeratedInput, SlotGroup, WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import type { Proposal } from "#compiler/write/insert/statement.ts"
-import { assert, defined } from "#test/support/assert.ts"
+import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 
 /** Which facts of a member slot its statement proposes, by the law model: an INSERT into a relation of drawn or
  * accumulated fields proposes only those at no stored key, but for a generated addition; anything else every one. */
@@ -187,7 +187,7 @@ const freshAgrees = (frontend: WriteFrontend, binding: Binding): void => {
 			`stratum ${stratum}'s counted families`
 		)
 		const owners = [...new Set(Arr.map(counted, (f) => f.owner.name))]
-		assert.deepEqual([...fresh.owners.keys()], owners, `stratum ${stratum}'s fresh owners`)
+		unorderedEqual([...fresh.owners.keys()], owners, `stratum ${stratum}'s fresh owners`)
 		for (const owner of owners) {
 			const at = defined(fresh.owners.get(owner), `the fresh owner ${owner}`)
 			const sequenceMember = Arr.some(families, (f) => isSequence(f) && f.member.name === owner)

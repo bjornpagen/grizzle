@@ -8,6 +8,8 @@ packages:
   # The toolchain, the submodule pinned at its commit: its dev tools and testing library join the workspace and run from
   # source, with their own gate, none of grizzle's.
   - vendor/toolchain/packages/devtools
+  - vendor/toolchain/packages/limit
+  - vendor/toolchain/packages/limits
   - vendor/toolchain/packages/testing
 # Approved dependencies' agent skills link into the one skills folder, which .claude/skills and .cursor/skills link to.
 skills:

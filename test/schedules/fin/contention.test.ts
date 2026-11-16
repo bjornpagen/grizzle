@@ -49,7 +49,6 @@ import {
 	type Judgment,
 	opStep,
 	refusedJudgment,
-	runawayInterleavings,
 	type Txn
 } from "#test/support/schedules/interleave.ts"
 import { describeStepOutcome } from "#test/support/schedules/match.ts"
@@ -263,8 +262,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 								_tag: "Read",
 								sql: `SELECT 0, ${id}::int8, ${n}::int8, 0::int8, 0::int8 FROM ${owner} UNION ALL SELECT 1, ${m}::int8, ${g}::int8, ${at}::int8, ${copy}::int8 FROM ${member}`
 							},
-							model: (run) => Effect.sync(() => judge(run)),
-							maxInterleavings: runawayInterleavings
+							model: (run) => Effect.sync(() => judge(run))
 						},
 						every
 					)

@@ -46,7 +46,6 @@ import {
 	type Judgment,
 	opStep,
 	refusedJudgment,
-	runawayInterleavings,
 	type Txn
 } from "#test/support/schedules/interleave.ts"
 import { openRig } from "#test/support/schedules/rig.ts"
@@ -268,8 +267,7 @@ const explored = Effect.gen(function* () {
 			txns,
 			reset,
 			state: { _tag: "Unread" },
-			model: (run) => Effect.sync(() => judge(run)),
-			maxInterleavings: runawayInterleavings
+			model: (run) => Effect.sync(() => judge(run))
 		},
 		every
 	)

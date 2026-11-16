@@ -20,7 +20,7 @@
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
-import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
+import { array, type Gen, int } from "@bjornpagen/testing/gen"
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
@@ -63,6 +63,7 @@ import {
 	exitedCleanly,
 	freePort,
 	type Layout,
+	layoutGen,
 	layouts,
 	packageFrom,
 	runChild,
@@ -344,7 +345,7 @@ layer(NodeServices.layer)(
 					exhaust(
 						{
 							suite: "package/local-cluster",
-							generator: element(nonEmpty(layouts, "the layouts of a consumer's install")),
+							generator: layoutGen,
 							literal: Formatter.format,
 							coverage: requiredInSpace<Layout>(
 								nonEmpty(layouts, "the layouts of a consumer's install")

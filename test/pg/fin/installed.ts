@@ -147,7 +147,7 @@ const kindOf = (contype: string): ConstraintKind => {
 }
 
 const listOf = (text: unknown): ReadonlyArray<string> =>
-	String(text) === "" ? [] : Str.split(String(text), SEP)
+	text === "" ? [] : Str.split(String(text), SEP)
 
 /**
  * A seat's label as a schema label, which the substrate takes as a lowercase word of letters joined by underscores
@@ -267,7 +267,7 @@ export const seatOfInstalled = (
 									columns: Arr.map(listOf(targetColumns), (c) => roleOf(targetRelation, c))
 								}),
 					deferrable: deferrable === true,
-					cascades: String(updtype) === "c",
+					cascades: updtype === "c",
 					law: Option.fromUndefinedOr(
 						constraintLaw(
 							installed.installation.constraintToLaw,

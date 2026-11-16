@@ -64,12 +64,7 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { type ActorSpec, openActors, textOfValue } from "#test/support/schedules/actors.ts"
-import {
-	everyRelation,
-	exploreEnv,
-	runawayInterleavings,
-	type Strategy
-} from "#test/support/schedules/interleave.ts"
+import { everyRelation, exploreEnv, type Strategy } from "#test/support/schedules/interleave.ts"
 import {
 	type Explained,
 	type RaceStatement,
@@ -606,23 +601,6 @@ const movesOf = (t: RaceTxn<never>): number => (t.kind === "direct" ? t.statemen
 export const raceMoves = (txns: ReadonlyArray<RaceTxn<never>>): number =>
 	Arr.reduce(txns, 0, (sum, t) => sum + movesOf(t))
 
-/** n!, 1 for n of 0. */
-const factorial = (n: number): bigint =>
-	Arr.reduce(
-		Array.from({ length: n }, (_, i) => BigInt(i + 1)),
-		1n,
-		(p, k) => p * k
-	)
-
-/**
- * How many orders of a race's moves an every-order exploration may run: (Σ m)! / Π m!, each transaction's moves m
- * (movesOf) kept in its own order. A direct transaction's first move carries the whole transaction's footprint
- * (schedules/interleave.ts), so no order of beginnings is pruned, and the count is what the exploration runs before
- * sleep sets prune any commuting statements.
- */
-const ordersOf = (txns: ReadonlyArray<RaceTxn<never>>): bigint =>
-	Arr.reduce(txns, factorial(raceMoves(txns)), (orders, t) => orders / factorial(movesOf(t)))
-
 /** A call as a race's name spells it: its session, then its role's member or the owner. */
 const callName = (c: RaceCall): string =>
 	c.kind === "owner" ? `${c.session}:owner` : `${c.session}:${c.role}.${c.member}`
@@ -673,18 +651,6 @@ export const runIsolationRace = (
 		const direct = yield* openActors(substrate, specs)
 		const [first, ...rest] = yield* Effect.forEach(race.calls, (call) => txnOf(s, call))
 		const txns: Arr.NonEmptyReadonlyArray<RaceTxn<never>> = [defined(first, "a call"), ...rest]
-		const chosen = strategy(txns)
-		const orders = ordersOf(txns)
-		if (chosen.kind === "every" && orders > BigInt(runawayInterleavings)) {
-			return yield* Effect.die(
-				new Error(
-					`the race ${Arr.join(Arr.map(race.calls, callName), " ")} has ${orders} orders of its moves (${Arr.join(
-						Arr.map(txns, (t) => String(movesOf(t))),
-						", "
-					)}), past the ${runawayInterleavings} an every-order race may run: its suite splits or shrinks it`
-				)
-			)
-		}
 		yield* runSerialRace(
 			env,
 			{ direct, grizzle: {} },
@@ -700,7 +666,7 @@ export const runIsolationRace = (
 					Arr.map(rows, (row) => Arr.map(row, textOfValue))
 				)
 			},
-			chosen,
+			strategy(txns),
 			noteRun
 		)
 	})

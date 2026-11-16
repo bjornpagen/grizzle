@@ -152,7 +152,6 @@ import {
 	noSerialOrderJudgment,
 	refusedJudgment,
 	relationsFootprint,
-	runawayInterleavings,
 	interleaveStep,
 	type Strategy,
 	type Txn
@@ -1516,8 +1515,7 @@ const runRace = (
 								}
 								noteRun(run, observed)
 								return allowed
-							}),
-						maxInterleavings: runawayInterleavings
+							})
 					},
 					strategy
 				).pipe(
@@ -2037,8 +2035,7 @@ const runInserters = (
 								: [])
 						])
 						return allowed
-					}),
-				maxInterleavings: runawayInterleavings
+					})
 			},
 			every
 		).pipe(
@@ -2465,8 +2462,7 @@ const runClaimers = (
 							...(waitedOn("gate") ? ["a claimer held at its gate" as const] : [])
 						])
 						return allowed
-					}),
-				maxInterleavings: runawayInterleavings
+					})
 			},
 			every
 		).pipe(

@@ -327,19 +327,11 @@ export interface Exploration<E> {
 	readonly state: StateRead
 	/** Whether a run's outcomes are allowed, and why not when they are not. */
 	readonly model: (i: Interleaving) => Effect.Effect<Judgment, E>
-	/** A bound on the runs of `every`, to catch a runaway exploration. */
-	readonly maxInterleavings: number
 }
 
 /**
- * The bound the suites pass as maxInterleavings: a protective cap, so an exploration whose sleep sets fail to prune
- * fails instead of running on.
- */
-export const runawayInterleavings = 500
-
-/**
  * How the decisions of an exploration are made, on the library's interleave: `every` runs every distinct order (sleep
- * sets prune orders of commuting moves; the exploration's `maxInterleavings` is its runaway guard); `pct` runs the
+ * sets prune orders of commuting moves; the case's hang guard is its runaway guard); `pct` runs the
  * highest-priority session that can move, its priorities and change points drawn in the case (`pctSchedule`); `drawn`
  * draws each decision from the case's tape; `script` makes the decisions it lists. A drawn or PCT schedule records what
  * PostgreSQL showed at each decision on the case's tape, so a replay that sees otherwise says where.
@@ -1022,13 +1014,13 @@ export const exploreInterleavings = <E>(
 		})
 		const libraryStrategy: Interleave.Strategy<string, string> =
 			strategy.kind === "every"
-				? { kind: "every", limit: spec.maxInterleavings, reduction: "sleep-sets" }
+				? { kind: "every", reduction: "sleep-sets" }
 				: strategy.kind === "script"
 					? { kind: "script", choices: Arr.map(strategy.choices, libraryChoice) }
 					: strategy
 		const report = yield* Interleave.interleave(
 			driverOf(env, releases, owned, spec.reset),
-			{ name: spec.name, sessions, exclusive, state: Option.none() },
+			{ sessions, exclusive, state: Option.none() },
 			libraryStrategy,
 			(run) =>
 				Effect.gen(function* () {

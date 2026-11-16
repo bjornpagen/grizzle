@@ -109,7 +109,6 @@ import {
 	type Interleaving,
 	interleaveStep,
 	refusedJudgment,
-	runawayInterleavings,
 	type Txn
 } from "#test/support/schedules/interleave.ts"
 import {
@@ -966,8 +965,7 @@ layer(Substrate.layer, { excludeTestServices: true })("a migration's Validate ph
 												}
 												c.noteAll(judged.success)
 												return allowed
-											}),
-										maxInterleavings: runawayInterleavings
+											})
 									},
 									{ kind: "drawn", nature: c }
 								)

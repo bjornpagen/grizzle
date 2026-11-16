@@ -863,7 +863,7 @@ export const foldRead = (f: FoldSeat): Effect.Effect<FoldStored, SqlError> =>
 					at: Number(row[2]),
 					copy: Number(row[3]),
 					x: parse(row[4]),
-					selected: String(row[5]) === "true",
+					selected: row[5] === "true",
 					before: nonEmptyPlanes(Arr.filter(planes, (_, i) => i % 2 === 0)),
 					after: nonEmptyPlanes(Arr.filter(planes, (_, i) => i % 2 === 1))
 				}

@@ -25,7 +25,6 @@ import {
 	noSerialOrderJudgment,
 	refusedJudgment,
 	relationsFootprint,
-	runawayInterleavings,
 	type Strategy,
 	type Txn,
 	type WorldStep
@@ -1340,8 +1339,7 @@ export const runWorldRace = ({
 							noteRun(ran, i, note)
 						}
 						return judged
-					}),
-				maxInterleavings: runawayInterleavings
+					})
 			},
 			race.strategy(moves)
 		).pipe(Effect.mapError((e) => e.pipe(messageOf, failed)))

@@ -12,7 +12,6 @@
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
@@ -29,6 +28,7 @@ import {
 	canonicalizationSurvey,
 	canonicalize,
 	type RangeType,
+	rangeTypeGen,
 	rangeTypes,
 	spanText,
 	spellingText,
@@ -66,7 +66,7 @@ layer(Substrate.layer)("the Allen table on PostgreSQL 19", (it) => {
 			exhaust(
 				{
 					suite: "pg/allen/canonicalization",
-					generator: element(rangeTypes),
+					generator: rangeTypeGen,
 					literal: Formatter.format,
 					coverage: requiredInSpace<CanonicalFeature>(
 						Arr.flatMap(rangeTypes, (type) =>
@@ -124,7 +124,7 @@ $f$`,
 				exhaust(
 					{
 						suite: "pg/allen/masks",
-						generator: element(rangeTypes),
+						generator: rangeTypeGen,
 						literal: Formatter.format,
 						coverage: requiredInSpace<RangeType>(rangeTypes),
 						box: "every range type, by every Allen mask and every atom literal, over every ordered pair of the stored universe",

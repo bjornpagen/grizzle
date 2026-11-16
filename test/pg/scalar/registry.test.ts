@@ -48,7 +48,7 @@ import { floatOf } from "#test/support/descriptors.ts"
 import { caseHang } from "#test/support/limits.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
-import { isSerial, type Spelling, spelled, spellings } from "#test/unit/scalar/support.ts"
+import { isSerial, type Spelling, spelled, spellingGen } from "#test/unit/scalar/support.ts"
 /**
  * The catalog type of each carrier; a closed id is probed through smallint, the type of its code under its roster's
  * domain, a set through bit, ranges through int4range and int8range, and the exact carriers through numeric, the type
@@ -283,7 +283,7 @@ layer(Substrate.layer)("descriptors against the PostgreSQL 19 catalog", (it) => 
 				return yield* exhaust(
 					{
 						suite: "pg/scalar/registry/spellings",
-						generator: element(spellings),
+						generator: spellingGen,
 						literal: Formatter.format,
 						box: "every spelling of the pg namespace that is a descriptor, the serials among them",
 						oracle: {

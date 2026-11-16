@@ -1,4 +1,5 @@
 import { createServer } from "node:net"
+import { element, type Gen } from "@bjornpagen/testing/gen"
 import {
 	Array as Arr,
 	Effect,
@@ -11,6 +12,7 @@ import {
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { trustedJson } from "#compiler/core/trusted.ts"
+import { nonEmpty } from "#test/support/assert.ts"
 
 /** What a consumer installs beside grizzle, from its package.json: its peers. */
 type Manifest = {
@@ -127,6 +129,11 @@ export type Layout = keyof typeof dependencyHome
 export const layouts: ReadonlyArray<Layout> = Arr.map(
 	Record.toEntries(dependencyHome),
 	([layout]) => layout
+)
+
+/** A layout of a consumer's install drawn from dependencyHome's roster, in its order. */
+export const layoutGen: Gen<Layout> = element(
+	nonEmpty(layouts, "the layouts of a consumer's install")
 )
 
 /** A consumer's pnpm workspace that takes grizzle as a git submodule, installed in one layout. */

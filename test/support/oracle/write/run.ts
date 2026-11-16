@@ -263,10 +263,10 @@ export const privilegeProblems = (
 				[role]
 			)
 			const [update, truncate] = rows[0] ?? []
-			if (!r.mutable && String(update) === "true") {
+			if (!r.mutable && update === "true") {
 				problems.push(`${role} may UPDATE the immutable ${r.name}`)
 			}
-			if (String(truncate) === "true") {
+			if (truncate === "true") {
 				problems.push(`${role} may TRUNCATE ${r.name}`)
 			}
 		}
@@ -371,7 +371,7 @@ export const readGroup = (
 				)
 				sequences.set(`${r.name}.${serial.name}`, {
 					lastValue: BigInt(String(seq[0]?.[0])),
-					isCalled: String(seq[0]?.[1]) === "true"
+					isCalled: seq[0]?.[1] === "true"
 				})
 			}
 		}

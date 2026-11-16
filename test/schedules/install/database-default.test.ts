@@ -35,7 +35,6 @@ import {
 	type Judgment,
 	refusedJudgment,
 	relationsFootprint,
-	runawayInterleavings,
 	interleaveStep,
 	type Txn
 } from "#test/support/schedules/interleave.ts"
@@ -144,8 +143,7 @@ layer(Substrate.layer, { excludeTestServices: true })(
 							txns,
 							reset: Effect.void,
 							state: { _tag: "Read", sql: settings },
-							model: (run) => Effect.sync(() => judge(run)),
-							maxInterleavings: runawayInterleavings
+							model: (run) => Effect.sync(() => judge(run))
 						},
 						every
 					)

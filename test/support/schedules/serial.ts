@@ -29,7 +29,6 @@ import {
 	noSerialOrderJudgment,
 	type RunRefused,
 	refusedJudgment,
-	runawayInterleavings,
 	type Strategy,
 	type Txn
 } from "#test/support/schedules/interleave.ts"
@@ -519,8 +518,7 @@ export const runSerialRace = <A, E>(
 					race.reset
 				),
 				state: { _tag: "Unread" },
-				model: judge,
-				maxInterleavings: runawayInterleavings
+				model: judge
 			},
 			strategy
 		)

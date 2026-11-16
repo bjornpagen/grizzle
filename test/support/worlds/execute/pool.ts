@@ -131,7 +131,7 @@ export const probePool = (pool: SessionPool): Effect.Effect<Probe> =>
 			if (user === undefined || claims === undefined) {
 				return yield* Effect.die(new Error("the pooled probe read no row"))
 			}
-			if (backend !== String(leasedBackend(client))) {
+			if (Number(backend) !== leasedBackend(client)) {
 				return yield* Effect.die(
 					new Error("the pooled probe read another backend than its lease's")
 				)

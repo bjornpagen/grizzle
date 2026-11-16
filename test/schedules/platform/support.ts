@@ -86,7 +86,6 @@ import {
 	opStep,
 	refusedJudgment,
 	relationsFootprint,
-	runawayInterleavings,
 	type Strategy,
 	type Txn,
 	type TxnResult
@@ -1663,8 +1662,7 @@ const runRace = (i: RaceInstall, race: Race, c: Case<RaceFeature>) =>
 						}
 						appendAll(reached, judged.reached)
 						return allowed
-					}),
-				maxInterleavings: runawayInterleavings
+					})
 			},
 			strategy
 		)
