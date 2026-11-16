@@ -3603,22 +3603,22 @@ const unseenBound = (l: Lit, anchor: FieldName | undefined): Option.Option<Lit> 
 
 /**
  * The field a match's Pattern stands opposite, a literal source or a lexical form, the engine reading its source there:
- * its subject's, read as a value of the subject's type before the engine refuses a subject of no text; none opposite a
- * text, where both sides read the source as a pattern in the grammar (the types by PatternValidate). A text term
- * pattern, a typed constant among them, is read at its own type wherever it stands.
+ * its subject's field `at`, read as a value of the subject's type before the engine refuses a subject of no text; none
+ * opposite a text, where both sides read the source as a pattern in the grammar (the types by PatternValidate). A text
+ * term pattern, a typed constant among them, is read at its own type wherever it stands.
  */
-const sourceAnchor = (subject: Operand): FieldName | undefined => {
-	const at = fieldOf(subject)
-	return at !== undefined && Cell.fields[at].sql !== "text" ? at : undefined
-}
+const sourceAnchor = (at: FieldName | undefined): FieldName | undefined =>
+	at !== undefined && Cell.fields[at].sql !== "text" ? at : undefined
 
 /**
  * A case with every value the engine may refuse where the types admit its type read as its stand-in (standInAt), each
  * at the field it stands opposite: an operation's first operand's, a comparison's, a range's subject's, a match's
  * Pattern's (sourceAnchor), a typed constant's own and a conditional's first branch's; and every range bound the types
- * cannot see (unseenBound), which makes the reading strict. None where nothing is replaced. A value a contract's
- * predicate refuses stands as written, whatever its sign: the case is read over the contracts as the types read them
- * instead (contractVerdict).
+ * cannot see (unseenBound), which makes the reading strict. A when's guarded parameter stands at its guard subject's
+ * field, the `subject` its branch is read under, as a branch's operands are drawn opposite it (guardedBody), so a
+ * value opposite the parameter is stood in as one opposite the subject is. None where nothing is replaced. A value a
+ * contract's predicate refuses stands as written, whatever its sign: the case is read over the contracts as the types
+ * read them instead (contractVerdict).
  */
 const standInsOf = (
 	spec: CaseSpec
@@ -3645,14 +3645,20 @@ const standInsOf = (
 				return standIn
 			}
 		})
-	const operand = (o: Operand, anchor: FieldName | undefined): Operand => {
+	const fieldAt = (o: Operand, subject: FieldName | undefined): FieldName | undefined =>
+		o.kind === "guarded" ? subject : fieldOf(o)
+	const operand = (
+		o: Operand,
+		anchor: FieldName | undefined,
+		subject: FieldName | undefined
+	): Operand => {
 		switch (o.kind) {
 			case "literal":
 				return { kind: "literal", lit: lit(o.lit, anchor) }
 			case "typed":
 				return { kind: "typed", field: o.field, lit: lit(o.lit, o.field) }
 			case "term":
-				return { kind: "term", term: term(o.term) }
+				return { kind: "term", term: term(o.term, subject) }
 			case "lexical": {
 				const form: Lit = {
 					text: `lexicalForm(Cell.fields.${o.field})`,
@@ -3673,91 +3679,95 @@ const standInsOf = (
 				return o
 		}
 	}
-	const guard = (g: GuardSpec): GuardSpec => {
+	const guard = (g: GuardSpec, subject: FieldName | undefined): GuardSpec => {
+		const at = fieldAt(g.x, subject)
 		switch (g.kind) {
 			case "test":
-				return { kind: "test", test: g.test, x: operand(g.x, undefined) }
-			case "within": {
-				const at = fieldOf(g.x)
+				return { kind: "test", test: g.test, x: operand(g.x, undefined, subject) }
+			case "within":
 				return {
 					kind: "within",
-					x: operand(g.x, undefined),
+					x: operand(g.x, undefined, subject),
 					low: bound(g.low, at),
 					high: bound(g.high, at)
 				}
-			}
 			case "matches":
 				return {
 					kind: "matches",
-					x: operand(g.x, undefined),
-					pattern: operand(g.pattern, sourceAnchor(g.x))
+					x: operand(g.x, undefined, subject),
+					pattern: operand(g.pattern, sourceAnchor(at), subject)
 				}
 		}
 	}
-	const pred = (p: PredSpec): PredSpec => {
-		const at = p.kind === "guard" ? undefined : fieldOf(p.a)
+	const pred = (p: PredSpec, subject: FieldName | undefined): PredSpec => {
+		const at = p.kind === "guard" ? undefined : fieldAt(p.a, subject)
 		switch (p.kind) {
 			case "compare":
-				return { kind: "compare", op: p.op, a: operand(p.a, undefined), b: operand(p.b, at) }
+				return {
+					kind: "compare",
+					op: p.op,
+					a: operand(p.a, undefined, subject),
+					b: operand(p.b, at, subject)
+				}
 			case "between":
 				return {
 					kind: "between",
-					a: operand(p.a, undefined),
-					low: operand(p.low, at),
-					high: operand(p.high, at)
+					a: operand(p.a, undefined, subject),
+					low: operand(p.low, at, subject),
+					high: operand(p.high, at, subject)
 				}
 			case "in":
 				return {
 					kind: "in",
-					a: operand(p.a, undefined),
+					a: operand(p.a, undefined, subject),
 					values: Arr.map(p.values, (v) => lit(v, at))
 				}
 			case "guard":
-				return { kind: "guard", guard: guard(p.guard) }
+				return { kind: "guard", guard: guard(p.guard, subject) }
 		}
 	}
-	const term = (t: TermSpec): TermSpec => {
+	const term = (t: TermSpec, subject: FieldName | undefined): TermSpec => {
 		switch (t.kind) {
 			case "apply": {
 				const [first, ...rest] = t.args
-				const at = t.fn === "round" || t.fn === "trunc" ? "int" : fieldOf(first)
+				const at = t.fn === "round" || t.fn === "trunc" ? "int" : fieldAt(first, subject)
 				return {
 					kind: "apply",
 					fn: t.fn,
 					args: [
-						operand(first, undefined),
-						...Arr.map(rest, (o) => (t.fn === "translate" ? o : operand(o, at)))
+						operand(first, undefined, subject),
+						...Arr.map(rest, (o) => (t.fn === "translate" ? o : operand(o, at, subject)))
 					]
 				}
 			}
 			case "cast":
-				return { kind: "cast", x: operand(t.x, undefined), to: t.to }
+				return { kind: "cast", x: operand(t.x, undefined, subject), to: t.to }
 			case "endpoint":
-				return { kind: "endpoint", fn: t.fn, s: operand(t.s, undefined), to: t.to }
+				return { kind: "endpoint", fn: t.fn, s: operand(t.s, undefined, subject), to: t.to }
 			case "cond":
 				return {
 					kind: "cond",
-					p: pred(t.p),
-					whenTrue: operand(t.whenTrue, undefined),
-					otherwise: operand(t.otherwise, fieldOf(t.whenTrue))
+					p: pred(t.p, subject),
+					whenTrue: operand(t.whenTrue, undefined, subject),
+					otherwise: operand(t.otherwise, fieldAt(t.whenTrue, subject), subject)
 				}
 			case "when":
 				return {
 					kind: "when",
-					guard: guard(t.guard),
-					body: term(t.body),
-					otherwise: operand(t.otherwise, undefined)
+					guard: guard(t.guard, subject),
+					body: term(t.body, fieldAt(t.guard.x, subject)),
+					otherwise: operand(t.otherwise, undefined, subject)
 				}
 		}
 	}
 	const read = ((): CaseSpec => {
 		switch (spec.kind) {
 			case "term":
-				return { kind: "term", term: term(spec.term) }
+				return { kind: "term", term: term(spec.term, undefined) }
 			case "predicate":
-				return { kind: "predicate", pred: pred(spec.pred) }
+				return { kind: "predicate", pred: pred(spec.pred, undefined) }
 			case "aggregate":
-				return { kind: "aggregate", fn: spec.fn, of: operand(spec.of, undefined) }
+				return { kind: "aggregate", fn: spec.fn, of: operand(spec.of, undefined, undefined) }
 			case "value":
 			case "member":
 			case "bytes":
