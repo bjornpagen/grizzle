@@ -21,10 +21,6 @@
  *
  * Features: a key code past its declared position, a key of two fields or more, a parameter and a literal key field, a
  * payload left unread, no fact, every live point a fact, a sparse key set, and R07's read.
- *
- * @plant test/plants/pg/closed/membership-live-radix.patch A product coordinate's radix its live handles (codeOf's
- * size) where its codes run past them, so a reader's mixed radix aliases two keys on a roster with holes, which the
- * history's removals make common.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

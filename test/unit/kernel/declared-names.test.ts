@@ -8,12 +8,6 @@
  * limit: a name's conversion ends at a drawn target byte count around 63, the last word sized to meet it.
  *
  * Features: a conversion under the limit, at it, one byte past and far past, and two names at the limit apart.
- *
- * @plant test/plants/unit/kernel/declared-names-at-limit-refused.patch A conversion of exactly maxIdentifierBytes is
- * refused; the byte-limit property fails.
- * @plant test/plants/unit/kernel/declared-names-acronym-unsplit.patch An acronym's last capital stays with it before a
- * lowercase letter (HTTPRoute one segment), so a conversion is not the generator's segments; the byte-limit property
- * fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

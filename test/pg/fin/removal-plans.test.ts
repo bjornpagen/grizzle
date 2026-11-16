@@ -26,9 +26,6 @@
  *   fill: generate refuses it (served/unserved.ts UnservedMember, an `edit` and a `refill`);
  * - an ordered member deleted: the deletion's keyset of the removed member and the members it re-places;
  * - a member of each of an owner's two counted families deleted: the recount's keyset of its two families' groups.
- *
- * @plant test/plants/pg/fin/removals-merged-or-exists.patch The edited and refilled members' site reads its stored
- * table by an OR of EXISTS over the call's rows rather than from its keyset; the property fails at that shape.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

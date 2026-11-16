@@ -42,9 +42,6 @@
  * What a case reached of the differences the comparison allows, and of the extended types it compares.
  *
  * Features: the installer's situations, each a feature of the generated schema.
- *
- * @plant test/plants/pg/physical/oracle-installer-fk-immediate.patch A foreign key the law model defers is installed
- * immediate (physical/ddl/tables.ts).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

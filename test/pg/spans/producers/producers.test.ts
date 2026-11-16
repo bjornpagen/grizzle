@@ -7,8 +7,6 @@
  *   evaluator, and a head carrying the bound tuple beside its piece delivers each piece once.
  *
  * Features: each correlated outcome; each producer kind and tuple shape, with rows.
- *
- * @plant test/plants/pg/spans/producers/producers-difference-swapped.patch A difference's operands are swapped.
  */
 import { drawn } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

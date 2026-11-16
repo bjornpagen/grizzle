@@ -7,9 +7,6 @@
  * column takes the next, and a dropped or renamed one gives its number back to nothing. Each step's snapshot records
  * the model's count, which only grows, and the draft's attribute numbers are refused under the drawn bound exactly
  * when the model's count passes it, an addition past the bound counting the dropped columns.
- *
- * @plant test/plants/unit/deploy/attnums-not-carried.patch A table's attribute numbers are read from the target alone,
- * the columns its earlier migrations added and dropped forgotten (snapshot/build.ts withAttnums).
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

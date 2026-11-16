@@ -12,10 +12,6 @@
  * primary key, candidate key or a field no key holds, every fact or a selection). Each is owned, and refused with LevelRefused, naming the lower
  * relation it reaches and both levels, exactly where the oracle refuses it; every other statement owns.
  * An admitted statement's levels each install in the PostgreSQL schema their own declared name converts to.
- *
- * @plant test/plants/unit/schema/levels-single-reach-admitted.patch A statement reaching one lower relation admitted
- * (schema/own.ts checkLevels reads past its first relation).
- * @plant test/plants/unit/schema/levelcheck-refused.patch A row check over a lower relation refused as LevelRefused.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

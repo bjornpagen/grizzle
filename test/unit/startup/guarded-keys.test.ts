@@ -24,11 +24,6 @@
  *   number squared. Over r relations with no law between them every table is ready at once.
  *
  * The boxes are exhausted: h of 1 and 2, so k of 2, 4, 6 and of 4, 8, 12; and r from 20 to 40 by tens.
- *
- * @plant test/plants/unit/startup/guarded-keys-encode-pairs.patch Two guards are compared by encoding both; the
- * encoding property fails.
- * @plant test/plants/unit/startup/install-order-quadratic.patch Each pop compares every ready object, a scan in place of
- * the heap's sink; the install order's bound fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { noCoverage } from "@bjornpagen/testing/features"

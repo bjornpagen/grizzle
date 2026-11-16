@@ -23,9 +23,6 @@ import { Sp } from "#test/unit/workload/fixtures.ts"
  * Oracle: that specification, exhausted over every mask from 1 to the full one.
  *
  * Features: a partial mask, the full mask.
- *
- * @plant test/plants/unit/workload/atoms-allen-unspanned.patch An Allen comparison yields no span atom: range_overlaps
- * is no span operator.
  */
 
 /** The atoms of every Filter a query checks to. */

@@ -92,11 +92,6 @@ import { withLayer } from "#test/support/with-layer.ts"
  * startup variables a login's sessions cannot override; the README's order of Db.open's stages and their reasons.
  *
  * Features: each config shape and each fault's setting; each environment's verdict; each token outcome.
- *
- * @plant test/plants/unit/adapter/layer-zero-timer-admitted.patch A timer's delay of 0 is admitted.
- * @plant test/plants/unit/adapter/layer-login-refuses-options.patch A login's layer is refused under PGOPTIONS too.
- * @plant test/plants/unit/adapter/layer-transport-path-lost.patch A transport setting's refusal names it as the
- * block's own, its path missing "transport".
  */
 const tricky: Arr.NonEmptyReadonlyArray<string> = [
 	"@",

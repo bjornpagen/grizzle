@@ -13,9 +13,6 @@
  * installation's natives. The probe is read off each statement's AST, never its printed text.
  *
  * Features: each relation probed, and read by its fields.
- *
- * @plant test/plants/unit/lower/selection-key-guard.patch probeKeys probes a key in every occurrence that fixes its
- * term, whatever its guard; the search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

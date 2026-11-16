@@ -20,13 +20,6 @@
  * family's closure immediate and a counted family's deferred, and the copy's foreign key immediate, since every write
  * updates the count before it inserts, which the families model (mutate.ts checkedAt) states. A lowering that defers
  * the copy as well is judged beside the RFC's.
- *
- * @plant test/plants/pg/substrate/substrate-fin-bound-at-or-below-count.patch The hand-written bound CHECK admits an index equal to its count
- * (`at <= copy`), so PostgreSQL commits a row the theorem calls beyond.
- * @plant test/plants/pg/substrate/pipeline-keeps-last-refusal.patch A pipeline keeps the last statement's refusal, not the first, so a refused
- * transaction is judged by the 25P02 of a statement after the one PostgreSQL refused.
- * @plant test/plants/pg/substrate/substrate-refusal-at-last-statement.patch A refused transaction's moment is read at its last statement, not
- * the statement PostgreSQL refused, so an immediate refusal is judged at the wrong moment.
  */
 import {
 	type Answer,

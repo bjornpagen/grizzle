@@ -8,14 +8,6 @@
  *
  * Oracle: each check restated apart from the audit (test/support/oracle/verify/sql.ts), a second implementation.
  * Features: each integer type within and past its bounds; a typmod valid, past either bound, or without a scale.
- *
- * @plant test/plants/unit/sql/audit-identifier-bytes.patch An identifier is measured in code units, not UTF-8 bytes; the identifier
- * search fails at a name of two-byte letters past 63 bytes and within 63 code units (byteEdgeGen).
- * @plant test/plants/unit/sql/audit-text-wellformed.patch A text literal that is not well-formed is admitted; the text literal search
- * fails.
- * @plant test/plants/unit/sql/audit-decimal-infinity.patch -Infinity is refused as a decimal; the decimal search fails.
- * @plant test/plants/unit/sql/audit-integer-bound.patch One past an integer type's greatest value is admitted; the integer search fails.
- * @plant test/plants/unit/sql/audit-precision-zero.patch A numeric precision of 0 is admitted; the typmod search fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, requiredInSpace } from "@bjornpagen/testing/features"

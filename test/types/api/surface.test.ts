@@ -3,9 +3,6 @@
  * of QueryBuilder, Rule, Finished, Query and Ordered are exactly the methods their runtime values carry, so a method the
  * types promise and the value lacks, and one the value carries and the types hide, fail. Oracle: the runtime values the
  * builders make, their methods read off them.
- *
- * @plant test/plants/types/api/api-surface-phantom.patch The public Ordered type (public/query.ts) gains a method,
- * reverse, no runtime value carries; the surface's program fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

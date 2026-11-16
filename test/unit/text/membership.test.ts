@@ -18,17 +18,6 @@
  *
  * Features: each family pattern accepting and refusing; admitted, empty and a witness; live text and each plant in the
  * middle; a tautology, a finite language and a bound; equal and distinct keys; one member, several, the empty text.
- *
- * @plant test/plants/unit/text/text-nfa-no-restart.patch The host NFA tries a match only from the text's start, never
- * restarting at a later code point; the membership property fails.
- * @plant test/plants/unit/text/text-nfa-end-early.patch The host NFA reads `$` one code point before the text's end;
- * the membership and admitted text properties fail.
- * @plant test/plants/unit/text/text-nfa-unadmitted-text.patch The host NFA matches a text holding a NUL or a lone
- * surrogate; the admitted text property fails.
- * @plant test/plants/unit/text/text-finite-member-twice.patch A finite language's members list each member twice; the
- * claimed facts property fails.
- * @plant test/plants/unit/text/text-dfa-key-sets-dropped.patch A minimal DFA's key leaves out its edges' sets; the keys
- * property fails.
  */
 import { drawn, explore, type Kept, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

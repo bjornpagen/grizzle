@@ -3,10 +3,6 @@
  * workloads and the floor's, the types admit exactly what the engine builds, plans and compiles, and keep each
  * program's type. Oracle: the engine's build, plan and compile of each drawn workload. The floor's witnesses reach every
  * kind of program under both verdicts and every shape of workload, so the program is never vacuous on any seed.
- *
- * @plant test/plants/types/api/workload-writes-unlisted.patch A workload over a role takes a ChangeSet writing a
- * relation its role's write list does not name (types/db/workload.ts WritesWithin answers unknown for it); the
- * agreement's program fails.
  */
 import { unreachedOf } from "@bjornpagen/testing/features"
 import { NodeServices } from "@effect/platform-node"

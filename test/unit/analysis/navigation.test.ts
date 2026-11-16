@@ -17,8 +17,6 @@ import { searched } from "@bjornpagen/testing/vitest"
  * Features: a read navigated, one whose navigation inlines an imported query, one keyed by a parameter, one with a
  * negation, and one of three steps or more.
  *
- * @plant test/plants/unit/analysis/navigate-drops-step-conditions.patch A condition placed inside a step is dropped;
- * the search fails in its steered phase.
  * A second property states the gate (analysis/theory/navigate.ts Navigator.rule) over a write member's shape, a join of
  * A and B keyed by the call's parameter p with up to three negations, each over a relation of its own and declared in
  * order: a negation that reads no variable of its rule, only p or a literal, stands among the conditions of the chain's
@@ -27,12 +25,6 @@ import { searched } from "@bjornpagen/testing/vitest"
  * negations' slots: none, a gate by p, a gate by a literal, or correlated through A's k, exhausted. Oracle: the gate's
  * rule restated over the navigated IR, the negated relations found in the chain's rule and in each wrapper. Features: a
  * gate by a parameter, a gate by a literal, a gate declared after a correlated negation, two gates.
- *
- * @plant test/plants/unit/analysis/navigate-gates-nested.patch Navigation nests a negation that reads no variable as a
- * correlated one is, so its gate is judged after the chain, under the wrappers, not once before it; the gate property
- * fails.
- * @plant test/plants/unit/analysis/navigate-negation-drops-a-column.patch A negated relation's step reads one column
- * fewer than the negation binds; the search fails in its steered phase.
  */
 import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option } from "effect"

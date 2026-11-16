@@ -19,14 +19,6 @@
  * wild kind, each forgery; for the typmods, each bound and the integer past it (numeric's precision and scale, float's
  * least, real's greatest and its own greatest, vector's least and greatest dimensions), drawn from the bounds half the
  * time beside the wide range; for closed ids, one handle and several, two names and one.
- *
- * @plant test/plants/unit/scalar/descriptors-float-real-past-24.patch float(25) selects real, one precision past
- * binary32's; the typmods and alias identity properties fail.
- * @plant test/plants/unit/scalar/descriptors-vector-dims-past-max.patch pg.vector admits one dimension past pgvector's
- * greatest; the typmods property fails.
- * @plant test/plants/unit/schema/descriptors-repeated-handle-admitted.patch A roster's repeated handle admitted, by a
- * closed id's reading of its roster (scalar/closed-id.ts) and by schema/protocol.ts requireNames; the closed ids'
- * forgery "repeated handle" is admitted.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

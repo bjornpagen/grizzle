@@ -61,13 +61,6 @@ import {
  * README leaves unpromised; a text outside the pattern is the pattern's law; a stored label at its id the write does
  * not displace is the primary key's, and one of its value at another id, inside Low or outside it, the value key's, the
  * witness the key written in Low's fields, its generated value as PostgreSQL stores it.
- *
- * @plant test/plants/pg/write/generated-key/generated-key-probe-term-of-another-field.patch The probe computes a
- * requested fact's generated key field from another field's column (write/insert/unique.ts buildProbe); the first
- * property fails where an appended entry meets a stored one: a clash with a stored entry spelled with a minus the gate's
- * probe misses, refused at the index with no witness, or a clash it invents, refusing a lawful append.
- * @plant test/plants/pg/write/entry-owner/entry-owner-outside-never-refused.patch An entry's check never refuses a fact
- * outside it; the second property fails, a label outside Low stored.
  */
 import { Db } from "#adapter/public/db.ts"
 import type { LawId } from "#compiler/core/ids.ts"

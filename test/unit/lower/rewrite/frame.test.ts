@@ -13,15 +13,6 @@
  * laws over generated queries: determinism, and a pass's result a function of its input's content alone.
  *
  * Features: the query's root and a later root replaced; a pass that delivered the settled DAG; a pass that changed it.
- *
- * @plant test/plants/unit/lower/rewrite/frame-root-order.patch The editor finishes a DAG with its roots reversed; the
- * frame-root-position search fails.
- * @plant test/plants/unit/lower/rewrite/frame-random-labels.patch Fresh identifiers skip a random count, so labels
- * differ run to run; the frame-determinism search fails.
- * @plant test/plants/unit/lower/rewrite/frame-rebuild.patch A pass that changes nothing delivers a rebuilt copy of its
- * DAG; the frame-delivered search fails.
- * @plant test/plants/unit/lower/rewrite/frame-seen-memo.patch A rewrite pass returns unrewritten any DAG some pass
- * delivered before, a memo by object identity; the frame-delivered and frame-cold searches fail.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@bjornpagen/testing/features"

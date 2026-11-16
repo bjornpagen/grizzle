@@ -58,32 +58,6 @@
  * every target fact withdrawn (withdrawalsOf). A key is refused by single-row deletes
  * of a block alone, which adds the facts it held out, and never by an unwind or an inserted block, so key's and
  * tagged's searches require the first refusal only.
- *
- * Each plant below is red in the floor stream of the searches its tag names, so on every seed.
- *
- * @plant test/plants/unit/laws/violation-stale-view.patch the whole check reading a materialized derived relation a
- * definition reads through its view: viewed's install fails in both its searches.
- * @plant test/plants/pg/laws/old-probe-filters-old.patch a delete's probe reading its touched relation filtered to
- * OLD's key rather than OLD's values in its place, which finds nothing once the row is gone: every shape's equivalence
- * search fails by a break the triggers accept.
- * @plant test/plants/pg/laws/rule-seed-only-outer.patch readAs reading a side as one union of its arms, so every probe
- * meets the side its facts meet whole, a union PostgreSQL builds before any term meets it: every shape's locality
- * search fails.
- * @plant test/plants/pg/laws/rule-seed-drops-chain-reach.patch a relaxation that keeps every other match of the arm, so
- * a delete probe reads them as they stand and a transaction that deletes a link and its children leaves no probe that
- * reaches the key: titles', viewed's and deep's equivalence searches fail by a break the triggers accept.
- * @plant test/plants/pg/laws/rule-seed-arm-split-drops-arm.patch lacks reading the target's first arm alone, so a
- * probe's negation of the target misses a key a later arm holds: titles', viewed's and deep's equivalence searches
- * fail by refusing a lawful state.
- * @plant test/plants/pg/laws/rule-seed-literal-values-dropped.patch readAs dropping the equality of an arm's literal
- * with a different literal of the probe (analysis/theory/query.ts Meeting `values`), so a probe of tagged's first arm
- * meets the third's facts of its key whatever their tag: tagged's equivalence search fails by refusing a lawful state,
- * its first chain, and its locality search by 23505 where a touched row of a lawful state runs its triggers.
- * @plant test/plants/unit/analysis/theory/rule-probe-literal-bound.patch a probe's literal bound to an arm's literal
- * that differs, a filter the checker refuses: tagged's install fails in both its searches.
- * @plant test/plants/pg/laws/navigate-literal-before-key.patch Navigation (analysis/theory/navigate.ts, which every
- * probe is read through) ranks a read a literal alone binds with one a key binds, so deep's probe of an L2 starts from
- * every key's L2 of value 1 and deep's locality search finds it reading more rows beside more keys.
  */
 import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

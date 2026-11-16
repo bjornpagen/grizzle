@@ -18,9 +18,6 @@
  * facts, row, level and sequences drawn: the wild value inserted alone, or the breaking statement alone. So every
  * required feature is reached in every run that holds the planted cases, and the drawn cases still reach them
  * organically.
- *
- * @plant test/plants/pg/direct-writers/direct-writers-rule-keys-deferred.patch Every foreign key the schema-wide rule
- * decides installed deferred, which moves the immediate reference's refusal to COMMIT; the property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

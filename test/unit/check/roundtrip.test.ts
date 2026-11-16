@@ -12,11 +12,6 @@
  * A planted span case keeps the rare span, Allen, comparison and ordered-root sites reached.
  *
  * Features: the live case, each faithful rewrite, and each corruption, stale or wild.
- *
- * @plant test/plants/unit/check/roundtrip-order-direction-dropped.patch A description's JSON drops every order's
- * direction (ir/desc.ts descToJson); the round trip property fails.
- * @plant test/plants/unit/check/roundtrip-empty-mask-admitted.patch An empty Allen mask is admitted, by the
- * description's shape (ir/desc.ts) and by the checker (check/checker.ts) alike; the corruption property fails.
  */
 import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

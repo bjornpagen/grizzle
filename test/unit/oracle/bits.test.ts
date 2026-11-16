@@ -9,8 +9,6 @@
  * - The box, exhausted: every pair of subsets of the five handles (1,024 cases), each with every handle added to the
  *   first and to the empty set.
  * - Features, required in the space: an empty set, a strict subset, disjoint sets, overlapping sets.
- *
- * @plant test/plants/unit/oracle/bits-strict-subset.patch Subset is read as a strict subset; the property fails.
  */
 import { type Case, exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

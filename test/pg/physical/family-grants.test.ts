@@ -25,11 +25,6 @@
  *   each write every Store's count and stock are the family's: the number of its Items and the sum of their quantities.
  *
  * Features: each role's probes of each statement kind on the owners, admitted and refused, and each apply outcome.
- *
- * @plant test/plants/pg/physical/family-grants-owner-whole.patch A member writer holds column SELECT on every field of
- * its family's owner.
- * @plant test/plants/pg/physical/family-grants-no-recount.patch A member writer holds no column UPDATE on its owner,
- * so its recount of the owner's count and ends is refused.
  */
 import { drawn as drawnCase, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

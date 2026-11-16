@@ -20,14 +20,6 @@
  *
  * Features: removes of present and absent keys, upserts new, in place and moving, re-sent upserts, whole-row keys,
  * unchanged rows moved, and every lifecycle path.
- *
- * @plant test/plants/unit/live/diff-misses-move.patch A list's diff sends no unchanged row whose order moved; the
- * diff's property fails.
- * @plant test/plants/unit/live/coalesce-keeps-stale-upsert.patch coalesce applies a set's pending changes last first,
- * so it keeps a key's upsert past its later remove; the coalesce property fails.
- * @plant test/plants/pg/live/dropped-remove.patch A diff sends no remove (live/fold.ts removals reads an absent key
- * as null, never as undefined), so a row the value lost stays folded in; the diff property fails, and coalesce and fold
- * with it.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

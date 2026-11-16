@@ -17,11 +17,6 @@
  *
  * Features: a singleton at the first and last code and past a hole, a hole, an empty set, a strict subset, disjoint
  * and overlapping sets; every native operation over two rosters' sets.
- *
- * @plant test/plants/unit/compute/compute-bits-difference.patch The host evaluates a set's difference as its
- * intersection; the model property fails.
- * @plant test/plants/unit/compute/compute-roster-ignored.patch Two operands' types are taken as one whatever their
- * closed rosters, so sets of two rosters meet; the two-rosters refusal fails.
  */
 import { type Case, exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

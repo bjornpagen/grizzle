@@ -8,9 +8,6 @@
  *
  * Features: each rule refused, and each admitted shape: one heading, headings told apart by Kind or by every literal
  * column, a widened column, an attached arm, a keyed order, a narrowed match, a set beside a discriminant of Kind.
- *
- * @plant test/plants/unit/check/unions-clashing-discriminant-admitted.patch Discriminant literals that do not tell the
- * heading groups apart are admitted (check/checker.ts union); the property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

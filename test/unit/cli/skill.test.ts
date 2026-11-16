@@ -8,8 +8,6 @@
  * Oracle: the refusal table (cli/refusals.ts), whose every text the shipped skill must quote.
  *
  * Features: none; the box is every text.
- *
- * @plant test/plants/unit/cli/skill-fix-reworded.patch A refusal's fix reworded where the skill is not.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { noCoverage } from "@bjornpagen/testing/features"

@@ -20,9 +20,6 @@
  *
  * Oracle: a second implementation, `holds`, the predicate evaluated on the host. Features: every predicate form and
  * every spelling of a check name, each a required situation.
- *
- * @plant test/plants/pg/laws/checks-between-reversed.patch BETWEEN printed SYMMETRIC, so a row inside reversed bounds,
- * which the predicate refuses, is stored; the row-check property fails.
  */
 import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -52,9 +52,6 @@ import { snapshotJson } from "#test/support/snapshot-json.ts"
  *
  * Features: the derived member removed, a member left out, every member left out, a foreign fact, and a foreign fact
  * beside every member.
- *
- * @plant test/plants/unit/cli/derived-facts-absent-hold.patch A snapshot.json that records no derived member holds the
- * compile's facts.
  */
 
 /**

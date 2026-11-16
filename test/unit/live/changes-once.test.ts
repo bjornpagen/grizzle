@@ -16,10 +16,6 @@
  *   the one routed after a second take among them; one stopped hears nothing more.
  *
  * Features: a second take while the first consumer waits, one after it stopped, one after it heard a change.
- *
- * @plant test/plants/unit/live/changes-taken-twice.patch A registration's changes run again for every consumer, as
- * before, so a second consumer taking it while the first waits takes the first's wait, the first never hears the change,
- * and the second take does not die.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

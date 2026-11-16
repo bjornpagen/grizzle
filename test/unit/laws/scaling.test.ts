@@ -23,9 +23,6 @@
  * within INDEX_MAX_KEYS beside the columns its laws add.
  *
  * Features: each dimension.
- *
- * @plant test/plants/unit/laws/scaling-reverse-per-handle-pair.patch An alternatives statement states a reverse
- * containment for every pair of a handle and an arm (ir/desc.ts expandAlternatives), its laws quadratic in the roster.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -14,15 +14,6 @@
  *
  * Features: counted by FILTER and left composed; each word kind; each function over each reading; each way a mean
  * rounds.
- *
- * @plant test/plants/unit/compute/compute-conditional-count-two.patch R24's rewrite counts cond(p, 2, 0) by FILTER and
- * leaves cond(p, 1, 0) composed; the conditional counts property fails.
- * @plant test/plants/unit/compute/compute-registry-between-unlisted.patch The registry lists no BETWEEN node; the
- * vocabulary property fails.
- * @plant test/plants/unit/compute/compute-minmax-drops-contract.patch min and max deliver their argument's base, not its
- * contract; the returning input property fails.
- * @plant test/plants/unit/compute/compute-mean-no-carry-digit.patch A numeric mean whose argument has more fraction
- * digits than its scale loses the integer digit its rounding may carry; the mean bound property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

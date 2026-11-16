@@ -98,10 +98,6 @@ import { paramText } from "#test/support/wire.ts"
  *
  * Features: each target set and refusal; each awkward element of the views' literal and a repeated view; each DETAIL a
  * block may raise; each fault of the flight.
- *
- * @plant test/plants/unit/adapter/refresh-leading-zero-position.patch A position with a leading zero is read as a
- * position.
- * @plant test/plants/unit/adapter/refresh-empty-view-dropped.patch An empty element is left out of a text[] literal.
  */
 const Sitting = relation(
 	"Sitting",

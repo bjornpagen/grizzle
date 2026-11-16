@@ -8,11 +8,6 @@
  *
  * Oracle: the specification, the endpoints compared as integers. Features, required in the space: every relation of
  * each type; every endpoint predicate held and failed.
- *
- * @plant test/plants/unit/allen/allen-place-meets.patch meets places A's upper end before B (allen/mask.ts
- * allenPlaces); the places property fails.
- * @plant test/plants/unit/allen/allen-endpoint-le-strict.patch ≤ read as < (allen/endpoints.ts); the endpoint masks
- * property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

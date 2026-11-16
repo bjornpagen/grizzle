@@ -24,11 +24,6 @@
  * abort, and the Leave in flight, which commits while the insert waits at the span key, fails the insert with 40001
  * (PostgreSQL 19rc2 at SERIALIZABLE), a SerializationFailure the caller runs again; alone, the insert finds the stored
  * Leave instead.
- *
- * @plant test/plants/schedules/laws/payroll-race-span-abort-not-transient.patch SERIALIZABLE's 40001 is read as no
- * TransientFailure (adapter/errors/execution.ts serializableRefusal matches grizzle's 40Z01 in its place), so the kept
- * race's insert fails where its serial reference, the writer's Leave and then the insert alone, answers unchanged; the
- * property fails.
  */
 
 import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"

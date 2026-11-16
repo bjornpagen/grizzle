@@ -48,11 +48,6 @@ import { upTo } from "#test/support/up-to.ts"
  * by one less, by it and by one more.
  *
  * Features: each limit within, at and past; a short literal and one past 2 MiB.
- *
- * @plant test/plants/unit/program/limits-table-columns-off-by-one.patch A table of one column past tableMaxColumns is
- * admitted.
- * @plant test/plants/unit/program/limits-params-unbounded.patch A statement's placeholders are bounded by nothing, so
- * one past statementMaxParams prints.
  */
 
 /** The bound of a ResourceBound refusal; any other refusal fails the test. */

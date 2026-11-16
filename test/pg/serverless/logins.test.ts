@@ -16,12 +16,8 @@
  * no request opened holds no backend, and none holds more than its pool's maximum; and once the layers' scope closes,
  * every login's pool is released, no backend left.
  *
- *
  * Features: two installations, two logins of one installation, two roles of one login, requests at once, a login no
  * request opened, and a Db per request at volume.
- *
- * @plant test/plants/pg/serverless/logins-eager-session.patch A login's pool opening a session when it is built, so a
- * login no request opened holds a backend; the oracle's contract of logins fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

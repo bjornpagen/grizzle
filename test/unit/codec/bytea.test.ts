@@ -7,9 +7,6 @@
  *
  * Oracle: the array binary format read back by a second reader (array_recv's layout: dimensions, flags, element type,
  * then each dimension's length and lower bound, then each element's length and bytes), and the values as admitted.
- *
- * @plant test/plants/unit/codec/bytea-digest-unchecked.patch The copy is written without its digest checked, so a
- * value whose bytes changed since admission is written rather than refused as bytesChanged.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -16,9 +16,6 @@
  * false answers no row, and the plain read the stored items of that code, or the one row `named` holds.
  *
  * Features: each parameter outside Code refused under each filter, and each read answered with a code inside Code.
- *
- * @plant test/plants/pg/parameters/read-admission-dropped.patch A read's statement holds no admission, so a parameter
- * its logic leaves unread is bound unchecked and a code outside Code under the constant false answers no row.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

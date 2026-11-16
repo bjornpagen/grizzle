@@ -16,11 +16,6 @@
  * Features: each claim checked (a key, nothing owed, an obligation discharged, a bound), each node kind evaluated, a
  * correlated node evaluated per outer tuple, a node read by two consumers, a constant read laterally; a filter of two
  * conjuncts and a column fixed to two values for the conjunct order.
- *
- * @plant test/plants/unit/analysis/physical/closed-distinct-column-guessed.patch A closed relation's column of one
- * repeated value claimed a key (analysis/physical/rules.ts closedProps); the evaluator suites fail.
- * @plant test/plants/unit/analysis/physical/conjunct-order-first-only.patch A filter's first conjunct alone fixes a
- * column (analysis/physical/rules.ts filterProps); the conjunct order fails.
  */
 import { type Case, type Draw, drawn, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

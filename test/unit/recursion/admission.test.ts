@@ -7,10 +7,6 @@
  *
  * Oracle: the factoring's statement (check/recursion/factor.ts) as a checker over every set of the two arms: one
  * feedback read, exactly the parameters the arms read, and a conservative lowering. Features: each arm, and both.
- *
- * @plant test/plants/unit/recursion/factor-fixed-dropped.patch Factoring keeps only the self match's variable bindings,
- * so an arm's state column fixed to a parameter is dropped from its current-state match; the factoring-equalities
- * search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

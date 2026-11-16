@@ -14,16 +14,6 @@
  *
  * Features: each buffer kind and count; live and every wild kind; each payload corruption; a -0 component, and one and
  * several components.
- *
- * @plant test/plants/unit/values/values-vector-max-dimensions.patch The greatest dimension count is refused; the
- * construction property fails.
- * @plant test/plants/unit/values/values-vector-uncopied.patch admit keeps the caller's buffer rather than a copy; the
- * wild values property fails.
- * @plant test/plants/unit/values/values-vector-payload-spelling.patch A payload component's spelling goes unchecked,
- * so a component spelt other than its shortest text, the empty one among them, is admitted; the payloads property
- * fails.
- * @plant test/plants/unit/values/values-vector-negative-zero-text.patch A -0 component is written as -0; the round
- * trip fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

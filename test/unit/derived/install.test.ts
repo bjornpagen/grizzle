@@ -23,9 +23,6 @@
  *
  * What a derived relation installs, each view column's type, typmod and collation, and every refreshed view against
  * its definition, is PostgreSQL's to judge, in the database suites.
- *
- * @plant test/plants/unit/derived/derived-heading-namespace.patch analysis/derived/analyze.ts declaredHeading
- * declares each head column in a namespace of its own, so no two ever collide; a collision installs as two columns.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

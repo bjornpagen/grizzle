@@ -22,11 +22,6 @@
  *   relation (has_table_privilege), which no generator writes directly.
  *
  * The contract's CHECK is the one the installation names for it.
- *
- * @plant test/plants/pg/direct-writers/native-errors-domains-unchecked.patch Every domain created without its CHECK,
- * so a negative amount commits; the first property fails.
- * @plant test/plants/pg/direct-writers/native-errors-views-writable.patch Every view granted INSERT, UPDATE and DELETE
- * beside SELECT; the second property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -27,9 +27,6 @@
  *
  * Oracle: the properties above, a specification read off the drafted statements' slots and names, and the names each
  * installation registers.
- *
- * @plant test/plants/unit/deploy/swaps-name-standing.patch A swap name is minted as the name of the key it swaps, a
- * standing name; the property that no swap name is a registered name fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

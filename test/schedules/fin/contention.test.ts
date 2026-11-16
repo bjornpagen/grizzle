@@ -13,9 +13,6 @@
  * - **Every interleaving** of the direct writer's four moves and the grizzle write's one (the library's interleave,
  *   `every`, every move on the family's relations, so no two moves commute and every order runs), some of which block
  *   the grizzle write on the owner row the direct writer updated, and run it again once that commits.
- *
- * @plant test/plants/pg/fin/fin-scale-owner-axis-no-cascade.patch The owner axis is installed with no action, so every
- * append's count update is refused; the property fails.
  */
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec, Result } from "effect"

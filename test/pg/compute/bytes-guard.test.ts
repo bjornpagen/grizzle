@@ -12,9 +12,6 @@
  * no insert is refused.
  *
  * Features: each bound of the text's type and each side of the guard's interval a case reaches.
- *
- * @plant test/plants/pg/compute/compute-bytes-guard-low-end.patch The guard narrows its text to its interval's low end
- * rather than its high one (lower.ts whenGuard), so a cast whose guard reaches past n compiles.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -11,13 +11,6 @@
  *
  * Features: live text, a non-string and each plant at each position; equal tuples, a prefix, a difference past the
  * first text, of two lengths, and at an escaped unit.
- *
- * @plant test/plants/unit/values/values-text-surrogate.patch validateText admits a lone surrogate; the validation
- * property fails.
- * @plant test/plants/unit/values/values-codepoint-units.patch compareCodePoints orders texts by code unit; the code
- * point order property fails.
- * @plant test/plants/unit/values/values-tuple-prefix-first.patch compareTextTuples orders a tuple before its own
- * prefix; the tuple orders property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

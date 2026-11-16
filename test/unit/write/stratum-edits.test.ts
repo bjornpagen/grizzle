@@ -24,10 +24,6 @@
  *   nothing else, so the program's total is the sum of its strata's. Never the statements' text.
  * - Features: a nested insert in a stratum before the edits, after them and beside them; the edits beside a stratum of
  *   no family statement; a put Line nested in another stratum; edits of two families.
- *
- * @plant test/plants/unit/write/strata-families-every-stratum-plans-every-edit.patch Every stratum plans the member
- * edits of every stratum (write/frontend/compile.ts familyWritesOf, write/program/compile.ts familyProgram); the
- * property fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

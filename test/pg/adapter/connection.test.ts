@@ -18,13 +18,6 @@
  * Db.open leases nothing: a lease's refusal is the refusal of a Db's call, at stage acquire. The logins a Db opens
  * through are the worlds model's (test/pg/world-model), and a Db's reads on databases with and without its schema are
  * test/pg/reads/open.test.ts's.
- *
- * @plant test/plants/pg/adapter/connection-servername-host.patch The certificate checked against the dialled host, not
- * the verified name; the verify-full TLS property fails.
- * @plant test/plants/pg/adapter/connection-plaintext.patch An SSLRequest answered `N` reported as unanswered; the no
- * plaintext fallback property fails.
- * @plant test/plants/pg/adapter/connection-password-twice.patch The password Effect evaluated twice per attempt; the
- * password Effect property fails.
  */
 import { createServer, type Socket } from "node:net"
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"

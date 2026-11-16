@@ -71,11 +71,6 @@ import { upTo } from "#test/support/up-to.ts"
  *
  * Features: each step's situation; of the leases taken at once, none waiting, one waiting for a permit, and one
  * waiting behind another; the kept case reaches every abandonment, loss, starvation and refusal on a pool of two.
- *
- * @plant test/plants/unit/adapter/pool-abandoned-permit-lost.patch A lease abandoned while pg connects it never gives
- * its permit back.
- * @plant test/plants/unit/adapter/pool-interrupted-waiter-kept.patch An interrupted waiter stays queued, so a permit
- * goes to it and is lost.
  */
 type Refusal = "refused" | "no key"
 type Startup = "ready" | Refusal

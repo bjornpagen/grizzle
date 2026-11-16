@@ -27,12 +27,8 @@ import { searched } from "@bjornpagen/testing/vitest"
  *   the union itself, the discriminant ascending right after the user's fields.
  *
  * Features: each completion's appended parts and refusals; each wrapper completed and refused.
- *
- * @plant test/plants/unit/analysis/logical/order-appends-fixed.patch A fixed column appended to the order
- * (logical/order.ts completeOrder); the completion property fails.
- * @plant test/plants/unit/analysis/logical/order-discriminant-descending.patch The discriminant appended descending
- * (logical/order.ts completeOrder); the unions property fails.
- */ import { describe, it } from "@effect/vitest"
+ */
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"

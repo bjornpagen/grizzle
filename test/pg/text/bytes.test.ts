@@ -11,8 +11,6 @@
  * at most N bytes, by TextEncoder; otherwise the domain's CHECK refuses it with SQLSTATE 23514. The analysis agrees:
  * the field's type bounds its bytes at the lesser of the pattern's bound and N and its code points at the lesser of
  * the pattern's and N, and the host's membership (scalar/regex/patterns.ts ProgramPatterns) answers as PostgreSQL does.
- *
- * @plant test/plants/pg/text/bytes-bound-codepoints.patch str.bytes bounding characters, not UTF-8 bytes.
  */
 import { type Case as SearchCase, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

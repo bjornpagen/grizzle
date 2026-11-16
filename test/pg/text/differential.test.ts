@@ -18,11 +18,6 @@
  * text matches is test/unit/text/emptiness.test.ts's, against its own oracle. The refusal of unadmitted constructs is
  * test/unit/text/parse.test.ts's, and that the limits judge the printed ARE whatever its spelling is
  * test/unit/text/lowering.test.ts's.
- *
- * @plant test/plants/pg/text/differential-dollar-anchor.patch The end anchor translated as matching before a final
- * newline.
- * @plant test/plants/pg/text/differential-arcs-undercounted.patch The compile space's held arcs of the optimized NFA
- * counted once (scalar/regex/space.ts), so a pattern past PostgreSQL's limit is admitted; the at-limit property fails.
  */
 import { aimed, drawn, explore, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

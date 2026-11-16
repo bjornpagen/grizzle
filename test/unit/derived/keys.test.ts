@@ -30,7 +30,6 @@
  *   specification. Features: each refusal kind and fault, admitted, and one fact keyed past its first column. The
  *   faults themselves (unbounded text, B-tree entry bytes, column count) are the representability suite's, against
  *   PostgreSQL's own sizes.
-
  * - Named key: every view of a relation keyed by its id that names the id one to three times, beside its other field
  *   or not, and a level reading the view whole, state each name as a key alone. Oracle: every name of the key is one
  *   column of every row, each a key alone: the view states the other names as the key's members, the columns its
@@ -39,19 +38,6 @@
  *
  * That the keys are sound, a refreshed view never holding two facts under one, is the refresh oracle's, whose views
  * are refreshed concurrently over their unique indexes.
- *
- * @plant test/plants/unit/derived/derived-one-fact-last-column.patch A definition of one fact is keyed by its last
- * representable column; the key rules and the storable property fail.
- * @plant test/plants/unit/derived/derived-cond-count-int8.patch The derived oracle's generator types the conditional
- * count int8 (test/pg/derived/oracle/gen.ts aggregated), binding that count to a bigint field; the key rules fail.
- * @plant test/plants/unit/derived/derived-keys-no-alternatives.patch No factor's alternatives are listed (ir/keys.ts
- * keyFactor); the join keys and the product keys fail.
- * @plant test/plants/unit/derived/derived-keys-first-factor-alternatives.patch Only the first factor's alternatives are
- * listed; the product keys fail.
- * @plant test/plants/unit/derived/derived-key-fault-kind-swapped.patch A faulting key is refused under the other kind,
- * wholeHeading for inheritedKey and back; the storable property fails.
- * @plant test/plants/unit/derived/derived-key-members-dropped.patch A view's key states none of its members
- * (analysis/derived/analyze.ts viewKeysOf), so a name of the key but the first is no key; the named key fails.
  */
 import { aimed, drawn, exhaust, explore, steered } from "@bjornpagen/testing/explore"
 import { type Reached, required, requiredInSpace } from "@bjornpagen/testing/features"

@@ -16,9 +16,6 @@
  * Features: each base, each operand form, a declared fact a conditional drops, each fact admitted by its declaration,
  * refused naming its declaration, and refused naming its guard, finite by its type, and a declaration compiled and one
  * refused.
- *
- * @plant test/plants/unit/compute/compute-facts-declaration-unchecked.patch A contract's declaration compiles whatever
- * its predicate implies, its declared facts never proved; the facts property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

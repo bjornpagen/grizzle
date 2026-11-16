@@ -21,11 +21,6 @@
  *   mutation has a control without the defect (the twin a level up, the condition over a literal), ownership admits
  *   the control. The builder refuses a parameterized definition at construction. Oracle: a derived relation stands
  *   above the root, reads only lower levels, reads no parameter and matches no context. Features: each mutation.
- *
- * @plant test/plants/unit/derived/derived-law-relation-admitted.patch Ownership admits a statement writing a derived
- * relation's rows (schema/own.ts lawRelation); the statements over derived relations fail.
- * @plant test/plants/unit/derived/derived-definition-parameter-admitted.patch Ownership admits a definition that reads
- * one parameter (schema/own.ts checkDerived); the unwritable definitions fail.
  */
 import { drawn, explore, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

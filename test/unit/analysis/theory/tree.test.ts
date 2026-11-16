@@ -8,9 +8,6 @@
  * root.
  *
  * Features: lawful forests, and each mutation kind's verdict.
- *
- * @plant test/plants/unit/analysis/theory/tree-violation-no-close-arm.patch The tree's violation omits T5, each
- * parent's end its last child's end (analysis/theory/laws.ts treeArms); the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

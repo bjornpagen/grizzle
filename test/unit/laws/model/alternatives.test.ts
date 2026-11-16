@@ -17,9 +17,6 @@
  * constructed by its first armed handle: 2 + 8 + 26 = 36 assignments, exhausted.
  *
  * Features: an arm of one handle, an arm of several handles, an unarmed handle, two arm relations.
- *
- * @plant test/plants/unit/analysis/theory/alternatives-forward-first-handle.patch An arm of several handles is
- * contained in its first handle's parents alone.
  */
 
 import { exhaust } from "@bjornpagen/testing/explore"

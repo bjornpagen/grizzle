@@ -8,9 +8,6 @@
  * Oracle: a model of the book, a map from each digest to the first bytes admitted under it.
  *
  * Features: a first value of its digest, the same bytes again, the same array again, and different bytes of one digest.
- *
- * @plant test/plants/unit/values/values-digest-book-digest-only.patch The book holds a value whenever its digest was
- * seen, whatever its bytes, so a collision is taken as the value before it; the book's property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

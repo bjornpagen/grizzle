@@ -19,10 +19,6 @@
  *   upserts are exactly the table's rows, each once; and the last event is one ready.
  * - Oracle: the rows the case inserted, the count on the read's own decoder, and the run's count of its offers.
  * - Features: a read of two rows or more, by construction.
- *
- * @plant test/plants/pg/reads/stream-drop-reset.patch readStream sends no reset.
- * @plant test/plants/pg/reads/stream-buffer-whole-result.patch readStream hands its rows to the stream only once the
- * flight answered, so nothing is offered while one row has reached the driver.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

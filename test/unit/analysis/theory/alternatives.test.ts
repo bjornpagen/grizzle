@@ -6,9 +6,6 @@
  * judged over every roster of at most four handles with every assignment of its handles to two arm relations or none.
  *
  * Features: one handle per arm, an arm of several handles, an unarmed handle, a restated containment.
- *
- * @plant test/plants/unit/analysis/theory/alternatives-forward-first-handle.patch An arm of several handles is
- * contained in its first handle's parents alone, `eq` where fin.md §7 states `in` (ir/desc.ts expandAlternatives).
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

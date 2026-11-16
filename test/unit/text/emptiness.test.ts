@@ -11,9 +11,6 @@
  *
  * Features: empty through an anchor, through a class, and past the DFA bounds; non-empty with an inner anchor and past
  * the DFA bounds.
- *
- * @plant test/plants/unit/text/text-ir-never-skipped.patch A sequence passes over an item no text matches, as if it
- * matched the empty text; the property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

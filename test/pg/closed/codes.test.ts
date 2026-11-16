@@ -42,9 +42,6 @@
  * Features: each code's cause (below, past, a hole, the alias), a literal aligned and shifted, and patterns of no hole,
  * one and more; the VALIDATE search's named tables; the bits histories' growth past and within a hex digit, a removal
  * refused until its data step, and two migrations.
- *
- * @plant test/plants/pg/closed/codes-domain-off-by-one.patch The roster domain's CHECK reads the names constant at the
- * code, not the code plus one, so it admits a hole whose next code is live and refuses a live code before a hole.
  */
 import { drawn, exhaust, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

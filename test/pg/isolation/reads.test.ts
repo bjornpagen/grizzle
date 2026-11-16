@@ -27,18 +27,6 @@
  *
  * Features: a plain read and a deferrable one; a deferrable read that waited for a safe snapshot, placed after a writer
  * it waited for and placed before one; a writer refused beside a plain read; the forced teller caught.
- *
- * @plant test/plants/pg/isolation/read-never-deferrable.patch A read's BEGIN never DEFERRABLE (sql/print.ts
- * beginRead), so no deferrable read waits for a safe snapshot; the races at generate's levels leave those features
- * unreached.
- * @plant test/plants/pg/isolation/read-repeatable.patch A deferrable read begun REPEATABLE READ READ ONLY; a race at
- * generate's levels shows a run no serial order explains.
- * @plant test/plants/pg/isolation/served-deferrable-dropped.patch A served read never deferrable: the served file
- * records every read member as immediate (program/served.ts servedInstantRead), so the races at generate's levels
- * leave a deferrable read's waits unreached.
- * @plant test/plants/pg/isolation/set-transaction-move.patch A race's transaction modes sent as a SET TRANSACTION
- * move of its own before its statements (support/race.ts), not in its BEGIN as a Db sends them: each race has 1680
- * orders of its moves, past the bound an every-order race may run, and both properties fail before any run.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

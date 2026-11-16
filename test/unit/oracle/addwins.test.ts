@@ -19,18 +19,6 @@
  * Features: applied and rejected outcomes, a rejection before the last stratum; a stratum of several members and a
  * member of several facts; a put displacing an occupant and one into an empty key; multi-stratum counts and counts
  * that differ from the pooled reading; and each generated addition's case.
- *
- * @plant test/plants/unit/oracle/addwins-keys-at-end.patch Keys are checked only after the last stratum; the
- * transition property fails.
- * @plant test/plants/unit/oracle/addwins-delete-cancels-insert.patch A delete member cancels an insert of the same fact
- * by an earlier member of its stratum; the build-order independence property fails, and the transition and counts
- * properties with it.
- * @plant test/plants/unit/oracle/addwins-put-keeps-occupant.patch A put displaces no occupant at its key; the put sugar
- * and transition properties fail.
- * @plant test/plants/unit/oracle/addwins-put-counted-added.patch A fact a put made present is counted as an addition
- * (oracle/delta.ts attributeStratum); the counts and put sugar properties fail.
- * @plant test/plants/unit/oracle/addwins-draw-recreates.patch A generated addition's draw may repeat a fact of the
- * state before its stratum, re-creating a stored fact its stratum deletes; the generated additions property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

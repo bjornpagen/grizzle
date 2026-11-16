@@ -11,10 +11,6 @@
  *   itself, which no decoding precedes.
  *
  * Features: a text admitted, a text refused, and a byte order mark before the JSON.
- *
- * @plant test/plants/unit/core/utf8-strips-byte-order-mark.patch The one decoder the verify reads a token's bytes
- * through (core/utf8.ts) strips a leading byte order mark, as a TextDecoder does by default, so {} after U+FEFF
- * verifies as {}.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

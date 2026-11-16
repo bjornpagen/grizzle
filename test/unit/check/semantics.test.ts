@@ -18,11 +18,6 @@
  *
  * Features: each declaration kind, each parameter situation admitted, each member rule and op, each kind of take
  * bound, and an item tagged at the label or at another.
- *
- * @plant test/plants/unit/check/semantics-take-zero.patch A take of zero is admitted (check/checker.ts); the take's
- * bound property fails.
- * @plant test/plants/unit/check/semantics-member-extra-column.patch A member's head may hold a column its relation
- * lacks (check/member.ts); the members property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

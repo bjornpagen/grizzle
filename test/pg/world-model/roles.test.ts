@@ -57,12 +57,6 @@ import {
  * (every privilege, membership and attribute it holds, as PostgreSQL judges them), its login's, and row security on its
  * target are exactly the ones README "Security model" derives from the classification (worlds/privileges.ts
  * expectedPrivileges), and Db.open of its role, with a token whose claims it reads, opens as the worlds model says.
- *
- * @plant test/plants/pg/world-model/worlds-roles-login-creates-in-schema.patch A login granted CREATE beside USAGE on
- * the base schema; the installed-catalog checker the installation runs refuses the privilege README "Security model"
- * does not derive (loginHolds). It is red at install by construction, never at the property's own reading of the
- * login's privileges: every installation a test makes runs that checker (test/support/install-migrate.ts, step 7), and
- * it judges the same grant.
  */
 
 const integer = { kind: "integer", bits: 32 } as const

@@ -34,8 +34,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * without any.
  *
  * - Oracle: the specification turned into a checker, ParamArg's refusals restated over the argument kinds.
- *
- * @plant test/plants/pg/reads/params-argument-stray-key-read.patch A record is read past a key naming no parameter.
  */
 const calls = [
 	"a read without parameters",

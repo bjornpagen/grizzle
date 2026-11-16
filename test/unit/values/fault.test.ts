@@ -8,9 +8,6 @@
  * Oracle: the specification turned into a checker, the refused text's digit run sought in every text the error prints.
  *
  * Features: each way a decimal is refused, past the range and misspelt.
- *
- * @plant test/plants/unit/values/values-fault-echo.patch Decimal.admit's refusal names the refused input in its
- * location; the secrecy property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

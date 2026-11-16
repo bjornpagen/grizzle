@@ -18,9 +18,6 @@
  *   never a roster of no handle.
  *
  * The oracle is the codes themselves: identity, and the codebook rosterCodebook builds from them.
- *
- * @plant test/plants/unit/served/served-wire-holes-dropped.patch rosterWire writes a roster's live handles alone, so
- * every code after a hole reads back one place lower; the wire form and the file fail.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

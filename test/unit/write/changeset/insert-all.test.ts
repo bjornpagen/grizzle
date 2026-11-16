@@ -45,9 +45,6 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  *
  * Features: one key, four keys or more, a Stream member, a query member, a nested member, a world entry's key, a
  * stratum before, a bound parameter yielding, another order, a plan compiled, a compile refused.
- *
- * @plant test/plants/unit/write/changeset/insert-all-last-key-dropped.patch insertAll inserts every key of its record
- * but the last (write/changeset/value.ts addInserts).
  */
 
 /** Manual tasks, a world entry over Task whose head leaves out the kind its selection fixes. */

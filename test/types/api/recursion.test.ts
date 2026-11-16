@@ -3,9 +3,6 @@
  * recursions and the floor's, the types admit exactly what the engine compiles, name its refusal, and infer its records
  * and parameters. Oracle: the engine's compile of each drawn recursion. The floor's witnesses reach every fault, both
  * declared classes and every admitted shape, so the program is never vacuous on any seed.
- *
- * @plant test/plants/types/api/api-recursion-arms.patch The types admit a recursion with no base arm
- * (types/query/query.ts drops SomeArm on the base list); the agreement's program fails.
  */
 import { unreachedOf } from "@bjornpagen/testing/features"
 import { NodeServices } from "@effect/platform-node"

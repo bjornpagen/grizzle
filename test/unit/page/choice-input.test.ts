@@ -11,9 +11,6 @@
  * Oracle: the choice's contract, a specification: the whole-relation form exactly past lateralParentMax facts.
  *
  * Features: a relation parameter at lateralParentMax facts, and one past it, each under every name.
- *
- * @plant test/plants/unit/page/choice-large-at-threshold.patch The whole-relation form is chosen at lateralParentMax
- * facts, not past them (runtime/lower/take.ts runsLargeForm); the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -119,11 +119,6 @@ import {
  * Features: each step kind of the algebra and each planted fault kind (StepFeature); the schema itself, a level, no
  * level, each kind of rename, a relation added, a statement removed, a role rebuilt; a live map, each hostile value as
  * the map and as a fact.
- *
- * @plant test/plants/unit/write/changeset/changeset-union-drops-stratum.patch union combines strata only up to the
- * shorter ChangeSet's, dropping the longer one's later strata.
- * @plant test/plants/unit/write/changeset/changeset-bind-live-map.patch bind keeps the caller's values as they are,
- * never the copy it read, so a later write to a live map's array reaches the bound value.
  */
 
 /** The relation an extension of Work adds, so Work is a level of the extension and not the other way round. */

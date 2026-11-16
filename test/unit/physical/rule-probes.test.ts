@@ -14,10 +14,6 @@
  *
  * Features: a block whose table's probes outnumber its statements (two probes of one statement), and a block of two
  * statements or more.
- *
- * @plant test/plants/unit/physical/rule-probes-repeated.patch A guarded block of the judge runs every probe its table
- * and side compile, each once per occurrence of the touched relation, so two arms that hold nothing of the row apart run
- * one query twice; the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

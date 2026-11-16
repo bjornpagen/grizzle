@@ -44,16 +44,6 @@
  * each change on each kind, trees among them, and an ordered family's group change kept, refused with its member moved
  * onto a family (the key check's refusal) and onto none (VALIDATE's), and redrawn as declared, each aimed at by a case
  * constructed to reach it.
- *
- * @plant test/plants/pg/migrate/family-renames-law-columns-rebuilt.patch A declared rename restates no law column, so
- * the family's law columns are dropped and drawn again; the rename's no-stored-byte oracle fails.
- * @plant test/plants/pg/migrate/family-changes-stale-filler.patch A field whose filler changes keeps its stale values.
- * @plant test/plants/pg/migrate/orderkeep-member-key-redraw.patch A re-pointed family's index is drawn again in
- * member-key order.
- * @plant test/plants/pg/migrate/orderkeep-silent-renumber.patch A kept index is renumbered within each new group by the
- * backfill, which writes it on every row of the family, so a rename updates rows.
- * @plant test/plants/pg/migrate/violation-check-raises-under-another-name.patch The violation check raises under
- * `<law>_elsewhere` (render/sql.ts), so a broken regroup's refusal names no law of the family.
  */
 import { aimed, type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

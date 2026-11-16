@@ -21,11 +21,6 @@
  * holding, every breach and every violated constraint, a gap above the count; both shapes, every mutation form, each
  * outcome and refusal, a misordered shrink and a misorder that commits, a successor inserted first, an empty and a
  * long family, and the shapes paired with the forms and refusals that differ between them.
- *
- * @plant test/plants/unit/support/families-closure-unchecked.patch The closure misses a gap below the second slot; the lowering's
- * exhaustion fails, and the programs.
- * @plant test/plants/unit/support/families-bound-uninstalled.patch The count's bound is never checked; the programs fail, and the lowering's
- * exhaustion.
  */
 import { runProgram } from "@bjornpagen/testing/commands"
 import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"

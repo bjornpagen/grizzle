@@ -46,9 +46,6 @@ import { upTo } from "#test/support/up-to.ts"
  * nothing a clean one does not (shared.ts leftovers) and no role a case set out to create exists: every case's cleanup
  * ends before the search that stopped it returns, so no schema outlives it into the next test, or into the file's
  * release, which fails on any.
- *
- * @plant test/plants/pg/substrate/substrate-stopped-release-keeps-roles.patch A role's release drops what the role owns
- * and keeps the role (substrate.ts dropRole), so a role a stopped case created outlives the search.
  */
 type Stop = "cut" | "hung" | "interrupted"
 

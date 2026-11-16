@@ -37,9 +37,6 @@ import type { InstallSpec, WorldFeature } from "#test/support/worlds/model/types
  * submitted (in its transaction, or through its claims) and keys of relations its role holds whole; and a law a direct
  * writer breaks at COMMIT is one checked at COMMIT, never an immediate law (a key, a span key, a row check), which
  * refuses at its statement.
- *
- * @plant test/plants/pg/education/worlds-laws-foreign-keys-dropped.patch No native foreign key is installed, so a write
- * that breaks a containment is stored and the laws-hold invariant fails.
  */
 const writes: Focus = ["open-db", "apply", "read", "close", "direct-begin", "direct", "direct-end"]
 

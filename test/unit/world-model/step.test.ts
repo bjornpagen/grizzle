@@ -20,9 +20,6 @@
  * Oracles: the specification for the step (invariantsOf, and the model's outcome as the real system shows it, read
  * back by observedNext); a second implementation for the folders, grizzle's generate. Features: every action kind,
  * rows and read-backs compared as keyed sets; a worlds change, none, and a new law.
- *
- * @plant test/plants/unit/world-model/step-leftover-claims.patch An opened connection is left holding claims; the step property fails.
- * @plant test/plants/unit/world-model/folder-worlds-unstructured.patch A worlds change drafts no Structure file; the folders' property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

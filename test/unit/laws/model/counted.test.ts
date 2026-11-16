@@ -17,11 +17,6 @@
  * end).
  *
  * Features: swap with last, append, an arrival out of order, and each named lawless variant.
- *
- * @plant test/plants/unit/laws/model/counted-predecessor-immediate.patch An immediate predecessor axis (laws/model/plan.ts
- * family axes), which swap-with-last breaks mid-plan.
- * @plant test/plants/unit/laws/model/counted-bound-no-floor.patch The counted bound without `‹i› >= 0`, so a member at
- * slot −1 is accepted.
  */
 
 import { exhaust } from "@bjornpagen/testing/explore"

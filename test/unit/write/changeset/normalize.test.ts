@@ -69,16 +69,6 @@ import { codesOf, compiled, cs, parsedOf } from "#test/unit/write/changeset/fixt
  *
  * Features: two and three strata, a Stream member, a refusal by a key and by a key two generated additions share, two
  * deletions at one key normalized, a later stratum restating an earlier one's key; each planted fault.
- *
- * @plant test/plants/unit/write/changeset/normalize-deletions-unnetted.patch A stratum's deletions keep the facts its
- * insertions and puts add (runtime/write/normalize.ts normalizeChangeSet, step 3's netting removed).
- * @plant test/plants/unit/write/changeset/normalize-extra-field-admitted.patch A fact holding a field its relation lacks
- * is admitted (scalar/values/identity.ts readFact counting too few keys only).
- * @plant test/plants/unit/write/changeset/deletes-judged-at-one-key.patch The engine's same-key check over a stratum's
- * deletes restored, so two deletions at one key are refused by that key.
- * @plant test/plants/unit/write/changeset/slot-groups-at-changeset-index.patch 60cd1c28's bug: a slot group numbered by
- * its stratum's index among the ChangeSet's strata, empty ones included, not by its position among the occupied ones,
- * caught on the floor stream by a ChangeSet whose empty first stratum precedes an insert of Gen.
  */
 const Pair = relation("Pair", { k: pg.integer, v: pg.integer, c: pg.integer }, ["k"])
 const Gen = relation("Gen", { id: pg.bigserial, k: pg.integer, w: pg.integer }, ["id"])

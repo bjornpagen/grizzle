@@ -16,14 +16,6 @@
  * generic call in every program, which resolves its members, a cost of using it anywhere (extension.ts). And every
  * program typechecks with no diagnostic. Oracle: the compiler's own counts and diagnostics
  * (test/types/batch/measured.ts), compared across the two bases.
- *
- * @plant test/plants/types/schema/budget/clash-compared-whole.patch The list's clash check compares every element of a
- * tuple whole with the relations under its name (ClashesOf), the one declaration of its name among them: each derived
- * relation is compared with itself (Identical), which instantiates its definition, the base with it; the derived
- * relations' cost grows with the base.
- * @plant test/plants/types/schema/budget/named-by-matched.patch NamedBy reads a key's side by matching the statement
- * (`St extends Key<infer S>`): the key holds the derived relation its side reads, and the test instantiates it whole,
- * the base with it, for each key; the laws' cost grows with the base.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

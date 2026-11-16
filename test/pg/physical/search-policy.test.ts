@@ -22,11 +22,6 @@
  * Features: a role reading and one writing a contract over a refined text, one reaching the vector type through the
  * derived relation alone, logins with and without the policy, a refresher and a reader of the derived relation, and
  * each reach change across a migration.
- *
- * @plant test/plants/pg/physical/search-policy-inverted.patch A login takes the policy exactly when none of its roles
- * reaches the vector type.
- * @plant test/plants/pg/physical/search-policy-never-reset.patch A migration never resets a setting a kept login no
- * longer sets (deploy/diff/diff.ts).
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

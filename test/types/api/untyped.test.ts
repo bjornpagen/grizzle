@@ -4,9 +4,6 @@
  * the kept Object.values leak, a call is refused exactly when a list or record it captures holds a member typed any, at
  * the first argument that holds one, and every other call is admitted with a schema's nestings kept. Oracle: the box's
  * own typing of each captured list and record.
- *
- * @plant test/plants/types/api/api-untyped-admitted.patch A member typed any is admitted (types/core/phantom.ts
- * MembersTyped answers unknown for it); the program fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

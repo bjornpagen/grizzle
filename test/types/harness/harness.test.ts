@@ -12,13 +12,6 @@
  * A refusal is stated as the contract states it, `refused`: the probe does not compile, whichever diagnostic the checker
  * elaborates it to. The floor's witnesses reach every fault of both contracts, each at both depths, and their admitted
  * cases, so neither program is vacuous on any seed.
- *
- * @plant test/plants/types/harness/harness-open-situations.patch ClosedVocabulary admits string (the testing
- * library's features.ts), so a requirement over an open vocabulary, whose situations are any string, compiles; the
- * vocabulary's program fails.
- * @plant test/plants/types/harness/harness-door-text-number.patch assert.deepEqual takes a number as its expected value
- * where the actual is text (test/support/assert.ts), so its line of a case planting a number for text compiles; the
- * assertion door's program fails.
  */
 import { unreachedOf } from "@bjornpagen/testing/features"
 import { NodeServices } from "@effect/platform-node"

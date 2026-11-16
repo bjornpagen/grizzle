@@ -20,9 +20,6 @@
  *
  * A dollar-quoted body is drawn and filtered where it would spell its own closing tag before its end: whether a body
  * does depends on the tag drawn with it, and the filter's discards are counted.
- *
- * @plant test/plants/unit/deploy/split-empty-statement-kept.patch An empty statement between two semicolons is kept as
- * one.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

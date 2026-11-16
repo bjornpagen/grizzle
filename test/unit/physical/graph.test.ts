@@ -14,10 +14,6 @@
  *
  * Features: an order of several phases, a dependency against identity order, hashed names whose stems tie; a reason
  * given twice, reasons added later.
- *
- * @plant test/plants/unit/physical/graph-ties-by-digest.patch Hashed names tie by their digests' text, not by the
- * identity they were minted from.
- * @plant test/plants/unit/physical/graph-later-reasons-first.patch Reasons given later come before an object's own.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

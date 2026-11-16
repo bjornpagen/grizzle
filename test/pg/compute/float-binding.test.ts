@@ -22,9 +22,6 @@
  * ANALYZE's SubPlans and InitPlans for the binding.
  *
  * Features: every position a statement evaluates the tree in, and each float width and cast.
- *
- * @plant test/plants/pg/compute/compute-float-binding-unbound.patch The conservative delivery skips bindLaterally, so a
- * compound operand is a scalar subquery PostgreSQL runs for every row.
  */
 import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

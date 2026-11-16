@@ -73,9 +73,6 @@ import {
  * environments drawn.
  *
  * Features: the connection's tricky shapes, each role fault, each thrown value, and each environment's verdict.
- *
- * @plant test/plants/unit/cli/connection-empty-role.patch An empty role is admitted.
- * @plant test/plants/unit/cli/connection-owner-options.patch An owner's environment is refused only for PGREPLICATION.
  */
 const caText = "-----BEGIN CERTIFICATE-----\nMIIBconnection\n-----END CERTIFICATE-----\n"
 

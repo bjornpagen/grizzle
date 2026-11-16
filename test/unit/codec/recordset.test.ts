@@ -18,14 +18,6 @@
  * Features: each planted refusal; a fixed and another width; an empty set and a set of several facts; each fact spelled
  * once and a fact spelled again; a column of no row, and a row of an empty cell; the bound far within, at, one past and
  * far past.
- *
- * @plant test/plants/unit/codec/recordset-order-kept.patch A set is encoded in the order given, not its canonical
- * order; the canonical encoding property fails.
- * @plant test/plants/unit/codec/recordset-array-quote-unescaped.patch A quote inside an array element is written bare;
- * the literals' array_in reading fails.
- * @plant test/plants/unit/codec/numeric-full-scale-refused.patch parseNumeric judges exactness at the scale less one,
- * so a numeric(5,2) value of exactly two fractional digits is refused as numericScale; the refusal, canonical
- * encoding and array properties fail on a valid fact.
  */
 import { drawn, explore, type Kept, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

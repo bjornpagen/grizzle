@@ -25,16 +25,13 @@
  * separates the two with room on both sides. A probe's B-tree descent grows by a level only past a page's fan-out of
  * entries, which keeps n·log n with its constant overheads near a doubling, and the buffers a size's plan spends beside
  * its members shrink the ratio rather than break it. Measured on a private cluster: the ordered family's whole delete
- * read 28,039, 56,069 and 112,127 buffers at 2,000, 4,000 and 8,000 members, ×2.00 at each doubling, and under the
- * plant below 52,039, 164,069 and 560,127, ×3.15 and ×3.41, against 2^(3/2) ≈ 2.83; the plant's ratio climbs toward 4
- * as n grows, which is why n is drawn from 2,000 up.
+ * read 28,039, 56,069 and 112,127 buffers at 2,000, 4,000 and 8,000 members, ×2.00 at each doubling, and with no
+ * reverse index for an axis and no successor key, each axis's probe scanning the member or the tree, 52,039, 164,069
+ * and 560,127, ×3.15 and ×3.41, against 2^(3/2) ≈ 2.83; that ratio climbs toward 4 as n grows, which is why n is
+ * drawn from 2,000 up.
  *
  * Oracle: PostgreSQL's own counters of the buffers each operation read, against the law. Features: none beyond the
  * operations, each measured in every case.
- *
- * @plant test/plants/unit/laws/model/axis-index-dropped.patch No reverse index for an axis and no successor key, so the
- * predecessor axis's probe scans the member and the tree owner axis's the tree: the ordered family's whole delete reads
- * 52,039, 164,069 and 560,127 buffers at 2,000, 4,000 and 8,000 members.
  */
 import { drawn as drawnCase, explore } from "@bjornpagen/testing/explore"
 import { noCoverage } from "@bjornpagen/testing/features"

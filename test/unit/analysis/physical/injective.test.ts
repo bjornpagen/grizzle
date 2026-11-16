@@ -17,9 +17,6 @@
  *   soundness only.
  *
  * Features: each family pair admitted or refused with a merge witnessed, and a value the cast refuses.
- *
- * @plant test/plants/unit/analysis/physical/cast-numeric-scale-narrowed.patch A numeric cast to a smaller scale
- * admitted as injective (ir/injective.ts castInjective); the soundness property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

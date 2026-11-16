@@ -51,9 +51,6 @@
  * aimed write at each live handle, over a roster of two to four handles after up to two migrations of its history.
  *
  * Features: the vocabulary Feature below, each command and each expression kind a program reaches.
- *
- * @plant test/plants/pg/fields/fields-derived-host-intersection-union.patch The host evaluator's set intersection is
- * the union.
  */
 import {
 	accepted,

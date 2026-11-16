@@ -33,14 +33,6 @@
  *
  * The oracle is the specification: the faithful realization the expectation states passes the judge, and each mutant,
  * a planted fault of a realization, fails it. Features: every faithful outcome and every mutant above.
- *
- * @plant test/plants/unit/oracle/write-expect-keyless-accepted.patch The judge accepts a keyless witness of a law
- * whose witness carries its key (harness.ts witnessProblems); the property fails.
- * @plant test/plants/unit/oracle/write-expect-cast-unrounded.patch The oracle's cast of a numeric into a field of
- * another typmod gives the source's value unrounded, as it did before the exact parse (changeset.ts); the planted
- * "typmod cast" arm reaches it while the cast's situation is pending, and the property fails.
- * @plant test/plants/unit/oracle/write-judge-unorderable-passes.patch The judge passes any outcome where the
- * expectation is that the compile refuses an unorderable stratum, so the mutant "applied where unorderable" passes.
  */
 import { explore, steered } from "@bjornpagen/testing/explore"
 import { type Pending, required } from "@bjornpagen/testing/features"

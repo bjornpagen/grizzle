@@ -33,9 +33,6 @@ import { owning } from "#test/support/policy.ts"
  * Features: tables without row security, written whole or by a filterless entry; tables under it, a whole writer or a
  * filterless entry holding TRUE, a filter function, two writers narrowing, and a table narrowed from one login and
  * written from another.
- *
- * @plant test/plants/unit/physical/row-security-any-whole-writer.patch A table some writer holds whole goes without
- * row security, whoever else narrows it.
  */
 const Shelf = relation("Shelf", { id: pg.integer }, ["id"])
 const Note = relation("Note", { id: uuid, shelf: pg.integer }, ["id"])

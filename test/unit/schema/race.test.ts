@@ -9,9 +9,6 @@
  * repeatable.
  *
  * Features: each case of the space.
- *
- * @plant test/plants/unit/schema/race-span-key-admitted.patch The span key's refusal dropped (schema/own.ts
- * checkRacedKey).
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

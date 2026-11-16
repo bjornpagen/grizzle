@@ -102,19 +102,6 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  *   or the owner a copy reads, to each kind of value drawn only when its row is written; each compiles, the same put
  *   from a query is refused (StaleDerivedRead, `query`, grizzle never seeing the query's rows), and a role that leaves
  *   out one relation a refill writes or reads is refused (OutsideRole) naming exactly it.
- *
- * @plant test/plants/unit/write/fill-order-read-later-admitted.patch A copy's source is read with no regard to when
- * its row fills it (analysis/theory/fill.ts `ownerLater` and `readLater` admitting every source), so schemas the model
- * refuses are admitted, which the witnesses reach on every seed.
- * @plant test/plants/unit/write/fill-order-generated-copy-drawn.patch An owner copy of a generated column of owners the
- * stratum inserts is read from the table after their statement, never from the fields its generation reads, so the
- * kept case of TEST_SEED=2002821052 is refused as UnorderableStratum.
- * @plant test/plants/unit/write/fill-order-unit-cycle-admitted.patch The schema admits families that nest relations
- * in a cycle below a unit's root (analysis/theory/fill.ts `unwritable` looking at no root), so the reference's
- * UnwritableRelation unitCycle compiles; the kept case of the swarm's shrink fails.
- * @plant test/plants/unit/write/fill-order-whole-delete-partial-compiled.patch A whole delete's refusal of a nested
- * member whose family's owner it keeps is removed (write/frontend/compile.ts unitBelow), which the kept ordered case
- * reaches on every seed.
  */
 
 type FillSituation =

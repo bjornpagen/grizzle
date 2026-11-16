@@ -34,9 +34,6 @@ import {
  * Oracle: the specification, every relation parameter a list of facts.
  *
  * Features: every parameter given, a parameter left out, a parameter given a number.
- *
- * @plant test/plants/unit/write/put/put-param-missing-empty.patch A parameter left out bound as no facts
- * (runtime/write/bind.ts).
  */
 const parameterMembers = [
 	{ relation: Item, param: "items" },

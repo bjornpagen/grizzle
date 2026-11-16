@@ -12,11 +12,6 @@
  *
  * Features, required in the space: each named mask held and failed; a mask, the empty and the full one, below and past
  * the thirteen bits, no integer, no number.
- *
- * @plant test/plants/unit/allen/allen-covers-without-equals.patch covers missing equals (allen/mask.ts); the named
- * masks property fails.
- * @plant test/plants/unit/allen/allen-mask-past-range.patch A fourteenth bit admitted as a mask (allen/mask.ts
- * inMaskRange); the entry points property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

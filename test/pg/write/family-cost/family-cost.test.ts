@@ -19,9 +19,6 @@
  * BUFFERS, SETTINGS, FORMAT JSON) in its place, its transaction ended by ROLLBACK (bench/write/support/writes.ts
  * explainedChange). The oracle is the law itself, the definition of linear growth; the family suites
  * (test/pg/write/swarm/families.test.ts, test/pg/write/fill-order) judge the rows the same statements write.
- *
- * @plant test/plants/pg/write/family-cost/family-scan-recursive.patch The scan is a WITH RECURSIVE walk of one member
- * per step, as before 2026-11-14 (write/family/scan.ts); the property fails on its growth.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

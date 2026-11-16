@@ -35,9 +35,6 @@
  * containments into one constant selection at its own column; a reference on a
  * cycle, into a replaceable target, or off every cycle into a key no write replaces; mirrors over whole relations or a
  * selected side; and each Item selection.
- *
- * @plant test/plants/unit/laws/model/projection-rule-never-defers.patch A foreign key the schema-wide rule decides is
- * never deferred though its target holds a field beside the referenced ones (laws/model/model.ts deferral).
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

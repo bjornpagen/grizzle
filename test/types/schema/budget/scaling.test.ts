@@ -7,20 +7,6 @@
  * instantiations grow no faster than linearly, exactly (test/support/growth.ts incrementsDoNotGrow; its types, which the
  * checker interns, are not judged by the law: test/types/batch/measured.ts): the second step adds no more than the first, so no
  * unit costs more for the units before it. Oracle: the compiler's own counts, compared step against step.
- *
- * @plant test/plants/types/schema/budget/key-index-keyof.patch Whether a relation's name is among the key index's keys
- * is asked by HoldersOf's `N extends keyof I`, which the checker computes over every key side of the schema at each
- * read of a relation's keys: laws per relation turn superlinear in instantiations, a second difference of 19,200 at
- * b3f355ef.
- * @plant test/plants/types/schema/budget/closure-per-candidate.patch Each candidate key of a rule's head is closed from
- * its own fields over every dependency of the rule's matches, a closure of its own for each key of the matched
- * relation, each over every key: laws per relation turn superlinear in instantiations, a second difference of 184 at
- * b3f355ef.
- * @plant test/plants/types/schema/budget/schema-scale-quadratic.patch A statement's relations are found among the
- * schema's by relating each to every relation of the schema (Undeclared's SameAs over the record's every relation, not
- * the one under its name), a cost per statement that grows with the relations: the schema(...) call raises TS2589 from
- * 668 relations, 760 full-role entries and 420 write-list names, so the programs fail before the law reads their
- * counts.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

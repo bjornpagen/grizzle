@@ -14,11 +14,6 @@
  *   naming each owner or none, exhausted, each family's law violated exactly when its own theorem fails.
  *
  * Features: each arrangement for the shape; each family's verdict, and the other's state beside it, for the laws.
- *
- * @plant test/plants/unit/analysis/theory/family-columns-named-by-member.patch Every family's drawn columns named as
- * one family's, by their kind alone (core/identity.ts lawColumn), so two families share a law column; the shape fails.
- * @plant test/plants/unit/analysis/theory/counted-violation-no-off-arm.patch A counted family's violation omits its
- * count's mismatch (analysis/theory/laws.ts familyArms); the laws fail.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

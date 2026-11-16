@@ -16,9 +16,6 @@
  * Oracle: the brute-force reference evaluator, and the case against itself under another storage and spelling.
  *
  * Features: the situations below, every operator kind among them, and each decline of the reference, rated.
- *
- * @plant test/plants/pg/oracle/oracle-conservative-antijoin-as-semijoin.patch The conservative AntiJoin lowers as a
- * semi-join (lower/conservative/anti-join/index.ts).
  */
 import { drawn } from "@bjornpagen/testing/explore"
 import { rating, required } from "@bjornpagen/testing/features"

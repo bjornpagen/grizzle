@@ -15,9 +15,6 @@
  * Oracle: the host model, plain Sets of codes, and the test oracle's positional text of each.
  *
  * Features: the vocabulary Feature below, each padding width a roster meets.
- *
- * @plant test/plants/pg/fields/fields-set-padding-bit-set.patch A set's text sets its last bit, a padding bit wherever
- * the roster's codes do not fill their last hex digit.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

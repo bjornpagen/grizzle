@@ -114,13 +114,6 @@ import { fullWorld } from "#test/support/worlds.ts"
  * oracle is the README's fold: an owner whose ends are its declared values is accepted and stored with them, and one
  * whose end misses is refused naming the CHECKs it breaks, its key the witness, and leaves nothing stored. Coverage
  * requires an owner with members and one with none, each with each end at its declared value and off it.
- *
- * @plant test/plants/pg/fin/fin-fold-check-after-equals-before.patch A fold's CHECK holds each after to its before, so
- * a lawful write is refused; the first search fails.
- * @plant test/plants/pg/fin/or-end-reread-scalar.patch Each owner's end, as the host fills it along the last axis
- * (runtime/write/fill.ts), is read back from its parameter text by the converter of PostgreSQL's output text
- * (scalar/values/convert.ts convertByCarrier): an or-end of members reads as another set, so a lawful owner is refused;
- * both searches fail.
  */
 
 type CountedForm =

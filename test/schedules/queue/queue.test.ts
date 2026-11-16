@@ -27,10 +27,6 @@
  * runs again, and never as a unique violation the write lists as an UnseenOccupant abort: a lease is an insert of
  * complete facts at SERIALIZABLE, which arbitrates every object (write/insert/protocol.ts arbitrationOf), so
  * PostgreSQL meets the unseen lease in its ON CONFLICT pre-check (nodeModifyTable.c ExecCheckTIDVisible).
- *
- * @plant test/plants/schedules/laws/payroll-race-span-abort-not-transient.patch SERIALIZABLE's 40001 is read as no
- * TransientFailure (adapter/errors/execution.ts serializableRefusal), so a claimer that lost a seat fails where its
- * serial reference answers; the property fails.
  */
 
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"

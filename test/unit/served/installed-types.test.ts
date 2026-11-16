@@ -24,21 +24,6 @@
  *   pattern's structural text domain, with no CHECK of its own, the installation's own or one created for the
  *   parameters (physical/ddl/domains.ts addParamDomains), and PostgreSQL still reports the parameter's own domain when
  *   it refuses.
- *
- * @plant test/plants/unit/served/param-domain-total.patch A parameter's pattern domain is named under a recorded
- * installation whatever it installs, so a missing pattern domain compiles; the oracle's property fails.
- * @plant test/plants/unit/served/snapshot-params-dropped.patch snapshot.json records no parameter type, so a login does
- * not compile under its own snapshot; the own-workload property fails.
- * @plant test/plants/pg/parameters/read-admission-dropped.patch A read's statement holds no admission of a parameter
- * its logic leaves unread, so the kept case's login, whose read's constant false filter leaves its relation parameter
- * unread, compiles under a snapshot that installs no domain of it.
- * @plant test/plants/unit/served/param-domain-own-check.patch Every parameter's pattern domain gets its own CHECK, a
- * second copy of its structural domain's; the property fails, no case reaching a parameter's pattern domain over a
- * field's structural domain with no CHECK of its own.
- * @plant test/plants/unit/served/param-contracts-dropped.patch The contracts outside the base a served parameter is
- * typed by are left out of the installation's outside contracts (physical/install/plan.ts planInstallation), so no
- * domain of them is installed or recorded; the own-workload property fails, a login refused as UninstalledDomain under
- * its own snapshot.
  */
 import { explore, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

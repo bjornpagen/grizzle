@@ -56,12 +56,6 @@ import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  *
  * Features: each refused write of given ledgers beside each member write, a deletion of ledgers beside an entry's put
  * refused, and each kind of compiled write (compiledFeatures).
- *
- * @plant test/plants/unit/write/owner-append-put-allowed.patch A put of owners read from a query beside an append to
- * their family compiles, QueriedOwnerAppend refusing only their insert.
- * @plant test/plants/unit/write/owner-put-beside-whole-delete-compiled.patch The refusal of a put of a relation a
- * whole delete's units remove never fires (write/frontend/compile.ts `edited`), so a deletion of ledgers beside an
- * entry's put compiles.
  */
 const Ledger = relation(
 	"Ledger",

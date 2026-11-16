@@ -12,9 +12,6 @@
  * Oracle: the compiler's contract, a specification: every bounded heterogeneous union is refused, by its tag.
  *
  * Features: each union, and each order over the take: the union's own, and its key reversed.
- *
- * @plant test/plants/unit/page/page-bounded-union-paged.patch An order over the take is paged as an unbounded union
- * is, not refused; the property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -10,11 +10,6 @@
  *   JSON.parse over the body's text itself, which no decoding precedes, and bytes no UTF-8 holds refused.
  *
  * Features: a body read, a body refused, a byte order mark before the JSON, a body that is no UTF-8.
- *
- * @plant test/plants/unit/http/body-strips-byte-order-mark.patch The body is read through a TextDecoder of its own,
- * fatal but stripping a leading byte order mark, as it was, so {} after U+FEFF is read as {}.
- * @plant test/plants/unit/core/utf8-strips-byte-order-mark.patch The one decoder strips a leading byte order mark, so
- * a body of JSON after U+FEFF is read as that JSON.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

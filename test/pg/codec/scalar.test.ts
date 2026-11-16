@@ -24,11 +24,6 @@
  * test/pg/values/money.test.ts's, which reads the host's text back.
  *
  * Features: "round-trips <carrier>", every carrier's; "routes <carrier>", every routable carrier's.
- *
- * @plant test/plants/pg/codec/codec-set-bit-order.patch setBit puts a set's position 0 at its digit's least
- * significant bit; a set's round trip fails.
- * @plant test/plants/pg/codec/routable-float8.patch A double precision routes, and extra_float_digits prints it
- * otherwise; a float8's route fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

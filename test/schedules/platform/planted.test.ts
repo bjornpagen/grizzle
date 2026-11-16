@@ -22,10 +22,6 @@
  * statements say which are mutable).
  *
  * Features: every point of the space.
- *
- * @plant test/plants/schedules/platform/planted-guard-no-delete.patch The SERIALIZABLE guard trigger fires on no DELETE
- * (sql/print.ts prints it BEFORE INSERT OR UPDATE OR TRUNCATE), which the installed-catalog checker refuses at the
- * installation, its pg_trigger.tgtype lacking DELETE's bit.
  */
 
 import { exhaust, Run } from "@bjornpagen/testing/explore"

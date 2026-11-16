@@ -11,9 +11,6 @@
  *
  * Features: one definition sharing one domain, two definitions taking two, and a shared domain refusing each
  * contract's violation.
- *
- * @plant test/plants/pg/physical/domains-named-by-contract.patch A contract's domain is named by its definition and
- * its contract's name (physical/ddl/names.ts), so two contracts of one definition never share one.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

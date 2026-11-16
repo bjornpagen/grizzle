@@ -47,12 +47,6 @@ import { fixtureLogin, planOf } from "#test/unit/workload/fixtures.ts"
  * - the view statistics object the case picks, dropped by hand, is drift the drift check refuses at stage drift,
  *   while Db.open, which compares no catalog, still opens; created again as it was, both admit it again.
  * The precondition is planted: kept workloads justify statistics on a view, one of them by two programs at once.
- *
- * @plant test/plants/pg/derived/derived-statistics-two-kinds.patch Statistics two programs justify on the same columns
- * merge into an object of two kinds, its mcv lost (physical/statistics/statistics.ts mergeStatistics).
- * @plant test/plants/pg/e2e-work/deployed-workload-unsourced.patch The installation's workload extension carries no live
- * plan (test/support/compile.ts), so the logins' served files read no live source and a workload program is refused at
- * compile as UncoveredRead.
  */
 const Code = str.regex("^[a-z]{1,8}$")
 

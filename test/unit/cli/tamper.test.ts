@@ -19,9 +19,6 @@
  * the fields a refusal names, and the finding check reports there; never a refusal's or a finding's prose.
  *
  * Features: each kind of tampering.
- *
- * @plant test/plants/unit/cli/tamper-diverged-oldest.patch A diverged chain names its oldest folder.
- * @plant test/plants/unit/cli/tamper-no-chain-end.patch check drops a chain that does not end at snapshot.json.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -18,12 +18,6 @@
  *
  * Features: a composite key, a key field bound by a literal, a non-key field held by a literal binding, one held by a
  * variable another match binds, and a second occurrence of the touched relation.
- *
- * @plant test/plants/unit/analysis/theory/new-probe-holds-key-only.patch newProbes holds the touched row by its key
- * alone, as before 12fa0a94, so a held match's other bound fields are read at whatever the row holds and an index of a
- * prefix of the key, which without statistics PostgreSQL may take, reads every row of that prefix.
- * @plant test/plants/unit/analysis/theory/new-probe-requests-by-values.patch The probe's index requests come from the
- * probe held by its values, so holding the row by them asks for indexes of their own.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

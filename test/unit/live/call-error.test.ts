@@ -41,19 +41,6 @@
  * Oracle: errcodes.txt's conditions and classes, and the README's reasons, as the table below.
  *
  * Features: every reason, `failed`, and every path.
- *
- * @plant test/plants/unit/live/transient-never.patch The classification table makes a transient failure retry never;
- * the statement refusal's property fails.
- * @plant test/plants/unit/live/read-reading-drops-transport.patch The read's table reads a broken connection as
- * unavailable, so no read failure reads as transport; the exact property fails.
- * @plant test/plants/unit/live/failures-read-outside-world.patch The event model gives a read outsideWorld, which no
- * read failure reads as; the exact property fails.
- * @plant test/plants/unit/live/read-reading-commit-unknown.patch The read's table reads a lost COMMIT as
- * commitUnknown, which the event model gives no read; the exact property fails.
- * @plant test/plants/unit/live/password-reads-as-connection-refused.patch 28P01 reads as `unavailable`,
- * `connectionRefused`; the session-never-had property fails.
- * @plant test/plants/unit/live/driver-refusal-reads-as-transport.patch A read's DriverFailure reads as `transport`; the
- * session-never-had property fails.
  */
 import { constants } from "node:os"
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"

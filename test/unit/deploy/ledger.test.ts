@@ -12,9 +12,6 @@
  * - **Planted damage, refused as MalformedArtifact naming the folder:** a folder's file rows without its folder row; a
  *   partial folder that another folder follows; one row of a folder disagreeing with its folder row on the source, the
  *   target or the file count.
- *
- * @plant test/plants/unit/deploy/ledger-folders-in-row-order.patch The folders are read in the order the rows
- * arrived, not by name.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

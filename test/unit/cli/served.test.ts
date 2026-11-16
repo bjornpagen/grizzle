@@ -72,11 +72,6 @@ import { upTo } from "#test/support/up-to.ts"
  * parameter's pattern domain (physical/access/extension.ts workloadExtension), which the first draft's SQL is held to
  * create: check passing on it and the regenerate drafting no folder are generate's idempotence over a workload's
  * parameter domains, which a later generate must find recorded in the snapshot and never draft again.
- *
- * @plant test/plants/unit/cli/served-check-layout.patch check passes a committed file that reads as the compile's in
- * another layout, so a file generate does not regenerate byte for byte passes.
- * @plant test/plants/unit/cli/snapshot-omits-param-domains.patch The snapshot is recorded without the parameters'
- * pattern domains its migration installs, so every generate drafts them again.
  */
 
 /** A program of the served file, in the file's order: its role's and its own name, and its first SQL text's path. */

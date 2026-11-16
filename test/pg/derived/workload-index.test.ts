@@ -45,9 +45,6 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * Oracle: the accounts at or past the threshold, counted on the host, and PostgreSQL's planner as the judge of whether
  * the index serves the range. Features: an account selected, an account below the threshold, one at it, none
  * selected.
- *
- * @plant test/plants/pg/derived/derived-workload-index-unique.patch A workload access index is created UNIQUE
- * (physical/indexes/engine.ts).
  */
 const busyAccounts = query(W.Reports).rule((r) => {
 	const { account, tasks, budget } = v(W.AccountBudget, "accountBudget")

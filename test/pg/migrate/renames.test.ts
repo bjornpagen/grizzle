@@ -29,9 +29,6 @@
  *   renamed, a stored code under its renamed handle, a handle removed, a served roster with a hole, and two relations.
  *   Swaps and chains of relations, fields and handles are family-renames' and histories' (test/pg/migrate), a field
  *   renamed with its type changed histories' and paths'.
- *
- * @plant test/plants/pg/migrate/renames-handle-forgotten.patch The codebook draft ignores a declared handle rename, so
- * the renamed handle takes a new code.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

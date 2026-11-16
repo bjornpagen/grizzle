@@ -23,12 +23,6 @@
  *
  * That the index is the one the program's statement uses on PostgreSQL is the database suite's
  * (test/pg/derived/workload-index.test.ts).
- *
- * @plant test/plants/unit/derived/workload-view-key-not-served.patch A request whose columns an inherited unique index
- * leads with takes an index of its own (physical/indexes/engine.ts planIndexes counts no view's unique index); the view
- * indexes fail.
- * @plant test/plants/unit/derived/workload-view-index-not-concurrent.patch An index on a standing relation is drafted
- * without CONCURRENTLY (deploy/diff/diff.ts buildConcurrently); the drafts fail.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

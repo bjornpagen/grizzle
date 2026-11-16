@@ -54,14 +54,6 @@ import type { FullWorld } from "#test/support/worlds.ts"
  * (put), or unchanged when there are none. A refusal leaves the stored state as it was.
  *
  * The oracle is a second implementation, the host interval model above.
- *
- * @plant test/plants/pg/write/span-key/pair-before-first-reaches-its-own-end.patch The first requested fact of a room in
- * start order reads its own end as the reach of the fact before it (write/insert/unique.ts pairedFacts, lag's default
- * upper(span)), so it is paired though no other fact overlaps it, and a described insert is refused by the span key.
- * @plant test/plants/pg/world-model/worlds-rules-span-key-overlaps.patch A span key installed without WITHOUT OVERLAPS
- * (physical/ddl/tables.ts periodKeyColumns), a plain unique over its scalar key and its span, which no PERIOD foreign
- * key here references, so the installation stands and a requested fact overlapping a stored one at its key is
- * accepted; the property fails at the first such insert, where the model refuses it by the span key.
  */
 const note = str.regex("^[a-z]{1,8}$")
 const Room = relation("Room", { room: uuid, during: span(pg.bigint), guest: uuid }, [

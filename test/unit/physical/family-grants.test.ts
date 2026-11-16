@@ -31,9 +31,6 @@
  * Features: each way a member writer's filter is translated or refused, a narrowed owner entry refused, a member writer
  * under its owner's row security, a serial written whole and through a query entry, and a writable entry whose key holds
  * a drawn index refused when declared.
- *
- * @plant test/plants/unit/physical/family-grants-no-end-update.patch A member writer of a mutable owner may update the
- * owner's count but not its ends.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

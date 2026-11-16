@@ -28,9 +28,6 @@
  * Every answer is read as WHATWG HTML reads an event stream (test/support/event-stream.ts), never through the
  * server's framing. A case whose turn aims at a pending call feature is drawn constructed to reach it (aims), so the
  * label-fixed streams reach every kind of call.
- *
- * @plant test/plants/pg/http/http-buffered.patch The answer's events collected before the body is written, so a live
- * read's first batch is never written: the handler asks its call for more with none of its frames written.
  */
 import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

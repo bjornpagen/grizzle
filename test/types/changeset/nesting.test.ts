@@ -3,9 +3,6 @@
  * disarmed: over the exhaustive box of forms, chains of member types, back edges and excess fields, an insert is
  * admitted exactly when no type it declares states a field beyond its nesting's, at whatever depth its types recur, and
  * refused otherwise. Oracle: the box's rule over the types each case declares.
- *
- * @plant test/plants/types/changeset/changeset-member-unfit.patch A member fact that is no fact of its relation is
- * admitted (types/changeset/changeset.ts MemberFit); the program fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

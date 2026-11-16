@@ -32,11 +32,6 @@
  * state; the scripted classes (transport, unavailable, stale, commitUnknown, failed) are test/unit/live/flights.test.ts's.
  *
  * Features: each class above, each surface, a watch refused by its parameter's pattern.
- *
- * @plant test/plants/pg/live/client-encode-asserts.patch The client's encode of a caller's value of another type a
- * defect again, not `input`; the in-process input class fails.
- * @plant test/plants/pg/live/reset-before-refusal.patch A read's answer opening with `reset` before the flight
- * answered, so a watch refused by its parameter's pattern sends an event before its error.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

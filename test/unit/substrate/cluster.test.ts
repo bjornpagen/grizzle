@@ -13,13 +13,6 @@
  * The oracle is the specification: today's pin.env values, and the read-back from a state directory to its port.
  * Features: the variable unset, the default port named, a port beside it, the least and the greatest port, any other
  * port, and each misspelling refused.
- *
- * @plant test/plants/unit/substrate/cluster-port-truncated.patch A state directory is suffixed with the port's last four digits, so 5440 and
- * 15440 share one; the property fails.
- * @plant test/plants/unit/substrate/cluster-default-suffixed.patch The default's state directory is suffixed like every other's; the property
- * fails.
- * @plant test/plants/unit/substrate/cluster-misspelling-admitted.patch A name is read by its port alone, which admits 05440 and 5e3; the
- * property fails.
  */
 import { homedir } from "node:os"
 import { exhaust } from "@bjornpagen/testing/explore"

@@ -21,10 +21,6 @@
  * operators, the semi-join, elimination and pruning rules, the transaction context, a dangling reference a transaction
  * sees; and in the search, every core operator at depth three and every context. No kept cases: the runs whose limit
  * the three-operator space outgrew refused it before any case ran.
- *
- * @plant test/plants/unit/lower/rewrite/eliminate-deferred.patch R03 reads a containment's evidence as a snapshot read
- * would, so a deferred containment proves existence inside a transaction; the core and extended two-operator
- * exhaustions fail.
  */
 import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

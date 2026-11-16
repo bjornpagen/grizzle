@@ -48,19 +48,6 @@
  * Features: the renamed stream requires a catalog-type name under the installation-first path; the intents stream
  * requires every legal intent, each steered case aiming its first B intent at the pending one its turn falls on as the
  * steering reads it after every case (steerEvery 1), so the steered phase's one case per intent reaches them all.
- *
- * @plant test/plants/pg/migrate/paths-relation-rename-ignored.patch A draft ignores every declared relation rename in
- * the snapshot it renames, so a renamed relation's path fails.
- * @plant test/plants/pg/migrate/paths-field-rename-ignored.patch A draft ignores every declared field rename in the
- * snapshot it renames, so a renamed field's path fails.
- * @plant test/plants/pg/migrate/intents-unaimed.patch A steered case runs its drawn intents, never the pending one its
- * turn aims at, so the intents stream leaves a required intent unreached.
- * @plant test/plants/pg/migrate/advance-next-by-arithmetic.patch The advance of a field declared serial sets its
- * sequence to the stored maximum plus one, uncalled, which is past bigint's range (22003) when a row holds bigint's
- * greatest value, so the migration of the kept serialDeclaredAtEnd fails.
- * @plant test/plants/pg/migrate/identities-next-by-arithmetic.patch (d) computes an identity's next value as
- * last_value + 1, which is past bigint's range (22003) for an identity advanced to its end, so the kept
- * serialDeclaredAtEnd fails where every migration was admitted.
  */
 import { type Case, explore, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

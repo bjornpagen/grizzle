@@ -61,11 +61,6 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
  *   (physical/ddl/isolation.ts readCommittedRelations), so none of its writes is refused below SERIALIZABLE: a role
  *   writing a relation a SERIALIZABLE role writes too is SERIALIZABLE. Kept: an inserter of Tag beside a direct
  *   inserter of Tag, which certified READ COMMITTED while Tag kept its guard.
- *
- * @plant test/plants/unit/cli/isolation-serializable.patch served gives every role token `serializable`; the levels'
- * property fails.
- * @plant test/plants/unit/cli/isolation-first-role.patch served gives every role token its login's first role's level;
- * the levels' property fails.
  */
 
 type Mode = "insert" | "write"

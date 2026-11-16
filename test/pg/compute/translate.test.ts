@@ -17,10 +17,6 @@
  * Oracle: the reference evaluator character by character, and XML Schema's collapse (core/text.ts collapsed).
  *
  * Features: each map and white space situation the searches name.
- *
- * @plant test/plants/pg/compute/compute-translate-collapse-tab-step.patch collapse's SQL without its step that turns
- * each tab before a space into two tabs (lower/conservative/expr/ops.ts collapseText), so a run of three or more white
- * space characters keeps more than one space.
  */
 import { drawn, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

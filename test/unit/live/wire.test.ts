@@ -22,9 +22,6 @@
  * Kept: the live test phase's counterexamples at 729f76a6, a vector holding a -0 component, which the oracle compared
  * by Object.is to the 0 the wire spells it as; and at 9ef5c380, zero of a computed numeric below one and "0" read as a
  * numeric(1, 2), whose parse raised 10 to a negative power.
- *
- * @plant test/plants/unit/live/wire-bigint-number.patch int8's schema is a JSON integer, its values still strings.
- * @plant test/plants/unit/live/wire-vector-negative-zero.patch A vector's -0 component is spelled as -0.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

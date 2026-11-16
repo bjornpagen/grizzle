@@ -40,9 +40,6 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * that do, with the index as the field no fact states; with none, the ChangeSet compiles and binds.
  *
  * Features: each primary key and declared key that holds the index, each write, a generated key that refuses nothing.
- *
- * @plant test/plants/unit/write/unstated-key-primary-only.patch A put's same-key checks read its primary key alone
- * (write/frontend/compile.ts refuseUnstatedKey), so a declared key holding the index refuses nothing.
  */
 const Owner = relation("Owner", { id: uuid, n: drawn(natural) }, ["id"])
 

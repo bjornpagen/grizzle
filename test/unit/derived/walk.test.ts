@@ -14,9 +14,6 @@
  *
  * Features: an input bound to a variable, to an importer's parameter, to a literal, or left open; the import matched
  * itself; an importer's parameter named as an import's; a parameterless importer of a parameterized import.
- *
- * @plant test/plants/unit/derived/walk-bound-input-kept.patch queryUses keeps every input of a bound import, its bound
- * parameters included.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

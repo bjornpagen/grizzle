@@ -14,13 +14,6 @@
  * expectation.
  *
  * Features: each drift kind, named and conferring nothing, and each foreign key.
- *
- * @plant test/plants/pg/physical/verify-public-unjudged.patch The erasure verifier names no privilege PUBLIC holds
- * (test/support/catalog/verify.ts).
- * @plant test/plants/pg/physical/verify-not-valid-unread.patch The projection reads every constraint as validated
- * (test/support/catalog/expected.ts), so a foreign key re-added NOT VALID matches the manifest.
- * @plant test/plants/pg/physical/verify-barrier-unjudged.patch No view's security barrier is judged
- * (test/support/catalog/verify.ts worldViewProblems).
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

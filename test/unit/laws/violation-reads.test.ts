@@ -31,15 +31,6 @@
  * exhausted, drafts a migration adding the rule from a version without it, A's key kept, widened from (id) to (id, k),
  * or moved to (k, a), with or without M's negated arm. The oracle is the plan itself: each check is in Validate, and
  * every step that attaches a primary key to a table the check reads runs before it.
- *
- * @plant test/plants/unit/laws/violation-distinct-back.patch The violation probe reads every stored table through
- * SELECT DISTINCT again, as edullm's migration was drafted; it fails the first box.
- * @plant test/plants/unit/laws/violation-check-before-keys.patch Validate's checks run before its keys are attached;
- * it fails the second box.
- * @plant test/plants/unit/laws/violation-fused-definitions.patch A side is read as its arms, every definition inlined
- * into one join; it fails the first box by its widest join.
- * @plant test/plants/unit/laws/violation-stale-view.patch A materialized derived relation is read through its view; it
- * fails the first box by the view it reads.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

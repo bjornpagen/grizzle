@@ -47,11 +47,6 @@ const caseGen: Gen<Case> = (source) => ({
  * by hand. Serially every share but the first is refused at its statement by the key, whose refusal quotes no value
  * of the hidden share; concurrently the key still holds, and a writer may fail with a typed transient failure instead.
  * Every order of the moves is explored, with reduction. The oracle is the worlds model, judging every order.
- *
- * @plant test/plants/pg/education/worlds-isolation-row-security-off.patch Every table's ENABLE ROW LEVEL SECURITY is
- * printed as DISABLE (sql/print.ts printAlterTableAction), so no relation's row security keeps a world to its own
- * facts, which the installed-catalog check finds at the installation (rowSecurityMissing on doc, note and share); the
- * property fails.
  */
 const race = (c: Case): WorldRace => {
 	const bob: RaceSession =

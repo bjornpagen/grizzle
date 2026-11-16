@@ -17,9 +17,6 @@
  * refuses is refused with 42501, and every other returns no row.
  *
  * Features: each role's probes of each statement kind, admitted and refused.
- *
- * @plant test/plants/pg/physical/insert-grants-delete.patch A role that writes by its insert list holds DELETE on what
- * it writes.
  */
 import { drawn as drawnCase, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

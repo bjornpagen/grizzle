@@ -51,13 +51,6 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
  *   clock_timestamp(), and the plain file reads none.
  * - Liveness: a clocked read is served as an instant read, with no footprint, and the snapshot's live plan holds a
  *   relation exactly where a read served live reads it.
- *
- * @plant test/plants/unit/cli/extract-clock-opaque.patch The certifier reads a clock reading as an expression no
- * parameter carries, so a key bound to it is bound by no value; the certificates' property fails.
- * @plant test/plants/unit/cli/clock-statement-timestamp.patch The clock is read by statement_timestamp(); the
- * statements' property fails.
- * @plant test/plants/unit/cli/instant-footprint.patch A clocked read is served live, with its footprint; the liveness
- * property fails.
  */
 
 const Instant = contract("Instant", pg.bigint)

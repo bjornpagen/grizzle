@@ -109,16 +109,6 @@ import { fullWorld } from "#test/support/worlds.ts"
  * stated twice; two differences in one insert; a replace of the same units, with a difference, and dropping a unit. A
  * witness case aims at a pending one with a schema holding every family kind, a top row owning a counted and an ordered
  * family, every relation mutable or every one immutable, every count at its most, and one difference at it.
- *
- * @plant test/plants/pg/write/reinsert/reinsert-no-change-as-accepted.patch A committed write is answered `accepted`
- * whatever its counts (runtime/write/net.ts outcomeKind); the property fails.
- * @plant test/plants/pg/write/reinsert/restated-sequence-accepted.patch A nested owner's facts state none of its
- * sequences' counts and ends (write/insert/input.ts); the property fails.
- * @plant test/plants/pg/write/reinsert/counted-append-refused.patch A nested row is compared at its counted families'
- * counts and ends too (write/family/additions.ts); the property fails.
- * @plant test/plants/pg/write/reinsert/kept-owner-count-dropped.patch A replace's kept rule compares a doomed owner
- * without its families' counts (write/delete/unit.ts addedReads), so it keeps an owner its component's delete leaves
- * with a stale count, R0 3 in the kept case once R1 4 goes with R0 1; the property fails.
  */
 
 /** A second insert of a case: its differences from the stored instance, in order, and whether it states every fact twice. */

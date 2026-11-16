@@ -15,15 +15,6 @@
  *
  * Features: a pattern, sets that cut one another, a loop, a walk longer than its spelling; each limit crossed and a
  * shape admitted; a member, no member, and a walked member.
- *
- * @plant test/plants/unit/text/text-raw-nfa-frame-arcs.patch The fold counts newnfa's frame as four arcs, not six;
- * the raw NFA property fails.
- * @plant test/plants/unit/text/text-limit-anchors-at.patch A pattern with exactly as many moving anchors as the
- * anchors limit allows is refused; the limits property fails.
- * @plant test/plants/unit/text/text-loop-unrefused.patch A loop through an assertion the rewrite leaves is not
- * refused as anchorLoop, so the arcs measure refuses it instead; the limits property fails.
- * @plant test/plants/unit/text/text-charset-upper-bound.patch The colors leave each printed set's last code point out
- * of it; the raw NFA property's colors fail, and so does the limits property.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -19,9 +19,6 @@
  * The box: the stored state, each subset of the tags a and b Allowed and each Closed, and Item 1 absent or at a tag the
  * rule admits there; then one write: Item 2 inserted at a or b, Item 1 updated to a or b, an Allowed tag deleted, or a
  * Closed tag inserted.
- *
- * @plant test/plants/pg/laws/probe-region-as-served-query.patch a probe over its region lowered as a served query,
- * which reads no delta, so the installation refuses to compile (UnsupportedOperation) and the box fails at its seat.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

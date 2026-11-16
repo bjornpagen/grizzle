@@ -12,9 +12,6 @@
  *
  * Features: as each search names them: bounded and unbounded patterns and lengths, each key layout, entries at and past
  * their limits, spans and vectors in keys.
- *
- * @plant test/plants/unit/schema/representability-btree-item-past.patch BTMaxItemSize sixteen bytes past PostgreSQL's.
- * @plant test/plants/unit/schema/representability-index-keys-33.patch INDEX_MAX_KEYS one past PostgreSQL's.
  */
 import { drawn, explore, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

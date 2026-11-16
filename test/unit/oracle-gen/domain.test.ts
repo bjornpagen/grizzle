@@ -12,11 +12,6 @@
  * computed numerics included, with and without its edge classes, each key kept as a span or as a scalar. Features:
  * every carrier the claims single out, edge classes, a type that is its own key type, a computed numeric; a canonical
  * and a twin spelling.
- *
- * @plant test/plants/unit/oracle-gen/domain-duplicate-class.patch A computed numeric's raw classes, brought within its
- * bound, are no longer deduplicated, so its classes hold one value twice; the types property fails.
- * @plant test/plants/unit/oracle-gen/domain-spelled-other-value.patch A stored value in a twin spelling is another
- * class's value, the class index shifted by the spelling's; the spelling property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

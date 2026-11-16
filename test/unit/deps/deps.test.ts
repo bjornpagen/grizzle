@@ -21,15 +21,6 @@
  *
  * The layering (which areas a module may import) is fallow's boundaries (.fallowrc.json), and the packages an area may
  * load are oxlint's no-restricted-imports (oxlint.config.ts).
- *
- * @plant test/plants/unit/deps/deps-audit-instanceof-blind.patch The audit misses `new RegExp`; the planted-module
- * property fails.
- * @plant test/plants/unit/deps/deps-src-regexp.patch A src module (core/sqlstate.ts) builds and runs a RegExp as it
- * loads; the tree's audit and the runtime property fail.
- * @plant test/plants/unit/deps/import-from-binding-scan.patch An import's clause is read at its first `from`, which may
- * be a binding's name; the planted-module property and the tree's audit fail.
- * @plant test/plants/unit/deps/wire-options-match-name.patch live/shape.ts WireOptions' `fold` is named `match` again,
- * so live/codec.ts calls `.match` on it; the tree's audit fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

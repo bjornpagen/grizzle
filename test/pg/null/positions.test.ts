@@ -39,9 +39,6 @@
  * of that family over a read at it (language.ts aimedPredGen, aimedStoredGen).
  *
  * Features: every operator family in every position, reached by a NULL operand.
- *
- * @plant test/plants/pg/null/null-greatest-null-wins.patch The host's greatest and least return NULL when any operand
- * is NULL.
  */
 import { type Case, explore, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
 import { type Pending, type Reached, required } from "@bjornpagen/testing/features"

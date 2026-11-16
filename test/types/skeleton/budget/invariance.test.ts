@@ -8,10 +8,6 @@
  * the last relation, are identical to the twin's; and a ChangeSet in a workload over a role that does not write its
  * relation, and a query's rows inserted into another relation, raise exactly the diagnostics, codes and refusals, they
  * raise over the twin. Oracle: the twin, a program at the smallest scale the probes read.
- *
- * @plant test/plants/types/schema/budget/scale-keys-past-hundred.patch A schema's declared candidate keys (KeyIndexOf)
- * are dropped once it holds a hundred statements, which the twin never does and the program at scale does; the
- * invariance property fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

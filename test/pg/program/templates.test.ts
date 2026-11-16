@@ -9,11 +9,7 @@
  * runtime runs them: the executable texts, placeholders filled by the statement's own encoders, every result column cast
  * to text by the statement itself.
  *
- *
  * The oracle is a model of the transaction's notes: exactly those whose task the transaction holds.
- *
- * @plant test/plants/pg/program/templates-deferred-as-immediate.patch A deferred foreign key is admitted as existence
- * evidence inside a transaction.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

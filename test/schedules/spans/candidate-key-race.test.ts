@@ -48,18 +48,6 @@
  *
  * Features: the apply waited, the apply refused, and the generated addition retried after an UnseenOccupant at the span
  * key and at ticket.
- *
- * @plant test/plants/schedules/spans/candidate-key-exclusion-not-transient.patch A span key's exclusion violation from
- * an occupant the snapshot did not see is classified as the key's law, not a TransientFailure (adapter/outcomes/index.ts
- * transientFailureOf), so the generated addition is refused at once by the native violation, never retried into the
- * probe's refusal its serial order shows; the property fails.
- * @plant test/plants/schedules/spans/candidate-key-unique-not-transient.patch A unique violation from an occupant the
- * snapshot did not see is classified as the key's law, not a TransientFailure (adapter/outcomes/index.ts
- * transientFailureOf), so the generated addition is refused at once by the native 23505 at ticket, never retried into
- * the probe's refusal its serial order shows; the property fails.
- * @plant test/plants/schedules/laws/payroll-race-span-abort-not-transient.patch SERIALIZABLE's 40001 is read as no
- * TransientFailure (adapter/errors/execution.ts serializableRefusal), so an apply that met an unseen occupant fails
- * where its serial reference answers; the property fails.
  */
 
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"

@@ -25,13 +25,6 @@
  * by ROLLBACK (bench/write/support/writes.ts explainedChange). The oracle is the law itself; the family, key and span
  * suites (test/pg/write/swarm/families.test.ts, test/pg/write/unique-witness, test/pg/write/span-key,
  * test/pg/write/oracle) judge the refusals the same probe raises.
- *
- * @plant test/plants/pg/write/pair-cost/pair-at-equal-fields-by-exists.patch The pair branch at an object of no span
- * reads each candidate's others by EXISTS over the candidates, as before: a nested loop of every candidate with every
- * other.
- * @plant test/plants/pg/write/pair-cost/pair-at-overlapping-spans-by-exists.patch The pair branch at a span object
- * reads each candidate's others by EXISTS over the candidates, as before: a nested loop of every candidate with every
- * other.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

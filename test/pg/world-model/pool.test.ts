@@ -24,12 +24,6 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
  * (test/schedules/worlds/pooled-roles.test.ts). Its focus holds no direct writer, so a statement after a refused one
  * (invalid:session:after-refusal) is the inductive suite's, whose drawn states hold a direct transaction a refusal
  * aborted (pg/world-model/inductive).
- *
- * @plant test/plants/pg/world-model/worlds-pool-claims-outlive-transaction.patch A Db's claims set for the session,
- * not the transaction, so the pooled connection holds them between transactions; the driver's probe fails.
- * @plant test/plants/pg/world-model/stream-drop-first-row.patch A read's stream drops its first row (readStream in
- * adapter/reader/stream.ts), so a member's once disagrees with its flight wherever a read delivers a row (onceAgrees
- * in test/support/worlds/execute/artifacts.ts).
  */
 const pooled: Focus = [
 	"open-db",

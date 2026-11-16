@@ -29,9 +29,6 @@
  *   of a sequential scan), and the table ends as L, then D, leaves it.
  *
  * Oracle: specification, the two serial orders of L and D over the stated rows.
- *
- * @plant test/plants/schedules/write/met-keep-where.patch The arbiter's DO SELECT returns only an occupant whose payload
- * differs, so L's exact repeat of m meets nothing it reads back; the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

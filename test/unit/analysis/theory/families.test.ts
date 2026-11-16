@@ -19,13 +19,6 @@
  * Features: each verdict and near miss of the riding rule, a pair two laws carry, a key carried alone, an accumulated
  * field filled by none, one or two statements, each comparison's verdict for a tree, and each lawful shape and refusal
  * for the resolution.
- *
- * @plant test/plants/unit/analysis/theory/ride-needs-carried-pair.patch A containment rides only beside a carried
- * pair, so its key alone rides nothing (families.ts ridesOf); the riding box and the theory's riding fail.
- * @plant test/plants/unit/analysis/theory/tree-members-ge-zero.patch start ≥ 0 read as the tree's members, though it
- * holds the root (families.ts selectsMembers); a tree's riding fails.
- * @plant test/plants/unit/analysis/theory/counted-named-fold-admitted.patch A counted family's fold naming its
- * accumulators admitted (check/fold.ts foldRule); the resolution fails.
  */
 import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

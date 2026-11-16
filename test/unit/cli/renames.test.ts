@@ -28,9 +28,6 @@
  *
  * Features: each side's form, admitted and refused, a split two ways, swaps, chains, repeats and merges, and a roster
  * respelled alike or lacking.
- *
- * @plant test/plants/unit/cli/renames-handle-roster-spelling.patch A handle rename's two sides are one name only when
- * their rosters are spelled alike byte for byte.
  */
 import { drawn, explore, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

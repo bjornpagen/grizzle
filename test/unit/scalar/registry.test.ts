@@ -19,11 +19,6 @@
  *
  * Features: as each search names them; for the roster environment, a roster resolved and an unknown roster refused;
  * for text, each language kind; for the predicate table, a bound below, at and above zero.
- *
- * @plant test/plants/unit/scalar/registry-closed-id-bits-caps.patch A closed id's ScalarType takes the bits carrier's
- * capabilities; the capabilities property fails.
- * @plant test/plants/unit/scalar/registry-wild-value-throws.patch describeField throws at a value that is no record
- * instead of refusing it; the describeField admission property fails.
  */
 import { drawn, exhaust, explore, sketched } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

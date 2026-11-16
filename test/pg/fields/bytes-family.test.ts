@@ -10,9 +10,6 @@
  * Oracle: the drawn values, in slot order, less the one deleted.
  *
  * Features: the vocabulary Feature below, each member value's length class about a chunk.
- *
- * @plant test/plants/pg/fields/fields-delivery-chunk-offset.patch A delivered chunk is written at the wrong offset, so a
- * member's bytes past its first chunk read back wrong.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

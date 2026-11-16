@@ -18,15 +18,6 @@
  *
  * Features: the vector input's "admitted", "at the storage limit", "a component past binary32", "a non-finite
  * component", "past the storage limit" and "an underflow read as zero".
- *
- * @plant test/plants/pg/values/values-span-order-end-first.patch compareSpan compares the upper bounds first; the span
- * order property fails.
- * @plant test/plants/pg/values/values-vector-text-seven-digits.patch componentText writes seven significant digits; the
- * vector rounding property fails.
- * @plant test/plants/pg/values/values-vector-infinity-admitted.patch The component check refuses NaN alone, so an
- * infinity reaches the norm check; the vector input property fails.
- * @plant test/plants/pg/values/values-vector-order-length-first.patch Vector.compare orders by dimension count first;
- * the vector order property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

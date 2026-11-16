@@ -14,13 +14,6 @@
  *
  * Features: the population's required features (suite.ts and the file's own), "a fold key correlated with two parent
  * columns" among them, which a case whose turn aims at it reaches by the case built to (suite.ts foldKeyTwiceGen).
- *
- * @plant test/plants/pg/oracle/optimized/oracle-optimized-obligations-dropped.patch The dedup placement discharges no
- * obligation (lower/optimize/dedup/place.ts), so a DISTINCT owed is never placed and the optimized artifact repeats
- * rows.
- * @plant test/plants/pg/oracle/optimized/oracle-optimized-fold-key-collapsed.patch The fold an attachment restricts
- * by its parent's values keeps one equality per key column (lower/shapes/attach/index.ts), so a key paired with two
- * parent columns is restricted by one of them and a parent whose two columns differ receives a group.
  */
 import type { Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

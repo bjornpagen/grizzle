@@ -81,26 +81,6 @@
  * row's own flag in FlagRel.row of the flag its kind picks, is a kept case, at a kind Pick holds and at one it lacks;
  * so is the downstream count bound, a payload compared only where `C.has` holds the key, and the conditional that reads
  * a payload where the key is held and a literal where it is not.
- *
- * @plant test/plants/pg/closed/absent-domain-check-refuses-null.patch The printer's domain CHECK without its VALUE IS
- * NULL arm, so every domain refuses NULL: both searches fail, a set's bits domain refusing FlagRel.row at an absent
- * inner key among them.
- * @plant test/plants/pg/closed/absent-host-row-nowhere-null.patch The host's C.row of a prefix completed nowhere read
- * as NULL, not the empty set; the first search fails.
- * @plant test/plants/pg/closed/absent-host-at-absent-key-unsupported.patch The host evaluator reads a closed read at an
- * absent key as unsupported, so a fold write whose selection it leaves unknown is refused; the first search fails.
- * @plant test/plants/pg/closed/absent-fold-steps-where-not-fails.patch The fold's CHECK steps where `NOT φ` fails, not
- * where φ holds, so it refuses the host's fill of a member whose selection is unknown; the first search fails.
- * @plant test/plants/pg/closed/absent-singleton-bit-plus-one.patch PostgreSQL's singleton sets the bit at its code
- * plus one, storing another set; the first search fails.
- * @plant test/plants/pg/closed/absent-null-singleton-empty.patch PostgreSQL's singleton of a NULL id reads the empty
- * set, deciding a membership the contract leaves unknown; the first search fails.
- * @plant test/plants/pg/closed/absent-has-null-at-absent-key.patch PostgreSQL's C.has reads NULL at an absent key, so
- * the guard's row the contract holds is refused; the first search fails.
- * @plant test/plants/pg/closed/absent-has-of-null-key-false.patch PostgreSQL's C.has of a NULL key value reads false,
- * holding a negated presence the contract leaves unknown; the first search fails.
- * @plant test/plants/pg/closed/absent-row-reads-empty-as-full.patch PostgreSQL's C.row reads every handle where its
- * prefix is NULL or completed nowhere, so the guarded search accepts a row whose flags that read leaves unknown.
  */
 import { aimed, type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

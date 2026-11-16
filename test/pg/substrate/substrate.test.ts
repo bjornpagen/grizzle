@@ -61,15 +61,6 @@ import { withLayer } from "#test/support/with-layer.ts"
  * runs on (packages/pg/src/family.ts memberOf), where its roles live, cluster-wide: the schema's release sweeps every
  * `<schema>_*` role, so a role an installation created is dropped though nothing else names it. Each situation is
  * required, and a steered case whose turn aims at one draws a schema constructed to reach it (releaseAims).
- *
- * @plant test/plants/pg/substrate/substrate-leftovers-miss-routines.patch The leftover listing reads no routine of public, so a stray
- * function goes unnamed.
- * @plant test/plants/pg/substrate/substrate-clearing-occupied-skips-referencing.patch A schema's catalog group leaves
- * out every table with a foreign key, so such a table keeps its rows, or refuses the TRUNCATE of the table it
- * references (0A000).
- * @plant test/plants/pg/substrate/schema-release-skips-role-sweep.patch A schema's release drops no `<schema>_*` role
- * itself (substrate.ts allocated), so the world roles an installation created, which no finalizer of their own drops,
- * outlive the schema on the member; the released-roles property fails.
  */
 type Stray =
 	| "a table"

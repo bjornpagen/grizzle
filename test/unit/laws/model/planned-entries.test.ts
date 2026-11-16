@@ -18,9 +18,6 @@
  *
  * Features: the target the declared key or a superkey; admitted; the declared key refused; the target's UNIQUE refused
  * as unbounded or over the limit, or admitted at the limit; a referencing run no B-tree entry holds, admitted.
- *
- * @plant test/plants/unit/laws/model/btree-entry-at-bound-refused.patch An entry of exactly BTMaxItemSize is refused
- * (schema/representability.ts btreeEntry).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

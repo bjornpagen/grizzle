@@ -18,12 +18,6 @@
  *
  * The oracle is a second implementation: the worlds model's compile rules against grizzle's compile of the write the
  * executor serves.
- *
- * @plant test/plants/unit/world-model/compile-single-stratum-admitted.patch The model admits a single-stratum write past its compile where
- * grizzle refuses it (a stratum writing a query entry and a relation its filter reads); the property fails.
- * @plant test/plants/unit/world-model/world-model-no-crossing.patch The model admits a read-back whose delta no one statement makes
- * (model/session/apply.ts sideCrosses); the property fails in the steered phase: an insertion of the every-serial Visit
- * read back, two statements' by its serial classes.
  */
 import { explore, steered } from "@bjornpagen/testing/explore"
 import { required, type Situations } from "@bjornpagen/testing/features"

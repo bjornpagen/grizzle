@@ -25,15 +25,6 @@
  *   where that outcome is a law outcome.
  * - Narrowing (R2): a domain shared with a relation the role does not write is classified alike at a statement writing
  *   some of its columns, its uses narrowed to the written tables as the full classifier narrows them by the statement.
- *
- * @plant test/plants/unit/served/served-domain-narrowed-wrong.patch A domain constraint's uses are narrowed to the
- * tables the role does not write (program/schema.ts raisableConstraint): a shared domain's refusal names the other
- * relations' laws, and a domain typing written columns alone is dropped, so the cut reads its refusal as no law.
- * @plant test/plants/unit/served/served-cast-contract-chain-dropped.patch A cast value's contract chain is left out of
- * the domains it meets (program/schema.ts castDomains): a context claim of a checked contract whose domain types only
- * unwritten columns is no law of the cut.
- * @plant test/plants/unit/served/served-claims-uncast.patch The cut leaves a context's claims out of the domains a
- * write casts to (adapter/served/project.ts refusalsOf), so the claim's domain is no law of the cut.
  */
 import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

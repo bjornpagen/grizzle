@@ -8,10 +8,6 @@
  * payload commits, a payload relation shared by several handles taking each one's. Its oracle is alternatives' meaning
  * (fin.md §7), the specification: a run of an armed handle beside its payload's row keeps every law of the expansion.
  * Features: a handle of a payload relation shared, and one of a relation of its own.
- *
- * @plant test/plants/pg/laws/families/alternatives-shared-arm-first-handle.patch An arm's forward containment selects
- * its relation's first handle alone: the law lowering keeps the first value of an `in` selection
- * (scalar/compute/lower.ts), so the run of a shared relation's other handle is refused.
  */
 
 import { exhaust } from "@bjornpagen/testing/explore"

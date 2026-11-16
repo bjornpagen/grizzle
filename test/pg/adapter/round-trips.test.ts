@@ -25,19 +25,6 @@
  * Features: each read kind over one part or several, a window from an end and from a key, each call kind of a deferrable
  * member; once, explain, a read-back
  * and nothing to write; a refresh of an unpopulated and of a populated view; each first call and several Dbs opened.
- *
- * @plant test/plants/pg/adapter/round-trips-read-write.patch A read's transaction opened READ WRITE; the reads property
- * fails.
- * @plant test/plants/pg/adapter/batch-parity-split-flight.patch A Db call's COMMIT sent in a flight of its own; the reads,
- * writes and refreshes properties fail on their one round trip.
- * @plant test/plants/pg/adapter/round-trips-refresh-frame.patch A refresh opened READ ONLY; the refreshes property
- * fails.
- * @plant test/plants/pg/adapter/rollback-dropped.patch An explain's transaction committed, not rolled back; the reads
- * and writes properties fail on an explain.
- * @plant test/plants/pg/adapter/read-always-deferrable.patch Every read begun DEFERRABLE; the reads property fails on a
- * plain member.
- * @plant test/plants/pg/isolation/read-never-deferrable.patch A deferrable member's read begun without DEFERRABLE; the
- * reads property fails on a deferrable member.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -13,10 +13,6 @@
  * - Property: the one backend PostgreSQL lists as having run a writer's statement is its actor's pid, under its
  *   actor's role.
  * - Oracle: pg_stat_activity, read by the observer: each backend's last statement and its user.
- *
- * @plant test/plants/schedules/actors/grizzle-actor-counts-login-backends.patch The actor is the one client backend of
- * its login that pg_stat_activity lists in the database, not its own session's, so a session of its login beside it
- * fails its naming.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -22,9 +22,6 @@
  *    only the fields its caller writes: the ChangeSet type/engine agreement's "a generated field supplied" holds both.
  *
  * Features: each class of drawn bytes and each lowering the digest is checked through.
- *
- * @plant test/plants/pg/compute/compute-digest-hex-upper.patch The digest's SQL writes uppercase hex, which the
- * generated field's domain refuses and the host's digest never equals.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -72,9 +72,6 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  * its fill stopped at names a later member than the first of a missing weight where an earlier one no fill reads.
  *
  * Features: each selection, the weight fold or not, a missing weight at each place a fill reads it.
- *
- * @plant test/plants/unit/write/fill-stop-null-as-range.patch A generated field with no value at a row a fill reads
- * is refused as integerRange (runtime/write/fill.ts fillRefusal), not invariant-rejected on its law.
  */
 
 const weighedKinds = ["light", "heavy"] as const

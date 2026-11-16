@@ -28,9 +28,6 @@
  *
  * Features: each read shape, a page, each write member, a request no route serves, a method no route serves, the
  * leader's replication session, a write naming a family member, a read of closed relations alone.
- *
- * @plant test/plants/pg/live/leader-text-at-runtime.patch The leader sends a slot command it builds at run time, its
- * slot unquoted, on its replication connection; the replication connection's property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

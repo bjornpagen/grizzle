@@ -15,9 +15,6 @@
  *   started are exactly the rounds.
  *
  * Features: a candidacy failing, one dying of a defect, one interrupted, and a candidacy started after one died.
- *
- * @plant test/plants/unit/live/leading-catches-failures-only.patch The leadership is given back on a failure alone, as
- * listen.ts did, so a defect leaves the read waiting and no candidacy starts again.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

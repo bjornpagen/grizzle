@@ -73,10 +73,6 @@ import { fullWorld } from "#test/support/worlds.ts"
  * between others, an owner inserted again with a subset and with a new member, a step put, a label put, and each
  * refusal. A steered case is constructed to reach the situation its turn aims at (aimedWritesGen): a drawn case seldom
  * deletes an owner's only member or names an owner no write stored.
- *
- * @plant test/plants/pg/fin/counted-set-fold-ignores-third-field.patch A family write matches a counted family's groups
- * by their key's first two fields alone (write/family/written.ts sameGroupExprs), so owners that differ only in the
- * third share their members' recount and refill; the property fails.
  */
 
 const Name = str.bytes(16, str.regex("^.*$", "su"))

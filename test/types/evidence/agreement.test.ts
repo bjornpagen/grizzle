@@ -53,9 +53,6 @@ import { typeRun } from "#test/types/batch/provided.ts"
  * constant, pinned by one of them and not by another, and every fault refused, each whose site may hold a valid value
  * admitted too, so the program is never vacuous on any seed; the admission matrix holds every position and kind by
  * construction.
- *
- * @plant test/plants/types/evidence/api-workload-paged.patch paged takes a query no orderBy made (types/db/workload.ts
- * PagedArgument answers unknown for it), so a paged query's unordered self is admitted; the agreements' program fails.
  */
 const required: Situations<AgreementNote> = [
 	...agreementFeatures,

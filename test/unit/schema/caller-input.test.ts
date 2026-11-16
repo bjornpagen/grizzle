@@ -12,9 +12,6 @@
  * context admission), over every drawn field type, serial forms included.
  *
  * Features: each pair of carriers the rule tells apart, a meeting and a refusal.
- *
- * @plant test/plants/unit/schema/caller-input-rosters-meet.patch Two closed ids of different rosters meet
- * (schema/record.ts columnsMeet).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

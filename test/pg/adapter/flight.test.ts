@@ -27,12 +27,6 @@
  *
  * Features: a read-committed write frame, a deferrable read's frame, each interruption point, a CancelRequest sent, each refused ending, and a
  * write committed after an interruption.
- *
- * @plant test/plants/pg/adapter/interrupt-no-cancel.patch An interrupted flight sends no CancelRequest and severs its
- * connection at once. Both sessions run the same flight code, so they agree, and no case reaches the required "cancel
- * sent".
- * @plant test/plants/pg/adapter/flight-scripted-deferrable-read-aborted.patch The scripted session opens a deferrable
- * read's transaction aborted, so the double answers what no server does; the scripted and real sessions disagree.
  */
 import { type Case, explore, type Kept, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

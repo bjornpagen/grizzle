@@ -23,16 +23,8 @@ import { searched } from "@bjornpagen/testing/vitest"
  *
  * Features: each shape's classes, keys and dependencies (GapFeature of each search), and each claim the reference
  * evaluator checked.
- *
- * @plant test/plants/unit/analysis/logical/closed-classes-by-type-alone.patch Two closed columns of one type are one
- * class whatever their values (logical/props.ts Closed); the closed columns search fails.
- * @plant test/plants/unit/analysis/logical/lateral-fixed-one-way.patch A lateral source's fixed column determines the
- * region's variable but not back (logical/props.ts); the lateral source search fails.
- * @plant test/plants/unit/analysis/logical/projection-hidden-dropped.patch A projection keeps no hidden attribute of
- * its input (logical/props.ts projectProps); the projections search fails.
- * @plant test/plants/unit/analysis/logical/logical-factor-no-alternatives.patch A key factor states no alternative of
- * its chosen key (logical/props.ts finish); the joined keys search fails.
- */ import { describe, it } from "@effect/vitest"
+ */
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { makeIdSupply } from "#compiler/core/ids.ts"

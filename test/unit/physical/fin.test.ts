@@ -22,9 +22,6 @@
  *
  * Features: each count an owner holds and each slotted shape; each planted fault; a payload within the bound planned
  * and one past it refused.
- *
- * @plant test/plants/unit/physical/fin-block-digits-reversed.patch A block's codes are read least significant first.
- * @plant test/plants/unit/physical/fin-cell-bound-at-limit.patch A payload space of exactly 2^31 - 1 codes is refused.
  */
 import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

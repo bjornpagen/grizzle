@@ -25,12 +25,6 @@
  * Features: a named native, an alternatives expansion, a checked contract, a text domain, a key statement, a readable
  * row check, a hashed law column, an empty level above, a rule's trigger; a conjunction under a disjunction and a
  * singleton conjunction.
- *
- * @plant test/plants/unit/kernel/naming-digest-low-bits.patch A hashed name's digest is read from the low bits of its
- * hex digits, none dropped, so it is not the first 5 * digestChars bits of the SHA-256; the production-names property
- * fails.
- * @plant test/plants/unit/kernel/naming-kit-trigger-as-domain.patch The kit takes a trigger's owner for a domain, so a
- * rule's trigger is not found under its table; the production-names property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

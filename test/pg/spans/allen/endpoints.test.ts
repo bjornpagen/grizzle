@@ -12,8 +12,6 @@
  * The oracle is PostgreSQL evaluating the predicate as spelled, over the same facts and parameters.
  *
  * Features: each type rewritten, and selecting every fact, none and some; each tree shape above.
- *
- * @plant test/plants/pg/spans/allen/endpoints-upper-inclusive.patch pointIn of an upper endpoint is read as inclusive.
  */
 import { drawn, exhaust } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

@@ -16,9 +16,6 @@
  * copy of any one value allocates, so a bind under it copied no value twice.
  *
  * Features: a member refused from its lengths, a member bound, two bytes columns.
- *
- * @plant test/plants/unit/write/bytes-admission-copies.patch An admission that copies the caller's array
- * (scalar/values/bytes.ts admitBytes), which the identity check and the allocation bound both refuse.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

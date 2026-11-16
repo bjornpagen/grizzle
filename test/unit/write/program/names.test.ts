@@ -31,9 +31,6 @@ import {
  * oracle being the program's invariance under renaming its parameter.
  *
  * Features: none required; the name is the whole draw.
- *
- * @plant test/plants/unit/write/program/names-param-lowercased.patch A parameter's value read under its name
- * lowercased (runtime/write/bind.ts).
  */
 const membersOf = (program: CompiledWrite, value: unknown) =>
 	collectInputs(program.binding.groups, parsedOf(value).inputs)

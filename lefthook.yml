@@ -9,7 +9,7 @@ lefthook: node_modules/.bin/lefthook
 # files by pathspec, and git holds .git/index.lock while pre-commit runs, so pre-commit stays within seconds and builds
 # no lint program: on what the commit holds, `pnpm types`, oxfmt's check of its files and the AST-only oxlint
 # (oxlint.ast.config.ts, the full configuration without its type-aware rules) on the files it reads, side by side. A
-# merge or rebase skips pre-commit, so the push typechecks HEAD, what it brought, and runs the plant check on it. The full gate, pnpm check (the
+# merge or rebase skips pre-commit, so the push typechecks HEAD, what it brought. The full gate, pnpm check (the
 # non-incremental typecheck, the type-aware oxlint, the workspace gate, fallow), is no hook: it takes minutes cold, its
 # root tasks re-run on any change to the repository, and main takes a commit every two minutes or so, so a push that
 # waited for it would rarely find main where it left it. Run it by hand before closing a lane, or on exactly what the
@@ -25,7 +25,3 @@ pre-push:
   jobs:
     - name: types
       run: sh vendor/toolchain/packages/devtools/bin/gate.sh run HEAD pnpm -s types --output-logs=errors-only
-    # A plant that no longer applies plants nothing, and a change to the code under it is what makes it so: the plant
-    # check (scripts/dev/plants/check.ts, about 8 s) runs on what is pushed, so a stale plant never reaches main.
-    - name: plants
-      run: sh vendor/toolchain/packages/devtools/bin/gate.sh run HEAD pnpm -s plants:check

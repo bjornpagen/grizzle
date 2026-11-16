@@ -60,10 +60,6 @@ import { tokenOf } from "#test/support/worlds.ts"
  * the at most one lead object at the UNIQUE's own law column and was "permission denied for table seat": ann's role
  * holds column SELECT on Seat's fields alone, so a write through her entry meets that object at its fields and its
  * selection (write/insert/unique.ts entryUniques).
- *
- * @plant test/plants/pg/write/entry-occupants/entry-occupants-primary-key-probe-only.patch The precheck probes the
- * primary key alone (write/entry/precheck.ts outsideProbes); the property fails.
- * @plant test/plants/pg/write/entry-occupants/entry-at-law-columns.patch a write through a query entry meets a key over a selected side at its UNIQUE's law column, which the entry's role may not read
  */
 const Subject = str.regex("^u_[a-z]{1,8}$")
 const Seat = relation(

@@ -25,13 +25,6 @@
  *
  * Features: every shape of candidate; every lexical kind; an included and a refuted pair; each route admitted and
  * refused, a decimal's refused by its language and by its bytes.
- *
- * @plant test/plants/unit/scalar/lexical-boolean-form-yes.patch The boolean form's pattern admits "yes", which its
- * scan does not; the second-definition property fails.
- * @plant test/plants/unit/scalar/lexical-inclusion-always-included.patch The inclusion walk calls every pair it reaches
- * included, never refuted; the inclusion walk's refutation property fails, and the parse properties with it.
- * @plant test/plants/unit/scalar/lexical-decimal-remedy-octets-off.patch A decimal parse's remedy bounds the operand's
- * bytes one past the form's bound; the parse precondition's remedy property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

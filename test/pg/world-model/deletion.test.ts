@@ -25,9 +25,6 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
  * worlds model predicts each read, and the driver reads every base table and the derived relation as the owner after
  * each action: a deleted fact leaves its base relation and every world relation at once, and a derived relation keeps
  * it only until a refresh by a role whose refresh list names it, after which no world relation shows it.
- *
- * @plant test/plants/pg/education/worlds-deletion-keeps-facts.patch An exact deletion's DELETE is printed WHERE false
- * (write/delete/exact.ts deletion), so a deleted fact stays stored; the stored facts disagree with the model's.
  */
 const deleting: Focus = [
 	"apply",

@@ -19,9 +19,6 @@
  *   locking only the index pages and rows it reads, whatever the planner guesses of the carriers. So the staged import
  *   sends no ANALYZE of its carriers (write/program/staged.ts analyzeOf). Some interleaving overlaps them (the first
  *   import waits on the gate's key while the second commits).
- *
- * @plant test/plants/schedules/fin/staged-imports-every-probe-finds-a-row.patch A probe of stored rows by key binds no
- * key column (write/probe.ts probeKey), so it finds any stored row; the property fails.
  */
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Record as Rec, Result, String as Str } from "effect"

@@ -11,11 +11,6 @@
  * Texts are drawn from an alphabet with explicit weights, quote and backslash beside ordinary letters and any Unicode
  * scalar value, so the characters quote_literal doubles are no rarity. Features: a text holding a quote, one holding a
  * backslash (an E literal), one holding both, the empty text, and every planted fault.
- *
- * @plant test/plants/unit/oracle-install/capture-lone-quote.patch A lone quote is read as itself rather than refused;
- * the refusal property fails.
- * @plant test/plants/unit/oracle-install/capture-backslash-kept.patch An E literal's backslashes are left doubled; the
- * round trip property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

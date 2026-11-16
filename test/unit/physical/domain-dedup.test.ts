@@ -17,9 +17,6 @@
  * bases × 2 predicates, squared, exhausted (36 cases).
  *
  * Features: a shared domain, two domains, a shared checked domain, and a base shared with predicates apart.
- *
- * @plant test/plants/unit/physical/domain-dedup-named-by-contract.patch A contract's domain is named by its contract as
- * well as its definition, so two contracts of one definition never share one.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -37,29 +37,6 @@
  * Features: the spellings the format must get right (SpellingFeature), each kind outside the model (Outside), each
  * container and direction of a nesting and a cycle, each omitted member, each freezing, a repeated member, and what
  * stands where two token lists first differ (TokenFeature).
- *
- * @plant test/plants/unit/core/canonical-keys-locale.patch a record's keys in locale order, not UTF-16 code unit
- * order; the text property fails.
- * @plant test/plants/unit/core/canonical-tilde-kept-doubled.patch a doubled tilde read back doubled; the round trip
- * property fails.
- * @plant test/plants/unit/core/canonical-bigint-leading-zero.patch a bigint text with one leading zero admitted; the
- * outside-the-model property fails.
- * @plant test/plants/unit/core/canonical-cycle-at-root.patch a cycle refused at the root, not where it meets itself;
- * the cycle property fails.
- * @plant test/plants/unit/core/canonical-depth-refused.patch the walk refuses a value nested ten thousand containers
- * deep as a depth; the nesting property fails, and the cycle property, which a cycle through more containers reaches.
- * @plant test/plants/unit/core/canonical-decode-depth-refused.patch decode refuses a text nested more than a thousand
- * brackets deep as a depth; the nesting property fails in its decode direction.
- * @plant test/plants/unit/core/fingerprint-every-loc-omitted.patch a "loc" member omitted whatever it holds; the
- * omission property fails.
- * @plant test/plants/unit/core/canonical-frozen-memo.patch a frozen value's text remembered, whatever it holds since
- * and whatever the options; the now property fails.
- * @plant test/plants/unit/core/canonical-equals-identity.patch a value outside the model equal to itself; the
- * outside-the-model property fails.
- * @plant test/plants/unit/core/canonical-sort-by-length.patch a set sorted by its members' text length; the comparison
- * property fails.
- * @plant test/plants/unit/core/canonical-tokens-prefix-first.patch a number whose text begins another's ordered first,
- * whatever follows it, a closing bracket included; the tokens property fails where it requires that bracket.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

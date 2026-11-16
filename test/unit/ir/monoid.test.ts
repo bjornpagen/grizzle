@@ -18,11 +18,6 @@
  * the empty text, two letters, their concatenation and a supplementary-plane character.
  *
  * Features: every monoid's laws, and concat's two steps that do not commute; every monoid admitting and refusing.
- *
- * @plant test/plants/unit/ir/ir-monoid-concat-commutative.patch concat claims to commute, so the laws' two steps it
- * does not commute break its flag.
- * @plant test/plants/unit/ir/ir-monoid-max-admits-numeric.patch max admits a numeric, which has no least value to
- * start from; `admits` disagrees with the validators.
  */
 import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

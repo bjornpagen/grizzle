@@ -16,22 +16,6 @@
  *   unit/laws/recognition's).
  *
  * Features: each search's verdicts, pairings and contexts.
- *
- * @plant test/plants/unit/analysis/logical/span-pairing-two-admitted.patch A containment pairing two span fields
- * admitted (analysis/theory/laws.ts); the span pairings property fails.
- * @plant test/plants/unit/analysis/logical/field-classes-any-pairing.patch Two fields of one carrier paired whatever
- * their contract or roster (analysis/theory/classes.ts); the classes property fails.
- * @plant test/plants/unit/analysis/logical/key-violation-no-differs.patch A key's violation pairs any two facts sharing
- * the key, a fact with itself (analysis/theory/laws.ts keyViolation); the Work violations and the candidate key fail.
- * @plant test/plants/unit/analysis/logical/check-violation-unnegated.patch A row check's violation names the rows it
- * holds of (analysis/theory/laws.ts checkViolation); the row check fails.
- * @plant test/plants/unit/analysis/logical/evidence-closed-target-deferred.patch A containment into a closed relation
- * only committed-snapshot evidence (analysis/theory/theory.ts); the evidence context fails.
- * @plant test/plants/unit/analysis/logical/evidence-immediate-set-ignored.patch Law specialization's immediate set
- * unread (analysis/theory/theory.ts); the containment context fails.
- * @plant test/plants/unit/analysis/logical/law-id-names-its-statement.patch A law's identity names the statement it
- * comes from (analysis/theory/theory.ts lawIdentityOf); the identities' independence fails, and the equivalent
- * declarations too, since a restated law would take its later statement's identity.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

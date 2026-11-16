@@ -7,11 +7,6 @@
  *   keeps every row. Oracle: the kept-rows rule as a checker.
  *
  * Features: every node kind; each kind that keeps rows, and one keeping every row.
- *
- * @plant test/plants/unit/ir/ir-rel-attach-child-unlisted.patch An attachment's child is missing from its edges; the
- * structural map property fails.
- * @plant test/plants/unit/ir/ir-rel-attach-keeps-child.patch An attachment keeps its child's rows, not its parent's;
- * the kept-rows property fails, and so does the structural map's, whose DAG the delivery rule then refuses.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

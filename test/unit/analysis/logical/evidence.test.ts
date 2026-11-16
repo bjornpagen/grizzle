@@ -27,20 +27,6 @@
  *
  * Features: each claim checked (EvidenceFeature), each execution and containment context, an orphaned containment and
  * a span coverage's fact covered apart from its target's spans; each claim and delivered type for idempotence.
- *
- * @plant test/plants/unit/analysis/logical/filter-keeps-exactly-one.patch A filter over an input of exactly one row
- * claims exactly one, though it may drop it (logical/props.ts); the soundness property fails.
- * @plant test/plants/unit/analysis/logical/bare-child-coverage-admitted.patch A span coverage proves a bare child
- * (logical/attach.ts containmentOne), which a parent covered apart from its target's span refutes; the bare-children
- * property fails on spanCoverageNarrowed.
- * @plant test/plants/unit/analysis/logical/annotate-keys-accumulate.patch A node's claimed keys gather its earlier
- * claims beside the new ones (logical/annotate.ts rebuilt); the idempotence property fails.
- * @plant test/plants/unit/analysis/logical/fixed-name-unscoped.patch A node names a fixed column by a column it binds
- * (logical/props.ts nameAt reads no scope): a region carries a lateral source's name of an earlier source's column as
- * a value of its own; the soundness property fails on boundHandleNamed.
- * @plant test/plants/unit/analysis/logical/kernel-value-unscoped.patch The key kernel reads a column a node binds as
- * one of its values (test/support/keys/kernel.ts #outer), so a value a lateral source fixes to a column of its own
- * region leaves the region as a value; the soundness property fails on lateralFixedThroughBoundSibling.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required, type Situations } from "@bjornpagen/testing/features"

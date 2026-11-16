@@ -17,9 +17,6 @@
  *
  * Features: an id ahead of the horizon, an id running in the snapshot, an id the snapshot sees, an id in another epoch
  * than the horizon's.
- *
- * @plant test/plants/pg/live/visibility-ignores-horizon.patch placement places a transaction by the snapshot's running
- * set alone, so one at or past its horizon reads as seen.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

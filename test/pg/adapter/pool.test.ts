@@ -17,13 +17,6 @@
  *
  * Features: each step kind, a lease after a retirement, an idle and a new session leased; every statement in every
  * flight; every standing, a release before any answer and mid-answer.
- *
- * @plant test/plants/pg/adapter/pool-retired-reused.patch A retired session released without an error, so pg's Pool
- * keeps it; the retirement and interruption properties find the pool's size unchanged by its release.
- * @plant test/plants/pg/adapter/interrupt-session-kept.patch An interrupted flight's session left open, never retired,
- * so the pool leases it again; the interruption property fails.
- * @plant test/plants/pg/adapter/pool-release-awaits.patch A layer's release leaving its sessions' connections up,
- * retired, not ended; the release property finds the session not ended once the release returns.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

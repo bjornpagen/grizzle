@@ -15,12 +15,6 @@
  * Features: a value's binade (normal, subnormal) and sign; above, below and either tie of a midpoint; every range of a
  * random decimal; the grammar's admissions, refusals, specials and strtod spellings; a finite double, zero and a
  * special.
- *
- * @plant test/plants/unit/codec/float-ties-away.patch A decimal midpoint between two binary32 values is rounded away
- * from zero, not to even.
- * @plant test/plants/unit/codec/float-real-negative-infinity-lost.patch A real's text -Infinity is read as Infinity.
- * @plant test/plants/unit/codec/float-text-sixteen-digits.patch A double is written to sixteen significant digits,
- * not its shortest round-trip text.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

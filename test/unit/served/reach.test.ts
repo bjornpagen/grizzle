@@ -24,14 +24,6 @@
  * The oracle is the reach computed independently from the compiled program and the installation
  * (test/support/served-reach.ts): the statements' parameters and written relations, the decoders, and the written
  * relations' field types, never through program/served.ts servedRosters or program/schema.ts raisableOf.
- *
- * @plant test/plants/unit/served/served-roster-unreached.patch The file holds every roster of the snapshot
- * (adapter/served/project.ts); rosters' minimality fails, and the file loads without the added codes.
- * @plant test/plants/unit/served/served-roster-dropped.patch The file drops the first roster it would hold; rosters'
- * sufficiency fails, and the file does not load.
- * @plant test/plants/unit/served/castby-changes-only.patch The oracle's castBy (test/support/served-reach.ts) counts a
- * ChangeSet's parameters alone, so a role that only reads a closed roster by a parameter of its type holds a roster
- * domain the oracle says it never reaches; laws' minimality fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

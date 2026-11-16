@@ -30,9 +30,6 @@
  *
  * Features: an immutable and a mutable owner's family, an immutable tree, a role with no change member, a member of
  * several variants, a relation some trigger law reads, a member's reference to its owner.
- *
- * @plant test/plants/unit/program/isolation/isolation-input-counted-mutable.patch A counted group is given for a
- * mutable owner's family too.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

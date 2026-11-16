@@ -26,15 +26,6 @@
  * Features: each verdict, the regeneration's re-record rolled back with its refused next file, a regeneration of a
  * target alike in files but not in fingerprint, and a resume whose next file runs outside a transaction. A case whose
  * turn aims at one is drawn by the generator as a folder, a regeneration and a point that reach it (aims).
- *
- * @plant test/plants/pg/migrate/redraft-outside-transaction.patch The re-record runs in a transaction of its own before
- * the next file, so a refused next file leaves the regeneration recorded.
- * @plant test/plants/unit/adapter/partial-digest-unchecked.patch The partial folder's completed files are not compared
- * with the texts that ran, so a regeneration that changed one resumes where it must be refused at `edited`.
- * @plant test/plants/unit/adapter/redraft-no-transaction-admitted.patch A regeneration resumes at a no-transaction file,
- * which may have partly run under the started draft, where it must be refused at `order`.
- * @plant test/plants/unit/adapter/record-one-text-per-statement.patch A file's statements are recorded as one text, as
- * before 3e9bbb2c, so a resume under a regeneration is refused: the folder does not record 01-setup.sql as it ran.
  */
 import { aimed, type Case, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

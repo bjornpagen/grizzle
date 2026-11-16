@@ -13,11 +13,6 @@
  * orphanExitBound of the kill (test/support/limits.ts), the one property of the tiers judged by the clock, since what
  * it checks is a time; then CREATE_REPLICATION_SLOT of a logical slot, which waits for every transaction id running
  * as it starts, returns the slot.
- *
- * @plant test/plants/pg/substrate/orphan-client-check-dropped.patch The cluster declares no
- * client_connection_check_interval (packages/pg/src/settings.ts clusterSettings), so the backend of a client killed
- * mid-statement runs its statement on and keeps its transaction id, and every logical slot's creation on the cluster
- * waits behind it.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

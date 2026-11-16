@@ -11,9 +11,6 @@
  * Oracle: the guard's specification, the otherwise value at zero and BigInt's truncated quotient elsewhere.
  *
  * Features: each plan with each bound, "custom plan, zero" to "generic plan, a divisor".
- *
- * @plant test/plants/pg/compute/compute-when-unguarded.patch Compute.when lowers to its proved branch alone, so a zero
- * divisor raises 22012.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

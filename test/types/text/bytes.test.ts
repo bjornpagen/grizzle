@@ -4,10 +4,6 @@
  * string; and it meets every text its pattern meets, as a containment's source and as a key; the program has no
  * diagnostic. Oracle: the pattern-refined text's own type. The floor's cases, which the label fixes, reach every
  * required situation on every seed.
- *
- * @plant test/plants/types/text/text-bytes-field.patch str.bytes is typed as a text whose host is string, no pattern's
- * (text/field.ts bytesConstructor), so a finite language's bounded text is no longer its pattern's type; the program
- * fails.
  */
 import { unreachedOf } from "@bjornpagen/testing/features"
 import { NodeServices } from "@effect/platform-node"

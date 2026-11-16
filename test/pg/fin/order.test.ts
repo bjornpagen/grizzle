@@ -16,9 +16,6 @@
  * Each case's transaction runs on a seat with no rows and is checked as its COMMIT would check it and rolled back, or
  * ends by a real COMMIT whose rows are read and cleared, as the case draws its end on its tape (installed.ts endGen):
  * the box requires both ends.
- *
- * @plant test/plants/pg/fin/fin-predecessor-axis-deferral-swapped.patch The predecessor axis's deferral is swapped: the
- * ordered family's installed deferred, so a split the model refuses commits; the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

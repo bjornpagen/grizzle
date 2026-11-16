@@ -15,10 +15,6 @@
  * (a stored one at its level's schema, a derived one by its view's identifier); each key column a field where the theory records one at that column, the fixture's derived
  * relation's view columns being its fields' own names, and otherwise a law column with the laws its manifest object
  * records; each with a B-tree's direction, or none for a span key's GiST.
- *
- * @plant test/plants/unit/deploy/index-reasons-dropped.patch The derived facts record each index with its first
- * reason alone.
- * @plant test/plants/unit/deploy/index-columns-reversed.patch An index's key columns are recorded in reverse order.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

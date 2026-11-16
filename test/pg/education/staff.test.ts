@@ -5,10 +5,6 @@
  * SERIALIZABLE. Every row a teacher's world shows is of a section their assignments name, and every grade, mark and
  * note they write is in such a section and recorded under their own account; every row a school administrator's world
  * shows, and every enrollment they write, is of the school their claims name and their account administers.
- *
- * @plant test/plants/pg/education/worlds-isolation-row-security-off.patch Row security is left off on every table a
- * writer narrows, so a writer's policy narrows nothing; the installed-catalog checker finds each such table's row
- * security missing, and both properties fail.
  */
 import { layer } from "@effect/vitest"
 import {

@@ -40,9 +40,6 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
  * The suite is the unbiased explorer: it aims at nothing, so it requires only what its generator reaches by construction
  * (`required`), and the aimed suites of each area require that area's features of the worlds feature map: a write
  * that breaks a law is the laws suite's (laws.test.ts) and the exhaustive box's.
- *
- * @plant test/plants/pg/world-model/worlds-pool-claims-outlive-transaction.patch A Db's claims set for the session, not
- * the transaction, so a pooled connection holds them between transactions; the driver's probe fails.
  */
 const guide: Arr.NonEmptyReadonlyArray<string> = [
 	"packages/engine/src/schema/world.ts",

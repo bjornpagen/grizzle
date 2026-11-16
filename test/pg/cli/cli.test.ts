@@ -24,9 +24,6 @@
  * Features: each executor, several schemas, the ledger fixture, each connection, and the refusal of a role that does not
  * own the schemas by each executor, so in process its typed refusal at stage owner is read; the generator draws a case
  * whose turn aims at a refusal run by its executor as that role (aimed).
- *
- * @plant test/plants/pg/cli/cli-owner-unchecked.patch migrate's owner stage passes a schema another role owns, so in
- * process the refusal of a role that does not own the schemas comes at a later stage than owner.
  */
 import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

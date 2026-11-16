@@ -13,11 +13,6 @@
  * The widths are where a word or a byte begins or ends (doctrine rule 10): 0, 1, 7, 8, 9, 31, 32, 33, 63, 64 and 65, and
  * one drawn up to 200. Sets are drawn at a density the case draws, and B and K are drawn against A as a superset, a
  * disjoint set, one member of A, or independently, so every law is met both ways.
- *
- * @plant test/plants/pg/substrate/substrate-bits-cell-word-boundary.patch The host's cell read takes the second word's shift in one step, so
- * at a word's first bit (a shift by 32, which is a shift by 0) the whole next word is read into the cell.
- * @plant test/plants/pg/substrate/substrate-bits-popcount-nibble-mask.patch The host's count sums a word's nibbles under a wrong mask, so a set
- * counts fewer members than PostgreSQL's bit_count.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -17,11 +17,6 @@
  * routed value, an unchanged TOASTed value, a change of a whole-read table, of an unread table, of the ledger, an
  * announced view, an announced stored table's key, `invalidated` announced, `migrated` announced, malformed announcement
  * text, and another prefix.
- *
- * @plant test/plants/unit/live/announcement-accepts-table-key.patch The reader takes any table key an announcement
- * names, so a forged announcement re-runs every read of a stored table; the announcement property fails.
- * @plant test/plants/unit/live/ledger-unread.patch The ledger is read as a table no program reads, so a migration ends
- * no live read; the change property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

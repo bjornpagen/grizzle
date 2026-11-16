@@ -38,11 +38,6 @@ import { regex } from "arkregex"
  *   by value, every other column exactly (raw text cannot be compared);
  * - reloads the same facts in another physical order, refreshes again with no base change, and checks that the refresh
  *   wrote no row: every row keeps its tuple.
- *
- * @plant test/plants/pg/derived/derived-refresh-always-plain.patch The refresh block refreshes a populated view
- * plainly rather than CONCURRENTLY (adapter/refresh/statements.ts refreshBlock), so a refresh with no base change
- * writes every row again;
- * the property that the second refresh wrote no row fails.
  */
 type Vars = ReturnType<typeof v>
 

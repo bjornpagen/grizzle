@@ -14,9 +14,6 @@
  *
  * Features: a moved import renamed; a file with nothing to rename left as it was; each, while pending, aimed at by a
  * case constructed to reach it (`aims`).
- *
- * @plant test/plants/unit/dev/toolchain-imports-grizzle-oxfmt.patch The script formats what it renamed with oxfmt from
- * grizzle's root, under grizzle's configuration; the property fails.
  */
 import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

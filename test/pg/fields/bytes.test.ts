@@ -13,9 +13,6 @@
  * Uint8Array over its own buffer.
  *
  * Features: the vocabulary Feature below, each value's length class and each path it is written and read by.
- *
- * @plant test/plants/pg/fields/fields-delivery-chunk-offset.patch A delivered chunk is written at the wrong offset.
- * @plant test/plants/pg/fields/fields-delivery-order-reversed.patch The assembled rows come back in reverse order.
  */
 import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -53,9 +53,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * Wanted, and an index condition bounds it, whatever the values. Each shape is a required feature, as are a relation
  * parameter of no keys and one of several, and while one is pending a steered case is constructed to reach it (`aims`):
  * its shape, or the relation parameter's member with no keys or two to four.
- *
- * @plant test/plants/pg/write/anchored/anchored-delete-never-anchored.patch An exact deletion is never anchored on its
- * relation's occurrence; the property fails at the floor's case 0.
  */
 type Shape =
 	| "the claim's deletion of the Wanted items its pick names"

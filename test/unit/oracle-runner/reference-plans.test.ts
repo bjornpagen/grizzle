@@ -18,11 +18,6 @@
  * test/unit/oracle-gen/query.test.ts and the conservative gate require; here every case is a differential, so no
  * feature of its own is required. indexIdentity's features: one identity, two, none for another carrier, none outside
  * the roster.
- *
- * @plant test/plants/unit/oracle-runner/reference-plans-one-candidate.patch An index lookup keeps one row of its
- * bucket; the plan properties fail.
- * @plant test/plants/unit/oracle-runner/index-identity-outside-roster.patch A handle outside its roster is given an
- * identity, so two keyed values meet a comparison that refuses them; the indexIdentity property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, requiredInSpace } from "@bjornpagen/testing/features"

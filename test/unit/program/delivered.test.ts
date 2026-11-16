@@ -123,11 +123,6 @@ import { outputText } from "#test/support/wire.ts"
  * Features: each stated delivery the facts break, refused, and each the program proves, bound; a column, an attachment
  * and a nested key removed, refused; a rebuilt query, and a rebuilt arm beside a typed arm, refused; each heading group
  * of a mixed root decoded.
- *
- * @plant test/plants/unit/program/delivered-option-unchecked.patch An Option delivery is bound over layouts that may
- * hold many children.
- * @plant test/plants/unit/program/delivered-missing-key-skipped.patch A record key its layout lacks is read as absent,
- * not refused at bind.
  */
 type QueryRead = Extract<ProgramRead, { readonly kind: "query" }>
 

@@ -12,9 +12,6 @@
  *
  * The swarm adds refunds made before the race, the dispute, the voiding, and an open invoice whose payment races its
  * refunds.
- *
- * @plant test/plants/pg/spans/storage/laws-le-strict.patch A comparison's `le` is lowered as `<`, so refunds summing
- * to the invoice exactly are refused; the property fails.
  */
 
 import { array, type Gen, int, shuffled, weighted } from "@bjornpagen/testing/gen"

@@ -13,13 +13,6 @@
  *   faults as a checker.
  *
  * Features: each carrier stored and refused; each rewrite and each change; each malformation.
- *
- * @plant test/plants/unit/values/values-uuid-case.patch An upper-case uuid is stored as written, not lower-cased;
- * the admission and identity properties fail.
- * @plant test/plants/unit/values/values-identity-raw-part.patch A field's part of the identity is its value's own
- * text rather than its canonical one; the identity property fails.
- * @plant test/plants/unit/values/values-fact-field-unnamed.patch A field's fault names no field; the refusal property
- * fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

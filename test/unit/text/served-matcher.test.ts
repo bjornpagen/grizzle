@@ -13,9 +13,6 @@
  * Oracle: the specification, nfa.ts buildNfa over the pattern's parse and the compiled table's own membership.
  *
  * Features: a pattern under u, one under su, a text matched, a text refused.
- *
- * @plant test/plants/unit/text/text-served-sets-repeated.patch The served file's set table writes a set once for
- * each edge that steps on it; the property that the file's sets are a set fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -15,9 +15,6 @@
  *
  * Features: a role that serves nothing, a role that serves programs, two roles, a read member, a paged member, a change
  * member.
- *
- * @plant test/plants/unit/live/route-without-program.patch A route without a program: the table holds a route for
- * every role of the file, a role that serves nothing included.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

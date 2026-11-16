@@ -13,15 +13,6 @@
  *
  * Features: one or several minimal keys and a key of several columns; each class shape and projection; each arm's
  * copies and equalities; each forged mapping.
- *
- * @plant test/plants/unit/analysis/logical/minimal-keys-no-exchange.patch No exchange after the heading's
- * minimization (logical/closure.ts minimalKeys); the minimal keys property fails.
- * @plant test/plants/unit/analysis/logical/classes-ignored.patch Every column its own class (logical/props.ts
- * finish); the class keys property fails.
- * @plant test/plants/unit/analysis/logical/union-equal-first-arm-alone.patch Two columns the first arm makes equal are
- * the union's equal columns (logical/props.ts unionProps); the union class keys property fails.
- * @plant test/plants/unit/analysis/logical/kernel-arms-unchained.patch The kernel reads an arms witness's
- * implications and not its equality chain (test/support/keys/kernel.ts); the forged union equalities property fails.
  */
 import { drawn, explore, type Kept, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -24,9 +24,6 @@
  * The planted platforms reach the features the population must keep reaching: an event exactly at a rate change, a
  * grant expiring exactly at an event's start and at its end, a cap hit exactly, zero-token and cache-only events, a
  * tier boundary crossed within one event, an event split across grants.
- *
- * @plant test/plants/pg/e2e-platform/reads-page-skips.patch A forward page's seek made inclusive, so its anchor
- * repeats; the windows no longer concatenate to the ordered rows.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

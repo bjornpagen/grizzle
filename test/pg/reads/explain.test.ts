@@ -44,24 +44,6 @@
  * estimate-only explain runs nothing but a carrier's CREATE TEMPORARY TABLE ... ON COMMIT DROP and its ANALYZE and an
  * analyzed read runs READ ONLY, so no state here witnesses it: test/pg/adapter/round-trips.test.ts, which reads each
  * explain's transaction off the wire, catches it.
- *
- * @plant test/plants/pg/reads/explain-first-plan-dropped.patch Explain's plans come without the first; the reads' and
- * the ChangeSets' properties fail.
- * @plant test/plants/pg/reads/explain-change-leases-first.patch A ChangeSet's explain leases a session before its host
- * checks; the refusals' property fails.
- * @plant test/plants/pg/reads/explain-host-refusal-unwitnessed.patch Explain's host refusal of a same-key pair reports
- * its witness as unreported; the refusals' property fails.
- * @plant test/plants/pg/reads/explain-uncut-by-session-bound.patch Explain's executions are cut by no session bound;
- * the session bound's property fails.
- * @plant test/plants/pg/reads/unprepared-statement.patch Each plan is reported under its unnamed EXPLAIN's own name
- * rather than the served statement's; the reads' and the ChangeSets' properties fail.
- * @plant test/plants/pg/reads/change-analyzed.patch A ChangeSet's statements run under EXPLAIN ANALYZE, so its serial
- * field's sequence advances; the ChangeSets' property fails.
- * @plant test/plants/unit/adapter/index-wrong-relation.patch An index node names another relation than the one whose
- * table holds the index; the reads' and the ChangeSets' properties fail.
- * @plant test/plants/pg/reads/explain-read-back-delta-carrier.patch The statement a read-back rides also stages its
- * delta into a carrier it creates and fills from its RETURNING (write/program/slot-carriers.ts), no member slot's; the
- * ChangeSets' property fails.
  */
 import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

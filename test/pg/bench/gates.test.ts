@@ -8,11 +8,6 @@
  * (bench/harness/rules.ts gateCatalog), each once. The oracle is the gate catalog, the specification of what each owner
  * must measure, and each gate's own verdict on what it measured; the box is the bench files of the owner's directories
  * at quick scale.
- *
- * @plant test/plants/pg/bench/plans-access-index-dropped.patch The index engine planning no access index, only law
- * probes; the query gates' owner fails.
- * @plant test/plants/pg/e2e-platform/plans-probe-unindexed.patch The index engine planning no law probe index; the
- * write and law gates' owner fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

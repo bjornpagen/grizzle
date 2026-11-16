@@ -60,9 +60,6 @@ import { upTo } from "#test/support/up-to.ts"
  * what each program does with the relations it names, the refresh's targets among them. generate then writes the
  * configured set's first draft, drafting no folder and leaving snapshot.json and manifest.json byte for byte, since a
  * refresh member plans no access; and check passes again.
- *
- * @plant test/plants/unit/cli/check-documents-unread.patch check holds the served files alone, so a stale document
- * goes unfound.
  */
 
 type Situation =

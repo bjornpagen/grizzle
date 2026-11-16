@@ -12,9 +12,6 @@
  *
  * The swarm adds spend recorded before the race, a cap put, the caps given, and a request submitted twice by two
  * writers (its keys make the second no-change or refused, never a second charge).
- *
- * @plant test/plants/pg/spans/storage/laws-le-strict.patch A comparison's `le` is lowered as `<`, so a request that
- * hits the cap exactly is refused; the property fails.
  */
 
 import { array, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"

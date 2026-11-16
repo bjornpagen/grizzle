@@ -10,15 +10,6 @@
  *   the contract's predicate, near its bounds and at bigint's limits.
  * - Parameters: a span parameter binds as its canonical text, and lower, upper and width read every stored span the
  *   window meets, exactly, a width past bigint's range among them; an empty or reversed window is refused by its codec.
- *
- * @plant test/plants/pg/spans/storage/storage-shape-unbounded-above.patch The shape CHECK admits a span unbounded above;
- * the shape property fails.
- * @plant test/plants/pg/spans/storage/storage-width-int4.patch The width is checked in integer, which overflows at the
- * limits; the width property fails.
- * @plant test/plants/pg/spans/storage/laws-le-strict.patch A comparison's `le` is lowered as `<`, so an endpoint at
- * Tick's bound is refused; the contract endpoints property fails.
- * @plant test/plants/pg/spans/storage/storage-param-open-lower.patch A span's canonical text, a parameter's among them,
- * is written with an exclusive lower bound; the parameters property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

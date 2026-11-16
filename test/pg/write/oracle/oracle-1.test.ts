@@ -15,16 +15,6 @@
  * COMMIT refuses the change; the calculator's own draws pass the deleted fact, take a = 2 and would accept. The
  * sequences record those draws after the rollback, and each side is judged under them (harness.ts expectedOf,
  * addwins.ts Draws `realized`).
- *
- * @plant test/plants/pg/write/oracle/write-oracle-admission-after-strata.patch The model judges the parameters after
- * the strata (expect.ts expectUnder), so it expects the first stratum's key law where both realizations refuse p0 at
- * the admission; the kept case fails.
- * @plant test/plants/pg/oracle/optimized/installations-without-params.patch The oracle harness installs a case's schema
- * without the parameter types its query declares (test/support/oracle/write/run.ts openTarget), so a parameter cast to a
- * pattern domain meets UninstalledDomain.
- * @plant test/plants/pg/write/oracle/write-oracle-sides-under-own-draws.patch The harness judges each side under the
- * calculator's own draws (harness.ts expectedOf), not the draws the side's sequences record, so the second kept case,
- * whose refused sides drew the deleted fact's values, is expected accepted; it fails.
  */
 import { writeOracleSuite, writeSuite } from "#test/pg/write/oracle/support.ts"
 import type { WriteSuite } from "#test/support/oracle/write/index.ts"

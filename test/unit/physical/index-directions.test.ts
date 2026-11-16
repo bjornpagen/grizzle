@@ -14,9 +14,6 @@
  * Oracle: the classes, computed from the drawn vectors by reversal alone.
  *
  * Features: an exact reverse pair, a mixed vector, an all-descending vector, two classes, and a prefix.
- *
- * @plant test/plants/unit/physical/index-directions-no-reversal.patch An index serves its order forward alone, so a
- * vector and its exact reverse install two indexes.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -23,12 +23,6 @@
  * refusal. The deleted and reinserted Task key leaves TaskNote's reference, deferred, satisfied: t1 has a note.
  *
  * Features: each form over each kind of task, by its outcome.
- *
- * @plant test/plants/pg/e2e/arm-switch-put-counted-added.patch An accepted write's puts counted as additions; the
- * enumerated members' counts differ from the model's.
- * @plant test/plants/pg/e2e/arm-switch-role-view-selection-key.patch A role's reads probing the Automatic arm's
- * selection key, a law column of the table its view does not hold, so the described put of an automatic task names a
- * column its scan lacks; the described members fail on an automatic task.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

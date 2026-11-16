@@ -25,12 +25,6 @@
  *
  * Features: a text that begins with U+FEFF, a text holding U+FEFF after its start, a text of U+FEFF alone, a text with
  * no U+FEFF, several texts in one commit.
- *
- * @plant test/plants/pg/live/pgoutput-strips-byte-order-mark.patch pgoutput.ts reads a text through a TextDecoder of
- * its own, fatal but stripping a leading byte order mark, as it did, so the commit of a note of `\uFEFFa` marks the
- * subscription of `a`, and that of `\uFEFFa` stays clean.
- * @plant test/plants/unit/core/utf8-strips-byte-order-mark.patch The one decoder strips a leading byte order mark, so
- * every routed text that begins with U+FEFF is routed without it.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { awaitFact } from "@bjornpagen/testing/fact"

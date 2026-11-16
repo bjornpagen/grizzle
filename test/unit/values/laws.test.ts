@@ -11,12 +11,6 @@
  *   value writing exactly the near miss. Oracle: universal, fromCanonical ∘ write = id and write ∘ fromCanonical = id.
  *
  * Features: each carrier's equal and unequal pairs, each constructor, and each tag written and refused as a near miss.
- *
- * @plant test/plants/unit/values/values-vector-last-component.patch Vector order skips its last component; the
- * equality property fails.
- * @plant test/plants/unit/values/values-money-unfrozen.patch A Money is left unfrozen; the frozen property fails.
- * @plant test/plants/unit/values/values-money-leading-zero.patch Money's canonical-integer check is dropped, so a
- * payload with a leading zero revives; the revival property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

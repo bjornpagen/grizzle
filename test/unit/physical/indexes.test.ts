@@ -24,14 +24,6 @@
  * Features: served by an installed or a created index, several requests on one created index, a GiST key serving a
  * B-tree probe, an ordered and a range request, each planted refusal, two methods on one column list, and two indexes on
  * one column list.
- *
- * @plant test/plants/unit/physical/indexes-unique-created.patch A created index is unique.
- * @plant test/plants/unit/physical/indexes-name-without-method.patch An index is named as a B-tree whatever its
- * method.
- * @plant test/plants/unit/physical/indexes-gist-few-first.patch A GiST index's columns of few values are no longer
- * placed after its columns of many values: its keys keep the request's order (physical/indexes/engine.ts withinBlock).
- * @plant test/plants/unit/physical/install-request-order.patch The engine plans its requests in the order they arrive,
- * not in their canonical order (indexes/engine.ts planIndexes); the arrival-order invariance fails.
  */
 import { explore, type Kept, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

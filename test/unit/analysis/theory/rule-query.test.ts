@@ -48,23 +48,6 @@
  * Features: each rule kind and each literal binding site for the first box; each pattern relation and negated note for
  * the second; each literal kind, arm placement and reader for the third; each negated source, placement and reader,
  * admitted and refused, for the fourth.
- *
- * @plant test/plants/unit/analysis/theory/rule-literal-binding-first.patch An equation binding a literal written
- * literal first, which the checker refuses, and a literal binding substituted for its definition's variable, which
- * carries it first into the definition's conditions (analysis/theory/query.ts equal and its inlining); the first box
- * fails, at a trigger probe.
- * @plant test/plants/unit/analysis/theory/rule-text-correlation-refused.patch A negated text correlated with a region
- * text of another pattern refused, as the check c2f719c1 deleted refused it (check/checker.ts correlatedBinding); the
- * second box fails.
- * @plant test/plants/unit/analysis/theory/rule-head-literal-untyped.patch A bare head literal left untyped where a
- * term of its column stands (analysis/theory/query.ts); the third box fails.
- * @plant test/plants/unit/analysis/theory/rule-probe-literal-bound.patch A probe's literal bound to an arm's literal
- * that differs, as every term was bound before (analysis/theory/query.ts meetingOf's test inverted), a filter no fact of
- * the arm meets; the third box fails at a trigger probe of a key over a union of two literals.
- * @plant test/plants/unit/analysis/theory/rule-negation-conjunction-whole.patch A conjunction holding a negation read
- * whole, which refuses it as a negation below a condition (analysis/theory/query.ts filtersOf); the fourth box fails.
- * @plant test/plants/unit/analysis/theory/rule-negation-nested-admitted.patch A negated query that negates in turn
- * admitted, its inner negation dropped (analysis/theory/query.ts negated); the fourth box fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

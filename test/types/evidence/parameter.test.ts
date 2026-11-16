@@ -17,10 +17,6 @@
  * fixes, the one child where the schema proves existence). Not stated: a function generic over the field,
  * `<D extends Meets<Uuid, "uuid">>`, defers the equality's evidence until the call and proves neither option nor one, a
  * known limit of the types, which no contract promises either way.
- *
- * @plant test/plants/types/evidence/parameter-input-lost.patch An equality with a bare input term (InputOrigin and no
- * parent's origin) determines nothing (types/evidence/evidence.ts OriginNeeds reads it as lost), so the option of the
- * comment the function builds over the node's id is refused where the inline one proves it; the program fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

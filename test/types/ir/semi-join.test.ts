@@ -5,10 +5,6 @@
  * representation's own contract (rel.ts SemiJoinRight), that only the mint, which reads the right side's subtree for a
  * column of the left, makes a semi-join's right side; the analysis reads a column the right side fixes as fixed per
  * evaluation of the semi-join (logical/props.ts), which a right side reading its left would break.
- *
- * @plant test/plants/types/ir/semi-join-right-plain.patch A semi-join's right side is a plain node (rel.ts SemiJoinRight
- * is the node itself), so a node as it is, correlated on its left or not, stands there unread; the program fails, every
- * refusal's directive unused.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

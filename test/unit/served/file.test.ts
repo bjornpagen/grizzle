@@ -113,14 +113,6 @@ import { testVerify } from "#test/support/worlds.ts"
  *   whatever the caller writes to it after.
  *
  * The oracle is the file the compile served, compared as the runtime reads it.
- *
- * @plant test/plants/unit/served/served-roles-unshared.patch The file's roles are written as the writer wrote them,
- * outside the table; each shape once fails.
- * @plant test/plants/unit/served/served-maps-unshared.patch No Map is ever an entry of the table; each shape once fails.
- * @plant test/plants/unit/served/served-table-unchecked.patch The reader iterates `shared` without reading it as a
- * list; the table's refusal fails.
- * @plant test/plants/unit/served/served-reference-unchecked.patch A reference is read as whatever the table holds at
- * its index, an entry not read yet included; the table cut short is read rather than refused.
  */
 
 type Feature =

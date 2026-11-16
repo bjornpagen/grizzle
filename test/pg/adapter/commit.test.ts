@@ -19,9 +19,6 @@
  * call commits the note the database then holds for t1.
  *
  * Features: every subset by every end, and 40001 at COMMIT.
- *
- * @plant test/plants/pg/adapter/commit-transient-tag.patch A 40001 at COMMIT classified as an execution failure, not
- * `transient`; the property fails where no serial order is left.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

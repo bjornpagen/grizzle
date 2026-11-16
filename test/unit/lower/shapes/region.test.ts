@@ -11,9 +11,6 @@
  * Oracle: the region shape's statement (shapes/region/index.ts) as a checker over the statement's AST (a
  * specification). Features: the restricted occurrence written first and later, the longest path. Kept: the restricted
  * occurrence written first.
- *
- * @plant test/plants/unit/lower/shapes/region-start-written.patch The chain takes its occurrences in written order,
- * never preferring the selective one, so it starts wherever the region was written; the search fails.
  */
 import { explore, type Kept, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

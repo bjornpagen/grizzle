@@ -10,10 +10,6 @@
  *
  * Features: a stream silent from its start, a message one millisecond short of the deadline, a stream standing one
  * millisecond short of it, a stream heard several times before its end, and a timeout of 0.
- *
- * @plant test/plants/unit/live/deadline-ignored.patch Where the stream has been silent for its deadline, the watch
- * sleeps another one in place of ending it, so a leader whose connection the network dropped without a word holds the
- * installation's lock forever.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

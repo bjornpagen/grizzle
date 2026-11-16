@@ -23,15 +23,6 @@
  * Features: a pair and a triple, keyed by the intersection's automaton or by its members, a text of the conjunction and
  * one the first member alone holds, refused as matching no text, bounded where a member alone is not; included and
  * refuted inclusions; admitted and refused guards; a regex check of several patterns and an IN list.
- *
- * @plant test/plants/unit/text/text-conjunction-some.patch The host takes a text any member of a conjunction matches;
- * the language property fails.
- * @plant test/plants/unit/text/text-inclusion-some-outer.patch An inclusion in one outer member is taken for inclusion
- * in the outer conjunction; the inclusion property fails.
- * @plant test/plants/unit/text/text-guard-drops-subject.patch A match guard's branch is typed by the guard's pattern
- * alone, the subject's own patterns dropped; the match guard property fails.
- * @plant test/plants/unit/text/text-check-doubled.patch A conjunction's CHECK writes each member's test twice; the size
- * property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

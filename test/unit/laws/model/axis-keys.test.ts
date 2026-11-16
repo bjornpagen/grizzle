@@ -16,11 +16,6 @@
  *   handles, then every count of holes whose codes lie within a MAXALIGN step's worth of bytes of the most that fit,
  *   exhausted. The oracle: the entry counted by hand, a bit(n)'s varlena header, its 4-byte bit count and a byte per
  *   eight codes after Line's (order, at) at their exact offsets. Features: an entry at the bound, an entry past it.
- *
- * @plant test/plants/unit/laws/model/btree-entry-at-bound-refused.patch An entry of exactly BTMaxItemSize is refused
- * (schema/representability.ts btreeEntry); the concat fold's axis key fails.
- * @plant test/plants/unit/laws/model/set-unique-bound-undercounted.patch A set's datum counted a byte short
- * (physical/ddl/tables.ts setUniqueBound); the carried set's key fails.
  */
 import { type Case, exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

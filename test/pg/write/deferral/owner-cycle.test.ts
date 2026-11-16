@@ -61,10 +61,6 @@ import { fullWorld } from "#test/support/worlds.ts"
  *
  * The downstream case (a counted family, its members keyed by their owner, the owners with one member contained in the
  * members, and an owner's check) is the kept case.
- *
- * @plant test/plants/pg/write/deferral/owner-cycle-axis-out-of-cycle-graph.patch The owner axis is left out of the
- * deferral's cycle graph (laws/model/model.ts fkEdges), so no key of the cycle is deferred and a lawful schema's
- * installation finds no load order; the property fails.
  */
 
 type FamilyKind = "counted" | "ordered"

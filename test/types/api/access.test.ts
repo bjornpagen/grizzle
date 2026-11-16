@@ -4,9 +4,6 @@
  * refresh member its refresh list, exactly where the engine's reading of the role needs them. Oracle: the engine's
  * reading of each drawn role. The floor's witnesses reach every place a role reads a context and every probe under
  * both verdicts, so the program is never vacuous on any seed.
- *
- * @plant test/plants/types/api/api-open-token-optional.patch Db.open takes no token for a role that reads a context
- * (adapter/types/db.ts OpenOptions); the agreement's program fails.
  */
 import { unreachedOf } from "@bjornpagen/testing/features"
 import { NodeServices } from "@effect/platform-node"

@@ -31,9 +31,6 @@ import { descOf } from "#test/unit/write/changeset/fixtures.ts"
  * equal, so no hand-written reading of a heading stands between a declaration and its verdict.
  *
  * Features: one heading, a heading within the other, a field of another type.
- *
- * @plant test/plants/unit/write/changeset/param-merge-ignores-type.patch Two relation declarations merged by their
- * field names alone (write/frontend/compile.ts sameHeading).
  */
 type Declared = "b, c, d" | "b, c" | "c, b, d" | "b, c, d as a bigint"
 

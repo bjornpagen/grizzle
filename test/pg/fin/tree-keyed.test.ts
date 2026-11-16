@@ -25,15 +25,6 @@
  * numbering's or one named mutation of it (a field one past, or a row moved under another tree's root value), and
  * PostgreSQL must commit exactly the states the theorem as a checker calls lawful (test/support/families/tree.ts
  * lawful): the numbering of the forest the state's keys and parent links describe.
- *
- * @plant test/plants/pg/fin/tree-parent-fk-rootless.patch The owner axis is keyed by parent and start alone, without the
- * root, so trees sharing positions under different roots are refused; the first property fails.
- * @plant test/plants/pg/fin/tree-family-key-rootless.patch The family's key is UNIQUE (‹parent₀›, at), without the
- * root, so trees sharing positions under different roots are refused; the first property fails.
- * @plant test/plants/pg/fin/tree-count-rootless.patch The last axis, a parent's last child by its count, is keyed
- * without the root, so trees sharing positions under different roots are refused; the first property fails.
- * @plant test/plants/unit/laws/model/tree-root-pin-dropped.patch The root pin is dropped, so a root off slot 0 is
- * admitted; the second property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

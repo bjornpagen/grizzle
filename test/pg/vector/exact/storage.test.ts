@@ -10,9 +10,6 @@
  * its binary32 components, -0 equal to 0.
  *
  * Features: each refusal and each admitted bound, a collision and distinct vectors.
- *
- * @plant test/plants/pg/vector/exact/vector-cosine-domain-exclusive.patch The host's cosine domain excludes its bounds.
- * @plant test/plants/pg/vector/exact/vector-negative-zero-apart.patch A vector's identity text writes -0.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

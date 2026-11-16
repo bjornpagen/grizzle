@@ -8,10 +8,6 @@
  * generated relation's fact and addition are identical to the twin's; and a statement naming a relation no level
  * declares, a relation under another name and a role's entry of a stranger raise exactly the diagnostics, codes and
  * refusals, they raise over the twin. Oracle: the twin, a program at the smallest scale the probes read.
- *
- * @plant test/plants/types/schema/budget/scale-keys-past-hundred.patch A schema's declared candidate keys (KeyIndexOf)
- * are dropped once it holds a hundred statements, which the twin never does and the program at scale does: the first
- * relation's candidate keys at 2,000 relations are not the twin's.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

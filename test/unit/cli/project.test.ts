@@ -136,9 +136,6 @@ import { upTo } from "#test/support/up-to.ts"
  * (a second implementation of what generate writes).
  *
  * Features: every command of the loop, each edit, each refusal, each finding, and a hidden entry ignored.
- *
- * @plant test/plants/unit/cli/cli-timestamp-repeats-newest.patch A folder's timestamp repeats the newest folder's.
- * @plant test/plants/unit/cli/check-no-markers.patch check reports no marker left in a file.
  */
 type FieldKind = "int4" | "bool" | "uuid" | "code"
 

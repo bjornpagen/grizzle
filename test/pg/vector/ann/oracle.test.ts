@@ -7,9 +7,6 @@
  * Oracle: the brute-force reference evaluator's top-k over the same facts.
  *
  * Features: an ApproximateNearest node, a tie at the cutoff, a source correlated under a boundary, and a delivered row.
- *
- * @plant test/plants/pg/vector/ann/vector-conservative-take-off-by-one.patch The conservative form takes one candidate
- * fewer.
  */
 import { drawn } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

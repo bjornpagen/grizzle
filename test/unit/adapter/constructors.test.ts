@@ -64,11 +64,6 @@ import { caseHang } from "#test/support/limits.ts"
  * classification of the same facts, deeply equal to it.
  *
  * Features: each constructor, each SQLSTATE grizzle branches on and any other, each report field empty or present.
- *
- * @plant test/plants/unit/adapter/failures-empty-field-kept.patch An empty report field is kept as one that says
- * something.
- * @plant test/plants/unit/adapter/failures-deadlock-as-serialization.patch 40P01 is read as 40001, a deadlock as a
- * serialization failure.
  */
 
 /** The errors the public channels name: Db.open's and DbLayer.make's, a read's, a write's, generate's compile's. */

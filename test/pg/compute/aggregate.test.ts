@@ -15,10 +15,6 @@
  * Oracle: PostgreSQL itself, pg_aggregate's resolution, its transition type and pg_typeof's result of each call.
  *
  * Features: count(*), and an admitted aggregate checked over a closed id, a contract and booleans.
- *
- * @plant test/plants/pg/oracle-gen/compute-aggregate-count-int4.patch count(*) types as integer.
- * @plant test/plants/pg/compute/sum-integer-native.patch sum over integer typed bigint and emitted natively again, which
- * passes every typing check and is caught by its bigint accumulator.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

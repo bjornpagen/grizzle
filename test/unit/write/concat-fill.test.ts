@@ -44,9 +44,6 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * character, each selected or not, under a fold that selects and one that does not.
  *
  * Features: an empty family, a member stepped over, a supplementary character joined.
- *
- * @plant test/plants/unit/write/concat-fill-prepends.patch A concat step puts its piece before the running text, not
- * after it.
  */
 
 const pieces = ["", "a", "\u{1F600}"] as const

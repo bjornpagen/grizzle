@@ -32,11 +32,6 @@ import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
  * spelled here.
  *
  * Features: past the longest string, equal values, different values, either order.
- *
- * @plant test/plants/unit/write/changeset/bound-order-reversed.patch Private parameters named against their canonical
- * texts' order (write/changeset/value.ts boundOrder).
- * @plant test/plants/unit/write/changeset/bound-key-unkeyed-long.patch A value whose canonical text cannot be spelled,
- * past the longest string, left opaque (write/changeset/value.ts boundKey), so two equal ones stay two parameters.
  */
 const Note = relation("Note", { id: pg.int4, body: str.regex("^[ab]*$") }, ["id"])
 const Notes = schema("BoundNotes", [Note], [])

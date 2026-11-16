@@ -7,9 +7,6 @@
  * Oracle: the decoder, a second implementation of the Description's shapes.
  *
  * Features: a query, and a node of each common kind (rules, relation, var, compare).
- *
- * @plant test/plants/unit/query/desc-order-shallow-freeze.patch The builder's Description frozen at its root alone;
- * the frozen-throughout check of the search fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

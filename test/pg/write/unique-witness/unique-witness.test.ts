@@ -76,20 +76,6 @@ import { fullWorld } from "#test/support/worlds.ts"
  * selection key, only one of them selected, admitted, under each owner; a verdict at a selection key reading the
  * copied kind through a closed lookup, reading the drawn index, and under a disjunction; an accepted and an unchanged
  * call.
- *
- * @plant test/plants/pg/write/unique-witness/family-insert-unprobed.patch A family INSERT has no probe gate
- * (write/family/additions.ts probeGates), so PostgreSQL's 23505 reaches the host's single-value rule; the property
- * fails.
- * @plant test/plants/pg/write/unique-witness/family-probe-family-key-only.patch A family INSERT's gate probes only the
- * family's own key among the objects beside its arbiter (write/family/statements.ts candidateGate); the property fails.
- * @plant test/plants/pg/write/unique-witness/probe-unfiltered.patch A probe judges a key over a selection over the whole
- * relation (write/probe.ts withinRow reads no guard); the property fails.
- * @plant test/plants/pg/write/unique-witness/driven-where-text.patch A driven read's key bindings and filter are joined
- * as text (sql/print.ts printDriven), so a stored row a disjunct of the selection holds at another key meets the
- * probe; the property fails.
- * @plant test/plants/pg/write/swarm/pair-counts-the-fact-itself.patch A stated line is paired with itself at a declared
- * key or a key over a selection (write/insert/unique.ts pairedFacts, count(*) > 0), so every write of lines under such
- * a key is refused by it.
  */
 
 /** The roster of a doc's kind, which its lines copy. */

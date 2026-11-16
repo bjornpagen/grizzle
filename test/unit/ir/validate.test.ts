@@ -12,13 +12,6 @@
  * Oracle: each corruption's rule restated over the table, and the place it breaks, compared by label and path.
  *
  * Features: live, every corruption's rule beside the site it broke, and every node kind a live DAG holds.
- *
- * @plant test/plants/unit/ir/ir-validate-dangling-name.patch The validator never checks the names a node holds beside
- * its data edges, a SelfRef's feedback and a termination premise, so a node naming a node outside the table breaks no
- * rule of its own; the validator's property fails on a dangling feedback edge or premise.
- * @plant test/plants/unit/ir/ir-validate-semi-join-right-unread.patch The validator never checks what a semi-join's
- * right side reads, so a right side correlated on its left, whose fixed columns the logical analysis would read as
- * fixed per evaluation of the semi-join, breaks no rule; the validator's property fails on that corruption.
  */
 import { explore, steered } from "@bjornpagen/testing/explore"
 import { type Pending, required } from "@bjornpagen/testing/features"

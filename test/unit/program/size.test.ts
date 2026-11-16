@@ -38,10 +38,6 @@ import { upTo } from "#test/support/up-to.ts"
  *
  * Oracle: the universal relation of an affine size (test/support/growth.ts affine), exhausted over every width and size
  * of one to three.
- *
- * @plant test/plants/unit/program/size-parts-padded-per-sibling.patch Every part of a statement is padded by one
- * column per part (lower/parts.ts taggedParts), a part that grows with its siblings; the parts promise the
- * compilation is verified against (the tag and each part's cells) fails first, at every n.
  */
 
 /** A family's width, its children's own fields, and its size n: each one to three. */

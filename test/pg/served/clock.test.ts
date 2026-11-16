@@ -37,17 +37,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   stamps every row with the one instant its read-back reads.
  * - A clocked parameter of a contract is judged by its contract: a reading the contract admits answers, and one it
  *   refuses is `refused`.
- *
- * @plant test/plants/unit/cli/clock-statement-timestamp.patch The clock reads statement_timestamp(); caught by Mark's
- * stamps against Stamp's.
- * @plant test/plants/pg/served/clock-round-not-floor.patch Milliseconds read rounded, not floored; caught by
- * ms = floor(us / 1000) wherever the reading's microseconds pass 500.
- * @plant test/plants/pg/served/clock-units-swapped.patch The clock's units swapped, microseconds counted as
- * milliseconds; caught by ms = floor(us / 1000) at every reading.
- * @plant test/plants/pg/served/clock-clock-timestamp.patch The clock reads clock_timestamp(); caught by stamps of one
- * statement apart.
- * @plant test/plants/pg/served/instant-answer-unended.patch A clocked read answered with no `end` after its ready, its
- * stream ending at the ready; caught by the answer's events.
  */
 
 /** An instant, and the instants on either side of 2100-01-01 in milliseconds since the epoch. */

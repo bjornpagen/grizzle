@@ -13,17 +13,6 @@
  *
  * Features: as each search names them: no bits, a partial last word, whole words, a bit at a word's last position, a
  * dense string; one one and one zero past one and two blocks; each cell placement.
- *
- * @plant test/plants/unit/codec/bits-count-second-block.patch A count of a string past one Harley–Seal block comes
- * out one short; the count property fails.
- * @plant test/plants/unit/codec/bits-cell-shift-by-32.patch A cell's second word is shifted by 32 when the cell starts
- * on a word's first bit, which shifts by 0 and lets the whole word in; the cell read fails.
- * @plant test/plants/unit/codec/bits-and-not-low-bit.patch A difference keeps each word's last bit where the source
- * holds it; the set-algebra property fails on andNot.
- * @plant test/plants/unit/codec/bits-from-text-pad-start.patch A partial last word is read from text right-aligned,
- * its bits at the word's end; every property that reads text as the model's positions fails.
- * @plant test/plants/unit/codec/bits-add-at-length.patch A bit added at the string's length is admitted rather than
- * refused; the add property fails.
  */
 import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

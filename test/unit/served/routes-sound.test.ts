@@ -31,17 +31,6 @@
  * definition inlined (program/workload/compile.ts workloadQueryRead), and its answer the reference's over that same
  * inlined IR (reference/evaluate.ts Reference, deliver.ts expectedStatements), the case's facts with and without each
  * fact: every fact whose removal changes the answer is one the routes reach.
- *
- * @plant test/plants/unit/served/route-narrowed.patch logical/routes.ts footprintOf routes a table its program reads
- * table-wide by its first column, under the program's first parameter; the property fails.
- * @plant test/plants/unit/served/route-through-take.patch A take passes what its consumers read to its input, so a
- * filter above a take routes the rows it ranks; the property fails at a case takeCaseGen constructs.
- * @plant test/plants/unit/served/inline-worlds-unbound.patch A world match is inlined under its own bindings alone
- * (program/workload/world.ts), so the plan refuses the count through Seen that the role admits; the query entry's
- * property fails.
- * @plant test/plants/unit/served/route-param-misnamed.patch A route names its parameter otherwise than the program
- * declares it (a trailing underscore), so a fact whose removal changes the answer is routed under a parameter the read
- * never binds; the property fails.
  */
 import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

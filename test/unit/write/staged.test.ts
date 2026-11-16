@@ -22,12 +22,6 @@
  * on the kept case past it, which the second test requires.
  *
  * Features: the inline statement, several fills, a carrier's ANALYZE, a row past the bound.
- *
- * @plant test/plants/unit/write/staged-cut-ignores-parameters.patch The cut measures a statement's Bind message
- * without its placeholders that carry no nested rows (runtime/write/staged.ts executionsOf), so a statement past the
- * bound goes inline.
- * @plant test/plants/unit/write/staged-analyze-dropped.patch The staged form's ANALYZE is never sent where it is
- * needed.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

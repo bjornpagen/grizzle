@@ -23,12 +23,6 @@ import { typeRun } from "#test/types/batch/provided.ts"
  * child's records. A read-back's delivery is one the engine proves in the transaction context, and the floor's
  * witnesses reach every delivery, refusal, proof and shape, a derived parent's and a nested attachment's among them,
  * and a child over no level of its parent's schema, which both refuse.
- *
- * @plant test/plants/types/evidence/attach-one-unproved.patch The one child is admitted where the evidence proves at
- * most one per parent (types/evidence/evidence.ts Claims' one); the agreement's program fails.
- * @plant test/plants/types/evidence/attach-declared-key-dropped.patch The oracle's declared-only delivery drops
- * PlanBudget's declared key, so a child of it bound by its plan, which the types prove by that key, is expected an
- * array; the agreement's program fails.
  */
 const required: Situations<AttachNote> = [
 	...Arr.map(attachRefusals, (refusal): AttachNote => `refused: ${refusal}`),

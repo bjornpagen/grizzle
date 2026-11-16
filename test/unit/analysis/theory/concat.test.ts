@@ -17,11 +17,6 @@
  *   pair, each other refused by the named refusal foldRule states. Oracle: that rule.
  *
  * Features: each verdict of each box.
- *
- * @plant test/plants/unit/analysis/theory/concat-equation-tail-unchecked.patch The equation's concatenation checked
- * by its length and its head alone (scalar/compute/lower.ts concatEquation); the fold property fails.
- * @plant test/plants/unit/analysis/theory/concat-over-counted-admitted.patch A counted family's hidden concat refused
- * for its hidden pair, not its order (check/fold.ts foldRule); the rule property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

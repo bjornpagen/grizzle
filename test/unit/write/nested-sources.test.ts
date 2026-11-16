@@ -21,10 +21,6 @@
  *
  * Features: several sources in one stratum, a statement inline, a statement staged in several fills, a row past one
  * fill alone, an owner of no member.
- *
- * @plant test/plants/unit/write/nested-sources-keyed-by-stratum.patch the write's sources are keyed by their stratum
- * alone, so each statement of a stratum sends the first source built there, another relation's rows; the property
- * fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

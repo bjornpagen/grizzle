@@ -53,10 +53,6 @@ import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  * Features: one key, four keys or more, an empty selection, several fields, a literal, a parameter shared by two keys,
  * a parameter of the bound name, a unit's delete, a tree's root, a world entry's key, a stratum before, another order, a
  * plan compiled, a compile refused, and each fault.
- *
- * @plant test/plants/unit/write/changeset/delete-where-first-field.patch The front end keeps a field-equality member's
- * first equality alone (write/frontend/equal.ts equalQuery), so a selection of several fields deletes the rows its first
- * field selects.
  */
 
 /** The relations a key names: Task, its world entry over the role, and every kind of delete besides. */

@@ -11,14 +11,6 @@
  *
  * Features: each bound tuple under each reader; fused and refused fixed columns; the guard shapes, a group that kept its
  * bound tuple and a scoped stage kept.
- *
- * @plant test/plants/unit/lower/rewrite/fuse-hidden-delivered.patch A fused region delivers the hidden variables its
- * import hid, no projection restoring its heading; the fuse-fixed-columns search fails where a column is left
- * existential.
- * @plant test/plants/unit/lower/rewrite/fuse-fixed-twice.patch A stage is fused where two fixed columns carry one inner
- * variable; the fuse-fixed-columns search fails.
- * @plant test/plants/unit/lower/rewrite/fuse-correlated.patch A correlated stage, its region or its source reading
- * outside it, is fused; the fuse-boundaries search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

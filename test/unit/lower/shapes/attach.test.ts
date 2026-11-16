@@ -12,11 +12,6 @@
  * (empty, NULL in any case, delimiters, quotes, backslashes, control characters) are named cases beside drawn ones.
  *
  * Features: no, one and several element fields, a correlated column, no child; an empty array and a quoted element.
- *
- * @plant test/plants/unit/lower/shapes/fused-children-reversed.patch fusedTexts reads a fused column's children back in
- * reverse order; the round-trip search fails.
- * @plant test/plants/unit/lower/shapes/fused-escape-kept.patch arrayElements keeps a quoted element's escaping
- * backslashes; the round-trip and the strict-reading searches fail.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

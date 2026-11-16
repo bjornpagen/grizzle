@@ -73,16 +73,6 @@ import { fullWorld } from "#test/support/worlds.ts"
  * construction (fill.ts `admittedFillSpecGen`), each follow-up made one it writes (`writtenFollowUpGen`);
  * the unit suite holds the refusals. PostgreSQL proves every value grizzle wrote through the installation's natives,
  * so an accepted insert with the reference writer's rows is the property.
- *
- * @plant test/plants/pg/write/fill-order/fill-order-index-off-by-one.patch The fill draws each member's index one past
- * its slot (runtime/write/fill.ts); the property fails.
- * @plant test/plants/pg/write/fill-order/fill-order-moved-owner-riders-left-out.patch The additions refill no rider
- * (write/program/compile.ts), so a moved owner's counted members keep their copy of its old index; the case aimed at
- * "a follow-up that moves an owner whose counted members copy its index" fails.
- * @plant test/plants/pg/write/fill-order/fill-order-replaced-member-copy-hop-left-out.patch A re-placed counted
- * member's copy of its owner's column is reached through no axis of its own family (analysis/theory/refill.ts
- * reachedBy), so a put of a plain owner rides no way into it and the served compile refuses the stratum
- * (UnservedMember); the kept case of an owner's put beside a delete of its ordered member fails.
  */
 
 type ClusterSituation =

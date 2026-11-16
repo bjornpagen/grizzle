@@ -36,19 +36,6 @@
  *   the immediate checks of PubA and PubZ can hold across a move; the learner committing before the replace begins; a
  *   key removed; a check waiting on an in-flight publish; and a deadlock a fenced removal meets, which PostgreSQL breaks
  *   with 40P01, a transient abort the serial reference places nowhere.
- *
- * @plant test/plants/pg/isolation/race-admission-as-step.patch A race takes a write's admission, which reaches only its
- * parameters, as a step of its own, so den's lease race of two reclaims beside a claim has 1,680 orders of its moves,
- * past the bound an every-order race may run.
- * @plant test/plants/pg/isolation/certify-fence-omitted.patch Served writes with no lock
- * (program/isolation/certification.ts), whose same-key replace the learner's deferred check refuses with a spurious
- * 23503; G3's fenced replace fails.
- * @plant test/plants/pg/isolation/count-without-zero-rule.patch den's count shape counting the stored Claims by one
- * rule alone (support/lease.ts countShape), which over no Claim yields no row, so its claim never inserts; den's
- * lease fails, its forced race of two claims each alone by a count never caught.
- * @plant test/plants/pg/isolation/barrier-granted-lock.patch The barrier reads a blocked backend's granted lock as the
- * one it waits for (test/support/substrate/barrier.ts waitedLockQuery), so the learner's COMMIT waiting for ROW SHARE
- * on Pub is never seen as such; G3's fenced replace leaves that wait unreached.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

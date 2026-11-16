@@ -34,9 +34,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *
  * Features: accepted, no-change, a cycle inserted in one ChangeSet, a refusal by each reference, and a deletion of a
  * fact still named refused.
- *
- * @plant test/plants/pg/write/cycle/cycle-rule-keys-immediate.patch Every foreign key the schema-wide rule decides is
- * installed immediate (laws/model/model.ts deferrable); the property fails.
  */
 const A = relation("A", { id: pg.integer, b: pg.integer }, ["id"])
 const B = relation("B", { id: pg.integer, a: pg.integer }, ["id"])

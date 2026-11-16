@@ -66,10 +66,6 @@ import { fullWorld } from "#test/support/worlds.ts"
  * row while it was absent, between its removal and its insert again, so its stored members kept their copy of its old
  * count and the write was refused. A moved row's dependants now follow it as its additions insert it again, its own
  * members' copy of its count among them (write/family/removals.ts cascaded `carried`), whichever statement runs first.
- *
- * @plant test/plants/pg/write/rename/rename-moved-owner-count-copy-not-carried.patch The members' copy of a moved row's
- * count is left out of what its insert again carries; the property fails at the aimed shape (TEST_SEED=1401971937, the
- * floor's case 2: accepted as drawn, refused renamed by [1,2,0]).
  */
 
 type Situation =

@@ -42,9 +42,6 @@ import { printCase } from "#test/support/oracle/public/print.ts"
  * named by construction: its first letter begins none of the schema's relations.
  *
  * Features: every program form the public generator draws (programForms); a relation elsewhere.
- *
- * @plant test/plants/unit/program/describe-lowering-counter.patch A lowering is stamped with a running count.
- * @plant test/plants/unit/program/describe-drops-literal.patch A Description spells every integer literal as 0.
  */
 
 /** A Description as the rebuild receives it: the value itself, and the value read back from its JSON text. */

@@ -33,15 +33,6 @@ import type { WorldFeature } from "#test/support/worlds/model/types.ts"
  * a worker of its own, so they run at once. Realities hold facts outside every world (the owner loads them), so the
  * model's answers over them are README "Security model"'s promise: a role reads exactly its own view, whatever lies
  * outside it.
- *
- * @plant test/plants/pg/education/worlds-isolation-view-barrier-off.patch A query entry's view is created without its
- * security barrier, so a reader's quals may run before the view's own; the installed-catalog checker finds each such
- * view's barrier missing (barrierMissing). It is red at install by construction, never at a read past a world: every
- * installation a test makes runs that checker (test/support/install-migrate.ts, step 7), so no program runs under it.
- * @plant test/plants/pg/education/worlds-isolation-row-security-off.patch Every table's ENABLE ROW LEVEL SECURITY is
- * printed as DISABLE, so no relation's row security keeps a world to its own facts; the installed-catalog check finds
- * it at the installation (rowSecurityMissing). It is red at install by construction, never at a read or write past a
- * world: every installation a test makes runs that checker (test/support/install-migrate.ts, step 7).
  */
 const crossing: Focus = [
 	"open-db",

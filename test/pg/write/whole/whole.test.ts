@@ -96,25 +96,6 @@ import { fullWorld } from "#test/support/worlds.ts"
  * - a stored unit the ChangeSet adds again unchanged, by a replace or an insert, is never written: each of its rows keeps
  *   its tuple and the transaction that wrote it, as PostgreSQL's ctid and xmin show; so is a crossing component whose
  *   every test and assembly the ChangeSet replaces identically, its assemblies placed exactly as before.
- *
- * @plant test/plants/pg/write/whole/one-member-left-behind.patch The unit delete skips the last relation below its root
- * (write/delete/unit.ts), so the family's law refuses where the model accepts; the property fails.
- * @plant test/plants/pg/write/whole/delete-after-insert.patch The unit removal runs after every other write of its
- * stratum (write/frontend/schedule.ts), so a replace is refused at its key; the property fails.
- * @plant test/plants/pg/write/whole/partial-group-refusal-removed.patch A delete of an immutable owner's member is
- * compiled rather than refused (write/frontend/compile.ts); the property fails.
- * @plant test/plants/pg/write/whole/fold-end-not-recounted.patch The kept rule compares an owner without its
- * accumulated ends, so it keeps the owner with a stale end, which the fold's law refuses; the property fails.
- * @plant test/plants/pg/write/whole/kept-rule-dropped.patch Every doomed row is deleted, so an unchanged unit's rows are
- * rewritten; the property fails.
- * @plant test/plants/pg/write/whole/per-delete-check-restored.patch 73c7406e reverted: each unit delete is judged
- * alone, so every crossing delete is refused when it compiles; the property fails.
- * @plant test/plants/pg/write/whole/units-netted.patch A unit delete's facts are netted against the equal root fact its
- * stratum inserts, so the unit is never removed and a replace that changes a nested row is refused on that row's key;
- * the property fails.
- * @plant test/plants/pg/write/reinsert/kept-owner-count-dropped.patch The kept rule compares a doomed owner without its
- * families' counts (write/delete/unit.ts addedReads), so a replace keeps an owner whose count it changes, which the
- * family's law refuses where the model accepts; the property fails.
  */
 
 const Node = relation(

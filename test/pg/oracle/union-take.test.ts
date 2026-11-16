@@ -23,9 +23,6 @@
  *
  * Features: each delivery of the take, each kind of the roster with and without a memo, and a heading group the take
  * cuts stored out of its order, which the generator builds on a turn aimed at it (cutOutOfOrderGen).
- *
- * @plant test/plants/pg/oracle/oracle-union-take-unordered.patch A heading group's statement of a union take drops its
- * ORDER BY (lower/shapes/index.ts groupSpec), so the group's LIMIT takes rows as stored.
  */
 import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

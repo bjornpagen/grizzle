@@ -30,9 +30,6 @@ import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
  *
  * Oracles: the specification for the step's reads (every step of a growth builds as many containers as its first, and
  * one member state), and the whole decode for the assembled Description (a second implementation).
- *
- * @plant test/plants/unit/write/changeset/changeset-step-copies-strata.patch A step that copies every earlier member's
- * state (write/changeset/value.ts scopeWith).
  */
 
 /** The arrays and plain objects reachable from `value`, added to `into`. */

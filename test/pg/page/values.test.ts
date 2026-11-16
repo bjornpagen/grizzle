@@ -21,9 +21,6 @@
  * PostgreSQL's reading of each anchor's boundary text as its column's type.
  *
  * Features: each ordered field's edge classes and spellings, each direction and window size.
- *
- * @plant test/plants/pg/page/window-anchor-float-rounded.patch A double's anchor is written through twelve significant
- * digits.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

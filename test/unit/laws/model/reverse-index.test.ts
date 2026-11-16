@@ -17,15 +17,6 @@
  * Features: free text first, between or last, or only free text; a run cut short by width; a B-tree; a hash index;
  * covered by a declared key; a selected source; into a superkey; a set, and a run it cuts short; a key led by a prefix
  * of the referencing columns.
- *
- * @plant test/plants/unit/laws/model/reverse-run-set-lower-bound.patch The reverse run is chosen by the law model's
- * bound from below for a set, its roster's handles, so a run holding a set fits by it and the index engine refuses it
- * at the most codes a roster numbers: the containment of A0(c0 uuid, c1 set) is refused.
- * @plant test/plants/unit/laws/model/reverse-led-placement.patch A law's reverse request is placed as a workload's
- * equality lookup, so an index led by one of its columns that holds the rest further in serves it: the interleaved key
- * (c0, x, c1) serves A0's foreign key on (c0, c1), which the structural property refuses.
- * @plant test/plants/unit/laws/model/reverse-shortest-run.patch The B-tree over the shortest leading run that fits, its
- * first column alone (laws/model/plan.ts btreeRun).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

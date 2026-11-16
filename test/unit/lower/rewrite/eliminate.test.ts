@@ -11,9 +11,6 @@
  * implementation).
  *
  * Features: eliminated in each evidence context and on each kind of evidence; held back for each missing premise.
- *
- * @plant test/plants/unit/lower/rewrite/eliminate-deferred.patch R03 reads a containment's evidence as a snapshot read
- * would, so a deferred foreign key proves existence inside a transaction; the eliminate-proof search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

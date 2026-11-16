@@ -22,13 +22,6 @@
  *
  * Features: tokens, refused runs and what follows them, unclosed constructs, terminators and semicolons inside
  * parentheses; every token and separator kind; each statement kind ended.
- *
- * @plant test/plants/unit/sql/lexer-unnested.patch Block comments no longer nest; the token sequences, the token runs and the
- * unterminated quoted tokens fail.
- * @plant test/plants/unit/sql/lexer-unclosed-offset.patch An unclosed construct is reported one past its opening; the boundary
- * characters, the token runs, the unterminated quoted tokens and the statements fail.
- * @plant test/plants/unit/sql/lexer-cast-split.patch `::` is read as two colons; the printed statements fail.
- * @plant test/plants/unit/sql/lexer-semicolon-parens.patch A semicolon inside parentheses ends its statement; the statements fail.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

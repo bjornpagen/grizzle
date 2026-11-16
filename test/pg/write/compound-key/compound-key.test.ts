@@ -95,13 +95,6 @@ import { fullWorld } from "#test/support/worlds.ts"
  * Features: each arity of the primary key with its texts in declared order and out of it, a key refused past the item
  * limit, a key at the limit accepted, a containment out of the key's order, a write of each op refused on each law,
  * and a delete at a key at the limit of a row unlike the stored one there, alone or beside it.
- *
- * @plant test/plants/pg/write/compound-key/compound-key-unique-reordered.patch A declared key's UNIQUE is planned over
- * its fields in sorted order (laws/model/plan.ts); the property fails.
- * @plant test/plants/pg/write/compound-key/compound-key-oversized-internal.patch The B-tree entry bound never refuses
- * (schema/representability.ts btreeEntry), so the widest write meets 54000 as an ExecutionFailure; the property fails.
- * @plant test/plants/pg/write/compound-key/compound-key-delete-at-key.patch A delete matches stored rows at the primary
- * key alone (write/delete/exact.ts); the property fails.
  */
 
 const TEXTS = ["t0", "t1", "t2"] as const

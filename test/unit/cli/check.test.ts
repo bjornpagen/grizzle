@@ -58,10 +58,6 @@ import { besideFolders } from "#test/support/migrate/kit.ts"
  *
  * Features: each finding's kind, a stray entry alone, four findings at once, and a later folder off the chain the walk
  * never reaches.
- *
- * @plant test/plants/unit/cli/check-broken-chain-unread.patch A folder off the chain is reported as an unreadable
- * meta.json.
- * @plant test/plants/unit/cli/check-no-markers.patch check reports no marker left in a file.
  */
 type MetaFault = "sound" | "unreadable" | "off the chain"
 

@@ -59,13 +59,6 @@ type FamilyNode = Exclude<AnyFamilyNode, { readonly kind: "additions" | "removal
  *
  * Features: the schedule orders a stratum, no order keeps one, a pure set's deletion after its addition, both put
  * under either name order, a generated insertion beside a deletion; each stratum shape of the generated strata.
- *
- * @plant test/plants/unit/write/schedule-generated-before-deletion.patch A generated insertion's phase is before a
- * deletion's (write/frontend/schedule.ts phaseOf), so a deletion run after the draw removes a drawn fact.
- * @plant test/plants/unit/write/schedule-phase-free.patch Two actions of one relation are left unordered by their
- * phases (write/frontend/schedule.ts followsOnRelation).
- * @plant test/plants/unit/write/pure-set-delete-held-first.patch a30d00af's bug: a deletion of a relation whose facts
- * meet nowhere held before its stratum's puts and inserts, so a put referencing it between them leaves no order.
  */
 
 /** An operation of a stratum's action on C, or an explicit one on P. */

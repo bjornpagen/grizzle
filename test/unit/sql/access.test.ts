@@ -9,11 +9,6 @@
  * carrierName and to named near misses, each a single edit of a carrier's spelling, beside arbitrary JSON values.
  *
  * Features: each access case; a live carrier name, a near miss, a JSON value.
- *
- * @plant test/plants/unit/sql/access-analyze-writes.patch An ANALYZE writes none of its carriers (sql/access.ts); the access search
- * fails.
- * @plant test/plants/unit/sql/transform-analyze-copied.patch A traversal copies an ANALYZE it changes nothing in (sql/transform.ts); the
- * ANALYZE statement's search fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -18,9 +18,6 @@
  * back.
  *
  * Features: each digit-count edge and each relation of a pair's second text to its first.
- *
- * @plant test/plants/pg/compute/compute-parse-decimal-scale.patch The host's decimal text reads one place too far
- * right.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

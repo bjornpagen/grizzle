@@ -15,9 +15,6 @@
  *
  * The box: one roster installed with one to four handles, then up to six migrations (growth, removal, re-addition), in
  * plain and awkward spellings; every live handle as a literal, every ordered pair of them, and one drawn set.
- *
- * @plant test/plants/unit/lower/codes-position.patch lowerLiteral lowers a handle to its position among the roster's
- * live handles instead of its code; the search fails on a literal a hole has shifted.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { type Reached, required } from "@bjornpagen/testing/features"

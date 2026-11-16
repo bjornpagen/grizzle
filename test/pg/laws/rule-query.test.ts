@@ -65,46 +65,6 @@
  * unpairing, since each deleted row's other is gone at COMMIT. A drawn history reaches the listing rarely and never the
  * other two, so each has a history constructed to reach it (constructed), which a witness whose turn aims at it draws
  * (aimed).
- *
- * @plant test/plants/pg/laws/rule-query-no-capture-on-a-table.patch no capture of the first table each rule reads
- * (physical/ddl/rules.ts judgedTables), so a write there alone that breaks the rule commits; the search fails.
- * @plant test/plants/pg/laws/rule-query-new-probe-first-occurrence-only.patch a NEW probe for the first occurrence
- * alone of the written relation in an arm, which misses the self-join; the search fails.
- * @plant test/plants/pg/laws/rule-query-key-every-field-differs.patch a key over a query whose probe's violation needs
- * every heading field to differ rather than one; the search fails.
- * @plant test/plants/pg/laws/rule-query-target-probe-joins-later-occurrences.patch a target's delete probe that joins
- * the matches after the touched one in its relaxation order as they stand instead of dropping them, which misses the
- * unwinding of a J3 fact; the search fails.
- * @plant test/plants/pg/laws/rule-query-no-negated-probes.patch no probe for the rows a negated relation's write blocks
- * or unblocks; the search fails.
- * @plant test/plants/pg/laws/rule-query-target-probe-keeps-anti-joins.patch a target's delete probe that keeps the
- * target arm's anti-joins, which misses a lonely row's end; the search fails.
- * @plant test/plants/pg/laws/rule-query-negated-arm-first-match-only.patch no probe for a negated arm's matches after
- * its first, so U, the second table of Unpaired's negated join, goes unread; the search fails.
- * @plant test/plants/pg/laws/rule-query-negated-probes-other-polarity.patch each negated arm's probes read with the
- * other polarity, a target's negated tables probed on DELETE and the breaking side's on INSERT; the search fails.
- * @plant test/plants/pg/laws/rule-query-unblocked-probe-reads-later-matches.patch a probe of a breaking side's negated
- * arm that reads the matches after the held one as they stand instead of dropping them, which misses an unwinding
- * that deletes an S row and the U row it pairs with at once; the search fails.
- * @plant test/plants/pg/laws/rule-query-blocked-probe-keeps-target-negations.patch a probe of a target's negated arm
- * that keeps the target arm's negations of other relations, as the probe of one anti-join did before negated arms,
- * which commits a marked row listed through both negations of its arm at once; the search fails.
- * @plant test/plants/pg/laws/rule-query-conjunction-negation-read-whole.patch a conjunction holding a negation read
- * whole, so the installation refuses Quiet (UnsupportedLawFamily) and the test fails at its install.
- * @plant test/plants/pg/laws/judge-omits-a-law.patch the judge runs no probe of the rule first in trigger-name order;
- * the search fails.
- * @plant test/plants/pg/laws/judge-capture-drops-olds.patch no capture of a DELETE's rows or an UPDATE's old ones, so
- * no OLD probe reads a row; the search fails.
- * @plant test/plants/pg/laws/judge-no-rearm.patch the judge leaves the sentinel's row, so no statement past SET
- * CONSTRAINTS ALL IMMEDIATE arms it again; the search fails.
- * @plant test/plants/pg/laws/judge-deltas-preserve-rows.patch the deltas are ON COMMIT PRESERVE ROWS, so a session
- * holds a transaction's rows past its end; the search fails.
- * @plant test/plants/pg/laws/judge-at-statement-end.patch the sentinel's trigger is NOT DEFERRABLE, so the judge runs
- * at the end of the statement that arms it, not at COMMIT; the search fails.
- * @plant test/plants/pg/laws/judge-no-owner-check.patch no capture and no judge checks who owns a delta, so a login's
- * own pg_temp table under its name takes the rows; the search fails.
- * @plant test/plants/pg/laws/judge-region-other-side.patch a probe over its region reads the other side's delta,
- * delta.removed for NEW and delta.added for OLD (analysis/theory/query.ts regionQuery); the search fails.
  */
 import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

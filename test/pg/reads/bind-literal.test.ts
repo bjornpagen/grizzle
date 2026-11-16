@@ -14,9 +14,6 @@
  * - Oracle: a differential between the two paths, the literal bound at compile and the parameter bound at execution.
  * - Features: an importer reading no row, the take cutting the eligible rows, a mark excluding an eligible item, and a
  *   binding outside the facts, each from a host model of the query over the drawn facts.
- *
- * @plant test/plants/pg/reads/bind-literal-number-as-zero.patch A bound parameter's number literal is read as zero where
- * the import binds it.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

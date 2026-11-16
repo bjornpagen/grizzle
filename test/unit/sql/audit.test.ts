@@ -31,25 +31,6 @@
  * Features: each source, context, statement kind and shape of the Live population; each required break and rule; each
  * required faithful rewrite; each text break and its rule beside the print's leading words; admitted and refused
  * programs.
- *
- * @plant test/plants/unit/sql/emit-text-trailing.patch An emitted text carries a trailing space (sql/emit.ts); the Live and the written
- * statements' searches fail.
- * @plant test/plants/unit/sql/audit-alias-twice.patch The statement audit admits a relation alias defined twice; the breaks' search fails.
- * @plant test/plants/unit/sql/audit-alias-once.patch The statement audit reports every relation alias as defined twice; the faithful
- * rewrites' search fails, and every search of statements the audit must admit.
- * @plant test/plants/unit/sql/audit-text-null.patch The text audit admits a NULL; the text breaks' search fails.
- * @plant test/plants/unit/sql/audit-carrier-uncreated.patch The program audit admits an ANALYZE of a carrier no earlier statement
- * created; the programs' exhaustion fails.
- * @plant test/plants/unit/sql/scan-layer-unlisted.patch A family scan's layer lists no column (write/family/scan.ts), so its derived
- * table names none; the written statements' search fails.
- * @plant test/plants/unit/sql/audit-insert-old-anywhere.patch The statement audit lets an INSERT's RETURNING name old anywhere, not only
- * under IS TRUE; the breaks' search fails.
- * @plant test/plants/unit/sql/audit-insert-old-refused.patch The statement audit refuses old under IS TRUE in an INSERT that meets a
- * stored row (ON CONFLICT DO SELECT or DO UPDATE); the written statements' search fails.
- * @plant test/plants/unit/sql/audit-old-under-is-true-anywhere.patch The statement audit admits old under IS TRUE in an INSERT that
- * returns no stored row, where every old is NULL; the breaks' search fails.
- * @plant test/plants/unit/sql/paired-arm-unnamed.patch The same-key pair's arm of an insert's verdict UNION ALL leaves its fact columns
- * unnamed (write/insert/protocol.ts paired); the written statements' search fails.
  */
 import { type Case, type Draw, drawn, exhaust, explore, steered } from "@bjornpagen/testing/explore"
 import {

@@ -44,22 +44,6 @@
  *
  * Features: two ordered families on one owner, a fold over a kept order out of member-key order, a regroup refused
  * and a regroup redrawn as declared, each aimed at by a re-key constructed to reach it.
- *
- * @plant test/plants/unit/deploy/backfill-counts-from-one.patch A family's backfilled index counts from 1; the counted
- * family's values disagree with the reference fold.
- * @plant test/plants/pg/migrate/backfill-vector-stored-key-ignored.patch Members keyed anew are ordered by their new
- * key, not the one their rows were distinct by; a vector key's fate disagrees with the reference.
- * @plant test/plants/pg/migrate/tree-copy-crosses-roots.patch A copy along a tree's parent is drawn from the node at the
- * parent's start under any root value; two trees sharing a start disagree with the pre-order reference.
- * @plant test/plants/pg/migrate/tree-fold-crosses-roots.patch A fold over a tree's siblings is partitioned by their
- * parent's start alone; two trees sharing a start disagree with the pre-order reference.
- * @plant test/plants/pg/migrate/orderkeep-member-key-redraw.patch A re-pointed family's index is drawn again in
- * member-key order, sameSequence no longer keeping it, so the kept order is lost.
- * @plant test/plants/pg/migrate/orderkeep-fold-in-key-order.patch The folds over a kept index run in member-key order.
- * @plant test/plants/pg/migrate/orderkeep-silent-renumber.patch A kept index is renumbered within each new group by the
- * backfill, whose UPDATE meets the family's (g, at) key with 23505, so a broken regroup is refused under no law of the
- * family.
- * @plant test/plants/pg/migrate/orderkeep-declared-drop-refused.patch `--drop M.at` beside a declared M.at is refused.
  */
 import { aimed, type Case, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

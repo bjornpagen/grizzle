@@ -12,11 +12,6 @@
  *   specification.
  *
  * Features: admitted and refused pairs; the column's width, a width one unit off it, and another width.
- *
- * @plant test/plants/unit/spans/spans-point-in-widened.patch The compile of pointIn over a span term admits a point
- * of any type, its window's endpoint type unchecked (check/checker.ts); the pointIn property fails.
- * @plant test/plants/unit/spans/spans-width-off-by-one.patch A fixed width admitting one more unit at bind
- * (scalar/values/span.ts); the fixed-width binding property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

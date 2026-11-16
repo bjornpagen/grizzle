@@ -5,8 +5,6 @@
  * window's attachments D's children of its delivered rows.
  *
  * Features: generated.ts's PageFeature, every required one.
- *
- * @plant test/plants/pg/page/window-after-seek-inclusive.patch The after template's seek admits the anchor's own row.
  */
 import { generatedSuite } from "#test/pg/page/generated.ts"
 

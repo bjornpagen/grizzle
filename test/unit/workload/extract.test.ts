@@ -34,9 +34,6 @@ import { regex } from "arkregex"
  * uses, in canonical order).
  *
  * Features: a program under two names, a path several programs request, statistics several programs request.
- *
- * @plant test/plants/unit/workload/extract-merge-first-kinds.patch A merged statistics request keeps its first
- * request's kinds alone.
  */
 
 const sortedUnique = <A extends string>(values: ReadonlyArray<A>): ReadonlyArray<A> =>

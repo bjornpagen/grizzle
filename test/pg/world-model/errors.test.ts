@@ -29,9 +29,6 @@ import type { ActionOutcome } from "#test/support/worlds/model/types.ts"
  * that fact's values. A tamper changes database settings, so the file runs in a database of its own. A token that does not decode
  * through a role's contexts is the claims suite's (isolation-claims.test.ts). A direct write below SERIALIZABLE, which
  * the isolation guard refuses with 25000, is test/pg/direct-writers/isolation.test.ts's.
- *
- * @plant test/plants/pg/world-model/worlds-errors-integer-range-unchecked.patch The encoder's integer range check
- * dropped, so a value past its integer type's range reaches PostgreSQL; the refusal disagrees with the model's.
  */
 const refusals: ReadonlyArray<ActionOutcome["kind"]> = [
 	"open-refused",

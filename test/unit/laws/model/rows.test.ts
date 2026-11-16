@@ -14,12 +14,6 @@
  *
  * Features: a NULL-able column, a varlena, mixed alignments and no column for the layout; within, at and past the
  * bound, a varlena and mixed alignments for the law model.
- *
- * @plant test/plants/unit/laws/model/rows-bitmap-dropped.patch A row's null bitmap uncounted (laws/model/rows.ts
- * rowBytes); the layout fails.
- * @plant test/plants/unit/laws/model/rows-at-limit-refused.patch A row of exactly the limit refused (laws/model/rows.ts
- * wideRow); the law model at MaxHeapTupleSize fails.
-
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -55,9 +55,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * the profile are options, broken by two children, and the holder's none is no breach before COMMIT. A state the model
  * finds no breach in commits the note and reads back every note with exactly its children; any breach fails the write
  * as `failed`, the server's refusal, and commits nothing.
- *
- * @plant test/plants/pg/write/refusal/delivered-breach-never-raised.patch A read-back's breach arm never fires
- * (write/refusal.ts breachArm); the property fails.
  */
 const text = str.regex(".*")
 

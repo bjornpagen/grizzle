@@ -16,9 +16,6 @@
  *
  * Features: a missing or wrong configured password refused beside the login's own in PGPASSWORD or the password file,
  * the login's own admitted beside another, and admitted under a PGOPTIONS that is set.
- *
- * @plant test/plants/pg/adapter/environment-pgoptions.patch A login's startup options left out, so pg sends
- * PGOPTIONS; the pinned defaults property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

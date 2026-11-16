@@ -27,11 +27,6 @@
  *
  * Features: a state admitted, one beside a box of no slots, each law refusing, marked refusing under a box of no slots,
  * and the domain refusing a negative count and a negative index.
- *
- * @plant test/plants/pg/laws/projections/domains-natural-admits-minus-one.patch A contract domain's CHECK reads VALUE
- * one above it (physical/ddl/expr.ts), so natural's CHECK holds at VALUE >= -1 and a count of -1 is admitted.
- * @plant test/plants/unit/laws/pred-of-zero-minus-one.patch pred(x) defined at x = 0, as -1 (scalar/natural.ts
- * predTerm), so a box of no slots its laws admit is refused.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

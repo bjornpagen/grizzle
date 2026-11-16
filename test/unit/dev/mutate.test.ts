@@ -11,9 +11,6 @@
  * The oracle is the specification: each operator's fault, stated apart from the operator as a judgement of the text a
  * mutant replaces and its replacement, and TypeScript's own parser. The box is the real tree. Features, required in
  * the space: every operator of both families.
- *
- * @plant test/plants/unit/dev/mutate-definer-text.patch world-definer writes a replacement other than INVOKER
- * (DEFINER); the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

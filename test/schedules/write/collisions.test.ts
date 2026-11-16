@@ -45,12 +45,6 @@
  * witness and both met rows read back are required features, among every other kind of answer; a witness whose turn
  * aims at a pending one that depends on the form or on two of B's requests runs a case constructed to reach it
  * (`aims`).
- *
- * @plant test/plants/schedules/write/collisions-generated-arbiter-last-key.patch A generated addition is arbitrated at
- * a declared key beside its primary key that holds no drawn field (slot) instead of its primary key
- * (write/insert/unique.ts generatedArbiter); the property fails.
- * @plant test/plants/schedules/write/met-keep-where.patch The arbiter's DO SELECT returns only an occupant whose payload
- * differs, so an exact repeat meets nothing it reads back; the property fails.
  */
 import { aimed, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

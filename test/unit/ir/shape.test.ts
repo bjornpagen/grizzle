@@ -19,23 +19,6 @@
  *
  * Features: each break, each decoded form, an own __proto__ key in each process, each unreadable site, each defect
  * site, each refinement admitted and refused, depths within and past a small stack, each cycle length and form.
- *
- * @plant test/plants/unit/ir/ir-shape-refusal-at-parent.patch A struct's required field is decoded at its container's
- * place, so its refusal is placed at the container; the broken property fails.
- * @plant test/plants/unit/ir/ir-shape-frozen-passed-through.patch A frozen container is returned as decoded, unread;
- * the idempotent property fails.
- * @plant test/plants/unit/ir/ir-shape-proto-assigned.patch setOwn assigns every key, so where
- * Object.prototype.__proto__ exists a "__proto__" key is lost, or sets the copy's prototype; the record keys property
- * fails in the consumer's process.
- * @plant test/plants/unit/ir/ir-shape-read-unguarded.patch A read of the caller's value runs unguarded, so a throwing
- * proxy or getter escapes; the unreadable property fails.
- * @plant test/plants/unit/ir/ir-shape-defect-swallowed.patch A decoder's own defect is refused as malformed instead of
- * escaping; the defects property fails.
- * @plant test/plants/unit/ir/ir-shape-zero-positive.patch positiveInteger admits zero; the refinements property fails.
- * @plant test/plants/unit/ir/ir-shape-deferred-inline.patch ref reads its part on the call stack, not deferred to the
- * driver; the depth and cycles property fails past a small stack.
- * @plant test/plants/unit/ir/ir-shape-cycle-unrefused.patch A container on the path is not refused as a cycle, so the
- * decode goes round one that holds itself; the depth and cycles property fails one read past the cycle.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

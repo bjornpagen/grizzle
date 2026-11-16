@@ -21,11 +21,6 @@
  *
  * Oracle: the reference evaluator's delivery of the query before the passes (a second implementation), and the strict
  * DAG re-reader beside the conservative lowering's audit.
- *
- * @plant test/plants/unit/lower/rewrite/pushdown-below-take.patch A filter moved below an uncorrelated take, so the
- * take ranks other rows; the pipeline-snapshot-planted search fails at its kept filter over a take.
- * @plant test/plants/unit/lower/rewrite/late-fetch-ordered-payload.patch A wide column the take's order reads is
- * fetched late, outside the narrow take that sorts by it; the late-fetch-wide and pass-alone searches fail.
  */
 import { type Case, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { type Coverage, noCoverage, required } from "@bjornpagen/testing/features"

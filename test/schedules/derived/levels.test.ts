@@ -13,11 +13,6 @@
  *
  * The kept race is the window the race was first planted for: a call naming the whole chain, parked by the holder at
  * WeekBusy after it refreshed the levels below, while the reader reads.
- *
- * @plant test/plants/pg/derived/derived-refresh-level-order.patch A refresh call's targets keep the order its member
- * names them in rather than level then declared order (adapter/refresh/targets.ts refreshTargets), so a call naming
- * WeekBusy first refreshes it from the StudentWeekly it has not refreshed yet, and the state shows WeekBusy other than
- * its definition; the property fails.
  */
 
 import { constant, type Gen } from "@bjornpagen/testing/gen"

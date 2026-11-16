@@ -10,11 +10,6 @@
  * judges the folds over naturals; the pg tier judges the set monoids' natives.
  *
  * Features: each verdict and each broken law of each box.
- *
- * @plant test/plants/unit/analysis/theory/fold-visible-no-first-pin.patch A named fold's violation omits its
- * first-slot identity pin (analysis/theory/laws.ts foldArms); the visible box fails.
- * @plant test/plants/unit/analysis/theory/fold-hidden-no-off-arm.patch A hidden fold's violation omits the arm of an
- * end off its members' combine (analysis/theory/laws.ts foldArms); the hidden box fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

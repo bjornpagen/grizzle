@@ -93,28 +93,6 @@
  * or more under one parent, and one level under two parents, each aimed at by a steered case that constructs it.
  *
  * The file builds Substrate.isolatedLayer: the rewrite observer's event trigger is the database's.
- *
- * @plant test/plants/pg/migrate/cutover-fk-keeps-old-key.patch A re-pointed foreign key keeps the referenced table's old
- * key: a foreign key of the same name is never drafted again.
- * @plant test/plants/pg/migrate/cutover-backfill-skips-rows.patch The family backfill skips a row of each group, its
- * first member keeping its placeholders.
- * @plant test/plants/pg/migrate/rewrites-one-statement-per-column.patch Each added column its own ALTER TABLE, one
- * rewrite per column.
- * @plant test/plants/pg/migrate/cutover-counted-keeps-ordered-index.patch A removed field grizzle draws or accumulates
- * is never dropped, so ordered to counted, or a family dropped, leaves the ordered index `at`, and a dropped family's
- * fold end on its owner.
- * @plant test/plants/pg/migrate/orderkeep-member-key-redraw.patch A re-pointed sequence's stored index is drawn again in
- * its members' key order, as before a3b86f66.
- * @plant test/plants/pg/migrate/backfill-fold-before-copies.patch A tree's fold drawn before the copies its selection
- * reads, as 73c7406e ordered them.
- * @plant test/plants/pg/migrate/backfill-family-column-copied.patch A column a family draws also drafted as another
- * family's copy, which the backfill's order refuses as one column of two statements.
- * @plant test/plants/pg/migrate/parent-correlated-probe.patch The parent drawn by a correlated max(start) over the
- * tree's rows, one probe per row.
- * @plant test/plants/pg/migrate/parent-depth-off-by-one.patch A row's level counts the rows that end at its start as
- * still holding it.
- * @plant test/plants/unit/deploy/tree-closure-restored.patch The tree drawn over the closure of its parents, under a
- * WITH RECURSIVE.
  */
 import {
 	accepted,

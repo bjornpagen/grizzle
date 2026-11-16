@@ -21,9 +21,6 @@
  * agreeing.
  *
  * Features: every operation form, a NULL operand and none, and each of Kleene's and SQL's NULL rules the box turns on.
- *
- * @plant test/plants/pg/null/null-greatest-null-wins.patch The host's greatest and least return NULL when any operand
- * is NULL.
  */
 import { type Case, exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

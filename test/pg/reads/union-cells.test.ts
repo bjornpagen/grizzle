@@ -76,17 +76,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * generator pins (test/support/openapi/validator.ts). A union of two heading groups delivers each group by a statement
  * of its own, so its key is every head field of every group (program/served.ts templateKey), a column one group lacks
  * among them, spelled null on the wire for that group's rows.
- *
- * @plant test/plants/pg/reads/union-cells-union-all.patch Every UNION is sent as UNION ALL, which delivers a record
- * twice; the decoding property fails.
- * @plant test/plants/pg/reads/key-common-heading.patch templateKey keys a union of two heading groups by the proof over
- * its shared fields, so its once folds two records of one group into one, fewer than its arms deliver alone.
- * @plant test/plants/pg/reads/key-lacked-refused.patch The wire refuses a key field some heading lacks, as it did, so
- * the login's served wire refuses the union.
- * @plant test/plants/pg/reads/plan-refusal-at-login.patch snapshotCompiled places the plan's refusal at the login
- * again, not at its program; the planted numeric case's refusal fails the decoding property.
- * @plant test/plants/pg/reads/key-lacked-decoded-null.patch A lacked key column's null is decoded as null, which no
- * record's key holds; the key property fails.
  */
 const handles = ["A", "B", "C"] as const
 type Handle = (typeof handles)[number]

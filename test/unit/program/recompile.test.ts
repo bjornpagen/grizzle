@@ -27,9 +27,6 @@ import { printCase } from "#test/support/oracle/public/print.ts"
  * How every read here is compiled: as a Db's reads are, for the snapshot context, read as rows.
  *
  * Features: a read compiled; a read compiled again after another read.
- *
- * @plant test/plants/unit/program/recompile-name-supply-shared.patch A count one compilation leaves behind for the
- * next, spelled into its statements: every name supply starts its relations past the supplies made before it.
  */
 const request: ExecutionRequest = {
 	context: "snapshot",

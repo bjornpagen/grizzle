@@ -22,11 +22,6 @@
  * Kept: the page/generated-optimized case at TEST_SEED=28094260, whose nested key set holds a key within one parent
  * only, and its twin paired on the column that fixes the parent, whose nested key set is proved across parents
  * (cases.ts).
- *
- * @plant test/plants/unit/lower/dedup/key-sets-distinct-everywhere.patch Every key set is read through DISTINCT
- * (conservative/deliver.ts keysOf), proved or not; a proved set, which both populations reach, fails both searches.
- * @plant test/plants/unit/lower/dedup/key-sets-unproved-kept.patch Every key set is read as it is, where keySetOf
- * leaves it unproved too; an unproved set fails the generated programs' search.
  */
 import { drawn, exhaust, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

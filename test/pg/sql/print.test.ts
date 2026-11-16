@@ -23,22 +23,6 @@
  *
  * Features: the relational reads' joins, subqueries and frames; the expressions' types and a collated BETWEEN bound;
  * the catalog read's shared and apart arms; each privilege outcome; and a literal at an integer type's bound.
- *
- * @plant test/plants/pg/sql/sql-print-catalog-union-all.patch A catalog read's arms are joined by UNION ALL; the
- * catalog reads property fails.
- * @plant test/plants/pg/sql/sql-print-frame-range.patch A window frame is printed as RANGE; the relational property
- * fails.
- * @plant test/plants/pg/sql/sql-print-default-privileges-scope-dropped.patch IN SCHEMA is dropped from a reset; the
- * default privileges property fails.
- * @plant test/plants/pg/sql/sql-print-right-operand-unwrapped.patch A right operand of equal precedence is printed
- * bare; the expressions property fails.
- * @plant test/plants/pg/sql/sql-print-nested-select-bare.patch A nested set-operation level is printed without its
- * parentheses; the set trees property fails.
- * @plant test/plants/pg/sql/sql-print-count-filter-dropped.patch count(*)'s FILTER is dropped; the aggregates property
- * fails.
- * @plant test/plants/pg/sql/sql-print-raise-detail-dropped.patch A RAISE's DETAIL is dropped; the RAISE property fails.
- * @plant test/plants/pg/sql/sql-print-float-fifteen-digits.patch A double literal is printed to fifteen significant
- * digits; the literals property fails.
  */
 import { drawn, exhaust, explore, sketched } from "@bjornpagen/testing/explore"
 import { noCoverage, required, requiredInSpace } from "@bjornpagen/testing/features"

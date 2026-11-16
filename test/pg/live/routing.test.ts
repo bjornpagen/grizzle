@@ -41,19 +41,6 @@
  *
  * Features: a touched and an untouched subscription of one relation, a commit touching several subscriptions, an
  * update moving a row between groups, each read shape, each writer, a sealed copy of the last fence's notification.
- *
- * @plant test/plants/unit/live/routing-key-ignored.patch The router hands a keyed change to every subscription of its
- * table, so a subscription of another group is marked; the marking property fails.
- * @plant test/plants/pg/live/source-missing-publication.patch The publication leaves out a footprint table, so a
- * subscription its write touched stays clean; the marking property fails.
- * @plant test/plants/pg/live/source-identity-too-narrow.patch The replica identity of a footprint table too narrow for
- * its routing column, so the group an update moved a row out of stays clean; the marking property fails.
- * @plant test/plants/pg/live/unauthenticated-fanout.patch The listener reads a payload its seal does not open as
- * plaintext, so a forged route key marks its subscription; the forgeries property fails.
- * @plant test/plants/pg/live/fence-on-every-row.patch Each fence's own probe reads every row of Probe, as the fence did
- * before, so the sealed copy of the last fence's notification marks it, every time.
- * @plant test/plants/pg/live/forgeries-tamper-everything.patch Every payload received is tampered, the case's own
- * earlier forgeries among them, as before, so a forgery tampered twice comes back to the leader's payload and opens.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { awaitFact } from "@bjornpagen/testing/fact"

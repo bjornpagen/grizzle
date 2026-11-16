@@ -24,11 +24,6 @@
  * Features: a keyed subscription reached, a table-wide one reached, a commit reaching no subscription, a fail-closed
  * table key, a pull after several commits, a refused run run again, a batch removing a row, and a marked subscription
  * whose value the commits left as it was; for expiry, a change sent before it and none.
- *
- * @plant test/plants/unit/live/routing-key-ignored.patch route visits every subscription of the key's table whatever
- * the key's column and value, so a subscription no delivered key reaches is marked; the routing property fails.
- * @plant test/plants/unit/live/coalesce-dropped.patch A notification is queued per change in place of the mark bit, so
- * a slow consumer's pending runs grow with the write rate; the bounded-holding property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

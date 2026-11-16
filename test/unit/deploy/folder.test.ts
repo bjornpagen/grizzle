@@ -18,12 +18,6 @@
  * Features: a folder name accepted and refused; a migration name admitted and refused, a timestamp refused; a folder of
  * no file, files in ordinal order, and a folder refused for a file's name or an ordinal twice; and as the meta and
  * derived-name searches name them.
- *
- * @plant test/plants/unit/deploy/folder-name-one-byte-past.patch A migration name a byte past maxMigrationNameLength
- * is admitted.
- * @plant test/plants/unit/deploy/folder-timestamp-unchecked.patch A folder name's timestamp is unread, so any fourteen
- * characters before the separator pass.
- * @plant test/plants/unit/deploy/folder-ordinal-twice-admitted.patch Two files of one ordinal are admitted.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

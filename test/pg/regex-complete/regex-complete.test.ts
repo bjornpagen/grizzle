@@ -22,12 +22,6 @@
  *   PostgreSQL's 23514 naming the domain's constraint;
  * - closed payloads are validated by PostgreSQL at installation, and the migration generate drafts and the snapshot
  *   admission derives hold the same validation; a refined query literal is validated wherever it is delivered.
- *
- * @plant test/plants/pg/parameters/param-domain-uncast.patch A scalar parameter's placeholder is cast to its base
- * (lower/conservative/context.ts scalarParam), so no domain checks it; the pattern parameter, numeric contract,
- * attachment and union suites fail on a refused value that runs.
- * @plant test/plants/pg/regex-complete/refinement-are-swapped.patch A refinement's domain CHECK matches its pattern
- * against the value, operands swapped (text/refinement.ts patternTerms).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

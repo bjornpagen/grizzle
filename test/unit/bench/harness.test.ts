@@ -19,27 +19,6 @@
  * - The command line of `pnpm bench` reads exactly what a model of its grammar reads, and refuses the rest.
  *
  * Each property states its oracle and requires the situations its oracle tells apart.
- *
- * @plant test/plants/unit/bench/harness-rows-read-one-loop.patch A scan's rows are read over one loop, not all of them;
- * the capture read-back fails.
- * @plant test/plants/unit/bench/harness-figure-not-finite-read.patch A figure that is not finite is read rather than
- * refused as MalformedPlan; the refusal of planted faults fails.
- * @plant test/plants/unit/bench/harness-retry-once-more.patch The caller-side retry runs one retry past its policy; the
- * retry property fails.
- * @plant test/plants/unit/bench/harness-rows-repeat-agrees.patch Two row lists of one length agree though they repeat a
- * row; the row agreement property fails.
- * @plant test/plants/unit/bench/harness-text-number-read.patch A number cell is read as text rather than refused as
- * MalformedRows; the text-row property fails.
- * @plant test/plants/unit/bench/harness-verdict-first-check.patch A verdict is blind to its first check; the verdict
- * property fails.
- * @plant test/plants/unit/bench/harness-record-two-verdicts.patch A record that holds two verdicts of a gate is not
- * named for it; the record gaps property fails.
- * @plant test/plants/unit/bench/harness-record-leak-keeps-verdicts.patch A run whose release leaked keeps its verdicts
- * rather than making each an error; the leaked release property fails.
- * @plant test/plants/unit/bench/harness-gate-owner-swapped.patch One gate (R02) is owned by the other directory; the
- * audit of the gate catalog's bench files fails.
- * @plant test/plants/unit/bench/harness-full-takes-arguments.patch `pnpm bench full` takes arguments rather than refusing
- * them; the command line property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

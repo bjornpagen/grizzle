@@ -40,15 +40,6 @@
  *   statement by statement over the stored rows, and its catalog afterwards must be the target's installed from
  *   nothing; NP's reference fold (test/support/families/fold.ts) of each owner's members in key order and a naive left
  *   fold of each owner's pieces state every drawn value.
- *
- * @plant test/plants/unit/deploy/backfill-counts-from-one.patch A counted family's indices are drawn from one, not
- * zero (row_number() unshifted); the generated backfill's drawn values disagree with the references.
- * @plant test/plants/unit/deploy/backfill-key-checks-dropped.patch The backfill pushes none of the key checks its
- * derivations owe; the keyed tree's check that the backfill checks every key it relies on fails.
- * @plant test/plants/unit/deploy/tree-closure-restored.patch The tree's derivation by the recursive closure of its
- * parents, as before 2026-11-14; the check that no backfill statement recurs fails.
- * @plant test/plants/unit/deploy/backfill-pass-per-derivation.patch The backfill writes a table once per derivation,
- * not by one UPDATE; the check that the backfill writes each table's rows by one UPDATE fails.
  */
 import { drawn as generated, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

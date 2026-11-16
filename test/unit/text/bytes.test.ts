@@ -8,9 +8,6 @@
  * lesser of its pattern's bound and its byte bound.
  *
  * Features: the meet situations test/support/text/bytes.ts names (meetFeatures).
- *
- * @plant test/plants/unit/text/text-bytes-pattern-bound-kept.patch A byte bound looser than its pattern's is kept as
- * the side's byte bound, so the pattern's tighter one is lost; the meet property's bytes fail.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

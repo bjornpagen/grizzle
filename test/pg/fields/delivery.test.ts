@@ -10,9 +10,6 @@
  * Oracle: the drawn rows themselves.
  *
  * Features: the vocabulary Feature below, each boundary a value's length meets.
- *
- * @plant test/plants/pg/fields/fields-delivery-chunk-offset.patch A delivered chunk is written at the wrong offset.
- * @plant test/plants/pg/fields/fields-delivery-order-reversed.patch The assembled rows come back in reverse order.
  */
 import { type Case, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

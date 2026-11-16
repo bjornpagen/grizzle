@@ -14,13 +14,6 @@
  * the part each attachment reads computed from the filters in program order.
  *
  * Features: carried and inline; shared and inline; fed and sent.
- *
- * @plant test/plants/unit/lower/shapes/share-carried-three.patch A sub-query is carried only when more than three
- * statements read it; the carried search fails.
- * @plant test/plants/unit/lower/shapes/share-cte-three.patch A statement computes a sub-query once as a CTE only when it
- * reads it more than three times; the CTE search fails.
- * @plant test/plants/unit/lower/shapes/share-feed-none.patch No attachment part is fed from an earlier one, each placed
- * as a part of its own; the feeding search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

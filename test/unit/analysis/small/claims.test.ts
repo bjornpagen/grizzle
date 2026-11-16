@@ -40,21 +40,6 @@
  *
  * Features: every claim checked, every precision situation each grammar must reach, and each elision reason
  * (ClaimFeature).
- *
- * @plant test/plants/unit/analysis/physical/closed-distinct-column-guessed.patch A closed relation's column of one
- * repeated value claimed a key; unsound on some database of the universe.
- * @plant test/plants/unit/analysis/small/bare-child-source-selection-ignored.patch A bare child proved from a
- * containment whose source selection the parent's fact need not satisfy (logical/attach.ts); unsound for the scan of
- * every fact of S under the selected containment.
- * @plant test/plants/unit/analysis/small/reflexive-filters-unread.patch A filter the root's own fact leaves unknown
- * counts as satisfied (logical/attach.ts reflexiveOne); unsound for an ordinal beside a conjunct.
- * @plant test/plants/unit/analysis/small/bare-child-one-field-containments.patch A containment of two fields proves no
- * child (logical/attach.ts); imprecise for the attachment by both fields.
- * @plant test/plants/unit/analysis/small/selection-filter-ignored.patch A source selection satisfied only by the
- * scan's region, never by the filter above it, as the selected scan of S states it (logical/attach.ts scanSelects);
- * imprecise for the bare child of a selected source.
- * @plant test/plants/unit/analysis/small/shared-child-keys-widened.patch A child read twice claims only proofs of its
- * whole heading as its keys (logical/annotate.ts); inexact for every shared child.
  */
 import { type Case, exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace, type Situations } from "@bjornpagen/testing/features"

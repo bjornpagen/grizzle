@@ -10,9 +10,6 @@
  *
  * Oracle: the registry's one type per carrier (plainType, wildcardText), a specification. Features: a plain root, an
  * attached root, a heterogeneous union.
- *
- * @plant test/plants/unit/lower/registry-types-rebuilt.patch A delivered heading (runtime/lower/tree.ts
- * deliveredHeading) rebuilds each column's type with its capabilities reordered; the search fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

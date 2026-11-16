@@ -61,12 +61,6 @@ import { descOf, parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts
  *
  * Features: a fact stated twice, two facts at one id differing in their title alone or in their members, two bodies of
  * one length that differ, an owner with no members.
- *
- * @plant test/plants/unit/write/nested-identity-joined-signature.patch A fact's signature holds each row it nests as
- * one text joined from the row's identity, not the set's row itself; the identity gate fails.
- * @plant test/plants/unit/write/nested-signature-own-row-only.patch A fact's signature is its own row's texts alone,
- * never the rows it nests, so two facts at one owner id differing only in their members are one fact, not a key
- * conflict; the specification oracle fails.
  */
 const Owner = relation(
 	"Owner",

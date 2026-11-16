@@ -4,9 +4,6 @@
  * inhabits `Infer` of its str.regex, and of its str.and with the next pattern, the kept patterns among them; the
  * program has no diagnostic. Oracle: ECMAScript's own matcher. Every family contributes a member from the draws its
  * label fixes, so the program proves something of each on every seed.
- *
- * @plant test/plants/types/text/text-host-drops-empty.patch The empty string is dropped from every inferred host type
- * (types/fields/regex.ts RegexInfer); the program fails.
  */
 import { unreachedOf } from "@bjornpagen/testing/features"
 import { NodeServices } from "@effect/platform-node"

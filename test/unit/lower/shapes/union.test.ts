@@ -18,16 +18,6 @@
  *
  * Features: delivered and refused; keyed and deduplicated arms; every row, the first k, a NaN, a descending order;
  * decimals equal at different scales, and ordered.
- *
- * @plant test/plants/unit/lower/shapes/union-attachments-optimized.patch The optimized delivery takes the attachments of
- * a heading group's first arm whatever the group's size, so it delivers an attachment on an arm of several; the
- * attachments search fails.
- * @plant test/plants/unit/lower/shapes/union-arm-distinct.patch Every bounded arm is deduplicated, a keyed one too; the
- * bounded-arm search fails.
- * @plant test/plants/unit/lower/shapes/union-merge-take.patch The merge keeps one row past its take; the merge search
- * fails.
- * @plant test/plants/unit/lower/shapes/decimal-scale-ignored.patch Decimals compare by coefficient whatever their scale;
- * the decimal-order search fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

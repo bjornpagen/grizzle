@@ -19,22 +19,6 @@
  * documented resume and refusals, restated over the drawn target and ledger.
  *
  * Features: each statement form and comment placement; each input fault; each plan's resume and refusal.
- *
- * @plant test/plants/unit/adapter/migrate-rollback-work-to.patch ROLLBACK WORK TO is read as a transaction's rollback;
- * the transaction control property fails.
- * @plant test/plants/unit/adapter/migrate-applied-edit-unseen.patch An applied file edited afterwards goes unnoticed
- * (its ledger row is compared by ordinal, not by digest); the plan's property fails.
- * @plant test/plants/unit/adapter/redraft-source-unchecked.patch A redraft of another source resumes; the plan's
- * property fails.
- * @plant test/plants/unit/adapter/redraft-record-unchecked.patch A redraft whose meta.json does not record a completed
- * file as it ran resumes, unless it is a custom folder's; the plan's property fails.
- * @plant test/plants/unit/adapter/partial-digest-unchecked.patch The partial folder's completed files are not
- * compared with the texts that ran; the plan's property fails.
- * @plant test/plants/unit/adapter/redraft-no-transaction-admitted.patch A redraft resumes at a no-transaction file;
- * the plan's property fails.
- * @plant test/plants/unit/adapter/record-one-text-per-statement.patch meta.json records a statement of two commands
- * (a database-wide statement and its database lock) as one text, so a drafted file no longer records as it is written;
- * the plan's property fails.
  */
 import { inspect } from "node:util"
 import { drawn, explore } from "@bjornpagen/testing/explore"

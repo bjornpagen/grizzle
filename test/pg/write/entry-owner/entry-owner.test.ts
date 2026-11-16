@@ -29,9 +29,6 @@ import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "e
  *
  * Each role's writes are a JavaScript caller's ChangeSets, served as members of its workload on a Db of its own, each
  * from its call's facts: the keeper's insert of Store and Item, and each entry role's insert and put of its entry.
- *
- * @plant test/plants/pg/write/entry-owner/entry-owner-outside-never-refused.patch An entry's check never refuses a fact
- * outside it (write/entry/precheck.ts buildEntryCheck); the property fails.
  */
 import type { Uuid } from "#compiler/public/fields.ts"
 import { type AnySchema, login, role } from "#compiler/public/schema.ts"

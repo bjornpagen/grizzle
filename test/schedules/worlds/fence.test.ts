@@ -58,11 +58,6 @@ import type {
  * its lock wait (DbWaitedOnMigration), never by the case's hang guard. A feature is the kind of the call that
  * answered, as drawn. The migration, and the calls drawn after the holder commits, are judged by the model with the
  * real system's state checked after each.
- *
- * @plant test/plants/schedules/worlds/worlds-fence-db-waits-on-ledger.patch A Db transaction's fence takes the ledger's
- * ACCESS SHARE lock waiting rather than NOWAIT (deploy/ledger/ledger.ts), so a call through a Db during a migration
- * queues on the ledger behind the migration's lock instead of answering StaleSnapshot `migrating`, which the barrier
- * sees (DbWaitedOnMigration); the property fails at once.
  */
 
 /** What the transaction in flight the migration waits behind holds. */

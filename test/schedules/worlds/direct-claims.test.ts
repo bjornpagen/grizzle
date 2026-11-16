@@ -57,11 +57,6 @@ const caseGen: Gen<Case> = (source) => ({
  * is refused at its statement by the key (23505 naming its constraint for dan), and concurrently a writer may fail
  * with a typed transient failure; a carl reads his own shares, which no
  * other writer's claims ever reach. Every order of the moves is explored, with reduction.
- *
- * @plant test/plants/pg/education/worlds-isolation-row-security-off.patch Every table's ENABLE ROW LEVEL SECURITY is
- * printed as DISABLE (sql/print.ts printAlterTableAction), so no relation's row security keeps a world to its own
- * facts, which the installed-catalog check finds at the installation (rowSecurityMissing on doc, note and share); the
- * property fails.
  */
 const race = (c: Case): WorldRace => {
 	const reads: ReadonlyArray<DirectStatement> =

@@ -12,11 +12,6 @@
  *
  * Features: a text that begins with U+FEFF, a text holding U+FEFF after its start, bytes that are no UTF-8 refused,
  * a sequence cut between chunks, an astral scalar.
- *
- * @plant test/plants/unit/core/utf8-strips-byte-order-mark.patch The decoder strips a leading byte order mark, as a
- * TextDecoder does by default, so a text that begins with U+FEFF reads without it.
- * @plant test/plants/unit/core/utf8-patches-malformed-bytes.patch The decoder is not fatal, so bytes that are no
- * UTF-8 read as text with U+FFFD in place of the fault.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

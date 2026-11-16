@@ -30,13 +30,6 @@
  *
  * Features: a prefix and none, a capitalized schema spelling, an unknown variable, a stem variable, an aside variable,
  * a live source variable, a variable in an earlier form.
- *
- * @plant test/plants/unit/deploy/create-role-printed-plain.patch A CREATE ROLE prints its role by its quoted stem, no
- * variable; the property that every created role is a variable fails.
- * @plant test/plants/unit/deploy/prefix-applied-twice.patch A role variable is filled with the prefix twice; the prefix
- * property fails.
- * @plant test/plants/unit/deploy/database-variable-misfilled.patch The database variable is filled as a role's name,
- * DBNAME's in the role space, not the database's; the property that the variables are DBNAME and a role's names fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

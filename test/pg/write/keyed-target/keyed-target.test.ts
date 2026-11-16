@@ -32,10 +32,6 @@
  * to its first item; or a lead inserted for it.
  *
  * Features, each required: each program at each fate its units meet.
- *
- * @plant test/plants/pg/write/keyed-target/unit-or-exists.patch the unit delete's doomed keys of a member of several families read as one condition over every stored row, an OR of an EXISTS per owner (write/delete/unit.ts before this law)
- * @plant test/plants/pg/write/keyed-target/delete-target-unbound.patch an exact delete binds its target to its source rows by a row comparison cast to text, which no index of the target serves
- * @plant test/plants/pg/write/keyed-target/guarded-by-fields.patch a key over a selected side is met at its fields with its selection over the stored row, never at its UNIQUE's own law column, so no index serves the read
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

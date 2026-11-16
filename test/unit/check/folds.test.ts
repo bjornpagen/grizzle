@@ -63,12 +63,6 @@ import {
  *
  * Features: each shape and aggregate, refused and admitted; equal values summed twice; a constant beside the fold; a
  * match binding a key of two fields in part, refused, and whole, admitted.
- *
- * @plant test/plants/unit/check/folds-partial-key-admitted.patch A match binding part of a key is read as keyed
- * (check/checker.ts foldInput); the refusal oracle fails.
- * @plant test/plants/unit/check/folds-sum-over-projection.patch The checker binds a sum's fold to the tuple of its
- * group keys and its argument, so equal values on distinct facts count once; the host fold's oracle fails at the sum
- * arm.
  */
 
 /** Comment's primary key: its id, or its post and id, so a match can bind a key of two fields in part. */

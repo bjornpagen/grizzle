@@ -20,19 +20,6 @@
  *
  * Features: as the search names them. The generator draws a statement over a relation its own level lists, one a lower
  * level lists and one a lower level states, so both sides of the level rule are drawn by construction.
- *
- * @plant test/plants/unit/schema/last-wins.patch A later declaration of a name replaces the earlier (schema/schema.ts
- * declaresFirst).
- * @plant test/plants/unit/schema/name-only.patch Any repeat of a name refused, identical ones too.
- * @plant test/plants/unit/schema/value-identity.patch Declarations compared as values, not by meaning.
- * @plant test/plants/unit/schema/no-lower-levels.patch An extension compares its list with itself alone.
- * @plant test/plants/unit/schema/one-location.patch The refusal's earlier location is the later declaration's.
- * @plant test/plants/unit/schema/statements-unchecked.patch No statement's relations held to the declarations
- * (schema/schema.ts statementsDeclared).
- * @plant test/plants/unit/schema/reach-admitted.patch Ownership's level rule removed, so a statement over a lower
- * level's relation is admitted.
- * @plant test/plants/unit/schema/relisted-level.patch A relation's level the last level that lists it.
- * @plant test/plants/unit/schema/restated-reach.patch A statement held at every level that states it.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

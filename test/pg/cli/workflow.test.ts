@@ -44,11 +44,6 @@
  * real state against the model's states before and after it.
  *
  * Features: every command kind of the loop, each scenario among them.
- *
- * @plant test/plants/pg/cli/workflow-markers-unchecked.patch `grizzle check` finds no unresolved marker, so check
- * passes a committed file the model says it must refuse.
- * @plant test/plants/pg/cli/workflow-drift-unchecked.patch The drift check compares no catalog fact, so drift passes
- * while a table created behind grizzle's back stands in the schema.
  */
 import {
 	accepting,

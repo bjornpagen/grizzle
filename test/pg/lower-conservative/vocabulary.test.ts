@@ -10,11 +10,6 @@
  * Oracle: PostgreSQL's catalog, pg_operator for each form's function and pg_proc for each registry entry's signature.
  *
  * Features: a binary operator and the negation among the forms; a function lowered to its call among the entries.
- *
- * @plant test/plants/pg/lower-conservative/conservative-mod-as-div.patch The table spells the modulo functions with the
- * division symbol; the operator forms property fails.
- * @plant test/plants/pg/lower-conservative/conservative-call-misnamed.patch Every function lowers to a call of abs; the
- * functions property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

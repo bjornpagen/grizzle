@@ -3,9 +3,6 @@
  * checks disarmed: over every declared case of the entry-owner box (test/support/families/entry-owner.ts), a write
  * through the entry is admitted exactly when its fact states no family field, and refused otherwise with the refusal
  * the engine names. Oracle: the box's rule, which the engine meets (test/unit/write/entry-owner.test.ts).
- *
- * @plant test/plants/types/changeset/changeset-member-unfit.patch A member fact that is no fact of its relation is
- * admitted (types/changeset/changeset.ts MemberFit); the program fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

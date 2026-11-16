@@ -20,25 +20,6 @@
  *
  * Features: a fill of one row, a fill whose WAL passed one segment, a fill of defaults only, a fill that skipped rows a
  * key already held, a fill with a chunk that inserted no row, each deferred law.
- *
- * @plant test/plants/pg/substrate/fill-first-chunk-whole.patch The first chunk is the whole fill, one transaction over
- * every row, as the fills before this loader were; a fill of two rows or more starts past the series' first row.
- * @plant test/plants/pg/substrate/fill-budget-tenfold.patch Each chunk is sized to ten segments of WAL at the rate of
- * the chunk before, so a chunk holds more indices than one segment holds at that rate.
- * @plant test/plants/pg/substrate/fill-admits-constraint-trigger.patch The admission refuses no deferred trigger that is
- * no foreign key's, so a table a constraint trigger an INSERT fires guards is filled chunk by chunk.
- * @plant test/plants/pg/substrate/fill-refuses-update-trigger.patch The admission refuses every deferred trigger,
- * whatever fires it, so a table whose only deferred law only an UPDATE fires is refused although no chunk can break it.
- * @plant test/plants/pg/substrate/fill-admits-later-reference.patch A deferred foreign key into a later fill is admitted,
- * so the table's first chunk commits before any row it references and its COMMIT refuses it.
- * @plant test/plants/pg/substrate/fill-refuses-earlier-reference.patch Every deferred foreign key is refused, so a table
- * whose parents an earlier fill completed is refused although every chunk finds its rows.
- * @plant test/plants/pg/substrate/fill-slices-tables-apart.patch A chunk commits each table's slice in a transaction of
- * its own, so a child's slice commits before the parent rows of its own fill and its COMMIT refuses it.
- * @plant test/plants/pg/substrate/fill-measures-empty-chunk.patch A chunk that inserted no row counts as a measurement,
- * so its zero WAL is a defect of the count and the fill dies, though nothing was wrong.
- * @plant test/plants/pg/substrate/fill-one-transaction.patch Every chunk runs inside one transaction, so the chunks
- * commit together and hold one XID for the whole fill.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

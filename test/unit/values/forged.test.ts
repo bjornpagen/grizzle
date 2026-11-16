@@ -14,11 +14,6 @@
  *
  * Features: each way an input ends (refused at admission, thrown out at construction, admitted as its value), a batch
  * holding one value twice, a buffer written after admission, and every carrier's every forgery.
- *
- * @plant test/plants/unit/values/values-decimal-prototype-brand.patch A Decimal is recognized by its prototype, so
- * an object built on Decimal.prototype passes as one; the forged-carrier property fails.
- * @plant test/plants/unit/codec/numeric-full-scale-refused.patch parseNumeric reads a typmod's scale one less, so a
- * numeric at its column's full scale is refused; the forged-carrier property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

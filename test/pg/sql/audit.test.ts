@@ -17,9 +17,6 @@
  *
  * Features: each statement kind it plans, each Wild operator of a mirrored rule PostgreSQL refuses, the LATERAL
  * rewrite planned, each zero-width form planned, and the shape of every statement it plans.
- *
- * @plant test/plants/pg/sql/sql-print-lateral-dropped.patch The printer drops a derived table's LATERAL, so a generated
- * statement that reads an outer relation inside one is refused.
  */
 import { explore, drawn, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

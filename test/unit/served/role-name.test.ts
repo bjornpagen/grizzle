@@ -34,23 +34,6 @@
  * Features: a prefix and none, two prefixes, a capitalized spelling, a camel-case name, a prefix at the limit and one
  * byte past, a prefix past the budget, a login that reads and one that reads nothing, an allocator's schema name, a
  * decoder under a prefix at the budget.
- *
- * @plant test/plants/unit/served/stem-not-the-door.patch login(...) computes its stem from the declared names as
- * written, not their conversions (schema/stem.ts loginStem); the default oracle fails.
- * @plant test/plants/unit/served/runtime-ignores-prefix.patch The runtime ignores the role prefix: roleNameOf, and a
- * layer's connection role (adapter/connection/config.ts connectionRole), name the bare stem; the default oracle fails.
- * @plant test/plants/unit/core/role-prefix-converted.patch roleInSpace converts the prefix as a declared name,
- * `qti_pie_v2` installing as `qti_pie_v_2`; the default oracle fails.
- * @plant test/plants/unit/served/decoder-unprefixed.patch roleNameOf names a decoder login by its stem whatever the
- * prefix; the decoder property fails.
- * @plant test/plants/unit/served/decoder-never.patch served names no decoder for a login that reads; the decoder
- * property fails.
- * @plant test/plants/unit/served/decoder-login-stem.patch A decoder login carries its served login's stem, not the live
- * source's; the decoder property fails.
- * @plant test/plants/unit/served/decoder-unbounded.patch The live source's stem carries the root's segments again; the
- * decoder-fits property fails.
- * @plant test/plants/unit/served/role-aside-unbounded.patch A role's aside name carries its stem's segments again; the
- * decoder-fits property fails for the roles set aside.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -16,10 +16,6 @@
  * wherever the binary is the tree's; any other process is none.
  *
  * Features: each verdict, by the reason for it.
- *
- * @plant test/plants/unit/substrate/foreign-state-directories.patch The postmasters are read from the lock files of
- * the clusters' state directories under ~/.local/var/grizzle, not from the processes, so a postmaster whose data
- * directory lies elsewhere is never found; the property fails at the first case that lists one.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -14,9 +14,6 @@
  *
  * Features: a stale invalidation heard before the check, one heard after it, a real invalidation ending a source, a
  * check finding no slot.
- *
- * @plant test/plants/unit/live/invalidation-ignores-position.patch Every invalidation names every slot, as before
- * invalidations carried a position, so a stale invalidation ends a newer slot's source.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -26,9 +26,6 @@
  * case draws its end on its tape (installed.ts endGen): each box requires both ends, and the box of states, which meets refusals at commit,
  * a refusal at commit through each, so the search itself shows a real COMMIT never decides otherwise than the checked
  * end.
- *
- * @plant test/plants/pg/fin/fin-bound-check-at-most-count.patch The bound CHECK admits a row at the count (`i <= ‹n›`),
- * so a row beyond the family commits; both properties fail.
  */
 import { runProgram } from "@bjornpagen/testing/commands"
 import { drawn as drawnCase, exhaust, explore, type Oracle } from "@bjornpagen/testing/explore"

@@ -19,9 +19,6 @@
  * test/support/executes.ts).
  *
  * Features: that constant, a role that writes nothing, and an insert that holds.
- *
- * @plant test/plants/pg/physical/executes-written-unfollowed.patch A role's EXECUTE grants follow its views alone,
- * never the statements on the tables it writes (physical/ddl/roles.ts roleExecutes).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

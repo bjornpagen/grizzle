@@ -8,11 +8,6 @@
  * than linearly, exactly (test/support/growth.ts incrementsDoNotGrow; types are not judged: types/batch/measured.ts): the second step adds no more than the
  * first, so the role, the login and the ChangeSet over the role cost no more per relation at a larger schema. Oracle:
  * the compiler's own counts, compared step against step.
- *
- * @plant test/plants/types/schema/budget/declared-as-clause.patch c614875c's Declared comes back, a level's record
- * keyed by an `as NameOf<X>` clause, which the checker instantiates over every relation of the level at each lookup by
- * name and each keyof (qti-pie's TS2589 at its author login): the program's increments grow, 2,294,580 then 3,254,580
- * instantiations a step at b3f355ef, a second difference of 960,000.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

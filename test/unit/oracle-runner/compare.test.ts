@@ -13,11 +13,6 @@
  * Oracles: second implementations, the count-by-row model and the count of value classes. Features: each change kind,
  * and each verdict (equal, missing rows, extra rows, both; agreement across spellings, a value, a count or a repeat
  * told apart).
- *
- * @plant test/plants/unit/oracle-runner/compare-single-excess.patch An excess of one row is left unreported, only
- * excesses of two or more named missing or extra; the multiset property fails.
- * @plant test/plants/unit/oracle-runner/compare-first-cell-key.patch A row is keyed by its first cell alone, so rows
- * that differ past it count as one; the multiset and the runs properties fail.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

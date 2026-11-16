@@ -8,8 +8,8 @@ import { type Limit, measured } from "#compiler/core/limits.ts"
  * session is never woken; a poll that finds the socket closed (pq_check_connection, src/backend/libpq/pqcomm.c#L2057)
  * ends the backend with FATAL "connection to client lost" (postgres.c#L3465), and with it the transaction id it holds.
  * Without it PostgreSQL notices a dead client only when it next reads from or writes to the socket, which a statement
- * that never ends never does: a test process ended mid-statement (its hang guard, a SIGKILL, a plant whose SQL never
- * ends) leaves its backend running and holding its transaction id, and every logical slot's creation on the member
+ * that never ends never does: a test process ended mid-statement (its hang guard, a SIGKILL, a defect whose SQL
+ * never ends) leaves its backend running and holding its transaction id, and every logical slot's creation on the member
  * (CREATE_REPLICATION_SLOT, a live source's) waits for every transaction id running when it starts.
  */
 export const clientCheckInterval: Limit = measured({

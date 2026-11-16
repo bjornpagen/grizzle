@@ -17,13 +17,6 @@
  *
  * Features: one language, two languages, the wildcard, a contract, one or two typmods and another carrier; each union
  * shape; a refined cell, an unrefined one and no row.
- *
- * @plant test/plants/unit/check/refinement-wildcard-guarantees-language.patch The wildcard guarantees every language
- * (check/refinement guarantees); the guarantees property fails.
- * @plant test/plants/unit/check/refinement-site-key-overreads.patch A site's key holds its row's first payload cell
- * (check/refinement refinedConstants); the refined constants property fails.
- * @plant test/plants/unit/check/refinement-unchecked-contract-constant.patch A brand-only contract's cells are listed
- * (check/refinement hasConstraint); the refined constants property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

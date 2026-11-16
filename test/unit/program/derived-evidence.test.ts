@@ -37,8 +37,6 @@ import { checking } from "#test/support/policy.ts"
  * named by the installation's own names (viewKeyIndex), is a premise of the template's and of the write's certificates.
  *
  * Features: each view, a read-back over a view.
- *
- * @plant test/plants/unit/program/derived-evidence-unkeyed-views.patch A query's evidence keys no view.
  */
 
 /**

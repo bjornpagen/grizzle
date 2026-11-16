@@ -22,12 +22,6 @@
  * R07's statement, which no Closed occurrence may outlive.
  *
  * Features: an option or bare child, and a take, over an identity projection's input; each roster form.
- *
- * @plant test/plants/unit/lower/rewrite/simplify-identity-evidence.patch An identity projection removed while its input
- * keeps its own metadata, not the projection's evidence, so an option's child over it states no card; the
- * public-programs-planted search fails.
- * @plant test/plants/unit/lower/closed-roster-kept.patch R07 takes no roster occurrence for a membership, so a roster
- * match a plain match also binds is kept; the public-programs-roster search fails.
  */
 import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
@@ -75,7 +69,7 @@ import { present } from "#test/unit/lower/support.ts"
 const handleNames = ["Red", "Green", "Blue", "Amber", "Teal"] as const
 type HandleName = (typeof handleNames)[number]
 
-/** The roster forms the R07 plant reaches: the import alone binding the roster's variable, and a plain match beside it. */
+/** The roster forms R07 decides: the import alone binding the roster's variable, and a plain match beside it. */
 type RosterFeature =
 	| "an import bound to a variable only a roster match binds"
 	| "roster match dropped beside a plain binder"

@@ -88,11 +88,6 @@ import { upTo } from "#test/support/up-to.ts"
  *
  * Features: the schema itself, a level, no level; each pair of inputs; a rename to each kind of name, each change of
  * content; a live schema and each decoder rule broken.
- *
- * @plant test/plants/unit/program/schema-input-level-by-relation-names.patch A level is compared by its relations'
- * names alone.
- * @plant test/plants/unit/program/schema-input-decoder-pathless.patch A decoder refusal is placed at the root of the
- * value, with no path.
  */
 
 /** The refusal a compilation answers, which a case must reach: its reason and location. */

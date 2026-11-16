@@ -16,25 +16,6 @@
  * is not (16-bit codes, payload spaces past 2^53, declaration histories), it is searched (explore).
  *
  * Features: each search names the shapes, relations, statements, rosters, sides and edits it must reach.
- *
- * @plant test/plants/unit/ir/ir-cells-alias-digit.patch rowMajorIndex accepts a digit at its radix, which carries
- * into its neighbour; the row-major index's and the dependent key space's properties fail.
- * @plant test/plants/unit/ir/ir-cells-fin-past-count.patch finDigit accepts a slot at its owner's count, the next
- * owner's first slot; the fin coordinate's property fails.
- * @plant test/plants/unit/ir/ir-cells-dependent-shifted.patch keyIndex reads a dependent key's slot one place on; the
- * dependent key space's property fails.
- * @plant test/plants/unit/ir/ir-cells-collision-overwrites.patch constantOf keeps the later of two payloads at one key
- * instead of refusing the collision; the string of cells' order and collision property fails.
- * @plant test/plants/unit/ir/ir-cells-width-short.patch cellWidth is one bit short when the payload space is a power of
- * two; decode ∘ encode = id fails.
- * @plant test/plants/unit/ir/ir-cells-hole-reused.patch rosterCodes mints a new handle at a hole's code; the roster
- * codes' property fails.
- * @plant test/plants/unit/ir/ir-cells-reorder-admitted.patch rosterCodes admits two kept neighbours swapped; the roster
- * codes' property fails to see the reorder refused.
- * @plant test/plants/unit/ir/ir-cells-side-largest-key.patch sideOf keys a side by its largest contained declared key;
- * the side's property fails.
- * @plant test/plants/unit/ir/ir-cells-digest-no-payload.patch constantDigestOf is blind to payloads; the digest's
- * property fails on a cell given another payload.
  */
 import { type Case, drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

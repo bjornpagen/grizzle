@@ -65,10 +65,6 @@ import {
  * Features: an index only removed programs asked for, a key or law object a kept program asks for too, an index a kept
  * program asks for alone, a law's own index where the whole workload's is wider for a dropped program, the empty
  * workload; each defect and the healthy workload.
- *
- * @plant test/plants/unit/workload/install-access-reason-dropped.patch A request that lands on an index already
- * planned adds no reason to it (indexes/engine.ts planIndexes), so a key or law index a program asks for stands on no
- * access; the sub-workload property fails.
  */
 
 const installWith = (

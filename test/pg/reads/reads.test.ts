@@ -10,13 +10,6 @@
  * - a union's heading groups and an attachment's statements read one snapshot: with a commit landing between two of
  *   their statements at a drawn interleaving point (the table whose lock the read waits on), the read answers as the
  *   database stood before the commit or after it, never a mix.
- *
- * @plant test/plants/pg/reads/reads-relation-input-first-fact-dropped.patch A relation input is normalized without its
- * first fact; the first property fails.
- * @plant test/plants/pg/reads/reads-union-merge-reversed.patch The heading groups are merged on their order reversed;
- * the second property fails.
- * @plant test/plants/pg/reads/reads-read-only-at-read-committed.patch Every read begins READ COMMITTED; the third
- * property fails.
  */
 import { drawn, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { type Pending, required } from "@bjornpagen/testing/features"

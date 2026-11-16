@@ -12,8 +12,6 @@
  * The oracle is universal, a metamorphic relation: the canonical text of every guard of T's guarded keys, the encoding
  * every digest, law identity and snapshot of the guard reads, holds the same characters at both sizes. Features: each
  * atom, a disjunction, a roster of one handle and one of thousands.
- *
- * @plant test/plants/unit/startup/roster-encoding-size.patch A roster's canonical form carries its handle count.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

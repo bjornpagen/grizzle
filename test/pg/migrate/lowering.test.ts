@@ -30,9 +30,6 @@
  * Features: each flip both ways under one law, applied and refused, a lowered rule's constant changed, each form added
  * over rows that break it, an intermediate folder refused, and a refused write naming its law by a foreign key and by a
  * trigger, each pending one constructed.
- *
- * @plant test/plants/pg/migrate/lowering-triggers-kept.patch A migration keeps a rule's law triggers when the rule leaves them for
- * foreign keys.
  */
 import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

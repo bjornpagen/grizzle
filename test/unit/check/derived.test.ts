@@ -35,11 +35,6 @@
  *
  * Features: self-reads, 2-cycles, 3-cycles and acyclic chains; each input beyond a row, pre-order against
  * breadth-first; each level of a closed read; each place a query states a term.
- *
- * @plant test/plants/unit/check/derived-locale-order.patch A generated field's reads ordered by locale
- * (check/generated.ts); the read graphs property fails.
- * @plant test/plants/unit/check/derived-least-read-skipped.patch The least generated field a field reads is passed
- * over for the greatest (check/generated.ts); the read graphs property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -20,12 +20,6 @@
  *
  * Features: each width of code point, U+FFFF, a code point past the first supplementary plane and the empty text in
  * the SQL's batches; each bound of the text's type and each side of the guard, a refusal, and an admission at the limit.
- *
- * @plant test/plants/pg/compute/compute-utf16-char-length.patch The SQL counts code points alone.
- * @plant test/plants/pg/compute/compute-utf16-plane-one.patch The SQL's supplementary class stops at U+1FFFF.
- * @plant test/plants/pg/compute/compute-utf16-host-code-points.patch The host counts code points.
- * @plant test/plants/pg/compute/compute-utf16-unbounded.patch The bounded precondition is proved of a text no bound
- * holds.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

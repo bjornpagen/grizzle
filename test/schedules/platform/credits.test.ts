@@ -14,9 +14,6 @@
  * The swarm adds a second grant expiring later, requests whose windows cross the first grant's expiry, credit spent
  * before the race, the first grant expiring mid-race (a put shortening its validity, by grizzle or a direct writer's
  * UPDATE in place, its debits kept), and a request submitted twice.
- *
- * @plant test/plants/pg/spans/storage/laws-le-strict.patch A comparison's `le` is lowered as `<`, so a grant debited
- * to its last micro is refused; the property fails.
  */
 
 import { array, type Gen, int, shuffled, weighted } from "@bjornpagen/testing/gen"

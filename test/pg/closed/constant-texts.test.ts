@@ -27,14 +27,6 @@
  * Compute.concat), so a schema whose constant lists a value of more bytes than a concatenation of two literals is
  * refused at compile, ContractLiteral; any other schema must install. Each row written by grizzle's writer is accepted where
  * lawful and refused by its relation's one law otherwise, and every stored generated value is the model's.
- *
- * @plant test/plants/pg/closed/constant-texts-folding-off.patch The lowering's constant folding of a generation
- * expression turned off, so the installation of the first case whose generation expression compares constant texts
- * fails with 42P22.
- * @plant test/plants/pg/closed/concat-bound-one-code-point-wide.patch A concatenation of literals bounded four bytes
- * past its operands' (scalar/compute/lower.ts concat), so the kept case installs the schema it expects refused.
- * @plant test/plants/pg/closed/generated-refusal-dies.patch The install harness turns generate's refusal into a defect
- * (test/support/install-migrate.ts generatedDraft), so the kept case dies on it.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

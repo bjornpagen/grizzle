@@ -8,9 +8,6 @@
  * Oracle: the specification, the text analysis's own verdict (text/refinement.ts textLookup) deciding each side.
  *
  * Features: an admitted pattern and a refused one.
- *
- * @plant test/plants/unit/text/text-field-flags-dropped.patch str.regex's descriptor always takes the flags "u",
- * whatever its flags argument; the descriptor property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

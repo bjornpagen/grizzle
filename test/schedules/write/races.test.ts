@@ -35,19 +35,6 @@
  * served it chose (PutChoice), each answer, each TransientFailure reason met, each direct SQLSTATE, waits, deadlocks,
  * nature's branches, a write held between its strata by a blocker, generated and explicit serials, and each planted
  * shape.
- *
- * @plant test/plants/pg/history/races-inserter-begins-swapped.patch Each isolation level's BEGIN is sent for the
- * other's, so a certified READ COMMITTED call's one flight opens SERIALIZABLE; the inserters', the claimers', the
- * inserter alone's and the races' properties fail.
- * @plant test/plants/schedules/write/races-assignments-keep-stored-values.patch Every assignment of a put in place
- * (the upsert's DO UPDATE, the UPDATE ... FROM and the MERGE's update) keeps the stored value; the races' property
- * fails.
- * @plant test/plants/schedules/write/races-inserter-served-serializable.patch A role certified READ COMMITTED is served
- * its SERIALIZABLE form, so the inserter and the claimer run SERIALIZABLE; the inserters', the claimers' and the
- * inserter alone's properties fail.
- * @plant test/plants/schedules/write/candidate-keys-dropped.patch The model's laws drop every `key` statement's
- * candidate key (lawsOf), so a call refused at Badge's code is a run no serial order explains; the inserters', the
- * inserter alone's and the races' properties fail.
  */
 
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"

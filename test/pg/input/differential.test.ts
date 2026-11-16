@@ -21,13 +21,6 @@
  * Oracle: the old host check, run beside the new path; PostgreSQL's report and the classifier's reading of it.
  *
  * Features: per lookup, "<lookup> refused alike" and "<lookup> admitted alike".
- *
- * @plant test/plants/pg/input/refinement-left-on-host.patch paramEncoder keeps the deleted host check of a contract's
- * predicate (codec/scalar.ts), so the old validator's refusal comes before any SQL, an EncodingFailure, where
- * PostgreSQL's must.
- * @plant test/plants/pg/parameters/param-domain-uncast.patch A scalar parameter's placeholder is cast to its base
- * (lower/conservative/context.ts scalarParam), so no domain checks it, and PostgreSQL admits what the old check
- * refused.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

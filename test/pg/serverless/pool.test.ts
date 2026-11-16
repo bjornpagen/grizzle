@@ -30,11 +30,6 @@
  *
  * Features: each place a waiter waits by each ending; each place a lease is cut, a lease kept to its end, and more
  * leases than the pool holds.
- *
- * @plant test/plants/pg/serverless/pool-permit-lost.patch A closed session's permit never handed back; once every
- * lease has returned, the pool's free permits are short of its maximum.
- * @plant test/plants/pg/adapter/pool-release-awaits.patch A layer's release leaving its leased sessions' connections
- * up, retired, not ended; the waiter property finds a leased session not ended where the layer is released first.
  */
 import { drawn, exhaust, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

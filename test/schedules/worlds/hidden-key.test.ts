@@ -56,11 +56,6 @@ const caseGen: Gen<Case> = (source) => ({
  * yet the primary key is global: serially the second insert is refused by Doc's primary-key law, its witness the key
  * the writer submitted and nothing of the hidden fact, and concurrently PostgreSQL may refuse one writer instead with
  * a typed transient failure. Every order of the moves is explored, with reduction.
- *
- * @plant test/plants/pg/education/worlds-isolation-row-security-off.patch Every table's ENABLE ROW LEVEL SECURITY is
- * printed as DISABLE (sql/print.ts printAlterTableAction), so no relation's row security keeps a world to its own
- * facts, which the installed-catalog check finds at the installation (rowSecurityMissing on doc, note and share); the
- * property fails.
  */
 const race = (c: Case): WorldRace => {
 	const rival: RaceSession =

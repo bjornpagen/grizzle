@@ -13,10 +13,6 @@
  *
  * The oracle is the served files themselves: the routes a running layer reads, never program/workload/compile.ts
  * livePlanOf.
- *
- * @plant test/plants/unit/cli/live-route-dropped.patch Each table's first routed field is left out of the live plan.
- * @plant test/plants/unit/cli/live-views-dropped.patch Every materialized derived relation is left out of the live
- * plan.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

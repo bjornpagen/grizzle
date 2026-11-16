@@ -12,9 +12,6 @@
  * value over each of its levels (boundary/snapshot.ts parseSnapshot) is exactly those members of what the file reads
  * back as: its fingerprint, its levels' schemas, the laws of the levels above the served one, its constraint-to-law map
  * and its codes.
- *
- * @plant test/plants/unit/deploy/snapshot-levels-above-skips-one.patch The served levels above the one served start a
- * level late (snapshot/served.ts servedSnapshot).
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

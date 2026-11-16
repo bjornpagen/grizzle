@@ -31,10 +31,6 @@
  *
  * Features: each fixture, a role certified READ COMMITTED, a role certified SERIALIZABLE, a live table a READ
  * COMMITTED role writes, no read kept, a read kept.
- *
- * @plant test/plants/unit/live/certification-live-tables-dropped.patch The live plan holds no footprint table whatever
- * the reads (program/workload/compile.ts livePlanOf), so the drafts with and without reads install the same tables; the
- * sitting shape's draft with reads fails the footprint property.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

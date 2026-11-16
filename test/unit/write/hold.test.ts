@@ -29,13 +29,6 @@
  * Features: refused unbound, refused written, refused for a retirement read; held by a body array, by `g`, by a pinned
  * variable, for a retirement read, for a read-back; held after Root's insert; held before Root's insert, for a
  * retirement read; nothing held.
- *
- * @plant test/plants/unit/write/hold-omitted.patch No hold placed (write/schedule/plan.ts placeHolds).
- * @plant test/plants/unit/write/hold-after.patch The hold placed after the first statement that touches the unit.
- * @plant test/plants/unit/write/hold-header-unordered.patch No edge from a header's insertion to the statements
- * touching its unit (write/frontend/schedule.ts).
- * @plant test/plants/unit/write/fence-by-target-column.patch The fence's law found by a foreign key referencing the
- * retirement field (physical/ddl/retire.ts fenceLaw), which a unit of two bodies installs none of.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

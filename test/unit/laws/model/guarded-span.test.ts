@@ -15,12 +15,6 @@
  *
  * Features: a span-alone key over a selection, a span-alone key over every fact, a guarded span key with a scalar, a
  * span key with a scalar over every fact.
- *
- * @plant test/plants/unit/laws/model/guarded-span-whole-side.patch A span-alone key over every fact is refused too
- * (laws/model/uniques.ts).
- * @plant test/plants/unit/laws/model/guarded-span-scalar-refused.patch A selected span key is refused beside a scalar
- * too (laws/model/uniques.ts).
-
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -71,11 +71,6 @@ import { fullWorld } from "#test/support/worlds.ts"
  * Oracle: the rule above, a model over the shape's roles (`expected`), and the copies held to each other. Features:
  * each way the request answers, the refused load where the keys' order differs between two renamings, and a request
  * meeting stored facts at its arbiter and at the key beside it at once.
- *
- * @plant test/plants/pg/write/renamed-keys/generated-arbiter-first-by-name.patch A generated addition whose primary key
- * holds the drawn id beside several keys arbitrates at the first of them in law order, as it did before
- * (write/insert/unique.ts generatedArbiter), so its load is never refused and a request meeting two of them is refused
- * by whichever key's name sorts first under each renaming; the property fails.
  */
 
 /** A plain field of the shape by its role, keyed in turn. */

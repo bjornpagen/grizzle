@@ -16,23 +16,6 @@
  * Features: a shared input, a closure past its arguments; a chain a recursion holds and one past it; two nodes and two
  * expressions clashing; each invariance and each change; several roots; y allocated first; an advanced supply and a
  * spelling not in normal form.
- *
- * @plant test/plants/unit/ir/ir-dag-order-reversed.patch topoOrder lists a node before its inputs; the traversal
- * property fails.
- * @plant test/plants/unit/ir/ir-dag-postorder-recursive.patch postorder recurses, so a chain past a small stack's
- * recursion overflows it; the deep chain's property fails.
- * @plant test/plants/unit/ir/ir-dag-expr-label-shared.patch exprClosure takes two expressions under one label as one,
- * so their clash is never refused; the label property fails.
- * @plant test/plants/unit/ir/ir-dag-digest-reads-locations.patch The DAG digest reads source locations; the digest's
- * invariance property fails on a location moved.
- * @plant test/plants/unit/ir/ir-dag-digest-domain-ignored.patch The DAG digest ignores its domain; the digest's change
- * property fails on another domain.
- * @plant test/plants/unit/ir/ir-dag-numbering-from-one.patch The normal form's positional names are counted from one;
- * the normal form property fails.
- * @plant test/plants/unit/ir/ir-dag-free-vars-first-only.patch A region's free variables are its first alone; the
- * region variables' property fails.
- * @plant test/plants/unit/ir/ir-predicate-spelling-unchecked.patch predicateProblems no longer checks a predicate's
- * normal form, so a spelling not in it decodes; the contract allocation property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

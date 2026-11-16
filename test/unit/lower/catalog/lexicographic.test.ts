@@ -14,11 +14,6 @@
  * relation.
  *
  * Features: recognized or not, inclusive or strict, several pairs ordered, a prefix test among the parts.
- *
- * @plant test/plants/unit/lower/catalog/lexicographic-direction.patch The parser reads the direction of the second
- * pair it parses backwards; the oracle and the wide searches fail.
- * @plant test/plants/unit/lower/catalog/lexicographic-recursion.patch The parser recurses into connectives on the call
- * stack, which overflows on a deep predicate; the deep search fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

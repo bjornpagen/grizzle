@@ -36,13 +36,8 @@ import { searched } from "@bjornpagen/testing/vitest"
  *
  * Features: an immutable tree, a mutable tree, a parent copy, an accumulated parent copy, two copies, a fold over the
  * tree.
- *
- * @plant test/plants/unit/laws/model/tree-root-pin-dropped.patch The root pin, start > 0 or at = 0, is left out of the
- * tree's CHECK (laws/model/plan.ts treeConditions), so a root off slot 0 is accepted; the CHECK's verdicts fail.
- * @plant test/plants/unit/laws/model/axis-index-dropped.patch No axis carries its reverse index and the tree states no
- * successor key, so the owner axis (doc, parent, ‹n›) leads no index of the tree: the drafted DDL fails the structural
- * property.
- */ import { describe, it } from "@effect/vitest"
+ */
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"

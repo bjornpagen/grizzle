@@ -18,9 +18,6 @@
  * Oracle: the reference evaluator's exact sums and means, which state each total once, with no order in it.
  *
  * Features: the order situations below, each computed from the drawn values, and forced parallel plans.
- *
- * @plant test/plants/pg/compute/compute-accumulation-float-sum-native.patch A double precision sum lowers to the native
- * sum, whose total depends on the order its rows are scanned in.
  */
 import { explore, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

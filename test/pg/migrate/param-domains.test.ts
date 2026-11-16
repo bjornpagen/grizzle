@@ -32,10 +32,6 @@
  * Features: a parameter domain's own CHECK moved over a text domain created for the parameters, and over a stored text
  * domain; a text domain under a parameter that stays stored, and one staying for the parameter once its stored field is
  * dropped.
- *
- * @plant test/plants/pg/migrate/param-domain-identity-alone.patch A parameter's domain named by its place and its
- * pattern's definition alone, as the first version was named, so `slug`'s domain keeps its name across the change of
- * its base, and the draft is refused as UnsupportedOperation, changing the base type of a domain.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { type Reached, requiredInSpace } from "@bjornpagen/testing/features"

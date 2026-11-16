@@ -25,10 +25,6 @@
  * - **Oracles:** EXPLAIN's plan shape (bench/harness/explain.ts), its index named by the installed catalog's role
  *   (installed.ts), never by an allocated name; and each read's rows against the tree's parent links
  *   (families/tree.ts descendantsOf) or the family as written, a second implementation that reads no interval.
- *
- * @plant test/plants/pg/fin/fin-plans-tree-key-start-first.patch The primary key is planned over its fields in reverse,
- * so the tree's is (start, r), no longer its document order; the owner axis's superkey still serves the export, and
- * the installed catalog's T1 fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

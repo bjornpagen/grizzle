@@ -17,9 +17,6 @@
  * the substrate's own owner and superuser sessions, that is in a transaction, and no direct writer's backend at all.
  * Features: a case that ended with its direct transaction open, one that ended with it aborted, and one that ended with
  * none in progress.
- *
- * @plant test/plants/pg/world-model/world-direct-outlives-case.patch A direct writer's scope forked from the world's
- * again, which leaves the writer of a case that ended with its transaction open idle in it after the case.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

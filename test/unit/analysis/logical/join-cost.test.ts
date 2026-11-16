@@ -16,10 +16,8 @@ import { searched } from "@bjornpagen/testing/vitest"
  * Assumption: no count changes shape above some k.
  *
  * Features: from k = 4, from k = 6.
- *
- * @plant test/plants/unit/analysis/logical/join-cost-key-search-per-pair.patch A key search run for each factor once
- * per factor, k² of them (logical/props.ts finish); the property fails.
- */ import { describe, it } from "@effect/vitest"
+ */
+import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { indices } from "#compiler/core/array.ts"
 import { makeIdSupply } from "#compiler/core/ids.ts"

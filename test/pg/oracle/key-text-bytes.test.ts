@@ -23,10 +23,6 @@
  *
  * Features: the text's place in the key, a closed id beside it, the width of the bounding code point, and the tight
  * budget, met in the entry that carries the null bitmap.
- *
- * @plant test/plants/pg/oracle/oracle-key-text-bytes-one-over.patch keyTextBytes allows one byte past the room the
- * companions leave (public/text.ts), so the tight case's entry that carries the null bitmap overflows the B-tree item
- * limit (54000).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

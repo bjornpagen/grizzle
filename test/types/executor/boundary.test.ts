@@ -6,14 +6,6 @@
  * behind its source, ParamSource `planned` or `recorded`, and is refused for `unserved` written out, the `unserved`
  * constant and a source of any kind; and runWrite takes an entry exactly when a door minted it. Oracle: the box's own
  * source kind, and whether a door minted the entry.
- *
- * Each plant below turns this test red: a probe of an `unserved` source compiles where its directive says it does not.
- *
- * @plant test/plants/types/executor/role-artifacts-any-source.patch RoleContext.artifacts is typed as artifacts of any
- * source.
- * @plant test/plants/types/executor/runtime-entry-any-source.patch runtimeEntry takes a ChangeEntry of any source.
- * @plant test/plants/types/executor/bench-compiled-any-source.patch A bench gate's Compiled.artifacts is typed
- * SchemaArtifacts (bench/query/support/kit.ts), so the bench probes over `unserved` sources compile.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

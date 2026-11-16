@@ -6,9 +6,6 @@
  * at every isolation level, interruptions, migrations, catalog changes and wild JavaScript values. After every action
  * the stored facts are the model's, whose reality keeps every law of the base (the driver's laws-hold invariant), and
  * a witness a law shows a world names only values its caller submitted or holds whole.
- *
- * @plant test/plants/pg/education/worlds-laws-foreign-keys-dropped.patch No native foreign key is installed, so a write
- * that breaks a containment is stored and the laws-hold invariant fails.
  */
 import { layer } from "@effect/vitest"
 import { educationTests, everyWriterApplies } from "#test/pg/education/support.ts"

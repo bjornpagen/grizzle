@@ -42,12 +42,6 @@ import { printCase } from "#test/support/oracle/public/print.ts"
  * lowering reads no evidence at all.
  *
  * Features: rows, page, a committed-snapshot certificate, several relations, a generated program.
- *
- * @plant test/plants/unit/program/context-transaction-snapshot-evidence.patch A transaction's template is lowered
- * under committed-snapshot evidence (program/compile.ts compileQuery); the compilation's verified context promise
- * fails: a plan compiled for the transaction context, not snapshot.
- * @plant test/plants/unit/program/context-conservative-reads-context.patch The conservative lowering is keyed by the
- * context: under a snapshot it lowers the analysis's restated DAG.
  */
 const notes = query(Work).rule((r) => {
 	const { task, note } = v(TaskNote, "taskNote")

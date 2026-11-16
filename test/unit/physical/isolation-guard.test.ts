@@ -11,9 +11,6 @@
  *
  * Features: a relation no role holds, one a role only reads, one every writer of which inserts at READ COMMITTED, one
  * two such inserters write, one a SERIALIZABLE role writes, and one a READ COMMITTED role updates or deletes.
- *
- * @plant test/plants/unit/physical/isolation-guard-update-relaxed.patch A READ COMMITTED writer that may update
- * leaves its relation unguarded.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

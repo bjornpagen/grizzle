@@ -39,19 +39,6 @@
  * statement's snapshot never saw, so the probe's fresher read decided it; and each forced writer caught. A commit a
  * monotone probe sees can only withdraw a violation, never add one (certify.ts, its proof's second step), so no run
  * refuses a READ COMMITTED writer for a commit it saw.
- *
- * @plant test/plants/unit/analysis/isolation/monotone-polarity-flipped.patch A write's presence and absence swapped
- * in breaksAt and settable: the holder of the deleted and the coordinator of the pair certified READ COMMITTED; the
- * deleted's race at generate's levels has a run no serial order explains.
- * @plant test/plants/unit/analysis/isolation/monotone-occurrences-deduped.patch The pair's two rows of R counted once,
- * so its coordinator is certified READ COMMITTED; the pair's pinned race at generate's levels has a run no serial
- * order explains.
- * @plant test/plants/unit/analysis/isolation/monotone-retire-without-delete.patch A retirement making rows present
- * alone: the retired's holder certified READ COMMITTED; its race beside the owner's retirement at generate's levels has
- * a run no serial order explains.
- * @plant test/plants/unit/analysis/isolation/monotone-probe-5c-dropped.patch The relations a role's probes read left
- * out of its outside reads: the gated's holder certified READ COMMITTED, NEGATION's case 3 through its probe; the
- * gated's race at generate's levels has a run no serial order explains.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

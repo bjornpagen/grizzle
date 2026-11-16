@@ -17,9 +17,6 @@
  * with that hook would add its own: the file runs alone.
  *
  * Features: each opening in each surrounding.
- *
- * @plant test/plants/pg/serverless/deadlines-statement-timeout.patch A login's startup options setting
- * statement_timeout; a login's session runs under another value and source than the plain session's.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

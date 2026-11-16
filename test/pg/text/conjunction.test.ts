@@ -12,8 +12,6 @@
  *
  * A conjunction no drawn text holds while its product proves it empty is refused, and a case reaches a text the first
  * member holds and the conjunction does not, so a CHECK of the first member alone fails here.
- *
- * @plant test/plants/pg/text/conjunction-first-member.patch A conjunction's domain CHECK holding its first member alone.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

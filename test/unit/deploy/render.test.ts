@@ -14,9 +14,6 @@
  *   markerLine), so a confirm is never told to fill a placeholder.
  * - **No transaction:** a file runs statement by statement exactly when its first line is the no-transaction marker,
  *   trailing spaces, tabs and a carriage return aside; the marker anywhere else, or after text, is no marker.
- *
- * @plant test/plants/unit/deploy/render-markers-crlf-kept.patch The no-transaction line's carriage return is kept, so
- * a no-transaction marker line ending in CRLF reads as none; the no-transaction property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -13,9 +13,6 @@
  * One departure from §6's text, recorded in NP's report: "at least one" as a bare containment into `select(S, φ)` is no
  * native, because a containment's target must contain a key (laws/model/plan.ts, "a containment into an unkeyed side
  * is not admitted"); its replacement here is the counted family with `check(T, n ≥ 1)`, the count row with lo = 1.
- *
- * @plant test/plants/pg/fin/fin-fold-check-after-equals-before.patch A fold's CHECK holds each after to its before, so
- * a lawful weighted or duration state is refused; the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

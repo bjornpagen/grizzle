@@ -93,27 +93,6 @@ import { fullWorld } from "#test/support/worlds.ts"
  * scratch copy, the total chain of a stratum's family statements, the pair rule's edges on a deferred owner axis, a
  * nested fact's signature without its own texts and an action placed before the family rows it references immediately
  * each fail the search.
- *
- * @plant test/plants/pg/write/swarm/swarm-nested-signature-without-own-texts.patch A nested fact's signature is built
- * without its own texts (runtime/write/nesting.ts nestedRows); the property fails.
- * @plant test/plants/pg/write/swarm/swarm-owner-slot-every-drawn.patch An owner's slot carries every drawn and
- * accumulated column at its start, its copies as a member among them (write/frontend/compile.ts); the kept case of
- * TEST_SEED=881675980 fails.
- * @plant test/plants/pg/write/swarm/swarm-moved-member-count-redrawn.patch A moved member is inserted again with its own
- * counted family's count and ends as its put's slot carries them, an empty family's (write/family/additions.ts); the
- * floor's case 4 fails and, with that case's follow-ups left out, the case aimed at "a member owning a family moved
- * between owners" (`ownerMoved`; TEST_SEED=3402740402, steered case 8).
- * @plant test/plants/pg/write/swarm/pair-counts-the-fact-itself.patch A family member's candidate is paired with itself
- * at a unique object of no span beside its primary key (write/insert/unique.ts pairedFacts, count(*) > 0), so every
- * insert of members under a member key is refused by that key.
- * @plant test/plants/pg/write/swarm/put-root-without-generated-fields.patch A put's rows, from which a refill reads
- * the values its cascade carries into the members' copies, hold only the fields the put states
- * (write/family/removals.ts leftByPut), so a copy of a generated field is redrawn from its stored value; the kept case
- * of TEST_SEED=3927981720 fails.
- * @plant test/plants/pg/write/swarm/queried-owner-append-direct-members-only.patch The served compile refuses an owner's
- * write from a query only beside a member of its counted family that the stratum writes itself, so an immutable owner
- * written from a query beside its members nested under another relation's insert compiles, is inserted at its count's
- * start, and its members' foreign keys into its count refuse the lawful insert at run time.
  */
 
 /** What the search reached: shapes written, refusals justified, and the downstream defects' shapes. */

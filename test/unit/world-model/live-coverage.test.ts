@@ -16,13 +16,6 @@
  *
  * The oracle is generate's own served file: compileServed with a login's own workloads is the compile generate commits
  * (its JSDoc), so the door's file is generate's, as JSON.
- *
- * @plant test/plants/unit/world-model/live-second-table-dropped.patch The live plan leaves out every footprint table but the first of each read
- * (program/workload/compile.ts livePlanOf), so a read through a query entry whose filter reads another relation is
- * uncovered; the property fails.
- * @plant test/plants/unit/world-model/fixture-without-workload.patch This test drafts each installation with its logins' workloads left out, as
- * the worlds executor's installation was drafted (4be5e75c), so the door compiles the reads under a snapshot with no
- * live source; the property fails.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

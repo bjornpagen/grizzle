@@ -24,11 +24,6 @@
  *
  * Features: a foreign key, a constant, a domain, a law index and a type CHECK; relations and statements reordered; each
  * broken rule refused at each slot, an extension schema that is the schema, and each spelling installed.
- *
- * @plant test/plants/unit/physical/install-indexes-before-structure.patch The Indexes phase is ordered before
- * Structure, its tables'.
- * @plant test/plants/unit/physical/install-64-byte-owner.patch An identifier of 64 bytes is admitted for the owner, the
- * vector schema and the extension schema.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

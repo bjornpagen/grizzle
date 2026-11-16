@@ -12,13 +12,6 @@
  * Oracle: PostgreSQL itself, the domain cast of each value.
  *
  * Features: a value the domain admits and one it refuses, for each contract.
- *
- * @plant test/plants/unit/compute/compute-contract-literal-unchecked.patch A literal is judged against its contract only
- * in the check mode, so the ContractLiteral check admits a literal its predicate refuses outside it.
- * @plant test/plants/pg/values/values-money-round-half-down.patch A numeric tie rounds toward zero before the predicate;
- * the admission property over the numeric contract and the rounding property fail.
- * @plant test/plants/pg/compute/compute-utf16-host-code-points.patch The host counts a text's code points for its UTF-16
- * units, so units and three-units disagree with PostgreSQL over a supplementary character.
  */
 import { drawn, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

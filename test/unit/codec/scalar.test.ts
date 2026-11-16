@@ -16,11 +16,6 @@
  *
  * Features: every form each carrier reaches (FormFeature); an integer's syntax and range refusals beside an int8; a
  * span's syntax refusal beside a span; a vector in the cosine domain, one lifted into it, and a subnormal component.
- *
- * @plant test/plants/unit/codec/codec-span-empty-admitted.patch A span whose start is its end is admitted, not refused
- * as spanOrder.
- * @plant test/plants/unit/codec/codec-int8-leading-zero.patch The strict reading (test/support/kernel/strict.ts)
- * admits an int8 text's leading zero.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

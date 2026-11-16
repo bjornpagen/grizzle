@@ -12,9 +12,6 @@
  *
  * Features: a batch opened, an authenticated batch that is no UTF-8 a defect, a value that begins with U+FEFF, a batch
  * of several notifications.
- *
- * @plant test/plants/unit/live/payload-patches-malformed-bytes.patch openPayload reads a batch through a TextDecoder of
- * its own, not fatal, as it did, so an authenticated batch that is no UTF-8 opens with U+FFFD in place of its fault.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

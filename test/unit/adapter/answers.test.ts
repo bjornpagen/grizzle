@@ -50,15 +50,6 @@ import { contained, on, relation, schema } from "#compiler/public/schema.ts"
  *
  * Features: each delivery, a defect, a proof that does not license the reader; each statement kind with a repeat
  * planted or none; each way a window's rows fail.
- *
- * @plant test/plants/unit/adapter/answers-second-child-taken.patch A second child under an Option or the one child is
- * taken silently, the first of several kept; the deliveries' property fails.
- * @plant test/plants/unit/adapter/answers-missing-child-misnamed.patch A missing one child is named under the law of at
- * most one child; the deliveries' property fails.
- * @plant test/plants/unit/adapter/answers-repeat-delivered.patch A statement's answer holding a row twice is delivered
- * (recordRowsOf checks no repeat); the statements' property fails.
- * @plant test/plants/unit/adapter/answers-window-past-size.patch A rows statement may answer one row past its LIMIT, the
- * window's size; the window's property fails.
  */
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
 import { bindGroups, named, record } from "#compiler/schema/record.ts"

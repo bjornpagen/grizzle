@@ -17,11 +17,6 @@
  * literal (test/support/closed/bit-text.ts), sharing no code with the engine's decoder.
  *
  * Features: either constant changed; a cell changed or a padding bit set.
- *
- * @plant test/plants/unit/cli/literal-pack-statement-from-zero.patch A finding counts its file's statements from 0.
- * @plant test/plants/unit/cli/literal-pack-later-cell.patch Where two literals hold different cells first, the later
- * is named.
- * @plant test/plants/unit/cli/literal-pack-unchecked.patch check finds only a literal pack off its printed form.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

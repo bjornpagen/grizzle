@@ -35,11 +35,6 @@
  *
  * Features: each knob's turn, the login renamed back, several knobs at once and a history of two migrations, each a
  * steered case constructs while it is pending: a start where the knob turns, and the turn.
- *
- * @plant test/plants/pg/migrate/histories-login-dropped.patch A draft ignores every declared login rename, so the
- * renamed login is a new PostgreSQL role and loses its OID.
- * @plant test/plants/pg/migrate/worlds-roster-aim-three-tiers.patch The aim at a roster under a world view growing
- * starts at three tiers, so the steered phase never reaches the roster's growth.
  */
 import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

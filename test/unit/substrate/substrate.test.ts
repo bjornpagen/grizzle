@@ -14,12 +14,6 @@
  *
  * Every property states its oracle, the specification; invalid words, identifiers and allocations are named faults
  * the generators plant, drawn by explicit weight beside the lawful ones. Features: each verdict of each property.
- *
- * @plant test/plants/unit/substrate/substrate-limit-off-by-one.patch An identifier one byte past the limit is admitted; the names property
- * fails.
- * @plant test/plants/unit/substrate/substrate-first-report.patch psql's first report is read, not the last; the psql property fails.
- * @plant test/plants/unit/substrate/substrate-constraint-unchecked.patch Another constraint's refusal holds an expectation of a constraint; the
- * expectations property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

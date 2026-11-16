@@ -69,13 +69,6 @@ import { testSql } from "#test/support/sql.ts"
  *
  * Features: each ending, commit and retirement the model names; for joined flights, no part, a part of no statement,
  * and several parts.
- *
- * @plant test/plants/pg/adapter/abandon-cancel-once.patch abandon destroys the connection after one CancelRequest,
- * so the answers the server made after the request never reach the client; both flight properties fail.
- * @plant test/plants/unit/adapter/batch-cancel-after-drain.patch A flight whose answers already decided it sends a
- * CancelRequest when an interruption meets it draining; both flight properties fail.
- * @plant test/plants/unit/adapter/batch-joined-part-overreads.patch A joined part reads the next part's first outcome
- * as its own; the joined flights' property fails.
  */
 /** A call's statement, a served one as a Db call sends it: its label's text, named. */
 const statement = (sql: string): BatchStatement => preparedStatement(prepared(testSql(sql)), [])

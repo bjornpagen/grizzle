@@ -10,10 +10,6 @@
  * encodes a plain Set of the same handles.
  *
  * Features: each door admitting and refusing, and a set of another roster whose names the field holds.
- *
- * @plant test/plants/unit/compute/compute-bits-door-unstated.patch The codec's door reads a set's handles alone, its
- * stated roster unchecked, so Bits.of(Alpha, ["low"]) at a field over Beta is admitted where Beta holds "low"; the
- * door property fails at the codec.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

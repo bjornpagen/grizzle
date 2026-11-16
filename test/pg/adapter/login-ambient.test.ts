@@ -24,10 +24,6 @@
  *
  * Every setting at every value it is drawn at is a required situation, beside the installation-first path, every pin
  * standing and each pin reset, a refused write and a later page.
- *
- * @plant test/plants/pg/adapter/environment-pgoptions.patch A login's startup options left out, so a session of a login
- * whose pin is reset starts under the database's default for it; the property fails where a reset extra_float_digits
- * pin leaves the database's -15, which prints floats short of their round trip.
  */
 import { explore, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

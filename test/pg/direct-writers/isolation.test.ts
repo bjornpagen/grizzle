@@ -37,15 +37,6 @@
  * - Oracle: the specification turned into a checker (predict), the README's refusal order over the point.
  * - Features: each statement under each verdict, the guard's refusal on each kind of table and after a read, and a write
  *   admitted at the database's default.
- *
- * @plant test/plants/pg/direct-writers/isolation-guard-admits-repeatable-read.patch The guard refuses only the levels
- * below REPEATABLE READ, so a write at REPEATABLE READ runs; the property fails.
- * @plant test/plants/pg/direct-writers/isolation-no-database-default.patch The installation leaves the database's
- * default level alone; the installed-catalog checker the installation runs refuses it (isolationDefault). It is red at
- * install by construction, never at a write at the database's default: every installation a test makes runs that
- * checker (test/support/install-migrate.ts, step 7), so no case of the box runs under this plant.
- * @plant test/plants/pg/direct-writers/worlds-direct-guard-sqlstate.patch The guard raises 42501 where it refuses a
- * write below SERIALIZABLE, not 25000; the property fails at every such write.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

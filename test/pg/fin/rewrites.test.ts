@@ -19,9 +19,6 @@
  * Each case writes its families by one transaction that replaces the seat's rows, then sends its rewrite as one
  * transaction checked as its COMMIT would check it and rolled back, or ended by a real COMMIT, as the case draws its
  * end on its tape (installed.ts endGen): the box holds every case under both ends.
- *
- * @plant test/plants/pg/fin/fin-bound-check-at-most-count.patch The bound CHECK admits a row at the count (`i <= ‹n›`),
- * so a misordered shrink the model refuses commits; the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

@@ -47,9 +47,6 @@ import { upTo } from "#test/support/up-to.ts"
  * A case draws an integer graph over up to six vertices and a text graph over up to six words, each ordered pair of
  * vertices an edge or not, so chains, diamonds, cycles and self-loops arrive by several routes, and the origin a
  * parameter or literal names, now and then one past the graph's last vertex, and runs every query over them.
- *
- * @plant test/plants/pg/recursion/graph/recursion-seed-pushdown-off.patch The graph pass holds no seed pushdown rule,
- * so no predicate over a recursion's carried columns reaches its seed.
  */
 
 const text = str.regex("^[a-z]{1,8}$")

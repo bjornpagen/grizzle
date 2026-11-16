@@ -21,9 +21,6 @@
  *
  * - Oracle: the specification turned into a checker, the outcome the drawn facts and the role's write list decide.
  * - Features: each kind of ChangeSet, both tasks noted, a wanted task no Task holds, and an empty note.
- *
- * @plant test/plants/pg/transactions/apply-stream-read-once.patch A Stream relation parameter read once and empty after,
- * so the second application adds no note; the property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

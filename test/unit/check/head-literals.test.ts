@@ -37,9 +37,6 @@ import { checking, checkOptions } from "#test/support/policy.ts"
  * handle default this replaced made Kind.
  *
  * Features: each arm kind, each way a match fixes the handle, each type c takes, and each refusal.
- *
- * @plant test/plants/unit/check/head-literals-integer-as-bigint.patch A plain safe integer defaults to bigint
- * (check/checker.ts bareLiteralType); the property fails.
  */
 const Kind = closed("Kind", ["A", "B"])
 const Short = str.regex("^.{0,4}$", "su")

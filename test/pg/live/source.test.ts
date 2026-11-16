@@ -25,19 +25,6 @@
  * Features: an insert, a delete, an update of a mutable relation, an update of an immutable one, a write of a routed
  * table, a write of a table read whole, a direct writer's commit, a grizzle call's commit, a rolled-back transaction
  * that wrote, the live source opens, a login's read of the secret refused.
- *
- * @plant test/plants/pg/live/source-identity-too-narrow.patch physical/ddl/live.ts identityOf answers the key's identity
- * whatever the routes, so an update of a routed column outside the key decodes no old value of it.
- * @plant test/plants/pg/live/source-missing-publication.patch publishedTables leaves a footprint table out, whose writes
- * then decode to nothing.
- * @plant test/plants/pg/live/usage-dropped.patch The decoder login's privileges leave out USAGE on the root's schema, so
- * its secret's read would be refused and the source would not open; the installed-catalog checker refuses the
- * installation first, decoderLacks USAGE on the schema. It is red at install by construction, never at the source's
- * open: every installation a test makes runs that checker (test/support/install-migrate.ts, step 7).
- * @plant test/plants/pg/live/ledger-unpublished.patch deploy/ledger/ledger.ts publishingLedger leaves the migrations
- * ledger out of the publication, which the installation's posture check refuses as ledgerUnpublished. It is red at
- * install by construction, never at a migration's ledger row the leader would not decode: every installation a test
- * makes runs that checker (test/support/install-migrate.ts, step 7).
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

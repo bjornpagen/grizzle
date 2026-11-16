@@ -32,11 +32,6 @@
  * The oracle is the specification of each fault's meaning, read off the drawn fault alone.
  *
  * Features: each member, each fault, a read of rows and of none, and a watch of a closed-only read.
- *
- * @plant test/plants/unit/live/ready-before-commit.patch A read sends ready once its rows decode, before COMMIT's
- * answer: a COMMIT refused or lost finds a ready before the error.
- * @plant test/plants/unit/live/retry-safe-commit-unknown.patch commitUnknown is classified safe: the refresh whose
- * COMMIT went unanswered finds safe.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

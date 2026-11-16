@@ -25,11 +25,6 @@
  *
  * Features: every field's invalid class in every form, a wild value admitted, and wild nulls, proxies and lone
  * surrogates refused.
- *
- * @plant test/plants/pg/api-errors/api-errors-nul-admitted.patch The text codec admitting NUL past a text's first
- * character; the encoding refusal property fails for a text holding NUL.
- * @plant test/plants/pg/api-errors/api-errors-slot-lost.patch A parameter's refusal placed at another slot, its
- * carrier's name; the encoding refusal property fails for a parameter.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

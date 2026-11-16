@@ -13,9 +13,6 @@
  *   Names no fixture declares are built so, ending in a digit, never drawn and filtered.
  *
  * Features: as each search names them.
- *
- * @plant test/plants/unit/schema/own-statements-in-written-order.patch Statements kept in the order written
- * (schema/own.ts canonicalDesc), so reordering moves the fingerprint; the fingerprint property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

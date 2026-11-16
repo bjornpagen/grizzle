@@ -14,12 +14,6 @@
  * Oracle: PostgreSQL itself: money's casts to and from numeric, its refusals and its comparison.
  *
  * Features: "out of range" and "admitted at the edge", an edge amount on each side of the refusal.
- *
- * @plant test/plants/pg/codec/values-money-text-padding.patch Money.toString pads its digits one short, so an amount
- * below one unit loses its leading zero.
- * @plant test/plants/pg/values/values-money-round-half-down.patch roundHalfAway rounds a tie toward zero.
- * @plant test/plants/pg/values/values-money-range-open.patch Money.make admits int8Max + 1.
- * @plant test/plants/pg/values/values-money-order-magnitude.patch Money.compare orders by magnitude.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

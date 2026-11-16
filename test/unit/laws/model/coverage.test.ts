@@ -20,10 +20,6 @@
  * shapes, exhausted.
  *
  * Features: a selected source, a selected target, an unkeyed target, a replaceable target, an irreplaceable target.
- *
- * @plant test/plants/unit/laws/model/coverage-unkeyed-target-admitted.patch A coverage into a target keyed WITHOUT
- * OVERLAPS over none of its terms lowers instead of being refused (laws/model/plan.ts coverage).
-
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

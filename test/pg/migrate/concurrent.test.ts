@@ -30,14 +30,6 @@
  * Features: two installations waiting on the gate at once, each inside its publish statements; two installations of a
  * case granting on the vector extension's schema; the two doors in one case; three installations at once. Each is
  * aimed at while pending.
- *
- * @plant test/plants/pg/migrate/database-lock-dropped.patch databaseWide emits a statement's own command alone, so a
- * setup is refused with XX000 on the database default.
- * @plant test/plants/pg/migrate/guards-before-732aa5b2.patch The database default and a grant on the database alone
- * behind the lock, so a publish is refused with XX000 on ALTER DEFAULT PRIVILEGES ... ON FUNCTIONS, the defect 2484d498
- * met.
- * @plant test/plants/pg/migrate/lock-glued-into-one-command.patch The lock and its statement one command, as 732aa5b2
- * printed them, so the script door is refused with 42601.
  */
 import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

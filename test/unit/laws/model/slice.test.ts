@@ -52,19 +52,6 @@
  * reads its definition).
  *
  * Features: SliceFeature, the shapes and laws each case reached; a direct and a nested match for the second.
- *
- * @plant test/plants/unit/laws/model/slice-coupling-one-step.patch A slice's writes closed under family coupling one
- * step only (schema/reach.ts writesOf), so a chain's far end is left out; the slice fails.
-
- * @plant test/plants/unit/laws/model/slice-lowered-rule-unplanned.patch A rule over a query lowered to foreign keys into
- * a named relation's selected side left unplanned (laws/model/model.ts referencedSides), so the slice lacks that
- * relation's selection key; the slice fails.
- * @plant test/plants/unit/laws/model/slice-recomputes-reference-choice.patch A slice compile chooses each fixed target's
- * reference over its own closure in place of the whole schema's recorded choice (laws/model/model.ts), so it plans a
- * native the installation lacks; the slice fails.
- * @plant test/plants/unit/laws/model/live-derived-by-name-admitted.patch A definition matching a live derived relation
- * by name admitted (schema/own.ts checkDerived); the second property fails.
-
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

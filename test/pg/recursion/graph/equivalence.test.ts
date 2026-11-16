@@ -72,14 +72,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   fails.
  *
  * @cpu-bound
- *
- * @plant test/plants/pg/recursion/recursion-optimized-feedback-union-all.patch The optimized lowering's recursive CTE
- * feeds back with UNION ALL, so repeated states are kept and a cycle never reaches its fixed point.
- * @plant test/plants/pg/recursion/graph/recursion-r37-attachment-unseeded.patch seedDecision refuses every recursive
- * attachment as "the recursion being lowered" (the feedback test inverted), so no attachment is seeded and the
- * pipelined statement stands.
- * @plant test/plants/pg/recursion/graph/recursion-seed-pushdown-off.patch The graph pass holds no seed pushdown rule,
- * so no predicate over a recursion's carried columns reaches its seed.
  */
 
 const general = 1200

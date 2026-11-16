@@ -13,9 +13,6 @@
  * decode of a plain copy, a second implementation, for the Description.
  *
  * Features: each step kind.
- *
- * @plant test/plants/unit/query/build/scaling-step-copies-chain.patch Every step copies its whole stage into its
- * Description, so it builds as many containers as the chain holds; the step-count search fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

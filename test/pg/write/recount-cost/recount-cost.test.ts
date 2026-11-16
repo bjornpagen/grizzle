@@ -25,11 +25,6 @@
  * (bench/write/support/writes.ts explainedChange). The oracle is the law itself; the family suites
  * (test/pg/write/swarm/families.test.ts, test/pg/write/fill-order, test/pg/write/family-cost) judge the rows the same
  * statements write.
- *
- * @plant test/plants/pg/write/recount-per-column-subquery.patch The recount is read by an EXISTS and a correlated scalar
- * subquery per recounted column over its source, as before c161d26e, so the source is reread once per owner row.
- * @plant test/plants/pg/write/scan-lag-no-default.patch The fold's scan reads the member before by lag() with no
- * default, which yields NULL at a group's first row: the structural audit refuses it (R27).
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

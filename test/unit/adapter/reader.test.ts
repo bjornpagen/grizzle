@@ -71,9 +71,6 @@ import { textOfParam } from "#test/support/wire.ts"
  * relation input's arrays restated from the caller's value; and each refusal's documented stage and slot.
  *
  * Features: a parameter only an eliminated rule reads, one a statement binds; each relation input's shape and refusal.
- *
- * @plant test/plants/unit/adapter/reader-scalar-refusal-dropped.patch A scalar parameter its codec refuses is left out
- * rather than refused.
  */
 type Refusal =
 	| { readonly kind: "codec"; readonly slot: string | undefined }

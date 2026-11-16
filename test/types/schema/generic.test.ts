@@ -3,9 +3,6 @@
  * disarmed: over every statement builder written generic over each shape of its sources, the types admit exactly what
  * the engine compiles over every relation a shared heading may be, name its refusal, and refuse a source whose
  * relations share no heading. Oracle: the engine's compile of the statement over each relation of the shape.
- *
- * @plant test/plants/types/schema/schema-generic-sides.patch Two sides whose field types differ are admitted
- * (types/schema/statements.ts SidesCompatible answers unknown); the agreement's program fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

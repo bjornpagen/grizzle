@@ -33,12 +33,6 @@
  * statements each under EXPLAIN (ANALYZE, BUFFERS, SETTINGS, FORMAT JSON) in its place, its transaction ended by
  * ROLLBACK (bench/write/support/writes.ts explainedChange). The oracle is the law itself; test/pg/write/whole judges the
  * rows the same statements write and keep against a model of the units.
- *
- * @plant test/plants/pg/write/replace-cost/kept-per-row.patch The kept rows are judged per row, as before this law: a
- * row's group, its earlier members and its tree's path and earlier siblings read again for each doomed row, each by an
- * EXISTS over the rows already judged kept.
- * @plant test/plants/pg/write/replace-cost/equal-inside-probe.patch A key probe binds the columns a repeat compares beside
- * its key, inside the probe, so PostgreSQL may read the row through another index those columns lead.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

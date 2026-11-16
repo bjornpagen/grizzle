@@ -15,11 +15,6 @@
  *
  * Features: "admitted"; "overflow" and "underflow", an edge value on each side PostgreSQL refuses; "NaN" and "signed
  * zero" in an order batch.
- *
- * @plant test/plants/pg/values/values-float-fround-seven-digits.patch fround rounds through seven significant digits
- * first.
- * @plant test/plants/pg/values/values-float-underflow-admitted.patch toReal admits a nonzero value that rounds to zero.
- * @plant test/plants/pg/values/values-float-nan-first.patch compareFloat orders NaN first.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

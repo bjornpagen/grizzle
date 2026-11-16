@@ -19,24 +19,6 @@
  * Features: as each search names them: every kind located and stated, chains told apart (by a take's count alone among
  * them) and alike, every position of an Ordered, each arm decoded and refused, live and every corruption, each nesting,
  * each tag, each empty connective in each place.
- *
- * @plant test/plants/unit/ir/ir-desc-located-parent.patch A node its author leaves unlocated is located at its
- * parent's path, not its own; the locations property fails.
- * @plant test/plants/unit/ir/ir-desc-text-drops-take.patch The identity text omits a take's count, so take(2) and
- * take(5) are one description; the combinators property fails.
- * @plant test/plants/unit/ir/ir-desc-ordered-under-named.patch named is admitted over an Ordered; the corruptions
- * property fails at "on an Ordered, only take: no named".
- * @plant test/plants/unit/ir/ir-desc-scale-on-add.patch add decodes a scale; the arms property fails.
- * @plant test/plants/unit/ir/ir-desc-order-column-twice.patch An order naming a column twice decodes; the corruptions
- * property fails.
- * @plant test/plants/unit/ir/ir-shape-deferred-inline.patch ref reads its part on the call stack, not deferred to the
- * driver; the nesting property fails past a small stack.
- * @plant test/plants/unit/ir/ir-canonical-tilde-unescaped.patch A string's leading tilde is written as is, not doubled;
- * the literals property fails.
- * @plant test/plants/unit/ir/ir-canonical-tilde-unrestored.patch A doubled leading tilde is read back doubled; the
- * literals property fails.
- * @plant test/plants/unit/ir/ir-desc-connective-unit-swapped.patch An and of no operand decodes as false and an or as
- * true; the literals property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

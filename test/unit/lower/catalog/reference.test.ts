@@ -15,9 +15,6 @@
  * that case, and an entry unjudged on every case fails the suite.
  *
  * Oracle: the reference evaluator, a second implementation. Features: each entry judged.
- *
- * @plant test/plants/unit/lower/catalog/catalog-mode-order.patch R31's rewrite (mode.ts) takes the mode's ordered-set
- * aggregate over the value descending; the search fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

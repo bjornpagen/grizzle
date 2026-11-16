@@ -14,11 +14,6 @@
  * of a login a chain of ALTER ROLE ... RENAME taking the old login's role to the target's, which the draft neither
  * creates nor drops; a kept login's role is neither renamed, created nor dropped; a dropped login's role is dropped,
  * and a new login's created; and a renamed handle keeps its code, the codes read back from the snapshot.
- *
- * @plant test/plants/unit/deploy/rosters-handle-renames-ignored.patch A roster's declared handle renames are ignored
- * when its codes are drafted, so a renamed handle takes a new code.
- * @plant test/plants/unit/deploy/alike-names-by-spelling.patch The previous snapshot's names are looked up by
- * spelling, not by conversion, so a respelled name's law column is set aside and dropped.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

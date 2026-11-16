@@ -14,12 +14,6 @@
  * over the declarations; and the reason and place each planted fault determines.
  *
  * Features: each slot, each verdict, each contract clash, and each fault, live, stale or wild.
- *
- * @plant test/plants/unit/check/reasons-contract-literal-admitted.patch A literal outside its contract is admitted,
- * the contract's predicate evaluated and its verdict ignored (scalar/compute/evaluate.ts); the typed slot property
- * fails.
- * @plant test/plants/unit/check/reasons-binding-at-match.patch A binding's refusal is placed at its match's bindings,
- * not at its entry (check/description.ts); the generated query's faults property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

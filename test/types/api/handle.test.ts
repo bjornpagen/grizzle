@@ -3,9 +3,6 @@
  * the box of every kind of served program, two programs of distinct types each, both served to a role of their level
  * and to a role of a level that extends it, a function over MemberHandle<typeof p> admits exactly the handles of p,
  * off either role's Db, and refuses the other program's. Oracle: the box's own pairing of each handle with its program.
- *
- * @plant test/plants/types/api/member-handle-role-phantom.patch MemberHandle carries its Db's role, so a function over
- * MemberHandle<typeof p> takes no Db's handle of p; the program fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

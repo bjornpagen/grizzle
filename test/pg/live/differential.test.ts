@@ -35,13 +35,6 @@
  * serves by the index its lookup plans or a key, agreeing on both surfaces with the reference. A case whose turn aims
  * at it draws its sketch from those the compile admits by construction (oracle/public/generate.ts admittedSketchGen,
  * `aims`), the sketch it runs, prints and keeps, so a run that draws mostly refused programs still compares served ones.
- *
- * @plant test/plants/pg/client/client-int8-decoded-as-number.patch A wire codec that respells a value, an int8 decoded
- * as a number; the HTTP value differs from the in-process one.
- * @plant test/plants/pg/live/key-text-unbounded.patch Every text field proves no byte bound, bounded text included, so
- * a read keyed by bounded text is refused, which the case does not expect.
- * @plant test/plants/pg/live/differential-compares-nothing.patch A case returns once installed, comparing nothing; the
- * required index-read feature goes unreached.
  */
 import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -34,9 +34,6 @@ import { withLayer } from "#test/support/with-layer.ts"
  * - Property: the schema installs with no law and no table, and each roster's read delivers its handles, as a set.
  * - Oracle: the specification turned into a checker, the schema restated.
  * - Features: a roster of one handle, and one of every handle.
- *
- * @plant test/plants/pg/reads/closed-only-every-code-reads-the-first-handle.patch Every code is decoded as its roster's
- * first handle.
  */
 const Label = str.regex("^.*$", "su")
 

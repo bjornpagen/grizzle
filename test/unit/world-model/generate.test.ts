@@ -29,19 +29,6 @@
  * with it. Features: every invalid
  * kind; live and invalid actions; realities with facts and empty; every installation kind, two logins and a query
  * entry; each forced move and an unforced one; the box's kinds.
- *
- * @plant test/plants/unit/world-model/gen-invalid-unclassified.patch The classifier finds no invalid kind; the invalid kinds property fails.
- * @plant test/plants/unit/world-model/gen-actions-unquiet.patch A session is named past the serial rule's holder; the actions property fails.
- * @plant test/plants/unit/world-model/gen-reality-unrepaired.patch A drawn reality is left unrepaired; the realities property fails.
- * @plant test/plants/unit/world-model/gen-planted-live.patch A planted installation is left lawful; the installations property fails.
- * @plant test/plants/unit/world-model/gen-forced-none.patch No move is ever forced; the forced moves property fails, the
- * generator's forced moves no longer the ones the model's state forces (forcedOf).
- * @plant test/plants/unit/world-model/gen-box-duplicate.patch The box holds a direct writer's statement twice; the small box property fails.
- * @plant test/plants/unit/world-model/worlds-box-values-of-another-state.patch The box reads every state's values once
- * for the whole process, so a state's box draws the values the first state it enumerated held; the sixth property fails.
- * @plant test/plants/unit/world-model/box-fact-twice.patch A stored fact's insert ... ON CONFLICT statements are
- * enumerated over the fact and each payload choice at its key without removing the choice equal to the fact
- * (generate/enumerate.ts directStatements), so the box holds that statement twice; the small box property fails.
  */
 import { drawn, exhaust, explore, Run } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

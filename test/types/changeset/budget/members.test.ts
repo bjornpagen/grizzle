@@ -15,27 +15,6 @@
  * member. And every program typechecks with no diagnostic: the handle's once takes the package parameter beside every
  * array member's facts, each fact holding a field named `params`, as pantry's Reference does. Oracle: the compiler's
  * own counts and diagnostics (test/types/batch/measured.ts), compared across the two schemas.
- *
- * @plant test/plants/types/changeset/budget/contexts-bundle-bound.patch ContextsOf binds a program's phantom whole
- * (`Q extends Phantom<infer B>`) before it reads its contexts: B holds the schema, and each read of it instantiates the
- * schema again, so each query member's contexts walk every relation; the query members' cost grows with the schema.
- * @plant test/plants/types/changeset/budget/params-member-matched.patch ParamsOf tells a member by testing it whole
- * (`X extends ReadonlyArray<unknown> | Stream.Stream<…>`): the test instantiates the query member, its schema with it,
- * so each query member walks every relation; the query members' cost grows with the schema.
- * @plant test/plants/types/changeset/budget/array-member-boxed.patch ArrayAdded tells an array member by testing the
- * member boxed (`[M] extends [ReadonlyArray<unknown>]`): the box holds the query member, and the test instantiates it
- * whole, its schema with it; the query members' cost grows with the schema.
- * @plant test/plants/types/changeset/budget/level-bound.patch RecordOf binds an array member's level by `infer` before it
- * reads the member's relation and row: the level is the schema, and the branch that reads it instantiates it whole,
- * once for each member, so each array member the handle reads walks every relation; the array members' cost grows with
- * the schema.
- * @plant test/plants/types/changeset/budget/phantomless-params-never.patch ParamsOf reads a member with no phantom, an
- * array, as needing never: the ChangeSet's parameters, joined with its array members', are never, and the handle's once
- * refuses the package parameter; the array programs fail with a diagnostic.
- * @plant test/plants/types/changeset/budget/params-read-unguarded.patch ParamsOf reads a member's phantom by its key
- * without asking whether the member has one: an array indexed by a key it lacks is its fact, so a fact's field named
- * `params` is read as the member's parameters, and the handle's once refuses the package parameter; the array programs
- * fail with a diagnostic.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

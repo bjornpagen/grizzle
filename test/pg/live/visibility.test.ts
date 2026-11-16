@@ -19,9 +19,6 @@
  *
  * Features: a commit before the snapshot, a writer running across it below a later commit before it, a writer running
  * across it past every commit before it, a writer begun after it.
- *
- * @plant test/plants/pg/live/visibility-ignores-horizon.patch placement places a transaction by the snapshot's running
- * set alone, so one at or past its horizon, unended when it was taken, reads as seen.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

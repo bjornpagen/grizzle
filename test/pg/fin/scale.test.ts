@@ -21,9 +21,6 @@
  * Each write begins on the empty tables it writes, which it clears itself, so a case that failed part-way, leaving
  * what it committed, never decides the next: a shrink's candidate fails as the case it shrinks does, not on the rows
  * that case left (a duplicate owner key, 23505, at the long family's first INSERT).
- *
- * @plant test/plants/pg/fin/fin-scale-owner-axis-no-cascade.patch The owner axis is installed with no action on update,
- * so the long family's count update is refused (23503); the property fails with that refusal.
  */
 import { drawn as drawnCase, explore } from "@bjornpagen/testing/explore"
 import { noCoverage } from "@bjornpagen/testing/features"

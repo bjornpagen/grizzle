@@ -20,9 +20,6 @@
  * one is aimed at by a case whose delta turns it on.
  *
  * The event trigger is the database's, so the file builds a database of its own (Substrate.isolatedLayer).
- *
- * @plant test/plants/pg/migrate/rewrites-one-statement-per-column.patch The diff drafts one ALTER TABLE per
- * subcommand again, so a table gaining two generated columns is rewritten twice.
  */
 import { type Case, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { type Pending, required } from "@bjornpagen/testing/features"

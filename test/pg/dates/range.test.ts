@@ -8,9 +8,6 @@
  * over the drawn day: a day inside it is stored and reads back through grizzle as the CalendarDate its text spells;
  * every other is refused with 23514 under the column's range CHECK, and stores nothing. grizzle reads the column through
  * a member of the full world's served workload.
- *
- * @plant test/plants/pg/dates/dates-range-before-era.patch The date column's range CHECK starting before the common
- * era.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

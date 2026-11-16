@@ -25,13 +25,6 @@
  * Features: of the catalog, a table in its level's schema and none in another's, privileges on a written table and
  * none on another, the containment and its domain; of the transactions, an item added and deleted, a held item's
  * deletion refused from above, a sitting added and deleted, a dangling sitting refused, and a fused read of a sitting.
- *
- * @plant test/plants/pg/levels/levels-catalog-writer-ungranted.patch A writer is granted nothing on the table it
- * writes (physical/ddl/roles.ts); the catalog property finds a role that writes a relation with no privilege on its
- * table.
- * @plant test/plants/pg/levels/levels-above-unnamed.patch A law of a level above the one a layer serves is named as
- * that level's own law, not as a law above (adapter/witness/classify.ts aboveRefused); the held item's deletion
- * through the lower login is refused naming the containment without its level, and the serving property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

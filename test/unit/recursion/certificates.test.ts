@@ -44,9 +44,6 @@
  * Oracle: the reference model of the rules (a second implementation of termination.ts), and the reference evaluator's
  * fixpoint over generated graphs. Features: each rule's situations (featureTests), a fixpoint reached, at its estimate,
  * past the reference's step limit, and a vertex holding more states than the estimate with its data once.
- *
- * @plant test/plants/unit/recursion/termination-produced.patch A counter's last produced value read one step past its
- * bound; the certificates search fails.
  */
 import { explore, type Kept, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

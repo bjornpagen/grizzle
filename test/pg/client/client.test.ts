@@ -22,11 +22,6 @@
  *
  * A case whose turn aims at a pending write feature is drawn constructed to reach it (aimed, aims): a put of an item no
  * stored item states, or a put of stored items as stored, so the label-fixed streams reach both.
- *
- * @plant test/plants/pg/client/client-int8-decoded-as-number.patch live/wire.ts carrierWire.int8 decoding an int8 as a
- * number; a read's once over HTTP differs from the in-process once.
- * @plant test/plants/pg/client/client-watch-every-event.patch The client's watch takes a value at every event, before
- * `ready`; a read's watch differs from the in-process watch folded to its `ready`.
  */
 import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

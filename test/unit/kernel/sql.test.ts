@@ -13,15 +13,6 @@
  * Features: the clauses the query generator has; every statement kind and every construct an audit rule watches (kept
  * cases plant the ones the generator draws a few times a run); a relation alias renamed; each statement kind the root
  * hole sees.
- *
- * @plant test/plants/unit/kernel/sql-print-quote-unescaped.patch A quote inside an identifier is printed bare; the
- * generated statements' audit property fails.
- * @plant test/plants/unit/kernel/sql-shape-alias-sensitive.patch The shape reads an alias's length, counting a table of
- * a long alias twice; the alias-renaming property fails.
- * @plant test/plants/unit/kernel/sql-onehole-root-unmarked.patch The root's rewrites are given the kind expr; the
- * root-hole property fails.
- * @plant test/plants/unit/kernel/sql-onehole-replaces-past-site.patch Every site from the hole on is replaced, not the
- * hole's alone; the one-site property fails.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

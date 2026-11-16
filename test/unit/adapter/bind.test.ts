@@ -33,8 +33,6 @@ import { paramText, textsOfParams } from "#test/support/wire.ts"
  * a message exactly as long as the limit passes.
  *
  * Features: refused at the first statement or a later one; admitted at exactly the limit or below it.
- *
- * @plant test/plants/unit/adapter/bind-limit-exclusive.patch A Bind message exactly as long as the limit is refused.
  */
 
 /** The Bind message pg writes for one execution of `statement`, as the bytes it sends. */

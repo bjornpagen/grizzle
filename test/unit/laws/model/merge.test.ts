@@ -13,9 +13,6 @@
  * turns on the copies.
  *
  * Features: each axis, and each copy's verdict.
- *
- * @plant test/plants/unit/laws/model/axis-carries-first-copy-only.patch An axis's foreign key carries only the first
- * copy riding it (laws/model/plan.ts axis).
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

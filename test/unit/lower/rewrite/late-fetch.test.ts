@@ -11,11 +11,6 @@
  * specification), the reference evaluator's delivery (a second implementation).
  *
  * Features: fetched on each evidence; held back by each guard; a correlated take held back.
- *
- * @plant test/plants/unit/lower/rewrite/late-fetch-ordered-payload.patch A wide column the take's order reads is
- * fetched late, outside the narrow take that sorts by it; the late-fetch-proof search fails.
- * @plant test/plants/unit/lower/rewrite/late-fetch-correlated.patch A correlated take's payload is fetched late, the
- * narrow take losing its correlation; the late-fetch-correlated search fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

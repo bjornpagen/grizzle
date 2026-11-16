@@ -21,11 +21,6 @@
  * Each case is one transaction from an empty seat: it writes its family, then sends its removal, checked as its COMMIT
  * would check it and rolled back, or ended by a real COMMIT whose rows are then cleared, as the case draws its end on
  * its tape (installed.ts endGen; folds.ts judgedFold): the box holds every case under both ends.
- *
- * @plant test/plants/pg/fin/fin-predecessor-axis-deferral-swapped.patch The predecessor axis's deferral is swapped: the
- * counted family's is installed immediate, where the prescribed swap-with-last needs it deferrable; the property fails.
- * @plant test/plants/pg/fin/counted-commit-rows-left.patch A real COMMIT's rows are left on the seat (installed.ts
- * ended), so the next case's own write of the state before is refused 23505 on the owner's key; the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

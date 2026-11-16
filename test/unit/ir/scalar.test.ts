@@ -14,21 +14,6 @@
  * Features: live and every corruption; each literal kind admitted and refused, under a contract; each numeric
  * situation; an allocation normalized and each broken rule; negative and unsigned counts, payloads and non-payloads,
  * one and several components, special values.
- *
- * @plant test/plants/unit/ir/ir-scalar-vector-dims-past.patch A vector type one dimension past vectorMaxDimensions
- * decodes; the types property fails.
- * @plant test/plants/unit/ir/ir-literal-float4-unchecked.patch A float literal of a float4 type is admitted whether or
- * not it is a float32 value; the literals property fails.
- * @plant test/plants/unit/ir/ir-numeric-literal-overflow-at.patch A numeric literal of exactly 10^p units at
- * numeric(p, s) is admitted; the literals property fails.
- * @plant test/plants/unit/ir/ir-predicate-dangling-unchecked.patch A contract predicate naming an argument its table
- * lacks is admitted; the contract predicates property fails.
- * @plant test/plants/unit/ir/ir-money-payload-leading-zero.patch A money payload with a leading zero is admitted; the
- * payloads property fails.
- * @plant test/plants/unit/ir/ir-vector-text-spaced.patch A vector's text is written with a space after each comma; the
- * payloads property fails.
- * @plant test/plants/unit/ir/ir-decimal-payload-trailing-zero.patch A decimal payload with a trailing fractional zero is
- * admitted; the payloads property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

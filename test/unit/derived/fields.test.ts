@@ -13,11 +13,6 @@
  *
  * That each inferred type is PostgreSQL's own result type, for every aggregate overload, refinement, roster and
  * contract, with its typmod and collation, is the database suite's, against the installed views' catalog.
- *
- * @plant test/plants/unit/derived/fielddesc-int2.patch declaredDescOf gives an int2 column integer's descriptor; the
- * declared kinds' round trip fails.
- * @plant test/plants/unit/derived/fielddesc-undeclared-as-exact.patch A column whose contract is undeclared is refused
- * as an exact field; the undeclared contracts' property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

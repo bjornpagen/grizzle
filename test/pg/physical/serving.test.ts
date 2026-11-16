@@ -67,29 +67,6 @@
  * A field's value on row g (see the header): `value` the series or its spread, `key` whether the field lies in a key.
  *
  * At most two code points, as the generated text field admits: two CJK ideographs name a million keys.
- *
- * @plant test/plants/pg/physical/serving-any-index-serves.patch The index engine takes any index of a request's
- * relation to serve it (physical/indexes/engine.ts serves).
- * @plant test/plants/pg/physical/serving-shared-duplicated.patch A request a created index serves gets an index of its
- * own: a created index is never a candidate for a later request (physical/indexes/engine.ts planIndexes).
- * @plant test/plants/pg/physical/test-database-asynchronous-commit.patch Test databases commit asynchronously
- * (synchronous_commit = off, test/support/pg.ts), which leaves VACUUM unable to set pages all-visible, so an index-only
- * probe reads past its bound of buffers.
- * @plant test/plants/pg/physical/serving-vacuum-pinned-page.patch The load's VACUUM runs plain while a cursor pins a
- * page of each table (test/pg/physical/serving.ts), so a page stays short of all-visible and PostgreSQL sweeps a GiST
- * index where its primary key's index-only scan serves the probe.
- * @plant test/plants/pg/physical/serving-multibyte-residue-reach.patch The kept multibyte-text case's reach names the
- * residue the patched btree_gist no longer leaves, so the kept case's reach is unreached.
- * @plant test/plants/pg/physical/serving-statistics-unaimed.patch The workload search's steering never draws the case
- * its aim at "a workload's statistics installed as requested" asks for, so that feature goes unreached.
- * @plant test/plants/pg/physical/serving-read-descents-claimed.patch an index PostgreSQL chose by its cost is held to
- * the engine's claim's descents, so a skip scan over a closed key bounded by a range is a sweep
- * @plant test/plants/pg/physical/serving-conflict-own-requests.patch the judge reads an index's own requests for the
- * orders it must serve, not those its order answers to
- * @plant test/plants/pg/physical/serving-conflict-holds-every-field.patch the judge excuses a GiST sweep only through an
- * index that holds every field the probe fixes
- * @plant test/plants/pg/physical/index-lead-committed.patch the index engine commits a draft to the first lead it may
- * take, so a later request one of the other leads serves is refused
  */
 import { aimed, drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

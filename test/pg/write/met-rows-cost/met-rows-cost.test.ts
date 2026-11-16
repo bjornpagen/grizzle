@@ -23,9 +23,6 @@
  * (bench/write/support/writes.ts explainedChange). The oracle is the law itself; the insert and family suites
  * (test/pg/write/met, test/pg/write/oracle, test/pg/write/fill-order, test/pg/write/swarm/families.test.ts) judge the
  * rows the same statements write and the met rows they classify.
- *
- * @plant test/plants/pg/write/met-rows-not-exists.patch The met rows are read by NOT EXISTS over the INSERT's
- * RETURNING, which PostgreSQL pairs as a nested-loop anti join of two CTEs estimated at a row each.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

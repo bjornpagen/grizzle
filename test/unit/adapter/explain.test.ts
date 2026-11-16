@@ -36,12 +36,6 @@ import { caseHang } from "#test/support/limits.ts"
  * Features: a leaf, a node with several children, a tree nested three deep, members the Plan drops, a table read
  * whole, an index scan, a bitmap index scan under its heap, a carrier, a plan refused for a table or an index the file
  * does not name, and one refused for an index under a carrier.
- *
- * @plant test/plants/unit/adapter/explain-children-reversed.patch A node's children are kept in reverse order.
- * @plant test/plants/unit/adapter/index-wrong-relation.patch An index node is read against the first table of its
- * schema rather than the table it names, so it names the relation of another table of its schema, or is refused.
- * @plant test/plants/unit/adapter/explain-carrier-index-read.patch An index under a carrier is read as the carrier
- * rather than refused.
  */
 
 /** The schemas, tables and indexes a case names, each name shared across its owners so a lookup must take its owner. */

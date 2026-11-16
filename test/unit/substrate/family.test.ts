@@ -15,10 +15,6 @@
  *
  * The oracles are the specification: the map (w − 1) mod K, the share ceil(W / K), the file's line format, and a port's
  * freedom as a listener of the test's own finds it.
- *
- * @plant test/plants/unit/substrate/family-one-member.patch Every worker is mapped to the first member; the map property fails.
- * @plant test/plants/unit/substrate/member-port-arithmetic.patch A member's port is the one after the family's last, derived by arithmetic,
- * not found free; the port property fails.
  */
 import { lookup } from "node:dns/promises"
 import { createServer, type Server } from "node:net"

@@ -23,15 +23,6 @@
  * Features: each family and generated pattern, led either side of the surrogates, a literal and a dictionary pattern,
  * a match and a miss; each affix construction; each planted refusal; a literal's ARE, a CASE of one value and a
  * dictionary's CASE.
- *
- * @plant test/plants/unit/compute/compute-matches-empty-text.patch The host never matches the empty text; the matches
- * property fails.
- * @plant test/plants/unit/compute/compute-endswith-includes.patch The host evaluates endsWith as includes; the affix
- * property fails.
- * @plant test/plants/unit/compute/compute-matches-unbounded-subject.patch A query's matches over a subject no pattern
- * bounds is admitted; the refusals' property fails.
- * @plant test/plants/unit/compute/compute-case-arm-source.patch A CASE arm hands `~` its pattern's source rather than
- * its ARE; the `~` property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

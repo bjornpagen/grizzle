@@ -20,15 +20,6 @@
  * user frame the library calls; each spelling of a SourceLoc and each malformation; a site and no site.
  *
  * A file as a stack names it: a user's, or the library's or the runtime's, which a user-facing location skips.
- *
- * @plant test/plants/unit/core/loc-frame-column-dropped.patch a V8 frame's location cut before its column, so the
- * frame reads as no site; the frames property fails.
- * @plant test/plants/unit/core/loc-runtime-frames-kept.patch a runtime frame (`node:`) taken as the user's; the frames
- * and the capture properties fail.
- * @plant test/plants/unit/core/loc-extra-key-admitted.patch a record with a key beyond a location's read as one; the
- * structure property fails.
- * @plant test/plants/unit/core/loc-within-appended.patch a relocation's prefix appended after the path; the
- * relocation property fails.
  */
 import { compileFunction } from "node:vm"
 import { drawn, explore } from "@bjornpagen/testing/explore"

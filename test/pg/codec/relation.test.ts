@@ -17,11 +17,6 @@
  * Oracle: PostgreSQL itself, GROUP BY's equality over the raw spellings, and DISTINCT over the arrays the encoder sends.
  *
  * Features: "equal facts spelled apart" and "deduplicated".
- *
- * @plant test/plants/pg/codec/codec-uuid-case-kept.patch A uuid's identity keeps its case, so the host splits what
- * PostgreSQL groups; both properties fail.
- * @plant test/plants/pg/codec/codec-relation-no-dedup.patch The normalizer keeps every fact, so the arrays hold one
- * value twice; the DISTINCT property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

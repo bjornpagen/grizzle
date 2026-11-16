@@ -81,7 +81,7 @@ post-beta swarm's fixes for the next release.
   transform.ts, every exhaustive JoinStep reader and the test interpreter's UPDATE model, reviewed on its own; then each
   part's level is 1 + the highest level of any part whose drawn columns it reads, one UPDATE per (table, level). Its
   property: pg/migrate/backfill's values against the existing oracle, and exactly one UPDATE per (table, level); its
-  plant, one UPDATE per part again.
+  kill, one UPDATE per part again.
 - **Multi-schema follow-ups:** the guards, the planted bugs and every PostgreSQL suite's multi-level fixtures, landed
   after its first commit.
 - **Stopped 2026-11-08 to focus on speed, resume before the full verification run:**
@@ -124,7 +124,7 @@ post-beta swarm's fixes for the next release.
       (laws/model/plan.ts) states plain or base as a typed fact on GeneratedCheck from it plus types.ts `meets`
       (already the one "a contract and its bare base never meet"), so #lowerCheck lowers once in the chosen form, with no
       trial and no throwaway DAG. A unit search over add, union, greatest and concat with contract or base operand types
-      asserts the fact matches the Lowering's verdict (Qti reaches no union or concat over a contract), and a plant
+      asserts the fact matches the Lowering's verdict (Qti reaches no union or concat over a contract), and a kill
       flipping the function's result for one operation must fail both the search and the dump.
     - **Cost:** 2–3 h; lower.ts is shared, so coordinate with whoever is editing it; the proof is the whole suite plus
       both kit dumps byte-identical (the same 8 base, the same 115 plain), since the four sites serve every compile
@@ -355,7 +355,7 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   not its own today.
 - **One netting rule, not two (READBACK, 2026-11-14):** runtime/write/net.ts stratumChange (~l.83) cancels a fact its own
   stratum both removes and adds, and netStrata (net.ts:137-157) applies each stratum's removals before its additions,
-  which cancels the identical pair anyway: a plant dropping stratumChange's cancellation stayed green on write/oracle-0..3.
+  which cancels the identical pair anyway: a mutant dropping stratumChange's cancellation stayed green on write/oracle-0..3.
   Keep the cancellation in one place, the one the oracle's counts judge.
 - **A SERIALIZABLE writer that only withdraws a rule's violations still holds a READ COMMITTED prober (MONOTONE,
   2026-11-14):** pivotCauseOf (analysis/isolation/certify.ts) counts any SERIALIZABLE role that writes a relation a
@@ -499,11 +499,10 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   hold and retire functions, and the certifier counts a retirement as no change; nothing serves them yet. Owed: every
   served change member that touches a unit's body calls its hold before its first statement that does, refused
   `UnheldGroup` where it touches a group the call does not state; `ChangeSet.retire`, the role option `retire`, the
-  outcome's retired counts, EXECUTE grants, the README's served half and SKILL.md. The design, decisions and plants owed
-  were in ~/.cache/grizzle-release/RETIRE/handoff.txt, lost with the VM (2026-11-12). The plants
-  test/unit/write/hold.test.ts's header names were lost with it: RETIRE2's hold-omitted and hold-after
-  (~/.cache/grizzle-release/RETIRE2/plants) are rewritten with ChangeSet.retire's work, and TREEORACLE's
-  hold-header-unordered is no longer in ~/.cache/grizzle-release/TREEORACLE/plants either.
+  outcome's retired counts, EXECUTE grants, the README's served half and SKILL.md. The design and decisions
+  were in ~/.cache/grizzle-release/RETIRE/handoff.txt, lost with the VM (2026-11-12). The bugs
+  test/unit/write/hold.test.ts must catch (RETIRE2's hold-omitted and hold-after, TREEORACLE's hold-header-unordered)
+  become kills on its property with ChangeSet.retire's work.
 - **Reads forward PostgreSQL's bytes (WIREPASS, the owner, 2026-11-11):** the live wire decodes PostgreSQL's JSON
   (attachments are aggregated as JSON in the served statement, lower/shapes/attach) into host values, then re-encodes
   them in carrierWire's spellings (live/wire.ts): int8, numeric and money as strings, bytes as base64. That is a
@@ -753,7 +752,7 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - **REDTESTS-04, grizzleActor through the approved recordingDriver:** grizzleActor learns a Db session's backend from a
   recording driver (BackendKeyData), per layer build. Parked at
   ~/.cache/grizzle-release/REDTESTS/parked/REDTESTS-04.patch (with its .msg), applying over 4dfbdba9 with REDTESTS-01 to 03, typechecked only. It owes the lint gate, payroll,
-  queue, derived/refreshers, races-alternatives and its plant (a recorder recording the first session twice fails
+  queue, derived/refreshers, races-alternatives and its kill (a recorder recording the first session twice fails
   payroll at its actor).
 - **DERIVEDWRITE, a write whose rows derive in its own statement (edullm, 2026-11-11):** a ChangeSet insert's source is
   given rows (`r.relation` inputs) or a rule over stored relations, with no aggregate, arithmetic or ranking term, so a

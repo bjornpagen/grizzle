@@ -33,13 +33,6 @@
  * Features: each query through each member, each anchor kind, the anchors the walk names, and each input refusal. A
  * drawn input reaches its key's own refusal only past every earlier check, about one input in a hundred, so a case
  * whose turn aims at one draws an input every check before its key admits, carrying the refused key (keyAims).
- *
- * @plant test/plants/pg/page/window-after-seek-inclusive.patch The after template's seek admits the anchor's own row;
- * the window property fails.
- * @plant test/plants/pg/page/window-anchor-length-unchecked.patch A key of another length than the comparators reaches
- * SQL; the input refusal property fails.
- * @plant test/plants/pg/page/window-key-value-unrefused.patch An anchor key value its codec refuses is skipped; the
- * input refusal property fails.
  */
 import { aimed, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

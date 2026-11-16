@@ -20,8 +20,6 @@
  * target, 300 batches a run.
  *
  * Features: every candidate shape of test/support/lexical.ts.
- *
- * @plant test/plants/pg/scalar/scalar-lexical-boolean-one.patch The host's boolean parse reads "1" as no member.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

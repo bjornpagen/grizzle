@@ -25,8 +25,6 @@
  *
  * Features: a guard dropped and one created on a migration, each on a table it renames, a guard flipped within two
  * pending folders, and a READ COMMITTED write admitted and one refused by its guard, each pending one constructed.
- *
- * @plant test/plants/pg/migrate/isolation-guard-kept.patch A migration never drops a table's isolation guard while the table stands.
  */
 import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

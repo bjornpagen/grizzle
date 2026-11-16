@@ -40,13 +40,6 @@
  *   its connection destroyed.
  *
  * Features: each landing, each runner, and each landing with each runner.
- *
- * @plant test/plants/pg/adapter/abandon-cancel-once.patch abandon as it was before this property, one CancelRequest
- * and then the connection destroyed at once, so a request that lands before the read leaves the statement running; the
- * race case fails with its backend active, holding a snapshot and its locks, after the interruption ended.
- * @plant test/plants/pg/adapter/abandon-sever-excused-silence.patch A silent round severs the flight though its silence
- * was excused, so the round a CancelRequest lost to the read costs leaves the statement running; the race case of a
- * lone statement apart fails the same way.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

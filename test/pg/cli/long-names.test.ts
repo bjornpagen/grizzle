@@ -22,9 +22,6 @@
  *
  * Features: the login's role the longest and a role's, a converted camel-case name, a schema spelled apart from its
  * conversion, at the limit and one byte past.
- *
- * @plant test/plants/pg/cli/long-names-limit-off-by-one.patch The 63-byte rule admits a login's or role's PostgreSQL
- * role of 64 bytes, so one byte past the limit generate drafts where it must refuse.
  */
 import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -17,17 +17,6 @@
  * `@bjornpagen/grizzle-pg/pin` resolves through its link and agrees with the shell: every assignment of pin.env as
  * scripts/pg/lib.sh sources it in the checkout, and the installed build's stamp, the release's commit and its patches
  * (packages/pg/src/installation.ts installedBuild). Box: the layouts.
- *
- * @plant test/plants/pg/package/package-role-misnamed.patch The runtime entry's served(file, name) serves each role
- * under a name the file does not hold, the login's; the consumer's read fails.
- * @plant test/plants/pg/package/pg-helper-needs-own-install.patch A helper importing test support, which only the
- * repository's own install resolves; the cluster commands fail at init.
- * @plant test/plants/pg/package/checkout-own-effect.patch A second effect at the checkout's root, as an install inside
- * the submodule leaves; red in the isolated layout.
- * @plant test/plants/pg/package/hoisted-checkout-own-effect.patch A second effect at the checkout's root in the hoisted
- * layout; red at its migrate, with "Unable to get redacted value".
- * @plant test/plants/pg/package/pin-keeps-quotes.patch The pin's parse keeping a value's double quotes; red at the
- * pin's agreement with the shell.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

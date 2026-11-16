@@ -10,8 +10,6 @@
  * written, which no index drives, so only the optimized one is judged there.
  *
  * Features: each relation, predicate kind and prefix, and each data size.
- *
- * @plant test/plants/pg/spans/allen/gist-access-btree.patch The access index over a span is created as a B-tree.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

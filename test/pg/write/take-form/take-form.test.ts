@@ -50,9 +50,6 @@ import { upTo } from "#test/support/up-to.ts"
  * ranks Entry's rows (a WindowAgg node over a read of Entry, row_number) and the LATERAL form does not.
  *
  * Features: the LATERAL form for few parents and the whole-relation form for many.
- *
- * @plant test/plants/pg/write/take-form/take-form-threshold-doubled.patch The write's choice compares its parents
- * against twice its threshold (runtime/write/bind.ts); the property fails.
  */
 const Account = relation("Account", { id: uuid }, ["id"])
 const Entry = relation("Entry", { account: uuid, seq: pg.bigint, amount: pg.bigint }, [

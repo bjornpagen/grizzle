@@ -98,10 +98,6 @@ import { upTo } from "#test/support/up-to.ts"
  *
  * Features: each line of the grammar and each fault, --help, -h and no argument, the timestamps' calendar edges, each
  * configuration fault, and each way the bin's loading ends.
- *
- * @plant test/plants/unit/cli/cli-help-first-only.patch --help counts only as the command.
- * @plant test/plants/unit/cli/cli-timestamp-repeats-newest.patch A new folder's timestamp repeats the newest folder's
- * when the clock reads it.
  */
 /** The commands that take no flag: every command of the command line but generate (cli/errors.ts CommandName). */
 type PlainCommand = Exclude<CommandName, "generate">

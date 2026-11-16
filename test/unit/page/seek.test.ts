@@ -14,9 +14,6 @@
  * reversal.
  *
  * Features: zero to three keys.
- *
- * @plant test/plants/unit/page/seek-reverse-first-key-only.patch reversedOrder reverses the first key alone; the
- * reversal property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { noCoverage, requiredInSpace } from "@bjornpagen/testing/features"

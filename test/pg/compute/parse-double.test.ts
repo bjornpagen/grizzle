@@ -17,8 +17,6 @@
  * rolled back.
  *
  * Features: each rounding point and spelling the form admits.
- *
- * @plant test/plants/pg/compute/compute-parse-double-inf.patch The host reads INF as no number.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

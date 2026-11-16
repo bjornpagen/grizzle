@@ -96,16 +96,6 @@ import { paramBinary, paramText } from "#test/support/wire.ts"
  *
  * Every case opens servers and sessions of its own, so each search runs as many cases at once as the machine has cores.
  * The flight bound's search shrinks a failure by at most flightBoundShrinkCandidates (test/support/limits.ts).
- *
- * @plant test/plants/unit/adapter/flight-bound-one-byte-over.patch A flight one byte past its bound is written; the
- * flight bound's property fails.
- * @plant test/plants/unit/adapter/flight-parse-counted-every-statement.patch A flight's bytes count the Parse of a name
- * at every statement under it, not once; the flight bound's property fails.
- * @plant test/plants/unit/adapter/flight-parse-counted-once-per-process.patch A name's Parse is counted once per
- * process, not once per flight; the flight bound's property fails.
- * @plant test/plants/unit/adapter/flight-reset-write-failure-unseen.patch A write that fails before its last byte is not
- * seen as the cut it is (the flight's last chunk's callback is dropped), so the call reads as CommitLost; the broken
- * connection's property fails.
  */
 
 const frame = (type: string, body: Uint8Array): Buffer => {

@@ -34,14 +34,6 @@
  * Features: every operator planted, nothing planted, several at once, and a privilege granted beside the role's
  * column grants, which the generator constructs for a case whose turn aims at it: the editor's first privilege on Note,
  * whose columns the editor holds SELECT on.
- *
- * @plant test/plants/pg/cli/workflow-drift-unchecked.patch The drift check compares no catalog fact, so drift passes
- * over every change made by hand.
- * @plant test/plants/pg/cli/temporary-drift-blind.patch The drift check never reports a login's or role's missing
- * TEMPORARY on the database, so a revoked TEMPORARY goes unnamed.
- * @plant test/plants/pg/cli/drift-undo-takes-column-grants.patch The table privilege operator picks among the
- * privileges the role holds on no table alone, as it did before, so a SELECT the editor holds on Note's columns is
- * granted on the table and its undo takes the column grants away: the next case finds drift it never made.
  */
 import { explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

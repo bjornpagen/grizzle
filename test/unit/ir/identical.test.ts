@@ -10,9 +10,6 @@
  *
  * Features: types and tables identical and different, an edit the decoder refuses, a roster and a decimal edited
  * inside.
- *
- * @plant test/plants/unit/ir/ir-identical-byte-bound-ignored.patch Two texts are identical whatever their byte bounds,
- * so an edit of a byte bound is called identical while the canonical texts differ.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

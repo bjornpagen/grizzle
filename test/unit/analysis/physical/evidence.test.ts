@@ -4,9 +4,6 @@
  * drawn set of its columns in either execution context.
  *
  * Oracle: the rules above, a specification. Features: no key proves the scan, a key proves the scan, a key not read.
- *
- * @plant test/plants/unit/analysis/physical/base-key-evidence-deferred.patch A declared key's proof holds only in a
- * committed snapshot (analysis/physical/evidence.ts keyEvidence); the property fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

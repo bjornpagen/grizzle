@@ -3,10 +3,6 @@
  * every case of the deleteWhere box (test/support/agreement/delete-where.ts), each relation a key may name with each
  * selection shape, a deleteWhere typechecks exactly when the engine builds and compiles it, and a refused one names the
  * refusal its subject or its selection breaks. Oracle: the engine's build and compile of each case.
- *
- * @plant test/plants/types/changeset/delete-where-any-term.patch A field may equal any term of its type, whatever its
- * origin (types/changeset/changeset.ts EqualedTo), so a variable or a typed constant in place of a parameter is
- * admitted; the program fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

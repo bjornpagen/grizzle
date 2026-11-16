@@ -9,14 +9,6 @@
  *   step's language and bytes as README states them, by a dynamic program over counts of characters and bytes.
  *
  * Features: each route admitted and refused, for the guard and for the byte cast.
- *
- * @plant test/plants/unit/compute/compute-collapse-after-settle.patch Collapse writes its language over the term after
- * settle, `{ ...node, nominal: collapseType(...) }`, which drops the guard's narrowing; the guard property fails.
- * @plant test/plants/unit/compute/compute-collapse-no-byte-bound.patch A collapse carries no byte bound, so a cast of it
- * is refused where the bound fits; the byte cast property fails.
- * @plant test/plants/unit/compute/compute-cast-bound-not-longest.patch A cast compares its operand's bound, not the
- * longest text of its language within it, so it is refused where a collapse drops what the bound leaves room for; the
- * byte cast property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

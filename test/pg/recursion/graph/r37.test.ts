@@ -50,10 +50,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * That the seeded statement delivers exactly the pipelined closures is the graph suite's (equivalence.test.ts, the
  * attachment population against the conservative lowering) and the recursion oracle's (consumer:attach against the
  * reference evaluator).
- *
- * @plant test/plants/pg/recursion/graph/recursion-r37-attachment-unseeded.patch seedDecision refuses every recursive
- * attachment as "the recursion being lowered" (the feedback test inverted), so no attachment is seeded and the
- * pipelined statement stands.
  */
 
 const V = relation("V", { id: pg.integer }, ["id"])

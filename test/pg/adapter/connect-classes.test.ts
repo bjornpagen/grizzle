@@ -23,9 +23,6 @@
  *
  * Features: every plant through each path, a wrong password, nothing listening and a CA that is not the server's among
  * them.
- *
- * @plant test/plants/pg/adapter/connect-classes-closed-as-socket.patch pg's report of a connection closed at once no
- * longer recognized, so it is misclassified; the property fails for the server that closes the connection at once.
  */
 import { createServer, type Socket } from "node:net"
 import { inspect } from "node:util"

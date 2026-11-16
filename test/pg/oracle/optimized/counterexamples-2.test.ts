@@ -5,9 +5,6 @@
  * installation and facts (counterexamples.ts).
  *
  * Features: a case the mutant rewrote, and one on which it was told apart.
- *
- * @plant test/plants/pg/oracle/optimized/oracle-optimized-obligations-dropped.patch The dedup placement discharges no
- * obligation (lower/optimize/dedup/place.ts), so the optimized artifact repeats rows as the duplicate mutants do.
  */
 
 import { searched } from "@bjornpagen/testing/vitest"

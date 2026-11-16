@@ -37,9 +37,6 @@
  * multiset of places, since a file may record several.
  *
  * Features: every command kind, each reached by a generated program.
- *
- * @plant test/plants/pg/migrate/ledger-resume-every-file.patch A partial folder resumes at its first file, running again the files the
- * ledger recorded.
  */
 import {
 	accepting,

@@ -15,19 +15,6 @@
  * Features: each change of a list (permuted, removed, added, replaced, repeated) holding and failing; a success, the
  * named reason, fault or stage, and another; each Option pattern against none and some; each thunk outcome holding and
  * failing.
- *
- * @plant test/plants/unit/kernel/assert-unordered-repeats-folded.patch unorderedEqual checks neither side for a
- * repeated element, so two lists that repeat one element alike hold; the unorderedEqual property fails.
- * @plant test/plants/unit/kernel/assert-refused-any-reason.patch refused holds for a failure of any reason; the
- * refused property fails.
- * @plant test/plants/unit/kernel/assert-faulted-any-fault.patch faulted holds for a failure of any fault; the faulted
- * property fails.
- * @plant test/plants/unit/kernel/assert-refused-at-any-value.patch refusedAt holds for a failure whose named field
- * holds any value; the refusedAt property fails.
- * @plant test/plants/unit/kernel/assert-option-some-any-value.patch matchesObject holds a Some pattern against a Some
- * of any value; the Option-field property fails.
- * @plant test/plants/unit/kernel/assert-throws-refused-lookalike.patch throwsRefused takes any thrown Error with a
- * reason of the tag for a CompileError, so a look-alike holds; the throwsRefused property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

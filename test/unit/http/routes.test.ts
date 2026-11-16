@@ -25,13 +25,6 @@
  * case is constructed to (aimed, `no bearer`): its login's first role holds the query entry wherever a field may carry
  * a claim (served-login.ts liveLoginGen), and after its drawn probes it calls a route of a role reading a context,
  * naming the route's wire, with no Authorization header.
- *
- * @plant test/plants/unit/http/http-route-non-member.patch The table serves a route no member names, each route's line
- * with a trailing slash: the routes are not the members.
- * @plant test/plants/unit/http/http-status-error.patch A request line no route serves is answered 404: the answer is
- * not the stream.
- * @plant test/plants/unit/http/http-token-after-body.patch A call's missing token is checked after its body's JSON, so
- * a call with no bearer token and no JSON body is an `input`.
  */
 import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

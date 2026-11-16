@@ -17,9 +17,6 @@
  *
  * Features: a page of heading groups, a page with attachments, and a page whose attachment takes its other form per
  * execution; kept cases plant the first and the last.
- *
- * @plant test/plants/unit/page/total-heading-groups-malformed.patch A page of heading groups is refused as
- * MalformedDescription; the totality property fails.
  */
 import { drawn, explore, type Kept } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

@@ -24,9 +24,6 @@
  *
  * Features: each fault planted where the program offers it, and the I1 mutant told apart. The I1 mutant is the suite's
  * own.
- *
- * @plant test/plants/pg/oracle/oracle-compare-types-ignored.patch The comparison reads no column type
- * (test/support/oracle/compare.ts typeDifferences), so a narrowed column type is no structural difference.
  */
 import { drawn, explore, Run, type Steered, steered } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

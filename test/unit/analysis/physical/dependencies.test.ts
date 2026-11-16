@@ -25,11 +25,6 @@
  * constants does under a filter equating each such variable with its value.
  *
  * Features: each table's closures, identities and contexts; each placement of each constant.
- *
- * @plant test/plants/unit/analysis/physical/proof-most-demanding-first.patch A start's proof sought in the most
- * demanding context first, so it is not the strongest (analysis/physical/fds.ts proof); the tables fail.
- * @plant test/plants/unit/analysis/physical/region-bound-constant-unfixed.patch A constant on a bound column fixes no
- * variable (analysis/physical/rules.ts regionProps); the region's constants fail.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

@@ -21,18 +21,6 @@
  * Features: two plain schema names and one a prefix of the other, a hashed object commented; relations alike, fields
  * alike, a refused relation name, a refused field name; an admission and a digest collision; a temporary admitted,
  * minted again, meeting a standing name, meeting another temporary.
- *
- * @plant test/plants/unit/core/identity-comment-canonical.patch a hashed object's COMMENT holds its identity's
- * canonical text, not its display; the comment property fails.
- * @plant test/plants/unit/core/identity-declared-by-spelling.patch a declared namespace keyed by the name's spelling,
- * not its conversion, so two names that convert alike are both admitted; the declared-name property fails.
- * @plant test/plants/unit/core/identity-census-blind.patch the census never records an identity it has seen, so it
- * never finds a digest collision; the census property fails.
- * @plant test/plants/unit/core/identity-temporary-again-refused.patch a temporary minted again refused as its own
- * twin; the temporary census property fails.
- * @plant test/plants/unit/core/identity-temporary-standing-blind.patch TemporaryCensus looks a temporary up among the
- * standing names by its display, not its identifier, so a temporary never meets a standing name; the temporary census
- * property fails.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

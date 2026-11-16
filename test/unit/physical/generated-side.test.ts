@@ -47,9 +47,6 @@ import { regex } from "#test/unit/schema/support.ts"
  *
  * Features: a term and a selection over a generated field, alone and together, under a key or a containment over a
  * generated read, and a key over written fields.
- *
- * @plant test/plants/unit/physical/generated-side-reads-generated.patch A law column's generation term reads a
- * generated field's column where it should read that field's own generation.
  */
 type FieldRef =
 	| { readonly kind: "written"; readonly at: number }

@@ -36,9 +36,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *
  * Essay ideas: an oracle (the facts a call supplies are the facts it writes, each by its op) over generated facts, with
  * faults planted at the handle that the oracle must catch.
- *
- * @plant test/plants/pg/served/served-facts-delete-member-dropped.patch memberFactsOf drops the delete member's facts,
- * so a call deletes nothing; the oracle disagrees with the items stored.
  */
 const Tag = str.regex("^[a-z]{1,4}$")
 const Item = relation("Item", { id: pg.integer, score: pg.integer }, ["id"])

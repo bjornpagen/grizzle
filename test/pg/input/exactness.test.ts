@@ -17,10 +17,6 @@
  *
  * Features: per carrier, "<carrier> stored exactly" and "<carrier> refused"; "numeric past its scale refused" and "real
  * no binary32 value refused", the two coercions PostgreSQL would make silently.
- *
- * @plant test/plants/pg/input/parse-numeric-rounds.patch parseNumeric rounds to the typmod's scale as normalizeNumeric
- * does, admitting 1.005 at scale 2 as 1.01.
- * @plant test/plants/pg/input/parse-real-rounds.patch parseReal rounds a double to binary32 as toReal does.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

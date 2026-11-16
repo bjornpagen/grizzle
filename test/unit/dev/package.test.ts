@@ -8,10 +8,6 @@
  * That the linked package opens a role against the cluster and reads is test/pg/package/consumer.test.ts's.
  *
  * Oracle: TypeScript's own checker.
- *
- * @plant test/plants/unit/dev/export-behind-condition.patch The package's root export sits behind a condition of its
- * own (`grizzle-source`), so a consumer's resolution falls through to a dist file that is not there; the consumer's
- * typecheck fails.
  */
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"

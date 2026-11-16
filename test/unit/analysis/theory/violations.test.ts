@@ -9,13 +9,6 @@
  * - Copy: one owner's family of 0 to 3 members, each state and was 0 or 1, an accumulated copy riding its axis.
  *
  * Features: each box's verdicts and broken laws.
- *
- * @plant test/plants/unit/analysis/theory/family-violation-no-last-arm.patch An ordered family's violation omits its
- * last-member lemma (analysis/theory/laws.ts familyArms); the ordered box fails.
- * @plant test/plants/unit/analysis/theory/counted-violation-no-off-arm.patch A counted family's violation omits its
- * count's mismatch (analysis/theory/laws.ts familyArms); the counted box fails.
- * @plant test/plants/unit/analysis/theory/copy-violation-no-pins.patch A riding copy's violation omits its pin at the
- * axis's base (analysis/theory/laws.ts); the copy box fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

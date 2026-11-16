@@ -19,9 +19,6 @@
  * - a login's roles share its base, are named apart from it, and each role is in exactly one login. Each case draws a
  *   sequence of logins over a pool of roles of drawn bases and names: each login is refused at its first role breaking
  *   a rule, in the order base, name, a login already holding it, and admitted otherwise, its description owned.
- *
- * @plant test/plants/unit/schema/worlds-context-serial-claim.patch A context field its sequence writes admitted as a
- * claim (schema/world.ts admitContext).
  */
 import { drawn, explore, sketched } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

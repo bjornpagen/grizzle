@@ -15,14 +15,6 @@
  *
  * Features: each width a block is wide at, and a split; each dollar tag; each commentable and each line break; each
  * class of double.
- *
- * @plant test/plants/unit/sql/print-statements-spread.patch A block's statement list is read through one call's arguments; the width
- * search fails at a list wider than the argument limit.
- * @plant test/plants/unit/sql/print-dollar-fixed.patch Every body is quoted under $$; the dollar quoting search fails.
- * @plant test/plants/unit/sql/commented-carriage-return.patch A commented line's carriage returns are left live (core/lines.ts); the
- * commented alternative's search fails.
- * @plant test/plants/unit/sql/quote-ident-undoubled.patch A quoted name's quotes are left undoubled; the quoted identifier search fails.
- * @plant test/plants/unit/sql/float-literal-precision.patch A float literal is printed to fifteen digits; the float literal search fails.
  */
 import { drawn, explore, steered } from "@bjornpagen/testing/explore"
 import { noCoverage, required } from "@bjornpagen/testing/features"

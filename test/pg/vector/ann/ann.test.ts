@@ -29,11 +29,6 @@
  * Features: each account, an underfilled request, the duplicate embedding, a search the HNSW index serves, each kind of
  * superseding, and a negated tag excluded. Whether PostgreSQL serves a search from the HNSW index is the planner's
  * choice, never grizzle's contract, so it is a feature a search must reach, not an assertion.
- *
- * @plant test/plants/pg/vector/policy/vector-policy-dropped.patch The policy's iterative scan is "off", HNSW's default,
- * which underfills a filtered request.
- * @plant test/plants/pg/vector/ann/vector-indexed-distinct.patch A retained key keeps a DISTINCT.
- * @plant test/plants/pg/vector/ann/vector-ann-take-off-by-one.patch The bound takes one candidate fewer.
  */
 import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"

@@ -16,9 +16,6 @@
  * the trace follows). The oracle is the pattern's membership read off the values the case states, never the tracer.
  *
  * Features: each delivery (uncast with or without a domain, cast, refused, an empty source uncast).
- *
- * @plant test/plants/unit/lower/conservative/closed-refined-admit.patch The tracer admits every text literal of a
- * patterned claim, in the pattern or not; the delivery search fails.
  */
 import { exhaust } from "@bjornpagen/testing/explore"
 import { requiredInSpace } from "@bjornpagen/testing/features"

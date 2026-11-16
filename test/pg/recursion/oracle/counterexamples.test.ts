@@ -63,9 +63,6 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  *   to it holds nothing, so the rewritten recursion is empty (or, seeded on a successor, walks on past it).
  * - a final inequality applied at every state. A predicate on final results is not automatically safe at every
  *   intermediate vertex: on a chain, dropping a vertex inside the recursion drops everything past it.
- *
- * @plant test/plants/pg/recursion/recursion-conservative-feedback-union-all.patch The conservative lowering's recursive
- * CTE feeds back with UNION ALL, so repeated states are kept and a cycle never reaches its fixed point.
  */
 
 /**

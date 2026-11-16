@@ -10,9 +10,6 @@
  * Oracle: a second implementation, JSON.stringify of the shape, and its texts sorted and deduplicated.
  *
  * Features: an alternation, and nested alternations.
- *
- * @plant test/plants/unit/text/text-canonical-order-reversed.patch The builder compares an alternation's arms in
- * descending order; the order property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

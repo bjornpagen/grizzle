@@ -16,11 +16,6 @@
  * - Oracle: pg_stat_activity's backends of the login, each by its client's port, against the connections the cluster's
  *   budget holds open (substrate/budget.ts HeldConnection): a socket the Db's pool has destroyed is no longer held,
  *   whatever its backend's exit has reached.
- *
- * @plant test/plants/pg/write/oracle/write-db-outlives-run.patch The writer's Db is built in a scope that outlives the
- * run, so an interrupted run leaves its session open.
- * @plant test/plants/pg/write/oracle/write-db-outlives-run-unchecked.patch The writer's Db outlives the run and this
- * property's check is taken out, so only the installation's role release can catch the open session, as SessionsLeaked.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

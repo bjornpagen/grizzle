@@ -11,9 +11,6 @@
  * since a generated take seldom holds a row past its bound that a filter would pass, where a moved filter's delivery
  * shows.
  * Features: each pushdown rule, each guard shape, a take that kept its rows.
- *
- * @plant test/plants/unit/lower/rewrite/pushdown-below-take.patch A filter moved below an uncorrelated take, so the
- * take ranks other rows; the pushdown-sites search fails.
  */
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"

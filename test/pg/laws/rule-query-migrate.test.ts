@@ -34,15 +34,6 @@
  * write; S's captures kept under their names through a column the migration drops and adds again, read off
  * PostgreSQL's catalog before and after the migration (S's b at another attnum, and S's triggers by name); and a
  * capture on a table the migration drops (Fact's, read off the catalog before it).
- *
- * @plant test/plants/pg/laws/rule-query-migrate-changed-rule-unchecked.patch a changed rule's violation check skipped
- * wherever the previous snapshot records the rule, whatever its check's digest (deploy/diff/diff.ts ruleChecks), so
- * the migration that widens J2 under the rule kept applies over stored rows that break it.
- * @plant test/plants/pg/laws/rule-query-migrate-negation-first-match.patch the whole check reading a negated query by
- * its first match alone (analysis/theory/query.ts liveQuery), under which Unpaired derives nothing, so a migration
- * adding its rule applies over stored rows that break it.
- * @plant test/plants/pg/laws/table-takes-along.patch the parts of a dropped table left to its DROP TABLE, so its rule
- * trigger stands when its function is dropped before the table (2BP01).
  */
 import { aimed, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

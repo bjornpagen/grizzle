@@ -37,12 +37,6 @@ import type { LoginSpec } from "#test/support/worlds/model/types.ts"
  * a name of the identifier dictionary, or drawn printable characters. Each statement runs in a transaction of its own,
  * rolled back. The oracle is PostgreSQL's reading of an identifier, its longest prefix of whole characters within 63
  * bytes, and the catalog: whether pg_roles holds the name so read, as the owner sees it.
- *
- * @plant test/plants/pg/direct-writers/missing-role-login-cannot-set-its-roles.patch A login granted its roles without
- * SET, migrate's drift check holding it so too, so SET ROLE to one of its own roles would be 42501; the
- * installed-catalog checker the installation runs refuses the membership's options first (membershipOptions). It is
- * red at install by construction, never at a SET ROLE: every installation a test makes runs that checker
- * (test/support/install-migrate.ts, step 7), so no statement runs under this plant.
  */
 
 /** Whose installed name a drawn name starts from. */

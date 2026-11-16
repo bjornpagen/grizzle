@@ -30,9 +30,6 @@
  *
  * Features: explained and unexplained histories, aborts, refusals and discarded attempts; a wrong witness; three
  * operations explained; intervals that touch; an unorderable outcome its model orders.
- *
- * @plant test/plants/unit/history/history-overlap-touching.patch Operations that only touch counted as overlapping
- * (test/support/history/check.ts overlaps); the checker's agreement with the enumerator fails.
  */
 
 import { drawn, explore } from "@bjornpagen/testing/explore"

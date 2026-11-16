@@ -25,10 +25,6 @@
  * division. The schema must install. A lawful row is accepted
  * and an unlawful one refused by its relation's law; a generated value is n exactly where φ is true; the query returns
  * exactly the rows φ is true of.
- *
- * @plant test/plants/pg/closed/null-rewrites-concat-equation-conjunction.patch The concatenation's equation as the
- * conjunction of its three parts, which accepts the downstream case's row in the containment's check and refuses it in
- * the row check's negation.
  */
 import { type Case, explore, type Steered, steered } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

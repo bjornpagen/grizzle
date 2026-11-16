@@ -18,10 +18,6 @@
  * Oracle: the conservative lowering's raw text sets, and each rule's certificate read from the statements' ASTs.
  *
  * Features: each valid rule's certificate recorded.
- *
- * @plant test/plants/pg/oracle/optimized/oracle-optimized-obligations-dropped.patch The dedup placement discharges no
- * obligation (lower/optimize/dedup/place.ts), so a DISTINCT owed is never placed and the optimized artifact repeats
- * rows.
  */
 
 import { sketched } from "@bjornpagen/testing/explore"

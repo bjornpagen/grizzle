@@ -24,17 +24,6 @@ import { checked } from "#test/types/batch/batch.ts"
  * TypeScript types as string, admitted, and a when whose branch reads its subject outside its parameter, refused by
  * both, since each side proves the guard's facts of the branch's parameter alone, so the program is never vacuous on
  * any seed.
- *
- * @plant test/plants/types/compute/translate-map-intersection.patch translate types its map as `Fr & string` and
- * `To & string` again, from which TypeScript infers nothing for a string typed string, so a translate over a map
- * computed at run time, which the engine admits, is typed never; the kept translates over the widened value fail their
- * type assertions and the agreement's program fails.
- * @plant test/plants/types/compute/compute-literal-first.patch A literal is admitted as an operation's first operand
- * (types/compute/scalar.ts FirstTerm answers unknown for a JavaScript value); the agreement's program fails.
- * @plant test/plants/types/compute/guard-refines-every-occurrence.patch Compute.when's lowering refines every occurrence
- * of the guard's subject inside its branch, not only the branch's parameter (scalar/compute/lower.ts settle matches
- * each enclosing guard by expression alone), so the engine admits the kept power whose exponent reads the subject past
- * the parameter, which the types refuse; the agreement's program fails.
  */
 const required: Situations<ComputeNote> = [
 	"admitted",

@@ -53,21 +53,6 @@
  * fixed field; a probed target beside an unprobed one; a target's own UNIQUE K implies through the field its selection
  * fixes; a generated UNIQUE refusing a pair, reported as K over a selection; and constant columns that cost the schema
  * no more objects.
- *
- * @plant test/plants/unit/laws/model/probed-target-probe-per-index.patch The reference choice counts every unserved
- * reverse probe a B-tree of its own, though the engine drafts one index for a chain of probes over nested columns, so
- * it takes a superkey that saves nothing: the kept case's K alone plans 20 objects to the restated keys' 19.
- * @plant test/plants/unit/laws/model/probed-target-shared-always.patch Every fixed target at its terms and fixed field
- * (laws/model/plan.ts takingShared); the fewest objects of any placement catch it.
- * @plant test/plants/unit/laws/model/probed-target-constants-free.patch The choice counts a constant column as nothing,
- * so a superkey is taken though the target's own columns need no constant and cost less (laws/model/plan.ts
- * takingShared); the restated keys' objects catch it.
- * @plant test/plants/unit/laws/model/probed-target-probe-beside.patch Each reverse probe a B-tree of its own beside a
- * unique index that serves it (physical/indexes/engine.ts planIndexes); the redundant pair catches it.
- * @plant test/plants/unit/laws/model/probed-target-unique-dropped.patch No UNIQUE beside a reference at a target's own
- * columns (laws/model/plan.ts scalar containment); the foreign key that references no unique index catches it.
- * @plant test/plants/unit/laws/model/probed-target-projected-unimplied.patch laws/model/model.ts #implyingKey back to
- * declared keys only, so a UNIQUE only K over a selection implies reports its containment; the reported key catches it.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

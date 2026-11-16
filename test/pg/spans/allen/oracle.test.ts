@@ -5,13 +5,6 @@
  *
  * Features: each query kind over each endpoint kind, an Allen filter's window and pointIn's point each a parameter and a
  * literal.
- *
- * @plant test/plants/pg/spans/allen/allen-before-literal-strict.patch The `<<` literal of a formula is lowered as
- * strictly before, without meets.
- * @plant test/plants/pg/spans/allen/point-domain-uncast.patch pointIn's point is sent as lowered, not cast to its
- * endpoint's base type (lower/conservative/span/index.ts rangeOperator), so a parameter point over a contract endpoint,
- * cast to the contract's domain as it is bound, meets no `anyrange @> anyelement` (42883); the property fails at
- * pointIn:contract:param.
  */
 import { drawn } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"

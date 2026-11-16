@@ -19,9 +19,6 @@
  * laws it breaks and changes nothing.
  *
  * Features: each relation's insert and put applied, a refusal by each law, and an unchanged write.
- *
- * @plant test/plants/pg/write/generated-source/generated-source-no-same-key-check.patch The insert's same-key check is
- * dropped (write/insert/protocol.ts); the property fails.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
