@@ -1,3 +1,4 @@
+import { timerMaxMs } from "@grizzle/limits"
 import { Array as Arr, Effect, Option, Record as Rec, type Scope } from "effect"
 import {
 	type CaseRecord,
@@ -6,7 +7,6 @@ import {
 	mechanism,
 	type VerdictInput
 } from "#bench/harness/gate.ts"
-import { benchExitWait } from "#bench/harness/limits.ts"
 import { type RetryPolicy, retried } from "#bench/harness/load.ts"
 import { type Fixture, fill, settle } from "#bench/query/support/kit.ts"
 import {
@@ -197,7 +197,9 @@ const backendsOf = Effect.fn("backendsOf")(function* (
  * Returns once each backend of `pids`, whose client has closed it, has exited, and so reported its statistics, which a
  * backend does as it exits, before it leaves the process array and its process ends. pg_terminate_backend with a
  * timeout signals the ending backend and waits until no process has its pid (PostgreSQL 19rc2's signalfuncs.c
- * pg_wait_until_termination), and answers at once for a pid no backend in the process array has any more.
+ * pg_wait_until_termination), and answers at once for a pid no backend in the process array has any more. Its timeout
+ * is no deadline of the bench's own: the longest delay a Node timer keeps (timerMaxMs), so a backend that never exits
+ * is the operator's to interrupt.
  */
 const exited = Effect.fn("exited")(function* (
 	pids: ReadonlyArray<number>
@@ -205,7 +207,7 @@ const exited = Effect.fn("exited")(function* (
 	const s = yield* Substrate
 	yield* s.admin.queryValues(
 		"SELECT pg_catalog.pg_terminate_backend(pid, $2::int8)::text FROM pg_catalog.unnest($1::int4[]) AS pid",
-		[`{${Arr.join(Arr.map(pids, String), ",")}}`, String(benchExitWait.value)]
+		[`{${Arr.join(Arr.map(pids, String), ",")}}`, String(timerMaxMs.value)]
 	)
 })
 

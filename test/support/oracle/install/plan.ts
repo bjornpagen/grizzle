@@ -6,7 +6,6 @@ import type { DomainDigest } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredName,
 	identity as door,
-	maxIdentifierBytes,
 	parseDeclaredName,
 	parseSchemaName,
 	type SchemaName
@@ -14,14 +13,7 @@ import {
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
-import {
-	cosineNormMax,
-	cosineNormMin,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "#compiler/ir/carriers.ts"
-import { type CodeSlot, type RosterCodes } from "#compiler/ir/cells.ts"
+import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
 import { candidateKeyFields, descText, type FieldDesc, serialDraw } from "#compiler/ir/desc.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
@@ -84,6 +76,14 @@ import { IdentifierScope, rosterNamesIdentity } from "#test/support/oracle/insta
 import { elementAt, entryOf } from "#test/support/oracle/pick.ts"
 import { testTypeSchema } from "#test/support/sql.ts"
 
+import {
+	cosineNormMax,
+	cosineNormMin,
+	maxIdentifierBytes,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "@grizzle/limits"
 import { regex } from "arkregex"
 /**
  * The planner reports its first refusal; internally it unwinds with this wrapper and planInstall turns it back into

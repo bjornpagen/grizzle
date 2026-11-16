@@ -1,3 +1,4 @@
+import { bytesChunkLength } from "@grizzle/limits"
 /**
  * The SQL of a family write's statements, each reading its rows from the
  * columnar arrays its placeholders carry, $n the array of the n-th column of its rows' layout (write/family/order.ts
@@ -20,7 +21,6 @@ import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	appendNonEmpty,

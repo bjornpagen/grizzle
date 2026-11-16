@@ -12,7 +12,7 @@
  * and integers. PostgreSQL must accept every such fact into the key's unique index.
  *
  * Text is bounded in each spelling the compiler accepts: its pattern ^.{0,n}$, n within PostgreSQL's repetition limit
- * (core/limits.ts regexMaxRepeat), a contract's charLength(value) <= n over the wildcard pattern, or a contract's
+ * (@grizzle/limits regexMaxRepeat), a contract's charLength(value) <= n over the wildcard pattern, or a contract's
  * octetLength(value) <= n over it, which bounds the text's bytes exactly and reaches the item limit at the byte. A key's
  * entry is counted at exact offsets through its fixed-width prefix, so a key whose bounded text comes after fixed-width
  * fields alone is sized to the byte PostgreSQL lays out.
@@ -37,12 +37,12 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
+import { btreeMaxItemSize, regexMaxRepeat } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import { regexMaxRepeat } from "#compiler/core/limits.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { wildcardPattern } from "#compiler/ir/scalar.ts"
-import { btreeMaxItemSize, keyLayout } from "#compiler/schema/representability.ts"
+import { keyLayout } from "#compiler/schema/representability.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { caseHang } from "#test/support/limits.ts"

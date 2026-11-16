@@ -27,6 +27,7 @@ import { fullSwarm } from "@bjornpagen/testing/swarm"
 import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
+import { fileNameMaxBytes } from "@grizzle/limits"
 import {
 	Array as Arr,
 	DateTime,
@@ -51,7 +52,6 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.ts"
 import {
 	type FolderNaming,
-	fileNameMaxBytes,
 	isFolderName,
 	type MigrationName,
 	maxMigrationNameLength,
@@ -582,7 +582,7 @@ type Refusal =
 /** The longest migration name, at the file name limit once its timestamp prefixes it. */
 const longestName = parsedMigrationName(
 	Arr.join(
-		upTo(maxMigrationNameLength.value, () => "a"),
+		upTo(maxMigrationNameLength, () => "a"),
 		""
 	)
 )

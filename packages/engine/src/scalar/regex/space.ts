@@ -1,5 +1,3 @@
-import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
-import { defect } from "#compiler/core/invariant.ts"
 import {
 	regexMaxAnchors,
 	regexMaxColors,
@@ -8,7 +6,9 @@ import {
 	regexMaxHeldStates,
 	regexMaxMatchCells,
 	regexMaxMatchStates
-} from "#compiler/core/limits.ts"
+} from "@grizzle/limits"
+import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
+import { defect } from "#compiler/core/invariant.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
 import {
 	type AreAtom,
@@ -580,7 +580,7 @@ const movingAnchors = (nfa: RawNfa): number => {
  * PostgreSQL's parser reads it:
  *
  * - colors: the classes of characters the pattern's sets hold alike (regc_color.c), each a `color`, a short, at most
- *   MAX_COLOR of them (core/limits.ts regexMaxColors);
+ *   MAX_COLOR of them (@grizzle/limits regexMaxColors);
  * - compile space: the states and arcs its NFAs hold at once, against REG_MAX_COMPILE_SPACE (regexMaxHeldStates,
  *   regexMaxHeldArcs). The parser builds the raw NFA, and nfanode optimizes a copy of all of it while the raw one
  *   lives, so both are held; empty-arc removal (regc_nfa.c fixempties) adds to an optimized NFA an arc for each

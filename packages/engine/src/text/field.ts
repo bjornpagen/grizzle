@@ -1,6 +1,6 @@
+import { int4Max } from "@grizzle/limits"
 import { textColumn } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
-import { int4Max } from "#compiler/core/limits.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 import { flatMapNonEmpty, isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { builtMark } from "#compiler/core/phantom.ts"

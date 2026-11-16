@@ -43,19 +43,19 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { indexMaxKeys } from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Equivalence, Formatter, Option, Order } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import { defaultOpclass, type NativeColumn } from "#compiler/ir/law.ts"
-import { type AccessUse, type IndexRequest } from "#compiler/ir/products.ts"
+import type { AccessUse, IndexRequest } from "#compiler/ir/products.ts"
 import type { PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import {
 	compileInstallation,
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
-import { indexMaxKeys } from "#compiler/schema/representability.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
 import { contained, f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { lawNamesOf, wild } from "#test/support/kernel/naming.ts"

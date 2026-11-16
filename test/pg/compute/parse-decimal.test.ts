@@ -26,12 +26,12 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
+import { numericMaxFractionDigits } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { numericMaxFractionDigits } from "#compiler/ir/carriers.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import {
 	compileInstallation,

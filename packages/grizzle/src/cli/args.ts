@@ -100,7 +100,7 @@ configuration's connection only.
 
 Options of generate, as --flag value or --flag=value, anywhere after the command:
   --custom          an empty folder for data steps, named by --name
-  --name <name>     the folder's name: lowercase words joined by _ or -, at most ${maxMigrationNameLength.value} characters;
+  --name <name>     the folder's name: lowercase words joined by _ or -, at most ${maxMigrationNameLength} characters;
                     without it a drafted folder is named after its change
   --schema <name>   only this configured schema (its declared name or PostgreSQL schema);
                     accepted only when the configuration declares several schemas, and required

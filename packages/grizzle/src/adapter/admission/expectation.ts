@@ -16,7 +16,7 @@ export const stackDepthColumn: C.CatalogExpr = C.asText(
 
 /**
  * Whether a server's max_stack_depth, as stackDepthColumn reads it, is below the default the pattern limits were
- * measured at (core/limits.ts maxStackDepth). A setting the server cannot report as kilobytes is below it.
+ * measured at (@grizzle/limits maxStackDepth). A setting the server cannot report as kilobytes is below it.
  */
 export const stackTooShallow = (reported: string): boolean => {
 	const kilobytes = Number(reported)

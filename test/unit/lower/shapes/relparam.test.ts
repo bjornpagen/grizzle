@@ -2,7 +2,7 @@
  * A ChangeSet's enumerated members travel as arrays, one placeholder per column, whatever their count
  * (lower/shapes/relparam): an input drawn up to a quarter of a million facts binds every statement with no refusal,
  * each member array carrying every fact. No bound smaller than PostgreSQL's longest message and V8's longest string
- * (core/limits.ts) refuses an input, and those two are met by inputs far past what a unit test builds. Every label holds
+ * (@grizzle/limits) refuses an input, and those two are met by inputs far past what a unit test builds. Every label holds
  * a quote, a backslash and braces, which an array literal escapes.
  *
  * Oracle: the bounds' statement (a specification): only messageMaxBytes and maxStringLength refuse an input, and each

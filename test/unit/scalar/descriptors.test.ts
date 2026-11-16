@@ -52,18 +52,18 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { bigint } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { regex } from "arkregex"
-import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
-import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	binary32Precision,
 	binary64Precision,
-	integerRanges,
 	numericMaxPrecision,
 	numericMaxScale,
 	numericMinScale,
 	vectorMaxDimensions
-} from "#compiler/ir/carriers.ts"
+} from "@grizzle/limits"
+import { regex } from "arkregex"
+import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
+import { SourceLoc } from "#compiler/core/loc.ts"
+import { integerRanges } from "#compiler/ir/carriers.ts"
 import { decodeDesc, type FieldDesc } from "#compiler/ir/desc.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { Roster } from "#compiler/ir/scalar.ts"

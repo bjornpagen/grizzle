@@ -1,8 +1,7 @@
+import { floatDoublePrecision, floatRealPrecision } from "@grizzle/limits"
 import type { Column } from "#compiler/core/decoder.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
-import { derived, type Limit, postgresSource } from "#compiler/core/limits.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
-import { binary32Precision, binary64Precision } from "#compiler/ir/carriers.ts"
 import type { PgScalarName } from "#compiler/ir/desc.ts"
 import { bareEnv, type Descriptor, defineField, type SqlTag } from "#compiler/scalar/registry.ts"
 import { serialAliases } from "#compiler/scalar/serial.ts"
@@ -65,28 +64,6 @@ const boolean = plain("boolean", carrierColumn("bool"))
 
 const isInteger = (value: unknown): value is number =>
 	typeof value === "number" && Number.isInteger(value)
-
-const floatP = `${postgresSource}/doc/src/sgml/datatype.sgml#L905-L910`
-
-/** The greatest binary precision float(p) maps to real: real's own, binary32's. */
-const floatRealPrecision: Limit = derived({
-	owner: "PostgreSQL 19rc2",
-	unit: "bits",
-	scope: "the binary precision p of float(p) that selects real",
-	from: [binary32Precision],
-	derivation: `p names the least binary precision, and real is binary32, so float(1) through float(binary32's precision) select real: "accepts float(1) to float(24) as selecting the real type" (${floatP})`,
-	compute: ([p]) => p.value
-})
-
-/** The greatest binary precision float(p) admits: double precision's own, binary64's. */
-const floatDoublePrecision: Limit = derived({
-	owner: "PostgreSQL 19rc2",
-	unit: "bits",
-	scope: "the binary precision p of float(p) that selects double precision",
-	from: [binary64Precision],
-	derivation: `double precision is binary64, so float(p) past real's precision through binary64's selects it and a greater p draws an error: "float(25) to float(53) select double precision. Values of p outside the allowed range draw an error." (${floatP})`,
-	compute: ([p]) => p.value
-})
 
 /** Whether a JavaScript caller's precision is one float(p) admits: an entry of floatDescriptors. */
 export const isFloatPrecision = (value: unknown): value is FloatPrecision =>

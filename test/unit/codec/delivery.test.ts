@@ -6,7 +6,7 @@
  * Oracle: a second implementation, the delivery's result rows written from its specification (codec/delivery.ts
  * Delivery) with the platform's own base64url encoder, which shares no code with the assembly, then shuffled. The
  * chunk length is drawn small, so a case meets every boundary of a value of a few chunks, and the one in force
- * (core/limits.ts bytesChunkLength) in some cases.
+ * (@grizzle/limits bytesChunkLength) in some cases.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -25,10 +25,10 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { bytesChunkLength } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { assembledIn, type CellKind, deliveryOf } from "#compiler/codec/delivery.ts"
 import { maxOf } from "#compiler/core/array.ts"
-import { bytesChunkLength } from "#compiler/core/limits.ts"
 import type { Cell } from "#compiler/core/wire.ts"
 import { assert } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"

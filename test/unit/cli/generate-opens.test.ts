@@ -4,6 +4,7 @@ import { type Gen, int, map } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
+import { selectMaxEntries } from "@grizzle/limits"
 import { Effect, Exit, Formatter, Layer, Record as Rec, Result } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import { served } from "#adapter/public/layer.ts"
@@ -11,7 +12,6 @@ import { artifactsOver, layerOver, loginRoles, workloadSlice } from "#adapter/se
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
-import { selectMaxEntries } from "#compiler/core/limits.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
@@ -40,7 +40,7 @@ import { upTo } from "#test/support/up-to.ts"
  * generate admits is one the login's compilation over its workload's slice admits and the served file generate drafts
  * opens the layer, and one that compilation refuses refuses generate, by the program, with the same CompileError.
  *
- * The box is PostgreSQL's select list around its bound (core/limits.ts selectMaxEntries): a login whose workload holds
+ * The box is PostgreSQL's select list around its bound (@grizzle/limits selectMaxEntries): a login whose workload holds
  * one query, whose head is every field of two joined relations, split between them evenly, on the bound and one
  * entry past it. The checker admits every width; the statements the layer compiles refuse a head past the
  * bound when they are printed (ResourceBound, selectList). Within it, the layer compiles the program, generate drafts

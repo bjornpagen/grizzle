@@ -1,7 +1,7 @@
+import { regexTextMaxBytes } from "@grizzle/limits"
 import { floatSpecialNameOf } from "#compiler/core/canonical.ts"
 import type { ExprId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { regexTextMaxBytes } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { collapsed, compareCodePoints, translated } from "#compiler/core/text.ts"

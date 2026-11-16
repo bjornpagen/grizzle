@@ -1,4 +1,4 @@
-import type { regexMaxRepeat, typeUnionLimit } from "#compiler/core/limits.ts"
+import type { regexMaxRepeat, typeUnionLimit } from "@grizzle/limits"
 
 /**
  * The characters a backslash escapes outside a class, and the ones ArkRegex wants escaped inside one. `/` and `}` are
@@ -428,7 +428,7 @@ interface Counted<Text extends string, Rest extends string> {
 }
 
 /**
- * A counted repetition's bound checked against PostgreSQL's greatest, the compiler's regexMaxRepeat (core/limits.ts),
+ * A counted repetition's bound checked against PostgreSQL's greatest, the compiler's regexMaxRepeat (@grizzle/limits),
  * read off the limit itself: "above", refused before ArkRegex expands it, or the numeral without its leading zeros.
  */
 type Bound<N extends string> =
@@ -805,7 +805,7 @@ type InClass<
 export type RewriteSource<S extends string> = Scan<S, "", "none", [], "atArm", []>
 
 /**
- * TypeScript's representable union: a union or template literal of typeUnionLimit's members (core/limits.ts) or more
+ * TypeScript's representable union: a union or template literal of typeUnionLimit's members (@grizzle/limits) or more
  * is TS2590, the checker's cross-product refusal, the limit read off its own value. A count of that many is "over", and
  * every count is saturated there.
  */

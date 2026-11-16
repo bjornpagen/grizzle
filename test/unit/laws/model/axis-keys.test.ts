@@ -22,8 +22,8 @@ import { requiredInSpace } from "@bjornpagen/testing/features"
 import { constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { alignUp, btreeMaxItemSize, maxAlign, typlens } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { alignUp, maxAlign, typlens } from "#compiler/core/limits.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
@@ -39,7 +39,6 @@ import {
 	schema
 } from "#compiler/public/schema.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
-import { btreeMaxItemSize } from "#compiler/schema/representability.ts"
 import { assert, refused, succeeded } from "#test/support/assert.ts"
 import { codebookOfStates } from "#test/support/closed/generate.ts"
 import {

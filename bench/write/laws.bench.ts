@@ -1,3 +1,4 @@
+import type { Limit } from "@bjornpagen/limit"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { summarize } from "#bench/cold/stats.ts"
 import {
@@ -10,7 +11,6 @@ import {
 } from "#bench/harness/gate.ts"
 import { GateSetupError } from "#bench/query/support/kit.ts"
 import { oneRow, timed } from "#bench/write/support/writes.ts"
-import type { Limit } from "#compiler/core/limits.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { ObjectName, TypeRef } from "#compiler/sql/ast.ts"
 import { namedType, types } from "#compiler/sql/build.ts"

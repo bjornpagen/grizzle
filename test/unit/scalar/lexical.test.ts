@@ -33,6 +33,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { decimalTextMaxBytes } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -45,7 +46,6 @@ import { decimalText, str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { toFloat } from "#compiler/scalar/compute/cast.ts"
 import {
-	decimalTextMaxBytes,
 	formOctets,
 	formSource,
 	type LexicalTarget,

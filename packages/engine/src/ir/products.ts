@@ -69,8 +69,8 @@ export type ArrayTexts = ReadonlyArray<ParamText>
 /**
  * A relation input's column whose array no placeholder can carry, so the input is refused before any SQL is sent, which
  * the shell raises as InputTooLarge: a text array literal longer than the longest string the host builds, `limit`
- * UTF-16 code units (core/limits.ts maxStringLength), or a bytes or text column's binary array longer than the longest
- * message PostgreSQL reads, `limit` bytes (core/limits.ts messageMaxBytes; codec/bytea.ts). `input` names the relation
+ * UTF-16 code units (@grizzle/limits maxStringLength), or a bytes or text column's binary array longer than the longest
+ * message PostgreSQL reads, `limit` bytes (@grizzle/limits messageMaxBytes; codec/bytea.ts). `input` names the relation
  * parameter or the written relation, `column` its field.
  */
 export interface LiteralBound {
@@ -85,7 +85,7 @@ export interface LiteralBound {
  * A relation input no statement can carry, refused before any of its bytes is read: the statement that carries it, its
  * write's whole input or, for a nested write, one row of it, would send a Bind message of at least `bytes` with its
  * placeholders (codec/recordset.ts ReadRelation), past the longest message PostgreSQL reads, `limit` bytes
- * (core/limits.ts messageMaxBytes), which the shell raises as InputTooLarge. `input` names the member.
+ * (@grizzle/limits messageMaxBytes), which the shell raises as InputTooLarge. `input` names the member.
  */
 export interface MessageBound {
 	readonly _tag: "MessageBound"

@@ -1,3 +1,4 @@
+import { fileNameMaxBytes } from "@grizzle/limits"
 import { nominal } from "#compiler/core/brand.ts"
 import { catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import {
@@ -7,7 +8,6 @@ import {
 } from "#compiler/core/errors.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
-import { derived, published } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareNumbers, mapInput } from "#compiler/core/order.ts"
@@ -395,45 +395,20 @@ const folderSeparator = "_"
 const folderPrefix = (timestamp: string): string => `${timestamp}${folderSeparator}`
 
 /**
- * The longest file name the operating system states, NAME_MAX: a migration folder is one directory entry, created where
- * it is drafted and wherever its repository is checked out. Darwin's NAME_MAX, whose comment reads "max bytes in a file
- * name", is Linux's too (https://github.com/torvalds/linux/blob/v7.3/include/uapi/linux/limits.h#L12, "#define
- * NAME_MAX         255"). A file system may admit a longer name (pathconf's _PC_NAME_MAX); grizzle writes none longer.
+ * The longest name a migration folder carries after its timestamp, in UTF-8 bytes: given by `--name` or derived from
+ * the change, it ends the folder's one file name. No limit of its own: the file system's NAME_MAX (fileNameMaxBytes)
+ * less the prefix folderPrefix writes before every folder's name, a timestamp's timestampLength ASCII digits and the
+ * separator, each one byte.
  */
-export const fileNameMaxBytes = published({
-	value: 255,
-	owner: "Darwin (xnu 12377.121.6), and Linux alike",
-	unit: "bytes",
-	scope: "one file name, a single path component such as a migration folder's name",
-	constraint: "compile-time constant",
-	source:
-		"https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/sys/syslimits.h#L103",
-	quote: "#define NAME_MAX                  255",
-	verified: "2026-11-05"
-})
-
-/**
- * The longest name a migration folder carries after its timestamp: given by `--name` or derived from the change, it
- * ends the folder's one file name.
- */
-export const maxMigrationNameLength = derived({
-	owner: "grizzle",
-	unit: "UTF-8 bytes",
-	scope: "the name of one migration folder, after its `<timestamp>_` prefix",
-	from: [fileNameMaxBytes],
-	derivation:
-		"fileNameMaxBytes less the UTF-8 bytes of the prefix folderPrefix writes before every folder's name: a timestamp's timestampLength ASCII digits and the separator, each one byte",
-	compute: ([name]) => name.value - timestampLength - folderSeparator.length
-})
+export const maxMigrationNameLength: number =
+	fileNameMaxBytes.value - timestampLength - folderSeparator.length
 
 /**
  * The migration name `name` is, parsed: lowercase ASCII letters and digits in words joined by `_` or `-`, at most
  * maxMigrationNameLength bytes; none for a name of no folder name's shape.
  */
 export const parseMigrationName = (name: string): MigrationName | undefined =>
-	isWords(name) && utf8Length(name) <= maxMigrationNameLength.value
-		? migrationName(name)
-		: undefined
+	isWords(name) && utf8Length(name) <= maxMigrationNameLength ? migrationName(name) : undefined
 
 /** The name of a schema's first migration, from the empty snapshot. */
 export const initMigrationName: MigrationName = migrationName("init")
@@ -476,7 +451,7 @@ export const changeMigrationName = (
 ): MigrationName => {
 	const head = words(`${verb}_${object}`)
 	const suffix = more ? andMore : ""
-	const room = maxMigrationNameLength.value - suffix.length
+	const room = maxMigrationNameLength - suffix.length
 	const cut = head.length <= room ? head : head.slice(0, room)
 	return migrationName(`${cut.endsWith("_") ? cut.slice(0, -1) : cut}${suffix}`)
 }

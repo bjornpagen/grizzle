@@ -1,3 +1,4 @@
+import { type Limit, measured } from "@bjornpagen/limit"
 import {
 	array,
 	boolean,
@@ -13,7 +14,6 @@ import {
 import { keep, swarm } from "@bjornpagen/testing/swarm"
 import { bigint } from "@bjornpagen/testing/values"
 import { Array as Arr, String as Str } from "effect"
-import { measured, type Limit } from "#compiler/core/limits.ts"
 
 /**
  * The numeric powers the power suites draw (test/pg/compute/power.test.ts against PostgreSQL, and

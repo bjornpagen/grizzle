@@ -1,7 +1,7 @@
+import { tableMaxColumns } from "@grizzle/limits"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import { tableMaxColumns } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"

@@ -1,3 +1,4 @@
+import { statisticsMaxColumns } from "@grizzle/limits"
 import { firstIndex, appendAll } from "#compiler/core/array.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
@@ -30,7 +31,6 @@ import type {
 import { baseOf, type Carrier, fewValued, isSpanCarrier } from "#compiler/ir/scalar.ts"
 import { type Atom, atomKey, operandOf, predicateAtoms } from "#compiler/physical/access/atoms.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
-import { statisticsMaxColumns } from "#compiler/physical/statistics/statistics.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 
 interface ExtractOptions {

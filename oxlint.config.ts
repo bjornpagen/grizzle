@@ -1,4 +1,4 @@
-import { restrictedImports, standard } from "@bjornpagen/devtools/preset"
+import { LIMIT_TESTS, restrictedImports, standard } from "@bjornpagen/devtools/preset"
 import {
 	CASE_LISTS,
 	CLOCK_RULES,
@@ -187,6 +187,13 @@ const NAME_MARKERS = [
  */
 const HOOK_FREE_NAME = "^(?:[^u]|u$|u[^s]|us$|us[^e]|use$|use[^A-Z0-9])"
 
+/**
+ * Where grizzle's limits are minted and written (@grizzle/limits), and the test files the limit rules leave alone: the
+ * preset's, every *.test.ts, *.test.tsx and *.fixtures.ts and every test/, tests/ and fixtures/ directory. bench/ is no
+ * test, so its numbers are limits.
+ */
+const LIMITS = { packages: ["packages/limits"], tests: LIMIT_TESTS } as const
+
 const ASSERTIONS_MESSAGE =
 	"Import assertions from #test/support/assert.ts: its equalities type the expected value by the actual one."
 
@@ -224,8 +231,8 @@ export default defineConfig(
 						constants: []
 					},
 					{
-						file: "packages/engine/src/core/limits.ts",
-						specifiers: ["#compiler/core/limits.ts"],
+						file: "vendor/toolchain/packages/limit/src/limit.ts",
+						specifiers: ["@bjornpagen/limit"],
 						functions: [
 							{ name: "published", returns: "values", invokes: [] },
 							{ name: "measured", returns: "values", invokes: [] },
@@ -234,8 +241,14 @@ export default defineConfig(
 								returns: "values",
 								invokes: [{ parameter: 0, property: "compute" }]
 							},
-							{ name: "alignUp", returns: "values", invokes: [] }
+							{ name: "provisional", returns: "values", invokes: [] }
 						],
+						constants: []
+					},
+					{
+						file: "packages/limits/src/limits.ts",
+						specifiers: ["@grizzle/limits"],
+						functions: [{ name: "alignUp", returns: "values", invokes: [] }],
 						constants: []
 					},
 					{
@@ -325,6 +338,8 @@ export default defineConfig(
 					}
 				]
 			},
+			"limits-sole-mint": LIMITS,
+			"no-bare-limit": LIMITS,
 			"no-raw-sql": { sources: [], writers: [] },
 			"no-spread-argument": {
 				tuples: [
@@ -382,7 +397,7 @@ export default defineConfig(
 				rules: active({
 					"eslint/no-restricted-globals": ["error", ...ENGINE_GLOBALS, TEXT_DECODER],
 					"eslint/no-restricted-imports": engineImports("no Node module"),
-					/** `import { type T } from "effect"` passes allowTypeImports, but type stripping leaves `import {} from "effect"`, which loads Effect at run time. */
+					/** `import type { T } from "effect"` passes allowTypeImports, but type stripping leaves `import {} from "effect"`, which loads Effect at run time. */
 					"typescript/no-import-type-side-effects": "error"
 				})
 			},
@@ -647,6 +662,25 @@ export default defineConfig(
 				rules: active({
 					/** The type tier's global setup loads the type-test batch only for a run with type tests, the cold probe times a first load, the bench runner loads the bench files it runs, and the runtime probe loads each module under its trap. */
 					"devtools/no-dynamic-imports": "off"
+				})
+			},
+			{
+				files: [
+					"bench/dfa/main.ts",
+					"bench/query/fusion.bench.ts",
+					"bench/query/page.bench.ts",
+					"bench/query/spans.bench.ts",
+					"bench/query/workload.bench.ts",
+					"bench/queue/claim.bench.ts",
+					"bench/write/changeset.bench.ts",
+					"bench/write/containment.bench.ts",
+					"bench/write/insert.bench.ts",
+					"bench/write/normalize.bench.ts",
+					"bench/write/refresh.bench.ts"
+				],
+				rules: active({
+					/** A gate's options and the subset-construction bench's runs are their workload, data that defines what each measures and that the rule cannot tell from a bound: a scale's rows, batches, weeks and samples, a page the read asks for, a run's deadline or count of operations, the application's own retry policy a writer plays and the observer's sampling intervals, and the bench's runs a pattern and its run at a multiple of the subset construction's limits. No bound grizzle's code runs under is written here: one the measured code reads is a Limit of @grizzle/limits. */
+					"devtools/no-bare-limit": "off"
 				})
 			},
 			{

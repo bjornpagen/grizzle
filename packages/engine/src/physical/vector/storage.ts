@@ -1,6 +1,6 @@
+import { cosineNormMax, cosineNormMin } from "@grizzle/limits"
 import { compareText } from "#compiler/core/canonical.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
-import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { vectorFunctions } from "#compiler/lower/conservative/vector/index.ts"

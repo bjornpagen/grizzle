@@ -31,6 +31,7 @@ import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
+import { timerMinMs } from "@grizzle/limits"
 import { Array as Arr, Effect, Redacted, String as Str } from "effect"
 import pgDriver from "pg"
 import { ReadFailure } from "#adapter/errors/execution.ts"
@@ -44,7 +45,7 @@ import { quoteIdent } from "#compiler/sql/print.ts"
 import { substrateLogin } from "#test/pg/adapter/support.ts"
 import { assert } from "#test/support/assert.ts"
 import { pgPin } from "#test/support/env.ts"
-import { caseHang, nodeTimerMin, testConnectTimeout } from "#test/support/limits.ts"
+import { caseHang, testConnectTimeout } from "#test/support/limits.ts"
 import { noPassword } from "#test/support/pg.ts"
 import { clusterPool, clusterTransport, parsedConnection } from "#test/support/pg.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
@@ -102,7 +103,7 @@ const classOf = (refusal: ConnectRefusal): string => {
  * The connect timeout of the attempts to a server that never answers: the least delay a Node timer waits, since nothing
  * will answer it, so any delay times the attempt out and the case spends none of the run waiting longer.
  */
-const silentTimeout = nodeTimerMin.value
+const silentTimeout = timerMinMs.value
 
 /**
  * What a call error states, as README "Errors and outcomes" names it: its kind, its reason (an unavailable reason's

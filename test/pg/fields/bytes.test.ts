@@ -1,7 +1,7 @@
 /**
  * A bytes field is written and read back whole, on PostgreSQL 19rc2: every value a case draws (the empty value, every
  * byte value 0x00 to 0xff in a drawn rotation, short drawn values, a long value of a few MiB, and values one short of,
- * at and one past a chunk of the delivery in force, core/limits.ts bytesChunkLength, and of several chunks) is written
+ * at and one past a chunk of the delivery in force, @grizzle/limits bytesChunkLength, and of several chunks) is written
  * through db.apply, one fact per call or all in one batched insert, whose member array travels as a binary bytea[], and
  * returned by the insert in chunks (codec/delivery.ts); then read back by a query, by its ordered form, which delivers
  * the rows in its order, and by a query of the shelves the values sit on with each shelf's values attached, a statement
@@ -21,10 +21,10 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
+import { bytesChunkLength } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Layer, Option, Order } from "effect"
 import { Digest } from "effect/crypto"
 import { Db } from "#adapter/public/db.ts"
-import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"

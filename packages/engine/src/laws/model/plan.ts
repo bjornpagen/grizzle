@@ -47,6 +47,7 @@ import {
 } from "#compiler/ir/law.ts"
 import { type CombineFn, monoidSpecs } from "#compiler/ir/monoid.ts"
 
+import { indexMaxKeys } from "@grizzle/limits"
 import { type CellSide, sideOf } from "#compiler/ir/cells.ts"
 import { closedCell } from "#compiler/ir/rel.ts"
 import { baseOf, rosterOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
@@ -59,8 +60,7 @@ import {
 	datumBound,
 	type EntryColumn,
 	type GistEntryBytes,
-	gistEntry,
-	indexMaxKeys
+	gistEntry
 } from "#compiler/schema/representability.ts"
 
 /** A refusal deep inside recognition is a core Refusal, which the model's boundary returns (`catchRefusal`). */

@@ -1,6 +1,5 @@
 import { Array as Arr, Duration, Effect, FiberMap, Option, Scope } from "effect"
 import type { Reporter, SerializedError, TestCase, TestModule, TestSuite } from "vitest/node"
-import { derived, type Limit } from "#compiler/core/limits.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { hangLimit } from "#test/support/limits.ts"
 
@@ -23,18 +22,11 @@ export const runLineMarker = "GRIZZLE-MUTATE "
  * How long one test file of a mutation run may run, from Vitest queueing it to its end, before the reporter calls it
  * hung. A test's and a hook's own timeouts (vitest.config.ts mutationTestTimeout) are timers of the file's test process,
  * which never fire while a mutant loops without yielding to its event loop; the reporter runs in Vitest's own process,
- * whose timers do.
+ * whose timers do. It is the test tiers' hang limit (hangLimit), whose record is of whole files of those tiers; a
+ * coverage pass runs them under NODE_V8_COVERAGE, so a file whose coverage pass outruns it is cut there and its baseline
+ * records the run as failing.
  */
-const fileTimeout: Limit = derived({
-	owner: "grizzle's mutation tester",
-	unit: "milliseconds",
-	scope:
-		"one test file of a run of the mutation tester (main.ts runFiles), from Vitest queueing it to its end, on the unmutated tree or a mutant's",
-	from: [hangLimit],
-	derivation:
-		"hangLimit's own measurement is of whole files, and its value stands over the slowest passing file's run with headroom on the machine it was measured on (its decision), so a file of the test tiers ends within it there; a run's files are the tiers' own, the unit project's in stage 1, and in stage 2 the network tier's PostgreSQL files or the oracle subset, which runs the network tier's oracles over fewer cases; a coverage pass runs them under NODE_V8_COVERAGE, which the measurement did not, so a file whose coverage pass outruns the bound is cut there and its baseline records the run as failing",
-	compute: ([test]) => test.value
-})
+const fileTimeout: number = hangLimit.value
 
 /** Prints one line on stdout, at once: main.ts reads each as it comes. */
 const print = (line: RunLine): void => {
@@ -47,7 +39,7 @@ const clockOf = (file: string): Effect.Effect<void> =>
 		Effect.sync(() => {
 			print({ kind: "hung", file })
 		}),
-		Duration.millis(fileTimeout.value)
+		Duration.millis(fileTimeout)
 	)
 
 /** The file a failure of `module` is charged to: its path relative to the tree, as main.ts names the files it runs. */

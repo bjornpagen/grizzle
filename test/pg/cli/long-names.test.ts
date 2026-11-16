@@ -38,6 +38,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { NodeServices } from "@effect/platform-node"
 import { layer } from "@effect/vitest"
+import { maxIdentifierBytes } from "@grizzle/limits"
 import {
 	Array as Arr,
 	DateTime,
@@ -52,7 +53,7 @@ import {
 } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { roleNameOf } from "#adapter/served/served.ts"
-import { conversionOf, maxIdentifierBytes } from "#compiler/core/identity.ts"
+import { conversionOf } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { uuid } from "#compiler/public/fields.ts"

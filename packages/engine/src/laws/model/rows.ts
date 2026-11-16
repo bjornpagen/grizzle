@@ -4,7 +4,7 @@ import {
 	heapTupleHeaderBytes,
 	maxAlign,
 	toastPointerBytes
-} from "#compiler/core/limits.ts"
+} from "@grizzle/limits"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { datumBound, isFixedWidth } from "#compiler/schema/representability.ts"
 

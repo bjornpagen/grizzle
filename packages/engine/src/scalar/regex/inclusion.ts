@@ -1,4 +1,4 @@
-import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/core/limits.ts"
+import { regexDfaMaxStates, regexDfaMaxWork } from "@grizzle/limits"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { codePointsText } from "#compiler/core/text.ts"
 import type { Patterns } from "#compiler/ir/scalar.ts"
@@ -19,7 +19,7 @@ import { entry } from "#compiler/scalar/regex/table.ts"
 /**
  * Whether every admitted text value one conjunction of patterns matches the other matches too: proved, refuted by a
  * value that is a member of the first and not of the second, or unknown because a construction would pass the
- * analysis's bounds (core/limits.ts regexDfaMaxStates, regexDfaMaxWork).
+ * analysis's bounds (@grizzle/limits regexDfaMaxStates, regexDfaMaxWork).
  */
 export type Inclusion =
 	| { readonly kind: "included" }

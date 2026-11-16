@@ -35,7 +35,8 @@ library, with the tests, benches and scripts at its root:
 - **`test/`, `bench/` and `scripts/`** reach both packages' modules through the root's `#` subpath imports: `#compiler/*`
   is the engine's `src`, `#adapter/*` and `#cli/*` the shell's, `#index.ts` the shell's entry point.
 - **`.agents/skills/`** is the one agent skills folder: `.claude/skills` and `.cursor/skills` link to it, its `grizzle`
-  links the shell's shipped skill, pnpm links approved dependencies' skills into it (`skills.dirs` and `permissions` in
+  links the shell's shipped skill, its `limits` the toolchain's limits skill
+  (`vendor/toolchain/packages/devtools/skills/limits`), pnpm links approved dependencies' skills into it (`skills.dirs` and `permissions` in
   `pnpm-workspace.yaml`) behind its own `.gitignore` there, and a personal skill is `local-<name>`, ignored.
 
 ## Development environment
@@ -369,17 +370,14 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   deleted. Its two exceptions are overrides with their reasons: the query builder's running build
   (`packages/engine/src/query/build/scope.ts`) and the serverless tests' stand-in for Vercel's runtime.
 - **A bound is a Limit or the caller's input.** grizzle chooses no number on its caller's behalf: what is a choice is
-  an input, and what is not is a Limit, a value that carries its evidence, minted only by `published` (a number a
-  source states, with its URL, a quote, the kind of constraint and the day it was checked), `measured` (an operating
-  value with its measurement's record, environment, workload and what invalidates it) or `derived` (computed from
-  other limits) of `packages/engine/src/core/limits.ts`. No lint reads it since the toolchain retired its limit check
-  (2026-11-14), so review refuses, in the engine's and the shell's `src`, a bare number where it bounds something: a
-  comparison's operand, a loop's condition, an argument of `Math.min` or `Math.max`, a value that sets a length, a
-  count, a time, a concurrency, a retry count or a size, and a module-level number constant whose name says it bounds
-  something. 0, 1 and −1 (but in a time), 2 in `n < 2` and
-  `n >= 2`, and a compared hexadecimal, octal or binary literal are no bounds; a format's defining width is a named
-  constant documented with `@formatConstant`. In `test/`, `bench/` and `scripts/` review checks times, concurrencies
-  and retry counts, and a generator builder's arguments are the test's inputs.
+  an input, and what is not is a Limit of `@bjornpagen/limit`, a value that carries its evidence, minted only in
+  `packages/limits` (`@grizzle/limits`) by `published`, `measured`, `derived` or `provisional`. The limits skill
+  (`.agents/skills/limits`) is the policy and `packages/limits/README.md` what grizzle adds to it; its first question is
+  whether the cap should exist at all, and a cap on grizzle's own data or a caller's trusted input is deleted, not
+  minted. The limits pack's two rules hold it by syntax: `devtools/limits-sole-mint` refuses a mint outside the
+  package, and `devtools/no-bare-limit` a bare number where a limit belongs, in every file but the test files (`bench/`
+  and `scripts/` included). Review holds what syntax cannot show: a bound in a comparison or a clamp, in SQL text, or
+  passed through a function.
 - **The library reads no environment.** The preset's environment bans (`environment` in `oxlint.config.ts`) hold the
   engine's and the shell's `src`: `node/no-process-env`, and no import of `node:process`'s environment or its default
   export, of any value of `node:os`, of `node:v8`'s heap readings or of Effect's `Config` and `ConfigProvider` (an

@@ -44,12 +44,21 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { bigint, double, uuid } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import {
+	binary32Max,
+	int2Max,
+	int2Min,
+	int4Max,
+	int4Min,
+	int8Max,
+	int8Min,
+	moneyFractionDigits
+} from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
-import { int2Max, int2Min, int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { binary32Max, canonicalZero, moneyFractionDigits } from "#compiler/ir/carriers.ts"
+import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { codecOf, firstCodebook } from "#compiler/ir/codes.ts"
 import { type CalendarDate, dateOfDayNumber, dayNumber } from "#compiler/ir/date.ts"
 import { type Carrier, carriers, Roster } from "#compiler/ir/scalar.ts"

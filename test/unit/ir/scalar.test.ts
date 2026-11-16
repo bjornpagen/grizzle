@@ -47,16 +47,7 @@ import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, pipe, Record as Rec, String as Str } from "effect"
 import { canonicalTag, encode, everyProperty } from "#compiler/core/canonical.ts"
 import { ExprId, NodeId, ParamId } from "#compiler/core/ids.ts"
-import {
-	MoneyText,
-	VectorText,
-	cosineNormMax,
-	cosineNormMin,
-	isMoneyPayload,
-	isVectorPayload,
-	numericMaxPrecision,
-	vectorMaxDimensions
-} from "#compiler/ir/carriers.ts"
+import { MoneyText, VectorText, isMoneyPayload, isVectorPayload } from "#compiler/ir/carriers.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
 import { DecimalText, isDecimalLike, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import {
@@ -78,6 +69,12 @@ import { definedOpOf } from "#test/support/oracle/gen/ops.ts"
 import { fail, scalarTypes } from "#test/unit/ir/fixture.ts"
 import { scalarTypeGen } from "#test/unit/ir/types.ts"
 
+import {
+	cosineNormMax,
+	cosineNormMin,
+	numericMaxPrecision,
+	vectorMaxDimensions
+} from "@grizzle/limits"
 import { regex } from "arkregex"
 import { canonicalZero } from "#compiler/ir/carriers.ts"
 import { caseHang } from "#test/support/limits.ts"

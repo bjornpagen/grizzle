@@ -1,3 +1,4 @@
+import { cellMaxCodes, constantMaxBits, maxStringLength } from "@grizzle/limits"
 import { compareText, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, resourceBound } from "#compiler/core/errors.ts"
 import { type ConstantDigest, constantDigest } from "#compiler/core/fingerprint.ts"
@@ -10,7 +11,6 @@ import {
 } from "#compiler/core/identity.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import { cellMaxCodes, constantMaxBits, maxStringLength } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	extendNonEmpty,
@@ -236,7 +236,7 @@ const plannedCells = (
 
 /**
  * The refusal of a constant whose payload space holds `codes` codes, `what` naming it, when its greatest cell, 1 +
- * (codes - 1), is past the greatest integer a cell is read as (core/limits.ts cellMaxCodes); none when it fits.
+ * (codes - 1), is past the greatest integer a cell is read as (@grizzle/limits cellMaxCodes); none when it fits.
  */
 export const cellCodesBound = (codes: bigint, what: string): CompileError | undefined =>
 	codes > BigInt(cellMaxCodes.value)

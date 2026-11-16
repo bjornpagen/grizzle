@@ -18,7 +18,7 @@ import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import type { CatalogOpId, ExprSpec, TypedLiteral, ScalarExpr } from "#compiler/ir/expr.ts"
 import { headingColumns, type LawField, type TheoryRelation } from "#compiler/ir/law.ts"
 
-import { numericMaxIntegerDigits } from "#compiler/ir/carriers.ts"
+import { numericMaxIntegerDigits } from "@grizzle/limits"
 import {
 	type AggregateCallOver,
 	conservativeMeta,

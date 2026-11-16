@@ -23,8 +23,6 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
-import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
 import {
 	regexMaxAnchors,
 	regexMaxDepth,
@@ -32,7 +30,9 @@ import {
 	regexMaxHeldStates,
 	regexMaxMatchCells,
 	regexMaxMatchStates
-} from "#compiler/core/limits.ts"
+} from "@grizzle/limits"
+import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
+import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
 import { printableIntervals, type SetNode } from "#compiler/scalar/regex/are.ts"

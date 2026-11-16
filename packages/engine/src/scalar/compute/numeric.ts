@@ -1,10 +1,10 @@
-import { type Limit, postgresSource, published } from "#compiler/core/limits.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
+	decDigits,
 	numericMaxDisplayScale,
 	numericMaxFractionDigits,
 	numericMinSigDigits
-} from "#compiler/ir/carriers.ts"
+} from "@grizzle/limits"
+import * as Result from "#compiler/core/result.ts"
 import type { Undefined } from "#compiler/scalar/compute/registry.ts"
 import { Decimal, type FiniteParts, roundedUnits } from "#compiler/scalar/values/decimal.ts"
 
@@ -23,22 +23,6 @@ import { Decimal, type FiniteParts, roundedUnits } from "#compiler/scalar/values
  * contract predicate (ContractLiteral) and cast a value.
  */
 export type NumericResult = Result.Result<Decimal, Undefined>
-
-/**
- * The decimal digits of one of numeric's NBASE digits, DEC_DIGITS: a weight counts NBASE digits, which
- * select_div_scale reads a quotient's weight in. A format constant of PostgreSQL's numeric, which grizzle's division
- * reproduces.
- */
-export const decDigits: Limit = published({
-	value: 4,
-	owner: "PostgreSQL 19rc2",
-	unit: "decimal digits",
-	scope: "one NBASE digit of a numeric value, the unit of its weight",
-	constraint: "compile-time constant",
-	source: `${postgresSource}/src/backend/utils/adt/numeric.c#L99`,
-	quote: "#define DEC_DIGITS\t4\t\t\t/* decimal digits per NBASE digit */",
-	verified: "2026-11-14"
-})
 
 const pow10 = (n: number): bigint => 10n ** BigInt(n)
 

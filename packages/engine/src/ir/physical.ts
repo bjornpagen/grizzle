@@ -1,10 +1,10 @@
+import { int8ExactDigits } from "@grizzle/limits"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
 import type { DeclaredName, ParamPlace } from "#compiler/core/identity.ts"
 import type { ColumnIdent, DomainName, RelationIdent } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { int8ExactDigits } from "#compiler/ir/carriers.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import {

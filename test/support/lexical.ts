@@ -10,9 +10,10 @@ import {
 	string,
 	weighted
 } from "@bjornpagen/testing/gen"
+import { decimalTextMaxBytes } from "@grizzle/limits"
 import { type Array as Arr, DateTime, Record as Rec, String as Str } from "effect"
 import { integerRanges } from "#compiler/ir/carriers.ts"
-import { decimalTextMaxBytes, type LexicalTarget } from "#compiler/scalar/lexical.ts"
+import type { LexicalTarget } from "#compiler/scalar/lexical.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { defined, nonEmpty } from "#test/support/assert.ts"
 import { referenceDecimal } from "#test/support/oracle/evaluate/decimal-text.ts"

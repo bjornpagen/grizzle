@@ -49,6 +49,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { handleMaxBytes } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import {
 	type DeclarationRefused,
@@ -63,7 +64,6 @@ import {
 	declaredAlike,
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
-import { handleMaxBytes } from "#compiler/core/limits.ts"
 import type { Named, Rename } from "#compiler/deploy/diff/plan.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import { assert, deepEquals, defined, nonEmpty, succeeded } from "#test/support/assert.ts"

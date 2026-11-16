@@ -260,6 +260,9 @@ importers:
       '@bjornpagen/grizzle':
         specifier: link:packages/grizzle
         version: link:packages/grizzle
+      '@bjornpagen/limit':
+        specifier: link:vendor/toolchain/packages/limit
+        version: link:vendor/toolchain/packages/limit
       '@bjornpagen/testing':
         specifier: link:vendor/toolchain/packages/testing
         version: link:vendor/toolchain/packages/testing
@@ -275,6 +278,9 @@ importers:
       '@effect/vitest':
         specifier: 'catalog:'
         version: 4.1.4(effect@4.1.4)(vitest@5.1.0(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(jiti@2.7.0)))
+      '@grizzle/limits':
+        specifier: link:packages/limits
+        version: link:packages/limits
       '@hyperjump/json-schema':
         specifier: 'catalog:'
         version: 1.18.0(@hyperjump/browser@1.6.0)
@@ -317,6 +323,12 @@ importers:
 
   packages/engine:
     dependencies:
+      '@bjornpagen/limit':
+        specifier: workspace:*
+        version: link:../../vendor/toolchain/packages/limit
+      '@grizzle/limits':
+        specifier: workspace:*
+        version: link:../limits
       arkregex:
         specifier: 'catalog:'
         version: 0.0.14
@@ -334,9 +346,15 @@ importers:
       '@bjornpagen/grizzle-engine':
         specifier: workspace:*
         version: link:../engine
+      '@bjornpagen/limit':
+        specifier: workspace:*
+        version: link:../../vendor/toolchain/packages/limit
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.1.4(effect@4.1.4)(redis@6.3.0)
+      '@grizzle/limits':
+        specifier: workspace:*
+        version: link:../limits
     devDependencies:
       '@types/pg':
         specifier: 'catalog:'
@@ -348,17 +366,29 @@ importers:
         specifier: 'catalog:'
         version: 8.23.1
 
+  packages/limits:
+    dependencies:
+      '@bjornpagen/limit':
+        specifier: workspace:*
+        version: link:../../vendor/toolchain/packages/limit
+
   packages/pg:
     dependencies:
       '@bjornpagen/grizzle-engine':
         specifier: workspace:*
         version: link:../engine
+      '@bjornpagen/limit':
+        specifier: workspace:*
+        version: link:../../vendor/toolchain/packages/limit
       '@bjornpagen/testing':
         specifier: workspace:*
         version: link:../../vendor/toolchain/packages/testing
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.1.4(effect@4.1.4)(redis@6.3.0)
+      '@grizzle/limits':
+        specifier: workspace:*
+        version: link:../limits
       arkregex:
         specifier: 'catalog:'
         version: 0.0.14

@@ -1,13 +1,13 @@
-import { Refusal } from "#compiler/core/canonical.ts"
-import type { ClockUnit } from "#compiler/core/clock.ts"
-import { resourceBound } from "#compiler/core/errors.ts"
-import type { Isolation } from "#compiler/core/isolation.ts"
 import {
 	maxStringLength,
 	messageMaxBytes,
 	selectMaxEntries,
 	statementMaxParams
-} from "#compiler/core/limits.ts"
+} from "@grizzle/limits"
+import { Refusal } from "#compiler/core/canonical.ts"
+import type { ClockUnit } from "#compiler/core/clock.ts"
+import { resourceBound } from "#compiler/core/errors.ts"
+import type { Isolation } from "#compiler/core/isolation.ts"
 import { BlockLines, CommentedLines, inlineText, type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"

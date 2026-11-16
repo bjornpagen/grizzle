@@ -1,12 +1,12 @@
-import { type CompileError, resourceBound, unsupported } from "#compiler/core/errors.ts"
-import type { SourceLoc } from "#compiler/core/loc.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
 	int8Digits,
 	int8ExactDigits,
 	numericMaxDisplayScale,
 	numericMaxIntegerDigits
-} from "#compiler/ir/carriers.ts"
+} from "@grizzle/limits"
+import { type CompileError, resourceBound, unsupported } from "#compiler/core/errors.ts"
+import type { SourceLoc } from "#compiler/core/loc.ts"
+import * as Result from "#compiler/core/result.ts"
 import { type CatalogOpId, OpId as opId } from "#compiler/ir/expr.ts"
 import type { AggregateCallOver, AggregateFn } from "#compiler/ir/rel.ts"
 import {

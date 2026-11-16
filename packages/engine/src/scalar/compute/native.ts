@@ -1,11 +1,11 @@
-import type { Limit } from "#compiler/core/limits.ts"
-import { isNonEmpty } from "#compiler/core/nonempty.ts"
+import type { Limit } from "@bjornpagen/limit"
 import {
 	binary32MaxExponent,
 	binary32MinExponent,
 	binary64MaxExponent,
 	binary64MinExponent
-} from "#compiler/ir/carriers.ts"
+} from "@grizzle/limits"
+import { isNonEmpty } from "#compiler/core/nonempty.ts"
 import type { Exact, NativeProof, OperandIndex, OperandPremise } from "#compiler/ir/proof.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import {

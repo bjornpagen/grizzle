@@ -1,6 +1,8 @@
+import { type Limit, derived, measured, provisional, published } from "@bjornpagen/limit"
+import { clientCheckInterval } from "@grizzle/limits"
 /**
  * The test tiers' limits: every time a case of a search, a hook or a test's own connection is bounded by, as a Limit
- * with its evidence (packages/engine/src/core/limits.ts). No test is bounded by the clock: a search runs exactly its
+ * with its evidence (@grizzle/limits). No test is bounded by the clock: a search runs exactly its
  * counted budget (its runs, required cases, exhaustive space and shrink candidates), however busy the machine is. The
  * tiers choose one number, how long one case, hook or wait may run before it is judged hung, measured on their own
  * runs; every other bound a test reads derives from it, is a published constant, or is read from the machine the tests
@@ -8,9 +10,7 @@
  * (orphanExitBound), and its slack is measured on its own.
  */
 import { Duration } from "effect"
-import { derived, type Limit, measured, published } from "#compiler/core/limits.ts"
 import { testPoolMax } from "#pg/lease.ts"
-import { clientCheckInterval } from "#pg/settings.ts"
 
 /**
  * How long one case of a search, one hook of `pnpm test`, one substrate's build past its lease, or one wait inside a
@@ -19,26 +19,19 @@ import { clientCheckInterval } from "#pg/settings.ts"
  * test: both tiers' tests are unbounded, so every search runs its counted budget, and a case reported hung is a case
  * that never ended. No test states a timeout of its own.
  */
-export const hangLimit: Limit = measured({
+export const hangLimit: Limit = provisional({
 	value: 3_600_000,
 	owner: "grizzle's test tiers",
 	unit: "milliseconds",
 	scope:
 		"one case of a search, one hook of pnpm test, one substrate's build past its lease, or one wait inside a test of pnpm test or pnpm test:network, in each test process alone",
-	evidence:
-		"node_modules/.vite/vitest/da39a3ee5e6b4b0d3255bfef95601890afd80709/results.json, Vitest's own record of each test file's last run (its duration, whether it failed, when it ran), SHA-256 4e9f397495c81884f158742f129f85e8c05f17b6ab00c1a3c384ddb37f7d0a6b when read on 2026-11-05",
-	observed:
-		"each file's last run between 2026-10-28 01:04 and 2026-11-05 04:30 UTC; the slowest passing file's at 2026-11-05 02:37 UTC",
-	environment:
-		"macOS (Darwin 27.0.0, an arm64 virtual machine) on 10 cores, Node 26.13.0, Vitest 5.1.0, the local PostgreSQL 19rc1 cluster (scripts/pg/pin.env), the testing library's pool of forks under its hardened flags; the load of other sessions on the machine not recorded",
-	workload:
-		"535 file runs, one fork per file: 303 of the unit tier (the parallel and small-stack projects, a fork per core) and 232 of the network tier (6 at once, the network tier's width then), the guided and exclusive projects among them, each test under the per-test timeout it then stated",
-	result:
-		"519 passed and 16 failed; the slowest passing files test/pg/world-model/inductive.test.ts in 1,740 s, privileges.test.ts in 1,349 s and isolation.test.ts in 1,306 s, the unit tier's slowest test/unit/lower/rewrite/universe.test.ts in 309 s on the small-stack project; the slowest failure test/pg/write/oracle/oracle-0.test.ts, cut at its own timeout of 1,800 s while it shrank a failure since fixed; no test's own duration, event-loop lag or machine load recorded",
-	decision:
-		"60 minutes is 2.07 times the slowest passing file, and a case, a hook or a wait runs inside its file, so none that passed took longer. Until 2026-11-15 it bounded each test too; on cassowary (Ubuntu 26.04 arm64, 64 cores, load 340 to 440 from other sessions) the network tier's 64 files at once ran 20 files' searches past it at a0208243 (GREENTRUNK, TEST_SEED=572712174, each DeadlineReached mid-budget: fin/edits at case 4,242 of 14,650, e2e-platform/box at 630 of 1,024), so no test is bounded by it any more, and a busy machine slows a search but never fails it",
-	revalidate:
-		"a case, hook or wait reported hung that was progressing; a passing file slower than 30 minutes on the machine of its measurement; a Node, Vitest or PostgreSQL pin change; another machine; and Vitest's record overwritten by later runs, after which the next run of both tiers is the measurement"
+	breaks:
+		"a case, hook or wait that never ends would hold its test process until the run is killed, with no replay token or hook name reported, and a mutant that loops would never be judged",
+	measure:
+		"read Vitest's record of each file's last run (node_modules/.vite/vitest/<hash>/results.json) after a full unit and network run on cassowary at the default width, take the slowest passing file, and keep a limit above it with the headroom stated; or time every case of the network tier's searches and keep the slowest case's, with its headroom",
+	origin:
+		"a measured record of 2026-11-05 on a macOS (Darwin 27.0.0) arm64 VM on 10 cores, Node 26.13.0, PostgreSQL 19rc1: Vitest's results.json of 535 file runs, the slowest passing file test/pg/world-model/inductive.test.ts in 1,740 s, 60 minutes being 2.07 times it. Its revalidation (another machine; a Node and PostgreSQL pin change) has fired and its record stayed with that machine; on cassowary at a0208243 (GREENTRUNK) twenty network files' searches ran past it under a load of 340 to 440, which is why no test is bounded by it any more",
+	recorded: "2026-11-16"
 })
 
 /**
@@ -204,38 +197,3 @@ export const casesAtOnce = (sessions: number): number =>
  */
 export const windowCasesAtOnce = (sessions: number, steerEvery: number): number =>
 	Math.min(steerEvery, casesAtOnce(sessions))
-
-/** The source and the quote that state a Node timer's delay range. */
-const nodeTimers = {
-	source: "https://nodejs.org/api/timers.html#settimeoutcallback-delay-args",
-	quote:
-		"When `delay` is larger than `2147483647` or less than `1` or `NaN`, the `delay` will be set to `1`."
-} as const
-
-/**
- * The least delay a Node timer waits: pg's connect timeout and pg-pool's idle timeout are Node timers, and grizzle
- * admits a connectTimeoutMs or an idleTimeoutMs from it.
- */
-export const nodeTimerMin: Limit = published({
-	value: 1,
-	owner: "Node.js timers",
-	unit: "milliseconds",
-	scope: "the delay of one Node timer",
-	constraint: "protocol constant",
-	...nodeTimers,
-	verified: "2026-11-05"
-})
-
-/**
- * The longest delay a Node timer keeps: pg's connect timeout and pg-pool's idle timeout are Node timers, and grizzle
- * admits a connectTimeoutMs or an idleTimeoutMs up to it.
- */
-export const nodeTimerMax: Limit = published({
-	value: 2_147_483_647,
-	owner: "Node.js timers",
-	unit: "milliseconds",
-	scope: "the delay of one Node timer",
-	constraint: "protocol constant",
-	...nodeTimers,
-	verified: "2026-11-05"
-})

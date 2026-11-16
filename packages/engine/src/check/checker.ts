@@ -38,7 +38,6 @@ import { canonicalEquals, catchRefusal, everyProperty } from "#compiler/core/can
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { makeIdSupply, type NodeId, type ParamId, type VarId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import { int4Max } from "#compiler/core/limits.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import {
 	appendNonEmpty,
@@ -88,6 +87,7 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 
+import { int4Max } from "@grizzle/limits"
 import {
 	baseOf,
 	contractOf,

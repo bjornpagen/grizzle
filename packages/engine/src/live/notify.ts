@@ -1,3 +1,4 @@
+import { maxIdentifierBytes, notifyPayloadMaxBytes } from "@grizzle/limits"
 /**
  * Liveness's one grammar: what a committed write changed, as the route keys a live program's runtime routes it by,
  * the text that spells each, and the sealed batches of those texts the fan-out channel carries. The side that reads a
@@ -7,10 +8,9 @@
  * reads nothing of a payload but its arrival, and makes none that opens.
  */
 import { nominal } from "#compiler/core/brand.ts"
-import { admittedIdentifier, maxIdentifierBytes } from "#compiler/core/identity.ts"
+import { admittedIdentifier } from "#compiler/core/identity.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import { derived, notifyPayloadMaxBytes } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { open, seal, sealKeyBytes, sealNonceBytes, sealTagBytes } from "#compiler/core/seal.ts"
 import { utf8, utf8Length } from "#compiler/core/sha256.ts"
@@ -217,18 +217,23 @@ export const parseLiveSecret = (cell: string): Result.Result<LiveSecret, LiveTex
 }
 
 /**
- * The UTF-8 bytes a batch's text may take: the most whose sealed payload, its nonce, its ciphertext as long as the
- * text and its tag in base64, stays under notifyPayloadMaxBytes.
+ * The base64 characters that encode one group of bytes, and the bytes of one group.
+ *
+ * @formatConstant base64's groups: 3 bytes as 4 characters, the last group padded (RFC 4648)
  */
-const batchMaxBytes = derived({
-	owner: "grizzle's live fan-out",
-	unit: "bytes",
-	scope: "the UTF-8 text of one sealed batch of notifications",
-	from: [notifyPayloadMaxBytes],
-	derivation:
-		"base64 writes 4 characters for every 3 bytes, the last group padded, so a payload of s sealed bytes is 4 * ceil(s / 3) characters, which must stay under notifyPayloadMaxBytes; s is the text's bytes, the nonce's and the tag's (core/seal.ts sealNonceBytes, sealTagBytes)",
-	compute: ([max]) => Math.floor((max.value - 1) / 4) * 3 - sealNonceBytes - sealTagBytes
-})
+const base64Group = { characters: 4, bytes: 3 } as const
+
+/**
+ * The UTF-8 bytes a batch's text may take: the most whose sealed payload, its nonce, its ciphertext as long as the
+ * text and its tag in base64, stays under notifyPayloadMaxBytes. No limit of its own: PostgreSQL's NOTIFY payload
+ * bound read against the sealed payload's format. A payload of s sealed bytes is base64Group.characters * ceil(s /
+ * base64Group.bytes) characters, which must stay under notifyPayloadMaxBytes; s is the text's bytes, the nonce's and
+ * the tag's (core/seal.ts sealNonceBytes, sealTagBytes).
+ */
+const batchMaxBytes: number =
+	Math.floor((notifyPayloadMaxBytes.value - 1) / base64Group.characters) * base64Group.bytes -
+	sealNonceBytes -
+	sealTagBytes
 
 declare const liveBatchBrand: unique symbol
 
@@ -255,7 +260,7 @@ export const batchesOf = (notifications: ReadonlyArray<Notification>): ReadonlyA
 	for (const notification of notifications) {
 		const own = notificationText(notification)
 		const text =
-			notification.kind === "keyed" && utf8Length(own) > batchMaxBytes.value
+			notification.kind === "keyed" && utf8Length(own) > batchMaxBytes
 				? notificationText({ kind: "table", table: notification.table })
 				: own
 		if (seen.has(text)) {
@@ -264,7 +269,7 @@ export const batchesOf = (notifications: ReadonlyArray<Notification>): ReadonlyA
 		seen.add(text)
 		const length = utf8Length(text)
 		const together = texts.length === 0 ? length : bytes + 1 + length
-		if (together > batchMaxBytes.value) {
+		if (together > batchMaxBytes) {
 			batches.push(liveBatch(texts.join(separator)))
 			texts = [text]
 			bytes = length

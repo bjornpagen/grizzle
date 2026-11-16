@@ -1,6 +1,6 @@
+import { bytesMaxLength } from "@grizzle/limits"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { bytesMaxLength } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 
@@ -41,7 +41,7 @@ export class AdmittedBytes extends BytesDigest {
 
 /**
  * The encode-time boundary of a bytes value, which reads its length and nothing else: a value that is no Uint8Array, or
- * one over a detached buffer, which reads as no bytes at all, is bytesType; one longer than core/limits.ts
+ * one over a detached buffer, which reads as no bytes at all, is bytesType; one longer than @grizzle/limits
  * bytesMaxLength, which no bytea holds, is bytesLength. A value it passes is the caller's array itself, whose bytes
  * are read only once its input is known to fit its statement (write/normalize/normalize.ts), for its digest
  * (`AdmittedBytes`).

@@ -19,6 +19,7 @@ import {
 	sourceIdentity
 } from "#bench/cold/identity.ts"
 
+import { timerMaxMs } from "@grizzle/limits"
 import {
 	type ProbeDatabase,
 	type ProbeInput,
@@ -27,7 +28,6 @@ import {
 } from "#bench/cold/probe.ts"
 import { elapsed, type Summary, summarize, summarizePhases } from "#bench/cold/stats.ts"
 import { coldLogin } from "#bench/cold/workload.ts"
-import { benchConnectTimeout, benchIdleTimeout } from "#bench/harness/limits.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonDocument, jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 import { schema } from "#compiler/public/schema.ts"
@@ -279,8 +279,8 @@ const benchRun = Effect.fn("benchRun")(function* (options: ColdOptions) {
 		password: Redacted.value(credentials.password),
 		caFile: s.cluster.caFile,
 		account: a1,
-		connectTimeoutMs: benchConnectTimeout.value,
-		idleTimeoutMs: benchIdleTimeout.value
+		connectTimeoutMs: timerMaxMs.value,
+		idleTimeoutMs: timerMaxMs.value
 	}
 	const databaseRaw = yield* Effect.forEach(
 		upTo(options.databaseSamples, (i) => i),

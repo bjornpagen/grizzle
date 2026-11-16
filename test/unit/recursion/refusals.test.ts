@@ -38,7 +38,6 @@ import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "e
 import { checkQuery } from "#compiler/check/index.ts"
 import type { RecursionRefusal } from "#compiler/core/causes.ts"
 import type { CompileReasonTag } from "#compiler/core/errors.ts"
-import { int8Max, int8Min } from "#compiler/core/limits.ts"
 import { childLoc } from "#compiler/core/loc.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import { decodeDesc, type FieldDesc } from "#compiler/ir/desc.ts"
@@ -66,6 +65,7 @@ import {
 	type VarDesc
 } from "#test/support/fixtures/ir/desc.ts"
 
+import { int8Max, int8Min } from "@grizzle/limits"
 import { caseHang } from "#test/support/limits.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"

@@ -1,6 +1,6 @@
+import { int4Max, int8Max } from "@grizzle/limits"
 import { type Column, convertColumn } from "#compiler/core/decoder.ts"
 import { malformedDescription, unsupported } from "#compiler/core/errors.ts"
-import { int4Max, int8Max } from "#compiler/core/limits.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { dayNumber, lastCalendarDate } from "#compiler/ir/date.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"

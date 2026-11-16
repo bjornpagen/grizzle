@@ -1,13 +1,6 @@
 import { firstIndex } from "#compiler/core/array.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import {
-	derived,
-	itemIdBytes,
-	pageHeaderBytes,
-	postgresSource,
-	published
-} from "#compiler/core/limits.ts"
-import { binary64DecimalDigits, binary64Precision, canonicalZero } from "#compiler/ir/carriers.ts"
+import { canonicalZero } from "#compiler/ir/carriers.ts"
 import type { ColumnRef, ScalarExpr } from "#compiler/ir/expr.ts"
 import { OpId } from "#compiler/ir/expr.ts"
 import {
@@ -43,94 +36,8 @@ import {
 	sameExpr
 } from "#compiler/lower/shapes/catalog/exprs.ts"
 
+import { maxDyadicExponent } from "@grizzle/limits"
 import { type SelfMatch, selfMatch } from "#compiler/lower/shapes/catalog/ordinal.ts"
-
-const pageLayout = "https://www.postgresql.org/docs/19/storage-page-layout.html"
-
-/** The largest block number of a relation: its pages are numbered from 0 to it. */
-const maxBlockNumber = published({
-	value: 0xffff_fffe,
-	owner: "PostgreSQL 19rc2's storage manager",
-	unit: "pages, as their block numbers count them from 0",
-	scope: "one relation's main fork",
-	constraint: "compile-time constant",
-	source: `${postgresSource}/src/include/storage/block.h#L35`,
-	quote: "#define MaxBlockNumber\t\t\t((BlockNumber) 0xFFFFFFFE)",
-	verified: "2026-11-14"
-})
-
-/** The largest page PostgreSQL can be built with, so a bound on rows per page at it bounds every build's. */
-const largestBlockSize = published({
-	value: 32_768,
-	owner: "PostgreSQL 19rc2's build",
-	unit: "bytes",
-	scope: "one heap page, under the largest block size configure admits",
-	constraint: "compile-time constant",
-	source: `${postgresSource}/configure.ac#L257`,
-	quote: " 32) BLCKSZ=32768;;",
-	verified: "2026-11-14"
-})
-
-/**
- * The fixed header of every heap tuple, before its alignment: a lower bound on the space a tuple takes beside its line
- * pointer.
- */
-const tupleHeaderBytes = published({
-	value: 23,
-	owner: "PostgreSQL 19rc2's page layout",
-	unit: "bytes",
-	scope: "one heap tuple",
-	constraint: "compile-time constant",
-	source: pageLayout,
-	quote: "There is a fixed-size header (occupying 23 bytes on most machines)",
-	verified: "2026-11-14"
-})
-
-/**
- * More rows than one stored relation can hold under any build: every page of a relation, each holding fewer tuples
- * than its space after the header over the least a tuple takes, its fixed header and its line pointer (the bound
- * MaxHeapTuplesPerPage computes with the header aligned, src/include/access/htup_details.h).
- */
-const storedMaxRows = derived({
-	owner: "PostgreSQL 19rc2's heap storage",
-	unit: "rows",
-	scope: "one stored relation, at any block size",
-	from: [maxBlockNumber, largestBlockSize, pageHeaderBytes, tupleHeaderBytes, itemIdBytes],
-	derivation:
-		"(maxBlockNumber + 1) pages times floor((largestBlockSize - pageHeaderBytes) / (tupleHeaderBytes + itemIdBytes)) tuples a page: 4,294,967,295 × 1,212 = 5,205,500,361,540, thirteen digits",
-	compute: ([blocks, page, header, tuple, pointer]) =>
-		BigInt(blocks.value + 1) *
-		BigInt(Math.floor((page.value - header.value) / (tuple.value + pointer.value)))
-})
-
-/**
- * The largest j of a dyadic fraction m / 2^j the discrete rewrite admits (see tryPercentile), the least of the two
- * exponents its proof needs: the product x = p · n of such a fraction and a row count n of a stored relation is exact
- * in double precision while m · n stays within its significand, every integer up to 2^binary64Precision (ECMAScript's
- * double precision is the IEEE 754 binary64 PostgreSQL's is); and numeric's cast keeps x's fractional part of at least
- * 2^-j from rounding to zero while 2^-j is more than half a unit in the last decimal place the cast keeps of x,
- * binary64DecimalDigits less the digits of storedMaxRows.
- */
-const maxDyadicExponent = derived({
-	owner: "grizzle's percentile rewrite (lower/shapes/catalog/percentile.ts)",
-	unit: "binary exponent of a fraction's denominator",
-	scope: "one discrete percentile's fraction",
-	from: [binary64DecimalDigits, binary64Precision, storedMaxRows],
-	derivation:
-		"min(the largest j with 2^j × storedMaxRows ≤ 2^binary64Precision (2^53), which is 10; the largest j with 2^-j > 0.5 × 10^-(binary64DecimalDigits - 13), that is 2^j < 2 × 10^(15 - 13), which is 7) = 7",
-	compute: ([digits, precision, rows]) => {
-		const kept = digits.value - String(rows.value).length
-		let rounding = 0
-		while (2n ** BigInt(rounding + 1) < 2n * 10n ** BigInt(kept)) {
-			rounding++
-		}
-		let exact = 0
-		while (2n ** BigInt(exact + 1) * rows.value <= 2n ** BigInt(precision.value)) {
-			exact++
-		}
-		return Math.min(rounding, exact)
-	}
-})
 
 type Selection =
 	| { readonly kind: "disc"; readonly p: number }

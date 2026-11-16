@@ -1,12 +1,8 @@
 import { element, type Gen, proportional } from "@bjornpagen/testing/gen"
+import { maxIdentifierBytes } from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Order, String as Str } from "effect"
-import {
-	conversionOf,
-	maxIdentifierBytes,
-	parseDeclaredName,
-	parseSchemaName
-} from "#compiler/core/identity.ts"
+import { conversionOf, parseDeclaredName, parseSchemaName } from "#compiler/core/identity.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { canonicalZero } from "#compiler/ir/carriers.ts"

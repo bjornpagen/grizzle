@@ -1,3 +1,4 @@
+import { cosineNormMax, cosineNormMin, vectorMaxDimensions } from "@grizzle/limits"
 import type { Brand } from "effect"
 import { nominal } from "#compiler/core/brand.ts"
 import {
@@ -10,12 +11,7 @@ import { hostRead } from "#compiler/core/host.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { phantom } from "#compiler/core/phantom.ts"
 import * as Result from "#compiler/core/result.ts"
-import {
-	cosineNormMax,
-	cosineNormMin,
-	VectorText,
-	vectorMaxDimensions
-} from "#compiler/ir/carriers.ts"
+import { VectorText } from "#compiler/ir/carriers.ts"
 import { encodingFailure, faultError } from "#compiler/scalar/values/fault.ts"
 
 /**

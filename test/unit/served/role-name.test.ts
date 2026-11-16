@@ -49,6 +49,7 @@ import {
 import { notesOnly } from "@bjornpagen/testing/sense"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { maxIdentifierBytes } from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { served } from "#adapter/public/layer.ts"
@@ -59,7 +60,6 @@ import {
 	identifierOf,
 	identity,
 	roleInSpace,
-	maxIdentifierBytes,
 	type RoleInstallation,
 	roleSpaceOf
 } from "#compiler/core/identity.ts"

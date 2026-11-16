@@ -1,3 +1,4 @@
+import { maxStringLength } from "@grizzle/limits"
 /**
  * The host's fills of a nested write: every column of every row a nesting writes that grizzle writes itself, by
  * the schema's fill order (ir/fill.ts), which the analysis built and checked when the schema compiled
@@ -34,7 +35,6 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import { maxStringLength } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"

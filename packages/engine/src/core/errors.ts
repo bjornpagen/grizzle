@@ -1,3 +1,4 @@
+import { regexTextMaxBytes } from "@grizzle/limits"
 import {
 	type ChangedColumn,
 	type ClaimRule,
@@ -27,7 +28,6 @@ import {
 } from "#compiler/core/causes.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
-import { regexTextMaxBytes } from "#compiler/core/limits.ts"
 import { formatLoc, formatPath, prefixedLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
@@ -52,7 +52,7 @@ export type Artifact =
 
 /**
  * The limit of PostgreSQL's regex compiler a pattern's ARE passes (scalar/regex/space.ts pastCompileSpace), with the
- * facts it states, each bound a core/limits.ts constant:
+ * facts it states, each bound a @grizzle/limits constant:
  * - `anchorLoop`: an unbounded repetition of a body that can match zero-width through an anchor, which PostgreSQL
  *   breaks by cloning states exponentially and which is too large to rewrite as a loop of consuming matches;
  * - `colors`: `needed` colors, the classes of characters its sets hold alike, past `limit` (regexMaxColors);
@@ -101,24 +101,24 @@ const regexSpaceText = (measure: RegexSpaceMeasure): string => {
  * The bound a ResourceBound crossed, with the facts it states:
  * - `regexCompileSpace`: the pattern `pattern`, which `measure` puts past a limit of PostgreSQL's regex compiler;
  * - `stringLength`: a text grizzle builds as one string, `needed` UTF-16 code units long, past V8's longest string,
- *   `limit` (core/limits.ts maxStringLength);
+ *   `limit` (@grizzle/limits maxStringLength);
  * - `tableColumns`: the table, view or materialized view `table` (a write program's carrier among them), of `needed`
- *   columns, past PostgreSQL's `limit` (core/limits.ts tableMaxColumns);
- * - `selectList`: a select list of `needed` entries, past PostgreSQL's `limit` (core/limits.ts selectMaxEntries);
+ *   columns, past PostgreSQL's `limit` (@grizzle/limits tableMaxColumns);
+ * - `selectList`: a select list of `needed` entries, past PostgreSQL's `limit` (@grizzle/limits selectMaxEntries);
  * - `statementBytes`: a statement `needed` UTF-8 bytes long, past PostgreSQL's longest protocol message, `limit`
- *   (core/limits.ts messageMaxBytes);
- * - `statementParams`: a statement of `needed` placeholders, past the `limit` a Bind message counts (core/limits.ts
+ *   (@grizzle/limits messageMaxBytes);
+ * - `statementParams`: a statement of `needed` placeholders, past the `limit` a Bind message counts (@grizzle/limits
  *   statementMaxParams);
  * - `numericDigits`: a numeric expression whose value may need `needed` integer digits, past numeric's `limit`
  *   (ir/carriers.ts numericMaxIntegerDigits), where PostgreSQL's numeric arithmetic would raise;
  * - `constantBits`: the constant of the closed relation or side `constant`, whose cells times their width come to
- *   `needed` bits, past PostgreSQL's longest bit string, `limit` (core/limits.ts constantMaxBits), refused before it is
+ *   `needed` bits, past PostgreSQL's longest bit string, `limit` (@grizzle/limits constantMaxBits), refused before it is
  *   packed;
  * - `cellCodes`: the constant of the closed relation or side `constant`, whose payload space holds `needed` codes, past
- *   the `limit` a cell read as an integer holds (core/limits.ts cellMaxCodes), refused before it is packed;
+ *   the `limit` a cell read as an integer holds (@grizzle/limits cellMaxCodes), refused before it is packed;
  * - `regexInclusion`: whether every value of the language `inner` is a member of the language `outer`, which a cast's
  *   precondition rests on, undecided because comparing their automata passes the text analysis's bounds, `states` DFA
- *   states or `work` NFA-state visits (core/limits.ts regexDfaMaxStates, regexDfaMaxWork).
+ *   states or `work` NFA-state visits (@grizzle/limits regexDfaMaxStates, regexDfaMaxWork).
  */
 export type CompileBound =
 	| {

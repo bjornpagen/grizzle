@@ -1,8 +1,8 @@
+import { maxStringLength } from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Order, String as Str } from "effect"
 import { nominal } from "#compiler/core/brand.ts"
 import type { CompileBound } from "#compiler/core/errors.ts"
-import { maxStringLength } from "#compiler/core/limits.ts"
 import * as EngineResult from "#compiler/core/result.ts"
 import { isDecimal } from "#compiler/core/text.ts"
 import {

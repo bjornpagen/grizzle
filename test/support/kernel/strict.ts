@@ -1,12 +1,19 @@
+import {
+	int2Max,
+	int2Min,
+	int4Max,
+	int4Min,
+	int8Max,
+	int8Min,
+	moneyFractionDigits
+} from "@grizzle/limits"
 import { Array as Arr, Option, Order, Result, String as Str } from "effect"
 import { toResult } from "#adapter/engine.ts"
 import type { Delivery } from "#compiler/codec/delivery.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { maxOf } from "#compiler/core/array.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
-import { int2Max, int2Min, int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"
 import { validateText } from "#compiler/core/text.ts"
-import { moneyFractionDigits } from "#compiler/ir/carriers.ts"
 import { type Codebook, emptyCodebook, type RosterCodec } from "#compiler/ir/codes.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
 import {

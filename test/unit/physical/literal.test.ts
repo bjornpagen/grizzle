@@ -38,6 +38,7 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { bigint } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { maxStringLength } from "@grizzle/limits"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -49,7 +50,6 @@ import {
 	String as Str
 } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { maxStringLength } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { draftMigration } from "#compiler/deploy/render/generate.ts"
 import { emptySnapshot, noWorkload } from "#compiler/deploy/snapshot/build.ts"

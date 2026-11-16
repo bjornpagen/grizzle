@@ -176,7 +176,6 @@
 					"packages/engine/src/core/errors.ts",
 					"packages/engine/src/core/host.ts",
 					"packages/engine/src/core/invariant.ts",
-					"packages/engine/src/core/limits.ts",
 					"packages/engine/src/core/loc.ts",
 					"packages/engine/src/core/nonempty.ts",
 					"packages/engine/src/core/order.ts",
@@ -185,7 +184,8 @@
 					"packages/engine/src/core/sqlstate.ts",
 					"packages/engine/src/core/text.ts",
 					"packages/engine/src/core/trusted.ts",
-					"packages/engine/src/core/tuple-map.ts"
+					"packages/engine/src/core/tuple-map.ts",
+					"packages/limits/src/limits.ts"
 				]
 			},
 			{
@@ -1022,7 +1022,6 @@
 			"exports": ["DeclaredName", "Part", "SpanCheck"]
 		},
 		{ "file": "packages/engine/src/core/invariant.ts", "exports": ["defined"] },
-		{ "file": "packages/engine/src/core/limits.ts", "exports": ["derived"] },
 		{ "file": "packages/engine/src/core/record.ts", "exports": ["isList"] },
 		{ "file": "packages/engine/src/deploy/diff/plan.ts", "exports": ["Action", "Step"] },
 		{ "file": "packages/engine/src/deploy/render/folder.ts", "exports": ["Spelled"] },

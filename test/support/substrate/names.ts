@@ -1,8 +1,8 @@
 import { Formatter, Option, String as Str } from "effect"
 import { Hex } from "effect/encoding"
 
+import { maxIdentifierBytes } from "@grizzle/limits"
 import { regex } from "arkregex"
-import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 /** Lowercase ASCII letter words joined by single underscores: a schema label, and a role name roleName takes. */
 const word = regex("^[a-z]+(?:_[a-z]+)*$")
 

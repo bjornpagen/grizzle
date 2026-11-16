@@ -237,7 +237,7 @@ export class MigrationNameRefused extends Data.TaggedError("MigrationNameRefused
 	readonly migration: string
 }> {
 	override get message(): string {
-		return `migration name ${Formatter.format(this.migration)} is not lowercase ASCII letters and digits joined by _ or -, at most ${maxMigrationNameLength.value} characters`
+		return `migration name ${Formatter.format(this.migration)} is not lowercase ASCII letters and digits joined by _ or -, at most ${maxMigrationNameLength} characters`
 	}
 }
 

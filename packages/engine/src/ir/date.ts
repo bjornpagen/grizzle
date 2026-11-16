@@ -166,7 +166,11 @@ export const dayNumber = (date: CalendarDate): number => {
 	return days + day - 1
 }
 
-/** The year's digits, and the month's and the day's, of a calendar date's text. */
+/**
+ * The year's digits, and the month's and the day's, of a calendar date's text.
+ *
+ * @formatConstant a calendar date's text, YYYY-MM-DD: its parts' widths between its hyphens
+ */
 const partWidths = {
 	year: dateLayout.monthHyphen,
 	monthOrDay: dateLayout.dayHyphen - dateLayout.monthHyphen - 1

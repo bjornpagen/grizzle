@@ -11,15 +11,15 @@ import {
 } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
 import { bigint } from "@bjornpagen/testing/values"
-import { regex } from "arkregex"
-import { Array as Arr, Option, Record as Rec } from "effect"
 import {
-	integerRanges,
 	numericMaxPrecision,
 	numericMaxScale,
 	numericMinScale,
 	vectorMaxDimensions
-} from "#compiler/ir/carriers.ts"
+} from "@grizzle/limits"
+import { regex } from "arkregex"
+import { Array as Arr, Option, Record as Rec } from "effect"
+import { integerRanges } from "#compiler/ir/carriers.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { isOwnedDescriptor } from "#compiler/scalar/registry.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"

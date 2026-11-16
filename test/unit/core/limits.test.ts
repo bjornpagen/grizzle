@@ -1,5 +1,5 @@
 /**
- * The limits of a closed relation's codes and constants, and of a heap tuple (core/limits.ts), each derived again by
+ * The limits of a closed relation's codes and constants, and of a heap tuple (@grizzle/limits), each derived again by
  * another route than its own `compute`, against a second implementation where Node holds one:
  *
  * - smallint, integer and bigint are the two's-complement integers Int16Array, Int32Array and BigInt64Array hold, so
@@ -21,7 +21,6 @@ import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { Effect, Formatter, Record as Rec } from "effect"
 import {
 	alignUp,
 	blockSize,
@@ -32,7 +31,8 @@ import {
 	pageHeaderBytes,
 	rosterMaxCodes,
 	typlens
-} from "#compiler/core/limits.ts"
+} from "@grizzle/limits"
+import { Effect, Formatter, Record as Rec } from "effect"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"

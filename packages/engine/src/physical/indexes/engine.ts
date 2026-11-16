@@ -14,6 +14,7 @@ import {
 	sortNonEmpty
 } from "#compiler/core/nonempty.ts"
 
+import { gistMaxItemSize, indexMaxKeys } from "@grizzle/limits"
 import {
 	type Comparator,
 	combineAll,
@@ -43,13 +44,7 @@ import type {
 } from "#compiler/physical/ddl/context.ts"
 import type { KeyIndex } from "#compiler/physical/ddl/tables.ts"
 import type { Node } from "#compiler/physical/obligations/graph.ts"
-import {
-	btreeEntry,
-	gistEntryBytes,
-	gistMaxItemSize,
-	indexMaxKeys,
-	keyDatums
-} from "#compiler/schema/representability.ts"
+import { btreeEntry, gistEntryBytes, keyDatums } from "#compiler/schema/representability.ts"
 import type { CreateIndex } from "#compiler/sql/ast.ts"
 import { columnKey } from "#compiler/sql/build.ts"
 

@@ -23,6 +23,7 @@ import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 
+import { btreeMaxItemSize } from "@grizzle/limits"
 import { literalProblem, type TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	isRefined,
@@ -32,7 +33,7 @@ import {
 	textOf
 } from "#compiler/ir/scalar.ts"
 import { numericValue } from "#compiler/scalar/registry.ts"
-import { btreeEntryBytes, btreeMaxItemSize, datumBound } from "#compiler/schema/representability.ts"
+import { btreeEntryBytes, datumBound } from "#compiler/schema/representability.ts"
 import { analyzeText } from "#compiler/text/refinement.ts"
 import { assert, succeeded } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"

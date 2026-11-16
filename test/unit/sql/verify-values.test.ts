@@ -16,10 +16,10 @@ import { matching } from "@bjornpagen/testing/pattern"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { maxIdentifierBytes } from "@grizzle/limits"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import { exactParts } from "#compiler/core/decimal.ts"
-import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import type { Expr, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import {
 	col,

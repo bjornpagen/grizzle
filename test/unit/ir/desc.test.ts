@@ -55,12 +55,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type * as Result from "#compiler/core/result.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
-import {
-	MoneyText,
-	VectorText,
-	binary32LeastExponent,
-	numericMaxPrecision
-} from "#compiler/ir/carriers.ts"
+import { MoneyText, VectorText } from "#compiler/ir/carriers.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import {
 	type ComputeFn,
@@ -114,6 +109,7 @@ import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { fail } from "#test/unit/ir/fixture.ts"
 import { declaredGen } from "#test/unit/ir/types.ts"
 
+import { binary32LeastExponent, numericMaxPrecision } from "@grizzle/limits"
 import { regex } from "arkregex"
 const dec = (text: string) => defined(DecimalText.parse(text))
 

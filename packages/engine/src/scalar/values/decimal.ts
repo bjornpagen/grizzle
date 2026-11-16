@@ -1,3 +1,12 @@
+import {
+	maxExponent,
+	moneyFractionDigits,
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "@grizzle/limits"
 import { type Canonicalizable, canonicalTag, type TaggedValue } from "#compiler/core/canonical.ts"
 import {
 	type DecimalParts,
@@ -9,36 +18,13 @@ import {
 } from "#compiler/core/decimal.ts"
 import { type CompileError, malformedDescription, type ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
-import { derived, int4Max, type Limit } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
-import {
-	moneyFractionDigits,
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "#compiler/ir/carriers.ts"
 import { type DecimalValue, decimalPayload, decimalTag } from "#compiler/ir/decimal.ts"
 import type { NumericTypmod } from "#compiler/ir/scalar.ts"
 import { faultError } from "#compiler/scalar/values/fault.ts"
 
 export type { DecimalParts, FiniteParts, NumericTypmod }
-
-/**
- * The greatest exponent magnitude a numeric's text may write: set_var_from_str refuses a greater one before anything
- * else.
- */
-const maxExponent: Limit = derived({
-	owner: "PostgreSQL 19rc2",
-	unit: "a decimal exponent",
-	scope: "the exponent of a numeric text a caller writes, `1e5` and `1E-5`",
-	from: [int4Max],
-	derivation:
-		'PG_INT32_MAX / 2 in C integer division, numeric.c set_var_from_str (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L6927, "if (exponent > PG_INT32_MAX / 2)")',
-	compute: ([max]) => Math.trunc(max.value / 2)
-})
 
 /** 10^n. */
 const pow10 = (n: number): bigint => 10n ** BigInt(n)

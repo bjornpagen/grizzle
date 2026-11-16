@@ -660,11 +660,14 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   prints as hh:mm:ss with no fraction, where macOS printed hundredths. The guard's own property draws windows of 1000
   to 3000 ms (test/types/batch/batch.test.ts:574), so a short clean check could read no progress for a whole window
   and be judged stalled. Unverified (not run). /proc/<pid>/stat gives the time in 10 ms ticks.
-- **Limit evidence names the macOS VM (PGLINUX, 2026-11-12):** measured limits whose environment is the 10-core macOS VM
-  need revalidating on cassowary: packages/engine/src/core/limits.ts:141, 362, 461 and 626, test/support/limits.ts:27,
-  test/support/power-pairs.ts:250, test/support/oracle/evaluate/power.ts:474 and test/types/batch/compiler.ts:46.
-  flightMaxBytes (limits.ts:815-823) cites macOS refusing a write past INT_MAX with EINVAL; Linux caps one write at
-  0x7ffff000 bytes and writes part of it instead.
+- **Limit evidence names the macOS VM (PGLINUX, 2026-11-12; LIMITS, 2026-11-16):** the subset construction's two
+  limits (packages/limits regexDfaMaxStates, regexDfaMaxWork) were measured again on cassowary, the take(k) threshold,
+  the bytes chunk and the stall window already were, and the test tiers' hang limit (test/support/limits.ts hangLimit)
+  is provisional with its old record in `origin`. Two test-oracle limits still name the VM, each a scratch run with no
+  record: test/support/power-pairs.ts powerWorkLimit (a count, so the machine moves only its time) and
+  test/support/oracle/evaluate/power.ts bigintTriangleDigits (a crossover of two exact ways). flightMaxBytes's
+  derivation cites macOS refusing a write past INT_MAX with EINVAL; Linux caps one write at 0x7ffff000 bytes and writes
+  part of it instead.
 - **The PostgreSQL build's optional features follow the host (PGLINUX, 2026-11-12):** scripts/pg/source.sh names only
   the features it needs, and meson's auto-detection turned plpython, selinux, systemd and nls on on cassowary and left
   libxml and uuid off; the VM's set was never recorded. No test reads them (test/support/kernel/catalog-alphabet.ts

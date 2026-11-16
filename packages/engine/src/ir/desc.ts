@@ -1,3 +1,9 @@
+import {
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale,
+	vectorMaxDimensions
+} from "@grizzle/limits"
 import { allenMaskMax } from "#compiler/core/allen.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import {
@@ -31,16 +37,7 @@ import * as Result from "#compiler/core/result.ts"
 import { type CanonicalSet, tupleKeyedSet } from "#compiler/core/set.ts"
 import { isValidText } from "#compiler/core/text.ts"
 import { TupleMap } from "#compiler/core/tuple-map.ts"
-import {
-	isMoneyPayload,
-	isVectorPayload,
-	moneyTag,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale,
-	vectorMaxDimensions,
-	vectorTag
-} from "#compiler/ir/carriers.ts"
+import { isMoneyPayload, isVectorPayload, moneyTag, vectorTag } from "#compiler/ir/carriers.ts"
 import type { ClockBinding } from "#compiler/ir/clock.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import { decimalTag, isDecimalPayload } from "#compiler/ir/decimal.ts"

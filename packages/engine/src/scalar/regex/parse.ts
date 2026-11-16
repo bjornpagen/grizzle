@@ -1,5 +1,5 @@
+import { regexMaxRepeat } from "@grizzle/limits"
 import { catchSignal } from "#compiler/core/canonical.ts"
-import { regexMaxRepeat } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { codePoints, codePointsText } from "#compiler/core/text.ts"
 import {

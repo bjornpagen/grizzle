@@ -1,3 +1,4 @@
+import type { Limit } from "@bjornpagen/limit"
 import { exhaust, explore, sketched } from "@bjornpagen/testing/explore"
 import { required, requiredInSpace } from "@bjornpagen/testing/features"
 import { characterOf, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
@@ -5,14 +6,9 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { selectMaxEntries, statementMaxParams, tableMaxColumns } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Record as Rec, String as Str } from "effect"
 import type { CompileBound, CompileError } from "#compiler/core/errors.ts"
-import {
-	type Limit,
-	selectMaxEntries,
-	statementMaxParams,
-	tableMaxColumns
-} from "#compiler/core/limits.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
@@ -33,7 +29,7 @@ import { ownedInput } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
- * PostgreSQL's limits where grizzle meets them (core/limits.ts), each drawn on both sides of it:
+ * PostgreSQL's limits where grizzle meets them (@grizzle/limits), each drawn on both sides of it:
  *
  * - a stored relation's table holds at most tableMaxColumns columns: a relation of that many fields is admitted when its
  *   installation is compiled, where its table is created, and one of a field more is refused there, as ResourceBound
@@ -44,7 +40,7 @@ import { upTo } from "#test/support/up-to.ts"
  * - a statement's length is bounded by PostgreSQL's longest message, about a gigabyte, and by nothing smaller: a query
  *   whose literal is drawn up to a few MiB of UTF-8 compiles, each of its statements holding the literal whole.
  *
- * Oracle: each limit's published value (core/limits.ts), a specification. The first box is exhaustive: each limit met
+ * Oracle: each limit's published value (@grizzle/limits), a specification. The first box is exhaustive: each limit met
  * by one less, by it and by one more.
  *
  * Features: each limit within, at and past; a short literal and one past 2 MiB.

@@ -37,12 +37,7 @@ export {
 } from "#compiler/core/identity.ts"
 export { SchemaFingerprint } from "#compiler/core/ids.ts"
 export { defect, defined } from "#compiler/core/invariant.ts"
-export {
-	flightMaxBytes,
-	maxStringLength,
-	messageMaxBytes,
-	published
-} from "#compiler/core/limits.ts"
+export { flightMaxBytes, maxStringLength, messageMaxBytes } from "@grizzle/limits"
 export { SourceLoc } from "#compiler/core/loc.ts"
 export { builtMark } from "#compiler/core/phantom.ts"
 export { type Prepared, type StatementName, statementNameBytes } from "#compiler/core/prepared.ts"

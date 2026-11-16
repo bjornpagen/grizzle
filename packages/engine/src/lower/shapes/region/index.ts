@@ -1,3 +1,4 @@
+import { collapseLimit } from "@grizzle/limits"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
@@ -16,7 +17,6 @@ import {
 	type PlacedOccurrence,
 	regionParts
 } from "#compiler/lower/conservative/match-region/index.ts"
-import { collapseLimit } from "#compiler/lower/optimize/existence/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { type NativeOp, nativeOp, operandCarriers } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, FromItem, JoinStep, OperandBody } from "#compiler/sql/ast.ts"

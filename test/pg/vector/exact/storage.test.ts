@@ -19,6 +19,7 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { float } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
+import { cosineNormMax, cosineNormMin } from "@grizzle/limits"
 import {
 	Array as Arr,
 	Effect,
@@ -30,7 +31,6 @@ import {
 	String as Str
 } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { pg, uuid, Vector, type Uuid } from "#compiler/public/fields.ts"

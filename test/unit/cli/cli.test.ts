@@ -175,7 +175,7 @@ const valueGen: Gen<string> = map(array(element(valueParts), { min: 1, max: 3 })
 
 /** The longest migration name, at the file name limit once its timestamp prefixes it. */
 const longestName = Arr.join(
-	upTo(maxMigrationNameLength.value, () => "a"),
+	upTo(maxMigrationNameLength, () => "a"),
 	""
 )
 

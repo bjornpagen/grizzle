@@ -8,12 +8,6 @@ import {
 	type MoneyValue,
 	VectorText,
 	moneyTag,
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale,
-	vectorMaxDimensions,
 	vectorTag
 } from "#compiler/ir/carriers.ts"
 import { DecimalText, type DecimalValue, decimalTag } from "#compiler/ir/decimal.ts"
@@ -49,6 +43,14 @@ import {
 	parseForms
 } from "#compiler/ir/proof.ts"
 
+import {
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale,
+	vectorMaxDimensions
+} from "@grizzle/limits"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import {
 	type Capability,

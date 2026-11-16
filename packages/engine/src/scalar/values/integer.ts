@@ -1,5 +1,5 @@
+import { int2Max, int2Min, int4Max, int4Min, int8Max, int8Min } from "@grizzle/limits"
 import type { ValueFault } from "#compiler/core/errors.ts"
-import { int2Max, int2Min, int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 
 const checkNumber = (

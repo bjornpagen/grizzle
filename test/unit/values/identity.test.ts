@@ -38,7 +38,6 @@ import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
-import { binary32Max, cosineNormMax, cosineNormMin } from "#compiler/ir/carriers.ts"
 import { rosterCodec } from "#compiler/ir/codes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
@@ -58,6 +57,7 @@ import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { plantedStringGen } from "#test/unit/values/support.ts"
 
+import { binary32Max, cosineNormMax, cosineNormMin } from "@grizzle/limits"
 import { regex } from "arkregex"
 /**
  * One carrier's admission, stated from its documented host type and range: what a value is stored as, the fault it

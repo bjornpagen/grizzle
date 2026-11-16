@@ -63,7 +63,7 @@ import { testSql } from "#test/support/sql.ts"
 import { paramBinary, paramText } from "#test/support/wire.ts"
 
 /**
- * The flight bound (core/limits.ts flightMaxBytes, wire/batch.ts send): a flight whose bytes, as pg writes them in its
+ * The flight bound (@grizzle/limits flightMaxBytes, wire/batch.ts send): a flight whose bytes, as pg writes them in its
  * one corked write, pass what one write of the session carries is refused as InputTooLarge before any byte of it is
  * written, and leaves the session as it was; every other flight is written whole.
  *

@@ -5,6 +5,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
+import { maxStringLength } from "@grizzle/limits"
 import {
 	Array as Arr,
 	Data,
@@ -34,7 +35,6 @@ import { indices } from "#compiler/core/array.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { NodeId, ParamId } from "#compiler/core/ids.ts"
-import { maxStringLength } from "#compiler/core/limits.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import * as EngineResult from "#compiler/core/result.ts"
 import type { Cell, ParamText } from "#compiler/core/wire.ts"

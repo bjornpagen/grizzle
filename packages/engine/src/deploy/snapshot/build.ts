@@ -1,3 +1,4 @@
+import { maxStringLength } from "@grizzle/limits"
 import {
 	canonicalEquals,
 	catchRefusal,
@@ -15,7 +16,6 @@ import { type DeclaredName, declaredAlike, identifierOf } from "#compiler/core/i
 import type { Identifier, LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SchemaFingerprint as toSchemaFingerprint } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import { maxStringLength } from "#compiler/core/limits.ts"
 import { type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { headNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"

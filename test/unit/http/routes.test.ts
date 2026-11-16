@@ -42,6 +42,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { timerMaxMs, timerMinMs } from "@grizzle/limits"
 import { Result as Answered, Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { served } from "#adapter/public/layer.ts"
 import { isRecord } from "#compiler/core/record.ts"
@@ -53,7 +54,7 @@ import { httpHandler, httpRoutes, type HttpHandler } from "#http/index.ts"
 import { offlineConnection } from "#test/pg/cli/support.ts"
 import { assert, defined } from "#test/support/assert.ts"
 import { readStream, type StreamRead } from "#test/support/event-stream.ts"
-import { caseHang, nodeTimerMax, nodeTimerMin } from "#test/support/limits.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import {
 	type CaseSketch,
@@ -413,9 +414,9 @@ const answered = (handler: HttpHandler, request: Request) =>
  * range's ends or one between. A heartbeat is a comment line, so no answer's events depend on it.
  */
 const heartbeatGen: Gen<number> = oneOf<number>([
-	constant(nodeTimerMin.value),
-	constant(nodeTimerMax.value),
-	int(nodeTimerMin.value, nodeTimerMax.value)
+	constant(timerMinMs.value),
+	constant(timerMaxMs.value),
+	int(timerMinMs.value, timerMaxMs.value)
 ])
 
 describe("an HTTP handler's routes", () => {

@@ -1,4 +1,4 @@
-import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/ir/carriers.ts"
+import { numericMaxFractionDigits, numericMaxIntegerDigits } from "@grizzle/limits"
 import type { Exact, Fact, FactSource, OperandPremise } from "#compiler/ir/proof.ts"
 import { doubleAtLeast, doubleParts, log2Of } from "#compiler/scalar/compute/cast.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"

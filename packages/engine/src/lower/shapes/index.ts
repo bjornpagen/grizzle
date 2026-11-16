@@ -3,7 +3,6 @@ import { appendAll } from "#compiler/core/array.ts"
 import { canonicalEquals, everyProperty, Refusal } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { lateralParentMax } from "#compiler/core/limits.ts"
 import {
 	concatNonEmpty,
 	extendNonEmpty,
@@ -28,6 +27,7 @@ import {
 	refuse
 } from "#compiler/lower/conservative/context.ts"
 
+import { lateralParentMax } from "@grizzle/limits"
 import {
 	checkedAttachment,
 	Delivery,

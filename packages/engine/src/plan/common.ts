@@ -61,17 +61,14 @@ export {
 	type StoredRelationName
 } from "#compiler/core/ids.ts"
 export { defect, defined } from "#compiler/core/invariant.ts"
+export { type Limit } from "@bjornpagen/limit"
 export {
-	derived,
 	flightMaxBytes,
 	handleMaxBytes,
-	type Limit,
 	maxStackDepth,
 	maxStringLength,
-	measured,
-	messageMaxBytes,
-	published
-} from "#compiler/core/limits.ts"
+	messageMaxBytes
+} from "@grizzle/limits"
 export { SourceLoc } from "#compiler/core/loc.ts"
 export { prepared, type Prepared } from "#compiler/core/prepared.ts"
 export { concatNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"

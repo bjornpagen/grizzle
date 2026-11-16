@@ -1,3 +1,4 @@
+import { cosineNormMax, cosineNormMin } from "@grizzle/limits"
 import { appendAll } from "#compiler/core/array.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import {
@@ -16,8 +17,6 @@ import * as Result from "#compiler/core/result.ts"
 import { compareCodePoints } from "#compiler/core/text.ts"
 import {
 	type CanonicalFloat,
-	cosineNormMax,
-	cosineNormMin,
 	integerRanges,
 	type MoneyValue,
 	uuidHyphens,

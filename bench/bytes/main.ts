@@ -1,5 +1,6 @@
 #!/usr/bin/env -S node
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import { bytesChunkLength } from "@grizzle/limits"
 import { Array as Arr, Console, Data, DateTime, Effect, Layer, pipe, String as Str } from "effect"
 import {
 	type RunIdentity,
@@ -9,7 +10,6 @@ import {
 } from "#bench/cold/identity.ts"
 import { elapsed, type Summary, summarize } from "#bench/cold/stats.ts"
 import { assembledIn } from "#compiler/codec/delivery.ts"
-import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { OutputRows } from "#compiler/core/wire.ts"
 import { deliveredRows, deliveryOfColumns, textColumn } from "#compiler/lower/delivery.ts"
@@ -23,7 +23,7 @@ import { dropRole, ownerSession, Substrate } from "#test/support/substrate/subst
 /**
  * The bytes delivery benchmark, `pnpm bench bytes`: one bytes value read back through its delivery
  * (lower/delivery.ts deliveredRows, codec/delivery.ts assembledIn) under each candidate chunk length, the evidence
- * core/limits.ts bytesChunkLength cites. In a database of its own, one row of a 256 MiB value is stored, once of
+ * @grizzle/limits bytesChunkLength cites. In a database of its own, one row of a 256 MiB value is stored, once of
  * random bytes, which PostgreSQL stores uncompressed out of line, and once of a repeating text, which it compresses;
  * then for each chunk length the delivered read of the table is sent `runs` times through the owner's session and its
  * answer assembled into the value, timed by performance.now around both, the first run cold, and the value checked

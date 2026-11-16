@@ -1,4 +1,4 @@
-import { regexMaxRepeat } from "#compiler/core/limits.ts"
+import { regexMaxRepeat } from "@grizzle/limits"
 import { xmlWhitespace } from "#compiler/core/text.ts"
 import type { PatternSource } from "#compiler/ir/scalar.ts"
 import {

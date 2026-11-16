@@ -1,11 +1,10 @@
-import { derived, type Limit, regexMaxRepeat } from "#compiler/core/limits.ts"
 import {
-	binary64DecimalDigits,
-	binary64Digits,
-	integerRanges,
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits
-} from "#compiler/ir/carriers.ts"
+	decimalTextMaxBytes,
+	doubleExponentMax,
+	doubleMantissaDigits,
+	regexMaxRepeat
+} from "@grizzle/limits"
+import { integerRanges } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { ParseForm } from "#compiler/ir/proof.ts"
 import { type NumericTypmod, type ScalarType, contractOf } from "#compiler/ir/scalar.ts"
@@ -57,22 +56,6 @@ const decimalWritable = ({ precision, scale }: NumericTypmod): boolean =>
 	scale <= precision &&
 	scale <= regexMaxRepeat.value &&
 	precision - scale - 1 <= regexMaxRepeat.value
-
-/**
- * The most UTF-8 bytes of a member of decimalText's form: every decimal text of at most this many bytes names a value
- * plain numeric holds, its point taking a byte, so it has at most numericMaxFractionDigits digits past the point and no
- * more before it than numericMaxIntegerDigits; one byte more admits `.` and numericMaxFractionDigits + 1 digits, which
- * numeric_in refuses as "value overflows numeric format".
- */
-export const decimalTextMaxBytes: Limit = derived({
-	owner: "grizzle's lexical forms",
-	unit: "UTF-8 bytes",
-	scope: "a decimal text Compute.parseDecimal reads, the bytes of its form's every member",
-	from: [numericMaxFractionDigits, numericMaxIntegerDigits],
-	derivation:
-		"numericMaxFractionDigits + 1, the point and the most fraction digits numeric holds, at most numericMaxIntegerDigits so its integer digits fit as well",
-	compute: ([fraction, integer]) => Math.min(fraction.value + 1, integer.value)
-})
 
 /**
  * The lexical target of a parse's form (ir/proof.ts ParseForm): its target type's own, every double's text, or every
@@ -181,38 +164,6 @@ const fractionDigits = (s: number, least: 0 | 1): string =>
 			? "0*"
 			: "0+"
 		: `(?:[0-9]{${s}}0*${s > least ? `|${repeat("[0-9]", least, s - 1)}` : ""})`
-
-/**
- * The significant digits of a double precision mantissa on either side of its point: DBL_DIG, the digits every
- * decimal of which survives binary64 unchanged, so no admitted mantissa is longer than a double resolves.
- */
-const doubleMantissaDigits: Limit = derived({
-	owner: "grizzle's lexical forms",
-	unit: "decimal digits",
-	scope:
-		"the significant digits of a double precision lexical form's mantissa, before its point and after it",
-	from: [binary64DecimalDigits],
-	derivation:
-		"DBL_DIG: every decimal of that many significant digits rounds to a binary64 value and back unchanged",
-	compute: ([digits]) => digits.value
-})
-
-/**
- * The greatest decimal exponent of a double precision lexical form: the mantissa is below 10^DBL_DIG and, when
- * nonzero, at least 10^-DBL_DIG, so with |exponent| at most binary64Digits - 1 - DBL_DIG every value but zero lies in
- * [10^-(binary64Digits - 1), 10^(binary64Digits - 1)): below the greatest finite binary64, so float8in never
- * overflows to infinity, and above the least subnormal, 2^-1074, so it never underflows to zero, the two results
- * float8in refuses.
- */
-const doubleExponentMax: Limit = derived({
-	owner: "grizzle's lexical forms",
-	unit: "a decimal exponent",
-	scope: "the magnitude of a double precision lexical form's exponent",
-	from: [binary64Digits, doubleMantissaDigits],
-	derivation:
-		"binary64Digits - 1 - DBL_DIG: the mantissa's own magnitude, up to DBL_DIG digits either side of its point, plus the exponent stays inside binary64's finite nonzero range",
-	compute: ([digits, mantissa]) => digits.value - 1 - mantissa.value
-})
 
 /**
  * The integer form of a carrier: an optional sign, any leading zeros, and a magnitude within the carrier's range on

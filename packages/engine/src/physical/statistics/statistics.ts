@@ -1,23 +1,11 @@
+import { statisticsMaxColumns } from "@grizzle/limits"
 import { refuse } from "#compiler/analysis/theory/build.ts"
 import { compareText } from "#compiler/core/canonical.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { type Limit, postgresSource, published } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import type { CreateStatistics } from "#compiler/sql/ast.ts"
-
-/** The most columns one extended statistics object covers, STATS_MAX_DIMENSIONS. */
-export const statisticsMaxColumns: Limit = published({
-	value: 8,
-	owner: "PostgreSQL 19rc2",
-	unit: "columns",
-	scope: "one extended statistics object: a request's and an access path's",
-	constraint: "compile-time constant",
-	source: `${postgresSource}/src/include/statistics/statistics.h#L19`,
-	quote: "#define STATS_MAX_DIMENSIONS\t8\t/* max number of attributes */",
-	verified: "2026-11-14"
-})
 
 export const statisticsKinds = ["ndistinct", "dependencies", "mcv"] as const
 type StatisticsKind = (typeof statisticsKinds)[number]

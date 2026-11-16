@@ -19,6 +19,7 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { uuid as uuidValue } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { timerMaxMs, timerMinMs } from "@grizzle/limits"
 import {
 	Array as Arr,
 	Cause,
@@ -50,7 +51,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { context, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { assert, lacksText, nonEmpty } from "#test/support/assert.ts"
 import { compiledServedFile } from "#test/support/compiled-served.ts"
-import { caseHang, nodeTimerMax, nodeTimerMin } from "#test/support/limits.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { memoryEndpoint, memoryTransport, tlsMaterial } from "#test/support/memory-tls.ts"
 import {
 	processEnvironment,
@@ -165,9 +166,9 @@ interface Drawn {
 
 /** A timer's delay, from the least to the longest a Node timer keeps: its range's ends, or one between. */
 const delayGen: Gen<number> = oneOf<number>([
-	constant(nodeTimerMin.value),
-	constant(nodeTimerMax.value),
-	int(nodeTimerMin.value, nodeTimerMax.value)
+	constant(timerMinMs.value),
+	constant(timerMaxMs.value),
+	int(timerMinMs.value, timerMaxMs.value)
 ])
 
 const drawnGen: Gen<Drawn> = (source) => {
@@ -307,7 +308,7 @@ const ruleOf = (f: Fault): Option.Option<SettingRule["kind"]> =>
 const badDelays: Arr.NonEmptyReadonlyArray<unknown> = [
 	0,
 	-1,
-	nodeTimerMax.value + 1,
+	timerMaxMs.value + 1,
 	1.5,
 	Number.NaN,
 	Number.POSITIVE_INFINITY,

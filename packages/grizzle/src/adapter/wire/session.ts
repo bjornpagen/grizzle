@@ -592,12 +592,12 @@ export interface Session {
 	 */
 	readonly destroy: () => void
 	/**
-	 * The most bytes one write of the session's connection carries, and so one flight (core/limits.ts flightMaxBytes):
+	 * The most bytes one write of the session's connection carries, and so one flight (@grizzle/limits flightMaxBytes):
 	 * the flight's builder refuses a longer flight before any byte of it is written (wire/batch.ts send).
 	 */
 	readonly flightMaxBytes: number
 	/**
-	 * The longest message the session's server reads, as its length word counts it (core/limits.ts messageMaxBytes):
+	 * The longest message the session's server reads, as its length word counts it (@grizzle/limits messageMaxBytes):
 	 * the flight's builder refuses a flight with a longer Parse or Bind before any byte of it is written (wire/batch.ts
 	 * send, bindOverrun).
 	 */

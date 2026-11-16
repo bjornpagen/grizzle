@@ -1,5 +1,6 @@
 #!/usr/bin/env -S node
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import { regexDfaMaxStates, regexDfaMaxWork } from "@grizzle/limits"
 import { Array as Arr, Console, Data, DateTime, Effect, pipe, String as Str } from "effect"
 import {
 	type RunIdentity,
@@ -8,7 +9,6 @@ import {
 	writeRunRecord
 } from "#bench/cold/identity.ts"
 import { elapsed, type Summary, summarize } from "#bench/cold/stats.ts"
-import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type DfaLimits, type DfaOutcome, minimalDfa } from "#compiler/scalar/regex/dfa.ts"
 import type { Nfa } from "#compiler/scalar/regex/match.ts"
@@ -19,7 +19,7 @@ import { upTo } from "#test/support/up-to.ts"
 
 /**
  * The subset-construction benchmark, `pnpm bench dfa`: scalar/regex/dfa.ts minimalDfa under the two limits that bound it
- * (core/limits.ts regexDfaMaxStates and regexDfaMaxWork), on patterns text/refinement.ts analyzeText admits, the
+ * (@grizzle/limits regexDfaMaxStates and regexDfaMaxWork), on patterns text/refinement.ts analyzeText admits, the
  * evidence those limits cite. It needs no database.
  *
  * Every pattern is parsed and its NFA built once, untimed; then minimalDfa runs `runs` times under the limits, one

@@ -1,11 +1,11 @@
-import type { DecimalParts } from "#compiler/core/decimal.ts"
 import {
-	integerDigits,
 	moneyDigits,
 	moneyFractionDigits,
 	numericMaxFractionDigits,
 	numericMaxIntegerDigits
-} from "#compiler/ir/carriers.ts"
+} from "@grizzle/limits"
+import type { DecimalParts } from "#compiler/core/decimal.ts"
+import { integerDigits } from "#compiler/ir/carriers.ts"
 import type { DefinedOp } from "#compiler/ir/expr.ts"
 import {
 	type Capability,

@@ -1,3 +1,27 @@
+import {
+	binary32Digits,
+	binary32FractionDigits,
+	binary64Digits,
+	binary64FractionDigits,
+	binary64MaxExponent,
+	decimalTextMaxBytes,
+	int4Digits,
+	int4Max,
+	int8Max,
+	int8Min,
+	maxAllocSize,
+	moneyDigits,
+	moneyFractionDigits,
+	numericMaxDisplayScale,
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	powerExpLimit,
+	regexDfaMaxStates,
+	regexDfaMaxWork,
+	regexMaxRepeat,
+	regexTextMaxBytes,
+	translateMaxBytes
+} from "@grizzle/limits"
 import { canonicalTextOf, catchRefusal, Refusal, sameContent } from "#compiler/core/canonical.ts"
 import {
 	CompileError,
@@ -10,19 +34,6 @@ import {
 } from "#compiler/core/errors.ts"
 import { ExprId } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import {
-	derived,
-	int4Max,
-	int8Max,
-	int8Min,
-	type Limit,
-	maxAllocSize,
-	regexDfaMaxStates,
-	regexDfaMaxWork,
-	regexMaxRepeat,
-	regexTextMaxBytes,
-	translateMaxBytes
-} from "#compiler/core/limits.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import {
 	appendNonEmpty,
@@ -32,22 +43,7 @@ import {
 } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
-import {
-	binary32Digits,
-	binary32FractionDigits,
-	binary64Digits,
-	binary64FractionDigits,
-	binary64MaxExponent,
-	int4Digits,
-	integerDigits,
-	integerRanges,
-	moneyDigits,
-	moneyFractionDigits,
-	numericMaxDisplayScale,
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	numericMaxResultScale
-} from "#compiler/ir/carriers.ts"
+import { integerDigits, integerRanges } from "#compiler/ir/carriers.ts"
 import { dayNumber, firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
 import type {
 	ExprDesc,
@@ -186,7 +182,6 @@ import {
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
 import {
-	decimalTextMaxBytes,
 	formOctets,
 	formSource,
 	type LexicalTarget,
@@ -4661,21 +4656,6 @@ const powerWeight = (bLow: Exact, bHigh: Exact, eLow: Exact, eHigh: Exact): numb
 /** An exponent's magnitude times a base's digits: zero where either is zero, so an infinite exponent over no digit adds none. */
 const weightOf = (exponent: number, digits: number): number =>
 	exponent === 0 || digits === 0 ? 0 : exponent * digits
-
-/**
- * The bound PostgreSQL's power_var puts on exp(y · ln x) for an exponent that is no integer (numeric.c power_var, its
- * test before exp_var, and exp_var's own): y · ln x below NUMERIC_MAX_RESULT_SCALE · 3, at which it raises 22003
- * "value overflows numeric format".
- */
-const powerExpLimit: Limit = derived({
-	owner: "PostgreSQL 19rc2",
-	unit: "a natural logarithm",
-	scope: "y · ln x of a power with an exponent that is no integer",
-	from: [numericMaxResultScale],
-	derivation:
-		'exp_var\'s overflow test, three times the result scale: "if (fabs(val) >= NUMERIC_MAX_RESULT_SCALE * 3)" (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L10503)',
-	compute: ([scale]) => scale.value * 3
-})
 
 /**
  * Whether power over these intervals stays inside its result carrier, as powerRangePremises states. Over double precision

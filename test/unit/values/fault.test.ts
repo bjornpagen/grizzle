@@ -19,11 +19,11 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
 import { Effect, Formatter } from "effect"
 import { isCompileError } from "#compiler/core/errors.ts"
-import { numericMaxIntegerDigits } from "#compiler/ir/carriers.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { assert, lacksText } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 
+import { numericMaxIntegerDigits } from "@grizzle/limits"
 import { regex } from "arkregex"
 
 /** A decimal the admission refuses, out of range or misspelt, whose digits are a secret no refusal may repeat. */

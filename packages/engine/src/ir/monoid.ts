@@ -1,5 +1,5 @@
+import { int8Min } from "@grizzle/limits"
 import { defect } from "#compiler/core/invariant.ts"
-import { int8Min } from "#compiler/core/limits.ts"
 /**
  * The closed monoids a fold accumulates in, each over the carriers it admits: its planes, its identity on each, and how
  * each plane's after is combined from the befores and the step. Every one but concat is commutative, so a fold over a

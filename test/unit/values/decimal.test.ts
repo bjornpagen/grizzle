@@ -56,15 +56,7 @@ import { describe, it } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, pipe, String as Str } from "effect"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
 import { isCompileError, type ValueFault } from "#compiler/core/errors.ts"
-import { int4Max } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
-import {
-	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
-	numericMaxPrecision,
-	numericMaxScale,
-	numericMinScale
-} from "#compiler/ir/carriers.ts"
 import { DecimalText, isDecimalPayload } from "#compiler/ir/decimal.ts"
 import { checkNumericTypmod, Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { assert, defined, faulted, succeeded } from "#test/support/assert.ts"
@@ -72,6 +64,14 @@ import { caseHang } from "#test/support/limits.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { decimalGen, numericText } from "#test/unit/values/support.ts"
 
+import {
+	int4Max,
+	numericMaxFractionDigits,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "@grizzle/limits"
+import { numericMaxIntegerDigits } from "@grizzle/limits"
 import { regex } from "arkregex"
 
 /**

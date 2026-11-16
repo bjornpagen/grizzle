@@ -1,3 +1,4 @@
+import { bytesChunkLength } from "@grizzle/limits"
 import {
 	Array as Arr,
 	Data,
@@ -28,7 +29,6 @@ import { assembled, cellKindOf, deliveryOf } from "#compiler/codec/delivery.ts"
 import { scalarReader } from "#compiler/codec/read.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { Layout, Row } from "#compiler/core/decoder.ts"
-import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Cell, OutputRows } from "#compiler/core/wire.ts"

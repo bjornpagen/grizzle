@@ -23,8 +23,8 @@
  * closed id as its code and a set as the bit mask of its codes, text as itself.
  */
 import { constant, element, type Gen, int, string, weighted } from "@bjornpagen/testing/gen"
+import { int2Min, int4Min, int8Min } from "@grizzle/limits"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { int2Min, int4Min, int8Min } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type MonoidName, monoidNames } from "#compiler/ir/desc.ts"
 import { monoidSpecs } from "#compiler/ir/monoid.ts"

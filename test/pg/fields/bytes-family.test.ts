@@ -2,7 +2,7 @@
  * A family's members carrying bytes, on PostgreSQL 19rc2: an owner of a bytes value of its own, which its nested write
  * admits once for the owner's row and once for its own insert, is inserted with members nested in order, each
  * member's bytes value empty, short, or one short of, at or one past a chunk of the delivery in force
- * (core/limits.ts bytesChunkLength), or of several chunks; then one member is deleted, which re-places every later
+ * (@grizzle/limits bytesChunkLength), or of several chunks; then one member is deleted, which re-places every later
  * sibling: grizzle reads the stored suffix, its bytes values in chunks (write/family/decode.ts), and writes each
  * re-placed member again whole, its bytes value in its column's binary array (write/family/order.ts columnArray).
  * Every member reads back at its slot with its bytes, before and after.
@@ -18,9 +18,9 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
+import { bytesChunkLength } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Layer, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, drawn as drawnField, natural, uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"

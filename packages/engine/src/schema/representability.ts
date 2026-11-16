@@ -1,90 +1,29 @@
+import type { Limit } from "@bjornpagen/limit"
+import {
+	alignDown,
+	alignUp,
+	bitsBytes,
+	btreeMaxItemSize,
+	decDigits,
+	gistMaxItemSize,
+	indexMaxKeys,
+	indexNullBitmapBytes,
+	indexTupleHeader,
+	maxAlign,
+	numericDigitBytes,
+	numericHeaderBytes,
+	rangeFlagBytes,
+	rangeHeaderBytes,
+	typlens,
+	utf8EncodingMaxBytes,
+	varlenaHeaderBytes,
+	vectorHeaderBytes
+} from "@grizzle/limits"
 import { nominal } from "#compiler/core/brand.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
-import {
-	alignUp,
-	bitsPerByte as bitsPerByteLimit,
-	blockSize,
-	derived,
-	itemIdBytes,
-	type Limit,
-	maxAlign,
-	pageHeaderBytes,
-	postgresSource,
-	published,
-	rosterMaxCodes,
-	typlens
-} from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { ExprDesc, FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
 import type { TextLanguage } from "#compiler/ir/scalar.ts"
-import { decDigits } from "#compiler/scalar/compute/numeric.ts"
-
-/** A tuple identifier, ItemPointerData. */
-const itemPointerBytes: Limit = published({
-	value: 6,
-	owner: "PostgreSQL 19rc2",
-	unit: "bytes",
-	scope: "the heap tuple identifier an index tuple and a B-tree pivot carry",
-	constraint: "compile-time constant",
-	source: `${postgresSource}/src/include/storage/itemptr.h#L30-L31`,
-	quote: "The struct is designed to be six bytes long (it contains three int16 fields)",
-	verified: "2026-11-14"
-})
-
-/** An index tuple's header, IndexTupleData: its heap tuple identifier and its two-byte t_info. */
-const indexTupleHeader: Limit = published({
-	value: 8,
-	owner: "PostgreSQL 19rc2",
-	unit: "bytes",
-	scope: "the header of every B-tree and GiST index tuple",
-	constraint: "compile-time constant",
-	source: `${postgresSource}/src/include/access/itup.h#L35-L51`,
-	quote:
-		"typedef struct IndexTupleData { ItemPointerData t_tid; unsigned short t_info; } IndexTupleData;",
-	verified: "2026-11-14"
-})
-
-/** A B-tree page's special space, BTPageOpaqueData: two block numbers, a level, flags and a cycle id. */
-const btreeOpaqueBytes: Limit = published({
-	value: 16,
-	owner: "PostgreSQL 19rc2",
-	unit: "bytes",
-	scope: "the special space of every B-tree page",
-	constraint: "compile-time constant",
-	source: `${postgresSource}/src/include/access/nbtree.h#L63-L70`,
-	quote:
-		"typedef struct BTPageOpaqueData { BlockNumber btpo_prev; BlockNumber btpo_next; uint32 btpo_level; uint16 btpo_flags; BTCycleId btpo_cycleid; } BTPageOpaqueData;",
-	verified: "2026-11-14"
-})
-
-/** A GiST page's special space, GISTPageOpaqueData: an LSN, a block number, flags and the page id. */
-const gistOpaqueBytes: Limit = published({
-	value: 16,
-	owner: "PostgreSQL 19rc2",
-	unit: "bytes",
-	scope: "the special space of every GiST page",
-	constraint: "compile-time constant",
-	source: `${postgresSource}/src/include/access/gist.h#L80-L86`,
-	quote:
-		"typedef struct GISTPageOpaqueData { PageGistNSN nsn; BlockNumber rightlink; uint16 flags; uint16 gist_page_id; } GISTPageOpaqueData;",
-	verified: "2026-11-14"
-})
-
-/**
- * A varlena's header, VARHDRSZ: the length every variable-length datum leads with, at its longest, sizeof(int32), C's
- * int32_t ("typedef int32_t int32;", c.h).
- */
-const varlenaHeaderBytes: Limit = published({
-	value: 4,
-	owner: "PostgreSQL 19rc2",
-	unit: "bytes",
-	scope:
-		"the header of one variable-length datum, uncompressed and in line: a numeric, a text, a range, a vector",
-	constraint: "compile-time constant",
-	source: `${postgresSource}/src/include/c.h#L787`,
-	quote: "#define VARHDRSZ\t\t((int32) sizeof(int32))",
-	verified: "2026-11-14"
-})
 
 /**
  * The bits one byte of a bit string holds, BITS_PER_BYTE.
@@ -93,133 +32,8 @@ const varlenaHeaderBytes: Limit = published({
  */
 const bitsPerByte = 8
 
-/**
- * The most bytes one set over a roster takes, uncompressed and in line: a bit(n) varlena of its header, its bit count
- * and a byte per eight bits, n its roster's codes. A roster's codes are installation data, which ownership does not
- * hold, so the bound is the one every installation's roster keeps within: its most codes.
- */
-const bitsBytes: Limit = derived({
-	owner: "PostgreSQL 19rc2",
-	unit: "bytes",
-	scope: "one set over a roster, its bit(n) datum",
-	from: [varlenaHeaderBytes, typlens.int4, rosterMaxCodes],
-	derivation: `VARBITTOTALLEN(n), "#define VARBITTOTALLEN(BITLEN) (((BITLEN) + BITS_PER_BYTE-1)/BITS_PER_BYTE + VARHDRSZ + VARBITHDRSZ)" with VARBITHDRSZ sizeof(int32) (${postgresSource}/src/include/utils/varbit.h), at n the most codes a roster numbers`,
-	compute: ([header, bitLength, codes]) =>
-		header.value + bitLength.value + Math.ceil(codes.value / bitsPerByte)
-})
-
 /** The two bounds a range holds, and a btree_gist key of a fixed-size type beside each other. */
 const bounds = ["lower", "upper"] as const
-
-/** A range's header, sizeof(RangeType): its varlena header and its range type's OID, which its bounds follow. */
-const rangeHeaderBytes: Limit = derived({
-	owner: "PostgreSQL 19rc2",
-	unit: "bytes",
-	scope: "the header of one range datum",
-	from: [varlenaHeaderBytes, typlens.oid],
-	derivation: `sizeof(RangeType), "typedef struct { int32 vl_len_; Oid rangetypid; /* Following the OID are zero to two bound values, then a flags byte */ } RangeType;" (${postgresSource}/src/include/utils/rangetypes.h#L25-L30), which range_serialize counts first: VARHDRSZ and an oid`,
-	compute: ([header, oid]) => header.value + oid.value
-})
-
-/** A range's flags byte, after its bounds. */
-const rangeFlagBytes: Limit = published({
-	value: 1,
-	owner: "PostgreSQL 19rc2",
-	unit: "bytes",
-	scope: "the flags of one range datum",
-	constraint: "compile-time constant",
-	source: `${postgresSource}/src/backend/utils/adt/rangetypes.c#L2072-L2073`,
-	quote: "/* Add space for flag byte */ msize += sizeof(char);",
-	verified: "2026-11-14"
-})
-
-/** A numeric's header, NUMERIC_HDRSZ: its varlena header, its sign and display scale, and its weight. */
-const numericHeaderBytes: Limit = derived({
-	owner: "PostgreSQL 19rc2",
-	unit: "bytes",
-	scope: "the long header of one numeric datum, the longest it takes",
-	from: [varlenaHeaderBytes, typlens.int2],
-	derivation: `"#define NUMERIC_HDRSZ\t(VARHDRSZ + sizeof(uint16) + sizeof(int16))" (${postgresSource}/src/backend/utils/adt/numeric.c#L178): VARHDRSZ and two 16-bit fields, each a smallint's width`,
-	compute: ([header, int16]) => header.value + int16.value * 2
-})
-
-/** A numeric's NBASE digit, NumericDigit, an int16. */
-const numericDigitBytes: Limit = derived({
-	owner: "PostgreSQL 19rc2",
-	unit: "bytes",
-	scope: "one NBASE digit of a numeric datum",
-	from: [typlens.int2],
-	derivation: `"typedef int16 NumericDigit;" (${postgresSource}/src/backend/utils/adt/numeric.c#L103), a smallint's width`,
-	compute: ([int16]) => int16.value
-})
-
-const pgvectorSource = "https://github.com/pgvector/pgvector/blob/v0.8.7/src/vector.h"
-
-/** A vector's header, offsetof(Vector, x): its varlena header, its dimension count and a reserved field. */
-const vectorHeaderBytes: Limit = derived({
-	owner: "pgvector 0.8.7",
-	unit: "bytes",
-	scope: "the header of one vector datum, which its components follow",
-	from: [varlenaHeaderBytes, typlens.int2],
-	derivation: `offsetof(Vector, x) in VECTOR_SIZE, "#define VECTOR_SIZE(_dim)\t\tadd_size(offsetof(Vector, x), mul_size(sizeof(float), _dim))" (${pgvectorSource}#L13), of "typedef struct Vector { int32 vl_len_; int16 dim; int16 unused; float x[FLEXIBLE_ARRAY_MEMBER]; } Vector;" (${pgvectorSource}#L18-L24): VARHDRSZ and two int16 fields, each a smallint's width; each component a C float, a real ("typedef float float4;", c.h)`,
-	compute: ([header, int16]) => header.value + int16.value * 2
-})
-
-/* @__NO_SIDE_EFFECTS__ */
-const alignDown = (n: number, a: number): number => Math.floor(n / a) * a
-
-/** The most bytes one B-tree entry takes: BTMaxItemSize, a third of a page, its pivot's heap tuple identifier left. */
-export const btreeMaxItemSize: Limit = derived({
-	owner: "PostgreSQL 19rc2",
-	unit: "bytes",
-	scope: "one B-tree index entry, a key's index's among them",
-	from: [blockSize, maxAlign, pageHeaderBytes, itemIdBytes, btreeOpaqueBytes, itemPointerBytes],
-	derivation: `nbtree.h's BTMaxItemSize: MAXALIGN_DOWN((BLCKSZ - MAXALIGN(SizeOfPageHeaderData + 3*sizeof(ItemIdData)) - MAXALIGN(sizeof(BTPageOpaqueData))) / 3) - MAXALIGN(sizeof(ItemPointerData)) (${postgresSource}/src/include/access/nbtree.h#L165-L169), three entries to a page`,
-	compute: ([block, align, header, itemId, opaque, pointer]) =>
-		alignDown(
-			(block.value -
-				alignUp(header.value + 3 * itemId.value, align.value) -
-				alignUp(opaque.value, align.value)) /
-				3,
-			align.value
-		) - alignUp(pointer.value, align.value)
-})
-
-/** The most bytes one GiST entry takes: an empty page, GiSTPageSize, less its one line pointer. */
-export const gistMaxItemSize: Limit = derived({
-	owner: "PostgreSQL 19rc2",
-	unit: "bytes",
-	scope: "one GiST index entry, a span key's among them",
-	from: [blockSize, maxAlign, pageHeaderBytes, gistOpaqueBytes, itemIdBytes],
-	derivation: `gist_private.h's GiSTPageSize, BLCKSZ - SizeOfPageHeaderData - MAXALIGN(sizeof(GISTPageOpaqueData)) (${postgresSource}/src/include/access/gist_private.h#L474-L475), less the entry's one ItemIdData, as gistfitpage counts it`,
-	compute: ([block, align, header, opaque, itemId]) =>
-		block.value - header.value - alignUp(opaque.value, align.value) - itemId.value
-})
-
-/** The most columns one index holds, INDEX_MAX_KEYS: a key's index has one per field. */
-export const indexMaxKeys: Limit = published({
-	value: 32,
-	owner: "PostgreSQL 19rc2",
-	unit: "columns",
-	scope: "one index: a key's, a span key's GiST constraint, an access path's",
-	constraint: "compile-time constant",
-	source: `${postgresSource}/src/include/pg_config_manual.h#L79`,
-	quote: "#define INDEX_MAX_KEYS\t\t32",
-	verified: "2026-11-14"
-})
-
-/**
- * An index tuple's null bitmap, IndexAttributeBitMapData: a bit for each of INDEX_MAX_KEYS columns, whatever the index's
- * own count, which follows the header exactly when the tuple holds a null.
- */
-const indexNullBitmapBytes: Limit = derived({
-	owner: "PostgreSQL 19rc2",
-	unit: "bytes",
-	scope: "the null bitmap of one index tuple that holds a null",
-	from: [indexMaxKeys, bitsPerByteLimit],
-	derivation: `"typedef struct IndexAttributeBitMapData { uint8 bits[(INDEX_MAX_KEYS + 8 - 1) / 8]; }" (${postgresSource}/src/include/access/itup.h#L55-L58, verified 2026-11-14): a byte per eight of INDEX_MAX_KEYS bits, C's integer division`,
-	compute: ([keys, bits]) => Math.floor((keys.value + bits.value - 1) / bits.value)
-})
 
 /**
  * Where an index tuple's first datum starts, IndexInfoFindDataOffset: its header, and its null bitmap where the tuple
@@ -332,7 +146,8 @@ const isLengthOfValue = (measure: LengthMeasure, e: ExprDesc): boolean =>
 /**
  * The upper bound a contract predicate puts on its value's `measure`, its char_length in code points or its
  * octet_length in bytes: measure(v) <= n, < n, = n, between(measure(v), lo, hi), in [...], their mirror images, and
- * conjunctions. Infinity, the top of the bounds' min order, when the predicate bounds no such length.
+ * conjunctions. Infinity, the top of the bounds' min order, when the predicate bounds no such length; -Infinity, the
+ * greatest of no lengths, for an `in` of no values, which no length meets.
  */
 export const lengthBound = (measure: LengthMeasure, predicate: ExprDesc): number => {
 	const isMeasured = (e: ExprDesc): boolean => isLengthOfValue(measure, e)
@@ -370,7 +185,7 @@ export const lengthBound = (measure: LengthMeasure, predicate: ExprDesc): number
 			if (!isMeasured(predicate.arg)) {
 				return Number.POSITIVE_INFINITY
 			}
-			let max = -1
+			let max = Number.NEGATIVE_INFINITY
 			for (const v of predicate.values) {
 				if (typeof v === "number" && Number.isInteger(v)) {
 					max = Math.max(max, v)
@@ -416,26 +231,13 @@ const languageByteBound = (language: TextLanguage): number =>
 		? Number.POSITIVE_INFINITY
 		: (language.check.bounds?.bytes ?? Number.POSITIVE_INFINITY)
 
-/** The most bytes UTF-8 encodes one code point in: UTF8 is the server encoding admission requires of a database. */
-const utf8MaxBytes: Limit = published({
-	value: 4,
-	owner: "RFC 3629, UTF-8",
-	unit: "bytes per code point",
-	scope: "the UTF-8 encoding of one code point of a text value",
-	constraint: "protocol constant",
-	source: "https://www.rfc-editor.org/rfc/rfc3629#section-3",
-	quote:
-		"In UTF-8, characters from the U+0000..U+10FFFF range (the UTF-16 accessible range) are encoded using sequences of 1 to 4 octets.",
-	verified: "2026-11-05"
-})
-
 /**
  * The most UTF-8 bytes a contract predicate admits of its text value: its octet_length bound, exact, and its
- * char_length bound, utf8MaxBytes a code point, whichever is less; Infinity when it bounds neither.
+ * char_length bound, utf8EncodingMaxBytes a code point, whichever is less; Infinity when it bounds neither.
  */
 const predicateByteBound = (predicate: ExprDesc): number =>
 	Math.min(
-		Math.max(0, lengthBound("charLength", predicate)) * utf8MaxBytes.value,
+		Math.max(0, lengthBound("charLength", predicate)) * utf8EncodingMaxBytes.value,
 		Math.max(0, lengthBound("octetLength", predicate))
 	)
 
@@ -834,7 +636,7 @@ export const textBytesBeside = (others: KeyFields): Result.Result<number, KeyFau
  *   compress a large value, but no compression ratio is guaranteed. numeric(p, s) is at most numeric_maximum_size
  *   (numericMaximumSize), and a computed numeric, a derived relation's inferred field, the same over its integer and
  *   fraction digits. Text is bounded by its pattern's language (the text analysis's bound), by a contract's
- *   charLength predicate, utf8MaxBytes per code point, and by a contract's octetLength predicate, exactly; the
+ *   charLength predicate, utf8EncodingMaxBytes per code point, and by a contract's octetLength predicate, exactly; the
  *   wildcard pattern has none. A vector(n) is its header and n reals (vectorHeaderBytes, pgvector's Vector struct), a
  *   key field like any other: every vector has one form, its components finite (pgvector refuses NaN and infinity)
  *   and its zero 0, so pgvector's equality is identity. A range is its header, its two bounds and its flags byte

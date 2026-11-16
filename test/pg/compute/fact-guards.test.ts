@@ -21,10 +21,19 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { bigint } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
+import {
+	int2Max,
+	int2Min,
+	int4Max,
+	int4Min,
+	int8Max,
+	int8Min,
+	numericMaxPrecision,
+	numericMaxScale,
+	numericMinScale
+} from "@grizzle/limits"
 import { Array as Arr, Data, Effect, Formatter, Option, Result } from "effect"
 import { CompileError } from "#compiler/core/errors.ts"
-import { int2Max, int2Min, int4Max, int4Min, int8Max, int8Min } from "#compiler/core/limits.ts"
-import { numericMaxPrecision, numericMaxScale, numericMinScale } from "#compiler/ir/carriers.ts"
 import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { predicateTree } from "#compiler/ir/expr.ts"
 import type { OpenExpr } from "#compiler/ir/open.ts"

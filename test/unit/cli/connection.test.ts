@@ -17,6 +17,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { timerMaxMs } from "@grizzle/limits"
 import {
 	Array as Arr,
 	Data,
@@ -29,7 +30,6 @@ import {
 	String as Str
 } from "effect"
 import pgDriver from "pg"
-import { timerMaxMs } from "#adapter/connection/config.ts"
 import { type StartupVariable, startupVariableNames } from "#adapter/connection/environment.ts"
 import { ConnectionEnvironmentRefused } from "#adapter/errors/failures.ts"
 import type { MigrationConnection } from "#adapter/migrate/session.ts"

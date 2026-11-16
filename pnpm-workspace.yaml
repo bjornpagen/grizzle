@@ -3,6 +3,7 @@ packages:
   # (packages/experiments/<name>); never the directory that holds the experiments.
   - packages/engine
   - packages/grizzle
+  - packages/limits
   - packages/pg
   - "packages/experiments/*"
   # The toolchain, the submodule pinned at its commit: its dev tools and testing library join the workspace and run from

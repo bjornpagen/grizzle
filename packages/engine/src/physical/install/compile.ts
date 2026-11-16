@@ -1,3 +1,4 @@
+import { maxIdentifierBytes } from "@grizzle/limits"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { catchRefusal, Refusal } from "#compiler/core/canonical.ts"
@@ -6,8 +7,7 @@ import {
 	censusOf,
 	DeclaredNamespace,
 	type Identity,
-	identifierOf,
-	maxIdentifierBytes
+	identifierOf
 } from "#compiler/core/identity.ts"
 import type { IdentityKind } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"

@@ -1,3 +1,14 @@
+import {
+	binary32Max,
+	bytesMaxLength,
+	int2Max,
+	int2Min,
+	int4Max,
+	int4Min,
+	int8Max,
+	int8Min,
+	moneyFractionDigits
+} from "@grizzle/limits"
 /**
  * The JSON wire's spelling of every scalar grizzle serves, as one table over the carriers (`carrierWire`): for each, the
  * JSON Schema of its spellings, its `encode` (a host value the server holds to JSON), its `parse` (the server's exact
@@ -15,20 +26,11 @@
  */
 import { type FloatSpecialName, floatSpecialNameOf, type Json } from "#compiler/core/canonical.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import {
-	bytesMaxLength,
-	int2Max,
-	int2Min,
-	int4Max,
-	int4Min,
-	int8Max,
-	int8Min
-} from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { validateText } from "#compiler/core/text.ts"
-import { binary32Max, moneyFractionDigits, uuidGroups } from "#compiler/ir/carriers.ts"
+import { uuidGroups } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, convertDate, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import {

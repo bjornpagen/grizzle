@@ -48,9 +48,9 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { regexDfaMaxStates, regexDfaMaxWork } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { codePoints, codePointsText, collapsed } from "#compiler/core/text.ts"
@@ -307,7 +307,7 @@ describe("Compute's translate and lowerAscii", () => {
 		| "an exact image past the measures"
 
 	/**
-	 * A code point and a chain of plain code points at the edge of the depth grizzle holds a pattern to (core/limits.ts
+	 * A code point and a chain of plain code points at the edge of the depth grizzle holds a pattern to (@grizzle/limits
 	 * regexMaxDepth): the pattern and its own image fit the measure for every last run up to 196, and the exact image,
 	 * eight arcs deeper for the prefix and the suffix of any text it writes out around a pattern unanchored at either
 	 * end, passes it from a last run of 189. Each such case compiles a pattern of some 16,000 positions, so the arm is

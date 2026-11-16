@@ -11,16 +11,16 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { bigint } from "@bjornpagen/testing/values"
-import { Option } from "effect"
-import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import {
 	numericMaxFractionDigits,
-	numericMaxIntegerDigits,
 	numericMaxPrecision,
 	numericMaxScale,
 	numericMinScale,
 	vectorMaxDimensions
-} from "#compiler/ir/carriers.ts"
+} from "@grizzle/limits"
+import { numericMaxIntegerDigits } from "@grizzle/limits"
+import { Option } from "effect"
+import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { type FieldDesc, pgScalarNames } from "#compiler/ir/desc.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { exactType } from "#compiler/scalar/compute/types.ts"

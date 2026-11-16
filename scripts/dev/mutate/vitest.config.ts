@@ -1,22 +1,14 @@
 import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
 import { mergeConfig } from "vitest/config"
-import { derived, type Limit } from "#compiler/core/limits.ts"
 import { hangLimit } from "#test/support/limits.ts"
 
 /**
- * How long one test or hook of a mutation tester's run may take: the hang limit, since a mutant can make any test
- * loop forever, where the test tiers' own tests are unbounded and run their counted budgets.
+ * How long one test or hook of a mutation tester's run may take: the test tiers' hang limit (hangLimit), since a mutant
+ * can make any test loop forever, where the test tiers' own tests are unbounded and run their counted budgets. A run's
+ * files are the tiers' own (the unit project's in stage 1; in stage 2 the network tier's PostgreSQL files or the oracle
+ * subset), so a test of them that ends at all ends within it, and a mutant that loops is cut there.
  */
-const mutationTestTimeout: Limit = derived({
-	owner: "grizzle's mutation tester",
-	unit: "milliseconds",
-	scope:
-		"one Vitest test or hook of a run of the mutation tester (main.ts runFiles), on the unmutated tree or a mutant's",
-	from: [hangLimit],
-	derivation:
-		"a run's files are the test tiers' own: the unit project's in stage 1, and in stage 2 the network tier's PostgreSQL files or the oracle subset, which runs the network tier's oracles over fewer cases; the hang limit's measurement is of whole files of those tiers, so a test of them ends within it on the machine it was measured on, and a mutant that loops is cut there",
-	compute: ([test]) => test.value
-})
+const mutationTestTimeout: number = hangLimit.value
 
 /**
  * The mutation tester's own Vitest config (main.ts runFiles), which every run of a mutant's files names with --config:
@@ -42,8 +34,8 @@ export default mergeConfig(
 		setup: [],
 		conditions: [],
 		timeouts: {
-			test: { kind: "bounded", millis: mutationTestTimeout.value },
-			hook: { kind: "bounded", millis: mutationTestTimeout.value }
+			test: { kind: "bounded", millis: mutationTestTimeout },
+			hook: { kind: "bounded", millis: mutationTestTimeout }
 		},
 		smallStack: [],
 		examples: { kind: "allowed" }

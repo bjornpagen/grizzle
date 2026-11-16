@@ -1,13 +1,12 @@
-import type { ValueFault } from "#compiler/core/errors.ts"
-import * as Result from "#compiler/core/result.ts"
 import {
 	binary32Digits,
 	binary32LeastExponent,
 	binary32Max,
-	binary32Precision,
-	type CanonicalFloat,
-	canonicalZero
-} from "#compiler/ir/carriers.ts"
+	binary32Precision
+} from "@grizzle/limits"
+import type { ValueFault } from "#compiler/core/errors.ts"
+import * as Result from "#compiler/core/result.ts"
+import { type CanonicalFloat, canonicalZero } from "#compiler/ir/carriers.ts"
 
 export { type CanonicalFloat, canonicalZero }
 

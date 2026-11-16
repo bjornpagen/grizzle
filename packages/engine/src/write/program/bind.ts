@@ -1,3 +1,4 @@
+import { maxStringLength } from "@grizzle/limits"
 /**
  * The read-flight planner of a write whose family work the host plans from stored rows (`legacyFlights`), which no
  * served file holds, and a write compiled in process as binding runs it (`runnableWrite`).
@@ -6,7 +7,6 @@ import { arrayTexts } from "#compiler/codec/recordset.ts"
 import type { CompileError, EncodingFailure } from "#compiler/core/errors.ts"
 import type { ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import { maxStringLength } from "#compiler/core/limits.ts"
 import { isNonEmpty, mapNonEmpty } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type ReadonlyTupleMap, TupleMap, TupleSet } from "#compiler/core/tuple-map.ts"

@@ -26,6 +26,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
+import { timerMinMs } from "@grizzle/limits"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Array as Arr, Effect, Formatter, Layer, ManagedRuntime, Option, Redacted } from "effect"
 import { openServed } from "#adapter/db/served.ts"
@@ -52,7 +53,7 @@ import {
 import { backendPid, onVercel, roleBackends, vercelRuntime } from "#test/pg/serverless/support.ts"
 import { assert, defined, succeeded } from "#test/support/assert.ts"
 import { atDeclaredName, installationOf } from "#test/support/kernel/naming.ts"
-import { caseHang, nodeTimerMin } from "#test/support/limits.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { decodersIn, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { fromEmpty, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"
@@ -233,7 +234,7 @@ layer(Substrate.layer, { excludeTestServices: true })("the session pool on Verce
 									 * pool's idle timer only has to close those above the floor before Vercel's keep-alive after the last
 									 * release ends.
 									 */
-									const idleTimeoutMs = nodeTimerMin.value
+									const idleTimeoutMs = timerMinMs.value
 									const { attached, onVercelPool } = recordedAttach()
 									const pool = yield* poolFor(reader, {
 										...onVercelPool,

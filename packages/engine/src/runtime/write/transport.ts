@@ -1,4 +1,4 @@
-import { maxStringLength, messageMaxBytes } from "#compiler/core/limits.ts"
+import { maxStringLength, messageMaxBytes } from "@grizzle/limits"
 
 /**
  * The bytes of a Bind message beside its parameters' texts, as the wire writes it: `statement`, its own fields and its

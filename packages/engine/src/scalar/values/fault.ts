@@ -1,13 +1,5 @@
 import {
-	type CompileError,
-	EncodingFailure,
-	malformedDescription,
-	type ValueFault,
-	valueFaultWords
-} from "#compiler/core/errors.ts"
-import { bytesMaxLength } from "#compiler/core/limits.ts"
-import type { SourceLoc } from "#compiler/core/loc.ts"
-import {
+	bytesMaxLength,
 	cosineNormMax,
 	cosineNormMin,
 	numericMaxFractionDigits,
@@ -16,7 +8,15 @@ import {
 	numericMaxScale,
 	numericMinScale,
 	vectorMaxDimensions
-} from "#compiler/ir/carriers.ts"
+} from "@grizzle/limits"
+import {
+	type CompileError,
+	EncodingFailure,
+	malformedDescription,
+	type ValueFault,
+	valueFaultWords
+} from "#compiler/core/errors.ts"
+import type { SourceLoc } from "#compiler/core/loc.ts"
 
 /**
  * The refusal vocabulary of the exact value carriers.

@@ -125,7 +125,7 @@ export const selfMatch = (cx: CatalogContext, groupCell: Cell, group: Group): Se
 	const isShared = (column: string) => shared.some((s) => s.column === column)
 	/** The bound tuple separates the predecessors: the second occurrence's tuple and the group. */
 	const tryRoles = (first: 0 | 1): SelfMatch => {
-		const second = first === 0 ? 1 : 0
+		const second: 0 | 1 = first === 0 ? 1 : 0
 		const firstColumn = new Map<string, string>()
 		const secondColumn = new Map<string, string>()
 		const sharedVars = new Set<string>()

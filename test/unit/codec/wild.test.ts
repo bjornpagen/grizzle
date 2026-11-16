@@ -62,6 +62,7 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { bigint, double, float, uuid } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { int4Max, int4Min, int8Max, int8Min } from "@grizzle/limits"
 import {
 	Array as Arr,
 	DateTime,
@@ -77,7 +78,6 @@ import { tupleConverter } from "#compiler/codec/row.ts"
 import { carrierSpecOf, paramEncoder, scalarCodec } from "#compiler/codec/scalar.ts"
 import type { CodecFault, ValueFault } from "#compiler/core/errors.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
-import { int8Max, int8Min, int4Max, int4Min } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { OutputText, ParamText } from "#compiler/core/wire.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"

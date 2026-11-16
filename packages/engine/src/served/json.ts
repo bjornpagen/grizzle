@@ -1,3 +1,4 @@
+import { vectorMaxDimensions } from "@grizzle/limits"
 import {
 	type CanonicalObject,
 	canonicalOf,
@@ -22,7 +23,7 @@ import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { type Parts, type SharingFormat, shareRepeated } from "#compiler/core/share.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import { MoneyText, VectorText, vectorMaxDimensions } from "#compiler/ir/carriers.ts"
+import { MoneyText, VectorText } from "#compiler/ir/carriers.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { DecimalText } from "#compiler/ir/decimal.ts"
 import { internedRangeOp, rangeOpNamed } from "#compiler/ir/expr.ts"

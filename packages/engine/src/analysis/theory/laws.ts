@@ -1,3 +1,4 @@
+import { indexMaxKeys } from "@grizzle/limits"
 import {
 	type JoinColumn,
 	type Met,
@@ -128,7 +129,6 @@ import {
 	type DatumBound,
 	datumBound,
 	type EntryColumn,
-	indexMaxKeys,
 	setDatumBound
 } from "#compiler/schema/representability.ts"
 import { exprPatternReads } from "#compiler/schema/walk.ts"

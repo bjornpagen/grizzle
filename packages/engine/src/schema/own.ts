@@ -19,6 +19,7 @@ import {
 	parseSchemaName
 } from "#compiler/core/identity.ts"
 
+import { handleMaxBytes } from "@grizzle/limits"
 import {
 	type ColumnIdent,
 	type ConstraintName,
@@ -28,7 +29,6 @@ import {
 	type SchemaFingerprint
 } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { handleMaxBytes } from "#compiler/core/limits.ts"
 import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import {
 	appendNonEmpty,

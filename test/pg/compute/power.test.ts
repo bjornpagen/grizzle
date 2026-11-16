@@ -23,14 +23,6 @@ import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter } from "effect"
 import type { PreconditionKind } from "#compiler/core/errors.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import {
-	binary64MaxExponent,
-	binary64MinExponent,
-	binary64Precision,
-	numericMaxFractionDigits,
-	numericMaxPrecision,
-	numericMaxScale
-} from "#compiler/ir/carriers.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
 import type { ScalarTerm } from "#compiler/scalar/compute/term.ts"
@@ -59,6 +51,14 @@ import {
 	v
 } from "#test/unit/compute/support.ts"
 
+import {
+	binary64MaxExponent,
+	binary64MinExponent,
+	binary64Precision,
+	numericMaxFractionDigits,
+	numericMaxPrecision,
+	numericMaxScale
+} from "@grizzle/limits"
 import { regex } from "arkregex"
 /**
  * The field a literal base is typed by, as Compute.literal types one: a literal never stands first, so the base is a

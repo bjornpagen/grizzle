@@ -41,9 +41,7 @@ import {
 } from "effect"
 import { indices, maxOf } from "#compiler/core/array.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
-import { typlens } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
-import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import { fieldTypes } from "#compiler/ir/desc.ts"
 import type { Patterns } from "#compiler/ir/scalar.ts"
@@ -59,7 +57,6 @@ import {
 } from "#compiler/schema/relation.ts"
 import {
 	btreeEntryBytes,
-	btreeMaxItemSize,
 	type DatumBound,
 	datumBound,
 	gistEntryBytes,
@@ -102,6 +99,7 @@ import {
 	wildcard
 } from "#test/unit/schema/support.ts"
 
+import { btreeMaxItemSize, typlens, vectorMaxDimensions } from "@grizzle/limits"
 import { regex as arkregex } from "arkregex"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 const postgresIndexMaxKeys = 32

@@ -1,4 +1,3 @@
-import * as Result from "#compiler/core/result.ts"
 import {
 	binary32DecimalDigits,
 	binary32MaxExponent,
@@ -8,9 +7,10 @@ import {
 	binary64MaxExponent,
 	binary64MinExponent,
 	binary64Precision,
-	integerRanges,
 	moneyFractionDigits
-} from "#compiler/ir/carriers.ts"
+} from "@grizzle/limits"
+import * as Result from "#compiler/core/result.ts"
+import { integerRanges } from "#compiler/ir/carriers.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { fromUnits, toInteger } from "#compiler/scalar/compute/numeric.ts"
 import type { Undefined } from "#compiler/scalar/compute/registry.ts"

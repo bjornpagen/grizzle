@@ -1,3 +1,4 @@
+import { tableMaxColumns } from "@grizzle/limits"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
@@ -10,7 +11,6 @@ import {
 	identity
 } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, Identifier, IdentityKind } from "#compiler/core/ids.ts"
-import { tableMaxColumns } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { headNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { InferredFieldDesc } from "#compiler/ir/desc.ts"

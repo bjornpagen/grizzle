@@ -107,7 +107,7 @@ const timestampGen: Gen<string> = weighted([
 ])
 
 /** The longest migration name, the bound a name is drawn around. */
-const nameBound = maxMigrationNameLength.value
+const nameBound = maxMigrationNameLength
 
 /** Lowercase words, or a near miss: empty, a separator first, last or doubled, an uppercase letter, a space, a dot, a
  * letter outside ASCII; and names around maxMigrationNameLength: one letter short of it, at it, and one past it. */

@@ -1,5 +1,5 @@
+import { regexDfaMaxStates, regexDfaMaxWork } from "@grizzle/limits"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
-import { regexDfaMaxStates, regexDfaMaxWork } from "#compiler/core/limits.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -41,7 +41,7 @@ import { printExpr } from "#compiler/sql/print.ts"
 import { structuralBounds } from "#compiler/text/bounds.ts"
 
 /**
- * The host's bounds on a pattern's subset construction (core/limits.ts regexDfaMaxStates, regexDfaMaxWork): past
+ * The host's bounds on a pattern's subset construction (@grizzle/limits regexDfaMaxStates, regexDfaMaxWork): past
  * either, the analysis knows the language by its structure alone.
  */
 const dfaLimits: DfaLimits = Object.freeze({

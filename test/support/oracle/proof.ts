@@ -1,7 +1,7 @@
+import { numericMaxFractionDigits, regexTextMaxBytes } from "@grizzle/limits"
+import { numericMaxIntegerDigits } from "@grizzle/limits"
 import { Array as Arr, Option } from "effect"
-import { regexTextMaxBytes } from "#compiler/core/limits.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
-import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/ir/carriers.ts"
 import type { OpId } from "#compiler/ir/expr.ts"
 import type {
 	NativeProof,

@@ -1,3 +1,4 @@
+import { maxStringLength } from "@grizzle/limits"
 import { appendAll } from "#compiler/core/array.ts"
 import {
 	type CompileError,
@@ -8,7 +9,6 @@ import {
 	within
 } from "#compiler/core/errors.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
-import { maxStringLength } from "#compiler/core/limits.ts"
 import { isCapturedStack, isSourceLoc, readSite, SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"

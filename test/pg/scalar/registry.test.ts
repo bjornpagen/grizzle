@@ -28,15 +28,15 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
-import { regex } from "arkregex"
-import { Array as Arr, Effect, Formatter, pipe, Result, String as Str } from "effect"
-import { jsonText } from "#compiler/core/trusted.ts"
 import {
 	numericMaxPrecision,
 	numericMaxScale,
 	numericMinScale,
 	vectorMaxDimensions
-} from "#compiler/ir/carriers.ts"
+} from "@grizzle/limits"
+import { regex } from "arkregex"
+import { Array as Arr, Effect, Formatter, pipe, Result, String as Str } from "effect"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { serialDraw } from "#compiler/ir/desc.ts"
 import { type Capability, type Carrier, carriers } from "#compiler/ir/scalar.ts"
 import { nativeCapabilities } from "#compiler/scalar/native.ts"

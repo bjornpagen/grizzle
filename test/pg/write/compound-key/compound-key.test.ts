@@ -15,6 +15,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { boundedShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
+import { btreeMaxItemSize } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { onceCalls, type WrittenOutcome } from "#adapter/db/handles.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
@@ -28,7 +29,7 @@ import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { relationBuilder as relation } from "#compiler/schema/relation.ts"
-import { btreeMaxItemSize, keyLayout } from "#compiler/schema/representability.ts"
+import { keyLayout } from "#compiler/schema/representability.ts"
 import {
 	containedBuilder,
 	keyBuilder,

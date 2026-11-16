@@ -1,6 +1,6 @@
+import { maxStringLength } from "@grizzle/limits"
 import { Array as Arr, pipe, String as Str } from "effect"
 import { arrayTexts, parameterNormalizer, type RelationSpec } from "#compiler/codec/recordset.ts"
-import { maxStringLength } from "#compiler/core/limits.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Text } from "#compiler/core/utf8.ts"
 import type { Param } from "#compiler/core/wire.ts"

@@ -1,6 +1,4 @@
-import { exactParts, nanParts } from "#compiler/core/decimal.ts"
-import type { Limit } from "#compiler/core/limits.ts"
-import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import type { Limit } from "@bjornpagen/limit"
 import {
 	binary32MaxExponent,
 	binary32MinExponent,
@@ -9,7 +7,9 @@ import {
 	binary64MinExponent,
 	binary64Precision,
 	int8ExactDigits
-} from "#compiler/ir/carriers.ts"
+} from "@grizzle/limits"
+import { exactParts, nanParts } from "#compiler/core/decimal.ts"
+import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { ExactCarrier } from "#compiler/scalar/aggregate.ts"

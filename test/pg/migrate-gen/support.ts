@@ -11,13 +11,7 @@ import {
 	String as Str
 } from "effect"
 import { indices } from "#compiler/core/array.ts"
-import {
-	conversionOf as converts,
-	identity,
-	maxIdentifierBytes,
-	parseDeclaredName
-} from "#compiler/core/identity.ts"
-import { int8Max } from "#compiler/core/limits.ts"
+import { conversionOf as converts, identity, parseDeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
@@ -94,6 +88,7 @@ import {
 	type ValueFacts
 } from "#test/support/oracle/gen/facts.ts"
 
+import { int8Max, maxIdentifierBytes } from "@grizzle/limits"
 import { noLive } from "#compiler/live/notify.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {

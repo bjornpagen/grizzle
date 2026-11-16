@@ -1,10 +1,11 @@
+import { bytesChunkLength } from "@grizzle/limits"
 /**
  * How a statement delivers its rows, a hot path: every read of a statement's answer goes through `assembled` once, so
  * its work is native loops over the answer's cells with no closure per cell.
  *
  * pg 8.23 reads every result cell as one UTF-8 string, so no cell carries a value longer than one JavaScript string
  * holds. A bytes column therefore never travels as a text: a statement whose columns include one sends each of its
- * rows as one result row per chunk of its longest bytes value (core/limits.ts bytesChunkLength), each chunk base64url
+ * rows as one result row per chunk of its longest bytes value (@grizzle/limits bytesChunkLength), each chunk base64url
  * text, and `assembled` writes the chunks of each value into one fresh array over its own buffer. A row without a bytes
  * column travels whole, one result row each, its cells its columns' output texts. The one SQL form of either is
  * lower/delivery.ts's, built from the same `Delivery`, so the statement and its reader never disagree on a row's form,
@@ -12,7 +13,6 @@
  */
 import { bytesValueOf, rowCell, rowText } from "#compiler/core/decoder.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { bytesChunkLength } from "#compiler/core/limits.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { AssembledRows, Cell, OutputRows, OutputText } from "#compiler/core/wire.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"

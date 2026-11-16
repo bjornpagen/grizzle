@@ -1,5 +1,5 @@
+import { regexMaxHeldArcs } from "@grizzle/limits"
 import { defect } from "#compiler/core/invariant.ts"
-import { regexMaxHeldArcs } from "#compiler/core/limits.ts"
 import { postorder } from "#compiler/ir/dag.ts"
 import { type CharSet, isEmpty, union } from "#compiler/scalar/regex/charset.ts"
 
@@ -540,7 +540,7 @@ export class RegexBuilder {
 
 	/**
 	 * Whether a repetition still loops through an assertion: one whose body the rewrite left alone, its written-out
-	 * positions past regexMaxHeldArcs (core/limits.ts), so the arcs measure refuses its pattern as it would the
+	 * positions past regexMaxHeldArcs (@grizzle/limits), so the arcs measure refuses its pattern as it would the
 	 * rewritten one.
 	 */
 	loopsThroughAnchor(node: RegexNode): boolean {

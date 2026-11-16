@@ -36,6 +36,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
+import { timerMaxMs, timerMinMs } from "@grizzle/limits"
 import {
 	Array as Arr,
 	Deferred,
@@ -65,7 +66,7 @@ import type { SseEvent } from "#http/sse.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
 import { holdsCount, openStream, readStream, type StreamEvent } from "#test/support/event-stream.ts"
-import { caseHang, nodeTimerMax, nodeTimerMin } from "#test/support/limits.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { standing } from "#test/support/live/standing.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -181,9 +182,9 @@ const callGen =
  * range's ends or one between. A heartbeat is a comment line, so no answer's events depend on it.
  */
 const heartbeatGen: Gen<number> = oneOf<number>([
-	constant(nodeTimerMin.value),
-	constant(nodeTimerMax.value),
-	int(nodeTimerMin.value, nodeTimerMax.value)
+	constant(timerMinMs.value),
+	constant(timerMaxMs.value),
+	int(timerMinMs.value, timerMaxMs.value)
 ])
 
 const caseGen: Gen<StreamCase> = (source) => {

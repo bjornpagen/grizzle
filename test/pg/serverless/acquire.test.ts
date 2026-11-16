@@ -16,6 +16,7 @@ import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
+import { timerMinMs } from "@grizzle/limits"
 import { Effect, Exit, Formatter, Option } from "effect"
 import { CredentialError } from "#adapter/errors/failures.ts"
 import { Db } from "#adapter/public/db.ts"
@@ -28,7 +29,7 @@ import { roleBackends } from "#test/pg/serverless/support.ts"
 import { assert } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { a1, t1, t3, workFacts } from "#test/support/fixtures/golden/work.ts"
-import { caseHang, nodeTimerMin } from "#test/support/limits.ts"
+import { caseHang } from "#test/support/limits.ts"
 import { sourcedDbLayer } from "#test/support/live-layer.ts"
 import { clusterConnection } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -139,7 +140,7 @@ layer(Substrate.layer)("a connection that can't be had", (it) => {
 												failing.now ? Effect.fail(refusal) : Effect.succeed(credentials.password)
 											)
 										),
-										pool: { max: 1, min: 0, idleTimeoutMs: nodeTimerMin.value },
+										pool: { max: 1, min: 0, idleTimeoutMs: timerMinMs.value },
 										login: o.served.login,
 										verify: testVerify
 									})

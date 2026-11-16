@@ -1,4 +1,4 @@
-import { grizzle, toolchain } from "@bjornpagen/devtools/config"
+import { grizzle, limits, toolchain } from "@bjornpagen/devtools/config"
 
 /**
  * Every experiment, a package of its own of scripts run by hand that nothing type-checks, until its verdict deletes it
@@ -122,6 +122,6 @@ export default toolchain({
 		{ rule: "ts-only-extensions", files: ["upstream/v8-unicode-end-anchor-astral-class/repro.js"] },
 		experiments
 	],
-	effectFree: ["packages/engine"],
-	packs: [grizzle()]
+	effectFree: ["packages/engine", "packages/limits"],
+	packs: [grizzle(), limits()]
 })

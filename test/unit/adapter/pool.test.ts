@@ -7,6 +7,7 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { timerMinMs } from "@grizzle/limits"
 import {
 	Array as Arr,
 	Clock,
@@ -25,12 +26,7 @@ import type { Transport } from "#adapter/types/layer.ts"
 import { makePool, type PoolState, type Session } from "#adapter/wire/session.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { assert } from "#test/support/assert.ts"
-import {
-	caseHang,
-	nodeTimerMin,
-	testConnectTimeout,
-	testIdleTimeout
-} from "#test/support/limits.ts"
+import { caseHang, testConnectTimeout, testIdleTimeout } from "#test/support/limits.ts"
 import { memoryEndpoint, memoryTransport, tlsMaterial } from "#test/support/memory-tls.ts"
 import { noPassword } from "#test/support/pg.ts"
 import { parsedConnection } from "#test/support/pg.ts"
@@ -297,12 +293,12 @@ const poolKept: ReadonlyArray<Kept<Sequence, PoolFeature>> = [
 ]
 
 /**
- * The pool's idle timeouts, in milliseconds of real time: short, the least delay a Node timer waits (nodeTimerMin), so
+ * The pool's idle timeouts, in milliseconds of real time: short, the least delay a Node timer waits (timerMinMs), so
  * a session released above the floor is closed at once, and long, which never fires while its test runs
  * (testIdleTimeout).
  */
 const idleMillis: { readonly [I in Sequence["idle"]]: number } = {
-	short: nodeTimerMin.value,
+	short: timerMinMs.value,
 	long: testIdleTimeout.value
 }
 

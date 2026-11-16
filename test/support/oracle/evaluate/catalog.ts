@@ -1,6 +1,5 @@
 import { Array as Arr, Option, Result } from "effect"
 import type { ParamId } from "#compiler/core/ids.ts"
-import { regexTextMaxBytes } from "#compiler/core/limits.ts"
 import * as Engine from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
 import { codePoints } from "#compiler/core/text.ts"
@@ -12,6 +11,7 @@ import {
 	type ScalarExpr
 } from "#compiler/ir/expr.ts"
 
+import { decimalTextMaxBytes, regexTextMaxBytes } from "@grizzle/limits"
 import type { VectorText } from "#compiler/ir/carriers.ts"
 import {
 	baseOf,
@@ -34,7 +34,6 @@ import {
 	nativeOp,
 	nativeOps
 } from "#compiler/scalar/compute/registry.ts"
-import { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
 import { matches } from "#compiler/scalar/regex/match.ts"
 import { matchFlags } from "#compiler/scalar/regex/matcher.ts"
 import { buildNfa } from "#compiler/scalar/regex/nfa.ts"

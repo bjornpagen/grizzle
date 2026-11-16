@@ -1,7 +1,7 @@
+import { bytesChunkLength } from "@grizzle/limits"
 import { maxOf } from "#compiler/core/array.ts"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { bytesChunkLength } from "#compiler/core/limits.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"

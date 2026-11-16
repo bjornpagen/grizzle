@@ -16,13 +16,9 @@ import { notesOnly } from "@bjornpagen/testing/sense"
 import { completeShrink } from "@bjornpagen/testing/shrink"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
+import { maxIdentifierBytes } from "@grizzle/limits"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
-import {
-	conversionOf,
-	identity,
-	maxIdentifierBytes,
-	parseDeclaredName
-} from "#compiler/core/identity.ts"
+import { conversionOf, identity, parseDeclaredName } from "#compiler/core/identity.ts"
 import { assert, nonEmpty } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"
 

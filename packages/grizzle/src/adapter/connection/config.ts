@@ -1,4 +1,5 @@
 import { createSecureContext, type SecureContext } from "node:tls"
+import { portMax, timerMaxMs, timerMinMs } from "@grizzle/limits"
 import * as Arr from "effect/Array"
 import * as Brand from "effect/Brand"
 import * as Effect from "effect/Effect"
@@ -11,12 +12,10 @@ import { readHost } from "#adapter/engine.ts"
 import type { SettingFault, SettingRule } from "#adapter/errors/failures.ts"
 import type { PgDriver, PgSocket } from "#adapter/types/driver.ts"
 import type { DbConnection, PoolBounds, Transport } from "#adapter/types/layer.ts"
-import type { Limit } from "#compiler/plan/common.ts"
 import {
 	type CallerObject,
 	type CallerRecord,
 	roleInSpace,
-	published,
 	type RoleSpace,
 	readCaller,
 	roleSpaceOf
@@ -116,39 +115,6 @@ export const transportSettings = ["kind", "host", "port", "open", "ca", "servern
 export const poolSettings = ["max", "min", "idleTimeoutMs"] as const
 
 /**
- * The longest delay a Node timer keeps: pg's connect timeout and pg-pool's idle timeout are Node timers, and one longer
- * is set to 1, so it fires at once.
- */
-export const timerMaxMs: Limit = published({
-	value: 2_147_483_647,
-	owner: "Node.js 26.13.0 timers",
-	unit: "milliseconds",
-	scope:
-		"a connection's connectTimeoutMs, a DbConfig's pool.idleTimeoutMs and an HttpConfig's heartbeatMs, each the delay of a Node timer",
-	constraint: "protocol constant",
-	source: "https://nodejs.org/docs/v26.13.0/api/timers.html#settimeoutcallback-delay-args",
-	quote:
-		"When `delay` is larger than `2147483647` or less than `1` or `NaN`, the `delay` will be set to `1`.",
-	verified: "2026-11-05"
-})
-
-/**
- * The largest port number: TCP's, the transport a connection's socket runs over, whose port numbers are 16 bits, the
- * Dynamic Ports ending the range.
- */
-const portMax = published({
-	value: 65_535,
-	owner: "the IETF's transport port number registries (RFC 6335)",
-	unit: "port numbers",
-	scope: "the port of one connection's host",
-	constraint: "protocol constant",
-	source: "https://www.rfc-editor.org/rfc/rfc6335.html#section-6",
-	quote:
-		"the Dynamic Ports, also known as the Private or Ephemeral Ports, from 49152-65535 (never assigned)",
-	verified: "2026-11-05"
-})
-
-/**
  * A host a socket reaches over the network, as the parse admits it (parseTransport): a name or an IP address, nonempty,
  * and never a path. node-postgres reads a host that starts with / as the directory of a Unix socket, which it connects
  * by path alone, and PostgreSQL offers TLS over no Unix socket, so an SSLRequest transport never has one.
@@ -200,12 +166,12 @@ const integerIn = (v: number, least: number, most: number): boolean =>
 	Number.isSafeInteger(v) && v >= least && v <= most
 
 /** Whether `v` is a timer's delay: an integer number of milliseconds from 1 to the longest a timer keeps. */
-export const timerDelay = (v: number): boolean => integerIn(v, 1, timerMaxMs.value)
+export const timerDelay = (v: number): boolean => integerIn(v, timerMinMs.value, timerMaxMs.value)
 
 /** The rule a timer's delay keeps. */
 export const timerRule: SettingRule = {
 	kind: "integer",
-	least: 1,
+	least: timerMinMs.value,
 	most: timerMaxMs.value,
 	unit: "milliseconds"
 }

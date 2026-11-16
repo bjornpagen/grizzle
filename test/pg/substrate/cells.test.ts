@@ -28,10 +28,10 @@ import { requiredInSpace } from "@bjornpagen/testing/features"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
+import { maxStringLength } from "@grizzle/limits"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { cell, fromText } from "#compiler/codec/bits.ts"
 import { indices } from "#compiler/core/array.ts"
-import { maxStringLength } from "#compiler/core/limits.ts"
 import {
 	cellWidth,
 	constantOf as encodedOf,

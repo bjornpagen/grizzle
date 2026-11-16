@@ -2,7 +2,6 @@ import { keyedBy } from "#compiler/analysis/physical/props.ts"
 import { appendAll } from "#compiler/core/array.ts"
 import type { NodeId, VarId } from "#compiler/core/ids.ts"
 import { defined } from "#compiler/core/invariant.ts"
-import { postgresSource, published } from "#compiler/core/limits.ts"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { nodePremises } from "#compiler/ir/certificate.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
@@ -24,6 +23,7 @@ import {
 	widenedHeading
 } from "#compiler/lower/optimize/demand/editor.ts"
 
+import { collapseLimit } from "@grizzle/limits"
 import {
 	type CellPhysical,
 	measureOverDemand,
@@ -88,26 +88,6 @@ const shapedExistence = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArr
 		return !DagEditor.correlated(o.source) && !cx.cells.feedback.has(o.source)
 	})
 }
-
-/**
- * PostgreSQL's default join_collapse_limit, which is from_collapse_limit's too: the most FROM items the planner flattens
- * one join problem into, and plans exhaustively, before it plans the rest as separate subproblems in the order written.
- * No grizzle session sets either, so the default is the value every statement is planned under. The docs state it
- * through from_collapse_limit, "By default, this variable is set the same as from_collapse_limit", whose "default is
- * eight" (https://www.postgresql.org/docs/19/runtime-config-query.html).
- */
-export const collapseLimit = published({
-	value: 8,
-	owner: "PostgreSQL 19rc2's planner",
-	unit: "FROM items",
-	scope:
-		"one join problem the planner flattens, under the session default no grizzle session changes",
-	constraint: "configurable default",
-	source: `${postgresSource}/src/backend/utils/misc/guc_parameters.dat#L1538-L1546`,
-	quote:
-		"{ name => 'join_collapse_limit', type => 'int', context => 'PGC_USERSET', [...] boot_val => '8',",
-	verified: "2026-11-14"
-})
 
 /**
  * The number of groups `occurrences` form, two occurrences in one group when a chain of shared variables joins them; a

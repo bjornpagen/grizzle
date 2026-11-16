@@ -1,6 +1,7 @@
 #!/usr/bin/env -S node
 import net from "node:net"
 import { NodeRuntime, NodeServices } from "@effect/platform-node"
+import { timerMaxMs } from "@grizzle/limits"
 import {
 	Array as Arr,
 	Console,
@@ -29,7 +30,6 @@ import {
 	writeRunRecord
 } from "#bench/cold/identity.ts"
 import { elapsed } from "#bench/cold/stats.ts"
-import { benchConnectTimeout, benchIdleTimeout } from "#bench/harness/limits.ts"
 import { checkFiles } from "#cli/check.ts"
 import { resolveConfig } from "#cli/config.ts"
 import { readTargets } from "#cli/migrate.ts"
@@ -379,12 +379,12 @@ const offline: DbConnection = {
 	},
 	database: "offline",
 	password: Redacted.make("offline"),
-	connectTimeoutMs: benchConnectTimeout.value
+	connectTimeoutMs: timerMaxMs.value
 }
 
 const owner: MigrationConnectionConfig = { ...offline, role: "bench_owner" }
 
-const pool: PoolBounds = { max: 1, min: 0, idleTimeoutMs: benchIdleTimeout.value }
+const pool: PoolBounds = { max: 1, min: 0, idleTimeoutMs: timerMaxMs.value }
 
 /** A command line's run in process over the configuration, refused unless it ended with status 0. */
 const command = (phase: Phase, argv: ReadonlyArray<string>, cwd: string, load: ConfigLoader) =>

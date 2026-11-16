@@ -14,7 +14,6 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./internal/core/array.ts": "./src/core/array.ts",
-		"./internal/core/limits.ts": "./src/core/limits.ts",
 		"./internal/live/index.ts": "./src/live/index.ts",
 		"./internal/plan/catalog.ts": "./src/plan/catalog.ts",
 		"./internal/plan/change.ts": "./src/plan/change.ts",
@@ -34,6 +33,8 @@
 		"oxlint": "toolchain-oxlint"
 	},
 	"dependencies": {
+		"@bjornpagen/limit": "workspace:*",
+		"@grizzle/limits": "workspace:*",
 		"arkregex": "catalog:"
 	},
 	"devDependencies": {

@@ -1,9 +1,9 @@
+import { maxIdentifierBytes } from "@grizzle/limits"
 import { nominal } from "#compiler/core/brand.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { ConstantDigest, DomainDigest } from "#compiler/core/fingerprint.ts"
 import type { Identifier, IdentityKind } from "#compiler/core/ids.ts"
-import { derived, type Limit, namedatalen } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Comparator, compareStrings, type Direction } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -50,20 +50,6 @@ import { sha256Hex, utf8Length } from "#compiler/core/sha256.ts"
  * order, and an installation-scoped identifier's digest differs from one installation to the next.
  */
 
-/**
- * The longest identifier PostgreSQL keeps, in bytes: a longer one is truncated, so two names that differ past it are
- * one name.
- */
-export const maxIdentifierBytes: Limit = derived({
-	owner: "PostgreSQL 19rc2",
-	unit: "bytes",
-	scope: "one identifier: an object's, a column's, a role's or a temporary table's name",
-	from: [namedatalen],
-	derivation:
-		'NAMEDATALEN less its terminating zero: "The system uses no more than NAMEDATALEN-1 bytes of an identifier; longer names can be written in commands, but they will be truncated." (https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/syntax.sgml#L133-L135)',
-	compute: ([n]) => n.value - 1
-})
-
 /** A hashed name's lead, `__`, which no declared name has. */
 const hashedLead = "__"
 /** The separator of a hashed name's stem and its digest. */
@@ -92,17 +78,12 @@ const roleSeparator = "__"
 const digestChars = 10
 
 /**
- * The bytes a hashed name's stem may take: the longest identifier less its lead, its separator and its digest.
+ * The bytes a hashed name's stem may take: the longest identifier (maxIdentifierBytes) less its lead, its separator and
+ * its digest. No limit of its own: PostgreSQL's identifier length read against the hashed name's format, whose widths
+ * are the format's.
  */
-const stemBudget: Limit = derived({
-	owner: "grizzle's naming door",
-	unit: "bytes",
-	scope: "the readable stem of one hashed identifier",
-	from: [maxIdentifierBytes],
-	derivation:
-		"maxIdentifierBytes - |__| - |_| - digestChars: the stem takes what the lead, the separator and the digest leave of the longest identifier",
-	compute: ([max]) => max.value - hashedLead.length - digestSeparator.length - digestChars
-})
+const stemBudget: number =
+	maxIdentifierBytes.value - hashedLead.length - digestSeparator.length - digestChars
 
 /**
  * The bytes an installation's role prefix may take: what the longest identifier leaves of `<prefix>__<name>` once the
@@ -114,23 +95,16 @@ const stemBudget: Limit = derived({
  * role set aside within maxIdentifierBytes, whatever the installation's names: a prefix too long for them is refused
  * where it is parsed (parseRolePrefix), before any connection or statement, never by a migration's statement. A
  * login's or a role's own name, which its declared names lengthen, is held to maxIdentifierBytes with the prefix where
- * the role is named (roleInSpace).
+ * the role is named (roleInSpace). No limit of its own: maxIdentifierBytes less `<prefix>__<name>`'s separator and the
+ * longest hashed role name, `__aside_<digest>`, each a width of the naming door's format.
  */
-const rolePrefixBytes: Limit = derived({
-	owner: "grizzle's naming door",
-	unit: "bytes",
-	scope: "an installation's role prefix",
-	from: [maxIdentifierBytes],
-	derivation:
-		"maxIdentifierBytes - |__| - (|__| + max(|live|, |aside|) + |_| + digestChars): the prefix, its separator from the role's name and the longest hashed role name, __aside_<digest>, share the longest identifier",
-	compute: ([max]) =>
-		max.value -
-		roleSeparator.length -
-		(hashedLead.length +
-			Math.max(liveSegment.length, asideSegment.length) +
-			digestSeparator.length +
-			digestChars)
-})
+const rolePrefixBytes: number =
+	maxIdentifierBytes.value -
+	roleSeparator.length -
+	(hashedLead.length +
+		Math.max(liveSegment.length, asideSegment.length) +
+		digestSeparator.length +
+		digestChars)
 
 /** One part of an identity: a text, a list of parts, or a nested identity. */
 export type Part = string | ReadonlyArray<Part> | Identity<IdentityKind>
@@ -394,8 +368,8 @@ export const parseRolePrefix = (prefix: string): Result.Result<RolePrefix, RoleP
 		return Result.err({ kind: "reserved" })
 	}
 	const bytes = utf8Length(prefix)
-	return bytes > rolePrefixBytes.value
-		? Result.err({ kind: "length", bytes, limit: rolePrefixBytes.value })
+	return bytes > rolePrefixBytes
+		? Result.err({ kind: "length", bytes, limit: rolePrefixBytes })
 		: Result.ok(rolePrefixOf(prefix))
 }
 
@@ -602,8 +576,8 @@ const stemSegments = (
 	let bytes = 0
 	for (const segment of led) {
 		const next = stem.length === 0 ? segment.length : bytes + 1 + segment.length
-		if (next > stemBudget.value) {
-			return stem.length === 0 ? [segment.slice(0, stemBudget.value)] : stem
+		if (next > stemBudget) {
+			return stem.length === 0 ? [segment.slice(0, stemBudget)] : stem
 		}
 		stem.push(segment)
 		bytes = next

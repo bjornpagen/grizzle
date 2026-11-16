@@ -1,3 +1,4 @@
+import { type Limit, derived, measured } from "@bjornpagen/limit"
 import { liveMillis, liveSleep } from "@bjornpagen/testing/live"
 import { regex } from "arkregex"
 import {
@@ -13,7 +14,6 @@ import {
 	String as Str
 } from "effect"
 import { ChildProcess } from "effect/process"
-import { derived, type Limit, measured } from "#compiler/core/limits.ts"
 
 /**
  * The repository's compiler, the patched TypeScript 7 tsgo, run to completion as a child process under a stall guard. A

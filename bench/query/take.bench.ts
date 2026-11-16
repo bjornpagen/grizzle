@@ -64,6 +64,7 @@ import {
 	withPriceFor
 } from "#bench/query/support/lab.ts"
 
+import { lateralParentMax } from "@grizzle/limits"
 import {
 	indexAccessOn,
 	nodeTypes,
@@ -73,7 +74,6 @@ import {
 	scansOf
 } from "#bench/query/support/plans.ts"
 import { indices, maxOf } from "#compiler/core/array.ts"
-import { lateralParentMax } from "#compiler/core/limits.ts"
 import { ledgerStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { DeliveredPart } from "#compiler/lower/shapes/index.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
@@ -105,7 +105,7 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  *   and as a derived relation's definition (support/lab.ts BestThree), which "always wants every group, so it never
  *   takes the correlated form" (:243): refreshed by the runtime's refresh transaction, its refresh time, rows written
  *   and the definition's workers launched recorded. The threshold between the two forms, lateralParentMax
- *   (core/limits.ts), is an operating point between two genuinely different shapes that deliver the same rows, so the
+ *   (@grizzle/limits), is an operating point between two genuinely different shapes that deliver the same rows, so the
  *   gate also runs both over the same input across the sizes it decides by, for its evidence to be read off the
  *   crossover: take(k) by (score desc, id) per parent, k = 1 and k = 3, for a relation parameter's parents sent as the
  *   runtime sends a relation input, one text array per column read by unnest, as the LATERAL probe, LIMIT k per

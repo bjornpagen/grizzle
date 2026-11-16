@@ -25,13 +25,13 @@ import { completeShrink } from "@bjornpagen/testing/shrink"
 import { double, float } from "@bjornpagen/testing/values"
 import { searched } from "@bjornpagen/testing/vitest"
 import { describe, it } from "@effect/vitest"
-import { Effect, Formatter } from "effect"
 import {
 	binary32LeastExponent,
 	binary32Max,
 	binary32MaxExponent,
 	binary32Precision
-} from "#compiler/ir/carriers.ts"
+} from "@grizzle/limits"
+import { Effect, Formatter } from "effect"
 import { compareFloat, floatText, toReal } from "#compiler/scalar/values/float.ts"
 import { assert, faulted, succeeded } from "#test/support/assert.ts"
 import { caseHang } from "#test/support/limits.ts"

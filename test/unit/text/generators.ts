@@ -435,7 +435,7 @@ const armAnchor = (anchor: "^" | "$"): Gen<string> =>
  * and matchPattern admit it. Every atom matches a code point (a class as admittedClass builds one), so every sequence,
  * group and alternation does; `^` stands only at the head of a top-level arm and `$` only at its end, where no consumed
  * code point stands before one or after the other. So every anchor stands at an end of every path through it, which
- * constraint elimination never moves and regexMaxAnchors never counts (core/limits.ts), whatever the arms; and the
+ * constraint elimination never moves and regexMaxAnchors never counts (@grizzle/limits), whatever the arms; and the
  * bounded depth and the quantifier's small counts keep its automaton within the other limits. A refused pattern is
  * patternOver's to draw.
  */

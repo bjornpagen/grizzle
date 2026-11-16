@@ -43,7 +43,6 @@ import {
 	type RelationIdent
 } from "#compiler/core/ids.ts"
 import { defect } from "#compiler/core/invariant.ts"
-import { heapTupleMaxBytes } from "#compiler/core/limits.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isNonEmpty, mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -94,6 +93,7 @@ import {
 	textOf
 } from "#compiler/ir/scalar.ts"
 
+import { heapTupleMaxBytes } from "@grizzle/limits"
 import { existenceConstraints } from "#compiler/laws/model/catalog.ts"
 import { keyOf } from "#compiler/laws/model/names.ts"
 import {

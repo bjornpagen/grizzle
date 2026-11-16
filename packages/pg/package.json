@@ -25,6 +25,8 @@
 	},
 	"dependencies": {
 		"@bjornpagen/grizzle-engine": "workspace:*",
+		"@bjornpagen/limit": "workspace:*",
+		"@grizzle/limits": "workspace:*",
 		"@bjornpagen/testing": "workspace:*",
 		"@effect/platform-node": "catalog:",
 		"arkregex": "catalog:"
