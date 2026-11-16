@@ -31,372 +31,50 @@
  * Features: a prefix and none, a capitalized schema spelling, an unknown variable, a stem variable, an aside variable,
  * a live source variable, a variable in an earlier form.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, codePoint, element, type Gen, option, string } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { searched } from "@bjornpagen/testing/vitest"
-import { NodeServices } from "@effect/platform-node"
-import { layer } from "@effect/vitest"
-import { regex } from "arkregex"
-import {
-	Array as Arr,
-	DateTime,
-	Effect,
-	FileSystem,
-	Formatter,
-	Option,
-	Order,
-	String as Str
-} from "effect"
-import { roleNameOf } from "#adapter/served/served.ts"
-import {
-	conversionOf,
-	identifierOf,
-	identity,
-	parseRolePrefix,
-	type RoleSpace
-} from "#compiler/core/identity.ts"
-import { splitStatements } from "#compiler/deploy/render/markers.ts"
-import { resolveVariables } from "#compiler/deploy/render/variables.ts"
-import { quoteIdent } from "#compiler/sql/print.ts"
-import { defineConfig } from "#index.ts"
-import { shopV1 } from "#test/pg/cli/fixture.ts"
-import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
-import { assert } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
 
-type Spelling = "lowercase" | "capitalized" | "capitals"
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { draftCase, type DraftFeature, draftingGen } from "#test/unit/deploy/variables.fixtures.ts"
 
-const spelled: { readonly [S in Spelling]: (segment: string) => string } = {
-	lowercase: (segment) => segment,
-	capitalized: Str.capitalize,
-	capitals: Str.toUpperCase
-}
-
-/** Lowercase words joined by single underscores, each spelled as drawn, the first ending in `x` so none is `pg`. */
-const wordsGen: Gen<string> = (source) => {
-	const words = [
-		`${source.draw(string(codePoint(0x61, 0x7a), { min: 1, max: 5 }))}x`,
-		...source.draw(array(string(codePoint(0x61, 0x7a), { min: 1, max: 4 }), { min: 0, max: 2 }))
-	]
-	return Arr.join(
-		Arr.map(words, (w) =>
-			spelled[source.draw(element<Spelling>(["lowercase", "capitalized", "capitals"]))](w)
-		),
-		"_"
-	)
-}
-
-interface Drafting {
-	readonly schema: string
-	readonly prefix: Option.Option<string>
-	readonly database: string
-	readonly variable: string
-}
-
-/** A word of lowercase letters. */
-const wordGen: Gen<string> = string(codePoint(0x61, 0x7a), { min: 1, max: 5 })
-
-/** A segment an earlier hashed name spelled: lowercase letters and digits. */
-const segmentGen: Gen<string> = string(
-	element(["a", "b", "c", "x", "y", "z", "0", "1", "8", "9"]),
-	{
-		min: 1,
-		max: 6
-	}
-)
-
-/** A variable's name as `kind` draws it. */
-const variableGen =
-	(kind: VariableKind): Gen<string> =>
-	(source) => {
-		switch (kind) {
-			case "stem":
-				return `${source.draw(wordGen)}__${source.draw(wordGen)}`
-			case "aside":
-				return identity.roleAside(
-					`${source.draw(wordGen)}__${Arr.join(source.draw(array(wordGen, { min: 1, max: 14 })), "_")}`
-				).identifier
-			case "objectAside":
-				return identity.aside(Arr.join(source.draw(array(wordGen, { min: 1, max: 14 })), "_"))
-					.identifier
-			case "live":
-				return identity.liveSource(Arr.join(source.draw(array(wordGen, { min: 1, max: 14 })), "_"))
-					.identifier
-			case "earlier": {
-				const now = identity.liveSource(source.draw(wordGen)).identifier
-				const segments = Arr.join(source.draw(array(segmentGen, { min: 1, max: 8 })), "_")
-				return `${Str.slice(0, -10)(now)}${segments}_${Str.slice(-10)(now)}`
+/** The variables of a drafted migration fill every drafted statement under each drawn role space as psql interpolates it, byte for byte under none, name every created role by its variable, and refuse every variable that is neither DBNAME nor a role's stem, aside or live source name. */
+export const theVariablesOfADraftedMigrationFillEveryDraftedStatementUnderEachDrawnRoleSpaceAsPsqlInterpolatesItByteForByteUnderNoneNameEveryCreatedRoleByItsVariableAndRefuseEveryVariableThatIsNeitherDBNAMENorARolesStemAsideOrLiveSourceName =
+	property.explore(draftingGen, {
+		needs: {},
+		situations: [
+			"a prefix",
+			"no prefix",
+			"a capitalized schema spelling",
+			"an unknown variable",
+			"a stem variable",
+			"an aside variable",
+			"a live source variable",
+			"a variable in an earlier form"
+		] satisfies ReadonlyArray<Reached<DraftFeature>>,
+		check: (_, c: Case<DraftFeature>) => (value) => draftCase(value, c),
+		oracle: {
+			kind: "specification",
+			name: "psql's identifier interpolation, each variable its role under the space"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/sql/print.ts",
+				original: `\t\t\t\t\`CREATE ROLE \${printRole(statement.name)} \${statement.login ? "LOGIN NOINHERIT" : "NOLOGIN"}\``,
+				replacement: `\t\t\t\t\`CREATE ROLE \${quoteIdent(statement.name)} \${statement.login ? "LOGIN NOINHERIT" : "NOLOGIN"}\``,
+				why: "A CREATE ROLE prints its role by its quoted stem, no variable; the property that every created role is a variable fails."
+			},
+			{
+				file: "packages/engine/src/deploy/render/variables.ts",
+				original: "\t\tResult.map(roleInSpace(names.roles, variable.name), quoteIdent),",
+				replacement:
+					"\t\tResult.map(Result.flatMap(roleInSpace(names.roles, variable.name), (once) => roleInSpace(names.roles, once)), quoteIdent),",
+				why: "A role variable is filled with the prefix twice; the prefix property fails."
+			},
+			{
+				file: "packages/engine/src/deploy/render/variables.ts",
+				original: '\t\treturn { kind: "database" }',
+				replacement: '\t\treturn { kind: "role", name, form: "stem" }',
+				why: "The database variable is filled as a role's name, DBNAME's in the role space, not the database's; the property that the variables are DBNAME and a role's names fails."
 			}
-			case "database":
-				return "DBNAME"
-			case "drawn":
-				return source.draw(
-					string(element(["a", "b", "z", "1", "_", "A", "D", "B", "N", "M", "E", '"']), {
-						min: 1,
-						max: 10
-					})
-				)
-		}
-	}
-
-const draftingGen: Gen<Drafting> = (source) => ({
-	schema: source.draw(wordsGen),
-	prefix: Option.map(source.draw(option(wordsGen)), Str.toLowerCase),
-	database: source.draw(string(codePoint(0x61, 0x7a), { min: 1, max: 12 })),
-	variable: source.draw(
-		variableGen(
-			source.draw(
-				element<VariableKind>([
-					"stem",
-					"aside",
-					"objectAside",
-					"live",
-					"earlier",
-					"database",
-					"drawn"
-				])
-			)
-		)
-	)
-})
-
-/**
- * How a case's variable is drawn: a stem's shape, a role's aside name, an object's aside name, a root's live source
- * name, a live source name an earlier grizzle spelled with segments before its digest, DBNAME's letters, or any
- * characters.
- */
-type VariableKind = "stem" | "aside" | "objectAside" | "live" | "earlier" | "database" | "drawn"
-
-type DraftFeature =
-	| "a prefix"
-	| "no prefix"
-	| "a capitalized schema spelling"
-	| "an unknown variable"
-	| "a stem variable"
-	| "an aside variable"
-	| "a live source variable"
-	| "a variable in an earlier form"
-
-/** One lowercase conversion: a letter, then letters and digits, in words joined by single underscores. */
-const conversion = regex("^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$")
-
-/**
- * A name a migration sets a role aside under, by the specification: `__aside_`, any segments of lowercase letters and
- * digits each followed by `_`, and a ten-character digest.
- */
-const asideName = regex("^__aside_(?:[a-z0-9]+_)*[a-z2-7]{10}$")
-
-/** Whether a variable's name is a role's aside name by the specification, within 63 bytes. */
-const isAside = (name: string): boolean => asideName.test(name) && name.length <= 63
-
-/** A live source's name, by the specification: `__live_`, any segments, and a ten-character digest. */
-const liveName = regex("^__live_(?:[a-z0-9]+_)*[a-z2-7]{10}$")
-
-/** Whether a variable's name is a live source's name by the specification, within 63 bytes. */
-const isLive = (name: string): boolean => liveName.test(name) && name.length <= 63
-
-/** A hashed role name that spells segments before its digest, as an earlier grizzle's did. */
-const earlierName = regex("^__[a-z]+_[a-z0-9_]+_[a-z2-7]{10}$")
-
-/** Whether a hashed role name spells segments before its digest. */
-const isEarlier = (name: string): boolean => earlierName.test(name)
-
-/** The features a role variable's name notes: the form the specification reads it in, and an earlier spelling. */
-const roleFeatures = (name: string): ReadonlyArray<DraftFeature> =>
-	isStem(name)
-		? ["a stem variable"]
-		: [
-				isAside(name) ? "an aside variable" : "a live source variable",
-				...(isEarlier(name) ? (["a variable in an earlier form"] as const) : [])
-			]
-
-/** Whether a variable's name is a stem by the specification: two conversions joined by `__`. */
-const isStem = (name: string): boolean =>
-	Option.match(Str.indexOf("__")(name), {
-		onNone: () => false,
-		onSome: (at) =>
-			at > 0 && conversion.test(Str.slice(0, at)(name)) && conversion.test(Str.slice(at + 2)(name))
+		]
 	})
-
-/** `statement` with each variable `:"<name>"` spelled as `spell` spells its name: psql's interpolation of it. */
-const interpolated = (statement: string, spell: (name: string) => string): string => {
-	let out = ""
-	let from = 0
-	for (const m of Str.matchAll(variables)(statement)) {
-		const start = m.index ?? from
-		out += `${Str.slice(from, start)(statement)}${spell(m[1] ?? "")}`
-		from = start + m[0].length
-	}
-	return `${out}${Str.slice(from)(statement)}`
-}
-
-/** Each variable of a drafted statement: a colon no colon precedes, before a double quote, and its name. */
-const variables = regex('(?<!:):"([^"]*)"', "g")
-
-/** A drafted folder's name: its 14-digit timestamp, then its name. */
-const folderName = regex("^[0-9]{14}_")
-
-/** A CREATE ROLE statement's role, as it is written. */
-const createdRole = regex("^\\s*CREATE ROLE (\\S+)", "m")
-
-const at = DateTime.makeUnsafe({
-	year: 2026,
-	month: 11,
-	day: 11,
-	hour: 12,
-	minute: 0,
-	second: 0,
-	millisecond: 0
-})
-
-const draftCase = (d: Drafting, c: Case<DraftFeature>) =>
-	Effect.scoped(
-		Effect.gen(function* () {
-			const fs = yield* FileSystem.FileSystem
-			const shop = shopV1(d.schema, "full")
-			const dir = yield* workspace("variables")
-			const config = defineConfig({
-				schemas: [shop.schema],
-				logins: [shop.server],
-				migrations: "migrations",
-				connection: () => offlineOwner
-			})
-			const ran = yield* cliOver(dir, config, ["generate", configName], at)
-			assert.equal(ran.code, 0, `grizzle generate: ${ran.stderr}`)
-			if (d.schema !== Str.toLowerCase(d.schema)) {
-				c.note("a capitalized schema spelling")
-			}
-			const root = `${dir}/migrations/${conversionOf(d.schema)}`
-			const entries = yield* fs.readDirectory(root)
-			const statements: Array<string> = []
-			for (const folder of Arr.filter(entries, (f) => folderName.test(f))) {
-				const files = yield* fs.readDirectory(`${root}/${folder}`)
-				for (const file of Arr.filter(files, Str.endsWith(".sql"))) {
-					const text = yield* fs.readFileString(`${root}/${folder}/${file}`)
-					for (const statement of splitStatements(text)) {
-						statements.push(statement)
-					}
-				}
-			}
-			assert.ok(statements.length > 0, "the folder holds statements")
-			const space: RoleSpace = Option.match(d.prefix, {
-				onNone: () => ({ kind: "stems" }),
-				onSome: (p) => {
-					const parsed = parseRolePrefix(p)
-					return parsed.ok ? { kind: "prefixed", prefix: parsed.value } : { kind: "stems" }
-				}
-			})
-			c.note(space.kind === "prefixed" ? "a prefix" : "no prefix")
-			for (const statement of statements) {
-				const plain = resolveVariables(statement, { database: "DBNAME", roles: { kind: "stems" } })
-				assert.ok(plain.ok, `the statement fills under no prefix: ${statement}`)
-				assert.equal(
-					plain.value,
-					interpolated(statement, quoteIdent),
-					"filled under no prefix, each variable is its name quoted"
-				)
-				const filled = resolveVariables(statement, { database: d.database, roles: space })
-				assert.ok(filled.ok, `the statement fills under the space: ${statement}`)
-				assert.equal(
-					filled.value,
-					interpolated(statement, (name) =>
-						name === "DBNAME"
-							? quoteIdent(d.database)
-							: quoteIdent(space.kind === "prefixed" ? `${space.prefix}__${name}` : name)
-					),
-					"filled under the space, each role variable is its role and the database's its name"
-				)
-			}
-			const created = Arr.sort(
-				Arr.flatMap(statements, (s) => {
-					const m = createdRole.exec(s)
-					return m?.[1] === undefined ? [] : [m[1]]
-				}),
-				Order.String
-			)
-			assert.deepEqual(
-				created,
-				Arr.sort(
-					[
-						...Arr.map(
-							[shop.server, shop.reader, shop.writer],
-							(w) => `:${quoteIdent(roleNameOf(w, {}))}`
-						),
-						`:${quoteIdent(identifierOf(identity.liveSource(conversionOf(d.schema))))}`
-					],
-					Order.String
-				),
-				"every CREATE ROLE names a stem of the login or its roles, or the decoder login, by its variable"
-			)
-			const probe = resolveVariables(`SELECT :${quoteIdent(d.variable)}`, {
-				database: d.database,
-				roles: space
-			})
-			const role = space.kind === "prefixed" ? `${space.prefix}__${d.variable}` : d.variable
-			if (isStem(d.variable) || isAside(d.variable) || isLive(d.variable)) {
-				c.noteAll(roleFeatures(d.variable))
-				assert.deepEqual(
-					probe,
-					role.length <= 63
-						? { ok: true, value: `SELECT ${quoteIdent(role)}` }
-						: { ok: false, error: { kind: "roleTooLong", name: d.variable, role, limit: 63 } },
-					`the role's name ${d.variable} fills as its role under the space`
-				)
-			} else if (d.variable === "DBNAME") {
-				assert.deepEqual(
-					probe,
-					{ ok: true, value: `SELECT ${quoteIdent(d.database)}` },
-					"DBNAME fills as the database"
-				)
-			} else {
-				c.note("an unknown variable")
-				assert.deepEqual(
-					probe,
-					{ ok: false, error: { kind: "unknownVariable", name: d.variable } },
-					`the variable ${d.variable} is neither DBNAME nor a role's name, refused as unknown`
-				)
-			}
-		})
-	)
-
-layer(NodeServices.layer)("the variables of a drafted migration", (it) => {
-	it.effect(
-		"fill every drafted statement under each drawn role space as psql interpolates it, byte for byte under none, name every created role by its variable, and refuse every variable that is neither DBNAME nor a role's stem, aside or live source name",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/deploy/variables",
-						draw: drawn(draftingGen),
-						literal: Formatter.format,
-						oracle: {
-							kind: "specification",
-							name: "psql's identifier interpolation, each variable its role under the space"
-						},
-						coverage: required<DraftFeature>(
-							[
-								"a prefix",
-								"no prefix",
-								"a capitalized schema spelling",
-								"an unknown variable",
-								"a stem variable",
-								"an aside variable",
-								"a live source variable",
-								"a variable in an earlier form"
-							],
-							{ cases: 16, sense: notesOnly }
-						),
-						kept: [],
-						runs: 24,
-						shrink: { kind: "bounded", candidates: 20 },
-						steerEvery: 8,
-						caseHang
-					},
-					draftCase
-				)
-			)
-	)
-})

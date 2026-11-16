@@ -1,6 +1,7 @@
+import { type Dictionary, dictionary } from "@bjornpagen/testing/dictionary"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { canonicalZero, VectorText } from "#compiler/ir/carriers.ts"
+import { canonicalZero, integerRanges, VectorText } from "#compiler/ir/carriers.ts"
 import { decimalPayload } from "#compiler/ir/decimal.ts"
 import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import { literalProblem, nativeEqualityKey, type TypedLiteral } from "#compiler/ir/expr.ts"
@@ -18,15 +19,17 @@ import {
 	rosterOf,
 	type ScalarType,
 	type ExactValueCarrier,
+	type IntegerCarrier,
 	textOf,
 	textPatterns,
 	vectorTypmodOf
 } from "#compiler/ir/scalar.ts"
+import { type NativeOp, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { noRosters, scalarTypeOf } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
-import { defined } from "#test/support/assert.ts"
+import { defined, nonEmpty } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { toastPair, toastText } from "#test/support/oracle/gen/toast.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
@@ -78,6 +81,30 @@ export const genCarriers = [
 	"vector"
 ] as const
 export type GenCarrier = (typeof genCarriers)[number]
+
+/** The integer carriers, the roster the carriers declare their ranges by (ir/carriers.ts integerRanges). */
+export const integerCarriers: Dictionary<IntegerCarrier> = dictionary(
+	nonEmpty(Rec.keys(integerRanges), "the integer carriers")
+)
+
+/** The registry's native operations (scalar/compute/registry.ts nativeOps), every node the evaluator and the lowering dispatch on. */
+export const nativeOperations: Dictionary<NativeOp> = dictionary(
+	nonEmpty(nativeOps, "the registry's nodes")
+)
+
+/** The registry's operations over two sets: every native node whose two operands are both a set over a roster. */
+export const twoSetOperations: Dictionary<NativeOp> = dictionary(
+	nonEmpty(
+		Arr.filter(
+			nativeOps,
+			(op) =>
+				op.operands.kind === "positional" &&
+				op.operands.carriers.length === 2 &&
+				Arr.every(op.operands.carriers, (carrier) => carrier === "bits")
+		),
+		"the registry's operations over two sets"
+	)
+)
 
 /**
  * Every generated text field is str.regex("^.{0,2}$", "su"): at most two code points of any kind, which admits the

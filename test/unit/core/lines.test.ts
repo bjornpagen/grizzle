@@ -14,298 +14,227 @@
  * Features: the limit far within, at, one past and far past the text's length; the fewest lines past V8's longest
  * string, and more.
  */
-import { drawn, exhaust, explore } from "@bjornpagen/testing/explore"
-import { required, requiredInSpace } from "@bjornpagen/testing/features"
-import {
-	array,
-	characterOf,
-	codePoint,
-	constant,
-	element,
-	type Gen,
-	int,
-	string,
-	weighted
-} from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { array, constant, element, finite, int, weighted } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
 import { maxStringLength } from "@grizzle/limits"
-import { Array as Arr, Effect, Formatter, Result, String as Str } from "effect"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { Array as Arr, Effect, Result, String as Str } from "effect"
 import { enclosedWithin, type Lines, textOf } from "#compiler/core/lines.ts"
-import { SourceLoc } from "#compiler/core/loc.ts"
-import type * as Engine from "#compiler/core/result.ts"
-import { assert, refused, succeeded } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
+import { assert, refused } from "#test/support/assert.ts"
+import {
+	agrees,
+	at,
+	type Bound,
+	boundOf,
+	frame,
+	limitAround,
+	type Longest,
+	offset,
+	type Past,
+	piece,
+	type Written
+} from "#test/unit/core/lines.fixtures.ts"
 
-describe("the text bound", () => {
-	type Longest = "within V8's longest string" | "V8's longest string" | "past V8's longest string"
+/** The text bound is V8's longest string on the running Node. */
+export const theTextBoundIsV8sLongestStringOnTheRunningNode = property.exhaust(
+	finite(int(maxStringLength.value - 8, maxStringLength.value + 8)),
+	{
+		needs: {},
+		situations: [
+			"within V8's longest string",
+			"V8's longest string",
+			"past V8's longest string"
+		] satisfies ReadonlyArray<Reached<Longest>>,
+		check: (_, c: Case<Longest>) => (length) =>
+			Effect.sync(() => {
+				const built = Result.try(() => Str.repeat(length)("x").length)
+				assert.equal(
+					Result.isSuccess(built),
+					length <= maxStringLength.value,
+					`a string of ${length} code units`
+				)
+				if (Result.isFailure(built)) {
+					assert.ok(built.failure instanceof RangeError, "V8 refuses the length")
+				}
+				c.note(
+					length === maxStringLength.value
+						? "V8's longest string"
+						: length < maxStringLength.value
+							? "within V8's longest string"
+							: "past V8's longest string"
+				)
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the running V8, building a string of that many code units or throwing a RangeError"
+		},
+		box: "every string length within eight code units of maxStringLength",
+		kept: [],
+		kills: [
+			{
+				file: "packages/limits/src/limits.ts",
+				original: "\tvalue: 2 ** 29 - 24,",
+				replacement: "\tvalue: 2 ** 29 - 23,",
+				why: "maxStringLength one past V8's longest string; the V8 property fails."
+			}
+		]
+	}
+)
 
-	it.effect("is V8's longest string on the running Node", (ctx) =>
-		searched(
-			ctx,
-			exhaust(
-				{
-					suite: "unit/core/lines-v8-longest",
-					generator: int(maxStringLength.value - 8, maxStringLength.value + 8),
-					literal: Formatter.format,
-					box: "every string length within eight code units of maxStringLength",
-					oracle: {
-						kind: "second-implementation",
-						name: "the running V8, building a string of that many code units or throwing a RangeError"
-					},
-					coverage: requiredInSpace<Longest>([
-						"within V8's longest string",
-						"V8's longest string",
-						"past V8's longest string"
-					]),
-					caseHang
-				},
-				(length, c) =>
+/** The text bound a written text is exactly its lines joined when it fits, and refused with its length otherwise. */
+export const theTextBoundAWrittenTextIsExactlyItsLinesJoinedWhenItFitsAndRefusedWithItsLengthOtherwise =
+	property.explore(
+		(s) => ({
+			unit: s.draw(
+				weighted([
+					[1, constant("  ")],
+					[1, constant("\t")],
+					[1, constant("")]
+				])
+			),
+			lines: s.draw(
+				array((t): Written => ({ depth: t.draw(int(0, 3)), text: t.draw(piece) }), {
+					min: 0,
+					max: 8
+				})
+			),
+			by: s.draw(offset)
+		}),
+		{
+			needs: {},
+			situations: ["far within", "at the limit", "one past", "far past"] satisfies ReadonlyArray<
+				Reached<Bound>
+			>,
+			check:
+				(_, c: Case<Bound>) =>
+				({ unit, lines, by }) =>
 					Effect.sync(() => {
-						const built = Result.try(() => Str.repeat(length)("x").length)
-						assert.equal(
-							Result.isSuccess(built),
-							length <= maxStringLength.value,
-							`a string of ${length} code units`
+						const expected = Arr.join(
+							Arr.map(lines, (l) => `${Str.repeat(l.depth)(unit)}${l.text}`),
+							"\n"
 						)
-						if (Result.isFailure(built)) {
-							assert.ok(built.failure instanceof RangeError, "V8 refuses the length")
+						const limit = limitAround(expected.length, by)
+						const write = (out: Lines): void => {
+							for (const l of lines) {
+								let view = out
+								for (let d = 0; d < l.depth; d++) {
+									view = view.nested()
+								}
+								view.line(l.text)
+							}
 						}
-						c.note(
-							length === maxStringLength.value
-								? "V8's longest string"
-								: length < maxStringLength.value
-									? "within V8's longest string"
-									: "past V8's longest string"
-						)
-					})
-			)
-		)
-	)
-
-	/** Where a drawn limit falls against the text's length: the situations the measure's arithmetic must get right. */
-	type Bound = "far within" | "at the limit" | "one past" | "far past"
-
-	/** One line a writer writes, `depth` views deep. */
-	interface Written {
-		readonly depth: number
-		readonly text: string
-	}
-
-	/** A text's pieces: ASCII, a newline inside a line, and an astral character, two UTF-16 code units. */
-	const piece: Gen<string> = weighted([
-		[4, string(characterOf(["a", "b", " ", ","] as const), { min: 0, max: 6 })],
-		[1, constant("\n")],
-		[1, codePoint(0x1_0000, 0x1_0010)]
-	])
-
-	/** How far the limit sits from the text's length, by the situation it puts the measure in. */
-	const offset: Gen<number> = weighted([
-		[2, int(2, 40)],
-		[3, constant(0)],
-		[3, constant(-1)],
-		[2, int(-40, -2)]
-	])
-
-	const boundOf = (length: number, limit: number): Bound =>
-		limit === length
-			? "at the limit"
-			: limit === length - 1
-				? "one past"
-				: limit > length
-					? "far within"
-					: "far past"
-
-	/** The limit drawn around `length`, never below zero. */
-	const limitAround = (length: number, by: number): number => Math.max(length + by, 0)
-
-	const at = SourceLoc("drawn text", [])
-
-	/**
-	 * Exactly the expected text when it fits, and otherwise ResourceBound (text) at `at` with the expected text's length
-	 * as `needed`: the oracle is the text joined by hand.
-	 */
-	const agrees = (
-		actual: Engine.Result<string, CompileError>,
-		expected: string,
-		limit: number
-	): void => {
-		if (expected.length <= limit) {
-			assert.equal(succeeded(actual), expected)
-			return
+						agrees(textOf(limit, unit, at, write), expected, limit)
+						c.note(boundOf(expected.length, limit))
+					}),
+			oracle: { kind: "second-implementation", name: "the lines joined by hand" },
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/core/lines.ts",
+					original: "\treturn needed > limit",
+					replacement: "\treturn needed >= limit",
+					why: "a text exactly at the limit refused; the written text's and the enclosure's properties fail."
+				},
+				{
+					file: "packages/engine/src/core/lines.ts",
+					original: `\t\treturn new BlockLines(this.#out, this.#unit, \`\${this.#indent}\${this.#unit}\`)`,
+					replacement: "\t\treturn new BlockLines(this.#out, this.#unit, this.#unit)",
+					why: "a nested view indented one unit whatever its depth; the written text property fails."
+				}
+			]
 		}
-		assert.deepEqual(refused(actual, "ResourceBound").reason, {
-			_tag: "ResourceBound",
-			at,
-			bound: { kind: "stringLength", limit, needed: expected.length }
-		})
-	}
+	)
 
-	/** A frame's text: none, one of two literals, or a drawn piece. */
-	const frame = (one: string, other: string): Gen<string> =>
-		weighted([
-			[1, constant("")],
-			[1, constant(one)],
-			[1, constant(other)],
-			[1, piece]
-		])
-
-	const situations = required<Bound>(["far within", "at the limit", "one past", "far past"], {
-		cases: 300,
-		sense: notesOnly
-	})
-
-	it.effect(
-		"a written text is exactly its lines joined when it fits, and refused with its length otherwise",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: { kind: "second-implementation", name: "the lines joined by hand" },
-						suite: "unit/core/lines-text",
-						draw: drawn((s) => ({
-							unit: s.draw(
-								weighted([
-									[1, constant("  ")],
-									[1, constant("\t")],
-									[1, constant("")]
-								])
-							),
-							lines: s.draw(
-								array((t): Written => ({ depth: t.draw(int(0, 3)), text: t.draw(piece) }), {
-									min: 0,
-									max: 8
-								})
-							),
-							by: s.draw(offset)
-						})),
-						literal: Formatter.format,
-						kept: [],
-						runs: 300,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang,
-						coverage: situations
-					},
-					({ unit, lines, by }, c) =>
-						Effect.sync(() => {
-							const expected = Arr.join(
-								Arr.map(lines, (l) => `${Str.repeat(l.depth)(unit)}${l.text}`),
-								"\n"
-							)
-							const limit = limitAround(expected.length, by)
-							const write = (out: Lines): void => {
-								for (const l of lines) {
-									let view = out
-									for (let d = 0; d < l.depth; d++) {
-										view = view.nested()
-									}
-									view.line(l.text)
-								}
+/** The text bound a text past JavaScript's longest string is refused with its length before it is built. */
+export const theTextBoundATextPastJavaScriptsLongestStringIsRefusedWithItsLengthBeforeItIsBuilt =
+	property.explore(
+		(s) => ({
+			width: s.draw(element([2 ** 20, 2 ** 22, 2 ** 24] as const)),
+			extra: s.draw(
+				weighted([
+					[1, constant(0)],
+					[1, int(1, 3)]
+				])
+			)
+		}),
+		{
+			needs: {},
+			situations: ["the fewest lines past", "more lines past"] satisfies ReadonlyArray<
+				Reached<Past>
+			>,
+			check:
+				(_, c: Case<Past>) =>
+				({ width, extra }) =>
+					Effect.sync(() => {
+						const line = Str.repeat(width)("x")
+						const count = Math.floor(maxStringLength.value / (width + 1)) + 1 + extra
+						const write = (out: Lines): void => {
+							for (let i = 0; i < count; i++) {
+								out.line(line)
 							}
-							agrees(textOf(limit, unit, at, write), expected, limit)
-							c.note(boundOf(expected.length, limit))
-						})
-				)
-			)
-	)
-
-	/** How a text past JavaScript's longest string is made of lines: the fewest that pass it, or more. */
-	type Past = "the fewest lines past" | "more lines past"
-
-	it.effect(
-		"a text past JavaScript's longest string is refused with its length before it is built",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "the text's length, counted, past maxStringLength"
-						},
-						suite: "unit/core/lines-longest",
-						draw: drawn((s) => ({
-							width: s.draw(element([2 ** 20, 2 ** 22, 2 ** 24] as const)),
-							extra: s.draw(
-								weighted([
-									[1, constant(0)],
-									[1, int(1, 3)]
-								])
-							)
-						})),
-						literal: Formatter.format,
-						kept: [],
-						runs: 8,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang,
-						coverage: required<Past>(["the fewest lines past", "more lines past"], {
-							cases: 8,
-							sense: notesOnly
-						})
-					},
-					({ width, extra }, c) =>
-						Effect.sync(() => {
-							const line = Str.repeat(width)("x")
-							const count = Math.floor(maxStringLength.value / (width + 1)) + 1 + extra
-							const write = (out: Lines): void => {
-								for (let i = 0; i < count; i++) {
-									out.line(line)
-								}
+						}
+						const needed = count * width + count - 1
+						assert.ok(needed > maxStringLength.value)
+						assert.deepEqual(
+							refused(textOf(maxStringLength.value, "  ", at, write), "ResourceBound").reason,
+							{
+								_tag: "ResourceBound",
+								at,
+								bound: { kind: "stringLength", limit: maxStringLength.value, needed }
 							}
-							const needed = count * width + count - 1
-							assert.ok(needed > maxStringLength.value)
-							assert.deepEqual(
-								refused(textOf(maxStringLength.value, "  ", at, write), "ResourceBound").reason,
-								{
-									_tag: "ResourceBound",
-									at,
-									bound: { kind: "stringLength", limit: maxStringLength.value, needed }
-								}
-							)
-							c.note(extra === 0 ? "the fewest lines past" : "more lines past")
-						})
-				)
-			)
+						)
+						c.note(extra === 0 ? "the fewest lines past" : "more lines past")
+					}),
+			oracle: {
+				kind: "specification",
+				name: "the text's length, counted, past maxStringLength"
+			},
+			kept: [],
+			kills: []
+		}
 	)
 
-	it.effect(
-		"an enclosure is exactly its frame around its parts when it fits, and refused with its length otherwise",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: { kind: "second-implementation", name: "the enclosure joined by hand" },
-						suite: "unit/core/lines-enclosed",
-						draw: drawn((s) => ({
-							open: s.draw(frame("[", "{")),
-							close: s.draw(frame("]", "}")),
-							separator: s.draw(frame(",", ", ")),
-							parts: s.draw(array(piece, { min: 0, max: 8 })),
-							by: s.draw(offset)
-						})),
-						literal: Formatter.format,
-						kept: [],
-						runs: 300,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang,
-						coverage: situations
-					},
-					({ open, close, separator, parts, by }, c) =>
-						Effect.sync(() => {
-							const expected = `${open}${Arr.join(parts, separator)}${close}`
-							const limit = limitAround(expected.length, by)
-							agrees(enclosedWithin(limit, at, open, parts, separator, close), expected, limit)
-							c.note(boundOf(expected.length, limit))
-						})
-				)
-			)
+/** The text bound an enclosure is exactly its frame around its parts when it fits, and refused with its length otherwise. */
+export const theTextBoundAnEnclosureIsExactlyItsFrameAroundItsPartsWhenItFitsAndRefusedWithItsLengthOtherwise =
+	property.explore(
+		(s) => ({
+			open: s.draw(frame("[", "{")),
+			close: s.draw(frame("]", "}")),
+			separator: s.draw(frame(",", ", ")),
+			parts: s.draw(array(piece, { min: 0, max: 8 })),
+			by: s.draw(offset)
+		}),
+		{
+			needs: {},
+			situations: ["far within", "at the limit", "one past", "far past"] satisfies ReadonlyArray<
+				Reached<Bound>
+			>,
+			check:
+				(_, c: Case<Bound>) =>
+				({ open, close, separator, parts, by }) =>
+					Effect.sync(() => {
+						const expected = `${open}${Arr.join(parts, separator)}${close}`
+						const limit = limitAround(expected.length, by)
+						agrees(enclosedWithin(limit, at, open, parts, separator, close), expected, limit)
+						c.note(boundOf(expected.length, limit))
+					}),
+			oracle: { kind: "second-implementation", name: "the enclosure joined by hand" },
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/core/lines.ts",
+					original: "\treturn needed > limit",
+					replacement: "\treturn needed >= limit",
+					why: "a text exactly at the limit refused; the written text's and the enclosure's properties fail."
+				},
+				{
+					file: "packages/engine/src/core/lines.ts",
+					original:
+						"\tlet needed = open.length + close.length + Math.max(parts.length - 1, 0) * separator.length",
+					replacement: "\tlet needed = open.length + close.length + Math.max(parts.length - 1, 0)",
+					why: "every separator measured as one code unit, whatever its length; the enclosure property fails."
+				}
+			]
+		}
 	)
-})

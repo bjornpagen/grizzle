@@ -13,233 +13,124 @@
  * Features: each change of the parts (content, a non-SourceLoc loc, SourceLocs moved); two domains, an empty domain, a
  * domain of two lines.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import {
-	array,
-	boolean,
-	codePoint,
-	element,
-	type Gen,
-	int,
-	map,
-	string,
-	uniqueArray,
-	weighted
-} from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Record } from "effect"
-import { everyProperty, type Path } from "#compiler/core/canonical.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect, Record } from "effect"
+import { everyProperty } from "#compiler/core/canonical.ts"
 import { digest, schemaLevel } from "#compiler/core/fingerprint.ts"
-import { type SourceLoc, sitedLoc } from "#compiler/core/loc.ts"
-import { isRecord } from "#compiler/core/record.ts"
 import { assert, defined, refused, succeeded } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { isList } from "#test/support/list.ts"
+import {
+	type Change,
+	changed,
+	changes,
+	contentWith,
+	type DomainFeature,
+	domainGen,
+	located,
+	type Parts,
+	partsGen,
+	stripped
+} from "#test/unit/core/fingerprint.fixtures.ts"
 
-const leaf = weighted<string | number | boolean>([
-	[1, string(codePoint(0x20, 0x7e), { min: 0, max: 4 })],
-	[1, int(-(2 ** 31), 2 ** 31 - 1)],
-	[1, boolean]
-])
-const sourceLocGen: Gen<{ readonly label: string; readonly path: Path; readonly line: number }> = (
-	source
-) => ({
-	label: source.draw(element(["relation Task", "field id"])),
-	path: source.draw(array(element<string | number>(["Work", "Task", 0]), { min: 0, max: 3 })),
-	line: source.draw(int(0, 99))
-})
-
-const located = (loc: { readonly label: string; readonly path: Path; readonly line: number }) =>
-	sitedLoc(loc.label, loc.path, { file: "schema.ts", line: loc.line, column: 3 })
-
-/** Content as a description holds it: records of leaves, each record located by a drawn SourceLoc under "loc". */
-const contentGen: Gen<{
-	readonly entries: ReadonlyArray<readonly [string, string | number | boolean]>
-	readonly locs: ReadonlyArray<{
-		readonly label: string
-		readonly path: Path
-		readonly line: number
-	}>
-}> = (source) => ({
-	entries: source.draw(
-		array(
-			(source) =>
-				[source.draw(element(["name", "kind", "q", "fields"])), source.draw(leaf)] as const,
-			{ min: 1, max: 4 }
-		)
-	),
-	locs: source.draw(array(sourceLocGen, { min: 2, max: 2 }))
-})
-
-const contentWith = (
-	entries: ReadonlyArray<readonly [string, unknown]>,
-	loc: SourceLoc
-): unknown => ({
-	...Record.fromEntries(entries),
-	loc,
-	nested: { ...Record.fromEntries(entries), loc }
-})
-
-/**
- * The same content with every SourceLoc stripped: a "loc" holding a record, which the content holds only as a
- * SourceLoc.
- */
-const stripped = (v: unknown): unknown => {
-	if (isList(v)) {
-		return Arr.map(v, stripped)
-	}
-	if (!isRecord(v)) {
-		return v
-	}
-	return Record.fromEntries(
-		Arr.flatMap(Record.toEntries(v), ([k, x]) =>
-			k === "loc" && isRecord(x) ? [] : [[k, stripped(x)]]
-		)
-	)
-}
-
-/**
- * One change of a fingerprint's parts: those the contract covers change it, a moved SourceLoc does not, and a "loc" that
- * holds no SourceLoc is content.
- */
-type Change = "content" | "a non-SourceLoc loc" | "SourceLocs moved"
-
-const changes: Arr.NonEmptyReadonlyArray<Change> = [
-	"content",
-	"a non-SourceLoc loc",
-	"SourceLocs moved"
-]
-
-interface Parts {
-	readonly content: unknown
-}
-
-/** The parts after `change`, each change made so that it is one by construction. */
-const changed = (
-	p: Parts,
-	change: Change,
-	loc: SourceLoc,
-	base: ReadonlyArray<readonly [string, unknown]>
-): Parts => {
-	switch (change) {
-		case "content":
-			return { ...p, content: contentWith([...base, ["changed", true]], loc) }
-		case "a non-SourceLoc loc":
-			return { ...p, content: { ...Record.fromEntries(base), loc: "Rome" } }
-		case "SourceLocs moved":
-			return { ...p, content: contentWith(base, loc) }
-	}
-}
-
-describe("fingerprints", () => {
-	it.effect("cover every part the contract names and nothing else", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: { kind: "specification", name: "the parts the fingerprint's contract names" },
-					suite: "unit/core/fingerprint-parts",
-					draw: drawn(
-						(source) => [source.draw(contentGen), source.draw(element(changes))] as const
-					),
-					literal: Formatter.format,
-					coverage: required<Change>(changes, { cases: 400, sense: notesOnly }),
-					kept: [],
-					runs: 400,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				([{ entries, locs }, change], c) =>
-					Effect.sync(() => {
-						const [first, second] = locs
-						const here = located(defined(first, "a location"))
-						const there = located(defined(second, "a location"))
-						const p: Parts = { content: contentWith(entries, here) }
-						/** A non-SourceLoc loc is compared with another one, as content: Paris against Rome. */
-						const before: Parts =
-							change === "a non-SourceLoc loc"
-								? { ...p, content: { ...Record.fromEntries(entries), loc: "Paris" } }
-								: p
-						const after = changed(before, change, there, entries)
-						const schema = (q: Parts) => succeeded(schemaLevel(q.content, undefined)).fingerprint
-						const schemaParts: ReadonlySet<Change> = new Set(["content", "a non-SourceLoc loc"])
-						assert.equal(
-							schema(after) !== schema(before),
-							schemaParts.has(change),
-							"the schema fingerprint"
-						)
-						assert.equal(schema({ ...before, content: stripped(before.content) }), schema(before))
-						const above = { ...Record.fromEntries(entries), loc: there, extends: before.content }
-						assert.deepEqual(
-							succeeded(schemaLevel(above, succeeded(schemaLevel(before.content, undefined)))),
-							succeeded(schemaLevel(above, undefined)),
-							"a level over the level below it, as it is alone"
-						)
-						c.note(change)
-					})
-			)
-		)
-	)
-
-	it.effect("separate their domains, and refuse a domain of no single line", (ctx) =>
-		Effect.gen(function* () {
-			type DomainFeature = "two domains" | "an empty domain" | "a domain of two lines"
-			yield* searched(
-				ctx,
-				explore(
-					{
-						oracle: { kind: "specification", name: "a one-line domain, separated" },
-						suite: "unit/core/fingerprint-domain",
-						draw: drawn(
-							(source) =>
-								[
-									source.draw(
-										map(
-											uniqueArray(
-												string(codePoint(0x20, 0x7e), { min: 0, max: 4 }),
-												(k) => (source) => [k, source.draw(leaf)] as const,
-												{ min: 0, max: 3 }
-											),
-											Record.fromEntries
-										)
-									),
-									source.draw(string(codePoint(0x20, 0x7e), { min: 1, max: 8 })),
-									source.draw(string(codePoint(0x20, 0x7e), { min: 1, max: 8 })),
-									source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 4 }))
-								] as const
-						),
-						literal: Formatter.format,
-						coverage: required<DomainFeature>(
-							["two domains", "an empty domain", "a domain of two lines"],
-							{ cases: 200, sense: notesOnly }
-						),
-						kept: [],
-						runs: 200,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					([value, a, b, tail], c) =>
-						Effect.sync(() => {
-							if (a !== b) {
-								assert.notEqual(
-									succeeded(digest(a, value, everyProperty)),
-									succeeded(digest(b, value, everyProperty))
-								)
-								c.note("two domains")
-							}
-							refused(digest("", value, everyProperty), "MalformedArtifact")
-							c.note("an empty domain")
-							refused(digest(`${a}\n${tail}`, value, everyProperty), "MalformedArtifact")
-							c.note("a domain of two lines")
-						})
+/** Fingerprints cover every part the contract names and nothing else. */
+export const fingerprintsCoverEveryPartTheContractNamesAndNothingElse = property.explore(partsGen, {
+	needs: {},
+	situations: changes satisfies ReadonlyArray<Reached<Change>>,
+	check:
+		(_, c: Case<Change>) =>
+		([{ entries, locs }, change]) =>
+			Effect.sync(() => {
+				const [first, second] = locs
+				const here = located(defined(first, "a location"))
+				const there = located(defined(second, "a location"))
+				const p: Parts = { content: contentWith(entries, here) }
+				/** A non-SourceLoc loc is compared with another one, as content: Paris against Rome. */
+				const before: Parts =
+					change === "a non-SourceLoc loc"
+						? { ...p, content: { ...Record.fromEntries(entries), loc: "Paris" } }
+						: p
+				const after = changed(before, change, there, entries)
+				const schema = (q: Parts) => succeeded(schemaLevel(q.content, undefined)).fingerprint
+				const schemaParts: ReadonlySet<Change> = new Set(["content", "a non-SourceLoc loc"])
+				assert.equal(
+					schema(after) !== schema(before),
+					schemaParts.has(change),
+					"the schema fingerprint"
 				)
-			)
-		})
-	)
+				assert.equal(schema({ ...before, content: stripped(before.content) }), schema(before))
+				const above = { ...Record.fromEntries(entries), loc: there, extends: before.content }
+				assert.deepEqual(
+					succeeded(schemaLevel(above, succeeded(schemaLevel(before.content, undefined)))),
+					succeeded(schemaLevel(above, undefined)),
+					"a level over the level below it, as it is alone"
+				)
+				c.note(change)
+			}),
+	oracle: { kind: "specification", name: "the parts the fingerprint's contract names" },
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/core/canonical.ts",
+			original: '\t(key === "loc" && isSourceLoc(value)) ||',
+			replacement: '\tkey === "loc" ||',
+			why: 'a "loc" member omitted whatever it holds, a SourceLoc or not; the parts property fails.'
+		},
+		{
+			file: "packages/engine/src/core/fingerprint.ts",
+			original: "\t\t\t? encode(level, withoutSourceLocs)",
+			replacement: "\t\t\t? encode(level, { omit: () => false })",
+			why: "a level alone encoded with every property, its SourceLocs kept in the text; the parts property fails."
+		},
+		{
+			file: "packages/engine/src/core/fingerprint.ts",
+			original: '\t\t\t: encodeOver(level, withoutSourceLocs, new Map([["extends", below.text]])),',
+			replacement:
+				'\t\t\t: encodeOver(level, withoutSourceLocs, new Map([["extends", below.fingerprint]])),',
+			why: "a level over another written with the level below's fingerprint in place of its text; the parts property's level-below differential fails."
+		}
+	]
 })
+
+/** Fingerprints separate their domains, and refuse a domain of no single line. */
+export const fingerprintsSeparateTheirDomainsAndRefuseADomainOfNoSingleLine = property.explore(
+	domainGen,
+	{
+		needs: {},
+		situations: ["two domains", "an empty domain", "a domain of two lines"] satisfies ReadonlyArray<
+			Reached<DomainFeature>
+		>,
+		check:
+			(_, c: Case<DomainFeature>) =>
+			([value, a, b, tail]) =>
+				Effect.sync(() => {
+					if (a !== b) {
+						assert.notEqual(
+							succeeded(digest(a, value, everyProperty)),
+							succeeded(digest(b, value, everyProperty))
+						)
+						c.note("two domains")
+					}
+					refused(digest("", value, everyProperty), "MalformedArtifact")
+					c.note("an empty domain")
+					refused(digest(`${a}\n${tail}`, value, everyProperty), "MalformedArtifact")
+					c.note("a domain of two lines")
+				}),
+		oracle: { kind: "specification", name: "a one-line domain, separated" },
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/core/fingerprint.ts",
+				original: `\t\tsha256Hex(\`\${canonicalFormat}\\n\${domain}\\n\${text}\`)`,
+				replacement: `\t\tsha256Hex(\`\${canonicalFormat}\\n\${text}\`)`,
+				why: "the domain left out of the hashed text; the domains property fails."
+			},
+			{
+				file: "packages/engine/src/core/fingerprint.ts",
+				original: '\tif (domain.length === 0 || domain.includes("\\n")) {',
+				replacement: "\tif (domain.length === 0) {",
+				why: "a domain of two lines admitted; the domains property fails."
+			}
+		]
+	}
+)

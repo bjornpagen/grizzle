@@ -13,158 +13,77 @@
  *
  * Features: each code point's UTF-8 width (one to four bytes), a lone surrogate, and an empty text.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import { sha256Hex, utf8, utf8Length } from "#compiler/core/sha256.ts"
 import { assert } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
+import { type Feature, generalized, noteText, utf16 } from "#test/unit/core/sha256.fixtures.ts"
 
-const platform = new TextEncoder()
+/** Utf8 writes any UTF-16 string as generalized UTF-8, a lone surrogate as its own three bytes. */
+export const utf8WritesAnyUTF16StringAsGeneralizedUTF8ALoneSurrogateAsItsOwnThreeBytes =
+	property.explore(utf16, {
+		needs: {},
+		situations: [
+			"a one-byte point",
+			"a two-byte point",
+			"a three-byte point",
+			"a four-byte point",
+			"a lone surrogate",
+			"an empty text"
+		] satisfies ReadonlyArray<Reached<Feature>>,
+		check: (_, c: Case<Feature>) => (text) =>
+			Effect.sync(() => {
+				const expected = generalized(text)
+				const written: ReadonlyArray<number> = [...utf8(text)]
+				assert.deepEqual(written, expected)
+				assert.equal(utf8Length(text), expected.length)
+				noteText(text, c)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "generalized UTF-8, code point by code point, a lone surrogate as three bytes"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/core/sha256.ts",
+				original: "\ttext.isWellFormed() ? encoder.encode(text) : wtf8(text)",
+				replacement: "\tencoder.encode(text)",
+				why: "utf8 writes a lone surrogate as the platform writes it, U+FFFD; the generalized UTF-8 property fails."
+			},
+			{
+				file: "packages/engine/src/core/sha256.ts",
+				original:
+					"\t\t} else if (unit >= 0xd800 && unit <= 0xdbff && isLowSurrogate(text.charCodeAt(at + 1))) {",
+				replacement:
+					"\t\t} else if (unit >= 0xd800 && unit <= 0xdbff && isLowSurrogate(text.charCodeAt(at))) {",
+				why: "utf8Length counts a surrogate pair as two three-byte units; the generalized UTF-8 property fails."
+			}
+		]
+	})
 
-type Feature =
-	| "a one-byte point"
-	| "a two-byte point"
-	| "a three-byte point"
-	| "a four-byte point"
-	| "a lone surrogate"
-	| "an empty text"
-
-const isSurrogate = (cp: number): boolean => cp >= 0xd800 && cp <= 0xdfff
-
-/** Each code point of `text` as the platform iterates it, a lone surrogate as a code point of its own. */
-const pointsOf = (text: string): ReadonlyArray<number> =>
-	Arr.map(Arr.fromIterable(text), (point) =>
-		Option.getOrThrowWith(Str.codePointAt(point, 0), () => new Error("a code point"))
-	)
-
-/**
- * The bytes of `text` by the definition of the encoding fingerprints hash, one code point at a time: a surrogate code
- * point is 0xE0 | cp >> 12, 0x80 | (cp >> 6) & 0x3F, 0x80 | cp & 0x3F; every other code point is the platform
- * encoder's.
- */
-const generalized = (text: string): ReadonlyArray<number> =>
-	Arr.flatMap(pointsOf(text), (cp) =>
-		isSurrogate(cp)
-			? [0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f)]
-			: [...platform.encode(String.fromCodePoint(cp))]
-	)
-
-/** The situation each code point of a text is, by its UTF-8 width or as a lone surrogate. */
-const noteText = (text: string, c: Case<Feature>): void => {
-	if (text.length === 0) {
-		c.note("an empty text")
-	}
-	for (const cp of pointsOf(text)) {
-		c.note(
-			isSurrogate(cp)
-				? "a lone surrogate"
-				: cp < 0x80
-					? "a one-byte point"
-					: cp < 0x800
-						? "a two-byte point"
-						: cp < 0x1_0000
-							? "a three-byte point"
-							: "a four-byte point"
-		)
-	}
-}
-
-/**
- * Arbitrary UTF-16: any code unit by class (ASCII, any BMP unit, a surrogate unit, a supplementary character's pair),
- * so lone surrogates appear and adjacent surrogate units also pair up.
- */
-const utf16: Gen<string> = map(
-	array(
-		weighted([
-			[1, map(int(0, 0x7f), (c) => String.fromCharCode(c))],
-			[1, map(int(0, 0xffff), (c) => String.fromCharCode(c))],
-			[1, map(int(0xd800, 0xdfff), (c) => String.fromCharCode(c))],
-			[1, map(int(0x1_0000, 0x10_ffff), (c) => String.fromCodePoint(c))]
-		]),
-		{ min: 0, max: 10 }
-	),
-	(units) => Arr.join(units, "")
-)
-
-const steered = Object.freeze({ cases: 200, sense: notesOnly })
-
-describe("utf8", () => {
-	it.effect(
-		"writes any UTF-16 string as generalized UTF-8, a lone surrogate as its own three bytes",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "specification",
-							name: "generalized UTF-8, code point by code point, a lone surrogate as three bytes"
-						},
-						suite: "unit/core/utf8-generalized",
-						draw: drawn(utf16),
-						literal: Formatter.format,
-						coverage: required<Feature>(
-							[
-								"a one-byte point",
-								"a two-byte point",
-								"a three-byte point",
-								"a four-byte point",
-								"a lone surrogate",
-								"an empty text"
-							],
-							steered
-						),
-						kept: [],
-						runs: 500,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(text, c) =>
-						Effect.sync(() => {
-							const expected = generalized(text)
-							const written: ReadonlyArray<number> = [...utf8(text)]
-							assert.deepEqual(written, expected)
-							assert.equal(utf8Length(text), expected.length)
-							noteText(text, c)
-						})
-				)
-			)
-	)
-})
-
-describe("sha256Hex", () => {
-	it.effect("hashes a text as its generalized UTF-8 bytes", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: {
-						kind: "universal",
-						name: "the text path against the bytes path over generalized UTF-8"
-					},
-					suite: "unit/core/sha256-text",
-					draw: drawn(utf16),
-					literal: Formatter.format,
-					coverage: required<Feature>(["a lone surrogate", "a four-byte point"], steered),
-					kept: [],
-					runs: 300,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				(text, c) =>
-					Effect.sync(() => {
-						assert.equal(sha256Hex(text), sha256Hex(Uint8Array.from(generalized(text))))
-						noteText(text, c)
-					})
-			)
-		)
-	)
+/** Sha256Hex hashes a text as its generalized UTF-8 bytes. */
+export const sha256HexHashesATextAsItsGeneralizedUTF8Bytes = property.explore(utf16, {
+	needs: {},
+	situations: ["a lone surrogate", "a four-byte point"] satisfies ReadonlyArray<Reached<Feature>>,
+	check: (_, c: Case<Feature>) => (text) =>
+		Effect.sync(() => {
+			assert.equal(sha256Hex(text), sha256Hex(Uint8Array.from(generalized(text))))
+			noteText(text, c)
+		}),
+	oracle: {
+		kind: "universal",
+		name: "the text path against the bytes path over generalized UTF-8"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/core/sha256.ts",
+			original: '\t\t.update(typeof input === "string" ? utf8(input) : input)',
+			replacement: "\t\t.update(input)",
+			why: "sha256Hex hashes a text as the platform's UTF-8; the digest's differential property fails."
+		}
+	]
 })

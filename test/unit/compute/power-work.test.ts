@@ -11,129 +11,54 @@
  *
  * Features: an admitted power evaluated, and a power next to exp(6000) evaluated.
  */
-import { drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { numericMaxPrecision, numericMaxScale } from "@grizzle/limits"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { computeCore as Compute } from "#compiler/scalar/compute/builders.ts"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { assert } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
 import { powerWork } from "#test/support/oracle/evaluate/power.ts"
-import {
-	costliest,
-	edges,
-	type Pair,
-	powerBatch,
-	powerWorkLimit
-} from "#test/support/power-pairs.ts"
-import {
-	baseParams,
-	lowerWith,
-	spelledExpr,
-	type TestField,
-	testPg,
-	v
-} from "#test/unit/compute/support.ts"
+import { costliest, edges, powerBatch, powerWorkLimit } from "#test/support/power-pairs.ts"
+import { admitted, type WorkFeature } from "#test/unit/compute/power-work.fixtures.ts"
 
-/** What a case reached: a power the proof admits, evaluated, and one next to exp(6000) among them. */
-type WorkFeature = "an admitted power evaluated" | "a power next to exp(6000) evaluated"
-
-/**
- * The field a literal base is typed by, as Compute.literal types one: a numeric whose typmod holds its value exactly, or
- * numeric(1, 0) for NaN; none for an infinity or a value no declared field holds.
- */
-const baseField = (base: Decimal): TestField | undefined => {
-	if (base.isNaN()) {
-		return testPg.numericOf(1, 0)
-	}
-	if (!base.isFinite()) {
-		return undefined
-	}
-	const scale = base.parts.minScale
-	const digits = base.parts.coefficient === 0n ? 1 : String(base.parts.coefficient).length
-	const precision = Math.max(digits, scale, 1)
-	return precision > numericMaxPrecision.value || scale > numericMaxScale.value
-		? undefined
-		: testPg.numericOf(precision, scale)
-}
-
-const expr = spelledExpr(
-	Compute.power(v("a", testPg.computedNumeric), v("b", testPg.computedNumeric)).expr
-)
-
-/** Whether the proof admits power(a, b) over a literal base, as the power suite compiles it. */
-const admitted = ([a, b]: Pair): boolean => {
-	const base = Decimal.of(a)
-	const field = baseField(base)
-	return (
-		field !== undefined &&
-		lowerWith(
-			"query",
-			expr,
-			{ a: { kind: "literal", field, value: base }, b: { kind: "bare", value: Decimal.of(b) } },
-			false,
-			baseParams
-		).ok
-	)
-}
-
-describe("numeric power's evaluation", () => {
-	it.effect(
-		"does no more digit work than numeric.c does, within the measured limit, for every power the suites draw",
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						suite: "unit/compute/power-work",
-						oracle: {
-							kind: "specification",
-							name: "numeric.c's truncations, which powerWorkLimit's measurement bounds"
-						},
-						draw: drawn(powerBatch),
-						literal: Formatter.format,
-						coverage: required<WorkFeature>(
-							["an admitted power evaluated", "a power next to exp(6000) evaluated"],
-							{ cases: 8, sense: notesOnly }
-						),
-						kept: [],
-						runs: 4,
-						shrink: completeShrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(batch, c) =>
-						Effect.gen(function* () {
-							const pairs = [
-								...Arr.map([costliest, ...edges, ...batch.ordinary], (pair) => ({
-									pair,
-									near: false
-								})),
-								...Arr.map(batch.near, (pair) => ({ pair, near: true }))
-							]
-							for (const { pair, near } of pairs) {
-								yield* Effect.yieldNow
-								if (!admitted(pair)) {
-									continue
-								}
-								const [a, b] = pair
-								const { work } = powerWork(Decimal.of(a), Decimal.of(b))
-								assert.ok(
-									work <= powerWorkLimit.value,
-									`power(${a}, ${b}) does ${work} digit operations, past ${powerWorkLimit.value}`
-								)
-								c.note("an admitted power evaluated")
-								if (near) {
-									c.note("a power next to exp(6000) evaluated")
-								}
-							}
-						})
-				)
-			)
-	)
-})
+/** Numeric power's evaluation does no more digit work than numeric.c does, within the measured limit, for every power the suites draw. */
+export const numericPowersEvaluationDoesNoMoreDigitWorkThanNumericCDoesWithinTheMeasuredLimitForEveryPowerTheSuitesDraw =
+	property.explore(powerBatch, {
+		needs: {},
+		situations: [
+			"an admitted power evaluated",
+			"a power next to exp(6000) evaluated"
+		] satisfies ReadonlyArray<Reached<WorkFeature>>,
+		check: (_, c: Case<WorkFeature>) => (batch) =>
+			Effect.gen(function* () {
+				const pairs = [
+					...Arr.map([costliest, ...edges, ...batch.ordinary], (pair) => ({
+						pair,
+						near: false
+					})),
+					...Arr.map(batch.near, (pair) => ({ pair, near: true }))
+				]
+				for (const { pair, near } of pairs) {
+					yield* Effect.yieldNow
+					if (!admitted(pair)) {
+						continue
+					}
+					const [a, b] = pair
+					const { work } = powerWork(Decimal.of(a), Decimal.of(b))
+					assert.ok(
+						work <= powerWorkLimit.value,
+						`power(${a}, ${b}) does ${work} digit operations, past ${powerWorkLimit.value}`
+					)
+					c.note("an admitted power evaluated")
+					if (near) {
+						c.note("a power next to exp(6000) evaluated")
+					}
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "numeric.c's truncations, which powerWorkLimit's measurement bounds"
+		},
+		kept: [],
+		kills: []
+	})

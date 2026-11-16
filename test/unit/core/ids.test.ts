@@ -14,173 +14,62 @@
  *
  * Features: which pair relation a case draws, and which tokens its components hold.
  */
-import { type Case, drawn, explore } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { array, codePoint, constant, type Gen, weighted } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import { completeShrink } from "@bjornpagen/testing/shrink"
-import { searched } from "@bjornpagen/testing/vitest"
-import { describe, it } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, pipe, String as Str } from "effect"
+
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
 import { FieldId } from "#compiler/core/ids.ts"
 import { assert } from "#test/support/assert.ts"
-import { caseHang } from "#test/support/limits.ts"
+import {
+	type Feature,
+	noteTokens,
+	sketch,
+	spelledParts,
+	textOf
+} from "#test/unit/core/ids.fixtures.ts"
 
-/** A token of a component: a printable character the escape leaves alone, or one the escape is about. */
-type Token =
-	| Readonly<{ kind: "plain"; text: string }>
-	| Readonly<{ kind: "dot" }>
-	| Readonly<{ kind: "percent" }>
-	| Readonly<{ kind: "escape spelling"; text: "%2E" | "%25" }>
-
-/** How the two pairs of a case relate: drawn apart, one pair twice, or one text split at two dots. */
-type Relation = "pairs drawn apart" | "one pair twice" | "the boundary moved"
-
-type Feature =
-	| Relation
-	| "a dot in a component"
-	| "a percent sign in a component"
-	| "an escape's spelling written literally"
-	| "an empty component"
-
-const plainCharacter: Gen<string> = weighted([
-	[1, codePoint(0x20, 0x24)],
-	[1, codePoint(0x26, 0x2d)],
-	[1, codePoint(0x2f, 0x7e)]
-])
-
-const token: Gen<Token> = weighted<Token>([
-	[4, (s) => ({ kind: "plain", text: s.draw(plainCharacter) })],
-	[1, constant({ kind: "dot" })],
-	[1, constant({ kind: "percent" })],
-	[1, constant({ kind: "escape spelling", text: "%2E" })],
-	[1, constant({ kind: "escape spelling", text: "%25" })]
-])
-
-const component: Gen<ReadonlyArray<Token>> = array(token, { min: 0, max: 5 })
-
-const textOf = (tokens: ReadonlyArray<Token>): string =>
-	Arr.join(
-		Arr.map(tokens, (t) => {
-			switch (t.kind) {
-				case "plain":
-				case "escape spelling":
-					return t.text
-				case "dot":
-					return "."
-				case "percent":
-					return "%"
-			}
-		}),
-		""
-	)
-
-type Pair = readonly [relation: ReadonlyArray<Token>, field: ReadonlyArray<Token>]
-
-type Sketch = Readonly<{ relation: Relation; first: Pair; second: Pair }>
-
-const dot: ReadonlyArray<Token> = [{ kind: "dot" }]
-
-const sketch: Gen<Sketch> = weighted<Sketch>([
-	[
-		1,
-		(s) => ({
-			relation: "pairs drawn apart",
-			first: [s.draw(component), s.draw(component)],
-			second: [s.draw(component), s.draw(component)]
-		})
-	],
-	[
-		1,
-		(s) => {
-			const pair: Pair = [s.draw(component), s.draw(component)]
-			return { relation: "one pair twice", first: pair, second: pair }
-		}
-	],
-	[
-		1,
-		(s) => {
-			const r = s.draw(component)
-			const f = s.draw(component)
-			return {
-				relation: "the boundary moved",
-				first: [[...r, ...dot], f],
-				second: [r, [...dot, ...f]]
-			}
+/** FieldId is injective in (relation, field) and decodes back. */
+export const fieldIdIsInjectiveInRelationFieldAndDecodesBack = property.explore(sketch, {
+	needs: {},
+	situations: [
+		"pairs drawn apart",
+		"one pair twice",
+		"the boundary moved",
+		"a dot in a component",
+		"a percent sign in a component",
+		"an escape's spelling written literally",
+		"an empty component"
+	] satisfies ReadonlyArray<Reached<Feature>>,
+	check:
+		(_, c: Case<Feature>) =>
+		({ relation, first, second }) =>
+			Effect.sync(() => {
+				const [r1, f1] = [textOf(first[0]), textOf(first[1])]
+				const [r2, f2] = [textOf(second[0]), textOf(second[1])]
+				const a = FieldId(r1, f1)
+				const b = FieldId(r2, f2)
+				assert.equal(a === b, r1 === r2 && f1 === f2, "one spelling exactly for one pair")
+				assert.deepEqual(spelledParts(a), [r1, f1])
+				assert.deepEqual(spelledParts(b), [r2, f2])
+				c.note(relation)
+				for (const tokens of [...first, ...second]) {
+					noteTokens(tokens, c)
+				}
+			}),
+	oracle: { kind: "specification", name: "the escape's decoding at each unescaped dot" },
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/core/ids.ts",
+			original: '\tcomponent.replaceAll("%", "%25").replaceAll(".", "%2E")',
+			replacement: '\tcomponent.replaceAll(".", "%2E")',
+			why: 'the percent sign left unescaped, so a literal "%2E" and a dot spell one component; the FieldId property (injective, decodes back) fails.'
+		},
+		{
+			file: "packages/engine/src/core/ids.ts",
+			original: '\tcomponent.replaceAll("%", "%25").replaceAll(".", "%2E")',
+			replacement: '\tcomponent.replaceAll(".", "%2E").replaceAll("%", "%25")',
+			why: 'the dot escaped before the percent sign, so a dot reads back as "%2E"; the FieldId property (injective, decodes back) fails.'
 		}
 	]
-])
-
-/** A spelling's parts at each dot, each read back by the escape's decoding: "%2E" a dot, "%25" a percent sign. */
-const spelledParts = (spelling: string): ReadonlyArray<string> =>
-	Arr.map(Str.split(spelling, "."), (part) =>
-		pipe(part, Str.replaceAll("%2E", "."), Str.replaceAll("%25", "%"))
-	)
-
-const noteTokens = (tokens: ReadonlyArray<Token>, c: Case<Feature>): void => {
-	if (tokens.length === 0) {
-		c.note("an empty component")
-	}
-	for (const t of tokens) {
-		switch (t.kind) {
-			case "plain":
-				break
-			case "dot":
-				c.note("a dot in a component")
-				break
-			case "percent":
-				c.note("a percent sign in a component")
-				break
-			case "escape spelling":
-				c.note("an escape's spelling written literally")
-				break
-		}
-	}
-}
-
-describe("FieldId", () => {
-	it.effect("is injective in (relation, field) and decodes back", (ctx) =>
-		searched(
-			ctx,
-			explore(
-				{
-					oracle: { kind: "specification", name: "the escape's decoding at each unescaped dot" },
-					suite: "unit/core/ids-1",
-					draw: drawn(sketch),
-					literal: Formatter.format,
-					coverage: required<Feature>(
-						[
-							"pairs drawn apart",
-							"one pair twice",
-							"the boundary moved",
-							"a dot in a component",
-							"a percent sign in a component",
-							"an escape's spelling written literally",
-							"an empty component"
-						],
-						{ cases: 200, sense: notesOnly }
-					),
-					kept: [],
-					runs: 1000,
-					shrink: completeShrink,
-					steerEvery: 16,
-					caseHang
-				},
-				({ relation, first, second }, c) =>
-					Effect.sync(() => {
-						const [r1, f1] = [textOf(first[0]), textOf(first[1])]
-						const [r2, f2] = [textOf(second[0]), textOf(second[1])]
-						const a = FieldId(r1, f1)
-						const b = FieldId(r2, f2)
-						assert.equal(a === b, r1 === r2 && f1 === f2, "one spelling exactly for one pair")
-						assert.deepEqual(spelledParts(a), [r1, f1])
-						assert.deepEqual(spelledParts(b), [r2, f2])
-						c.note(relation)
-						for (const tokens of [...first, ...second]) {
-							noteTokens(tokens, c)
-						}
-					})
-			)
-		)
-	)
 })
