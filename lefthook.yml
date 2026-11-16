@@ -10,8 +10,8 @@ lefthook: node_modules/.bin/lefthook
 # no lint program: on what the commit holds, oxfmt's check of its files and the AST-only oxlint (oxlint.ast.config.ts,
 # the full configuration without its type-aware rules) on the files it reads, side by side (the pinned toolchain's
 # gate; one before b64dfc6 also runs `pnpm types`). No hook typechecks: the full gate, pnpm check (the non-incremental
-# typecheck, the type-aware oxlint, the workspace gate, fallow), runs on origin's main every 30 minutes once changes are
-# on it (Bjorn, 2026-11-16: "i would rather typecheck on a 30 min timer"), and a red there is fixed forward by the
+# typecheck, the type-aware oxlint, the workspace gate, fallow), runs on origin's main every 10 minutes once changes are
+# on it (Bjorn, 2026-11-16: "a global 10 minute typecheck across the same main that all the subagents are working on"), and a red there is fixed forward by the
 # commit that made it.
 pre-commit:
   skip:
