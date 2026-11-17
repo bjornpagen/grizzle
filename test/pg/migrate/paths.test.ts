@@ -49,801 +49,185 @@
  * requires every legal intent, each steered case aiming its first B intent at the pending one its turn falls on as the
  * steering reads it after every case (steerEvery 1), so the steered phase's one case per intent reaches them all.
  */
-import { type Case, explore, type Kept, type Steered, steered } from "@bjornpagen/testing/explore"
-import { required } from "@bjornpagen/testing/features"
-import { weighted } from "@bjornpagen/testing/gen"
-import { notesOnly } from "@bjornpagen/testing/sense"
-import type { ShrinkBudget } from "@bjornpagen/testing/shrink"
-import { generate, recorder, simplestChooser } from "@bjornpagen/testing/source"
-import { tokenOf } from "@bjornpagen/testing/tape"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option, Record } from "effect"
-import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
-import {
-	carryChain,
-	catalogRenamedDrawGen,
-	directVersion,
-	holdsCatalogName,
-	type IntentSketch,
-	keyCarriedOverRetyped,
-	keyPromotedBesideChangedReference,
-	keyRenamedOntoPrimary,
-	type LegalIntentKind,
-	legalIntents,
-	legalIntentSketchGen,
-	payloadRostersRenamed,
-	planOf,
-	type RenamedDraw,
-	type RenamedPath,
-	referencedRenamedFirst,
-	renamedDrawGen,
-	renamedWithRetype,
-	resolveLegalIntents,
-	resolveRenamedDraw,
-	serialDeclaredAtEnd,
-	serialFields,
-	type SqConversion,
-	sqConversions,
-	statisticsOfRenamedRelation,
-	statisticsOverRetyped,
-	type Version
-} from "#test/pg/migrate-gen/support.ts"
-import { filledSql } from "#test/support/compile.ts"
 
+import type { Reached } from "@bjornpagen/testing/features"
+import { steered } from "@bjornpagen/testing/gen"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
 import {
-	apply,
-	carried,
-	directory,
-	drafted,
-	factSetOf,
-	identitiesPast,
-	noFurther,
-	openMigrator,
-	storedRowsOf,
-	sameCatalog,
-	type Traced
-} from "#test/pg/migrate/support.ts"
+	legalIntents,
+	resolveLegalIntents,
+	resolveRenamedDraw
+} from "#test/pg/migrate-gen/support.ts"
 import {
-	type AmbientFeature,
-	type AmbientSession,
-	ambientFeatures,
-	ambientOwner,
-	ambientSessionGen,
-	grizzleFirstSession,
-	ordinarySession
-} from "#test/support/ambient.ts"
-import { assert, succeeded } from "#test/support/assert.ts"
-import { installedSchemas } from "#test/support/install-migrate.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { messageOf } from "#test/support/message.ts"
-import type { ValueFacts } from "#test/support/oracle/gen/facts.ts"
-import { factStatements } from "#test/support/oracle/install/load.ts"
-import { transaction } from "#test/support/oracle/install/transaction.ts"
-import { PropertyFailed } from "#test/support/oracle/runner.ts"
+	type Feature,
+	intentsCaseSteered,
+	pathCase,
+	renamedCaseSteered
+} from "#test/pg/migrate/paths.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** Cases per stream; a failing path shrinks over at most `shrink`'s candidates, each a few migrations on PostgreSQL. */
-const runs = 4
-const shrink: ShrinkBudget = { kind: "bounded", candidates: 100 }
-
-const featureNames = [
-	"a step applied",
-	"facts carried",
-	"the path's renames declared",
-	"every removal declared a drop",
-	"a relation renamed in B",
-	"a field renamed in B",
-	"a field retyped in B",
-	"a handle removed in C"
-] as const
-type Feature =
-	| (typeof featureNames)[number]
-	| `the intent ${LegalIntentKind}`
-	| `sq: ${SqConversion}`
-	| AmbientFeature
-	| "catalog-type name"
-
-const failed = (report: string) => Effect.fail(new PropertyFailed({ report: report }))
-
-/** Fails with the report of a structural difference. */
-const same = (
-	actual: unknown,
-	expected: unknown,
-	what: string
-): Effect.Effect<void, PropertyFailed> =>
-	Effect.try({
-		try: () => assert.deepEqual(actual, expected),
-		catch: (error) => new PropertyFailed({ report: `${what}: ${messageOf(error)}` })
-	})
-
-/** The rename kinds a path made, by successor, as features. */
-const noteRenames = (c: Case<Feature>, p: RenamedPath): void => {
-	const b = new Set(p.renames.toB)
-	if (b.has("relation") || b.has("relationRetyped")) {
-		c.note("a relation renamed in B")
-	}
-	if (b.has("column")) {
-		c.note("a field renamed in B")
-	}
-	if (b.has("retyped") || b.has("relationRetyped")) {
-		c.note("a field retyped in B")
-	}
-	const k = new Set(p.renames.toC)
-	if (k.has("removeHandle")) {
-		c.note("a handle removed in C")
-	}
-}
-
-/** A path's property, its migrations started under the ambient session `ambient`. */
-const property = (p: RenamedPath, ambient: AmbientSession, notes: Case<Feature>) =>
-	Effect.scoped(
-		Effect.gen(function* () {
-			const substrate = yield* Substrate
-			const owner = substrate.owner.role
-			const x = yield* substrate.schema({ create: false, label: "paths_x" })
-			const y = yield* substrate.schema({ create: false, label: "paths_y" })
-			const login = yield* ambientOwner(
-				ambient,
-				Arr.dedupe(
-					Arr.appendAll(installedSchemas(planOf(p.path.a, x, owner).installation), [
-						...installedSchemas(planOf(p.path.b, x, owner).installation),
-						...installedSchemas(planOf(p.path.c, x, owner).installation),
-						...installedSchemas(planOf(p.path.a, y, owner).installation),
-						...installedSchemas(planOf(p.path.c, y, owner).installation)
-					])
-				)
-			)
-			const m = yield* openMigrator(substrate, login.credentials)
-			const a: Traced = { version: p.path.a, origins: p.origins.a }
-			const b: Traced = { version: p.path.b, origins: p.origins.b }
-			const c: Traced = { version: p.path.c, origins: p.origins.c }
-			for (const feature of ambientFeatures(ambient)) {
-				notes.note(feature)
-			}
-			if (Arr.some([p.path.a, p.path.b, p.path.c], holdsCatalogName)) {
-				notes.note("catalog-type name")
-				for (const feature of ambientFeatures(ambient)) {
-					notes.pair(feature, "catalog-type name")
-				}
-			}
-			noteRenames(notes, p)
-			for (const conversion of [
-				...sqConversions(p.path.a, p.path.b),
-				...sqConversions(p.path.b, p.path.c),
-				...sqConversions(p.path.a, p.path.c)
-			]) {
-				notes.note(`sq: ${conversion}`)
-			}
-			notes.note(p.choose ? "the path's renames declared" : "every removal declared a drop")
-			/** The facts A holds: those whose carried forms are lawful through both chains, A to B to C and A to C. */
-			const model = carryChain(
-				{ a: p.path.a, b: p.path.b, c: p.path.c },
-				p.path.facts,
-				{ ab: carried(a, b, p.choose), bc: carried(b, c, p.choose), ac: carried(a, c, p.choose) },
-				{ b: serialFields(p.path.b), c: serialFields(p.path.c) }
-			)
-			const load = (schema: string, v: Version, facts: ValueFacts) =>
-				Effect.gen(function* () {
-					const statements = factStatements(planOf(v, schema, owner), factSetOf(v, facts))
-					if (!statements.ok) {
-						return yield* failed(statements.error.message)
-					}
-					yield* transaction(substrate.admin, statements.value)
-				})
-			if (Arr.some(Record.values(model.expected), (rows) => rows.length > 0)) {
-				notes.note("facts carried")
-			}
-			/** (a): the migrated schema `migrated` holds the catalog of a fresh installation of `v`. */
-			const fresh = (migrated: string, v: Version, what: string) =>
-				Effect.scoped(
-					Effect.gen(function* () {
-						const f = yield* substrate.schema({ create: false, label: "paths_fresh" })
-						const freshPlan = planOf(v, f, owner)
-						yield* transaction(substrate.admin, filledSql(freshPlan.drafted, substrate.database))
-						yield* sameCatalog(
-							planOf(v, migrated, owner).installation,
-							freshPlan.installation,
-							what
-						)
-					})
-				)
-
-			/** X: A, its facts, B, then C. (a) at every apply. */
-			const dx = yield* Effect.fromResult(drafted([a, b, c], x, owner, p.choose))
-			yield* apply(m, directory(dx, 0), noFurther)
-			yield* load(x, p.path.a, model.loaded)
-			yield* apply(m, directory(dx, 1), noFurther)
-			notes.note("a step applied")
-			yield* fresh(x, p.path.b, "(a) A to B")
-			yield* identitiesPast(planOf(p.path.b, x, owner), "(d) A to B")
-			/** (b) against a fresh installation of B holding the model's rows. */
-			const freshRows = yield* Effect.scoped(
-				Effect.gen(function* () {
-					const f = yield* substrate.schema({ create: false, label: "paths_fresh" })
-					yield* transaction(
-						substrate.admin,
-						filledSql(planOf(p.path.b, f, owner).drafted, substrate.database)
-					)
-					yield* load(f, p.path.b, model.expected)
-					return yield* storedRowsOf(m, planOf(p.path.b, f, owner), p.path.b, f, model.numbered)
-				})
-			)
-			const migratedRows = yield* storedRowsOf(
-				m,
-				planOf(p.path.b, x, owner),
-				p.path.b,
-				x,
-				model.numbered
-			)
-			yield* same(
-				migratedRows,
-				freshRows,
-				"(b) the facts B holds after the migration are not the carry model's"
-			)
-			yield* apply(m, directory(dx, 2), noFurther)
-			yield* fresh(x, p.path.c, "(a) A to B to C")
-			yield* identitiesPast(planOf(p.path.c, x, owner), "(d) A to B to C")
-
-			/** (c) Y: A, then C directly, its rosters' codes the direct migration's (directVersion). */
-			const direct = directVersion(p.path)
-			const dy = yield* Effect.fromResult(
-				drafted([a, { version: direct, origins: p.origins.c }], y, owner, p.choose)
-			)
-			yield* apply(m, directory(dy, 0), noFurther)
-			yield* load(y, p.path.a, model.loaded)
-			yield* apply(m, directory(dy, 1), noFurther)
-			yield* fresh(y, direct, "(c) A to C")
-			yield* identitiesPast(planOf(direct, y, owner), "(d) A to C")
-		})
-	)
-
-/** A renamed path: the generator's, or, one time in four, one whose B also takes a catalog type's name. */
-const pathDrawGen = weighted<RenamedDraw>([
-	[3, renamedDrawGen],
-	[1, catalogRenamedDrawGen]
-])
-
-/**
- * The property's draws of an intents case kept from before its property drew an ambient session: the simplest ambient
- * session, the ordinary one, every setting unset, under which the case was found.
- */
-const ordinaryTape = generate(recorder(), ambientSessionGen, simplestChooser).tape
-const ordinaryDraws = tokenOf(ordinaryTape.values, ordinaryTape.length)
-
-/** A renamed path's case: the path as drawn, and the ambient session its migrations start under. */
-interface RenamedCase {
-	readonly draw: RenamedDraw
-	readonly ambient: AmbientSession
-}
-
-/**
- * A renamed path's case under its steering: the path pathDrawGen draws, or, while the steering leaves a catalog-type
- * name pending, one whose B takes one; and the ambient session, its path the installation-first one while the steering
- * leaves that path's pairing with a catalog type's name pending. Both are the sketch, so a kept case runs them as drawn.
- */
-const renamedCaseSteered: Steered<RenamedCase, Feature> = (steering) => (source) => {
-	const names = (feature: Feature): boolean =>
-		Option.exists(steering, (pending) => pending.names(feature))
-	const draw = source.draw(names("catalog-type name") ? catalogRenamedDrawGen : pathDrawGen)
-	const ambient = source.draw(ambientSessionGen)
-	return {
-		draw,
-		ambient: names("grizzle-first path") ? { ...ambient, path: grizzleFirstSession.path } : ambient
-	}
-}
-
-/** A stated path kept under the ordinary ambient session, under which it was found; its stated path draws nothing. */
-const planted = (
-	path: RenamedDraw & { readonly kind: "stated" },
-	note: string
-): Kept<RenamedCase, Feature> => ({
-	note,
-	sketch: { draw: path, ambient: ordinarySession },
-	draws: "",
-	reaches: ["a step applied"]
+/** Generated migration paths on PostgreSQL renamed paths: every apply admitted against its snapshot, facts carried, A to C as A to B to C. */
+export const renamedPaths = property.explore(steered(renamedCaseSteered), {
+	needs: { substrate: Substrate.installing },
+	situations: [["grizzle-first path", "catalog-type name"]] satisfies ReadonlyArray<
+		Reached<Feature>
+	>,
+	/** Its pre-conversion budget: runs 4, coverage cases 4 * runs, 16 (paths.test.ts at bf4f43bb). */
+	budget: { runs: 4, steered: 16 },
+	check:
+		({ substrate }, notes: Case<Feature>) =>
+		(c) =>
+			Effect.provideServiceEffect(
+				pathCase(notes.draw(resolveRenamedDraw(c.draw)), c.ambient, notes),
+				Substrate,
+				substrate
+			),
+	oracle: {
+		kind: "postgresql",
+		name: "PostgreSQL's refusals, a fresh install's catalog of each version and the carried rows read back; A to C as A to B to C"
+	},
+	kept: [
+		{
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.0.0.0.0.0.0.0"),
+			reason: "M49: two relation renames referencing each other",
+			since: "2026-10-29"
+		},
+		{
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.1.0.0.0.0.0.0"),
+			reason: "M48: a key carried over a retyped field",
+			since: "2026-10-29"
+		},
+		{
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.2.0.0.0.0.0.0"),
+			reason: "a key over a field renamed onto the primary key a new reference reads",
+			since: "2026-10-29"
+		},
+		{
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.3.0.0.0.0.0.0"),
+			reason:
+				"a candidate key promoted over a dropped surrogate, its reference turned immediate in the same migration",
+			since: "2026-11-08"
+		},
+		{
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.4.0.0.0.0.0.0"),
+			reason: "M36: a field renamed with its type changed",
+			since: "2026-10-29"
+		},
+		{
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.5.0.0.0.0.0.0"),
+			reason: "M51: statistics over a retyped field",
+			since: "2026-10-29"
+		},
+		{
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.6.0.0.0.0.0.0"),
+			reason: "M51: statistics of a renamed relation",
+			since: "2026-10-29"
+		},
+		{
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.7.0.0.0.0.0.0"),
+			reason:
+				"rosters carrying a text payload: each version's login holds their closed relations as admitted",
+			since: "2026-11-07"
+		},
+		{
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.8.0.0.0.0.0.0"),
+			reason:
+				"a field holding bigint's greatest value declared serial: its identity advanced to its end, past the row, (d) read with no next value to compute",
+			since: "2026-11-15"
+		},
+		{
+			token: ReplayToken(
+				"test/pg/migrate/paths.test.ts#renamedPaths:-:6.u.0.g.h.g.h.h.h.f.h.h.0.g.0.0.g.0.h.0.g.0.g.h.f.g.0.f.h.g.h.f.h.0.g.f.g.g.f.g.h.g.h.3.1.4.1.2.3.9.1.6.1.3.e.3.b.2.1.3.3.d.0.2.4.0.6.0.6.h.1.0.1.0.1.1.2.l.1.1.7.1.1.0.1.9.2.2.5.1.8.1.0.8.2.a.1.3.9.2.b.2.3.f.3.c.2.b.1.6.6.0.f.0.a.0.0.2.1.2.4.3.q.1.2.a.s.0.0.1.3.0.1ado.j9g.5w.1.1.1.1.a.z2v.1b2k.fwn.g.0.0.0.hlh.pav.6a1.f.1.k.1.1.p.txw.snt.zue.c.1.1.1.0.0.1.rfp.105z.1ej6.1.1.o.1.0.1.1efj.1.7.1e4d.1ce8.v21.5.0.0.2.5.eut.2f4.a9f.m.2.p.m.1.e.zpe.3.s.p.2.9.2.1.1.a.2.e.3.a.0.5.2.7.3.3.0.a.3.d.0.7.0.0.1.n.ady.284.zxe.6.0.0.1.d.xl1.e.1ei0.q.0.1.0.1.0.5ce.5y6.fhv.v.0.0.0.0.0.4.2.0"
+			),
+			reason:
+				"FULLSUITE3: a handle removed from a roster whose domain types a relation the same step drops, holding the removed code (A to B, every removal a drop): the domain's VALIDATE drafted before the drop refused the dropped table's row, 23514 (engine fix 695fe292)",
+			since: "2026-11-16"
+		}
+	],
+	kills: [
+		{
+			file: "packages/engine/src/deploy/diff/declared.ts",
+			original:
+				"\tconst relations = renamedSnapshot(previous, target, renamed, fields, anew, temporaries)",
+			replacement:
+				"\tconst relations = renamedSnapshot(previous, target, renamed, new Map(), anew, temporaries)",
+			why: "A draft ignores every declared field rename in the snapshot it renames, so a renamed field's path fails."
+		},
+		{
+			file: "packages/engine/src/deploy/diff/diff.ts",
+			original: '\t\t\tthis.sql("publish.validate", [',
+			replacement: '\t\t\tthis.sql("validate", [',
+			why: "A re-pointed domain's VALIDATE drafted in Validate, before Publish drops the relations and fields the target no longer has, so a step that removes a handle and drops a relation still holding its code fails 23514 (the engine defect 695fe292 fixed, found red here by the rotating stream at TEST_SEED=604930236, kept as FULLSUITE3's case)."
+		}
+	]
 })
 
-/** The roster name the drawn paths' closed patterns take, as the naming door parses it. */
-const rosterK: DeclaredName = succeeded(parseDeclaredName("K"))
-
-const kept: ReadonlyArray<Kept<RenamedCase, Feature>> = [
-	planted(
-		{ kind: "stated", path: referencedRenamedFirst },
-		"M49: two relation renames referencing each other"
-	),
-	planted(
-		{ kind: "stated", path: keyCarriedOverRetyped },
-		"M48: a key carried over a retyped field"
-	),
-	planted(
-		{ kind: "stated", path: keyRenamedOntoPrimary },
-		"a key over a field renamed onto the primary key a new reference reads"
-	),
-	planted(
-		{ kind: "stated", path: keyPromotedBesideChangedReference },
-		"a candidate key promoted over a dropped surrogate, its reference turned immediate in the same migration"
-	),
-	planted(
-		{ kind: "stated", path: renamedWithRetype },
-		"M36: a field renamed with its type changed"
-	),
-	planted({ kind: "stated", path: statisticsOverRetyped }, "M51: statistics over a retyped field"),
-	planted(
-		{ kind: "stated", path: statisticsOfRenamedRelation },
-		"M51: statistics of a renamed relation"
-	),
-	planted(
-		{ kind: "stated", path: payloadRostersRenamed },
-		"rosters carrying a text payload: each version's login holds their closed relations as admitted"
-	),
-	planted(
-		{ kind: "stated", path: serialDeclaredAtEnd },
-		"a field holding bigint's greatest value declared serial: its identity advanced to its end, past the row, (d) read with no next value to compute"
-	),
-	{
-		note: "FULLSUITE3: a handle removed from a roster whose domain types a relation the same step drops, holding the removed code (A to B, every removal a drop): the domain's VALIDATE drafted before the drop refused the dropped table's row, 23514",
-		sketch: {
-			draw: {
-				kind: "drawn",
-				sketch: {
-					path: {
-						swarm: {
-							addColumn: 2,
-							dropColumn: 3,
-							retype: 2,
-							primaryKey: 3,
-							candidateKeys: 3,
-							mutable: 3,
-							containment: 1,
-							addRelation: 3,
-							dropRelation: 3,
-							payload: 2,
-							promoteKey: 2,
-							addCheck: 3,
-							removeChecks: 2,
-							dropStatistics: 2,
-							addSerial: 3,
-							dropSerial: 1,
-							retypeSerial: 2,
-							dropIdentity: 1,
-							toggleRead: 3,
-							addCoded: 2,
-							relation: 3,
-							column: 1,
-							retyped: 3,
-							relationRetyped: 1,
-							swapRelations: 2,
-							swapColumns: 1,
-							closed: 2,
-							hop: 2,
-							alias: 1,
-							dictionary: 2,
-							catalog: 3,
-							ontoRemoved: 2,
-							removeHandle: 3
-						},
-						a: {
-							palette: [1, 4, 1],
-							closed: [
-								{
-									pattern: {
-										closed: rosterK,
-										slots: [
-											{ kind: "hole", was: "Open" },
-											{ kind: "live", handle: "Done" },
-											{ kind: "hole", was: "Held" },
-											{ kind: "live", handle: "Gone" }
-										],
-										spellings: { plain: 3 }
-									},
-									payload: [
-										{
-											type: 6,
-											values: [
-												{ cls: 1, sp: 3 },
-												{ cls: 14, sp: 3 },
-												{ cls: 11, sp: 2 },
-												{ cls: 1, sp: 3 }
-											]
-										}
-									]
-								},
-								{
-									pattern: {
-										closed: rosterK,
-										slots: [
-											{ kind: "hole", was: "Open" },
-											{ kind: "live", handle: "Done" },
-											{ kind: "live", handle: "Held" },
-											{ kind: "live", handle: "Gone" }
-										],
-										spellings: { plain: 3 }
-									},
-									payload: []
-								}
-							],
-							relations: [
-								{
-									columns: [0, 6, 0, 6],
-									pkMask: 17,
-									pure: true,
-									keyMasks: [],
-									mutable: true,
-									fk: { enabled: false, target: 1, typed: false },
-									spanKey: false
-								},
-								{
-									columns: [2],
-									pkMask: 21,
-									pure: true,
-									keyMasks: [7],
-									mutable: true,
-									fk: { enabled: true, target: 0, typed: false },
-									spanKey: false
-								}
-							]
-						},
-						donor: {
-							palette: [9],
-							closed: [
-								{
-									pattern: {
-										closed: rosterK,
-										slots: [
-											{ kind: "hole", was: "Open" },
-											{ kind: "live", handle: "Done" },
-											{ kind: "live", handle: "Held" }
-										],
-										spellings: { plain: 3 }
-									},
-									payload: [
-										{
-											type: 8,
-											values: [
-												{ cls: 1, sp: 0 },
-												{ cls: 8, sp: 2 },
-												{ cls: 10, sp: 1 }
-											]
-										}
-									]
-								},
-								{
-									pattern: {
-										closed: rosterK,
-										slots: [
-											{ kind: "hole", was: "Open" },
-											{ kind: "live", handle: "Done" },
-											{ kind: "hole", was: "Held" },
-											{ kind: "live", handle: "Gone" }
-										],
-										spellings: { plain: 3 }
-									},
-									payload: [
-										{
-											type: 11,
-											values: [
-												{ cls: 2, sp: 3 },
-												{ cls: 15, sp: 3 },
-												{ cls: 12, sp: 2 },
-												{ cls: 11, sp: 1 }
-											]
-										},
-										{
-											type: 6,
-											values: [
-												{ cls: 6, sp: 0 },
-												{ cls: 15, sp: 0 },
-												{ cls: 10, sp: 0 },
-												{ cls: 0, sp: 2 }
-											]
-										}
-									]
-								}
-							],
-							relations: [
-								{
-									columns: [4, 3],
-									pkMask: 26,
-									pure: true,
-									keyMasks: [10, 28],
-									mutable: false,
-									fk: { enabled: false, target: 1, typed: false },
-									spanKey: false
-								}
-							]
-						},
-						toB: [
-							{
-								kind: "addColumn",
-								picks: { first: 60108, second: 24964, third: 212, mask: 1, masks: [1], flag: true }
-							},
-							{
-								kind: "candidateKeys",
-								picks: {
-									first: 45463,
-									second: 61004,
-									third: 20615,
-									mask: 16,
-									masks: [],
-									flag: false
-								}
-							},
-							{
-								kind: "addColumn",
-								picks: {
-									first: 22805,
-									second: 32791,
-									third: 8137,
-									mask: 15,
-									masks: [20],
-									flag: true
-								}
-							}
-						],
-						toC: [
-							{
-								kind: "promoteKey",
-								picks: {
-									first: 38804,
-									second: 37145,
-									third: 46454,
-									mask: 12,
-									masks: [1],
-									flag: true
-								}
-							}
-						],
-						extras: {
-							checks: [],
-							statistics: [],
-							serials: [
-								{ first: 35557, second: 46871, third: 65490, mask: 1, masks: [24], flag: true }
-							],
-							identities: [],
-							unread: [65359]
-						},
-						extrasToB: [
-							{
-								kind: "addSerial",
-								picks: {
-									first: 64957,
-									second: 62720,
-									third: 40249,
-									mask: 5,
-									masks: [],
-									flag: false
-								}
-							}
-						],
-						extrasToC: [
-							{
-								kind: "dropStatistics",
-								picks: {
-									first: 19253,
-									second: 3136,
-									third: 13299,
-									mask: 22,
-									masks: [25, 22],
-									flag: true
-								}
-							},
-							{
-								kind: "toggleRead",
-								picks: { first: 46274, second: 3, third: 28, mask: 25, masks: [9, 2], flag: true }
-							}
-						],
-						facts: [
-							[
-								{
-									values: [
-										{ cls: 10, sp: 2 },
-										{ cls: 14, sp: 3 },
-										{ cls: 10, sp: 0 },
-										{ cls: 5, sp: 2 },
-										{ cls: 7, sp: 3 },
-										{ cls: 3, sp: 0 },
-										{ cls: 10, sp: 3 },
-										{ cls: 13, sp: 0 }
-									],
-									target: 7
-								}
-							],
-							[],
-							[]
-						]
-					},
-					toB: [
-						{
-							kind: "removeHandle",
-							picks: { first: 13462, second: 2884, third: 46562, mask: 6, masks: [], flag: false }
-						},
-						{
-							kind: "catalog",
-							picks: { first: 6926, second: 7710, third: 20083, mask: 31, masks: [], flag: false }
-						}
-					],
-					toC: [
-						{
-							kind: "hop",
-							picks: { first: 43525, second: 14, third: 65448, mask: 26, masks: [], flag: true }
-						}
-					],
-					chained: false,
-					again: true,
-					choose: false
-				}
-			},
-			ambient: {
-				path: { kind: "default" },
-				settings: [
-					{ parameter: "DateStyle", value: "German, DMY" },
-					{ parameter: "IntervalStyle", value: "postgres" }
-				]
-			}
-		},
-		draws: "",
-		reaches: [
-			"ambient setting",
-			"catalog-type name",
-			"sq: a uuidv7 to a uuid",
-			"every removal declared a drop"
-		]
-	}
-]
-
-/**
- * The intents a case runs, under its steering: the drawn ones, or, while the steering leaves an intent pending, the
- * drawn ones with B's first intent the pending one its turn aims at, so each steered case reaches an intent no witness
- * has, none waits behind another, and the steered phase needs at most one case per intent. Any intent may be B's: only
- * C's are kept from naming a field B drops. The sketch holds the intent aimed at, so a kept case runs it.
- */
-const aimedIntents: Steered<IntentSketch & { readonly kind: "legal" }, Feature> =
-	(steering) => (source) => {
-		const sketch = source.draw(legalIntentSketchGen)
-		const pending = Option.flatMap(steering, (p) =>
-			Arr.findFirst(legalIntents, (kind) => p.aimed(`the intent ${kind}`))
-		)
-		return Option.match(pending, {
-			onNone: () => sketch,
-			onSome: (kind) => ({ ...sketch, toB: [{ kind }, ...Arr.drop(sketch.toB, 1)] })
-		})
-	}
-
-/** The intent counterexamples PostgreSQL found. */
-const keptIntents: ReadonlyArray<Kept<IntentSketch & { readonly kind: "legal" }, Feature>> = [
-	{
-		note: "the referenced relation renamed while its serial field widens: the rename converts the serial in place, so its referrer's rows still find their keys",
-		sketch: {
-			kind: "legal",
-			toB: [{ kind: "renameReferenced" }, { kind: "retypeSerial" }],
-			toC: [],
-			takeDropped: false,
-			choose: true,
-			freshRelations: "before"
-		},
-		draws: ordinaryDraws,
-		reaches: [
-			"the intent renameReferenced",
-			"the intent retypeSerial",
-			"a relation renamed in B",
-			"the path's renames declared",
-			"facts carried"
-		]
-	},
-	{
-		note: "R1's serial converted to a uuidv7 in B and back to a serial in C: each conversion gives its draw up first and takes the target's once converted",
-		sketch: {
-			kind: "legal",
-			toB: [{ kind: "sqUuidv7" }],
-			toC: [{ kind: "sqSerial" }],
-			takeDropped: false,
-			choose: true,
-			freshRelations: "before"
-		},
-		draws: ordinaryDraws,
-		reaches: [
-			"the intent sqUuidv7",
-			"the intent sqSerial",
-			"sq: an integer serial to a uuidv7",
-			"sq: a uuidv7 to an integer serial",
-			"facts carried"
-		]
-	},
-	{
-		note: "R1's serial converted to a uuid in B, then a uuidv7 in C: the uuid takes its uuidv7() default in place",
-		sketch: {
-			kind: "legal",
-			toB: [{ kind: "sqUuid" }],
-			toC: [{ kind: "sqUuidv7" }],
-			takeDropped: false,
-			choose: true,
-			freshRelations: "before"
-		},
-		draws: ordinaryDraws,
-		reaches: ["the intent sqUuid", "the intent sqUuidv7", "sq: a uuid to a uuidv7", "facts carried"]
-	},
-	{
-		note: "R1's serial converted to a uuidv7 in B, then a plain uuid in C: the uuidv7 gives its default up in place",
-		sketch: {
-			kind: "legal",
-			toB: [{ kind: "sqUuidv7" }],
-			toC: [{ kind: "sqUuid" }],
-			takeDropped: false,
-			choose: true,
-			freshRelations: "before"
-		},
-		draws: ordinaryDraws,
-		reaches: [
-			"the intent sqUuidv7",
-			"the intent sqUuid",
-			"sq: an integer serial to a uuidv7",
-			"sq: a uuidv7 to a uuid",
-			"facts carried"
-		]
-	}
-]
-
-layer(Substrate.layer)("generated migration paths on PostgreSQL", (it) => {
-	it.effect(
-		`${runs} renamed paths: every apply admitted against its snapshot, facts carried, A to C as A to B to C`,
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "postgresql",
-							name: "PostgreSQL's refusals, a fresh install's catalog of each version and the carried rows read back; A to C as A to B to C"
-						},
-						suite: "pg/migrate/paths",
-						draw: steered(renamedCaseSteered, (c) => c),
-						literal: Formatter.format,
-						coverage: required<Feature>([["grizzle-first path", "catalog-type name"]], {
-							cases: 4 * runs,
-							sense: notesOnly
-						}),
-						kept,
-						runs,
-						shrink,
-						steerEvery: 16,
-						caseHang
-					},
-					(c, notes) => property(notes.draw(resolveRenamedDraw(c.draw)), c.ambient, notes)
-				)
-			)
-	)
-	it.effect(
-		`${runs} paths of adversarial rename intents: every apply admitted against its snapshot, facts carried`,
-		(ctx) =>
-			searched(
-				ctx,
-				explore(
-					{
-						oracle: {
-							kind: "postgresql",
-							name: "PostgreSQL's refusals, a fresh install's catalog of each version and the carried rows read back; A to C as A to B to C"
-						},
-						suite: "pg/migrate/intents",
-						draw: steered(aimedIntents, (sketch) => sketch),
-						literal: Formatter.format,
-						coverage: required<Feature>(
-							Arr.map(legalIntents, (kind): Feature => `the intent ${kind}`),
-							{ cases: legalIntents.length, sense: notesOnly }
-						),
-						kept: keptIntents,
-						runs,
-						shrink,
-						steerEvery: 1,
-						caseHang
-					},
-					(sketch, notes) => {
-						for (const intent of new Set(Arr.map([...sketch.toB, ...sketch.toC], (i) => i.kind))) {
-							notes.note(`the intent ${intent}`)
-						}
-						return property(resolveLegalIntents(sketch), notes.draw(ambientSessionGen), notes)
+/** Generated migration paths on PostgreSQL paths of adversarial rename intents: every apply admitted against its snapshot, facts carried. */
+export const intentPaths = property.explore(steered(intentsCaseSteered), {
+	needs: { substrate: Substrate.installing },
+	situations: Arr.map(
+		legalIntents,
+		(kind): Feature => `the intent ${kind}`
+	) satisfies ReadonlyArray<Reached<Feature>>,
+	/**
+	 * Its pre-conversion budget: runs 4, coverage cases one per legal intent (paths.test.ts at bf4f43bb: each steered case
+	 * aims its first B intent at the pending one its turn falls on).
+	 */
+	budget: { runs: 4, steered: legalIntents.length },
+	check:
+		({ substrate }, notes: Case<Feature>) =>
+		(sketch) =>
+			Effect.provideServiceEffect(
+				Effect.suspend(() => {
+					for (const intent of new Set(
+						Arr.map([...sketch.intents.toB, ...sketch.intents.toC], (i) => i.kind)
+					)) {
+						notes.note(`the intent ${intent}`)
 					}
-				)
-			)
-	)
+					return pathCase(resolveLegalIntents(sketch.intents), sketch.ambient, notes)
+				}),
+				Substrate,
+				substrate
+			),
+	oracle: {
+		kind: "postgresql",
+		name: "PostgreSQL's refusals, a fresh install's catalog of each version and the carried rows read back; A to C as A to B to C"
+	},
+	kept: [
+		{
+			token: ReplayToken("test/pg/migrate/paths.test.ts#intentPaths:-:0.0.1.d.0.1.0.0.0.0.0.0.0"),
+			reason:
+				"the referenced relation renamed while its serial field widens: the rename converts the serial in place, so its referrer's rows still find their keys",
+			since: "2026-10-29"
+		},
+		{
+			token: ReplayToken("test/pg/migrate/paths.test.ts#intentPaths:-:0.e.0.1.f.1.0.0.0.0.0.0.0"),
+			reason:
+				"R1's serial converted to a uuidv7 in B and back to a serial in C: each conversion gives its draw up first and takes the target's once converted",
+			since: "2026-11-10"
+		},
+		{
+			token: ReplayToken("test/pg/migrate/paths.test.ts#intentPaths:-:0.g.0.1.e.1.0.0.0.0.0.0.0"),
+			reason:
+				"R1's serial converted to a uuid in B, then a uuidv7 in C: the uuid takes its uuidv7() default in place",
+			since: "2026-11-10"
+		},
+		{
+			token: ReplayToken("test/pg/migrate/paths.test.ts#intentPaths:-:0.e.0.1.g.1.0.0.0.0.0.0.0"),
+			reason:
+				"R1's serial converted to a uuidv7 in B, then a plain uuid in C: the uuidv7 gives its default up in place",
+			since: "2026-11-10"
+		}
+	],
+	kills: [
+		{
+			file: "packages/engine/src/deploy/diff/declared.ts",
+			original:
+				"\tconst relations = renamedSnapshot(previous, target, renamed, fields, anew, temporaries)",
+			replacement:
+				"\tconst relations = renamedSnapshot(previous, target, new Map(), fields, anew, temporaries)",
+			why: "A draft ignores every declared relation rename in the snapshot it renames, so a renamed relation's path fails."
+		}
+	]
 })

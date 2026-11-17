@@ -10,7 +10,8 @@
  * - **Property:** for every case of the box, the model and PostgreSQL, run over the same statements after the same
  *   setup, reach one verdict: both implement the key, or both refuse it with 42804 at the same statement. The model's
  *   verdict is its typed refusal (InterpretFailure `refusal`), never its words.
- * - **Oracle:** PostgreSQL itself, each case in a transaction it rolls back.
+ * - **Oracle:** PostgreSQL itself, each case, its setup included, in one owner transaction on the worker's own clone,
+ *   rolled back after it (Substrate.transaction).
  * - **Box, exhausted:** every ordered pair of column types from the types a column can have (each builtin with an
  *   index, two rosters' domains over smallint, as two rosters' closed ids are, and a domain over bigint), and a key from
  *   a column of the first to a key of the second made three ways: with the two tables; over the second type with the
@@ -18,304 +19,66 @@
  *   the second.
  * - **Features:** each way's two verdicts, implemented and refused.
  *
- * The test's own tables, columns, constraints and types live in a schema of its own, under names no installation has.
+ * A case's tables, columns, constraints and types live in a schema of its own inside its transaction, under names no
+ * installation has.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Result } from "effect"
-import type {
-	ColumnDef,
-	ForeignKey,
-	ObjectName,
-	PrimaryKey,
-	SqlStatement,
-	TypeRef
-} from "#compiler/sql/ast.ts"
-import { cUtf8Collation, lit, namedType, types } from "#compiler/sql/build.ts"
-import { printStatement } from "#compiler/sql/print.ts"
+
+import type { Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
+import { printStatement, quoteIdent } from "#compiler/sql/print.ts"
+import {
+	keyCaseGen,
+	type KeyFeature,
+	modelVerdict,
+	pgVerdict,
+	setup,
+	statementsOf,
+	ways
+} from "#test/pg/migrate/foreign-key-types.fixtures.ts"
 import { assert } from "#test/support/assert.ts"
-import { wild } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { messageOf } from "#test/support/message.ts"
-import { emptyState, interpret, type ModelFile } from "#test/support/migrate/interpret.ts"
-import { testTypeSchema } from "#test/support/sql.ts"
-import { pgErrorFields } from "#test/support/substrate/errors.ts"
-import type { RawSession } from "#test/support/substrate/session.ts"
-import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
 
-const referencedTable = "referenced"
-const referencingTable = "referencing"
-const keyColumn = "k"
-const referenceColumn = "r"
-/** The referencing table's own key, over a column of its own, so a conversion of the referencing column reaches the
- * foreign key alone. */
-const ownKeyColumn = "id"
-const keyName = wild.constraint("referenced_key")
-const ownKeyName = wild.constraint("referencing_own_key")
-const referenceName = wild.constraint("referencing_key")
-const rosterA = "kind_a"
-const rosterB = "kind_b"
-const bigDomain = "big"
-
-/** A column type of the space: its name in features, the type, and a text of a value of it, which a conversion writes. */
-interface ColumnType {
-	readonly name: string
-	readonly type: (schema: string) => TypeRef
-	readonly sample: string
-}
-
-const builtin = (name: string, type: TypeRef, sample: string): ColumnType => ({
-	name,
-	type: () => type,
-	sample
-})
-
-const named = (name: string, type: string, sample: string): ColumnType => ({
-	name,
-	type: (schema) => namedType(testTypeSchema(schema), type, []),
-	sample
-})
-
-const columnTypes: Arr.NonEmptyReadonlyArray<ColumnType> = [
-	builtin("smallint", types.smallint, "1"),
-	builtin("integer", types.integer, "1"),
-	builtin("bigint", types.bigint, "1"),
-	builtin("numeric", types.numeric, "1"),
-	builtin("real", types.real, "1"),
-	builtin("double precision", types.double, "1"),
-	builtin("boolean", types.boolean, "true"),
-	builtin("text", types.text, "a"),
-	builtin("uuid", types.uuid, "00000000-0000-4000-8000-000000000001"),
-	builtin("money", types.money, "1"),
-	named("roster domain a", rosterA, "1"),
-	named("roster domain b", rosterB, "1"),
-	named("domain over bigint", bigDomain, "1")
-]
-
-/** The ways a key comes to join a referencing column of one type to a referenced key of another. */
-const ways = ["created", "referencing converted", "referenced converted"] as const
-type Way = (typeof ways)[number]
-
-type Verdict = { readonly kind: "implemented" } | { readonly kind: "refused"; readonly at: number }
-
-type KeyFeature = `${Way}: ${"implemented" | "refused"}`
-
-/** A case of the space: a way to make the key, the referencing column's type and the referenced key's. */
-const keyCaseGen: Gen<readonly [Way, ColumnType, ColumnType]> = (source) =>
-	[
-		source.draw(element(ways)),
-		source.draw(element(columnTypes)),
-		source.draw(element(columnTypes))
-	] as const
-
-const isText = (type: TypeRef): boolean =>
-	type.kind === "builtin" && type.name === "text" && !type.array
-
-const column = (name: string, type: TypeRef): ColumnDef => ({
-	name,
-	type,
-	collation: isText(type) ? cUtf8Collation : undefined,
-	generated: undefined
-})
-
-/** A domain over smallint with no constraint: what a roster's closed ids are typed by, its CHECK aside. */
-const rosterDomain = (schema: string, name: string): SqlStatement => ({
-	kind: "createDomain",
-	name: { schema, name },
-	base: types.smallint,
-	collation: undefined,
-	constraints: []
-})
-
-/** The types the schema's columns may have that are none of PostgreSQL's: the two roster domains and the domain. */
-const setup = (schema: string): ReadonlyArray<SqlStatement> => [
-	rosterDomain(schema, rosterA),
-	rosterDomain(schema, rosterB),
-	{
-		kind: "createDomain",
-		name: { schema, name: bigDomain },
-		base: types.bigint,
-		collation: undefined,
-		constraints: []
-	}
-]
-
-/** The statements of one case: the referencing column ends of type `from`, the referenced key of type `to`. */
-const statementsOf = (
-	schema: string,
-	way: Way,
-	from: ColumnType,
-	to: ColumnType
-): ReadonlyArray<SqlStatement> => {
-	const referenced: ObjectName = { schema, name: referencedTable }
-	const referencing: ObjectName = { schema, name: referencingTable }
-	const key: PrimaryKey = {
-		kind: "primaryKey",
-		name: keyName,
-		columns: [{ column: keyColumn, withoutOverlaps: false }]
-	}
-	const ownKey: PrimaryKey = {
-		kind: "primaryKey",
-		name: ownKeyName,
-		columns: [{ column: ownKeyColumn, withoutOverlaps: false }]
-	}
-	const reference: ForeignKey = {
-		kind: "foreignKey",
-		name: referenceName,
-		columns: [{ column: referenceColumn, period: false }],
-		references: referenced,
-		referencedColumns: [{ column: keyColumn, period: false }],
-		deferrable: undefined,
-		onUpdate: undefined
-	}
-	const tables = (keyType: ColumnType, referenceType: ColumnType): ReadonlyArray<SqlStatement> => [
+/** The migration model's foreign key types a key between two column types, created or converted on either side, is refused by PostgreSQL exactly when by the model. */
+export const foreignKeyTypes = property.exhaust(finite(keyCaseGen), {
+	needs: { transaction: Substrate.transaction },
+	situations: Arr.flatMap(ways, (way) => [
+		`${way}: implemented` as const,
+		`${way}: refused` as const
+	]) satisfies ReadonlyArray<Reached<KeyFeature>>,
+	check:
+		({ transaction }, c: Case<KeyFeature>) =>
+		([way, from, to]) =>
+			Effect.gen(function* () {
+				const { connection, schema: allocate } = yield* transaction
+				const schema = yield* allocate("fk_types")
+				yield* connection.query(`CREATE SCHEMA ${quoteIdent(schema)}`, [])
+				for (const statement of setup(schema)) {
+					yield* connection.query(printStatement(statement), [])
+				}
+				const statements = statementsOf(schema, way, from, to)
+				const pg = yield* pgVerdict(connection, statements)
+				c.note(`${way}: ${pg.kind}`)
+				assert.deepEqual(
+					modelVerdict(schema, statements),
+					pg,
+					`a ${from.name} column referencing a ${to.name} key, ${way}`
+				)
+			}),
+	oracle: {
+		kind: "postgresql",
+		name: "PostgreSQL implements the key or refuses it with 42804 at the statement the model refuses"
+	},
+	box: "every ordered pair of the column types a column can have, each key created, its referencing column converted, or its referenced column converted",
+	kept: [],
+	kills: [
 		{
-			kind: "createTable",
-			table: referenced,
-			columns: [column(keyColumn, keyType.type(schema))],
-			primaryKey: key,
-			secondary: []
-		},
-		{
-			kind: "createTable",
-			table: referencing,
-			columns: [
-				column(ownKeyColumn, types.integer),
-				column(referenceColumn, referenceType.type(schema))
-			],
-			primaryKey: ownKey,
-			secondary: []
-		},
-		{
-			kind: "alterTable",
-			table: referencing,
-			actions: [{ kind: "addConstraint", constraint: reference, notValid: false }]
+			file: "packages/engine/src/sql/print.ts",
+			original:
+				"\t\t\tlisted(out.nested(), [\n\t\t\t\t...statement.columns.map(printColumnDef),\n\t\t\t\t...tableConstraints(statement).map(printConstraint)\n\t\t\t])",
+			replacement: "\t\t\t{}",
+			why: "Operator mutant (statement) at packages/engine/src/sql/print.ts:1808 in writeCommand: `listed(out.nested(), [\n\t\t\t\t...statement.columns.map(printColumnDef),\n\t\t\t\t...tabl` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
 		}
 	]
-	const convert = (table: ObjectName, name: string, into: ColumnType): SqlStatement => {
-		const type = into.type(schema)
-		return {
-			kind: "alterTable",
-			table,
-			actions: [
-				{
-					kind: "alterColumnType",
-					column: name,
-					type,
-					collation: isText(type) ? cUtf8Collation : undefined,
-					using: { kind: "expr", expr: lit.text(into.sample, type) }
-				}
-			]
-		}
-	}
-	switch (way) {
-		case "created":
-			return tables(to, from)
-		case "referencing converted":
-			return [...tables(to, to), convert(referencing, referenceColumn, from)]
-		case "referenced converted":
-			return [...tables(from, from), convert(referenced, keyColumn, to)]
-	}
-}
-
-const asFile = (name: string, statements: ReadonlyArray<SqlStatement>): ModelFile => ({
-	draft: { name },
-	actions: Arr.map(statements, (statement) => ({ kind: "statement", statement }))
-})
-
-/** The model's verdict: the case's statements after the setup's, refused with 42804 at a statement or not refused. */
-const modelVerdict = (schema: string, statements: ReadonlyArray<SqlStatement>): Verdict => {
-	const ran = interpret(
-		schema,
-		emptyState,
-		[asFile("setup", setup(schema)), asFile("case", statements)],
-		() => {
-			throw new Error("the case writes no placeholder")
-		}
-	)
-	if (Result.isSuccess(ran)) {
-		return { kind: "implemented" }
-	}
-	const failure = ran.failure
-	const refusal = failure.refusal
-	if (failure.file !== "case" || refusal.kind !== "sqlstate" || refusal.code !== "42804") {
-		return assert.fail(
-			`the model refuses otherwise: ${failure.file}, action ${failure.action}, ${Formatter.format(refusal)}: ${failure.reason}`
-		)
-	}
-	return { kind: "refused", at: failure.action }
-}
-
-/** PostgreSQL's verdict: the case's statements in one transaction, rolled back. */
-const pgVerdict = (session: RawSession, statements: ReadonlyArray<SqlStatement>) =>
-	Effect.gen(function* () {
-		yield* session.begin
-		for (const [i, statement] of statements.entries()) {
-			const ran = yield* Effect.result(session.query(printStatement(statement), []))
-			if (!Result.isFailure(ran)) {
-				continue
-			}
-			yield* session.rollback
-			assert.equal(
-				pgErrorFields(ran.failure)?.code,
-				"42804",
-				`PostgreSQL refuses statement ${i + 1} otherwise: ${messageOf(ran.failure)}`
-			)
-			const refused: Verdict = { kind: "refused", at: i + 1 }
-			return refused
-		}
-		yield* session.rollback
-		const implemented: Verdict = { kind: "implemented" }
-		return implemented
-	})
-
-layer(Substrate.layer)("the migration model's foreign key types", (it) => {
-	it.effect(
-		"a key between two column types, created or converted on either side, is refused by PostgreSQL exactly when by the model",
-		(ctx) =>
-			searched(
-				ctx,
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const schema = yield* s.schema(freshSchema)
-					for (const statement of setup(schema)) {
-						yield* s.admin.query(printStatement(statement), [])
-					}
-					const session = yield* s.session({ ...ownerSession(), label: "foreign key types" })
-					return yield* exhaust(
-						{
-							box: "every ordered pair of the column types a column can have, each key created, its referencing column converted, or its referenced column converted",
-							oracle: {
-								kind: "postgresql",
-								name: "PostgreSQL implements the key or refuses it with 42804 at the statement the model refuses"
-							},
-							suite: "pg/migrate/foreign-key-types",
-							generator: keyCaseGen,
-							literal: ([way, from, to]) => `${way}: ${from.name} → ${to.name}`,
-							coverage: requiredInSpace<KeyFeature>(
-								Arr.flatMap(ways, (way) => [
-									`${way}: implemented` as const,
-									`${way}: refused` as const
-								])
-							),
-							caseHang
-						},
-						([way, from, to], c) =>
-							Effect.gen(function* () {
-								const statements = statementsOf(schema, way, from, to)
-								const pg = yield* pgVerdict(session, statements)
-								c.note(`${way}: ${pg.kind}`)
-								assert.deepEqual(
-									modelVerdict(schema, statements),
-									pg,
-									`a ${from.name} column referencing a ${to.name} key, ${way}`
-								)
-							})
-					)
-				})
-			)
-	)
 })

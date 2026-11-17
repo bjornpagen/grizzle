@@ -25,9 +25,10 @@ import { type CliReport, type ConfigLoader, runCli } from "#cli/run.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import { servedPath } from "#compiler/served/forms.ts"
+import { FamilyUnrecorded, readFamily } from "#pg/family.ts"
 import { localCluster } from "#pg/local-cluster.ts"
 import { ledger, shop } from "#test/pg/cli/fixture.ts"
-import { type InitializedClusterShape, selectedCluster } from "#test/support/cluster.ts"
+import { type InitializedClusterShape, readCluster } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { testConnectTimeout } from "#test/support/limits.ts"
@@ -234,9 +235,35 @@ const specFileName = "grizzle.spec.json"
 export const commandConnections = ["migration session", "cancel request"].length
 
 /**
+ * The member of the local cluster family at `port`, read once: the member a spec's connection names by its port, so a
+ * configuration connects with that member's CA and migration identity's password whichever process builds it, a case's
+ * runner worker (on the member its runner places it, which no variable of the process names) or a command line's child.
+ * A port the family does not list is FamilyUnrecorded.
+ */
+const memberAt = (
+	port: number
+): Effect.Effect<
+	InitializedClusterShape,
+	FamilyUnrecorded | Effect.Error<ReturnType<typeof readCluster>>,
+	FileSystem.FileSystem
+> =>
+	Effect.gen(function* () {
+		const family = yield* readFamily(localCluster)
+		const member = yield* Effect.mapError(
+			Effect.fromOption(Arr.findFirst(family.members, (m) => m.port === port)),
+			() =>
+				new FamilyUnrecorded({
+					file: localCluster.state,
+					reason: `a configuration's port ${port} is none of the family's`
+				})
+		)
+		return yield* readCluster(member)
+	})
+
+/**
  * The configuration of the spec in `dir`, as its grizzle.config.ts and an in-process run build it: its password and
- * CA are the initialised cluster's, read once for it, and its connection's sockets draw from a budget of
- * commandConnections of its own.
+ * CA are those of the member its connection's port names (memberAt), read once for it, and its connection's sockets
+ * draw from a budget of commandConnections of its own.
  *
  * @internal
  */
@@ -244,14 +271,14 @@ export const specConfig = (
 	dir: string
 ): Effect.Effect<
 	GrizzleConfig,
-	PlatformError.PlatformError | Effect.Error<typeof selectedCluster>,
+	PlatformError.PlatformError | Effect.Error<ReturnType<typeof memberAt>>,
 	FileSystem.FileSystem
 > =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const text = yield* fs.readFileString(`${dir}/${specFileName}`)
 		const spec = trustedJson<ConfigSpec>(text)
-		const cluster = yield* selectedCluster
+		const cluster = yield* memberAt(spec.connection.port)
 		return configOf(budgeted(cluster, leaseBudget(commandConnections)), spec)
 	})
 

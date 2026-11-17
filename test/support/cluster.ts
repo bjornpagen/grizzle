@@ -117,7 +117,7 @@ export const lentPlace: Effect.Effect<Option.Option<Lent>> = Effect.map(
  * reaches the parent's member (lentPlace); any other process its Vitest worker's (memberOf, worker w on member (w − 1)
  * mod K; a process outside a worker on the first). A lent port the family does not list is FamilyUnrecorded.
  */
-export const selectedCluster: Effect.Effect<
+const selectedCluster: Effect.Effect<
 	InitializedClusterShape,
 	ClusterNotInitialized | FamilyUnrecorded,
 	FileSystem.FileSystem

@@ -17,218 +17,121 @@
  * - **Features:** an absent ledger admitted, every folder in one apply, a no-transaction file, the rest of a history
  *   after its start, and nothing pending.
  */
-import { exhaust } from "@bjornpagen/testing/explore"
-import { requiredInSpace } from "@bjornpagen/testing/features"
-import { type Gen, int } from "@bjornpagen/testing/gen"
-import { searched } from "@bjornpagen/testing/vitest"
-import { layer } from "@effect/vitest"
-import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { applyOnSession, checkDrift, type SchemaApplyReport } from "#adapter/migrate/apply.ts"
-import { type MigrationTarget, parseTarget } from "#adapter/migrate/input.ts"
+
+import type { Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect } from "effect"
+import type { MigrationTarget } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
-import { type MigrationSession, migrationSession } from "#adapter/migrate/session.ts"
+import { migrationSession } from "#adapter/migrate/session.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
+import {
+	admittedAlone,
+	appliedIn,
+	type FlightFeature,
+	historyGen,
+	versions
+} from "#test/pg/migrate/flights.fixtures.ts"
 import { kept, reviewedSource } from "#test/pg/migrate/support.ts"
-import { assert, defined, succeeded } from "#test/support/assert.ts"
+import { defined, succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { caseHang } from "#test/support/limits.ts"
-import { draftChain, fromEmpty, noDeclarations, ownedBy } from "#test/support/migrate/kit.ts"
+import { draftChain, fromEmpty, ownedBy } from "#test/support/migrate/kit.ts"
 import { readLedger } from "#test/support/migrate/ledger.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
-import { frameOf, type Tapped, tappedSession } from "#test/support/wire-tap.ts"
-import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
+import { tappedSession } from "#test/support/wire-tap.ts"
 
-const versions = [
-	[shopV1, noDeclarations],
-	[shopV2, noDeclarations],
-	[shopV3, shopV3Declared]
-] as const
+/** Every step of grizzle migrate is one flight an apply sends one flight per step, and the drift check after it exactly one. */
+export const flights = property.exhaust(finite(historyGen), {
+	needs: { caseSubstrate: Substrate.installing },
+	situations: [
+		"an absent ledger admitted",
+		"every folder in one apply",
+		"a no-transaction file",
+		"the rest of a history after its start",
+		"nothing pending"
+	] satisfies ReadonlyArray<Reached<FlightFeature>>,
+	check:
+		({ caseSubstrate }, c: Case<FlightFeature>) =>
+		(history) =>
+			Effect.provideServiceEffect(
+				Effect.gen(function* () {
+					const substrate = yield* Substrate
+					const owner = substrate.owner.role
 
-/** A history of `versions` folders, applied first up to folder `split` (0: none, the empty snapshot), then whole. */
-interface History {
-	readonly versions: number
-	readonly split: number
-}
-
-/** Every history of one to three versions, each split at every folder from none to its last. */
-const historyGen: Gen<History> = (source) => {
-	const count = source.draw(int(1, versions.length))
-	return { versions: count, split: source.draw(int(0, count)) }
-}
-
-type FlightFeature =
-	| "an absent ledger admitted"
-	| "every folder in one apply"
-	| "a no-transaction file"
-	| "the rest of a history after its start"
-	| "nothing pending"
-
-/** The steps an apply ran, as its report says: the survey step, each applied folder's files (a transactional file one
- * flight; a no-transaction file one for its folder row, recorded unfinished under the ledger's lock before its first
- * statement so that no Db runs while its statements run alone, one per statement and one for its rows) or its row
- * alone, the schema's drift check, and the release of its apply lock. */
-const stepsOf = (
-	target: MigrationTarget,
-	report: SchemaApplyReport,
-	c: { note: (f: FlightFeature) => void }
-) => {
-	const parsed = succeeded(parseTarget(target, { database: "unparsed", roles: { kind: "stems" } }))
-	let steps = 1
-	for (const applied of report.applied) {
-		const folder = defined(
-			Option.getOrUndefined(Arr.findFirst(parsed.folders, (f) => f.name === applied.folder)),
-			`the applied folder ${applied.folder}`
-		)
-		if (folder.files.length === 0) {
-			steps += 1
+					const allocated = yield* substrate.schema({ create: false, label: "flights" })
+					const schema = identifierOf(identity.schema(parsedSchemaName(allocated)))
+					const tapped = yield* tappedSession({
+						cluster: substrate.cluster,
+						database: substrate.database,
+						role: owner,
+						password: substrate.owner.password
+					})
+					const m = migrationSession(tapped.session, {
+						database: substrate.database,
+						roles: { kind: "stems" }
+					})
+					const over = {
+						schema: atName(allocated),
+						owner: ownedBy(owner),
+						extensions: [],
+						codes: firstCodes
+					}
+					const folders: ReadonlyArray<GenerateResult> = draftChain(
+						Arr.map(versions.slice(0, history.versions), ([desc, declared]) => ({
+							desc,
+							options: over,
+							declared
+						})),
+						fromEmpty
+					)
+					const sources = Arr.map(folders, (g) => reviewedSource(g, kept))
+					const last = defined(folders.at(-1), "the history's last folder")
+					const whole: MigrationTarget = { snapshot: last.snapshot, folders: sources }
+					const first: MigrationTarget =
+						history.split === 0
+							? {
+									snapshot: emptySnapshot({ schemaName: last.snapshot.schemaName, schema }),
+									folders: []
+								}
+							: {
+									snapshot: defined(folders[history.split - 1], "the split folder").snapshot,
+									folders: sources.slice(0, history.split)
+								}
+					yield* appliedIn(tapped, m, first, c)
+					yield* admittedAlone(tapped, m, first)
+					const ledger = yield* readLedger(m, schema, succeeded(statementsFor(schema)))
+					if (ledger.complete.length === 0 && ledger.partial === undefined) {
+						c.note("an absent ledger admitted")
+					}
+					const rest = yield* appliedIn(tapped, m, whole, c)
+					if (rest.applied.length === folders.length) {
+						c.note("every folder in one apply")
+					} else if (rest.applied.length > 0) {
+						c.note("the rest of a history after its start")
+					}
+					yield* admittedAlone(tapped, m, whole)
+					yield* appliedIn(tapped, m, whole, c)
+				}),
+				Substrate,
+				caseSubstrate
+			),
+	oracle: {
+		kind: "specification",
+		name: "the runner's documented steps restated over its report: one round trip per step, the drift check one"
+	},
+	box: "the shop's histories of one to three versions, each applied up to every split folder, then whole, then again",
+	kept: [],
+	kills: [
+		{
+			file: "packages/grizzle/src/adapter/migrate/apply.ts",
+			original: "\tconst answered = yield* Effect.mapError(",
+			replacement:
+				"\tyield* Effect.orDie(session.apart([oneShotStatement(lockTableRead.sql, [])]))\n\tconst answered = yield* Effect.mapError(",
+			why: "The drift check reads the server's lock-table settings in a flight of their own before its own."
 		}
-		for (const name of applied.files) {
-			const file = defined(
-				Option.getOrUndefined(Arr.findFirst(folder.files, (f) => f.name === name)),
-				`the applied file ${name}`
-			)
-			if (file.noTransaction) {
-				c.note("a no-transaction file")
-			}
-			steps += file.noTransaction ? 1 + file.statements.length + 1 : 1
-		}
-	}
-	if (report.applied.length === 0) {
-		c.note("nothing pending")
-	}
-	return steps + 2
-}
-
-/** The apply of `target` on the tapped session: its round trips are exactly the steps its report says it ran. */
-const appliedIn = (
-	tapped: Tapped,
-	m: MigrationSession,
-	target: MigrationTarget,
-	c: { note: (f: FlightFeature) => void }
-) =>
-	Effect.gen(function* () {
-		const mark = tapped.mark()
-		const [report] = yield* applyOnSession(m, [target])
-		const window = tapped.since(mark)
-		const ran = defined(report, "the schema's report")
-		assert.equal(
-			window.roundTrips,
-			stepsOf(target, ran, c),
-			`${target.snapshot.schema}: round trips of the apply`
-		)
-		return ran
-	})
-
-/** The drift check of `target`'s snapshot alone: one round trip, framed by its BEGIN and ROLLBACK, ending idle. */
-const admittedAlone = (tapped: Tapped, m: MigrationSession, target: MigrationTarget) =>
-	Effect.gen(function* () {
-		const snapshot = target.snapshot
-		const statements = succeeded(statementsFor(snapshot.schema))
-		const mark = tapped.mark()
-		yield* checkDrift(m, snapshot, statements)
-		const window = tapped.since(mark)
-		assert.equal(window.roundTrips, 1, "the drift check is one round trip")
-		assert.deepEqual(
-			frameOf(window),
-			{
-				kind: "framed",
-				isolation: "SERIALIZABLE",
-				access: "read write",
-				deferrable: false,
-				end: "rollback"
-			},
-			"the drift check's framing"
-		)
-		assert.deepEqual(window.backend.at(-1), { type: "Z", status: "I" }, "the drift check ends idle")
-	})
-
-layer(Substrate.layer)("every step of grizzle migrate is one flight", (it) => {
-	it.effect("an apply sends one flight per step, and the drift check after it exactly one", (ctx) =>
-		searched(
-			ctx,
-			Effect.gen(function* () {
-				const substrate = yield* Substrate
-				const owner = substrate.owner.role
-				return yield* exhaust(
-					{
-						box: "the shop's histories of one to three versions, each applied up to every split folder, then whole, then again",
-						oracle: {
-							kind: "specification",
-							name: "the runner's documented steps restated over its report: one round trip per step, the drift check one"
-						},
-						suite: "migrate/flights",
-						generator: historyGen,
-						literal: Formatter.format,
-						coverage: requiredInSpace<FlightFeature>([
-							"an absent ledger admitted",
-							"every folder in one apply",
-							"a no-transaction file",
-							"the rest of a history after its start",
-							"nothing pending"
-						]),
-						caseHang
-					},
-					(history, c) =>
-						Effect.gen(function* () {
-							const allocated = yield* substrate.schema({ create: false, label: "flights" })
-							const schema = identifierOf(identity.schema(parsedSchemaName(allocated)))
-							const tapped = yield* tappedSession({
-								cluster: substrate.cluster,
-								database: substrate.database,
-								role: owner,
-								password: substrate.owner.password
-							})
-							const m = migrationSession(tapped.session, {
-								database: substrate.database,
-								roles: { kind: "stems" }
-							})
-							const over = {
-								schema: atName(allocated),
-								owner: ownedBy(owner),
-								extensions: [],
-								codes: firstCodes
-							}
-							const folders: ReadonlyArray<GenerateResult> = draftChain(
-								Arr.map(versions.slice(0, history.versions), ([desc, declared]) => ({
-									desc,
-									options: over,
-									declared
-								})),
-								fromEmpty
-							)
-							const sources = Arr.map(folders, (g) => reviewedSource(g, kept))
-							const last = defined(folders.at(-1), "the history's last folder")
-							const whole: MigrationTarget = { snapshot: last.snapshot, folders: sources }
-							const first: MigrationTarget =
-								history.split === 0
-									? {
-											snapshot: emptySnapshot({ schemaName: last.snapshot.schemaName, schema }),
-											folders: []
-										}
-									: {
-											snapshot: defined(folders[history.split - 1], "the split folder").snapshot,
-											folders: sources.slice(0, history.split)
-										}
-							yield* appliedIn(tapped, m, first, c)
-							yield* admittedAlone(tapped, m, first)
-							const ledger = yield* readLedger(m, schema, succeeded(statementsFor(schema)))
-							if (ledger.complete.length === 0 && ledger.partial === undefined) {
-								c.note("an absent ledger admitted")
-							}
-							const rest = yield* appliedIn(tapped, m, whole, c)
-							if (rest.applied.length === folders.length) {
-								c.note("every folder in one apply")
-							} else if (rest.applied.length > 0) {
-								c.note("the rest of a history after its start")
-							}
-							yield* admittedAlone(tapped, m, whole)
-							yield* appliedIn(tapped, m, whole, c)
-						})
-				)
-			})
-		)
-	)
+	]
 })

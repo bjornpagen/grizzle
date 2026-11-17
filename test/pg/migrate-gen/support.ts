@@ -2333,7 +2333,7 @@ const statedJoint = (referencedFirst: boolean): StatedRenamedPath =>
 		references: [0],
 		back: false
 	})
-export const referencedRenamedFirst: StatedRenamedPath = statedJoint(true)
+const referencedRenamedFirst: StatedRenamedPath = statedJoint(true)
 
 /** B widens R0's field b from int4 to int8 and renames its field c to Select, chosen: A's key over b and c is B's over b
  * and Select under the rename (a carried key must be built again over the converted column of b). */
@@ -2365,7 +2365,7 @@ const keyCarryTarget = statedSchema(
 	[]
 )
 
-export const keyCarriedOverRetyped: StatedRenamedPath = plantedRename(
+const keyCarriedOverRetyped: StatedRenamedPath = plantedRename(
 	{
 		a: statedSchema(
 			[
@@ -2448,7 +2448,7 @@ const promotedOrigins = statedOrigins(
 	]
 )
 
-export const keyRenamedOntoPrimary: StatedRenamedPath = plantedRename(
+const keyRenamedOntoPrimary: StatedRenamedPath = plantedRename(
 	{
 		a: statedSchema(
 			[keyOverB, statedRelation("R1", [{ name: "a", type: int4 }], ["a"], false)],
@@ -2504,7 +2504,7 @@ const surrogateGoneOrigins = statedOrigins(
  * beside b, to immediate, R0 holding b alone, in the migration that replaces the key over b it references. The draft
  * drops the changed foreign key in Structure and adds it after B's key is attached, and the rebinding of the foreign
  * keys the target keeps unchanged over a replaced key leaves it alone, so no statement drops it twice (42704). */
-export const keyPromotedBesideChangedReference: StatedRenamedPath = plantedRename(
+const keyPromotedBesideChangedReference: StatedRenamedPath = plantedRename(
 	{
 		a: {
 			...statedSchema(
@@ -2569,7 +2569,7 @@ const retypedHolder = statedRelation(
 	false
 )
 
-export const renamedWithRetype: StatedRenamedPath = plantedRename(
+const renamedWithRetype: StatedRenamedPath = plantedRename(
 	{
 		a: statedSchema([ints("R0", ["a", "b"], ["a"])], []),
 		b: statedSchema([retypedHolder], []),
@@ -3079,7 +3079,7 @@ const retypedB = statedRelation(
 /** B retypes R0's field b and no longer requests the statistics over a and b; C requests them again (statistics
  * over a retyped column created again over the wrong column, or lost). The generated paths found it with B swapping two fields of
  * two types, each retyped. */
-export const statisticsOverRetyped: StatedRenamedPath = plantedRenameWith(
+const statisticsOverRetyped: StatedRenamedPath = plantedRenameWith(
 	{
 		a: statedSchema([ints("R0", ["a", "b"], ["a"])], []),
 		b: statedSchema([retypedB], []),
@@ -3107,7 +3107,7 @@ const overABandAC = (relation: number, relations: number): ReadonlyArray<Statist
 	{ relation, relations, first: 0, second: 2, fields: 3 }
 ]
 
-export const statisticsOfRenamedRelation: StatedRenamedPath = plantedRenameWith(
+const statisticsOfRenamedRelation: StatedRenamedPath = plantedRenameWith(
 	{
 		a: statedSchema([ints("R0", ["a", "b", "c"], ["a"])], []),
 		b: statedSchema([ints("P0", ["a", "b", "c"], ["a"])], []),
@@ -3148,7 +3148,7 @@ const payloadRosterOrigins = (relation: string) =>
  * closed relation (oracle/gen/schema.ts payloadPatterns), and B renames R0 to P0, chosen: every version's worlds hold
  * those closed relations as the version's admission made them. The generated paths found it with two such rosters in
  * A, a third added in B and one restored in C. */
-export const payloadRostersRenamed: StatedRenamedPath = plantedRename(
+const payloadRostersRenamed: StatedRenamedPath = plantedRename(
 	{
 		a: statedSchema([ints("R0", ["a"], ["a"])], [payloadRoster("K0", ["Open", "Shut"])]),
 		b: statedSchema(
@@ -3178,7 +3178,7 @@ const aSerial: Extras = { ...noExtras, identities: [{ relation: 0, column: 0 }] 
 /** A's R0 holds bigint's greatest value in a, and B declares a serial, C as B: the migration's advance leaves a's new
  * identity at its type's end, where it generates no value at all, so none repeats the stored one, on both paths. The
  * generated paths found it with a row at bigint's greatest value in a key field B declared serial. */
-export const serialDeclaredAtEnd: StatedRenamedPath = plantedRenameWith(
+const serialDeclaredAtEnd: StatedRenamedPath = plantedRenameWith(
 	{ a: bigintKeyed, b: bigintKeyed, c: bigintKeyed },
 	{ a: noExtras, b: aSerial, c: aSerial },
 	{ R0: [one(int8Max)] },
@@ -3676,3 +3676,25 @@ const legalIntentPath = (
 export const resolveLegalIntents = (
 	sketch: IntentSketch & { readonly kind: "legal" }
 ): RenamedPath => statedRenamed(legalIntentPath(sketch).path)
+
+/**
+ * The renamed paths the generated paths found once, each stated by value (StatedRenamedPath): the findings a suite's
+ * space draws through statedRenamedDrawGen, so each is a case the space makes and a kept case's token names it.
+ */
+const statedRenamedPaths = [
+	referencedRenamedFirst,
+	keyCarriedOverRetyped,
+	keyRenamedOntoPrimary,
+	keyPromotedBesideChangedReference,
+	renamedWithRetype,
+	statisticsOverRetyped,
+	statisticsOfRenamedRelation,
+	payloadRostersRenamed,
+	serialDeclaredAtEnd
+] as const
+
+/** A finding of the generated renamed paths, drawn as its stated path: the arm a suite draws its kept findings by. */
+export const statedRenamedDrawGen: Gen<RenamedDraw> = (source) => ({
+	kind: "stated",
+	path: source.draw(element(statedRenamedPaths))
+})
