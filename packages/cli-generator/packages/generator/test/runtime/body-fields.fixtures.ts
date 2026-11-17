@@ -1073,13 +1073,16 @@ export const observed = (dir: ScratchDir, drawn: Merge, entry: "merge" | "struct
 	})
 
 /**
- * The echoes a server could make of each secret the model records, as given, JSON-escaped, percent-encoded and
- * form-encoded, each inside a line, with the line each must scrub to: the secret's placeholder in its place.
+ * The echoes a server could make of each secret value the model records, as given, JSON-escaped, percent-encoded and
+ * form-encoded, each inside a line, with the line each must scrub to: the value's placeholder in its place. Two
+ * secrets holding one value are one value to the scrub, whose echo takes the placeholder of the first recorded.
  */
 const echoesOf = (drawn: Merge): ReadonlyArray<readonly [string, string]> => {
 	const settled = settledOf(drawn)
 	const secrets: ReadonlyArray<readonly [string, string]> =
-		settled.kind === "text" ? settled.secrets : []
+		settled.kind === "text"
+			? Arr.dedupeWith(settled.secrets, ([, left], [, right]) => left === right)
+			: []
 	return Arr.flatMap(secrets, ([label, value]): ReadonlyArray<readonly [string, string]> =>
 		value.length > 1
 			? Arr.map(

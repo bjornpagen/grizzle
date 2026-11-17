@@ -650,12 +650,14 @@ const passwordPartPlant =
 
 /**
  * A 3.0 `format: byte` string is a file read as base64, an Input.FileField; on 3.1 and 3.2 it is a plain string flag sent
- * as given (FMT-10). A `contentEncoding: base64` string is a base64 FileField on every line.
+ * as given (FMT-10). A `contentEncoding: base64` string is a base64 FileField on 3.1 and 3.2, which take the keyword
+ * from JSON Schema; 3.0's Schema Object has no such keyword, and its official schema refuses one (VAL-02), so a 3.0
+ * plant is never encoded.
  */
 const bytePlant =
 	(line: Line, encodedGen: Gen<boolean>): Gen<Plant> =>
 	(s) => {
-		const encoded = s.draw(encodedGen)
+		const encoded = line !== "3.0" && s.draw(encodedGen)
 		const name = s.draw(element(["blob", "encoded"]))
 		const asFile = encoded || line === "3.0"
 		return {
@@ -953,7 +955,10 @@ export const AIMS: ReadonlyArray<readonly [Feature, Space<ConstructCase>]> = [
 	["a described password", aimedAt(Option.none(), asDrawn, (line) => passwordPlant(line, yes))],
 	["a binary part", aimedAt(Option.none(), asDrawn, (line) => passwordPartPlant(line, no))],
 	["a 3.0 byte property", aimedAt(Option.some("3.0"), asDrawn, (line) => bytePlant(line, no))],
-	["a base64 contentEncoding", aimedAt(Option.none(), asDrawn, (line) => bytePlant(line, yes))],
+	[
+		"a base64 contentEncoding",
+		aimedAt(Option.some("3.1"), asDrawn, (line) => bytePlant(line, yes))
+	],
 	[
 		"an int64 property",
 		aimedAt(Option.none(), asDrawn, (line) => numericPlant(line, constant<NumericKind>("int64")))
