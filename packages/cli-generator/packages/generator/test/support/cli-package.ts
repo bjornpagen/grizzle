@@ -136,14 +136,16 @@ const buildStep = Effect.fn("cliPackage.step")(function* (
 
 /**
  * Builds a generated package as a user would: `pnpm install --prefer-offline --ignore-workspace` (the store's packages
- * resolve locally, only what is missing is fetched), then its own `typecheck` and `build` scripts, one after another.
- * Answers the package with the built bin its manifest names.
+ * resolve locally, only what is missing is fetched), then its own `build` script. The build's tsc checks every source
+ * the package's `typecheck` script checks (tsconfig.build.json extends tsconfig.json over the same src, changing only
+ * how it emits) and exits non-zero on any error, so running `typecheck` first would compute the same answer again; the
+ * emitted-package suite runs that script itself over every package it draws (typecheckPackage). Answers the package
+ * with the built bin its manifest names.
  */
 export const buildPackage = Effect.fn("cliPackage.build")(function* (generated: GeneratedPackage) {
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
 	yield* buildStep(generated.dir, "install", ["install", "--prefer-offline", "--ignore-workspace"])
-	yield* buildStep(generated.dir, "typecheck", ["run", "typecheck"])
 	yield* buildStep(generated.dir, "build", ["run", "build"])
 	const manifestText = yield* fs.readFileString(path.join(generated.dir, "package.json"))
 	const manifest = yield* Schema.decodeEffect(Manifest)(manifestText)
