@@ -32,9 +32,9 @@ import {
 } from "effect"
 import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
-import { configGen, configOf, documentGen, documentOf, textOf } from "#test/emit/openapi-gen.ts"
-import type { ConfigSketch, DocumentSketch } from "#test/emit/openapi-gen.ts"
 import { harnessLayer } from "#test/support/cli-package.ts"
+import { configGen, configOf, documentGen, documentOf, textOf } from "#test/support/openapi-gen.ts"
+import type { ConfigSketch, DocumentSketch } from "#test/support/openapi-gen.ts"
 
 type Family =
 	| "a boolean path parameter"

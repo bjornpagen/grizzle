@@ -44,6 +44,7 @@ import {
 import { format } from "oxfmt"
 import type { FormatConfig } from "oxfmt"
 import { runtimeSources } from "#emit/runtime.ts"
+import { generateFixture, harnessLayer, typecheckPackage } from "#test/support/cli-package.ts"
 import {
 	BINDING_TAGS,
 	configGen,
@@ -51,15 +52,14 @@ import {
 	documentGen,
 	documentOf,
 	textOf
-} from "#test/emit/openapi-gen.ts"
+} from "#test/support/openapi-gen.ts"
 import type {
 	ConfigSketch,
 	DocumentSketch,
 	OperationSketch,
 	Requirement,
 	SchemeSketch
-} from "#test/emit/openapi-gen.ts"
-import { generateFixture, harnessLayer, typecheckPackage } from "#test/support/cli-package.ts"
+} from "#test/support/openapi-gen.ts"
 
 /** The formatter's options for generated files, as docs/printer.md names them. */
 const FORMAT_OPTIONS: FormatConfig = {

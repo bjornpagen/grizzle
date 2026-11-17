@@ -30,9 +30,9 @@ import type { PlannedCommand } from "#names/plan.ts"
 import { envPrefixOf } from "#names/plan.ts"
 import { normalize } from "#normalize/index.ts"
 import { resolve } from "#resolve/index.ts"
-import { configGen, configOf, documentGen, documentOf } from "#test/emit/openapi-gen.ts"
-import type { ConfigSketch, DocumentSketch } from "#test/emit/openapi-gen.ts"
 import { harnessLayer } from "#test/support/cli-package.ts"
+import { configGen, configOf, documentGen, documentOf } from "#test/support/openapi-gen.ts"
+import type { ConfigSketch, DocumentSketch } from "#test/support/openapi-gen.ts"
 
 const document = DocumentUri.make("file:///readme/openapi.json")
 
