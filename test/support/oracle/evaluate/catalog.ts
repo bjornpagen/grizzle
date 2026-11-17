@@ -82,7 +82,7 @@ import { power as numericPower } from "#test/support/oracle/evaluate/power.ts"
 export type Evaluation = "exact" | "estimated" | "database"
 
 /** Each node's evaluation, by its function and carrier. */
-export const evaluationOf = (op: NativeOp): Evaluation => {
+const evaluationOf = (op: NativeOp): Evaluation => {
 	switch (op.fn) {
 		case "power":
 			return firstOperand(op.operands) === "numeric" ? "estimated" : "database"

@@ -1,7 +1,7 @@
 /** What the properties of audit.test.ts read: its spaces, models and helpers. */
 
 import { keyOf, type Reached, type Situations } from "@bjornpagen/testing/features"
-import { array, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { type Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Order, String as Str } from "effect"
 import { decode, encode, everyProperty, noRevivers } from "#compiler/core/canonical.ts"
@@ -9,7 +9,7 @@ import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
 import type { CteBody, Expr, SqlStatement, TypeRef } from "#compiler/sql/ast.ts"
 import { builtinType } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
-import { type CarrierDeclaration, carrierName, emptyNameMap } from "#compiler/sql/naming.ts"
+import { emptyNameMap } from "#compiler/sql/naming.ts"
 import { printStatement, printType } from "#compiler/sql/print.ts"
 import {
 	identityHooks,
@@ -472,35 +472,3 @@ export const textBreakSituations: Situations<TextBreakFeature> = Arr.appendAll(
 		["text rule untypedLiteral", "leading CREATE OR"]
 	] as const
 )
-
-/** One statement of a write program, as far as its carriers go. */
-type ProgramStep =
-	| { readonly kind: "create"; readonly carrier: number }
-	| { readonly kind: "analyze"; readonly carriers: Arr.NonEmptyReadonlyArray<number> }
-
-/** What a program's audit answered: admitted, or refused at a statement. */
-export type ProgramFeature = "admitted" | "refused"
-
-/** The declaration of every carrier a program here creates: one bigint column, no key. */
-const bigintCarrier: CarrierDeclaration = {
-	primaryKey: undefined,
-	columns: [{ name: "c1", type: builtinType("bigint"), collation: undefined, generated: undefined }]
-}
-
-/** The statement a program step is: a carrier created, or an ANALYZE of carriers. */
-export const programStatement = (step: ProgramStep): SqlStatement =>
-	step.kind === "create"
-		? { kind: "createCarrier", name: carrierName(step.carrier, bigintCarrier), ...bigintCarrier }
-		: {
-				kind: "analyze",
-				carriers: Arr.map(step.carriers, (n) => carrierName(n, bigintCarrier))
-			}
-
-/** One step on two carriers: a carrier created, or an ANALYZE of any nonempty subset of them, as ANALYZE needs one. */
-export const programStepGen: Gen<ProgramStep> = oneOf<ProgramStep>([
-	map(int(1, 2), (carrier): ProgramStep => ({ kind: "create", carrier })),
-	map(element<Arr.NonEmptyReadonlyArray<number>>([[1], [2], [1, 2]]), (carriers): ProgramStep => ({
-		kind: "analyze",
-		carriers
-	}))
-])

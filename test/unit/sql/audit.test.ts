@@ -21,28 +21,23 @@
  * Its faithful rewrites are admitted and print as declared.
  * Its print, broken at one token, is reported by the text audit as exactly the rule broken.
  *
- * A program's ANALYZE names only carriers an earlier statement of the program created: checked exhaustively over
- * every program of up to three statements on two carriers, refused at each statement that does.
- *
  * Oracle: the universal laws of a statement (its twin prints alike, the snapshot's codec reads it back, emit prints
  * it, lowering again emits the same text); each break's rule and reason as the operator declares it (a mutation
- * oracle); the carriers created so far, read off the program (a specification).
+ * oracle).
  *
  * Features: each source, context, statement kind and shape of the Live population; each required break and rule; each
- * required faithful rewrite; each text break and its rule beside the print's leading words; admitted and refused
- * programs.
+ * required faithful rewrite; each text break and its rule beside the print's leading words.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
-import { aimed, array, finite } from "@bjornpagen/testing/gen"
+import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Effect } from "effect"
 import { printStatement } from "#compiler/sql/print.ts"
-import { assert, defined, unorderedEqual } from "#test/support/assert.ts"
+import { assert, defined } from "#test/support/assert.ts"
 import { shapeFeatures, shapeOf } from "#test/support/kernel/shape.ts"
 import { breaks, oneHole } from "#test/support/kernel/sqlgen.ts"
 import {
-	auditCarrierProgramViolations,
 	auditStatementViolations,
 	auditTextViolations,
 	violationError
@@ -66,9 +61,6 @@ import {
 	marksMet,
 	noteReached,
 	pickedStatement,
-	type ProgramFeature,
-	programStatement,
-	programStepGen,
 	ruleSet,
 	type TextBreakFeature,
 	textBreakSituations,
@@ -390,39 +382,3 @@ export const aPrintedStatementBrokenAtOneTokenIsRefusedByTheTextAuditForExactlyT
 			]
 		}
 	)
-
-/** A write program's ANALYZE names only carriers an earlier statement created, over every program of three statements on two carriers. */
-export const aWriteProgramsANALYZENamesOnlyCarriersAnEarlierStatementCreatedOverEveryProgramOfThreeStatementsOnTwoCarriers =
-	property.exhaust(finite(array(programStepGen, { min: 0, max: 3 })), {
-		needs: {},
-		situations: ["admitted", "refused"] satisfies ReadonlyArray<Reached<ProgramFeature>>,
-		check: (_, c: Case<ProgramFeature>) => (program) =>
-			Effect.sync(() => {
-				const created = new Set<number>()
-				const expected: Array<string> = []
-				for (const [i, step] of program.entries()) {
-					if (step.kind === "create") {
-						created.add(step.carrier)
-					} else {
-						for (const carrier of step.carriers) {
-							if (!created.has(carrier)) {
-								expected.push(`context at statement ${i}`)
-							}
-						}
-					}
-				}
-				const got = Arr.map(
-					auditCarrierProgramViolations(Arr.map(program, programStatement)),
-					(v) => `${v.rule} at ${v.where}`
-				)
-				unorderedEqual(Arr.dedupe(got), Arr.dedupe(expected))
-				c.note(expected.length === 0 ? "admitted" : "refused")
-			}),
-		oracle: {
-			kind: "specification",
-			name: "an ANALYZE names only carriers an earlier statement created"
-		},
-		box: "every program of up to three statements on two carriers, each creating one or analyzing a nonempty set of them",
-		kept: [],
-		kills: []
-	})

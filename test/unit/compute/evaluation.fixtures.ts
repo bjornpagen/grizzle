@@ -4,8 +4,7 @@ import { type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, Option, String as Str } from "effect"
 import { ParamId } from "#compiler/core/ids.ts"
 import { describeOp, type ScalarExpr } from "#compiler/ir/expr.ts"
-import type { Carrier } from "#compiler/ir/scalar.ts"
-import { firstOperand, type NativeFn, nativeOps } from "#compiler/scalar/compute/registry.ts"
+import { firstOperand, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type CatalogResult, evaluate } from "#test/support/oracle/evaluate/catalog.ts"
@@ -13,35 +12,6 @@ import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { types } from "#test/unit/codec/support.ts"
 import { sink } from "#test/unit/compute/support.ts"
 import { decimalGen } from "#test/unit/values/support.ts"
-
-/**
- * IEEE 754 §5.4: +, −, ×, ÷, sqrt and conversions, a decimal text's among them (convertFromDecimalCharacter,
- * parseDouble), are correctly rounded; sign, abs, comparisons and min/max are exact.
- */
-export const ieeeExact: ReadonlySet<NativeFn> = new Set<NativeFn>([
-	"add",
-	"sub",
-	"mul",
-	"div",
-	"sqrt",
-	"neg",
-	"abs",
-	"sign",
-	"eq",
-	"ne",
-	"lt",
-	"le",
-	"gt",
-	"ge",
-	"between",
-	"in",
-	"least",
-	"greatest",
-	"cast",
-	"parseDouble"
-])
-
-export const isFloat = (c: Carrier): boolean => c === "float4" || c === "float8"
 
 /**
  * The libm error model of numeric power's estimates (test/support/oracle/evaluate/power.ts), restated as this test's
