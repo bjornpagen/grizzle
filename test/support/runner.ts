@@ -11,7 +11,7 @@ import { readFamily } from "#pg/family.ts"
 import { type LocalCluster, localCluster } from "#pg/local-cluster.ts"
 import { type InitializedClusterShape, readCluster } from "#test/support/cluster.ts"
 import { pgPin } from "#test/support/env.ts"
-import { type PgConnection, session, type SqlError } from "#test/support/pg.ts"
+import { type PgConnection, type SqlError, textSession } from "#test/support/pg.ts"
 import { type Lease, leaseOn } from "#test/support/substrate/shared.ts"
 
 /**
@@ -42,7 +42,10 @@ declare module "@bjornpagen/testing/resources" {
 		readonly leased: Effect.Effect<Lease, NeedFailedError>
 	}
 	interface PgSession {
-		/** The owner's connection the session runs on (ownerSession), for grizzle's code over the same session. */
+		/**
+		 * The owner's connection the session runs on (ownerSession), for grizzle's code over the same session: it reads every
+		 * value as the server's text (pg.ts textSession).
+		 */
 		readonly connection: PgConnection
 	}
 }
@@ -111,8 +114,8 @@ const membersOf = (
 
 /**
  * A session as the owner, grizzle_dev, in `database` on `member`, drawing one of the worker's lease's permits for its
- * life: what the toolchain creates, clones, drops and builds templates with. Its statements cast every column they read
- * to text, so each value arrives as the server's text.
+ * life: what the toolchain creates, clones, drops and builds templates with. It reads every value as the server's text
+ * (pg.ts textSession), as the toolchain's sessions answer, whatever a statement's column types.
  */
 const ownerSession = (
 	member: PgMember,
@@ -121,7 +124,7 @@ const ownerSession = (
 	Effect.gen(function* () {
 		const { cluster } = yield* member.leased
 		const connection = yield* Effect.mapError(
-			session(cluster, {
+			textSession(cluster, {
 				database,
 				username: pgPin.devRole,
 				password: cluster.devPassword,

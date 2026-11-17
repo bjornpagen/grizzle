@@ -358,6 +358,12 @@ const parserOf = (oid: number): ((text: string) => unknown) => {
 
 const types = { getTypeParser: parserOf } as const
 
+/** Every column as the server's text, its type read by nothing: what a text session (textSession) answers. */
+const serverText = { getTypeParser: () => identity } as const
+
+/** How a session reads its rows' values: parsed for a test to read (types), or each the server's text (serverText). */
+type ValueReading = typeof types | typeof serverText
+
 /** A value bound as a parameter's text. */
 const textOf = (value: unknown): unknown => {
 	if (typeof value === "bigint") {
@@ -547,7 +553,8 @@ const harnessSessionOptions = Arr.join(
 
 const connectOnce = (
 	cluster: InitializedClusterShape,
-	options: SessionOptions
+	options: SessionOptions,
+	reading: ValueReading
 ): Effect.Effect<PgConnection, SqlError, Scope.Scope> =>
 	Effect.gen(function* () {
 		const target: Target = {
@@ -575,7 +582,7 @@ const connectOnce = (
 				checkServerIdentity: (...[, certificate]: readonly [string, PeerCertificate]) =>
 					checkServerIdentity(target.servername, certificate)
 			},
-			types,
+			types: reading,
 			pipeline: true
 		})
 		/** The FATAL report a server sends before it ends the session, which the next statement fails with. */
@@ -667,7 +674,18 @@ export const session = (
 	cluster: BudgetedCluster,
 	options: SessionOptions
 ): Effect.Effect<PgConnection, SqlError, Scope.Scope> =>
-	cluster.budget.opened(connectOnce(cluster, options))
+	cluster.budget.opened(connectOnce(cluster, options, types))
+
+/**
+ * A session as `session` opens it whose every value is the server's text, or null, whatever its column's type: what a
+ * caller that reads rows as text takes (the toolchain's resources, test/support/runner.ts), so an int8 a statement of
+ * theirs answers (a sequence's setval) is its text and never a parsed bigint.
+ */
+export const textSession = (
+	cluster: BudgetedCluster,
+	options: SessionOptions
+): Effect.Effect<PgConnection, SqlError, Scope.Scope> =>
+	cluster.budget.opened(connectOnce(cluster, options, serverText))
 
 /**
  * The session pool of a test's DbLayer: one session per core (testPoolMax), no session closed for idleness while its
