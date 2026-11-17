@@ -1,4 +1,4 @@
-import type { NeedFailed as NeedFailedError } from "@bjornpagen/testing/property"
+import type { Need, NeedFailed as NeedFailedError } from "@bjornpagen/testing/property"
 import { NeedFailed } from "@bjornpagen/testing/property"
 import {
 	DatabasePrefix,
@@ -6,7 +6,7 @@ import {
 	type PgMember,
 	type PgSession
 } from "@bjornpagen/testing/resources"
-import { Array as Arr, Effect, FileSystem, Layer, Option, Scope } from "effect"
+import { Array as Arr, type Context, Effect, FileSystem, Layer, Option, Scope } from "effect"
 import { readFamily } from "#pg/family.ts"
 import { type LocalCluster, localCluster } from "#pg/local-cluster.ts"
 import { type InitializedClusterShape, readCluster } from "#test/support/cluster.ts"
@@ -154,3 +154,13 @@ export const grizzleCluster: Layer.Layer<PgCluster, never, FileSystem.FileSystem
 		})
 	})
 )
+
+/**
+ * The worker's own cluster service, as a need: what a search nested in a case runs its needs on (searchInline under
+ * Effect.provideContext), so they draw on the worker's connection lease rather than a lease of their own, which a run
+ * whose every worker holds one could leave the nested search waiting for.
+ */
+export const workerCluster: Need<Context.Context<PgCluster>> = {
+	key: "grizzle worker cluster",
+	open: Effect.map(Effect.context<PgCluster>(), Effect.succeed)
+}

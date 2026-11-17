@@ -4,6 +4,7 @@ import {
 	Database,
 	type DatabaseNeed,
 	type DatabaseTemplate,
+	type Opened,
 	PgCluster,
 	Template
 } from "@bjornpagen/testing/resources"
@@ -16,6 +17,7 @@ import {
 	Context,
 	Duration,
 	Effect,
+	Exit,
 	Function,
 	HashSet,
 	Layer,
@@ -23,7 +25,8 @@ import {
 	Record as Rec,
 	Redacted,
 	Ref,
-	type Scope,
+	Result,
+	Scope,
 	Semaphore
 } from "effect"
 import { ChildProcessSpawner } from "effect/process"
@@ -71,6 +74,7 @@ import {
 	type Credentials,
 	connect,
 	openSession,
+	type CaseSession,
 	ownerCredentials,
 	type RawSession,
 	type SubstrateWorld
@@ -1116,16 +1120,240 @@ const substrateCases = <T>(
 const dropped = (): Effect.Effect<void> => Effect.void
 
 /**
- * One case's transaction on the worker's own clone of a template (Substrate.rolledBack): an owner connection inside a
- * transaction that is rolled back when the case ends, the database and the budget it lives in, and the template's
- * value. It holds no second session and no allocation: whatever the case makes, it makes inside the transaction.
+ * One case's transaction on the worker's own clone of a template (Substrate.rolledBack): an owner connection inside the
+ * case's one transaction, each statement its own savepoint within it (a statement PostgreSQL refuses is undone alone, as
+ * it would be outside a transaction, and leaves the transaction open), the database and the budget it lives in, the
+ * template's value, and a schema name the case may create its objects under. It has no end of the transaction and no
+ * second session: whatever the case makes, it makes inside the transaction, which is rolled back when the case ends.
  */
 interface RolledBack<T> {
 	readonly connection: PgConnection
+	/** The same connection as a case's session: its statements, each its own savepoint, and no end of the transaction. */
+	readonly session: CaseSession
 	readonly cluster: BudgetedCluster
 	readonly database: string
 	readonly value: T
+	/** A unique schema name under `label` (names.ts uniqueSchemaName), which no case of any worker takes again. */
+	readonly schema: (label: string) => Effect.Effect<string>
 }
+
+/**
+ * The worker's own clone of a template with one owner connection to it, held across the worker's cases
+ * (Substrate.rolledBack): the scope both live in, the connection, the budget it draws from, the clone's name, and the
+ * statement that puts every sequence of the clone back as it was cloned, none when it has no sequence.
+ */
+interface HeldTransactions {
+	readonly scope: Scope.Closeable
+	readonly connection: PgConnection
+	readonly cluster: BudgetedCluster
+	readonly database: string
+	readonly sequences: Option.Option<string>
+}
+
+/**
+ * The statement that puts every sequence of a database back as it stands now: a setval for each, to its last value
+ * handed out, or to its start with is_called false when none has been; none when the database has no sequence. A
+ * sequence is the one thing a transaction changes that its ROLLBACK keeps.
+ */
+const sequencesRestoreQuery = `SELECT pg_catalog.format('SELECT %s', pg_catalog.string_agg(pg_catalog.format('pg_catalog.setval(%L::regclass, %s, %s)',
+		c.oid::regclass::text, COALESCE(pg_catalog.pg_sequence_last_value(c.oid), s.seqstart)::text,
+		(pg_catalog.pg_sequence_last_value(c.oid) IS NOT NULL)::text), ', '))
+FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_sequence AS s ON s.seqrelid = c.oid
+WHERE c.relkind = 'S' AND c.relnamespace IN (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema')`
+
+/** Clones the template into a scope of its own under `parent` and opens the owner connection to the clone there. */
+const heldTransactions = (
+	opened: Opened<Database>,
+	parent: Scope.Scope
+): Effect.Effect<HeldTransactions, NeedFailed> =>
+	Effect.gen(function* () {
+		const scope = yield* Scope.fork(parent)
+		return yield* Effect.onError(
+			Scope.provide(
+				Effect.gen(function* () {
+					const database = yield* opened.clone
+					const { cluster } = yield* database.member.leased
+					const failed = sqlNeedFailed("Substrate.rolledBack", `the connection to ${database.name}`)
+					const connection = yield* Effect.mapError(
+						connect(cluster, {
+							database: database.name,
+							credentials: ownerCredentials(cluster),
+							label: "rolled back"
+						}),
+						failed
+					)
+					const restore = yield* Effect.mapError(
+						connection.queryValues(sequencesRestoreQuery, []),
+						failed
+					)
+					return {
+						scope,
+						connection,
+						cluster,
+						database: database.name,
+						sequences: Option.filter(
+							Option.flatMap(Arr.head(restore), Arr.head),
+							(text): text is string => typeof text === "string"
+						)
+					}
+				}),
+				scope
+			),
+			() => Scope.close(scope, Exit.void)
+		)
+	})
+
+/** The savepoint every statement of a case's transaction runs under. */
+const statementSavepoint = "grizzle_case_statement"
+
+/**
+ * `statement` under its own savepoint of the case's transaction: released when it succeeds, rolled back to when
+ * PostgreSQL refuses it, which leaves the transaction open for the next statement as autocommit would. A savepoint that
+ * cannot be set or ended is a transaction the case broke, a defect its release then reports.
+ */
+const undoneAlone = <A, E>(
+	connection: PgConnection,
+	statement: Effect.Effect<A, E>
+): Effect.Effect<A, E> =>
+	Effect.gen(function* () {
+		yield* Effect.orDie(connection.query(`SAVEPOINT ${statementSavepoint}`, []))
+		const ran = yield* Effect.exit(statement)
+		yield* Effect.orDie(
+			connection.query(
+				Exit.isSuccess(ran)
+					? `RELEASE SAVEPOINT ${statementSavepoint}`
+					: `ROLLBACK TO SAVEPOINT ${statementSavepoint}`,
+				[]
+			)
+		)
+		return yield* ran
+	})
+
+/** The case's view of the held connection: every statement its own savepoint (undoneAlone), the connection its own pin. */
+const caseConnection = (connection: PgConnection): PgConnection => {
+	const statements: PgConnection = {
+		processId: connection.processId,
+		query: (sql, params) => undoneAlone(connection, connection.query(sql, params)),
+		queryValues: (sql, params) => undoneAlone(connection, connection.queryValues(sql, params)),
+		pipeline: (texts) => undoneAlone(connection, connection.pipeline(texts)),
+		pin: Effect.sync(() => statements)
+	}
+	return statements
+}
+
+/**
+ * After a case on a held connection: whether the case ended its transaction (its transaction id is no longer the
+ * connection's), the transaction rolled back, every sequence put back, the session discarded (DISCARD ALL: settings,
+ * prepared statements, advisory locks, temporary tables, listens), and `clean`'s report of the clone. A case that ended
+ * its transaction, or after which the clone is not clean or could not be reset, fails, and its clone is replaced.
+ */
+const endedTransaction = (
+	held: HeldTransactions,
+	xid: string,
+	holding: Ref.Ref<Option.Option<HeldTransactions>>,
+	clean: (connection: PgConnection) => Effect.Effect<ReadonlyArray<string>, SqlError>
+): Effect.Effect<void> =>
+	Effect.gen(function* () {
+		const settled = yield* Effect.result(
+			Effect.gen(function* () {
+				const now = yield* held.connection.queryValues(
+					"SELECT pg_catalog.pg_current_xact_id_if_assigned()::text",
+					[]
+				)
+				yield* held.connection.query("ROLLBACK", [])
+				yield* Option.match(held.sequences, {
+					onNone: () => Effect.void,
+					onSome: (restore) => Effect.asVoid(held.connection.query(restore, []))
+				})
+				yield* held.connection.query("DISCARD ALL", [])
+				const left = yield* clean(held.connection)
+				const still = Option.getOrUndefined(Option.flatMap(Arr.head(now), Arr.head))
+				return still === xid ? left : [`the case ended its transaction ${xid}`, ...left]
+			})
+		)
+		if (Result.isSuccess(settled) && settled.success.length === 0) {
+			return
+		}
+		yield* Scope.close(held.scope, Exit.void)
+		yield* Ref.set(holding, Option.none())
+		return yield* Effect.die(
+			NeedFailed.make({
+				need: "Substrate.rolledBack",
+				message: Result.match(settled, {
+					onFailure: (error) =>
+						`${held.database} could not be reset after the case: ${error.message}`,
+					onSuccess: (what) =>
+						`${Arr.join(what, ", ")}: ${held.database} is dropped, and the next case gets a new clone`
+				})
+			})
+		)
+	})
+
+/**
+ * The need of cases each in one owner transaction on the worker's own clone of `template`, held with its connection
+ * across the worker's cases (HeldTransactions), `clean` reporting after every case what of the clone is not as cloned.
+ */
+const rolledBackCases = <T>(
+	form: string,
+	template: SubstrateTemplate<T>,
+	clean: (connection: PgConnection) => Effect.Effect<ReadonlyArray<string>, SqlError>
+): TemplateNeed<RolledBack<T>> => ({
+	key: `grizzle ${form} ${template.database.key}`,
+	template: template.database,
+	open: Effect.map(
+		Effect.all([
+			template.database.open,
+			template.bound,
+			Effect.scope,
+			Ref.make(Option.none<HeldTransactions>())
+		]),
+		([opened, bind, parent, holding]) =>
+			Effect.gen(function* () {
+				const current = yield* Ref.get(holding)
+				const held = Option.isSome(current)
+					? current.value
+					: yield* Effect.tap(heldTransactions(opened, parent), (made) =>
+							Ref.set(holding, Option.some(made))
+						)
+				const failed = sqlNeedFailed(form, `the case's transaction on ${held.database}`)
+				yield* Effect.mapError(held.connection.query("BEGIN", []), failed)
+				const begun = yield* Effect.mapError(
+					held.connection.queryValues("SELECT pg_catalog.pg_current_xact_id()::text", []),
+					failed
+				)
+				const xid = Option.getOrElse(
+					Option.filter(
+						Option.flatMap(Arr.head(begun), Arr.head),
+						(text): text is string => typeof text === "string"
+					),
+					() => ""
+				)
+				yield* Effect.addFinalizer(() => endedTransaction(held, xid, holding, clean))
+				const allocations = yield* Ref.make(0)
+				const binding = { cluster: held.cluster, database: held.database }
+				const connection = caseConnection(held.connection)
+				return {
+					...binding,
+					connection,
+					session: {
+						label: form,
+						role: pgPin.devRole,
+						database: held.database,
+						pid: connection.processId,
+						query: connection.query,
+						values: connection.queryValues,
+						pipeline: connection.pipeline
+					},
+					value: bind(binding),
+					schema: (label: string) =>
+						Effect.map(
+							Ref.getAndUpdate(allocations, (n) => n + 1),
+							(n) => uniqueSchemaName(label, n)
+						)
+				}
+			})
+	)
+})
 
 /**
  * The per-file PostgreSQL substrate: a database, unique schemas and roles, sessions, psql writers, a barrier.
@@ -1182,24 +1410,22 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 			(substrate, value) => Effect.orDie(clearRows(substrate.admin, template.reset(value)))
 		)
 	/**
-	 * One case's owner transaction on the worker's own clone of `template` (RolledBack), rolled back when the case ends;
-	 * a case that ends it, or leaves the clone unlike its template, fails, and the clone is replaced.
+	 * One case's owner transaction on the worker's own clone of `template` (RolledBack), held with its connection across
+	 * the worker's cases and rolled back when the case ends, its sequences put back and its session discarded: nothing the
+	 * case does outlives it. A case that ends its transaction anyway fails, and the clone is replaced.
 	 */
-	static readonly rolledBack = <T>(template: SubstrateTemplate<T>): TemplateNeed<RolledBack<T>> => {
-		const transaction = Database.transaction(template.database)
-		return {
-			key: `grizzle Substrate.rolledBack ${transaction.key}`,
-			template: transaction.template,
-			open: Effect.map(Effect.all([transaction.open, template.bound]), ([take, bind]) =>
-				Effect.gen(function* () {
-					const taken = yield* take
-					const { cluster } = yield* taken.database.member.leased
-					const binding = { cluster, database: taken.database.name }
-					return { ...binding, connection: taken.session.connection, value: bind(binding) }
-				})
-			)
-		}
-	}
+	static readonly rolledBack = <T>(template: SubstrateTemplate<T>): TemplateNeed<RolledBack<T>> =>
+		rolledBackCases("Substrate.rolledBack", template, () => Effect.succeed([]))
+	/**
+	 * One case's owner transaction on the worker's own clone of the base template, as Substrate.rolledBack, and after
+	 * every case the clone judged clean by the substrate's own definition (shared.ts leftovers), a cheap assertion of
+	 * what the rollback already guarantees: for the cases that read and evaluate on one owner session and commit nothing.
+	 */
+	static readonly transaction: TemplateNeed<RolledBack<void>> = rolledBackCases(
+		"Substrate.transaction",
+		base,
+		leftovers
+	)
 	/**
 	 * The worker's place on its member (runner.ts PgMember leased): its lease's budget and the backend that holds the
 	 * lease, and no database, for a case that opens connections of its own in the owner's database (a lease's own
