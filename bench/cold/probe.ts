@@ -237,6 +237,7 @@ const probe = Effect.gen(function* () {
 })
 
 if (import.meta.filename === process.argv[1]) {
-	const { NodeRuntime, NodeServices } = await import("@effect/platform-node")
+	const NodeRuntime = await import("@effect/platform-node/NodeRuntime")
+	const NodeServices = await import("@effect/platform-node/NodeServices")
 	NodeRuntime.runMain(probe.pipe(Effect.provide(NodeServices.layer)))
 }

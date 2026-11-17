@@ -9,19 +9,11 @@ import { includeOf, tiers } from "#test/support/tiers.ts"
 const leftToRunner = Arr.map(propertyModules, (glob) => `!${glob}`)
 
 /**
- * The small-stack modules (test/support/roster.ts), left out of the default project: each runs once, in the small-stack
- * project. A case that passes on the small stack passes on the default one, as the engine reads nothing of how much
- * stack it has (it catches no stack overflow), and both projects draw the same cases under the run's seed, so a second
- * run on the default stack would repeat the small-stack run and find nothing it cannot.
- */
-const smallStackOnly = Arr.map(smallStackModules, (glob) => `!${glob}`)
-
-/**
  * `pnpm test`: the tests that need no network, the unit tier. The type tier runs on the toolchain's runner
  * (test.config.ts). The engine's generative suites of the SQL printer and audit,
  * the lowerings, the migration drafter, the write compiler and the text refinements, and the canonical serializer's and
  * the shapes', which read values nested to any depth, run in the small-stack project alone, at about a sixth of Node's
- * default stack (smallStackOnly). The rewrite universe runs on the default stack: its plans are a few operators over
+ * default stack (the testing library's config leaves them out of the default project). The rewrite universe runs on the default stack: its plans are a few operators over
  * facts of two rows, which reach no width the stack bounds, and the generated rewrite suites run the same pipeline under
  * the small stack.
  *
@@ -33,7 +25,7 @@ const smallStackOnly = Arr.map(smallStackModules, (glob) => `!${glob}`)
  * the small-stack modules are test/support/roster.ts's, which both runners read, so they cannot drift apart.
  */
 export default defineTestConfig({
-	include: [...includeOf(tiers.unit), ...leftToRunner, ...smallStackOnly],
+	include: [...includeOf(tiers.unit), ...leftToRunner],
 	guided: [],
 	setup: [],
 	conditions: [],

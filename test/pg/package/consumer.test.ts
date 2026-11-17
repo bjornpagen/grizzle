@@ -252,7 +252,12 @@ layer(Layer.merge(Substrate.layer, NodeServices.layer))(
 									const read = yield* Effect.scoped(
 										Effect.andThen(
 											installed.cluster.budget.within(consumerConnections),
-											runChild(process.execPath, [program, config], consumer.project, {})
+											runChild(
+												process.execPath,
+												[...hardenedNode, program, config],
+												consumer.project,
+												{}
+											)
 										)
 									)
 									assert.equal(read.exitCode, exitedCleanly, `the consumer: ${read.stderr}`)
@@ -382,7 +387,7 @@ layer(NodeServices.layer)(
 									}
 									const imported = yield* runChild(
 										process.execPath,
-										["--input-type=module", "-e", pinProgram],
+										[...hardenedNode, "--input-type=module", "-e", pinProgram],
 										consumer.project,
 										env
 									)

@@ -25,8 +25,12 @@ export const runOptions: RunOptions = { cwd: repoRoot, env: {} }
  * (prototype pollution has no path) and no inspector opened on SIGUSR1; a deprecated Node API, a pending deprecation
  * included, throws instead of warning; only context-aware native addons load; no module resolves from the global
  * folders; and an unhandled rejection is an uncaught exception. V8's JIT and code generation from strings stay on.
- * package.json's test scripts and the mutation tester put them in NODE_OPTIONS, which Vitest's own process, every test
- * process and every child a test spawns inherit; the `grizzle` bin's shebang carries the first two.
+ * Each is given on the command line of every node that runs the repository's code: package.json's test scripts start
+ * Vitest's own process with them, the testing library's config gives every test process them (its hardened flags),
+ * the mutation tester starts its Vitest with them, and a test that runs the repository's code in a child passes them
+ * on the child's command line; the `grizzle` bin's shebang carries the first two. None travels in NODE_OPTIONS: this
+ * machine's Node is built without it (process.config.variables.node_without_node_options), so a flag there is
+ * silently ignored, and no child would inherit it.
  */
 export const hardenedNode = [
 	"--disable-proto=delete",

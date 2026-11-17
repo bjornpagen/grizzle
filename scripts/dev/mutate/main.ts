@@ -679,6 +679,7 @@ const runFiles = Effect.fn("runFiles")(function* (settings: Settings, run: FileR
 				ChildProcess.make(
 					process.execPath,
 					[
+						...hardenedNode,
 						path.join(run.tree, "node_modules/vitest/vitest.mjs"),
 						"run",
 						"--config",
@@ -691,7 +692,6 @@ const runFiles = Effect.fn("runFiles")(function* (settings: Settings, run: FileR
 					{
 						cwd: run.tree,
 						env: {
-							NODE_OPTIONS: Arr.join(hardenedNode, " "),
 							TEST_SEED: String(settings.seed),
 							MUTATE_ORACLE_CASES: String(settings.oracleCases),
 							...run.env
