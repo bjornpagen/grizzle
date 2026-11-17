@@ -399,9 +399,9 @@ export const theLiveModelsValuesKeysCompareByValueAndRowsByWhatTheyDeliver = pro
 		kills: [
 			{
 				file: "packages/engine/src/core/tuple-map.ts",
-				original: "\thas(key: K): boolean {\n\t\treturn this.#found(key)?.slot !== undefined\n\t}",
+				original: "\thas(key: K): boolean {\n\t\treturn this.#found(key) !== undefined\n\t}",
 				replacement: "\thas(key: K): boolean { return true }",
-				why: "Operator mutant (boolean-return) at packages/engine/src/core/tuple-map.ts:74 in <module>: `{\n\t\treturn this.#found(key)?.slot !== undefined\n\t}` becomes `{ return true }`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				why: "Operator mutant (boolean-return) at packages/engine/src/core/tuple-map.ts:87 in <module>: `{\n\t\treturn this.#found(key) !== undefined\n\t}` becomes `{ return true }`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	}

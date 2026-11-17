@@ -190,7 +190,7 @@ export const textTupleOrdersOrderAsTheirTextsSpellingsDoEachTextAfterItsLengthAn
 		kills: [
 			{
 				file: "packages/engine/src/core/text.ts",
-				original: "\t\t\treturn 1",
+				original: "\t\t\treturn y === undefined ? 1 : -1",
 				replacement: "\t\t\treturn -1",
 				why: "compareTextTuples orders a tuple before its own prefix; the tuple orders property fails."
 			}

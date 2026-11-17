@@ -86,9 +86,9 @@ export const rowMultisetsNameExactlyTheRowsEachSideHoldsMoreOftenAgainstACountBy
 		kills: [
 			{
 				file: "packages/engine/src/core/tuple-map.ts",
-				original: "\t\t\tnode.slot.value = value",
-				replacement: "\t\t\t{}",
-				why: "Operator mutant (statement) at packages/engine/src/core/tuple-map.ts:85 in <module>: `node.slot.value = value` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				original: "\t\t\t\tchild.value = value",
+				replacement: "\t\t\t\t{}",
+				why: "Operator mutant (statement) at packages/engine/src/core/tuple-map.ts:114 in <module>: `child.value = value` becomes `{}`, so a key held in a slot and set again keeps its old value; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})
@@ -143,9 +143,9 @@ export const canonicalCellKeyedSetsAgreeExactlyWhenEachRunsCellsSpellASetOfValue
 		kills: [
 			{
 				file: "packages/engine/src/core/tuple-map.ts",
-				original: "\t\t\tnode.slot.value = value",
-				replacement: "\t\t\t{}",
-				why: "Operator mutant (statement) at packages/engine/src/core/tuple-map.ts:85 in <module>: `node.slot.value = value` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				original: "\t\t\t\tchild.value = value",
+				replacement: "\t\t\t\t{}",
+				why: "Operator mutant (statement) at packages/engine/src/core/tuple-map.ts:114 in <module>: `child.value = value` becomes `{}`, so a key held in a slot and set again keeps its old value; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})
