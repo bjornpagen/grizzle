@@ -42,7 +42,7 @@ import {
 } from "#compiler/runtime/write/fill.ts"
 import type { Transport } from "#compiler/runtime/write/transport.ts"
 import type { DigestBook } from "#compiler/scalar/values/bytes.ts"
-import { admittedText } from "#compiler/scalar/values/identity.ts"
+import { admittedText, type CarrierSpec } from "#compiler/scalar/values/identity.ts"
 
 /** A row layout's column as binding reads it (`RowColumn`): its key, its type, and what it is, a field by its name or a law
  * column by its identifier. A RowColumn is one. */
@@ -142,12 +142,74 @@ type Signed = string | NestedRow
 export interface NestedSet {
 	readonly tops: Map<
 		StoredRelationName,
-		TupleMap<ReadonlyArray<ParamText>, TupleMap<ReadonlyArray<Signed>, NestedFact>>
+		TupleMap<ReadonlyArray<ParamText>, AtKey<ReadonlyArray<Signed>, NestedFact>>
 	>
 	readonly rows: Map<
 		StoredRelationName,
-		TupleMap<MemberKey, TupleMap<ReadonlyArray<string>, NestedRow>>
+		TupleMap<MemberKey, AtKey<ReadonlyArray<string>, NestedRow>>
 	>
+}
+
+/** Whether two identities hold the same elements in order, each pair one value. */
+const sameIdentity = (a: ReadonlyArray<unknown>, b: ReadonlyArray<unknown>): boolean => {
+	if (a.length !== b.length) {
+		return false
+	}
+	for (let i = 0; i < a.length; i += 1) {
+		if (a[i] !== b[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+/**
+ * The distinct values a nested set holds at one key, by their identities, the first first: the first alone while no
+ * other identity has come, which is every key of a set with no conflict, and a set of all of them once one has, so a
+ * key costs no set of its own until its conflict.
+ */
+class AtKey<I extends ReadonlyArray<unknown>, V> {
+	readonly #identity: I
+	readonly #value: V
+	#all: TupleMap<I, V> | undefined = undefined
+	constructor(identity: I, value: V) {
+		this.#identity = identity
+		this.#value = value
+	}
+
+	/** How many distinct identities the key holds. */
+	get size(): number {
+		return this.#all?.size ?? 1
+	}
+
+	/** The value the key's first identity came with. */
+	get first(): V {
+		return this.#value
+	}
+
+	/** The key's identities, the first first. */
+	*keys(): IterableIterator<I> {
+		if (this.#all === undefined) {
+			yield this.#identity
+			return
+		}
+		yield* this.#all.keys()
+	}
+
+	/** The value the key holds of `identity`, `value` added where it holds none. */
+	held(identity: I, value: V): V {
+		if (sameIdentity(identity, this.#identity)) {
+			return this.#value
+		}
+		const all = this.#all ?? new TupleMap<I, V>().set(this.#identity, this.#value)
+		this.#all = all
+		const known = all.get(identity)
+		if (known !== undefined) {
+			return known
+		}
+		all.set(identity, value)
+		return value
+	}
 }
 
 /** A stratum's nested writes before any fact: no fact and no row. */
@@ -208,20 +270,52 @@ export const nestedRows = (
 			sequences.map((f) => [familyKey(f.id), normalizerOf(f.member, f.heading)] as const)
 		)
 	}
+	const shapes = new Map<StoredRelationName, RowShape>()
+	/** The shape of a reached relation's rows, each relation's made once for the write. */
+	const shapeOf = (reached: StoredRelationName): RowShape => {
+		const known = shapes.get(reached)
+		if (known !== undefined) {
+			return known
+		}
+		const layout = nesting.layouts.get(reached)
+		if (layout === undefined) {
+			throw defect(`the row layout of ${reached}, a relation the nesting reaches`)
+		}
+		const made = rowShape(walk.codes, layout)
+		shapes.set(reached, made)
+		return made
+	}
+	const fieldKeys = new Map<string, ColumnKey>()
+	const keyOf = (field: string): ColumnKey => {
+		const known = fieldKeys.get(field)
+		if (known !== undefined) {
+			return known
+		}
+		const made = fieldKey(field)
+		fieldKeys.set(field, made)
+		return made
+	}
 	const tops: Array<NestedFact> = []
 	const relation = nesting.relation
 	const byKey =
 		into.tops.get(relation) ??
-		new TupleMap<ReadonlyArray<ParamText>, TupleMap<ReadonlyArray<Signed>, NestedFact>>()
+		new TupleMap<ReadonlyArray<ParamText>, AtKey<ReadonlyArray<Signed>, NestedFact>>()
 	into.tops.set(relation, byKey)
-	const keyFields = nesting.primary
+	/** A field of the insert's own row as its facts are read: its name, its column key and its carrier's spec. */
+	const shapedField = (c: HeadingColumn) => ({
+		name: c.name,
+		key: fieldKey(c.name),
+		spec: carrierSpecOf(c.type, walk.codes)
+	})
+	const keyColumns = nesting.primary.map(shapedField)
+	const top = nesting.top.map(shapedField)
 	const hosts: Array<HostNode> = []
 	for (const fact of facts) {
 		const split = encodeAddition(relation, fact, sequences)
 		if (!split.ok) {
 			return Result.err(encodeFailure(split.error.fault, slotPlace(member)))
 		}
-		const host = hostNodes(normalizers, split.value, { member, book, transport })
+		const host = hostNodes(normalizers, split.value, { member, book, transport, keyOf })
 		if (!host.ok) {
 			return host
 		}
@@ -240,34 +334,30 @@ export const nestedRows = (
 		}
 		const root = filled.value
 		const own = Object.freeze(
-			Object.fromEntries(
-				nesting.top.map((c) => [c.name, root.values.get(fieldKey(c.name))] as const)
-			)
+			Object.fromEntries(top.map((c) => [c.name, root.values.get(c.key)] as const))
 		)
-		const key = keyFields.map((f) => text(walk.codes, f.type, root.values.get(fieldKey(f.name))))
+		const key = keyColumns.map((c) => admittedParam(c.spec, root.values.get(c.key)))
 		const signature: Array<Signed> =
-			nesting.root.kind === "plain"
-				? nesting.top.map((c) => canonical(walk.codes, c.type, own[c.name]))
-				: []
-		for (const [reached, list] of rowsOf(nesting, walk.codes, root)) {
+			nesting.root.kind === "plain" ? top.map((c) => admittedText(c.spec, own[c.name])) : []
+		for (const [reached, list] of rowsOf(nesting, shapeOf, root)) {
 			const known =
-				into.rows.get(reached) ??
-				new TupleMap<MemberKey, TupleMap<ReadonlyArray<string>, NestedRow>>()
+				into.rows.get(reached) ?? new TupleMap<MemberKey, AtKey<ReadonlyArray<string>, NestedRow>>()
 			into.rows.set(reached, known)
 			for (const row of list) {
-				const identities = known.get(row.key) ?? new TupleMap<ReadonlyArray<string>, NestedRow>()
-				known.set(row.key, identities)
-				const held = identities.get(row.identity) ?? row
-				identities.set(row.identity, held)
+				const identities = known.get(row.key)
+				const held = identities === undefined ? row : identities.held(row.identity, row)
+				if (identities === undefined) {
+					known.set(row.key, new AtKey(row.identity, row))
+				}
 				signature.push(held)
 			}
 		}
-		const signatures = byKey.get(key) ?? new TupleMap<ReadonlyArray<Signed>, NestedFact>()
-		byKey.set(key, signatures)
-		if (signatures.has(signature)) {
+		const signatures = byKey.get(key)
+		if (signatures === undefined) {
+			byKey.set(key, new AtKey<ReadonlyArray<Signed>, NestedFact>(signature, own))
+		} else if (signatures.held(signature, own) !== own) {
 			continue
 		}
-		signatures.set(signature, own)
 		if (nesting.root.kind === "plain") {
 			tops.push(own)
 		}
@@ -280,11 +370,18 @@ const byCodePoint = <K extends string, A>(
 	entries: Iterable<readonly [K, A]>
 ): ReadonlyArray<readonly [K, A]> => [...entries].toSorted(([a], [b]) => compareCodePoints(a, b))
 
-/** Keys in their texts' order (core/text.ts compareTextTuples). */
-const byTexts = <A>(
-	entries: Iterable<readonly [ReadonlyArray<ParamText>, A]>
-): ReadonlyArray<readonly [ReadonlyArray<ParamText>, A]> =>
-	[...entries].toSorted(([a], [b]) => compareTextTuples(a, b))
+/** The first, in its texts' order (core/text.ts compareTextTuples), of the keys that hold more than one value. */
+const firstConflicting = <V>(
+	byKey: ReadonlyTupleMap<ReadonlyArray<ParamText>, AtKey<ReadonlyArray<unknown>, V>>
+): V | undefined => {
+	let first: { readonly key: ReadonlyArray<ParamText>; readonly value: V } | undefined
+	for (const [key, held] of byKey) {
+		if (held.size > 1 && (first === undefined || compareTextTuples(key, first.key) < 0)) {
+			first = { key, value: held.first }
+		}
+	}
+	return first?.value
+}
 
 /**
  * The first key conflict of a stratum's nested set: an insert's relation's key at which two facts nest different rows,
@@ -296,19 +393,15 @@ export const nestedConflict = (
 	set: NestedSet
 ): { readonly relation: StoredRelationName; readonly fact: NestedFact } | undefined => {
 	for (const [relation, byKey] of byCodePoint(set.tops)) {
-		for (const [, signatures] of byTexts(byKey)) {
-			if (signatures.size > 1) {
-				const [fact] = signatures.values()
-				return { relation, fact: defined(fact, "a fact of two") }
-			}
+		const fact = firstConflicting(byKey)
+		if (fact !== undefined) {
+			return { relation, fact }
 		}
 	}
 	for (const [relation, byKey] of byCodePoint(set.rows)) {
-		for (const [, identities] of byTexts(byKey)) {
-			if (identities.size > 1) {
-				const [row] = identities.values()
-				return { relation, fact: defined(row, "a row of two").fact }
-			}
+		const row = firstConflicting(byKey)
+		if (row !== undefined) {
+			return { relation, fact: row.fact }
 		}
 	}
 	return undefined
@@ -323,20 +416,11 @@ export const nestedRowsOf = (
 			const rows = new TupleMap<MemberKey, NestedRow>()
 			for (const [key, identities] of byKey) {
 				invariant(identities.size === 1, "a nested set with no conflict holds one row at each key")
-				const [row] = identities.values()
-				rows.set(key, defined(row, "the row at a key"))
+				rows.set(key, identities.first)
 			}
 			return [relation, rows] as const
 		})
 	)
-
-/** A key value's text in its column's carrier, as the transport writes it. */
-const text = (codes: Codebook, type: ScalarType, value: unknown): ParamText =>
-	admittedParam(carrierSpecOf(type, codes), value)
-
-/** A value's canonical text in its column's carrier, its identity (scalar/values/identity.ts canonicalText). */
-const canonical = (codes: Codebook, type: ScalarType, value: unknown): string =>
-	admittedText(carrierSpecOf(type, codes), value)
 
 /** The normalizers of a nesting's levels: its facts' own, and each sequence's members', by the sequence's key. */
 interface LevelNormalizers {
@@ -356,6 +440,8 @@ const hostNodes = (
 		readonly member: string
 		readonly book: DigestBook
 		readonly transport: Transport
+		/** A field's column key, each field's made once for the write. */
+		readonly keyOf: (field: string) => ColumnKey
 	}
 ): Result.Result<HostNode, EncodingFailure | MessageBound> => {
 	/** Every addition in pre-order, with the normalizer of the level it stands at. */
@@ -382,7 +468,7 @@ const hostNodes = (
 	const built = new Map<NestedAddition, HostNode>()
 	for (let i = order.length - 1; i >= 0; i -= 1) {
 		const { addition, normalize } = defined(order[i], "a nested addition met in pre-order")
-		const read = normalize.read([addition.fact])
+		const read = normalize.readOne(addition.fact)
 		if (!read.ok) {
 			return read
 		}
@@ -391,16 +477,19 @@ const hostNodes = (
 		if (bytes > messageBytes) {
 			return Result.err({ _tag: "MessageBound", input: write.member, bytes, limit: messageBytes })
 		}
-		const admitted = normalize.admit(read.value, write.book)
+		const admitted = normalize.admitOne(read.value.read, write.book)
 		if (!admitted.ok) {
 			return admitted
 		}
-		const values = defined(admitted.value.facts[0], "one admitted fact of one")
+		const values = new Map<ColumnKey, unknown>()
+		for (const field of Object.keys(admitted.value)) {
+			values.set(write.keyOf(field), admitted.value[field])
+		}
 		built.set(
 			addition,
 			Object.freeze({
 				relation: addition.relation,
-				values: new Map(Object.entries(values).map(([k, v]) => [fieldKey(k), v] as const)),
+				values,
 				families: Object.freeze(
 					addition.families.map((g) =>
 						Object.freeze({
@@ -439,28 +528,55 @@ export const sentLayout = <C extends LaidColumn>(at: {
 	columns: at.layout.columns.filter((c) => !at.pending.has(c.key))
 })
 
-/** A filled row as its relation's set holds it (`NestedRow`): every column of its row layout the walk filled, its
- * fields' host values, and its identity. */
-const nestedRowOf = (codes: Codebook, at: NestedLayoutData, row: FilledNode): NestedRow => {
+/** A column of a row layout as a nested row reads it: its key, and its carrier's spec under the installation's codes. */
+interface ShapedColumn {
+	readonly key: ColumnKey
+	readonly spec: CarrierSpec
+}
+
+/**
+ * What a relation's nested rows are read by, worked out once per write rather than once per row: the columns of its
+ * row layout the walk fills, key first (`sentLayout`), each with its spec, the fields among them by name, and its
+ * key's columns.
+ */
+interface RowShape {
+	readonly filled: ReadonlyArray<ShapedColumn>
+	readonly fields: ReadonlyArray<ShapedColumn & { readonly name: string }>
+	readonly key: NonEmptyReadonlyArray<ShapedColumn>
+}
+
+const rowShape = (codes: Codebook, at: NestedLayoutData): RowShape => {
+	const shaped = (c: LaidColumn): ShapedColumn => ({
+		key: c.key,
+		spec: carrierSpecOf(c.type, codes)
+	})
 	const sent = sentLayout(at)
 	const filled = [...sent.key, ...sent.columns]
+	return {
+		filled: filled.map(shaped),
+		fields: filled.flatMap((c) =>
+			c.column.kind === "field" ? [{ ...shaped(c), name: c.column.field.name }] : []
+		),
+		key: mapNonEmpty(at.layout.key, shaped)
+	}
+}
+
+/** A filled row as its relation's set holds it (`NestedRow`): every column of its row layout the walk filled, its
+ * fields' host values, and its identity. */
+const nestedRowOf = (shape: RowShape, row: FilledNode): NestedRow => {
 	const values = new Map<ColumnKey, unknown>()
-	for (const c of filled) {
+	for (const c of shape.filled) {
 		if (!row.values.has(c.key)) {
 			throw defect(`a column ${c.key} of ${row.relation} the filler filled`)
 		}
 		values.set(c.key, row.values.get(c.key))
 	}
 	const fact = Object.freeze(
-		Object.fromEntries(
-			filled.flatMap((c) =>
-				c.column.kind === "field" ? [[c.column.field.name, values.get(c.key)] as const] : []
-			)
-		)
+		Object.fromEntries(shape.fields.map((c) => [c.name, values.get(c.key)] as const))
 	)
 	return {
-		identity: Object.freeze(filled.map((c) => canonical(codes, c.type, values.get(c.key)))),
-		key: mapNonEmpty(at.layout.key, (c) => text(codes, c.type, values.get(c.key))),
+		identity: Object.freeze(shape.filled.map((c) => admittedText(c.spec, values.get(c.key)))),
+		key: mapNonEmpty(shape.key, (c) => admittedParam(c.spec, values.get(c.key))),
 		values,
 		fact
 	}
@@ -494,19 +610,15 @@ export const rowOfValues = (
  */
 const rowsOf = (
 	nesting: NestingData,
-	codes: Codebook,
+	shapeOf: (relation: StoredRelationName) => RowShape,
 	root: FilledNode
 ): ReadonlyMap<StoredRelationName, ReadonlyArray<NestedRow>> => {
 	const out = new Map<StoredRelationName, Array<NestedRow>>()
 	const pending: Array<FilledNode> = [root]
 	for (let row = pending.pop(); row !== undefined; row = pending.pop()) {
 		if (row !== root || nesting.root.kind !== "plain") {
-			const layout = nesting.layouts.get(row.relation)
-			if (layout === undefined) {
-				throw defect(`the row layout of ${row.relation}, a relation the nesting reaches`)
-			}
 			const list = out.get(row.relation) ?? []
-			list.push(nestedRowOf(codes, layout, row))
+			list.push(nestedRowOf(shapeOf(row.relation), row))
 			out.set(row.relation, list)
 		}
 		const members = row.families.flatMap((g) => g.members)

@@ -51,3 +51,27 @@ export const flip =
 	<A>(compare: Comparator<A>): Comparator<A> =>
 	(a, b) =>
 		compare(b, a)
+
+/** Whether `items` already stand in `compare`'s order: no item after one it comes before. */
+const inOrder = <A>(items: ReadonlyArray<A>, compare: Comparator<A>): boolean => {
+	for (let i = 1; i < items.length; i += 1) {
+		const previous = items[i - 1]
+		const item = items[i]
+		if (previous !== undefined && item !== undefined && compare(previous, item) > 0) {
+			return false
+		}
+	}
+	return true
+}
+
+/**
+ * `items` in `compare`'s order, as a stable sort leaves them: sorted in place, unless they already stand in it, which
+ * one pass of n - 1 comparisons finds, so a list that arrives in order, as normal facts do when they are normalized
+ * again, costs no sort. A list already in order is the order a stable sort would leave it in, ties included.
+ */
+export const sortInPlace = <A>(items: Array<A>, compare: Comparator<A>): Array<A> => {
+	if (!inOrder(items, compare)) {
+		items.sort(compare)
+	}
+	return items
+}

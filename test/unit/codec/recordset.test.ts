@@ -233,7 +233,8 @@ export const relationNormalizationEncodesCanonicallyTheSameSetInAnyOrderGivesByt
 		kills: [
 			{
 				file: "packages/engine/src/codec/recordset.ts",
-				original: "\tentries.sort((a, b) => compareFactIdentities(a.identity, b.identity))\n",
+				original:
+					"\tsortInPlace(entries, (a, b) => compareFactIdentities(a.identity, b.identity))\n",
 				replacement: "",
 				why: "A set is encoded in the order given, not its canonical order; the canonical encoding property fails."
 			},

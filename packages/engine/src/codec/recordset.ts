@@ -13,6 +13,7 @@ import { nominal } from "#compiler/core/brand.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
+import { sortInPlace } from "#compiler/core/order.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
 import { utf8Length } from "#compiler/core/sha256.ts"
@@ -117,6 +118,15 @@ export interface RelationNormalizer {
 		read: ReadRelation,
 		book: DigestBook
 	) => Result.Result<AdmittedRelation, EncodingFailure>
+	/**
+	 * One fact read alone, as `read` reads an input of it alone: the fact read, and its arrays' bytes, its `widest` and
+	 * its `together` alike. A nested write's level reads its facts one at a time, each the input of its own row.
+	 */
+	readonly readOne: (
+		fact: unknown
+	) => Result.Result<{ readonly read: ReadFact; readonly widest: number }, EncodingFailure>
+	/** A fact read alone admitted, as `admit` admits an input of it alone: its one normal fact. */
+	readonly admitOne: (read: ReadFact, book: DigestBook) => Result.Result<Fact, EncodingFailure>
 }
 
 /** A relation parameter's normalization, its facts' text rows written beside them. */
@@ -284,7 +294,7 @@ export const normalFacts = (
 	const entries = Array.from(byIdentity, ([identity, { fact }]): IdentifiedFact =>
 		Object.freeze({ identity, fact })
 	)
-	entries.sort((a, b) => compareFactIdentities(a.identity, b.identity))
+	sortInPlace(entries, (a, b) => compareFactIdentities(a.identity, b.identity))
 	return mintNormal(
 		Object.freeze({
 			facts: Object.freeze(entries.map((e) => e.fact)),
@@ -315,47 +325,69 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 		}
 		return byteaElementBytes(value.length)
 	}
-	const read = (facts: Iterable<unknown>): Result.Result<ReadRelation, EncodingFailure> => {
-		const reads: Array<ReadFact> = []
-		const distinct = new TupleMap<ReadonlyArray<string>, ReadFact>()
-		let widest = 0
-		for (const fact of facts) {
-			if (fact === null || fact === undefined) {
-				return Result.err(encodeFailure("nullValue", placeOf(s, undefined)))
-			}
-			if (isRecord(fact)) {
-				for (const column of columns) {
-					if (Object.hasOwn(fact, column.field)) {
-						const value = fact[column.field]
-						if (value === null || value === undefined) {
-							return Result.err(encodeFailure("nullValue", placeOf(s, column.field)))
-						}
+	/** One fact read: the null ban, then the fact read against the heading. */
+	const readOneFact = (fact: unknown): Result.Result<ReadFact, EncodingFailure> => {
+		if (fact === null || fact === undefined) {
+			return Result.err(encodeFailure("nullValue", placeOf(s, undefined)))
+		}
+		if (isRecord(fact)) {
+			for (const column of columns) {
+				if (Object.hasOwn(fact, column.field)) {
+					const value = fact[column.field]
+					if (value === null || value === undefined) {
+						return Result.err(encodeFailure("nullValue", placeOf(s, column.field)))
 					}
 				}
 			}
-			const one = readFact(s.plan, fact)
+		}
+		const one = readFact(s.plan, fact)
+		return one.ok
+			? Result.ok(one.value)
+			: Result.err(encodeFailure(one.error.fault, placeOf(s, one.error.field)))
+	}
+	/** The bytes a read fact's binary arrays take with it alone. */
+	const aloneBytes = (one: ReadFact): number =>
+		bytesAt.reduce((sum, at) => sum + byteaHeaderBytes(1) + elements(one, at), 0)
+	const read = (facts: Iterable<unknown>): Result.Result<ReadRelation, EncodingFailure> => {
+		const reads: Array<ReadFact> = []
+		const distinct =
+			bytesAt.length > 0 ? new TupleMap<ReadonlyArray<string>, ReadFact>() : undefined
+		let widest = 0
+		for (const fact of facts) {
+			const one = readOneFact(fact)
 			if (!one.ok) {
-				return Result.err(encodeFailure(one.error.fault, placeOf(s, one.error.field)))
+				return one
 			}
 			reads.push(one.value)
-			if (bytesAt.length > 0) {
+			if (distinct !== undefined) {
 				if (!distinct.has(one.value.parts)) {
 					distinct.set(one.value.parts, one.value)
 				}
-				widest = Math.max(
-					widest,
-					bytesAt.reduce((sum, at) => sum + byteaHeaderBytes(1) + elements(one.value, at), 0)
-				)
+				widest = Math.max(widest, aloneBytes(one.value))
 			}
 		}
 		let together = 0
 		for (const at of bytesAt) {
-			together += byteaHeaderBytes(distinct.size)
-			for (const one of distinct.values()) {
+			together += byteaHeaderBytes(distinct?.size ?? 0)
+			for (const one of distinct?.values() ?? []) {
 				together += elements(one, at)
 			}
 		}
 		return Result.ok({ reads, together, widest })
+	}
+	/** A read fact digested, its bytes values each held in `book` as the one value of its digest. */
+	const digested = (
+		one: ReadFact,
+		book: DigestBook
+	): Result.Result<{ readonly identity: FactIdentity; readonly fact: Fact }, EncodingFailure> => {
+		const admittedFact = digestFact(s.plan, one)
+		for (const at of bytesAt) {
+			const field = defined(s.plan.entries[at], "a bytes field of the heading").name
+			if (!book.holds(admitted({ carrier: "bytes" }, admittedFact.fact[field]))) {
+				return Result.err(encodeFailure("bytesCollision", placeOf(s, field)))
+			}
+		}
+		return Result.ok(admittedFact)
 	}
 	const admit = (
 		relation: ReadRelation,
@@ -363,13 +395,11 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 	): Result.Result<AdmittedRelation, EncodingFailure> => {
 		const byIdentity = new TupleMap<FactIdentity, { readonly fact: Fact }>()
 		for (const one of relation.reads) {
-			const { identity, fact } = digestFact(s.plan, one)
-			for (const at of bytesAt) {
-				const field = defined(s.plan.entries[at], "a bytes field of the heading").name
-				if (!book.holds(admitted({ carrier: "bytes" }, fact[field]))) {
-					return Result.err(encodeFailure("bytesCollision", placeOf(s, field)))
-				}
+			const admittedFact = digested(one, book)
+			if (!admittedFact.ok) {
+				return admittedFact
 			}
+			const { identity, fact } = admittedFact.value
 			if (!byIdentity.has(identity)) {
 				byIdentity.set(identity, { fact })
 			}
@@ -377,7 +407,17 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 		const normal = normalFacts(byIdentity)
 		return Result.ok(Object.freeze({ ...normal, count: normal.facts.length }))
 	}
-	return { columns: columns.length, read, admit }
+	const readOne = (
+		fact: unknown
+	): Result.Result<{ readonly read: ReadFact; readonly widest: number }, EncodingFailure> => {
+		const one = readOneFact(fact)
+		return one.ok ? Result.ok({ read: one.value, widest: aloneBytes(one.value) }) : one
+	}
+	const admitOne = (one: ReadFact, book: DigestBook): Result.Result<Fact, EncodingFailure> => {
+		const admittedFact = digested(one, book)
+		return admittedFact.ok ? Result.ok(admittedFact.value.fact) : admittedFact
+	}
+	return { columns: columns.length, read, admit, readOne, admitOne }
 }
 
 /**

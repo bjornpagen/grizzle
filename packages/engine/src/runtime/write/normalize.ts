@@ -12,6 +12,7 @@ import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId, RoleRelationName, StoredRelationName } from "#compiler/core/ids.ts"
 import { defect, defined } from "#compiler/core/invariant.ts"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
+import { sortInPlace } from "#compiler/core/order.ts"
 import * as Result from "#compiler/core/result.ts"
 import { compareTextTuples } from "#compiler/core/text.ts"
 import { type ReadonlyTupleMap, TupleMap } from "#compiler/core/tuple-map.ts"
@@ -588,7 +589,7 @@ const keyTextsOf =
 
 /** Entries in their identities' canonical order. */
 const sorted = <I>(order: IdentityOrder<I>, entries: Iterable<Entry<I>>): ReadonlyArray<Entry<I>> =>
-	[...entries].toSorted((a, b) => order(a.identity, b.identity))
+	sortInPlace([...entries], (a, b) => order(a.identity, b.identity))
 
 /** An admitted span: a nonempty half-open interval of integers, bigints or dates. */
 type HostSpan = Span<number> | Span<bigint> | Span<CalendarDate>
@@ -697,6 +698,59 @@ const holdsSpan = (key: CheckedKey): boolean =>
  * states, `stated`, are one fact: its statement, after the complete one's, meets that row there and is no change.
  */
 const sameKey = <I>(
+	facts: CheckedFacts,
+	order: IdentityOrder<I>,
+	serial: ReadonlyArray<string>,
+	stated: ReadonlyArray<KeySpec>,
+	complete: Iterable<Entry<I>>,
+	generated: Iterable<Entry<I>>
+): KeyRefusal | undefined => {
+	const additions = [...complete]
+	const drawnAdditions = [...generated]
+	return drawnAdditions.length === 0 &&
+		facts.host.spans.length === 0 &&
+		!keyShared(facts, order, additions)
+		? undefined
+		: firstConflict(
+				facts,
+				order,
+				serial,
+				stated,
+				sorted(order, additions),
+				sorted(order, drawnAdditions)
+			)
+}
+
+/**
+ * Whether two of `entries`, complete additions alone, of different identities share a declared key's value: whether
+ * `firstConflict` finds a key conflict among them, which no pair of complete additions escapes as one fact. A key that
+ * holds two identities holds two that stand next to each other in canonical order, so whether one does depends on the
+ * set alone, and is found in the order the entries came in, with no sort: only a write it refuses is sorted, to name
+ * the refusal canonical order finds first.
+ */
+const keyShared = <I>(
+	facts: CheckedFacts,
+	order: IdentityOrder<I>,
+	entries: ReadonlyArray<Entry<I>>
+): boolean => {
+	for (const { fields } of facts.host.keys) {
+		const keyTexts = keyTextsOf(fields)
+		const seen = new TupleMap<ReadonlyArray<string>, Entry<I>>()
+		for (const e of entries) {
+			const k = keyTexts(e.fact)
+			const prior = seen.get(k)
+			if (prior === undefined) {
+				seen.set(k, e)
+			} else if (order(prior.identity, e.identity) !== 0) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+/** `sameKey`'s refusal over additions in canonical order, `complete` and `generated` each sorted. */
+const firstConflict = <I>(
 	facts: CheckedFacts,
 	order: IdentityOrder<I>,
 	serial: ReadonlyArray<string>,
@@ -1008,8 +1062,8 @@ export const normalizeChangeSet = (
 			compareFactIdentities,
 			serial,
 			stated,
-			sorted(compareFactIdentities, [...sets.put.values(), ...sets.insert.values()]),
-			sorted(compareFactIdentities, sets.generated.values())
+			[...sets.put.values(), ...sets.insert.values()],
+			sets.generated.values()
 		)
 		if (refused !== undefined) {
 			return Result.ok(refused)
@@ -1044,10 +1098,7 @@ export const normalizeChangeSet = (
 				compareTextTuples,
 				[],
 				[],
-				sorted(
-					compareTextTuples,
-					[...byKey.values()].map((r): RowEntry => ({ identity: r.identity, fact: r.fact }))
-				),
+				[...byKey.values()].map((r): RowEntry => ({ identity: r.identity, fact: r.fact })),
 				[]
 			)
 			if (refused !== undefined) {
