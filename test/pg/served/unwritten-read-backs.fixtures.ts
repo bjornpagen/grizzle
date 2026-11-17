@@ -27,10 +27,10 @@ import type { FactSet } from "#test/support/oracle/install/load.ts"
 const Label = str.regex("^[a-z]{1,4}$")
 
 /** A parent, its one shelf, which it is contained in, its label, an option, and its badge, another. */
-export const Shelf = relation("Shelf", { id: pg.integer }, ["id"])
-export const Parent = relation("Parent", { id: pg.integer, shelf: pg.integer }, ["id"])
-export const Tag = relation("Tag", { parent: pg.integer, label: Label }, ["parent"])
-export const Badge = relation("Badge", { parent: pg.integer, label: Label }, ["parent"])
+const Shelf = relation("Shelf", { id: pg.integer }, ["id"])
+const Parent = relation("Parent", { id: pg.integer, shelf: pg.integer }, ["id"])
+const Tag = relation("Tag", { parent: pg.integer, label: Label }, ["parent"])
+const Badge = relation("Badge", { parent: pg.integer, label: Label }, ["parent"])
 
 export const Family = schema(
 	"Family",

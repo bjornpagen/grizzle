@@ -200,7 +200,7 @@ const createdFunctions = (statements: ReadonlyArray<SqlStatement>): ReadonlySet<
 const file = `${repoRoot}app/grizzle.config.ts`
 
 /** A served role's calls into the installation's own functions and the functions it is granted EXECUTE on. */
-export interface ServedRole {
+interface ServedRole {
 	readonly name: string
 	readonly writes: boolean
 	readonly calls: ReadonlyArray<string>
