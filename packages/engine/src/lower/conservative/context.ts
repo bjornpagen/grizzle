@@ -804,7 +804,7 @@ export class LowerContext {
 		if (p === undefined || p.kind === "relation") {
 			return refuse("MalformedDescription", at, `a declared scalar parameter ${param}`)
 		}
-		const checked = this.paramTypeRef(p.type, { kind: "scalar", param })
+		const checked = this.paramTypeRef(p.type, { kind: "scalar", name: param })
 		return p.kind === "clock"
 			? { kind: "clock", param: p.name, unit: p.unit, type: checked }
 			: this.params.scalar(param, type, checked)
@@ -816,7 +816,7 @@ export class LowerContext {
 	 * base type, so PostgreSQL checks every element; nothing beyond its base type for an unrefined one.
 	 */
 	arrayCheck(t: ScalarType, param: string, field: string): ArrayCheck {
-		const domain = this.paramTypeRef(t, { kind: "field", param, field })
+		const domain = this.paramTypeRef(t, { kind: "field", name: param, field })
 		return sameTypeRef(domain, this.baseTypeRef(t)) ? baseCheck : { kind: "domain", domain }
 	}
 

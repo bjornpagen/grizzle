@@ -14,6 +14,7 @@
  * alone: no `reset` opened an answer it never gave.
  */
 import type { TransientTag } from "#compiler/core/errors.ts"
+import type { ParamPlace } from "#compiler/core/identity.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/core/nonempty.ts"
 import type { Sqlstate } from "#compiler/core/sqlstate.ts"
 import type { KeyFields, RowKey } from "#compiler/live/key.ts"
@@ -102,8 +103,8 @@ export type UnavailableReason =
  * What one payload member holds, by the slot that types it: a text; reset's key fields; a row; a key; the key an
  * ordered row follows, null for the first; a write's outcome; a CallError, of the kinds its answer may end with
  * (Failure); a refusal's laws and witness; which concurrent refusal a transient error met (core/errors.ts
- * TransientTag); why a connection was not authenticated (CredentialReason); and why no session could be had for now
- * (UnavailableReason).
+ * TransientTag); why a connection was not authenticated (CredentialReason); why no session could be had for now
+ * (UnavailableReason); and the parameter a pattern refused a value at (core/identity.ts ParamPlace).
  */
 export interface SlotValues<Row, Outcome, Failure = CallError> {
 	readonly text: string
@@ -118,6 +119,7 @@ export interface SlotValues<Row, Outcome, Failure = CallError> {
 	readonly transientReason: TransientTag
 	readonly credentialReason: CredentialReason
 	readonly unavailableReason: UnavailableReason
+	readonly paramPlace: ParamPlace
 }
 
 /** The slots a payload member is typed by. */
@@ -140,8 +142,8 @@ export type Retry = "safe" | "never"
  * - `input`: the body, a parameter or a fact does not decode, or a parameter or fact a codec refuses, past its size
  *   bound included.
  * - `paramRejected`: PostgreSQL refused a parameter's value outside its pattern as it bound it, a byte bound
- *   (`str.bytes`) among them: `param` names the parameter, or `<parameter>.<field>` for a field of a relation
- *   parameter's facts.
+ *   (`str.bytes`) among them: `param` is where, a scalar parameter by its name or a field of a relation parameter's
+ *   facts by the parameter's name and the field's (ParamPlace).
  * - `tokenRefused`: no token where the role reads a context, a token its verify refuses, or claims that do not
  *   decode through the role's contexts.
  * - `tokenExpired`: the token expired, before the call or while it streamed: the same call with a fresh token.
@@ -165,7 +167,7 @@ export type Retry = "safe" | "never"
 export const callErrors = {
 	route: { retry: "never", payload: { message: "text" } },
 	input: { retry: "never", payload: { message: "text" } },
-	paramRejected: { retry: "never", payload: { message: "text", param: "text" } },
+	paramRejected: { retry: "never", payload: { message: "text", param: "paramPlace" } },
 	tokenRefused: { retry: "never", payload: { message: "text" } },
 	tokenExpired: { retry: "safe", payload: { message: "text" } },
 	refused: {

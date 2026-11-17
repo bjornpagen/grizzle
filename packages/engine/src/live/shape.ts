@@ -732,6 +732,24 @@ const unavailableReasonSchema: WireSchema = {
 	]
 }
 
+/**
+ * The JSON Schema of a paramRejected CallError's place (core/identity.ts ParamPlace): a scalar parameter's name, or a
+ * relation parameter's name and its field's.
+ */
+const paramPlaceSchema: WireSchema = {
+	oneOf: [
+		closedObject([
+			["kind", { const: "scalar" }],
+			["name", { type: "string" }]
+		]),
+		closedObject([
+			["kind", { const: "field" }],
+			["name", { type: "string" }],
+			["field", { type: "string" }]
+		])
+	]
+}
+
 /** The JSON Schema no value meets: a slot's of a shape whose events never carry it. */
 const noValue: WireSchema = { not: {} }
 
@@ -752,7 +770,8 @@ export const slotSchemas = <L>(
 		witness: witnessSchema(witness, leaf),
 		transientReason: { type: "string", enum: [...transientTags] },
 		credentialReason: { type: "string", enum: [...credentialReasons] },
-		unavailableReason: unavailableReasonSchema
+		unavailableReason: unavailableReasonSchema,
+		paramPlace: paramPlaceSchema
 	}
 	if (member.shape === "write") {
 		const schemas: PayloadSchemas = {

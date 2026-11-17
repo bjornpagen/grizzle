@@ -848,15 +848,17 @@ export interface IdentityValue {
 export type KeyColumnName = string | Identity<"lawColumn">
 
 /**
- * Where a parameter's value of a pattern stands: a scalar parameter, or a field of a relation parameter's facts.
+ * Where a parameter's value of a pattern stands: a scalar parameter, by its `name`, or the `field` of a relation
+ * parameter's facts, the parameter by its `name`. A refusal by its pattern names it as this data: a parameter's or a
+ * field's name may hold any character, a `.` among them, so no text joining the two names one place alone.
  */
 export type ParamPlace =
-	| { readonly kind: "scalar"; readonly param: string }
-	| { readonly kind: "field"; readonly param: string; readonly field: string }
+	| { readonly kind: "scalar"; readonly name: string }
+	| { readonly kind: "field"; readonly name: string; readonly field: string }
 
-/** A parameter place as a refusal names it: the parameter, or `<parameter>.<field>`. */
+/** A parameter place as a message spells it: the parameter, or `<parameter>.<field>`, which no reader parses. */
 export const paramPlaceText = (place: ParamPlace): string =>
-	place.kind === "scalar" ? place.param : `${place.param}.${place.field}`
+	place.kind === "scalar" ? place.name : `${place.name}.${place.field}`
 
 /** A side of a foreign key: its relation and its columns in order. */
 export interface KeySide {
@@ -1117,11 +1119,11 @@ export const identity = Object.freeze({
 		mint(
 			"paramDomain",
 			place.kind === "scalar"
-				? [place.kind, place.param, definition]
-				: [place.kind, place.param, place.field, definition],
+				? [place.kind, place.name, definition]
+				: [place.kind, place.name, place.field, definition],
 			place.kind === "scalar"
-				? ["param", ...nameSegments(place.param)]
-				: ["param", ...nameSegments(place.param), ...nameSegments(place.field)],
+				? ["param", ...nameSegments(place.name)]
+				: ["param", ...nameSegments(place.name), ...nameSegments(place.field)],
 			`pattern domain of parameter ${paramPlaceText(place)} of definition ${definition}`,
 			hashed
 		),

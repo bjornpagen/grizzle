@@ -728,7 +728,7 @@ const countProblems = (
 /**
  * The problems of an outcome against a parameter PostgreSQL refuses as the flight's admission binds it, before any
  * statement that reaches state: ExecutionFailure with reason ParamRejected at one of `params`, a scalar parameter or a
- * field of a relation parameter's (`<param>.<field>`), never a law's refusal.
+ * field of a relation parameter's, by the parameter's name its place holds, never a law's refusal.
  */
 const unboundProblems = (
 	expected: Extract<Expected, { readonly kind: "unbound" }>,
@@ -745,8 +745,7 @@ const unboundProblems = (
 		failure instanceof ExecutionFailure && failure.reason instanceof ParamRejected
 			? failure.reason.param
 			: undefined
-	return param !== undefined &&
-		Arr.some(params, (p) => param === p || Str.startsWith(`${p}.`)(param))
+	return param !== undefined && Arr.contains(params, param.name)
 		? []
 		: [
 				`expected ParamRejected at one of ${Arr.join(params, ", ")}, got ${Formatter.format(failure)}`

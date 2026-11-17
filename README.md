@@ -3317,9 +3317,10 @@ breaks answers first. A read binds every one in its statement, those its query l
 constant false `r.or()`), so a call is refused for the parameters it declares, never only for those its logic reads. A
 contract's refusal of a parameter is `refused` on the contract's law, its
 witness `unreported`, a write's and a read's (`LawRejected`) alike; a pattern's refusal of a parameter, a
-`str.bytes` bound's among them, is `paramRejected` (`ParamRejected`), its `param` the parameter, `<parameter>.<field>`
-for a field of a relation parameter's facts, so a caller names the field it refused from data, never from the message,
-which names the parameter and its pattern too. The outcome names
+`str.bytes` bound's among them, is `paramRejected` (`ParamRejected`), its `param` where: `{ kind: "scalar", name }`
+for a scalar parameter, `{ kind: "field", name, field }` for a field of a relation parameter's facts. A caller names
+the field it refused from that data, never from the message, which spells the place `<parameter>.<field>` with its
+pattern: a parameter's name may hold a `.`, so that text can name two places. The outcome names
 the contract's rule or the field's pattern rule. Fields of one pattern share a domain, as do fields whose patterns
 grizzle proves match the same texts, and PostgreSQL reports the domain, never the column, so grizzle judges the row on
 the host to name the field, its rule spelled as that field spells its patterns:

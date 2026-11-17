@@ -2,17 +2,28 @@
  * readCallError and applyCallError (packages/grizzle/src/adapter/live/call-error.ts): a statement's refusal, on a read
  * or a write, read as the call error a live answer ends with, through the shell's own classification of the server's
  * report (serializationRefusal). Every SQLSTATE the runtime branches on is drawn, and PostgreSQL's refusal of a
- * parameter's value by its pattern (ParamRejected) at every parameter of a bounded box of names, a scalar parameter's
- * or a relation parameter's field, `<parameter>.<field>`, each on a read and on a write.
+ * parameter's value by its pattern (ParamRejected) at every place of a bounded box: a scalar parameter or a relation
+ * parameter's field, its names holding `a` and `.`, so two places a text joining names spells alike are both in it
+ * (the scalar `a.a` and the field `a` of `a`), each on a read and on a write.
  *
  * - The error is retry `safe` exactly where PostgreSQL rolled the whole transaction back for a concurrent
  *   transaction's work, 40001 or 40P01, so nothing committed and the same call may succeed; every other refusal of a
  *   statement is the statement's own, and retry `never`; its message carries the failure's own. Oracle: PostgreSQL's
  *   documentation of serialization_failure and deadlock_detected.
- * - A pattern's refusal is `paramRejected`, naming the refused parameter as data (README "Errors and outcomes"), and
+ * - A pattern's refusal is `paramRejected`, its `param` the refused place as data (README "Errors and outcomes"), and
  *   the wire carries every error unchanged (decode after encode, live/codec.ts slotEncoders and slotDecoders).
  *
  * Features: a serialization refusal, another refusal and a pattern's refusal, each on a read and on a write.
+ *
+ * A pattern's refusal at each place a declaration's pattern domains name (physical/ddl/domains.ts paramDomainsOf, what
+ * a served file's refusals hold), over a read declaring a relation parameter of every name of one to three of `a` and
+ * `.` and the scalar parameter named as its field `code` joined to its name by a dot, `<name>.code`:
+ *
+ * - Exact: the places its refusals read as, on a read and on a write and off the wire, are exactly the two declared,
+ *   the scalar parameter by its name and the relation parameter's field by both names, though one text spells both.
+ *   Oracle: the declaration.
+ *
+ * Features: a relation parameter's name holding a dot, and one holding none.
  *
  * Every source's reading (call-error.ts readings), over every source a call's failure is met at (live/events.ts
  * failures), exhausted:
@@ -52,21 +63,20 @@ import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
 import { applyCallError, readCallError, readings } from "#adapter/live/call-error.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
-import { slotDecoders, slotEncoders, wireText } from "#compiler/live/codec.ts"
+import type { ParamPlace } from "#compiler/core/identity.ts"
 import { type FailureSource, failures } from "#compiler/live/events.ts"
-import type { WireJson } from "#compiler/live/wire.ts"
-import { assert, assertVariant } from "#test/support/assert.ts"
+import { assert, assertVariant, unorderedEqual } from "#test/support/assert.ts"
 import { sources } from "#test/unit/live/call-error.dictionary.ts"
 import {
 	calledWith,
 	type ConnectFeature,
-	errorOptions,
-	errorWire,
+	type DeclaredFeature,
+	decodedOff,
 	expectedOf,
+	joinedPlaces,
 	type Met,
 	metGen,
-	noWitness,
+	paramName,
 	reachedOf,
 	refusalMet,
 	rolledBack,
@@ -76,9 +86,9 @@ import {
 
 /**
  * A statement's refusal read by readCallError and applyCallError is retry safe exactly where PostgreSQL rolled back for
- * a concurrent transaction, a pattern's refusal names its parameter, and the wire carries it.
+ * a concurrent transaction, a pattern's refusal names its place, and the wire carries it.
  */
-export const aStatementsRefusalIsRetrySafeExactlyWherePostgreSQLRolledBackAPatternsNamesItsParameterAndTheWireCarriesIt =
+export const aStatementsRefusalIsRetrySafeExactlyWherePostgreSQLRolledBackAPatternsNamesItsPlaceAndTheWireCarriesIt =
 	property.exhaust(
 		finite((source) => ({
 			refusal: source.draw(statementRefusal),
@@ -104,14 +114,10 @@ export const aStatementsRefusalIsRetrySafeExactlyWherePostgreSQLRolledBackAPatte
 						const safe = refusal.kind === "server" && rolledBack.has(refusal.sqlstate)
 						assert.equal(error.retry, safe ? "safe" : "never")
 						assert.ok(Str.includes(refused.message)(error.message), "the failure's own message")
-						const encoded = slotEncoders(errorWire, noWitness, errorOptions).error(error)
-						const decoded = slotDecoders(errorWire, noWitness, errorOptions).error(
-							trustedJson<WireJson>(wireText(encoded))
-						)
-						assert.deepEqual(decoded, error, "the wire carries the error unchanged")
+						assert.deepEqual(decodedOff(error), error, "the wire carries the error unchanged")
 						if (refusal.kind === "pattern") {
 							assertVariant(error, "kind", "paramRejected", "a pattern's refusal of a parameter")
-							assert.equal(error.param, refusal.param, "the refused parameter, as data")
+							assert.deepEqual(error.param, refusal.param, "the refused place, as data")
 							c.note(
 								program === "read"
 									? "a pattern's refusal of a read"
@@ -131,9 +137,9 @@ export const aStatementsRefusalIsRetrySafeExactlyWherePostgreSQLRolledBackAPatte
 					}),
 			oracle: {
 				kind: "specification",
-				name: "PostgreSQL's serialization_failure and deadlock_detected roll the transaction back; a pattern's refusal names its parameter"
+				name: "PostgreSQL's serialization_failure and deadlock_detected roll the transaction back; a pattern's refusal names its place"
 			},
-			box: "every SQLSTATE the runtime branches on, and a pattern's refusal at every parameter of one or two letters a and b, scalar or a relation parameter's field, on a read and on a write",
+			box: "every SQLSTATE the runtime branches on, and a pattern's refusal at every scalar parameter named by one to three of a and ., and every field of one or two a of a relation parameter so named, on a read and on a write",
 			kept: [],
 			kills: [
 				{
@@ -147,31 +153,84 @@ export const aStatementsRefusalIsRetrySafeExactlyWherePostgreSQLRolledBackAPatte
 				{
 					file: "packages/grizzle/src/adapter/live/call-error.ts",
 					original: "\t\t\t\t\tparam: reason.param\n",
-					replacement: '\t\t\t\t\tparam: ""\n',
-					why: "A read's pattern refusal drops its parameter; the refused parameter's assertion fails."
+					replacement:
+						'\t\t\t\t\tparam: { kind: "scalar", name: reason.param.kind === "scalar" ? reason.param.name : reason.param.name + "." + reason.param.field }\n',
+					why: "A read's pattern refusal names its place by the text joining its names, so a field reads as the scalar parameter of that text; the refused place's assertion fails."
 				},
 				{
 					file: "packages/grizzle/src/adapter/live/call-error.ts",
 					original: "{ message: error.message, param: reason.param }",
-					replacement: "{ message: error.message, param: error.message }",
-					why: "A write's pattern refusal reads its parameter off its message; the refused parameter's assertion fails."
-				},
-				{
-					file: "packages/engine/src/live/events.ts",
-					original:
-						'\tparamRejected: { retry: "never", payload: { message: "text", param: "text" } },',
-					replacement: '\tparamRejected: { retry: "never", payload: { message: "text" } },',
-					why: "The event model's payload drops the parameter, so the wire drops it; the wire's round trip fails."
+					replacement:
+						'{ message: error.message, param: { kind: "scalar", name: reason.param.name } }',
+					why: "A write's pattern refusal names a field by its parameter alone; the refused place's assertion fails."
 				},
 				{
 					file: "packages/engine/src/live/codec.ts",
-					original: '\t\t\tparam: trustedString(trustedMember(r, "param"))',
-					replacement: "\t\t\tparam: messageOf(r)",
-					why: "The client reads the parameter off the message; the wire's round trip fails."
+					original: "\t\t\treturn { kind, name, field }",
+					replacement: '\t\t\treturn { kind: "scalar", name: name + "." + field }',
+					why: "The server writes a field's place as the scalar parameter of the text joining its names; the wire's round trip fails."
+				},
+				{
+					file: "packages/engine/src/live/codec.ts",
+					original:
+						'\t\t? { kind: "field", name, field: trustedString(trustedMember(record, "field")) }',
+					replacement: '\t\t? { kind: "scalar", name }',
+					why: "The client reads a field's place as its parameter alone; the wire's round trip fails."
 				}
 			]
 		}
 	)
+
+/**
+ * A pattern's refusal at each place a declaration's pattern domains name reads as exactly that place, though a scalar
+ * parameter's name is a relation parameter's and its field's joined by a dot.
+ */
+export const aPatternsRefusalAtEachDeclaredPlaceReadsAsThatPlaceThoughOneTextSpellsTwo =
+	property.exhaust(finite(paramName), {
+		needs: {},
+		situations: [
+			"a relation parameter's name holding a dot",
+			"a relation parameter's name holding none"
+		] satisfies ReadonlyArray<Reached<DeclaredFeature>>,
+		check: (_, c: Case<DeclaredFeature>) => (name) =>
+			Effect.sync(() => {
+				const declared: ReadonlyArray<ParamPlace> = [
+					{ kind: "scalar", name: `${name}.code` },
+					{ kind: "field", name, field: "code" }
+				]
+				for (const program of ["read", "write"] as const) {
+					const read = Arr.map(joinedPlaces(name), (param) => {
+						const { read: onRead, write: onWrite } = refusalMet({ kind: "pattern", param })
+						const error = decodedOff(
+							program === "read" ? readCallError(onRead) : applyCallError(onWrite)
+						)
+						assertVariant(error, "kind", "paramRejected", "a pattern's refusal of a parameter")
+						return error.param
+					})
+					unorderedEqual(read, declared, `the places a refusal of a ${program} reads as`)
+				}
+				c.note(
+					Str.includes(".")(name)
+						? "a relation parameter's name holding a dot"
+						: "a relation parameter's name holding none"
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the declaration: the scalar parameter by its name, the relation parameter's field by both names"
+		},
+		box: "a relation parameter of every name of one to three of a and ., and the scalar parameter <name>.code",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/physical/ddl/domains.ts",
+				original: "\t\t\t{ param: place, patterns: regex.patterns }",
+				replacement:
+					'\t\t\t{ param: { kind: "scalar", name: paramPlaceText(place) }, patterns: regex.patterns }',
+				why: "A served file's refusals name each domain's place by the text joining its names, so the field reads as the scalar parameter of that text; the declared places' assertion fails."
+			}
+		]
+	})
 
 /** Every source's reading reads its failures as exactly the kinds the event model gives its source. */
 export const everySourcesReadingReadsItsFailuresAsExactlyTheKindsTheEventModelGivesItsSource =
@@ -261,11 +320,7 @@ export const aSessionNeverHadReadsAsTheOracleTablesKindAndReasonByItsSQLSTATEOrI
 						"retry safe only where the cause may pass"
 					)
 					assert.ok(Str.includes(own)(error.message), "the failure's own message")
-					const encoded = slotEncoders(errorWire, noWitness, errorOptions).error(error)
-					const decoded = slotDecoders(errorWire, noWitness, errorOptions).error(
-						trustedJson<WireJson>(wireText(encoded))
-					)
-					assert.deepEqual(decoded, error, "the wire carries the error unchanged")
+					assert.deepEqual(decodedOff(error), error, "the wire carries the error unchanged")
 					notes.note(reachedOf(expected))
 					notes.note(path)
 					if (failure.kind === "driver refused") {

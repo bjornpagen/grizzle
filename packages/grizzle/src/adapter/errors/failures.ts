@@ -22,6 +22,8 @@ import type {
 } from "#compiler/plan/common.ts"
 import {
 	admittedIdentifier,
+	type ParamPlace,
+	paramPlaceText,
 	type RolePrefixFault,
 	rolePrefixFaultText,
 	sqlstates
@@ -651,16 +653,16 @@ export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly refu
 
 /**
  * PostgreSQL refused a parameter's value outside its declared pattern as it bound it, by the parameter's own pattern
- * domain: `param`, the parameter, or `<parameter>.<field>` for a field of a relation parameter's facts, and `patterns`,
+ * domain: `param`, where, a scalar parameter or a field of a relation parameter's facts (ParamPlace), and `patterns`,
  * the pattern as the parameter's type spells it. Nothing on the host checks a pattern, so a call is refused here, one
  * round trip in, whatever the rest of its input holds.
  */
 export class ParamRejected extends Data.TaggedError("ParamRejected")<{
-	readonly param: string
+	readonly param: ParamPlace
 	readonly patterns: Extract<Law, { readonly kind: "pattern" }>["patterns"]
 }> {
 	override get message(): string {
-		return `the value of parameter ${this.param} is outside its pattern ${Arr.join(
+		return `the value of parameter ${paramPlaceText(this.param)} is outside its pattern ${Arr.join(
 			Arr.map(this.patterns, (p) => `/${p.source}/${p.flags}`),
 			" & "
 		)}`

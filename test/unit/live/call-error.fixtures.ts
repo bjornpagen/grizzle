@@ -2,15 +2,7 @@
 
 import { constants } from "node:os"
 import { word } from "@bjornpagen/testing/dictionary"
-import {
-	boolean,
-	characterOf,
-	codePoint,
-	element,
-	type Gen,
-	string,
-	weighted
-} from "@bjornpagen/testing/gen"
+import { boolean, characterOf, element, type Gen, string, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import {
 	type ApplyError,
@@ -39,11 +31,20 @@ import {
 } from "#adapter/errors/failures.ts"
 import { applyCallError, readCallError, sourceCallError } from "#adapter/live/call-error.ts"
 import { LeaderFailed } from "#adapter/live/leader.ts"
+import type { ParamPlace } from "#compiler/core/identity.ts"
 import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
+import { trustedJson } from "#compiler/core/trusted.ts"
+import { slotDecoders, slotEncoders, wireText } from "#compiler/live/codec.ts"
 import type { CallError, CredentialReason, UnavailableCause } from "#compiler/live/events.ts"
 import type { MemberWire, RoleWitness, WireOptions } from "#compiler/live/shape.ts"
-import type { WireScalar } from "#compiler/live/wire.ts"
-import { assert } from "#test/support/assert.ts"
+import type { WireJson, WireScalar } from "#compiler/live/wire.ts"
+import { paramDomainsOf } from "#compiler/physical/ddl/domains.ts"
+import { uuid } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
+import { relation, schema } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
+import { assert, succeeded } from "#test/support/assert.ts"
+import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 import { states } from "#test/unit/live/call-error.dictionary.ts"
 
@@ -59,28 +60,33 @@ export type Met =
 /**
  * A statement's refusal: the server's report of a SQLSTATE the runtime branches on, or PostgreSQL's refusal of a
  * parameter's value by its pattern as it bound it, which the classifier reads off a 23514 on the parameter's own domain
- * (ParamRejected), at the parameter as its refusal names it.
+ * (ParamRejected), at the parameter's place.
  */
 export type StatementRefusal =
 	| { readonly kind: "server"; readonly sqlstate: Sqlstate }
-	| { readonly kind: "pattern"; readonly param: string }
-
-/** A parameter's name, of one or two of the letters a and b, so two names may share a prefix. */
-const paramName: Gen<string> = string(codePoint(0x61, 0x62), { min: 1, max: 2 })
+	| { readonly kind: "pattern"; readonly param: ParamPlace }
 
 /**
- * A refused parameter as a pattern's refusal names it (served/forms.ts ServedParamDomain): a scalar parameter's own
- * name, or `<parameter>.<field>` for a field of a relation parameter's facts.
+ * A parameter's name, of one to three of `a` and `.`, which a parameter's name may hold: so a scalar parameter's name
+ * is at times a relation parameter's and its field's joined by a dot, `a.a` beside the field `a` of `a`.
  */
-const refusedParam: Gen<string> = (source) => {
-	const parameter = source.draw(paramName)
-	return source.draw(boolean) ? `${parameter}.${source.draw(paramName)}` : parameter
+export const paramName: Gen<string> = string(characterOf(["a", "."]), { min: 1, max: 3 })
+
+/** A field's name of a relation parameter's facts, of one or two `a`. */
+const fieldName: Gen<string> = string(characterOf(["a"]), { min: 1, max: 2 })
+
+/** A refused parameter's place (core/identity.ts ParamPlace): a scalar parameter, or a relation parameter's field. */
+const refusedPlace: Gen<ParamPlace> = (source) => {
+	const name = source.draw(paramName)
+	return source.draw(boolean)
+		? { kind: "field", name, field: source.draw(fieldName) }
+		: { kind: "scalar", name }
 }
 
 /** A statement's refusal: every SQLSTATE the runtime branches on, or a pattern's refusal at a drawn parameter. */
 export const statementRefusal: Gen<StatementRefusal> = (source) =>
 	source.draw(boolean)
-		? { kind: "pattern", param: source.draw(refusedParam) }
+		? { kind: "pattern", param: source.draw(refusedPlace) }
 		: { kind: "server", sqlstate: source.draw(word(states)) }
 
 /** The pattern a refused parameter's domain checks here, any text: the call error a refusal reads as holds none. */
@@ -124,6 +130,44 @@ export const rolledBack: ReadonlySet<string> = new Set([
 	sqlstates.serializationFailure,
 	sqlstates.deadlockDetected
 ])
+
+/** The pattern the parameters joinedRead declares are of. */
+const Tag = str.regex("^[a-z]{1,8}$", "u")
+/** The heading of joinedRead's relation parameter: one field, `code`, of Tag. */
+const Tagged = relation("Tagged", { code: Tag }, ["code"])
+/** The relation joinedRead matches. */
+const Note = relation("Note", { id: uuid }, ["id"])
+const Notes = schema("Notes", [Note, Tagged], [])
+
+/**
+ * A read declaring the relation parameter `name`, of Tagged's heading, and the scalar parameter of Tag named as that
+ * parameter's field `code` joined to its name by a dot, `<name>.code`: two places a text joining names spells alike.
+ */
+const joinedRead = (name: string) =>
+	query(Notes).rule((r) => {
+		const { id } = v(Note, "note")
+		const { code } = v(Tagged, "tagged")
+		return r
+			.match(Note, { id })
+			.match(r.relation(name, Tagged), { code })
+			.find({ id, code, tag: r.param(`${name}.code`, Tag) })
+	})
+
+/** Whether the relation parameter joinedRead declares is named with a dot: a feature of its search. */
+export type DeclaredFeature =
+	| "a relation parameter's name holding a dot"
+	| "a relation parameter's name holding none"
+
+/** The places joinedRead(name)'s pattern domains name, as a served file's refusals hold them (paramDomainsOf). */
+export const joinedPlaces = (name: string): ReadonlyArray<ParamPlace> =>
+	Arr.map(
+		[
+			...paramDomainsOf(
+				succeeded(compileTemplate(joinedRead(name), undefined, testCompile)).params
+			).values()
+		],
+		(domain) => domain.param
+	)
 
 /** What a session never had reads as, by the oracle: its kind and its reason, or `failed`, which holds none. */
 type Expected =
@@ -602,22 +646,28 @@ export const statedOf = (error: CallError): Expected | string =>
 				: error.kind
 
 /** A refresh's wire: an error's encode reads nothing of a member's beside its role's witness. */
-export const errorWire: MemberWire = {
+const errorWire: MemberWire = {
 	shape: "write",
 	input: { kind: "call", params: [], facts: [] },
 	outcome: { kind: "refresh" }
 }
 
 /** A role's witness that names no relation: no error here is a refusal, which alone carries a witness. */
-export const noWitness: RoleWitness<WireScalar> = []
+const noWitness: RoleWitness<WireScalar> = []
 
 /** Effect's Option, as the wire spells an absent value (its codecs never meet one in an error). */
-export const errorOptions: WireOptions = {
+const errorOptions: WireOptions = {
 	some: Option.some,
 	none: Option.none(),
 	is: Option.isOption,
 	fold: (option, cases) => Option.match(option, cases)
 }
+
+/** A call error as a client decodes it off the wire the server encodes it on (live/codec.ts slotEncoders, slotDecoders). */
+export const decodedOff = (error: CallError): CallError =>
+	slotDecoders(errorWire, noWitness, errorOptions).error(
+		trustedJson<WireJson>(wireText(slotEncoders(errorWire, noWitness, errorOptions).error(error)))
+	)
 
 /** The features of a case: the reason its error reads as, `failed`, a driver's refusal, and its path. */
 export type ConnectFeature =

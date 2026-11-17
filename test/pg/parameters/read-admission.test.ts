@@ -12,7 +12,7 @@
  * against an item's code, or a relation parameter `named` of an item and a code of Code matched as its own rows, each
  * filtered by nothing or by the constant false. Each case draws the read and the code, inside Code or outside it. The
  * oracle restates the pattern and the reads: a code outside Code is refused at bind as ParamRejected, a
- * `paramRejected` CallError whose `param` is the parameter (`p`, or `named.code`), whatever the filter; otherwise the
+ * `paramRejected` CallError whose `param` is the parameter's place (`p`, or `named`'s field `code`), whatever the filter; otherwise the
  * read under the constant false answers no row, and the plain read the stored items of that code, or the one row
  * `named` holds.
  *
@@ -26,6 +26,7 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
+import type { ParamPlace } from "#compiler/core/identity.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -186,7 +187,10 @@ layer(Substrate.layer)(
 														).once({ params: { named }, facts: {} })
 													)
 												)
-										const param = k.via === "scalar" ? "p" : "named.code"
+										const param: ParamPlace =
+											k.via === "scalar"
+												? { kind: "scalar", name: "p" }
+												: { kind: "field", name: "named", field: "code" }
 										if (!isCode(k.code)) {
 											if (Result.isSuccess(read)) {
 												return assert.fail(
@@ -195,7 +199,11 @@ layer(Substrate.layer)(
 											}
 											const refused = read.failure
 											assertVariant(refused, "kind", "paramRejected", "refused at bind")
-											assert.equal(refused.param, param, "the refusal names the parameter")
+											assert.deepEqual(
+												refused.param,
+												param,
+												"the refusal names the parameter's place"
+											)
 											c.note(`${k.via} outside Code refused, filtered by ${k.filter}`)
 											return
 										}

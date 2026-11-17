@@ -54,7 +54,7 @@ export const checkedParams = (
 ): ReadonlyArray<CallerParamDecl> =>
 	params.flatMap((p): ReadonlyArray<CallerParamDecl> => {
 		if (p.kind === "scalar") {
-			const domain = cx.paramTypeRef(p.type, { kind: "scalar", param: p.id })
+			const domain = cx.paramTypeRef(p.type, { kind: "scalar", name: p.id })
 			return sameTypeRef(domain, cx.baseTypeRef(p.type)) ? [] : [p]
 		}
 		const heading = p.heading.filter((c) => cx.arrayCheck(c.type, p.id, c.name).kind === "domain")

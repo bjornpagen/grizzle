@@ -11,8 +11,8 @@
  *   parameter names (physical/access/extension.ts workloadExtension). Every drawn value is of its base carrier, which the host
  *   parses and binds, refusing nothing a refinement refuses, and is run: PostgreSQL refuses it with 23514 exactly where the old check refused it, the reported data type the
  *   domain it was cast to, and the role's classifier (witness/classify.ts domainRefusal, through the served witness)
- *   reads the refusal as the one grizzle reports: a pattern's as ParamRejected naming the parameter (`<parameter>.<field>`
- *   for a relation parameter's) and the pattern as its type spells it, a contract's as LawRejected naming the
+ *   reads the refusal as the one grizzle reports: a pattern's as ParamRejected at the parameter's place (a scalar's
+ *   name, or a relation parameter's and its field's) and the pattern as its type spells it, a contract's as LawRejected naming the
  *   contract's law, `every` of it. A value inside its rule matches exactly its rows.
  *
  * The one refusal the host made that PostgreSQL never makes is deleted on purpose and stated here, not searched: two
@@ -46,7 +46,7 @@ import { installationRefusals } from "#adapter/served/refusals.ts"
 import type { DomainRefusal } from "#adapter/witness/classify.ts"
 import { servedWitness } from "#adapter/witness/index.ts"
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
-import { identity } from "#compiler/core/identity.ts"
+import { identity, type ParamPlace } from "#compiler/core/identity.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { paramDomainsOf } from "#compiler/physical/ddl/domains.ts"
@@ -63,7 +63,7 @@ import { str } from "#compiler/public/text.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
-import { assert, nonEmpty } from "#test/support/assert.ts"
+import { assert, deepEquals, nonEmpty } from "#test/support/assert.ts"
 import {
 	compileTemplate,
 	installationSql,
@@ -150,7 +150,7 @@ interface Lookup {
 	readonly values: Gen<unknown>
 	/** The place a pattern's refusal names, or the contract a contract's names. */
 	readonly rule:
-		| { readonly kind: "pattern"; readonly place: string }
+		| { readonly kind: "pattern"; readonly place: ParamPlace }
 		| { readonly kind: "contract"; readonly contract: string }
 }
 
@@ -167,7 +167,7 @@ const lookups: Arr.NonEmptyReadonlyArray<Lookup> = [
 		param: "slug",
 		bind: (slug) => ({ slug }),
 		values: textGen,
-		rule: { kind: "pattern", place: "slug" }
+		rule: { kind: "pattern", place: { kind: "scalar", name: "slug" } }
 	},
 	{
 		label: "a parameter's own pattern",
@@ -175,7 +175,7 @@ const lookups: Arr.NonEmptyReadonlyArray<Lookup> = [
 		param: "tag",
 		bind: (tag) => ({ tag }),
 		values: textGen,
-		rule: { kind: "pattern", place: "tag" }
+		rule: { kind: "pattern", place: { kind: "scalar", name: "tag" } }
 	},
 	{
 		label: "a bigint contract",
@@ -199,7 +199,7 @@ const lookups: Arr.NonEmptyReadonlyArray<Lookup> = [
 		param: "rows",
 		bind: (tag) => ({ rows: [{ slug: "ok", tag }] }),
 		values: textGen,
-		rule: { kind: "pattern", place: "rows.tag" }
+		rule: { kind: "pattern", place: { kind: "field", name: "rows", field: "tag" } }
 	}
 ]
 
@@ -252,7 +252,7 @@ const readsAsRule = (lookup: Lookup, reading: DomainRefusal | undefined): boolea
 	}
 	switch (lookup.rule.kind) {
 		case "pattern":
-			return reading.kind === "param" && reading.param === lookup.rule.place
+			return reading.kind === "param" && deepEquals(reading.param, lookup.rule.place)
 		case "contract": {
 			const contractName = lookup.rule.contract
 			return (

@@ -1,5 +1,5 @@
 import type { DecoderForm } from "#compiler/core/decoder.ts"
-import type { DeclaredName } from "#compiler/core/identity.ts"
+import type { DeclaredName, ParamPlace } from "#compiler/core/identity.ts"
 import type {
 	ColumnIdent,
 	DomainName,
@@ -488,11 +488,12 @@ export interface ServedEntryKey {
 }
 
 /**
- * A parameter's pattern domain as a refusal by it names the parameter (physical/ddl/domains.ts paramDomainsOf): the
- * parameter, or `<parameter>.<field>` of a relation parameter's facts, and its pattern as its type spells it.
+ * A parameter's pattern domain as a refusal by it names the parameter (physical/ddl/domains.ts paramDomainsOf): its
+ * place, a scalar parameter or a field of a relation parameter's facts (core/identity.ts ParamPlace), and its pattern as
+ * its type spells it.
  */
 export interface ServedParamDomain {
-	readonly param: string
+	readonly param: ParamPlace
 	readonly patterns: Patterns
 }
 

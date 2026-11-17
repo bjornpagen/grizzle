@@ -298,8 +298,8 @@ const placeUses = (place: ParamPlace, t: ScalarType): ReadonlyArray<ParamDomainU
 export const paramDomainUses = (params: ReadonlyArray<ParamDecl>): ReadonlyArray<ParamDomainUse> =>
 	params.flatMap((p) =>
 		p.kind === "relation"
-			? p.heading.flatMap((c) => placeUses({ kind: "field", param: p.id, field: c.name }, c.type))
-			: placeUses({ kind: "scalar", param: p.id }, p.type)
+			? p.heading.flatMap((c) => placeUses({ kind: "field", name: p.id, field: c.name }, c.type))
+			: placeUses({ kind: "scalar", name: p.id }, p.type)
 	)
 
 /**
@@ -375,9 +375,9 @@ export interface InstalledParams {
 	readonly contracts: ReadonlyArray<InstalledContract>
 }
 
-/** A parameter's pattern domain as a refusal by it names the parameter: its place's text and its patterns. */
+/** A parameter's pattern domain as a refusal by it names the parameter: its place and its patterns. */
 export interface ParamDomain {
-	readonly param: string
+	readonly param: ParamPlace
 	readonly patterns: Patterns
 }
 
@@ -391,7 +391,7 @@ export const paramDomainsOf = (
 	new Map(
 		paramDomainUses(params).map(({ place, regex }) => [
 			identifierOf(paramDomainIdentity(place, regex)),
-			{ param: paramPlaceText(place), patterns: regex.patterns }
+			{ param: place, patterns: regex.patterns }
 		])
 	)
 

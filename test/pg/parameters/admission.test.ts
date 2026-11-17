@@ -15,7 +15,7 @@
  *
  * Each case draws the write, whether the first stratum collides, and the code, inside Code or outside it. The oracle
  * restates the pattern and the key: a code outside Code is refused at bind as ParamRejected, a `paramRejected`
- * CallError whose `param` is the parameter (`p`, or `named.code`), whatever the first stratum does, and nothing is
+ * CallError whose `param` is the parameter's place (`p`, or `named`'s field `code`), whatever the first stratum does, and nothing is
  * written; otherwise a collision is refused by Item's key; otherwise the write is accepted, Pick holding exactly the
  * facts it names.
  *
@@ -35,6 +35,7 @@ import { searched } from "@bjornpagen/testing/vitest"
 import { layer } from "@effect/vitest"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
+import type { ParamPlace } from "#compiler/core/identity.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -216,7 +217,10 @@ layer(Substrate.layer)(
 														})
 											)
 										)
-										const param = k.write === "picked" ? "p" : "named.code"
+										const param: ParamPlace =
+											k.write === "picked"
+												? { kind: "scalar", name: "p" }
+												: { kind: "field", name: "named", field: "code" }
 										if (!isCode(k.code)) {
 											if (Result.isSuccess(applied)) {
 												return assert.fail(
@@ -225,7 +229,11 @@ layer(Substrate.layer)(
 											}
 											const refused = applied.failure
 											assertVariant(refused, "kind", "paramRejected", "refused at bind")
-											assert.equal(refused.param, param, "the refusal names the parameter")
+											assert.deepEqual(
+												refused.param,
+												param,
+												"the refusal names the parameter's place"
+											)
 											const unwritten = yield* written
 											assert.deepEqual(unwritten, [], "nothing is written")
 											if (k.collides) {

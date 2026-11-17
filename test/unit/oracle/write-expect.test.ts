@@ -179,7 +179,7 @@ export const theWriteOraclesJudgementPassesAFaithfulRealizationAndRefusesEveryPl
 									Result.fail(
 										new ExecutionFailure({
 											reason: new ParamRejected({
-												param,
+												param: { kind: "scalar", name: param },
 												patterns: [{ source: "^.{0,3}$", flags: "su" }]
 											})
 										})

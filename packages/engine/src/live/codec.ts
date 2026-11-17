@@ -13,6 +13,7 @@
 import type { Path } from "#compiler/core/canonical.ts"
 import { type TransientTag, transientTags } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
+import type { ParamPlace } from "#compiler/core/identity.ts"
 import { defect } from "#compiler/core/invariant.ts"
 import { isIterable, isList, isPlainRecord } from "#compiler/core/record.ts"
 import * as Result from "#compiler/core/result.ts"
@@ -1092,13 +1093,15 @@ const encodeErrorMember = (
 			return value
 		case "unavailableReason":
 			return encodeUnavailableReason(value)
+		case "paramPlace":
+			return encodeParamPlace(value)
 		case "fields":
 		case "row":
 		case "key":
 		case "after":
 		case "outcome":
 		case "error":
-			throw defect("a CallError's payload holds texts, laws, a witness and a reason alone")
+			throw defect("a CallError's payload holds texts, laws, a witness, a reason and a place alone")
 	}
 }
 
@@ -1140,6 +1143,36 @@ const encodeUnavailableReason = (value: unknown): WireJson => {
 	throw defect(
 		"an unavailable CallError's reason, a named cause or another SQLSTATE or socket code"
 	)
+}
+
+/**
+ * The JSON of a paramRejected CallError's place (core/identity.ts ParamPlace): a scalar parameter's name, or a relation
+ * parameter's name and its field's, each member exactly as the place holds it.
+ */
+const encodeParamPlace = (value: unknown): WireJson => {
+	if (isPlainRecord(value)) {
+		const kind = value["kind"]
+		const name = value["name"]
+		const field = value["field"]
+		if (kind === "scalar" && typeof name === "string") {
+			return { kind, name }
+		}
+		if (kind === "field" && typeof name === "string" && typeof field === "string") {
+			return { kind, name, field }
+		}
+	}
+	throw defect(
+		"a paramRejected CallError's place, a scalar parameter or a relation parameter's field"
+	)
+}
+
+/** A paramRejected CallError's place from the server's own JSON. */
+const decodeParamPlace = (json: WireJson): ParamPlace => {
+	const record = trustedRecord(json)
+	const name = trustedString(trustedMember(record, "name"))
+	return trustedString(trustedMember(record, "kind")) === "field"
+		? { kind: "field", name, field: trustedString(trustedMember(record, "field")) }
+		: { kind: "scalar", name }
 }
 
 /** An unavailable CallError's reason from the server's own JSON. */
@@ -1189,7 +1222,8 @@ export const slotEncoders = (
 	witness: (value) => encodeWitness(witness, value, options),
 	transientReason: (value) => value,
 	credentialReason: (value) => value,
-	unavailableReason: encodeUnavailableReason
+	unavailableReason: encodeUnavailableReason,
+	paramPlace: encodeParamPlace
 })
 
 /** A CallError's message from the server's own JSON. */
@@ -1208,7 +1242,7 @@ const errorDecoders = (
 	paramRejected: (r) =>
 		callError("paramRejected", {
 			message: messageOf(r),
-			param: trustedString(trustedMember(r, "param"))
+			param: decodeParamPlace(trustedMember(r, "param"))
 		}),
 	tokenRefused: (r) => callError("tokenRefused", { message: messageOf(r) }),
 	tokenExpired: (r) => callError("tokenExpired", { message: messageOf(r) }),
@@ -1281,5 +1315,6 @@ export const slotDecoders = (
 	witness: (json) => decodeWitness(witness, json, options),
 	transientReason: (json) => trusted<TransientTag>(trustedString(json)),
 	credentialReason: (json) => trusted<CredentialReason>(trustedString(json)),
-	unavailableReason: decodeUnavailableReason
+	unavailableReason: decodeUnavailableReason,
+	paramPlace: decodeParamPlace
 })
