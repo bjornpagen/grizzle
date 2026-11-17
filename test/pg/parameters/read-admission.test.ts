@@ -11,9 +11,10 @@
  * The box: Unread stores two items of Code, ^[a-z]{1,4}$. Its four reads are a scalar parameter `p` of Code matched
  * against an item's code, or a relation parameter `named` of an item and a code of Code matched as its own rows, each
  * filtered by nothing or by the constant false. Each case draws the read and the code, inside Code or outside it. The
- * oracle restates the pattern and the reads: a code outside Code is refused at bind as ParamRejected, an `input`
- * CallError naming the parameter (`p`, or `named.code`), whatever the filter; otherwise the read under the constant
- * false answers no row, and the plain read the stored items of that code, or the one row `named` holds.
+ * oracle restates the pattern and the reads: a code outside Code is refused at bind as ParamRejected, a
+ * `paramRejected` CallError whose `param` is the parameter (`p`, or `named.code`), whatever the filter; otherwise the
+ * read under the constant false answers no row, and the plain read the stored items of that code, or the one row
+ * `named` holds.
  *
  * Features: each parameter outside Code refused under each filter, and each read answered with a code inside Code.
  */
@@ -31,7 +32,7 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, bareRecord, unorderedEqual } from "#test/support/assert.ts"
+import { assert, assertVariant, bareRecord, unorderedEqual } from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -192,11 +193,9 @@ layer(Substrate.layer)(
 													`a code outside Code is refused at bind, not answered ${Formatter.format(read.success)}`
 												)
 											}
-											assert.equal(read.failure.kind, "input", "refused as the call's input")
-											assert.ok(
-												Str.includes(`parameter ${param} `)(read.failure.message),
-												`the refusal names ${param}: ${read.failure.message}`
-											)
+											const refused = read.failure
+											assertVariant(refused, "kind", "paramRejected", "refused at bind")
+											assert.equal(refused.param, param, "the refusal names the parameter")
 											c.note(`${k.via} outside Code refused, filtered by ${k.filter}`)
 											return
 										}

@@ -7,7 +7,9 @@
  * pattern a served parameter names, whether or not a stored field declares it, so PostgreSQL checks the value as it
  * binds it and nothing on the host does. The oracle restates each pattern over the drawn text: a case some value of
  * which is outside its pattern is refused by PostgreSQL, ReadFailure ParamRejected at stage execute, which a call
- * answers as an `input` CallError; every other case delivers exactly the values it bound.
+ * answers as a `paramRejected` CallError whose `param` is one of the parameters a value outside its pattern was bound
+ * to (`slug` or `code`, or `rows.slug` or `rows.code` for the relation parameter's fields); every other case delivers
+ * exactly the values it bound.
  */
 import { drawn, explore } from "@bjornpagen/testing/explore"
 import { required } from "@bjornpagen/testing/features"
@@ -23,7 +25,13 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert, bareRecord, nonEmpty, unorderedEqual } from "#test/support/assert.ts"
+import {
+	assert,
+	assertVariant,
+	bareRecord,
+	nonEmpty,
+	unorderedEqual
+} from "#test/support/assert.ts"
 import { rowsOf } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -82,6 +90,18 @@ interface Bound {
 interface Case {
 	readonly via: "relation" | "scalar"
 	readonly rows: ReadonlyArray<Bound>
+}
+
+/**
+ * The parameters `rows` bind a value outside its pattern to, as a refusal names each (ParamRejected): a scalar
+ * parameter, `slug` or `code`, or the relation parameter's field, `rows.slug` or `rows.code`.
+ */
+const outsideOf = (via: Case["via"], rows: ReadonlyArray<Bound>): ReadonlyArray<string> => {
+	const named = (field: keyof Bound) => (via === "relation" ? `rows.${field}` : field)
+	return [
+		...(Arr.every(rows, (b) => isSlug(b.slug)) ? [] : [named("slug")]),
+		...(Arr.every(rows, (b) => isCode(b.code)) ? [] : [named("code")])
+	]
 }
 
 const boundGen: Gen<Bound> = (source) => ({
@@ -179,9 +199,11 @@ layer(Substrate.layer)(
 												return assert.fail("a value outside its pattern is refused")
 											}
 											const failure = read.failure
-											if (failure.kind !== "input") {
-												return assert.fail(`refused at bind, not by ${failure.kind}`)
-											}
+											assertVariant(failure, "kind", "paramRejected", "refused at bind")
+											assert.ok(
+												Arr.contains(outsideOf(k.via, rows), failure.param),
+												`the refusal names a parameter bound outside its pattern, not ${failure.param}`
+											)
 											c.note(`${k.via} refused at bind`)
 											if (slugAlone) {
 												c.note(`${k.via} refused for a slug alone`)

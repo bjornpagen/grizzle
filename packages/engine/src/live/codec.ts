@@ -1205,6 +1205,11 @@ const errorDecoders = (
 } => ({
 	route: (r) => callError("route", { message: messageOf(r) }),
 	input: (r) => callError("input", { message: messageOf(r) }),
+	paramRejected: (r) =>
+		callError("paramRejected", {
+			message: messageOf(r),
+			param: trustedString(trustedMember(r, "param"))
+		}),
 	tokenRefused: (r) => callError("tokenRefused", { message: messageOf(r) }),
 	tokenExpired: (r) => callError("tokenExpired", { message: messageOf(r) }),
 	refused: (r) =>

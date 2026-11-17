@@ -13,9 +13,9 @@
  * - a path no program serves, and a method other than POST: `route`;
  * - a body that is no JSON, and a fact whose field is of another type: `input`, the server's parse's refusal of the body
  *   and the client's of a value it cannot encode, before any request;
- * - a watch of `tagged` whose `tag` is outside its pattern: `input`, PostgreSQL's refusal as it binds the parameter, and
- *   the answer's one event before its end: an input refused never opens an answer, so no `reset` comes before it
- *   (adapter/reader/stream.ts);
+ * - a watch of `tagged` whose `tag` is outside its pattern: `paramRejected`, PostgreSQL's refusal as it binds the
+ *   parameter, and the answer's one event before its end: an input refused never opens an answer, so no `reset` comes
+ *   before it (adapter/reader/stream.ts);
  * - an Authorization header that is no bearer token, no token for a role that reads a context, and claims that do not
  *   decode: `tokenRefused`;
  * - a note whose id a stored note holds: `refused`, by the primary key;
@@ -169,8 +169,9 @@ const classOf = (fault: Fault): CallErrorKind => {
 			return "route"
 		case "a body that is no JSON":
 		case "a fact of another type":
-		case "a parameter outside its pattern":
 			return "input"
+		case "a parameter outside its pattern":
+			return "paramRejected"
 		case "a header that is no bearer token":
 		case "no token":
 		case "claims that do not decode":
@@ -291,6 +292,7 @@ layer(Substrate.layer)("a failing live call", (it) => {
 							[
 								"route",
 								"input",
+								"paramRejected",
 								"tokenRefused",
 								"refused",
 								"outsideWorld",

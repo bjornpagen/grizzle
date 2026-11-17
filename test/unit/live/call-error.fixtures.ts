@@ -1,9 +1,25 @@
 /** What the properties of call-error.test.ts read: its spaces, models and helpers. */
 
 import { constants } from "node:os"
-import { characterOf, element, type Gen, string, weighted } from "@bjornpagen/testing/gen"
+import { word } from "@bjornpagen/testing/dictionary"
+import {
+	boolean,
+	characterOf,
+	codePoint,
+	element,
+	type Gen,
+	string,
+	weighted
+} from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
-import { ReadFailure, TransportFailure } from "#adapter/errors/execution.ts"
+import {
+	type ApplyError,
+	ExecutionFailure,
+	type ReadError,
+	ReadFailure,
+	serializationRefusal,
+	TransportFailure
+} from "#adapter/errors/execution.ts"
 import {
 	type AcquireRefusal,
 	type ConnectRefusal,
@@ -15,6 +31,7 @@ import {
 	DriverRefused,
 	LayerReleased,
 	NoCancelKey,
+	ParamRejected,
 	ServerError,
 	SocketFailed,
 	StartupRefused,
@@ -22,12 +39,13 @@ import {
 } from "#adapter/errors/failures.ts"
 import { applyCallError, readCallError, sourceCallError } from "#adapter/live/call-error.ts"
 import { LeaderFailed } from "#adapter/live/leader.ts"
-import { sqlstates } from "#compiler/core/sqlstate.ts"
+import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
 import type { CallError, CredentialReason, UnavailableCause } from "#compiler/live/events.ts"
 import type { MemberWire, RoleWitness, WireOptions } from "#compiler/live/shape.ts"
 import type { WireScalar } from "#compiler/live/wire.ts"
 import { assert } from "#test/support/assert.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
+import { states } from "#test/unit/live/call-error.dictionary.ts"
 
 /** Where a refusal met the call: a features' pair of the search. */
 export type Met =
@@ -35,6 +53,71 @@ export type Met =
 	| "a serialization refusal of a write"
 	| "another refusal of a read"
 	| "another refusal of a write"
+	| "a pattern's refusal of a read"
+	| "a pattern's refusal of a write"
+
+/**
+ * A statement's refusal: the server's report of a SQLSTATE the runtime branches on, or PostgreSQL's refusal of a
+ * parameter's value by its pattern as it bound it, which the classifier reads off a 23514 on the parameter's own domain
+ * (ParamRejected), at the parameter as its refusal names it.
+ */
+export type StatementRefusal =
+	| { readonly kind: "server"; readonly sqlstate: Sqlstate }
+	| { readonly kind: "pattern"; readonly param: string }
+
+/** A parameter's name, of one or two of the letters a and b, so two names may share a prefix. */
+const paramName: Gen<string> = string(codePoint(0x61, 0x62), { min: 1, max: 2 })
+
+/**
+ * A refused parameter as a pattern's refusal names it (served/forms.ts ServedParamDomain): a scalar parameter's own
+ * name, or `<parameter>.<field>` for a field of a relation parameter's facts.
+ */
+const refusedParam: Gen<string> = (source) => {
+	const parameter = source.draw(paramName)
+	return source.draw(boolean) ? `${parameter}.${source.draw(paramName)}` : parameter
+}
+
+/** A statement's refusal: every SQLSTATE the runtime branches on, or a pattern's refusal at a drawn parameter. */
+export const statementRefusal: Gen<StatementRefusal> = (source) =>
+	source.draw(boolean)
+		? { kind: "pattern", param: source.draw(refusedParam) }
+		: { kind: "server", sqlstate: source.draw(word(states)) }
+
+/** The pattern a refused parameter's domain checks here, any text: the call error a refusal reads as holds none. */
+const refusedPatterns = [{ source: "^.*$", flags: "su" }] as const
+
+/**
+ * A statement's refusal as a read and as a write meet it: the server's report as the shell classifies it, a transient
+ * refusal where it rolled the transaction back for a concurrent one (serializationRefusal), else the read's failure or
+ * the write's execution failure for it; a pattern's refusal as ParamRejected at its parameter.
+ */
+export const refusalMet = (
+	refusal: StatementRefusal
+): { readonly read: ReadError; readonly write: ApplyError } => {
+	if (refusal.kind === "pattern") {
+		const rejected = new ParamRejected({ param: refusal.param, patterns: refusedPatterns })
+		return {
+			read: new ReadFailure({ reason: rejected }),
+			write: new ExecutionFailure({ reason: rejected })
+		}
+	}
+	const report = new ServerError({
+		sqlstate: refusal.sqlstate,
+		message: `refused with ${refusal.sqlstate}`,
+		constraint: undefined,
+		schema: undefined,
+		table: undefined,
+		column: undefined,
+		dataType: undefined,
+		detail: undefined,
+		hint: undefined
+	})
+	const transient = serializationRefusal(report)
+	return {
+		read: transient ?? new ReadFailure({ reason: report }),
+		write: transient ?? new ExecutionFailure({ reason: report })
+	}
+}
 
 /** The SQLSTATEs with which PostgreSQL rolls a transaction back for a concurrent transaction's work. */
 export const rolledBack: ReadonlySet<string> = new Set([

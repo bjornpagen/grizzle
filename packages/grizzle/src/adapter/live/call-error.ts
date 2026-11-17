@@ -102,17 +102,17 @@ const openReading = {
 /**
  * Why a read failed, by its reason, and its refusals by SERIALIZABLE and by the fence by their class, a session never
  * had aside (connectCallError): a connection broken while it ran is `transport`, since a read commits nothing; the
- * host's refusal of its input is `input`, and so is PostgreSQL's refusal of a parameter's value by its pattern as it
- * binds it; a refusal by laws, PostgreSQL's by a contract's or a pattern's domain (LawRejected) or an explain's of the
- * host's key parse (InputRejected), is `refused` with its laws; a serialization failure or a deadlock is `transient`;
- * the fence's refusal is `stale`; the rest is the server's or the driver's: pg's refusal of a query on a connection
- * still standing (DriverFailure) is no connection broken, so it is `failed`.
+ * host's refusal of its input is `input`; PostgreSQL's refusal of a parameter's value by its pattern as it binds it is
+ * `paramRejected`, naming the parameter; a refusal by laws, PostgreSQL's by a contract's or a pattern's domain
+ * (LawRejected) or an explain's of the host's key parse (InputRejected), is `refused` with its laws; a serialization
+ * failure or a deadlock is `transient`; the fence's refusal is `stale`; the rest is the server's or the driver's: pg's
+ * refusal of a query on a connection still standing (DriverFailure) is no connection broken, so it is `failed`.
  */
 const readReading = {
 	ServerError: "failed",
 	LawRejected: "refused",
 	InputRejected: "refused",
-	ParamRejected: "input",
+	ParamRejected: "paramRejected",
 	ConnectionLost: "transport",
 	CommitLost: "transport",
 	DriverFailure: "failed",
@@ -132,17 +132,17 @@ const readReading = {
 /**
  * Why a write or a refresh failed, by the reason of its transport's or its execution's failure, and by its class
  * otherwise, a session never had aside (connectCallError): its session broke before its COMMIT was sent, `transport`;
- * a relation input past its bound, a parameter's value PostgreSQL refused by its pattern as it bound it, or an input
- * the host refused, `input`; a serialization failure or a concurrent writer's change, `transient`; the fence's
- * refusal, `stale`; a COMMIT sent and unanswered, `commitUnknown`; the rest is the server's or the driver's: pg's
- * refusal of a query or a ROLLBACK on a connection still standing (DriverFailure), which broke no connection and
- * leaves the transaction's end unproven, is `failed`.
+ * a relation input past its bound, or an input the host refused, `input`; a parameter's value PostgreSQL refused by its
+ * pattern as it bound it, `paramRejected`, naming the parameter; a serialization failure or a concurrent writer's
+ * change, `transient`; the fence's refusal, `stale`; a COMMIT sent and unanswered, `commitUnknown`; the rest is the
+ * server's or the driver's: pg's refusal of a query or a ROLLBACK on a connection still standing (DriverFailure), which
+ * broke no connection and leaves the transaction's end unproven, is `failed`.
  */
 const applyReading = {
 	ConnectionLost: "transport",
 	DriverFailure: "failed",
 	ServerError: "failed",
-	ParamRejected: "input",
+	ParamRejected: "paramRejected",
 	CompileError: "failed",
 	InputTooLarge: "input",
 	TemporaryRefused: "failed",
@@ -499,6 +499,12 @@ export const readCallError = (error: ReadError): FailureOf<"read"> => {
 					witness: reason.witness
 				})
 			}
+			if (reason._tag === "ParamRejected") {
+				return callError(readReading.ParamRejected, {
+					message: error.message,
+					param: reason.param
+				})
+			}
 			return messageErrors[readReading[reason._tag]](error.message)
 		}
 		case "TransientFailure":
@@ -520,8 +526,12 @@ export const applyCallError = (error: ApplyError): FailureOf<"apply"> => {
 				? connectCallError(reason, error.message)
 				: messageErrors[applyReading[reason._tag]](error.message)
 		}
-		case "ExecutionFailure":
-			return messageErrors[applyReading[error.reason._tag]](error.message)
+		case "ExecutionFailure": {
+			const reason = error.reason
+			return reason._tag === "ParamRejected"
+				? callError(applyReading.ParamRejected, { message: error.message, param: reason.param })
+				: messageErrors[applyReading[reason._tag]](error.message)
+		}
 		case "TransientFailure":
 			return callError(applyReading.TransientFailure, {
 				message: error.message,

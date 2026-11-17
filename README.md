@@ -3316,9 +3316,10 @@ comes before any other statement of the write runs, whichever stratum reads the 
 breaks answers first. A read binds every one in its statement, those its query leaves unread too (a rule under the
 constant false `r.or()`), so a call is refused for the parameters it declares, never only for those its logic reads. A
 contract's refusal of a parameter is `refused` on the contract's law, its
-witness `unreported`, a write's and a read's (`LawRejected`) alike; a pattern's refusal of a parameter is `input`
-(`ParamRejected`), its message naming the parameter, `<parameter>.<field>` for a field of a relation parameter's facts,
-and its pattern. The outcome names
+witness `unreported`, a write's and a read's (`LawRejected`) alike; a pattern's refusal of a parameter, a
+`str.bytes` bound's among them, is `paramRejected` (`ParamRejected`), its `param` the parameter, `<parameter>.<field>`
+for a field of a relation parameter's facts, so a caller names the field it refused from data, never from the message,
+which names the parameter and its pattern too. The outcome names
 the contract's rule or the field's pattern rule. Fields of one pattern share a domain, as do fields whose patterns
 grizzle proves match the same texts, and PostgreSQL reports the domain, never the column, so grizzle judges the row on
 the host to name the field, its rule spelled as that field spells its patterns:
@@ -3391,6 +3392,7 @@ fails with its `CallError`, by kind:
 | `kind`          | `retry` | What happened                                                                                                   |
 | --------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
 | `input`         | `never` | a parameter, a fact or a window the member's codecs or input boundary refuse, past a bound of its transport included |
+| `paramRejected` | `never` | PostgreSQL refused a parameter's value outside its pattern, a `str.bytes` bound included, as it bound it (`param`) |
 | `tokenRefused`  | `never` | no token where the role reads a context, a token `verify` refuses, or claims that do not decode                 |
 | `tokenExpired`  | `safe`  | the token expired, before the call or while it streamed                                                         |
 | `refused`       | `never` | the schema's laws refused the write (`refused`, `witness`)                                                      |
@@ -3482,7 +3484,8 @@ A call's `CallError` is read from the reason that failed it, each reason a class
 | `StartupRefused` of any other SQLSTATE, with the server's report; `SocketFailed`; `TlsRefused` of a system error's code; `ConnectTimedOut`; `ConnectionClosed`; `LayerReleased`, a layer whose scope has closed | `unavailable`   |
 | `NoCancelKey`                                                                                                                                                                 | `failed`        |
 | `ConnectionLost`, `CommitLost`                                                                                                                                               | `transport`     |
-| `EncodingFailure`; `ParamRejected`, a parameter's value outside its pattern; `InputTooLarge`, below; `CallInputRefused`, below                                               | `input`         |
+| `EncodingFailure`; `InputTooLarge`, below; `CallInputRefused`, below                                                                                                         | `input`         |
+| `ParamRejected`, a parameter's value outside its pattern, its `param` the `CallError`'s                                                                                      | `paramRejected` |
 | `LawRejected`, the laws a contract's or a pattern's domain discharges, which refused a value a statement cast to it; `InputRejected`, below                                 | `refused`       |
 | `TransientFailure`, its reason the `CallError`'s `reason`                                                                                                                    | `transient`     |
 | `StaleSnapshot`: `Migrating` or `Migrated` ([Deploying](#deploying))                                                                                                         | `stale`         |

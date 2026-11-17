@@ -14,9 +14,10 @@
  * - `listed` inserts into Pick the one fact of the relation parameter `named`, the second stored item with its code.
  *
  * Each case draws the write, whether the first stratum collides, and the code, inside Code or outside it. The oracle
- * restates the pattern and the key: a code outside Code is refused at bind as ParamRejected, an `input` CallError naming
- * the parameter (`p`, or `named.code`), whatever the first stratum does, and nothing is written; otherwise a collision
- * is refused by Item's key; otherwise the write is accepted, Pick holding exactly the facts it names.
+ * restates the pattern and the key: a code outside Code is refused at bind as ParamRejected, a `paramRejected`
+ * CallError whose `param` is the parameter (`p`, or `named.code`), whatever the first stratum does, and nothing is
+ * written; otherwise a collision is refused by Item's key; otherwise the write is accepted, Pick holding exactly the
+ * facts it names.
  *
  * Features: a scalar parameter, and a relation parameter's field, read only by a statement after one that fails; each
  * write refused by the first stratum's key with its code inside Code, and accepted.
@@ -41,7 +42,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { printObjectName, quoteIdent } from "#compiler/sql/print.ts"
 import { installed } from "#test/pg/reads/support.ts"
-import { assert } from "#test/support/assert.ts"
+import { assert, assertVariant } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
 import { caseHang } from "#test/support/limits.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -222,11 +223,9 @@ layer(Substrate.layer)(
 													`a code outside its pattern is refused at bind, not answered ${applied.success.kind}`
 												)
 											}
-											assert.equal(applied.failure.kind, "input", "refused as the call's input")
-											assert.ok(
-												Str.includes(`parameter ${param} `)(applied.failure.message),
-												`the refusal names ${param}: ${applied.failure.message}`
-											)
+											const refused = applied.failure
+											assertVariant(refused, "kind", "paramRejected", "refused at bind")
+											assert.equal(refused.param, param, "the refusal names the parameter")
 											const unwritten = yield* written
 											assert.deepEqual(unwritten, [], "nothing is written")
 											if (k.collides) {

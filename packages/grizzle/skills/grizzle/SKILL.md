@@ -561,9 +561,11 @@ The command line's own refusals, by stage:
   call may succeed run again (`transient`, its `reason` naming the concurrent work that refused it; `unavailable`, its
   `reason` a `{ kind }` naming why no session could be had for now, the network, the server or a released layer, with
   the SQLSTATE or socket code of a cause no name classifies; `transport`; `tokenExpired`), `"never"` otherwise
-  (`input`, `tokenRefused`, `refused`, `outsideWorld`, `credentialRefused`, its `reason` naming how the connection
-  was not authenticated: `passwordFailed`, `passwordRefused`, `loginRefused`, `tlsUnverified`, `driverRefused`;
-  `stale`, `commitUnknown`, `failed`, and over HTTP `route`). A configuration fault is `credentialRefused`; a database
+  (`input`; `paramRejected`, its `param` naming the parameter whose value PostgreSQL refused by its pattern, a
+  `str.bytes` bound among them, `<parameter>.<field>` for a relation parameter's field; `tokenRefused`, `refused`,
+  `outsideWorld`, `credentialRefused`, its `reason` naming how the connection was not authenticated: `passwordFailed`,
+  `passwordRefused`, `loginRefused`, `tlsUnverified`, `driverRefused`; `stale`, `commitUnknown`, `failed`, and over
+  HTTP `route`). A configuration fault is `credentialRefused`; a database
   that is down is `unavailable`. Its `message` is the failure's own words, the server's report
   where the database refused; read facts from the kind's members, never from the message. Run a call again only when
   its `retry` is `"safe"`, with `Effect.retry` and your own `Schedule`; after `commitUnknown`, read back before running

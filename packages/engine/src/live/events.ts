@@ -139,6 +139,9 @@ export type Retry = "safe" | "never"
  * - `route`: no served program at the path: an unknown login, role or program, or a method other than POST.
  * - `input`: the body, a parameter or a fact does not decode, or a parameter or fact a codec refuses, past its size
  *   bound included.
+ * - `paramRejected`: PostgreSQL refused a parameter's value outside its pattern as it bound it, a byte bound
+ *   (`str.bytes`) among them: `param` names the parameter, or `<parameter>.<field>` for a field of a relation
+ *   parameter's facts.
  * - `tokenRefused`: no token where the role reads a context, a token its verify refuses, or claims that do not
  *   decode through the role's contexts.
  * - `tokenExpired`: the token expired, before the call or while it streamed: the same call with a fresh token.
@@ -162,6 +165,7 @@ export type Retry = "safe" | "never"
 export const callErrors = {
 	route: { retry: "never", payload: { message: "text" } },
 	input: { retry: "never", payload: { message: "text" } },
+	paramRejected: { retry: "never", payload: { message: "text", param: "text" } },
 	tokenRefused: { retry: "never", payload: { message: "text" } },
 	tokenExpired: { retry: "safe", payload: { message: "text" } },
 	refused: {
@@ -227,6 +231,7 @@ export const failures = {
 	read: [
 		"refused",
 		"input",
+		"paramRejected",
 		"transient",
 		"credentialRefused",
 		"unavailable",
@@ -237,6 +242,7 @@ export const failures = {
 	watch: ["credentialRefused", "unavailable", "stale", "failed", "tokenExpired"],
 	apply: [
 		"input",
+		"paramRejected",
 		"transient",
 		"credentialRefused",
 		"unavailable",

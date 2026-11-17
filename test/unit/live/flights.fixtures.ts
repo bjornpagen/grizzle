@@ -142,6 +142,7 @@ export const retryOf = (kind: CallErrorKind): "safe" | "never" => {
 			return "safe"
 		case "route":
 		case "input":
+		case "paramRejected":
 		case "tokenRefused":
 		case "refused":
 		case "outsideWorld":

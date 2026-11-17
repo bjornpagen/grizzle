@@ -1,14 +1,18 @@
 /**
  * readCallError and applyCallError (packages/grizzle/src/adapter/live/call-error.ts): a statement's refusal, on a read
  * or a write, read as the call error a live answer ends with, through the shell's own classification of the server's
- * report (serializationRefusal). Every SQLSTATE the runtime branches on is drawn, on a read and on a write.
+ * report (serializationRefusal). Every SQLSTATE the runtime branches on is drawn, and PostgreSQL's refusal of a
+ * parameter's value by its pattern (ParamRejected) at every parameter of a bounded box of names, a scalar parameter's
+ * or a relation parameter's field, `<parameter>.<field>`, each on a read and on a write.
  *
  * - The error is retry `safe` exactly where PostgreSQL rolled the whole transaction back for a concurrent
  *   transaction's work, 40001 or 40P01, so nothing committed and the same call may succeed; every other refusal of a
- *   statement is the statement's own, and retry `never`; its message carries the server's. Oracle: PostgreSQL's
+ *   statement is the statement's own, and retry `never`; its message carries the failure's own. Oracle: PostgreSQL's
  *   documentation of serialization_failure and deadlock_detected.
+ * - A pattern's refusal is `paramRejected`, naming the refused parameter as data (README "Errors and outcomes"), and
+ *   the wire carries every error unchanged (decode after encode, live/codec.ts slotEncoders and slotDecoders).
  *
- * Features: a serialization refusal and another refusal, each on a read and on a write.
+ * Features: a serialization refusal, another refusal and a pattern's refusal, each on a read and on a write.
  *
  * Every source's reading (call-error.ts readings), over every source a call's failure is met at (live/events.ts
  * failures), exhausted:
@@ -47,15 +51,13 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
-import { ExecutionFailure, ReadFailure, serializationRefusal } from "#adapter/errors/execution.ts"
-import { ServerError } from "#adapter/errors/failures.ts"
 import { applyCallError, readCallError, readings } from "#adapter/live/call-error.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { slotDecoders, slotEncoders, wireText } from "#compiler/live/codec.ts"
 import { type FailureSource, failures } from "#compiler/live/events.ts"
 import type { WireJson } from "#compiler/live/wire.ts"
-import { assert } from "#test/support/assert.ts"
-import { sources, states } from "#test/unit/live/call-error.dictionary.ts"
+import { assert, assertVariant } from "#test/support/assert.ts"
+import { sources } from "#test/unit/live/call-error.dictionary.ts"
 import {
 	calledWith,
 	type ConnectFeature,
@@ -66,15 +68,20 @@ import {
 	metGen,
 	noWitness,
 	reachedOf,
+	refusalMet,
 	rolledBack,
-	statedOf
+	statedOf,
+	statementRefusal
 } from "#test/unit/live/call-error.fixtures.ts"
 
-/** A refusal read by readCallError and applyCallError is retry safe exactly where PostgreSQL rolled back for a concurrent transaction. */
-export const readCallErrorAndApplyCallErrorARefusalIsRetrySafeExactlyWherePostgreSQLRolledBackForAConcurrentTransaction =
+/**
+ * A statement's refusal read by readCallError and applyCallError is retry safe exactly where PostgreSQL rolled back for
+ * a concurrent transaction, a pattern's refusal names its parameter, and the wire carries it.
+ */
+export const aStatementsRefusalIsRetrySafeExactlyWherePostgreSQLRolledBackAPatternsNamesItsParameterAndTheWireCarriesIt =
 	property.exhaust(
 		finite((source) => ({
-			sqlstate: source.draw(word(states)),
+			refusal: source.draw(statementRefusal),
 			program: source.draw(element(["read", "write"] as const))
 		})),
 		{
@@ -83,31 +90,35 @@ export const readCallErrorAndApplyCallErrorARefusalIsRetrySafeExactlyWherePostgr
 				"a serialization refusal of a read",
 				"a serialization refusal of a write",
 				"another refusal of a read",
-				"another refusal of a write"
+				"another refusal of a write",
+				"a pattern's refusal of a read",
+				"a pattern's refusal of a write"
 			] satisfies ReadonlyArray<Reached<Met>>,
 			check:
 				(_, c: Case<Met>) =>
-				({ sqlstate, program }) =>
+				({ refusal, program }) =>
 					Effect.sync(() => {
-						const report = new ServerError({
-							sqlstate,
-							message: `refused with ${sqlstate}`,
-							constraint: undefined,
-							schema: undefined,
-							table: undefined,
-							column: undefined,
-							dataType: undefined,
-							detail: undefined,
-							hint: undefined
-						})
-						const transient = serializationRefusal(report)
-						const read = transient ?? new ReadFailure({ reason: report })
-						const write = transient ?? new ExecutionFailure({ reason: report })
+						const { read, write } = refusalMet(refusal)
 						const refused = program === "read" ? read : write
 						const error = program === "read" ? readCallError(read) : applyCallError(write)
-						const safe = rolledBack.has(sqlstate)
+						const safe = refusal.kind === "server" && rolledBack.has(refusal.sqlstate)
 						assert.equal(error.retry, safe ? "safe" : "never")
 						assert.ok(Str.includes(refused.message)(error.message), "the failure's own message")
+						const encoded = slotEncoders(errorWire, noWitness, errorOptions).error(error)
+						const decoded = slotDecoders(errorWire, noWitness, errorOptions).error(
+							trustedJson<WireJson>(wireText(encoded))
+						)
+						assert.deepEqual(decoded, error, "the wire carries the error unchanged")
+						if (refusal.kind === "pattern") {
+							assertVariant(error, "kind", "paramRejected", "a pattern's refusal of a parameter")
+							assert.equal(error.param, refusal.param, "the refused parameter, as data")
+							c.note(
+								program === "read"
+									? "a pattern's refusal of a read"
+									: "a pattern's refusal of a write"
+							)
+							return
+						}
 						c.note(
 							safe
 								? program === "read"
@@ -120,9 +131,9 @@ export const readCallErrorAndApplyCallErrorARefusalIsRetrySafeExactlyWherePostgr
 					}),
 			oracle: {
 				kind: "specification",
-				name: "PostgreSQL's serialization_failure and deadlock_detected roll the transaction back"
+				name: "PostgreSQL's serialization_failure and deadlock_detected roll the transaction back; a pattern's refusal names its parameter"
 			},
-			box: "every SQLSTATE the runtime branches on, on a read and on a write",
+			box: "every SQLSTATE the runtime branches on, and a pattern's refusal at every parameter of one or two letters a and b, scalar or a relation parameter's field, on a read and on a write",
 			kept: [],
 			kills: [
 				{
@@ -132,6 +143,31 @@ export const readCallErrorAndApplyCallErrorARefusalIsRetrySafeExactlyWherePostgr
 					replacement:
 						'\ttransient: { retry: "never", payload: { message: "text", reason: "transientReason" } },',
 					why: "The classification table makes a transient failure retry never; the statement refusal's property fails."
+				},
+				{
+					file: "packages/grizzle/src/adapter/live/call-error.ts",
+					original: "\t\t\t\t\tparam: reason.param\n",
+					replacement: '\t\t\t\t\tparam: ""\n',
+					why: "A read's pattern refusal drops its parameter; the refused parameter's assertion fails."
+				},
+				{
+					file: "packages/grizzle/src/adapter/live/call-error.ts",
+					original: "{ message: error.message, param: reason.param }",
+					replacement: "{ message: error.message, param: error.message }",
+					why: "A write's pattern refusal reads its parameter off its message; the refused parameter's assertion fails."
+				},
+				{
+					file: "packages/engine/src/live/events.ts",
+					original:
+						'\tparamRejected: { retry: "never", payload: { message: "text", param: "text" } },',
+					replacement: '\tparamRejected: { retry: "never", payload: { message: "text" } },',
+					why: "The event model's payload drops the parameter, so the wire drops it; the wire's round trip fails."
+				},
+				{
+					file: "packages/engine/src/live/codec.ts",
+					original: '\t\t\tparam: trustedString(trustedMember(r, "param"))',
+					replacement: "\t\t\tparam: messageOf(r)",
+					why: "The client reads the parameter off the message; the wire's round trip fails."
 				}
 			]
 		}
