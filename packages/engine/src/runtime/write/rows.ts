@@ -1,4 +1,5 @@
 import { tupleConverter } from "#compiler/codec/row.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { DeleteResult, InsertResult } from "#compiler/write/insert/statement.ts"
@@ -13,8 +14,8 @@ export const factOf = (
 	offset: number
 ): Fact => {
 	const out: Record<string, unknown> = { __proto__: null }
-	for (const [i, field] of fields.entries()) {
-		out[field] = values[offset + i]
+	for (let i = 0; i < fields.length; i += 1) {
+		out[defined(fields[i], "a field of the fact")] = values[offset + i]
 	}
 	return Object.freeze(out)
 }

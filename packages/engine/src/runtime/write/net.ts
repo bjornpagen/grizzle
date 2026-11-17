@@ -110,6 +110,19 @@ const countOf = (
 	return { added: insert, deleted, put }
 }
 
+/** Whether some key of `map` meets `test`. */
+const someKey = <K extends ReadonlyArray<unknown>>(
+	map: ReadonlyTupleMap<K, unknown>,
+	test: (key: K) => boolean
+): boolean => {
+	for (const key of map.keys()) {
+		if (test(key)) {
+			return true
+		}
+	}
+	return false
+}
+
 /** The strata's changes to one relation, in stratum order, netted.
  *
  * Deltas and counts netted across strata.
@@ -140,6 +153,14 @@ const countOf = (
  * Facts are compared by fact identity (`identity.ts`): equal exactly when PostgreSQL's equality holds on
  * every field. relationIdentity gives the identity function of a relation's heading. */
 export const netStrata = (steps: ReadonlyArray<StratumChange>): NettedRelation => {
+	const [only, ...later] = steps
+	if (
+		only !== undefined &&
+		later.length === 0 &&
+		!someKey(only.added, (identity) => only.removed.has(identity))
+	) {
+		return { added: only.added, removed: only.removed, counts: countOf(only.added, only.removed) }
+	}
 	const added = new TupleMap<FactIdentity, Tagged<AddedTag>>()
 	const removed = new TupleMap<FactIdentity, Tagged<RemovedTag>>()
 	for (const step of steps) {
@@ -185,16 +206,24 @@ export const relationChanges = (
 		return change === undefined ? [] : [change]
 	})
 
+/** The outcome's counts: one entry per relation the ChangeSet writes, in code point order of the names, each its
+ * change netted over the strata in order (`netted`). */
+export const nettedCounts = (
+	written: ReadonlyArray<StoredRelationName>,
+	netted: (relation: StoredRelationName) => NettedRelation
+): ReadonlyArray<RelationCounts> =>
+	[...new Set(written)].toSorted(codePointOrder).map((relation) => ({
+		relation,
+		...netted(relation).counts
+	}))
+
 /** The outcome's counts: one entry per relation the ChangeSet writes, in code point order of the names,
  * each netted over the strata in order. A written relation no stratum changed counts zero. */
 export const outcomeCounts = (
 	written: ReadonlyArray<StoredRelationName>,
 	strata: ReadonlyArray<ReadonlyMap<StoredRelationName, StratumChange>>
 ): ReadonlyArray<RelationCounts> =>
-	[...new Set(written)].toSorted(codePointOrder).map((relation) => ({
-		relation,
-		...netStrata(relationChanges(strata, relation)).counts
-	}))
+	nettedCounts(written, (relation) => netStrata(relationChanges(strata, relation)))
 
 /**
  * The identity function of a heading's facts as a write statement's rows convert them: each field's canonical text in

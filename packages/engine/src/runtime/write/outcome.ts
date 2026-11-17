@@ -1,5 +1,6 @@
 import { scalarReader } from "#compiler/codec/read.ts"
 import type { RoleRelationName, StoredRelationName } from "#compiler/core/ids.ts"
+import { defined } from "#compiler/core/invariant.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -8,7 +9,7 @@ import {
 	type ChangeRow,
 	type NettedRelation,
 	netStrata,
-	outcomeCounts,
+	nettedCounts,
 	type RelationCounts,
 	type RemovedTag,
 	relationChanges,
@@ -184,26 +185,42 @@ export const interpretRows = (
 				if (own.length === 0) {
 					return []
 				}
-				const rows = own.flatMap((w) => {
+				const rows: Array<ChangeRow> = []
+				for (const w of own) {
 					const convert = changesConverter(w.step.result, context.codes)
 					const identityOf = stepIdentity(w.counts, w.step.result, identity, context.codes)
-					return w.rows.flatMap((raw) =>
-						convert(raw).map((change): ChangeRow => ({
-							...change,
-							identity: identityOf(change.fact)
-						}))
-					)
-				})
+					for (const raw of w.rows) {
+						for (const change of convert(raw)) {
+							rows.push(
+								change.side === "added"
+									? {
+											side: "added",
+											tag: change.tag,
+											fact: change.fact,
+											identity: identityOf(change.fact)
+										}
+									: {
+											side: "removed",
+											tag: change.tag,
+											fact: change.fact,
+											identity: identityOf(change.fact)
+										}
+							)
+						}
+					}
+				}
 				return [[relation, stratumChange(rows)] as const]
 			})
 		)
 	})
 	const written = context.written.map((w) => w.relation)
-	const counts = outcomeCounts(written, changes)
 	const deltas = new Map<StoredRelationName, NettedRelation>()
 	for (const relation of written) {
 		deltas.set(relation, netStrata(relationChanges(changes, relation)))
 	}
+	const counts = nettedCounts(written, (relation) =>
+		defined(deltas.get(relation), `the netted change of ${relation}, a written relation`)
+	)
 	return { counts, strata: changes, deltas }
 }
 

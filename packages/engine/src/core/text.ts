@@ -59,10 +59,14 @@ export const compareTextTuples = (
 	a: ReadonlyArray<string>,
 	b: ReadonlyArray<string>
 ): -1 | 0 | 1 => {
-	for (const [i, x] of a.entries()) {
+	for (let i = 0; i < a.length; i += 1) {
+		const x = a[i]
 		const y = b[i]
-		if (y === undefined) {
-			return 1
+		if (x === undefined || y === undefined) {
+			return y === undefined ? 1 : -1
+		}
+		if (x === y) {
+			continue
 		}
 		if (x.length !== y.length) {
 			return compareCodePoints(`${x.length}:`, `${y.length}:`)
@@ -124,6 +128,9 @@ const quotedAt = (text: string, i: number): string =>
 export const compareQuoted =
 	(units: (a: string, b: string) => number) =>
 	(a: string, b: string): number => {
+		if (a === b) {
+			return 0
+		}
 		const n = Math.min(a.length, b.length)
 		for (let i = 0; i < n; i++) {
 			if (a.charCodeAt(i) !== b.charCodeAt(i)) {
@@ -141,10 +148,11 @@ export const compareQuoted =
 export const compareQuotedTuples = (units: (a: string, b: string) => number) => {
 	const quoted = compareQuoted(units)
 	return (a: ReadonlyArray<string>, b: ReadonlyArray<string>): number => {
-		for (const [i, x] of a.entries()) {
+		for (let i = 0; i < a.length; i += 1) {
+			const x = a[i]
 			const y = b[i]
-			if (y === undefined) {
-				return -1
+			if (x === undefined || y === undefined) {
+				return y === undefined ? -1 : 1
 			}
 			const order = quoted(x, y)
 			if (order !== 0) {
