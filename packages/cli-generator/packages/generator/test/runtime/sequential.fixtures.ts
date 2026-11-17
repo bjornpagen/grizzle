@@ -154,12 +154,12 @@ export type Body = Readonly<{
 	terminators: ReadonlyArray<"\n" | "\r\n">
 }>
 
-const recordOf = (lineFeeds: boolean, framing: Body["framing"]): Gen<SeqRecord> =>
+const recordOf = (lineFeeds: boolean, strays: boolean): Gen<SeqRecord> =>
 	weighted<SeqRecord>([
 		[12, validOf(lineFeeds, valueTokens)],
 		[1, malformed],
 		[1, cut],
-		...(framing === "jsonseq"
+		...(strays
 			? [[1, map(element(NUMBERS), (text): SeqRecord => ({ kind: "stray", text }))] as const]
 			: [])
 	])
@@ -201,8 +201,21 @@ const bodyOf =
 
 const framing: Gen<Body["framing"]> = element<Body["framing"]>(["ndjson", "jsonseq"])
 
-const drawnRecords = (framingOf: Body["framing"]): Gen<ReadonlyArray<SeqRecord>> =>
-	array(recordOf(framingOf === "jsonseq", framingOf), { min: 0, max: 5 })
+/**
+ * Up to five records, drawn in order. A JSON-seq stray is text after a record's closing LF, and a cut record has none:
+ * text written after it would continue it, so the record after a cut is never a stray.
+ */
+const drawnRecords =
+	(framingOf: Body["framing"]): Gen<ReadonlyArray<SeqRecord>> =>
+	(s) => {
+		const drawn: Array<SeqRecord> = []
+		const count = s.draw(int(0, 5))
+		while (drawn.length < count) {
+			const afterCut = Option.exists(Arr.last(drawn), (record) => record.kind === "cut")
+			drawn.push(s.draw(recordOf(framingOf === "jsonseq", framingOf === "jsonseq" && !afterCut)))
+		}
+		return drawn
+	}
 
 /** The record's text as written. */
 const writtenOf = (record: SeqRecord): string => {

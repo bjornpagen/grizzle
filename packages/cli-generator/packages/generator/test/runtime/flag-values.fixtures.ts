@@ -736,32 +736,49 @@ export type SettingRead =
 	| Readonly<{ kind: "refused"; message: string }>
 	| Readonly<{ kind: "unset" }>
 
-/** The model's reading of a setting. */
+/** Whether a source is a variable, read through the platform's env provider rather than parsed as a flag. */
+const isVariable = (source: Source): boolean =>
+	source === "ACME_TIMEOUT" || source === "ACME_IDLE_TIMEOUT"
+
+/**
+ * What a variable left unset reads as (design: without one, an attempt waits as long as its server takes, and so does a
+ * body): no timeout is an untimed attempt, 0, and no idle timeout is unset.
+ */
+const unsetRead = (source: Source): SettingRead =>
+	source === "ACME_TIMEOUT" ? { kind: "taken", value: 0 } : { kind: "unset" }
+
+/**
+ * The model's reading of a setting. The platform's env provider reads a variable set to the empty string as unset, so
+ * an empty variable is no text to refuse; an empty flag is a value given, and refused.
+ */
 export const expectedSetting = (setting: Setting): SettingRead =>
-	Option.match(wholeOf(setting), {
-		onNone: (): SettingRead => ({ kind: "refused", message: messages[setting.source] }),
-		onSome: (value): SettingRead => ({ kind: "taken", value })
-	})
+	isVariable(setting.source) && setting.raw === ""
+		? unsetRead(setting.source)
+		: Option.match(wholeOf(setting), {
+				onNone: (): SettingRead => ({ kind: "refused", message: messages[setting.source] }),
+				onSome: (value): SettingRead => ({ kind: "taken", value })
+			})
 
 /** The situations a setting case reaches. */
 export const settingFeatures = (setting: Setting): ReadonlyArray<SettingFeature> => {
 	const taken = Option.isSome(wholeOf(setting))
-	const variable = setting.source === "ACME_TIMEOUT" || setting.source === "ACME_IDLE_TIMEOUT"
+	const refused = expectedSetting(setting).kind === "refused"
+	const variable = isVariable(setting.source)
 	const facts: ReadonlyArray<readonly [boolean, SettingFeature]> = [
 		[taken, "a whole number taken"],
 		[taken && Str.startsWith("0")(setting.raw) && setting.raw.length > 1, "leading zeros taken"],
 		[
-			!taken && setting.raw.length > 15 && Arr.every(Str.split("")(setting.raw), isDigit),
+			refused && setting.raw.length > 15 && Arr.every(Str.split("")(setting.raw), isDigit),
 			"past the safe integers refused"
 		],
 		[
-			!taken && (Str.startsWith("-")(setting.raw) || Str.startsWith("+")(setting.raw)),
+			refused && (Str.startsWith("-")(setting.raw) || Str.startsWith("+")(setting.raw)),
 			"a sign refused"
 		],
-		[!taken && Str.includes(".")(setting.raw), "a fraction refused"],
-		[!taken && setting.raw === "0", "zero idle seconds refused"],
-		[!taken && variable, "a variable refused"],
-		[!taken && !variable, "a flag refused"]
+		[refused && Str.includes(".")(setting.raw), "a fraction refused"],
+		[refused && setting.raw === "0", "zero idle seconds refused"],
+		[refused && variable, "a variable refused"],
+		[refused && !variable, "a flag refused"]
 	]
 	return Arr.flatMap(facts, ([holds, feature]) => (holds ? [feature] : []))
 }
