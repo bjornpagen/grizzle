@@ -23,6 +23,7 @@
 		"lint": "turbo run oxlint dead-code architecture workspace-gate --filter=./packages/* --filter=//",
 		"test": "turbo run test --filter=./packages/*",
 		"test:grizzle": "pnpm --filter effect-openapi-cli-generator run test:grizzle",
+		"test:properties": "pnpm --filter effect-openapi-cli-generator run test:properties",
 		"corpus": "turbo run corpus --filter=./packages/*",
 		"fuzz": "node vendor/toolchain/packages/testing/scripts/fuzz.ts",
 		"format:write": "oxfmt . && turbo run oxlint --filter=./packages/* --filter=// -- --fix && oxfmt .",

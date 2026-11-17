@@ -1,11 +1,18 @@
 import { defineTestConfig } from "@bjornpagen/testing/vitest/config"
+import { Array as Arr } from "effect"
+import { propertyModules } from "#test/support/roster.ts"
+
+/** The property modules toolchain-test runs (test/support/roster.ts), each left out here. */
+const leftToRunner = Arr.map(propertyModules, (module) => `!${module}`)
 
 /**
- * `pnpm test`: every suite but the grizzle tier (test/grizzle), which needs grizzle's checkout and its PostgreSQL
- * cluster and runs on its own as `pnpm test:grizzle` (vitest.grizzle.config.ts).
+ * `pnpm test`: every suite not yet converted to properties, but the grizzle tier (test/grizzle), which needs grizzle's
+ * checkout and its PostgreSQL cluster and runs on its own as `pnpm test:grizzle` (vitest.grizzle.config.ts). A module
+ * converted to properties runs under toolchain-test instead (test.config.ts, `pnpm test:properties`) and is left out
+ * here; the list of them is test/support/roster.ts's, which both runners read, so they cannot drift apart.
  */
 export default defineTestConfig({
-	include: ["test/**/*.test.ts", "!test/grizzle/**"],
+	include: ["test/**/*.test.ts", "!test/grizzle/**", ...leftToRunner],
 	guided: [],
 	setup: [],
 	conditions: [],
