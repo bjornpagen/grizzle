@@ -141,10 +141,26 @@ export const printedModule = property.explore(moduleSpace, {
 			reason:
 				"a conditional beside a long key whose test, a chain of a call holding an argument and an empty one, does not fit whole but whose first argument list starts on the key's line: the formatter breaks that list and keeps the conditional beside its key (found by the push gate's rotating stream at TEST_SEED=559022411)",
 			since: "2026-11-17"
+		},
+		{
+			token: ReplayToken(
+				"test/emit/printer.test.ts#printedModule:-:0.1.8.0.1.0.0.1.4.1.6.0.1.7.5.0.5.0.0.0.1.0.0.6.b.1.0"
+			),
+			reason:
+				"a chain beside a long key whose one argument is a string of sixteen wide characters, 18 code units but 34 columns, past the quarter line the formatter calls a short argument: the formatter breaks the chain's argument list beside the key rather than moving the chain below it (found by the push gate's rotating stream at seed 0x848d5dc6)",
+			since: "2026-11-17"
 		}
 	],
 	budget: { runs: 300, steered: 1500 },
 	kills: [
+		{
+			file: "packages/generator/src/emit/printer.ts",
+			original:
+				'(expr._tag === "String" && textWidth(stringLiteral(expr.value)) <= shortArgumentWidth)',
+			replacement:
+				'(expr._tag === "String" && stringLiteral(expr.value).length <= shortArgumentWidth)',
+			why: "A string argument is measured in code units, so one of wide characters reads as short and its chain moves below its key, where the formatter breaks the chain's arguments beside the key; the property fails."
+		},
 		{
 			file: "packages/generator/src/emit/printer.ts",
 			original:

@@ -542,11 +542,12 @@ const shortArgumentWidth = lineWidth / 4
 
 /**
  * A call argument the formatter calls short (measured): a string literal or an identifier no wider than a quarter of
- * the line, `undefined`, a number, a boolean, or an empty object or array literal.
+ * the line in display columns (textWidth, so a wide character counts two), `undefined`, a number, a boolean, or an
+ * empty object or array literal.
  */
 const isShortArgument = (expr: Expr): boolean =>
-	(expr._tag === "Identifier" && expr.name.length <= shortArgumentWidth) ||
-	(expr._tag === "String" && stringLiteral(expr.value).length <= shortArgumentWidth) ||
+	(expr._tag === "Identifier" && textWidth(expr.name) <= shortArgumentWidth) ||
+	(expr._tag === "String" && textWidth(stringLiteral(expr.value)) <= shortArgumentWidth) ||
 	expr._tag === "Undefined" ||
 	expr._tag === "Number" ||
 	expr._tag === "Boolean" ||
