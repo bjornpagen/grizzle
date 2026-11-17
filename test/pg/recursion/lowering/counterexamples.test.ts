@@ -37,6 +37,7 @@ import {
 	printOutcome,
 	runOracle
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -146,7 +147,7 @@ const situations = [
 	"killed"
 ] as const satisfies ReadonlyArray<DiamondFeature>
 
-layer(Substrate.layer)("the UNION ALL feedback mutant of the optimized lowering", (it) => {
+layer(OracleSeat.layer)("the UNION ALL feedback mutant of the optimized lowering", (it) => {
 	it.effect(
 		"every generated diamond rooted at its top kills it, whatever its vertex type, edges, seed or state",
 		(ctx) =>

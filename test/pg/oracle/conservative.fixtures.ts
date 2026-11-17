@@ -12,7 +12,7 @@ import {
 	reference,
 	runOracle
 } from "#test/support/oracle/runner.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 
 /**
  * The features the gate's population must contain: what its cases exercise, what only the real installer adds to their
@@ -65,8 +65,8 @@ export const conservativeAgreement = (
 		show: Formatter.format,
 		check: (k: Case<ConservativeFeature>) => (c) =>
 			Effect.gen(function* () {
-				const s = yield* Substrate
-				const schema = yield* s.schema({ create: false, label: "oracle" })
+				const seat = yield* OracleSeat
+				const schema = yield* seat.schema("oracle")
 				k.noteAll(caseFeatures(c))
 				const options = {
 					...defaultRunOptions,

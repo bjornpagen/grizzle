@@ -69,8 +69,8 @@ import {
 	type Placement,
 	PropertyFailed
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 import { type AggregateSpec, Q } from "#test/unit/lower/conservative/fixtures.ts"
 
 /** The kinds of optimized form a case runs (support.ts OptimizedForm). */
@@ -478,7 +478,7 @@ export const optimizedSpace = (gen: Gen<QueryCase>): Aimed<QueryCase, OptimizedF
 export const differentialProperty = <S>(
 	space: Space<S> | Aimed<S, OptimizedFeature>,
 	resolve: (sketch: S) => QueryCase,
-	placing: Effect.Effect<Placement, SqlError, Scope.Scope | Substrate>,
+	placing: Effect.Effect<Placement, SqlError, Scope.Scope | OracleSeat>,
 	spec: {
 		readonly situations: ReadonlyArray<Reached<OptimizedFeature>>
 		readonly kills: ReadonlyArray<Kill>
@@ -519,9 +519,9 @@ export const differentialProperty = <S>(
  */
 export const differential = <S>(
 	draw: Draw<S, Gen<QueryCase>, OptimizedFeature>,
-	placing: Effect.Effect<Placement, SqlError, Scope.Scope | Substrate>,
+	placing: Effect.Effect<Placement, SqlError, Scope.Scope | OracleSeat>,
 	check: CheckOptions<S, OptimizedFeature>
-): Effect.Effect<Explored, SearchFailure | SqlError, Scope.Scope | Substrate | Run> =>
+): Effect.Effect<Explored, SearchFailure | SqlError, Scope.Scope | OracleSeat | Run> =>
 	Effect.gen(function* () {
 		const placement = yield* placing
 		return yield* oracleCheck(draw, check, (population, k) =>

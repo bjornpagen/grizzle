@@ -43,7 +43,7 @@ import { normalQuery } from "#test/support/oracle/gen/query.ts"
 import { type GenRelation, schemaName } from "#test/support/oracle/gen/schema.ts"
 import { literalOfValue } from "#test/support/oracle/reference/values.ts"
 import { namedPlacement } from "#test/support/oracle/runner.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import {
 	type AggregateSpec,
 	type OccurrenceSpec,
@@ -242,7 +242,7 @@ const perEvaluationKept: ReadonlyArray<Kept<QueryCase, OptimizedFeature>> = [
 	}
 ]
 
-layer(Substrate.layer)(
+layer(OracleSeat.layer)(
 	"the optimized lowering against the conservative lowering, the per-evaluation shapes",
 	(it) => {
 		it.effect(

@@ -13,6 +13,7 @@ import {
 	ensureDatabase,
 	type PgConnection,
 	type SqlError,
+	type PgStatement,
 	testDatabaseSettings
 } from "#test/support/pg.ts"
 import { type BudgetedCluster, budgeted, leaseBudget } from "#test/support/substrate/budget.ts"
@@ -83,12 +84,28 @@ SELECT l.what FROM (
 	WHERE a.defaclnamespace = 0::oid
 ) AS l ORDER BY 1`
 
+/**
+ * A check of a database: the statement that reads what is wrong with it, and the reading of its rows, one line for each
+ * thing wrong, none when the database is as it should be.
+ */
+export interface Check {
+	readonly statement: PgStatement
+	readonly read: (rows: ReadonlyArray<ReadonlyArray<unknown>>) => ReadonlyArray<string>
+}
+
+/** What a test left in a database: everything a clean test database does not contain (leftoversQuery). */
+export const leftoversCheck: Check = {
+	statement: {
+		sql: leftoversQuery,
+		params: [Arr.map(testDatabaseSettings, ([setting, value]) => `${setting}=${value}`)]
+	},
+	read: (rows) => Arr.map(rows, ([what]) => String(what))
+}
+
 export const leftovers = (admin: PgConnection): Effect.Effect<ReadonlyArray<string>, SqlError> =>
 	Effect.map(
-		admin.queryValues(leftoversQuery, [
-			Arr.map(testDatabaseSettings, ([setting, value]) => `${setting}=${value}`)
-		]),
-		(rows) => Arr.map(rows, ([what]) => String(what))
+		admin.queryValues(leftoversCheck.statement.sql, leftoversCheck.statement.params),
+		leftoversCheck.read
 	)
 
 /**

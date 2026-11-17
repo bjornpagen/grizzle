@@ -37,6 +37,7 @@ import {
 	printOutcome,
 	runOracle
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -221,7 +222,7 @@ const parallelLimits = (parallel: "always" | "never") =>
 		blockings: ["none"]
 	}) satisfies RecursiveLimits
 
-layer(Substrate.layer)("recursive deduplication counterexamples", (it) => {
+layer(OracleSeat.layer)("recursive deduplication counterexamples", (it) => {
 	it.effect(
 		"every generated diamond rooted at its top kills feedback UNION ALL, whatever its vertex type, edge model, seed or state",
 		(ctx) =>

@@ -16,7 +16,7 @@ import {
 	vertexKinds
 } from "#test/support/oracle/gen/recursive.ts"
 import { conservative, reference } from "#test/support/oracle/runner.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 
 /**
  * The recursion equivalence suite.
@@ -122,7 +122,7 @@ const explored = recursiveEquivalence(
 	}
 )
 
-layer(Substrate.layer)(
+layer(OracleSeat.layer)(
 	"recursive queries: the conservative lowering against the reference evaluator",
 	(it) => {
 		it.effect(

@@ -33,7 +33,7 @@ import {
 	type LoweringInput,
 	type SentProgram
 } from "#test/support/oracle/runner.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 
 /** The parameter declarations of a case's query, for the lowering's typed placeholders. */
 const caseParams = (c: QueryCase): ReadonlyArray<ParamDecl> =>
@@ -108,14 +108,14 @@ export const optimizedLowering = (name: string): Lowering => ({
 export const explainMain = (c: QueryCase, lowering: Lowering) =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			const substrate = yield* Substrate
-			const schema = yield* substrate.schema({ create: false, label: "explain" })
+			const seat = yield* OracleSeat
+			const schema = yield* seat.schema("explain")
 			const desc = schemaDesc(c.schema)
 			const codes = schemaCodes(c.schema)
 			const planned = oraclePlanUnder(
 				desc,
 				identity.schema(parsedSchemaName(schema)),
-				substrate.owner.role,
+				seat.owner,
 				codes,
 				genParamDecls(c.query)
 			)
@@ -139,10 +139,13 @@ export const explainMain = (c: QueryCase, lowering: Lowering) =>
 				}
 				return inputText(p.value, p.type, codes)
 			})
-			const session = yield* substrate.admin.pin
-			yield* session.query("BEGIN", [])
+			const reading = yield* seat.reading
+			const session = reading.connection
+			for (const sql of reading.open) {
+				yield* session.query(sql, [])
+			}
 			return yield* Effect.gen(function* () {
-				for (const sql of [...filledSql(plan.drafted, substrate.database), ...facts.value]) {
+				for (const sql of [...filledSql(plan.drafted, seat.database), ...facts.value]) {
 					yield* session.query(sql, [])
 				}
 				const tables = Arr.map(Rec.values(plan.tables), (t) => printObjectName(t.name))
@@ -155,7 +158,7 @@ export const explainMain = (c: QueryCase, lowering: Lowering) =>
 				/** The plan's node types, a node before its children (bench/harness/explain.ts planNodeTypes). */
 				const explained = Rec.values(defined(record, "the EXPLAIN row"))[0]
 				return { sql: main, nodes: planNodeTypes(explained) }
-			}).pipe(Effect.ensuring(Effect.ignore(session.query("ROLLBACK", []))))
+			}).pipe(Effect.ensuring(Effect.ignore(session.pipeline(reading.close))))
 		})
 	)
 

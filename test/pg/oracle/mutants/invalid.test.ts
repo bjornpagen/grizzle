@@ -43,58 +43,65 @@ import { assert, containsText } from "#test/support/assert.ts"
 import { repeatsOn } from "#test/support/oracle/compare.ts"
 import { mutants } from "#test/support/oracle/mutants/mutants.ts"
 import { printOracleCase } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** Each invalid mutant is killed by its witnesses with its listed counterexample, and the reference tells I1 apart. */
 export const invalid = property.exhaust(finite(word(killSearches)), {
-	needs: { substrate: Substrate.fresh },
+	needs: { tx: Substrate.transaction },
 	situations: Arr.map(killSearches, killedFeature) satisfies ReadonlyArray<Reached<KilledFeature>>,
 	check:
-		({ substrate }, c: Case<KilledFeature>) =>
+		({ tx }, c: Case<KilledFeature>) =>
 		(search) =>
-			Effect.provideServiceEffect(
-				Effect.gen(function* () {
-					const mutant = mutants[search.id]
-					assert.equal(mutant.valid, false, `${search.id} is an invalid mutant of the roster`)
-					if (search.judge === "conservative") {
-						const { gen, shape } = populations[search.id]
-						const run = yield* runMutant(mutant, gen, `mutants/${search.id}`)
+			Effect.flatMap(tx, (held) =>
+				Effect.provideService(
+					Effect.gen(function* () {
+						const mutant = mutants[search.id]
+						assert.equal(mutant.valid, false, `${search.id} is an invalid mutant of the roster`)
+						if (search.judge === "conservative") {
+							const { gen, shape } = populations[search.id]
+							const run = yield* runMutant(mutant, gen, `mutants/${search.id}`)
+							assert.deepEqual(run.harnessErrors, [], Arr.join(run.harnessErrors, "\n\n"))
+							if (run.result.kind === "survived") {
+								return assert.fail(`${search.id} (${mutant.check}) survived its witnesses`)
+							}
+							if (run.result.kind === "failed") {
+								return assert.fail(`${search.id} was not killed: ${run.result.report}`)
+							}
+							expectListed(shape, judgedOf(run.result.verdict), run.result.report)
+							return c.note(killedFeature(search))
+						}
+						const run = yield* runAgainstReference(
+							mutant,
+							populations.I1.gen,
+							"oracle/reference-i1"
+						)
 						assert.deepEqual(run.harnessErrors, [], Arr.join(run.harnessErrors, "\n\n"))
 						if (run.result.kind === "survived") {
-							return assert.fail(`${search.id} (${mutant.check}) survived its witnesses`)
+							return assert.fail("the I1 mutant survived its witnesses against the reference")
 						}
 						if (run.result.kind === "failed") {
-							return assert.fail(`${search.id} was not killed: ${run.result.report}`)
+							return assert.fail(run.result.report)
 						}
-						expectListed(shape, judgedOf(run.result.verdict), run.result.report)
-						return c.note(killedFeature(search))
-					}
-					const run = yield* runAgainstReference(mutant, populations.I1.gen, "oracle/reference-i1")
-					assert.deepEqual(run.harnessErrors, [], Arr.join(run.harnessErrors, "\n\n"))
-					if (run.result.kind === "survived") {
-						return assert.fail("the I1 mutant survived its witnesses against the reference")
-					}
-					if (run.result.kind === "failed") {
-						return assert.fail(run.result.report)
-					}
-					if (run.result.verdict.kind === "invariance") {
-						return assert.fail(
-							`the I1 mutant was caught by its own second reading, never told from the reference\n${run.result.report}`
+						if (run.result.verdict.kind === "invariance") {
+							return assert.fail(
+								`the I1 mutant was caught by its own second reading, never told from the reference\n${run.result.report}`
+							)
+						}
+						const outcome = run.result.verdict.outcome
+						containsText(run.result.report, printOracleCase(run.result.counterexample))
+						assert.ok(
+							Arr.some(outcome.comparison.diffs, (d) => d.missing.length > 0),
+							run.result.report
 						)
-					}
-					const outcome = run.result.verdict.outcome
-					containsText(run.result.report, printOracleCase(run.result.counterexample))
-					assert.ok(
-						Arr.some(outcome.comparison.diffs, (d) => d.missing.length > 0),
-						run.result.report
-					)
-					assert.deepEqual(outcome.comparison.structural, [])
-					assert.ok(repeatsOn(outcome.comparison, "left") > 0)
-					assert.equal(repeatsOn(outcome.comparison, "right"), 0)
-					c.note(killedFeature(search))
-				}),
-				Substrate,
-				substrate
+						assert.deepEqual(outcome.comparison.structural, [])
+						assert.ok(repeatsOn(outcome.comparison, "left") > 0)
+						assert.equal(repeatsOn(outcome.comparison, "right"), 0)
+						c.note(killedFeature(search))
+					}),
+					OracleSeat,
+					OracleSeat.rolledBack(held)
+				)
 			),
 	oracle: {
 		kind: "specification",

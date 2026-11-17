@@ -33,6 +33,7 @@ import {
 	reference,
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -229,7 +230,7 @@ const walkSearch = {
 
 type ReachedFeature = "reached people" | "reached nobody"
 
-layer(Substrate.layer)("the Walks example through the optimized lowering", (it) => {
+layer(OracleSeat.layer)("the Walks example through the optimized lowering", (it) => {
 	it.effect("each walk's plan has one Recursive Union and no other deduplication (V6)", (ctx) =>
 		searched(
 			ctx,
@@ -438,7 +439,7 @@ type CounterFeature =
 	| "a non-strict bound"
 	| "rows reached past a seed"
 
-layer(Substrate.layer)("counter shapes through the optimized lowering", (it) => {
+layer(OracleSeat.layer)("counter shapes through the optimized lowering", (it) => {
 	it.effect(
 		"each lowers to the recursive CTE and agrees with the reference and the conservative lowering",
 		(ctx) =>

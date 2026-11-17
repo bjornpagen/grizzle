@@ -10,7 +10,9 @@ import {
 	Option,
 	pipe,
 	Predicate,
+	Record as Rec,
 	Redacted,
+	Result,
 	type Scope,
 	Semaphore,
 	String as Str
@@ -115,9 +117,35 @@ export class PipelineRefused extends Data.TaggedError("PipelineRefused")<{
 	readonly error: SqlError
 }> {}
 
+/** A statement and its parameters, as an exchange sends it (PgConnection `exchange`). */
+export interface PgStatement {
+	readonly sql: string
+	readonly params: ReadonlyArray<unknown>
+}
+
+/** What PostgreSQL answered one statement of an exchange: its command tag, row count, columns, and rows positional. */
+export interface RawAnswer {
+	readonly command: string
+	readonly rowCount: number
+	readonly rows: ReadonlyArray<ReadonlyArray<unknown>>
+	readonly fields: ReadonlyArray<{ readonly name: string; readonly dataTypeId: number }>
+}
+
+/**
+ * Unnamed statements, each its own extended-protocol exchange ending in a Sync, written in one flush before any answer
+ * is read, so they cost one round trip together: every statement answered in order, its rows positional, or its
+ * refusal. Outside a transaction block each runs as its own implicit transaction; inside one, the statements after a
+ * refusal are refused as the aborted transaction's (25P02).
+ */
+export type Exchange = (
+	statements: Arr.NonEmptyReadonlyArray<PgStatement>
+) => Effect.Effect<Arr.NonEmptyReadonlyArray<Result.Result<RawAnswer, SqlError>>>
+
 export interface PgConnection {
 	/** The backend's process id, from the connection's BackendKeyData. */
 	readonly processId: number
+	/** Statements in one flush, every one answered (Exchange): what the connection's other statements are made of. */
+	readonly exchange: Exchange
 	/** One unnamed statement; its rows as records by column name. */
 	readonly query: (
 		sql: string,
@@ -430,15 +458,66 @@ interface Answered {
 }
 
 /**
- * An unnamed statement on the extended protocol. pg sends a statement without parameters as a simple Query message,
- * which accepts several statements in one text, unless its `queryMode` is "extended", which pg's types leave out.
+ * An unnamed statement on the extended protocol, its rows positional. pg sends a statement without parameters as a
+ * simple Query message, which accepts several statements in one text, unless its `queryMode` is "extended", which pg's
+ * types leave out.
  */
-const queryOf = (sql: string, params: ReadonlyArray<unknown>, rowMode: "array" | "object") => ({
-	text: sql,
-	values: Arr.map(params, textOf),
+const queryOf = (statement: PgStatement) => ({
+	text: statement.sql,
+	values: Arr.map(statement.params, textOf),
 	queryMode: "extended" as const,
-	...(rowMode === "array" ? { rowMode: "array" as const } : {})
+	rowMode: "array" as const
 })
+
+/** pg's answer to a statement sent positional: its rows, each an array. */
+const answerOf = (result: Answered): RawAnswer => ({
+	command: result.command,
+	rowCount: result.rowCount ?? 0,
+	rows: Arr.filter(result.rows, (row): row is Array<unknown> => Arr.isArray(row)),
+	fields: Arr.map(result.fields, (f) => ({ name: f.name, dataTypeId: f.dataTypeID }))
+})
+
+/** An answer's rows as records by column name, a later column of a name taking the place of an earlier one. */
+const recordsOf = (answer: RawAnswer): RawQueryResult => ({
+	command: answer.command,
+	rowCount: answer.rowCount,
+	rows: Arr.map(answer.rows, (row) =>
+		Rec.fromEntries(
+			Arr.map(answer.fields, (field, index): readonly [string, unknown] => [field.name, row[index]])
+		)
+	),
+	fields: answer.fields
+})
+
+/**
+ * The connection `exchange` makes: one statement is an exchange of one, a pipeline an exchange of its statements, which
+ * fails at its first refusal (PipelineRefused); pinning it is itself.
+ */
+export const exchanging = (processId: number, exchange: Exchange): PgConnection => {
+	const one = (sql: string, params: ReadonlyArray<unknown>) =>
+		Effect.flatMap(exchange([{ sql, params }]), (answers) =>
+			Effect.fromResult(Arr.headNonEmpty(answers))
+		)
+	const connection: PgConnection = {
+		processId,
+		exchange,
+		query: (sql, params) => Effect.map(one(sql, params), recordsOf),
+		queryValues: (sql, params) => Effect.map(one(sql, params), (answer) => answer.rows),
+		pipeline: (statements) =>
+			Arr.isReadonlyArrayNonEmpty(statements)
+				? Effect.flatMap(exchange(Arr.map(statements, (sql) => ({ sql, params: [] }))), (answers) =>
+						Effect.forEach(answers, (answer, index) =>
+							Result.match(answer, {
+								onSuccess: (answered) => Effect.succeed(recordsOf(answered)),
+								onFailure: (error) => Effect.fail(new PipelineRefused({ index, error }))
+							})
+						)
+					)
+				: Effect.succeed([]),
+		pin: Effect.sync(() => connection)
+	}
+	return connection
+}
 
 const numberOf = (client: Client, field: string): number => {
 	const value: unknown = Reflect.get(client, field)
@@ -535,89 +614,39 @@ const connectOnce = (
 				body: () => cancelRequest(target, processId, secretKey),
 				step: Function.constVoid
 			})
-		/** One statement, cancelled until it ends when interrupted. */
-		const run = <R>(
-			sql: string,
-			params: ReadonlyArray<unknown>,
-			rowMode: "array" | "object",
-			read: (result: Answered) => R
-		) =>
-			Effect.callback<R, SqlError>((resume) => {
-				let finished = false
-				client.query(queryOf(sql, params, rowMode), (error: unknown, result: Answered) => {
-					finished = true
-					resume(
-						error === null || error === undefined
-							? Effect.succeed(read(result))
-							: Effect.fail(failureOf(error))
-					)
-				})
-				return cancelUntil(() => finished)
-			})
-		const records = (result: Answered): RawQueryResult => ({
-			command: result.command,
-			rowCount: result.rowCount ?? 0,
-			rows: Arr.filter(result.rows, Predicate.isObject),
-			fields: Arr.map(result.fields, (f) => ({ name: f.name, dataTypeId: f.dataTypeID }))
-		})
-		const query = (sql: string, params: ReadonlyArray<unknown>) =>
-			run(sql, params, "object", records)
-		const queryValues = (sql: string, params: ReadonlyArray<unknown>) =>
-			run(sql, params, "array", (result) =>
-				Arr.filter(result.rows, (row): row is Array<unknown> => Arr.isArray(row))
-			)
 		/**
-		 * Statements in one flush: pg's pipeline mode writes each one as it is submitted, and the stream is corked
-		 * across the submissions, so they leave together. Each answer is read as it arrives, in order, the first refusal
-		 * kept; the pipeline ends at its last answer, and when interrupted it is cancelled until then.
+		 * Statements in one flush: pg's pipeline mode writes each one as it is submitted, and the stream is corked across
+		 * the submissions, so they leave together. pg answers them in the order they were sent, so the exchange ends at
+		 * the last one's answer, and when interrupted it is cancelled until then.
 		 */
-		const pipeline = (statements: ReadonlyArray<string>) =>
-			Effect.callback<ReadonlyArray<RawQueryResult>, PipelineRefused>((resume) => {
-				if (!Arr.isReadonlyArrayNonEmpty(statements)) {
-					resume(Effect.succeed([]))
-					return
-				}
-				const answers: Array<RawQueryResult> = []
-				let refused = Option.none<PipelineRefused>()
-				let pending = statements.length
+		const exchange: Exchange = (statements) =>
+			Effect.callback((resume) => {
+				const earlier: Array<Result.Result<RawAnswer, SqlError>> = []
+				let finished = false
+				const last = statements.length - 1
 				const stream = client.connection.stream
 				stream.cork()
-				for (const [index, sql] of statements.entries()) {
-					client.query(queryOf(sql, [], "object"), (error: unknown, result: Answered) => {
-						pending--
-						if (error !== null && error !== undefined) {
-							refused = Option.orElse(refused, () =>
-								Option.some(new PipelineRefused({ index, error: failureOf(error) }))
-							)
-						} else {
-							answers.push(records(result))
+				for (const [index, statement] of statements.entries()) {
+					client.query(queryOf(statement), (error: unknown, result: Answered) => {
+						const answer =
+							error === null || error === undefined
+								? Result.succeed(answerOf(result))
+								: Result.fail(failureOf(error))
+						if (index < last) {
+							earlier.push(answer)
+							return
 						}
-						if (pending === 0) {
-							resume(
-								Option.match(refused, {
-									onNone: () => Effect.succeed(answers),
-									onSome: (failure) => Effect.fail(failure)
-								})
-							)
-						}
+						finished = true
+						resume(Effect.succeed(Arr.append(earlier, answer)))
 					})
 				}
 				stream.uncork()
-				return cancelUntil(() => pending === 0)
+				return cancelUntil(() => finished)
 			})
 		/** The connection as a pinned scope holds it: its statements take no turn, and pinning it again is itself. */
-		const pinned: PgConnection = {
-			processId,
-			query,
-			pipeline,
-			queryValues,
-			pin: Effect.sync(() => pinned)
-		}
+		const pinned = exchanging(processId, exchange)
 		return {
-			processId,
-			query: (sql, params) => turn.withPermit(query(sql, params)),
-			pipeline: (statements) => turn.withPermit(pipeline(statements)),
-			queryValues: (sql, params) => turn.withPermit(queryValues(sql, params)),
+			...exchanging(processId, (statements) => turn.withPermit(exchange(statements))),
 			pin: Effect.as(
 				Effect.acquireRelease(turn.take(1), () => turn.release(1)),
 				pinned

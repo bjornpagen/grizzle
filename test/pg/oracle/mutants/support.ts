@@ -11,7 +11,7 @@ import {
 	reference,
 	runOracle
 } from "#test/support/oracle/runner.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 
 /** What a mutant's population reaches against the conservative lowering: a case the mutant rewrote, and one whose conservative run delivered a row. */
 type MutantFeature = "mutation applied" | "nonempty"
@@ -42,8 +42,8 @@ const within = 500
  */
 export const runMutant = (mutant: Mutant, gen: Gen<QueryCase>, id: string) =>
 	Effect.gen(function* () {
-		const s = yield* Substrate
-		const schema = yield* s.schema({ create: false, label: "mutant" })
+		const seat = yield* OracleSeat
+		const schema = yield* seat.schema("mutant")
 		const lowering = mutantLowering(mutant)
 		const harnessErrors: Array<string> = []
 		/** Unperturbed, as the kill populations always ran: a kill's listed shape rests on the facts as drawn. */
@@ -103,8 +103,8 @@ export const runMutant = (mutant: Mutant, gen: Gen<QueryCase>, id: string) =>
  */
 export const runAgainstReference = (mutant: Mutant, gen: Gen<QueryCase>, id: string) =>
 	Effect.gen(function* () {
-		const s = yield* Substrate
-		const name = yield* s.schema({ create: false, label: "oracle" })
+		const seat = yield* OracleSeat
+		const name = yield* seat.schema("oracle")
 		const lowering = mutantLowering(mutant)
 		const harnessErrors: Array<string> = []
 		const result = yield* killSearched(

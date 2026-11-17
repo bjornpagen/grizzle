@@ -45,6 +45,7 @@ import {
 	runOracle,
 	type SentProgram
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -233,7 +234,7 @@ const optimizedAt = (note: Note, which: 0 | 1): Lowering => ({
 	}
 })
 
-layer(Substrate.layer)("graph recognition and R37 against the conservative lowering", (it) => {
+layer(OracleSeat.layer)("graph recognition and R37 against the conservative lowering", (it) => {
 	it.effect("agree on seeded recursive queries of every family and consumer", (ctx) =>
 		searched(ctx, agreeOn(generalPopulation))
 	)

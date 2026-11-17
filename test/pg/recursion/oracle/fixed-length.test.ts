@@ -21,6 +21,7 @@ import {
 	reference,
 	runOracle
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -57,7 +58,7 @@ const situations = [
 	"dangling edges"
 ] as const satisfies ReadonlyArray<RecursionOracleFeature>
 
-layer(Substrate.layer)("fixed-length connected matches: joins against recursive CTEs", (it) => {
+layer(OracleSeat.layer)("fixed-length connected matches: joins against recursive CTEs", (it) => {
 	it.effect(
 		"give the same set on generated graphs, and the recursive form equals the joins by definition",
 		(ctx) =>

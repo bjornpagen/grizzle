@@ -36,6 +36,7 @@ import {
 	reference,
 	runOracle
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -152,7 +153,7 @@ const agree = Effect.gen(function* () {
 	)
 })
 
-layer(Substrate.layer)("ApproximateNearest rows against the reference evaluator", (it) => {
+layer(OracleSeat.layer)("ApproximateNearest rows against the reference evaluator", (it) => {
 	it.effect(
 		`the conservative lowering delivers the reference's top-k on ${cases} generated cases`,
 		(ctx) => searched(ctx, agree)

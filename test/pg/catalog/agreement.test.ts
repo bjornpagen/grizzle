@@ -63,6 +63,7 @@ import {
 	runLabelledOracle,
 	sentConservative
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import * as D from "#test/unit/check/dsl.ts"
 
@@ -568,7 +569,7 @@ const nativeTargets = (rewritten: CatalogResult): ReadonlyArray<string> =>
 		n.kind === "Window" || n.kind === "OrderedSetAggregate" ? [n.op] : []
 	)
 
-layer(Substrate.layer)("the compile-target catalog against its compositions", (it) => {
+layer(OracleSeat.layer)("the compile-target catalog against its compositions", (it) => {
 	it.effect(
 		"every composition of the catalog agrees with its native rewrite, which applies exactly the rules its shape admits",
 		(t) =>

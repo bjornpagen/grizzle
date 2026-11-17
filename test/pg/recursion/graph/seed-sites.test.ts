@@ -26,6 +26,7 @@ import {
 	reference,
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -283,7 +284,7 @@ const caseOfSketch = (shape: Shape, k: Sketch): readonly [LabelledCase, Certific
 /** A query whose site's certificate fired and whose artifact agreed, with rows or with none. */
 type SiteFeature = `${Shape} agreed with rows` | `${Shape} agreed with none`
 
-layer(Substrate.layer)(
+layer(OracleSeat.layer)(
 	"graph.seedPushdown at the constant and region sites against the reference",
 	(it) => {
 		it.effect(

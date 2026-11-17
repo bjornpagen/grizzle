@@ -87,11 +87,11 @@ import {
 	sqlMessage,
 	staged
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { fusedHeading } from "#test/support/oracle/verify/channels.ts"
 import { loweringViolations } from "#test/support/oracle/verify/index.ts"
 import { type Judged, programJudged, typeProblems } from "#test/support/oracle/verify/types.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 
 class DifferentialFailure extends Data.TaggedError("DifferentialFailure")<{
 	readonly stage: "plan" | "lower" | "verify" | "types" | "execute" | "unfuse" | "explain"
@@ -752,9 +752,9 @@ const lowerSide = <A>(side: string, f: () => Engine.Result<A, CompileError>) =>
 const runDifferential = (
 	input: QueryCase,
 	options: DifferentialOptions
-): Effect.Effect<DifferentialOutcome, DifferentialFailure, Substrate> =>
+): Effect.Effect<DifferentialOutcome, DifferentialFailure, OracleSeat> =>
 	Effect.gen(function* () {
-		const substrate = yield* Substrate
+		const seat = yield* OracleSeat
 		/**
 		 * The case's plan perturbation (test/support/oracle/perturb.ts): its facts repeated under fresh keys, and its
 		 * planner settings for every form's statements.
@@ -823,7 +823,8 @@ const runDifferential = (
 		const isOrdered = (root: RelNode) => root.kind === "OrderedResult"
 		return yield* Effect.scoped(
 			Effect.gen(function* () {
-				const session = yield* substrate.admin.pin
+				const reading = yield* seat.reading
+				const session = reading.connection
 				/**
 				 * Statistics for this transaction's own rows (the oracle runner's reason: estimates over empty statistics
 				 * run tiny recursive cases into executor startup costs); rolled back with the rest.
@@ -833,7 +834,7 @@ const runDifferential = (
 					yield* runStaged(
 						session,
 						[
-							{ stage: "setup", sql: "BEGIN" },
+							...Arr.map(reading.open, (sql) => ({ stage: "setup", sql })),
 							...staged("install", installation.statements),
 							...staged("facts", [
 								...facts.value,
@@ -960,7 +961,7 @@ const runDifferential = (
 						fusedAttachments,
 						keySetRepeats: repeats
 					} satisfies DifferentialOutcome
-				}).pipe(Effect.ensuring(Effect.ignore(session.query("ROLLBACK", []))))
+				}).pipe(Effect.ensuring(Effect.ignore(session.pipeline(reading.close))))
 			})
 		)
 	})
@@ -993,9 +994,9 @@ export const typedPlants = (
 	input: QueryCase,
 	options: Pick<DifferentialOptions, "placement">,
 	plants: (program: OptimizedProgram) => ReadonlyArray<TypePlant>
-): Effect.Effect<TypedPlants, DifferentialFailure, Substrate> =>
+): Effect.Effect<TypedPlants, DifferentialFailure, OracleSeat> =>
 	Effect.gen(function* () {
-		const substrate = yield* Substrate
+		const seat = yield* OracleSeat
 		const c = normalizedCase(input)
 		const installation = yield* caseInstallation(c.schema, paramDecls(c), options.placement).pipe(
 			Effect.mapError((e) =>
@@ -1021,11 +1022,15 @@ export const typedPlants = (
 		)
 		return yield* Effect.scoped(
 			Effect.gen(function* () {
-				const session = yield* substrate.admin.pin
+				const reading = yield* seat.reading
+				const session = reading.connection
 				return yield* Effect.gen(function* () {
 					yield* runStaged(
 						session,
-						[{ stage: "setup", sql: "BEGIN" }, ...staged("install", installation.statements)],
+						[
+							...Arr.map(reading.open, (sql) => ({ stage: "setup", sql })),
+							...staged("install", installation.statements)
+						],
 						(refusal) => failure("execute", refusal.stage, refusal.message)
 					)
 					const judge = (judged: ReadonlyArray<Judged>) =>
@@ -1051,7 +1056,7 @@ export const typedPlants = (
 						planted.push({ where: p.where, problems: yield* judge(p.judged) })
 					}
 					return { clean, planted }
-				}).pipe(Effect.ensuring(Effect.ignore(session.query("ROLLBACK", []))))
+				}).pipe(Effect.ensuring(Effect.ignore(session.pipeline(reading.close))))
 			})
 		)
 	})
@@ -1097,7 +1102,7 @@ export const typedPlants = (
 export const differentialCase = (
 	c: QueryCase,
 	options: DifferentialOptions
-): Effect.Effect<DifferentialOutcome, PropertyFailed, Substrate> =>
+): Effect.Effect<DifferentialOutcome, PropertyFailed, OracleSeat> =>
 	Effect.mapError(
 		runDifferential(c, options),
 		(e) =>

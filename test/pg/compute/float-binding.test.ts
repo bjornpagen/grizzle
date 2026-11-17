@@ -79,6 +79,7 @@ import {
 	type RunnerSide,
 	type RunOptions
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import * as D from "#test/unit/check/dsl.ts"
@@ -507,7 +508,7 @@ const subplansOf = (c: LabelledCase, lowering: Lowering, schema: string) =>
 
 const runs = 60
 
-layer(Substrate.layer)("guarded float forms on PostgreSQL 19", (it) => {
+layer(OracleSeat.layer)("guarded float forms on PostgreSQL 19", (it) => {
 	it.effect(
 		`bind their operands once per row and compute the reference's values, over ${runs} generated terms`,
 		(ctx) =>

@@ -37,8 +37,8 @@ import {
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { CurrentPerturbation, plannerStatements } from "#test/support/oracle/perturb.ts"
 import { PropertyFailed, sqlMessage } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import type { PgConnection } from "#test/support/pg.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Every program name payrollPrograms builds, in the fixture's export order: a program renamed, added or removed is a
@@ -301,9 +301,9 @@ export const runPayrollCase = (
 	installed: Installed,
 	programs: ReadonlyArray<PayrollProgram>,
 	c: PayrollCase
-): Effect.Effect<ReadonlyArray<ProgramOutcome>, PropertyFailed, Substrate> =>
+): Effect.Effect<ReadonlyArray<ProgramOutcome>, PropertyFailed, OracleSeat> =>
 	Effect.gen(function* () {
-		const substrate = yield* Substrate
+		const seat = yield* OracleSeat
 		const perturbation = yield* CurrentPerturbation
 		const statements = factStatements(installed.plan, c.facts)
 		if (!statements.ok) {
@@ -311,7 +311,8 @@ export const runPayrollCase = (
 		}
 		return yield* Effect.scoped(
 			Effect.gen(function* () {
-				const session = yield* substrate.admin.pin
+				const reading = yield* seat.reading
+				const session = reading.connection
 				const exec = (sql: string, stage: string) =>
 					session
 						.query(sql, [])
@@ -322,7 +323,9 @@ export const runPayrollCase = (
 								)
 							)
 						)
-				yield* exec("BEGIN", "setup")
+				for (const sql of reading.open) {
+					yield* exec(sql, "setup")
+				}
 				return yield* Effect.gen(function* () {
 					for (const sql of statements.value) {
 						yield* exec(sql, "facts")
@@ -362,7 +365,7 @@ export const runPayrollCase = (
 						outcomes.push(outcome)
 					}
 					return outcomes
-				}).pipe(Effect.ensuring(Effect.ignore(session.query("ROLLBACK", []))))
+				}).pipe(Effect.ensuring(Effect.ignore(session.pipeline(reading.close))))
 			})
 		)
 	})

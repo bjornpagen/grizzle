@@ -61,14 +61,14 @@ export const caseTransactionIsolation = property.exhaust(finite(word(plantingWor
 	kills: [
 		{
 			file: "test/support/substrate/substrate.ts",
-			original: '\t\t\t\tyield* held.connection.query("ROLLBACK", [])',
-			replacement: '\t\t\t\tyield* held.connection.query("COMMIT", [])',
+			original: '\trolledBack: bare("ROLLBACK"),',
+			replacement: '\trolledBack: bare("COMMIT"),',
 			why: "A case's transaction is committed rather than rolled back, so its table, temporary table, database default and session setting reach the next case."
 		},
 		{
 			file: "test/support/substrate/substrate.ts",
-			original: '\t\t\t\tyield* held.connection.query("DISCARD ALL", [])',
-			replacement: '\t\t\t\tyield* held.connection.query("SELECT 1", [])',
+			original: '\tdiscarded: bare("DISCARD ALL")',
+			replacement: '\tdiscarded: bare("SELECT 1")',
 			why: "The held session is rolled back but not discarded, so a case's advisory lock and prepared statement reach the next case."
 		},
 		{

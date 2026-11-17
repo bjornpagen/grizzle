@@ -48,9 +48,9 @@ import {
 	type SentProgram,
 	slotValue
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import type { PgConnection } from "#test/support/pg.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
-import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * The graph pass's rules (lower/optimize/graph/seed.ts). The record is total over them, so a new graph rule in src is
@@ -271,15 +271,15 @@ export const inInstalledCase = <A, E>(
 	c: QueryCase,
 	schema: string,
 	body: (session: PgConnection, plan: RealInstallPlan) => Effect.Effect<A, E>
-): Effect.Effect<A, E | HarnessFailure, Substrate> =>
+): Effect.Effect<A, E | HarnessFailure, OracleSeat> =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			const substrate = yield* Substrate
+			const seat = yield* OracleSeat
 			const desc = schemaDesc(c.schema)
 			const planned = oraclePlanUnder(
 				desc,
 				identity.schema(parsedSchemaName(schema)),
-				substrate.owner.role,
+				seat.owner,
 				schemaCodes(c.schema),
 				genParamDecls(c.query)
 			)
@@ -291,14 +291,17 @@ export const inInstalledCase = <A, E>(
 			if (!facts.ok) {
 				return yield* new HarnessFailure({ message: facts.error.message })
 			}
-			const session = yield* substrate.admin.pin
+			const reading = yield* seat.reading
+			const session = reading.connection
 			const exec = (sql: string) =>
 				session
 					.query(sql, [])
 					.pipe(Effect.mapError((e) => new HarnessFailure({ message: `${String(e)}\n${sql}` })))
-			yield* exec("BEGIN")
+			for (const sql of reading.open) {
+				yield* exec(sql)
+			}
 			return yield* Effect.gen(function* () {
-				for (const sql of filledSql(plan.drafted, substrate.database)) {
+				for (const sql of filledSql(plan.drafted, seat.database)) {
 					yield* exec(sql)
 				}
 				for (const sql of facts.value) {
@@ -309,7 +312,7 @@ export const inInstalledCase = <A, E>(
 					yield* exec(`ANALYZE ${Arr.join(tables, ", ")}`)
 				}
 				return yield* body(session, plan)
-			}).pipe(Effect.ensuring(Effect.ignore(session.query("ROLLBACK", []))))
+			}).pipe(Effect.ensuring(Effect.ignore(session.pipeline(reading.close))))
 		})
 	)
 

@@ -26,6 +26,7 @@ import {
 	reference,
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { checking, checkOptions } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -447,7 +448,7 @@ const caseOfSketch = (recursion: Recursion, k: Sketch): LabelledCase => {
 /** A recursion agreeing with the reference evaluator, with rows or with none. */
 type AgreedFeature = `${Recursion} agreed with rows` | `${Recursion} agreed with none`
 
-layer(Substrate.layer)("admitted recursions on PostgreSQL 19", (it) => {
+layer(OracleSeat.layer)("admitted recursions on PostgreSQL 19", (it) => {
 	it.effect("agree with the reference evaluator as raw text sets, with no repeated row", (ctx) =>
 		searched(
 			ctx,

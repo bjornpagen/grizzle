@@ -73,6 +73,7 @@ import {
 	type RunOptions,
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { checkAuthored, checking, checkOptions } from "#test/support/policy.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import * as D from "#test/unit/check/dsl.ts"
@@ -476,7 +477,7 @@ const kept: ReadonlyArray<Kept<AccumulationCase, OrderSituation>> = [
 	}
 ]
 
-layer(Substrate.layer)("aggregates against the exact reference on PostgreSQL 19", (it) => {
+layer(OracleSeat.layer)("aggregates against the exact reference on PostgreSQL 19", (it) => {
 	it.effect(
 		"delivers every float and money sum and mean as the exact reference states it, in any order and plan",
 		(ctx) =>

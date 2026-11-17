@@ -27,7 +27,8 @@ import {
 	Ref,
 	Result,
 	Scope,
-	Semaphore
+	Semaphore,
+	String as Str
 } from "effect"
 import { ChildProcessSpawner } from "effect/process"
 import { Client } from "pg"
@@ -46,7 +47,16 @@ import {
 	SessionsLeaked
 } from "#test/support/kernel/sanitize.ts"
 import { hangLimit, testExitWait } from "#test/support/limits.ts"
-import { freshDatabase, type PgConnection, type SqlError, sqlErrorOf } from "#test/support/pg.ts"
+import {
+	type Exchange,
+	exchanging,
+	freshDatabase,
+	type PgConnection,
+	type RawAnswer,
+	SqlError,
+	sqlErrorOf,
+	type PgStatement
+} from "#test/support/pg.ts"
 import { sqlNeedFailed } from "#test/support/runner.ts"
 import { awaitBlockedBy, awaitLockWait, type LockWait } from "#test/support/substrate/barrier.ts"
 import {
@@ -86,10 +96,12 @@ import {
 } from "#test/support/substrate/templates.ts"
 
 import {
+	type Check,
 	claimSharedDatabase,
 	type Lease,
 	leaseConnections,
 	leftovers,
+	leftoversCheck,
 	undoInstallEffects
 } from "#test/support/substrate/shared.ts"
 
@@ -999,6 +1011,47 @@ const templateAllocations = (
 	)
 
 /**
+ * What a former build of the template of digest `digest` left on the member, dropped as its bootstrap superuser before
+ * the build installs: every role under its allocations (`gzt_<digest>_…`, names.ts templateSchemaName), and the live
+ * source of each allocation, its installation's own among them (core/identity.ts identity.liveSource, `__live_<digest>`,
+ * a decoder login and a replication slot of that name, which carry no allocation, so they are derived from it as the
+ * sweep derives them, shared.ts). A role and a slot are the cluster's, not the template database's, so the toolchain's
+ * collection, which drops a template no run declares any more (resources collect.ts), leaves them, and a later build of
+ * the same digest (a tree or toolchain run again after another's) would meet them. A role that still owns an object
+ * somewhere is a defect of the run, as the superuser's refusal is.
+ */
+const formerBuildDropped = (
+	substrate: SubstrateShape,
+	digest: string
+): Effect.Effect<void, SqlError> =>
+	Effect.gen(function* () {
+		const rows = yield* substrate.admin.queryValues(
+			"SELECT r.rolname::text FROM pg_catalog.pg_roles AS r WHERE pg_catalog.starts_with(r.rolname::text, $1) ORDER BY 1",
+			[`gzt_${digest}_`]
+		)
+		const roles = Arr.map(rows, ([role]) => String(role))
+		const allocations = Arr.dedupe([
+			templateNames(digest).schema,
+			...Arr.map(roles, (role) => Arr.headNonEmpty(Str.split("__")(role)))
+		])
+		for (const allocation of allocations) {
+			const source = quoteString(identifierOf(identity.liveSource(allocation)))
+			yield* substrate.superuser(
+				`SELECT pg_catalog.pg_terminate_backend(active_pid) FROM pg_catalog.pg_replication_slots WHERE slot_name = ${source}::name AND active_pid IS NOT NULL`
+			)
+			yield* substrate.superuser(
+				`SELECT pg_catalog.pg_drop_replication_slot(slot_name) FROM pg_catalog.pg_replication_slots WHERE slot_name = ${source}::name`
+			)
+			yield* substrate.superuser(
+				`DROP ROLE IF EXISTS ${quoteIdent(identifierOf(identity.liveSource(allocation)))}`
+			)
+		}
+		for (const role of roles) {
+			yield* substrate.superuser(`DROP ROLE ${quoteIdent(role)}`)
+		}
+	})
+
+/**
  * A template of an installation over the base template (InstallSpec): its database is built by planning under the
  * template's schema name and installing the plan on a substrate over the template database, each worker plans it once
  * to bind its cases, and its cases clone it by any form (Substrate.freshOf, seat, rolledBack). Its identity is the
@@ -1040,6 +1093,7 @@ export const installTemplate = <P, T, E1, E2>(
 						Effect.provideContext(build(cluster, target.name, admin, [], allocations), spawning),
 						failed
 					)
+					yield* Effect.mapError(formerBuildDropped(substrate, digest), failed)
 					yield* needFailedBy(
 						spec.name,
 						Effect.scoped(
@@ -1126,8 +1180,13 @@ const dropped = (): Effect.Effect<void> => Effect.void
  * template's value, and a schema name the case may create its objects under. It has no end of the transaction and no
  * second session: whatever the case makes, it makes inside the transaction, which is rolled back when the case ends.
  */
-interface RolledBack<T> {
+export interface RolledBack<T> {
 	readonly connection: PgConnection
+	/**
+	 * The connection itself, its statements not savepointed: for a harness that sets a savepoint of its own inside the
+	 * case's transaction and rolls back to it (oracle/seat.ts), whose savepoint a statement's own release would end.
+	 */
+	readonly bare: PgConnection
 	/** The same connection as a case's session: its statements, each its own savepoint, and no end of the transaction. */
 	readonly session: CaseSession
 	readonly cluster: BudgetedCluster
@@ -1203,71 +1262,89 @@ const heldTransactions = (
 		)
 	})
 
-/** The savepoint every statement of a case's transaction runs under. */
-const statementSavepoint = "grizzle_case_statement"
+/** A statement of no parameters. */
+const bare = (sql: string): PgStatement => ({ sql, params: [] })
 
-/**
- * `statement` under its own savepoint of the case's transaction: released when it succeeds, rolled back to when
- * PostgreSQL refuses it, which leaves the transaction open for the next statement as autocommit would. A savepoint that
- * cannot be set or ended is a transaction the case broke, a defect its release then reports.
- */
-const undoneAlone = <A, E>(
-	connection: PgConnection,
-	statement: Effect.Effect<A, E>
-): Effect.Effect<A, E> =>
-	Effect.gen(function* () {
-		yield* Effect.orDie(connection.query(`SAVEPOINT ${statementSavepoint}`, []))
-		const ran = yield* Effect.exit(statement)
-		yield* Effect.orDie(
-			connection.query(
-				Exit.isSuccess(ran)
-					? `RELEASE SAVEPOINT ${statementSavepoint}`
-					: `ROLLBACK TO SAVEPOINT ${statementSavepoint}`,
-				[]
-			)
-		)
-		return yield* ran
+/** The savepoint every statement of a case's transaction runs under: set, released, and rolled back to. */
+const savepointSet = bare("SAVEPOINT grizzle_case_statement")
+const savepointReleased = bare("RELEASE SAVEPOINT grizzle_case_statement")
+const savepointUndone = "ROLLBACK TO SAVEPOINT grizzle_case_statement"
+
+/** The answer of a statement an exchange did not answer: a connection that answered fewer than it was sent. */
+const unanswered = Result.fail(
+	new SqlError({
+		reason: {
+			_tag: "ConnectionError",
+			message: "the exchange answered fewer statements than it sent"
+		},
+		cause: undefined
 	})
-
-/** The case's view of the held connection: every statement its own savepoint (undoneAlone), the connection its own pin. */
-const caseConnection = (connection: PgConnection): PgConnection => {
-	const statements: PgConnection = {
-		processId: connection.processId,
-		query: (sql, params) => undoneAlone(connection, connection.query(sql, params)),
-		queryValues: (sql, params) => undoneAlone(connection, connection.queryValues(sql, params)),
-		pipeline: (texts) => undoneAlone(connection, connection.pipeline(texts)),
-		pin: Effect.sync(() => statements)
-	}
-	return statements
-}
+)
 
 /**
- * After a case on a held connection: whether the case ended its transaction (its transaction id is no longer the
- * connection's), the transaction rolled back, every sequence put back, the session discarded (DISCARD ALL: settings,
- * prepared statements, advisory locks, temporary tables, listens), and `clean`'s report of the clone. A case that ended
- * its transaction, or after which the clone is not clean or could not be reset, fails, and its clone is replaced.
+ * `statements` under their own savepoint of the case's transaction, the savepoint, they and its release in one
+ * exchange: their answers. When PostgreSQL refuses one, the transaction is rolled back to the savepoint, which leaves
+ * it open for the next statement as autocommit would. A savepoint that cannot be set, released or rolled back to is a
+ * transaction the case broke, a defect its release then reports.
+ */
+const undoneAlone =
+	(connection: PgConnection): Exchange =>
+	(statements) =>
+		Effect.gen(function* () {
+			const answers = yield* connection.exchange([savepointSet, ...statements, savepointReleased])
+			yield* Effect.orDie(Effect.fromResult(Arr.headNonEmpty(answers)))
+			const ran = Arr.map(statements, (_, index) =>
+				Option.getOrElse(Arr.get(answers, index + 1), () => unanswered)
+			)
+			yield* Arr.every(ran, Result.isSuccess)
+				? Effect.orDie(Effect.fromResult(Arr.lastNonEmpty(answers)))
+				: Effect.orDie(connection.query(savepointUndone, []))
+			return ran
+		})
+
+/** The statements that end a case's transaction and put the session back as it was opened. */
+const caseEnd = Object.freeze({
+	xid: bare("SELECT pg_catalog.pg_current_xact_id_if_assigned()::text"),
+	rolledBack: bare("ROLLBACK"),
+	discarded: bare("DISCARD ALL")
+})
+
+/** The first column of an answer's first row as text, none when it has no such text. */
+const firstText = (answer: RawAnswer): Option.Option<string> =>
+	Option.filter(
+		Option.flatMap(Arr.head(answer.rows), Arr.head),
+		(text): text is string => typeof text === "string"
+	)
+
+/**
+ * After a case on a held connection, in one exchange: whether the case ended its transaction (its transaction id is no
+ * longer the connection's), the transaction rolled back, every sequence put back, the session discarded (DISCARD ALL:
+ * settings, prepared statements, advisory locks, temporary tables, listens), and `clean`'s report of the clone. A case
+ * that ended its transaction, or after which the clone is not clean or could not be reset, fails, and its clone is
+ * replaced.
  */
 const endedTransaction = (
 	held: HeldTransactions,
 	xid: string,
 	holding: Ref.Ref<Option.Option<HeldTransactions>>,
-	clean: (connection: PgConnection) => Effect.Effect<ReadonlyArray<string>, SqlError>
+	clean: Option.Option<Check>
 ): Effect.Effect<void> =>
 	Effect.gen(function* () {
 		const settled = yield* Effect.result(
 			Effect.gen(function* () {
-				const now = yield* held.connection.queryValues(
-					"SELECT pg_catalog.pg_current_xact_id_if_assigned()::text",
-					[]
-				)
-				yield* held.connection.query("ROLLBACK", [])
-				yield* Option.match(held.sequences, {
-					onNone: () => Effect.void,
-					onSome: (restore) => Effect.asVoid(held.connection.query(restore, []))
+				const answers = yield* held.connection.exchange([
+					caseEnd.xid,
+					caseEnd.rolledBack,
+					...Option.toArray(Option.map(held.sequences, bare)),
+					caseEnd.discarded,
+					...Option.toArray(Option.map(clean, (check) => check.statement))
+				])
+				const answered = yield* Effect.forEach(answers, Effect.fromResult)
+				const still = Option.getOrUndefined(firstText(Arr.headNonEmpty(answered)))
+				const left = Option.match(clean, {
+					onNone: () => [],
+					onSome: (check) => check.read(Arr.lastNonEmpty(answered).rows)
 				})
-				yield* held.connection.query("DISCARD ALL", [])
-				const left = yield* clean(held.connection)
-				const still = Option.getOrUndefined(Option.flatMap(Arr.head(now), Arr.head))
 				return still === xid ? left : [`the case ended its transaction ${xid}`, ...left]
 			})
 		)
@@ -1289,6 +1366,12 @@ const endedTransaction = (
 		)
 	})
 
+/** The statements that begin a case's transaction and read the transaction id it is given. */
+const caseStart: Arr.NonEmptyReadonlyArray<PgStatement> = [
+	bare("BEGIN"),
+	bare("SELECT pg_catalog.pg_current_xact_id()::text")
+]
+
 /**
  * The need of cases each in one owner transaction on the worker's own clone of `template`, held with its connection
  * across the worker's cases (HeldTransactions), `clean` reporting after every case what of the clone is not as cloned.
@@ -1296,7 +1379,7 @@ const endedTransaction = (
 const rolledBackCases = <T>(
 	form: string,
 	template: SubstrateTemplate<T>,
-	clean: (connection: PgConnection) => Effect.Effect<ReadonlyArray<string>, SqlError>
+	clean: Option.Option<Check>
 ): TemplateNeed<RolledBack<T>> => ({
 	key: `grizzle ${form} ${template.database.key}`,
 	template: template.database,
@@ -1316,25 +1399,21 @@ const rolledBackCases = <T>(
 							Ref.set(holding, Option.some(made))
 						)
 				const failed = sqlNeedFailed(form, `the case's transaction on ${held.database}`)
-				yield* Effect.mapError(held.connection.query("BEGIN", []), failed)
 				const begun = yield* Effect.mapError(
-					held.connection.queryValues("SELECT pg_catalog.pg_current_xact_id()::text", []),
+					Effect.flatMap(held.connection.exchange(caseStart), (answers) =>
+						Effect.forEach(answers, Effect.fromResult)
+					),
 					failed
 				)
-				const xid = Option.getOrElse(
-					Option.filter(
-						Option.flatMap(Arr.head(begun), Arr.head),
-						(text): text is string => typeof text === "string"
-					),
-					() => ""
-				)
+				const xid = Option.getOrElse(firstText(Arr.lastNonEmpty(begun)), () => "")
 				yield* Effect.addFinalizer(() => endedTransaction(held, xid, holding, clean))
 				const allocations = yield* Ref.make(0)
 				const binding = { cluster: held.cluster, database: held.database }
-				const connection = caseConnection(held.connection)
+				const connection = exchanging(held.connection.processId, undoneAlone(held.connection))
 				return {
 					...binding,
 					connection,
+					bare: held.connection,
 					session: {
 						label: form,
 						role: pgPin.devRole,
@@ -1415,7 +1494,7 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 	 * case does outlives it. A case that ends its transaction anyway fails, and the clone is replaced.
 	 */
 	static readonly rolledBack = <T>(template: SubstrateTemplate<T>): TemplateNeed<RolledBack<T>> =>
-		rolledBackCases("Substrate.rolledBack", template, () => Effect.succeed([]))
+		rolledBackCases("Substrate.rolledBack", template, Option.none())
 	/**
 	 * One case's owner transaction on the worker's own clone of the base template, as Substrate.rolledBack, and after
 	 * every case the clone judged clean by the substrate's own definition (shared.ts leftovers), a cheap assertion of
@@ -1424,7 +1503,7 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 	static readonly transaction: TemplateNeed<RolledBack<void>> = rolledBackCases(
 		"Substrate.transaction",
 		base,
-		leftovers
+		Option.some(leftoversCheck)
 	)
 	/**
 	 * The worker's place on its member (runner.ts PgMember leased): its lease's budget and the backend that holds the

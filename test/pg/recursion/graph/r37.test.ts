@@ -34,6 +34,7 @@ import type { QueryCase } from "#test/support/oracle/gen/case.ts"
 import type { GenContainment } from "#test/support/oracle/gen/schema.ts"
 import { everyRow } from "#test/support/oracle/install/capture.ts"
 import { runProgram, type SentProgram, sentConservative } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -196,7 +197,7 @@ const pageEdges = (f: Forest): number => Arr.reduce(f.page, 0, (sum, depth) => s
 
 const pageBelow = (n: number) => page(n).attach("below", (p) => below(p.id), "array")
 
-layer(Substrate.layer)("R37: a recursive attachment seeded once from the parent keys", (it) => {
+layer(OracleSeat.layer)("R37: a recursive attachment seeded once from the parent keys", (it) => {
 	it.effect(
 		"reads only the edges of the delivered parents' chains, in one Recursive Union for the page",
 		(ctx) =>

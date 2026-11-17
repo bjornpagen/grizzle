@@ -32,6 +32,7 @@ import {
 	reference,
 	runLabelledOracle
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -220,7 +221,7 @@ const dangles = (network: State): boolean =>
 /** A query whose transaction artifact agreed, over a violated deferred law or none. */
 type AgreedFeature = `${QueryName} agreed over ${"a dangling edge" | "a lawful state"}`
 
-layer(Substrate.layer)("endpoint existence during deferred violations", (it) => {
+layer(OracleSeat.layer)("endpoint existence during deferred violations", (it) => {
 	it.effect(
 		"the transaction artifact of each query agrees with the reference over a violated deferred law",
 		(ctx) =>

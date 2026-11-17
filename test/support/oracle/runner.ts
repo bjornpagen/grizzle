@@ -134,6 +134,7 @@ import {
 import { statingReference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import { renderExpected } from "#test/support/oracle/reference/render.ts"
 import { type DeclineReason, ReferenceUnsupported } from "#test/support/oracle/reference/values.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import type { PgConnection, PipelineRefused, SqlError } from "#test/support/pg.ts"
 import { grizzleCluster } from "#test/support/runner.ts"
@@ -426,22 +427,26 @@ const paramTypesKey = (params: ReadonlyArray<ParamDecl>): string => {
 /** A test's Installations, each of its schemas allocated under `label` in the test's scope. */
 const installations = (
 	label: string
-): Effect.Effect<Installations, never, Scope.Scope | Substrate> =>
+): Effect.Effect<Installations, never, Scope.Scope | OracleSeat> =>
 	Effect.gen(function* () {
 		const scope = yield* Effect.scope
-		const substrate = yield* Substrate
+		const seat = yield* OracleSeat
 		const installed = MutableHashMap.empty<GenSchema, Map<string, RealInstallPlan>>()
 		const install = (schema: GenSchema, params: ReadonlyArray<ParamDecl>, key: string) =>
 			Effect.gen(function* () {
-				const name = yield* Scope.provide(substrate.schema({ create: false, label }), scope).pipe(
+				const name = yield* Scope.provide(seat.schema(label), scope).pipe(
 					Effect.mapError(
 						(e) => new InstallationFailed({ stage: "install", message: sqlMessage(e) })
 					)
 				)
-				const plan = yield* planned(schema, params, name, substrate.owner.role)
+				const plan = yield* planned(schema, params, name, seat.owner)
 				yield* runStaged(
-					substrate.admin,
-					staged("install", ["BEGIN", ...filledSql(plan.drafted, substrate.database), "COMMIT"]),
+					seat.lasting.connection,
+					staged("install", [
+						...seat.lasting.open,
+						...filledSql(plan.drafted, seat.database),
+						...seat.lasting.close
+					]),
 					({ message }) => new InstallationFailed({ stage: "install", message })
 				)
 				const byTypes = Option.getOrElse(
@@ -471,17 +476,17 @@ const installations = (
 /** A test's named placement: a schema name the test holds, allocated under `label` in its scope. */
 export const namedPlacement = (
 	label: string
-): Effect.Effect<Placement, SqlError, Scope.Scope | Substrate> =>
+): Effect.Effect<Placement, SqlError, Scope.Scope | OracleSeat> =>
 	Effect.gen(function* () {
-		const substrate = yield* Substrate
-		const name = yield* substrate.schema({ create: false, label })
+		const seat = yield* OracleSeat
+		const name = yield* seat.schema(label)
 		return { kind: "named", name }
 	})
 
 /** A test's installed placement: its Installations, each schema allocated under `label` in its scope. */
 export const installedPlacement = (
 	label: string
-): Effect.Effect<Placement, never, Scope.Scope | Substrate> =>
+): Effect.Effect<Placement, never, Scope.Scope | OracleSeat> =>
 	Effect.map(installations(label), (i) => ({ kind: "installed", installations: i }))
 
 /**
@@ -501,13 +506,13 @@ export const caseInstallation = (
 	schema: GenSchema,
 	params: ReadonlyArray<ParamDecl>,
 	placement: Placement
-): Effect.Effect<CaseInstallation, InstallationFailed, Substrate> => {
+): Effect.Effect<CaseInstallation, InstallationFailed, OracleSeat> => {
 	switch (placement.kind) {
 		case "named":
 			return Effect.gen(function* () {
-				const substrate = yield* Substrate
-				const plan = yield* planned(schema, params, placement.name, substrate.owner.role)
-				return { plan, statements: filledSql(plan.drafted, substrate.database) }
+				const seat = yield* OracleSeat
+				const plan = yield* planned(schema, params, placement.name, seat.owner)
+				return { plan, statements: filledSql(plan.drafted, seat.database) }
 			})
 		case "installed":
 			return Effect.map(placement.installations.planOf(schema, params), (plan) => ({
@@ -881,26 +886,27 @@ const referenceRun = (
 	)
 
 /**
- * Runs `opening` and then the body in one transaction on a pinned owner session, BEGIN and the opening statements in one
- * flush, and rolls it back. No statement of it has a deadline: a statement that never ends is a hang, which the case's
- * hang guard (caseHang) reports, cancelling the statement it interrupts (pg.ts), and no verdict rests on how long a
- * statement took.
+ * Runs `opening` and then the body as one reading of the case (OracleSeat reading): in a transaction of its own, or
+ * under a savepoint of the case's transaction, opened in one flush with the opening statements and undone after the
+ * body. No statement of it has a deadline: a statement that never ends is a hang, which the case's hang guard (caseHang)
+ * reports, cancelling the statement it interrupts (pg.ts), and no verdict rests on how long a statement took.
  */
 const inRolledBackTransaction = <A, E>(
 	opening: ReadonlyArray<Staged>,
 	body: (session: PgConnection) => Effect.Effect<A, E>
-): Effect.Effect<A, E | OracleFailure, Substrate> =>
+): Effect.Effect<A, E | OracleFailure, OracleSeat> =>
 	Effect.scoped(
 		Effect.gen(function* () {
-			const substrate = yield* Substrate
-			const session = yield* substrate.admin.pin
+			const seat = yield* OracleSeat
+			const reading = yield* seat.reading
+			const session = reading.connection
 			return yield* runStaged(
 				session,
-				[{ stage: "setup", sql: "BEGIN" }, ...opening],
+				[...Arr.map(reading.open, (sql) => ({ stage: "setup", sql })), ...opening],
 				executeFailure
 			).pipe(
 				Effect.andThen(body(session)),
-				Effect.ensuring(Effect.ignore(session.query("ROLLBACK", [])))
+				Effect.ensuring(Effect.ignore(session.pipeline(reading.close)))
 			)
 		})
 	)
@@ -950,7 +956,7 @@ export const runOracle = (
 	left: Lowering,
 	right: RunnerSide,
 	options: RunOptions
-): Effect.Effect<OracleOutcome, OracleFailure | InvarianceFailed | SqlError, Substrate> =>
+): Effect.Effect<OracleOutcome, OracleFailure | InvarianceFailed | SqlError, OracleSeat> =>
 	runNamed(input, { kind: "unlabelled" }, left, right, options)
 
 /** runOracle of a hand-built case its suite names: the outcome's report opens with the case's label. */
@@ -959,7 +965,7 @@ export const runLabelledOracle = (
 	left: Lowering,
 	right: RunnerSide,
 	options: RunOptions
-): Effect.Effect<OracleOutcome, OracleFailure | InvarianceFailed | SqlError, Substrate> =>
+): Effect.Effect<OracleOutcome, OracleFailure | InvarianceFailed | SqlError, OracleSeat> =>
 	runNamed(input, { kind: "labelled", label: input.label }, left, right, options)
 
 /** The perturbation's planner settings, for every statement of both sides. */
@@ -969,9 +975,9 @@ const runNamed = (
 	left: Lowering,
 	right: RunnerSide,
 	options: RunOptions
-): Effect.Effect<OracleOutcome, OracleFailure | InvarianceFailed | SqlError, Substrate> =>
+): Effect.Effect<OracleOutcome, OracleFailure | InvarianceFailed | SqlError, OracleSeat> =>
 	Effect.gen(function* () {
-		const substrate = yield* Substrate
+		const seat = yield* OracleSeat
 		/**
 		 * The case as it runs: its facts repeated under fresh keys when the case's perturbation multiplies them, for
 		 * both sides alike.
@@ -1018,7 +1024,7 @@ const runNamed = (
 			options.schema.kind === "fresh"
 				? {
 						kind: "named",
-						name: yield* Effect.scoped(substrate.schema({ create: false, label: "oracle" }))
+						name: yield* Effect.scoped(seat.schema("oracle"))
 					}
 				: options.schema
 		const installation = yield* caseInstallation(c.schema, genParamDecls(c.query), placement).pipe(
@@ -1325,8 +1331,8 @@ export const oracleCheck = <S, T, F extends string, E, R>(
  * What an oracle property states (oracleProperty): its space, its required situations, the perturbation its cases draw
  * ("all": the facts repeated and planner settings; "planner": the settings alone; "none"), the oracle it is checked
  * against, its kept tokens and kills, how a case prints (its value alone, as the old suites' literal printed it), and
- * the check of one case, which runs in the case's own
- * database (Substrate.fresh, provided as the Substrate service, so runOracle and every helper read it as before).
+ * the check of one case, which runs in the case's one rolled-back transaction on the worker's own clone
+ * (Substrate.transaction, provided as the OracleSeat service, which runOracle and every helper read).
  */
 export interface OracleSpec<S, F extends string, E> {
 	readonly situations: ReadonlyArray<Reached<F>>
@@ -1339,7 +1345,7 @@ export interface OracleSpec<S, F extends string, E> {
 	readonly show: (value: S) => string
 	readonly check: (
 		c: PropertyCase<F>
-	) => (value: S) => Effect.Effect<void, E, Substrate | Scope.Scope>
+	) => (value: S) => Effect.Effect<void, E, OracleSeat | Scope.Scope>
 }
 
 /** A space's values, each drawn with the conditions it runs under after it, so the two shrink together. */
@@ -1367,7 +1373,8 @@ const conditionedAimed = <S, F extends string>(
 
 /**
  * An oracle property (the runner's, replacing oracleCheck): `space`'s values, each drawn with its plan perturbation and
- * its second reading's restorage (they shrink together), each case checked in a database of its own (Substrate.fresh)
+ * its second reading's restorage (they shrink together), each case checked in its one rolled-back transaction on the
+ * worker's own clone of the base template (Substrate.transaction, OracleSeat.rolledBack)
  * under its perturbation (underPerturbation), a failure's report the perturbation appended.
  */
 export const oracleProperty = <S, const F extends string, E>(
@@ -1375,15 +1382,17 @@ export const oracleProperty = <S, const F extends string, E>(
 	spec: OracleSpec<S, F, E>
 ) =>
 	property.explore(conditionedAimed(space, spec.perturb), {
-		needs: { substrate: Substrate.fresh },
+		needs: { tx: Substrate.transaction },
 		situations: spec.situations,
 		check:
-			({ substrate }, c: PropertyCase<F>) =>
+			({ tx }, c: PropertyCase<F>) =>
 			([value, conditions]) =>
-				Effect.provideServiceEffect(
-					underPerturbation(spec.check(c)(value), conditions),
-					Substrate,
-					substrate
+				Effect.flatMap(tx, (held) =>
+					Effect.provideService(
+						underPerturbation(spec.check(c)(value), conditions),
+						OracleSeat,
+						OracleSeat.rolledBack(held)
+					)
 				),
 		oracle: spec.oracle,
 		kept: spec.kept,
@@ -1403,12 +1412,13 @@ export interface InstalledOracleSpec<S, T, F extends string, E> extends Omit<
 	readonly check: (
 		c: PropertyCase<F>,
 		installed: T
-	) => (value: S) => Effect.Effect<void, E, Substrate | Scope.Scope>
+	) => (value: S) => Effect.Effect<void, E, OracleSeat | Scope.Scope>
 }
 
 /**
- * An oracle property (oracleProperty) whose every case runs in a clone of its own of `template` (Substrate.freshOf), so
- * what the template installs once per member is each case's from its start, under the case's perturbation.
+ * An oracle property (oracleProperty) whose every case runs in its one rolled-back transaction on the worker's own clone
+ * of `template` (Substrate.rolledBack), so what the template installs once per member is each case's from its start,
+ * under the case's perturbation.
  */
 export const installedOracleProperty = <S, T, const F extends string, E>(
 	template: SubstrateTemplate<T>,
@@ -1416,16 +1426,16 @@ export const installedOracleProperty = <S, T, const F extends string, E>(
 	spec: InstalledOracleSpec<S, T, F, E>
 ) =>
 	property.explore(conditionedAimed(space, spec.perturb), {
-		needs: { installed: Substrate.freshOf(template) },
+		needs: { installed: Substrate.rolledBack(template) },
 		situations: spec.situations,
 		check:
 			({ installed }, c: PropertyCase<F>) =>
 			([value, conditions]) =>
-				Effect.flatMap(installed, ({ substrate, value: bound }) =>
+				Effect.flatMap(installed, (held) =>
 					Effect.provideService(
-						underPerturbation(spec.check(c, bound)(value), conditions),
-						Substrate,
-						substrate
+						underPerturbation(spec.check(c, held.value)(value), conditions),
+						OracleSeat,
+						OracleSeat.rolledBack(held)
 					)
 				),
 		oracle: spec.oracle,
@@ -1488,7 +1498,7 @@ export interface KillSpec<S, F extends string> {
  * A kill population's search (a mutant's), nested in the case that states it and run in its process (searchInline) on
  * its witnesses alone, the floor and steered phase its identity `id` fixes, so a mutant is killed on every run seed or
  * on none: `space`'s values, each drawn with its second reading's restorage, run unperturbed by `check` on the case's
- * own substrate. A failing witness is the search's result rather than the case's failure: the shrunk kill, with the
+ * own seat (OracleSeat). A failing witness is the search's result rather than the case's failure: the shrunk kill, with the
  * verdict its check's typed failure carried, which the case then judges (KillFound).
  */
 export const killSearched = <S, const F extends string>(
@@ -1497,10 +1507,10 @@ export const killSearched = <S, const F extends string>(
 	spec: KillSpec<S, F>,
 	check: (
 		c: PropertyCase<F>
-	) => (value: S) => Effect.Effect<void, Verdict | PropertyFailed, Substrate | Scope.Scope>
-): Effect.Effect<KillFound<S>, never, Substrate | CheckContext> =>
+	) => (value: S) => Effect.Effect<void, Verdict | PropertyFailed, OracleSeat | Scope.Scope>
+): Effect.Effect<KillFound<S>, never, OracleSeat | CheckContext> =>
 	Effect.gen(function* () {
-		const substrate = yield* Substrate
+		const seat = yield* OracleSeat
 		const last = yield* Ref.make(
 			Option.none<{ readonly value: S; readonly verdict: KillVerdict }>()
 		)
@@ -1530,8 +1540,8 @@ export const killSearched = <S, const F extends string>(
 						([value, conditions]) =>
 							Effect.provideService(
 								underPerturbation(Effect.tapCause(check(c)(value), recorded(value)), conditions),
-								Substrate,
-								substrate
+								OracleSeat,
+								seat
 							),
 					oracle: spec.oracle,
 					kept: [],

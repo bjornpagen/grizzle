@@ -37,42 +37,45 @@ import {
 	reference,
 	runOracle
 } from "#test/support/oracle/runner.ts"
+import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** The comparison reports exactly the structure a lowering drops, renames or narrows, planted in a generated case's program. */
 export const structure = property.explore(structureSpace, {
-	needs: { substrate: Substrate.fresh },
+	needs: { tx: Substrate.transaction },
 	situations: plantFeatures satisfies ReadonlyArray<Reached<PlantFeature>>,
 	/** Its pre-conversion budget: runs 40, coverage cases 300 (reference.test.ts at 4fbc3e95). */
 	budget: { runs: 40, steered: 300 },
 	check:
-		({ substrate }, c: Case<PlantFeature>) =>
+		({ tx }, c: Case<PlantFeature>) =>
 		(sketch) =>
-			Effect.provideServiceEffect(
-				Effect.gen(function* () {
-					const s = yield* Substrate
-					const name = yield* s.schema({ create: false, label: "oracle" })
-					const chosen: Array<Offered> = []
-					const lowering: Lowering = {
-						name: planted,
-						lower: (input) =>
-							Result.map(conservative.lower(input), (program) => {
-								const plant = plantOf(program, sketch.fault, sketch.pick)
-								chosen.push(plant)
-								return plant[1].program
-							})
-					}
-					const outcome = yield* runOracle(sketch.case, lowering, reference, {
-						...defaultRunOptions,
-						schema: { kind: "named", name }
-					})
-					const [feature, plant] = defined(chosen[0], "the planted lowering's plant")
-					c.note(feature)
-					assert.equal(outcome.comparison.equal, plant.expected.length === 0)
-					unorderedEqual(outcome.comparison.structural, plant.expected)
-				}),
-				Substrate,
-				substrate
+			Effect.flatMap(tx, (held) =>
+				Effect.provideService(
+					Effect.gen(function* () {
+						const seat = yield* OracleSeat
+						const name = yield* seat.schema("oracle")
+						const chosen: Array<Offered> = []
+						const lowering: Lowering = {
+							name: planted,
+							lower: (input) =>
+								Result.map(conservative.lower(input), (program) => {
+									const plant = plantOf(program, sketch.fault, sketch.pick)
+									chosen.push(plant)
+									return plant[1].program
+								})
+						}
+						const outcome = yield* runOracle(sketch.case, lowering, reference, {
+							...defaultRunOptions,
+							schema: { kind: "named", name }
+						})
+						const [feature, plant] = defined(chosen[0], "the planted lowering's plant")
+						c.note(feature)
+						assert.equal(outcome.comparison.equal, plant.expected.length === 0)
+						unorderedEqual(outcome.comparison.structural, plant.expected)
+					}),
+					OracleSeat,
+					OracleSeat.rolledBack(held)
+				)
 			),
 	oracle: {
 		kind: "specification",
