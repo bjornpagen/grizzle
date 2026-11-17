@@ -79,7 +79,7 @@ export type Problem =
 	  }>
 
 /** A problem as a verdict prints it. */
-export const problemText = (problem: Problem): string => {
+const problemText = (problem: Problem): string => {
 	switch (problem.kind) {
 		case "code":
 			return `${lineKey(problem.at)}: raises ${Arr.join(problem.raised, ", ")}, where its directive claims ${problem.claimed}`

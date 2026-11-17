@@ -92,7 +92,7 @@ const stallSampleEvery = Math.ceil(stallWindow / 30)
  * A stall guard: how long a process tree may be idle, and how often it is read. The type tier passes stallWindow and
  * stallSampleEvery; a test of the guard passes its own.
  */
-export type StallGuard = Readonly<{ window: Duration.Duration; every: Duration.Duration }>
+type StallGuard = Readonly<{ window: Duration.Duration; every: Duration.Duration }>
 
 /** The guard the type tier's compiler runs under. */
 const compilerStallGuard: StallGuard = {
@@ -144,7 +144,7 @@ const statFields = regex(
  * tree when any of its threads is), and the CPU time it has spent, in clock ticks: its own and its waited-for
  * children's, so a child's time stays counted after it exits.
  */
-export type Reading = Readonly<{ busy: boolean; ticks: number }>
+type Reading = Readonly<{ busy: boolean; ticks: number }>
 
 /**
  * The states in which a thread is making progress or waits only on the machine: running or runnable (R) and in an
@@ -211,7 +211,7 @@ const statOf = (fs: FileSystem.FileSystem, file: string) =>
  * reading of each child its threads started (/proc/pid/task/tid/children); a thread or a child gone mid-reading adds
  * nothing, and its time moves to its parent's waited-for children's once reaped.
  */
-export const readingOf = (
+const readingOf = (
 	fs: FileSystem.FileSystem,
 	pid: number
 ): Effect.Effect<Option.Option<Reading>, CpuTimeUnreadable | PlatformError.PlatformError> =>
@@ -312,12 +312,7 @@ const stalled = (pid: number, guard: StallGuard) =>
  * failure's dump. The child belongs to the run's scope, so an interrupted run kills it. PWD is `cwd` too, since tsgo
  * reads its working directory from PWD where PWD names it.
  */
-export const guardedRun = (
-	command: string,
-	args: ReadonlyArray<string>,
-	cwd: string,
-	guard: StallGuard
-) =>
+const guardedRun = (command: string, args: ReadonlyArray<string>, cwd: string, guard: StallGuard) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const handle = yield* ChildProcess.make(command, args, {
