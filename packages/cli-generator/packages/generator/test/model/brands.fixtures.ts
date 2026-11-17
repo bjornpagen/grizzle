@@ -73,6 +73,7 @@ export type Feature =
 	| "an interior empty segment refused"
 	| "CONNECT refused"
 	| "unsafe text stripped"
+	| "line breaks and tabs kept through the strip"
 
 const isIn =
 	(chars: string) =>
@@ -115,7 +116,16 @@ const isSurrogate = (char: string): boolean => {
 }
 
 /** The format characters (Cf) and separators (Zl, Zp) the text alphabet below holds; it holds no others. */
-const formatOrSeparator: ReadonlySet<string> = new Set(["­", "​", "‎", "‮", "⁦", "﻿", " ", " "])
+const formatOrSeparator: ReadonlySet<string> = new Set([
+	"\u00AD",
+	"\u200B",
+	"\u200E",
+	"\u202E",
+	"\u2066",
+	"\uFEFF",
+	"\u2028",
+	"\u2029"
+])
 
 const isUnsafeTextChar = (char: string): boolean =>
 	char !== "\n" &&
@@ -163,7 +173,10 @@ const readsAs = (
 	return true
 }
 
-const isWhitespace = isIn(" \t\n\r\u000B\u000C\u0085   ")
+/** ECMAScript's WhiteSpace and LineTerminator code points: what a pattern's `\s` reads. */
+const isWhitespace = isIn(
+	"\t\n\u000B\u000C\r \u00A0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF"
+)
 
 /** A path segment's dot form once `%2e` (any case) reads as `.`. */
 const isDotSegment = (segment: string): boolean => {
@@ -399,14 +412,14 @@ const textChar = element([
 	"\u007F",
 	"\u0085",
 	"\u009F",
-	"­",
-	"​",
-	"‎",
-	"‮",
-	"⁦",
-	"﻿",
-	" ",
-	" ",
+	"\u00AD",
+	"\u200B",
+	"\u200E",
+	"\u202E",
+	"\u2066",
+	"\uFEFF",
+	"\u2028",
+	"\u2029",
 	"\uD800",
 	"\uDC00"
 ])
@@ -623,7 +636,14 @@ export const brandSpace: Aimed<BrandCase, Feature> = aimed(anyCase, [
 		"unsafe text stripped",
 		map(joined(textChar, { min: 2, max: 6 }), (text): BrandCase => ({
 			brand: "SafeText",
-			input: { kind: "text", text: `a‮${text}` }
+			input: { kind: "text", text: `a\u202E${text}` }
+		}))
+	],
+	[
+		"line breaks and tabs kept through the strip",
+		map(joined(textChar, { min: 0, max: 4 }), (text): BrandCase => ({
+			brand: "SafeText",
+			input: { kind: "text", text: `a\n\u200Bb\t${text}` }
 		}))
 	]
 ])
@@ -645,6 +665,11 @@ export const featuresOf = (c: BrandCase): ReadonlyArray<Feature> => {
 			? ["an interior empty segment refused" as const]
 			: []),
 		...(c.brand === "MethodToken" && text === "CONNECT" ? ["CONNECT refused" as const] : []),
+		...(c.brand === "SafeText" &&
+		Arr.some(charsOf(text), isUnsafeTextChar) &&
+		Arr.some(charsOf(text), (char) => char === "\n" || char === "\t")
+			? ["line breaks and tabs kept through the strip" as const]
+			: []),
 		...(c.brand === "SafeText" && Arr.some(charsOf(text), isUnsafeTextChar)
 			? ["unsafe text stripped" as const]
 			: [])

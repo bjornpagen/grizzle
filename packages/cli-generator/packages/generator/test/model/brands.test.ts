@@ -19,7 +19,7 @@ import {
 
 /**
  * A brand admits a drawn text exactly when its grammar does. Its budget replaces 18 example cases: 18 independent
- * cases, and up to 54 steered while one of its 27 situations is unreached, each reached by its own aimed arm.
+ * cases, and up to 56 steered while one of its 28 situations is unreached, each reached by its own aimed arm.
  */
 export const brandMembership = property.explore(brandSpace, {
 	needs: {},
@@ -50,7 +50,8 @@ export const brandMembership = property.explore(brandSpace, {
 		"a dot segment refused",
 		"an interior empty segment refused",
 		"CONNECT refused",
-		"unsafe text stripped"
+		"unsafe text stripped",
+		"line breaks and tabs kept through the strip"
 	],
 	check: (_, k: Case<Feature>) => (c) =>
 		Effect.sync(() => {
@@ -62,8 +63,14 @@ export const brandMembership = property.explore(brandSpace, {
 		name: "a recognizer per brand written from its grammar, and the text grammar's own removal"
 	},
 	kept: [],
-	budget: { runs: 18, steered: 54 },
+	budget: { runs: 18, steered: 56 },
 	kills: [
+		{
+			file: "packages/generator/src/model/brands.ts",
+			original: "const unsafeCharacter = regex(`(?![\\\\n\\\\t])[",
+			replacement: "const unsafeCharacter = regex(`[",
+			why: "stripUnsafeText removes line feeds and tabs with the other controls, so help text loses its line breaks; the property fails (found by lane EOCG-NORMALIZE converting test/normalize/docs.test.ts)."
+		},
 		{
 			file: "packages/generator/src/model/brands.ts",
 			original: "!Str.isEmpty(segment) || index === last",
