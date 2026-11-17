@@ -242,6 +242,18 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 				original: "\t\t\t.toSorted(canonical)\n",
 				replacement: "",
 				why: "The engine plans its requests in the order they arrive, not in their canonical order (indexes/engine.ts planIndexes); the arrival-order invariance fails."
+			},
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original: "\t\tconst plan = requests\n",
+				replacement: '\t\tconst plan = requests.filter((r) => r.role === "lawMaintenance")\n',
+				why: "The engine plans no access index, only law probes: a read's request lands on no index. Moved here from test/pg/bench/gates.test.ts's query gates, which left the test tiers for `pnpm bench`."
+			},
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original: "\t\tconst plan = requests\n",
+				replacement: '\t\tconst plan = requests.filter((r) => r.role !== "lawMaintenance")\n',
+				why: "The engine plans no law probe index: a law's request lands on no index. Moved here from test/pg/bench/gates.test.ts's write and law gates, which left the test tiers for `pnpm bench`."
 			}
 		]
 	})
