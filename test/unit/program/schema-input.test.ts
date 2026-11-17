@@ -1,5 +1,5 @@
 import type { Reached } from "@bjornpagen/testing/features"
-import { finite } from "@bjornpagen/testing/gen"
+import { element, finite } from "@bjornpagen/testing/gen"
 import { corrupted, corruptedFeature, type CorruptedFeature } from "@bjornpagen/testing/lsw"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
@@ -26,6 +26,7 @@ import {
 	type Arm,
 	arms,
 	type ArtifactsFeature,
+	changedCases,
 	compiledOrThrow,
 	contentChanges,
 	type ContentFeature,
@@ -158,59 +159,60 @@ export const theArtifactsOfASchemaAreOneValueWhicheverInputReachesTheSchemaUnder
 /** A level is its content, not its name admits a query on its schema renamed and naming the Db's schema, and refuses it on one of other content. Its budget is its suite's before it was a property (test/unit/program/schema-input.test.ts at 4ca3036a): 100 runs and 100 steered cases. */
 export const aLevelIsItsContentNotItsNameAdmitsAQueryOnItsSchemaRenamedAndNamingTheDbsSchemaAndRefusesItOnOneOfOtherContent =
 	property.explore(contentGen, {
-		needs: {},
+		needs: { changed: changedCases },
 		budget: { runs: 100, steered: 100 },
 		situations: [
 			...Arr.map(identifierFeatures, (feature) => `renamed: ${feature}` as const),
 			...contentChanges
 		] satisfies ReadonlyArray<Reached<ContentFeature>>,
-		check:
-			(_, c: Case<ContentFeature>) =>
-			({ built, db }) =>
-				Effect.sync(() => {
+		check: (resources, c: Case<ContentFeature>) => (content) =>
+			Effect.map(resources.changed, (changed) => {
+				if (content.kind === "renamed") {
+					const { built } = content
 					const query = built.subject.query
-					if (db.kind === "renamed") {
-						c.note(`renamed: ${db.feature}`)
-						const what = `a query over ${built.subject.label} on a Db over it renamed ${db.name}`
-						const chosen = Result.flatMap(queryInput(query), (input) =>
-							querySchema(input, schemaInputOf(db.schema))
-						)
-						if (!chosen.ok) {
-							throw new Error(`${what} is refused: ${chosen.error.message}`)
-						}
-						assert.deepEqual(
-							sqlOf(compiledOrThrow(query, db.schema, what)),
-							sqlOf(
-								compiledOrThrow(
-									readOf(db.schema, built.relation),
-									db.schema,
-									`${what}, rebuilt over it`
-								)
+					c.note(`renamed: ${content.feature}`)
+					const what = `a query over ${built.subject.label} on a Db over it renamed ${content.name}`
+					const chosen = Result.flatMap(queryInput(query), (input) =>
+						querySchema(input, schemaInputOf(content.schema))
+					)
+					if (!chosen.ok) {
+						throw new Error(`${what} is refused: ${chosen.error.message}`)
+					}
+					assert.deepEqual(
+						sqlOf(compiledOrThrow(query, content.schema, what)),
+						sqlOf(
+							compiledOrThrow(
+								readOf(content.schema, built.relation),
+								content.schema,
+								`${what}, rebuilt over it`
 							)
 						)
-						return
-					}
-					c.note(db.change)
-					const what = `a query over ${built.subject.label} on a Db over it with ${db.change}`
-					assert.equal(
-						refusal(
-							Result.flatMap(queryInput(query), (input) =>
-								Result.flatMap(parseSchemaInput(db.schema), (schema) => querySchema(input, schema))
-							),
-							what
-						).reason._tag,
-						"MalformedDescription"
 					)
-					assert.equal(
-						refusal(
-							Result.flatMap(parseSchemaInput(db.schema), (input) =>
-								compileInputTemplate(query, input, testCompile)
-							),
-							what
-						).reason._tag,
-						"MalformedDescription"
-					)
-				}),
+					return
+				}
+				const db = c.draw(element(changed))
+				const query = db.built.subject.query
+				c.note(db.change)
+				const what = `a query over ${db.built.subject.label} on a Db over it with ${db.change}`
+				assert.equal(
+					refusal(
+						Result.flatMap(queryInput(query), (input) =>
+							Result.flatMap(parseSchemaInput(db.schema), (schema) => querySchema(input, schema))
+						),
+						what
+					).reason._tag,
+					"MalformedDescription"
+				)
+				assert.equal(
+					refusal(
+						Result.flatMap(parseSchemaInput(db.schema), (input) =>
+							compileInputTemplate(query, input, testCompile)
+						),
+						what
+					).reason._tag,
+					"MalformedDescription"
+				)
+			}),
 		oracle: {
 			kind: "specification",
 			name: "a level is compared by its content: renamed, its SQL is the renamed schema's own; changed, it is MalformedDescription"

@@ -1,8 +1,9 @@
 /** What the properties of schema-input.test.ts read: its spaces, models and helpers. */
 
-import { element, type Gen, oneOf } from "@bjornpagen/testing/gen"
+import { constant, element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import type { Corruption } from "@bjornpagen/testing/lsw"
-import { Array as Arr, Record as Rec } from "effect"
+import type { Need } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import * as Result from "#compiler/core/result.ts"
 import type { FieldDecl, SchemaDesc } from "#compiler/ir/desc.ts"
@@ -53,8 +54,9 @@ import { upTo } from "#test/support/up-to.ts"
  *   differential oracle's, gen/schema.ts), each broken at one site of one decoder rule (a corruption,
  *   @bjornpagen/testing/lsw), and the path is the site's, held segment by segment, never as printed text.
  *
- * A changed Db is drawn from every site of every change of content that installs, the finite space cut once; a rename
- * draws a schema name other than the root's own. No case is discarded.
+ * A changed Db is drawn from every site of every change of content that installs, the finite space cut once, when a
+ * worker readies the property (changedCases); a rename draws a schema name other than the root's own. No case is
+ * discarded.
  *
  * Features: the schema itself, a level, no level; each pair of inputs; a rename to each kind of name, each change of
  * content; a live schema and each decoder rule broken.
@@ -194,15 +196,17 @@ const roots: Arr.NonEmptyReadonlyArray<Root> = [
 	}
 ]
 
-/** The Db a case opens: its schema rebuilt under a drawn name, or its description with one drawn change of content. */
-type Db =
-	| {
-			readonly kind: "renamed"
-			readonly name: string
-			readonly feature: IdentifierFeature
-			readonly schema: FixtureSchema
-	  }
-	| { readonly kind: "changed"; readonly change: ContentChange; readonly schema: unknown }
+/** A case that renames a root: its schema rebuilt from its own relations and statements under a drawn name. */
+type Renamed = Readonly<{
+	kind: "renamed"
+	built: Root
+	name: string
+	feature: IdentifierFeature
+	schema: FixtureSchema
+}>
+
+/** A case that changes a root's content: its description with one change of content, at one site. */
+export type Changed = Readonly<{ built: Root; change: ContentChange; schema: unknown }>
 
 export type ContentFeature = `renamed: ${IdentifierFeature}` | ContentChange
 
@@ -282,30 +286,38 @@ const changesOf = (base: SchemaDesc): ReadonlyArray<Change> =>
 		]
 	})
 
-/** A case: a root of the fixtures and the Db it opens. */
-interface ContentCase {
-	readonly built: Root
-	readonly db: Db
-}
-
 /**
- * Every changed Db of every root: each site of each change of content that installs, so its one refusal is the
- * level's. The space is finite, cut once here, and drawn from whole: no draw is discarded.
+ * Every change of content of every root that installs, at each of its sites, so its one refusal is the level's. Whether
+ * a change installs is its compilation's to say, about 50 ms each over 151 sites (94 install), so the finite space is
+ * cut once per worker, when the worker readies the property (the need's open, outside every case's deadline), never
+ * when the module loads: the runner's parent imports every test module and runs none of its cases. A case draws its
+ * change from the whole cut space (contentGen's "changed"): no draw is discarded.
  */
-const changedCases: Arr.NonEmptyReadonlyArray<ContentCase> = nonEmpty(
-	Arr.flatMap(roots, (built) =>
-		Arr.flatMap(
-			changesOf(
-				defined(schemaDescOf(built.subject.schema), `the description of ${built.subject.label}`)
-			),
-			({ change, desc }): ReadonlyArray<ContentCase> =>
-				Result.flatMap(parseSchemaInput(desc), (input) => inputArtifacts(input, testCompile)).ok
-					? [{ built, db: { kind: "changed", change, schema: desc } }]
-					: []
+export const changedCases: Need<Arr.NonEmptyReadonlyArray<Changed>> = {
+	key: "test/unit/program/schema-input.fixtures.ts changedCases",
+	open: Effect.sync(() =>
+		Effect.succeed(
+			nonEmpty(
+				Arr.flatMap(roots, (built) =>
+					Arr.flatMap(
+						changesOf(
+							defined(
+								schemaDescOf(built.subject.schema),
+								`the description of ${built.subject.label}`
+							)
+						),
+						({ change, desc }): ReadonlyArray<Changed> =>
+							Result.flatMap(parseSchemaInput(desc), (input) => inputArtifacts(input, testCompile))
+								.ok
+								? [{ built, change, schema: desc }]
+								: []
+					)
+				),
+				"a change of content that installs"
+			)
 		)
-	),
-	"a change of content that installs"
-)
+	)
+}
 
 /** Each root with the schema names other than its own, which a rename draws from: no draw renames it to itself. */
 const renamings = Object.freeze(
@@ -316,22 +328,29 @@ const renamings = Object.freeze(
 )
 
 /** A root renamed to a schema name other than its own, which no change of content touches. */
-const renamedCase: Gen<ContentCase> = (source) => {
+const renamedCase: Gen<Renamed> = (source) => {
 	const { built, names } = source.draw(element(renamings))
 	const name = source.draw(names)
 	return {
+		kind: "renamed",
 		built,
-		db: {
-			kind: "renamed",
-			name: name.declared,
-			feature: name.feature,
-			schema: built.renamed(name.declared)
-		}
+		name: name.declared,
+		feature: name.feature,
+		schema: built.renamed(name.declared)
 	}
 }
 
+/**
+ * What the space draws of a case: a rename whole, or that the case changes a root's content, which change the case then
+ * draws from those a worker cut once (changedCases), the next draw on its tape.
+ */
+export type Content = Renamed | Readonly<{ kind: "changed" }>
+
 /** A case: a rename or a change of content, each as often as the other. */
-export const contentGen: Gen<ContentCase> = oneOf([renamedCase, element(changedCases)])
+export const contentGen: Gen<Content> = oneOf<Content>([
+	renamedCase,
+	constant({ kind: "changed" } as const)
+])
 
 /** The kinds of name a rename must reach: every kind a schema name is admitted of. */
 export const identifierFeatures: Arr.NonEmptyReadonlyArray<IdentifierFeature> = [

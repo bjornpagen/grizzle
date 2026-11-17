@@ -1,8 +1,8 @@
 /** What the properties of generate.test.ts read: its spaces, models and helpers. */
 
-import { element, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, Order, Record } from "effect"
-import { educationInstall } from "#test/support/fixtures/education/index.ts"
+import { type Gen, int } from "@bjornpagen/testing/gen"
+import type { Need } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Order, Record } from "effect"
 import { valueText } from "#test/support/laws/model.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
 import { knownNonEmpty, pool } from "#test/support/worlds/generate/domain.ts"
@@ -11,168 +11,15 @@ import {
 	enumerateRealities,
 	stateValues
 } from "#test/support/worlds/generate/enumerate.ts"
-import {
-	docsBase,
-	docsInstall,
-	docsOneShareInstall
-} from "#test/support/worlds/model/bases/docs.ts"
+import { docsBase, docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import { initialState } from "#test/support/worlds/model/step.ts"
 import type {
 	Action,
 	BaseSpec,
-	FieldDomain,
 	HostState,
-	InstallSpec,
 	InstalledNames,
 	ModelState
 } from "#test/support/worlds/model/types.ts"
-
-/** A reading's units: an int4 contract of 0 to 100, so a fact or a claim can hold a value its DOMAIN refuses. */
-const units: FieldDomain = { kind: "contract", name: "Units", bits: 32, min: 0, max: 100 }
-
-/**
- * A base whose session reads integers: a clock's `now` (an int8, from the payload's top level) and a quota's `units`
- * (an int4 contract, from the claim object `q`), so tokens can carry integer claims, unsafe or not digits, and facts a
- * contract's bounds refuse. Its role `alpha` writes readings stamped with the clock's time, and ticks, two identity
- * numbers and the clock's time, through an entry whose every carried field is serial, its time filled from the clock;
- * `beta` writes ticks through an entry that carries the time and filters on `seq`, a serial field its filter reads,
- * since a role writes a relation through one entry at most.
- */
-const meterBase: BaseSpec = {
-	name: "Meter",
-	closed: [],
-	relations: [
-		{
-			name: "Reading",
-			fields: [
-				{ name: "id", domain: { kind: "uuid" } },
-				{ name: "at", domain: { kind: "integer", bits: 64 } },
-				{ name: "units", domain: units }
-			],
-			key: ["id"],
-			mutability: "immutable"
-		},
-		{
-			name: "Tick",
-			fields: [
-				{ name: "no", domain: { kind: "serial", bits: 64 } },
-				{ name: "seq", domain: { kind: "serial", bits: 32 } },
-				{ name: "at", domain: { kind: "integer", bits: 64 } }
-			],
-			key: ["no"],
-			mutability: "immutable"
-		}
-	],
-	laws: [],
-	contexts: [
-		{
-			name: "Clock",
-			claim: { kind: "top-level" },
-			fields: [{ name: "now", domain: { kind: "integer", bits: 64 } }]
-		},
-		{
-			name: "Quota",
-			claim: { kind: "object", key: "q" },
-			fields: [{ name: "units", domain: units }]
-		}
-	],
-	derived: []
-}
-
-const meterInstall: InstallSpec = {
-	base: meterBase,
-	roles: [
-		{
-			name: "alpha",
-			entries: {
-				Reading: {
-					kind: "query",
-					rules: [
-						{
-							matches: [
-								{
-									source: { kind: "ordinary", name: "Reading" },
-									fields: {
-										id: { kind: "var", name: "id" },
-										at: { kind: "context", context: "Clock", field: "now" },
-										units: { kind: "var", name: "units" }
-									}
-								},
-								{
-									source: { kind: "context", name: "Quota" },
-									fields: { units: { kind: "var", name: "units" } }
-								}
-							],
-							negations: [],
-							comparisons: [],
-							head: { id: { kind: "var", name: "id" }, units: { kind: "var", name: "units" } }
-						}
-					]
-				},
-				Tick: {
-					kind: "query",
-					rules: [
-						{
-							matches: [
-								{
-									source: { kind: "ordinary", name: "Tick" },
-									fields: {
-										no: { kind: "var", name: "no" },
-										seq: { kind: "var", name: "seq" },
-										at: { kind: "context", context: "Clock", field: "now" }
-									}
-								}
-							],
-							negations: [],
-							comparisons: [],
-							head: { no: { kind: "var", name: "no" }, seq: { kind: "var", name: "seq" } }
-						}
-					]
-				}
-			},
-			write: ["Reading", "Tick"],
-			refresh: []
-		},
-		{
-			name: "beta",
-			entries: {
-				LateTick: {
-					kind: "query",
-					rules: [
-						{
-							matches: [
-								{
-									source: { kind: "ordinary", name: "Tick" },
-									fields: {
-										no: { kind: "var", name: "no" },
-										seq: { kind: "var", name: "seq" },
-										at: { kind: "var", name: "at" }
-									}
-								}
-							],
-							negations: [],
-							comparisons: [
-								{
-									left: { kind: "var", name: "seq" },
-									op: ">=",
-									right: { kind: "literal", value: 1 }
-								}
-							],
-							head: {
-								no: { kind: "var", name: "no" },
-								seq: { kind: "var", name: "seq" },
-								at: { kind: "var", name: "at" }
-							}
-						}
-					]
-				}
-			},
-			write: ["LateTick"],
-			refresh: []
-		}
-	],
-	logins: [{ name: "web", roles: ["alpha", "beta"] }]
-}
 
 /**
  * The names the compiler gives a base's relations and laws: those of an installation of the base whose one role holds
@@ -193,18 +40,6 @@ const baseNames = (base: BaseSpec): InstalledNames => {
 		logins: [{ name: "web", roles: ["alpha"] }]
 	})
 }
-
-/** The installations the generators are tried over, with the names their base's compilation gives them. */
-const fixtures: Arr.NonEmptyReadonlyArray<{
-	readonly install: InstallSpec
-	readonly state: ModelState
-}> = knownNonEmpty(
-	Arr.map([docsInstall, docsOneShareInstall, educationInstall, meterInstall], (install) => ({
-		install,
-		state: initialState(install, baseNames(install.base), new Map())
-	})),
-	"the fixtures"
-)
 
 /** Every uuid and text value of the pools: the values a renaming may move. */
 const symmetricValues = (base: BaseSpec): ReadonlySet<string> =>
@@ -271,15 +106,34 @@ export const canonicalAction = (state: ModelState, action: Action): string => {
 	return form(action)
 }
 
-export const docs = Arr.headNonEmpty(fixtures)
+/**
+ * The box the generators are tried over: the docs installation's names, as its base's compilation gives them, and every
+ * reality of the box over its host schema.
+ */
+export type Box = Readonly<{
+	names: InstalledNames
+	realities: Arr.NonEmptyReadonlyArray<HostState>
+}>
 
-const realities: Arr.NonEmptyReadonlyArray<HostState> = knownNonEmpty(
-	enumerateRealities(docsBase, docs.state.host, defaultScope),
-	"the box's realities"
-)
+/**
+ * The box, built once per worker, when the worker readies the property (the need's open, outside every case's
+ * deadline), never when the module loads: enumerating the box's realities takes seconds (4.8 s on cassowary, against
+ * 0.4 s for the docs installation's names), and the runner's parent imports every test module and runs none of its
+ * cases. A case draws its reality from them, the first draw of its check, after the steps its space drew.
+ */
+export const box: Need<Box> = {
+	key: "test/unit/world-model/generate.fixtures.ts box",
+	open: Effect.sync(() => {
+		const docs = initialState(docsInstall, baseNames(docsBase), new Map())
+		return Effect.succeed({
+			names: docs.names,
+			realities: knownNonEmpty(
+				enumerateRealities(docsBase, docs.host, defaultScope),
+				"the box's realities"
+			)
+		})
+	})
+}
 
-/** A reality of the box, and how many steps to take from it. */
-export const boxGen: Gen<{ readonly reality: HostState; readonly steps: number }> = (source) => ({
-	reality: source.draw(element(realities)),
-	steps: source.draw(int(0, 3))
-})
+/** How many steps a case takes from the reality it draws. */
+export const stepsGen: Gen<number> = int(0, 3)

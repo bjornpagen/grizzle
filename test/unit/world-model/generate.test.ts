@@ -23,7 +23,7 @@ import { actionKinds } from "#test/support/worlds/generate/weights.ts"
 import { docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 import { initialState, settle, step } from "#test/support/worlds/model/step.ts"
 import type { ActionKind } from "#test/support/worlds/model/types.ts"
-import { boxGen, canonicalAction, docs } from "#test/unit/world-model/generate.fixtures.ts"
+import { box, canonicalAction, stepsGen } from "#test/unit/world-model/generate.fixtures.ts"
 
 /**
  * The worlds generators enumerate a finite box, duplicate-free up to renaming, covering every action kind the state
@@ -34,8 +34,8 @@ import { boxGen, canonicalAction, docs } from "#test/unit/world-model/generate.f
  * token, found by the kill's mutant at the runner's budget and shrunk): at TEST_SEED=1 to 5 every kill is killed.
  */
 export const theWorldsGeneratorsEnumerateAFiniteBoxDuplicateFreeUpToRenamingCoveringEveryActionKindTheStateOffers =
-	property.explore(boxGen, {
-		needs: {},
+	property.explore(stepsGen, {
+		needs: { box },
 		situations: [
 			"kind open-db",
 			"kind direct-begin",
@@ -44,47 +44,42 @@ export const theWorldsGeneratorsEnumerateAFiniteBoxDuplicateFreeUpToRenamingCove
 			"kind drift",
 			"kind wild"
 		] satisfies ReadonlyArray<Reached<`kind ${ActionKind}`>>,
-		check:
-			(_, c: Case<`kind ${ActionKind}`>) =>
-			({ reality, steps }) =>
-				Effect.sync(() => {
-					let state = initialState(docsInstall, docs.state.names, reality)
-					for (let taken = 0; taken < steps; taken += 1) {
-						const offered = enumerateActions(state, defaultScope)
-						const [firstKind, ...moreKinds] = [...new Set(Arr.map(offered, (x) => x.kind))]
-						if (firstKind === undefined) {
-							break
-						}
-						const kind = c.draw(element([firstKind, ...moreKinds]))
-						const ofKind = knownNonEmpty(
-							Arr.filter(offered, (x) => x.kind === kind),
-							"the box's actions of a kind"
-						)
-						state = settle(
-							c.draw(element(step(state, c.draw(element(ofKind))))),
-							installedNames
-						).next
+		check: (resources, c: Case<`kind ${ActionKind}`>) => (steps) =>
+			Effect.map(resources.box, ({ names, realities }) => {
+				let state = initialState(docsInstall, names, c.draw(element(realities)))
+				for (let taken = 0; taken < steps; taken += 1) {
+					const offered = enumerateActions(state, defaultScope)
+					const [firstKind, ...moreKinds] = [...new Set(Arr.map(offered, (x) => x.kind))]
+					if (firstKind === undefined) {
+						break
 					}
-					const actions = enumerateActions(state, defaultScope)
-					const keys = Arr.map(actions, (x) => canonicalAction(state, x))
-					assert.equal(
-						new Set(keys).size,
-						keys.length,
-						"the box holds one action twice, up to renaming unheld values"
+					const kind = c.draw(element([firstKind, ...moreKinds]))
+					const ofKind = knownNonEmpty(
+						Arr.filter(offered, (x) => x.kind === kind),
+						"the box's actions of a kind"
 					)
-					for (const kind of actionKinds) {
-						if (applicable(state, kind)) {
-							assert.ok(
-								Arr.some(actions, (x) => x.kind === kind),
-								`the state offers a ${kind} and the box holds none`
-							)
-						}
+					state = settle(c.draw(element(step(state, c.draw(element(ofKind))))), installedNames).next
+				}
+				const actions = enumerateActions(state, defaultScope)
+				const keys = Arr.map(actions, (x) => canonicalAction(state, x))
+				assert.equal(
+					new Set(keys).size,
+					keys.length,
+					"the box holds one action twice, up to renaming unheld values"
+				)
+				for (const kind of actionKinds) {
+					if (applicable(state, kind)) {
+						assert.ok(
+							Arr.some(actions, (x) => x.kind === kind),
+							`the state offers a ${kind} and the box holds none`
+						)
 					}
-					for (const x of actions) {
-						c.note(`kind ${x.kind}`)
-						assert.ok(serial(state, x), `the box holds a ${x.kind} the serial rule refuses`)
-					}
-				}),
+				}
+				for (const x of actions) {
+					c.note(`kind ${x.kind}`)
+					assert.ok(serial(state, x), `the box holds a ${x.kind} the serial rule refuses`)
+				}
+			}),
 		oracle: {
 			kind: "specification",
 			name: "the box's canonical form up to renaming, the offered kinds and the serial rule"
@@ -93,7 +88,7 @@ export const theWorldsGeneratorsEnumerateAFiniteBoxDuplicateFreeUpToRenamingCove
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/world-model/generate.test.ts#theWorldsGeneratorsEnumerateAFiniteBoxDuplicateFreeUpToRenamingCoveringEveryActionKindTheStateOffers:0:0.1.2.a"
+					"test/unit/world-model/generate.test.ts#theWorldsGeneratorsEnumerateAFiniteBoxDuplicateFreeUpToRenamingCoveringEveryActionKindTheStateOffers:0:1.0.2.a"
 				),
 				reason:
 					"a box whose enumeration reaches an arm with attachments, which the conservative delivery must hold",
