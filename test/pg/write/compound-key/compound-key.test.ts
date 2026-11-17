@@ -64,9 +64,11 @@ import { fullWorld } from "#test/support/worlds.ts"
  * (`str.bytes(w, str.regex("^.*$", "su"))`), keyed by a drawn ordering of a drawn subset of (t0, t1, t2, n) holding a
  * text, with a declared key over `payload` and a drawn subset of the texts in a drawn order, mutable or not; and
  * Child(id, c_<f> for each key field f) whose c_ fields are contained in Parent's key, the containment's fields in a
- * drawn order of them. A text value is the empty text, `a`, `b`, or the widest value its bound admits, which no
- * compression shortens (test/support/wide-text.ts wideOctets); `n` and `payload` are small integers. One of the key's
- * texts may be sized to the widest bound grizzle's layout admits beside the rest, or one byte past it.
+ * drawn order of them. A Child row is the fact Child holds, its id and the key it names, so two children naming one key
+ * at one id are one row, however unlike the Parent rows they were drawn from. A text value is the empty text, `a`, `b`,
+ * or the widest value its bound admits, which no compression shortens (test/support/wide-text.ts wideOctets); `n` and
+ * `payload` are small integers. One of the key's texts may be sized to the widest bound grizzle's layout admits beside
+ * the rest, or one byte past it.
  *
  * Oracles:
  * - PostgreSQL's own acceptance (README "Keys and indexes": "A key past either is UnrepresentableKey when the schema
@@ -113,13 +115,13 @@ type ParentRow = {
 	readonly payload: number
 }
 
-/** A Child row: its id and the values of the Parent key it names, each at its key field. */
+/**
+ * A Child row as Child holds it: its id, and the Parent key it names, its values at the shape's key fields in their
+ * order (Shape.key) and at no other field, so two Child rows are equal exactly when Child holds them as one fact.
+ */
 type ChildRow = {
 	readonly id: number
-	readonly t0: string
-	readonly t1: string
-	readonly t2: string
-	readonly n: number
+	readonly names: Arr.NonEmptyReadonlyArray<string | number>
 }
 
 /** A ChangeSet: an insert of Parent and Child rows, a put of Parent rows, or a delete of Parent rows by their keys. */
@@ -393,13 +395,14 @@ const widest = (s: Shape, salt: number): ParentRow => ({
 	payload: 0
 })
 
+/** A Parent row's key: its values at the shape's key fields, in their order. */
+const keyOf = (s: Shape, row: ParentRow): Arr.NonEmptyReadonlyArray<string | number> =>
+	Arr.map(s.key, (f) => row[f])
+
 /** A Child naming a drawn Parent row, stored or not, by its key. */
 const childGen =
-	(parents: Arr.NonEmptyReadonlyArray<ParentRow>, id: number): Gen<ChildRow> =>
-	(source) => {
-		const p = source.draw(element(parents))
-		return { id, t0: p.t0, t1: p.t1, t2: p.t2, n: p.n }
-	}
+	(s: Shape, parents: Arr.NonEmptyReadonlyArray<ParentRow>, id: number): Gen<ChildRow> =>
+	(source) => ({ id, names: keyOf(s, source.draw(element(parents))) })
 
 /**
  * A case: its shape, its salt, and up to four ChangeSets, the first inserting the widest row beside drawn ones; or,
@@ -427,12 +430,12 @@ const caseWith =
 				{
 					op: "insert",
 					parents: [wide, ...source.draw(array(element(pool), { min: 0, max: 2 }))],
-					children: source.draw(array(childGen(pool, 1), { min: 0, max: 1 }))
+					children: source.draw(array(childGen(shape, pool, 1), { min: 0, max: 1 }))
 				}
 			],
 			onSome: ({ beside, held }): Array<Write> => {
 				const unlike: ParentRow = { ...wide, payload: source.draw(int(1, 2)) }
-				const child: ChildRow = { id: 1, t0: wide.t0, t1: wide.t1, t2: wide.t2, n: wide.n }
+				const child: ChildRow = { id: 1, names: keyOf(shape, wide) }
 				return [
 					{ op: "insert", parents: [wide], children: held ? [child] : [] },
 					{ op: "delete", parents: beside ? [unlike, wide] : [unlike] }
@@ -448,7 +451,7 @@ const caseWith =
 							op,
 							parents,
 							children: source.draw(
-								array(childGen(pool, source.draw(int(1, 3))), { min: 0, max: 2 })
+								array(childGen(shape, pool, source.draw(int(1, 3))), { min: 0, max: 2 })
 							)
 						}
 					: { op, parents }
@@ -523,8 +526,16 @@ const valueAt = (row: Values, f: string): string | number => defined(row[f], `th
 const agreeAt = (a: Values, b: Values, fields: ReadonlyArray<string>) =>
 	deepEquals(at(a, fields), at(b, fields))
 
+/** One of Parent's keys, by its role in the shape. */
+type ParentKey = "the primary key" | "the declared key"
+
 /** A law a write breaks, by its role in the shape. */
-type Broken = "the primary key" | "the declared key" | "the child key" | "the containment"
+type Broken = ParentKey | "the child key" | "the containment"
+
+/** A stated row that breaks a key, with that key's law: a Parent row at one of Parent's keys, or a Child row at its id. */
+type Clash =
+	| { readonly broken: ParentKey; readonly row: ParentRow }
+	| { readonly broken: "the child key"; readonly row: ChildRow }
 
 /** What a write does by the set model: written, leaving the rows, changed or not; or refused on the laws it breaks. */
 type Verdict =
@@ -538,28 +549,33 @@ type Verdict =
 	| {
 			readonly kind: "refused"
 			readonly broken: ReadonlySet<Broken>
-			readonly stated: ReadonlyArray<{
-				readonly broken: Broken
-				readonly row: ParentRow | ChildRow
-			}>
+			readonly stated: ReadonlyArray<Clash>
 	  }
 
 /** The rows of `rows` once, identical rows being one. */
 const once = <A>(rows: ReadonlyArray<A>): ReadonlyArray<A> => Arr.dedupeWith(rows, deepEquals)
 
-/** Each stated row sharing a key with another stated or stored row and differing from it, with that key's law. */
-const clashes = <A extends ParentRow | ChildRow>(
+/**
+ * Each stated row sharing a key with another stated or stored row and differing from it, with that key's law; each key
+ * its law and a row's value at it.
+ */
+const clashes = <A, B extends Broken>(
 	stated: ReadonlyArray<A>,
 	against: ReadonlyArray<A>,
-	keys: ReadonlyArray<readonly [Broken, ReadonlyArray<string>]>
-) =>
+	keys: ReadonlyArray<readonly [B, (row: A) => unknown]>
+): ReadonlyArray<{ readonly broken: B; readonly row: A }> =>
 	Arr.flatMap(stated, (row) =>
-		Arr.flatMap(keys, ([broken, fields]) =>
-			Arr.some(against, (other) => agreeAt(row, other, fields) && !deepEquals(row, other))
+		Arr.flatMap(keys, ([broken, key]) =>
+			Arr.some(against, (other) => deepEquals(key(row), key(other)) && !deepEquals(row, other))
 				? [{ broken, row }]
 				: []
 		)
 	)
+
+/** Child's one key, its primary key: a Child row's id. */
+const childKey: ReadonlyArray<readonly ["the child key", (row: ChildRow) => number]> = [
+	["the child key", (row) => row.id]
+]
 
 /** The set model's verdict on a write from the stored rows (see the header). */
 const verdictOf = (
@@ -568,16 +584,14 @@ const verdictOf = (
 	children: ReadonlyArray<ChildRow>,
 	w: Write
 ): Verdict => {
-	const parentKeys: ReadonlyArray<readonly [Broken, ReadonlyArray<string>]> = [
-		["the primary key", s.key],
-		["the declared key", s.unique]
-	]
+	const declaredKey = ["the declared key", (row: ParentRow) => at(row, s.unique)] as const
+	const parentKeys = [["the primary key", (row: ParentRow) => keyOf(s, row)] as const, declaredKey]
 	const stated = once(w.parents)
 	const added = w.op === "delete" ? [] : stated
 	const statedChildren = w.op === "insert" ? once(w.children) : []
 	const clashed = [
 		...clashes(added, added, parentKeys),
-		...clashes(statedChildren, statedChildren, [["the child key", ["id"]]])
+		...clashes(statedChildren, statedChildren, childKey)
 	]
 	const next = (): {
 		readonly parents: ReadonlyArray<ParentRow>
@@ -608,16 +622,13 @@ const verdictOf = (
 	const keyed = [
 		...clashed,
 		...(w.op === "insert"
-			? [
-					...clashes(stated, parents, parentKeys),
-					...clashes(statedChildren, children, [["the child key", ["id"]]])
-				]
+			? [...clashes(stated, parents, parentKeys), ...clashes(statedChildren, children, childKey)]
 			: w.op === "put"
-				? clashes(stated, after.parents, [["the declared key", s.unique]])
+				? clashes(stated, after.parents, [declaredKey])
 				: [])
 	]
 	const contained = Arr.every(after.children, (c) =>
-		Arr.some(after.parents, (p) => agreeAt(c, p, s.key))
+		Arr.some(after.parents, (p) => deepEquals(c.names, keyOf(s, p)))
 	)
 	const broken = new Set<Broken>([
 		...Arr.map(keyed, (k) => k.broken),
@@ -714,7 +725,7 @@ const parentFact = (row: ParentRow): StateRow => ({
 const childFact = (s: Shape, row: ChildRow): StateRow =>
 	Rec.fromEntries([
 		["id", row.id] as const,
-		...Arr.map(s.key, (f) => [childField(f), valueAt(row, f)] as const)
+		...Arr.map(Arr.zip(s.key, row.names), ([f, value]) => [childField(f), value] as const)
 	])
 
 /** The unique indexes of a table, each its columns in index order, and whether it is the primary key's. */
@@ -769,7 +780,41 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 						draw: steered(keyCases, (k) => k),
 						literal: Formatter.format,
 						coverage: required<Situation>(situations, { cases: 64, sense: notesOnly }),
-						kept: [],
+						kept: [
+							{
+								note: "an insert repeating the stored Parent and stating one Child twice, at one id naming one key: one fact, so the insert is accepted and adds one Child row. Drawn from two Parent rows unlike beyond the key (TEST_SEED=1), it once made the model, whose Child rows held every key candidate's value, expect a refusal on the child key where Child holds only id and c_t0",
+								sketch: {
+									shape: {
+										widths: [1, 1, 1],
+										key: ["t0"],
+										unique: ["payload"],
+										target: ["t0"],
+										mutable: false
+									},
+									salt: 0,
+									writes: [
+										{
+											op: "insert",
+											parents: [{ t0: "z", t1: "z", t2: "z", n: 0, payload: 0 }],
+											children: []
+										},
+										{
+											op: "insert",
+											parents: [{ t0: "z", t1: "z", t2: "z", n: 0, payload: 0 }],
+											children: [
+												{ id: 1, names: ["z"] },
+												{ id: 1, names: ["z"] }
+											]
+										}
+									]
+								},
+								draws: "",
+								reaches: [
+									"a write of the widest values accepted",
+									"a primary key of 1 fields, its texts in their declared order"
+								]
+							}
+						],
 						runs: 16,
 						shrink: boundedShrink(40),
 						steerEvery: 8,
@@ -945,12 +990,6 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 								"the child key": lawNames.primaryKeyLaw({ name: b.Child.name }),
 								"the containment": lawNames.lawOf(b.containment)
 							}
-							const keyFieldsOf: { readonly [B in Broken]: ReadonlyArray<string> } = {
-								"the primary key": s.key,
-								"the declared key": s.unique,
-								"the child key": ["id"],
-								"the containment": []
-							}
 							const programs = programsOver(value)
 							yield* Effect.gen(function* () {
 								const db = yield* openServedDb(done, world.server.roles.app, {})
@@ -975,7 +1014,7 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 											: { [w.op]: { Parent: Arr.map(w.parents, parentFact) } }
 									const outcome: WriteAnswer<WrittenOutcome> = yield* applied(w.op, facts)
 									if (verdict.kind === "refused") {
-										judgeRefused(label, outcome, verdict, lawOf, keyFieldsOf, names.reported, s)
+										judgeRefused(label, outcome, verdict, lawOf, names.reported, s)
 										for (const broken of verdict.broken) {
 											if (broken !== "the child key") {
 												c.note(`${opLabels[w.op]} refused on ${broken}`)
@@ -1080,7 +1119,7 @@ layer(Substrate.layer, { excludeTestServices: true })("compound text keys", (it)
 									unorderedEqual(
 										got,
 										Arr.map(
-											Arr.filter(parents, (q) => agreeAt(q, ch, s.key)),
+											Arr.filter(parents, (q) => deepEquals(keyOf(s, q), ch.names)),
 											parentFact
 										),
 										`the Parent of Child ${String(ch.id)}`
@@ -1109,7 +1148,6 @@ const judgeRefused = (
 	outcome: WriteAnswer<WrittenOutcome>,
 	v: Extract<Verdict, { readonly kind: "refused" }>,
 	lawOf: { readonly [B in Broken]: LawId },
-	keyFieldsOf: { readonly [B in Broken]: ReadonlyArray<string> },
 	reported: ReturnType<typeof namesOf>["reported"],
 	s: Shape
 ): void => {
@@ -1142,17 +1180,23 @@ const judgeRefused = (
 			`${label}: the refusal of a key the write's own rows break reports no witness: ${Formatter.format(keyNamed)}`
 		)
 	}
-	const valuesAt = (row: ParentRow | ChildRow, fields: ReadonlyArray<string>) =>
+	const keyFieldsOf: { readonly [K in ParentKey]: ReadonlyArray<string> } = {
+		"the primary key": s.key,
+		"the declared key": s.unique
+	}
+	const valuesAt = (row: ParentRow, fields: ReadonlyArray<string>) =>
 		Rec.fromEntries(Arr.map(fields, (f) => [f, valueAt(row, f)] as const))
-	assert.ok(
-		Arr.some(
-			keyNamed,
-			(x) =>
-				witness.relation === (x.broken === "the child key" ? "Child" : "Parent") &&
-				Arr.some([keyFieldsOf[x.broken], x.broken === "the child key" ? ["id"] : s.key], (fields) =>
+	/** Whether the witness is a stated row's key: a Child's id, or a Parent row's values at the broken key's fields or at
+	 * its primary key's (see the header). */
+	const witnesses = (x: Clash): boolean =>
+		x.broken === "the child key"
+			? witness.relation === "Child" && deepEquals<unknown>(witness.values, { id: x.row.id })
+			: witness.relation === "Parent" &&
+				Arr.some([keyFieldsOf[x.broken], s.key], (fields) =>
 					deepEquals<unknown>(witness.values, valuesAt(x.row, fields))
 				)
-		),
+	assert.ok(
+		Arr.some(keyNamed, witnesses),
 		`${label}: the witness ${Formatter.format(witness)} is the key a stated row breaks, at the fields of a key the refusal names (${Formatter.format(s.key)} or ${Formatter.format(s.unique)})`
 	)
 }
